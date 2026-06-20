@@ -1,0 +1,38 @@
+namespace Mechanism;
+
+/// <summary>
+/// A branch predictor — pluggable policy for speculative fetch.
+///
+/// The predictor is queried at Fetch time and updated at Commit time.
+/// It has no access to architectural state — it operates purely on
+/// PC values and observed outcomes.
+/// </summary>
+public interface IBranchPredictor {
+    /// <summary>
+    /// Predicts whether the branch at <paramref name="pc"/> will be taken,
+    /// and if so, what the target address will be.
+    /// </summary>
+    BranchPrediction Predict(ulong pc);
+
+    /// <summary>
+    /// Updates the predictor with the actual outcome of a branch.
+    /// Called at commit, in program order.
+    /// </summary>
+    void Update(ulong pc, bool taken, ulong actualTarget);
+}
+
+/// <summary>
+/// The prediction made for a branch instruction.
+/// </summary>
+public readonly record struct BranchPrediction(
+    bool PredictedTaken,
+    ulong PredictedTarget
+) {
+    /// <summary>Convenience: predict not taken, sequential PC.</summary>
+    public static BranchPrediction NotTaken(ulong sequentialPc) =>
+        new(PredictedTaken: false, PredictedTarget: sequentialPc);
+
+    /// <summary>Convenience: predict taken to a specific target.</summary>
+    public static BranchPrediction Taken(ulong target) =>
+        new(PredictedTaken: true, PredictedTarget: target);
+}

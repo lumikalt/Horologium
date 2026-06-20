@@ -1,0 +1,71 @@
+namespace Mechanism;
+
+/// <summary>
+/// A decoded instruction — the unit of work the pipeline operates on.
+///
+/// The pipeline reads the structural fields (PC, register indices, class)
+/// for hazard detection and scheduling. The ISA-opaque payload carries
+/// everything the executor needs to actually compute the result.
+/// </summary>
+public interface IInstruction {
+    /// <summary>The address this instruction was fetched from.</summary>
+    ulong Pc { get; }
+
+    /// <summary>The raw encoding as fetched from memory.</summary>
+    uint RawEncoding { get; }
+
+    /// <summary>The size of this instruction in bytes.</summary>
+    int SizeBytes { get; }
+
+    /// <summary>
+    /// The destination register index, or -1 if this instruction
+    /// does not write an integer register.
+    /// </summary>
+    int DestinationRegister { get; }
+
+    /// <summary>
+    /// The source register indices read by this instruction.
+    /// May be empty. Never contains -1.
+    /// </summary>
+    IReadOnlyList<int> SourceRegisters { get; }
+
+    /// <summary>The broad class of this instruction, used for scheduling.</summary>
+    InstructionClass Class { get; }
+
+    /// <summary>
+    /// ISA-specific payload. The executor casts this to its concrete type.
+    /// The pipeline never inspects this field.
+    /// </summary>
+    object? Payload { get; }
+}
+
+/// <summary>
+/// The broad functional class of an instruction.
+/// Used by the pipeline for hazard detection, issue port assignment,
+/// and branch prediction — not for execution semantics.
+/// </summary>
+public enum InstructionClass {
+    /// <summary>Integer arithmetic and logic.</summary>
+    IntegerAlu,
+
+    /// <summary>Integer multiply/divide — may have longer latency.</summary>
+    IntegerMulDiv,
+
+    /// <summary>Load from memory.</summary>
+    Load,
+
+    /// <summary>Store to memory.</summary>
+    Store,
+
+    /// <summary>Unconditional branch or jump.</summary>
+    Branch,
+
+    /// <summary>Conditional branch.</summary>
+    ConditionalBranch,
+
+    /// <summary>System call, CSR access, or privileged operation.</summary>
+    System,
+
+    /// <summary>Fence or memory ordering instruction.</summary>
+    Fence,
+}
