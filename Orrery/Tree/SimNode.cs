@@ -200,7 +200,7 @@ public class SimNode {
     /// Asserts the current lifecycle matches the expected state.
     /// Uses the root's lifecycle (the whole tree moves together).
     /// </summary>
-    protected void AssertLifecycle(SimLifecycle expected, string action) {
+    protected internal void AssertLifecycle(SimLifecycle expected, string action) {
         if (Lifecycle != expected)
             throw new InvalidOperationException(
                 $"Cannot {action} on '{Path}': " +
@@ -219,4 +219,18 @@ public class SimNode {
                 nameof(name)
             );
     }
+    
+    /// <summary>
+    /// Forces the lifecycle to a specific state without transition validation.
+    /// Only the Train may call this — it is used to reset between Revolutions.
+    /// Do not call this from anywhere else.
+    /// </summary>
+    internal void ForceLifecycle(SimLifecycle state)
+    {
+        if (Parent is not null)
+            throw new InvalidOperationException(
+                $"ForceLifecycle must be called on the root node. This node is '{Path}'.");
+        Lifecycle = state;
+    }
+
 }
