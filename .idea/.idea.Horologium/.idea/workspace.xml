@@ -10,11 +10,9 @@
     <configurations />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4dee852d-1451-4c99-92b3-729e1c4ff282" name="Changes" comment="Nomenclature used">
-      <change afterPath="$PROJECT_DIR$/flake.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.idea.Horologium/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.idea.Horologium/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Horologium.sln" beforeDir="false" afterPath="$PROJECT_DIR$/Horologium.sln" afterDir="false" />
+    <list default="true" id="4dee852d-1451-4c99-92b3-729e1c4ff282" name="Changes" comment="Tests and Runner projects">
       <change beforePath="$PROJECT_DIR$/Orrery/Orrery.csproj" beforeDir="false" afterPath="$PROJECT_DIR$/Orrery/Orrery.csproj" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tests/SimNodeTests.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Tests/Orrery/SimNodeTests.cs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -25,8 +23,11 @@
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="HighlightingSettingsPerFile">
+    <setting file="file://$USER_HOME$/.nuget/packages/microsoft.net.test.sdk/17.14.1/build/net8.0/Microsoft.NET.Test.Sdk.Program.cs" root0="SKIP_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/Orrery/Scheduling/Escapement.cs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/Orrery/Tree/SimNode.cs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/Runner/Program.cs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/Tests/Orrery/EscapementTests.cs" root0="FORCE_HIGHLIGHTING" />
   </component>
   <component name="McpProjectServerCommands">
     <commands />
@@ -35,61 +36,61 @@
   <component name="MetaFilesCheckinStateConfiguration" checkMetaFiles="true" />
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0" />
-      <entry key="MS500" value="1.0" />
-      <entry key="S2" value="1.0" />
-      <entry key="S5" value="1.0000000000274707" />
-      <entry key="S10" value="1.0000053414958558" />
-      <entry key="S30" value="1.0259269200670391" />
-      <entry key="S60" value="1.3769932805322065" />
-      <entry key="M2" value="3.011424908925591" />
-      <entry key="M5" value="7.341439559411478" />
-      <entry key="M10" value="11.127532957320216" />
-      <entry key="M15" value="13.397423715124138" />
-      <entry key="M30" value="16.936542832293902" />
-      <entry key="H1" value="19.532277666504548" />
-      <entry key="H2" value="21.136664561813358" />
-      <entry key="H4" value="22.032961061910285" />
-      <entry key="D1" value="22.83363550283833" />
-      <entry key="W1" value="22.97610270196987" />
+      <entry key="MS100" value="1.0007715247186166" />
+      <entry key="MS500" value="1.2384903559951623" />
+      <entry key="S2" value="1.7548933433976681" />
+      <entry key="S5" value="2.524322089303886" />
+      <entry key="S10" value="3.544416542028477" />
+      <entry key="S30" value="5.719033019384285" />
+      <entry key="S60" value="7.3637779996591775" />
+      <entry key="M2" value="9.652823020659252" />
+      <entry key="M5" value="14.567495797049691" />
+      <entry key="M10" value="18.873499072733633" />
+      <entry key="M15" value="21.415494767242524" />
+      <entry key="M30" value="25.332386214233114" />
+      <entry key="H1" value="28.188780796377827" />
+      <entry key="H2" value="29.952119951239553" />
+      <entry key="H4" value="30.937114112296918" />
+      <entry key="D1" value="31.81712872054784" />
+      <entry key="W1" value="31.97373105847427" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
-      <entry key="MS500" value="2.8043355947216494E-116" />
-      <entry key="S2" value="1.2940697119613527E-29" />
-      <entry key="S5" value="2.792461838839702E-12" />
-      <entry key="S10" value="1.756829461555326E-6" />
-      <entry key="S30" value="0.016832725039539576" />
-      <entry key="S60" value="0.19849872368741764" />
-      <entry key="M2" value="0.739590813327519" />
-      <entry key="M5" value="1.6935394984922065" />
-      <entry key="M10" value="2.249398498478596" />
-      <entry key="M15" value="2.474857458551102" />
-      <entry key="M30" value="2.7241715559265405" />
-      <entry key="H1" value="2.858593577003593" />
-      <entry key="H2" value="2.928400409808671" />
-      <entry key="H4" value="2.963973123092506" />
-      <entry key="D1" value="2.993963724458421" />
-      <entry key="W1" value="2.9991368928705175" />
+      <entry key="MS500" value="6.635510953368358E-164" />
+      <entry key="S2" value="1.6049768369809159E-41" />
+      <entry key="S5" value="4.823826571558198E-17" />
+      <entry key="S10" value="7.301831808638069E-9" />
+      <entry key="S30" value="0.0027063782991012986" />
+      <entry key="S60" value="0.0795929781701981" />
+      <entry key="M2" value="0.4683278948665897" />
+      <entry key="M5" value="1.4106482599013177" />
+      <entry key="M10" value="2.052948734970931" />
+      <entry key="M15" value="2.3285808750147754" />
+      <entry key="M30" value="2.6424393124609185" />
+      <entry key="H1" value="2.815384384673316" />
+      <entry key="H2" value="2.9061839564675895" />
+      <entry key="H4" value="2.9527085538774833" />
+      <entry key="D1" value="2.992064289668842" />
+      <entry key="W1" value="2.998865002256117" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.12940811548017214" />
-      <entry key="MS500" value="0.6643429070482558" />
-      <entry key="S2" value="0.9028135645871884" />
-      <entry key="S5" value="0.9599292610667866" />
-      <entry key="S10" value="0.9797665105389443" />
-      <entry key="S30" value="1.0348570080547903" />
-      <entry key="S60" value="1.5639533323728902" />
-      <entry key="M2" value="3.731112021949897" />
-      <entry key="M5" value="9.0154127919608" />
-      <entry key="M10" value="13.363496577396555" />
-      <entry key="M15" value="15.862305632940522" />
-      <entry key="M30" value="19.655151550579532" />
-      <entry key="H1" value="22.387931856109216" />
-      <entry key="H2" value="24.06355379354501" />
-      <entry key="H4" value="24.996167959188718" />
-      <entry key="D1" value="25.82747002224314" />
-      <entry key="W1" value="25.975221099910836" />
+      <entry key="MS100" value="0.9600145466598777" />
+      <entry key="MS500" value="1.228888273452954" />
+      <entry key="S2" value="1.751710562105044" />
+      <entry key="S5" value="2.5223593281838146" />
+      <entry key="S10" value="3.542787461071148" />
+      <entry key="S30" value="5.7191621515218936" />
+      <entry key="S60" value="7.437717107095177" />
+      <entry key="M2" value="10.107878872221495" />
+      <entry key="M5" value="15.961529550091903" />
+      <entry key="M10" value="20.914018499195997" />
+      <entry key="M15" value="23.734575666726442" />
+      <entry key="M30" value="27.969371441145945" />
+      <entry key="H1" value="31.001240863288775" />
+      <entry key="H2" value="32.85678944145099" />
+      <entry key="H4" value="33.889051957812654" />
+      <entry key="D1" value="34.809062652170105" />
+      <entry key="W1" value="34.972577390992065" />
     </decayedShown>
   </component>
   <component name="ProblemsViewState">
@@ -107,7 +108,7 @@
     "settings.editor.selected.configurable": "settings.sync"
   }
 }]]></component>
-  <component name="RunManager">
+  <component name="RunManager" selected=".NET Project.Runner">
     <configuration name="Runner" type="DotNetProject" factoryName=".NET Project">
       <option name="EXE_PATH" value="" />
       <option name="PROGRAM_PARAMETERS" value="" />
@@ -187,8 +188,102 @@
       <option name="project" value="LOCAL" />
       <updated>1781986502061</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="Flake lock">
+      <option name="closed" value="true" />
+      <created>1781988481379</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1781988481379</updated>
+    </task>
+    <task id="LOCAL-00009" summary="Node tree">
+      <option name="closed" value="true" />
+      <created>1781988534106</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1781988534106</updated>
+    </task>
+    <task id="LOCAL-00010" summary="Tests and Runner projects">
+      <option name="closed" value="true" />
+      <created>1781988548981</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1781988548981</updated>
+    </task>
+    <option name="localTasksCounter" value="11" />
     <servers />
+  </component>
+  <component name="UnitTestsCoverage.Settings">
+    <option name="coveragePercentColumnWidth" value="150" />
+    <option name="sortOrder" value="DESCENDING" />
+    <option name="sortedColumn" value="1" />
+    <option name="symbolColumnWidth" value="219" />
+    <coverage-tree-state>
+      <expand>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Scheduling 100% 0/44" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Scheduling 100% 0/44" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="SimEvent 100% 0/4" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Tree 98% 2/98" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Tree 98% 2/98" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="SimNode 98% 2/98" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Orrery 99% 2/142" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Tree 98% 2/98" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="SimNode 98% 2/98" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Lifecycle 83% 1/6" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+        <path>
+          <item name="rootNode" type="c53c71d1:RiderDotCoverCoverageTreeModel$RootNode" />
+          <item name="Total 97% 16/512" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+          <item name="Tests 96% 14/370" type="8b8fad3a:RiderDotCoverCoverageTreeNode" />
+        </path>
+      </expand>
+      <select />
+    </coverage-tree-state>
   </component>
   <component name="UnityCheckinConfiguration" checkUnsavedScenes="true" />
   <component name="UnityProjectConfiguration" hasMinimizedUI="false" />
@@ -206,6 +301,9 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Liftoff" />
     <MESSAGE value="Nomenclature used" />
-    <option name="LAST_COMMIT_MESSAGE" value="Nomenclature used" />
+    <MESSAGE value="Flake lock" />
+    <MESSAGE value="Node tree" />
+    <MESSAGE value="Tests and Runner projects" />
+    <option name="LAST_COMMIT_MESSAGE" value="Tests and Runner projects" />
   </component>
 </project>

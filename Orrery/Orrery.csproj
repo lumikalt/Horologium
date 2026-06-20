@@ -10,7 +10,6 @@
       <Folder Include="Gears\" />
       <Folder Include="Observation\" />
       <Folder Include="Ports\" />
-      <Folder Include="Scheduling\" />
     </ItemGroup>
 
 </Project>
