@@ -49,7 +49,7 @@ public sealed record ExecuteResult {
 /// <summary>
 /// Describes a trap (exception or interrupt) raised during execution.
 /// </summary>
-public abstract record TrapInfo(
+public sealed record TrapInfo(
     TrapCause Cause,
     ulong TrapValue,
     ulong Pc
