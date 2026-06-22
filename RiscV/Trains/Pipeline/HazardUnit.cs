@@ -54,20 +54,22 @@ public sealed class HazardUnit(bool forwardingEnabled) {
 
     /// <summary>
     /// Computes forwarding mux selections for the EX stage.
-    /// Returns the actual Rs1 and Rs2 values after forwarding.
+    /// Returns the actual Rs1, Rs2, and Rs3 values after forwarding.
+    /// Rs3 is used by R4-type instructions (FMADD family); zero for all others.
     /// </summary>
-    public (ulong rs1, ulong rs2) Forward(
+    public (ulong rs1, ulong rs2, ulong rs3) Forward(
         IdExLatch idEx,
         ExMemLatch exMem,
         MemWbLatch memWb
     ) {
         ulong rs1 = idEx.Rs1Value;
         ulong rs2 = idEx.Rs2Value;
+        ulong rs3 = idEx.Rs3Value;
 
-        if (!forwardingEnabled) return (rs1, rs2);
+        if (!forwardingEnabled) return (rs1, rs2, rs3);
 
         IReadOnlyList<int>? sources = idEx.Instruction?.SourceRegisters;
-        if (sources is null || sources.Count == 0) return (rs1, rs2);
+        if (sources is null || sources.Count == 0) return (rs1, rs2, rs3);
 
         // Forward from EX/MEM (higher priority — more recent)
         if (exMem is { IsValid: true, DestinationRegister: > 0, } &&
@@ -75,6 +77,7 @@ public sealed class HazardUnit(bool forwardingEnabled) {
             ulong fwd = exMem.Result.RegisterResult!.Value;
             if (sources.Count > 0 && sources[0] == exMem.DestinationRegister) rs1 = fwd;
             if (sources.Count > 1 && sources[1] == exMem.DestinationRegister) rs2 = fwd;
+            if (sources.Count > 2 && sources[2] == exMem.DestinationRegister) rs3 = fwd;
         }
 
         // Forward from MEM/WB (lower priority — older)
@@ -82,8 +85,9 @@ public sealed class HazardUnit(bool forwardingEnabled) {
             ulong fwd = memWb.WritebackValue!.Value;
             if (sources.Count > 0 && sources[0] == memWb.DestinationRegister) rs1 = fwd;
             if (sources.Count > 1 && sources[1] == memWb.DestinationRegister) rs2 = fwd;
+            if (sources.Count > 2 && sources[2] == memWb.DestinationRegister) rs3 = fwd;
         }
 
-        return (rs1, rs2);
+        return (rs1, rs2, rs3);
     }
 }

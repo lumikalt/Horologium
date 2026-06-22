@@ -42,10 +42,12 @@ public sealed class StoreBuffer : IMemory {
                 Forwards++;
                 return e.Value;
             }
+
             // Partial overlap: drain so backing is coherent, then re-read.
             DrainAll();
             return _backing.Read(address, bytes);
         }
+
         return _backing.Read(address, bytes);
     }
 

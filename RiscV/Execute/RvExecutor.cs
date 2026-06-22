@@ -193,6 +193,60 @@ public sealed class RvExecutor : IExecutor {
             RvAmomaxuW(_, var rs1, var rs2) =>
                 Amo(memory, regs, rs1, rs2, (a, v) => Math.Max(a, v)),
 
+            // ── F extension ───────────────────────────────────────────────────
+            // FLW: address computed from int rs1; result is raw bits stored in fp rd.
+            RvFlw(_, var rs1, var imm) => Load(memory, regs.Read(rs1), imm, 4, false, 32),
+
+            // FSW: rs1 = int base address, rs2 = fp data register (unified index).
+            RvFsw(var rs1, var rs2, var imm) =>
+                Store(memory, regs.Read(rs1), imm, regs.Read(rs2), 4),
+
+            RvFaddS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) + FBits(regs, rs2)),
+            RvFsubS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) - FBits(regs, rs2)),
+            RvFmulS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) * FBits(regs, rs2)),
+            RvFdivS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) / FBits(regs, rs2)),
+            RvFsqrtS(_, var rs1)          => FloatReg(MathF.Sqrt(FBits(regs, rs1))),
+
+            RvFsgnjS (_, var rs1, var rs2) =>
+                ExecuteResult.WithResult(
+                    ((uint)regs.Read(rs1) & 0x7FFFFFFF) | ((uint)regs.Read(rs2) & 0x80000000)
+                ),
+            RvFsgnjnS(_, var rs1, var rs2) =>
+                ExecuteResult.WithResult(
+                    ((uint)regs.Read(rs1) & 0x7FFFFFFF) | (~(uint)regs.Read(rs2) & 0x80000000)
+                ),
+            RvFsgnjxS(_, var rs1, var rs2) =>
+                ExecuteResult.WithResult(
+                    ((uint)regs.Read(rs1) & 0x7FFFFFFF) |
+                    (((uint)regs.Read(rs1) ^ (uint)regs.Read(rs2)) & 0x80000000)
+                ),
+
+            RvFminS(_, var rs1, var rs2) => FloatReg(FMin(FBits(regs, rs1), FBits(regs, rs2))),
+            RvFmaxS(_, var rs1, var rs2) => FloatReg(FMax(FBits(regs, rs1), FBits(regs, rs2))),
+
+            RvFeqS(_, var rs1, var rs2) => Reg(FBits(regs, rs1) == FBits(regs, rs2) ? 1UL : 0UL),
+            RvFltS(_, var rs1, var rs2) => Reg(FBits(regs, rs1) < FBits(regs, rs2) ? 1UL : 0UL),
+            RvFleS(_, var rs1, var rs2) => Reg(FBits(regs, rs1) <= FBits(regs, rs2) ? 1UL : 0UL),
+
+            RvFclassS(_, var rs1) => Reg(FClass((uint)regs.Read(rs1))),
+
+            RvFcvtWS (_, var rs1) => Reg((uint)(int)FBits(regs, rs1)),
+            RvFcvtWuS(_, var rs1) => Reg((uint)FBits(regs, rs1)),
+            RvFcvtSW (_, var rs1) => FloatReg((float)(int)regs.Read(rs1)),
+            RvFcvtSWu(_, var rs1) => FloatReg((float)(uint)regs.Read(rs1)),
+
+            RvFmvXW(_, var rs1) => Reg(regs.Read(rs1)), // fp bits → int (bit-exact)
+            RvFmvWX(_, var rs1) => ExecuteResult.WithResult(regs.Read(rs1) & 0xFFFFFFFF),
+
+            RvFmaddS (_, var rs1, var rs2, var rs3) =>
+                FloatReg(MathF.FusedMultiplyAdd(FBits(regs, rs1), FBits(regs, rs2), FBits(regs, rs3))),
+            RvFmsubS (_, var rs1, var rs2, var rs3) =>
+                FloatReg(MathF.FusedMultiplyAdd(FBits(regs, rs1), FBits(regs, rs2), -FBits(regs, rs3))),
+            RvFnmsubS(_, var rs1, var rs2, var rs3) =>
+                FloatReg(MathF.FusedMultiplyAdd(-FBits(regs, rs1), FBits(regs, rs2), FBits(regs, rs3))),
+            RvFnmaddS(_, var rs1, var rs2, var rs3) =>
+                FloatReg(MathF.FusedMultiplyAdd(-FBits(regs, rs1), FBits(regs, rs2), -FBits(regs, rs3))),
+
             RvCsrrw (_, var rs1, var csr) => ExecuteCsr(
                 state, rs1, csr,
                 (old, src) => src
@@ -308,6 +362,59 @@ public sealed class RvExecutor : IExecutor {
         ulong src = state.IntegerRegisters.Read(rs1);
         csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
         return ExecuteResult.WithResult(old & 0xFFFFFFFF);
+    }
+
+    // ── FP helpers ────────────────────────────────────────────────────────────
+
+    // Read a float register as a C# float (bit-exact reinterpret).
+    private static float FBits(IRegisterFile regs, int rs) =>
+        BitConverter.Int32BitsToSingle((int)regs.Read(rs));
+
+    // Produce a float result stored as raw 32-bit bits.
+    private static ExecuteResult FloatReg(float value) =>
+        ExecuteResult.WithResult((uint)BitConverter.SingleToInt32Bits(value));
+
+    // RISC-V FCLASS encoding (10-bit result).
+    private static ulong FClass(uint bits) {
+        bool sign = bits >> 31 != 0;
+        uint exp = (bits >> 23) & 0xFF;
+        uint frac = bits & 0x7FFFFF;
+        if (exp == 0xFF) {
+            if (frac == 0) return sign ? 1UL << 0 : 1UL << 7; // ±inf
+            return frac >> 22 != 0 ? 1UL << 9 : 1UL << 8;     // qNaN / sNaN
+        }
+
+        if (exp == 0)
+            return frac == 0
+                ? sign ? 1UL << 3 : 1UL << 4 // ±zero
+                : sign
+                    ? 1UL << 2
+                    : 1UL << 5;            // ±subnormal
+        return sign ? 1UL << 1 : 1UL << 6; // ±normal
+    }
+
+    // RISC-V FMIN: if one arg is NaN, return the other; -0.0 < +0.0.
+    private static float FMin(float a, float b) {
+        if (float.IsNaN(a)) return b;
+        if (float.IsNaN(b)) return a;
+        if (a == 0f && b == 0f)
+            return BitConverter.SingleToInt32Bits(a) < 0 ||
+                   BitConverter.SingleToInt32Bits(b) < 0
+                ? -0f
+                : 0f;
+        return a < b ? a : b;
+    }
+
+    // RISC-V FMAX: if one arg is NaN, return the other; +0.0 > -0.0.
+    private static float FMax(float a, float b) {
+        if (float.IsNaN(a)) return b;
+        if (float.IsNaN(b)) return a;
+        if (a == 0f && b == 0f)
+            return BitConverter.SingleToInt32Bits(a) >= 0 ||
+                   BitConverter.SingleToInt32Bits(b) >= 0
+                ? 0f
+                : -0f;
+        return a > b ? a : b;
     }
 
     private static ExecuteResult ExecuteCsrImm(

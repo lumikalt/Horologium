@@ -73,6 +73,7 @@ public sealed class DecodeStage : Gear {
         IRegisterFile regs = _state.IntegerRegisters;
         ulong rs1 = instr.SourceRegisters.Count > 0 ? regs.Read(instr.SourceRegisters[0]) : 0;
         ulong rs2 = instr.SourceRegisters.Count > 1 ? regs.Read(instr.SourceRegisters[1]) : 0;
+        ulong rs3 = instr.SourceRegisters.Count > 2 ? regs.Read(instr.SourceRegisters[2]) : 0;
 
         var newLatch = new IdExLatch {
             IsValid = true,
@@ -80,6 +81,7 @@ public sealed class DecodeStage : Gear {
             Instruction = instr,
             Rs1Value = rs1,
             Rs2Value = rs2,
+            Rs3Value = rs3,
             DestinationRegister = instr.DestinationRegister,
             PredictedNextPc = latch.PredictedNextPc,
         };

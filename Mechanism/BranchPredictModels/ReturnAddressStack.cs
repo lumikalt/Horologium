@@ -30,6 +30,7 @@ public sealed class ReturnAddressStack {
             returnAddress = 0;
             return false;
         }
+
         returnAddress = _entries[_top];
         _top = (_top + Depth - 1) % Depth;
         _count--;

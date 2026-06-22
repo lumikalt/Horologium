@@ -581,4 +581,249 @@ public class DecoderTests {
         ITooth i = D(0x603120AF);
         Assert.IsType<RvAmoandW>(i.Payload);
     }
+
+    // ── F extension ───────────────────────────────────────────────────────────
+    // Register indices: FP registers are unified 32-63 (f0=32 … f31=63).
+    // All encodings below use rd/rs1/rs2 = f1/f2/f3 (raw fields 1/2/3) unless noted.
+
+    [Fact]
+    public void Decode_Flw() {
+        // flw f1, 4(x2)  →  imm=4, rs1=x2=2, rd=f1, opcode=0x07, funct3=2
+        // 0x00412087
+        ITooth i = D(0x00412087);
+        Assert.IsType<RvFlw>(i.Payload);
+        Assert.Equal(ToothClass.Load, i.Class);
+        var op = (RvFlw)i.Payload!;
+        Assert.Equal(33, op.Rd);   // f1 in unified (1+32)
+        Assert.Equal(2, op.Rs1);   // x2 (integer base)
+        Assert.Equal(4, op.Imm);
+        Assert.Equal(33, i.DestinationRegister);
+        Assert.Equal([2], i.SourceRegisters);
+    }
+
+    [Fact]
+    public void Decode_Fsw() {
+        // fsw f2, 4(x1)  →  imm=4, rs1=x1=1, rs2=f2=2 (raw), opcode=0x27, funct3=2
+        // 0x0020A227
+        ITooth i = D(0x0020A227);
+        Assert.IsType<RvFsw>(i.Payload);
+        Assert.Equal(ToothClass.Store, i.Class);
+        var op = (RvFsw)i.Payload!;
+        Assert.Equal(1, op.Rs1);    // x1 (integer base)
+        Assert.Equal(34, op.Rs2);   // f2 in unified (2+32)
+        Assert.Equal(4, op.Imm);
+        Assert.Equal(-1, i.DestinationRegister);
+        Assert.Equal([1, 34], i.SourceRegisters);
+    }
+
+    [Fact]
+    public void Decode_FaddS() {
+        // fadd.s f1, f2, f3  →  funct7=0x00
+        // (0x00<<25)|(3<<20)|(2<<15)|(0<<12)|(1<<7)|0x53 = 0x003100D3
+        ITooth i = D(0x003100D3);
+        Assert.IsType<RvFaddS>(i.Payload);
+        Assert.Equal(ToothClass.IntegerAlu, i.Class);
+        var op = (RvFaddS)i.Payload!;
+        Assert.Equal(33, op.Rd);
+        Assert.Equal(34, op.Rs1);
+        Assert.Equal(35, op.Rs2);
+        Assert.Equal([34, 35], i.SourceRegisters);
+    }
+
+    [Fact]
+    public void Decode_FsubS() {
+        // fsub.s f1, f2, f3  →  funct7=0x04 = 0x083100D3
+        ITooth i = D(0x083100D3);
+        Assert.IsType<RvFsubS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FmulS() {
+        // fmul.s f1, f2, f3  →  funct7=0x08 = 0x103100D3
+        ITooth i = D(0x103100D3);
+        Assert.IsType<RvFmulS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FdivS() {
+        // fdiv.s f1, f2, f3  →  funct7=0x0C = 0x183100D3
+        ITooth i = D(0x183100D3);
+        Assert.IsType<RvFdivS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FsqrtS() {
+        // fsqrt.s f1, f2  →  funct7=0x2C, rs2=0 = 0x580100D3
+        ITooth i = D(0x580100D3);
+        Assert.IsType<RvFsqrtS>(i.Payload);
+        var op = (RvFsqrtS)i.Payload!;
+        Assert.Equal(33, op.Rd);
+        Assert.Equal(34, op.Rs1);
+        Assert.Equal([34], i.SourceRegisters);
+    }
+
+    [Fact]
+    public void Decode_FsgnjS() {
+        // fsgnj.s f1, f2, f3  →  funct7=0x10, funct3=0 = 0x203100D3
+        ITooth i = D(0x203100D3);
+        Assert.IsType<RvFsgnjS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FsgnjnS() {
+        // fsgnjn.s f1, f2, f3  →  funct7=0x10, funct3=1 = 0x203110D3
+        ITooth i = D(0x203110D3);
+        Assert.IsType<RvFsgnjnS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FsgnjxS() {
+        // fsgnjx.s f1, f2, f3  →  funct7=0x10, funct3=2 = 0x203120D3
+        ITooth i = D(0x203120D3);
+        Assert.IsType<RvFsgnjxS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FminS() {
+        // fmin.s f1, f2, f3  →  funct7=0x14, funct3=0 = 0x283100D3
+        ITooth i = D(0x283100D3);
+        Assert.IsType<RvFminS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FmaxS() {
+        // fmax.s f1, f2, f3  →  funct7=0x14, funct3=1 = 0x283110D3
+        ITooth i = D(0x283110D3);
+        Assert.IsType<RvFmaxS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FeqS() {
+        // feq.s x1, f2, f3  →  funct7=0x50, funct3=2; rd is integer = 0xA03120D3
+        ITooth i = D(0xA03120D3);
+        Assert.IsType<RvFeqS>(i.Payload);
+        var op = (RvFeqS)i.Payload!;
+        Assert.Equal(1, op.Rd);    // integer result register
+        Assert.Equal(34, op.Rs1);  // f2 unified
+        Assert.Equal(35, op.Rs2);  // f3 unified
+        Assert.Equal(1, i.DestinationRegister);
+        Assert.Equal([34, 35], i.SourceRegisters);
+    }
+
+    [Fact]
+    public void Decode_FltS() {
+        // flt.s x1, f2, f3  →  funct7=0x50, funct3=1 = 0xA03110D3
+        ITooth i = D(0xA03110D3);
+        Assert.IsType<RvFltS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FleS() {
+        // fle.s x1, f2, f3  →  funct7=0x50, funct3=0 = 0xA03100D3
+        ITooth i = D(0xA03100D3);
+        Assert.IsType<RvFleS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FclassS() {
+        // fclass.s x1, f2  →  funct7=0x70, funct3=1, rs2=0 = 0xE00110D3
+        ITooth i = D(0xE00110D3);
+        Assert.IsType<RvFclassS>(i.Payload);
+        var op = (RvFclassS)i.Payload!;
+        Assert.Equal(1, op.Rd);   // integer result
+        Assert.Equal(34, op.Rs1); // f2 unified
+        Assert.Equal(1, i.DestinationRegister);
+        Assert.Equal([34], i.SourceRegisters);
+    }
+
+    [Fact]
+    public void Decode_FcvtWS() {
+        // fcvt.w.s x1, f2  →  funct7=0x60, rs2=0 = 0xC00100D3
+        ITooth i = D(0xC00100D3);
+        Assert.IsType<RvFcvtWS>(i.Payload);
+        var op = (RvFcvtWS)i.Payload!;
+        Assert.Equal(1, op.Rd);   // integer dest
+        Assert.Equal(34, op.Rs1); // f2 unified FP source
+        Assert.Equal(1, i.DestinationRegister);
+    }
+
+    [Fact]
+    public void Decode_FcvtWuS() {
+        // fcvt.wu.s x1, f2  →  funct7=0x60, rs2=1 = 0xC01100D3
+        ITooth i = D(0xC01100D3);
+        Assert.IsType<RvFcvtWuS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FcvtSW() {
+        // fcvt.s.w f1, x2  →  funct7=0x68, rs2=0 = 0xD00100D3; rd is FP
+        ITooth i = D(0xD00100D3);
+        Assert.IsType<RvFcvtSW>(i.Payload);
+        var op = (RvFcvtSW)i.Payload!;
+        Assert.Equal(33, op.Rd);  // f1 unified FP dest
+        Assert.Equal(2, op.Rs1);  // x2 integer source
+        Assert.Equal(33, i.DestinationRegister);
+    }
+
+    [Fact]
+    public void Decode_FcvtSWu() {
+        // fcvt.s.wu f1, x2  →  funct7=0x68, rs2=1 = 0xD01100D3
+        ITooth i = D(0xD01100D3);
+        Assert.IsType<RvFcvtSWu>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FmvXW() {
+        // fmv.x.w x1, f2  →  funct7=0x70, funct3=0, rs2=0 = 0xE00100D3
+        ITooth i = D(0xE00100D3);
+        Assert.IsType<RvFmvXW>(i.Payload);
+        var op = (RvFmvXW)i.Payload!;
+        Assert.Equal(1, op.Rd);   // integer dest
+        Assert.Equal(34, op.Rs1); // f2 unified FP source
+    }
+
+    [Fact]
+    public void Decode_FmvWX() {
+        // fmv.w.x f1, x2  →  funct7=0x78, funct3=0, rs2=0 = 0xF00100D3
+        ITooth i = D(0xF00100D3);
+        Assert.IsType<RvFmvWX>(i.Payload);
+        var op = (RvFmvWX)i.Payload!;
+        Assert.Equal(33, op.Rd);  // f1 unified FP dest
+        Assert.Equal(2, op.Rs1);  // x2 integer source
+    }
+
+    [Fact]
+    public void Decode_FmaddS() {
+        // fmadd.s f1, f2, f3, f4  →  opcode=0x43, rs3=f4=4
+        // (4<<27)|(0<<25)|(3<<20)|(2<<15)|(0<<12)|(1<<7)|0x43 = 0x203100C3
+        ITooth i = D(0x203100C3);
+        Assert.IsType<RvFmaddS>(i.Payload);
+        var op = (RvFmaddS)i.Payload!;
+        Assert.Equal(33, op.Rd);
+        Assert.Equal(34, op.Rs1);
+        Assert.Equal(35, op.Rs2);
+        Assert.Equal(36, op.Rs3);
+        Assert.Equal([34, 35, 36], i.SourceRegisters);
+    }
+
+    [Fact]
+    public void Decode_FmsubS() {
+        // fmsub.s f1, f2, f3, f4  →  opcode=0x47 = 0x203100C7
+        ITooth i = D(0x203100C7);
+        Assert.IsType<RvFmsubS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FnmsubS() {
+        // fnmsub.s f1, f2, f3, f4  →  opcode=0x4B = 0x203100CB
+        ITooth i = D(0x203100CB);
+        Assert.IsType<RvFnmsubS>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_FnmaddS() {
+        // fnmadd.s f1, f2, f3, f4  →  opcode=0x4F = 0x203100CF
+        ITooth i = D(0x203100CF);
+        Assert.IsType<RvFnmaddS>(i.Payload);
+    }
 }

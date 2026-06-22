@@ -33,6 +33,12 @@ public sealed class RvDecoder : IDecoder {
             0x73 => DecodeSystem(pc, raw, rd, rs1, funct3, raw),
             0x2F => DecodeAmo(pc, raw, rd, rs1, rs2, funct3, (raw >> 27) & 0x1F),
             0x0F => new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFence()),
+            // F extension
+            0x07 => DecodeFpLoad(pc, raw, rd, rs1, funct3, raw),
+            0x27 => DecodeFpStore(pc, raw, rs1, rs2, funct3, raw),
+            0x53 => DecodeFpOp(pc, raw, rd, rs1, rs2, funct3, funct7),
+            0x43 or 0x47 or 0x4B or 0x4F =>
+                DecodeFmaR4(pc, raw, opcode, rd, rs1, rs2, (int)((raw >> 27) & 0x1F)),
             _ => throw new IllegalInstructionException(
                 pc, raw,
                 $"Unknown opcode 0x{opcode:X2} at PC=0x{pc:X8}"
@@ -340,6 +346,122 @@ public sealed class RvDecoder : IDecoder {
         };
         return new RvInstruction(pc, raw, rd, sources, ToothClass.Atomic, op);
     }
+
+    // ── F extension ───────────────────────────────────────────────────────────
+
+    // FLW: opcode=0x07, funct3=2. Dest is a FP register (rd+32).
+    private static RvInstruction DecodeFpLoad(
+        ulong pc, uint raw, int rd, int rs1, uint funct3, uint word
+    ) {
+        if (funct3 != 2)
+            throw new IllegalInstructionException(
+                pc, raw, $"Unknown LOAD-FP funct3=0x{funct3:X} (only FLW/f32 supported)"
+            );
+        int imm = SignExtend12((int)(word >> 20));
+        return new RvInstruction(pc, raw, rd + 32, [rs1,], ToothClass.Load,
+            new RvFlw(rd + 32, rs1, imm));
+    }
+
+    // FSW: opcode=0x27, funct3=2. rs2 is a FP register (rs2+32).
+    private static RvInstruction DecodeFpStore(
+        ulong pc, uint raw, int rs1, int rs2, uint funct3, uint word
+    ) {
+        if (funct3 != 2)
+            throw new IllegalInstructionException(
+                pc, raw, $"Unknown STORE-FP funct3=0x{funct3:X} (only FSW/f32 supported)"
+            );
+        int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
+        return new RvInstruction(pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store,
+            new RvFsw(rs1, rs2 + 32, imm));
+    }
+
+    // OP-FP (opcode=0x53): all two-source FP operations.
+    private static RvInstruction DecodeFpOp(
+        ulong pc, uint raw, int rd, int rs1, int rs2, uint funct3, uint funct7
+    ) {
+        return funct7 switch {
+            0x00 => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFaddS(rd + 32, rs1 + 32, rs2 + 32)),
+            0x04 => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsubS(rd + 32, rs1 + 32, rs2 + 32)),
+            0x08 => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmulS(rd + 32, rs1 + 32, rs2 + 32)),
+            0x0C => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFdivS(rd + 32, rs1 + 32, rs2 + 32)),
+            0x2C => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFsqrtS(rd + 32, rs1 + 32)),
+            0x10 => funct3 switch {
+                0 => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjS(rd + 32, rs1 + 32, rs2 + 32)),
+                1 => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjnS(rd + 32, rs1 + 32, rs2 + 32)),
+                2 => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjxS(rd + 32, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FSGNJ funct3=0x{funct3:X}"),
+            },
+            0x14 => funct3 switch {
+                0 => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFminS(rd + 32, rs1 + 32, rs2 + 32)),
+                1 => FpRR(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmaxS(rd + 32, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FMIN/FMAX funct3=0x{funct3:X}"),
+            },
+            // Comparisons: FP sources, integer result
+            0x50 => funct3 switch {
+                0 => FpRR(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFleS(rd, rs1 + 32, rs2 + 32)),
+                1 => FpRR(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFltS(rd, rs1 + 32, rs2 + 32)),
+                2 => FpRR(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFeqS(rd, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FP compare funct3=0x{funct3:X}"),
+            },
+            // Conversions float→int
+            0x60 => rs2 switch {
+                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWS(rd, rs1 + 32)),
+                1 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWuS(rd, rs1 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FCVT.W rs2={rs2}"),
+            },
+            // Conversions int→float
+            0x68 => rs2 switch {
+                0 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSW(rd + 32, rs1)),
+                1 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSWu(rd + 32, rs1)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FCVT.S rs2={rs2}"),
+            },
+            // FMV.X.W / FCLASS.S
+            0x70 => funct3 switch {
+                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFmvXW(rd, rs1 + 32)),
+                1 => FpR1(pc, raw, rd, rs1 + 32, new RvFclassS(rd, rs1 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FMV.X.W/FCLASS funct3=0x{funct3:X}"),
+            },
+            // FMV.W.X: int→float bit copy
+            0x78 => FpR1(pc, raw, rd + 32, rs1, new RvFmvWX(rd + 32, rs1)),
+            _ => throw new IllegalInstructionException(
+                pc, raw, $"Unknown OP-FP funct7=0x{funct7:X2}"),
+        };
+    }
+
+    // R4-type: FMADD/FMSUB/FNMADD/FNMSUB (opcodes 0x43/0x47/0x4B/0x4F).
+    private static RvInstruction DecodeFmaR4(
+        ulong pc, uint raw, uint opcode, int rd, int rs1, int rs2, int rs3
+    ) {
+        uint fmt = (raw >> 25) & 0x3;
+        if (fmt != 0)
+            throw new IllegalInstructionException(
+                pc, raw, $"FMA: only .S format (fmt=0) supported, got fmt={fmt}"
+            );
+        RvOp op = opcode switch {
+            0x43 => new RvFmaddS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            0x47 => new RvFmsubS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            0x4B => new RvFnmsubS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            0x4F => new RvFnmaddS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            _ => throw new IllegalInstructionException(
+                pc, raw, $"Unknown FMA opcode 0x{opcode:X2}"),
+        };
+        return new RvInstruction(pc, raw, rd + 32,
+            [rs1 + 32, rs2 + 32, rs3 + 32,], ToothClass.IntegerAlu, op);
+    }
+
+    // ── FP instruction factories ───────────────────────────────────────────────
+
+    private static RvInstruction FpRR(ulong pc, uint raw, int dest, int s0, int s1, RvOp op) =>
+        new(pc, raw, dest, [s0, s1,], ToothClass.IntegerAlu, op);
+
+    private static RvInstruction FpR1(ulong pc, uint raw, int dest, int s0, RvOp op) =>
+        new(pc, raw, dest, [s0,], ToothClass.IntegerAlu, op);
 
     // ── Immediate helpers ─────────────────────────────────────────────────────
 

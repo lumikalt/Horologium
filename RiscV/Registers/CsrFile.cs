@@ -9,6 +9,11 @@ namespace RiscV.Registers;
 /// </summary>
 public sealed class CsrFile : ICsrFile {
     // ── CSR addresses ─────────────────────────────────────────────────────────
+    // F extension (stub — always reads 0, writes accepted but ignored by hardware model)
+    public const uint Fflags = 0x001;
+    public const uint Frm = 0x002;
+    public const uint Fcsr = 0x003;
+
     // Machine Information
     public const uint Mvendorid = 0xF11;
     public const uint Marchid = 0xF12;
@@ -46,6 +51,9 @@ public sealed class CsrFile : ICsrFile {
 
     public CsrFile() {
         // Initialise to reset values
+        _csrs[CsrFile.Fflags] = 0;
+        _csrs[CsrFile.Frm] = 0;
+        _csrs[CsrFile.Fcsr] = 0;
         _csrs[CsrFile.Mstatus] = 0;
         _csrs[CsrFile.Misa] = 0x40000100; // RV32I: MXL=01, I extension bit set
         _csrs[CsrFile.Mie] = 0;

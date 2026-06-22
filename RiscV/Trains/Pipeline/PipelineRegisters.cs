@@ -30,6 +30,7 @@ public sealed record IdExLatch {
     public ITooth? Instruction { get; init; }
     public ulong Rs1Value { get; init; }
     public ulong Rs2Value { get; init; }
+    public ulong Rs3Value { get; init; }  // R4-type (FMADD family) third source
     public int DestinationRegister { get; init; } = -1;
     public ulong PredictedNextPc { get; init; }
 }

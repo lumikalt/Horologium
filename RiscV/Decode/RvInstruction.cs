@@ -153,6 +153,61 @@ public record RvRem(int Rd, int Rs1, int Rs2) : RvOp;
 
 public record RvRemu(int Rd, int Rs1, int Rs2) : RvOp;
 
+// ── F extension (single-precision float) ─────────────────────────────────────
+// Register indices in all F records are unified: 0-31 = int, 32-63 = float.
+
+public record RvFlw(int Rd, int Rs1, int Imm) : RvOp; // Rd=fp, Rs1=int
+
+public record RvFsw(int Rs1, int Rs2, int Imm) : RvOp; // Rs1=int base, Rs2=fp data
+
+public record RvFaddS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsubS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFmulS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFdivS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsqrtS(int Rd, int Rs1) : RvOp;
+
+public record RvFsgnjS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsgnjnS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsgnjxS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFminS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFmaxS(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFeqS(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFltS(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFleS(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFclassS(int Rd, int Rs1) : RvOp; // Rd=int result
+
+public record RvFcvtWS(int Rd, int Rs1) : RvOp; // float→signed int
+
+public record RvFcvtWuS(int Rd, int Rs1) : RvOp; // float→unsigned int
+
+public record RvFcvtSW(int Rd, int Rs1) : RvOp; // signed int→float
+
+public record RvFcvtSWu(int Rd, int Rs1) : RvOp; // unsigned int→float
+
+public record RvFmvXW(int Rd, int Rs1) : RvOp; // fp bits→int reg
+
+public record RvFmvWX(int Rd, int Rs1) : RvOp; // int bits→fp reg
+
+public record RvFmaddS(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFmsubS(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFnmsubS(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFnmaddS(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
 // ── A extension (atomics) ─────────────────────────────────────────────────────
 public record RvLrW(int Rd, int Rs1) : RvOp;
 

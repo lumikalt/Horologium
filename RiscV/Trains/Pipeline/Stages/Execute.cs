@@ -70,7 +70,7 @@ public sealed class ExecuteStage : Gear {
 
         _current = IdExLatch.Bubble;
 
-        (ulong rs1, ulong rs2) = _hazard.Forward(latch, _exMem, _memWb);
+        (ulong rs1, ulong rs2, ulong rs3) = _hazard.Forward(latch, _exMem, _memWb);
 
         IRegisterFile regs = _state.IntegerRegisters;
         ITooth instr = latch.Instruction;
@@ -80,16 +80,20 @@ public sealed class ExecuteStage : Gear {
         // clobber a value the Writeback stage just committed this cycle.
         int s0 = instr.SourceRegisters.Count > 0 ? instr.SourceRegisters[0] : -1;
         int s1 = instr.SourceRegisters.Count > 1 ? instr.SourceRegisters[1] : -1;
+        int s2 = instr.SourceRegisters.Count > 2 ? instr.SourceRegisters[2] : -1;
         ulong save0 = s0 >= 0 ? regs.Read(s0) : 0;
         ulong save1 = s1 >= 0 ? regs.Read(s1) : 0;
+        ulong save2 = s2 >= 0 ? regs.Read(s2) : 0;
 
         if (s0 >= 0) regs.Write(s0, rs1);
         if (s1 >= 0) regs.Write(s1, rs2);
+        if (s2 >= 0) regs.Write(s2, rs3);
 
         ExecuteResult result = _executor.Execute(instr, _state, _memory);
 
         if (s0 >= 0) regs.Write(s0, save0);
         if (s1 >= 0) regs.Write(s1, save1);
+        if (s2 >= 0) regs.Write(s2, save2);
 
         var newLatch = new ExMemLatch {
             IsValid = true,

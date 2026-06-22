@@ -68,7 +68,7 @@ public class StoreBufferTests {
         mem.Write(100, 0xDEADBEEF, 4); // backing has this
         sb.Write(100, 0x12345678, 4);  // buffer has a word write
         // Read a byte from the middle — partial overlap, not exact match
-        ulong val = sb.Read(101, 1);   // byte at offset 1 within the word
+        ulong val = sb.Read(101, 1); // byte at offset 1 within the word
         // After DrainAll, buffer flushed 0x12345678 to backing at addr 100.
         // Then read byte at 101 from backing. LE: byte[1] of 0x12345678 = 0x56.
         Assert.Equal(0x56UL, val);
@@ -80,8 +80,8 @@ public class StoreBufferTests {
     [Fact]
     public void DrainEligible_SameTick_DoesNotDrain() {
         (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
-        sb.Write(100, 42, 4);  // tagged with tick 1
-        sb.DrainEligible();    // still tick 1 — should NOT drain
+        sb.Write(100, 42, 4); // tagged with tick 1
+        sb.DrainEligible();   // still tick 1 — should NOT drain
         ulong val = sb.Read(100, 4);
         Assert.Equal(42UL, val); // still in buffer
     }
@@ -89,12 +89,12 @@ public class StoreBufferTests {
     [Fact]
     public void DrainEligible_NextTick_Drains() {
         (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
-        sb.Write(100, 42, 4);  // tagged tick 1
-        AdvanceTo(esc, 2);     // advance to tick 2
-        sb.DrainEligible();    // tick 2 > 1 → should drain to backing
+        sb.Write(100, 42, 4); // tagged tick 1
+        AdvanceTo(esc, 2);    // advance to tick 2
+        sb.DrainEligible();   // tick 2 > 1 → should drain to backing
         // Buffer is now empty; read goes to backing
         ulong val = sb.Read(100, 4);
-        Assert.Equal(42UL, val); // value now in backing
+        Assert.Equal(42UL, val);       // value now in backing
         Assert.Equal(0L, sb.Forwards); // was not a forward hit
     }
 
@@ -114,7 +114,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void Overflow_DrainsToBackingBeforeAddingNew() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make(capacity: 2);
+        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make(2);
         sb.Write(100, 1, 4);
         sb.Write(200, 2, 4);
         sb.Write(300, 3, 4); // capacity exceeded → DrainAll then add
