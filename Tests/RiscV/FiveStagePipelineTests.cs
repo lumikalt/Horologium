@@ -548,6 +548,28 @@ public class FiveStagePipelineTests {
     }
 
     [Fact]
+    public void OpcodeHistogram_CountsRetiredInstructions() {
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(new RvMechanism(), mem);
+        Load(
+            mem,
+            0x00100093, // addi x1, x0, 1
+            0x00100113, // addi x2, x0, 1
+            0x002081b3, // add  x3, x1, x2
+            0x00100073  // ebreak
+        );
+        RevolutionResult result = train.Run();
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(snap.Histograms.ContainsKey("opcodes"), "opcodes histogram should exist");
+        IReadOnlyDictionary<string, long> opcodes = snap.Histograms["opcodes"];
+        Assert.Equal(2, opcodes["RvAddi"]);
+        Assert.Equal(1, opcodes["RvAdd"]);
+        Assert.False(opcodes.ContainsKey("RvEbreak"), "EBREAK should not retire");
+    }
+
+    [Fact]
     public void WithTlb_ColdMiss_RecordedInDialBoard() {
         var mem = new FlatMemory(4096);
         var iTlbConfig = new MemoryConfig(

@@ -252,6 +252,99 @@ public class ObservationTests {
         Assert.Throws<InvalidOperationException>(() => gear.IssueWidth.Value = 8);
     }
 
+    // ── Histogram ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Histogram_StartsEmpty() {
+        var h = new Histogram("opcodes");
+        Assert.Empty(h.Buckets);
+    }
+
+    [Fact]
+    public void Histogram_Observe_CreatesAndIncrementsKey() {
+        var h = new Histogram("opcodes");
+        h.Observe("RvAdd");
+        h.Observe("RvAdd");
+        h.Observe("RvAddi");
+
+        Assert.Equal(2, h.Buckets["RvAdd"]);
+        Assert.Equal(1, h.Buckets["RvAddi"]);
+    }
+
+    [Fact]
+    public void Histogram_Buckets_IsReadOnly() {
+        var h = new Histogram("opcodes");
+        h.Observe("RvAdd");
+
+        Assert.IsAssignableFrom<IReadOnlyDictionary<string, long>>(h.Buckets);
+    }
+
+    [Fact]
+    public void Histogram_Reset_ClearsBuckets() {
+        var board = new DialBoard("test");
+        Histogram h = board.AddHistogram("opcodes");
+        h.Observe("RvAdd");
+        h.Observe("RvSub");
+
+        board.Reset();
+
+        Assert.Empty(h.Buckets);
+    }
+
+    [Fact]
+    public void DialBoard_AddHistogram_ReturnsUsableHistogram() {
+        var board = new DialBoard("top.wb");
+        Histogram h = board.AddHistogram("opcodes", "Per-opcode retired counts");
+
+        h.Observe("RvAdd");
+        h.Observe("RvAdd");
+
+        Assert.Equal(2, board.GetHistogram("opcodes").Buckets["RvAdd"]);
+    }
+
+    [Fact]
+    public void DialBoard_DuplicateHistogramName_Throws() {
+        var board = new DialBoard("top.wb");
+        board.AddHistogram("opcodes");
+
+        Assert.Throws<InvalidOperationException>(() => board.AddHistogram("opcodes"));
+    }
+
+    [Fact]
+    public void DialBoard_GetHistogram_MissingName_Throws() {
+        var board = new DialBoard("top.wb");
+        Assert.Throws<KeyNotFoundException>(() => board.GetHistogram("opcodes"));
+    }
+
+    [Fact]
+    public void Snapshot_IncludesHistogramBuckets() {
+        var board = new DialBoard("top.wb");
+        Histogram h = board.AddHistogram("opcodes");
+        h.Observe("RvAdd");
+        h.Observe("RvAdd");
+        h.Observe("RvSub");
+
+        DialBoardSnapshot snap = board.Snapshot();
+
+        Assert.True(snap.Histograms.ContainsKey("opcodes"));
+        Assert.Equal(2, snap.Histograms["opcodes"]["RvAdd"]);
+        Assert.Equal(1, snap.Histograms["opcodes"]["RvSub"]);
+    }
+
+    [Fact]
+    public void Snapshot_HistogramIsImmutable_AfterFurtherObserves() {
+        var board = new DialBoard("top.wb");
+        Histogram h = board.AddHistogram("opcodes");
+        h.Observe("RvAdd");
+
+        DialBoardSnapshot snap = board.Snapshot();
+
+        h.Observe("RvAdd"); // mutate after snapshot
+
+        Assert.Equal(1, snap.Histograms["opcodes"]["RvAdd"]); // snapshot unchanged
+        Assert.Equal(2, h.Buckets["RvAdd"]);                  // live histogram updated
+    }
+
     // ── Test doubles ─────────────────────────────────────────────────────────
 
     private sealed class MetricGear(string name, SimNode parent, Escapement esc)

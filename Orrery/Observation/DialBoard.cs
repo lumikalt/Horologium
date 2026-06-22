@@ -12,6 +12,7 @@ namespace Orrery.Observation;
 public sealed class DialBoard {
     private readonly Dictionary<string, Counter> _counters = new();
     private readonly Dictionary<string, Dial> _dials = new();
+    private readonly Dictionary<string, Histogram> _histograms = new();
 
     public string OwnerPath { get; }
 
@@ -46,6 +47,18 @@ public sealed class DialBoard {
         return dial;
     }
 
+    /// <summary>Registers a histogram. Throws if the name is already taken.</summary>
+    public Histogram AddHistogram(string name, string description = "") {
+        if (_histograms.ContainsKey(name))
+            throw new InvalidOperationException(
+                $"DialBoard '{OwnerPath}' already has a histogram named '{name}'."
+            );
+
+        var histogram = new Histogram(name, description);
+        _histograms[name] = histogram;
+        return histogram;
+    }
+
     // ── Querying ──────────────────────────────────────────────────────────────
 
     public Counter GetCounter(string name) =>
@@ -62,6 +75,13 @@ public sealed class DialBoard {
                 $"DialBoard '{OwnerPath}' has no dial named '{name}'."
             );
 
+    public Histogram GetHistogram(string name) =>
+        _histograms.TryGetValue(name, out Histogram? h)
+            ? h
+            : throw new KeyNotFoundException(
+                $"DialBoard '{OwnerPath}' has no histogram named '{name}'."
+            );
+
     // ── Snapshot ──────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -72,12 +92,18 @@ public sealed class DialBoard {
         new(
             OwnerPath,
             _counters.ToDictionary(kv => kv.Key, kv => kv.Value.Value),
-            _dials.ToDictionary(kv => kv.Key, kv => kv.Value.Read())
+            _dials.ToDictionary(kv => kv.Key, kv => kv.Value.Read()),
+            _histograms.ToDictionary(
+                kv => kv.Key,
+                kv => (IReadOnlyDictionary<string, long>)kv.Value.Buckets
+                          .ToDictionary(b => b.Key, b => b.Value)
+            )
         );
 
-    /// <summary>Resets all counters to zero. Called between Revolutions.</summary>
+    /// <summary>Resets all counters and histograms. Called between Revolutions.</summary>
     public void Reset() {
         foreach (Counter c in _counters.Values) c.Reset();
+        foreach (Histogram h in _histograms.Values) h.Reset();
     }
 }
 
@@ -88,13 +114,19 @@ public sealed class DialBoard {
 public sealed record DialBoardSnapshot(
     string OwnerPath,
     IReadOnlyDictionary<string, long> Counters,
-    IReadOnlyDictionary<string, double> Dials
+    IReadOnlyDictionary<string, double> Dials,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> Histograms
 ) {
     public override string ToString() {
         var sb = new StringBuilder();
         sb.AppendLine($"[{OwnerPath}]");
         foreach ((string k, long v) in Counters) sb.AppendLine($"  {k} = {v}");
         foreach ((string k, double v) in Dials) sb.AppendLine($"  {k} = {v:F4}");
+        foreach ((string hName, IReadOnlyDictionary<string, long> buckets) in Histograms) {
+            sb.AppendLine($"  {hName}:");
+            foreach ((string bk, long bv) in buckets.OrderByDescending(p => p.Value))
+                sb.AppendLine($"    {bk} = {bv}");
+        }
         return sb.ToString();
     }
 }

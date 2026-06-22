@@ -1,5 +1,6 @@
 using Mechanism;
 using Orrery.Gears;
+using Orrery.Observation;
 using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
@@ -18,6 +19,8 @@ public sealed class WritebackStage : Gear {
     public bool Halted { get; private set; }
     public ulong? TrapRedirect { get; private set; }
     public long RetiredCount { get; private set; }
+
+    internal Histogram? OpcodeHistogram { get; set; }
 
     public WritebackStage(
         string name,
@@ -67,6 +70,7 @@ public sealed class WritebackStage : Gear {
                 );
         }
 
+        OpcodeHistogram?.Observe(latch.Instruction.Payload?.GetType().Name ?? "unknown");
         RetiredCount++;
     }
 }

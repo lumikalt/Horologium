@@ -154,6 +154,7 @@ internal sealed class PipelineCore : Gear {
         _stallsCounter = Dials.AddCounter("stalls", "Stall cycles");
         _flushesCounter = Dials.AddCounter("flushes", "Pipeline flushes");
         _missesCounter = Dials.AddCounter("branch_misses", "Branch mispredictions");
+        _wb.OpcodeHistogram = Dials.AddHistogram("opcodes", "Retired instructions by opcode");
 
         Dials.AddDial(
             "cpi", () =>
@@ -284,8 +285,7 @@ internal sealed class PipelineCore : Gear {
         Escapement.Schedule(_mem.Cycle, t, Phase.Commit);
         Escapement.Schedule(_if.Cycle, t, Phase.Commit);
 
-        if (StoreBuffer is not null)
-            Escapement.Schedule(StoreBuffer.DrainEligible, t, Phase.Collection);
+        if (StoreBuffer is not null) Escapement.Schedule(StoreBuffer.DrainEligible, t, Phase.Collection);
 
         Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
     }

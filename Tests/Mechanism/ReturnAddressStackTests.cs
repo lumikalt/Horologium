@@ -23,9 +23,12 @@ public class ReturnAddressStackTests {
         ras.Push(0x100);
         ras.Push(0x200);
         ras.Push(0x300);
-        Assert.True(ras.TryPop(out ulong a)); Assert.Equal(0x300UL, a);
-        Assert.True(ras.TryPop(out ulong b)); Assert.Equal(0x200UL, b);
-        Assert.True(ras.TryPop(out ulong c)); Assert.Equal(0x100UL, c);
+        Assert.True(ras.TryPop(out ulong a));
+        Assert.Equal(0x300UL, a);
+        Assert.True(ras.TryPop(out ulong b));
+        Assert.Equal(0x200UL, b);
+        Assert.True(ras.TryPop(out ulong c));
+        Assert.Equal(0x100UL, c);
         Assert.False(ras.TryPop(out _));
     }
 
@@ -35,8 +38,10 @@ public class ReturnAddressStackTests {
         ras.Push(0x100);
         ras.Push(0x200);
         ras.Push(0x300); // evicts 0x100
-        Assert.True(ras.TryPop(out ulong a)); Assert.Equal(0x300UL, a);
-        Assert.True(ras.TryPop(out ulong b)); Assert.Equal(0x200UL, b);
+        Assert.True(ras.TryPop(out ulong a));
+        Assert.Equal(0x300UL, a);
+        Assert.True(ras.TryPop(out ulong b));
+        Assert.Equal(0x200UL, b);
         Assert.False(ras.TryPop(out _));
     }
 }

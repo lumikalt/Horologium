@@ -53,12 +53,14 @@ internal sealed class SingleCycleCore(
     : Gear(name, parent, esc) {
     private Counter _cyclesCounter = null!;
     private Counter _retiredCounter = null!;
+    private Histogram _opcodeHistogram = null!;
 
     public IArchState ArchState { get; } = mechanism.CreateArchState();
 
     public override void Initialize() {
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles elapsed");
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
+        _opcodeHistogram = Dials.AddHistogram("opcodes", "Retired instructions by opcode");
         Dials.AddDial(
             "ipc", () =>
                 _cyclesCounter.Value == 0 ? 0.0 : _retiredCounter.Value / (double)_cyclesCounter.Value,
@@ -134,6 +136,7 @@ internal sealed class SingleCycleCore(
                 ArchState.Pc = pc + (ulong)instr.SizeBytes;
         }
 
+        _opcodeHistogram.Observe(instr.Payload?.GetType().Name ?? "unknown");
         _retiredCounter.Increment();
 
         // Detect halt: infinite self-loop (JAL x0, 0 — common halt idiom)

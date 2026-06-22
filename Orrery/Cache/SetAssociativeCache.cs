@@ -168,8 +168,10 @@ public sealed class SetAssociativeCache : IMemory {
             for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
                 Decompose(a, out int s, out ulong t, out _);
                 for (var w = 0; w < _ways; w++)
-                    if (_tags[s][w] == t) _tags[s][w] = null;
+                    if (_tags[s][w] == t)
+                        _tags[s][w] = null;
             }
+
             return;
         }
 
