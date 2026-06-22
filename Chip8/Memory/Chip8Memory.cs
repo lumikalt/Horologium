@@ -24,17 +24,16 @@ public sealed class Chip8Memory : IMemory {
 
     private readonly byte[] _data = new byte[4096];
 
-    public Chip8Memory() => FontSprites.CopyTo(_data, 0);
+    public Chip8Memory() => Chip8Memory.FontSprites.CopyTo(_data, 0);
 
     public ulong Read(ulong address, int bytes) {
         ulong result = 0;
-        for (var i = 0; i < bytes; i++)
-            result = (result << 8) | _data[address + (ulong)i];
+        for (var i = 0; i < bytes; i++) result = (result << 8) | _data[address + (ulong)i];
         return result;
     }
 
     public void Write(ulong address, ulong value, int bytes) {
-        for (var i = bytes - 1; i >= 0; i--) {
+        for (int i = bytes - 1; i >= 0; i--) {
             _data[address + (ulong)i] = (byte)(value & 0xFF);
             value >>= 8;
         }

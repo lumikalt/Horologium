@@ -8,9 +8,9 @@ public class Decoder : IDecoder {
     public IInstruction Decode(ulong pc, IMemory memory) => Decode(pc, (uint)memory.Read(pc, 2));
 
     public IInstruction Decode(ulong pc, uint raw) {
-        var opcode = (byte)(raw >> 12 & 0xF); // First nibble
-        var x = (int)(raw >> 8 & 0xF);
-        var y = (int)(raw >> 4 & 0xF);
+        var opcode = (byte)((raw >> 12) & 0xF); // First nibble
+        var x = (int)((raw >> 8) & 0xF);
+        var y = (int)((raw >> 4) & 0xF);
         var n = (byte)(raw & 0xF);
         var nn = (byte)(raw & 0xFF);
         var nnn = (ushort)(raw & 0xFFF);
@@ -200,8 +200,7 @@ public class Decoder : IDecoder {
                 cls = InstructionClass.Load;
                 read.AddRange(Enumerable.Range(0, x + 1));
                 break;
-            default:
-                throw new IllegalInstructionException(pc, raw, $"Unknown CHIP-8 instruction: 0x{raw:X4}");
+            default: throw new IllegalInstructionException(pc, raw, $"Unknown CHIP-8 instruction: 0x{raw:X4}");
         }
 
         return new Instruction((ushort)pc, (ushort)raw, dest, read, cls, op);

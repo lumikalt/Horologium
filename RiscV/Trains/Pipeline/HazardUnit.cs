@@ -36,13 +36,12 @@ public sealed class HazardUnit(bool forwardingEnabled) {
         bool Reads(int dest) =>
             dest > 0 && incomingSources.Any(src => src == dest);
 
-        if (forwardingEnabled) {
+        if (forwardingEnabled)
             // With forwarding, only stall on a load-use hazard: a load in EX
             // produces its value after MEM — too late to forward to a consumer
             // entering EX next cycle, so the consumer waits one cycle.
             return exResident is { IsValid: true, Instruction.Class: InstructionClass.Load, }
                 && Reads(exResident.DestinationRegister);
-        }
 
         // Without forwarding, Decode must wait until the producer reaches WB
         // (Writeback runs before Decode's read this cycle). So stall while the

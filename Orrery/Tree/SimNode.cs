@@ -17,7 +17,7 @@ public enum SimLifecycle {
     Running,
 
     /// <summary>The simulation has completed. State is read-only.</summary>
-    Finished
+    Finished,
 }
 
 /// <summary>
@@ -219,18 +219,17 @@ public class SimNode {
                 nameof(name)
             );
     }
-    
+
     /// <summary>
     /// Forces the lifecycle to a specific state without transition validation.
     /// Only the Train may call this — it is used to reset between Revolutions.
     /// Do not call this from anywhere else.
     /// </summary>
-    internal void ForceLifecycle(SimLifecycle state)
-    {
+    internal void ForceLifecycle(SimLifecycle state) {
         if (Parent is not null)
             throw new InvalidOperationException(
-                $"ForceLifecycle must be called on the root node. This node is '{Path}'.");
+                $"ForceLifecycle must be called on the root node. This node is '{Path}'."
+            );
         Lifecycle = state;
     }
-
 }

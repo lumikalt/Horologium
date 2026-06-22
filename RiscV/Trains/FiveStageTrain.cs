@@ -151,7 +151,7 @@ internal sealed class PipelineCore : Gear {
         // The predictor is trained on every resolved branch; a flush (and a
         // misprediction penalty) is only paid when the speculated next PC was
         // wrong.
-        bool flush = false;
+        var flush = false;
         ExMemLatch resolved = _ex.LastSent;
         if (resolved is {
                 IsValid: true, Result: not null,
@@ -200,12 +200,8 @@ internal sealed class PipelineCore : Gear {
     private IReadOnlyList<int> IncomingSources() {
         IfIdLatch incoming = _if.LastSent;
         if (!incoming.IsValid) return Array.Empty<int>();
-        try {
-            return _decoder.Decode(incoming.Pc, incoming.RawEncoding).SourceRegisters;
-        }
-        catch (IllegalInstructionException) {
-            return Array.Empty<int>();
-        }
+        try { return _decoder.Decode(incoming.Pc, incoming.RawEncoding).SourceRegisters; }
+        catch (IllegalInstructionException) { return Array.Empty<int>(); }
     }
 }
 

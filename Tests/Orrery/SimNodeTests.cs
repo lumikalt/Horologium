@@ -31,7 +31,7 @@ public class SimNodeTests {
               cpu  [SimNode]
                 core0  [SimNode]
                   fetch  [SimNode]
-            
+
             """,
             root.DumpTree()
         );

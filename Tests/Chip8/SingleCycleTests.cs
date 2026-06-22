@@ -18,6 +18,7 @@ public class SingleCycleTests {
             bytes[i * 2 + 0] = (byte)(words[i] >> 8);
             bytes[i * 2 + 1] = (byte)(words[i] & 0xFF);
         }
+
         mem.Load(0x200, bytes);
     }
 
@@ -29,7 +30,8 @@ public class SingleCycleTests {
     [Fact]
     public void SetImm_WritesRegister() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6002, // SET V0, 2
             0x1202  // HALT
         );
@@ -42,7 +44,8 @@ public class SingleCycleTests {
     [Fact]
     public void AddImm_AddsToRegister() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6005, // SET V0, 5
             0x7002, // ADD_IMM V0, 2
             0x1204  // HALT
@@ -54,7 +57,8 @@ public class SingleCycleTests {
     [Fact]
     public void AddImm_WrapsAt256_DoesNotAffectVF() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x60FF, // SET V0, 0xFF
             0x7001, // ADD_IMM V0, 1  → 0x00 (no carry to VF)
             0x1204  // HALT
@@ -69,7 +73,8 @@ public class SingleCycleTests {
     [Fact]
     public void Set_CopiesRegister() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x600A, // SET V0, 10
             0x8100, // SET V1, V0
             0x1204  // HALT
@@ -83,7 +88,8 @@ public class SingleCycleTests {
     [Fact]
     public void Add_ProducesCarry() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x60FF, // SET V0, 0xFF
             0x6101, // SET V1, 1
             0x8014, // ADD V0, V1  (V0 = 0, VF = 1)
@@ -97,7 +103,8 @@ public class SingleCycleTests {
     [Fact]
     public void Add_NoCarry_ClearsVF() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6001, // SET V0, 1
             0x6102, // SET V1, 2
             0x8014, // ADD V0, V1  (V0 = 3, VF = 0)
@@ -113,7 +120,8 @@ public class SingleCycleTests {
     [Fact]
     public void Sub_NoBorrow_SetsVF() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x600A, // SET V0, 10
             0x6103, // SET V1, 3
             0x8015, // SUB V0, V1  (V0 = 7, VF = 1)
@@ -127,7 +135,8 @@ public class SingleCycleTests {
     [Fact]
     public void Sub_Borrow_ClearsVF() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6003, // SET V0, 3
             0x610A, // SET V1, 10
             0x8015, // SUB V0, V1  (V0 = 0xF9, VF = 0)
@@ -143,7 +152,8 @@ public class SingleCycleTests {
     [Fact]
     public void ShiftRight1_ShiftsAndCapturesLsb() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x60AB, // SET V0, 0xAB = 0b10101011  (LSB = 1)
             0x8006, // SHR V0  → V0 = 0x55, VF = 1
             0x1204  // HALT
@@ -158,7 +168,8 @@ public class SingleCycleTests {
     [Fact]
     public void Goto_JumpsToAddress() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x1204, // GOTO 0x204
             0x6001, // SET V0, 1  ← skipped
             0x6002, // SET V0, 2
@@ -173,7 +184,8 @@ public class SingleCycleTests {
     [Fact]
     public void CallSub_And_Return_WorkCorrectly() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x2208, // CALL 0x208  (push 0x202, jump to 0x208)
             0x6001, // SET V0, 1   ← return address lands here
             0x1204, // HALT
@@ -191,7 +203,8 @@ public class SingleCycleTests {
     [Fact]
     public void SkipEqImm_Taken_SkipsNextInstruction() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6005, // SET V0, 5
             0x3005, // SE V0, 5   → skip next (V0 == 5)
             0x6001, // SET V0, 1  ← skipped
@@ -205,7 +218,8 @@ public class SingleCycleTests {
     [Fact]
     public void SkipEqImm_NotTaken_ContinuesSequentially() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6005, // SET V0, 5
             0x3006, // SE V0, 6   → not taken (V0 != 6)
             0x6001, // SET V0, 1
@@ -220,7 +234,8 @@ public class SingleCycleTests {
     [Fact]
     public void SkipNeqImm_Taken_SkipsNextInstruction() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6005, // SET V0, 5
             0x4006, // SNE V0, 6  → skip next (V0 != 6)
             0x6001, // SET V0, 1  ← skipped
@@ -236,7 +251,8 @@ public class SingleCycleTests {
     [Fact]
     public void BitOr_ProducesCorrectResult() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x600F, // SET V0, 0x0F
             0x61F0, // SET V1, 0xF0
             0x8011, // OR V0, V1  → 0xFF
@@ -249,7 +265,8 @@ public class SingleCycleTests {
     [Fact]
     public void BitAnd_ProducesCorrectResult() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x60FF, // SET V0, 0xFF
             0x610F, // SET V1, 0x0F
             0x8012, // AND V0, V1  → 0x0F
@@ -262,7 +279,8 @@ public class SingleCycleTests {
     [Fact]
     public void BitXor_ProducesCorrectResult() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x60FF, // SET V0, 0xFF
             0x61F0, // SET V1, 0xF0
             0x8013, // XOR V0, V1  → 0x0F
@@ -277,7 +295,8 @@ public class SingleCycleTests {
     [Fact]
     public void SetIImm_And_AddToI_UpdateIRegister() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0xA300, // LD I, 0x300
             0x6005, // SET V0, 5
             0xF01E, // ADD I, V0  (I = 0x305)
@@ -292,7 +311,8 @@ public class SingleCycleTests {
     [Fact]
     public void SetAndGetDelayTimer_RoundTrips() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6105, // SET V1, 5
             0xF115, // LD DT, V1  (delay = 5)
             0xF007, // LD V0, DT  (V0 = 5)
@@ -308,7 +328,8 @@ public class SingleCycleTests {
     public void BCD_StoresThreeDigitsAtI() {
         // 0x96 = 150 → hundreds=1, tens=5, ones=0
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6096, // SET V0, 0x96 = 150
             0xA300, // LD I, 0x300
             0xF033, // LD B, V0
@@ -325,7 +346,8 @@ public class SingleCycleTests {
     [Fact]
     public void RegDump_Then_RegLoad_RestoresRegisters() {
         (Chip8Train train, Chip8Memory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x6001, // SET V0, 1
             0x6102, // SET V1, 2
             0x6203, // SET V2, 3

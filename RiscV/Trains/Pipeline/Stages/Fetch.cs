@@ -7,7 +7,11 @@ using Orrery.Tree;
 namespace RiscV.Trains.Pipeline.Stages;
 
 public sealed class FetchStage(
-    string name, SimNode parent, Escapement esc, IMemory memory, IBranchPredictor predictor
+    string name,
+    SimNode parent,
+    Escapement esc,
+    IMemory memory,
+    IBranchPredictor predictor
 )
     : Gear(name, parent, esc) {
     public ulong Pc { get; set; }

@@ -6,7 +6,7 @@ public class ProgramRegisterFile : ICsrFile {
     public const short I = 0x0;
     public const byte DelayTimer = 0x1;
     public const byte SoundTimer = 0x2;
-    
+
     private readonly Dictionary<uint, ulong> _regs = new();
 
     public ulong Read(uint address, PrivilegeLevel currentPrivilege) => address switch {
@@ -16,9 +16,7 @@ public class ProgramRegisterFile : ICsrFile {
         _                              => throw new NotImplementedException(),
     };
 
-    public void Write(uint address, ulong value, PrivilegeLevel currentPrivilege) {
-        _regs[address] = value;
-    }
+    public void Write(uint address, ulong value, PrivilegeLevel currentPrivilege) { _regs[address] = value; }
 
     public bool Exists(uint address) => address switch {
         (uint)ProgramRegisterFile.I    => true,

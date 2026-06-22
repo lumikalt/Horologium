@@ -7,13 +7,13 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Mechanism\Mechanism.csproj" />
-      <ProjectReference Include="..\Orrery\Orrery.csproj" />
+        <ProjectReference Include="..\Mechanism\Mechanism.csproj"/>
+        <ProjectReference Include="..\Orrery\Orrery.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="Execute\" />
-      <Folder Include="Memory\" />
+        <Folder Include="Execute\"/>
+        <Folder Include="Memory\"/>
     </ItemGroup>
 
 </Project>

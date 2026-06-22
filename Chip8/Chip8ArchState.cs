@@ -32,9 +32,8 @@ public sealed class Chip8ArchState : IArchState {
     public ushort PopStack() => _stack.Pop();
 
     public IArchState Snapshot() {
-        var snap = new Chip8ArchState { Pc = Pc, PrivilegeLevel = PrivilegeLevel };
-        for (var i = 0; i < 16; i++)
-            snap.IntegerRegisters.Write(i, IntegerRegisters.Read(i));
+        var snap = new Chip8ArchState { Pc = Pc, PrivilegeLevel = PrivilegeLevel, };
+        for (var i = 0; i < 16; i++) snap.IntegerRegisters.Write(i, IntegerRegisters.Read(i));
         snap.I = I;
         snap.DelayTimer = DelayTimer;
         snap.SoundTimer = SoundTimer;

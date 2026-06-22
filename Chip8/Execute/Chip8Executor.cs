@@ -6,7 +6,7 @@ namespace Chip8.Execute;
 public sealed class Chip8Executor : IExecutor {
     public ExecuteResult Execute(IInstruction instruction, IArchState state, IMemory memory) {
         var chip8 = (Chip8ArchState)state;
-        var v = chip8.IntegerRegisters;
+        IRegisterFile v = chip8.IntegerRegisters;
         ulong pc = instruction.Pc;
 
         return instruction.Payload switch {
@@ -45,8 +45,9 @@ public sealed class Chip8Executor : IExecutor {
             BCD b             => ExecBcd(chip8, v, b.vx, memory),
             RegDump r         => ExecRegDump(chip8, v, r.vx, memory),
             RegLoad r         => ExecRegLoad(chip8, v, r.vx, memory),
-            _                 => throw new InvalidOperationException(
-                                     $"Unknown CHIP-8 op: {instruction.Payload}"),
+            _ => throw new InvalidOperationException(
+                $"Unknown CHIP-8 op: {instruction.Payload}"
+            ),
         };
     }
 
@@ -116,22 +117,20 @@ public sealed class Chip8Executor : IExecutor {
     }
 
     private static ExecuteResult ExecBcd(Chip8ArchState chip8, IRegisterFile v, int vx, IMemory memory) {
-        byte val = (byte)v.Read(vx);
-        memory.Write(chip8.I,                  (ulong)(val / 100),       1);
+        var val = (byte)v.Read(vx);
+        memory.Write(chip8.I, (ulong)(val / 100), 1);
         memory.Write((ulong)(chip8.I + 1), (ulong)(val / 10 % 10), 1);
-        memory.Write((ulong)(chip8.I + 2), (ulong)(val % 10),       1);
+        memory.Write((ulong)(chip8.I + 2), (ulong)(val % 10), 1);
         return ExecuteResult.Clean;
     }
 
     private static ExecuteResult ExecRegDump(Chip8ArchState chip8, IRegisterFile v, int vx, IMemory memory) {
-        for (var i = 0; i <= vx; i++)
-            memory.Write((ulong)(chip8.I + i), v.Read(i), 1);
+        for (var i = 0; i <= vx; i++) memory.Write((ulong)(chip8.I + i), v.Read(i), 1);
         return ExecuteResult.Clean;
     }
 
     private static ExecuteResult ExecRegLoad(Chip8ArchState chip8, IRegisterFile v, int vx, IMemory memory) {
-        for (var i = 0; i <= vx; i++)
-            v.Write(i, memory.Read((ulong)(chip8.I + i), 1));
+        for (var i = 0; i <= vx; i++) v.Write(i, memory.Read((ulong)(chip8.I + i), 1));
         return ExecuteResult.Clean;
     }
 }

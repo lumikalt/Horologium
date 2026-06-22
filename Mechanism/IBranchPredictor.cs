@@ -30,9 +30,9 @@ public readonly record struct BranchPrediction(
 ) {
     /// <summary>Convenience: predict not taken, sequential PC.</summary>
     public static BranchPrediction NotTaken(ulong sequentialPc) =>
-        new(PredictedTaken: false, PredictedTarget: sequentialPc);
+        new(false, sequentialPc);
 
     /// <summary>Convenience: predict taken to a specific target.</summary>
     public static BranchPrediction Taken(ulong target) =>
-        new(PredictedTaken: true, PredictedTarget: target);
+        new(true, target);
 }

@@ -42,7 +42,7 @@ public sealed class Setting<T> : ILockable {
     internal void Lock() => IsLocked = true;
 
     public bool IsLocked { get; private set; }
-    
+
     void ILockable.Lock() => Lock();
 
     public override string ToString() => $"{Name} = {_value}";

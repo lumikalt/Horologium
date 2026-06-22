@@ -253,7 +253,7 @@ public class SingleCycleTests {
             0x00100073
         );
         train.Run();
-        Assert.Equal(8u, Reg(train, 1));  // return addr = jalr_pc(4) + 4
+        Assert.Equal(8u, Reg(train, 1)); // return addr = jalr_pc(4) + 4
         Assert.Equal(42u, Reg(train, 3));
     }
 

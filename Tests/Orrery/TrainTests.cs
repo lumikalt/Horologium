@@ -277,7 +277,7 @@ public class TrainTests {
 
         // Wire them up during Finalize
         producer.OnFinalize = () =>
-            producer.Out!.Bind(consumer.In!, latency: 1);
+            producer.Out!.Bind(consumer.In!, 1);
 
         train.Build();
         RevolutionResult result = train.Run();

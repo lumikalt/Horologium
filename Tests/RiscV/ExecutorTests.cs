@@ -355,15 +355,15 @@ public class ExecutorTests {
     [Fact]
     public void Execute_Sh_Then_Lh_SignExtends() {
         RvArchState s = MakeState((1, 100), (2, 0x8000)); // 0x8000 = -32768 as int16
-        Exec(0x00209023, s); // sh x2, 0(x1)
-        ExecuteResult r = Exec(0x00009183, s); // lh x3, 0(x1)
+        Exec(0x00209023, s);                              // sh x2, 0(x1)
+        ExecuteResult r = Exec(0x00009183, s);            // lh x3, 0(x1)
         Assert.Equal(0xFFFF8000UL, r.RegisterResult);
     }
 
     [Fact]
     public void Execute_Sh_Then_Lhu_ZeroExtends() {
         RvArchState s = MakeState((1, 100), (2, 0x8000));
-        Exec(0x00209023, s); // sh x2, 0(x1)
+        Exec(0x00209023, s);                   // sh x2, 0(x1)
         ExecuteResult r = Exec(0x0000D183, s); // lhu x3, 0(x1)
         Assert.Equal(0x8000UL, r.RegisterResult);
     }
@@ -374,8 +374,8 @@ public class ExecutorTests {
     public void Execute_Jalr_WithLinkRegister() {
         RvArchState s = MakeState((2, 0x200));
         ExecuteResult r = Exec(0x004100E7, s, 0x100); // jalr x1, 4(x2)
-        Assert.Equal(0x104UL, r.RegisterResult); // link = PC+4
+        Assert.Equal(0x104UL, r.RegisterResult);      // link = PC+4
         Assert.True(r.BranchTaken);
-        Assert.Equal(0x204UL, r.BranchTarget);   // target = x2+4 = 0x204
+        Assert.Equal(0x204UL, r.BranchTarget); // target = x2+4 = 0x204
     }
 }

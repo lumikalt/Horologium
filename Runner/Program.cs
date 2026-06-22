@@ -1,3 +1,4 @@
+﻿using Orrery.Train;
 using RiscV;
 using RiscV.Memory;
 using RiscV.Trains;
@@ -11,6 +12,7 @@ static FlatMemory Mem(params uint[] words) {
         bytes[i * 4 + 2] = (byte)(words[i] >> 16);
         bytes[i * 4 + 3] = (byte)(words[i] >> 24);
     }
+
     mem.Load(0, bytes);
     return mem;
 }
@@ -24,6 +26,6 @@ FlatMemory mem = Mem(
 );
 
 var train = new FiveStageTrain(new RvMechanism(), mem, 0, true, null);
-var result = train.Run();
+RevolutionResult result = train.Run();
 Console.WriteLine($"x1={train.ArchState.IntegerRegisters.Read(1)} (expect 5)");
 Console.WriteLine(result);
