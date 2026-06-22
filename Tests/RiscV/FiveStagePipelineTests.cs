@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
 using RiscV;
@@ -303,5 +304,153 @@ public class FiveStagePipelineTests {
             snapTwoB.Counters["branch_misses"] < snapAnt.Counters["branch_misses"],
             "2-bit predictor should have fewer mispredictions on a loop"
         );
+    }
+
+    // ── Cache / TLB integration ───────────────────────────────────────────────
+
+    private static MemoryConfig SmallICache(int missLatency = 5) =>
+        new(64, 4, 16, missLatency);
+
+    private static MemoryConfig SmallDCache(int missLatency = 5) =>
+        new(64, 4, 16, missLatency);
+
+    [Fact]
+    public void WithICache_CorrectResultStillProduced() {
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem, 0, true, null,
+            SmallICache()
+        );
+        Load(
+            mem,
+            0x00A00093, // addi x1, x0, 10
+            0x02000113, // addi x2, x0, 32
+            0x002081b3, // add  x3, x1, x2
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(42u, (uint)train.ArchState.IntegerRegisters.Read(3));
+    }
+
+    [Fact]
+    public void WithICache_ColdFetchesTriggerMisses() {
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem, 0, true, null,
+            SmallICache(5)
+        );
+        Load(
+            mem,
+            0x00A00093, // addi x1, x0, 10
+            0x00100073  // ebreak
+        );
+        train.Run();
+
+        Assert.NotNull(train.ICache);
+        Assert.True(train.ICache!.Misses > 0, "I-cache should have at least one miss for a cold run");
+    }
+
+    [Fact]
+    public void WithICache_MissesCauseStallCycles() {
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem, 0, true, null,
+            SmallICache(10)
+        );
+        Load(
+            mem,
+            0x00100073 // ebreak
+        );
+        RevolutionResult result = train.Run();
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(
+            snap.Counters["cache_miss_stalls"] > 0,
+            "At least one stall cycle should be charged for cold I-cache misses"
+        );
+    }
+
+    [Fact]
+    public void WithDCache_LoadHitAfterStore_CorrectValue() {
+        // SW to address 0x100 then LW from the same address through a D-cache.
+        // The SW is a write-through so backing stays consistent; the LW should
+        // fill the cache and return the stored value.
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem, 0, true, null,
+            dMemConfig: SmallDCache()
+        );
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 256   (x1 = 0x100 — base address)
+            0x00A00113, // addi x2, x0, 10    (x2 = 10 — value to store)
+            0x0020a023, // sw   x2, 0(x1)     (mem[0x100] = 10)
+            0x0000a183, // lw   x3, 0(x1)     (x3 = mem[0x100])
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(10u, (uint)train.ArchState.IntegerRegisters.Read(3));
+    }
+
+    [Fact]
+    public void WithDCache_LoadInstructions_RecordDCacheMisses() {
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem, 0, true, null,
+            dMemConfig: SmallDCache(5)
+        );
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 256
+            0x0000a103, // lw   x2, 0(x1)     (cold D-cache miss)
+            0x00100073  // ebreak
+        );
+        train.Run();
+
+        Assert.NotNull(train.DCache);
+        Assert.True(train.DCache!.Misses > 0, "D-cache should record a miss for the load");
+    }
+
+    [Fact]
+    public void WithTlb_IdentityMapping_CorrectResult() {
+        var mem = new FlatMemory(4096);
+        var iTlbConfig = new MemoryConfig(
+            0,
+            TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 8
+        );
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem, 0, true, null,
+            iTlbConfig
+        );
+        Load(
+            mem,
+            0x00500093, // addi x1, x0, 5
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(5u, (uint)train.ArchState.IntegerRegisters.Read(1));
+    }
+
+    [Fact]
+    public void WithTlb_ColdMiss_RecordedInDialBoard() {
+        var mem = new FlatMemory(4096);
+        var iTlbConfig = new MemoryConfig(
+            0,
+            TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 8
+        );
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem, 0, true, null,
+            iTlbConfig
+        );
+        Load(mem, 0x00100073);
+        RevolutionResult result = train.Run();
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(
+            snap.Counters.ContainsKey("itlb_misses"), "itlb_misses counter should exist when I-TLB is configured"
+        );
+        Assert.True(snap.Counters["itlb_misses"] > 0, "I-TLB should record at least one cold miss");
     }
 }

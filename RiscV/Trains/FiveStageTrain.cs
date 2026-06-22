@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
 using Orrery.Scheduling;
@@ -16,12 +17,19 @@ public sealed class FiveStageTrain {
 
     public IArchState ArchState => _core.State;
 
+    public SetAssociativeCache? ICache => _core.ILayers.Cache;
+    public SetAssociativeCache? DCache => _core.DLayers.Cache;
+    public Tlb? ITlb => _core.ILayers.Tlb;
+    public Tlb? DTlb => _core.DLayers.Tlb;
+
     public FiveStageTrain(
         IMechanism mechanism,
         IMemory memory,
         ulong entryPoint = 0,
         bool forwardingEnabled = true,
-        IBranchPredictor? predictor = null
+        IBranchPredictor? predictor = null,
+        MemoryConfig? iMemConfig = null,
+        MemoryConfig? dMemConfig = null
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
@@ -29,7 +37,9 @@ public sealed class FiveStageTrain {
             new PipelineCore(
                 "pipeline", _train.Root, esc,
                 mechanism, memory, entryPoint, forwardingEnabled,
-                predictor ?? new AlwaysNotTakenPredictor()
+                predictor ?? new AlwaysNotTakenPredictor(),
+                iMemConfig ?? MemoryConfig.None,
+                dMemConfig ?? MemoryConfig.None
             )
         );
         _train.Build();
@@ -56,10 +66,28 @@ internal sealed class PipelineCore : Gear {
     private Counter _stallsCounter;
     private Counter _flushesCounter;
     private Counter _missesCounter;
+    private Counter? _cacheMissStallsCounter;
+    private Counter? _icacheHitsCounter;
+    private Counter? _icacheMissesCounter;
+    private Counter? _dcacheHitsCounter;
+    private Counter? _dcacheMissesCounter;
+    private Counter? _itlbHitsCounter;
+    private Counter? _itlbMissesCounter;
+    private Counter? _dtlbHitsCounter;
+    private Counter? _dtlbMissesCounter;
 
     private long _lastRetired;
+    private long _missStallBudget;
+
+    // Delta tracking for cache/TLB stat counters
+    private long _lastIHits, _lastIMisses;
+    private long _lastDHits, _lastDMisses;
+    private long _lastITlbHits, _lastITlbMisses;
+    private long _lastDTlbHits, _lastDTlbMisses;
 
     public RvArchState State { get; }
+    public MemoryLayers ILayers { get; }
+    public MemoryLayers DLayers { get; }
 
     public PipelineCore(
         string name,
@@ -69,7 +97,9 @@ internal sealed class PipelineCore : Gear {
         IMemory memory,
         ulong entryPoint,
         bool forwardingEnabled,
-        IBranchPredictor predictor
+        IBranchPredictor predictor,
+        MemoryConfig iMemConfig,
+        MemoryConfig dMemConfig
     )
         : base(name, parent, esc) {
         _predictor = predictor;
@@ -78,14 +108,17 @@ internal sealed class PipelineCore : Gear {
         State = (RvArchState)mechanism.CreateArchState();
         State.Pc = entryPoint;
 
-        // Create stages
-        _if = new FetchStage("if", parent, esc, memory, predictor);
+        ILayers = MemoryLayers.Build(memory, iMemConfig);
+        DLayers = MemoryLayers.Build(memory, dMemConfig);
+
+        // Create stages — IF uses instruction memory, EX/MEM use data memory.
+        _if = new FetchStage("if", parent, esc, ILayers.Accessor, predictor);
         _id = new DecodeStage("id", parent, esc, mechanism.Decoder, State);
         _ex = new ExecuteStage(
             "ex", parent, esc,
-            mechanism.Executor, State, memory, _hazard
+            mechanism.Executor, State, DLayers.Accessor, _hazard
         );
-        _mem = new MemoryStage("mem", parent, esc, memory);
+        _mem = new MemoryStage("mem", parent, esc, DLayers.Accessor);
         _wb = new WritebackStage(
             "wb", parent, esc,
             State, mechanism.TrapController
@@ -117,6 +150,33 @@ internal sealed class PipelineCore : Gear {
                 _cyclesCounter.Value == 0 ? 0.0 : _wb.RetiredCount / (double)_cyclesCounter.Value,
             "Instructions per cycle"
         );
+
+        bool anyCache = ILayers.Cache is not null || DLayers.Cache is not null
+                                                  || ILayers.Tlb is not null || DLayers.Tlb is not null;
+        if (anyCache)
+            _cacheMissStallsCounter = Dials.AddCounter(
+                "cache_miss_stalls", "Stall cycles from memory hierarchy misses"
+            );
+
+        if (ILayers.Cache is not null) {
+            _icacheHitsCounter = Dials.AddCounter("icache_hits", "I-cache hits");
+            _icacheMissesCounter = Dials.AddCounter("icache_misses", "I-cache misses");
+        }
+
+        if (DLayers.Cache is not null) {
+            _dcacheHitsCounter = Dials.AddCounter("dcache_hits", "D-cache hits");
+            _dcacheMissesCounter = Dials.AddCounter("dcache_misses", "D-cache misses");
+        }
+
+        if (ILayers.Tlb is not null) {
+            _itlbHitsCounter = Dials.AddCounter("itlb_hits", "I-TLB hits");
+            _itlbMissesCounter = Dials.AddCounter("itlb_misses", "I-TLB misses");
+        }
+
+        if (DLayers.Tlb is not null) {
+            _dtlbHitsCounter = Dials.AddCounter("dtlb_hits", "D-TLB hits");
+            _dtlbMissesCounter = Dials.AddCounter("dtlb_misses", "D-TLB misses");
+        }
     }
 
     public override void Tick() =>
@@ -129,6 +189,9 @@ internal sealed class PipelineCore : Gear {
     // one cycle. Writeback runs before Decode so a register written this cycle
     // is visible to a read in the same cycle.
     private void RunCycle() {
+        // Collect pending stalls from memory hierarchy (generated last cycle's stage execution).
+        _missStallBudget += CollectMemoryStalls();
+
         // Reflect retirements produced by last cycle's Writeback.
         long newRetired = _wb.RetiredCount;
         while (_lastRetired < newRetired) {
@@ -139,6 +202,15 @@ internal sealed class PipelineCore : Gear {
         if (_wb.Halted) return; // pipeline drained — stop the clock
 
         _cyclesCounter.Increment();
+
+        if (_missStallBudget > 0) {
+            // Drain one stall cycle: freeze all stages, advance the clock.
+            _stallsCounter.Increment();
+            _cacheMissStallsCounter?.Increment();
+            _missStallBudget--;
+            Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
+            return;
+        }
 
         // Push forwarding context into EX before it runs.
         _ex.SetForwardingContext(_ex.LastSent, _mem.LastSent);
@@ -192,6 +264,46 @@ internal sealed class PipelineCore : Gear {
         Escapement.Schedule(_if.Cycle, t, Phase.Commit);
 
         Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
+    }
+
+    // Drain accumulated stall cycles from all memory hierarchy layers and
+    // update DialBoard counters with deltas since the last call.
+    private long CollectMemoryStalls() {
+        long stalls = 0;
+        stalls += ILayers.Cache?.ConsumePendingStalls() ?? 0;
+        stalls += DLayers.Cache?.ConsumePendingStalls() ?? 0;
+        stalls += ILayers.Tlb?.ConsumePendingStalls() ?? 0;
+        stalls += DLayers.Tlb?.ConsumePendingStalls() ?? 0;
+
+        if (ILayers.Cache is { } ic) {
+            _icacheHitsCounter!.IncrementBy(ic.Hits - _lastIHits);
+            _icacheMissesCounter!.IncrementBy(ic.Misses - _lastIMisses);
+            _lastIHits = ic.Hits;
+            _lastIMisses = ic.Misses;
+        }
+
+        if (DLayers.Cache is { } dc) {
+            _dcacheHitsCounter!.IncrementBy(dc.Hits - _lastDHits);
+            _dcacheMissesCounter!.IncrementBy(dc.Misses - _lastDMisses);
+            _lastDHits = dc.Hits;
+            _lastDMisses = dc.Misses;
+        }
+
+        if (ILayers.Tlb is { } it) {
+            _itlbHitsCounter!.IncrementBy(it.Hits - _lastITlbHits);
+            _itlbMissesCounter!.IncrementBy(it.Misses - _lastITlbMisses);
+            _lastITlbHits = it.Hits;
+            _lastITlbMisses = it.Misses;
+        }
+
+        if (DLayers.Tlb is { } dt) {
+            _dtlbHitsCounter!.IncrementBy(dt.Hits - _lastDTlbHits);
+            _dtlbMissesCounter!.IncrementBy(dt.Misses - _lastDTlbMisses);
+            _lastDTlbHits = dt.Hits;
+            _lastDTlbMisses = dt.Misses;
+        }
+
+        return stalls;
     }
 
     // Source registers of the instruction IF produced last cycle — the one
