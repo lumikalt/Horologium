@@ -15,6 +15,8 @@ public interface IDecoder {
     /// Thrown if the bytes do not form a legal instruction.
     /// </exception>
     IInstruction Decode(ulong pc, IMemory memory);
+    
+    IInstruction Decode(ulong pc, uint raw);
 
     /// <summary>
     /// The number of bytes consumed by the instruction at <paramref name="pc"/>.
