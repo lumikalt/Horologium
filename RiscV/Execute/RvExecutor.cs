@@ -142,6 +142,59 @@ public sealed class RvExecutor : IExecutor {
 
             RvFence => ExecuteResult.Clean, // NOP in single-core simulation
 
+            // ── M extension ───────────────────────────────────────────────────
+            // MUL: lower 32 bits of product (signed or unsigned — same result)
+            RvMul(_, var rs1, var rs2) =>
+                Reg(regs.Read(rs1) * regs.Read(rs2)),
+
+            // MULH: upper 32 bits, signed × signed
+            RvMulh(_, var rs1, var rs2) =>
+                Reg((ulong)(uint)((Int128)(int)regs.Read(rs1) * (Int128)(int)regs.Read(rs2) >> 32)),
+
+            // MULHSU: upper 32 bits, signed × unsigned
+            RvMulhsu(_, var rs1, var rs2) =>
+                Reg((ulong)(uint)((Int128)(int)regs.Read(rs1) * (Int128)(uint)regs.Read(rs2) >> 32)),
+
+            // MULHU: upper 32 bits, unsigned × unsigned
+            RvMulhu(_, var rs1, var rs2) =>
+                Reg((ulong)(uint)((UInt128)(uint)regs.Read(rs1) * (UInt128)(uint)regs.Read(rs2) >> 32)),
+
+            // DIV: signed truncated division; div-by-zero → -1; INT_MIN/-1 → INT_MIN
+            RvDiv(_, var rs1, var rs2) => DivSigned(regs, rs1, rs2),
+
+            // DIVU: unsigned division; div-by-zero → 2^32-1
+            RvDivu(_, var rs1, var rs2) => (uint)regs.Read(rs2) == 0
+                ? Reg(0xFFFF_FFFF)
+                : Reg((uint)regs.Read(rs1) / (uint)regs.Read(rs2)),
+
+            // REM: signed remainder; div-by-zero → rs1; INT_MIN/-1 → 0
+            RvRem(_, var rs1, var rs2) => RemSigned(regs, rs1, rs2),
+
+            // REMU: unsigned remainder; div-by-zero → rs1
+            RvRemu(_, var rs1, var rs2) => (uint)regs.Read(rs2) == 0
+                ? Reg(regs.Read(rs1))
+                : Reg((uint)regs.Read(rs1) % (uint)regs.Read(rs2)),
+
+            // ── A extension (single-core: SC always succeeds, no reservation needed) ──
+            RvLrW(_, var rs1) =>
+                Load(memory, regs.Read(rs1), 0, 4, false, 32),
+
+            RvScW(_, var rs1, var rs2) => AmoSc(memory, regs, rs1, rs2),
+
+            RvAmoswapW(_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (_, v) => v),
+            RvAmoaddW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a + v),
+            RvAmoxorW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a ^ v),
+            RvAmoandW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a & v),
+            RvAmoorW  (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a | v),
+            RvAmominW (_, var rs1, var rs2) =>
+                Amo(memory, regs, rs1, rs2, (a, v) => (uint)Math.Min((int)a, (int)v)),
+            RvAmomaxW (_, var rs1, var rs2) =>
+                Amo(memory, regs, rs1, rs2, (a, v) => (uint)Math.Max((int)a, (int)v)),
+            RvAmominuW(_, var rs1, var rs2) =>
+                Amo(memory, regs, rs1, rs2, (a, v) => Math.Min(a, v)),
+            RvAmomaxuW(_, var rs1, var rs2) =>
+                Amo(memory, regs, rs1, rs2, (a, v) => Math.Max(a, v)),
+
             RvCsrrw (_, var rs1, var csr) => ExecuteCsr(
                 state, rs1, csr,
                 (old, src) => src
@@ -177,6 +230,42 @@ public sealed class RvExecutor : IExecutor {
 
     private static ExecuteResult Reg(ulong value) =>
         ExecuteResult.WithResult(value & 0xFFFFFFFF); // truncate to 32 bits
+
+    private static ExecuteResult DivSigned(IRegisterFile regs, int rs1, int rs2) {
+        int a = (int)regs.Read(rs1);
+        int b = (int)regs.Read(rs2);
+        if (b == 0) return Reg(0xFFFF_FFFF);             // div-by-zero → -1
+        if (a == int.MinValue && b == -1) return Reg(unchecked((uint)int.MinValue)); // overflow
+        return Reg(unchecked((uint)(a / b)));
+    }
+
+    private static ExecuteResult RemSigned(IRegisterFile regs, int rs1, int rs2) {
+        int a = (int)regs.Read(rs1);
+        int b = (int)regs.Read(rs2);
+        if (b == 0) return Reg(regs.Read(rs1));           // div-by-zero → rs1
+        if (a == int.MinValue && b == -1) return Reg(0);  // overflow → 0
+        return Reg(unchecked((uint)(a % b)));
+    }
+
+    // Atomic read-modify-write. Returns original value; combines with rs2 and stores.
+    private static ExecuteResult Amo(
+        IMemory memory,
+        IRegisterFile regs,
+        int rs1,
+        int rs2,
+        Func<uint, uint, uint> combine
+    ) {
+        ulong addr = regs.Read(rs1);
+        var old = (uint)memory.Read(addr, 4);
+        memory.Write(addr, combine(old, (uint)regs.Read(rs2)), 4);
+        return Reg(old);
+    }
+
+    // SC.W always succeeds in single-core (no competing stores possible).
+    private static ExecuteResult AmoSc(IMemory memory, IRegisterFile regs, int rs1, int rs2) {
+        memory.Write(regs.Read(rs1), regs.Read(rs2), 4);
+        return Reg(0); // 0 = success
+    }
 
     private static ExecuteResult Load(
         IMemory memory,

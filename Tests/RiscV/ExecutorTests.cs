@@ -378,4 +378,194 @@ public class ExecutorTests {
         Assert.True(r.BranchTaken);
         Assert.Equal(0x204UL, r.BranchTarget); // target = x2+4 = 0x204
     }
+
+    // ── M extension ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Execute_Mul_LowerHalf() {
+        // mul x1, x2, x3  (x2=7, x3=6 → x1=42)
+        RvArchState s = MakeState((2, 7), (3, 6));
+        ExecuteResult r = Exec(0x023100B3, s);
+        Assert.Equal(42UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Mul_Overflow_TruncatesToLower32() {
+        // 0x80000001 × 2 = 0x100000002 → lower 32 = 0x00000002
+        RvArchState s = MakeState((2, 0x80000001), (3, 2));
+        ExecuteResult r = Exec(0x023100B3, s);
+        Assert.Equal(2UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Mulh_SignedUpperHalf() {
+        // (-1) × (-1) = 1, upper 32 of 0x0000_0000_0000_0001 = 0
+        RvArchState s = MakeState((2, 0xFFFFFFFF), (3, 0xFFFFFFFF)); // -1 × -1
+        ExecuteResult r = Exec(0x023110B3, s); // mulh x1, x2, x3
+        Assert.Equal(0UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Mulh_NegativeTimesPositive() {
+        // (-1) × 1 = -1, upper 32 of -1 as 64-bit = 0xFFFFFFFF
+        RvArchState s = MakeState((2, 0xFFFFFFFF), (3, 1)); // -1 × 1
+        ExecuteResult r = Exec(0x023110B3, s);
+        Assert.Equal(0xFFFFFFFFUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Mulhu_UnsignedUpperHalf() {
+        // 0xFFFFFFFF × 0xFFFFFFFF = 0xFFFFFFFE_00000001, upper = 0xFFFFFFFE
+        RvArchState s = MakeState((2, 0xFFFFFFFF), (3, 0xFFFFFFFF));
+        ExecuteResult r = Exec(0x023130B3, s); // mulhu x1, x2, x3
+        Assert.Equal(0xFFFFFFFEUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Mulhsu_SignedUnsignedUpperHalf() {
+        // -1 (signed) × 0xFFFFFFFF (unsigned) = -0xFFFFFFFF = -4294967295
+        // As 64-bit: 0xFFFF_FFFF_0000_0001, upper 32 = 0xFFFFFFFF
+        RvArchState s = MakeState((2, 0xFFFFFFFF), (3, 0xFFFFFFFF)); // -1 × 4294967295
+        ExecuteResult r = Exec(0x023120B3, s); // mulhsu x1, x2, x3
+        Assert.Equal(0xFFFFFFFFUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Div_Basic() {
+        // 10 / 3 = 3 (truncated toward zero)
+        RvArchState s = MakeState((2, 10), (3, 3));
+        ExecuteResult r = Exec(0x023140B3, s); // div x1, x2, x3
+        Assert.Equal(3UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Div_NegativeResult_TruncatesTowardZero() {
+        // -7 / 2 = -3 (truncate toward zero, not -4)
+        RvArchState s = MakeState((2, unchecked((uint)-7)), (3, 2));
+        ExecuteResult r = Exec(0x023140B3, s);
+        Assert.Equal(unchecked((uint)-3), (uint)r.RegisterResult!.Value);
+    }
+
+    [Fact]
+    public void Execute_Div_ByZero_ReturnsMinusOne() {
+        RvArchState s = MakeState((2, 5), (3, 0));
+        ExecuteResult r = Exec(0x023140B3, s);
+        Assert.Equal(0xFFFFFFFFUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Div_Overflow_IntMinDivMinusOne() {
+        // INT_MIN / -1 overflows — result is INT_MIN per spec
+        RvArchState s = MakeState((2, unchecked((uint)int.MinValue)), (3, unchecked((uint)-1)));
+        ExecuteResult r = Exec(0x023140B3, s);
+        Assert.Equal(unchecked((uint)int.MinValue), (uint)r.RegisterResult!.Value);
+    }
+
+    [Fact]
+    public void Execute_Divu_Basic() {
+        // 10u / 3u = 3u
+        RvArchState s = MakeState((2, 10), (3, 3));
+        ExecuteResult r = Exec(0x023150B3, s); // divu x1, x2, x3
+        Assert.Equal(3UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Divu_ByZero_ReturnsMaxUint() {
+        RvArchState s = MakeState((2, 5), (3, 0));
+        ExecuteResult r = Exec(0x023150B3, s);
+        Assert.Equal(0xFFFFFFFFUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Rem_Basic() {
+        // 10 % 3 = 1
+        RvArchState s = MakeState((2, 10), (3, 3));
+        ExecuteResult r = Exec(0x023160B3, s); // rem x1, x2, x3
+        Assert.Equal(1UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Rem_ByZero_ReturnsRs1() {
+        RvArchState s = MakeState((2, 42), (3, 0));
+        ExecuteResult r = Exec(0x023160B3, s);
+        Assert.Equal(42UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Rem_Overflow_ReturnsZero() {
+        // INT_MIN % -1 → 0
+        RvArchState s = MakeState((2, unchecked((uint)int.MinValue)), (3, unchecked((uint)-1)));
+        ExecuteResult r = Exec(0x023160B3, s);
+        Assert.Equal(0UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Remu_Basic() {
+        // 10u % 3u = 1u
+        RvArchState s = MakeState((2, 10), (3, 3));
+        ExecuteResult r = Exec(0x023170B3, s); // remu x1, x2, x3
+        Assert.Equal(1UL, r.RegisterResult);
+    }
+
+    // ── A extension ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Execute_AmoaddW_ReturnsPreviousAndUpdatesMemory() {
+        // amoadd.w x1, x3, (x2)  — x2=address=100, x3=operand=5, mem[100]=10
+        RvArchState s = MakeState((2, 100), (3, 5));
+        _mem.Write(100, 10, 4); // pre-load memory
+        ExecuteResult r = Exec(0x003120AF, s); // amoadd.w x1, x3, (x2)
+        Assert.Equal(10UL, r.RegisterResult);  // original value
+        Assert.Equal(15UL, _mem.Read(100, 4)); // updated in memory
+    }
+
+    [Fact]
+    public void Execute_AmoswapW_SwapsValue() {
+        RvArchState s = MakeState((2, 100), (3, 99));
+        _mem.Write(100, 42, 4);
+        ExecuteResult r = Exec(0x083120AF, s); // amoswap.w x1, x3, (x2)
+        Assert.Equal(42UL, r.RegisterResult);  // original
+        Assert.Equal(99UL, _mem.Read(100, 4)); // swapped
+    }
+
+    [Fact]
+    public void Execute_AmoandW_MasksMemory() {
+        RvArchState s = MakeState((2, 100), (3, 0x0F));
+        _mem.Write(100, 0xFF, 4);
+        Exec(0x603120AF, s); // amoand.w x1, x3, (x2)
+        Assert.Equal(0x0FUL, _mem.Read(100, 4));
+    }
+
+    [Fact]
+    public void Execute_AmoorW_SetsMemoryBits() {
+        RvArchState s = MakeState((2, 100), (3, 0xF0));
+        _mem.Write(100, 0x0F, 4);
+        Exec(0x403120AF, s); // amoor.w x1, x3, (x2)
+        Assert.Equal(0xFFUL, _mem.Read(100, 4));
+    }
+
+    [Fact]
+    public void Execute_AmominW_KeepsMinimum() {
+        // Signed min: mem[100] = -1, rs2 = 1 → min(-1, 1) = -1
+        RvArchState s = MakeState((2, 100), (3, 1));
+        _mem.Write(100, 0xFFFFFFFF, 4); // -1 signed
+        Exec(0x803120AF, s); // amomin.w x1, x3, (x2)  funct5=0x10
+        Assert.Equal(0xFFFFFFFFUL, _mem.Read(100, 4)); // -1 is smaller
+    }
+
+    [Fact]
+    public void Execute_LrW_LoadsValue() {
+        RvArchState s = MakeState((2, 100));
+        _mem.Write(100, 0xDEADBEEF, 4);
+        ExecuteResult r = Exec(0x100120AF, s); // lr.w x1, (x2)
+        Assert.Equal(0xDEADBEEFUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_ScW_StoresAndReturnsZero() {
+        RvArchState s = MakeState((2, 100), (3, 0xABCD));
+        ExecuteResult r = Exec(0x183120AF, s); // sc.w x1, x3, (x2)
+        Assert.Equal(0UL, r.RegisterResult);           // 0 = success
+        Assert.Equal(0xABCDUL, _mem.Read(100, 4));     // value stored
+    }
 }

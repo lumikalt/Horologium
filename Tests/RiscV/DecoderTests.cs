@@ -461,4 +461,121 @@ public class DecoderTests {
         // 0xFFFFFFFF has opcode 0x7F, which is not a valid RV32I opcode
         Assert.Throws<IllegalInstructionException>(() => D(0xFFFFFFFF));
     }
+
+    // ── M extension ───────────────────────────────────────────────────────────
+
+    // Encoding: funct7=0x01, rs2=x3, rs1=x2, funct3=N, rd=x1, opcode=0x33
+    // mul  x1,x2,x3 = 0x023100B3
+    // mulh x1,x2,x3 = 0x023110B3  (funct3=1)
+    // etc.
+
+    [Fact]
+    public void Decode_Mul() {
+        IInstruction i = D(0x023100B3); // mul x1, x2, x3
+        Assert.IsType<RvMul>(i.Payload);
+        Assert.Equal(InstructionClass.IntegerMulDiv, i.Class);
+        var op = (RvMul)i.Payload!;
+        Assert.Equal(1, op.Rd); Assert.Equal(2, op.Rs1); Assert.Equal(3, op.Rs2);
+    }
+
+    [Fact]
+    public void Decode_Mulh() {
+        IInstruction i = D(0x023110B3); // mulh x1, x2, x3
+        Assert.IsType<RvMulh>(i.Payload);
+        Assert.Equal(InstructionClass.IntegerMulDiv, i.Class);
+    }
+
+    [Fact]
+    public void Decode_Mulhsu() {
+        IInstruction i = D(0x023120B3); // mulhsu x1, x2, x3
+        Assert.IsType<RvMulhsu>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Mulhu() {
+        IInstruction i = D(0x023130B3); // mulhu x1, x2, x3
+        Assert.IsType<RvMulhu>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Div() {
+        IInstruction i = D(0x023140B3); // div x1, x2, x3
+        Assert.IsType<RvDiv>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Divu() {
+        IInstruction i = D(0x023150B3); // divu x1, x2, x3
+        Assert.IsType<RvDivu>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Rem() {
+        IInstruction i = D(0x023160B3); // rem x1, x2, x3
+        Assert.IsType<RvRem>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Remu() {
+        IInstruction i = D(0x023170B3); // remu x1, x2, x3
+        Assert.IsType<RvRemu>(i.Payload);
+    }
+
+    // ── A extension ───────────────────────────────────────────────────────────
+
+    // AMO encoding: [31:27]=funct5, [26]=aq, [25]=rl, [24:20]=rs2,
+    //               [19:15]=rs1, [14:12]=010(word), [11:7]=rd, [6:0]=0x2F
+
+    [Fact]
+    public void Decode_LrW() {
+        // lr.w x1, (x2)  →  funct5=0x02, rs2=0, rs1=2, rd=1
+        // 0b 00010_0_0_00000_00010_010_00001_0101111 = 0x100120AF
+        IInstruction i = D(0x100120AF);
+        Assert.IsType<RvLrW>(i.Payload);
+        Assert.Equal(InstructionClass.Atomic, i.Class);
+        var op = (RvLrW)i.Payload!;
+        Assert.Equal(1, op.Rd); Assert.Equal(2, op.Rs1);
+        Assert.Single(i.SourceRegisters); // LR.W only reads the address register
+    }
+
+    [Fact]
+    public void Decode_ScW() {
+        // sc.w x1, x3, (x2)  →  funct5=0x03, rs2=3, rs1=2, rd=1
+        // 0b 00011_0_0_00011_00010_010_00001_0101111 = 0x183120AF
+        IInstruction i = D(0x183120AF);
+        Assert.IsType<RvScW>(i.Payload);
+        Assert.Equal(InstructionClass.Atomic, i.Class);
+    }
+
+    [Fact]
+    public void Decode_AmoswapW() {
+        // amoswap.w x1, x3, (x2)  →  funct5=0x01
+        // 0b 00001_0_0_00011_00010_010_00001_0101111 = 0x083120AF
+        IInstruction i = D(0x083120AF);
+        Assert.IsType<RvAmoswapW>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_AmoaddW() {
+        // amoadd.w x1, x3, (x2)  →  funct5=0x00
+        // 0b 00000_0_0_00011_00010_010_00001_0101111 = 0x003120AF
+        IInstruction i = D(0x003120AF);
+        Assert.IsType<RvAmoaddW>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_AmoorW() {
+        // amoor.w x1, x3, (x2)  →  funct5=0x08
+        // 0b 01000_0_0_00011_00010_010_00001_0101111 = 0x403120AF
+        IInstruction i = D(0x403120AF);
+        Assert.IsType<RvAmoorW>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_AmoandW() {
+        // amoand.w x1, x3, (x2)  →  funct5=0x0C
+        // 0b 01100_0_0_00011_00010_010_00001_0101111 = 0x603120AF
+        IInstruction i = D(0x603120AF);
+        Assert.IsType<RvAmoandW>(i.Payload);
+    }
 }

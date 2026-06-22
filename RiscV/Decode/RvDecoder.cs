@@ -31,6 +31,7 @@ public sealed class RvDecoder : IDecoder {
             0x37 => DecodeUType(pc, raw, rd, raw, true),
             0x17 => DecodeUType(pc, raw, rd, raw, false),
             0x73 => DecodeSystem(pc, raw, rd, rs1, funct3, raw),
+            0x2F => DecodeAmo(pc, raw, rd, rs1, rs2, funct3, (raw >> 27) & 0x1F),
             0x0F => new RvInstruction(pc, raw, -1, [], InstructionClass.Fence, new RvFence()),
             _ => throw new IllegalInstructionException(
                 pc, raw,
@@ -51,6 +52,25 @@ public sealed class RvDecoder : IDecoder {
         uint funct7
     ) {
         var sources = (IReadOnlyList<int>)[rs1, rs2,];
+        if (funct7 == 0x01) {
+            // M extension: multiply / divide
+            RvOp mop = funct3 switch {
+                0x0 => new RvMul(rd, rs1, rs2),
+                0x1 => new RvMulh(rd, rs1, rs2),
+                0x2 => new RvMulhsu(rd, rs1, rs2),
+                0x3 => new RvMulhu(rd, rs1, rs2),
+                0x4 => new RvDiv(rd, rs1, rs2),
+                0x5 => new RvDivu(rd, rs1, rs2),
+                0x6 => new RvRem(rd, rs1, rs2),
+                0x7 => new RvRemu(rd, rs1, rs2),
+                _ => throw new IllegalInstructionException(
+                    pc, raw,
+                    $"Unknown M-extension funct3=0x{funct3:X}"
+                ),
+            };
+            return new RvInstruction(pc, raw, rd, sources, InstructionClass.IntegerMulDiv, mop);
+        }
+
         RvOp op = (funct3, funct7) switch {
             (0x0, 0x00) => new RvAdd(rd, rs1, rs2),
             (0x0, 0x20) => new RvSub(rd, rs1, rs2),
@@ -279,6 +299,46 @@ public sealed class RvDecoder : IDecoder {
             ),
         };
         return new RvInstruction(pc, raw, rd, sources, InstructionClass.System, op);
+    }
+
+    // ── A extension (AMO) ─────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeAmo(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        int rs2,
+        uint funct3,
+        uint funct5
+    ) {
+        if (funct3 != 0x2)
+            throw new IllegalInstructionException(
+                pc, raw,
+                $"AMO with non-word funct3=0x{funct3:X} (only .W supported)"
+            );
+
+        // LR.W reads only the address register; all others use rs1 (addr) and rs2 (operand).
+        IReadOnlyList<int> sources = funct5 == 0x02 ? [rs1] : [rs1, rs2];
+
+        RvOp op = funct5 switch {
+            0x02 => new RvLrW(rd, rs1),
+            0x03 => new RvScW(rd, rs1, rs2),
+            0x01 => new RvAmoswapW(rd, rs1, rs2),
+            0x00 => new RvAmoaddW(rd, rs1, rs2),
+            0x04 => new RvAmoxorW(rd, rs1, rs2),
+            0x0C => new RvAmoandW(rd, rs1, rs2),
+            0x08 => new RvAmoorW(rd, rs1, rs2),
+            0x10 => new RvAmominW(rd, rs1, rs2),
+            0x14 => new RvAmomaxW(rd, rs1, rs2),
+            0x18 => new RvAmominuW(rd, rs1, rs2),
+            0x1C => new RvAmomaxuW(rd, rs1, rs2),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown AMO funct5=0x{funct5:X2}"
+            ),
+        };
+        return new RvInstruction(pc, raw, rd, sources, InstructionClass.Atomic, op);
     }
 
     // ── Immediate helpers ─────────────────────────────────────────────────────

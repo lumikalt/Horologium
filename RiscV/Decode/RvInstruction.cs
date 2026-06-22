@@ -135,3 +135,43 @@ public record RvCsrrci(int Rd, uint Zimm, uint Csr) : RvOp;
 public record RvMret : RvOp;
 
 public record RvFence : RvOp;
+
+// ── M extension (multiply / divide) ──────────────────────────────────────────
+public record RvMul(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvMulh(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvMulhsu(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvMulhu(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvDiv(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvDivu(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvRem(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvRemu(int Rd, int Rs1, int Rs2) : RvOp;
+
+// ── A extension (atomics) ─────────────────────────────────────────────────────
+public record RvLrW(int Rd, int Rs1) : RvOp;
+
+public record RvScW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoswapW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoaddW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoxorW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoandW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoorW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmominW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmomaxW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmominuW(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmomaxuW(int Rd, int Rs1, int Rs2) : RvOp;

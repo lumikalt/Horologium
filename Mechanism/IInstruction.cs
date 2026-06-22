@@ -68,4 +68,7 @@ public enum InstructionClass {
 
     /// <summary>Fence or memory ordering instruction.</summary>
     Fence,
+
+    /// <summary>Atomic read-modify-write (LR/SC/AMO).</summary>
+    Atomic,
 }

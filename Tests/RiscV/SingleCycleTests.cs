@@ -320,4 +320,117 @@ public class SingleCycleTests {
         Assert.Equal(3L, snap.Counters["retired"]); // ebreak doesn't retire
         Assert.Equal(3L, snap.Counters["cycles"]);
     }
+
+    // ── M extension ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Mul_BasicMultiply() {
+        (SingleCycleTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x00700093, // addi x1, x0, 7
+            0x00600113, // addi x2, x0, 6
+            0x022081B3, // mul  x3, x1, x2   (x3 = 42)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(42u, Reg(train, 3));
+    }
+
+    [Fact]
+    public void Div_TwelveByFive() {
+        (SingleCycleTrain train, FlatMemory mem) = Make();
+        // div x3, x1, x2  (x1=12, x2=5 → x3=2)
+        // funct7=0x01, rs2=x2(2), rs1=x1(1), funct3=0x4, rd=x3(3), opcode=0x33
+        // 0b0000001_00010_00001_100_00011_0110011 = 0x0220C1B3
+        Load(
+            mem,
+            0x00C00093, // addi x1, x0, 12
+            0x00500113, // addi x2, x0, 5
+            0x0220C1B3, // div  x3, x1, x2   (12 / 5 = 2)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(2u, Reg(train, 3));
+    }
+
+    [Fact]
+    public void Rem_TwelveByFive() {
+        (SingleCycleTrain train, FlatMemory mem) = Make();
+        // rem x3, x1, x2  (x1=12, x2=5 → x3=2)
+        // funct3=0x6: 0b0000001_00010_00001_110_00011_0110011 = 0x0220E1B3
+        Load(
+            mem,
+            0x00C00093, // addi x1, x0, 12
+            0x00500113, // addi x2, x0, 5
+            0x0220E1B3, // rem  x3, x1, x2   (12 % 5 = 2)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(2u, Reg(train, 3));
+    }
+
+    [Fact]
+    public void Div_ByZero_ReturnsMinusOne() {
+        (SingleCycleTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x00500093, // addi x1, x0, 5
+            0x00000113, // addi x2, x0, 0
+            0x0220C1B3, // div  x3, x1, x2   (5 / 0 → -1)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(uint.MaxValue, Reg(train, 3)); // 0xFFFFFFFF = -1
+    }
+
+    // ── A extension ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Amoadd_AccumulatesInMemory() {
+        (SingleCycleTrain train, FlatMemory mem) = Make(memSize: 65536);
+        // Store 10 at address 0x200, then amoadd 5 → mem[0x200] = 15, x3 = 10
+        // amoadd.w x3, x2, (x1)  funct5=0x00, aq=0, rl=0
+        // funct7 bits [31:25] = 00000_00, rs2=x2(2), rs1=x1(1), funct3=010, rd=x3(3), opcode=0x2F
+        // 0b0000000_00010_00001_010_00011_0101111 = 0x002080AF... wait
+        // 0b 00000_0_0_00010_00001_010_00011_0101111
+        // = 0x002080AF  Hmm let me compute:
+        // 0<<27 | 0<<26 | 0<<25 | 2<<20 | 1<<15 | 2<<12 | 3<<7 | 0x2F
+        // = 0 | 0 | 0 | 0x00200000 | 0x00008000 | 0x00002000 | 0x00000180 | 0x2F
+        // = 0x0020A1AF
+        mem.Write(0x200, 10, 4);
+        Load(
+            mem,
+            0x20000093, // addi x1, x0, 0x200   (lui would need 0x200 < 2048, so addi works)
+            0x00500113, // addi x2, x0, 5
+            0x0020A1AF, // amoadd.w x3, x2, (x1)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(10u, Reg(train, 3));           // original value returned in rd
+        Assert.Equal(15u, (uint)mem.Read(0x200, 4)); // memory updated
+    }
+
+    [Fact]
+    public void LrSc_StoreConditionalSucceeds() {
+        (SingleCycleTrain train, FlatMemory mem) = Make(memSize: 65536);
+        mem.Write(0x200, 99, 4);
+        // lr.w x1, (x2)  →  x1 = 99
+        // sc.w x3, x4, (x2)  →  x3 = 0 (success), mem[0x200] = x4
+        // lr.w x1,(x2) = 0x100120AF (from decoder test)
+        // sc.w x3,x4,(x2) = funct5=0x03, rs2=x4(4), rs1=x2(2), rd=x3(3)
+        // 0b 00011_0_0_00100_00010_010_00011_0101111 = 0x184121AF
+        Load(
+            mem,
+            0x20000113, // addi x2, x0, 0x200
+            0x03700213, // addi x4, x0, 55
+            0x100120AF, // lr.w  x1, (x2)     (x1 = 99)
+            0x184121AF, // sc.w  x3, x4, (x2) (x3 = 0, mem[0x200] = 55)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(99u, Reg(train, 1));            // lr.w loaded original
+        Assert.Equal(0u, Reg(train, 3));             // sc.w succeeded
+        Assert.Equal(55u, (uint)mem.Read(0x200, 4)); // new value stored
+    }
 }
