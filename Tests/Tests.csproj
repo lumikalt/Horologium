@@ -25,4 +25,11 @@
         <ProjectReference Include="..\RiscV\RiscV.csproj"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <None Include="..\TestBinaries\test.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>test.elf</Link>
+        </None>
+    </ItemGroup>
+
 </Project>
