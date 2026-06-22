@@ -1,5 +1,4 @@
 using Mechanism;
-using RiscV.Decode;
 
 namespace RiscV.Trains.Pipeline;
 

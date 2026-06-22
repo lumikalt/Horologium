@@ -39,7 +39,7 @@ public class EscapementTests {
         esc.Schedule(() => order.Add(Phase.Flush), 1, Phase.Flush);
         esc.Schedule(() => order.Add(Phase.Fetch), 1, Phase.Fetch);
         esc.Schedule(() => order.Add(Phase.Commit), 1, Phase.Commit);
-        esc.Schedule(() => order.Add(Phase.PortUpdate), 1, Phase.PortUpdate);
+        esc.Schedule(() => order.Add(Phase.ArborUpdate), 1, Phase.ArborUpdate);
         esc.Schedule(() => order.Add(Phase.Execute), 1, Phase.Execute);
         esc.Schedule(() => order.Add(Phase.Writeback), 1, Phase.Writeback);
         esc.Schedule(() => order.Add(Phase.Collection), 1, Phase.Collection);
@@ -50,7 +50,7 @@ public class EscapementTests {
             [
                 Phase.Fetch,
                 Phase.Execute,
-                Phase.PortUpdate,
+                Phase.ArborUpdate,
                 Phase.Writeback,
                 Phase.Commit,
                 Phase.Flush,

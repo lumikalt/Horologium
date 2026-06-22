@@ -161,7 +161,17 @@ public sealed class SetAssociativeCache : IMemory {
         _backing.Write(address, value, bytes); // write-through
 
         var offset = (int)(address & (ulong)_offsetMask);
-        if (offset + bytes > _blockSize) return; // cross-boundary — don't update cache
+        if (offset + bytes > _blockSize) {
+            // Cross-boundary write: invalidate every line the write touches so
+            // future reads don't return stale data.
+            ulong end = address + (ulong)bytes;
+            for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
+                Decompose(a, out int s, out ulong t, out _);
+                for (var w = 0; w < _ways; w++)
+                    if (_tags[s][w] == t) _tags[s][w] = null;
+            }
+            return;
+        }
 
         Decompose(address, out int set, out ulong tag, out _);
         int way = FindWay(set, tag);

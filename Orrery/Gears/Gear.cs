@@ -6,8 +6,6 @@ using Orrery.Tree;
 namespace Orrery.Gears;
 
 public abstract class Gear {
-    private readonly List<object> _outArbors = [];
-    private readonly List<object> _inArbors = [];
     private readonly List<object> _settings = [];
 
     // ── Identity ──────────────────────────────────────────────────────────────
@@ -39,16 +37,12 @@ public abstract class Gear {
 
     protected OutArbor<T> AddOutArbor<T>(string name) {
         Node.AssertLifecycle(SimLifecycle.Building, "add an OutArbor");
-        var arbor = new OutArbor<T>(name, Escapement);
-        _outArbors.Add(arbor);
-        return arbor;
+        return new OutArbor<T>(name, Escapement);
     }
 
     protected InArbor<T> AddInArbor<T>(string name) {
         Node.AssertLifecycle(SimLifecycle.Building, "add an InArbor");
-        var arbor = new InArbor<T>(name, Node);
-        _inArbors.Add(arbor);
-        return arbor;
+        return new InArbor<T>(name, Node);
     }
 
     // ── Setting registration ──────────────────────────────────────────────────
@@ -67,17 +61,16 @@ public abstract class Gear {
     /// <summary>
     /// Locks all settings on this gear. Called by the Train before BeginRunning().
     /// </summary>
-    public void LockSettings() =>
-        _settings.ToList().ForEach(s => {
-                // Settings are erased to object — use reflection-free dynamic dispatch
-                if (s is ILockable lockable) lockable.Lock();
-            }
-        );
+    public void LockSettings() {
+        foreach (object s in _settings)
+            if (s is ILockable lockable)
+                lockable.Lock();
+    }
 
     // ── Lifecycle hooks ───────────────────────────────────────────────────────
 
     public virtual void Initialize() { }
-    public virtual void Finalize() { }
+    public virtual void Seal() { }
     public virtual void Reset() { Dials.Reset(); }
-    public virtual void Tick() { }
+    public virtual void Wind() { }
 }

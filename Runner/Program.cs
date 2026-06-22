@@ -25,7 +25,7 @@ FlatMemory mem = Mem(
     0x00100073  // ebreak
 );
 
-var train = new FiveStageTrain(new RvMechanism(), mem, 0, true, null);
+var train = new FiveStageTrain(new RvMechanism(), mem);
 RevolutionResult result = train.Run();
 Console.WriteLine($"x1={train.ArchState.IntegerRegisters.Read(1)} (expect 5)");
 Console.WriteLine(result);

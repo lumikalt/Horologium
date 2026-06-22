@@ -6,7 +6,7 @@ namespace Orrery.Ports;
 /// The sending end of a typed communication channel between Gears.
 ///
 /// Sending data does not deliver it immediately — it schedules delivery
-/// on the Escapement at (currentTick + latency), at phase PortUpdate.
+/// on the Escapement at (currentTick + latency), at phase ArborUpdate.
 /// This models the pipeline register delay, wire delay, and bus latency uniformly.
 /// </summary>
 public sealed class OutArbor<T> {
@@ -55,7 +55,7 @@ public sealed class OutArbor<T> {
 
     /// <summary>
     /// Sends data through this arbor. Delivery is scheduled on the Escapement
-    /// at (currentTick + latency), phase PortUpdate.
+    /// at (currentTick + latency), phase ArborUpdate.
     ///
     /// The sender continues executing immediately — this is not a blocking call.
     /// </summary>
@@ -70,7 +70,7 @@ public sealed class OutArbor<T> {
         _escapement.ScheduleAfter(
             () => target.Deliver(data),
             _latency,
-            Phase.PortUpdate
+            Phase.ArborUpdate
         );
     }
 }

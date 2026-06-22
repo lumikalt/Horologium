@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text;
 
 namespace Orrery.Tree;
 
@@ -174,7 +175,7 @@ public class SimNode {
     /// </summary>
     public string DumpTree(int indent = 0) {
         var prefix = new string(' ', indent * 2);
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         sb.AppendLine($"{prefix}{Name}  [{GetType().Name}]");
         foreach (SimNode child in _children) sb.Append(child.DumpTree(indent + 1));
         return sb.ToString();

@@ -51,7 +51,7 @@ internal class SingleCycleCore(
         );
     }
 
-    public override void Tick() {
+    public override void Wind() {
         ArchState.Pc = entryPoint;
         ScheduleNextInstruction();
     }

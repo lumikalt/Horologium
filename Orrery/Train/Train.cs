@@ -1,3 +1,4 @@
+using System.Text;
 using Orrery.Gears;
 using Orrery.Observation;
 using Orrery.Scheduling;
@@ -22,7 +23,7 @@ public sealed record RevolutionResult(
         Snapshots.FirstOrDefault(s => s.OwnerPath == ownerPath);
 
     public override string ToString() {
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         sb.AppendLine($"Revolution complete — {TotalTicks} ticks, {TotalEvents} events");
         foreach (DialBoardSnapshot snap in Snapshots) sb.Append(snap);
         return sb.ToString();
@@ -38,8 +39,8 @@ public sealed record RevolutionResult(
 ///
 ///   1. AddGear()     — register gears (Building phase)
 ///   2. Build()       — Initialize all gears, then transition to Finalizing,
-///                      then Finalize all gears, then lock all settings
-///   3. Run(ticks)    — transition to Running, Tick all gears, run Escapement,
+///                      then Seal all gears, then lock all settings
+///   3. Run(ticks)    — transition to Running, Wind all gears, run Escapement,
 ///                      transition to Finished, return RevolutionResult
 ///   4. Reset()       — reset Escapement and all gears for another Revolution
 ///
@@ -111,7 +112,7 @@ public sealed class Train {
     /// Runs the full build sequence:
     ///   1. Initialize() all Gears        (Building phase)
     ///   2. Transition tree to Finalizing
-    ///   3. Finalize() all Gears          (Finalizing phase — bind arbors here)
+    ///   3. Seal() all Gears              (Finalizing phase — bind arbors here)
     ///   4. Lock all Settings
     ///
     /// After Build(), the Train is ready for Run().
@@ -128,8 +129,8 @@ public sealed class Train {
         // Step 2 — Transition to Finalizing
         Root.BeginFinalizing();
 
-        // Step 3 — Finalize (arbor binding happens here, in subclass overrides)
-        foreach (Gear gear in _gears) gear.Finalize();
+        // Step 3 — Seal (arbor binding happens here, in subclass overrides)
+        foreach (Gear gear in _gears) gear.Seal();
 
         // Step 4 — Lock settings
         foreach (Gear gear in _gears) gear.LockSettings();
@@ -141,7 +142,7 @@ public sealed class Train {
     /// Runs the simulation for up to <paramref name="maxTicks"/> ticks.
     ///
     ///   1. Transition tree to Running
-    ///   2. Tick() all Gears             (each gear schedules its first event)
+    ///   2. Wind() all Gears             (each gear schedules its first event)
     ///   3. Run the Escapement
     ///   4. Transition tree to Finished
     ///   5. Snapshot all DialBoards
@@ -162,8 +163,8 @@ public sealed class Train {
         // Step 1 — Transition to Running
         Root.BeginRunning();
 
-        // Step 2 — Tick all gears (each schedules its first event)
-        foreach (Gear gear in _gears) gear.Tick();
+        // Step 2 — Wind all gears (each schedules its first event)
+        foreach (Gear gear in _gears) gear.Wind();
 
         // Step 3 — Run the Escapement
         long events = _escapement.Run(maxTicks);

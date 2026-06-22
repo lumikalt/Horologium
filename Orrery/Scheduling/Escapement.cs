@@ -13,7 +13,7 @@ public enum Phase {
     Execute = 1,
 
     /// <summary>Delivery of data sent through Arbors.</summary>
-    PortUpdate = 2,
+    ArborUpdate = 2,
 
     /// <summary>Result writeback to architectural state.</summary>
     Writeback = 3,

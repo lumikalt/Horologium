@@ -66,22 +66,22 @@ public class GearTests {
         gear.Initialize();
 
         Assert.True(gear.InitializeCalled);
-        Assert.False(gear.FinalizeCalled);
+        Assert.False(gear.SealCalled);
         Assert.False(gear.ResetCalled);
-        Assert.False(gear.TickCalled);
+        Assert.False(gear.WindCalled);
     }
 
     [Fact]
-    public void Finalize_IsCalled_DuringFinalizing() {
+    public void Seal_IsCalled_DuringFinalizing() {
         var root = new SimNode("top");
         var esc = new Escapement();
         var gear = new TrackingGear("g", root, esc);
 
         gear.Initialize();
         root.BeginFinalizing();
-        gear.Finalize();
+        gear.Seal();
 
-        Assert.True(gear.FinalizeCalled);
+        Assert.True(gear.SealCalled);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class GearTests {
 
         gear.Initialize();
         root.BeginFinalizing();
-        gear.Finalize();
+        gear.Seal();
         root.BeginRunning();
         gear.Reset();
 
@@ -100,18 +100,18 @@ public class GearTests {
     }
 
     [Fact]
-    public void Tick_SchedulesWork() {
+    public void Wind_SchedulesWork() {
         var root = new SimNode("top");
         var esc = new Escapement();
         var gear = new TrackingGear("g", root, esc);
 
         gear.Initialize();
         root.BeginFinalizing();
-        gear.Finalize();
+        gear.Seal();
         root.BeginRunning();
-        gear.Tick();
+        gear.Wind();
 
-        Assert.False(esc.IsIdle); // Tick() should have scheduled something
+        Assert.False(esc.IsIdle); // Wind() should have scheduled something
     }
 
     // ── End-to-end: two gears communicating ──────────────────────────────────
@@ -130,12 +130,12 @@ public class GearTests {
 
         // Finalizing phase
         root.BeginFinalizing();
-        producer.OutInstructions!.Bind(consumer.InInstructions!, 1);
-        consumer.Finalize();
+        producer.OutInstructions!.Bind(consumer.InInstructions!);
+        consumer.Seal();
 
         // Running phase
         root.BeginRunning();
-        producer.Tick();
+        producer.Wind();
 
         esc.Run();
 
@@ -150,16 +150,16 @@ public class GearTests {
     private sealed class TrackingGear(string name, SimNode parent, Escapement esc)
         : Gear(name, parent, esc) {
         public bool InitializeCalled { get; private set; }
-        public bool FinalizeCalled { get; private set; }
+        public bool SealCalled { get; private set; }
         public bool ResetCalled { get; private set; }
-        public bool TickCalled { get; private set; }
+        public bool WindCalled { get; private set; }
 
         public override void Initialize() => InitializeCalled = true;
-        public override void Finalize() => FinalizeCalled = true;
+        public override void Seal() => SealCalled = true;
         public override void Reset() => ResetCalled = true;
 
-        public override void Tick() {
-            TickCalled = true;
+        public override void Wind() {
+            WindCalled = true;
             Escapement.Schedule(() => { }, 1, Phase.Execute);
         }
     }
@@ -175,7 +175,7 @@ public class GearTests {
 
         public override void Initialize() { OutInstructions = AddOutArbor<int>("out_instructions"); }
 
-        public override void Tick() {
+        public override void Wind() {
             // Send three values on ticks 1, 2, 3
             Escapement.Schedule(() => OutInstructions!.Send(10), 1, Phase.Execute);
             Escapement.Schedule(() => OutInstructions!.Send(20), 2, Phase.Execute);
@@ -190,6 +190,6 @@ public class GearTests {
 
         public override void Initialize() { InInstructions = AddInArbor<int>("in_instructions"); }
 
-        public override void Finalize() { InInstructions!.OnReceive = v => Received.Add(v); }
+        public override void Seal() { InInstructions!.OnReceive = v => Received.Add(v); }
     }
 }

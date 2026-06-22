@@ -111,7 +111,7 @@ public class Decoder : IDecoder {
                 dest = x;
                 break;
             case 0x8 when n == 7:
-                op = new SubYX(x, y);
+                op = new SubYx(x, y);
                 cls = InstructionClass.IntegerAlu;
                 read.Add(x);
                 read.Add(y);

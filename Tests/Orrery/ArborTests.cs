@@ -39,7 +39,7 @@ public class ArborTests {
     }
 
     [Fact]
-    public void Send_DeliversAtPortUpdatePhase() {
+    public void Send_DeliversAtArborUpdatePhase() {
         var esc = new Escapement();
         var @out = new OutArbor<string>("out", esc);
         var @in = new InArbor<string>("in");
@@ -51,7 +51,7 @@ public class ArborTests {
         esc.Schedule(() => @out.Send("hello"), 1, Phase.Execute);
         esc.Run();
 
-        Assert.Equal(Phase.PortUpdate, deliveredAt);
+        Assert.Equal(Phase.ArborUpdate, deliveredAt);
     }
 
     [Fact]

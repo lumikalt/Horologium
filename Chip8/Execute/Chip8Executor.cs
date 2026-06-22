@@ -13,12 +13,12 @@ public sealed class Chip8Executor : IExecutor {
             ClearDisplay      => ExecuteResult.Clean,
             Call              => ExecuteResult.Clean, // RCA 1802 — no-op
             Return            => ExecReturn(chip8),
-            Goto g            => ExecuteResult.WithBranch(true, g.imm),
-            CallSub c         => ExecCallSub(chip8, (ushort)(pc + 2), c.imm),
-            SkipEqImm s       => v.Read(s.vx) == s.imm ? Skip(pc) : ExecuteResult.Clean,
-            SkipNeqImm s      => v.Read(s.vx) != s.imm ? Skip(pc) : ExecuteResult.Clean,
-            SkipEq s          => v.Read(s.vx) == v.Read(s.vy) ? Skip(pc) : ExecuteResult.Clean,
-            SkipNeq s         => v.Read(s.vx) != v.Read(s.vy) ? Skip(pc) : ExecuteResult.Clean,
+            Goto g            => ExecuteResult.WithBranch(true, g.Imm),
+            CallSub c         => ExecCallSub(chip8, (ushort)(pc + 2), c.Imm),
+            SkipEqImm s       => v.Read(s.Vx) == s.imm ? Skip(pc) : ExecuteResult.Clean,
+            SkipNeqImm s      => v.Read(s.Vx) != s.imm ? Skip(pc) : ExecuteResult.Clean,
+            SkipEq s          => v.Read(s.Vx) == v.Read(s.vy) ? Skip(pc) : ExecuteResult.Clean,
+            SkipNeq s         => v.Read(s.Vx) != v.Read(s.vy) ? Skip(pc) : ExecuteResult.Clean,
             SetImm s          => ExecuteResult.WithResult(s.imm),
             AddImm a          => ExecuteResult.WithResult((byte)(v.Read(a.vx) + a.imm)),
             Set s             => ExecuteResult.WithResult(v.Read(s.vy)),
@@ -28,8 +28,8 @@ public sealed class Chip8Executor : IExecutor {
             Add a             => ExecAdd(v, a.vx, a.vy),
             Sub s             => ExecSub(v, s.vx, s.vy),
             ShiftRight1 s     => ExecShr(v, s.vx),
-            SubYX s           => ExecSubYX(v, s.vx, s.vy),
-            ShiftLeft1 s      => ExecShl(v, s.vx),
+            SubYx s           => ExecSubYx(v, s.Vx, s.Vy),
+            ShiftLeft1 s      => ExecShl(v, s.Vx),
             SetIImm s         => ExecSetI(chip8, s.imm),
             JumpV0Offset j    => ExecuteResult.WithBranch(true, j.imm + v.Read(0)),
             RandAnd r         => ExecuteResult.WithResult((byte)(Random.Shared.Next(256) & r.imm)),
@@ -73,7 +73,7 @@ public sealed class Chip8Executor : IExecutor {
         return ExecuteResult.WithResult((byte)(a - b));
     }
 
-    private static ExecuteResult ExecSubYX(IRegisterFile v, int vx, int vy) {
+    private static ExecuteResult ExecSubYx(IRegisterFile v, int vx, int vy) {
         ulong a = v.Read(vx), b = v.Read(vy);
         v.Write(0xF, b >= a ? 1UL : 0UL);
         return ExecuteResult.WithResult((byte)(b - a));

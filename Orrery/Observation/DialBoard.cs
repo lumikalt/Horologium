@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Orrery.Observation;
 
 /// <summary>
@@ -60,9 +62,6 @@ public sealed class DialBoard {
                 $"DialBoard '{OwnerPath}' has no dial named '{name}'."
             );
 
-    public IReadOnlyDictionary<string, Counter> Counters => _counters;
-    public IReadOnlyDictionary<string, Dial> Dials => _dials;
-
     // ── Snapshot ──────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -77,7 +76,9 @@ public sealed class DialBoard {
         );
 
     /// <summary>Resets all counters to zero. Called between Revolutions.</summary>
-    public void Reset() => _counters.Values.ToList().ForEach(c => c.Reset());
+    public void Reset() {
+        foreach (Counter c in _counters.Values) c.Reset();
+    }
 }
 
 /// <summary>
@@ -90,7 +91,7 @@ public sealed record DialBoardSnapshot(
     IReadOnlyDictionary<string, double> Dials
 ) {
     public override string ToString() {
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         sb.AppendLine($"[{OwnerPath}]");
         foreach ((string k, long v) in Counters) sb.AppendLine($"  {k} = {v}");
         foreach ((string k, double v) in Dials) sb.AppendLine($"  {k} = {v:F4}");

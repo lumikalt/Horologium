@@ -36,14 +36,9 @@ public sealed class Setting<T> : ILockable {
         _value = defaultValue;
     }
 
-    /// <summary>
-    /// Locks this setting. Called by the Train before BeginRunning().
-    /// </summary>
-    internal void Lock() => IsLocked = true;
-
     public bool IsLocked { get; private set; }
 
-    void ILockable.Lock() => Lock();
+    void ILockable.Lock() => IsLocked = true;
 
     public override string ToString() => $"{Name} = {_value}";
 }

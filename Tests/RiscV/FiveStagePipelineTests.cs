@@ -338,7 +338,7 @@ public class FiveStagePipelineTests {
         var mem = new FlatMemory(4096);
         var train = new FiveStageTrain(
             new RvMechanism(), mem, 0, true, null,
-            SmallICache(5)
+            SmallICache()
         );
         Load(
             mem,
@@ -379,7 +379,7 @@ public class FiveStagePipelineTests {
         // fill the cache and return the stored value.
         var mem = new FlatMemory(4096);
         var train = new FiveStageTrain(
-            new RvMechanism(), mem, 0, true, null,
+            new RvMechanism(), mem,
             dMemConfig: SmallDCache()
         );
         Load(
@@ -398,8 +398,8 @@ public class FiveStagePipelineTests {
     public void WithDCache_LoadInstructions_RecordDCacheMisses() {
         var mem = new FlatMemory(4096);
         var train = new FiveStageTrain(
-            new RvMechanism(), mem, 0, true, null,
-            dMemConfig: SmallDCache(5)
+            new RvMechanism(), mem,
+            dMemConfig: SmallDCache()
         );
         Load(
             mem,
@@ -417,7 +417,6 @@ public class FiveStagePipelineTests {
     public void WithTlb_IdentityMapping_CorrectResult() {
         var mem = new FlatMemory(4096);
         var iTlbConfig = new MemoryConfig(
-            0,
             TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 8
         );
         var train = new FiveStageTrain(
@@ -437,7 +436,6 @@ public class FiveStagePipelineTests {
     public void WithTlb_ColdMiss_RecordedInDialBoard() {
         var mem = new FlatMemory(4096);
         var iTlbConfig = new MemoryConfig(
-            0,
             TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 8
         );
         var train = new FiveStageTrain(

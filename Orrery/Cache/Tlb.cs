@@ -10,7 +10,6 @@ namespace Orrery.Cache;
 /// </summary>
 public sealed class Tlb : IMemory {
     private readonly IMemory _physical;
-    private readonly int _entries; // power of 2
     private readonly int _indexMask;
     private readonly int _pageBits; // log2(pageSize)
     private readonly ulong _pageMask;
@@ -36,7 +35,6 @@ public sealed class Tlb : IMemory {
             throw new ArgumentException("TLB entries and page size must be powers of 2.");
 
         _physical = physical;
-        _entries = entries;
         _indexMask = entries - 1;
         _pageBits = BitOperations.Log2((uint)pageSizeBytes);
         _pageMask = ~((1UL << _pageBits) - 1);

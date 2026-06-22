@@ -1,7 +1,5 @@
 using Mechanism;
 using RiscV.Decode;
-using RiscV.Registers;
-using RiscV.State;
 
 namespace RiscV.Execute;
 
@@ -149,15 +147,15 @@ public sealed class RvExecutor : IExecutor {
 
             // MULH: upper 32 bits, signed × signed
             RvMulh(_, var rs1, var rs2) =>
-                Reg((ulong)(uint)((Int128)(int)regs.Read(rs1) * (Int128)(int)regs.Read(rs2) >> 32)),
+                Reg((uint)(((int)regs.Read(rs1) * (Int128)(int)regs.Read(rs2)) >> 32)),
 
             // MULHSU: upper 32 bits, signed × unsigned
             RvMulhsu(_, var rs1, var rs2) =>
-                Reg((ulong)(uint)((Int128)(int)regs.Read(rs1) * (Int128)(uint)regs.Read(rs2) >> 32)),
+                Reg((uint)(((int)regs.Read(rs1) * (Int128)(uint)regs.Read(rs2)) >> 32)),
 
             // MULHU: upper 32 bits, unsigned × unsigned
             RvMulhu(_, var rs1, var rs2) =>
-                Reg((ulong)(uint)((UInt128)(uint)regs.Read(rs1) * (UInt128)(uint)regs.Read(rs2) >> 32)),
+                Reg((uint)(((uint)regs.Read(rs1) * (UInt128)(uint)regs.Read(rs2)) >> 32)),
 
             // DIV: signed truncated division; div-by-zero → -1; INT_MIN/-1 → INT_MIN
             RvDiv(_, var rs1, var rs2) => DivSigned(regs, rs1, rs2),
@@ -185,7 +183,7 @@ public sealed class RvExecutor : IExecutor {
             RvAmoaddW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a + v),
             RvAmoxorW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a ^ v),
             RvAmoandW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a & v),
-            RvAmoorW  (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a | v),
+            RvAmoorW (_, var rs1, var rs2)  => Amo(memory, regs, rs1, rs2, (a, v) => a | v),
             RvAmominW (_, var rs1, var rs2) =>
                 Amo(memory, regs, rs1, rs2, (a, v) => (uint)Math.Min((int)a, (int)v)),
             RvAmomaxW (_, var rs1, var rs2) =>
@@ -232,18 +230,18 @@ public sealed class RvExecutor : IExecutor {
         ExecuteResult.WithResult(value & 0xFFFFFFFF); // truncate to 32 bits
 
     private static ExecuteResult DivSigned(IRegisterFile regs, int rs1, int rs2) {
-        int a = (int)regs.Read(rs1);
-        int b = (int)regs.Read(rs2);
-        if (b == 0) return Reg(0xFFFF_FFFF);             // div-by-zero → -1
+        var a = (int)regs.Read(rs1);
+        var b = (int)regs.Read(rs2);
+        if (b == 0) return Reg(0xFFFF_FFFF);                                         // div-by-zero → -1
         if (a == int.MinValue && b == -1) return Reg(unchecked((uint)int.MinValue)); // overflow
         return Reg(unchecked((uint)(a / b)));
     }
 
     private static ExecuteResult RemSigned(IRegisterFile regs, int rs1, int rs2) {
-        int a = (int)regs.Read(rs1);
-        int b = (int)regs.Read(rs2);
-        if (b == 0) return Reg(regs.Read(rs1));           // div-by-zero → rs1
-        if (a == int.MinValue && b == -1) return Reg(0);  // overflow → 0
+        var a = (int)regs.Read(rs1);
+        var b = (int)regs.Read(rs2);
+        if (b == 0) return Reg(regs.Read(rs1));          // div-by-zero → rs1
+        if (a == int.MinValue && b == -1) return Reg(0); // overflow → 0
         return Reg(unchecked((uint)(a % b)));
     }
 

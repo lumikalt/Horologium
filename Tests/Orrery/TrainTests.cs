@@ -56,7 +56,7 @@ public class TrainTests {
     }
 
     [Fact]
-    public void Build_CallsFinalizeOnAllGears() {
+    public void Build_CallsSealOnAllGears() {
         var esc = new Escapement();
         var train = new Train("top", esc);
         var g1 = train.AddGear<TrackingGear>("g1");
@@ -64,8 +64,8 @@ public class TrainTests {
 
         train.Build();
 
-        Assert.True(g1.FinalizeCalled);
-        Assert.True(g2.FinalizeCalled);
+        Assert.True(g1.SealCalled);
+        Assert.True(g2.SealCalled);
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class TrainTests {
     }
 
     [Fact]
-    public void Run_CallsTickOnAllGears() {
+    public void Run_CallsWindOnAllGears() {
         var esc = new Escapement();
         var train = new Train("top", esc);
         var g1 = train.AddGear<TrackingGear>("g1");
@@ -118,8 +118,8 @@ public class TrainTests {
         train.Build();
         train.Run();
 
-        Assert.True(g1.TickCalled);
-        Assert.True(g2.TickCalled);
+        Assert.True(g1.WindCalled);
+        Assert.True(g2.WindCalled);
     }
 
     [Fact]
@@ -275,9 +275,9 @@ public class TrainTests {
         var producer = train.AddGear<ProducerGear>("producer");
         var consumer = train.AddGear<ConsumerGear>("consumer");
 
-        // Wire them up during Finalize
-        producer.OnFinalize = () =>
-            producer.Out!.Bind(consumer.In!, 1);
+        // Wire them up during Seal
+        producer.OnSeal = () =>
+            producer.Out!.Bind(consumer.In!);
 
         train.Build();
         RevolutionResult result = train.Run();
@@ -294,19 +294,19 @@ public class TrainTests {
     private sealed class TrackingGear(string name, SimNode parent, Escapement esc)
         : Gear(name, parent, esc) {
         public bool InitializeCalled { get; private set; }
-        public bool FinalizeCalled { get; private set; }
+        public bool SealCalled { get; private set; }
         public bool ResetCalled { get; private set; }
-        public bool TickCalled { get; private set; }
+        public bool WindCalled { get; private set; }
 
         public override void Initialize() => InitializeCalled = true;
-        public override void Finalize() => FinalizeCalled = true;
+        public override void Seal() => SealCalled = true;
 
         public override void Reset() {
             base.Reset();
             ResetCalled = true;
         }
 
-        public override void Tick() => TickCalled = true;
+        public override void Wind() => WindCalled = true;
     }
 
     private sealed class CountingGear(string name, SimNode parent, Escapement esc)
@@ -315,11 +315,10 @@ public class TrainTests {
 
         public override void Initialize() { _ticks = Dials.AddCounter("ticks", "Ticks elapsed"); }
 
-        public override void Tick() {
+        public override void Wind() {
             // Schedule one event per tick for 5 ticks
             for (var t = 1; t <= 5; t++) {
-                int tick = t;
-                Escapement.Schedule(() => { _ticks.Increment(); }, tick, Phase.Execute);
+                Escapement.Schedule(() => { _ticks.Increment(); }, t, Phase.Execute);
             }
         }
     }
@@ -334,13 +333,13 @@ public class TrainTests {
     private sealed class ProducerGear(string name, SimNode parent, Escapement esc)
         : Gear(name, parent, esc) {
         public OutArbor<int>? Out { get; private set; }
-        public Action? OnFinalize { get; set; }
+        public Action? OnSeal { get; set; }
 
         public override void Initialize() { Out = AddOutArbor<int>("out"); }
 
-        public override void Finalize() => OnFinalize?.Invoke();
+        public override void Seal() => OnSeal?.Invoke();
 
-        public override void Tick() {
+        public override void Wind() {
             Escapement.Schedule(() => Out!.Send(10), 1, Phase.Execute);
             Escapement.Schedule(() => Out!.Send(20), 2, Phase.Execute);
             Escapement.Schedule(() => Out!.Send(30), 3, Phase.Execute);
@@ -350,7 +349,7 @@ public class TrainTests {
     private sealed class ConsumerGear(string name, SimNode parent, Escapement esc)
         : Gear(name, parent, esc) {
         public InArbor<int>? In { get; private set; }
-        public List<int> Received { get; } = new();
+        public List<int> Received { get; } = [];
         private Counter _received = null!;
 
         public override void Initialize() {
@@ -358,7 +357,7 @@ public class TrainTests {
             _received = Dials.AddCounter("received");
         }
 
-        public override void Finalize() {
+        public override void Seal() {
             In!.OnReceive = v => {
                 Received.Add(v);
                 _received.Increment();

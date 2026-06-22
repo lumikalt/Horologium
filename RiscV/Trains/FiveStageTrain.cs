@@ -180,12 +180,12 @@ internal sealed class PipelineCore : Gear {
         }
     }
 
-    public override void Tick() =>
+    public override void Wind() =>
         Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
 
     // One clock cycle. Control logic runs first (Phase.Fetch), reading the
     // latches produced by last cycle's stages. The stages themselves are then
-    // scheduled later this same tick — after Arbor delivery (Phase.PortUpdate)
+    // scheduled later this same tick — after Arbor delivery (Phase.ArborUpdate)
     // has populated their input latches — so each inter-stage hop costs exactly
     // one cycle. Writeback runs before Decode so a register written this cycle
     // is visible to a read in the same cycle.
@@ -256,7 +256,7 @@ internal sealed class PipelineCore : Gear {
             _if.Flush = true;
         }
 
-        // Drive the stages this tick, after Arbor delivery (PortUpdate, phase 2).
+        // Drive the stages this tick, after Arbor delivery (ArborUpdate, phase 2).
         long t = Escapement.CurrentTick;
         Escapement.Schedule(_wb.Cycle, t, Phase.Writeback); // write regfile first
         Escapement.Schedule(_id.Cycle, t, Phase.Commit);    // then read regfile

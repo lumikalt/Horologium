@@ -73,7 +73,7 @@ internal sealed class SingleCycleCore(
         ArchState.Pc = entryPoint;
     }
 
-    public override void Tick() {
+    public override void Wind() {
         ArchState.Pc = entryPoint;
         ScheduleNextInstruction();
     }

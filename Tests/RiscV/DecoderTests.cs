@@ -475,7 +475,9 @@ public class DecoderTests {
         Assert.IsType<RvMul>(i.Payload);
         Assert.Equal(InstructionClass.IntegerMulDiv, i.Class);
         var op = (RvMul)i.Payload!;
-        Assert.Equal(1, op.Rd); Assert.Equal(2, op.Rs1); Assert.Equal(3, op.Rs2);
+        Assert.Equal(1, op.Rd);
+        Assert.Equal(2, op.Rs1);
+        Assert.Equal(3, op.Rs2);
     }
 
     [Fact]
@@ -534,7 +536,8 @@ public class DecoderTests {
         Assert.IsType<RvLrW>(i.Payload);
         Assert.Equal(InstructionClass.Atomic, i.Class);
         var op = (RvLrW)i.Payload!;
-        Assert.Equal(1, op.Rd); Assert.Equal(2, op.Rs1);
+        Assert.Equal(1, op.Rd);
+        Assert.Equal(2, op.Rs1);
         Assert.Single(i.SourceRegisters); // LR.W only reads the address register
     }
 

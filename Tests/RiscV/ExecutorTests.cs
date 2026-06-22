@@ -1,5 +1,4 @@
 using Mechanism;
-using RiscV;
 using RiscV.Decode;
 using RiscV.Execute;
 using RiscV.Memory;
@@ -401,7 +400,7 @@ public class ExecutorTests {
     public void Execute_Mulh_SignedUpperHalf() {
         // (-1) × (-1) = 1, upper 32 of 0x0000_0000_0000_0001 = 0
         RvArchState s = MakeState((2, 0xFFFFFFFF), (3, 0xFFFFFFFF)); // -1 × -1
-        ExecuteResult r = Exec(0x023110B3, s); // mulh x1, x2, x3
+        ExecuteResult r = Exec(0x023110B3, s);                       // mulh x1, x2, x3
         Assert.Equal(0UL, r.RegisterResult);
     }
 
@@ -426,7 +425,7 @@ public class ExecutorTests {
         // -1 (signed) × 0xFFFFFFFF (unsigned) = -0xFFFFFFFF = -4294967295
         // As 64-bit: 0xFFFF_FFFF_0000_0001, upper 32 = 0xFFFFFFFF
         RvArchState s = MakeState((2, 0xFFFFFFFF), (3, 0xFFFFFFFF)); // -1 × 4294967295
-        ExecuteResult r = Exec(0x023120B3, s); // mulhsu x1, x2, x3
+        ExecuteResult r = Exec(0x023120B3, s);                       // mulhsu x1, x2, x3
         Assert.Equal(0xFFFFFFFFUL, r.RegisterResult);
     }
 
@@ -513,7 +512,7 @@ public class ExecutorTests {
     public void Execute_AmoaddW_ReturnsPreviousAndUpdatesMemory() {
         // amoadd.w x1, x3, (x2)  — x2=address=100, x3=operand=5, mem[100]=10
         RvArchState s = MakeState((2, 100), (3, 5));
-        _mem.Write(100, 10, 4); // pre-load memory
+        _mem.Write(100, 10, 4);                // pre-load memory
         ExecuteResult r = Exec(0x003120AF, s); // amoadd.w x1, x3, (x2)
         Assert.Equal(10UL, r.RegisterResult);  // original value
         Assert.Equal(15UL, _mem.Read(100, 4)); // updated in memory
@@ -548,8 +547,8 @@ public class ExecutorTests {
     public void Execute_AmominW_KeepsMinimum() {
         // Signed min: mem[100] = -1, rs2 = 1 → min(-1, 1) = -1
         RvArchState s = MakeState((2, 100), (3, 1));
-        _mem.Write(100, 0xFFFFFFFF, 4); // -1 signed
-        Exec(0x803120AF, s); // amomin.w x1, x3, (x2)  funct5=0x10
+        _mem.Write(100, 0xFFFFFFFF, 4);                // -1 signed
+        Exec(0x803120AF, s);                           // amomin.w x1, x3, (x2)  funct5=0x10
         Assert.Equal(0xFFFFFFFFUL, _mem.Read(100, 4)); // -1 is smaller
     }
 
@@ -564,8 +563,8 @@ public class ExecutorTests {
     [Fact]
     public void Execute_ScW_StoresAndReturnsZero() {
         RvArchState s = MakeState((2, 100), (3, 0xABCD));
-        ExecuteResult r = Exec(0x183120AF, s); // sc.w x1, x3, (x2)
-        Assert.Equal(0UL, r.RegisterResult);           // 0 = success
-        Assert.Equal(0xABCDUL, _mem.Read(100, 4));     // value stored
+        ExecuteResult r = Exec(0x183120AF, s);     // sc.w x1, x3, (x2)
+        Assert.Equal(0UL, r.RegisterResult);       // 0 = success
+        Assert.Equal(0xABCDUL, _mem.Read(100, 4)); // value stored
     }
 }

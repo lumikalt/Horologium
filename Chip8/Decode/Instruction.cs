@@ -21,21 +21,21 @@ public class Instruction(
 
 public abstract record Op;
 
-public record Call() : Op;
+public record Call : Op;
 
-public record ClearDisplay() : Op;
+public record ClearDisplay : Op;
 
-public record Return() : Op;
+public record Return : Op;
 
-public record Goto(ushort imm) : Op;
+public record Goto(ushort Imm) : Op;
 
-public record CallSub(ushort imm) : Op;
+public record CallSub(ushort Imm) : Op;
 
-public record SkipEqImm(int vx, ushort imm) : Op;
+public record SkipEqImm(int Vx, ushort imm) : Op;
 
-public record SkipNeqImm(int vx, ushort imm) : Op;
+public record SkipNeqImm(int Vx, ushort imm) : Op;
 
-public record SkipEq(int vx, int vy) : Op;
+public record SkipEq(int Vx, int vy) : Op;
 
 public record SetImm(int vx, ushort imm) : Op;
 
@@ -55,19 +55,19 @@ public record Sub(int vx, int vy) : Op;
 
 public record ShiftRight1(int vx) : Op;
 
-public record SubYX(int vx, int vy) : Op;
+public record SubYx(int Vx, int Vy) : Op;
 
-public record ShiftLeft1(int vx) : Op;
+public record ShiftLeft1(int Vx) : Op;
 
-public record SkipNeq(int vx, int vy) : Op;
+public record SkipNeq(int Vx, int vy) : Op;
 
 public record SetIImm(ushort imm) : Op;
 
 public record JumpV0Offset(ushort imm) : Op;
 
-public record RandAnd(int vx, byte imm) : Op;
+public record RandAnd(int Vx, byte imm) : Op;
 
-public record Draw(int vx, int vy, byte imm) : Op;
+public record Draw(int Vx, int vy, byte imm) : Op;
 
 public record SkipKeyPressed(int vx) : Op;
 

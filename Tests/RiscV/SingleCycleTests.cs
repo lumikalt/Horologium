@@ -388,7 +388,7 @@ public class SingleCycleTests {
 
     [Fact]
     public void Amoadd_AccumulatesInMemory() {
-        (SingleCycleTrain train, FlatMemory mem) = Make(memSize: 65536);
+        (SingleCycleTrain train, FlatMemory mem) = Make(65536);
         // Store 10 at address 0x200, then amoadd 5 → mem[0x200] = 15, x3 = 10
         // amoadd.w x3, x2, (x1)  funct5=0x00, aq=0, rl=0
         // funct7 bits [31:25] = 00000_00, rs2=x2(2), rs1=x1(1), funct3=010, rd=x3(3), opcode=0x2F
@@ -407,13 +407,13 @@ public class SingleCycleTests {
             0x00100073  // ebreak
         );
         train.Run();
-        Assert.Equal(10u, Reg(train, 3));           // original value returned in rd
+        Assert.Equal(10u, Reg(train, 3));            // original value returned in rd
         Assert.Equal(15u, (uint)mem.Read(0x200, 4)); // memory updated
     }
 
     [Fact]
     public void LrSc_StoreConditionalSucceeds() {
-        (SingleCycleTrain train, FlatMemory mem) = Make(memSize: 65536);
+        (SingleCycleTrain train, FlatMemory mem) = Make(65536);
         mem.Write(0x200, 99, 4);
         // lr.w x1, (x2)  →  x1 = 99
         // sc.w x3, x4, (x2)  →  x3 = 0 (success), mem[0x200] = x4
