@@ -61,10 +61,7 @@ public class ExperimentTests {
 
     [Fact]
     public void TrainConfig_WithPredictor_RoundTrip() {
-        var cfg = new TrainConfig(
-            false,
-            BranchPredictorConfig.TwoBit(512)
-        );
+        var cfg = new TrainConfig(false, BranchPredictorConfig.TwoBit(512));
         string json = cfg.ToJson();
         TrainConfig result = TrainConfig.FromJson(json);
         Assert.False(result.ForwardingEnabled);
@@ -108,6 +105,25 @@ public class ExperimentTests {
         Assert.Equal(0, dMem.CacheCapacityBytes); // no DCache configured
     }
 
+    // ── NamedConfig JSON round-trips ──────────────────────────────────────────
+
+    [Fact]
+    public void NamedConfig_SweepRoundTrip() {
+        var sweep = new[] {
+            new NamedConfig("ant", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
+            new NamedConfig("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit(512))),
+        };
+        string json = NamedConfig.ToJson(sweep);
+        IReadOnlyList<NamedConfig> result = NamedConfig.FromJson(json);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("ant", result[0].Name);
+        Assert.IsType<AlwaysNotTakenConfig>(result[0].Config.Predictor);
+        Assert.Equal("two_bit", result[1].Name);
+        var pred = Assert.IsType<TwoBitConfig>(result[1].Config.Predictor);
+        Assert.Equal(512, pred.TableSize);
+    }
+
     // ── ByteArrayWorkload ─────────────────────────────────────────────────────
 
     [Fact]
@@ -125,19 +141,50 @@ public class ExperimentTests {
         Assert.Equal(0x200UL, workload.EntryPoint);
     }
 
+    // ── ElfWorkload ───────────────────────────────────────────────────────────
+
+    private static string TestElfPath =>
+        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test.elf");
+
+    [Fact]
+    public void ElfWorkload_EntryPointMatchesElfLoader() {
+        var mem = new FlatMemory(1 << 20);
+        ulong expected = ElfLoader.LoadFile(mem, TestElfPath);
+        var workload = new ElfWorkload(TestElfPath);
+        Assert.Equal(expected, workload.EntryPoint);
+    }
+
+    [Fact]
+    public void ElfWorkload_ComputesNonZeroMemorySize() {
+        var workload = new ElfWorkload(TestElfPath);
+        Assert.True(workload.MemorySize > 0);
+    }
+
+    [Fact]
+    public void ElfWorkload_RunsViaExperiment() {
+        var workload = new ElfWorkload(TestElfPath);
+        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+
+        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
+
+        DialBoardSnapshot? snap = result.Runs[0].Result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(snap.Counters["retired"] > 0);
+    }
+
     // ── Experiment integration ────────────────────────────────────────────────
 
     // A tight loop: x1 = 10, loop: beq x1,x0 → exit; addi x1,x1,-1; j loop; ebreak
     // Encoding:
     //   0x00A00093  addi x1, x0, 10
-    //   0x00008463  beq  x1, x0, +8     (branch to ebreak at offset 12 when x1==0)
+    //   0x00008663  beq  x1, x0, +12   (branch to ebreak at addr 16 when x1==0)
     //   0xFFF08093  addi x1, x1, -1
-    //   0xFF9FF06F  jal  x0, -8         (back to beq)
+    //   0xFF9FF06F  jal  x0, -8        (back to beq at addr 4)
     //   0x00100073  ebreak
     private static byte[] MakeCountdownProgram() {
         uint[] words = [
             0x00A00093,
-            0x00008463,
+            0x00008663,
             0xFFF08093,
             0xFF9FF06F,
             0x00100073,
@@ -149,17 +196,16 @@ public class ExperimentTests {
             bytes[i * 4 + 2] = (byte)(words[i] >> 16);
             bytes[i * 4 + 3] = (byte)(words[i] >> 24);
         }
-
         return bytes;
     }
 
     [Fact]
     public void Experiment_Run_ProducesResultsForEachConfig() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        var configs = new[] {
-            ("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
-            ("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
-        };
+        NamedConfig[] configs = [
+            new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
+            new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
+        ];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
 
@@ -167,7 +213,6 @@ public class ExperimentTests {
         Assert.Equal("always_not_taken", result.Runs[0].Name);
         Assert.Equal("two_bit", result.Runs[1].Name);
 
-        // Both runs should retire instructions
         foreach (RunRecord run in result.Runs) {
             DialBoardSnapshot? snap = run.Result.Find("five_stage.pipeline");
             Assert.NotNull(snap);
@@ -178,31 +223,43 @@ public class ExperimentTests {
     [Fact]
     public void Experiment_TwoBit_HasFewerMisses_ThanAlwaysNotTaken() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        var configs = new[] {
-            ("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
-            ("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
-        };
+        NamedConfig[] configs = [
+            new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
+            new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
+        ];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
 
         long antMisses = result.Runs[0].Result.Find("five_stage.pipeline")!.Counters["branch_misses"];
-        long tbMisses = result.Runs[1].Result.Find("five_stage.pipeline")!.Counters["branch_misses"];
+        long tbMisses  = result.Runs[1].Result.Find("five_stage.pipeline")!.Counters["branch_misses"];
 
-        // Loop body is taken 10 times + final not-taken exit.
-        // ANT: misses all 10 taken iterations. TwoBit: learns quickly, fewer misses.
-        Assert.True(
-            tbMisses < antMisses,
-            $"Expected TwoBit ({tbMisses}) < AlwaysNotTaken ({antMisses})"
-        );
+        Assert.True(tbMisses < antMisses,
+            $"Expected TwoBit ({tbMisses}) < AlwaysNotTaken ({antMisses})");
+    }
+
+    [Fact]
+    public void Experiment_Warmup_ReducesMeasuredCycles() {
+        var workload = new ByteArrayWorkload(MakeCountdownProgram());
+        NamedConfig[] configs = [new("test", new TrainConfig())];
+
+        ExperimentResult noWarmup   = Experiment.Run(workload, configs, new RvMechanism());
+        ExperimentResult withWarmup = Experiment.Run(workload, configs, new RvMechanism(), warmupTicks: 50);
+
+        long totalCycles    = noWarmup.Runs[0].Result.Find("five_stage.pipeline")!.Counters["cycles"];
+        long measuredCycles = withWarmup.Runs[0].Result.Find("five_stage.pipeline")!.Counters["cycles"];
+
+        Assert.True(measuredCycles < totalCycles,
+            $"Warmup should reduce measured cycle count: {measuredCycles} >= {totalCycles}");
+        Assert.True(measuredCycles > 0, "Some cycles should remain after 50-tick warmup");
     }
 
     [Fact]
     public void ExperimentResult_ToCsv_ContainsAllRunNames() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        var configs = new[] {
-            ("config_a", new TrainConfig()),
-            ("config_b", new TrainConfig(false)),
-        };
+        NamedConfig[] configs = [
+            new("config_a", new TrainConfig()),
+            new("config_b", new TrainConfig(false)),
+        ];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
         string csv = result.ToCsv();
@@ -216,14 +273,11 @@ public class ExperimentTests {
     [Fact]
     public void ExperimentResult_ToMarkdownTable_ContainsHeaderRow() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        var configs = new[] {
-            ("baseline", new TrainConfig()),
-        };
+        NamedConfig[] configs = [new("baseline", new TrainConfig())];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
         string md = result.ToMarkdownTable();
 
-        // Markdown tables have a separator row with |---|
         Assert.Contains("|---|", md);
         Assert.Contains("baseline", md);
     }

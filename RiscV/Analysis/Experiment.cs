@@ -15,15 +15,21 @@ public static class Experiment {
     /// Runs <paramref name="workload"/> once per entry in <paramref name="configurations"/>.
     /// Each run gets a fresh <see cref="FlatMemory"/> and a fresh predictor instance.
     /// </summary>
+    /// <param name="warmupTicks">
+    /// Ticks to run before starting measurement. Warms up branch predictors and caches;
+    /// the returned counters and histograms reflect only the post-warmup phase.
+    /// </param>
     public static ExperimentResult Run(
         IWorkload workload,
-        IEnumerable<(string name, TrainConfig config)> configurations,
+        IEnumerable<NamedConfig> configurations,
         IMechanism mechanism,
-        long maxTicks = 1_000_000
+        long maxTicks = 1_000_000,
+        long warmupTicks = 0
     ) {
         var records = new List<RunRecord>();
 
-        foreach ((string name, TrainConfig config) in configurations) {
+        foreach (NamedConfig named in configurations) {
+            TrainConfig config = named.Config;
             var memory = new FlatMemory(workload.MemorySize);
             workload.Load(memory);
 
@@ -37,8 +43,8 @@ public static class Experiment {
                 storeBufferCapacity: config.StoreBufferCapacity
             );
 
-            RevolutionResult result = train.Run(maxTicks);
-            records.Add(new RunRecord(name, config, result));
+            RevolutionResult result = train.Run(maxTicks, warmupTicks);
+            records.Add(new RunRecord(named.Name, config, result));
         }
 
         return new ExperimentResult(records);

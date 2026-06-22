@@ -143,12 +143,19 @@ public sealed class Train {
     ///
     ///   1. Transition tree to Running
     ///   2. Wind() all Gears             (each gear schedules its first event)
-    ///   3. Run the Escapement
-    ///   4. Transition tree to Finished
-    ///   5. Snapshot all DialBoards
-    ///   6. Return RevolutionResult
+    ///   3. Run Escapement for warmupTicks (if any) — warms up caches / predictors
+    ///   4. Snapshot DialBoards as baseline (warmup phase only)
+    ///   5. Run Escapement for maxTicks   — measurement phase
+    ///   6. Transition tree to Finished
+    ///   7. Snapshot all DialBoards; subtract baseline when warmup was used
+    ///   8. Return RevolutionResult
+    ///
+    /// When <paramref name="warmupTicks"/> &gt; 0 the returned counters and
+    /// histograms reflect only the measurement phase. Dials (which are rates)
+    /// are taken from the final snapshot and therefore approximate the full run;
+    /// this is acceptable for long measurements where warmup is a small fraction.
     /// </summary>
-    public RevolutionResult Run(long maxTicks = long.MaxValue) {
+    public RevolutionResult Run(long maxTicks = long.MaxValue, long warmupTicks = 0) {
         if (!_built)
             throw new InvalidOperationException(
                 $"Train '{Name}' has not been built. Call Build() before Run()."
@@ -166,17 +173,25 @@ public sealed class Train {
         // Step 2 — Wind all gears (each schedules its first event)
         foreach (Gear gear in _gears) gear.Wind();
 
-        // Step 3 — Run the Escapement
-        long events = _escapement.Run(maxTicks);
-        long ticks = _escapement.CurrentTick;
+        // Step 3 — Warmup phase (optional)
+        DialBoardSnapshot[]? baseline = null;
+        if (warmupTicks > 0) {
+            _escapement.Run(warmupTicks);
+            baseline = [.._gears.Select(g => g.Dials.Snapshot())];
+        }
 
-        // Step 4 — Transition to Finished
+        // Step 4 — Measurement phase
+        long startTick = _escapement.CurrentTick;
+        long events = _escapement.Run(maxTicks);
+        long ticks = _escapement.CurrentTick - startTick;
+
+        // Step 5 — Transition to Finished
         Root.BeginFinished();
 
-        // Step 5 — Snapshot all DialBoards
-        List<DialBoardSnapshot> snapshots = _gears
-                                           .Select(g => g.Dials.Snapshot())
-                                           .ToList();
+        // Step 6 — Snapshot; subtract warmup baseline if present
+        List<DialBoardSnapshot> snapshots = baseline is null
+            ? [.._gears.Select(g => g.Dials.Snapshot())]
+            : [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i]))];
 
         return new RevolutionResult(ticks, events, snapshots);
     }

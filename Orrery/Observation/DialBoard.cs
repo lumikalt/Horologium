@@ -117,6 +117,29 @@ public sealed record DialBoardSnapshot(
     IReadOnlyDictionary<string, double> Dials,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> Histograms
 ) {
+    /// <summary>
+    /// Returns a new snapshot whose counter and histogram values are
+    /// <c>this − baseline</c>. Dials (which are rates, not totals) are
+    /// kept from <c>this</c>. Used to extract measurement-phase stats
+    /// from a run that included a warmup phase.
+    /// </summary>
+    internal DialBoardSnapshot Subtract(DialBoardSnapshot baseline) =>
+        new(OwnerPath,
+            Counters.ToDictionary(
+                kv => kv.Key,
+                kv => kv.Value - baseline.Counters.GetValueOrDefault(kv.Key)
+            ),
+            Dials,
+            Histograms.ToDictionary(
+                kv => kv.Key,
+                kv => (IReadOnlyDictionary<string, long>)kv.Value.ToDictionary(
+                    b => b.Key,
+                    b => b.Value - (baseline.Histograms.TryGetValue(kv.Key, out var bb)
+                                        ? bb.GetValueOrDefault(b.Key) : 0)
+                )
+            )
+        );
+
     public override string ToString() {
         var sb = new StringBuilder();
         sb.AppendLine($"[{OwnerPath}]");

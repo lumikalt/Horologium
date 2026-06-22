@@ -2,56 +2,114 @@ using Mechanism;
 using RiscV;
 using RiscV.Analysis;
 using RiscV.Config;
+using RiscV.Memory;
 
-// ── Workload: a 100-iteration countdown loop with a tight branch ─────────────
-//
-//   addi  x1, x0, 100    # x1 = 100
-// loop:
-//   beq   x1, x0, done   # if x1 == 0 → exit
-//   addi  x1, x1, -1     # x1--
-//   jal   x0, -8         # back to beq
-// done:
-//   ebreak
-//
-// The branch is taken 100 times (back-edge) and not-taken once (exit).
-// A decent predictor learns "almost always taken" quickly.
-//
-// All instructions are encoded for RV32I at address 0x0.
-uint[] words = [
-    0x06400093,  // addi  x1, x0, 100
-    0x00008663,  // beq   x1, x0, +12
-    0xFFF08093,  // addi  x1, x1, -1
-    0xFF9FF06F,  // jal   x0, -8
-    0x00100073,  // ebreak
-];
-var bytes = new byte[words.Length * 4];
-for (var i = 0; i < words.Length; i++) {
-    bytes[i * 4 + 0] = (byte)words[i];
-    bytes[i * 4 + 1] = (byte)(words[i] >> 8);
-    bytes[i * 4 + 2] = (byte)(words[i] >> 16);
-    bytes[i * 4 + 3] = (byte)(words[i] >> 24);
+// ── Argument parsing ──────────────────────────────────────────────────────────
+
+string? elfPath = null;
+string? sweepPath = null;
+long warmupTicks = 0;
+long maxTicks = 1_000_000;
+string format = "md"; // md | csv | both
+
+var argv = args; // top-level programs expose args implicitly
+for (var i = 0; i < argv.Length; i++) {
+    switch (argv[i]) {
+        case "--sweep":     sweepPath   = argv[++i]; break;
+        case "--warmup":    warmupTicks = long.Parse(argv[++i]); break;
+        case "--max-ticks": maxTicks    = long.Parse(argv[++i]); break;
+        case "--format":    format      = argv[++i]; break;
+        case "--help" or "-h":
+            PrintUsage(); return;
+        default:
+            if (!argv[i].StartsWith("--") && elfPath is null)
+                elfPath = argv[i];
+            else {
+                Console.Error.WriteLine($"Unknown argument: {argv[i]}");
+                PrintUsage(); return;
+            }
+            break;
+    }
 }
-IWorkload workload = new ByteArrayWorkload(bytes);
 
-// ── Hardware configurations to compare ───────────────────────────────────────
-(string, TrainConfig)[] configs = [
-    ("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
-    ("always_taken",     new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
-    ("one_bit",          new TrainConfig(Predictor: BranchPredictorConfig.OneBit())),
-    ("two_bit",          new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
-    ("no_forwarding",    new TrainConfig(
-        ForwardingEnabled: false,
-        Predictor: BranchPredictorConfig.TwoBit()
-    )),
-];
+// ── Workload ──────────────────────────────────────────────────────────────────
+
+IWorkload workload;
+string workloadLabel;
+
+if (elfPath is not null) {
+    workload = new ElfWorkload(elfPath);
+    workloadLabel = Path.GetFileName(elfPath);
+} else {
+    // Built-in demo: 100-iteration countdown loop
+    //   addi  x1, x0, 100
+    //   beq   x1, x0, +12    ← exit when x1 == 0
+    //   addi  x1, x1, -1
+    //   jal   x0, -8          ← back to beq
+    //   ebreak
+    uint[] words = [0x06400093, 0x00008663, 0xFFF08093, 0xFF9FF06F, 0x00100073];
+    var bytes = new byte[words.Length * 4];
+    for (var i = 0; i < words.Length; i++) {
+        bytes[i * 4 + 0] = (byte)words[i];
+        bytes[i * 4 + 1] = (byte)(words[i] >> 8);
+        bytes[i * 4 + 2] = (byte)(words[i] >> 16);
+        bytes[i * 4 + 3] = (byte)(words[i] >> 24);
+    }
+    workload = new ByteArrayWorkload(bytes);
+    workloadLabel = "built-in countdown loop (100 iterations)";
+}
+
+// ── Hardware configurations ───────────────────────────────────────────────────
+
+IReadOnlyList<NamedConfig> configs = sweepPath is not null
+    ? NamedConfig.LoadFile(sweepPath)
+    : DefaultSweep();
 
 // ── Run ───────────────────────────────────────────────────────────────────────
-ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
 
-// ── Print results ─────────────────────────────────────────────────────────────
-Console.WriteLine("=== Branch predictor comparison — 100-iteration countdown loop ===");
-Console.WriteLine();
-Console.WriteLine(result.ToMarkdownTable());
-Console.WriteLine();
-Console.WriteLine("=== CSV ===");
-Console.WriteLine(result.ToCsv());
+Console.Error.WriteLine($"Workload : {workloadLabel}");
+Console.Error.WriteLine($"Configs  : {configs.Count} ({(sweepPath ?? "default predictor sweep")})");
+if (warmupTicks > 0) Console.Error.WriteLine($"Warmup   : {warmupTicks:N0} ticks");
+Console.Error.WriteLine($"Max ticks: {maxTicks:N0}");
+Console.Error.WriteLine();
+
+ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(), maxTicks, warmupTicks);
+
+// ── Output ────────────────────────────────────────────────────────────────────
+
+if (format is "md" or "both") Console.WriteLine(result.ToMarkdownTable());
+if (format is "csv" or "both") Console.WriteLine(result.ToCsv());
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+static IReadOnlyList<NamedConfig> DefaultSweep() => [
+    new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
+    new("always_taken",     new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
+    new("one_bit",          new TrainConfig(Predictor: BranchPredictorConfig.OneBit())),
+    new("two_bit",          new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
+    new("no_forwarding",    new TrainConfig(Predictor: BranchPredictorConfig.TwoBit(), ForwardingEnabled: false)),
+];
+
+static void PrintUsage() {
+    Console.WriteLine("""
+        Usage: runner [elf-path] [options]
+
+          elf-path              ELF32 RISC-V binary to simulate (default: built-in demo)
+
+        Options:
+          --sweep <path>        JSON file with named hardware configurations to compare.
+                                Default: compare four branch predictors + no-forwarding.
+          --warmup <n>          Ticks to run before recording statistics (default: 0).
+          --max-ticks <n>       Maximum measurement ticks per run (default: 1000000).
+          --format md|csv|both  Output format (default: md).
+          --help                Show this message.
+
+        Sweep file format (JSON array):
+          [
+            {"name": "baseline", "config": {"predictor": {"type": "two_bit"}}},
+            {"name": "no_cache", "config": {"forwarding_enabled": false}}
+          ]
+
+        Predictor types: always_not_taken, always_taken, one_bit, two_bit
+        """);
+}
