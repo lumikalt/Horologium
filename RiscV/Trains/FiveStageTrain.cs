@@ -10,6 +10,7 @@ using RiscV.State;
 using RiscV.Trains.Pipeline;
 using RiscV.Trains.Pipeline.Stages;
 
+
 namespace RiscV.Trains;
 
 public sealed class FiveStageTrain {
@@ -22,6 +23,7 @@ public sealed class FiveStageTrain {
     public SetAssociativeCache? DCache => _core.DLayers.Cache;
     public Tlb? ITlb => _core.ILayers.Tlb;
     public Tlb? DTlb => _core.DLayers.Tlb;
+    public StoreBuffer? StoreBuffer => _core.StoreBuffer;
 
     public FiveStageTrain(
         IMechanism mechanism,
@@ -30,7 +32,8 @@ public sealed class FiveStageTrain {
         bool forwardingEnabled = true,
         IBranchPredictor? predictor = null,
         MemoryConfig? iMemConfig = null,
-        MemoryConfig? dMemConfig = null
+        MemoryConfig? dMemConfig = null,
+        int storeBufferCapacity = 0
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
@@ -40,7 +43,8 @@ public sealed class FiveStageTrain {
                 mechanism, memory, entryPoint, forwardingEnabled,
                 predictor ?? new AlwaysNotTakenPredictor(),
                 iMemConfig ?? MemoryConfig.None,
-                dMemConfig ?? MemoryConfig.None
+                dMemConfig ?? MemoryConfig.None,
+                storeBufferCapacity
             )
         );
         _train.Build();
@@ -76,6 +80,7 @@ internal sealed class PipelineCore : Gear {
     private Counter? _itlbMissesCounter;
     private Counter? _dtlbHitsCounter;
     private Counter? _dtlbMissesCounter;
+    private Counter? _storeForwardsCounter;
 
     private long _lastRetired;
     private long _missStallBudget;
@@ -85,10 +90,12 @@ internal sealed class PipelineCore : Gear {
     private long _lastDHits, _lastDMisses;
     private long _lastITlbHits, _lastITlbMisses;
     private long _lastDTlbHits, _lastDTlbMisses;
+    private long _lastStoreForwards;
 
     public RvArchState State { get; }
     public MemoryLayers ILayers { get; }
     public MemoryLayers DLayers { get; }
+    public StoreBuffer? StoreBuffer { get; }
 
     public PipelineCore(
         string name,
@@ -100,7 +107,8 @@ internal sealed class PipelineCore : Gear {
         bool forwardingEnabled,
         IBranchPredictor predictor,
         MemoryConfig iMemConfig,
-        MemoryConfig dMemConfig
+        MemoryConfig dMemConfig,
+        int storeBufferCapacity = 0
     )
         : base(name, parent, esc) {
         _predictor = predictor;
@@ -112,14 +120,20 @@ internal sealed class PipelineCore : Gear {
         ILayers = MemoryLayers.Build(memory, iMemConfig);
         DLayers = MemoryLayers.Build(memory, dMemConfig);
 
+        IMemory dAccessor = DLayers.Accessor;
+        if (storeBufferCapacity > 0) {
+            StoreBuffer = new StoreBuffer(dAccessor, esc, storeBufferCapacity);
+            dAccessor = StoreBuffer;
+        }
+
         // Create stages — IF uses instruction memory, EX/MEM use data memory.
         _if = new FetchStage("if", parent, esc, ILayers.Accessor, predictor);
         _id = new DecodeStage("id", parent, esc, mechanism.Decoder, State);
         _ex = new ExecuteStage(
             "ex", parent, esc,
-            mechanism.Executor, State, DLayers.Accessor, _hazard
+            mechanism.Executor, State, dAccessor, _hazard
         );
-        _mem = new MemoryStage("mem", parent, esc, DLayers.Accessor);
+        _mem = new MemoryStage("mem", parent, esc, dAccessor);
         _wb = new WritebackStage(
             "wb", parent, esc,
             State, mechanism.TrapController
@@ -178,6 +192,9 @@ internal sealed class PipelineCore : Gear {
             _dtlbHitsCounter = Dials.AddCounter("dtlb_hits", "D-TLB hits");
             _dtlbMissesCounter = Dials.AddCounter("dtlb_misses", "D-TLB misses");
         }
+
+        if (StoreBuffer is not null)
+            _storeForwardsCounter = Dials.AddCounter("store_forwards", "Store-to-load forwardings");
     }
 
     public override void Wind() =>
@@ -200,7 +217,10 @@ internal sealed class PipelineCore : Gear {
             _lastRetired++;
         }
 
-        if (_wb.Halted) return; // pipeline drained — stop the clock
+        if (_wb.Halted) {
+            StoreBuffer?.DrainAll(); // ensure all pending stores reach backing memory
+            return;
+        }
 
         _cyclesCounter.Increment();
 
@@ -264,6 +284,9 @@ internal sealed class PipelineCore : Gear {
         Escapement.Schedule(_mem.Cycle, t, Phase.Commit);
         Escapement.Schedule(_if.Cycle, t, Phase.Commit);
 
+        if (StoreBuffer is not null)
+            Escapement.Schedule(StoreBuffer.DrainEligible, t, Phase.Collection);
+
         Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
     }
 
@@ -302,6 +325,11 @@ internal sealed class PipelineCore : Gear {
             _dtlbMissesCounter!.IncrementBy(dt.Misses - _lastDTlbMisses);
             _lastDTlbHits = dt.Hits;
             _lastDTlbMisses = dt.Misses;
+        }
+
+        if (StoreBuffer is not null) {
+            _storeForwardsCounter!.IncrementBy(StoreBuffer.Forwards - _lastStoreForwards);
+            _lastStoreForwards = StoreBuffer.Forwards;
         }
 
         return stalls;

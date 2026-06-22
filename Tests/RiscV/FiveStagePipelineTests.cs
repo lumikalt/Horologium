@@ -461,6 +461,92 @@ public class FiveStagePipelineTests {
         Assert.Equal(5u, (uint)train.ArchState.IntegerRegisters.Read(1));
     }
 
+    // ── Store buffer ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void StoreBuffer_StoreFollowedByLoad_Forwards() {
+        // sw x2, 0(x1) then immediately lw x3, 0(x1) at the same address.
+        // With D-cache (write-through, no-write-allocate) and a store buffer:
+        // the load should forward from the buffer → store_forwards == 1 and
+        // x3 holds the stored value.
+        //
+        //   addi x1, x0, 256   (base address)
+        //   addi x2, x0, 77    (value to store)
+        //   sw   x2, 0(x1)     → buffered in StoreBuffer
+        //   lw   x3, 0(x1)     → forwarded from StoreBuffer
+        //   ebreak
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem,
+            dMemConfig: SmallDCache(),
+            storeBufferCapacity: 8
+        );
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 256
+            0x04D00113, // addi x2, x0, 77
+            0x0020a023, // sw   x2, 0(x1)
+            0x0000a183, // lw   x3, 0(x1)
+            0x00100073  // ebreak
+        );
+        RevolutionResult result = train.Run();
+
+        Assert.Equal(77u, (uint)train.ArchState.IntegerRegisters.Read(3));
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(snap.Counters.ContainsKey("store_forwards"), "store_forwards counter should exist");
+        Assert.Equal(1L, snap.Counters["store_forwards"]);
+    }
+
+    [Fact]
+    public void StoreBuffer_WithoutCache_CorrectResult() {
+        // Store buffer works without D-cache too: stores go to FlatMemory on drain
+        // and forwards happen within the 1-tick window.
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem,
+            storeBufferCapacity: 4
+        );
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 256
+            0x02A00113, // addi x2, x0, 42
+            0x0020a023, // sw   x2, 0(x1)
+            0x0000a183, // lw   x3, 0(x1)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(42u, (uint)train.ArchState.IntegerRegisters.Read(3));
+    }
+
+    [Fact]
+    public void StoreBuffer_NoForward_WhenNoDependency() {
+        // A store to 0x100 and a load from 0x200 should NOT forward.
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(
+            new RvMechanism(), mem,
+            storeBufferCapacity: 8
+        );
+        mem.Write(0x200, 55, 4);
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 256   (0x100)
+            0x20000113, // addi x2, x0, 512   (0x200)
+            0x02A00193, // addi x3, x0, 42
+            0x0030a023, // sw   x3, 0(x1)     (store to 0x100)
+            0x00012203, // lw   x4, 0(x2)     (load from 0x200 — no forward)
+            0x00100073  // ebreak
+        );
+        RevolutionResult result = train.Run();
+
+        Assert.Equal(55u, (uint)train.ArchState.IntegerRegisters.Read(4));
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.Equal(0L, snap.Counters["store_forwards"]);
+    }
+
     [Fact]
     public void WithTlb_ColdMiss_RecordedInDialBoard() {
         var mem = new FlatMemory(4096);
