@@ -149,6 +149,130 @@ public class FiveStagePipelineTests {
         );
     }
 
+    // ── Load-use hazard ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void Pipeline_LoadUseHazard_CorrectResult() {
+        // lw followed immediately by a dependent addi — should stall one cycle
+        // addi x2, x0, 256   base address
+        // lw   x1, 0(x2)     load from addr 256
+        // addi x3, x1, 1     load-use hazard: depends on x1
+        // ebreak
+        (FiveStageTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x10000113, // addi x2, x0, 256
+            0x00012083, // lw   x1, 0(x2)
+            0x00108193, // addi x3, x1, 1
+            0x00100073
+        );
+        mem.Write(256, 42, 4); // value at the load address
+        train.Run();
+        Assert.Equal(43u, (uint)train.ArchState.IntegerRegisters.Read(3));
+    }
+
+    [Fact]
+    public void Pipeline_LoadUseHazard_InsertsOneStall() {
+        (FiveStageTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x10000113, // addi x2, x0, 256
+            0x00012083, // lw   x1, 0(x2)
+            0x00108193, // addi x3, x1, 1
+            0x00100073
+        );
+        mem.Write(256, 42, 4);
+        RevolutionResult result = train.Run();
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.Equal(1L, snap.Counters["stalls"]);
+    }
+
+    // ── Branch correctness ────────────────────────────────────────────────────
+
+    [Fact]
+    public void Pipeline_BranchNotTaken_ZeroMispredictions() {
+        // AlwaysNotTaken predictor is correct when the branch is not taken.
+        // addi x1, x0, 1
+        // addi x2, x0, 2
+        // beq  x1, x2, +8  →  not taken (1 != 2), predictor is correct → 0 misses
+        // addi x3, x0, 42
+        // ebreak
+        (FiveStageTrain train, FlatMemory mem) = Make(predictor: new AlwaysNotTakenPredictor());
+        Load(
+            mem,
+            0x00100093, // addi x1, x0, 1
+            0x00200113, // addi x2, x0, 2
+            0x00208463, // beq  x1, x2, +8  (not taken)
+            0x02A00193, // addi x3, x0, 42
+            0x00100073
+        );
+        RevolutionResult result = train.Run();
+
+        Assert.Equal(42u, (uint)train.ArchState.IntegerRegisters.Read(3));
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.Equal(0L, snap.Counters["branch_misses"]);
+    }
+
+    [Fact]
+    public void Pipeline_Jal_CorrectResult() {
+        // jal x1, +8   →  jump to addr 8, x1 = 4 (return addr)
+        // addi x2, x0, 99  ← skipped (addr 4)
+        // addi x2, x0, 42  ← executed (addr 8)
+        // ebreak
+        (FiveStageTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x008000EF, // jal x1, +8
+            0x06300113, // addi x2, x0, 99  ← skipped
+            0x02A00113, // addi x2, x0, 42
+            0x00100073
+        );
+        train.Run();
+        Assert.Equal(4u, (uint)train.ArchState.IntegerRegisters.Read(1));
+        Assert.Equal(42u, (uint)train.ArchState.IntegerRegisters.Read(2));
+    }
+
+    // ── Stats ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Pipeline_RetiredCount_MatchesInstructions() {
+        // 3 instructions + ebreak — ebreak does not retire
+        (FiveStageTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x00A00093, // addi x1, x0, 10
+            0x02000113, // addi x2, x0, 32
+            0x002081B3, // add  x3, x1, x2
+            0x00100073
+        );
+        RevolutionResult result = train.Run();
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.Equal(3L, snap.Counters["retired"]);
+    }
+
+    [Fact]
+    public void Pipeline_NoForwarding_StallsCounterIsPositive() {
+        // A RAW chain with no forwarding must insert stall cycles.
+        uint[] program = [
+            0x00A00093, // addi x1, x0, 10
+            0x00108113, // addi x2, x1, 1   ← RAW on x1
+            0x00210193, // addi x3, x2, 2   ← RAW on x2
+            0x00100073,
+        ];
+        (FiveStageTrain train, FlatMemory mem) = Make(false);
+        Load(mem, program);
+        RevolutionResult result = train.Run();
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(snap.Counters["stalls"] > 0, "No-forwarding pipeline must stall on RAW hazards");
+    }
+
     // ── Branch predictor ──────────────────────────────────────────────────────
 
     [Fact]

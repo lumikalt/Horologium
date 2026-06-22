@@ -9,10 +9,8 @@ namespace RiscV.Decode;
 public sealed class RvDecoder : IDecoder {
     public int InstructionSize(ulong pc, IMemory memory) => 4; // RV32I is fixed-width
 
-    public IInstruction Decode(ulong pc, IMemory memory) {
-        var raw = (uint)memory.Read(pc, 4);
-        return Decode(pc, raw);
-    }
+    public IInstruction Decode(ulong pc, IMemory memory) => Decode(pc, (uint)memory.Read(pc, 4));
+
 
     public IInstruction Decode(ulong pc, uint raw) {
         uint opcode = raw & 0x7F;

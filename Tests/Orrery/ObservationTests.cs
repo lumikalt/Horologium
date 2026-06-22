@@ -155,6 +155,12 @@ public class ObservationTests {
     }
 
     [Fact]
+    public void DialBoard_GetDial_MissingName_Throws() {
+        var board = new DialBoard("top.fetch");
+        Assert.Throws<KeyNotFoundException>(() => board.GetDial("missing"));
+    }
+
+    [Fact]
     public void DialBoard_Reset_ZeroesAllCounters() {
         var board = new DialBoard("top.fetch");
         Counter c1 = board.AddCounter("a");

@@ -232,6 +232,74 @@ public class SingleCycleTests {
         Assert.Equal(0xF0u, Reg(train, 5));
     }
 
+    // ── JALR ──────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Program_Jalr_WithLink() {
+        // addi x2, x0, 16  →  x2 = 16 (jump target)
+        // jalr x1, 0(x2)   →  jump to addr 16, x1 = PC+4 = 8
+        // addi x3, x0, 99  ← skipped (addr 8)
+        // addi x3, x0, 99  ← skipped (addr 12)
+        // addi x3, x0, 42  ← executed (addr 16)
+        // ebreak
+        (SingleCycleTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x01000113, // addi x2, x0, 16
+            0x000100E7, // jalr x1, 0(x2)
+            0x06300193, // addi x3, x0, 99  ← skipped
+            0x06300193, // addi x3, x0, 99  ← skipped
+            0x02A00193, // addi x3, x0, 42  (at addr 16)
+            0x00100073
+        );
+        train.Run();
+        Assert.Equal(8u, Reg(train, 1));  // return addr = jalr_pc(4) + 4
+        Assert.Equal(42u, Reg(train, 3));
+    }
+
+    // ── AUIPC ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Program_Auipc() {
+        // addi x0, x0, 0   (NOP, addr 0)
+        // auipc x1, 1      (addr 4) →  x1 = 4 + (1 << 12) = 0x1004
+        // ebreak
+        (SingleCycleTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x00000013, // addi x0, x0, 0  (NOP)
+            0x00001097, // auipc x1, 1
+            0x00100073
+        );
+        train.Run();
+        Assert.Equal(0x1004u, Reg(train, 1));
+    }
+
+    // ── Half-word load/store ──────────────────────────────────────────────────
+
+    [Fact]
+    public void Program_HalfWordLoadStore() {
+        // addi x1, x0, 256  →  base address
+        // addi x2, x0, -1   →  x2 = 0xFFFFFFFF
+        // sh   x2, 0(x1)    →  store low 16 bits (0xFFFF) at addr 256
+        // lh   x3, 0(x1)    →  x3 = 0xFFFFFFFF (sign extended)
+        // lhu  x4, 0(x1)    →  x4 = 0x0000FFFF (zero extended)
+        // ebreak
+        (SingleCycleTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 256
+            0xFFF00113, // addi x2, x0, -1
+            0x00209023, // sh   x2, 0(x1)
+            0x00009183, // lh   x3, 0(x1)
+            0x0000D203, // lhu  x4, 0(x1)
+            0x00100073
+        );
+        train.Run();
+        Assert.Equal(0xFFFFFFFFu, Reg(train, 3));
+        Assert.Equal(0x0000FFFFu, Reg(train, 4));
+    }
+
     // ── Stats ─────────────────────────────────────────────────────────────────
 
     [Fact]

@@ -246,4 +246,219 @@ public class DecoderTests {
         Assert.Empty(i.SourceRegisters);
         Assert.Equal(1, i.DestinationRegister);
     }
+
+    [Fact]
+    public void Decode_SourceRegisters_Branch() {
+        IInstruction i = D(0x00208463); // beq x1, x2, +8
+        Assert.Equal([1, 2,], i.SourceRegisters);
+        Assert.Equal(-1, i.DestinationRegister);
+    }
+
+    [Fact]
+    public void Decode_SourceRegisters_Load() {
+        IInstruction i = D(0x00812083); // lw x1, 8(x2)
+        Assert.Equal([2,], i.SourceRegisters);
+        Assert.Equal(1, i.DestinationRegister);
+    }
+
+    // ── R-type (additional) ───────────────────────────────────────────────────
+
+    [Fact]
+    public void Decode_Srl() {
+        // srl x5, x6, x7  →  0x007352B3
+        IInstruction i = D(0x007352B3);
+        Assert.IsType<RvSrl>(i.Payload);
+        var op = (RvSrl)i.Payload!;
+        Assert.Equal(5, op.Rd);
+        Assert.Equal(6, op.Rs1);
+        Assert.Equal(7, op.Rs2);
+    }
+
+    [Fact]
+    public void Decode_And() {
+        // and x3, x1, x2  →  0x0020F1B3
+        IInstruction i = D(0x0020F1B3);
+        Assert.IsType<RvAnd>(i.Payload);
+        var op = (RvAnd)i.Payload!;
+        Assert.Equal(3, op.Rd);
+        Assert.Equal(1, op.Rs1);
+        Assert.Equal(2, op.Rs2);
+    }
+
+    [Fact]
+    public void Decode_Or() {
+        // or x3, x1, x2  →  0x0020E1B3
+        IInstruction i = D(0x0020E1B3);
+        Assert.IsType<RvOr>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Xor() {
+        // xor x3, x1, x2  →  0x0020C1B3
+        IInstruction i = D(0x0020C1B3);
+        Assert.IsType<RvXor>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Slt() {
+        // slt x3, x1, x2  →  0x0020A1B3
+        IInstruction i = D(0x0020A1B3);
+        Assert.IsType<RvSlt>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Sltu() {
+        // sltu x3, x1, x2  →  0x0020B1B3
+        IInstruction i = D(0x0020B1B3);
+        Assert.IsType<RvSltu>(i.Payload);
+    }
+
+    // ── I-type ALU (additional) ───────────────────────────────────────────────
+
+    [Fact]
+    public void Decode_Slli() {
+        // slli x1, x2, 3  →  0x00311093
+        IInstruction i = D(0x00311093);
+        Assert.IsType<RvSlli>(i.Payload);
+        var op = (RvSlli)i.Payload!;
+        Assert.Equal(3, op.Shamt);
+    }
+
+    [Fact]
+    public void Decode_Srli() {
+        // srli x1, x2, 3  →  0x00315093
+        IInstruction i = D(0x00315093);
+        Assert.IsType<RvSrli>(i.Payload);
+        var op = (RvSrli)i.Payload!;
+        Assert.Equal(3, op.Shamt);
+    }
+
+    [Fact]
+    public void Decode_Ori() {
+        // ori x1, x2, 15  →  0x00F16093
+        IInstruction i = D(0x00F16093);
+        Assert.IsType<RvOri>(i.Payload);
+        var op = (RvOri)i.Payload!;
+        Assert.Equal(15, op.Imm);
+    }
+
+    [Fact]
+    public void Decode_Xori() {
+        // xori x1, x2, 15  →  0x00F14093
+        IInstruction i = D(0x00F14093);
+        Assert.IsType<RvXori>(i.Payload);
+        var op = (RvXori)i.Payload!;
+        Assert.Equal(15, op.Imm);
+    }
+
+    [Fact]
+    public void Decode_Slti() {
+        // slti x1, x2, 5  →  0x00512093
+        IInstruction i = D(0x00512093);
+        Assert.IsType<RvSlti>(i.Payload);
+        var op = (RvSlti)i.Payload!;
+        Assert.Equal(5, op.Imm);
+    }
+
+    [Fact]
+    public void Decode_Sltiu() {
+        // sltiu x1, x2, 5  →  0x00513093
+        IInstruction i = D(0x00513093);
+        Assert.IsType<RvSltiu>(i.Payload);
+        var op = (RvSltiu)i.Payload!;
+        Assert.Equal(5, op.Imm);
+    }
+
+    // ── Loads (additional) ────────────────────────────────────────────────────
+
+    [Fact]
+    public void Decode_Lh() {
+        // lh x1, 4(x2)  →  0x00411083
+        IInstruction i = D(0x00411083);
+        Assert.IsType<RvLh>(i.Payload);
+        var op = (RvLh)i.Payload!;
+        Assert.Equal(1, op.Rd);
+        Assert.Equal(2, op.Rs1);
+        Assert.Equal(4, op.Imm);
+        Assert.Equal(InstructionClass.Load, i.Class);
+    }
+
+    [Fact]
+    public void Decode_Lhu() {
+        // lhu x1, 4(x2)  →  0x00415083
+        IInstruction i = D(0x00415083);
+        Assert.IsType<RvLhu>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Lbu() {
+        // lbu x1, 4(x2)  →  0x00414083
+        IInstruction i = D(0x00414083);
+        Assert.IsType<RvLbu>(i.Payload);
+    }
+
+    // ── Stores (additional) ───────────────────────────────────────────────────
+
+    [Fact]
+    public void Decode_Sh() {
+        // sh x3, 8(x2)  →  0x00311423
+        IInstruction i = D(0x00311423);
+        Assert.IsType<RvSh>(i.Payload);
+        var op = (RvSh)i.Payload!;
+        Assert.Equal(2, op.Rs1);
+        Assert.Equal(3, op.Rs2);
+        Assert.Equal(8, op.Imm);
+        Assert.Equal(InstructionClass.Store, i.Class);
+        Assert.Equal(-1, i.DestinationRegister);
+    }
+
+    [Fact]
+    public void Decode_Sb() {
+        // sb x3, 8(x2)  →  0x00310423
+        IInstruction i = D(0x00310423);
+        Assert.IsType<RvSb>(i.Payload);
+        var op = (RvSb)i.Payload!;
+        Assert.Equal(8, op.Imm);
+    }
+
+    // ── Branches (additional) ─────────────────────────────────────────────────
+
+    [Fact]
+    public void Decode_Blt() {
+        // blt x1, x2, +8  →  0x0020C463
+        IInstruction i = D(0x0020C463);
+        Assert.IsType<RvBlt>(i.Payload);
+        var op = (RvBlt)i.Payload!;
+        Assert.Equal(8, op.Imm);
+        Assert.Equal(InstructionClass.ConditionalBranch, i.Class);
+    }
+
+    [Fact]
+    public void Decode_Bge() {
+        // bge x1, x2, +8  →  0x0020D463
+        IInstruction i = D(0x0020D463);
+        Assert.IsType<RvBge>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Bltu() {
+        // bltu x1, x2, +8  →  0x0020E463
+        IInstruction i = D(0x0020E463);
+        Assert.IsType<RvBltu>(i.Payload);
+    }
+
+    [Fact]
+    public void Decode_Bgeu() {
+        // bgeu x1, x2, +8  →  0x0020F463
+        IInstruction i = D(0x0020F463);
+        Assert.IsType<RvBgeu>(i.Payload);
+    }
+
+    // ── Error conditions ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void Decode_UnknownOpcode_Throws() {
+        // 0xFFFFFFFF has opcode 0x7F, which is not a valid RV32I opcode
+        Assert.Throws<IllegalInstructionException>(() => D(0xFFFFFFFF));
+    }
 }

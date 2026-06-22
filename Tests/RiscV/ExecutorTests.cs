@@ -215,4 +215,167 @@ public class ExecutorTests {
         // But we can verify x0 reads as 0 regardless
         Assert.Equal(0UL, s.IntegerRegisters.Read(0));
     }
+
+    // ── R-type (additional) ───────────────────────────────────────────────────
+
+    [Fact]
+    public void Execute_And() {
+        RvArchState s = MakeState((1, 0xAA), (2, 0xF0));
+        ExecuteResult r = Exec(0x0020F1B3, s); // and x3, x1, x2
+        Assert.Equal(0xA0UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Or() {
+        RvArchState s = MakeState((1, 0x0F), (2, 0xF0));
+        ExecuteResult r = Exec(0x0020E1B3, s); // or x3, x1, x2
+        Assert.Equal(0xFFUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Xor() {
+        RvArchState s = MakeState((1, 0xFF), (2, 0xF0));
+        ExecuteResult r = Exec(0x0020C1B3, s); // xor x3, x1, x2
+        Assert.Equal(0x0FUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Sll() {
+        RvArchState s = MakeState((1, 1), (2, 4));
+        ExecuteResult r = Exec(0x002091B3, s); // sll x3, x1, x2  →  1 << 4 = 16
+        Assert.Equal(16UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Srl_LogicalShift() {
+        RvArchState s = MakeState((1, 0x80000000), (2, 1));
+        ExecuteResult r = Exec(0x0020D1B3, s); // srl x3, x1, x2  →  0x40000000
+        Assert.Equal(0x40000000UL, r.RegisterResult);
+    }
+
+    // ── I-type ALU (additional) ───────────────────────────────────────────────
+
+    [Fact]
+    public void Execute_Ori() {
+        RvArchState s = MakeState((1, 0xF0));
+        ExecuteResult r = Exec(0x00F0E113, s); // ori x2, x1, 0xF  →  0xFF
+        Assert.Equal(0xFFUL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Xori() {
+        RvArchState s = MakeState((1, 0xFF));
+        ExecuteResult r = Exec(0x00F0C113, s); // xori x2, x1, 0xF  →  0xF0
+        Assert.Equal(0xF0UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Slti_True() {
+        RvArchState s = MakeState((1, unchecked((uint)-1)));
+        ExecuteResult r = Exec(0x0000A113, s); // slti x2, x1, 0  →  -1 < 0 signed → 1
+        Assert.Equal(1UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Slti_False() {
+        RvArchState s = MakeState((1, 5));
+        ExecuteResult r = Exec(0x0000A113, s); // slti x2, x1, 0  →  5 < 0 signed → 0
+        Assert.Equal(0UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Sltiu_UnsignedComparison() {
+        RvArchState s = MakeState((1, 0));
+        ExecuteResult r = Exec(0x0010B113, s); // sltiu x2, x1, 1  →  0 < 1 unsigned → 1
+        Assert.Equal(1UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Slli() {
+        RvArchState s = MakeState((1, 1));
+        ExecuteResult r = Exec(0x00409113, s); // slli x2, x1, 4  →  16
+        Assert.Equal(16UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Srli_LogicalShift() {
+        RvArchState s = MakeState((1, 0x80000000));
+        ExecuteResult r = Exec(0x0010D113, s); // srli x2, x1, 1  →  0x40000000
+        Assert.Equal(0x40000000UL, r.RegisterResult);
+    }
+
+    // ── Branches (additional) ─────────────────────────────────────────────────
+
+    [Fact]
+    public void Execute_Bne_Taken() {
+        RvArchState s = MakeState((1, 1), (2, 2));
+        ExecuteResult r = Exec(0x00209463, s, 0x100); // bne x1, x2, +8  →  1 != 2 → taken
+        Assert.True(r.BranchTaken);
+        Assert.Equal(0x108UL, r.BranchTarget);
+    }
+
+    [Fact]
+    public void Execute_Bne_NotTaken() {
+        RvArchState s = MakeState((1, 5), (2, 5));
+        ExecuteResult r = Exec(0x00209463, s, 0x100); // bne x1, x2, +8  →  5 == 5 → not taken
+        Assert.False(r.BranchTaken);
+    }
+
+    [Fact]
+    public void Execute_Bge_Taken_Equal() {
+        RvArchState s = MakeState((1, 5), (2, 5));
+        ExecuteResult r = Exec(0x0020D463, s, 0x100); // bge x1, x2, +8  →  5 >= 5 → taken
+        Assert.True(r.BranchTaken);
+        Assert.Equal(0x108UL, r.BranchTarget);
+    }
+
+    [Fact]
+    public void Execute_Bge_NotTaken_Negative() {
+        RvArchState s = MakeState((1, unchecked((uint)-1)), (2, 0));
+        ExecuteResult r = Exec(0x0020D463, s, 0x100); // bge x1, x2, +8  →  -1 >= 0 signed → false
+        Assert.False(r.BranchTaken);
+    }
+
+    [Fact]
+    public void Execute_Bgeu_Taken() {
+        RvArchState s = MakeState((1, 0xFFFFFFFF), (2, 1));
+        ExecuteResult r = Exec(0x0020F463, s, 0x100); // bgeu x1, x2, +8  →  large unsigned >= 1 → taken
+        Assert.True(r.BranchTaken);
+    }
+
+    [Fact]
+    public void Execute_Bltu_Taken() {
+        RvArchState s = MakeState((1, 0), (2, 1));
+        ExecuteResult r = Exec(0x0020E463, s, 0x100); // bltu x1, x2, +8  →  0 < 1 unsigned → taken
+        Assert.True(r.BranchTaken);
+    }
+
+    // ── Half-word memory ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void Execute_Sh_Then_Lh_SignExtends() {
+        RvArchState s = MakeState((1, 100), (2, 0x8000)); // 0x8000 = -32768 as int16
+        Exec(0x00209023, s); // sh x2, 0(x1)
+        ExecuteResult r = Exec(0x00009183, s); // lh x3, 0(x1)
+        Assert.Equal(0xFFFF8000UL, r.RegisterResult);
+    }
+
+    [Fact]
+    public void Execute_Sh_Then_Lhu_ZeroExtends() {
+        RvArchState s = MakeState((1, 100), (2, 0x8000));
+        Exec(0x00209023, s); // sh x2, 0(x1)
+        ExecuteResult r = Exec(0x0000D183, s); // lhu x3, 0(x1)
+        Assert.Equal(0x8000UL, r.RegisterResult);
+    }
+
+    // ── JALR with link register ───────────────────────────────────────────────
+
+    [Fact]
+    public void Execute_Jalr_WithLinkRegister() {
+        RvArchState s = MakeState((2, 0x200));
+        ExecuteResult r = Exec(0x004100E7, s, 0x100); // jalr x1, 4(x2)
+        Assert.Equal(0x104UL, r.RegisterResult); // link = PC+4
+        Assert.True(r.BranchTaken);
+        Assert.Equal(0x204UL, r.BranchTarget);   // target = x2+4 = 0x204
+    }
 }
