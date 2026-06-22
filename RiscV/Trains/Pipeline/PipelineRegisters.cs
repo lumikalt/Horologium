@@ -27,7 +27,7 @@ public sealed record IdExLatch {
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
-    public IInstruction? Instruction { get; init; }
+    public ITooth? Instruction { get; init; }
     public ulong Rs1Value { get; init; }
     public ulong Rs2Value { get; init; }
     public int DestinationRegister { get; init; } = -1;
@@ -43,7 +43,7 @@ public sealed record ExMemLatch {
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
-    public IInstruction? Instruction { get; init; }
+    public ITooth? Instruction { get; init; }
     public ExecuteResult? Result { get; init; }
     public int DestinationRegister { get; init; } = -1;
     public ulong Rs2Value { get; init; } // for stores
@@ -59,7 +59,7 @@ public sealed record MemWbLatch {
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
-    public IInstruction? Instruction { get; init; }
+    public ITooth? Instruction { get; init; }
     public ulong? WritebackValue { get; init; }
     public int DestinationRegister { get; init; } = -1;
     public bool HasTrap { get; init; }

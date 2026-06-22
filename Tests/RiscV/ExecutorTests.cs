@@ -18,7 +18,7 @@ public class ExecutorTests {
     }
 
     private ExecuteResult Exec(uint raw, RvArchState state, ulong pc = 0) {
-        IInstruction instr = _dec.Decode(pc, raw);
+        ITooth instr = _dec.Decode(pc, raw);
         return _exe.Execute(instr, state, _mem);
     }
 

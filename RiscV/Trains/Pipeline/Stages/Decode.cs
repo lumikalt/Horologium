@@ -62,7 +62,7 @@ public sealed class DecodeStage : Gear {
 
         _current = IfIdLatch.Bubble;
 
-        IInstruction instr;
+        ITooth instr;
         try { instr = _decoder.Decode(latch.Pc, latch.RawEncoding); }
         catch (IllegalInstructionException) {
             LastSent = IdExLatch.Bubble;

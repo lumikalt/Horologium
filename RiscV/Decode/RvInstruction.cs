@@ -12,16 +12,16 @@ public sealed class RvInstruction(
     uint raw,
     int dest,
     IReadOnlyList<int> sources,
-    InstructionClass cls,
+    ToothClass cls,
     object? payload
 )
-    : IInstruction {
+    : ITooth {
     public ulong Pc { get; } = pc;
     public uint RawEncoding { get; } = raw;
     public int SizeBytes => 4;
     public int DestinationRegister { get; } = dest;
     public IReadOnlyList<int> SourceRegisters { get; } = sources;
-    public InstructionClass Class { get; } = cls;
+    public ToothClass Class { get; } = cls;
     public object? Payload { get; } = payload;
 
     public override string ToString() =>

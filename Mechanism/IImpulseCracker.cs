@@ -10,12 +10,12 @@ namespace Mechanism;
 /// Simple instructions crack into exactly one Impulse.
 /// The cracker is optional — Trains that do not use µops never call it.
 /// </summary>
-public interface IUopCracker {
+public interface IImpulseCracker {
     /// <summary>
     /// Cracks <paramref name="instruction"/> into one or more Impulses.
     /// The returned span is valid until the next call to Crack on this instance.
     /// </summary>
-    ReadOnlySpan<Impulse> Crack(IInstruction instruction);
+    ReadOnlySpan<Impulse> Crack(ITooth instruction);
 }
 
 /// <summary>
@@ -29,7 +29,7 @@ public interface IUopCracker {
 /// </summary>
 public readonly record struct Impulse() {
     /// <summary>The macro-instruction this µop belongs to.</summary>
-    public required IInstruction Parent { get; init; }
+    public required ITooth Parent { get; init; }
 
     /// <summary>
     /// The index of this µop within its parent instruction (0-based).
@@ -41,7 +41,7 @@ public readonly record struct Impulse() {
     public required bool IsLast { get; init; }
 
     /// <summary>The execution unit class this µop targets.</summary>
-    public required InstructionClass Class { get; init; }
+    public required ToothClass Class { get; init; }
 
     /// <summary>
     /// The physical destination register index after renaming.

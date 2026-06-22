@@ -9,10 +9,10 @@ namespace RiscV.Decode;
 public sealed class RvDecoder : IDecoder {
     public int InstructionSize(ulong pc, IMemory memory) => 4; // RV32I is fixed-width
 
-    public IInstruction Decode(ulong pc, IMemory memory) => Decode(pc, (uint)memory.Read(pc, 4));
+    public ITooth Decode(ulong pc, IMemory memory) => Decode(pc, (uint)memory.Read(pc, 4));
 
 
-    public IInstruction Decode(ulong pc, uint raw) {
+    public ITooth Decode(ulong pc, uint raw) {
         uint opcode = raw & 0x7F;
         var rd = (int)((raw >> 7) & 0x1F);
         var rs1 = (int)((raw >> 15) & 0x1F);
@@ -32,7 +32,7 @@ public sealed class RvDecoder : IDecoder {
             0x17 => DecodeUType(pc, raw, rd, raw, false),
             0x73 => DecodeSystem(pc, raw, rd, rs1, funct3, raw),
             0x2F => DecodeAmo(pc, raw, rd, rs1, rs2, funct3, (raw >> 27) & 0x1F),
-            0x0F => new RvInstruction(pc, raw, -1, [], InstructionClass.Fence, new RvFence()),
+            0x0F => new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFence()),
             _ => throw new IllegalInstructionException(
                 pc, raw,
                 $"Unknown opcode 0x{opcode:X2} at PC=0x{pc:X8}"
@@ -68,7 +68,7 @@ public sealed class RvDecoder : IDecoder {
                     $"Unknown M-extension funct3=0x{funct3:X}"
                 ),
             };
-            return new RvInstruction(pc, raw, rd, sources, InstructionClass.IntegerMulDiv, mop);
+            return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerMulDiv, mop);
         }
 
         RvOp op = (funct3, funct7) switch {
@@ -87,7 +87,7 @@ public sealed class RvDecoder : IDecoder {
                 $"Unknown R-type funct3=0x{funct3:X} funct7=0x{funct7:X}"
             ),
         };
-        return new RvInstruction(pc, raw, rd, sources, InstructionClass.IntegerAlu, op);
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerAlu, op);
     }
 
     // ── I-type ALU ────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ public sealed class RvDecoder : IDecoder {
                 $"Unknown OP-IMM funct3=0x{funct3:X}"
             ),
         };
-        return new RvInstruction(pc, raw, rd, sources, InstructionClass.IntegerAlu, op);
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerAlu, op);
     }
 
     // ── Loads ─────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ public sealed class RvDecoder : IDecoder {
                 $"Unknown LOAD funct3=0x{funct3:X}"
             ),
         };
-        return new RvInstruction(pc, raw, rd, sources, InstructionClass.Load, op);
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.Load, op);
     }
 
     // ── Stores ────────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ public sealed class RvDecoder : IDecoder {
                 $"Unknown STORE funct3=0x{funct3:X}"
             ),
         };
-        return new RvInstruction(pc, raw, -1, sources, InstructionClass.Store, op);
+        return new RvInstruction(pc, raw, -1, sources, ToothClass.Store, op);
     }
 
     // ── Branches ──────────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@ public sealed class RvDecoder : IDecoder {
                 $"Unknown BRANCH funct3=0x{funct3:X}"
             ),
         };
-        return new RvInstruction(pc, raw, -1, sources, InstructionClass.ConditionalBranch, op);
+        return new RvInstruction(pc, raw, -1, sources, ToothClass.ConditionalBranch, op);
     }
 
     // ── JAL ───────────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ public sealed class RvDecoder : IDecoder {
             (((word >> 21) & 0x3FF) << 1));
         imm = SignExtendN(imm, 21);
         return new RvInstruction(
-            pc, raw, rd, [], InstructionClass.Branch,
+            pc, raw, rd, [], ToothClass.Branch,
             new RvJal(rd, imm)
         );
     }
@@ -237,7 +237,7 @@ public sealed class RvDecoder : IDecoder {
     ) {
         int imm = SignExtend12((int)(word >> 20));
         return new RvInstruction(
-            pc, raw, rd, [rs1,], InstructionClass.Branch,
+            pc, raw, rd, [rs1,], ToothClass.Branch,
             new RvJalr(rd, rs1, imm)
         );
     }
@@ -253,7 +253,7 @@ public sealed class RvDecoder : IDecoder {
     ) {
         var imm = (int)(word & 0xFFFFF000); // upper 20 bits, lower 12 zeroed
         RvOp op = isLui ? new RvLui(rd, imm) : new RvAuipc(rd, imm);
-        return new RvInstruction(pc, raw, rd, [], InstructionClass.IntegerAlu, op);
+        return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, op);
     }
 
     // ── System ────────────────────────────────────────────────────────────────
@@ -272,9 +272,9 @@ public sealed class RvDecoder : IDecoder {
         if (funct3 == 0x0)
             // ECALL / EBREAK / MRET
             return (word >> 20) switch {
-                0x000 => new RvInstruction(pc, raw, -1, [], InstructionClass.System, new RvEcall()),
-                0x001 => new RvInstruction(pc, raw, -1, [], InstructionClass.System, new RvEbreak()),
-                0x302 => new RvInstruction(pc, raw, -1, [], InstructionClass.System, new RvMret()),
+                0x000 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEcall()),
+                0x001 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEbreak()),
+                0x302 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvMret()),
                 _ => throw new IllegalInstructionException(
                     pc, raw,
                     $"Unknown SYSTEM instruction at PC=0x{pc:X8}"
@@ -298,7 +298,7 @@ public sealed class RvDecoder : IDecoder {
                 $"Unknown SYSTEM funct3=0x{funct3:X}"
             ),
         };
-        return new RvInstruction(pc, raw, rd, sources, InstructionClass.System, op);
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.System, op);
     }
 
     // ── A extension (AMO) ─────────────────────────────────────────────────────
@@ -338,7 +338,7 @@ public sealed class RvDecoder : IDecoder {
                 $"Unknown AMO funct5=0x{funct5:X2}"
             ),
         };
-        return new RvInstruction(pc, raw, rd, sources, InstructionClass.Atomic, op);
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.Atomic, op);
     }
 
     // ── Immediate helpers ─────────────────────────────────────────────────────

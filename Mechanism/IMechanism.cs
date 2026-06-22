@@ -24,7 +24,7 @@ public interface IMechanism {
     /// The µop cracker for this ISA, or null if this ISA does not
     /// support cracking (i.e. all instructions are already atomic).
     /// </summary>
-    IUopCracker? UopCracker { get; }
+    IImpulseCracker? UopCracker { get; }
 
     /// <summary>The trap controller for this ISA.</summary>
     ITrapController TrapController { get; }

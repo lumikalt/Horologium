@@ -41,7 +41,7 @@ public sealed class HazardUnit(bool forwardingEnabled) {
             // consumer entering EX next cycle, so the consumer waits one cycle.
             return exResident is {
                        IsValid: true,
-                       Instruction.Class: InstructionClass.Load or InstructionClass.Atomic,
+                       Instruction.Class: ToothClass.Load or ToothClass.Atomic,
                    }
                 && Reads(exResident.DestinationRegister);
 

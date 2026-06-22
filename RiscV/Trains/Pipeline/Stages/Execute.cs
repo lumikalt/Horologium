@@ -73,7 +73,7 @@ public sealed class ExecuteStage : Gear {
         (ulong rs1, ulong rs2) = _hazard.Forward(latch, _exMem, _memWb);
 
         IRegisterFile regs = _state.IntegerRegisters;
-        IInstruction instr = latch.Instruction;
+        ITooth instr = latch.Instruction;
 
         // The executor reads operands from the register file, so inject the
         // forwarded values, then restore — otherwise a forwarded operand would

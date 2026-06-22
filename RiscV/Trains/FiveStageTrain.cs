@@ -228,7 +228,7 @@ internal sealed class PipelineCore : Gear {
         ExMemLatch resolved = _ex.LastSent;
         if (resolved is {
                 IsValid: true, Result: not null,
-                Instruction.Class: InstructionClass.Branch or InstructionClass.ConditionalBranch,
+                Instruction.Class: ToothClass.Branch or ToothClass.ConditionalBranch,
             }) {
             bool taken = resolved.Result.BranchTaken;
             ulong actualNext = taken ? resolved.Result.BranchTarget!.Value : resolved.Pc + 4;

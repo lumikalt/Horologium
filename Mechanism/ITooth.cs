@@ -7,7 +7,7 @@ namespace Mechanism;
 /// for hazard detection and scheduling. The ISA-opaque payload carries
 /// everything the executor needs to actually compute the result.
 /// </summary>
-public interface IInstruction {
+public interface ITooth {
     /// <summary>The address this instruction was fetched from.</summary>
     ulong Pc { get; }
 
@@ -30,7 +30,7 @@ public interface IInstruction {
     IReadOnlyList<int> SourceRegisters { get; }
 
     /// <summary>The broad class of this instruction, used for scheduling.</summary>
-    InstructionClass Class { get; }
+    ToothClass Class { get; }
 
     /// <summary>
     /// ISA-specific payload. The executor casts this to its concrete type.
@@ -44,7 +44,7 @@ public interface IInstruction {
 /// Used by the pipeline for hazard detection, issue port assignment,
 /// and branch prediction — not for execution semantics.
 /// </summary>
-public enum InstructionClass {
+public enum ToothClass {
     /// <summary>Integer arithmetic and logic.</summary>
     IntegerAlu,
 

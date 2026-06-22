@@ -16,7 +16,7 @@ public interface IExecutor {
     /// and <paramref name="memory"/>.
     /// </summary>
     ExecuteResult Execute(
-        IInstruction instruction,
+        ITooth instruction,
         IArchState state,
         IMemory memory
     );

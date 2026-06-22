@@ -4,7 +4,7 @@ using Mechanism;
 namespace Chip8.Execute;
 
 public sealed class Chip8Executor : IExecutor {
-    public ExecuteResult Execute(IInstruction instruction, IArchState state, IMemory memory) {
+    public ExecuteResult Execute(ITooth instruction, IArchState state, IMemory memory) {
         var chip8 = (Chip8ArchState)state;
         IRegisterFile v = chip8.IntegerRegisters;
         ulong pc = instruction.Pc;

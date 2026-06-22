@@ -8,7 +8,7 @@ namespace RiscV.Execute;
 /// Reads from IArchState, returns an ExecuteResult — never writes back directly.
 /// </summary>
 public sealed class RvExecutor : IExecutor {
-    public ExecuteResult Execute(IInstruction instruction, IArchState state, IMemory memory) {
+    public ExecuteResult Execute(ITooth instruction, IArchState state, IMemory memory) {
         if (instruction.Payload is not RvOp op)
             throw new InvalidOperationException(
                 $"RvExecutor received an instruction with an unexpected payload type: " +

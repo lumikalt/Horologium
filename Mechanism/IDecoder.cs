@@ -1,7 +1,7 @@
 namespace Mechanism;
 
 /// <summary>
-/// Decodes raw instruction bytes into an IInstruction.
+/// Decodes raw instruction bytes into an ITooth.
 ///
 /// The decoder is stateless — the same bytes at the same PC always
 /// produce the same instruction. All ISA-specific decode logic lives here.
@@ -14,9 +14,9 @@ public interface IDecoder {
     /// <exception cref="IllegalInstructionException">
     /// Thrown if the bytes do not form a legal instruction.
     /// </exception>
-    IInstruction Decode(ulong pc, IMemory memory);
+    ITooth Decode(ulong pc, IMemory memory);
 
-    IInstruction Decode(ulong pc, uint raw);
+    ITooth Decode(ulong pc, uint raw);
 
     /// <summary>
     /// The number of bytes consumed by the instruction at <paramref name="pc"/>.

@@ -7,15 +7,15 @@ public class Instruction(
     ushort raw,
     int dest,
     IReadOnlyList<int> read,
-    InstructionClass cls,
+    ToothClass cls,
     object? payload
-) : IInstruction {
+) : ITooth {
     public ulong Pc { get; } = pc;
     public uint RawEncoding { get; } = raw;
     public int SizeBytes => 2; // 16-bit instructions
     public int DestinationRegister => dest;
     public IReadOnlyList<int> SourceRegisters { get; } = read;
-    public InstructionClass Class { get; } = cls;
+    public ToothClass Class { get; } = cls;
     public object? Payload => payload;
 }
 

@@ -64,7 +64,7 @@ internal class SingleCycleCore(
         ulong pc = ArchState.Pc;
 
         // Fetch & Decode
-        IInstruction instr;
+        ITooth instr;
         try { instr = mechanism.Decoder.Decode(pc, memory); }
         catch (IllegalInstructionException ex) {
             var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);
@@ -89,7 +89,7 @@ internal class SingleCycleCore(
         _retiredCounter.Increment();
 
         // Halt check
-        if (ArchState.Pc == pc && instr.Class == InstructionClass.Branch) return;
+        if (ArchState.Pc == pc && instr.Class == ToothClass.Branch) return;
 
         ScheduleNextInstruction();
     }

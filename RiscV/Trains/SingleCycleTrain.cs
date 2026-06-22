@@ -84,7 +84,7 @@ internal sealed class SingleCycleCore(
         ulong pc = ArchState.Pc;
 
         // Fetch & Decode
-        IInstruction instr;
+        ITooth instr;
         try { instr = mechanism.Decoder.Decode(pc, memory); }
         catch (IllegalInstructionException ex) {
             _cyclesCounter.Increment();
@@ -137,7 +137,7 @@ internal sealed class SingleCycleCore(
         _retiredCounter.Increment();
 
         // Detect halt: infinite self-loop (JAL x0, 0 — common halt idiom)
-        if (ArchState.Pc == pc && instr.Class == InstructionClass.Branch) return; // stop scheduling — we're halted
+        if (ArchState.Pc == pc && instr.Class == ToothClass.Branch) return; // stop scheduling — we're halted
 
         ScheduleNextInstruction();
     }

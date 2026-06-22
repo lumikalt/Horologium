@@ -15,7 +15,7 @@ public sealed class RvMechanism : IMechanism {
     public string Name => "RV32I";
     public IDecoder Decoder { get; } = new RvDecoder();
     public IExecutor Executor { get; } = new RvExecutor();
-    public IUopCracker? UopCracker => null; // added in Phase 7
+    public IImpulseCracker? UopCracker => null; // added in Phase 7
     public ITrapController TrapController { get; } = new RvTrapController();
 
     public IArchState CreateArchState() => new RvArchState();
