@@ -19,6 +19,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\Chip8\Chip8.csproj" />
       <ProjectReference Include="..\Mechanism\Mechanism.csproj" />
       <ProjectReference Include="..\Orrery\Orrery.csproj" />
       <ProjectReference Include="..\RiscV\RiscV.csproj" />
