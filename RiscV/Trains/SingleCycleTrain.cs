@@ -81,14 +81,13 @@ internal sealed class SingleCycleCore(
     private void ScheduleNextInstruction() { Escapement.ScheduleNextTick(ExecuteOneCycle, Phase.Execute); }
 
     private void ExecuteOneCycle() {
-        _cyclesCounter.Increment();
-
         ulong pc = ArchState.Pc;
 
         // Fetch & Decode
         IInstruction instr;
         try { instr = mechanism.Decoder.Decode(pc, memory); }
         catch (IllegalInstructionException ex) {
+            _cyclesCounter.Increment();
             var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);
             ulong vector = mechanism.TrapController.RaiseTrap(trap, ArchState);
             ArchState.Pc = vector;
@@ -99,12 +98,14 @@ internal sealed class SingleCycleCore(
         // Execute
         ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, memory);
 
+        // EBREAK halts the simulation without consuming a cycle or retiring.
+        if (result.HasTrap && instr.Payload is RvEbreak) return;
+
+        _cyclesCounter.Increment();
+
         // Writeback
         if (result.HasTrap) {
             switch (instr.Payload) {
-                case RvEbreak:
-                    // EBREAK — halt the simulation
-                    return;
                 case RvMret: {
                     ulong ret = mechanism.TrapController.ReturnFromTrap(
                         PrivilegeLevel.Machine, ArchState
