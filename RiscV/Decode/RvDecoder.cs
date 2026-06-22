@@ -319,7 +319,7 @@ public sealed class RvDecoder : IDecoder {
             );
 
         // LR.W reads only the address register; all others use rs1 (addr) and rs2 (operand).
-        IReadOnlyList<int> sources = funct5 == 0x02 ? [rs1] : [rs1, rs2];
+        IReadOnlyList<int> sources = funct5 == 0x02 ? [rs1,] : [rs1, rs2,];
 
         RvOp op = funct5 switch {
             0x02 => new RvLrW(rd, rs1),

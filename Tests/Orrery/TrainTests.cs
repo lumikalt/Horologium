@@ -225,7 +225,6 @@ public class TrainTests {
         train.Run();
         train.Reset();
 
-        // After reset, counter should be back to zero
         SimNode? gear = train.Root.Find("g");
         Assert.NotNull(gear);
     }
@@ -317,9 +316,7 @@ public class TrainTests {
 
         public override void Wind() {
             // Schedule one event per tick for 5 ticks
-            for (var t = 1; t <= 5; t++) {
-                Escapement.Schedule(() => { _ticks.Increment(); }, t, Phase.Execute);
-            }
+            for (var t = 1; t <= 5; t++) Escapement.Schedule(() => { _ticks.Increment(); }, t, Phase.Execute);
         }
     }
 
