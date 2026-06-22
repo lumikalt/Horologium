@@ -1,4 +1,5 @@
 using Mechanism;
+using Mechanism.BranchPredictModels;
 using Orrery.Gears;
 using Orrery.Ports;
 using Orrery.Scheduling;
@@ -11,9 +12,12 @@ public sealed class FetchStage(
     SimNode parent,
     Escapement esc,
     IMemory memory,
-    IBranchPredictor predictor
+    IBranchPredictor predictor,
+    int rasDepth = 16
 )
     : Gear(name, parent, esc) {
+    private readonly ReturnAddressStack _ras = new(rasDepth);
+
     public ulong Pc { get; set; }
     public bool Stall { get; set; }
     public bool Flush { get; set; }
@@ -49,6 +53,26 @@ public sealed class FetchStage(
 
         var raw = (uint)memory.Read(Pc, 4);
         BranchPrediction pred = predictor.Predict(Pc);
+
+        // RAS override: detect JAL/JALR call and return patterns from the encoding.
+        // Link registers per RV32 ABI: x1 (ra) and x5 (t0).
+        int opcode = (int)(raw & 0x7F);
+        int rd     = (int)((raw >>  7) & 0x1F);
+        int rs1    = (int)((raw >> 15) & 0x1F);
+        bool isJal  = opcode == 0x6F;
+        bool isJalr = opcode == 0x67;
+        bool linkRd  = rd  == 1 || rd  == 5;
+        bool linkRs1 = rs1 == 1 || rs1 == 5;
+
+        if ((isJal || isJalr) && linkRd) {
+            // CALL: push the return address so a future RETURN can pop it.
+            _ras.Push(Pc + 4);
+        } else if (isJalr && linkRs1 && !linkRd) {
+            // RETURN: override predictor target with the RAS top.
+            if (_ras.TryPop(out ulong ret))
+                pred = BranchPrediction.Taken(ret);
+        }
+
         ulong nextPc = pred.PredictedTaken ? pred.PredictedTarget : Pc + 4;
         var latch = new IfIdLatch {
             IsValid = true, Pc = Pc, RawEncoding = raw, PredictedNextPc = nextPc,

@@ -307,6 +307,35 @@ public class FiveStagePipelineTests {
         );
     }
 
+    [Fact]
+    public void Pipeline_RasPredictsReturn_CorrectResultAndOneJalMiss() {
+        // jal ra → func causes 1 miss (AlwaysNotTaken predicts not-taken)
+        // jalr x0, ra (return) is predicted by RAS → 0 misses for the return
+        // Total branch_misses == 1
+        //
+        //   0x00: addi x10, x0, 0         (x10 = 0; x10/a0 is result reg; ra/x1 is link)
+        //   0x04: jal  ra, +8             (ra = 0x08, jump to 0x0C)
+        //   0x08: ebreak
+        //   0x0C: addi x10, x10, 42       (x10 = 42)
+        //   0x10: jalr x0, ra, 0          (return to ra = 0x08)
+        uint[] program = [
+            0x00000513, // addi x10, x0, 0
+            0x008000EF, // jal  ra, +8
+            0x00100073, // ebreak
+            0x02A50513, // addi x10, x10, 42
+            0x00008067, // jalr x0, ra, 0
+        ];
+        (FiveStageTrain train, FlatMemory mem) = Make(predictor: new AlwaysNotTakenPredictor());
+        Load(mem, program);
+        RevolutionResult result = train.Run();
+
+        Assert.Equal(42u, Reg(train, 10));
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.Equal(1L, snap.Counters["branch_misses"]);
+    }
+
     // ── Cache / TLB integration ───────────────────────────────────────────────
 
     private static MemoryConfig SmallICache(int missLatency = 5) =>
