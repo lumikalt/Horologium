@@ -4,28 +4,42 @@ namespace Orrery.Scheduling;
 /// The phase of an event within a single tick.
 /// Events at the same tick are executed in ascending phase order.
 /// This ordering is the contract — pipeline stages depend on it.
+///
+/// In-order pipelines use: Fetch, Execute, ArborUpdate, Writeback, Commit, Flush, Collection.
+/// Out-of-order pipelines additionally use: Dispatch (rename + ROB allocate),
+/// Issue (leave issue queue), and Complete (CDB broadcast / write physical RF).
+/// Unused phases are simply never scheduled.
 /// </summary>
 public enum Phase {
     /// <summary>Instruction fetch logic.</summary>
     Fetch = 0,
 
+    /// <summary>OoOE: register rename and ROB allocation.</summary>
+    Dispatch = 1,
+
+    /// <summary>OoOE: instruction leaves the issue queue and enters execution.</summary>
+    Issue = 2,
+
     /// <summary>Main pipeline computation — decode, execute, etc.</summary>
-    Execute = 1,
+    Execute = 3,
 
     /// <summary>Delivery of data sent through Arbors.</summary>
-    ArborUpdate = 2,
+    ArborUpdate = 4,
+
+    /// <summary>OoOE: result broadcast on the common data bus / write to physical register file.</summary>
+    Complete = 5,
 
     /// <summary>Result writeback to architectural state.</summary>
-    Writeback = 3,
+    Writeback = 6,
 
     /// <summary>In-order retirement and commit.</summary>
-    Commit = 4,
+    Commit = 7,
 
     /// <summary>Pipeline flush and squash — always runs after commit.</summary>
-    Flush = 5,
+    Flush = 8,
 
     /// <summary>Dial snapshot and stat collection.</summary>
-    Collection = 6,
+    Collection = 9,
 }
 
 /// <summary>

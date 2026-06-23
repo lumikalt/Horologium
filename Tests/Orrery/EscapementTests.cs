@@ -35,7 +35,7 @@ public class EscapementTests {
         var esc = new Escapement();
         var order = new List<Phase>();
 
-        // Scheduled in reverse order deliberately
+        // Scheduled in reverse order deliberately — all 10 phases
         esc.Schedule(() => order.Add(Phase.Flush), 1, Phase.Flush);
         esc.Schedule(() => order.Add(Phase.Fetch), 1, Phase.Fetch);
         esc.Schedule(() => order.Add(Phase.Commit), 1, Phase.Commit);
@@ -43,14 +43,20 @@ public class EscapementTests {
         esc.Schedule(() => order.Add(Phase.Execute), 1, Phase.Execute);
         esc.Schedule(() => order.Add(Phase.Writeback), 1, Phase.Writeback);
         esc.Schedule(() => order.Add(Phase.Collection), 1, Phase.Collection);
+        esc.Schedule(() => order.Add(Phase.Dispatch), 1, Phase.Dispatch);
+        esc.Schedule(() => order.Add(Phase.Issue), 1, Phase.Issue);
+        esc.Schedule(() => order.Add(Phase.Complete), 1, Phase.Complete);
 
         esc.Run();
 
         Assert.Equal(
             [
                 Phase.Fetch,
+                Phase.Dispatch,
+                Phase.Issue,
                 Phase.Execute,
                 Phase.ArborUpdate,
+                Phase.Complete,
                 Phase.Writeback,
                 Phase.Commit,
                 Phase.Flush,
