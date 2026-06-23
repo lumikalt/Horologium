@@ -39,4 +39,14 @@ public sealed class Chip8ArchState : IArchState {
         snap.SoundTimer = SoundTimer;
         return snap;
     }
+
+    public void Reset() {
+        Pc = 0x200;
+        PrivilegeLevel = PrivilegeLevel.User;
+        for (var i = 0; i < 16; i++) _vRegs.Write(i, 0);
+        I = 0;
+        DelayTimer = 0;
+        SoundTimer = 0;
+        _stack.Clear();
+    }
 }

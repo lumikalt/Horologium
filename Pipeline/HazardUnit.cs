@@ -1,6 +1,6 @@
 using Mechanism;
 
-namespace RiscV.Trains.Pipeline;
+namespace Pipeline;
 
 /// <summary>
 /// Detects data and control hazards in the 5-stage pipeline.

@@ -24,6 +24,14 @@ public interface IDecoder {
     /// For variable-width ISAs (e.g. RVC) this must be called before Decode.
     /// </summary>
     int InstructionSize(ulong pc, IMemory memory);
+
+    /// <summary>
+    /// Returns a lightweight hint about the instruction at <paramref name="pc"/> using only
+    /// the first word already fetched, without a full decode.
+    /// Used by the fetch stage for branch classification and RAS management.
+    /// </summary>
+    FetchHint GetFetchHint(ulong pc, uint firstWord) =>
+        new() { InstructionSize = 4, IsBranch = false, IsCall = false, IsReturn = false, };
 }
 
 /// <summary>

@@ -6,8 +6,6 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
-using RiscV.Decode;
-using RiscV.State;
 using RiscV.Trains.Ooo;
 
 namespace RiscV.Trains;
@@ -96,6 +94,8 @@ internal sealed class OoOPipelineCore : Gear {
         ulong? RegValue,
         ulong? ResolvedNextPc,
         TrapInfo? Trap,
+        bool IsReturnFromTrap,
+        PrivilegeLevel? ReturnPrivilege,
         bool HasStoreCapture,
         ulong StoreAddr,
         ulong StoreVal,
@@ -175,7 +175,7 @@ internal sealed class OoOPipelineCore : Gear {
     private long _lastDHits, _lastDMisses, _lastDL2Hits, _lastDL2Misses, _lastDL3Hits, _lastDL3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
-    public RvArchState State { get; }
+    public IArchState State { get; }
 
     public OoOPipelineCore(
         string name,
@@ -203,10 +203,10 @@ internal sealed class OoOPipelineCore : Gear {
         _maxDecodeDepth = issueWidth * 4;
         _fetchPc = entryPoint;
 
-        State = (RvArchState)mechanism.CreateArchState();
+        State = mechanism.CreateArchState();
         State.Pc = entryPoint;
 
-        const int archRegs = 64; // RV32IF unified: x0–x31 + f0–f31
+        int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
         _prf = new PhysicalRegisterFile(physRegs);
         _rat = new RenameMap(archRegs, physRegs);
@@ -342,6 +342,8 @@ internal sealed class OoOPipelineCore : Gear {
             rob.ResolvedNextPc = r.ResolvedNextPc;
             rob.HasTrap = r.Trap is not null;
             rob.Trap = r.Trap;
+            rob.IsReturnFromTrap = r.IsReturnFromTrap;
+            rob.ReturnPrivilege = r.ReturnPrivilege;
 
             if (r.HasStoreCapture) {
                 rob.StoreAddress = r.StoreAddr;
@@ -373,9 +375,16 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             if (head.HasTrap && head.Trap is not null) {
-                ulong target = head.Instruction?.Payload is RvMret
-                    ? _trapController.ReturnFromTrap(PrivilegeLevel.Machine, State)
-                    : _trapController.RaiseTrap(head.Trap, State);
+                ulong target = _trapController.RaiseTrap(head.Trap, State);
+                CommitRegisters(head);
+                _rob.Retire();
+                _retiredCounter.Increment();
+                SetFlush(target);
+                return;
+            }
+
+            if (head.IsReturnFromTrap && head.ReturnPrivilege.HasValue) {
+                ulong target = _trapController.ReturnFromTrap(head.ReturnPrivilege.Value, State);
                 CommitRegisters(head);
                 _rob.Retire();
                 _retiredCounter.Increment();
@@ -494,7 +503,7 @@ internal sealed class OoOPipelineCore : Gear {
             rob.PrevPhysDestination = oldPhys;
             rob.PredictedNextPc = fi.PredictedNextPc;
             rob.IsStore = instr.Class == ToothClass.Store;
-            rob.IsHalt = instr.Payload is RvEbreak;
+            rob.IsHalt = instr.Class == ToothClass.Halt;
 
             // Allocate IQ slot and fill source operands from pre-rename RAT snapshot.
             int iqSlot = _iq.Allocate();
@@ -553,10 +562,9 @@ internal sealed class OoOPipelineCore : Gear {
 
             // Only branch/jump instructions consult the predictor; all others
             // continue sequentially to avoid corrupting the BTB.
-            uint opcode = raw & 0x7F;
-            bool isBranch = opcode is 0x63 or 0x6F or 0x67;
+            FetchHint hint = _decoder.GetFetchHint(_fetchPc, raw);
             ulong predictedNext;
-            if (isBranch) {
+            if (hint.IsBranch) {
                 BranchPrediction pred = _predictor.Predict(_fetchPc);
                 predictedNext = pred.PredictedTaken ? pred.PredictedTarget : _fetchPc + (ulong)decoded.SizeBytes;
             }
@@ -629,6 +637,7 @@ internal sealed class OoOPipelineCore : Gear {
         return new ExecResult(
             issued.RobIdx, issued.PhysDest,
             er.RegisterResult, resolvedNextPc, er.Trap,
+            er.IsReturnFromTrap, er.ReturnPrivilege,
             _capMem.HasWrite, _capMem.WriteAddress, _capMem.WriteValue, _capMem.WriteBytes
         );
     }

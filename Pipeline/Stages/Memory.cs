@@ -4,7 +4,7 @@ using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
 
-namespace RiscV.Trains.Pipeline.Stages;
+namespace Pipeline.Stages;
 
 public sealed class MemoryStage : Gear {
     private ExMemLatch _current = ExMemLatch.Bubble;
@@ -34,28 +34,18 @@ public sealed class MemoryStage : Gear {
         _current = ExMemLatch.Bubble;
         ExecuteResult result = latch.Result;
 
-        if (result.HasTrap) {
-            var trapLatch = new MemWbLatch {
-                IsValid = true,
-                Pc = latch.Pc,
-                Instruction = latch.Instruction,
-                HasTrap = true,
-                Trap = result.Trap,
-                DestinationRegister = -1,
-            };
-            LastSent = trapLatch;
-            Output.Send(trapLatch);
-            return;
-        }
-
         var newLatch = new MemWbLatch {
             IsValid = true,
             Pc = latch.Pc,
             Instruction = latch.Instruction,
             WritebackValue = result.RegisterResult,
             DestinationRegister = latch.DestinationRegister,
-            VectorResult = result.VectorResult,
-            VectorDestRegister = result.VectorDestRegister,
+            HasTrap = result.HasTrap,
+            Trap = result.Trap,
+            IsHalt = result.IsHalt,
+            IsReturnFromTrap = result.IsReturnFromTrap,
+            ReturnPrivilege = result.ReturnPrivilege,
+            SideEffect = result.SideEffect,
         };
         Output.Send(newLatch);
         LastSent = newLatch;

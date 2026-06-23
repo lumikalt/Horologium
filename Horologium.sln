@@ -14,6 +14,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Chip8", "Chip8\Chip8.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Face", "Face\Face.csproj", "{B1522A8C-A2C1-4D42-982C-A655AF2CA137}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Pipeline", "Pipeline\Pipeline.csproj", "{38858C9F-1376-4308-9779-964FE492F702}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -48,5 +50,9 @@ Global
 		{B1522A8C-A2C1-4D42-982C-A655AF2CA137}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B1522A8C-A2C1-4D42-982C-A655AF2CA137}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B1522A8C-A2C1-4D42-982C-A655AF2CA137}.Release|Any CPU.Build.0 = Release|Any CPU
+		{38858C9F-1376-4308-9779-964FE492F702}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{38858C9F-1376-4308-9779-964FE492F702}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{38858C9F-1376-4308-9779-964FE492F702}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{38858C9F-1376-4308-9779-964FE492F702}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

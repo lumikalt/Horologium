@@ -68,6 +68,12 @@ public sealed class RobEntry {
     /// <summary>True for EBREAK or other halt-on-commit instructions.</summary>
     public bool IsHalt { get; set; }
 
+    /// <summary>True if this instruction returns from a trap at commit (e.g. MRET).</summary>
+    public bool IsReturnFromTrap { get; set; }
+
+    /// <summary>Privilege level to return to when IsReturnFromTrap is true.</summary>
+    public PrivilegeLevel? ReturnPrivilege { get; set; }
+
     internal void Clear() {
         Valid = false;
         Pc = 0;
@@ -86,6 +92,8 @@ public sealed class RobEntry {
         StoreValue = 0;
         StoreWidth = 0;
         IsHalt = false;
+        IsReturnFromTrap = false;
+        ReturnPrivilege = null;
     }
 }
 

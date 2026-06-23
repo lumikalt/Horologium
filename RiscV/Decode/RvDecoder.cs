@@ -7,6 +7,43 @@ namespace RiscV.Decode;
 /// Decodes a 32-bit word at a given PC into an RvInstruction.
 /// </summary>
 public sealed class RvDecoder : IDecoder {
+    public FetchHint GetFetchHint(ulong pc, uint firstWord) {
+        bool isCompressed = (firstWord & 0x3) != 0x3;
+        if (isCompressed) {
+            var c = (ushort)(firstWord & 0xFFFF);
+            var q = (uint)(c & 0x3);
+            var cfunct3 = (uint)(c >> 13);
+            int crs1 = (c >> 7) & 0x1F;
+            int crs2 = (c >> 2) & 0x1F;
+            bool inst12 = (c & 0x1000) != 0;
+
+            if (q == 0x1 && cfunct3 == 0x1)
+                return new FetchHint { InstructionSize = 2, IsBranch = true, IsCall = true, };
+            if (q == 0x1 && cfunct3 == 0x5) return new FetchHint { InstructionSize = 2, IsBranch = true, };
+            if (q == 0x1 && (cfunct3 == 0x6 || cfunct3 == 0x7))
+                return new FetchHint { InstructionSize = 2, IsBranch = true, };
+            if (q == 0x2 && cfunct3 == 0x4 && inst12 && crs2 == 0 && crs1 != 0)
+                return new FetchHint { InstructionSize = 2, IsBranch = true, IsCall = true, };
+            if (q == 0x2 && cfunct3 == 0x4 && !inst12 && crs2 == 0 && crs1 != 0)
+                return new FetchHint { InstructionSize = 2, IsBranch = true, IsReturn = crs1 is 1 or 5, };
+            return new FetchHint { InstructionSize = 2, };
+        }
+
+        var opcode = (int)(firstWord & 0x7F);
+        var rd = (int)((firstWord >> 7) & 0x1F);
+        var rs1 = (int)((firstWord >> 15) & 0x1F);
+        bool isJal = opcode == 0x6F;
+        bool isJalr = opcode == 0x67;
+        bool linkRd = rd is 1 or 5;
+        bool linkRs1 = rs1 is 1 or 5;
+        return new FetchHint {
+            InstructionSize = 4,
+            IsBranch = opcode is 0x63 || isJal || isJalr,
+            IsCall = (isJal || isJalr) && linkRd,
+            IsReturn = isJalr && linkRs1 && !linkRd,
+        };
+    }
+
     public int InstructionSize(ulong pc, IMemory memory) {
         var half = (ushort)memory.Read(pc, 2);
         return (half & 0x3) != 0x3 ? 2 : 4;
@@ -288,7 +325,7 @@ public sealed class RvDecoder : IDecoder {
             // ECALL / EBREAK / MRET
             return (word >> 20) switch {
                 0x000 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEcall()),
-                0x001 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEbreak()),
+                0x001 => new RvInstruction(pc, raw, -1, [], ToothClass.Halt, new RvEbreak()),
                 0x302 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvMret()),
                 _ => throw new IllegalInstructionException(
                     pc, raw,

@@ -6,8 +6,6 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
-using RiscV.Decode;
-using RiscV.State;
 
 namespace RiscV.Trains;
 
@@ -175,8 +173,7 @@ internal sealed class SuperscalarCore(
 
     public override void Reset() {
         base.Reset();
-        ArchState.Pc = entryPoint;
-        ((RvArchState)ArchState).Reset();
+        ArchState.Reset();
         ArchState.Pc = entryPoint;
     }
 
@@ -206,19 +203,22 @@ internal sealed class SuperscalarCore(
             issued++;
             _retiredCounter.Increment();
 
-            if (instr.Payload is RvEbreak) {
+            if (result.IsHalt) {
                 halt = true;
                 break;
             }
 
             if (result.HasTrap) {
-                ulong target = instr.Payload is RvMret
-                    ? mechanism.TrapController.ReturnFromTrap(PrivilegeLevel.Machine, ArchState)
-                    : mechanism.TrapController.RaiseTrap(result.Trap!, ArchState);
-                ArchState.Pc = target;
+                ArchState.Pc = mechanism.TrapController.RaiseTrap(result.Trap!, ArchState);
                 break;
             }
 
+            if (result.IsReturnFromTrap) {
+                ArchState.Pc = mechanism.TrapController.ReturnFromTrap(result.ReturnPrivilege!.Value, ArchState);
+                break;
+            }
+
+            result.SideEffect?.Invoke(ArchState);
             if (result.RegisterResult.HasValue && instr.DestinationRegister >= 0)
                 ArchState.IntegerRegisters.Write(instr.DestinationRegister, result.RegisterResult.Value);
 

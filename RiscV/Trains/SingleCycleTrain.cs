@@ -5,9 +5,6 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
-using RiscV.Decode;
-using RiscV.Registers;
-using RiscV.State;
 
 namespace RiscV.Trains;
 
@@ -163,8 +160,7 @@ internal sealed class SingleCycleCore(
 
     public override void Reset() {
         base.Reset();
-        ArchState.Pc = entryPoint;
-        ((RvArchState)ArchState).Reset();
+        ArchState.Reset();
         ArchState.Pc = entryPoint;
     }
 
@@ -195,7 +191,7 @@ internal sealed class SingleCycleCore(
         ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, DLayers.Accessor);
 
         // EBREAK halts the simulation without consuming a cycle or retiring.
-        if (result.HasTrap && instr.Payload is RvEbreak) return;
+        if (result.IsHalt) return;
 
         // Collect stall cycles from memory hierarchy and update hit/miss counters.
         long stalls = DrainAndChargeStalls();
@@ -208,31 +204,14 @@ internal sealed class SingleCycleCore(
         }
 
         // Writeback
-        if (result.HasTrap) {
-            switch (instr.Payload) {
-                case RvMret: {
-                    ulong ret = mechanism.TrapController.ReturnFromTrap(
-                        PrivilegeLevel.Machine, ArchState
-                    );
-                    ArchState.Pc = ret;
-                    break;
-                }
-                default: {
-                    ulong vector = mechanism.TrapController.RaiseTrap(result.Trap!, ArchState);
-                    ArchState.Pc = vector;
-                    break;
-                }
-            }
+        if (result.HasTrap) { ArchState.Pc = mechanism.TrapController.RaiseTrap(result.Trap!, ArchState); }
+        else if (result.IsReturnFromTrap) {
+            ArchState.Pc = mechanism.TrapController.ReturnFromTrap(result.ReturnPrivilege!.Value, ArchState);
         }
         else {
-            if (result.VectorResult is not null && result.VectorDestRegister >= 0)
-                ((RvArchState)ArchState).VectorRegisters.Write(
-                    result.VectorDestRegister, result.VectorResult
-                );
-            else if (result.RegisterResult.HasValue && instr.DestinationRegister >= 0)
-                ArchState.IntegerRegisters.Write(
-                    instr.DestinationRegister, result.RegisterResult.Value
-                );
+            result.SideEffect?.Invoke(ArchState);
+            if (result.RegisterResult.HasValue && instr.DestinationRegister >= 0)
+                ArchState.IntegerRegisters.Write(instr.DestinationRegister, result.RegisterResult.Value);
 
             if (result is { BranchTaken: true, BranchTarget: not null, })
                 ArchState.Pc = result.BranchTarget.Value;

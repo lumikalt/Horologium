@@ -41,20 +41,24 @@ public sealed record ExecuteResult {
     public static ExecuteResult WithBranch(bool taken, ulong target) =>
         new() { BranchTaken = taken, BranchTarget = target, };
 
-    /// <summary>
-    /// Raw bytes to write to a vector destination register, or null for scalar instructions.
-    /// Paired with VectorDestRegister.
-    /// </summary>
-    public byte[]? VectorResult { get; init; }
-
-    /// <summary>
-    /// The vector destination register index (0-31), or -1 if this is not a vector write.
-    /// </summary>
-    public int VectorDestRegister { get; init; } = -1;
-
     /// <summary>Convenience: a result that raises a trap.</summary>
     public static ExecuteResult WithTrap(TrapInfo trap) =>
         new() { Trap = trap, };
+
+    /// <summary>True if this instruction halts the simulation (e.g. EBREAK).</summary>
+    public bool IsHalt { get; init; }
+
+    /// <summary>True if this instruction returns from a trap (e.g. MRET).</summary>
+    public bool IsReturnFromTrap { get; init; }
+
+    /// <summary>The privilege level to return to when IsReturnFromTrap is true.</summary>
+    public PrivilegeLevel? ReturnPrivilege { get; init; }
+
+    /// <summary>
+    /// Optional ISA-specific state mutation to apply at writeback (e.g. vector register write).
+    /// Invoked by the pipeline after the standard register writeback.
+    /// </summary>
+    public Action<IArchState>? SideEffect { get; init; }
 }
 
 /// <summary>
@@ -66,10 +70,7 @@ public sealed record TrapInfo(
     ulong Pc
 );
 
-/// <summary>
-/// The cause of a trap. Numeric values match the RISC-V mcause register
-/// for the cases that overlap; custom ISAs may extend this enum.
-/// </summary>
+/// <summary>The cause of a trap.</summary>
 public enum TrapCause {
     // Exceptions
     InstructionAddressMisaligned = 0,

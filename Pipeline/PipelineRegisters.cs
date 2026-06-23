@@ -1,6 +1,6 @@
 using Mechanism;
 
-namespace RiscV.Trains.Pipeline;
+namespace Pipeline;
 
 /// <summary>
 /// The IF/ID pipeline register.
@@ -65,6 +65,8 @@ public sealed record MemWbLatch {
     public int DestinationRegister { get; init; } = -1;
     public bool HasTrap { get; init; }
     public TrapInfo? Trap { get; init; }
-    public byte[]? VectorResult { get; init; }
-    public int VectorDestRegister { get; init; } = -1;
+    public bool IsHalt { get; init; }
+    public bool IsReturnFromTrap { get; init; }
+    public PrivilegeLevel? ReturnPrivilege { get; init; }
+    public Action<IArchState>? SideEffect { get; init; }
 }

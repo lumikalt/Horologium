@@ -28,12 +28,12 @@ public interface IArchState {
     /// Used by the pipeline to checkpoint state for precise exceptions.
     /// </summary>
     IArchState Snapshot();
+
+    /// <summary>Resets the state to its power-on default.</summary>
+    void Reset();
 }
 
-/// <summary>
-/// The privilege level of the executing hart.
-/// Numeric values match the RISC-V privileged specification.
-/// </summary>
+/// <summary>The privilege level of the executing hart.</summary>
 public enum PrivilegeLevel {
     User = 0, Supervisor = 1, Machine = 3,
 }

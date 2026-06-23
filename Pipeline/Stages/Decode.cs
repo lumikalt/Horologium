@@ -4,7 +4,7 @@ using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
 
-namespace RiscV.Trains.Pipeline.Stages;
+namespace Pipeline.Stages;
 
 public sealed class DecodeStage : Gear {
     private readonly IDecoder _decoder;

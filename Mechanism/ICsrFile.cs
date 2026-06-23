@@ -2,8 +2,6 @@ namespace Mechanism;
 
 /// <summary>
 /// A Control and Status Register file.
-///
-/// CSR addresses are 12-bit values as defined by the RISC-V privileged spec.
 /// Access is mediated by privilege level — the implementation enforces this.
 /// </summary>
 public interface ICsrFile {

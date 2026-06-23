@@ -6,12 +6,9 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
-using RiscV.Decode;
-using RiscV.State;
-using RiscV.Trains.Pipeline;
-using RiscV.Trains.Pipeline.Stages;
+using Pipeline.Stages;
 
-namespace RiscV.Trains;
+namespace Pipeline;
 
 public sealed class FiveStageTrain {
     private readonly Train _train;
@@ -106,7 +103,7 @@ internal sealed class PipelineCore : Gear {
     private long _lastDTlbHits, _lastDTlbMisses;
     private long _lastStoreForwards;
 
-    public RvArchState State { get; }
+    public IArchState State { get; }
     public MemoryLayers ILayers { get; }
     public MemoryLayers DLayers { get; }
     public StoreBuffer? StoreBuffer { get; }
@@ -128,7 +125,7 @@ internal sealed class PipelineCore : Gear {
         _predictor = predictor;
         _hazard = new HazardUnit(forwardingEnabled);
         _decoder = mechanism.Decoder;
-        State = (RvArchState)mechanism.CreateArchState();
+        State = mechanism.CreateArchState();
         State.Pc = entryPoint;
 
         ILayers = MemoryLayers.Build(memory, iMemConfig);
@@ -141,7 +138,7 @@ internal sealed class PipelineCore : Gear {
         }
 
         // Create stages — IF uses instruction memory, EX/MEM use data memory.
-        _if = new FetchStage("if", parent, esc, ILayers.Accessor, predictor);
+        _if = new FetchStage("if", parent, esc, ILayers.Accessor, predictor, _decoder);
         _id = new DecodeStage("id", parent, esc, mechanism.Decoder, State);
         _ex = new ExecuteStage(
             "ex", parent, esc,
@@ -309,12 +306,10 @@ internal sealed class PipelineCore : Gear {
 
         if (stall) _stallsCounter.Increment();
 
-        // If EBREAK is about to retire through WB this tick, squash EX so
+        // If a halt is about to retire through WB this tick, squash EX so
         // instructions speculatively fetched past the halt cannot execute.
         MemWbLatch aboutToRetire = _mem.LastSent;
-        if (aboutToRetire is { IsValid: true, HasTrap: true, } &&
-            aboutToRetire.Instruction is RvInstruction { Payload: RvEbreak, })
-            _ex.Squash = true;
+        if (aboutToRetire is { IsValid: true, IsHalt: true, }) _ex.Squash = true;
 
         // Trap redirect from WB (computed last cycle).
         if (_wb.TrapRedirect.HasValue) {

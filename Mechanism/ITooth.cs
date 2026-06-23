@@ -72,6 +72,9 @@ public enum ToothClass {
     /// <summary>Atomic read-modify-write (LR/SC/AMO).</summary>
     Atomic,
 
-    /// <summary>Vector operation (V extension).</summary>
+    /// <summary>Vector operation.</summary>
     Vector,
+
+    /// <summary>Halt instruction (e.g. EBREAK). Signals end-of-execution at commit.</summary>
+    Halt,
 }

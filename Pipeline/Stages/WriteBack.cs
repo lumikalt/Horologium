@@ -4,10 +4,8 @@ using Orrery.Observation;
 using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
-using RiscV.Decode;
-using RiscV.State;
 
-namespace RiscV.Trains.Pipeline.Stages;
+namespace Pipeline.Stages;
 
 public sealed class WritebackStage : Gear {
     private readonly IArchState _state;
@@ -48,29 +46,23 @@ public sealed class WritebackStage : Gear {
 
         _current = MemWbLatch.Bubble;
 
-        switch (latch) {
-            case { HasTrap: true, Trap: not null, } when latch.Instruction.Payload is RvEbreak:
-                Halted = true;
-                return;
-            case { HasTrap: true, Trap: not null, }:
-                TrapRedirect = latch.Instruction.Payload is RvMret
-                    ? _trap.ReturnFromTrap(PrivilegeLevel.Machine, _state)
-                    : _trap.RaiseTrap(latch.Trap, _state);
-                break;
-            case { VectorResult: not null, VectorDestRegister: >= 0, }:
-                ((RvArchState)_state).VectorRegisters.Write(latch.VectorDestRegister, latch.VectorResult);
-                break;
-            case { WritebackValue: not null, DestinationRegister: > 0, }:
-                _state.IntegerRegisters.Write(
-                    latch.DestinationRegister, latch.WritebackValue.Value
-                );
-                break;
-            case { Instruction.DestinationRegister: > 0, }:
-                // This fires if the instruction has a destination but WritebackValue is null
+        if (latch.IsHalt) {
+            Halted = true;
+            return;
+        }
+
+        if (latch.HasTrap && latch.Trap is not null) { TrapRedirect = _trap.RaiseTrap(latch.Trap, _state); }
+        else if (latch.IsReturnFromTrap && latch.ReturnPrivilege.HasValue) {
+            TrapRedirect = _trap.ReturnFromTrap(latch.ReturnPrivilege.Value, _state);
+        }
+        else {
+            latch.SideEffect?.Invoke(_state);
+            if (latch.WritebackValue.HasValue && latch.DestinationRegister > 0)
+                _state.IntegerRegisters.Write(latch.DestinationRegister, latch.WritebackValue.Value);
+            else if (latch.DestinationRegister > 0 && latch.SideEffect is null)
                 throw new InvalidOperationException(
                     $"WB: instruction {latch.Instruction.Payload?.GetType().Name} " +
-                    $"has rd={latch.DestinationRegister} but WritebackValue is null. " +
-                    $"Result was: {latch.WritebackValue}"
+                    $"has rd={latch.DestinationRegister} but WritebackValue is null."
                 );
         }
 

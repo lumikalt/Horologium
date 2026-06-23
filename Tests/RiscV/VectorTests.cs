@@ -290,10 +290,10 @@ public class VectorTests {
         uint raw = Vle(1, 10, 6); // vle32.v v1, (a0)
         ExecuteResult r = Exec(raw, s);
 
-        Assert.NotNull(r.VectorResult);
-        Assert.Equal(1, r.VectorDestRegister);
+        Assert.NotNull(r.SideEffect);
+        r.SideEffect!(s);
 
-        byte[] result = r.VectorResult!;
+        byte[] result = s.VectorRegisters.Read(1);
         Assert.Equal(10u, BitConverter.ToUInt32(result, 0));
         Assert.Equal(20u, BitConverter.ToUInt32(result, 4));
         Assert.Equal(30u, BitConverter.ToUInt32(result, 8));
@@ -309,7 +309,7 @@ public class VectorTests {
 
         uint raw = Vse(2, 11, 6); // vse32.v v2, (a1)
         ExecuteResult r = Exec(raw, s);
-        Assert.True(r.VectorResult is null || r.VectorDestRegister < 0);
+        Assert.Null(r.SideEffect);
 
         Assert.Equal(100UL, _mem.Read(0x200, 4));
         Assert.Equal(200UL, _mem.Read(0x204, 4));
@@ -327,9 +327,9 @@ public class VectorTests {
         uint raw = VopVV(0, 1, 2, 3); // vadd.vv v1, v2, v3
         ExecuteResult r = Exec(raw, s);
 
-        Assert.NotNull(r.VectorResult);
-        Assert.Equal(1, r.VectorDestRegister);
-        byte[] result = r.VectorResult!;
+        Assert.NotNull(r.SideEffect);
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(1);
         Assert.Equal(11u, BitConverter.ToUInt32(result, 0));
         Assert.Equal(22u, BitConverter.ToUInt32(result, 4));
         Assert.Equal(33u, BitConverter.ToUInt32(result, 8));
@@ -346,7 +346,8 @@ public class VectorTests {
         uint raw = VopVV(2, 1, 2, 3); // vsub.vv v1, v2, v3
         ExecuteResult r = Exec(raw, s);
 
-        byte[] result = r.VectorResult!;
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(1);
         Assert.Equal(9u, BitConverter.ToUInt32(result, 0));
         Assert.Equal(18u, BitConverter.ToUInt32(result, 4));
     }
@@ -361,7 +362,8 @@ public class VectorTests {
         uint raw = VopVX(0, 1, 2, 5); // vadd.vx v1, v2, x5
         ExecuteResult r = Exec(raw, s);
 
-        byte[] result = r.VectorResult!;
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(1);
         Assert.Equal(101u, BitConverter.ToUInt32(result, 0));
         Assert.Equal(102u, BitConverter.ToUInt32(result, 4));
         Assert.Equal(103u, BitConverter.ToUInt32(result, 8));
@@ -377,7 +379,8 @@ public class VectorTests {
         uint raw = VopVI(0, 1, 2, 3); // vadd.vi v1, v2, 3
         ExecuteResult r = Exec(raw, s);
 
-        byte[] result = r.VectorResult!;
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(1);
         Assert.Equal(8u, BitConverter.ToUInt32(result, 0));
         Assert.Equal(13u, BitConverter.ToUInt32(result, 4));
     }
@@ -393,10 +396,10 @@ public class VectorTests {
         uint raw = VopVV(24, 0, 1, 2); // vmseq.vv v0, v1, v2
         ExecuteResult r = Exec(raw, s);
 
-        Assert.NotNull(r.VectorResult);
-        Assert.Equal(0, r.VectorDestRegister);
+        Assert.NotNull(r.SideEffect);
+        r.SideEffect!(s);
         // elements 0 and 2 match: bits [0] and [2] set → byte 0 = 0b0101 = 5
-        Assert.Equal(0b0101, r.VectorResult![0]);
+        Assert.Equal(0b0101, s.VectorRegisters.Read(0)[0]);
     }
 
     [Fact]
@@ -410,8 +413,9 @@ public class VectorTests {
         uint raw = VopVV(26, 0, 1, 2); // vmsltu.vv v0, v1, v2
         ExecuteResult r = Exec(raw, s);
 
+        r.SideEffect!(s);
         // bits [0]=1, [1]=0, [2]=0, [3]=1 → byte0 = 0b1001 = 9
-        Assert.Equal(0b1001, r.VectorResult![0]);
+        Assert.Equal(0b1001, s.VectorRegisters.Read(0)[0]);
     }
 
     [Fact]
@@ -424,7 +428,8 @@ public class VectorTests {
         uint raw = VopVV(9, 3, 1, 2); // vand.vv v3, v1, v2  (funct6=9)
         ExecuteResult r = Exec(raw, s);
 
-        byte[] result = r.VectorResult!;
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(3);
         Assert.Equal(0x55u, BitConverter.ToUInt32(result, 0));
         Assert.Equal(0xF0u, BitConverter.ToUInt32(result, 4));
         Assert.Equal(0x00u, BitConverter.ToUInt32(result, 8));
@@ -441,7 +446,8 @@ public class VectorTests {
         uint raw = VopVV(37, 3, 1, 2); // vsll.vv v3, v1, v2  (funct6=37)
         ExecuteResult r = Exec(raw, s);
 
-        byte[] result = r.VectorResult!;
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(3);
         Assert.Equal(2u, BitConverter.ToUInt32(result, 0));    // 1 << 1
         Assert.Equal(8u, BitConverter.ToUInt32(result, 4));    // 2 << 2
         Assert.Equal(32u, BitConverter.ToUInt32(result, 8));   // 4 << 3
@@ -463,7 +469,8 @@ public class VectorTests {
         uint raw = VopVV(0, 1, 2, 3, true); // vadd.vv v1, v2, v3, v0.t
         ExecuteResult r = Exec(raw, s);
 
-        byte[] result = r.VectorResult!;
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(1);
         // element 0: active → 1+10=11
         Assert.Equal(11u, BitConverter.ToUInt32(result, 0));
         // element 1: masked out → stays 0 (result buf starts zeroed)
@@ -491,7 +498,8 @@ public class VectorTests {
         uint raw = VopVV(40, 3, 1, 2); // vsrl.vv v3, v1, v2  (funct6=40)
         ExecuteResult r = Exec(raw, s);
 
-        byte[] result = r.VectorResult!;
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(3);
         Assert.Equal(0x40000000u, BitConverter.ToUInt32(result, 0));
         Assert.Equal(8u, BitConverter.ToUInt32(result, 4));
         Assert.Equal(0u, BitConverter.ToUInt32(result, 8));
@@ -508,7 +516,8 @@ public class VectorTests {
         uint raw = VopVV(41, 3, 1, 2); // vsra.vv v3, v1, v2  (funct6=41)
         ExecuteResult r = Exec(raw, s);
 
-        byte[] result = r.VectorResult!;
+        r.SideEffect!(s);
+        byte[] result = s.VectorRegisters.Read(3);
         Assert.Equal(0xC0000000u, BitConverter.ToUInt32(result, 0)); // sign extended
         Assert.Equal(0x3FFFFFFFu, BitConverter.ToUInt32(result, 4));
     }

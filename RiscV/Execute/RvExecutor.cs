@@ -132,13 +132,9 @@ public sealed class RvExecutor : IExecutor {
                 )
             ),
 
-            RvEbreak => ExecuteResult.WithTrap(
-                new TrapInfo(
-                    TrapCause.Breakpoint, 0, pc
-                )
-            ),
+            RvEbreak => new ExecuteResult { IsHalt = true, },
 
-            RvMret => ExecuteResult.Clean, // handled by TrapController at commit
+            RvMret => new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = PrivilegeLevel.Machine, },
 
             RvFence => ExecuteResult.Clean, // NOP in single-core simulation
 
@@ -481,6 +477,10 @@ public sealed class RvExecutor : IExecutor {
 
     private static RvArchState VState(IArchState state) => (RvArchState)state;
 
+    private static ExecuteResult VectorWrite(int vd, byte[] data) {
+        return new ExecuteResult { SideEffect = s => ((RvArchState)s).VectorRegisters.Write(vd, data), };
+    }
+
     private static ulong VReadElem(IArchState state, int vreg, int idx, int ewBytes) {
         byte[] data = VState(state).VectorRegisters.Read(vreg);
         return ReadVElement(data, idx, ewBytes);
@@ -589,7 +589,7 @@ public sealed class RvExecutor : IExecutor {
             WriteVElement(result, i, ewBytes, val);
         }
 
-        return new ExecuteResult { VectorResult = result, VectorDestRegister = vd, };
+        return VectorWrite(vd, result);
     }
 
     private static ExecuteResult ExecuteVlm(IArchState state, IMemory memory, int vd, int rs1) {
@@ -599,7 +599,7 @@ public sealed class RvExecutor : IExecutor {
         // VLM loads ceil(vl/8) bytes
         int byteCount = ((int)vl + 7) / 8;
         for (var b = 0; b < byteCount; b++) result[b] = (byte)memory.Read(baseAddr + (ulong)b, 1);
-        return new ExecuteResult { VectorResult = result, VectorDestRegister = vd, };
+        return VectorWrite(vd, result);
     }
 
     private static ExecuteResult ExecuteVse(
@@ -654,7 +654,7 @@ public sealed class RvExecutor : IExecutor {
             WriteVElement(result, i, ewBytes, ApplyVIntOp(op, a, b, ewBytes));
         }
 
-        return new ExecuteResult { VectorResult = result, VectorDestRegister = vd, };
+        return VectorWrite(vd, result);
     }
 
     private static ExecuteResult ExecuteVMaskCmp(
@@ -677,7 +677,7 @@ public sealed class RvExecutor : IExecutor {
             if (ApplyVMaskCmp(op, a, b, ewBytes)) result[i >> 3] |= (byte)(1 << (i & 7));
         }
 
-        return new ExecuteResult { VectorResult = result, VectorDestRegister = vd, };
+        return VectorWrite(vd, result);
     }
 
     private static ulong ApplyVIntOp(VIntOp op, ulong a, ulong b, int ewBytes) {

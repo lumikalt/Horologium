@@ -196,11 +196,11 @@ public class ExecutorTests {
     }
 
     [Fact]
-    public void Execute_Ebreak_RaisesTrap() {
+    public void Execute_Ebreak_Halts() {
         RvArchState s = MakeState();
         ExecuteResult r = Exec(0x00100073, s);
-        Assert.True(r.HasTrap);
-        Assert.Equal(TrapCause.Breakpoint, r.Trap!.Cause);
+        Assert.True(r.IsHalt);
+        Assert.False(r.HasTrap);
     }
 
     // ── x0 is hardwired zero ──────────────────────────────────────────────────

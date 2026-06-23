@@ -3,7 +3,7 @@ using Orrery.Observation;
 using Orrery.Train;
 using RiscV;
 using RiscV.Memory;
-using RiscV.Trains;
+using Pipeline;
 
 namespace Tests.RiscV;
 
