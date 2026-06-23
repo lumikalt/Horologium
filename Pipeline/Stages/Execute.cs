@@ -13,8 +13,7 @@ public sealed class ExecuteStage : Gear {
     private readonly HazardUnit _hazard;
 
     private IdExLatch _current = IdExLatch.Bubble;
-    private ExMemLatch _exMem = ExMemLatch.Bubble;
-    private MemWbLatch _memWb = MemWbLatch.Bubble;
+    private IReadOnlyList<PipelineResident> _forwardProviders = [];
 
     public InArbor<IdExLatch> Input { get; }
     public OutArbor<ExMemLatch> Output { get; }
@@ -25,10 +24,9 @@ public sealed class ExecuteStage : Gear {
     // in EX is on the wrong path (fetched after the branch) and must be killed.
     public bool Squash { get; set; }
 
-    // The pipeline controller pushes forwarding context each tick
-    public void SetForwardingContext(ExMemLatch exMem, MemWbLatch memWb) {
-        _exMem = exMem;
-        _memWb = memWb;
+    // The pipeline controller pushes forwarding providers each tick (oldest-first).
+    public void SetForwardingContext(IReadOnlyList<PipelineResident> providers) {
+        _forwardProviders = providers;
     }
 
     public ExecuteStage(
@@ -70,10 +68,11 @@ public sealed class ExecuteStage : Gear {
 
         _current = IdExLatch.Bubble;
 
-        (ulong rs1, ulong rs2, ulong rs3) = _hazard.Forward(latch, _exMem, _memWb);
-
         IRegisterFile regs = _state.IntegerRegisters;
         ITooth instr = latch.Instruction;
+        (ulong rs1, ulong rs2, ulong rs3) = _hazard.Forward(
+            latch.Rs1Value, latch.Rs2Value, latch.Rs3Value, instr.SourceRegisters, _forwardProviders
+        );
 
         // The executor reads operands from the register file, so inject the
         // forwarded values, then restore — otherwise a forwarded operand would
