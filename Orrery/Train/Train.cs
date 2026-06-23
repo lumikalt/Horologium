@@ -151,7 +151,7 @@ public sealed class Train {
 
     /// <summary>
     /// Runs the simulation for up to <paramref name="maxTicks"/> ticks.
-    ///
+    /// 
     ///   1. Transition tree to Running
     ///   2. Wind() all Gears             (each gear schedules its first event)
     ///   3. Run Escapement for warmupTicks (if any) — warms up caches / predictors
@@ -160,16 +160,21 @@ public sealed class Train {
     ///   6. Transition tree to Finished
     ///   7. Snapshot all DialBoards; subtract baseline when warmup was used
     ///   8. Return RevolutionResult
-    ///
+    /// 
     /// When <paramref name="warmupTicks"/> &gt; 0 the returned counters and
     /// histograms reflect only the measurement phase. Dials (which are rates)
     /// are taken from the final snapshot and therefore approximate the full run;
     /// this is acceptable for long measurements where warmup is a small fraction.
     /// </summary>
+    /// <param name="warmupTicks">Warmup phase duration in ticks.
+    /// </param>
     /// <param name="snapshotInterval">
     /// Ticks between periodic time-series snapshots. 0 disables time series.
     /// Snapshots are cumulative from measurement start and stored in
     /// <see cref="RevolutionResult.TimeSeries"/>.
+    /// </param>
+    /// <param name="maxTicks">
+    /// Maximum number of ticks to run.
     /// </param>
     public RevolutionResult Run(long maxTicks = long.MaxValue, long warmupTicks = 0, long snapshotInterval = 0) {
         if (!_built)

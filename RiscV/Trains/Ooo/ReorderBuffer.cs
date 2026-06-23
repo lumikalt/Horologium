@@ -111,7 +111,7 @@ public sealed class ReorderBuffer {
     public int HeadIndex => _head;
 
     public ReorderBuffer(int capacity) {
-        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 2, nameof(capacity));
+        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 2);
         Capacity = capacity;
         _slots = new RobEntry[capacity];
         for (var i = 0; i < capacity; i++) _slots[i] = new RobEntry();

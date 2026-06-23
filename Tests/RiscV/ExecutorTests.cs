@@ -209,7 +209,7 @@ public class ExecutorTests {
     public void Execute_WriteToX0_IsIgnored() {
         RvArchState s = MakeState((1, 5), (2, 3));
         // add x0, x1, x2 — result goes to x0, should stay 0
-        ExecuteResult r = Exec(0x00208033, s);
+        Exec(0x00208033, s);
         // The executor returns the result — the writeback stage ignores rd=0
         // But we can verify x0 reads as 0 regardless
         Assert.Equal(0UL, s.IntegerRegisters.Read(0));
@@ -572,112 +572,112 @@ public class ExecutorTests {
     // FP registers are at unified indices 32-63 (f0=32 … f31=63).
     // MakeState accepts any index in 0-63; indices 32+ write float registers.
 
-    private static uint FB(float f) => BitConverter.SingleToUInt32Bits(f);
-    private static float AF(ulong bits) => BitConverter.Int32BitsToSingle((int)bits);
+    private static uint Fb(float f) => BitConverter.SingleToUInt32Bits(f);
+    private static float Af(ulong bits) => BitConverter.Int32BitsToSingle((int)bits);
 
     [Fact]
     public void Execute_Flw_LoadsFloatBitsFromMemory() {
         // flw f1, 4(x2)  0x00412087 — x2=100, mem[104]=bits of 3.14f
-        uint bits = FB(3.14f);
+        uint bits = Fb(3.14f);
         RvArchState s = MakeState((2, 100));
         _mem.Write(104, bits, 4);
         ExecuteResult r = Exec(0x00412087, s);
-        Assert.Equal((ulong)bits, r.RegisterResult);
+        Assert.Equal(bits, r.RegisterResult);
     }
 
     [Fact]
     public void Execute_Fsw_StoresFloatBitsToMemory() {
         // fsw f2, 4(x1)  0x0020A227 — x1=100, f2=2.5f
-        uint bits = FB(2.5f);
+        uint bits = Fb(2.5f);
         RvArchState s = MakeState((1, 100), (34, bits)); // f2 = index 34
         Exec(0x0020A227, s);
-        Assert.Equal((ulong)bits, _mem.Read(104, 4));
+        Assert.Equal(bits, _mem.Read(104, 4));
     }
 
     [Fact]
     public void Execute_FaddS_AddsFloats() {
         // fadd.s f1, f2, f3  0x003100D3 — f2=2.0, f3=3.0 → f1=5.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0x003100D3, s);
-        Assert.Equal(5.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(5.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FsubS_SubtractsFloats() {
         // fsub.s f1, f2, f3  0x083100D3 — f2=5.0, f3=3.0 → 2.0
-        RvArchState s = MakeState((34, FB(5.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(5.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0x083100D3, s);
-        Assert.Equal(2.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(2.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FmulS_MultipliesFloats() {
         // fmul.s f1, f2, f3  0x103100D3 — f2=2.0, f3=3.0 → 6.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0x103100D3, s);
-        Assert.Equal(6.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(6.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FdivS_DividesFloats() {
         // fdiv.s f1, f2, f3  0x183100D3 — f2=6.0, f3=2.0 → 3.0
-        RvArchState s = MakeState((34, FB(6.0f)), (35, FB(2.0f)));
+        RvArchState s = MakeState((34, Fb(6.0f)), (35, Fb(2.0f)));
         ExecuteResult r = Exec(0x183100D3, s);
-        Assert.Equal(3.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(3.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FsqrtS_ComputesSquareRoot() {
         // fsqrt.s f1, f2  0x580100D3 — f2=4.0 → 2.0
-        RvArchState s = MakeState((34, FB(4.0f)));
+        RvArchState s = MakeState((34, Fb(4.0f)));
         ExecuteResult r = Exec(0x580100D3, s);
-        Assert.Equal(2.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(2.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FsgnjS_InjectsPositiveSign() {
         // fsgnj.s f1, f2, f3  0x203100D3 — f2=-2.0 (neg), f3=3.0 (pos) → +2.0
-        RvArchState s = MakeState((34, FB(-2.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(-2.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0x203100D3, s);
-        Assert.Equal(2.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(2.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FsgnjnS_InjectsNegatedSign() {
         // fsgnjn.s f1, f2, f3  0x203110D3 — f2=2.0 (pos), f3=3.0 (pos) → -2.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0x203110D3, s);
-        Assert.Equal(-2.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(-2.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FsgnjxS_XorSign() {
         // fsgnjx.s f1, f2, f3  0x203120D3 — f2=2.0 (pos), f3=-3.0 (neg) → -2.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(-3.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(-3.0f)));
         ExecuteResult r = Exec(0x203120D3, s);
-        Assert.Equal(-2.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(-2.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FminS_ReturnsSmaller() {
         // fmin.s f1, f2, f3  0x283100D3 — f2=2.0, f3=3.0 → 2.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0x283100D3, s);
-        Assert.Equal(2.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(2.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FminS_ReturnsNonNanWhenOneIsNaN() {
         // fmin(NaN, 2.0) = 2.0 per RISC-V spec
-        RvArchState s = MakeState((34, FB(float.NaN)), (35, FB(2.0f)));
+        RvArchState s = MakeState((34, Fb(float.NaN)), (35, Fb(2.0f)));
         ExecuteResult r = Exec(0x283100D3, s);
-        Assert.Equal(2.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(2.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FminS_ReturnsNegativeZeroWhenBothAreZero() {
         // fmin(-0.0, +0.0) = -0.0
-        RvArchState s = MakeState((34, FB(-0.0f)), (35, FB(0.0f)));
+        RvArchState s = MakeState((34, Fb(-0.0f)), (35, Fb(0.0f)));
         ExecuteResult r = Exec(0x283100D3, s);
         Assert.Equal(0x80000000UL, r.RegisterResult); // -0.0 raw bits
     }
@@ -685,23 +685,23 @@ public class ExecutorTests {
     [Fact]
     public void Execute_FmaxS_ReturnsLarger() {
         // fmax.s f1, f2, f3  0x283110D3 — f2=2.0, f3=3.0 → 3.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0x283110D3, s);
-        Assert.Equal(3.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(3.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FmaxS_ReturnsNonNanWhenOneIsNaN() {
         // fmax(NaN, 3.0) = 3.0
-        RvArchState s = MakeState((34, FB(float.NaN)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(float.NaN)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0x283110D3, s);
-        Assert.Equal(3.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(3.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FmaxS_ReturnsPositiveZeroWhenBothAreZero() {
         // fmax(-0.0, +0.0) = +0.0
-        RvArchState s = MakeState((34, FB(-0.0f)), (35, FB(0.0f)));
+        RvArchState s = MakeState((34, Fb(-0.0f)), (35, Fb(0.0f)));
         ExecuteResult r = Exec(0x283110D3, s);
         Assert.Equal(0UL, r.RegisterResult); // +0.0 raw bits = 0
     }
@@ -709,14 +709,14 @@ public class ExecutorTests {
     [Fact]
     public void Execute_FeqS_ReturnsOneWhenEqual() {
         // feq.s x1, f2, f3  0xA03120D3
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(2.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(2.0f)));
         ExecuteResult r = Exec(0xA03120D3, s);
         Assert.Equal(1UL, r.RegisterResult);
     }
 
     [Fact]
     public void Execute_FeqS_ReturnsZeroWhenNotEqual() {
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0xA03120D3, s);
         Assert.Equal(0UL, r.RegisterResult);
     }
@@ -724,7 +724,7 @@ public class ExecutorTests {
     [Fact]
     public void Execute_FltS_ReturnsOneWhenLess() {
         // flt.s x1, f2, f3  0xA03110D3
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)));
         ExecuteResult r = Exec(0xA03110D3, s);
         Assert.Equal(1UL, r.RegisterResult);
     }
@@ -732,7 +732,7 @@ public class ExecutorTests {
     [Fact]
     public void Execute_FleS_ReturnsOneWhenEqual() {
         // fle.s x1, f2, f3  0xA03100D3 — 2.0 ≤ 2.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(2.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(2.0f)));
         ExecuteResult r = Exec(0xA03100D3, s);
         Assert.Equal(1UL, r.RegisterResult);
     }
@@ -740,21 +740,21 @@ public class ExecutorTests {
     [Fact]
     public void Execute_FclassS_PositiveNormal() {
         // fclass.s x1, f2  0xE00110D3 — 2.0f is +normal → bit 6
-        RvArchState s = MakeState((34, FB(2.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)));
         ExecuteResult r = Exec(0xE00110D3, s);
         Assert.Equal(1UL << 6, r.RegisterResult);
     }
 
     [Fact]
     public void Execute_FclassS_PositiveInfinity() {
-        RvArchState s = MakeState((34, FB(float.PositiveInfinity)));
+        RvArchState s = MakeState((34, Fb(float.PositiveInfinity)));
         ExecuteResult r = Exec(0xE00110D3, s);
         Assert.Equal(1UL << 7, r.RegisterResult);
     }
 
     [Fact]
     public void Execute_FclassS_NegativeZero() {
-        RvArchState s = MakeState((34, FB(-0.0f)));
+        RvArchState s = MakeState((34, Fb(-0.0f)));
         ExecuteResult r = Exec(0xE00110D3, s);
         Assert.Equal(1UL << 3, r.RegisterResult);
     }
@@ -769,7 +769,7 @@ public class ExecutorTests {
     [Fact]
     public void Execute_FclassS_QuietNaN() {
         // float.NaN on .NET is a quiet NaN (signaling bit set in fraction)
-        RvArchState s = MakeState((34, FB(float.NaN)));
+        RvArchState s = MakeState((34, Fb(float.NaN)));
         ExecuteResult r = Exec(0xE00110D3, s);
         Assert.Equal(1UL << 9, r.RegisterResult);
     }
@@ -777,7 +777,7 @@ public class ExecutorTests {
     [Fact]
     public void Execute_FcvtWS_TruncatesPositiveFloat() {
         // fcvt.w.s x1, f2  0xC00100D3 — 3.7f → 3
-        RvArchState s = MakeState((34, FB(3.7f)));
+        RvArchState s = MakeState((34, Fb(3.7f)));
         ExecuteResult r = Exec(0xC00100D3, s);
         Assert.Equal(3UL, r.RegisterResult);
     }
@@ -785,15 +785,15 @@ public class ExecutorTests {
     [Fact]
     public void Execute_FcvtWS_TruncatesNegativeFloat() {
         // -3.7f → -3 (truncation toward zero) → 0xFFFFFFFD as uint32
-        RvArchState s = MakeState((34, FB(-3.7f)));
+        RvArchState s = MakeState((34, Fb(-3.7f)));
         ExecuteResult r = Exec(0xC00100D3, s);
-        Assert.Equal((ulong)unchecked((uint)-3), r.RegisterResult);
+        Assert.Equal(unchecked((uint)-3), r.RegisterResult);
     }
 
     [Fact]
     public void Execute_FcvtWuS_ConvertsPositiveFloat() {
         // fcvt.wu.s x1, f2  0xC01100D3 — 5.9f → 5u
-        RvArchState s = MakeState((34, FB(5.9f)));
+        RvArchState s = MakeState((34, Fb(5.9f)));
         ExecuteResult r = Exec(0xC01100D3, s);
         Assert.Equal(5UL, r.RegisterResult);
     }
@@ -803,7 +803,7 @@ public class ExecutorTests {
         // fcvt.s.w f1, x2  0xD00100D3 — x2=-5 → -5.0f
         RvArchState s = MakeState((2, unchecked((uint)-5)));
         ExecuteResult r = Exec(0xD00100D3, s);
-        Assert.Equal(-5.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(-5.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
@@ -811,56 +811,56 @@ public class ExecutorTests {
         // fcvt.s.wu f1, x2  0xD01100D3 — x2=0xFFFFFFFF → 4294967295.0f
         RvArchState s = MakeState((2, 0xFFFFFFFF));
         ExecuteResult r = Exec(0xD01100D3, s);
-        Assert.Equal((float)0xFFFFFFFFu, AF(r.RegisterResult!.Value));
+        Assert.Equal(0xFFFFFFFFu, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FmvXW_CopiesBitsToIntReg() {
         // fmv.x.w x1, f2  0xE00100D3 — f2 holds bits of -1.0f
-        uint bits = FB(-1.0f); // 0xBF800000
+        uint bits = Fb(-1.0f); // 0xBF800000
         RvArchState s = MakeState((34, bits));
         ExecuteResult r = Exec(0xE00100D3, s);
-        Assert.Equal((ulong)bits, r.RegisterResult);
+        Assert.Equal(bits, r.RegisterResult);
     }
 
     [Fact]
     public void Execute_FmvWX_CopiesBitsToFpReg() {
         // fmv.w.x f1, x2  0xF00100D3 — x2=0x40000000 (bits of 2.0f)
-        uint bits = FB(2.0f); // 0x40000000
+        uint bits = Fb(2.0f); // 0x40000000
         RvArchState s = MakeState((2, bits));
         ExecuteResult r = Exec(0xF00100D3, s);
-        Assert.Equal((ulong)bits, r.RegisterResult);
+        Assert.Equal(bits, r.RegisterResult);
     }
 
     [Fact]
     public void Execute_FmaddS_FusedMultiplyAdd() {
         // fmadd.s f1, f2, f3, f4  0x203100C3 — f2=2.0, f3=3.0, f4=1.0 → 7.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)), (36, FB(1.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)), (36, Fb(1.0f)));
         ExecuteResult r = Exec(0x203100C3, s);
-        Assert.Equal(7.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(7.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FmsubS_FusedMultiplySubtract() {
         // fmsub.s f1, f2, f3, f4  0x203100C7 — f2*f3 - f4 = 6-1 = 5.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)), (36, FB(1.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)), (36, Fb(1.0f)));
         ExecuteResult r = Exec(0x203100C7, s);
-        Assert.Equal(5.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(5.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FnmsubS_NegatedFusedMultiplySubtract() {
         // fnmsub.s f1, f2, f3, f4  0x203100CB — -(f2*f3) + f4 = -6+1 = -5.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)), (36, FB(1.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)), (36, Fb(1.0f)));
         ExecuteResult r = Exec(0x203100CB, s);
-        Assert.Equal(-5.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(-5.0f, Af(r.RegisterResult!.Value));
     }
 
     [Fact]
     public void Execute_FnmaddS_NegatedFusedMultiplyAdd() {
         // fnmadd.s f1, f2, f3, f4  0x203100CF — -(f2*f3) - f4 = -6-1 = -7.0
-        RvArchState s = MakeState((34, FB(2.0f)), (35, FB(3.0f)), (36, FB(1.0f)));
+        RvArchState s = MakeState((34, Fb(2.0f)), (35, Fb(3.0f)), (36, Fb(1.0f)));
         ExecuteResult r = Exec(0x203100CF, s);
-        Assert.Equal(-7.0f, AF(r.RegisterResult!.Value));
+        Assert.Equal(-7.0f, Af(r.RegisterResult!.Value));
     }
 }

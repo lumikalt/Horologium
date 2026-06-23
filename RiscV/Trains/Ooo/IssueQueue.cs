@@ -80,7 +80,7 @@ public sealed class IssueQueue {
     public bool IsEmpty => Count == 0;
 
     public IssueQueue(int capacity) {
-        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1, nameof(capacity));
+        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
         Capacity = capacity;
         _slots = new RsEntry[capacity];
         for (var i = 0; i < capacity; i++) _slots[i] = new RsEntry();
@@ -158,7 +158,7 @@ public sealed class IssueQueue {
 
     /// <summary>Returns a slot to the free pool after the instruction has been issued.</summary>
     public void Free(int index) {
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Capacity, nameof(index));
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Capacity);
         _slots[index].Clear();
         Count--;
     }

@@ -2,10 +2,7 @@ using RiscV.Trains.Ooo;
 
 namespace Tests.RiscV;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// PhysicalRegisterFile
-// ═══════════════════════════════════════════════════════════════════════════════
-
+/// PhysicalRegisterFile
 public class PhysicalRegisterFileTests {
     [Fact]
     public void InitialState_AllReadyAllZero() {
@@ -65,10 +62,7 @@ public class PhysicalRegisterFileTests {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// RenameMap
-// ═══════════════════════════════════════════════════════════════════════════════
-
+/// RenameMap
 public class RenameMapTests {
     [Fact]
     public void InitialMapping_IdentityForArchRegisters() {
@@ -112,7 +106,7 @@ public class RenameMapTests {
     [Fact]
     public void FreePhysical_ReturnsRegisterToFreeList() {
         var rm = new RenameMap(2, 3);
-        (int newPhys, int oldPhys) = rm.Rename(0);
+        (int _, int oldPhys) = rm.Rename(0);
         int freeAfterRename = rm.FreeCount;
         rm.FreePhysical(oldPhys);
         Assert.Equal(freeAfterRename + 1, rm.FreeCount);
@@ -121,7 +115,7 @@ public class RenameMapTests {
     [Fact]
     public void RestoreMapping_SetsRatDirectly() {
         var rm = new RenameMap(4, 8);
-        (int newPhys, _) = rm.Rename(1);
+        rm.Rename(1);
         // Simulate flush: walk-back restores old mapping
         rm.RestoreMapping(1, 1); // original arch1 → phys1
         Assert.Equal(1, rm.Lookup(1));
@@ -168,10 +162,7 @@ public class RenameMapTests {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// ReorderBuffer
-// ═══════════════════════════════════════════════════════════════════════════════
-
+/// ReorderBuffer
 public class ReorderBufferTests {
     [Fact]
     public void InitialState_EmptyNotFull() {
@@ -337,10 +328,7 @@ public class ReorderBufferTests {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// IssueQueue
-// ═══════════════════════════════════════════════════════════════════════════════
-
+/// IssueQueue
 public class IssueQueueTests {
     [Fact]
     public void InitialState_EmptyNotFull() {

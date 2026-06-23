@@ -4,6 +4,7 @@ using Orrery.Train;
 using RiscV;
 using RiscV.Memory;
 using RiscV.Trains;
+using Xunit.Abstractions;
 
 namespace Tests.RiscV;
 
@@ -14,9 +15,9 @@ namespace Tests.RiscV;
 /// Each ELF uses a custom test environment (TestBinaries/env/riscv_test.h)
 /// that halts with EBREAK and leaves the result in gp (x3):
 ///   gp == 1            → PASS
-///   gp == (N&lt;&lt;1) | 1  → FAIL at sub-test N
+///   gp == (N&lt;&lt;1) | 1  → FAIL at subtest N
 /// </summary>
-public class RiscVTestSuiteTests {
+public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
     private static readonly string IsaDir =
         Path.Combine(AppContext.BaseDirectory, "isa");
 
@@ -24,23 +25,26 @@ public class RiscVTestSuiteTests {
 
     public static IEnumerable<object[]> AllTests() =>
         Directory
-            .EnumerateFiles(IsaDir, "*.elf")
-            .OrderBy(p => p)
-            .Select(p => new object[] { Path.GetFileNameWithoutExtension(p) });
+           .EnumerateFiles(RiscVTestSuiteTests.IsaDir, "*.elf")
+           .OrderBy(p => p)
+           .Select(p => new object[] { Path.GetFileNameWithoutExtension(p), });
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static string ElfPath(string name) => Path.Combine(IsaDir, name + ".elf");
+    private static string ElfPath(string name) => Path.Combine(RiscVTestSuiteTests.IsaDir, name + ".elf");
 
     private static uint Gp(IArchState state) =>
         (uint)state.IntegerRegisters.Read(3); // x3 = gp
 
     private static void AssertPass(uint gp, string name) {
-        if (gp == 1) return;
-        if (gp == 0)
-            throw new Exception($"{name}: simulation hit maxTicks before halting (gp still 0)");
-        int failedTest = (int)(gp >> 1);
-        throw new Exception($"{name}: FAIL at sub-test {failedTest} (gp=0x{gp:X})");
+        switch (gp) {
+            case 1: return;
+            case 0: throw new Exception($"{name}: simulation hit maxTicks before halting (gp still 0)");
+            default: {
+                var failedTest = (int)(gp >> 1);
+                throw new Exception($"{name}: FAIL at sub-test {failedTest} (gp=0x{gp:X})");
+            }
+        }
     }
 
     // ── SingleCycleTrain ──────────────────────────────────────────────────────
@@ -53,7 +57,7 @@ public class RiscVTestSuiteTests {
         wl.Load(mem);
 
         var train = new SingleCycleTrain(new RvMechanism(), mem, wl.EntryPoint);
-        train.Run(maxTicks: 200_000);
+        train.Run(200_000);
 
         AssertPass(Gp(train.ArchState), name);
     }
@@ -68,12 +72,12 @@ public class RiscVTestSuiteTests {
         wl.Load(mem);
 
         var train = new FiveStageTrain(new RvMechanism(), mem, wl.EntryPoint);
-        train.Run(maxTicks: 400_000);
+        train.Run(400_000);
 
         AssertPass(Gp(train.ArchState), name);
     }
 
-    // ── OoOETrain ─────────────────────────────────────────────────────────────
+    // ── OooeTrain ─────────────────────────────────────────────────────────────
 
     [Theory]
     [MemberData(nameof(AllTests))]
@@ -82,8 +86,8 @@ public class RiscVTestSuiteTests {
         var mem = new FlatMemory(wl.MemorySize);
         wl.Load(mem);
 
-        var train = new OoOETrain(new RvMechanism(), mem, wl.EntryPoint);
-        train.Run(maxTicks: 400_000);
+        var train = new OooeTrain(new RvMechanism(), mem, wl.EntryPoint);
+        train.Run(400_000);
 
         AssertPass(Gp(train.ArchState), name);
     }
@@ -103,10 +107,10 @@ public class RiscVTestSuiteTests {
             var mem = new FlatMemory(wl.MemorySize);
             wl.Load(mem);
 
-            var train = new SingleCycleTrain(new RvMechanism(), mem, wl.EntryPoint);
-            RevolutionResult result = train.Run(maxTicks: 200_000);
+            var train = new OooeTrain(new RvMechanism(), mem, wl.EntryPoint);
+            RevolutionResult result = train.Run(200_000);
 
-            DialBoardSnapshot? snap = result.Find("single_cycle.core");
+            DialBoardSnapshot? snap = result.Find("ooo.pipeline");
             long cycles = snap?.Counters.GetValueOrDefault("cycles") ?? 0;
             long retired = snap?.Counters.GetValueOrDefault("retired") ?? 0;
             double ipc = cycles > 0 ? retired / (double)cycles : 0.0;
@@ -114,10 +118,10 @@ public class RiscVTestSuiteTests {
         }
 
         // Emit a simple Markdown table to test output.
-        Console.WriteLine("| Test | Cycles | Retired | IPC |");
-        Console.WriteLine("|------|-------:|--------:|----:|");
+        testOutputHelper.WriteLine("| Test | Cycles | Retired | IPC |");
+        testOutputHelper.WriteLine("|------|-------:|--------:|----:|");
         foreach ((string n, long c, long r, double ipc) in rows.OrderBy(x => x.Name))
-            Console.WriteLine($"| {n} | {c} | {r} | {ipc:F3} |");
+            testOutputHelper.WriteLine($"| {n} | {c} | {r} | {ipc:F3} |");
 
         // The test itself always passes — it's a reporting fixture.
         Assert.NotEmpty(rows);

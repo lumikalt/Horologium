@@ -21,7 +21,7 @@ public interface IArchState {
     /// The CSR file. Null if the ISA does not define CSRs
     /// (e.g. a minimal custom ISA with no privileged spec).
     /// </summary>
-    ICsrFile? Csrs { get; }
+    ICsrFile Csrs { get; }
 
     /// <summary>
     /// Creates a deep copy of this state.

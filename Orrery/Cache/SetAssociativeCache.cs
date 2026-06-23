@@ -85,8 +85,7 @@ public sealed class SetAssociativeCache : IMemory {
 
     // ── Address decomposition ────────────────────────────────────────────────
 
-    private void Decompose(ulong address, out int set, out ulong tag, out int offset) {
-        offset = (int)(address & (ulong)_offsetMask);
+    private void Decompose(ulong address, out int set, out ulong tag) {
         set = (int)((address >> _offsetBits) & (ulong)_indexMask);
         tag = address >> (_offsetBits + _indexBits);
     }
@@ -119,7 +118,7 @@ public sealed class SetAssociativeCache : IMemory {
     private void FillBlock(int set, int way, ulong address) {
         ulong lineBase = address & ~(ulong)_offsetMask;
         for (var i = 0; i < _blockSize; i++) _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
-        Decompose(address, out _, out ulong tag, out _);
+        Decompose(address, out _, out ulong tag);
         if (_tags[set][way].HasValue) Evictions++;
         _tags[set][way] = tag;
         TouchLru(set, way);
@@ -142,7 +141,7 @@ public sealed class SetAssociativeCache : IMemory {
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + bytes > _blockSize) return _backing.Read(address, bytes);
 
-        Decompose(address, out int set, out ulong tag, out _);
+        Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way >= 0) {
             Hits++;
@@ -166,7 +165,7 @@ public sealed class SetAssociativeCache : IMemory {
             // future reads don't return stale data.
             ulong end = address + (ulong)bytes;
             for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
-                Decompose(a, out int s, out ulong t, out _);
+                Decompose(a, out int s, out ulong t);
                 for (var w = 0; w < _ways; w++)
                     if (_tags[s][w] == t)
                         _tags[s][w] = null;
@@ -175,7 +174,7 @@ public sealed class SetAssociativeCache : IMemory {
             return;
         }
 
-        Decompose(address, out int set, out ulong tag, out _);
+        Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way >= 0) {
             Hits++;
@@ -194,7 +193,7 @@ public sealed class SetAssociativeCache : IMemory {
         // Invalidate cache lines that overlap the loaded region.
         ulong end = address + (ulong)data.Length;
         for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
-            Decompose(a, out int set, out ulong tag, out _);
+            Decompose(a, out int set, out ulong tag);
             for (var w = 0; w < _ways; w++)
                 if (_tags[set][w] == tag)
                     _tags[set][w] = null;

@@ -24,6 +24,18 @@ public static class Experiment {
     /// <see cref="IWorkload.CodeSize"/> (targeting roughly 100 data points). Pass 0
     /// (default) to disable time series.
     /// </param>
+    /// <param name="workload">
+    /// The workload to run.
+    /// </param>
+    /// <param name="configurations">
+    /// The hardware configurations to run under.
+    /// </param>
+    /// <param name="mechanism">
+    /// The mechanism to use.
+    /// </param>
+    /// <param name="maxTicks">
+    /// The maximum number of ticks to run for each configuration.
+    /// </param>
     public static ExperimentResult Run(
         IWorkload workload,
         IEnumerable<NamedConfig> configurations,
@@ -46,18 +58,18 @@ public static class Experiment {
             RevolutionResult result = config.Pipeline switch {
                 "superscalar" => new SuperscalarTrain(
                     mechanism, memory,
-                    entryPoint: workload.EntryPoint,
-                    issueWidth: config.IssueWidth
+                    workload.EntryPoint,
+                    config.IssueWidth
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
-                "ooo" => new OoOETrain(
+                "ooo" => new OooeTrain(
                     mechanism, memory,
-                    entryPoint:    workload.EntryPoint,
-                    issueWidth:    config.IssueWidth,
-                    robCapacity:   config.RobCapacity,
-                    iqCapacity:    config.IqCapacity,
-                    extraPhysRegs: config.ExtraPhysRegs,
-                    predictor:     config.Predictor?.Build()
+                    workload.EntryPoint,
+                    config.IssueWidth,
+                    config.RobCapacity,
+                    config.IqCapacity,
+                    config.ExtraPhysRegs,
+                    config.Predictor?.Build()
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
                 _ => new FiveStageTrain(

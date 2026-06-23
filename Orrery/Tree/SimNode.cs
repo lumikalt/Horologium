@@ -51,8 +51,9 @@ public class SimNode {
     /// the whole tree moves together.
     /// </summary>
     public SimLifecycle Lifecycle {
+        // ReSharper disable once FunctionRecursiveOnAllPaths
         get => Parent?.Lifecycle ?? field;
-        private set {
+        set {
             // Only the root owns the lifecycle state
             if (Parent is not null)
                 throw new InvalidOperationException(
@@ -133,7 +134,7 @@ public class SimNode {
     /// </summary>
     public IEnumerable<SimNode> Descendants() {
         yield return this;
-        foreach (SimNode? descendant in _children.SelectMany(child => child.Descendants())) yield return descendant;
+        foreach (SimNode descendant in _children.SelectMany(child => child.Descendants())) yield return descendant;
     }
 
     // ── Lifecycle Transitions (root only) ────────────────────────────────────

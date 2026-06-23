@@ -1,3 +1,4 @@
+using JetBrains.Annotations;
 using Orrery.Ports;
 using Orrery.Scheduling;
 
@@ -172,7 +173,7 @@ public class ArborTests {
         Assert.Equal(packet, received);
     }
 
-    private record TestPacket(int Id, double Value);
+    private record TestPacket([UsedImplicitly] int Id, double Value);
 
     // ── IsBound ───────────────────────────────────────────────────────────────
 

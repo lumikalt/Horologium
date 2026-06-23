@@ -7,7 +7,7 @@ using RiscV.Trains;
 namespace Tests.RiscV;
 
 /// <summary>
-/// End-to-end tests for OoOETrain: superscalar out-of-order pipeline.
+/// End-to-end tests for OooeTrain: superscalar out-of-order pipeline.
 ///
 /// Hand-assembled RV32I programs are loaded into FlatMemory and run through
 /// the train. Final register values are compared against expected results
@@ -15,14 +15,14 @@ namespace Tests.RiscV;
 /// produces correct outputs despite scheduling instructions out of order.
 /// </summary>
 public class OoOPipelineTests {
-    private static (OoOETrain train, FlatMemory mem) Make(
+    private static (OooeTrain train, FlatMemory mem) Make(
         int issueWidth = 2,
         int robCapacity = 16,
         int iqCapacity = 8,
         int memSize = 4096
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OoOETrain(
+        var train = new OooeTrain(
             new RvMechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -43,7 +43,7 @@ public class OoOPipelineTests {
         mem.Load(0, bytes);
     }
 
-    private static uint Reg(OoOETrain t, int r) =>
+    private static uint Reg(OooeTrain t, int r) =>
         (uint)t.ArchState.IntegerRegisters.Read(r);
 
     // ── Correctness: arithmetic ────────────────────────────────────────────────
@@ -54,7 +54,7 @@ public class OoOPipelineTests {
         // addi x2, x0, 32    → x2 = 32
         // add  x3, x1, x2    → x3 = 42
         // ebreak
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x00a00093, // addi x1, x0, 10
@@ -76,7 +76,7 @@ public class OoOPipelineTests {
         // addi x1, x1, 1     → x1 = 3
         // addi x1, x1, 1     → x1 = 4
         // ebreak
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x00100093, // addi x1, x0, 1
@@ -93,7 +93,7 @@ public class OoOPipelineTests {
     public void Program_IndependentInstructions_AllCommit() {
         // Six independent ADDIs — no RAW hazards. All should commit correctly.
         // addi x1..x6, x0, 1..6
-        (OoOETrain train, FlatMemory mem) = Make(2);
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x00100093, // addi x1, x0, 1
@@ -119,7 +119,7 @@ public class OoOPipelineTests {
         // addi x2, x0, 3    → x2 = 3
         // sub  x3, x1, x2   → x3 = 7
         // ebreak
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x00a00093, // addi x1, x0, 10
@@ -137,7 +137,7 @@ public class OoOPipelineTests {
         // addi x2, x0, 0x0F  → x2 = 15
         // and  x3, x1, x2    → x3 = 15
         // ebreak
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x0ff00093, // addi x1, x0, 0xFF
@@ -158,7 +158,7 @@ public class OoOPipelineTests {
         // sw   x1, 0(x2)      → mem[256] = 42
         // lw   x3, 0(x2)      → x3 = 42
         // ebreak
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x02a00093, // addi x1, x0, 42
@@ -179,7 +179,7 @@ public class OoOPipelineTests {
         // addi x1, x0, 99  → should NOT execute
         // addi x2, x0, 42  → x2 = 42
         // ebreak
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x0080006f, // jal x0, +8
@@ -200,7 +200,7 @@ public class OoOPipelineTests {
         // addi x3, x0, 99   → skipped
         // addi x4, x0, 42   → x4 = 42
         // ebreak
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x00500093, // addi x1, x0, 5
@@ -222,7 +222,7 @@ public class OoOPipelineTests {
         // beq  x1, x2, +8   → not taken (x1 != x2)
         // addi x3, x0, 10   → x3 = 10
         // ebreak
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x00300093, // addi x1, x0, 3
@@ -240,7 +240,7 @@ public class OoOPipelineTests {
     [Fact]
     public void Stats_RetiredCountMatchesInstructionCount() {
         // 3 ADDIs + EBREAK = 4 instructions total
-        (OoOETrain train, FlatMemory mem) = Make();
+        (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             0x00100093, // addi x1, x0, 1
@@ -262,8 +262,8 @@ public class OoOPipelineTests {
     public void Stats_SuperscalarIssueWidth2_FasterThanSequential() {
         // 6 independent ADDIs: with issue width 2, fewer cycles than 1-wide
         // because the pipeline can commit 2 instructions per cycle in steady state.
-        (OoOETrain wide, FlatMemory mem1) = Make(2);
-        (OoOETrain narrow, FlatMemory mem2) = Make(1);
+        (OooeTrain wide, FlatMemory mem1) = Make();
+        (OooeTrain narrow, FlatMemory mem2) = Make(1);
 
         uint[] program = [
             0x00100093, // addi x1, x0, 1
@@ -289,7 +289,7 @@ public class OoOPipelineTests {
     [Fact]
     public void Stats_CyclesGe1_PerInstruction() {
         // CPI must be >= 1: we have one execute slot per cycle.
-        (OoOETrain train, FlatMemory mem) = Make(1);
+        (OooeTrain train, FlatMemory mem) = Make(1);
         Load(
             mem,
             0x00100093, // addi x1, x0, 1

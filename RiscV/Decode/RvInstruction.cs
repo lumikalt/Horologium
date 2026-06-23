@@ -188,17 +188,17 @@ public record RvFleS(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
 
 public record RvFclassS(int Rd, int Rs1) : RvOp; // Rd=int result
 
-public record RvFcvtWS(int Rd, int Rs1) : RvOp; // float→signed int
+public record RvFcvtWs(int Rd, int Rs1) : RvOp; // float→signed int
 
 public record RvFcvtWuS(int Rd, int Rs1) : RvOp; // float→unsigned int
 
-public record RvFcvtSW(int Rd, int Rs1) : RvOp; // signed int→float
+public record RvFcvtSw(int Rd, int Rs1) : RvOp; // signed int→float
 
 public record RvFcvtSWu(int Rd, int Rs1) : RvOp; // unsigned int→float
 
-public record RvFmvXW(int Rd, int Rs1) : RvOp; // fp bits→int reg
+public record RvFmvXw(int Rd, int Rs1) : RvOp; // fp bits→int reg
 
-public record RvFmvWX(int Rd, int Rs1) : RvOp; // int bits→fp reg
+public record RvFmvWx(int Rd, int Rs1) : RvOp; // int bits→fp reg
 
 public record RvFmaddS(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
 

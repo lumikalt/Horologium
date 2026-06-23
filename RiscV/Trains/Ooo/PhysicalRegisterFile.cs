@@ -14,7 +14,7 @@ public sealed class PhysicalRegisterFile {
     public int Count { get; }
 
     public PhysicalRegisterFile(int count) {
-        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1, nameof(count));
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
         Count = count;
         _values = new ulong[count];
         _ready = new bool[count];

@@ -27,7 +27,7 @@ public sealed class RenameMap {
     /// the surplus forms the initial free list.
     /// </param>
     public RenameMap(int archCount, int physCount) {
-        ArgumentOutOfRangeException.ThrowIfLessThan(physCount, archCount + 1, nameof(physCount));
+        ArgumentOutOfRangeException.ThrowIfLessThan(physCount, archCount + 1);
         _archCount = archCount;
         _physCount = physCount;
         _rat = new int[archCount];

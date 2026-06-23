@@ -224,19 +224,19 @@ public sealed class RvExecutor : IExecutor {
             RvFminS(_, var rs1, var rs2) => FloatReg(FMin(FBits(regs, rs1), FBits(regs, rs2))),
             RvFmaxS(_, var rs1, var rs2) => FloatReg(FMax(FBits(regs, rs1), FBits(regs, rs2))),
 
-            RvFeqS(_, var rs1, var rs2) => Reg(FBits(regs, rs1) == FBits(regs, rs2) ? 1UL : 0UL),
+            RvFeqS(_, var rs1, var rs2) => Reg(FBits(regs, rs1).Equals(FBits(regs, rs2)) ? 1UL : 0UL),
             RvFltS(_, var rs1, var rs2) => Reg(FBits(regs, rs1) < FBits(regs, rs2) ? 1UL : 0UL),
             RvFleS(_, var rs1, var rs2) => Reg(FBits(regs, rs1) <= FBits(regs, rs2) ? 1UL : 0UL),
 
             RvFclassS(_, var rs1) => Reg(FClass((uint)regs.Read(rs1))),
 
-            RvFcvtWS (_, var rs1) => Reg((uint)(int)FBits(regs, rs1)),
+            RvFcvtWs (_, var rs1) => Reg((uint)(int)FBits(regs, rs1)),
             RvFcvtWuS(_, var rs1) => Reg((uint)FBits(regs, rs1)),
-            RvFcvtSW (_, var rs1) => FloatReg((float)(int)regs.Read(rs1)),
-            RvFcvtSWu(_, var rs1) => FloatReg((float)(uint)regs.Read(rs1)),
+            RvFcvtSw (_, var rs1) => FloatReg((int)regs.Read(rs1)),
+            RvFcvtSWu(_, var rs1) => FloatReg((uint)regs.Read(rs1)),
 
-            RvFmvXW(_, var rs1) => Reg(regs.Read(rs1)), // fp bits → int (bit-exact)
-            RvFmvWX(_, var rs1) => ExecuteResult.WithResult(regs.Read(rs1) & 0xFFFFFFFF),
+            RvFmvXw(_, var rs1) => Reg(regs.Read(rs1)), // fp bits → int (bit-exact)
+            RvFmvWx(_, var rs1) => ExecuteResult.WithResult(regs.Read(rs1) & 0xFFFFFFFF),
 
             RvFmaddS (_, var rs1, var rs2, var rs3) =>
                 FloatReg(MathF.FusedMultiplyAdd(FBits(regs, rs1), FBits(regs, rs2), FBits(regs, rs3))),
@@ -249,7 +249,7 @@ public sealed class RvExecutor : IExecutor {
 
             RvCsrrw (_, var rs1, var csr) => ExecuteCsr(
                 state, rs1, csr,
-                (old, src) => src
+                (_, src) => src
             ),
             RvCsrrs (_, var rs1, var csr) => ExecuteCsr(
                 state, rs1, csr,
@@ -261,7 +261,7 @@ public sealed class RvExecutor : IExecutor {
             ),
             RvCsrrwi (_, var zimm, var csr) => ExecuteCsrImm(
                 state, zimm, csr,
-                (old, src) => src
+                (_, src) => src
             ),
             RvCsrrsi (_, var zimm, var csr) => ExecuteCsrImm(
                 state, zimm, csr,
@@ -357,7 +357,7 @@ public sealed class RvExecutor : IExecutor {
         uint csr,
         Func<ulong, ulong, ulong> combine
     ) {
-        ICsrFile csrFile = state.Csrs!;
+        ICsrFile csrFile = state.Csrs;
         ulong old = csrFile.Read(csr, state.PrivilegeLevel);
         ulong src = state.IntegerRegisters.Read(rs1);
         csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
@@ -423,7 +423,7 @@ public sealed class RvExecutor : IExecutor {
         uint csr,
         Func<ulong, ulong, ulong> combine
     ) {
-        ICsrFile csrFile = state.Csrs!;
+        ICsrFile csrFile = state.Csrs;
         ulong old = csrFile.Read(csr, state.PrivilegeLevel);
         csrFile.Write(csr, combine(old, zimm), state.PrivilegeLevel);
         return ExecuteResult.WithResult(old & 0xFFFFFFFF);

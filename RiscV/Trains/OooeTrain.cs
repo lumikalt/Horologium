@@ -1,4 +1,3 @@
-using System.Linq;
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using Orrery.Gears;
@@ -14,13 +13,13 @@ namespace RiscV.Trains;
 
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 
-public sealed class OoOETrain {
+public sealed class OooeTrain {
     private readonly Train _train;
     private readonly OoOPipelineCore _core;
 
     public IArchState ArchState => _core.State;
 
-    public OoOETrain(
+    public OooeTrain(
         IMechanism mechanism,
         IMemory memory,
         ulong entryPoint = 0,
@@ -141,11 +140,11 @@ internal sealed class OoOPipelineCore : Gear {
     private ulong _flushTarget;
 
     // Counters (initialised in Initialize)
-    private Counter _cyclesCounter      = null!;
-    private Counter _retiredCounter     = null!;
-    private Counter _flushesCounter     = null!;
-    private Counter _branchMissCounter  = null!;
-    private Counter _stallsCounter      = null!;
+    private Counter _cyclesCounter = null!;
+    private Counter _retiredCounter = null!;
+    private Counter _flushesCounter = null!;
+    private Counter _branchMissCounter = null!;
+    private Counter _stallsCounter = null!;
 
     public RvArchState State { get; }
 
@@ -184,11 +183,11 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     public override void Initialize() {
-        _cyclesCounter     = Dials.AddCounter("cycles",        "Total cycles");
-        _retiredCounter    = Dials.AddCounter("retired",       "Instructions retired");
-        _flushesCounter    = Dials.AddCounter("flushes",       "Pipeline flushes (branch + trap)");
+        _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
+        _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
+        _flushesCounter = Dials.AddCounter("flushes", "Pipeline flushes (branch + trap)");
         _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions");
-        _stallsCounter     = Dials.AddCounter("stalls",        "Dispatch-stall cycles (structural hazards)");
+        _stallsCounter = Dials.AddCounter("stalls", "Dispatch-stall cycles (structural hazards)");
 
         Dials.AddDial(
             "cpi",

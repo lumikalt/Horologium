@@ -12,7 +12,7 @@ public sealed class RvArchState : IArchState {
     public ulong Pc { get; set; }
     public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.Machine;
     public IRegisterFile IntegerRegisters => _intRegs;
-    public ICsrFile? Csrs => CsrFile;
+    public ICsrFile Csrs => CsrFile;
 
     /// <summary>Typed access to the concrete CSR file for internal use.</summary>
     internal CsrFile CsrFile { get; }

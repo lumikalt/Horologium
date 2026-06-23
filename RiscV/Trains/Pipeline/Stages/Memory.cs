@@ -7,8 +7,6 @@ using Orrery.Tree;
 namespace RiscV.Trains.Pipeline.Stages;
 
 public sealed class MemoryStage : Gear {
-    private readonly IMemory _memory;
-
     private ExMemLatch _current = ExMemLatch.Bubble;
 
     public MemWbLatch LastSent { get; private set; } = MemWbLatch.Bubble;
@@ -16,9 +14,8 @@ public sealed class MemoryStage : Gear {
     public InArbor<ExMemLatch> Input { get; }
     public OutArbor<MemWbLatch> Output { get; }
 
-    public MemoryStage(string name, SimNode parent, Escapement esc, IMemory memory)
+    public MemoryStage(string name, SimNode parent, Escapement esc)
         : base(name, parent, esc) {
-        _memory = memory;
         Input = new InArbor<ExMemLatch>($"{name}.in");
         Output = new OutArbor<MemWbLatch>($"{name}.out", esc);
 

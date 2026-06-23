@@ -740,8 +740,8 @@ public class DecoderTests {
     public void Decode_FcvtWS() {
         // fcvt.w.s x1, f2  →  funct7=0x60, rs2=0 = 0xC00100D3
         ITooth i = D(0xC00100D3);
-        Assert.IsType<RvFcvtWS>(i.Payload);
-        var op = (RvFcvtWS)i.Payload!;
+        Assert.IsType<RvFcvtWs>(i.Payload);
+        var op = (RvFcvtWs)i.Payload!;
         Assert.Equal(1, op.Rd);   // integer dest
         Assert.Equal(34, op.Rs1); // f2 unified FP source
         Assert.Equal(1, i.DestinationRegister);
@@ -758,8 +758,8 @@ public class DecoderTests {
     public void Decode_FcvtSW() {
         // fcvt.s.w f1, x2  →  funct7=0x68, rs2=0 = 0xD00100D3; rd is FP
         ITooth i = D(0xD00100D3);
-        Assert.IsType<RvFcvtSW>(i.Payload);
-        var op = (RvFcvtSW)i.Payload!;
+        Assert.IsType<RvFcvtSw>(i.Payload);
+        var op = (RvFcvtSw)i.Payload!;
         Assert.Equal(33, op.Rd); // f1 unified FP dest
         Assert.Equal(2, op.Rs1); // x2 integer source
         Assert.Equal(33, i.DestinationRegister);
@@ -776,8 +776,8 @@ public class DecoderTests {
     public void Decode_FmvXW() {
         // fmv.x.w x1, f2  →  funct7=0x70, funct3=0, rs2=0 = 0xE00100D3
         ITooth i = D(0xE00100D3);
-        Assert.IsType<RvFmvXW>(i.Payload);
-        var op = (RvFmvXW)i.Payload!;
+        Assert.IsType<RvFmvXw>(i.Payload);
+        var op = (RvFmvXw)i.Payload!;
         Assert.Equal(1, op.Rd);   // integer dest
         Assert.Equal(34, op.Rs1); // f2 unified FP source
     }
@@ -786,8 +786,8 @@ public class DecoderTests {
     public void Decode_FmvWX() {
         // fmv.w.x f1, x2  →  funct7=0x78, funct3=0, rs2=0 = 0xF00100D3
         ITooth i = D(0xF00100D3);
-        Assert.IsType<RvFmvWX>(i.Payload);
-        var op = (RvFmvWX)i.Payload!;
+        Assert.IsType<RvFmvWx>(i.Payload);
+        var op = (RvFmvWx)i.Payload!;
         Assert.Equal(33, op.Rd); // f1 unified FP dest
         Assert.Equal(2, op.Rs1); // x2 integer source
     }

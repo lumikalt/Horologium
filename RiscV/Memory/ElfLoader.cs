@@ -9,10 +9,10 @@ namespace RiscV.Memory;
 /// Only little-endian ELF32 with machine type EM_RISCV (0xF3) is accepted.
 /// </summary>
 public static class ElfLoader {
-    private const uint PT_LOAD = 1;
-    private const ushort EM_RISCV = 0xF3;
-    private const byte ELFCLASS32 = 1;
-    private const byte ELFDATA2LSB = 1;
+    private const uint PtLoad = 1;
+    private const ushort EmRiscv = 0xF3;
+    private const byte ElfClass32 = 1;
+    private const byte ElfData2Lsb = 1;
 
     // ELF32 header field offsets
     private const int EhdrClass = 4;
@@ -38,15 +38,15 @@ public static class ElfLoader {
 
         ValidateMagic(elf);
 
-        if (elf[ElfLoader.EhdrClass] != ElfLoader.ELFCLASS32)
+        if (elf[ElfLoader.EhdrClass] != ElfLoader.ElfClass32)
             throw new ElfException($"Only ELF32 is supported (class byte = {elf[ElfLoader.EhdrClass]}).");
-        if (elf[ElfLoader.EhdrData] != ElfLoader.ELFDATA2LSB)
+        if (elf[ElfLoader.EhdrData] != ElfLoader.ElfData2Lsb)
             throw new ElfException("Only little-endian ELF is supported.");
 
         ushort machine = U16(elf, ElfLoader.EhdrMachine);
-        if (machine != ElfLoader.EM_RISCV)
+        if (machine != ElfLoader.EmRiscv)
             throw new ElfException(
-                $"Unexpected e_machine 0x{machine:X2}, expected EM_RISCV (0x{ElfLoader.EM_RISCV:X2})."
+                $"Unexpected e_machine 0x{machine:X2}, expected EM_RISCV (0x{ElfLoader.EmRiscv:X2})."
             );
 
         ulong entry = U32(elf, ElfLoader.EhdrEntry);
@@ -57,7 +57,7 @@ public static class ElfLoader {
         for (var i = 0; i < phnum; i++) {
             var phdrStart = (int)(phoff + (uint)(i * phentsize));
             uint type = U32(elf, phdrStart + ElfLoader.PhdrType);
-            if (type != ElfLoader.PT_LOAD) continue;
+            if (type != ElfLoader.PtLoad) continue;
 
             uint fileOffset = U32(elf, phdrStart + ElfLoader.PhdrOffset);
             uint paddr = U32(elf, phdrStart + ElfLoader.PhdrPaddr);

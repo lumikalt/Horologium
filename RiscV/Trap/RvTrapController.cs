@@ -28,10 +28,10 @@ public sealed class RvTrapController : ITrapController {
         uint mie = (mstatus >> 3) & 1; // current MIE bit
         var priv = (uint)state.PrivilegeLevel;
 
-        mstatus &= ~CsrFile.MstatusMPIE; // clear MPIE
+        mstatus &= ~CsrFile.MstatusMpie; // clear MPIE
         mstatus |= mie << 7;             // MPIE = old MIE
-        mstatus &= ~CsrFile.MstatusMIE;  // clear MIE
-        mstatus &= ~CsrFile.MstatusMPP;  // clear MPP
+        mstatus &= ~CsrFile.MstatusMie;  // clear MIE
+        mstatus &= ~CsrFile.MstatusMpp;  // clear MPP
         mstatus |= (priv & 0x3) << 11;   // MPP = old privilege
 
         csrs.DirectWrite(CsrFile.Mstatus, mstatus);
@@ -58,10 +58,10 @@ public sealed class RvTrapController : ITrapController {
         uint mpp = (mstatus >> 11) & 0x3;
         uint mpie = (mstatus >> 7) & 0x1;
 
-        mstatus &= ~CsrFile.MstatusMIE; // clear MIE
+        mstatus &= ~CsrFile.MstatusMie; // clear MIE
         mstatus |= mpie << 3;           // MIE = MPIE
-        mstatus |= CsrFile.MstatusMPIE; // MPIE = 1
-        mstatus &= ~CsrFile.MstatusMPP; // MPP = U (0)
+        mstatus |= CsrFile.MstatusMpie; // MPIE = 1
+        mstatus &= ~CsrFile.MstatusMpp; // MPP = U (0)
 
         csrs.DirectWrite(CsrFile.Mstatus, mstatus);
 

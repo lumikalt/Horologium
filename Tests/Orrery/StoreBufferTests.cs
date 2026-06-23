@@ -1,4 +1,3 @@
-using Mechanism;
 using Orrery.Cache;
 using Orrery.Scheduling;
 using RiscV.Memory;
@@ -23,7 +22,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void Write_ThenRead_SameAddress_Forwards() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
+        (StoreBuffer sb, FlatMemory _, Escapement _) = Make();
         sb.Write(100, 42, 4);
         ulong val = sb.Read(100, 4);
         Assert.Equal(42UL, val);
@@ -32,7 +31,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void Read_NoMatch_GoesToBacking() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
+        (StoreBuffer sb, FlatMemory mem, Escapement _) = Make();
         mem.Write(200, 99, 4);
         ulong val = sb.Read(200, 4);
         Assert.Equal(99UL, val);
@@ -41,7 +40,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void Write_ThenRead_DifferentAddress_GoesToBacking() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
+        (StoreBuffer sb, FlatMemory mem, Escapement _) = Make();
         sb.Write(100, 42, 4);
         mem.Write(200, 77, 4);
         ulong val = sb.Read(200, 4);
@@ -51,7 +50,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void MultipleWrites_SameAddress_ForwardsNewest() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
+        (StoreBuffer sb, FlatMemory _, Escapement _) = Make();
         sb.Write(100, 1, 4);
         sb.Write(100, 2, 4);
         sb.Write(100, 3, 4);
@@ -64,7 +63,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void Read_PartialOverlap_DrainsThenReadsBacking() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
+        (StoreBuffer sb, FlatMemory mem, Escapement _) = Make();
         mem.Write(100, 0xDEADBEEF, 4); // backing has this
         sb.Write(100, 0x12345678, 4);  // buffer has a word write
         // Read a byte from the middle — partial overlap, not exact match
@@ -79,7 +78,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void DrainEligible_SameTick_DoesNotDrain() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
+        (StoreBuffer sb, FlatMemory _, Escapement _) = Make();
         sb.Write(100, 42, 4); // tagged with tick 1
         sb.DrainEligible();   // still tick 1 — should NOT drain
         ulong val = sb.Read(100, 4);
@@ -88,7 +87,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void DrainEligible_NextTick_Drains() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
+        (StoreBuffer sb, FlatMemory _, Escapement esc) = Make();
         sb.Write(100, 42, 4); // tagged tick 1
         AdvanceTo(esc, 2);    // advance to tick 2
         sb.DrainEligible();   // tick 2 > 1 → should drain to backing
@@ -100,7 +99,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void DrainAll_EmptiesBuffer() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make();
+        (StoreBuffer sb, FlatMemory _, Escapement _) = Make();
         sb.Write(100, 42, 4);
         sb.Write(200, 77, 4);
         sb.DrainAll();
@@ -114,7 +113,7 @@ public class StoreBufferTests {
 
     [Fact]
     public void Overflow_DrainsToBackingBeforeAddingNew() {
-        (StoreBuffer sb, FlatMemory mem, Escapement esc) = Make(2);
+        (StoreBuffer sb, FlatMemory mem, Escapement _) = Make(2);
         sb.Write(100, 1, 4);
         sb.Write(200, 2, 4);
         sb.Write(300, 3, 4); // capacity exceeded → DrainAll then add

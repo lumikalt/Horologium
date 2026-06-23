@@ -27,12 +27,12 @@ public sealed record TlbHardwareConfig(
 
 /// <summary>
 /// Fully-serialisable description of one hardware configuration.
-/// Covers both <c>FiveStageTrain</c> and <c>OoOETrain</c>; the active pipeline
+/// Covers both <c>FiveStageTrain</c> and <c>OooeTrain</c>; the active pipeline
 /// is selected by <see cref="Pipeline"/>.
 /// </summary>
 public sealed record TrainConfig(
     // ── Pipeline selector ─────────────────────────────────────────────────────
-    string Pipeline = "five_stage",  // "five_stage" | "superscalar" | "ooo"
+    string Pipeline = "five_stage", // "five_stage" | "superscalar" | "ooo"
 
     // ── FiveStageTrain parameters ─────────────────────────────────────────────
     bool ForwardingEnabled = true,
@@ -43,13 +43,13 @@ public sealed record TrainConfig(
     TlbHardwareConfig? DTlb = null,
     int StoreBufferCapacity = 0,
 
-    // ── OoOETrain parameters ──────────────────────────────────────────────────
+    // ── OooeTrain parameters ──────────────────────────────────────────────────
     int IssueWidth = 2,
     int RobCapacity = 32,
     int IqCapacity = 16,
     int ExtraPhysRegs = 32
 ) {
-    [JsonIgnore] private static readonly JsonSerializerOptions _jsonOptions = new() {
+    [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -58,10 +58,10 @@ public sealed record TrainConfig(
     public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, ITlb);
     public MemoryConfig ToDMemoryConfig() => ToMemoryConfig(DCache, DTlb);
 
-    public string ToJson() => JsonSerializer.Serialize(this, TrainConfig._jsonOptions);
+    public string ToJson() => JsonSerializer.Serialize(this, TrainConfig.JsonOptions);
 
     public static TrainConfig FromJson(string json) =>
-        JsonSerializer.Deserialize<TrainConfig>(json, TrainConfig._jsonOptions)
+        JsonSerializer.Deserialize<TrainConfig>(json, TrainConfig.JsonOptions)
      ?? throw new JsonException("Deserialised TrainConfig was null.");
 
     private static MemoryConfig ToMemoryConfig(CacheHardwareConfig? cache, TlbHardwareConfig? tlb) =>

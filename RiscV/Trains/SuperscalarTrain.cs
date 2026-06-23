@@ -1,3 +1,4 @@
+using JetBrains.Annotations;
 using Mechanism;
 using Orrery.Gears;
 using Orrery.Observation;
@@ -18,7 +19,7 @@ namespace RiscV.Trains;
 ///
 /// There is no speculation across branches — the issue group stops at any
 /// branch or jump, paying a "group-cutoff" penalty instead of a flush penalty.
-/// This makes it straightforward to compare against <see cref="OoOETrain"/>:
+/// This makes it straightforward to compare against <see cref="OooeTrain"/>:
 /// same issue width, same branch predictor absence, purely in-order semantics.
 /// </summary>
 public sealed class SuperscalarTrain {
@@ -66,25 +67,29 @@ internal sealed class SuperscalarCore(
     ulong entryPoint,
     int issueWidth
 ) : Gear(name, parent, esc) {
-    private Counter _cyclesCounter    = null!;
-    private Counter _retiredCounter   = null!;
-    private Counter _stallsCounter    = null!;
-    private Counter _branchMissCounter = null!;
+    private Counter _cyclesCounter = null!;
+    private Counter _retiredCounter = null!;
+    private Counter _stallsCounter = null!;
+    [UsedImplicitly] private Counter _branchMissCounter = null!;
 
     public IArchState ArchState { get; } = mechanism.CreateArchState();
 
     public override void Initialize() {
-        _cyclesCounter     = Dials.AddCounter("cycles",        "Total cycles");
-        _retiredCounter    = Dials.AddCounter("retired",       "Instructions retired");
-        _stallsCounter     = Dials.AddCounter("stalls",        "Cycles where issue group < issueWidth");
+        _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
+        _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
+        _stallsCounter = Dials.AddCounter("stalls", "Cycles where issue group < issueWidth");
         _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions (0: no speculation)");
 
-        Dials.AddDial("cpi",
+        Dials.AddDial(
+            "cpi",
             () => _retiredCounter.Value == 0 ? 0.0 : _cyclesCounter.Value / (double)_retiredCounter.Value,
-            "Cycles per instruction");
-        Dials.AddDial("ipc",
+            "Cycles per instruction"
+        );
+        Dials.AddDial(
+            "ipc",
             () => _cyclesCounter.Value == 0 ? 0.0 : _retiredCounter.Value / (double)_cyclesCounter.Value,
-            "Instructions per cycle");
+            "Instructions per cycle"
+        );
     }
 
     public override void Reset() {
@@ -102,17 +107,15 @@ internal sealed class SuperscalarCore(
     private void RunCycle() {
         _cyclesCounter.Increment();
 
-        int issued = 0;
-        bool halt = false;
+        var issued = 0;
+        var halt = false;
 
         while (issued < issueWidth) {
             ulong pc = ArchState.Pc;
 
             // Fetch & Decode
             ITooth instr;
-            try {
-                instr = mechanism.Decoder.Decode(pc, memory);
-            }
+            try { instr = mechanism.Decoder.Decode(pc, memory); }
             catch (IllegalInstructionException ex) {
                 var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);
                 ArchState.Pc = mechanism.TrapController.RaiseTrap(trap, ArchState);
@@ -144,7 +147,7 @@ internal sealed class SuperscalarCore(
                 ArchState.IntegerRegisters.Write(instr.DestinationRegister, result.RegisterResult.Value);
 
             // PC update
-            if (result is { BranchTaken: true, BranchTarget: not null })
+            if (result is { BranchTaken: true, BranchTarget: not null, })
                 ArchState.Pc = result.BranchTarget.Value;
             else
                 ArchState.Pc = pc + (ulong)instr.SizeBytes;
@@ -156,8 +159,7 @@ internal sealed class SuperscalarCore(
             }
 
             // Stop the issue group at any branch — no speculative fetch past control flow.
-            if (instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch)
-                break;
+            if (instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch) break;
         }
 
         // A cycle where the group ran short counts as a stall cycle.

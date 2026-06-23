@@ -10,7 +10,6 @@ using RiscV.State;
 using RiscV.Trains.Pipeline;
 using RiscV.Trains.Pipeline.Stages;
 
-
 namespace RiscV.Trains;
 
 public sealed class FiveStageTrain {
@@ -66,11 +65,11 @@ internal sealed class PipelineCore : Gear {
     private readonly WritebackStage _wb;
 
     // Counters
-    private Counter _cyclesCounter;
-    private Counter _retiredCounter;
-    private Counter _stallsCounter;
-    private Counter _flushesCounter;
-    private Counter _missesCounter;
+    private Counter _cyclesCounter = null!;
+    private Counter _retiredCounter = null!;
+    private Counter _stallsCounter = null!;
+    private Counter _flushesCounter = null!;
+    private Counter _missesCounter = null!;
     private Counter? _cacheMissStallsCounter;
     private Counter? _icacheHitsCounter;
     private Counter? _icacheMissesCounter;
@@ -133,7 +132,7 @@ internal sealed class PipelineCore : Gear {
             "ex", parent, esc,
             mechanism.Executor, State, dAccessor, _hazard
         );
-        _mem = new MemoryStage("mem", parent, esc, dAccessor);
+        _mem = new MemoryStage("mem", parent, esc);
         _wb = new WritebackStage(
             "wb", parent, esc,
             State, mechanism.TrapController

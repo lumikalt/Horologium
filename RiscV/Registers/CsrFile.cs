@@ -38,14 +38,14 @@ public sealed class CsrFile : ICsrFile {
     public const uint Minstret = 0xB02;
 
     // ── mstatus bit positions ─────────────────────────────────────────────────
-    public const uint MstatusUIE = 1u << 0;
-    public const uint MstatusSIE = 1u << 1;
-    public const uint MstatusMIE = 1u << 3;
-    public const uint MstatusUPIE = 1u << 4;
-    public const uint MstatusSPIE = 1u << 5;
-    public const uint MstatusMPIE = 1u << 7;
-    public const uint MstatusSPP = 1u << 8;
-    public const uint MstatusMPP = 3u << 11; // 2-bit field at bits 12:11
+    public const uint MstatusUie = 1u << 0;
+    public const uint MstatusSie = 1u << 1;
+    public const uint MstatusMie = 1u << 3;
+    public const uint MstatusUpie = 1u << 4;
+    public const uint MstatusSpie = 1u << 5;
+    public const uint MstatusMpie = 1u << 7;
+    public const uint MstatusSpp = 1u << 8;
+    public const uint MstatusMpp = 3u << 11; // 2-bit field at bits 12:11
 
     private readonly Dictionary<uint, uint> _csrs = new();
 

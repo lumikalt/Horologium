@@ -186,7 +186,7 @@ public class Decoder : IDecoder {
                 read.Add(x);
                 break;
             case 0xF when nn == 0x33:
-                op = new BCD(x);
+                op = new Bcd(x);
                 cls = ToothClass.Store;
                 read.Add(x);
                 break;

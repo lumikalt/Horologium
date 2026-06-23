@@ -91,15 +91,20 @@ if (format is "ts-csv") Console.WriteLine(result.ToTimeSeriesCsv());
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 static IReadOnlyList<NamedConfig> DefaultSweep() => [
-    new("always_not_taken",  new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
-    new("always_taken",      new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
-    new("one_bit",           new TrainConfig(Predictor: BranchPredictorConfig.OneBit())),
-    new("two_bit",           new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
-    new("no_forwarding",     new TrainConfig(Predictor: BranchPredictorConfig.TwoBit(), ForwardingEnabled: false)),
-    new("scalar_2wide",      new TrainConfig(Pipeline: "superscalar", IssueWidth: 2)),
-    new("scalar_4wide",      new TrainConfig(Pipeline: "superscalar", IssueWidth: 4)),
-    new("ooo_2wide",         new TrainConfig(Pipeline: "ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 2)),
-    new("ooo_4wide",         new TrainConfig(Pipeline: "ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 4, RobCapacity: 64, IqCapacity: 32)),
+    new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
+    new("always_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
+    new("one_bit", new TrainConfig(Predictor: BranchPredictorConfig.OneBit())),
+    new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
+    new("no_forwarding", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit(), ForwardingEnabled: false)),
+    new("scalar_2wide", new TrainConfig("superscalar", IssueWidth: 2)),
+    new("scalar_4wide", new TrainConfig("superscalar", IssueWidth: 4)),
+    new("ooo_2wide", new TrainConfig("ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 2)),
+    new(
+        "ooo_4wide",
+        new TrainConfig(
+            "ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 4, RobCapacity: 64, IqCapacity: 32
+        )
+    ),
 ];
 
 static void PrintUsage() {

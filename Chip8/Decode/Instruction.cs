@@ -1,3 +1,4 @@
+using JetBrains.Annotations;
 using Mechanism;
 
 namespace Chip8.Decode;
@@ -31,62 +32,70 @@ public record Goto(ushort Imm) : Op;
 
 public record CallSub(ushort Imm) : Op;
 
-public record SkipEqImm(int Vx, ushort imm) : Op;
+public record SkipEqImm(int Vx, ushort Imm) : Op;
 
-public record SkipNeqImm(int Vx, ushort imm) : Op;
+public record SkipNeqImm(int Vx, ushort Imm) : Op;
 
-public record SkipEq(int Vx, int vy) : Op;
+public record SkipEq(int Vx, int Vy) : Op;
 
-public record SetImm(int vx, ushort imm) : Op;
+[UsedImplicitly]
+public record SetImm(int Vx, ushort Imm) : Op;
 
-public record AddImm(int vx, ushort imm) : Op;
+public record AddImm(int Vx, ushort Imm) : Op;
 
-public record Set(int vx, int vy) : Op;
+[UsedImplicitly]
+public record Set(int Vx, int Vy) : Op;
 
-public record BitOr(int vx, int vy) : Op;
+public record BitOr(int Vx, int Vy) : Op;
 
-public record BitAnd(int vx, int vy) : Op;
+public record BitAnd(int Vx, int Vy) : Op;
 
-public record BitXor(int vx, int vy) : Op;
+public record BitXor(int Vx, int Vy) : Op;
 
-public record Add(int vx, int vy) : Op;
+public record Add(int Vx, int Vy) : Op;
 
-public record Sub(int vx, int vy) : Op;
+public record Sub(int Vx, int Vy) : Op;
 
-public record ShiftRight1(int vx) : Op;
+public record ShiftRight1(int Vx) : Op;
 
 public record SubYx(int Vx, int Vy) : Op;
 
 public record ShiftLeft1(int Vx) : Op;
 
-public record SkipNeq(int Vx, int vy) : Op;
+public record SkipNeq(int Vx, int Vy) : Op;
 
-public record SetIImm(ushort imm) : Op;
+public record SetIImm(ushort Imm) : Op;
 
-public record JumpV0Offset(ushort imm) : Op;
+public record JumpV0Offset(ushort Imm) : Op;
 
-public record RandAnd(int Vx, byte imm) : Op;
+[UsedImplicitly]
+public record RandAnd(int Vx, byte Imm) : Op;
 
-public record Draw(int Vx, int vy, byte imm) : Op;
+[UsedImplicitly]
+public record Draw(int Vx, int Vy, byte Imm) : Op;
 
-public record SkipKeyPressed(int vx) : Op;
+[UsedImplicitly]
+public record SkipKeyPressed(int Vx) : Op;
 
-public record SkipKeyNotPressed(int vx) : Op;
+[UsedImplicitly]
+public record SkipKeyNotPressed(int Vx) : Op;
 
-public record GetDelayTimer(int vx) : Op;
+[UsedImplicitly]
+public record GetDelayTimer(int Vx) : Op;
 
-public record GetKey(int vx) : Op;
+[UsedImplicitly]
+public record GetKey(int Vx) : Op;
 
-public record SetDelayTimer(int vx) : Op;
+public record SetDelayTimer(int Vx) : Op;
 
-public record SetSoundTimer(int vx) : Op;
+public record SetSoundTimer(int Vx) : Op;
 
-public record AddToI(int vx) : Op;
+public record AddToI(int Vx) : Op;
 
-public record SetISprite(int vx) : Op;
+public record SetISprite(int Vx) : Op;
 
-public record BCD(int vx) : Op;
+public record Bcd(int Vx) : Op;
 
-public record RegDump(int vx) : Op;
+public record RegDump(int Vx) : Op;
 
-public record RegLoad(int vx) : Op;
+public record RegLoad(int Vx) : Op;
