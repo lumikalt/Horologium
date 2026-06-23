@@ -266,8 +266,8 @@ public class ExperimentTests {
 
         Assert.Contains("config_a", csv);
         Assert.Contains("config_b", csv);
-        Assert.Contains("retired", csv);
-        Assert.Contains("cycles", csv);
+        Assert.Contains("pipeline.retired", csv);
+        Assert.Contains("pipeline.cycles", csv);
     }
 
     [Fact]
@@ -365,8 +365,8 @@ public class ExperimentTests {
         Assert.Contains("run_a", csv);
         Assert.Contains("run_b", csv);
         Assert.Contains("tick", csv);
-        Assert.Contains("cycles", csv);
-        Assert.Contains("retired", csv);
+        Assert.Contains("pipeline.cycles", csv);
+        Assert.Contains("pipeline.retired", csv);
     }
 
     [Fact]
