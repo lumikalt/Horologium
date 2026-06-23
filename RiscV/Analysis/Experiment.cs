@@ -19,13 +19,23 @@ public static class Experiment {
     /// Ticks to run before starting measurement. Warms up branch predictors and caches;
     /// the returned counters and histograms reflect only the post-warmup phase.
     /// </param>
+    /// <param name="snapshotInterval">
+    /// Ticks between periodic time-series snapshots. Pass -1 to auto-estimate from
+    /// <see cref="IWorkload.CodeSize"/> (targeting roughly 100 data points). Pass 0
+    /// (default) to disable time series.
+    /// </param>
     public static ExperimentResult Run(
         IWorkload workload,
         IEnumerable<NamedConfig> configurations,
         IMechanism mechanism,
         long maxTicks = 1_000_000,
-        long warmupTicks = 0
+        long warmupTicks = 0,
+        long snapshotInterval = 0
     ) {
+        long resolvedInterval = snapshotInterval == -1
+            ? Math.Max(10, workload.CodeSize / 200)
+            : snapshotInterval;
+
         var records = new List<RunRecord>();
 
         foreach (NamedConfig named in configurations) {
@@ -43,7 +53,7 @@ public static class Experiment {
                 storeBufferCapacity: config.StoreBufferCapacity
             );
 
-            RevolutionResult result = train.Run(maxTicks, warmupTicks);
+            RevolutionResult result = train.Run(maxTicks, warmupTicks, resolvedInterval);
             records.Add(new RunRecord(named.Name, config, result));
         }
 

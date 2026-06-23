@@ -13,6 +13,7 @@ public sealed class ElfWorkload : IWorkload {
 
     public ulong EntryPoint { get; }
     public int MemorySize { get; }
+    public int CodeSize => _elfBytes.Length;
 
     public ElfWorkload(string path, int? memorySizeBytes = null)
         : this(File.ReadAllBytes(path), memorySizeBytes) { }

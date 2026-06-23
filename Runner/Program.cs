@@ -10,15 +10,17 @@ string? elfPath = null;
 string? sweepPath = null;
 long warmupTicks = 0;
 long maxTicks = 1_000_000;
-string format = "md"; // md | csv | both
+long snapshotInterval = 0; // 0 = off, -1 = auto, >0 = explicit ticks
+string format = "md"; // md | csv | both | ts-csv
 
 var argv = args; // top-level programs expose args implicitly
 for (var i = 0; i < argv.Length; i++) {
     switch (argv[i]) {
-        case "--sweep":     sweepPath   = argv[++i]; break;
-        case "--warmup":    warmupTicks = long.Parse(argv[++i]); break;
-        case "--max-ticks": maxTicks    = long.Parse(argv[++i]); break;
-        case "--format":    format      = argv[++i]; break;
+        case "--sweep":             sweepPath        = argv[++i]; break;
+        case "--warmup":            warmupTicks      = long.Parse(argv[++i]); break;
+        case "--max-ticks":         maxTicks         = long.Parse(argv[++i]); break;
+        case "--snapshot-interval": snapshotInterval = argv[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(argv[++i]); break;
+        case "--format":            format           = argv[++i]; break;
         case "--help" or "-h":
             PrintUsage(); return;
         default:
@@ -73,12 +75,13 @@ if (warmupTicks > 0) Console.Error.WriteLine($"Warmup   : {warmupTicks:N0} ticks
 Console.Error.WriteLine($"Max ticks: {maxTicks:N0}");
 Console.Error.WriteLine();
 
-ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(), maxTicks, warmupTicks);
+ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(), maxTicks, warmupTicks, snapshotInterval);
 
 // ── Output ────────────────────────────────────────────────────────────────────
 
 if (format is "md" or "both") Console.WriteLine(result.ToMarkdownTable());
 if (format is "csv" or "both") Console.WriteLine(result.ToCsv());
+if (format is "ts-csv") Console.WriteLine(result.ToTimeSeriesCsv());
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -101,8 +104,11 @@ static void PrintUsage() {
                                 Default: compare four branch predictors + no-forwarding.
           --warmup <n>          Ticks to run before recording statistics (default: 0).
           --max-ticks <n>       Maximum measurement ticks per run (default: 1000000).
-          --format md|csv|both  Output format (default: md).
-          --help                Show this message.
+          --snapshot-interval <n|auto>  Ticks between time-series snapshots. Use 'auto' to
+                                        estimate from binary size (default: off).
+          --format md|csv|both|ts-csv   Output format (default: md). ts-csv emits
+                                        time-series data (requires --snapshot-interval).
+          --help                        Show this message.
 
         Sweep file format (JSON array):
           [

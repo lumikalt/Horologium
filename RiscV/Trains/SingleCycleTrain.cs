@@ -31,8 +31,8 @@ public sealed class SingleCycleTrain {
         _train.Build();
     }
 
-    public RevolutionResult Run(long maxTicks = 100_000, long warmupTicks = 0) =>
-        _train.Run(maxTicks, warmupTicks);
+    public RevolutionResult Run(long maxTicks = 100_000, long warmupTicks = 0, long snapshotInterval = 0) =>
+        _train.Run(maxTicks, warmupTicks, snapshotInterval);
 
     public string DumpTopology() => _train.DumpTopology();
 }

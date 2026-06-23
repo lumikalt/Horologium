@@ -22,8 +22,8 @@ public sealed class Chip8Train {
         _train.Build();
     }
 
-    public RevolutionResult Run(long maxTicks = 100_000) =>
-        _train.Run(maxTicks);
+    public RevolutionResult Run(long maxTicks = 100_000, long snapshotInterval = 0) =>
+        _train.Run(maxTicks, snapshotInterval: snapshotInterval);
 
     public string DumpTopology() => _train.DumpTopology();
 }

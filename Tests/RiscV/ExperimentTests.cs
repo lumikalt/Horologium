@@ -281,4 +281,98 @@ public class ExperimentTests {
         Assert.Contains("|---|", md);
         Assert.Contains("baseline", md);
     }
+
+    // ── Time-series snapshots ─────────────────────────────────────────────────
+
+    [Fact]
+    public void TimeSeries_NoInterval_IsNull() {
+        var workload = new ByteArrayWorkload(MakeCountdownProgram());
+        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+
+        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
+
+        Assert.Null(result.Runs[0].Result.TimeSeries);
+    }
+
+    [Fact]
+    public void TimeSeries_WithInterval_CapturesMultiplePoints() {
+        var workload = new ByteArrayWorkload(MakeCountdownProgram());
+        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+
+        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(),
+            snapshotInterval: 5);
+
+        var ts = result.Runs[0].Result.TimeSeries;
+        Assert.NotNull(ts);
+        Assert.True(ts.Count > 1, $"Expected multiple time-series points, got {ts.Count}");
+    }
+
+    [Fact]
+    public void TimeSeries_CountersAreMonotonicallyIncreasing() {
+        var workload = new ByteArrayWorkload(MakeCountdownProgram());
+        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+
+        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(),
+            snapshotInterval: 5);
+
+        var ts = result.Runs[0].Result.TimeSeries!;
+        for (var i = 1; i < ts.Count; i++) {
+            long prev = ts[i - 1].Snapshots.Sum(s => s.Counters.GetValueOrDefault("cycles"));
+            long curr = ts[i].Snapshots.Sum(s => s.Counters.GetValueOrDefault("cycles"));
+            Assert.True(curr >= prev,
+                $"cycles at point {i} ({curr}) < point {i-1} ({prev})");
+        }
+    }
+
+    [Fact]
+    public void TimeSeries_AutoInterval_ProducesReasonableCount() {
+        var workload = new ByteArrayWorkload(MakeCountdownProgram());
+        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+
+        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(),
+            snapshotInterval: -1);
+
+        var ts = result.Runs[0].Result.TimeSeries;
+        Assert.NotNull(ts);
+        // Auto-interval: max(10, codeSize/200) = max(10, 20/200) = 10
+        // Program runs ~60 cycles, so we expect at least 1 data point and at most a small number.
+        Assert.True(ts.Count >= 1, "Expected at least one auto-interval snapshot");
+    }
+
+    [Fact]
+    public void ToTimeSeriesCsv_EmptyWhenNoTimeSeries() {
+        var workload = new ByteArrayWorkload(MakeCountdownProgram());
+        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+
+        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
+        string csv = result.ToTimeSeriesCsv();
+
+        Assert.Equal(string.Empty, csv);
+    }
+
+    [Fact]
+    public void ToTimeSeriesCsv_ContainsRunNamesAndTick() {
+        var workload = new ByteArrayWorkload(MakeCountdownProgram());
+        NamedConfig[] configs = [
+            new("run_a", new TrainConfig()),
+            new("run_b", new TrainConfig(false)),
+        ];
+
+        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(),
+            snapshotInterval: 5);
+        string csv = result.ToTimeSeriesCsv();
+
+        Assert.Contains("run_a", csv);
+        Assert.Contains("run_b", csv);
+        Assert.Contains("tick", csv);
+        Assert.Contains("cycles", csv);
+        Assert.Contains("retired", csv);
+    }
+
+    [Fact]
+    public void IWorkload_CodeSize_ByteArray() {
+        var program = new byte[20];
+        var workload = new ByteArrayWorkload(program);
+        Assert.Equal(20, workload.CodeSize);
+    }
 }

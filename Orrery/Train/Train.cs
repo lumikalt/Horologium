@@ -7,13 +7,24 @@ using Orrery.Tree;
 namespace Orrery.Train;
 
 /// <summary>
+/// A periodic snapshot taken during a Revolution for time-series analysis.
+/// <see cref="Tick"/> is relative to the start of the measurement phase (after warmup).
+/// Counter values are cumulative from measurement start.
+/// </summary>
+public sealed record TimeSeriesPoint(
+    long Tick,
+    IReadOnlyList<DialBoardSnapshot> Snapshots
+);
+
+/// <summary>
 /// The result of a completed Revolution — a snapshot of every
 /// Gear's DialBoard at the moment the simulation finished.
 /// </summary>
 public sealed record RevolutionResult(
     long TotalTicks,
     long TotalEvents,
-    IReadOnlyList<DialBoardSnapshot> Snapshots
+    IReadOnlyList<DialBoardSnapshot> Snapshots,
+    IReadOnlyList<TimeSeriesPoint>? TimeSeries = null
 ) {
     /// <summary>
     /// Finds a snapshot by the owning gear's full path.
@@ -155,7 +166,12 @@ public sealed class Train {
     /// are taken from the final snapshot and therefore approximate the full run;
     /// this is acceptable for long measurements where warmup is a small fraction.
     /// </summary>
-    public RevolutionResult Run(long maxTicks = long.MaxValue, long warmupTicks = 0) {
+    /// <param name="snapshotInterval">
+    /// Ticks between periodic time-series snapshots. 0 disables time series.
+    /// Snapshots are cumulative from measurement start and stored in
+    /// <see cref="RevolutionResult.TimeSeries"/>.
+    /// </param>
+    public RevolutionResult Run(long maxTicks = long.MaxValue, long warmupTicks = 0, long snapshotInterval = 0) {
         if (!_built)
             throw new InvalidOperationException(
                 $"Train '{Name}' has not been built. Call Build() before Run()."
@@ -182,7 +198,33 @@ public sealed class Train {
 
         // Step 4 — Measurement phase
         long startTick = _escapement.CurrentTick;
-        long events = _escapement.Run(maxTicks);
+        long totalEvents = 0;
+        List<TimeSeriesPoint>? timeSeries = null;
+
+        if (snapshotInterval > 0) {
+            timeSeries = [];
+            bool halted = false;
+            for (long boundary = startTick + snapshotInterval;
+                 boundary <= startTick + maxTicks && !halted;
+                 boundary += snapshotInterval) {
+                long chunkEvents = _escapement.Run(boundary);
+                totalEvents += chunkEvents;
+
+                long relTick = _escapement.CurrentTick - startTick;
+                IReadOnlyList<DialBoardSnapshot> tsSnaps = baseline is null
+                    ? [.._gears.Select(g => g.Dials.Snapshot())]
+                    : [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i]))];
+                timeSeries.Add(new TimeSeriesPoint(relTick, tsSnaps));
+
+                if (chunkEvents == 0) halted = true;
+            }
+
+            // Run remainder up to maxTicks if not already halted.
+            if (!halted) totalEvents += _escapement.Run(startTick + maxTicks);
+        } else {
+            totalEvents = _escapement.Run(startTick + maxTicks);
+        }
+
         long ticks = _escapement.CurrentTick - startTick;
 
         // Step 5 — Transition to Finished
@@ -193,7 +235,7 @@ public sealed class Train {
             ? [.._gears.Select(g => g.Dials.Snapshot())]
             : [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i]))];
 
-        return new RevolutionResult(ticks, events, snapshots);
+        return new RevolutionResult(ticks, totalEvents, snapshots, timeSeries);
     }
 
     /// <summary>

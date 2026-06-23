@@ -13,4 +13,11 @@ public interface IWorkload {
 
     /// <summary>Loads the program image into <paramref name="memory"/>.</summary>
     void Load(IMemory memory);
+
+    /// <summary>
+    /// Size of the executable code in bytes, used to auto-estimate snapshot intervals.
+    /// Implementations that can determine this cheaply should override it.
+    /// Default returns 0 (disables auto-estimation).
+    /// </summary>
+    int CodeSize => 0;
 }

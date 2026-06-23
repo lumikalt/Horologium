@@ -12,6 +12,7 @@ public sealed class ByteArrayWorkload(
 ) : IWorkload {
     public ulong EntryPoint { get; } = entryPoint ?? loadAddress;
     public int MemorySize { get; } = memorySizeBytes ?? Math.Max(65536, program.Length + (int)loadAddress);
+    public int CodeSize => program.Length;
 
     public void Load(IMemory memory) => memory.Load(loadAddress, program);
 }

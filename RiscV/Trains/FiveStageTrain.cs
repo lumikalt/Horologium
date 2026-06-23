@@ -50,8 +50,8 @@ public sealed class FiveStageTrain {
         _train.Build();
     }
 
-    public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0) =>
-        _train.Run(maxTicks, warmupTicks);
+    public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
+        _train.Run(maxTicks, warmupTicks, snapshotInterval);
 }
 
 internal sealed class PipelineCore : Gear {
