@@ -40,10 +40,12 @@ public sealed class RvDecoder : IDecoder {
             0x73 => DecodeSystem(pc, raw, rd, rs1, funct3, raw),
             0x2F => DecodeAmo(pc, raw, rd, rs1, rs2, funct3, (raw >> 27) & 0x1F),
             0x0F => new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFence()),
-            // F extension
-            0x07 => DecodeFpLoad(pc, raw, rd, rs1, funct3, raw),
-            0x27 => DecodeFpStore(pc, raw, rs1, rs2, funct3, raw),
+            // F and V extension load/store (share opcodes 0x07/0x27, disambiguated by funct3)
+            0x07 => DecodeFpOrVLoad(pc, raw, rd, rs1, funct3, raw),
+            0x27 => DecodeFpOrVStore(pc, raw, rd, rs1, rs2, funct3, raw),
             0x53 => DecodeFpOp(pc, raw, rd, rs1, rs2, funct3, funct7),
+            // V extension arithmetic/config
+            0x57 => DecodeVOp(pc, raw, rd, rs1, rs2, funct3),
             0x43 or 0x47 or 0x4B or 0x4F =>
                 DecodeFmaR4(pc, raw, opcode, rd, rs1, rs2, (int)((raw >> 27) & 0x1F)),
             _ => throw new IllegalInstructionException(
@@ -356,8 +358,9 @@ public sealed class RvDecoder : IDecoder {
 
     // ── F extension ───────────────────────────────────────────────────────────
 
-    // FLW: opcode=0x07, funct3=2. Dest is a FP register (rd+32).
-    private static RvInstruction DecodeFpLoad(
+    // LOAD-FP / vector load: opcode=0x07.
+    // funct3=2 → FLW; funct3=0/5/6 → VLE8/16/32.
+    private static RvInstruction DecodeFpOrVLoad(
         ulong pc,
         uint raw,
         int rd,
@@ -365,36 +368,214 @@ public sealed class RvDecoder : IDecoder {
         uint funct3,
         uint word
     ) {
-        if (funct3 != 2)
-            throw new IllegalInstructionException(
-                pc, raw, $"Unknown LOAD-FP funct3=0x{funct3:X} (only FLW/f32 supported)"
+        if (funct3 == 2) {
+            int imm = SignExtend12((int)(word >> 20));
+            return new RvInstruction(
+                pc, raw, rd + 32, [rs1,], ToothClass.Load,
+                new RvFlw(rd + 32, rs1, imm)
             );
-        int imm = SignExtend12((int)(word >> 20));
-        return new RvInstruction(
-            pc, raw, rd + 32, [rs1,], ToothClass.Load,
-            new RvFlw(rd + 32, rs1, imm)
-        );
+        }
+        // Vector load (funct3=0/5/6/7)
+        return DecodeVLoad(pc, raw, rd, rs1, funct3, word);
     }
 
-    // FSW: opcode=0x27, funct3=2. rs2 is a FP register (rs2+32).
-    private static RvInstruction DecodeFpStore(
+    // STORE-FP / vector store: opcode=0x27.
+    // funct3=2 → FSW; funct3=0/5/6 → VSE8/16/32.
+    private static RvInstruction DecodeFpOrVStore(
         ulong pc,
         uint raw,
+        int rd,   // bits[11:7] = vs3 for vector stores
         int rs1,
-        int rs2,
+        int rs2,  // bits[24:20] = sumop for unit-stride vector stores
         uint funct3,
         uint word
     ) {
-        if (funct3 != 2)
-            throw new IllegalInstructionException(
-                pc, raw, $"Unknown STORE-FP funct3=0x{funct3:X} (only FSW/f32 supported)"
+        if (funct3 == 2) {
+            int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
+            return new RvInstruction(
+                pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store,
+                new RvFsw(rs1, rs2 + 32, imm)
             );
-        int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
-        return new RvInstruction(
-            pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store,
-            new RvFsw(rs1, rs2 + 32, imm)
+        }
+        // Vector store (funct3=0/5/6/7)
+        return DecodeVStore(pc, raw, rd, rs1, rs2, funct3, word);
+    }
+
+    // ── V extension ───────────────────────────────────────────────────────────
+
+    // VLE8/16/32 and VLM: opcode=0x07, funct3 ≠ 2.
+    private static RvInstruction DecodeVLoad(
+        ulong pc,
+        uint raw,
+        int vd,
+        int rs1,
+        uint funct3,
+        uint word
+    ) {
+        uint mop   = (word >> 26) & 0x3;  // addressing mode: 00=unit-stride
+        uint lumop = (word >> 20) & 0x1F; // unit-stride sub-mode
+        bool masked = ((word >> 25) & 1) == 0;
+
+        if (mop != 0)
+            throw new IllegalInstructionException(
+                pc, raw, $"V load: only unit-stride (mop=0) supported, got mop={mop}"
+            );
+
+        // VLM: funct3=0 + lumop=01011
+        if (funct3 == 0 && lumop == 0x0B)
+            return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVlm(vd, rs1));
+
+        int sew = funct3 switch {
+            0 => 8,
+            5 => 16,
+            6 => 32,
+            _ => throw new IllegalInstructionException(
+                pc, raw, $"V load: unsupported element width funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVleVV(vd, rs1, sew, masked));
+    }
+
+    // VSE8/16/32 and VSM: opcode=0x27, funct3 ≠ 2.
+    // rd (bits[11:7]) = vs3, rs2 (bits[24:20]) = sumop.
+    private static RvInstruction DecodeVStore(
+        ulong pc,
+        uint raw,
+        int vs3,   // bits[11:7]
+        int rs1,
+        int sumop, // bits[24:20]
+        uint funct3,
+        uint word
+    ) {
+        uint mop = (word >> 26) & 0x3;
+        bool masked = ((word >> 25) & 1) == 0;
+
+        if (mop != 0)
+            throw new IllegalInstructionException(
+                pc, raw, $"V store: only unit-stride (mop=0) supported, got mop={mop}"
+            );
+
+        // VSM: funct3=0 + sumop=01011
+        if (funct3 == 0 && sumop == 0x0B)
+            return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVsm(vs3, rs1));
+
+        int sew = funct3 switch {
+            0 => 8,
+            5 => 16,
+            6 => 32,
+            _ => throw new IllegalInstructionException(
+                pc, raw, $"V store: unsupported element width funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVseVV(vs3, rs1, sew, masked));
+    }
+
+    // OPIVV / OPIVX / OPIVI / OPCFG: opcode=0x57.
+    private static RvInstruction DecodeVOp(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        int rs2,
+        uint funct3
+    ) {
+        int vd    = (int)((raw >> 7) & 0x1F);
+        int vs1   = rs1;
+        int vs2   = (int)((raw >> 20) & 0x1F);
+        bool masked = ((raw >> 25) & 1) == 0;
+        uint funct6 = (raw >> 26) & 0x3F;
+
+        // OPCFG (funct3=7)
+        if (funct3 == 7) return DecodeVCfg(pc, raw, vd, vs1, vs2);
+
+        // OPIVV (funct3=0), OPIVX (funct3=4), OPIVI (funct3=3)
+        if (funct3 is not (0 or 3 or 4))
+            throw new IllegalInstructionException(
+                pc, raw, $"V op: unsupported funct3=0x{funct3:X}"
+            );
+
+        VIntOp? intOp = funct6 switch {
+            0  => VIntOp.Add,
+            2  => VIntOp.Sub,
+            9  => VIntOp.And,
+            10 => VIntOp.Or,
+            11 => VIntOp.Xor,
+            37 => VIntOp.Sll,
+            40 => VIntOp.Srl,
+            41 => VIntOp.Sra,
+            _  => (VIntOp?)null,
+        };
+
+        VMaskCmpOp? cmpOp = funct6 switch {
+            24 => VMaskCmpOp.Eq,
+            25 => VMaskCmpOp.Ne,
+            26 => VMaskCmpOp.Ltu,
+            27 => VMaskCmpOp.Lt,
+            30 => VMaskCmpOp.Gtu,
+            31 => VMaskCmpOp.Gt,
+            _  => (VMaskCmpOp?)null,
+        };
+
+        if (intOp.HasValue) {
+            // vsub has no VI variant
+            if (intOp == VIntOp.Sub && funct3 == 3)
+                throw new IllegalInstructionException(pc, raw, "vsub.vi is not a valid instruction");
+            return funct3 switch {
+                0 => new RvInstruction(pc, raw, -1, [], ToothClass.Vector,
+                    new RvVIntAluVV(intOp.Value, vd, vs2, vs1, masked)),
+                3 => new RvInstruction(pc, raw, -1, [], ToothClass.Vector,
+                    new RvVIntAluVI(intOp.Value, vd, vs2, SignExtend5(vs1), masked)),
+                _ => new RvInstruction(pc, raw, -1, [vs1,], ToothClass.Vector,
+                    new RvVIntAluVX(intOp.Value, vd, vs2, vs1, masked)),
+            };
+        }
+
+        if (cmpOp.HasValue) {
+            // vmsgtu/vmsgt: VX and VI only, not VV
+            if (cmpOp is VMaskCmpOp.Gtu or VMaskCmpOp.Gt && funct3 == 0)
+                throw new IllegalInstructionException(
+                    pc, raw, $"vmsgtu/vmsgt.vv is not a valid encoding"
+                );
+            return funct3 switch {
+                0 => new RvInstruction(pc, raw, -1, [], ToothClass.Vector,
+                    new RvVMaskCmpVV(cmpOp.Value, vd, vs2, vs1, masked)),
+                3 => new RvInstruction(pc, raw, -1, [], ToothClass.Vector,
+                    new RvVMaskCmpVI(cmpOp.Value, vd, vs2, SignExtend5(vs1), masked)),
+                _ => new RvInstruction(pc, raw, -1, [vs1,], ToothClass.Vector,
+                    new RvVMaskCmpVX(cmpOp.Value, vd, vs2, vs1, masked)),
+            };
+        }
+
+        throw new IllegalInstructionException(
+            pc, raw, $"V op: unknown funct6=0x{funct6:X2} funct3=0x{funct3:X}"
         );
     }
+
+    // OPCFG: vsetvli / vsetivli / vsetvl.
+    private static RvInstruction DecodeVCfg(ulong pc, uint raw, int rd, int rs1, int rs2) {
+        uint bits31 = raw >> 31;
+        uint bits3130 = (raw >> 30) & 0x3;
+
+        if (bits31 == 0) {
+            // vsetvli: bit[31]=0, vtypei = bits[30:20] (11 bits)
+            int vtypei = (int)((raw >> 20) & 0x7FF);
+            IReadOnlyList<int> sources = rs1 != 0 ? [rs1] : [];
+            return new RvInstruction(pc, raw, rd, sources, ToothClass.Vector, new RvVsetvli(rd, rs1, vtypei));
+        }
+
+        if (bits3130 == 3) {
+            // vsetivli: bits[31:30]=11, vtypei = bits[29:20] (10 bits), zimm = bits[19:15]
+            int vtypei = (int)((raw >> 20) & 0x3FF);
+            int zimm   = (int)((raw >> 15) & 0x1F);
+            return new RvInstruction(pc, raw, rd, [], ToothClass.Vector, new RvVsetivli(rd, zimm, vtypei));
+        }
+
+        // vsetvl: bits[31:25]=1000000
+        return new RvInstruction(pc, raw, rd, [rs1, rs2,], ToothClass.Vector, new RvVsetvl(rd, rs1, rs2));
+    }
+
+    private static int SignExtend5(int value) =>
+        (value & 0x10) != 0 ? value | unchecked((int)0xFFFFFFE0) : value & 0x1F;
 
     // OP-FP (opcode=0x53): all two-source FP operations.
     private static RvInstruction DecodeFpOp(

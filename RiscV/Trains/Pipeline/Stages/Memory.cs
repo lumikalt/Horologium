@@ -54,6 +54,8 @@ public sealed class MemoryStage : Gear {
             Instruction = latch.Instruction,
             WritebackValue = result.RegisterResult,
             DestinationRegister = latch.DestinationRegister,
+            VectorResult = result.VectorResult,
+            VectorDestRegister = result.VectorDestRegister,
         };
         Output.Send(newLatch);
         LastSent = newLatch;

@@ -5,6 +5,7 @@ using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
 using RiscV.Decode;
+using RiscV.State;
 
 namespace RiscV.Trains.Pipeline.Stages;
 
@@ -55,6 +56,9 @@ public sealed class WritebackStage : Gear {
                 TrapRedirect = latch.Instruction.Payload is RvMret
                     ? _trap.ReturnFromTrap(PrivilegeLevel.Machine, _state)
                     : _trap.RaiseTrap(latch.Trap, _state);
+                break;
+            case { VectorResult: not null, VectorDestRegister: >= 0, }:
+                ((RvArchState)_state).VectorRegisters.Write(latch.VectorDestRegister, latch.VectorResult);
                 break;
             case { WritebackValue: not null, DestinationRegister: > 0, }:
                 _state.IntegerRegisters.Write(

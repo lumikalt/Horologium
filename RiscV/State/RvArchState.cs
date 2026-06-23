@@ -4,7 +4,7 @@ using RiscV.Registers;
 namespace RiscV.State;
 
 /// <summary>
-/// The complete architectural state of one RV32IF hart.
+/// The complete architectural state of one RV32IFV hart.
 /// </summary>
 public sealed class RvArchState : IArchState {
     private readonly UnifiedRegisterFile _intRegs;
@@ -17,9 +17,13 @@ public sealed class RvArchState : IArchState {
     /// <summary>Typed access to the concrete CSR file for internal use.</summary>
     internal CsrFile CsrFile { get; }
 
+    /// <summary>Vector register file (v0-v31, VLEN=128 bits each).</summary>
+    public VectorRegisterFile VectorRegisters { get; }
+
     public RvArchState() {
         _intRegs = new UnifiedRegisterFile();
         CsrFile = new CsrFile();
+        VectorRegisters = new VectorRegisterFile();
     }
 
     private RvArchState(RvArchState source) {
@@ -27,9 +31,13 @@ public sealed class RvArchState : IArchState {
         PrivilegeLevel = source.PrivilegeLevel;
         _intRegs = new UnifiedRegisterFile();
         CsrFile = new CsrFile();
+        VectorRegisters = new VectorRegisterFile();
 
         // Copy integer and floating-point registers (indices 0-63)
         for (var i = 0; i < 64; i++) _intRegs.Write(i, source._intRegs.Read(i));
+
+        // Copy vector registers
+        for (var i = 0; i < VectorRegisterFile.Count; i++) VectorRegisters.Write(i, source.VectorRegisters.Read(i));
 
         // Copy CSRs via direct access
         foreach (uint addr in new[] {
@@ -38,6 +46,8 @@ public sealed class RvArchState : IArchState {
                      CsrFile.Mtvec, CsrFile.Mscratch, CsrFile.Mepc,
                      CsrFile.Mcause, CsrFile.Mtval, CsrFile.Mip,
                      CsrFile.Mcycle, CsrFile.Minstret,
+                     CsrFile.Vstart, CsrFile.Vxsat, CsrFile.Vxrm, CsrFile.Vcsr,
+                     CsrFile.Vl, CsrFile.Vtype, CsrFile.Vlenb,
                  })
             CsrFile.DirectWrite(addr, source.CsrFile.DirectRead(addr));
     }
@@ -49,5 +59,6 @@ public sealed class RvArchState : IArchState {
         PrivilegeLevel = PrivilegeLevel.Machine;
         _intRegs.Reset();
         CsrFile.Reset();
+        VectorRegisters.Reset();
     }
 }

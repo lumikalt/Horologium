@@ -14,6 +14,15 @@ public sealed class CsrFile : ICsrFile {
     public const uint Frm = 0x002;
     public const uint Fcsr = 0x003;
 
+    // V extension
+    public const uint Vstart = 0x008;
+    public const uint Vxsat = 0x009;
+    public const uint Vxrm = 0x00A;
+    public const uint Vcsr = 0x00F;
+    public const uint Vl = 0xC20;     // read-only via public Write (bits[11:10]=3); executor uses DirectWrite
+    public const uint Vtype = 0xC21;  // same
+    public const uint Vlenb = 0xC22;  // same, constant VectorRegisterFile.VLenB
+
     // Machine Information
     public const uint Mvendorid = 0xF11;
     public const uint Marchid = 0xF12;
@@ -71,6 +80,15 @@ public sealed class CsrFile : ICsrFile {
         _csrs[CsrFile.Marchid] = 0;
         _csrs[CsrFile.Mimpid] = 0;
         _csrs[CsrFile.Mhartid] = 0;
+
+        // V extension
+        _csrs[CsrFile.Vstart] = 0;
+        _csrs[CsrFile.Vxsat] = 0;
+        _csrs[CsrFile.Vxrm] = 0;
+        _csrs[CsrFile.Vcsr] = 0;
+        _csrs[CsrFile.Vl] = 0;
+        _csrs[CsrFile.Vtype] = 0;
+        _csrs[CsrFile.Vlenb] = VectorRegisterFile.VLenB;
     }
 
     public bool Exists(uint address) => _csrs.ContainsKey(address);
@@ -100,6 +118,7 @@ public sealed class CsrFile : ICsrFile {
     public void Reset() {
         foreach (uint key in _csrs.Keys.ToList()) _csrs[key] = 0;
         _csrs[CsrFile.Misa] = 0x40000100;
+        _csrs[CsrFile.Vlenb] = VectorRegisterFile.VLenB;
     }
 
     // ── Privilege enforcement ─────────────────────────────────────────────────

@@ -231,3 +231,40 @@ public record RvAmomaxW(int Rd, int Rs1, int Rs2) : RvOp;
 public record RvAmominuW(int Rd, int Rs1, int Rs2) : RvOp;
 
 public record RvAmomaxuW(int Rd, int Rs1, int Rs2) : RvOp;
+
+// ── V extension (vector) ──────────────────────────────────────────────────────
+
+// Config: rd = new vl (integer), vtypei/rs2 = new vtype
+public record RvVsetvli(int Rd, int Rs1, int Vtypei) : RvOp;
+
+public record RvVsetivli(int Rd, int Zimm, int Vtypei) : RvOp;
+
+public record RvVsetvl(int Rd, int Rs1, int Rs2) : RvOp;
+
+// Unit-stride loads: Vd = destination vector register, Rs1 = base address, Sew = element width in bits
+public record RvVleVV(int Vd, int Rs1, int Sew, bool Masked) : RvOp;
+
+public record RvVlm(int Vd, int Rs1) : RvOp;
+
+// Unit-stride stores: Vs3 = source vector register, Rs1 = base address, Sew = element width in bits
+public record RvVseVV(int Vs3, int Rs1, int Sew, bool Masked) : RvOp;
+
+public record RvVsm(int Vs3, int Rs1) : RvOp;
+
+// Integer ALU — split by source variant
+public enum VIntOp { Add, Sub, And, Or, Xor, Sll, Srl, Sra }
+
+public enum VMaskCmpOp { Eq, Ne, Ltu, Lt, Gtu, Gt }
+
+public record RvVIntAluVV(VIntOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
+
+public record RvVIntAluVX(VIntOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
+
+public record RvVIntAluVI(VIntOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
+
+// Mask comparisons (result: 1 bit per element packed in vd)
+public record RvVMaskCmpVV(VMaskCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
+
+public record RvVMaskCmpVX(VMaskCmpOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
+
+public record RvVMaskCmpVI(VMaskCmpOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;

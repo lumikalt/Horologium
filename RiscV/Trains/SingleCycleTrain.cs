@@ -6,6 +6,7 @@ using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
 using RiscV.Decode;
+using RiscV.Registers;
 using RiscV.State;
 
 namespace RiscV.Trains;
@@ -111,40 +112,49 @@ internal sealed class SingleCycleCore(
         );
 
         bool anyCache = ILayers.Cache is not null || DLayers.Cache is not null
-                     || ILayers.L2Cache is not null || DLayers.L2Cache is not null
-                     || ILayers.L3Cache is not null || DLayers.L3Cache is not null
-                     || ILayers.Tlb is not null || DLayers.Tlb is not null;
+                                                  || ILayers.L2Cache is not null || DLayers.L2Cache is not null
+                                                  || ILayers.L3Cache is not null || DLayers.L3Cache is not null
+                                                  || ILayers.Tlb is not null || DLayers.Tlb is not null;
         if (anyCache)
-            _cacheMissStallsCounter = Dials.AddCounter("cache_miss_stalls", "Stall cycles from memory hierarchy misses");
+            _cacheMissStallsCounter = Dials.AddCounter(
+                "cache_miss_stalls", "Stall cycles from memory hierarchy misses"
+            );
 
         if (ILayers.Cache is not null) {
             _icacheHitsCounter = Dials.AddCounter("icache_hits", "L1 I-cache hits");
             _icacheMissesCounter = Dials.AddCounter("icache_misses", "L1 I-cache misses");
         }
+
         if (ILayers.L2Cache is not null) {
             _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
             _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
         }
+
         if (ILayers.L3Cache is not null) {
             _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
             _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
         }
+
         if (DLayers.Cache is not null) {
             _dcacheHitsCounter = Dials.AddCounter("dcache_hits", "L1 D-cache hits");
             _dcacheMissesCounter = Dials.AddCounter("dcache_misses", "L1 D-cache misses");
         }
+
         if (DLayers.L2Cache is not null) {
             _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
             _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
         }
+
         if (DLayers.L3Cache is not null) {
             _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
             _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
         }
+
         if (ILayers.Tlb is not null) {
             _itlbHitsCounter = Dials.AddCounter("itlb_hits", "I-TLB hits");
             _itlbMissesCounter = Dials.AddCounter("itlb_misses", "I-TLB misses");
         }
+
         if (DLayers.Tlb is not null) {
             _dtlbHitsCounter = Dials.AddCounter("dtlb_hits", "D-TLB hits");
             _dtlbMissesCounter = Dials.AddCounter("dtlb_misses", "D-TLB misses");
@@ -215,7 +225,11 @@ internal sealed class SingleCycleCore(
             }
         }
         else {
-            if (result.RegisterResult.HasValue && instr.DestinationRegister >= 0)
+            if (result.VectorResult is not null && result.VectorDestRegister >= 0)
+                ((RvArchState)ArchState).VectorRegisters.Write(
+                    result.VectorDestRegister, result.VectorResult
+                );
+            else if (result.RegisterResult.HasValue && instr.DestinationRegister >= 0)
                 ArchState.IntegerRegisters.Write(
                     instr.DestinationRegister, result.RegisterResult.Value
                 );
@@ -240,11 +254,19 @@ internal sealed class SingleCycleCore(
     private long DrainAndChargeStalls() {
         long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
-        UpdateCacheStat(ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses);
-        UpdateCacheStat(ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses);
+        UpdateCacheStat(
+            ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses
+        );
+        UpdateCacheStat(
+            ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses
+        );
         UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
-        UpdateCacheStat(DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses);
-        UpdateCacheStat(DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses);
+        UpdateCacheStat(
+            DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses
+        );
+        UpdateCacheStat(
+            DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses
+        );
         UpdateTlbStat(ILayers.Tlb, _itlbHitsCounter, _itlbMissesCounter, ref _lastITlbHits, ref _lastITlbMisses);
         UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);
         return stalls;
@@ -252,8 +274,10 @@ internal sealed class SingleCycleCore(
 
     private static void UpdateCacheStat(
         SetAssociativeCache? cache,
-        Counter? hitsCounter, Counter? missesCounter,
-        ref long lastHits, ref long lastMisses
+        Counter? hitsCounter,
+        Counter? missesCounter,
+        ref long lastHits,
+        ref long lastMisses
     ) {
         if (cache is null) return;
         hitsCounter!.IncrementBy(cache.Hits - lastHits);
@@ -264,8 +288,10 @@ internal sealed class SingleCycleCore(
 
     private static void UpdateTlbStat(
         Tlb? tlb,
-        Counter? hitsCounter, Counter? missesCounter,
-        ref long lastHits, ref long lastMisses
+        Counter? hitsCounter,
+        Counter? missesCounter,
+        ref long lastHits,
+        ref long lastMisses
     ) {
         if (tlb is null) return;
         hitsCounter!.IncrementBy(tlb.Hits - lastHits);

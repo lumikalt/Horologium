@@ -2,6 +2,7 @@ using Orrery.Observation;
 using Orrery.Train;
 using RiscV;
 using RiscV.Memory;
+using RiscV.State;
 using RiscV.Trains;
 
 namespace Tests.RiscV;
@@ -409,6 +410,42 @@ public class SingleCycleTests {
         train.Run();
         Assert.Equal(10u, Reg(train, 3));            // original value returned in rd
         Assert.Equal(15u, (uint)mem.Read(0x200, 4)); // memory updated
+    }
+
+    // ── V extension ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void V_VectorAddAndStore() {
+        // Program: load 4 x uint32 from 0x100, add each to itself, store to 0x200.
+        // Instructions:
+        //   addi a1(11), x0, 256       → a1 = 0x100
+        //   addi a2(12), x0, 512       → a2 = 0x200
+        //   vsetvli a0(10), x0, e32m1  → vl = 4
+        //   vle32.v v1, (a1)
+        //   vadd.vv v2, v1, v1
+        //   vse32.v v2, (a2)
+        //   ebreak
+        (SingleCycleTrain train, FlatMemory mem) = Make(1024);
+        mem.Write(0x100, 10, 4);
+        mem.Write(0x104, 20, 4);
+        mem.Write(0x108, 30, 4);
+        mem.Write(0x10C, 40, 4);
+        Load(
+            mem,
+            0x10000593, // addi a1, x0, 256
+            0x20000613, // addi a2, x0, 512
+            0x0C207557, // vsetvli a0, x0, e32,m1,ta,ma
+            0x0205E087, // vle32.v v1, (a1)
+            0x02108157, // vadd.vv v2, v1, v1
+            0x02066127, // vse32.v v2, (a2)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(20u, (uint)mem.Read(0x200, 4));
+        Assert.Equal(40u, (uint)mem.Read(0x204, 4));
+        Assert.Equal(60u, (uint)mem.Read(0x208, 4));
+        Assert.Equal(80u, (uint)mem.Read(0x20C, 4));
+        Assert.Equal(4u, (uint)train.ArchState.IntegerRegisters.Read(10)); // a0 = new vl
     }
 
     [Fact]

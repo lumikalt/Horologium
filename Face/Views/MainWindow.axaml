@@ -48,27 +48,28 @@
                     <StackPanel Margin="16,12,16,12" Spacing="8">
                         <TextBlock Text="RUN SETTINGS" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
 
-                        <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="8">
+                        <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6"
+                              ColumnSpacing="8">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Max ticks"
                                        VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1"
-                                          Value="{Binding MaxTicks}"
-                                          Minimum="1" Maximum="1000000000"
-                                          Increment="100000" FormatString="N0" />
+                                           Value="{Binding MaxTicks}"
+                                           Minimum="1" Maximum="1000000000"
+                                           Increment="100000" FormatString="N0" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Warmup ticks"
                                        VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="1" Grid.Column="1"
-                                          Value="{Binding WarmupTicks}"
-                                          Minimum="0" Maximum="100000000"
-                                          Increment="10000" FormatString="N0" />
+                                           Value="{Binding WarmupTicks}"
+                                           Minimum="0" Maximum="100000000"
+                                           Increment="10000" FormatString="N0" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Snapshot interval"
                                        VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="2" Grid.Column="1"
-                                          Value="{Binding SnapshotInterval}"
-                                          Minimum="0" Maximum="1000000"
-                                          Increment="1000" FormatString="N0" />
+                                           Value="{Binding SnapshotInterval}"
+                                           Minimum="0" Maximum="1000000"
+                                           Increment="1000" FormatString="N0" />
                         </Grid>
                         <TextBlock Text="Snapshot interval = 0 disables time series."
                                    FontSize="11" Opacity="0.45" />

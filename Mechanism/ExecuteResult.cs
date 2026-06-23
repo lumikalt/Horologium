@@ -41,6 +41,17 @@ public sealed record ExecuteResult {
     public static ExecuteResult WithBranch(bool taken, ulong target) =>
         new() { BranchTaken = taken, BranchTarget = target, };
 
+    /// <summary>
+    /// Raw bytes to write to a vector destination register, or null for scalar instructions.
+    /// Paired with VectorDestRegister.
+    /// </summary>
+    public byte[]? VectorResult { get; init; }
+
+    /// <summary>
+    /// The vector destination register index (0-31), or -1 if this is not a vector write.
+    /// </summary>
+    public int VectorDestRegister { get; init; } = -1;
+
     /// <summary>Convenience: a result that raises a trap.</summary>
     public static ExecuteResult WithTrap(TrapInfo trap) =>
         new() { Trap = trap, };
