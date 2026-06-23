@@ -141,9 +141,11 @@ internal sealed class OoOPipelineCore : Gear {
     private ulong _flushTarget;
 
     // Counters (initialised in Initialize)
-    private Counter _cyclesCounter = null!;
-    private Counter _retiredCounter = null!;
-    private Counter _flushesCounter = null!;
+    private Counter _cyclesCounter      = null!;
+    private Counter _retiredCounter     = null!;
+    private Counter _flushesCounter     = null!;
+    private Counter _branchMissCounter  = null!;
+    private Counter _stallsCounter      = null!;
 
     public RvArchState State { get; }
 
@@ -182,9 +184,11 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     public override void Initialize() {
-        _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
-        _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
-        _flushesCounter = Dials.AddCounter("flushes", "Pipeline flushes");
+        _cyclesCounter     = Dials.AddCounter("cycles",        "Total cycles");
+        _retiredCounter    = Dials.AddCounter("retired",       "Instructions retired");
+        _flushesCounter    = Dials.AddCounter("flushes",       "Pipeline flushes (branch + trap)");
+        _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions");
+        _stallsCounter     = Dials.AddCounter("stalls",        "Dispatch-stall cycles (structural hazards)");
 
         Dials.AddDial(
             "cpi",
@@ -301,6 +305,7 @@ internal sealed class OoOPipelineCore : Gear {
                 _predictor.Update(instrPc, taken, resolvedPc);
 
                 if (resolvedPc != predictedPc) {
+                    _branchMissCounter.Increment();
                     State.Pc = resolvedPc;
                     _rob.Retire();
                     _retiredCounter.Increment();
@@ -430,6 +435,10 @@ internal sealed class OoOPipelineCore : Gear {
 
             _decodeQueue.Dequeue();
         }
+
+        // Count cycles where we had work to dispatch but were blocked by a structural limit
+        // (ROB full, IQ full, or no free physical registers).
+        if (_decodeQueue.Count > 0) _stallsCounter.Increment();
     }
 
     /// <summary>Fetch up to issueWidth instructions into the decode queue.</summary>
