@@ -375,6 +375,7 @@ public sealed class RvDecoder : IDecoder {
                 new RvFlw(rd + 32, rs1, imm)
             );
         }
+
         // Vector load (funct3=0/5/6/7)
         return DecodeVLoad(pc, raw, rd, rs1, funct3, word);
     }
@@ -384,21 +385,19 @@ public sealed class RvDecoder : IDecoder {
     private static RvInstruction DecodeFpOrVStore(
         ulong pc,
         uint raw,
-        int rd,   // bits[11:7] = vs3 for vector stores
+        int rd, // bits[11:7] = vs3 for vector stores
         int rs1,
-        int rs2,  // bits[24:20] = sumop for unit-stride vector stores
+        int rs2, // bits[24:20] = sumop for unit-stride vector stores
         uint funct3,
         uint word
     ) {
-        if (funct3 == 2) {
-            int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
-            return new RvInstruction(
-                pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store,
-                new RvFsw(rs1, rs2 + 32, imm)
-            );
-        }
         // Vector store (funct3=0/5/6/7)
-        return DecodeVStore(pc, raw, rd, rs1, rs2, funct3, word);
+        if (funct3 != 2) return DecodeVStore(pc, raw, rd, rs1, rs2, funct3, word);
+        int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
+        return new RvInstruction(
+            pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store,
+            new RvFsw(rs1, rs2 + 32, imm)
+        );
     }
 
     // ── V extension ───────────────────────────────────────────────────────────
@@ -412,7 +411,7 @@ public sealed class RvDecoder : IDecoder {
         uint funct3,
         uint word
     ) {
-        uint mop   = (word >> 26) & 0x3;  // addressing mode: 00=unit-stride
+        uint mop = (word >> 26) & 0x3;    // addressing mode: 00=unit-stride
         uint lumop = (word >> 20) & 0x1F; // unit-stride sub-mode
         bool masked = ((word >> 25) & 1) == 0;
 
@@ -441,7 +440,7 @@ public sealed class RvDecoder : IDecoder {
     private static RvInstruction DecodeVStore(
         ulong pc,
         uint raw,
-        int vs3,   // bits[11:7]
+        int vs3, // bits[11:7]
         int rs1,
         int sumop, // bits[24:20]
         uint funct3,
@@ -479,9 +478,9 @@ public sealed class RvDecoder : IDecoder {
         int rs2,
         uint funct3
     ) {
-        int vd    = (int)((raw >> 7) & 0x1F);
-        int vs1   = rs1;
-        int vs2   = (int)((raw >> 20) & 0x1F);
+        var vd = (int)((raw >> 7) & 0x1F);
+        int vs1 = rs1;
+        var vs2 = (int)((raw >> 20) & 0x1F);
         bool masked = ((raw >> 25) & 1) == 0;
         uint funct6 = (raw >> 26) & 0x3F;
 
@@ -521,12 +520,18 @@ public sealed class RvDecoder : IDecoder {
             if (intOp == VIntOp.Sub && funct3 == 3)
                 throw new IllegalInstructionException(pc, raw, "vsub.vi is not a valid instruction");
             return funct3 switch {
-                0 => new RvInstruction(pc, raw, -1, [], ToothClass.Vector,
-                    new RvVIntAluVV(intOp.Value, vd, vs2, vs1, masked)),
-                3 => new RvInstruction(pc, raw, -1, [], ToothClass.Vector,
-                    new RvVIntAluVI(intOp.Value, vd, vs2, SignExtend5(vs1), masked)),
-                _ => new RvInstruction(pc, raw, -1, [vs1,], ToothClass.Vector,
-                    new RvVIntAluVX(intOp.Value, vd, vs2, vs1, masked)),
+                0 => new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Vector,
+                    new RvVIntAluVV(intOp.Value, vd, vs2, vs1, masked)
+                ),
+                3 => new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Vector,
+                    new RvVIntAluVI(intOp.Value, vd, vs2, SignExtend5(vs1), masked)
+                ),
+                _ => new RvInstruction(
+                    pc, raw, -1, [vs1,], ToothClass.Vector,
+                    new RvVIntAluVX(intOp.Value, vd, vs2, vs1, masked)
+                ),
             };
         }
 
@@ -537,12 +542,18 @@ public sealed class RvDecoder : IDecoder {
                     pc, raw, $"vmsgtu/vmsgt.vv is not a valid encoding"
                 );
             return funct3 switch {
-                0 => new RvInstruction(pc, raw, -1, [], ToothClass.Vector,
-                    new RvVMaskCmpVV(cmpOp.Value, vd, vs2, vs1, masked)),
-                3 => new RvInstruction(pc, raw, -1, [], ToothClass.Vector,
-                    new RvVMaskCmpVI(cmpOp.Value, vd, vs2, SignExtend5(vs1), masked)),
-                _ => new RvInstruction(pc, raw, -1, [vs1,], ToothClass.Vector,
-                    new RvVMaskCmpVX(cmpOp.Value, vd, vs2, vs1, masked)),
+                0 => new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Vector,
+                    new RvVMaskCmpVV(cmpOp.Value, vd, vs2, vs1, masked)
+                ),
+                3 => new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Vector,
+                    new RvVMaskCmpVI(cmpOp.Value, vd, vs2, SignExtend5(vs1), masked)
+                ),
+                _ => new RvInstruction(
+                    pc, raw, -1, [vs1,], ToothClass.Vector,
+                    new RvVMaskCmpVX(cmpOp.Value, vd, vs2, vs1, masked)
+                ),
             };
         }
 
@@ -558,15 +569,15 @@ public sealed class RvDecoder : IDecoder {
 
         if (bits31 == 0) {
             // vsetvli: bit[31]=0, vtypei = bits[30:20] (11 bits)
-            int vtypei = (int)((raw >> 20) & 0x7FF);
-            IReadOnlyList<int> sources = rs1 != 0 ? [rs1] : [];
+            var vtypei = (int)((raw >> 20) & 0x7FF);
+            IReadOnlyList<int> sources = rs1 != 0 ? [rs1,] : [];
             return new RvInstruction(pc, raw, rd, sources, ToothClass.Vector, new RvVsetvli(rd, rs1, vtypei));
         }
 
         if (bits3130 == 3) {
             // vsetivli: bits[31:30]=11, vtypei = bits[29:20] (10 bits), zimm = bits[19:15]
-            int vtypei = (int)((raw >> 20) & 0x3FF);
-            int zimm   = (int)((raw >> 15) & 0x1F);
+            var vtypei = (int)((raw >> 20) & 0x3FF);
+            var zimm = (int)((raw >> 15) & 0x1F);
             return new RvInstruction(pc, raw, rd, [], ToothClass.Vector, new RvVsetivli(rd, zimm, vtypei));
         }
 

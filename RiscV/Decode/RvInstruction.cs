@@ -252,9 +252,25 @@ public record RvVseVV(int Vs3, int Rs1, int Sew, bool Masked) : RvOp;
 public record RvVsm(int Vs3, int Rs1) : RvOp;
 
 // Integer ALU — split by source variant
-public enum VIntOp { Add, Sub, And, Or, Xor, Sll, Srl, Sra }
+public enum VIntOp {
+    Add,
+    Sub,
+    And,
+    Or,
+    Xor,
+    Sll,
+    Srl,
+    Sra,
+}
 
-public enum VMaskCmpOp { Eq, Ne, Ltu, Lt, Gtu, Gt }
+public enum VMaskCmpOp {
+    Eq,
+    Ne,
+    Ltu,
+    Lt,
+    Gtu,
+    Gt,
+}
 
 public record RvVIntAluVV(VIntOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
 
