@@ -54,6 +54,8 @@
             libXi
             libXcursor
             libXrandr
+            libice
+            libsm
           ];
 
           ide = pkgs.writeShellApplication {

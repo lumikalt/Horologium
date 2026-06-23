@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net11.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>Face</RootNamespace>
+        <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Orrery\Orrery.csproj" />
+        <ProjectReference Include="..\Mechanism\Mechanism.csproj" />
+        <ProjectReference Include="..\RiscV\RiscV.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Avalonia" Version="12.0.4" />
+      <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.0" />
+      <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
+      <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
+      <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
+      <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+<PackageReference Include="ScottPlot.Avalonia" Version="5.1.59" />
+    </ItemGroup>
+
+</Project>

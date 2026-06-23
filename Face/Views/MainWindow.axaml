@@ -1,0 +1,336 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Face.ViewModels"
+        xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
+        x:Class="Face.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Horologium — Face"
+        Width="1340" Height="860"
+        MinWidth="900" MinHeight="600">
+
+    <Grid ColumnDefinitions="400,*">
+
+        <!-- ── Left panel: settings ─────────────────────────────────────────── -->
+        <Border Grid.Column="0"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                BorderThickness="0,0,1,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="0" Margin="0,0,0,16">
+
+                    <!-- Title -->
+                    <Border Padding="16,14,16,14">
+                        <TextBlock Text="Horologium  ·  Face"
+                                   FontSize="16" FontWeight="SemiBold" />
+                    </Border>
+
+                    <Separator />
+
+                    <!-- Workload ─────────────────────────────────────────────── -->
+                    <StackPanel Margin="16,12,16,12" Spacing="8">
+                        <TextBlock Text="WORKLOAD" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+
+                        <CheckBox IsChecked="{Binding UseBuiltInDemo}"
+                                  Content="Use built-in demo  (100-iter countdown loop)" />
+
+                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !UseBuiltInDemo}" ColumnSpacing="6">
+                            <TextBox Grid.Column="0"
+                                     Text="{Binding WorkloadPath}"
+                                     Watermark="Path to ELF binary…"
+                                     IsReadOnly="True" />
+                            <Button Grid.Column="1" Content="Browse…"
+                                    x:Name="BrowseButton" />
+                        </Grid>
+                    </StackPanel>
+
+                    <Separator />
+
+                    <!-- Run settings ─────────────────────────────────────────── -->
+                    <StackPanel Margin="16,12,16,12" Spacing="8">
+                        <TextBlock Text="RUN SETTINGS" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+
+                        <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="8">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Max ticks"
+                                       VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                          Value="{Binding MaxTicks}"
+                                          Minimum="1" Maximum="1000000000"
+                                          Increment="100000" FormatString="N0" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Warmup ticks"
+                                       VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                          Value="{Binding WarmupTicks}"
+                                          Minimum="0" Maximum="100000000"
+                                          Increment="10000" FormatString="N0" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Snapshot interval"
+                                       VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                          Value="{Binding SnapshotInterval}"
+                                          Minimum="0" Maximum="1000000"
+                                          Increment="1000" FormatString="N0" />
+                        </Grid>
+                        <TextBlock Text="Snapshot interval = 0 disables time series."
+                                   FontSize="11" Opacity="0.45" />
+                    </StackPanel>
+
+                    <Separator />
+
+                    <!-- Configurations ───────────────────────────────────────── -->
+                    <StackPanel Margin="16,12,16,0" Spacing="8">
+                        <DockPanel>
+                            <TextBlock Text="CONFIGURATIONS" DockPanel.Dock="Left"
+                                       FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                                       VerticalAlignment="Center" />
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                                <Button Content="+" ToolTip.Tip="Add config"
+                                        Command="{Binding AddConfigCommand}"
+                                        Padding="8,4" />
+                                <Button Content="⧉" ToolTip.Tip="Duplicate selected"
+                                        Command="{Binding DuplicateConfigCommand}"
+                                        Padding="8,4" />
+                                <Button Content="−" ToolTip.Tip="Remove selected"
+                                        Command="{Binding RemoveConfigCommand}"
+                                        Padding="8,4" />
+                            </StackPanel>
+                        </DockPanel>
+
+                        <ListBox ItemsSource="{Binding Configs}"
+                                 SelectedItem="{Binding SelectedConfig, Mode=TwoWay}"
+                                 MaxHeight="180">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ConfigViewModel">
+                                    <StackPanel Spacing="2" Margin="2,4">
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontWeight="Medium" />
+                                        <TextBlock Text="{Binding Pipeline}"
+                                                   FontSize="11" Opacity="0.55" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+
+                    <!-- Config detail ────────────────────────────────────────── -->
+                    <ContentControl Margin="16,8,16,0"
+                                    Content="{Binding SelectedConfig}"
+                                    IsVisible="{Binding HasSelectedConfig}">
+                        <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="vm:ConfigViewModel">
+                                <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                        BorderThickness="1" CornerRadius="4"
+                                        Padding="12">
+                                    <StackPanel Spacing="8">
+
+                                        <!-- Name -->
+                                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                            <TextBlock Grid.Column="0" Text="Name"
+                                                       VerticalAlignment="Center" />
+                                            <TextBox Grid.Column="1"
+                                                     Text="{Binding Name}" />
+                                        </Grid>
+
+                                        <!-- Pipeline -->
+                                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                            <TextBlock Grid.Column="0" Text="Pipeline"
+                                                       VerticalAlignment="Center" />
+                                            <ComboBox Grid.Column="1"
+                                                      ItemsSource="{Binding PipelineOptions}"
+                                                      SelectedItem="{Binding Pipeline}"
+                                                      HorizontalAlignment="Stretch" />
+                                        </Grid>
+
+                                        <!-- five_stage: forwarding -->
+                                        <CheckBox IsChecked="{Binding ForwardingEnabled}"
+                                                  Content="Forwarding enabled"
+                                                  IsVisible="{Binding IsFiveStage}" />
+
+                                        <!-- Predictor (five_stage + ooo) -->
+                                        <StackPanel IsVisible="{Binding !IsWidePipeline}" Spacing="6">
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                                <TextBlock Grid.Column="0" Text="Branch predictor"
+                                                           VerticalAlignment="Center" />
+                                                <ComboBox Grid.Column="1"
+                                                          ItemsSource="{Binding PredictorOptions}"
+                                                          SelectedItem="{Binding PredictorType}"
+                                                          HorizontalAlignment="Stretch" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasTableSize}">
+                                                <TextBlock Grid.Column="0" Text="Table size"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding PredictorTableSize}"
+                                                               Minimum="4" Maximum="65536"
+                                                               Increment="256" />
+                                            </Grid>
+                                        </StackPanel>
+
+                                        <!-- five_stage: I-cache -->
+                                        <StackPanel IsVisible="{Binding IsFiveStage}" Spacing="6">
+                                            <CheckBox IsChecked="{Binding ICacheEnabled}"
+                                                      Content="I-cache" />
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding ICacheEnabled}"
+                                                  RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                                               Value="{Binding ICacheCapacityKb}"
+                                                               Minimum="1" Maximum="16384" />
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                               Value="{Binding ICacheWays}"
+                                                               Minimum="1" Maximum="16" />
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                               Value="{Binding ICacheBlockBytes}"
+                                                               Minimum="8" Maximum="256" />
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="3" Grid.Column="1"
+                                                               Value="{Binding ICacheMissLatency}"
+                                                               Minimum="1" Maximum="200" />
+                                            </Grid>
+                                        </StackPanel>
+
+                                        <!-- five_stage: D-cache -->
+                                        <StackPanel IsVisible="{Binding IsFiveStage}" Spacing="6">
+                                            <CheckBox IsChecked="{Binding DCacheEnabled}"
+                                                      Content="D-cache" />
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding DCacheEnabled}"
+                                                  RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                                               Value="{Binding DCacheCapacityKb}"
+                                                               Minimum="1" Maximum="16384" />
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                               Value="{Binding DCacheWays}"
+                                                               Minimum="1" Maximum="16" />
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                               Value="{Binding DCacheBlockBytes}"
+                                                               Minimum="8" Maximum="256" />
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="3" Grid.Column="1"
+                                                               Value="{Binding DCacheMissLatency}"
+                                                               Minimum="1" Maximum="200" />
+                                            </Grid>
+                                        </StackPanel>
+
+                                        <!-- five_stage: store buffer -->
+                                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                              IsVisible="{Binding IsFiveStage}">
+                                            <TextBlock Grid.Column="0" Text="Store buffer"
+                                                       VerticalAlignment="Center" />
+                                            <NumericUpDown Grid.Column="1"
+                                                           Value="{Binding StoreBufferCapacity}"
+                                                           Minimum="0" Maximum="64" />
+                                        </Grid>
+
+                                        <!-- superscalar / ooo: issue width -->
+                                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                              IsVisible="{Binding IsWidePipeline}">
+                                            <TextBlock Grid.Column="0" Text="Issue width"
+                                                       VerticalAlignment="Center" />
+                                            <NumericUpDown Grid.Column="1"
+                                                           Value="{Binding IssueWidth}"
+                                                           Minimum="1" Maximum="16" />
+                                        </Grid>
+
+                                        <!-- ooo: ROB / IQ / phys regs -->
+                                        <StackPanel IsVisible="{Binding IsOoo}" Spacing="6">
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="ROB capacity"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                                               Value="{Binding RobCapacity}"
+                                                               Minimum="4" Maximum="512" />
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="IQ capacity"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                               Value="{Binding IqCapacity}"
+                                                               Minimum="4" Maximum="256" />
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Extra phys regs"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                               Value="{Binding ExtraPhysRegs}"
+                                                               Minimum="0" Maximum="256" />
+                                            </Grid>
+                                        </StackPanel>
+
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- Run button ───────────────────────────────────────────── -->
+                    <StackPanel Margin="16,16,16,0" Spacing="8">
+                        <Button Content="▶  Run Experiment"
+                                Command="{Binding RunCommand}"
+                                IsEnabled="{Binding !IsRunning}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Padding="0,10" />
+                        <ProgressBar IsIndeterminate="True"
+                                     IsVisible="{Binding IsRunning}"
+                                     Height="4" />
+                    </StackPanel>
+
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- ── Right panel: results ─────────────────────────────────────────── -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,*">
+
+            <!-- Status bar -->
+            <Border Grid.Row="0" Padding="12,8"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                    BorderThickness="0,0,0,1">
+                <TextBlock Text="{Binding StatusText}" Opacity="0.75" />
+            </Border>
+
+            <!-- Tabs -->
+            <TabControl Grid.Row="1">
+
+                <!-- Chart tab -->
+                <TabItem Header="Chart">
+                    <Grid RowDefinitions="Auto,*">
+                        <DockPanel Grid.Row="0" Margin="12,8" LastChildFill="True">
+                            <TextBlock Text="Metric: " DockPanel.Dock="Left"
+                                       VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <ComboBox ItemsSource="{Binding AvailableMetrics}"
+                                      SelectedItem="{Binding SelectedMetric}"
+                                      MinWidth="240" />
+                        </DockPanel>
+                        <sp:AvaPlot x:Name="ChartView" Grid.Row="1" />
+                    </Grid>
+                </TabItem>
+
+                <!-- Table tab -->
+                <TabItem Header="Table">
+                    <DataGrid x:Name="ResultsGrid"
+                              IsReadOnly="True"
+                              CanUserSortColumns="True"
+                              CanUserResizeColumns="True"
+                              GridLinesVisibility="All"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto" />
+                </TabItem>
+
+            </TabControl>
+        </Grid>
+
+    </Grid>
+</Window>
