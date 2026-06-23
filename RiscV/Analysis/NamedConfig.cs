@@ -17,8 +17,8 @@ public sealed record NamedConfig(string Name, TrainConfig Config) {
 
     /// <summary>Deserialises a JSON array of named configs.</summary>
     public static IReadOnlyList<NamedConfig> FromJson(string json) =>
-        JsonSerializer.Deserialize<List<NamedConfig>>(json, _options)
-        ?? throw new JsonException("Deserialised sweep was null.");
+        JsonSerializer.Deserialize<List<NamedConfig>>(json, NamedConfig._options)
+     ?? throw new JsonException("Deserialised sweep was null.");
 
     /// <summary>Loads a sweep from a JSON file on disk.</summary>
     public static IReadOnlyList<NamedConfig> LoadFile(string path) =>
@@ -26,5 +26,5 @@ public sealed record NamedConfig(string Name, TrainConfig Config) {
 
     /// <summary>Serialises a list of named configs to a JSON sweep file.</summary>
     public static string ToJson(IEnumerable<NamedConfig> configs) =>
-        JsonSerializer.Serialize(configs.ToList(), _options);
+        JsonSerializer.Serialize(configs.ToList(), NamedConfig._options);
 }

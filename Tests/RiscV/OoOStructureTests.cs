@@ -10,7 +10,7 @@ public class PhysicalRegisterFileTests {
     [Fact]
     public void InitialState_AllReadyAllZero() {
         var prf = new PhysicalRegisterFile(32);
-        for (int i = 0; i < 32; i++) {
+        for (var i = 0; i < 32; i++) {
             Assert.True(prf.IsReady(i));
             Assert.Equal(0UL, prf.Read(i));
         }
@@ -49,7 +49,7 @@ public class PhysicalRegisterFileTests {
         prf.Write(1, 100);
         prf.MarkPending(2);
         prf.Reset();
-        for (int i = 0; i < 8; i++) {
+        for (var i = 0; i < 8; i++) {
             Assert.True(prf.IsReady(i));
             Assert.Equal(0UL, prf.Read(i));
         }
@@ -72,31 +72,30 @@ public class PhysicalRegisterFileTests {
 public class RenameMapTests {
     [Fact]
     public void InitialMapping_IdentityForArchRegisters() {
-        var rm = new RenameMap(archCount: 4, physCount: 8);
-        for (int i = 0; i < 4; i++)
-            Assert.Equal(i, rm.Lookup(i));
+        var rm = new RenameMap(4, 8);
+        for (var i = 0; i < 4; i++) Assert.Equal(i, rm.Lookup(i));
     }
 
     [Fact]
     public void InitialFreeCount_EqualsPhysMinusArch() {
-        var rm = new RenameMap(archCount: 4, physCount: 10);
+        var rm = new RenameMap(4, 10);
         Assert.Equal(6, rm.FreeCount);
         Assert.True(rm.HasFree);
     }
 
     [Fact]
     public void Rename_AllocatesNewPhysAndReturnsOld() {
-        var rm = new RenameMap(archCount: 4, physCount: 6);
+        var rm = new RenameMap(4, 6);
         // arch reg 2 is initially mapped to phys 2
-        var (newPhys, oldPhys) = rm.Rename(2);
-        Assert.Equal(2, oldPhys);        // old mapping
-        Assert.True(newPhys >= 4);       // new phys from free list
-        Assert.Equal(newPhys, rm.Lookup(2));  // RAT updated
+        (int newPhys, int oldPhys) = rm.Rename(2);
+        Assert.Equal(2, oldPhys);            // old mapping
+        Assert.True(newPhys >= 4);           // new phys from free list
+        Assert.Equal(newPhys, rm.Lookup(2)); // RAT updated
     }
 
     [Fact]
     public void Rename_ExhaustsFreeList_HasFreeFalse() {
-        var rm = new RenameMap(archCount: 2, physCount: 3);
+        var rm = new RenameMap(2, 3);
         // 1 free register
         Assert.True(rm.HasFree);
         rm.Rename(0);
@@ -105,15 +104,15 @@ public class RenameMapTests {
 
     [Fact]
     public void Rename_WhenNoFree_Throws() {
-        var rm = new RenameMap(archCount: 2, physCount: 3);
-        rm.Rename(0);  // uses the only free register
+        var rm = new RenameMap(2, 3);
+        rm.Rename(0); // uses the only free register
         Assert.Throws<InvalidOperationException>(() => rm.Rename(1));
     }
 
     [Fact]
     public void FreePhysical_ReturnsRegisterToFreeList() {
-        var rm = new RenameMap(archCount: 2, physCount: 3);
-        var (newPhys, oldPhys) = rm.Rename(0);
+        var rm = new RenameMap(2, 3);
+        (int newPhys, int oldPhys) = rm.Rename(0);
         int freeAfterRename = rm.FreeCount;
         rm.FreePhysical(oldPhys);
         Assert.Equal(freeAfterRename + 1, rm.FreeCount);
@@ -121,8 +120,8 @@ public class RenameMapTests {
 
     [Fact]
     public void RestoreMapping_SetsRatDirectly() {
-        var rm = new RenameMap(archCount: 4, physCount: 8);
-        var (newPhys, _) = rm.Rename(1);
+        var rm = new RenameMap(4, 8);
+        (int newPhys, _) = rm.Rename(1);
         // Simulate flush: walk-back restores old mapping
         rm.RestoreMapping(1, 1); // original arch1 → phys1
         Assert.Equal(1, rm.Lookup(1));
@@ -130,17 +129,17 @@ public class RenameMapTests {
 
     [Fact]
     public void Reset_RestoresInitialState() {
-        var rm = new RenameMap(archCount: 4, physCount: 8);
+        var rm = new RenameMap(4, 8);
         rm.Rename(0);
         rm.Rename(1);
         rm.Reset();
-        for (int i = 0; i < 4; i++) Assert.Equal(i, rm.Lookup(i));
+        for (var i = 0; i < 4; i++) Assert.Equal(i, rm.Lookup(i));
         Assert.Equal(4, rm.FreeCount); // 8 - 4 = 4 free again
     }
 
     [Fact]
     public void LookupOutOfRange_Throws() {
-        var rm = new RenameMap(archCount: 4, physCount: 8);
+        var rm = new RenameMap(4, 8);
         Assert.Throws<ArgumentOutOfRangeException>(() => rm.Lookup(-1));
         Assert.Throws<ArgumentOutOfRangeException>(() => rm.Lookup(4));
     }
@@ -151,9 +150,9 @@ public class RenameMapTests {
     public void Rename_SameCycleChain_SecondLookupSeesFirstRename() {
         // In superscalar dispatch, inst2's source lookup must see inst1's new
         // mapping if inst1 renamed that register earlier the same cycle.
-        var rm = new RenameMap(archCount: 4, physCount: 8);
-        var (p2New, _) = rm.Rename(2);          // inst1 writes x2
-        Assert.Equal(p2New, rm.Lookup(2));       // inst2's Lookup(x2) sees updated RAT
+        var rm = new RenameMap(4, 8);
+        (int p2New, _) = rm.Rename(2);     // inst1 writes x2
+        Assert.Equal(p2New, rm.Lookup(2)); // inst2's Lookup(x2) sees updated RAT
     }
 
     [Fact]
@@ -161,11 +160,11 @@ public class RenameMapTests {
         // Two instructions in the same dispatch group both writing x2:
         // the second's PrevPhysDestination must be the first's NewPhys so that
         // walk-back recovery on flush restores the RAT in the right order.
-        var rm = new RenameMap(archCount: 4, physCount: 8);
-        var (newA, _)    = rm.Rename(2);   // first writer to x2
-        var (newB, oldB) = rm.Rename(2);   // second writer to x2, same cycle
-        Assert.Equal(newA, oldB);           // second's "prev" is first's "new"
-        Assert.NotEqual(newA, newB);        // each gets a distinct physical register
+        var rm = new RenameMap(4, 8);
+        (int newA, _) = rm.Rename(2);        // first writer to x2
+        (int newB, int oldB) = rm.Rename(2); // second writer to x2, same cycle
+        Assert.Equal(newA, oldB);            // second's "prev" is first's "new"
+        Assert.NotEqual(newA, newB);         // each gets a distinct physical register
     }
 }
 
@@ -194,7 +193,7 @@ public class ReorderBufferTests {
     [Fact]
     public void AllocateToCapacity_IsFull() {
         var rob = new ReorderBuffer(4);
-        for (int i = 0; i < 4; i++) rob.Allocate();
+        for (var i = 0; i < 4; i++) rob.Allocate();
         Assert.True(rob.IsFull);
     }
 
@@ -225,22 +224,26 @@ public class ReorderBufferTests {
     [Fact]
     public void InOrder_Returns_OldestFirst() {
         var rob = new ReorderBuffer(4);
-        int a = rob.Allocate(); rob.At(a).Pc = 0x100;
-        int b = rob.Allocate(); rob.At(b).Pc = 0x104;
-        int c = rob.Allocate(); rob.At(c).Pc = 0x108;
+        int a = rob.Allocate();
+        rob.At(a).Pc = 0x100;
+        int b = rob.Allocate();
+        rob.At(b).Pc = 0x104;
+        int c = rob.Allocate();
+        rob.At(c).Pc = 0x108;
 
-        var pcs = rob.InOrder().Select(e => e.Entry.Pc).ToList();
-        Assert.Equal([0x100UL, 0x104UL, 0x108UL], pcs);
+        List<ulong> pcs = rob.InOrder().Select(e => e.Entry.Pc).ToList();
+        Assert.Equal([0x100UL, 0x104UL, 0x108UL,], pcs);
     }
 
     [Fact]
     public void Retire_ThenAllocate_CircularWrap() {
         var rob = new ReorderBuffer(3);
         // fill to capacity
-        for (int i = 0; i < 3; i++) {
+        for (var i = 0; i < 3; i++) {
             int idx = rob.Allocate();
             rob.At(idx).IsComplete = true;
         }
+
         // retire one to make room
         rob.Retire();
         Assert.False(rob.IsFull);
@@ -295,8 +298,10 @@ public class ReorderBufferTests {
         var rob = new ReorderBuffer(4);
 
         // Cycle 1: dispatch 2 instructions
-        int i0 = rob.Allocate(); rob.At(i0).Pc = 0;
-        int i1 = rob.Allocate(); rob.At(i1).Pc = 4;
+        int i0 = rob.Allocate();
+        rob.At(i0).Pc = 0;
+        int i1 = rob.Allocate();
+        rob.At(i1).Pc = 4;
 
         // Cycle 2: both complete out-of-order (i1 finishes first)
         rob.At(i1).IsComplete = true;
@@ -310,7 +315,8 @@ public class ReorderBufferTests {
         Assert.True(rob.IsEmpty);
 
         // Cycle 3: ROB reusable after drain
-        int i2 = rob.Allocate(); rob.At(i2).Pc = 8;
+        int i2 = rob.Allocate();
+        rob.At(i2).Pc = 8;
         Assert.Equal(8UL, rob.Head.Pc);
     }
 
@@ -374,7 +380,7 @@ public class IssueQueueTests {
     public void IsReady_WaitingForSource_NotReady() {
         var iq = new IssueQueue(4);
         int slot = iq.Allocate();
-        iq.At(slot).Src1Tag = 10;  // waiting for phys reg 10
+        iq.At(slot).Src1Tag = 10; // waiting for phys reg 10
         Assert.False(iq.At(slot).IsReady);
     }
 
@@ -413,7 +419,7 @@ public class IssueQueueTests {
         iq.Broadcast(7, 1);
         Assert.False(iq.At(slot).IsReady); // src2 still pending
         iq.Broadcast(8, 2);
-        Assert.True(iq.At(slot).IsReady);  // both ready now
+        Assert.True(iq.At(slot).IsReady); // both ready now
     }
 
     [Fact]
@@ -452,7 +458,7 @@ public class IssueQueueTests {
     public void FindReadyBatch_ReturnsManyReadyEntries() {
         var iq = new IssueQueue(8);
         // 3 ready, 1 blocked
-        for (int i = 0; i < 3; i++) iq.Allocate();
+        for (var i = 0; i < 3; i++) iq.Allocate();
         int blocked = iq.Allocate();
         iq.At(blocked).Src1Tag = 77;
 
@@ -464,7 +470,7 @@ public class IssueQueueTests {
     [Fact]
     public void FindReadyBatch_RespectsMaxCount() {
         var iq = new IssueQueue(8);
-        for (int i = 0; i < 6; i++) iq.Allocate();
+        for (var i = 0; i < 6; i++) iq.Allocate();
 
         Span<int> results = stackalloc int[6];
         int found = iq.FindReadyBatch(results, 2);
@@ -489,7 +495,7 @@ public class IssueQueueTests {
         iq.Flush();
         Assert.Equal(0, iq.Count);
         Assert.True(iq.IsEmpty);
-        for (int i = 0; i < 4; i++) Assert.False(iq.At(i).Busy);
+        for (var i = 0; i < 4; i++) Assert.False(iq.At(i).Busy);
     }
 
     [Fact]

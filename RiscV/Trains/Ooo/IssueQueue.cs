@@ -23,7 +23,7 @@ public sealed class RsEntry {
     public ulong PredictedNextPc { get; set; }
 
     // Source operand 1
-    public int Src1Tag { get; set; } = -1;  // -1 = not used
+    public int Src1Tag { get; set; } = -1; // -1 = not used
     public bool Src1Ready { get; set; }
     public ulong Src1Value { get; set; }
 
@@ -83,7 +83,7 @@ public sealed class IssueQueue {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1, nameof(capacity));
         Capacity = capacity;
         _slots = new RsEntry[capacity];
-        for (int i = 0; i < capacity; i++) _slots[i] = new RsEntry();
+        for (var i = 0; i < capacity; i++) _slots[i] = new RsEntry();
     }
 
     /// <summary>Returns the entry at the given slot index.</summary>
@@ -94,12 +94,13 @@ public sealed class IssueQueue {
     /// Returns -1 if the queue is full (check <see cref="IsFull"/> first).
     /// </summary>
     public int Allocate() {
-        for (int i = 0; i < Capacity; i++) {
+        for (var i = 0; i < Capacity; i++) {
             if (_slots[i].Busy) continue;
             _slots[i].Busy = true;
             Count++;
             return i;
         }
+
         return -1;
     }
 
@@ -110,9 +111,20 @@ public sealed class IssueQueue {
     public void Broadcast(int physReg, ulong value) {
         foreach (RsEntry e in _slots) {
             if (!e.Busy) continue;
-            if (e.Src1Tag == physReg && !e.Src1Ready) { e.Src1Value = value; e.Src1Ready = true; }
-            if (e.Src2Tag == physReg && !e.Src2Ready) { e.Src2Value = value; e.Src2Ready = true; }
-            if (e.Src3Tag == physReg && !e.Src3Ready) { e.Src3Value = value; e.Src3Ready = true; }
+            if (e.Src1Tag == physReg && !e.Src1Ready) {
+                e.Src1Value = value;
+                e.Src1Ready = true;
+            }
+
+            if (e.Src2Tag == physReg && !e.Src2Ready) {
+                e.Src2Value = value;
+                e.Src2Ready = true;
+            }
+
+            if (e.Src3Tag == physReg && !e.Src3Ready) {
+                e.Src3Value = value;
+                e.Src3Ready = true;
+            }
         }
     }
 
@@ -121,11 +133,11 @@ public sealed class IssueQueue {
     /// predicate (e.g., a specific functional-unit class), or -1 if none.
     /// </summary>
     public int FindReady(Func<RsEntry, bool>? filter = null) {
-        for (int i = 0; i < Capacity; i++) {
+        for (var i = 0; i < Capacity; i++) {
             RsEntry e = _slots[i];
-            if (e.Busy && e.IsReady && (filter is null || filter(e)))
-                return i;
+            if (e.Busy && e.IsReady && (filter is null || filter(e))) return i;
         }
+
         return -1;
     }
 
@@ -135,12 +147,12 @@ public sealed class IssueQueue {
     /// Returns the number of entries collected.
     /// </summary>
     public int FindReadyBatch(Span<int> results, int maxCount, Func<RsEntry, bool>? filter = null) {
-        int found = 0;
-        for (int i = 0; i < Capacity && found < maxCount; i++) {
+        var found = 0;
+        for (var i = 0; i < Capacity && found < maxCount; i++) {
             RsEntry e = _slots[i];
-            if (e.Busy && e.IsReady && (filter is null || filter(e)))
-                results[found++] = i;
+            if (e.Busy && e.IsReady && (filter is null || filter(e))) results[found++] = i;
         }
+
         return found;
     }
 

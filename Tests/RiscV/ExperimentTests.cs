@@ -2,6 +2,7 @@ using System.Text.Json;
 using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
+using Orrery.Train;
 using RiscV;
 using RiscV.Analysis;
 using RiscV.Config;
@@ -163,7 +164,7 @@ public class ExperimentTests {
     [Fact]
     public void ElfWorkload_RunsViaExperiment() {
         var workload = new ElfWorkload(TestElfPath);
-        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
 
@@ -196,6 +197,7 @@ public class ExperimentTests {
             bytes[i * 4 + 2] = (byte)(words[i] >> 16);
             bytes[i * 4 + 3] = (byte)(words[i] >> 24);
         }
+
         return bytes;
     }
 
@@ -231,25 +233,29 @@ public class ExperimentTests {
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
 
         long antMisses = result.Runs[0].Result.Find("five_stage.pipeline")!.Counters["branch_misses"];
-        long tbMisses  = result.Runs[1].Result.Find("five_stage.pipeline")!.Counters["branch_misses"];
+        long tbMisses = result.Runs[1].Result.Find("five_stage.pipeline")!.Counters["branch_misses"];
 
-        Assert.True(tbMisses < antMisses,
-            $"Expected TwoBit ({tbMisses}) < AlwaysNotTaken ({antMisses})");
+        Assert.True(
+            tbMisses < antMisses,
+            $"Expected TwoBit ({tbMisses}) < AlwaysNotTaken ({antMisses})"
+        );
     }
 
     [Fact]
     public void Experiment_Warmup_ReducesMeasuredCycles() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        NamedConfig[] configs = [new("test", new TrainConfig())];
+        NamedConfig[] configs = [new("test", new TrainConfig()),];
 
-        ExperimentResult noWarmup   = Experiment.Run(workload, configs, new RvMechanism());
+        ExperimentResult noWarmup = Experiment.Run(workload, configs, new RvMechanism());
         ExperimentResult withWarmup = Experiment.Run(workload, configs, new RvMechanism(), warmupTicks: 50);
 
-        long totalCycles    = noWarmup.Runs[0].Result.Find("five_stage.pipeline")!.Counters["cycles"];
+        long totalCycles = noWarmup.Runs[0].Result.Find("five_stage.pipeline")!.Counters["cycles"];
         long measuredCycles = withWarmup.Runs[0].Result.Find("five_stage.pipeline")!.Counters["cycles"];
 
-        Assert.True(measuredCycles < totalCycles,
-            $"Warmup should reduce measured cycle count: {measuredCycles} >= {totalCycles}");
+        Assert.True(
+            measuredCycles < totalCycles,
+            $"Warmup should reduce measured cycle count: {measuredCycles} >= {totalCycles}"
+        );
         Assert.True(measuredCycles > 0, "Some cycles should remain after 50-tick warmup");
     }
 
@@ -273,7 +279,7 @@ public class ExperimentTests {
     [Fact]
     public void ExperimentResult_ToMarkdownTable_ContainsHeaderRow() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
         string md = result.ToMarkdownTable();
@@ -287,7 +293,7 @@ public class ExperimentTests {
     [Fact]
     public void TimeSeries_NoInterval_IsNull() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
 
@@ -297,12 +303,14 @@ public class ExperimentTests {
     [Fact]
     public void TimeSeries_WithInterval_CapturesMultiplePoints() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(),
-            snapshotInterval: 5);
+        ExperimentResult result = Experiment.Run(
+            workload, configs, new RvMechanism(),
+            snapshotInterval: 5
+        );
 
-        var ts = result.Runs[0].Result.TimeSeries;
+        IReadOnlyList<TimeSeriesPoint>? ts = result.Runs[0].Result.TimeSeries;
         Assert.NotNull(ts);
         Assert.True(ts.Count > 1, $"Expected multiple time-series points, got {ts.Count}");
     }
@@ -310,29 +318,35 @@ public class ExperimentTests {
     [Fact]
     public void TimeSeries_CountersAreMonotonicallyIncreasing() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(),
-            snapshotInterval: 5);
+        ExperimentResult result = Experiment.Run(
+            workload, configs, new RvMechanism(),
+            snapshotInterval: 5
+        );
 
-        var ts = result.Runs[0].Result.TimeSeries!;
+        IReadOnlyList<TimeSeriesPoint>? ts = result.Runs[0].Result.TimeSeries!;
         for (var i = 1; i < ts.Count; i++) {
             long prev = ts[i - 1].Snapshots.Sum(s => s.Counters.GetValueOrDefault("cycles"));
             long curr = ts[i].Snapshots.Sum(s => s.Counters.GetValueOrDefault("cycles"));
-            Assert.True(curr >= prev,
-                $"cycles at point {i} ({curr}) < point {i-1} ({prev})");
+            Assert.True(
+                curr >= prev,
+                $"cycles at point {i} ({curr}) < point {i - 1} ({prev})"
+            );
         }
     }
 
     [Fact]
     public void TimeSeries_AutoInterval_ProducesReasonableCount() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(),
-            snapshotInterval: -1);
+        ExperimentResult result = Experiment.Run(
+            workload, configs, new RvMechanism(),
+            snapshotInterval: -1
+        );
 
-        var ts = result.Runs[0].Result.TimeSeries;
+        IReadOnlyList<TimeSeriesPoint>? ts = result.Runs[0].Result.TimeSeries;
         Assert.NotNull(ts);
         // Auto-interval: max(10, codeSize/200) = max(10, 20/200) = 10
         // Program runs ~60 cycles, so we expect at least 1 data point and at most a small number.
@@ -342,7 +356,7 @@ public class ExperimentTests {
     [Fact]
     public void ToTimeSeriesCsv_EmptyWhenNoTimeSeries() {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
-        NamedConfig[] configs = [new("baseline", new TrainConfig())];
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
         string csv = result.ToTimeSeriesCsv();
@@ -358,8 +372,10 @@ public class ExperimentTests {
             new("run_b", new TrainConfig(false)),
         ];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(),
-            snapshotInterval: 5);
+        ExperimentResult result = Experiment.Run(
+            workload, configs, new RvMechanism(),
+            snapshotInterval: 5
+        );
         string csv = result.ToTimeSeriesCsv();
 
         Assert.Contains("run_a", csv);

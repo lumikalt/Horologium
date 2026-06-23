@@ -96,7 +96,7 @@ public sealed class DialBoard {
             _histograms.ToDictionary(
                 kv => kv.Key,
                 kv => (IReadOnlyDictionary<string, long>)kv.Value.Buckets
-                          .ToDictionary(b => b.Key, b => b.Value)
+                                                           .ToDictionary(b => b.Key, b => b.Value)
             )
         );
 
@@ -124,7 +124,8 @@ public sealed record DialBoardSnapshot(
     /// from a run that included a warmup phase.
     /// </summary>
     internal DialBoardSnapshot Subtract(DialBoardSnapshot baseline) =>
-        new(OwnerPath,
+        new(
+            OwnerPath,
             Counters.ToDictionary(
                 kv => kv.Key,
                 kv => kv.Value - baseline.Counters.GetValueOrDefault(kv.Key)
@@ -134,8 +135,9 @@ public sealed record DialBoardSnapshot(
                 kv => kv.Key,
                 kv => (IReadOnlyDictionary<string, long>)kv.Value.ToDictionary(
                     b => b.Key,
-                    b => b.Value - (baseline.Histograms.TryGetValue(kv.Key, out var bb)
-                                        ? bb.GetValueOrDefault(b.Key) : 0)
+                    b => b.Value - (baseline.Histograms.TryGetValue(kv.Key, out IReadOnlyDictionary<string, long>? bb)
+                        ? bb.GetValueOrDefault(b.Key)
+                        : 0)
                 )
             )
         );
@@ -147,9 +149,9 @@ public sealed record DialBoardSnapshot(
         foreach ((string k, double v) in Dials) sb.AppendLine($"  {k} = {v:F4}");
         foreach ((string hName, IReadOnlyDictionary<string, long> buckets) in Histograms) {
             sb.AppendLine($"  {hName}:");
-            foreach ((string bk, long bv) in buckets.OrderByDescending(p => p.Value))
-                sb.AppendLine($"    {bk} = {bv}");
+            foreach ((string bk, long bv) in buckets.OrderByDescending(p => p.Value)) sb.AppendLine($"    {bk} = {bv}");
         }
+
         return sb.ToString();
     }
 }

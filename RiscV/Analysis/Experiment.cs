@@ -45,12 +45,12 @@ public static class Experiment {
 
             var train = new FiveStageTrain(
                 mechanism, memory,
-                entryPoint: workload.EntryPoint,
-                forwardingEnabled: config.ForwardingEnabled,
-                predictor: config.Predictor?.Build(),
-                iMemConfig: config.ToIMemoryConfig(),
-                dMemConfig: config.ToDMemoryConfig(),
-                storeBufferCapacity: config.StoreBufferCapacity
+                workload.EntryPoint,
+                config.ForwardingEnabled,
+                config.Predictor?.Build(),
+                config.ToIMemoryConfig(),
+                config.ToDMemoryConfig(),
+                config.StoreBufferCapacity
             );
 
             RevolutionResult result = train.Run(maxTicks, warmupTicks, resolvedInterval);

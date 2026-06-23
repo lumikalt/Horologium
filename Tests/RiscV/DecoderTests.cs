@@ -594,11 +594,11 @@ public class DecoderTests {
         Assert.IsType<RvFlw>(i.Payload);
         Assert.Equal(ToothClass.Load, i.Class);
         var op = (RvFlw)i.Payload!;
-        Assert.Equal(33, op.Rd);   // f1 in unified (1+32)
-        Assert.Equal(2, op.Rs1);   // x2 (integer base)
+        Assert.Equal(33, op.Rd); // f1 in unified (1+32)
+        Assert.Equal(2, op.Rs1); // x2 (integer base)
         Assert.Equal(4, op.Imm);
         Assert.Equal(33, i.DestinationRegister);
-        Assert.Equal([2], i.SourceRegisters);
+        Assert.Equal([2,], i.SourceRegisters);
     }
 
     [Fact]
@@ -609,11 +609,11 @@ public class DecoderTests {
         Assert.IsType<RvFsw>(i.Payload);
         Assert.Equal(ToothClass.Store, i.Class);
         var op = (RvFsw)i.Payload!;
-        Assert.Equal(1, op.Rs1);    // x1 (integer base)
-        Assert.Equal(34, op.Rs2);   // f2 in unified (2+32)
+        Assert.Equal(1, op.Rs1);  // x1 (integer base)
+        Assert.Equal(34, op.Rs2); // f2 in unified (2+32)
         Assert.Equal(4, op.Imm);
         Assert.Equal(-1, i.DestinationRegister);
-        Assert.Equal([1, 34], i.SourceRegisters);
+        Assert.Equal([1, 34,], i.SourceRegisters);
     }
 
     [Fact]
@@ -627,7 +627,7 @@ public class DecoderTests {
         Assert.Equal(33, op.Rd);
         Assert.Equal(34, op.Rs1);
         Assert.Equal(35, op.Rs2);
-        Assert.Equal([34, 35], i.SourceRegisters);
+        Assert.Equal([34, 35,], i.SourceRegisters);
     }
 
     [Fact]
@@ -659,7 +659,7 @@ public class DecoderTests {
         var op = (RvFsqrtS)i.Payload!;
         Assert.Equal(33, op.Rd);
         Assert.Equal(34, op.Rs1);
-        Assert.Equal([34], i.SourceRegisters);
+        Assert.Equal([34,], i.SourceRegisters);
     }
 
     [Fact]
@@ -703,11 +703,11 @@ public class DecoderTests {
         ITooth i = D(0xA03120D3);
         Assert.IsType<RvFeqS>(i.Payload);
         var op = (RvFeqS)i.Payload!;
-        Assert.Equal(1, op.Rd);    // integer result register
-        Assert.Equal(34, op.Rs1);  // f2 unified
-        Assert.Equal(35, op.Rs2);  // f3 unified
+        Assert.Equal(1, op.Rd);   // integer result register
+        Assert.Equal(34, op.Rs1); // f2 unified
+        Assert.Equal(35, op.Rs2); // f3 unified
         Assert.Equal(1, i.DestinationRegister);
-        Assert.Equal([34, 35], i.SourceRegisters);
+        Assert.Equal([34, 35,], i.SourceRegisters);
     }
 
     [Fact]
@@ -733,7 +733,7 @@ public class DecoderTests {
         Assert.Equal(1, op.Rd);   // integer result
         Assert.Equal(34, op.Rs1); // f2 unified
         Assert.Equal(1, i.DestinationRegister);
-        Assert.Equal([34], i.SourceRegisters);
+        Assert.Equal([34,], i.SourceRegisters);
     }
 
     [Fact]
@@ -760,8 +760,8 @@ public class DecoderTests {
         ITooth i = D(0xD00100D3);
         Assert.IsType<RvFcvtSW>(i.Payload);
         var op = (RvFcvtSW)i.Payload!;
-        Assert.Equal(33, op.Rd);  // f1 unified FP dest
-        Assert.Equal(2, op.Rs1);  // x2 integer source
+        Assert.Equal(33, op.Rd); // f1 unified FP dest
+        Assert.Equal(2, op.Rs1); // x2 integer source
         Assert.Equal(33, i.DestinationRegister);
     }
 
@@ -788,8 +788,8 @@ public class DecoderTests {
         ITooth i = D(0xF00100D3);
         Assert.IsType<RvFmvWX>(i.Payload);
         var op = (RvFmvWX)i.Payload!;
-        Assert.Equal(33, op.Rd);  // f1 unified FP dest
-        Assert.Equal(2, op.Rs1);  // x2 integer source
+        Assert.Equal(33, op.Rd); // f1 unified FP dest
+        Assert.Equal(2, op.Rs1); // x2 integer source
     }
 
     [Fact]
@@ -803,7 +803,7 @@ public class DecoderTests {
         Assert.Equal(34, op.Rs1);
         Assert.Equal(35, op.Rs2);
         Assert.Equal(36, op.Rs3);
-        Assert.Equal([34, 35, 36], i.SourceRegisters);
+        Assert.Equal([34, 35, 36,], i.SourceRegisters);
     }
 
     [Fact]

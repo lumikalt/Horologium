@@ -34,7 +34,7 @@ public sealed class RenameMap {
         _freeList = new Queue<int>(physCount - archCount);
 
         // Identity mapping for the initial arch registers, rest are free.
-        for (int i = 0; i < archCount; i++) _rat[i] = i;
+        for (var i = 0; i < archCount; i++) _rat[i] = i;
         for (int i = archCount; i < physCount; i++) _freeList.Enqueue(i);
     }
 
@@ -58,7 +58,8 @@ public sealed class RenameMap {
         ValidateArch(arch);
         if (!HasFree)
             throw new InvalidOperationException(
-                "No physical registers available. Check HasFree before calling Rename.");
+                "No physical registers available. Check HasFree before calling Rename."
+            );
         int old = _rat[arch];
         int newPhys = _freeList.Dequeue();
         _rat[arch] = newPhys;
@@ -71,8 +72,7 @@ public sealed class RenameMap {
     /// the slot for this architectural register has committed.
     /// </summary>
     public void FreePhysical(int phys) {
-        if ((uint)phys >= (uint)_physCount)
-            throw new ArgumentOutOfRangeException(nameof(phys));
+        if ((uint)phys >= (uint)_physCount) throw new ArgumentOutOfRangeException(nameof(phys));
         _freeList.Enqueue(phys);
     }
 
@@ -88,14 +88,16 @@ public sealed class RenameMap {
 
     /// <summary>Resets to the initial identity mapping and replenishes the free list.</summary>
     public void Reset() {
-        for (int i = 0; i < _archCount; i++) _rat[i] = i;
+        for (var i = 0; i < _archCount; i++) _rat[i] = i;
         _freeList.Clear();
         for (int i = _archCount; i < _physCount; i++) _freeList.Enqueue(i);
     }
 
     private void ValidateArch(int arch) {
         if ((uint)arch >= (uint)_archCount)
-            throw new ArgumentOutOfRangeException(nameof(arch),
-                $"Architectural register {arch} is out of range [0, {_archCount}).");
+            throw new ArgumentOutOfRangeException(
+                nameof(arch),
+                $"Architectural register {arch} is out of range [0, {_archCount})."
+            );
     }
 }

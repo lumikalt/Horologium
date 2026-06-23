@@ -193,7 +193,7 @@ public sealed class Train {
         DialBoardSnapshot[]? baseline = null;
         if (warmupTicks > 0) {
             _escapement.Run(warmupTicks);
-            baseline = [.._gears.Select(g => g.Dials.Snapshot())];
+            baseline = [.._gears.Select(g => g.Dials.Snapshot()),];
         }
 
         // Step 4 — Measurement phase
@@ -203,7 +203,7 @@ public sealed class Train {
 
         if (snapshotInterval > 0) {
             timeSeries = [];
-            bool halted = false;
+            var halted = false;
             for (long boundary = startTick + snapshotInterval;
                  boundary <= startTick + maxTicks && !halted;
                  boundary += snapshotInterval) {
@@ -212,8 +212,8 @@ public sealed class Train {
 
                 long relTick = _escapement.CurrentTick - startTick;
                 IReadOnlyList<DialBoardSnapshot> tsSnaps = baseline is null
-                    ? [.._gears.Select(g => g.Dials.Snapshot())]
-                    : [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i]))];
+                    ? [.._gears.Select(g => g.Dials.Snapshot()),]
+                    : [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i])),];
                 timeSeries.Add(new TimeSeriesPoint(relTick, tsSnaps));
 
                 if (chunkEvents == 0) halted = true;
@@ -221,9 +221,8 @@ public sealed class Train {
 
             // Run remainder up to maxTicks if not already halted.
             if (!halted) totalEvents += _escapement.Run(startTick + maxTicks);
-        } else {
-            totalEvents = _escapement.Run(startTick + maxTicks);
         }
+        else { totalEvents = _escapement.Run(startTick + maxTicks); }
 
         long ticks = _escapement.CurrentTick - startTick;
 
@@ -232,8 +231,8 @@ public sealed class Train {
 
         // Step 6 — Snapshot; subtract warmup baseline if present
         List<DialBoardSnapshot> snapshots = baseline is null
-            ? [.._gears.Select(g => g.Dials.Snapshot())]
-            : [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i]))];
+            ? [.._gears.Select(g => g.Dials.Snapshot()),]
+            : [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i])),];
 
         return new RevolutionResult(ticks, totalEvents, snapshots, timeSeries);
     }

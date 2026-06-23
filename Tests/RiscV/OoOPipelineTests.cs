@@ -1,3 +1,5 @@
+using Orrery.Observation;
+using Orrery.Train;
 using RiscV;
 using RiscV.Memory;
 using RiscV.Trains;
@@ -31,12 +33,13 @@ public class OoOPipelineTests {
 
     private static void Load(FlatMemory mem, params uint[] words) {
         var bytes = new byte[words.Length * 4];
-        for (int i = 0; i < words.Length; i++) {
+        for (var i = 0; i < words.Length; i++) {
             bytes[i * 4 + 0] = (byte)words[i];
             bytes[i * 4 + 1] = (byte)(words[i] >> 8);
             bytes[i * 4 + 2] = (byte)(words[i] >> 16);
             bytes[i * 4 + 3] = (byte)(words[i] >> 24);
         }
+
         mem.Load(0, bytes);
     }
 
@@ -52,7 +55,8 @@ public class OoOPipelineTests {
         // add  x3, x1, x2    → x3 = 42
         // ebreak
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x00a00093, // addi x1, x0, 10
             0x02000113, // addi x2, x0, 32
             0x002081b3, // add  x3, x1, x2
@@ -73,7 +77,8 @@ public class OoOPipelineTests {
         // addi x1, x1, 1     → x1 = 4
         // ebreak
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x00100093, // addi x1, x0, 1
             0x00108093, // addi x1, x1, 1
             0x00108093, // addi x1, x1, 1
@@ -88,8 +93,9 @@ public class OoOPipelineTests {
     public void Program_IndependentInstructions_AllCommit() {
         // Six independent ADDIs — no RAW hazards. All should commit correctly.
         // addi x1..x6, x0, 1..6
-        (OoOETrain train, FlatMemory mem) = Make(issueWidth: 2);
-        Load(mem,
+        (OoOETrain train, FlatMemory mem) = Make(2);
+        Load(
+            mem,
             0x00100093, // addi x1, x0, 1
             0x00200113, // addi x2, x0, 2
             0x00300193, // addi x3, x0, 3
@@ -114,7 +120,8 @@ public class OoOPipelineTests {
         // sub  x3, x1, x2   → x3 = 7
         // ebreak
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x00a00093, // addi x1, x0, 10
             0x00300113, // addi x2, x0, 3
             0x402081b3, // sub  x3, x1, x2
@@ -131,7 +138,8 @@ public class OoOPipelineTests {
         // and  x3, x1, x2    → x3 = 15
         // ebreak
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x0ff00093, // addi x1, x0, 0xFF
             0x00f00113, // addi x2, x0, 0x0F
             0x0020f1b3, // and  x3, x1, x2
@@ -151,7 +159,8 @@ public class OoOPipelineTests {
         // lw   x3, 0(x2)      → x3 = 42
         // ebreak
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x02a00093, // addi x1, x0, 42
             0x10000113, // addi x2, x0, 0x100
             0x00112023, // sw   x1, 0(x2)
@@ -171,14 +180,15 @@ public class OoOPipelineTests {
         // addi x2, x0, 42  → x2 = 42
         // ebreak
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x0080006f, // jal x0, +8
             0x06300093, // addi x1, x0, 99   (skipped)
             0x02a00113, // addi x2, x0, 42
             0x00100073  // ebreak
         );
         train.Run();
-        Assert.Equal(0u,  Reg(train, 1)); // skipped instruction — x1 unchanged
+        Assert.Equal(0u, Reg(train, 1)); // skipped instruction — x1 unchanged
         Assert.Equal(42u, Reg(train, 2));
     }
 
@@ -191,7 +201,8 @@ public class OoOPipelineTests {
         // addi x4, x0, 42   → x4 = 42
         // ebreak
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x00500093, // addi x1, x0, 5
             0x00500113, // addi x2, x0, 5
             0x00208463, // beq  x1, x2, +8
@@ -200,7 +211,7 @@ public class OoOPipelineTests {
             0x00100073  // ebreak
         );
         train.Run();
-        Assert.Equal(0u,  Reg(train, 3)); // skipped
+        Assert.Equal(0u, Reg(train, 3)); // skipped
         Assert.Equal(42u, Reg(train, 4));
     }
 
@@ -212,7 +223,8 @@ public class OoOPipelineTests {
         // addi x3, x0, 10   → x3 = 10
         // ebreak
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x00300093, // addi x1, x0, 3
             0x00500113, // addi x2, x0, 5
             0x00208463, // beq  x1, x2, +8
@@ -229,26 +241,29 @@ public class OoOPipelineTests {
     public void Stats_RetiredCountMatchesInstructionCount() {
         // 3 ADDIs + EBREAK = 4 instructions total
         (OoOETrain train, FlatMemory mem) = Make();
-        Load(mem,
+        Load(
+            mem,
             0x00100093, // addi x1, x0, 1
             0x00200113, // addi x2, x0, 2
             0x00300193, // addi x3, x0, 3
             0x00100073  // ebreak
         );
-        var result = train.Run();
-        var snap = result.Find("ooo.pipeline")!;
+        RevolutionResult result = train.Run();
+        DialBoardSnapshot snap = result.Find("ooo.pipeline")!;
 
         Assert.Equal(4L, snap.Counters["retired"]); // 3 ADDIs + EBREAK
-        Assert.True(snap.Counters["cycles"] >= 4,
-            $"Expected cycles >= 4, got {snap.Counters["cycles"]}");
+        Assert.True(
+            snap.Counters["cycles"] >= 4,
+            $"Expected cycles >= 4, got {snap.Counters["cycles"]}"
+        );
     }
 
     [Fact]
     public void Stats_SuperscalarIssueWidth2_FasterThanSequential() {
         // 6 independent ADDIs: with issue width 2, fewer cycles than 1-wide
         // because the pipeline can commit 2 instructions per cycle in steady state.
-        (OoOETrain wide,   FlatMemory mem1) = Make(issueWidth: 2);
-        (OoOETrain narrow, FlatMemory mem2) = Make(issueWidth: 1);
+        (OoOETrain wide, FlatMemory mem1) = Make(2);
+        (OoOETrain narrow, FlatMemory mem2) = Make(1);
 
         uint[] program = [
             0x00100093, // addi x1, x0, 1
@@ -257,29 +272,34 @@ public class OoOPipelineTests {
             0x00400213, // addi x4, x0, 4
             0x00500293, // addi x5, x0, 5
             0x00600313, // addi x6, x0, 6
-            0x00100073  // ebreak
+            0x00100073, // ebreak
         ];
         Load(mem1, program);
         Load(mem2, program);
 
-        long cycles2 = wide.Run()  .Find("ooo.pipeline")!.Counters["cycles"];
+        long cycles2 = wide.Run().Find("ooo.pipeline")!.Counters["cycles"];
         long cycles1 = narrow.Run().Find("ooo.pipeline")!.Counters["cycles"];
 
-        Assert.True(cycles2 <= cycles1,
-            $"Expected wide ({cycles2} cycles) ≤ narrow ({cycles1} cycles)");
+        Assert.True(
+            cycles2 <= cycles1,
+            $"Expected wide ({cycles2} cycles) ≤ narrow ({cycles1} cycles)"
+        );
     }
 
     [Fact]
     public void Stats_CyclesGe1_PerInstruction() {
         // CPI must be >= 1: we have one execute slot per cycle.
-        (OoOETrain train, FlatMemory mem) = Make(issueWidth: 1);
-        Load(mem,
+        (OoOETrain train, FlatMemory mem) = Make(1);
+        Load(
+            mem,
             0x00100093, // addi x1, x0, 1
             0x00200113, // addi x2, x0, 2
             0x00100073  // ebreak
         );
-        var snap = train.Run().Find("ooo.pipeline")!;
-        Assert.True(snap.Counters["cycles"] >= snap.Counters["retired"],
-            $"cycles={snap.Counters["cycles"]} retired={snap.Counters["retired"]}");
+        DialBoardSnapshot snap = train.Run().Find("ooo.pipeline")!;
+        Assert.True(
+            snap.Counters["cycles"] >= snap.Counters["retired"],
+            $"cycles={snap.Counters["cycles"]} retired={snap.Counters["retired"]}"
+        );
     }
 }

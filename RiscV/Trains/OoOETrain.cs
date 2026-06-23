@@ -131,60 +131,71 @@ internal sealed class OoOPipelineCore : Gear {
 
     // Cross-tick latches
     private readonly Queue<FetchedInstr> _decodeQueue = new();
-    private readonly List<IssuedInstr>   _execBuffer  = new();
-    private readonly List<ExecResult>    _cdbBuffer   = new();
+    private readonly List<IssuedInstr> _execBuffer = new();
+    private readonly List<ExecResult> _cdbBuffer = new();
 
     // Runtime state
     private ulong _fetchPc;
-    private bool  _halted;
-    private bool  _flushPending;
+    private bool _halted;
+    private bool _flushPending;
     private ulong _flushTarget;
 
     // Counters (initialised in Initialize)
-    private Counter _cyclesCounter   = null!;
-    private Counter _retiredCounter  = null!;
-    private Counter _flushesCounter  = null!;
+    private Counter _cyclesCounter = null!;
+    private Counter _retiredCounter = null!;
+    private Counter _flushesCounter = null!;
 
     public RvArchState State { get; }
 
     public OoOPipelineCore(
-        string name, SimNode parent, Escapement esc,
-        IMechanism mechanism, IMemory memory, ulong entryPoint,
-        int issueWidth, int robCapacity, int iqCapacity, int extraPhysRegs,
+        string name,
+        SimNode parent,
+        Escapement esc,
+        IMechanism mechanism,
+        IMemory memory,
+        ulong entryPoint,
+        int issueWidth,
+        int robCapacity,
+        int iqCapacity,
+        int extraPhysRegs,
         IBranchPredictor predictor
     ) : base(name, parent, esc) {
-        _decoder         = mechanism.Decoder;
-        _executor        = mechanism.Executor;
-        _trapController  = mechanism.TrapController;
-        _predictor       = predictor;
-        _memory          = memory;
-        _capMem          = new CapturingMemory(memory);
-        _issueWidth      = issueWidth;
-        _maxDecodeDepth  = issueWidth * 4;
-        _fetchPc         = entryPoint;
+        _decoder = mechanism.Decoder;
+        _executor = mechanism.Executor;
+        _trapController = mechanism.TrapController;
+        _predictor = predictor;
+        _memory = memory;
+        _capMem = new CapturingMemory(memory);
+        _issueWidth = issueWidth;
+        _maxDecodeDepth = issueWidth * 4;
+        _fetchPc = entryPoint;
 
-        State     = (RvArchState)mechanism.CreateArchState();
-        State.Pc  = entryPoint;
+        State = (RvArchState)mechanism.CreateArchState();
+        State.Pc = entryPoint;
 
         const int archRegs = 64; // RV32IF unified: x0–x31 + f0–f31
         int physRegs = archRegs + extraPhysRegs;
         _prf = new PhysicalRegisterFile(physRegs);
         _rat = new RenameMap(archRegs, physRegs);
         _rob = new ReorderBuffer(robCapacity);
-        _iq  = new IssueQueue(iqCapacity);
+        _iq = new IssueQueue(iqCapacity);
     }
 
     public override void Initialize() {
-        _cyclesCounter  = Dials.AddCounter("cycles",  "Total cycles");
+        _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
         _flushesCounter = Dials.AddCounter("flushes", "Pipeline flushes");
 
-        Dials.AddDial("cpi",
+        Dials.AddDial(
+            "cpi",
             () => _retiredCounter.Value == 0 ? 0.0 : _cyclesCounter.Value / (double)_retiredCounter.Value,
-            "Cycles per instruction");
-        Dials.AddDial("ipc",
+            "Cycles per instruction"
+        );
+        Dials.AddDial(
+            "ipc",
             () => _cyclesCounter.Value == 0 ? 0.0 : _retiredCounter.Value / (double)_cyclesCounter.Value,
-            "Instructions per cycle");
+            "Instructions per cycle"
+        );
     }
 
     public override void Wind() =>
@@ -230,15 +241,15 @@ internal sealed class OoOPipelineCore : Gear {
     private void StepComplete() {
         foreach (ExecResult r in _cdbBuffer) {
             RobEntry rob = _rob.At(r.RobIdx);
-            rob.IsComplete    = true;
+            rob.IsComplete = true;
             rob.ResolvedNextPc = r.ResolvedNextPc;
-            rob.HasTrap       = r.Trap is not null;
-            rob.Trap          = r.Trap;
+            rob.HasTrap = r.Trap is not null;
+            rob.Trap = r.Trap;
 
             if (r.HasStoreCapture) {
                 rob.StoreAddress = r.StoreAddr;
-                rob.StoreValue   = r.StoreVal;
-                rob.StoreWidth   = r.StoreBytes;
+                rob.StoreValue = r.StoreVal;
+                rob.StoreWidth = r.StoreBytes;
             }
 
             if (r.RegValue.HasValue && r.PhysDest >= 0) {
@@ -246,12 +257,13 @@ internal sealed class OoOPipelineCore : Gear {
                 _iq.Broadcast(r.PhysDest, r.RegValue.Value);
             }
         }
+
         _cdbBuffer.Clear();
     }
 
     /// <summary>In-order retirement from the ROB head.</summary>
     private void StepCommit() {
-        int committed = 0;
+        var committed = 0;
         while (!_rob.IsEmpty && _rob.Head.IsComplete && committed < _issueWidth) {
             RobEntry head = _rob.Head;
 
@@ -274,17 +286,16 @@ internal sealed class OoOPipelineCore : Gear {
                 return;
             }
 
-            if (head.IsStore)
-                _memory.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
+            if (head.IsStore) _memory.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
 
             CommitRegisters(head);
 
             if (head.ResolvedNextPc.HasValue) {
                 // Capture all fields from head before Retire() clears the slot.
-                ulong resolvedPc   = head.ResolvedNextPc.Value;
-                ulong instrPc      = head.Pc;
-                ulong predictedPc  = head.PredictedNextPc;
-                int   instrSize    = head.Instruction?.SizeBytes ?? 4;
+                ulong resolvedPc = head.ResolvedNextPc.Value;
+                ulong instrPc = head.Pc;
+                ulong predictedPc = head.PredictedNextPc;
+                int instrSize = head.Instruction?.SizeBytes ?? 4;
 
                 bool taken = resolvedPc != instrPc + (ulong)instrSize;
                 _predictor.Update(instrPc, taken, resolvedPc);
@@ -307,27 +318,27 @@ internal sealed class OoOPipelineCore : Gear {
 
     /// <summary>Execute instructions issued last tick, filling the CDB buffer.</summary>
     private void StepExecute() {
-        foreach (IssuedInstr issued in _execBuffer)
-            _cdbBuffer.Add(ExecuteOne(issued));
+        foreach (IssuedInstr issued in _execBuffer) _cdbBuffer.Add(ExecuteOne(issued));
         _execBuffer.Clear();
     }
 
     /// <summary>Select up to issueWidth ready IQ entries and forward to execute.</summary>
     private void StepIssue() {
-        int issued = 0;
-        for (int slot = 0; slot < _iq.Capacity && issued < _issueWidth; slot++) {
+        var issued = 0;
+        for (var slot = 0; slot < _iq.Capacity && issued < _issueWidth; slot++) {
             RsEntry rs = _iq.At(slot);
             if (!rs.Busy || !rs.IsReady) continue;
 
             // Conservative load ordering: stall a load if any preceding in-flight
             // store hasn't committed yet (its write is deferred to ROB commit).
-            if (rs.Instruction?.Class == ToothClass.Load && HasPrecedingPendingStore(rs.RobIndex))
-                continue;
+            if (rs.Instruction?.Class == ToothClass.Load && HasPrecedingPendingStore(rs.RobIndex)) continue;
 
-            _execBuffer.Add(new IssuedInstr(
-                rs.RobIndex, rs.PhysDestination, rs.Instruction!, rs.Pc,
-                rs.Src1Value, rs.Src2Value, rs.Src3Value
-            ));
+            _execBuffer.Add(
+                new IssuedInstr(
+                    rs.RobIndex, rs.PhysDestination, rs.Instruction!, rs.Pc,
+                    rs.Src1Value, rs.Src2Value, rs.Src3Value
+                )
+            );
             _iq.Free(slot);
             issued++;
         }
@@ -338,6 +349,7 @@ internal sealed class OoOPipelineCore : Gear {
             if (idx == loadRobIndex) return false;
             if (entry.IsStore && !entry.IsComplete) return true;
         }
+
         return false;
     }
 
@@ -374,27 +386,47 @@ internal sealed class OoOPipelineCore : Gear {
             // Allocate ROB entry.
             int robIdx = _rob.Allocate();
             RobEntry rob = _rob.At(robIdx);
-            rob.Pc                 = fi.Pc;
-            rob.Instruction        = instr;
-            rob.ArchDestination    = destArch > 0 ? destArch : -1;
-            rob.PhysDestination    = newPhys;
+            rob.Pc = fi.Pc;
+            rob.Instruction = instr;
+            rob.ArchDestination = destArch > 0 ? destArch : -1;
+            rob.PhysDestination = newPhys;
             rob.PrevPhysDestination = oldPhys;
-            rob.PredictedNextPc    = fi.PredictedNextPc;
-            rob.IsStore            = instr.Class == ToothClass.Store;
-            rob.IsHalt             = instr.Payload is RvEbreak;
+            rob.PredictedNextPc = fi.PredictedNextPc;
+            rob.IsStore = instr.Class == ToothClass.Store;
+            rob.IsHalt = instr.Payload is RvEbreak;
 
             // Allocate IQ slot and fill source operands from pre-rename RAT snapshot.
             int iqSlot = _iq.Allocate();
             RsEntry rs = _iq.At(iqSlot);
-            rs.RobIndex          = robIdx;
-            rs.Instruction       = instr;
-            rs.Pc                = fi.Pc;
-            rs.PredictedNextPc   = fi.PredictedNextPc;
-            rs.PhysDestination   = newPhys;
+            rs.RobIndex = robIdx;
+            rs.Instruction = instr;
+            rs.Pc = fi.Pc;
+            rs.PredictedNextPc = fi.PredictedNextPc;
+            rs.PhysDestination = newPhys;
 
-            if (p1 >= 0) { if (_prf.IsReady(p1)) { rs.Src1Ready = true; rs.Src1Value = _prf.Read(p1); } else rs.Src1Tag = p1; }
-            if (p2 >= 0) { if (_prf.IsReady(p2)) { rs.Src2Ready = true; rs.Src2Value = _prf.Read(p2); } else rs.Src2Tag = p2; }
-            if (p3 >= 0) { if (_prf.IsReady(p3)) { rs.Src3Ready = true; rs.Src3Value = _prf.Read(p3); } else rs.Src3Tag = p3; }
+            if (p1 >= 0) {
+                if (_prf.IsReady(p1)) {
+                    rs.Src1Ready = true;
+                    rs.Src1Value = _prf.Read(p1);
+                }
+                else { rs.Src1Tag = p1; }
+            }
+
+            if (p2 >= 0) {
+                if (_prf.IsReady(p2)) {
+                    rs.Src2Ready = true;
+                    rs.Src2Value = _prf.Read(p2);
+                }
+                else { rs.Src2Tag = p2; }
+            }
+
+            if (p3 >= 0) {
+                if (_prf.IsReady(p3)) {
+                    rs.Src3Ready = true;
+                    rs.Src3Value = _prf.Read(p3);
+                }
+                else { rs.Src3Tag = p3; }
+            }
 
             _decodeQueue.Dequeue();
         }
@@ -402,12 +434,12 @@ internal sealed class OoOPipelineCore : Gear {
 
     /// <summary>Fetch up to issueWidth instructions into the decode queue.</summary>
     private void StepFetch() {
-        int fetched = 0;
+        var fetched = 0;
         while (fetched < _issueWidth && _decodeQueue.Count < _maxDecodeDepth) {
             ITooth decoded;
             uint raw;
             try {
-                raw     = (uint)_memory.Read(_fetchPc, 4);
+                raw = (uint)_memory.Read(_fetchPc, 4);
                 decoded = _decoder.Decode(_fetchPc, raw);
             }
             catch {
@@ -423,9 +455,7 @@ internal sealed class OoOPipelineCore : Gear {
                 BranchPrediction pred = _predictor.Predict(_fetchPc);
                 predictedNext = pred.PredictedTaken ? pred.PredictedTarget : _fetchPc + (ulong)decoded.SizeBytes;
             }
-            else {
-                predictedNext = _fetchPc + (ulong)decoded.SizeBytes;
-            }
+            else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
             _decodeQueue.Enqueue(new FetchedInstr(_fetchPc, decoded, predictedNext));
             _fetchPc = predictedNext;
@@ -439,12 +469,11 @@ internal sealed class OoOPipelineCore : Gear {
         _flushesCounter.Increment();
 
         // Walk ROB youngest-to-oldest, restoring the RAT to committed state.
-        foreach ((_, RobEntry entry) in _rob.InOrder().Reverse()) {
+        foreach ((_, RobEntry entry) in _rob.InOrder().Reverse())
             if (entry.ArchDestination > 0 && entry.PhysDestination >= 0) {
                 _rat.RestoreMapping(entry.ArchDestination, entry.PrevPhysDestination);
                 _rat.FreePhysical(entry.PhysDestination);
             }
-        }
 
         _rob.Flush();
         _iq.Flush();
@@ -452,7 +481,7 @@ internal sealed class OoOPipelineCore : Gear {
         _execBuffer.Clear();
         _cdbBuffer.Clear();
 
-        _fetchPc      = _flushTarget;
+        _fetchPc = _flushTarget;
         _flushPending = false;
     }
 
@@ -484,10 +513,10 @@ internal sealed class OoOPipelineCore : Gear {
 
         ulong? resolvedNextPc = issued.Instr.Class switch {
             ToothClass.Branch =>
-                er.BranchTarget ?? issued.Pc + (ulong)(issued.Instr.SizeBytes),
+                er.BranchTarget ?? issued.Pc + (ulong)issued.Instr.SizeBytes,
             ToothClass.ConditionalBranch =>
                 er.BranchTaken
-                    ? (er.BranchTarget ?? issued.Pc + (ulong)issued.Instr.SizeBytes)
+                    ? er.BranchTarget ?? issued.Pc + (ulong)issued.Instr.SizeBytes
                     : issued.Pc + (ulong)issued.Instr.SizeBytes,
             _ => null,
         };
@@ -507,13 +536,12 @@ internal sealed class OoOPipelineCore : Gear {
         if (head.PhysDestination >= 0 && head.ArchDestination > 0) {
             ulong val = _prf.Read(head.PhysDestination);
             State.IntegerRegisters.Write(head.ArchDestination, val);
-            if (head.PrevPhysDestination >= 0)
-                _rat.FreePhysical(head.PrevPhysDestination);
+            if (head.PrevPhysDestination >= 0) _rat.FreePhysical(head.PrevPhysDestination);
         }
     }
 
     private void SetFlush(ulong target) {
         _flushPending = true;
-        _flushTarget  = target;
+        _flushTarget = target;
     }
 }

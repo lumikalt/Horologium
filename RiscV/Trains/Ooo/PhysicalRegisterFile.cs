@@ -21,8 +21,15 @@ public sealed class PhysicalRegisterFile {
         Array.Fill(_ready, true); // all arch regs start with a valid zero value
     }
 
-    public ulong Read(int phys) { Validate(phys); return _values[phys]; }
-    public bool IsReady(int phys) { Validate(phys); return _ready[phys]; }
+    public ulong Read(int phys) {
+        Validate(phys);
+        return _values[phys];
+    }
+
+    public bool IsReady(int phys) {
+        Validate(phys);
+        return _ready[phys];
+    }
 
     /// <summary>Writes a result and marks the register ready. Called by the CDB at Complete.</summary>
     public void Write(int phys, ulong value) {
@@ -44,7 +51,9 @@ public sealed class PhysicalRegisterFile {
 
     private void Validate(int phys) {
         if ((uint)phys >= (uint)Count)
-            throw new ArgumentOutOfRangeException(nameof(phys),
-                $"Physical register {phys} is out of range [0, {Count}).");
+            throw new ArgumentOutOfRangeException(
+                nameof(phys),
+                $"Physical register {phys} is out of range [0, {Count})."
+            );
     }
 }

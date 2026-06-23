@@ -32,13 +32,13 @@ public sealed class ElfWorkload : IWorkload {
         BinaryPrimitives.ReadUInt32LittleEndian(elf[24..]);
 
     private static int ComputeMinMemorySize(ReadOnlySpan<byte> elf) {
-        uint phoff     = BinaryPrimitives.ReadUInt32LittleEndian(elf[28..]);
+        uint phoff = BinaryPrimitives.ReadUInt32LittleEndian(elf[28..]);
         ushort phentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[42..]);
-        ushort phnum   = BinaryPrimitives.ReadUInt16LittleEndian(elf[44..]);
+        ushort phnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[44..]);
 
         uint maxEnd = 0;
         for (var i = 0; i < phnum; i++) {
-            int ph = (int)(phoff + (uint)(i * phentsz));
+            var ph = (int)(phoff + (uint)(i * phentsz));
             if (BinaryPrimitives.ReadUInt32LittleEndian(elf[ph..]) != 1) continue; // PT_LOAD = 1
             uint paddr = BinaryPrimitives.ReadUInt32LittleEndian(elf[(ph + 12)..]);
             uint memsz = BinaryPrimitives.ReadUInt32LittleEndian(elf[(ph + 20)..]);

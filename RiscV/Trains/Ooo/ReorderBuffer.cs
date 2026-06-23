@@ -114,7 +114,7 @@ public sealed class ReorderBuffer {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 2, nameof(capacity));
         Capacity = capacity;
         _slots = new RobEntry[capacity];
-        for (int i = 0; i < capacity; i++) _slots[i] = new RobEntry();
+        for (var i = 0; i < capacity; i++) _slots[i] = new RobEntry();
     }
 
     /// <summary>Returns the entry at a given ROB index.</summary>
@@ -128,8 +128,7 @@ public sealed class ReorderBuffer {
     /// Check <see cref="IsFull"/> before calling.
     /// </summary>
     public int Allocate() {
-        if (IsFull)
-            throw new InvalidOperationException("ROB is full. Check IsFull before allocating.");
+        if (IsFull) throw new InvalidOperationException("ROB is full. Check IsFull before allocating.");
         int index = _tail;
         _slots[index].Valid = true;
         _tail = (_tail + 1) % Capacity;
@@ -142,8 +141,7 @@ public sealed class ReorderBuffer {
     /// The caller must have verified <see cref="Head"/>.IsComplete is true.
     /// </summary>
     public void Retire() {
-        if (IsEmpty)
-            throw new InvalidOperationException("ROB is empty; nothing to retire.");
+        if (IsEmpty) throw new InvalidOperationException("ROB is empty; nothing to retire.");
         _slots[_head].Clear();
         _head = (_head + 1) % Capacity;
         Count--;
@@ -158,7 +156,7 @@ public sealed class ReorderBuffer {
     /// RenameMap.FreePhysical to undo the Dispatch-time rename.
     /// </summary>
     public void Flush() {
-        for (int i = 0; i < Capacity; i++) _slots[i].Clear();
+        for (var i = 0; i < Capacity; i++) _slots[i].Clear();
         _head = 0;
         _tail = 0;
         Count = 0;
@@ -169,7 +167,7 @@ public sealed class ReorderBuffer {
     /// For flush/RAT-recovery, iterate this in reverse.
     /// </summary>
     public IEnumerable<(int Index, RobEntry Entry)> InOrder() {
-        for (int i = 0; i < Count; i++) {
+        for (var i = 0; i < Count; i++) {
             int idx = (_head + i) % Capacity;
             yield return (idx, _slots[idx]);
         }

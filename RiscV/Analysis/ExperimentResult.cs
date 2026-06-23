@@ -23,7 +23,7 @@ public sealed class ExperimentResult {
     /// counter/dial names across every gear snapshot in every run.
     /// </summary>
     public string ToCsv() {
-        var (counterCols, dialCols) = CollectColumns();
+        (List<string> counterCols, List<string> dialCols) = CollectColumns();
         var sb = new StringBuilder();
 
         // Header
@@ -35,16 +35,18 @@ public sealed class ExperimentResult {
         // Rows
         foreach (RunRecord run in Runs) {
             sb.Append(run.Name);
-            var counters = MergeCounters(run.Result);
-            var dials = MergeDials(run.Result);
+            Dictionary<string, long> counters = MergeCounters(run.Result);
+            Dictionary<string, double> dials = MergeDials(run.Result);
             foreach (string c in counterCols) {
                 sb.Append(',');
                 if (counters.TryGetValue(c, out long v)) sb.Append(v);
             }
+
             foreach (string d in dialCols) {
                 sb.Append(',');
                 if (dials.TryGetValue(d, out double v)) sb.Append(v.ToString("G6"));
             }
+
             sb.AppendLine();
         }
 
@@ -55,7 +57,7 @@ public sealed class ExperimentResult {
     /// Emits a GitHub-flavoured Markdown table with the same columns as <see cref="ToCsv"/>.
     /// </summary>
     public string ToMarkdownTable() {
-        var (counterCols, dialCols) = CollectColumns();
+        (List<string> counterCols, List<string> dialCols) = CollectColumns();
         var sb = new StringBuilder();
 
         // Header row
@@ -73,16 +75,18 @@ public sealed class ExperimentResult {
         // Data rows
         foreach (RunRecord run in Runs) {
             sb.Append("| ").Append(run.Name);
-            var counters = MergeCounters(run.Result);
-            var dials = MergeDials(run.Result);
+            Dictionary<string, long> counters = MergeCounters(run.Result);
+            Dictionary<string, double> dials = MergeDials(run.Result);
             foreach (string c in counterCols) {
                 sb.Append(" | ");
                 if (counters.TryGetValue(c, out long v)) sb.Append(v);
             }
+
             foreach (string d in dialCols) {
                 sb.Append(" | ");
                 if (dials.TryGetValue(d, out double v)) sb.Append(v.ToString("G6"));
             }
+
             sb.AppendLine(" |");
         }
 
@@ -96,10 +100,10 @@ public sealed class ExperimentResult {
     /// </summary>
     public string ToTimeSeriesCsv() {
         // Only include runs that have time series.
-        var runsWithTs = Runs.Where(r => r.Result.TimeSeries is { Count: > 0 }).ToList();
+        List<RunRecord> runsWithTs = Runs.Where(r => r.Result.TimeSeries is { Count: > 0, }).ToList();
         if (runsWithTs.Count == 0) return string.Empty;
 
-        var (counterCols, dialCols) = CollectColumns();
+        (List<string> counterCols, List<string> dialCols) = CollectColumns();
         var sb = new StringBuilder();
 
         // Header
@@ -108,21 +112,22 @@ public sealed class ExperimentResult {
         foreach (string d in dialCols) sb.Append(',').Append(d);
         sb.AppendLine();
 
-        foreach (RunRecord run in runsWithTs) {
-            foreach (TimeSeriesPoint point in run.Result.TimeSeries!) {
-                sb.Append(run.Name).Append(',').Append(point.Tick);
-                var counters = MergeCounters(point.Snapshots);
-                var dials = MergeDials(point.Snapshots);
-                foreach (string c in counterCols) {
-                    sb.Append(',');
-                    if (counters.TryGetValue(c, out long v)) sb.Append(v);
-                }
-                foreach (string d in dialCols) {
-                    sb.Append(',');
-                    if (dials.TryGetValue(d, out double v)) sb.Append(v.ToString("G6"));
-                }
-                sb.AppendLine();
+        foreach (RunRecord run in runsWithTs)
+        foreach (TimeSeriesPoint point in run.Result.TimeSeries!) {
+            sb.Append(run.Name).Append(',').Append(point.Tick);
+            Dictionary<string, long> counters = MergeCounters(point.Snapshots);
+            Dictionary<string, double> dials = MergeDials(point.Snapshots);
+            foreach (string c in counterCols) {
+                sb.Append(',');
+                if (counters.TryGetValue(c, out long v)) sb.Append(v);
             }
+
+            foreach (string d in dialCols) {
+                sb.Append(',');
+                if (dials.TryGetValue(d, out double v)) sb.Append(v.ToString("G6"));
+            }
+
+            sb.AppendLine();
         }
 
         return sb.ToString();
@@ -134,14 +139,14 @@ public sealed class ExperimentResult {
     private (List<string> counters, List<string> dials) CollectColumns() {
         var counters = new SortedSet<string>();
         var dials = new SortedSet<string>();
-        foreach (RunRecord run in Runs) {
-            foreach (DialBoardSnapshot snap in run.Result.Snapshots) {
-                string prefix = GearRelPath(snap.OwnerPath);
-                foreach (string k in snap.Counters.Keys) counters.Add($"{prefix}.{k}");
-                foreach (string k in snap.Dials.Keys) dials.Add($"{prefix}.{k}");
-            }
+        foreach (RunRecord run in Runs)
+        foreach (DialBoardSnapshot snap in run.Result.Snapshots) {
+            string prefix = GearRelPath(snap.OwnerPath);
+            foreach (string k in snap.Counters.Keys) counters.Add($"{prefix}.{k}");
+            foreach (string k in snap.Dials.Keys) dials.Add($"{prefix}.{k}");
         }
-        return ([..counters], [..dials]);
+
+        return ([..counters,], [..dials,]);
     }
 
     // Counter values are keyed as "{gearRelPath}.{metric}" to match CollectColumns.
@@ -150,10 +155,11 @@ public sealed class ExperimentResult {
         foreach (DialBoardSnapshot snap in snapshots) {
             string prefix = GearRelPath(snap.OwnerPath);
             foreach ((string key, long value) in snap.Counters) {
-                string col = $"{prefix}.{key}";
+                var col = $"{prefix}.{key}";
                 merged[col] = merged.GetValueOrDefault(col) + value;
             }
         }
+
         return merged;
     }
 
@@ -165,10 +171,11 @@ public sealed class ExperimentResult {
         var merged = new Dictionary<string, double>();
         foreach (DialBoardSnapshot snap in snapshots) {
             string prefix = GearRelPath(snap.OwnerPath);
-            foreach ((string key, double value) in snap.Dials) {
-                if (value != 0.0) merged[$"{prefix}.{key}"] = value;
-            }
+            foreach ((string key, double value) in snap.Dials)
+                if (value != 0.0)
+                    merged[$"{prefix}.{key}"] = value;
         }
+
         return merged;
     }
 

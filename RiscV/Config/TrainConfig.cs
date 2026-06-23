@@ -38,8 +38,7 @@ public sealed record TrainConfig(
     TlbHardwareConfig? DTlb = null,
     int StoreBufferCapacity = 0
 ) {
-    [JsonIgnore]
-    private static readonly JsonSerializerOptions _jsonOptions = new() {
+    [JsonIgnore] private static readonly JsonSerializerOptions _jsonOptions = new() {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -48,20 +47,20 @@ public sealed record TrainConfig(
     public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, ITlb);
     public MemoryConfig ToDMemoryConfig() => ToMemoryConfig(DCache, DTlb);
 
-    public string ToJson() => JsonSerializer.Serialize(this, _jsonOptions);
+    public string ToJson() => JsonSerializer.Serialize(this, TrainConfig._jsonOptions);
 
     public static TrainConfig FromJson(string json) =>
-        JsonSerializer.Deserialize<TrainConfig>(json, _jsonOptions)
-        ?? throw new JsonException("Deserialised TrainConfig was null.");
+        JsonSerializer.Deserialize<TrainConfig>(json, TrainConfig._jsonOptions)
+     ?? throw new JsonException("Deserialised TrainConfig was null.");
 
     private static MemoryConfig ToMemoryConfig(CacheHardwareConfig? cache, TlbHardwareConfig? tlb) =>
         new(
-            CacheCapacityBytes: cache?.CapacityBytes ?? 0,
-            CacheWays: cache?.Ways ?? 4,
-            CacheBlockBytes: cache?.BlockBytes ?? 32,
-            CacheMissLatency: cache?.MissLatency ?? 10,
-            TlbEntries: tlb?.Entries ?? 0,
-            TlbPageBytes: tlb?.PageBytes ?? 4096,
-            TlbMissLatency: tlb?.MissLatency ?? 20
+            cache?.CapacityBytes ?? 0,
+            cache?.Ways ?? 4,
+            cache?.BlockBytes ?? 32,
+            cache?.MissLatency ?? 10,
+            tlb?.Entries ?? 0,
+            tlb?.PageBytes ?? 4096,
+            tlb?.MissLatency ?? 20
         );
 }
