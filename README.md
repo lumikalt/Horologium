@@ -8,7 +8,7 @@ A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The sim
 |---|---|
 | **Orrery** | The simulation engine. Knows nothing about instructions or ISAs. |
 | **Mechanism** | Interfaces only. Defines the ISA-plugin contract. |
-| **RiscV** | RV32IMF implementation of the Mechanism contract, plus two pipeline topologies. |
+| **RiscV** | RV32IMAFCV implementation of the Mechanism contract, plus two pipeline topologies. |
 | **Chip8** | A second ISA implementation, demonstrating that the engine is genuinely ISA-agnostic. |
 | **Runner** | Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. |
 | **Tests** | xUnit tests, organized by project (`Tests/Orrery`, `Tests/RiscV`, `Tests/Chip8`). |
@@ -75,12 +75,14 @@ The **Train** (`Orrery/Train/Train.cs`) owns the Gears and the Escapement and dr
 
 ### RISC-V pipelines (RiscV/Trains)
 
-Two Trains, both using `RvMechanism` (RV32IMF):
+Two Trains, both using `RvMechanism` (RV32IMAFCV):
 
 - **`SingleCycleTrain`** — one Gear, one instruction per tick (fetch → decode → execute → writeback, all inline). Used to validate the Mechanism independently of pipeline complexity.
 - **`FiveStageTrain`** — classic IF/ID/EX/MEM/WB pipeline. Each stage is its own Gear wired in sequence via Arbors. A `HazardUnit` handles RAW stall detection and register forwarding (controlled by a `forwardingEnabled` flag). Branch handling uses a pluggable `IBranchPredictor`; built-in implementations are `AlwaysNotTakenPredictor`, `AlwaysTakenPredictor`, `OneBitPredictor`, and `TwoBitPredictor`, plus a `ReturnAddressStack` wrapper for call/return prediction. Both instruction and data memory support optional set-associative caches and TLBs. A `StoreBuffer` provides deferred writes with store-to-load forwarding.
 
 The five-stage pipeline timing: an instruction is fetched at cycle T, decoded at T+1, executed at T+2, accesses memory at T+3, and writes back at T+4. Writeback is scheduled at `Phase.Writeback` (6) before Decode runs at `Phase.Commit` (7), so a register written this cycle is visible to a dependent instruction reading the register file in the same cycle.
+
+**ISA coverage:** I/M/A/F (standard), C (compressed 16-bit instructions), and V (vector, VLEN=128, V1.0 subset). The V subset covers `vsetvli`/`vsetivli`/`vsetvl`, unit-stride loads/stores (`VLE8/16/32`, `VSE8/16/32`, `VLM`, `VSM`), integer ALU (`vadd`, `vsub`, `vand`, `vor`, `vxor`, `vsll`, `vsrl`, `vsra`) in VV/VX/VI variants, and mask comparisons (`vmseq`, `vmsne`, `vmsltu`, `vmslt`, `vmsgtu`, `vmsgt`) with `vm`-bit masking.
 
 ### Hardware comparison (RiscV/Analysis)
 
