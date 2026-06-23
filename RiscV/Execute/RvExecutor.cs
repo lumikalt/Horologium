@@ -59,7 +59,7 @@ public sealed class RvExecutor : IExecutor {
             RvSlti (_, var rs1, var imm) =>
                 Reg((int)regs.Read(rs1) < imm ? 1UL : 0UL),
             RvSltiu(_, var rs1, var imm) =>
-                Reg(regs.Read(rs1) < (ulong)imm ? 1UL : 0UL),
+                Reg((uint)regs.Read(rs1) < (uint)imm ? 1UL : 0UL),
 
             // ── Loads ─────────────────────────────────────────────────────────
             RvLb (_, var rs1, var imm) => Load(

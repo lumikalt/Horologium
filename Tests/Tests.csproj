@@ -30,6 +30,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>test.elf</Link>
         </None>
+        <None Include="..\TestBinaries\isa\*.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <LinkBase>isa</LinkBase>
+        </None>
     </ItemGroup>
 
 </Project>

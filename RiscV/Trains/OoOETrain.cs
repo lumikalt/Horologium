@@ -352,7 +352,10 @@ internal sealed class OoOPipelineCore : Gear {
     private bool HasPrecedingPendingStore(int loadRobIndex) {
         foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
             if (idx == loadRobIndex) return false;
-            if (entry.IsStore && !entry.IsComplete) return true;
+            // Block if any preceding store is still in the ROB — stores write to
+            // memory only at commit, so a load must not execute until all prior
+            // stores have left the ROB (i.e., committed).
+            if (entry.IsStore) return true;
         }
 
         return false;

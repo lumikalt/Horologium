@@ -71,21 +71,21 @@ public sealed class HazardUnit(bool forwardingEnabled) {
         IReadOnlyList<int>? sources = idEx.Instruction?.SourceRegisters;
         if (sources is null || sources.Count == 0) return (rs1, rs2, rs3);
 
-        // Forward from EX/MEM (higher priority — more recent)
+        // Forward from MEM/WB first (lower priority — older), then EX/MEM (higher
+        // priority — more recent) so that EX/MEM wins when both match the same register.
+        if (memWb.IsValid && memWb is { DestinationRegister: > 0, WritebackValue: not null, }) {
+            ulong fwd = memWb.WritebackValue!.Value;
+            if (sources.Count > 0 && sources[0] == memWb.DestinationRegister) rs1 = fwd;
+            if (sources.Count > 1 && sources[1] == memWb.DestinationRegister) rs2 = fwd;
+            if (sources.Count > 2 && sources[2] == memWb.DestinationRegister) rs3 = fwd;
+        }
+
         if (exMem is { IsValid: true, DestinationRegister: > 0, } &&
             exMem.Result?.RegisterResult.HasValue == true) {
             ulong fwd = exMem.Result.RegisterResult!.Value;
             if (sources.Count > 0 && sources[0] == exMem.DestinationRegister) rs1 = fwd;
             if (sources.Count > 1 && sources[1] == exMem.DestinationRegister) rs2 = fwd;
             if (sources.Count > 2 && sources[2] == exMem.DestinationRegister) rs3 = fwd;
-        }
-
-        // Forward from MEM/WB (lower priority — older)
-        if (memWb.IsValid && memWb is { DestinationRegister: > 0, WritebackValue: not null, }) {
-            ulong fwd = memWb.WritebackValue!.Value;
-            if (sources.Count > 0 && sources[0] == memWb.DestinationRegister) rs1 = fwd;
-            if (sources.Count > 1 && sources[1] == memWb.DestinationRegister) rs2 = fwd;
-            if (sources.Count > 2 && sources[2] == memWb.DestinationRegister) rs3 = fwd;
         }
 
         return (rs1, rs2, rs3);
