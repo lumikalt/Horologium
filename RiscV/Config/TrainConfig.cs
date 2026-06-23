@@ -37,10 +37,16 @@ public sealed record TrainConfig(
     // ── FiveStageTrain parameters ─────────────────────────────────────────────
     bool ForwardingEnabled = true,
     BranchPredictorConfig? Predictor = null,
+    // L1 caches (per-port, split I/D)
     CacheHardwareConfig? ICache = null,
-    TlbHardwareConfig? ITlb = null,
     CacheHardwareConfig? DCache = null,
+    TlbHardwareConfig? ITlb = null,
     TlbHardwareConfig? DTlb = null,
+    // L2 and L3 (per-port; unified L2/L3 would require a shared cache object)
+    CacheHardwareConfig? IL2Cache = null,
+    CacheHardwareConfig? DL2Cache = null,
+    CacheHardwareConfig? IL3Cache = null,
+    CacheHardwareConfig? DL3Cache = null,
     int StoreBufferCapacity = 0,
 
     // ── OooeTrain parameters ──────────────────────────────────────────────────
@@ -55,8 +61,8 @@ public sealed record TrainConfig(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, ITlb);
-    public MemoryConfig ToDMemoryConfig() => ToMemoryConfig(DCache, DTlb);
+    public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, IL2Cache, IL3Cache, ITlb);
+    public MemoryConfig ToDMemoryConfig() => ToMemoryConfig(DCache, DL2Cache, DL3Cache, DTlb);
 
     public string ToJson() => JsonSerializer.Serialize(this, TrainConfig.JsonOptions);
 
@@ -64,12 +70,25 @@ public sealed record TrainConfig(
         JsonSerializer.Deserialize<TrainConfig>(json, TrainConfig.JsonOptions)
      ?? throw new JsonException("Deserialised TrainConfig was null.");
 
-    private static MemoryConfig ToMemoryConfig(CacheHardwareConfig? cache, TlbHardwareConfig? tlb) =>
+    private static MemoryConfig ToMemoryConfig(
+        CacheHardwareConfig? l1,
+        CacheHardwareConfig? l2,
+        CacheHardwareConfig? l3,
+        TlbHardwareConfig? tlb
+    ) =>
         new(
-            cache?.CapacityBytes ?? 0,
-            cache?.Ways ?? 4,
-            cache?.BlockBytes ?? 32,
-            cache?.MissLatency ?? 10,
+            l1?.CapacityBytes ?? 0,
+            l1?.Ways ?? 4,
+            l1?.BlockBytes ?? 32,
+            l1?.MissLatency ?? 10,
+            l2?.CapacityBytes ?? 0,
+            l2?.Ways ?? 8,
+            l2?.BlockBytes ?? 64,
+            l2?.MissLatency ?? 20,
+            l3?.CapacityBytes ?? 0,
+            l3?.Ways ?? 16,
+            l3?.BlockBytes ?? 64,
+            l3?.MissLatency ?? 50,
             tlb?.Entries ?? 0,
             tlb?.PageBytes ?? 4096,
             tlb?.MissLatency ?? 20

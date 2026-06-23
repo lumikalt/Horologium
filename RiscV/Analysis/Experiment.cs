@@ -59,7 +59,9 @@ public static class Experiment {
                 "superscalar" => new SuperscalarTrain(
                     mechanism, memory,
                     workload.EntryPoint,
-                    config.IssueWidth
+                    config.IssueWidth,
+                    config.ToIMemoryConfig(),
+                    config.ToDMemoryConfig()
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
                 "ooo" => new OooeTrain(
@@ -69,7 +71,9 @@ public static class Experiment {
                     config.RobCapacity,
                     config.IqCapacity,
                     config.ExtraPhysRegs,
-                    config.Predictor?.Build()
+                    config.Predictor?.Build(),
+                    config.ToIMemoryConfig(),
+                    config.ToDMemoryConfig()
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
                 _ => new FiveStageTrain(

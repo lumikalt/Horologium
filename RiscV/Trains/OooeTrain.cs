@@ -1,5 +1,6 @@
 using Mechanism;
 using Mechanism.BranchPredictModels;
+using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
 using Orrery.Scheduling;
@@ -19,6 +20,15 @@ public sealed class OooeTrain {
 
     public IArchState ArchState => _core.State;
 
+    public SetAssociativeCache? ICache => _core.ILayers.Cache;
+    public SetAssociativeCache? IL2Cache => _core.ILayers.L2Cache;
+    public SetAssociativeCache? IL3Cache => _core.ILayers.L3Cache;
+    public SetAssociativeCache? DCache => _core.DLayers.Cache;
+    public SetAssociativeCache? DL2Cache => _core.DLayers.L2Cache;
+    public SetAssociativeCache? DL3Cache => _core.DLayers.L3Cache;
+    public Tlb? ITlb => _core.ILayers.Tlb;
+    public Tlb? DTlb => _core.DLayers.Tlb;
+
     public OooeTrain(
         IMechanism mechanism,
         IMemory memory,
@@ -27,7 +37,9 @@ public sealed class OooeTrain {
         int robCapacity = 32,
         int iqCapacity = 16,
         int extraPhysRegs = 32,
-        IBranchPredictor? predictor = null
+        IBranchPredictor? predictor = null,
+        MemoryConfig? iMemConfig = null,
+        MemoryConfig? dMemConfig = null
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -36,7 +48,9 @@ public sealed class OooeTrain {
                 "pipeline", _train.Root, esc,
                 mechanism, memory, entryPoint,
                 issueWidth, robCapacity, iqCapacity, extraPhysRegs,
-                predictor ?? new AlwaysNotTakenPredictor()
+                predictor ?? new AlwaysNotTakenPredictor(),
+                iMemConfig ?? MemoryConfig.None,
+                dMemConfig ?? MemoryConfig.None
             )
         );
         _train.Build();
@@ -117,8 +131,11 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly IExecutor _executor;
     private readonly ITrapController _trapController;
     private readonly IBranchPredictor _predictor;
-    private readonly IMemory _memory;
     private readonly CapturingMemory _capMem;
+
+    // Memory hierarchy layers
+    public MemoryLayers ILayers { get; }
+    public MemoryLayers DLayers { get; }
 
     // OoOE structures
     private readonly PhysicalRegisterFile _prf;
@@ -145,6 +162,20 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _flushesCounter = null!;
     private Counter _branchMissCounter = null!;
     private Counter _stallsCounter = null!;
+    private Counter? _cacheMissStallsCounter;
+    private Counter? _icacheHitsCounter, _icacheMissesCounter;
+    private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
+    private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
+    private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
+    private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
+    private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
+    private Counter? _itlbHitsCounter, _itlbMissesCounter;
+    private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
+
+    // Delta tracking for hit/miss counters
+    private long _lastIHits, _lastIMisses, _lastIL2Hits, _lastIL2Misses, _lastIL3Hits, _lastIL3Misses;
+    private long _lastDHits, _lastDMisses, _lastDL2Hits, _lastDL2Misses, _lastDL3Hits, _lastDL3Misses;
+    private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
     public RvArchState State { get; }
 
@@ -159,14 +190,17 @@ internal sealed class OoOPipelineCore : Gear {
         int robCapacity,
         int iqCapacity,
         int extraPhysRegs,
-        IBranchPredictor predictor
+        IBranchPredictor predictor,
+        MemoryConfig iMemConfig,
+        MemoryConfig dMemConfig
     ) : base(name, parent, esc) {
         _decoder = mechanism.Decoder;
         _executor = mechanism.Executor;
         _trapController = mechanism.TrapController;
         _predictor = predictor;
-        _memory = memory;
-        _capMem = new CapturingMemory(memory);
+        ILayers = MemoryLayers.Build(memory, iMemConfig);
+        DLayers = MemoryLayers.Build(memory, dMemConfig);
+        _capMem = new CapturingMemory(DLayers.Accessor);
         _issueWidth = issueWidth;
         _maxDecodeDepth = issueWidth * 4;
         _fetchPc = entryPoint;
@@ -187,7 +221,7 @@ internal sealed class OoOPipelineCore : Gear {
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
         _flushesCounter = Dials.AddCounter("flushes", "Pipeline flushes (branch + trap)");
         _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions");
-        _stallsCounter = Dials.AddCounter("stalls", "Dispatch-stall cycles (structural hazards)");
+        _stallsCounter = Dials.AddCounter("stalls", "Dispatch-stall cycles (structural hazards) + cache miss penalties");
 
         Dials.AddDial(
             "cpi",
@@ -199,6 +233,48 @@ internal sealed class OoOPipelineCore : Gear {
             () => _cyclesCounter.Value == 0 ? 0.0 : _retiredCounter.Value / (double)_cyclesCounter.Value,
             "Instructions per cycle"
         );
+
+        bool anyCache = ILayers.Cache is not null || DLayers.Cache is not null
+                     || ILayers.L2Cache is not null || DLayers.L2Cache is not null
+                     || ILayers.L3Cache is not null || DLayers.L3Cache is not null
+                     || ILayers.Tlb is not null || DLayers.Tlb is not null;
+        if (anyCache)
+            // Lump-sum model: penalty cycles are appended per cycle, not overlapped.
+            // This overestimates stalls relative to real out-of-order memory-level parallelism.
+            _cacheMissStallsCounter = Dials.AddCounter("cache_miss_stalls", "Stall cycles from memory hierarchy misses");
+
+        if (ILayers.Cache is not null) {
+            _icacheHitsCounter = Dials.AddCounter("icache_hits", "L1 I-cache hits");
+            _icacheMissesCounter = Dials.AddCounter("icache_misses", "L1 I-cache misses");
+        }
+        if (ILayers.L2Cache is not null) {
+            _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
+            _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
+        }
+        if (ILayers.L3Cache is not null) {
+            _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
+            _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
+        }
+        if (DLayers.Cache is not null) {
+            _dcacheHitsCounter = Dials.AddCounter("dcache_hits", "L1 D-cache hits");
+            _dcacheMissesCounter = Dials.AddCounter("dcache_misses", "L1 D-cache misses");
+        }
+        if (DLayers.L2Cache is not null) {
+            _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
+            _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
+        }
+        if (DLayers.L3Cache is not null) {
+            _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
+            _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
+        }
+        if (ILayers.Tlb is not null) {
+            _itlbHitsCounter = Dials.AddCounter("itlb_hits", "I-TLB hits");
+            _itlbMissesCounter = Dials.AddCounter("itlb_misses", "I-TLB misses");
+        }
+        if (DLayers.Tlb is not null) {
+            _dtlbHitsCounter = Dials.AddCounter("dtlb_hits", "D-TLB hits");
+            _dtlbMissesCounter = Dials.AddCounter("dtlb_misses", "D-TLB misses");
+        }
     }
 
     public override void Wind() =>
@@ -208,6 +284,15 @@ internal sealed class OoOPipelineCore : Gear {
 
     private void RunCycle() {
         if (_halted) return;
+
+        // Drain cache/TLB stall penalties from the previous cycle's memory operations.
+        // Lump-sum: does not model memory-level parallelism available in real OoO hardware.
+        long cacheStalls = DrainAndChargeStalls();
+        if (cacheStalls > 0) {
+            _cyclesCounter.IncrementBy(cacheStalls);
+            _stallsCounter.IncrementBy(cacheStalls);
+            _cacheMissStallsCounter?.IncrementBy(cacheStalls);
+        }
 
         _cyclesCounter.Increment();
 
@@ -289,7 +374,7 @@ internal sealed class OoOPipelineCore : Gear {
                 return;
             }
 
-            if (head.IsStore) _memory.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
+            if (head.IsStore) DLayers.Accessor.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
 
             CommitRegisters(head);
 
@@ -450,7 +535,7 @@ internal sealed class OoOPipelineCore : Gear {
             ITooth decoded;
             uint raw;
             try {
-                raw = (uint)_memory.Read(_fetchPc, 4);
+                raw = (uint)ILayers.Accessor.Read(_fetchPc, 4);
                 decoded = _decoder.Decode(_fetchPc, raw);
             }
             catch {
@@ -554,5 +639,44 @@ internal sealed class OoOPipelineCore : Gear {
     private void SetFlush(ulong target) {
         _flushPending = true;
         _flushTarget = target;
+    }
+
+    // ── Memory hierarchy stat collection ──────────────────────────────────────
+
+    private long DrainAndChargeStalls() {
+        long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
+        UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
+        UpdateCacheStat(ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses);
+        UpdateCacheStat(ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses);
+        UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
+        UpdateCacheStat(DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses);
+        UpdateCacheStat(DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses);
+        UpdateTlbStat(ILayers.Tlb, _itlbHitsCounter, _itlbMissesCounter, ref _lastITlbHits, ref _lastITlbMisses);
+        UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);
+        return stalls;
+    }
+
+    private static void UpdateCacheStat(
+        SetAssociativeCache? cache,
+        Counter? hitsCounter, Counter? missesCounter,
+        ref long lastHits, ref long lastMisses
+    ) {
+        if (cache is null) return;
+        hitsCounter!.IncrementBy(cache.Hits - lastHits);
+        missesCounter!.IncrementBy(cache.Misses - lastMisses);
+        lastHits = cache.Hits;
+        lastMisses = cache.Misses;
+    }
+
+    private static void UpdateTlbStat(
+        Tlb? tlb,
+        Counter? hitsCounter, Counter? missesCounter,
+        ref long lastHits, ref long lastMisses
+    ) {
+        if (tlb is null) return;
+        hitsCounter!.IncrementBy(tlb.Hits - lastHits);
+        missesCounter!.IncrementBy(tlb.Misses - lastMisses);
+        lastHits = tlb.Hits;
+        lastMisses = tlb.Misses;
     }
 }

@@ -19,7 +19,11 @@ public sealed class FiveStageTrain {
     public IArchState ArchState => _core.State;
 
     public SetAssociativeCache? ICache => _core.ILayers.Cache;
+    public SetAssociativeCache? IL2Cache => _core.ILayers.L2Cache;
+    public SetAssociativeCache? IL3Cache => _core.ILayers.L3Cache;
     public SetAssociativeCache? DCache => _core.DLayers.Cache;
+    public SetAssociativeCache? DL2Cache => _core.DLayers.L2Cache;
+    public SetAssociativeCache? DL3Cache => _core.DLayers.L3Cache;
     public Tlb? ITlb => _core.ILayers.Tlb;
     public Tlb? DTlb => _core.DLayers.Tlb;
     public StoreBuffer? StoreBuffer => _core.StoreBuffer;
@@ -73,8 +77,16 @@ internal sealed class PipelineCore : Gear {
     private Counter? _cacheMissStallsCounter;
     private Counter? _icacheHitsCounter;
     private Counter? _icacheMissesCounter;
+    private Counter? _l2IcacheHitsCounter;
+    private Counter? _l2IcacheMissesCounter;
+    private Counter? _l3IcacheHitsCounter;
+    private Counter? _l3IcacheMissesCounter;
     private Counter? _dcacheHitsCounter;
     private Counter? _dcacheMissesCounter;
+    private Counter? _l2DcacheHitsCounter;
+    private Counter? _l2DcacheMissesCounter;
+    private Counter? _l3DcacheHitsCounter;
+    private Counter? _l3DcacheMissesCounter;
     private Counter? _itlbHitsCounter;
     private Counter? _itlbMissesCounter;
     private Counter? _dtlbHitsCounter;
@@ -86,7 +98,11 @@ internal sealed class PipelineCore : Gear {
 
     // Delta tracking for cache/TLB stat counters
     private long _lastIHits, _lastIMisses;
+    private long _lastIL2Hits, _lastIL2Misses;
+    private long _lastIL3Hits, _lastIL3Misses;
     private long _lastDHits, _lastDMisses;
+    private long _lastDL2Hits, _lastDL2Misses;
+    private long _lastDL3Hits, _lastDL3Misses;
     private long _lastITlbHits, _lastITlbMisses;
     private long _lastDTlbHits, _lastDTlbMisses;
     private long _lastStoreForwards;
@@ -167,20 +183,42 @@ internal sealed class PipelineCore : Gear {
         );
 
         bool anyCache = ILayers.Cache is not null || DLayers.Cache is not null
-                                                  || ILayers.Tlb is not null || DLayers.Tlb is not null;
+                     || ILayers.L2Cache is not null || DLayers.L2Cache is not null
+                     || ILayers.L3Cache is not null || DLayers.L3Cache is not null
+                     || ILayers.Tlb is not null || DLayers.Tlb is not null;
         if (anyCache)
             _cacheMissStallsCounter = Dials.AddCounter(
                 "cache_miss_stalls", "Stall cycles from memory hierarchy misses"
             );
 
         if (ILayers.Cache is not null) {
-            _icacheHitsCounter = Dials.AddCounter("icache_hits", "I-cache hits");
-            _icacheMissesCounter = Dials.AddCounter("icache_misses", "I-cache misses");
+            _icacheHitsCounter = Dials.AddCounter("icache_hits", "L1 I-cache hits");
+            _icacheMissesCounter = Dials.AddCounter("icache_misses", "L1 I-cache misses");
+        }
+
+        if (ILayers.L2Cache is not null) {
+            _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
+            _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
+        }
+
+        if (ILayers.L3Cache is not null) {
+            _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
+            _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
         }
 
         if (DLayers.Cache is not null) {
-            _dcacheHitsCounter = Dials.AddCounter("dcache_hits", "D-cache hits");
-            _dcacheMissesCounter = Dials.AddCounter("dcache_misses", "D-cache misses");
+            _dcacheHitsCounter = Dials.AddCounter("dcache_hits", "L1 D-cache hits");
+            _dcacheMissesCounter = Dials.AddCounter("dcache_misses", "L1 D-cache misses");
+        }
+
+        if (DLayers.L2Cache is not null) {
+            _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
+            _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
+        }
+
+        if (DLayers.L3Cache is not null) {
+            _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
+            _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
         }
 
         if (ILayers.Tlb is not null) {
@@ -292,25 +330,14 @@ internal sealed class PipelineCore : Gear {
     // Drain accumulated stall cycles from all memory hierarchy layers and
     // update DialBoard counters with deltas since the last call.
     private long CollectMemoryStalls() {
-        long stalls = 0;
-        stalls += ILayers.Cache?.ConsumePendingStalls() ?? 0;
-        stalls += DLayers.Cache?.ConsumePendingStalls() ?? 0;
-        stalls += ILayers.Tlb?.ConsumePendingStalls() ?? 0;
-        stalls += DLayers.Tlb?.ConsumePendingStalls() ?? 0;
+        long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
 
-        if (ILayers.Cache is { } ic) {
-            _icacheHitsCounter!.IncrementBy(ic.Hits - _lastIHits);
-            _icacheMissesCounter!.IncrementBy(ic.Misses - _lastIMisses);
-            _lastIHits = ic.Hits;
-            _lastIMisses = ic.Misses;
-        }
-
-        if (DLayers.Cache is { } dc) {
-            _dcacheHitsCounter!.IncrementBy(dc.Hits - _lastDHits);
-            _dcacheMissesCounter!.IncrementBy(dc.Misses - _lastDMisses);
-            _lastDHits = dc.Hits;
-            _lastDMisses = dc.Misses;
-        }
+        UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
+        UpdateCacheStat(ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses);
+        UpdateCacheStat(ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses);
+        UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
+        UpdateCacheStat(DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses);
+        UpdateCacheStat(DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses);
 
         if (ILayers.Tlb is { } it) {
             _itlbHitsCounter!.IncrementBy(it.Hits - _lastITlbHits);
@@ -332,6 +359,18 @@ internal sealed class PipelineCore : Gear {
         }
 
         return stalls;
+    }
+
+    private static void UpdateCacheStat(
+        SetAssociativeCache? cache,
+        Counter? hitsCounter, Counter? missesCounter,
+        ref long lastHits, ref long lastMisses
+    ) {
+        if (cache is null) return;
+        hitsCounter!.IncrementBy(cache.Hits - lastHits);
+        missesCounter!.IncrementBy(cache.Misses - lastMisses);
+        lastHits = cache.Hits;
+        lastMisses = cache.Misses;
     }
 
     // Source registers of the instruction IF produced last cycle — the one
