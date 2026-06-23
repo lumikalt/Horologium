@@ -44,6 +44,12 @@ public static class Experiment {
             workload.Load(memory);
 
             RevolutionResult result = config.Pipeline switch {
+                "superscalar" => new SuperscalarTrain(
+                    mechanism, memory,
+                    entryPoint: workload.EntryPoint,
+                    issueWidth: config.IssueWidth
+                ).Run(maxTicks, warmupTicks, resolvedInterval),
+
                 "ooo" => new OoOETrain(
                     mechanism, memory,
                     entryPoint:    workload.EntryPoint,
