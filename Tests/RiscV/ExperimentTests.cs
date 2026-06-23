@@ -62,7 +62,7 @@ public class ExperimentTests {
 
     [Fact]
     public void TrainConfig_WithPredictor_RoundTrip() {
-        var cfg = new TrainConfig(false, BranchPredictorConfig.TwoBit(512));
+        var cfg = new TrainConfig(ForwardingEnabled: false, Predictor: BranchPredictorConfig.TwoBit(512));
         string json = cfg.ToJson();
         TrainConfig result = TrainConfig.FromJson(json);
         Assert.False(result.ForwardingEnabled);
@@ -264,7 +264,7 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
         NamedConfig[] configs = [
             new("config_a", new TrainConfig()),
-            new("config_b", new TrainConfig(false)),
+            new("config_b", new TrainConfig(ForwardingEnabled: false)),
         ];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
@@ -369,7 +369,7 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
         NamedConfig[] configs = [
             new("run_a", new TrainConfig()),
-            new("run_b", new TrainConfig(false)),
+            new("run_b", new TrainConfig(ForwardingEnabled: false)),
         ];
 
         ExperimentResult result = Experiment.Run(

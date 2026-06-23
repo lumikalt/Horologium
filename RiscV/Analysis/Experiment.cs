@@ -43,17 +43,28 @@ public static class Experiment {
             var memory = new FlatMemory(workload.MemorySize);
             workload.Load(memory);
 
-            var train = new FiveStageTrain(
-                mechanism, memory,
-                workload.EntryPoint,
-                config.ForwardingEnabled,
-                config.Predictor?.Build(),
-                config.ToIMemoryConfig(),
-                config.ToDMemoryConfig(),
-                config.StoreBufferCapacity
-            );
+            RevolutionResult result = config.Pipeline switch {
+                "ooo" => new OoOETrain(
+                    mechanism, memory,
+                    entryPoint:    workload.EntryPoint,
+                    issueWidth:    config.IssueWidth,
+                    robCapacity:   config.RobCapacity,
+                    iqCapacity:    config.IqCapacity,
+                    extraPhysRegs: config.ExtraPhysRegs,
+                    predictor:     config.Predictor?.Build()
+                ).Run(maxTicks, warmupTicks, resolvedInterval),
 
-            RevolutionResult result = train.Run(maxTicks, warmupTicks, resolvedInterval);
+                _ => new FiveStageTrain(
+                    mechanism, memory,
+                    workload.EntryPoint,
+                    config.ForwardingEnabled,
+                    config.Predictor?.Build(),
+                    config.ToIMemoryConfig(),
+                    config.ToDMemoryConfig(),
+                    config.StoreBufferCapacity
+                ).Run(maxTicks, warmupTicks, resolvedInterval),
+            };
+
             records.Add(new RunRecord(named.Name, config, result));
         }
 

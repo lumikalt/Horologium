@@ -92,10 +92,12 @@ if (format is "ts-csv") Console.WriteLine(result.ToTimeSeriesCsv());
 
 static IReadOnlyList<NamedConfig> DefaultSweep() => [
     new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
-    new("always_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
-    new("one_bit", new TrainConfig(Predictor: BranchPredictorConfig.OneBit())),
-    new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
-    new("no_forwarding", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit(), ForwardingEnabled: false)),
+    new("always_taken",     new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
+    new("one_bit",          new TrainConfig(Predictor: BranchPredictorConfig.OneBit())),
+    new("two_bit",          new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
+    new("no_forwarding",    new TrainConfig(Predictor: BranchPredictorConfig.TwoBit(), ForwardingEnabled: false)),
+    new("ooo_2wide",        new TrainConfig(Pipeline: "ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 2)),
+    new("ooo_4wide",        new TrainConfig(Pipeline: "ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 4, RobCapacity: 64, IqCapacity: 32)),
 ];
 
 static void PrintUsage() {
@@ -107,7 +109,7 @@ static void PrintUsage() {
 
         Options:
           --sweep <path>        JSON file with named hardware configurations to compare.
-                                Default: compare four branch predictors + no-forwarding.
+                                Default: branch-predictor sweep + OoO 2-wide and 4-wide.
           --warmup <n>          Ticks to run before recording statistics (default: 0).
           --max-ticks <n>       Maximum measurement ticks per run (default: 1000000).
           --snapshot-interval <n|auto>  Ticks between time-series snapshots. Use 'auto' to
@@ -118,11 +120,15 @@ static void PrintUsage() {
 
         Sweep file format (JSON array):
           [
-            {"name": "baseline", "config": {"predictor": {"type": "two_bit"}}},
-            {"name": "no_cache", "config": {"forwarding_enabled": false}}
+            {"name": "baseline",  "config": {"predictor": {"type": "two_bit"}}},
+            {"name": "no_cache",  "config": {"forwarding_enabled": false}},
+            {"name": "ooo_2wide", "config": {"pipeline": "ooo", "issue_width": 2}},
+            {"name": "ooo_4wide", "config": {"pipeline": "ooo", "issue_width": 4, "rob_capacity": 64}}
           ]
 
-        Predictor types: always_not_taken, always_taken, one_bit, two_bit
+        Pipeline types  : five_stage (default), ooo
+        Predictor types : always_not_taken, always_taken, one_bit, two_bit
+        OoO parameters  : issue_width (default 2), rob_capacity (32), iq_capacity (16), extra_phys_regs (32)
         """
     );
 }

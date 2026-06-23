@@ -26,17 +26,28 @@ public sealed record TlbHardwareConfig(
 );
 
 /// <summary>
-/// Fully-serialisable description of one FiveStageTrain hardware configuration.
-/// Create with the constructor or deserialise from JSON via <see cref="FromJson"/>.
+/// Fully-serialisable description of one hardware configuration.
+/// Covers both <c>FiveStageTrain</c> and <c>OoOETrain</c>; the active pipeline
+/// is selected by <see cref="Pipeline"/>.
 /// </summary>
 public sealed record TrainConfig(
+    // ── Pipeline selector ─────────────────────────────────────────────────────
+    string Pipeline = "five_stage",  // "five_stage" | "ooo"
+
+    // ── FiveStageTrain parameters ─────────────────────────────────────────────
     bool ForwardingEnabled = true,
     BranchPredictorConfig? Predictor = null,
     CacheHardwareConfig? ICache = null,
     TlbHardwareConfig? ITlb = null,
     CacheHardwareConfig? DCache = null,
     TlbHardwareConfig? DTlb = null,
-    int StoreBufferCapacity = 0
+    int StoreBufferCapacity = 0,
+
+    // ── OoOETrain parameters ──────────────────────────────────────────────────
+    int IssueWidth = 2,
+    int RobCapacity = 32,
+    int IqCapacity = 16,
+    int ExtraPhysRegs = 32
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions _jsonOptions = new() {
         WriteIndented = true,
