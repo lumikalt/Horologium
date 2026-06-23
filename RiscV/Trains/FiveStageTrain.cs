@@ -6,6 +6,7 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
+using RiscV.Decode;
 using RiscV.State;
 using RiscV.Trains.Pipeline;
 using RiscV.Trains.Pipeline.Stages;
@@ -181,9 +182,9 @@ internal sealed class PipelineCore : Gear {
         );
 
         bool anyCache = ILayers.Cache is not null || DLayers.Cache is not null
-                     || ILayers.L2Cache is not null || DLayers.L2Cache is not null
-                     || ILayers.L3Cache is not null || DLayers.L3Cache is not null
-                     || ILayers.Tlb is not null || DLayers.Tlb is not null;
+                                                  || ILayers.L2Cache is not null || DLayers.L2Cache is not null
+                                                  || ILayers.L3Cache is not null || DLayers.L3Cache is not null
+                                                  || ILayers.Tlb is not null || DLayers.Tlb is not null;
         if (anyCache)
             _cacheMissStallsCounter = Dials.AddCounter(
                 "cache_miss_stalls", "Stall cycles from memory hierarchy misses"
@@ -287,7 +288,9 @@ internal sealed class PipelineCore : Gear {
                 Instruction.Class: ToothClass.Branch or ToothClass.ConditionalBranch,
             }) {
             bool taken = resolved.Result.BranchTaken;
-            ulong actualNext = taken ? resolved.Result.BranchTarget!.Value : resolved.Pc + 4;
+            ulong actualNext = taken
+                ? resolved.Result.BranchTarget!.Value
+                : resolved.Pc + (ulong)(resolved.Instruction?.SizeBytes ?? 4);
             _predictor.Update(resolved.Pc, taken, actualNext);
 
             if (actualNext != resolved.PredictedNextPc) {
@@ -305,6 +308,13 @@ internal sealed class PipelineCore : Gear {
         _id.Flush = flush;
 
         if (stall) _stallsCounter.Increment();
+
+        // If EBREAK is about to retire through WB this tick, squash EX so
+        // instructions speculatively fetched past the halt cannot execute.
+        MemWbLatch aboutToRetire = _mem.LastSent;
+        if (aboutToRetire is { IsValid: true, HasTrap: true, } &&
+            aboutToRetire.Instruction is RvInstruction { Payload: RvEbreak, })
+            _ex.Squash = true;
 
         // Trap redirect from WB (computed last cycle).
         if (_wb.TrapRedirect.HasValue) {
@@ -331,11 +341,19 @@ internal sealed class PipelineCore : Gear {
         long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
 
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
-        UpdateCacheStat(ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses);
-        UpdateCacheStat(ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses);
+        UpdateCacheStat(
+            ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses
+        );
+        UpdateCacheStat(
+            ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses
+        );
         UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
-        UpdateCacheStat(DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses);
-        UpdateCacheStat(DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses);
+        UpdateCacheStat(
+            DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses
+        );
+        UpdateCacheStat(
+            DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses
+        );
 
         if (ILayers.Tlb is { } it) {
             _itlbHitsCounter!.IncrementBy(it.Hits - _lastITlbHits);
@@ -361,8 +379,10 @@ internal sealed class PipelineCore : Gear {
 
     private static void UpdateCacheStat(
         SetAssociativeCache? cache,
-        Counter? hitsCounter, Counter? missesCounter,
-        ref long lastHits, ref long lastMisses
+        Counter? hitsCounter,
+        Counter? missesCounter,
+        ref long lastHits,
+        ref long lastMisses
     ) {
         if (cache is null) return;
         hitsCounter!.IncrementBy(cache.Hits - lastHits);

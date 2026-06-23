@@ -13,12 +13,13 @@ public sealed class RvInstruction(
     int dest,
     IReadOnlyList<int> sources,
     ToothClass cls,
-    object? payload
+    object? payload,
+    int sizeBytes = 4
 )
     : ITooth {
     public ulong Pc { get; } = pc;
     public uint RawEncoding { get; } = raw;
-    public int SizeBytes => 4;
+    public int SizeBytes { get; } = sizeBytes;
     public int DestinationRegister { get; } = dest;
     public IReadOnlyList<int> SourceRegisters { get; } = sources;
     public ToothClass Class { get; } = cls;

@@ -93,28 +93,28 @@ public sealed class RvExecutor : IExecutor {
 
             // ── Branches ──────────────────────────────────────────────────────
             RvBeq (var rs1, var rs2, var imm) =>
-                Branch(regs.Read(rs1) == regs.Read(rs2), pc, imm),
+                Branch(regs.Read(rs1) == regs.Read(rs2), pc, imm, instruction.SizeBytes),
             RvBne (var rs1, var rs2, var imm) =>
-                Branch(regs.Read(rs1) != regs.Read(rs2), pc, imm),
+                Branch(regs.Read(rs1) != regs.Read(rs2), pc, imm, instruction.SizeBytes),
             RvBlt (var rs1, var rs2, var imm) =>
-                Branch((int)regs.Read(rs1) < (int)regs.Read(rs2), pc, imm),
+                Branch((int)regs.Read(rs1) < (int)regs.Read(rs2), pc, imm, instruction.SizeBytes),
             RvBge (var rs1, var rs2, var imm) =>
-                Branch((int)regs.Read(rs1) >= (int)regs.Read(rs2), pc, imm),
+                Branch((int)regs.Read(rs1) >= (int)regs.Read(rs2), pc, imm, instruction.SizeBytes),
             RvBltu(var rs1, var rs2, var imm) =>
-                Branch(regs.Read(rs1) < regs.Read(rs2), pc, imm),
+                Branch(regs.Read(rs1) < regs.Read(rs2), pc, imm, instruction.SizeBytes),
             RvBgeu(var rs1, var rs2, var imm) =>
-                Branch(regs.Read(rs1) >= regs.Read(rs2), pc, imm),
+                Branch(regs.Read(rs1) >= regs.Read(rs2), pc, imm, instruction.SizeBytes),
 
             // ── Jumps ─────────────────────────────────────────────────────────
             RvJal (_, var imm) =>
                 new ExecuteResult {
-                    RegisterResult = pc + 4,
+                    RegisterResult = pc + (ulong)instruction.SizeBytes,
                     BranchTaken = true,
                     BranchTarget = (ulong)((long)pc + imm),
                 },
             RvJalr(_, var rs1, var imm) =>
                 new ExecuteResult {
-                    RegisterResult = pc + 4,
+                    RegisterResult = pc + (ulong)instruction.SizeBytes,
                     BranchTaken = true,
                     BranchTarget = (regs.Read(rs1) + (ulong)imm) & ~1UL,
                 },
@@ -348,8 +348,8 @@ public sealed class RvExecutor : IExecutor {
         return ExecuteResult.Clean;
     }
 
-    private static ExecuteResult Branch(bool taken, ulong pc, int imm) =>
-        ExecuteResult.WithBranch(taken, taken ? (ulong)((long)pc + imm) : pc + 4);
+    private static ExecuteResult Branch(bool taken, ulong pc, int imm, int instrSize) =>
+        ExecuteResult.WithBranch(taken, taken ? (ulong)((long)pc + imm) : pc + (ulong)instrSize);
 
     private static ExecuteResult ExecuteCsr(
         IArchState state,
