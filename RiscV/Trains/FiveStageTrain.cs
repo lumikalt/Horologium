@@ -19,11 +19,9 @@ public sealed class FiveStageTrain {
     public IArchState ArchState => _core.State;
 
     public SetAssociativeCache? ICache => _core.ILayers.Cache;
-    public SetAssociativeCache? IL2Cache => _core.ILayers.L2Cache;
-    public SetAssociativeCache? IL3Cache => _core.ILayers.L3Cache;
     public SetAssociativeCache? DCache => _core.DLayers.Cache;
-    public SetAssociativeCache? DL2Cache => _core.DLayers.L2Cache;
-    public SetAssociativeCache? DL3Cache => _core.DLayers.L3Cache;
+    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
+    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
     public Tlb? ITlb => _core.ILayers.Tlb;
     public Tlb? DTlb => _core.DLayers.Tlb;
     public StoreBuffer? StoreBuffer => _core.StoreBuffer;

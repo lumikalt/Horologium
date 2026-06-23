@@ -37,16 +37,14 @@ public sealed record TrainConfig(
     // ── FiveStageTrain parameters ─────────────────────────────────────────────
     bool ForwardingEnabled = true,
     BranchPredictorConfig? Predictor = null,
-    // L1 caches (per-port, split I/D)
+    // L1 caches (split I/D, as in real hardware)
     CacheHardwareConfig? ICache = null,
     CacheHardwareConfig? DCache = null,
     TlbHardwareConfig? ITlb = null,
     TlbHardwareConfig? DTlb = null,
-    // L2 and L3 (per-port; unified L2/L3 would require a shared cache object)
-    CacheHardwareConfig? IL2Cache = null,
-    CacheHardwareConfig? DL2Cache = null,
-    CacheHardwareConfig? IL3Cache = null,
-    CacheHardwareConfig? DL3Cache = null,
+    // L2 and L3 are unified (same config applied to both I and D paths)
+    CacheHardwareConfig? L2Cache = null,
+    CacheHardwareConfig? L3Cache = null,
     int StoreBufferCapacity = 0,
 
     // ── OooeTrain parameters ──────────────────────────────────────────────────
@@ -61,8 +59,8 @@ public sealed record TrainConfig(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, IL2Cache, IL3Cache, ITlb);
-    public MemoryConfig ToDMemoryConfig() => ToMemoryConfig(DCache, DL2Cache, DL3Cache, DTlb);
+    public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, L2Cache, L3Cache, ITlb);
+    public MemoryConfig ToDMemoryConfig() => ToMemoryConfig(DCache, L2Cache, L3Cache, DTlb);
 
     public string ToJson() => JsonSerializer.Serialize(this, TrainConfig.JsonOptions);
 
