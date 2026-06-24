@@ -16,6 +16,13 @@
     </ItemGroup>
 
     <ItemGroup>
+        <None Include="..\TestBinaries\benchmarks\*.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <LinkBase>benchmarks</LinkBase>
+        </None>
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="Avalonia" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.0"/>
         <PackageReference Include="Avalonia.Desktop" Version="12.0.4"/>

@@ -10,9 +10,30 @@ using RiscV.Memory;
 
 namespace Face.ViewModels;
 
+public record WorkloadPreset(string Label, string? ElfFileName, int MemoryBytes = 0);
+
 public partial class MainWindowViewModel : ObservableObject {
+    private static readonly string BenchmarksDir =
+        Path.Combine(AppContext.BaseDirectory, "benchmarks");
+
+    private const int BenchmarkMemoryBytes = 4 * 1024 * 1024;
+
+    public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } = [
+        new("Built-in demo  (100-iter countdown loop)", null),
+        new("Benchmark — median", "median.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — memcpy", "memcpy.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — multiply", "multiply.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — qsort", "qsort.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — rsort", "rsort.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — towers", "towers.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — vvadd", "vvadd.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Custom ELF…", ""),
+    ];
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowBrowse))]
+    private WorkloadPreset _selectedPreset = null!;
+
     [ObservableProperty] private string? _workloadPath = null;
-    [ObservableProperty] private bool _useBuiltInDemo = true;
     [ObservableProperty] private decimal _maxTicks = 1_000_000;
     [ObservableProperty] private decimal _warmupTicks = 0;
     [ObservableProperty] private decimal _snapshotInterval = 0;
@@ -24,7 +45,8 @@ public partial class MainWindowViewModel : ObservableObject {
 
     [ObservableProperty] private string? _selectedMetric = null;
     [ObservableProperty] private bool _hasResults = false;
-    [ObservableProperty] private bool _canBrowse = false;
+
+    public bool ShowBrowse => SelectedPreset?.ElfFileName == "";
 
     public ObservableCollection<ConfigViewModel> Configs { get; } = [];
     public ObservableCollection<string> AvailableMetrics { get; } = [];
@@ -40,9 +62,8 @@ public partial class MainWindowViewModel : ObservableObject {
     public MainWindowViewModel() {
         foreach (NamedConfig nc in DefaultSweep()) Configs.Add(ConfigViewModel.FromNamedConfig(nc));
         SelectedConfig = Configs.FirstOrDefault();
+        SelectedPreset = WorkloadPresets[0];
     }
-
-    partial void OnUseBuiltInDemoChanged(bool value) => CanBrowse = !value;
 
     partial void OnSelectedMetricChanged(string? value) {
         if (HasResults) ResultsUpdated?.Invoke();
@@ -79,8 +100,8 @@ public partial class MainWindowViewModel : ObservableObject {
             return;
         }
 
-        if (!UseBuiltInDemo && string.IsNullOrWhiteSpace(WorkloadPath)) {
-            StatusText = "Specify an ELF file or switch to the built-in demo.";
+        if (SelectedPreset.ElfFileName == "" && string.IsNullOrWhiteSpace(WorkloadPath)) {
+            StatusText = "Specify an ELF file or select a different workload.";
             return;
         }
 
@@ -89,9 +110,14 @@ public partial class MainWindowViewModel : ObservableObject {
         StatusText = $"Running {Configs.Count} configuration(s)…";
 
         try {
-            IWorkload workload = UseBuiltInDemo
-                ? CreateBuiltInWorkload()
-                : new ElfWorkload(WorkloadPath!);
+            IWorkload workload = SelectedPreset.ElfFileName switch {
+                null => CreateBuiltInWorkload(),
+                ""   => new ElfWorkload(WorkloadPath!),
+                var fn => new ElfWorkload(
+                    Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
+                    SelectedPreset.MemoryBytes
+                ),
+            };
 
             List<NamedConfig> namedConfigs = Configs.Select(c => c.ToNamedConfig()).ToList();
             var maxTicks = (long)(MaxTicks > 0 ? MaxTicks : 1_000_000);
@@ -118,7 +144,7 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public void SetWorkloadPath(string path) {
         WorkloadPath = path;
-        UseBuiltInDemo = false;
+        SelectedPreset = WorkloadPresets.First(p => p.ElfFileName == "");
     }
 
     public (string[] names, double[] values) GetChartData() {

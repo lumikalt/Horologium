@@ -29,10 +29,17 @@
                     <StackPanel Margin="16,12,16,12" Spacing="8">
                         <TextBlock Text="WORKLOAD" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
 
-                        <CheckBox IsChecked="{Binding UseBuiltInDemo}"
-                                  Content="Use built-in demo  (100-iter countdown loop)" />
+                        <ComboBox ItemsSource="{Binding WorkloadPresets}"
+                                  SelectedItem="{Binding SelectedPreset}"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkloadPreset">
+                                    <TextBlock Text="{Binding Label}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
 
-                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !UseBuiltInDemo}" ColumnSpacing="6">
+                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowBrowse}" ColumnSpacing="6">
                             <TextBox Grid.Column="0"
                                      Text="{Binding WorkloadPath}"
                                      Watermark="Path to ELF binary…"
