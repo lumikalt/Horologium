@@ -73,7 +73,7 @@ public sealed class TageScLPredictor : LTagePredictor {
 
     private int FoldScHist(int histLen) {
         ulong mask = (1UL << histLen) - 1;
-        ulong h = _ghr & mask;
+        ulong h = Ghr & mask;
         var outBits = 7; // log2(ScTableSize)
         int outMask = (1 << outBits) - 1;
         var res = 0;

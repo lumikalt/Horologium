@@ -33,7 +33,7 @@ public class LTagePredictor : IBranchPredictor {
     private readonly byte[] _base;        // 2-bit counters (taken ≥ 2)
     private readonly TageEntry[][] _tage; // [NumTables][1 << TableIndexBits]
     private readonly LoopEntry[] _loop;   // [1 << LoopIndexBits]
-    protected ulong _ghr;                 // global history, LSB = most recent
+    protected ulong Ghr;                  // global history, LSB = most recent
 
     private readonly Dictionary<ulong, ulong> _btb = new();
 
@@ -76,7 +76,7 @@ public class LTagePredictor : IBranchPredictor {
         UpdateLoop(pc, taken);
         OnAfterUpdate(pc, taken, provider, provPred, preScore, preLoopConfident);
 
-        _ghr = ((_ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
+        Ghr = ((Ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
     }
 
     // ── Extension points for subclasses ──────────────────────────────────────
@@ -120,12 +120,11 @@ public class LTagePredictor : IBranchPredictor {
 
         for (var t = 0; t < LTagePredictor.NumTables; t++) {
             ref TageEntry e = ref _tage[t][TageIdx(pc, t)];
-            if (e.Valid && e.Tag == (ushort)TageTag(pc, t)) {
-                altProvider = provider;
-                altPred = provPred;
-                provider = t;
-                provPred = e.Ctr >= 4;
-            }
+            if (!e.Valid || e.Tag != (ushort)TageTag(pc, t)) continue;
+            altProvider = provider;
+            altPred = provPred;
+            provider = t;
+            provPred = e.Ctr >= 4;
         }
     }
 
@@ -243,7 +242,7 @@ public class LTagePredictor : IBranchPredictor {
     // XOR-fold the lowest `histLen` bits of _ghr into `outBits` bits.
     // Masking _ghr to histLen bits first ensures no garbage above.
     private int FoldHist(int histLen, int outBits) {
-        ulong hist = _ghr & ((1UL << histLen) - 1);
+        ulong hist = Ghr & ((1UL << histLen) - 1);
         int mask = (1 << outBits) - 1;
         var res = 0;
         for (var sh = 0; sh < histLen; sh += outBits) res ^= (int)((hist >> sh) & (ulong)mask);

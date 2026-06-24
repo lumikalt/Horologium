@@ -181,6 +181,117 @@
                                                                Minimum="4" Maximum="65536"
                                                                Increment="256" />
                                             </Grid>
+
+                                            <!-- gshare / gselect: history bits -->
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasGshareParams}">
+                                                <TextBlock Grid.Column="0" Text="History bits"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding PredictorHistoryBits}"
+                                                               Minimum="1" Maximum="32"
+                                                               Increment="1" />
+                                            </Grid>
+
+                                            <!-- gselect: PC bits -->
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasGselectParams}">
+                                                <TextBlock Grid.Column="0" Text="PC bits"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding PredictorPcBits}"
+                                                               Minimum="1" Maximum="16"
+                                                               Increment="1" />
+                                            </Grid>
+
+                                            <!-- correlated: M, N, BHT size -->
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasCorrelatedParams}">
+                                                <TextBlock Grid.Column="0" Text="M (hist bits)"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding CorrelatedM}"
+                                                               Minimum="1" Maximum="16"
+                                                               Increment="1" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasCorrelatedParams}">
+                                                <TextBlock Grid.Column="0" Text="N (counter bits)"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding CorrelatedN}"
+                                                               Minimum="1" Maximum="8"
+                                                               Increment="1" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasCorrelatedParams}">
+                                                <TextBlock Grid.Column="0" Text="BHT size"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding CorrelatedBhtSize}"
+                                                               Minimum="4" Maximum="65536"
+                                                               Increment="256" />
+                                            </Grid>
+
+                                            <!-- perceptron: history length, table size -->
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasPerceptronParams}">
+                                                <TextBlock Grid.Column="0" Text="History length"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding PerceptronHistoryLength}"
+                                                               Minimum="1" Maximum="256"
+                                                               Increment="4" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasPerceptronParams}">
+                                                <TextBlock Grid.Column="0" Text="Table size"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding PerceptronTableSize}"
+                                                               Minimum="4" Maximum="65536"
+                                                               Increment="256" />
+                                            </Grid>
+
+                                            <!-- hashed perceptron: table size -->
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasHashedPerceptronParams}">
+                                                <TextBlock Grid.Column="0" Text="Table size"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding HashedPerceptronTableSize}"
+                                                               Minimum="4" Maximum="65536"
+                                                               Increment="256" />
+                                            </Grid>
+
+                                            <!-- tournament: local hist bits, local table, global hist bits -->
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasTournamentParams}">
+                                                <TextBlock Grid.Column="0" Text="Local hist bits"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding TournamentLocalHistoryBits}"
+                                                               Minimum="1" Maximum="16"
+                                                               Increment="1" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasTournamentParams}">
+                                                <TextBlock Grid.Column="0" Text="Local table"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding TournamentLocalTableSize}"
+                                                               Minimum="4" Maximum="65536"
+                                                               Increment="256" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasTournamentParams}">
+                                                <TextBlock Grid.Column="0" Text="Global hist bits"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding TournamentGlobalHistoryBits}"
+                                                               Minimum="1" Maximum="32"
+                                                               Increment="1" />
+                                            </Grid>
                                         </StackPanel>
 
                                         <!-- five_stage: I-cache -->

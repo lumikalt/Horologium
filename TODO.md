@@ -17,6 +17,7 @@
 ## Mechanism
 
 - [ ] Generic interfaces for external devices.
+- [ ] Cache pre-fetching.
 
 ### Out-of-Order Execution
 
