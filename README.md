@@ -8,10 +8,12 @@ A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The sim
 |---|---|
 | **Orrery** | The simulation engine. Knows nothing about instructions or ISAs. |
 | **Mechanism** | Interfaces only. Defines the ISA-plugin contract. |
-| **RiscV** | RV32IMAFCV implementation of the Mechanism contract, plus two pipeline topologies. |
+| **Pipeline** | ISA-agnostic pipeline trains (`SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`), pipeline registers, `HazardUnit`, and stage implementations. No dependency on any ISA. |
+| **RiscV** | RV32IMAFCV implementation of the Mechanism contract. |
 | **Chip8** | A second ISA implementation, demonstrating that the engine is genuinely ISA-agnostic. |
+| **Face** | Avalonia desktop UI for running experiments and visualizing results interactively. Includes a workload preset picker for the built-in demo and all benchmark ELFs. |
 | **Runner** | Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. |
-| **Tests** | xUnit tests, organized by project (`Tests/Orrery`, `Tests/RiscV`, `Tests/Chip8`). |
+| **Tests** | xUnit tests, organized by project (`Tests/Orrery`, `Tests/RiscV`, `Tests/Chip8`, `Tests/Mechanism`). |
 
 ## Commands
 
@@ -73,16 +75,22 @@ The **Train** (`Orrery/Train/Train.cs`) owns the Gears and the Escapement and dr
 
 `IMechanism` is the factory and registry for one ISA. It produces an `IArchState` and exposes the `Decoder`, `Executor`, optional `ImpulseCracker`, and `TrapController`. A Train is constructed from a single `IMechanism`; swapping the Mechanism swaps the entire ISA without touching any Train code.
 
-### RISC-V pipelines (RiscV/Trains)
+### Pipeline trains (Pipeline/)
 
-Two Trains, both using `RvMechanism` (RV32IMAFCV):
+Four Trains, all ISA-agnostic — they operate on `IArchState` and `ExecuteResult` closures with no dependency on RiscV.dll. When used with RISC-V they pair with `RvMechanism` (RV32IMAFCV):
 
 - **`SingleCycleTrain`** — one Gear, one instruction per tick (fetch → decode → execute → writeback, all inline). Used to validate the Mechanism independently of pipeline complexity.
-- **`FiveStageTrain`** — classic IF/ID/EX/MEM/WB pipeline. Each stage is its own Gear wired in sequence via Arbors. A `HazardUnit` handles RAW stall detection and register forwarding (controlled by a `forwardingEnabled` flag). Branch handling uses a pluggable `IBranchPredictor`; built-in implementations are `AlwaysNotTakenPredictor`, `AlwaysTakenPredictor`, `OneBitPredictor`, and `TwoBitPredictor`, plus a `ReturnAddressStack` wrapper for call/return prediction. Both instruction and data memory support optional set-associative caches and TLBs. A `StoreBuffer` provides deferred writes with store-to-load forwarding.
+- **`FiveStageTrain`** — classic IF/ID/EX/MEM/WB pipeline. Each stage is its own Gear wired in sequence via Arbors. A `HazardUnit` handles RAW stall detection and register forwarding (controlled by a `forwardingEnabled` flag). Branch handling uses a pluggable `IBranchPredictor`; built-in implementations include static predictors (`AlwaysNotTaken`, `AlwaysTaken`, `AlwaysBackwardNotForwards`), 1-bit and 2-bit saturating counter predictors, correlated (m,n), Gselect, Gshare, and L-TAGE (TAGE with a loop predictor overlay), plus a `ReturnAddressStack` wrapper for call/return prediction. Both instruction and data memory support optional set-associative caches and TLBs. A `StoreBuffer` provides deferred writes with store-to-load forwarding.
 
 The five-stage pipeline timing: an instruction is fetched at cycle T, decoded at T+1, executed at T+2, accesses memory at T+3, and writes back at T+4. Writeback is scheduled at `Phase.Writeback` (6) before Decode runs at `Phase.Commit` (7), so a register written this cycle is visible to a dependent instruction reading the register file in the same cycle.
 
+ISA mutations (register writes, vector state, CSRs, trap returns) are delivered to the Train through a `SideEffect Action<IArchState>` closure on `ExecuteResult`, keeping the trains free of any ISA-specific fields.
+
 **ISA coverage:** I/M/A/F (standard), C (compressed 16-bit instructions), and V (vector, VLEN=128, V1.0 subset). The V subset covers `vsetvli`/`vsetivli`/`vsetvl`, unit-stride loads/stores (`VLE8/16/32`, `VSE8/16/32`, `VLM`, `VSM`), integer ALU (`vadd`, `vsub`, `vand`, `vor`, `vxor`, `vsll`, `vsrl`, `vsra`) in VV/VX/VI variants, and mask comparisons (`vmseq`, `vmsne`, `vmsltu`, `vmslt`, `vmsgtu`, `vmsgt`) with `vm`-bit masking.
+
+### Benchmark workloads (TestBinaries/benchmarks)
+
+Seven bare-metal RISC-V benchmarks compiled from the riscv-tests suite: `median`, `memcpy`, `multiply`, `qsort`, `rsort`, `towers`, and `vvadd`. They are built against a minimal `crt0.s` + `bmarks.ld` (code at `0x0`, 4 MB RAM) and exit via the HTIF `tohost` symbol. All are available as preset workloads in the Face UI and can be passed to the Runner as ELF arguments. Note: benchmark tests are slow — run them selectively with `--filter`.
 
 ### Hardware comparison (RiscV/Analysis)
 

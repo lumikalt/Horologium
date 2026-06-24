@@ -25,5 +25,4 @@
 
 ### Branch Prediction
 
-- [ ] L-TAGE.
 - [ ] Perceptron BP.
