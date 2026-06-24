@@ -13,6 +13,7 @@ namespace RiscV.Config;
 [JsonDerivedType(typeof(GselectConfig), "gselect")]
 [JsonDerivedType(typeof(GshareConfig), "gshare")]
 [JsonDerivedType(typeof(LTageConfig), "l_tage")]
+[JsonDerivedType(typeof(PerceptronConfig), "perceptron")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
@@ -30,6 +31,9 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig Gshare(int historyBits = 8) => new GshareConfig(historyBits);
 
     public static BranchPredictorConfig LTage() => new LTageConfig();
+
+    public static BranchPredictorConfig Perceptron(int historyLength = 24, int tableSize = 256) =>
+        new PerceptronConfig(historyLength, tableSize);
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -62,4 +66,8 @@ public sealed record GshareConfig(int HistoryBits = 8) : BranchPredictorConfig {
 
 public sealed record LTageConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() => new LTagePredictor();
+}
+
+public sealed record PerceptronConfig(int HistoryLength = 24, int TableSize = 256) : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new PerceptronPredictor(HistoryLength, TableSize);
 }

@@ -25,4 +25,3 @@
 
 ### Branch Prediction
 
-- [ ] Perceptron BP.
