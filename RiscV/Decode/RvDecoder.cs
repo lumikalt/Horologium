@@ -8,8 +8,9 @@ namespace RiscV.Decode;
 /// two different instructions happen to share the same PC (e.g. in unit tests).
 /// </summary>
 public sealed class RvDecoder : IDecoder {
-    private readonly Dictionary<(ulong pc, uint raw), ITooth>    _cache     = new();
+    private readonly Dictionary<(ulong pc, uint raw), ITooth> _cache = new();
     private readonly Dictionary<(ulong pc, uint raw), FetchHint> _hintCache = new();
+
     public FetchHint GetFetchHint(ulong pc, uint firstWord) {
         if (_hintCache.TryGetValue((pc, firstWord), out FetchHint cached)) return cached;
         FetchHint hint = ComputeFetchHint(pc, firstWord);
@@ -27,31 +28,32 @@ public sealed class RvDecoder : IDecoder {
             int crs2 = (c >> 2) & 0x1F;
             bool inst12 = (c & 0x1000) != 0;
 
-            // c.jal (RV32): PC-relative call with statically known target.
-            if (q == 0x1 && cfunct3 == 0x1)
-                return new FetchHint {
+            return q switch {
+                // c.jal (RV32): PC-relative call with statically known target.
+                0x1 when cfunct3 == 0x1 => new FetchHint {
+                    InstructionSize = 2,
+                    IsBranch = true,
+                    IsCall = true,
+                    BranchTarget = ((ulong)((long)pc + CJumpOffset(c)), true),
+                },
+                // c.j: unconditional PC-relative jump.
+                0x1 when cfunct3 == 0x5 => new FetchHint {
+                    InstructionSize = 2, IsBranch = true, BranchTarget = ((ulong)((long)pc + CJumpOffset(c)), true),
+                },
+                // c.beqz / c.bnez: PC-relative conditional branches.
+                0x1 when cfunct3 == 0x6 || cfunct3 == 0x7 => new FetchHint {
+                    InstructionSize = 2, IsBranch = true, BranchTarget = ((ulong)((long)pc + CBranchImm(c)), true),
+                },
+                // c.jalr: register-indirect call — target not statically known.
+                0x2 when cfunct3 == 0x4 && inst12 && crs2 == 0 && crs1 != 0 => new FetchHint {
                     InstructionSize = 2, IsBranch = true, IsCall = true,
-                    BranchTarget = (ulong)((long)pc + CJumpOffset(c)),
-                };
-            // c.j: unconditional PC-relative jump.
-            if (q == 0x1 && cfunct3 == 0x5)
-                return new FetchHint {
-                    InstructionSize = 2, IsBranch = true,
-                    BranchTarget = (ulong)((long)pc + CJumpOffset(c)),
-                };
-            // c.beqz / c.bnez: PC-relative conditional branches.
-            if (q == 0x1 && (cfunct3 == 0x6 || cfunct3 == 0x7))
-                return new FetchHint {
-                    InstructionSize = 2, IsBranch = true,
-                    BranchTarget = (ulong)((long)pc + CBranchImm(c)),
-                };
-            // c.jalr: register-indirect call — target not statically known.
-            if (q == 0x2 && cfunct3 == 0x4 && inst12 && crs2 == 0 && crs1 != 0)
-                return new FetchHint { InstructionSize = 2, IsBranch = true, IsCall = true, };
-            // c.jr / c.ret: register-indirect return — target not statically known.
-            if (q == 0x2 && cfunct3 == 0x4 && !inst12 && crs2 == 0 && crs1 != 0)
-                return new FetchHint { InstructionSize = 2, IsBranch = true, IsReturn = crs1 is 1 or 5, };
-            return new FetchHint { InstructionSize = 2, };
+                },
+                // c.jr / c.ret: register-indirect return — target not statically known.
+                0x2 when cfunct3 == 0x4 && !inst12 && crs2 == 0 && crs1 != 0 => new FetchHint {
+                    InstructionSize = 2, IsBranch = true, IsReturn = crs1 is 1 or 5,
+                },
+                _ => new FetchHint { InstructionSize = 2, },
+            };
         }
 
         var opcode = (int)(firstWord & 0x7F);
@@ -62,7 +64,7 @@ public sealed class RvDecoder : IDecoder {
         bool linkRd = rd is 1 or 5;
         bool linkRs1 = rs1 is 1 or 5;
 
-        ulong? branchTarget = null;
+        (ulong Value, bool HasValue) branchTarget = default;
         if (opcode == 0x63) {
             // B-type: imm[12|10:5] in bits[31:25], imm[4:1|11] in bits[11:7]
             var bImm = (int)(
@@ -70,7 +72,7 @@ public sealed class RvDecoder : IDecoder {
                 (((firstWord >> 7) & 1) << 11) |
                 (((firstWord >> 25) & 0x3F) << 5) |
                 (((firstWord >> 8) & 0xF) << 1));
-            branchTarget = (ulong)((long)pc + SignExtendN(bImm, 13));
+            branchTarget = ((ulong)((long)pc + SignExtendN(bImm, 13)), true);
         }
         else if (isJal) {
             // J-type: imm[20|10:1|11|19:12] scattered across bits[31:12]
@@ -79,9 +81,9 @@ public sealed class RvDecoder : IDecoder {
                 (((firstWord >> 12) & 0xFF) << 12) |
                 (((firstWord >> 20) & 1) << 11) |
                 (((firstWord >> 21) & 0x3FF) << 1));
-            branchTarget = (ulong)((long)pc + SignExtendN(jImm, 21));
+            branchTarget = ((ulong)((long)pc + SignExtendN(jImm, 21)), true);
         }
-        // JALR: register-indirect — target not statically known; branchTarget stays null.
+        // JALR: register-indirect — target not statically known; branchTarget stays default.
 
         return new FetchHint {
             InstructionSize = 4,
@@ -99,19 +101,16 @@ public sealed class RvDecoder : IDecoder {
 
     public ITooth Decode(ulong pc, IMemory memory) {
         var half = (ushort)memory.Read(pc, 2);
-        if ((half & 0x3) != 0x3) {
-            if (_cache.TryGetValue((pc, half), out ITooth? c)) return c;
-            return Cache(pc, half, DecodeCompressed(pc, half));
-        }
+        if ((half & 0x3) != 0x3)
+            return _cache.TryGetValue((pc, half), out ITooth? c) ? c : Cache(pc, half, DecodeCompressed(pc, half));
+
         var raw = (uint)memory.Read(pc, 4);
-        if (_cache.TryGetValue((pc, raw), out ITooth? cached)) return cached;
-        return Cache(pc, raw, DecodeRaw(pc, raw));
+        return _cache.TryGetValue((pc, raw), out ITooth? cached) ? cached : Cache(pc, raw, DecodeRaw(pc, raw));
     }
 
-    public ITooth Decode(ulong pc, uint raw) {
-        if (_cache.TryGetValue((pc, raw), out ITooth? cached)) return cached;
-        return Cache(pc, raw, DecodeRaw(pc, raw));
-    }
+    public ITooth Decode(ulong pc, uint raw) => _cache.TryGetValue((pc, raw), out ITooth? cached)
+        ? cached
+        : Cache(pc, raw, DecodeRaw(pc, raw));
 
     private ITooth Cache(ulong pc, uint raw, ITooth tooth) {
         _cache[(pc, raw)] = tooth;
@@ -145,7 +144,7 @@ public sealed class RvDecoder : IDecoder {
             0x27 => DecodeFpOrVStore(pc, raw, rd, rs1, rs2, funct3, raw),
             0x53 => DecodeFpOp(pc, raw, rd, rs1, rs2, funct3, funct7),
             // V extension arithmetic/config
-            0x57 => DecodeVOp(pc, raw, rd, rs1, rs2, funct3),
+            0x57 => DecodeVOp(pc, raw, rs1, funct3),
             0x43 or 0x47 or 0x4B or 0x4F =>
                 DecodeFmaR4(pc, raw, opcode, rd, rs1, rs2, (int)((raw >> 27) & 0x1F)),
             _ => throw new IllegalInstructionException(
@@ -385,10 +384,12 @@ public sealed class RvDecoder : IDecoder {
         uint zimm = (word >> 15) & 0x1F;
 
         if (funct3 == 0x0)
-            // ECALL / EBREAK / MRET
+            // ECALL / EBREAK / SRET / MRET / WFI
             return (word >> 20) switch {
                 0x000 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEcall()),
                 0x001 => new RvInstruction(pc, raw, -1, [], ToothClass.Halt, new RvEbreak()),
+                0x102 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvSret()),
+                0x105 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWfi()),
                 0x302 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvMret()),
                 _ => throw new IllegalInstructionException(
                     pc, raw,
@@ -532,7 +533,7 @@ public sealed class RvDecoder : IDecoder {
                 pc, raw, $"V load: unsupported element width funct3=0x{funct3:X}"
             ),
         };
-        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVleVV(vd, rs1, sew, masked));
+        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVleVv(vd, rs1, sew, masked));
     }
 
     // VSE8/16/32 and VSM: opcode=0x27, funct3 ≠ 2.
@@ -566,26 +567,23 @@ public sealed class RvDecoder : IDecoder {
                 pc, raw, $"V store: unsupported element width funct3=0x{funct3:X}"
             ),
         };
-        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVseVV(vs3, rs1, sew, masked));
+        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVseVv(vs3, rs1, sew, masked));
     }
 
     // OPIVV / OPIVX / OPIVI / OPCFG: opcode=0x57.
     private static RvInstruction DecodeVOp(
         ulong pc,
         uint raw,
-        int rd,
         int rs1,
-        int rs2,
         uint funct3
     ) {
         var vd = (int)((raw >> 7) & 0x1F);
-        int vs1 = rs1;
         var vs2 = (int)((raw >> 20) & 0x1F);
         bool masked = ((raw >> 25) & 1) == 0;
         uint funct6 = (raw >> 26) & 0x3F;
 
         // OPCFG (funct3=7)
-        if (funct3 == 7) return DecodeVCfg(pc, raw, vd, vs1, vs2);
+        if (funct3 == 7) return DecodeVCfg(pc, raw, vd, rs1, vs2);
 
         // OPIVV (funct3=0), OPIVX (funct3=4), OPIVI (funct3=3)
         if (funct3 is not (0 or 3 or 4))
@@ -602,7 +600,7 @@ public sealed class RvDecoder : IDecoder {
             37 => VIntOp.Sll,
             40 => VIntOp.Srl,
             41 => VIntOp.Sra,
-            _  => (VIntOp?)null,
+            _  => null,
         };
 
         VMaskCmpOp? cmpOp = funct6 switch {
@@ -612,54 +610,47 @@ public sealed class RvDecoder : IDecoder {
             27 => VMaskCmpOp.Lt,
             30 => VMaskCmpOp.Gtu,
             31 => VMaskCmpOp.Gt,
-            _  => (VMaskCmpOp?)null,
+            _  => null,
         };
 
-        if (intOp.HasValue) {
+        return intOp switch {
+            null => cmpOp switch {
+                null => throw new IllegalInstructionException(
+                    pc, raw, $"V op: unknown funct6=0x{funct6:X2} funct3=0x{funct3:X}"
+                ),
+                // vmsgtu/vmsgt: VX and VI only, not VV
+                VMaskCmpOp.Gtu or VMaskCmpOp.Gt when funct3 == 0 => throw new IllegalInstructionException(
+                    pc, raw, "vmsgtu/vmsgt.vv is not a valid encoding"
+                ),
+                _ => funct3 switch {
+                    0 => new RvInstruction(
+                        pc, raw, -1, [], ToothClass.Vector, new RvVMaskCmpVv(cmpOp.Value, vd, vs2, rs1, masked)
+                    ),
+                    3 => new RvInstruction(
+                        pc, raw, -1, [], ToothClass.Vector,
+                        new RvVMaskCmpVi(cmpOp.Value, vd, vs2, SignExtend5(rs1), masked)
+                    ),
+                    _ => new RvInstruction(
+                        pc, raw, -1, [rs1,], ToothClass.Vector, new RvVMaskCmpVx(cmpOp.Value, vd, vs2, rs1, masked)
+                    ),
+                },
+            },
             // vsub has no VI variant
-            if (intOp == VIntOp.Sub && funct3 == 3)
-                throw new IllegalInstructionException(pc, raw, "vsub.vi is not a valid instruction");
-            return funct3 switch {
+            VIntOp.Sub when funct3 == 3 => throw new IllegalInstructionException(
+                pc, raw, "vsub.vi is not a valid instruction"
+            ),
+            _ => funct3 switch {
                 0 => new RvInstruction(
-                    pc, raw, -1, [], ToothClass.Vector,
-                    new RvVIntAluVV(intOp.Value, vd, vs2, vs1, masked)
+                    pc, raw, -1, [], ToothClass.Vector, new RvVIntAluVv(intOp.Value, vd, vs2, rs1, masked)
                 ),
                 3 => new RvInstruction(
-                    pc, raw, -1, [], ToothClass.Vector,
-                    new RvVIntAluVI(intOp.Value, vd, vs2, SignExtend5(vs1), masked)
+                    pc, raw, -1, [], ToothClass.Vector, new RvVIntAluVi(intOp.Value, vd, vs2, SignExtend5(rs1), masked)
                 ),
                 _ => new RvInstruction(
-                    pc, raw, -1, [vs1,], ToothClass.Vector,
-                    new RvVIntAluVX(intOp.Value, vd, vs2, vs1, masked)
+                    pc, raw, -1, [rs1,], ToothClass.Vector, new RvVIntAluVx(intOp.Value, vd, vs2, rs1, masked)
                 ),
-            };
-        }
-
-        if (cmpOp.HasValue) {
-            // vmsgtu/vmsgt: VX and VI only, not VV
-            if (cmpOp is VMaskCmpOp.Gtu or VMaskCmpOp.Gt && funct3 == 0)
-                throw new IllegalInstructionException(
-                    pc, raw, $"vmsgtu/vmsgt.vv is not a valid encoding"
-                );
-            return funct3 switch {
-                0 => new RvInstruction(
-                    pc, raw, -1, [], ToothClass.Vector,
-                    new RvVMaskCmpVV(cmpOp.Value, vd, vs2, vs1, masked)
-                ),
-                3 => new RvInstruction(
-                    pc, raw, -1, [], ToothClass.Vector,
-                    new RvVMaskCmpVI(cmpOp.Value, vd, vs2, SignExtend5(vs1), masked)
-                ),
-                _ => new RvInstruction(
-                    pc, raw, -1, [vs1,], ToothClass.Vector,
-                    new RvVMaskCmpVX(cmpOp.Value, vd, vs2, vs1, masked)
-                ),
-            };
-        }
-
-        throw new IllegalInstructionException(
-            pc, raw, $"V op: unknown funct6=0x{funct6:X2} funct3=0x{funct3:X}"
-        );
+            },
+        };
     }
 
     // OPCFG: vsetvli / vsetivli / vsetvl.
@@ -828,26 +819,27 @@ public sealed class RvDecoder : IDecoder {
 
     private static ITooth DecodeCompressedQ0(ulong pc, ushort c, uint funct3) {
         int rdp = ((c >> 2) & 0x7) + 8;  // rd'  → x8–x15
-        int rs1p = ((c >> 7) & 0x7) + 8; // rs1' → x8–x15
+        int rs1P = ((c >> 7) & 0x7) + 8; // rs1' → x8–x15
 
         return funct3 switch {
-            0x0 => DecodeAddi4spn(pc, c, rdp),
-            0x2 => DecodeCLw(pc, c, rdp, rs1p),
-            0x3 => DecodeCFlw(pc, c, rdp, rs1p),
-            0x6 => DecodeCSw(pc, c, rdp, rs1p),
-            0x7 => DecodeCFsw(pc, c, rdp, rs1p),
+            0x0 => DecodeAddi4Spn(pc, c, rdp),
+            0x2 => DecodeCLw(pc, c, rdp, rs1P),
+            0x3 => DecodeCFlw(pc, c, rdp, rs1P),
+            0x6 => DecodeCSw(pc, c, rdp, rs1P),
+            0x7 => DecodeCFsw(pc, c, rdp, rs1P),
             _   => throw new IllegalInstructionException(pc, c, $"Unknown C.Q0 funct3=0x{funct3:X}"),
         };
     }
 
-    private static ITooth DecodeAddi4spn(ulong pc, ushort c, int rdp) {
+    private static ITooth DecodeAddi4Spn(ulong pc, ushort c, int rdp) {
         // CIW: nzuimm[5:4]=c[12:11], nzuimm[9:6]=c[10:7], nzuimm[2]=c[6], nzuimm[3]=c[5]
         int nzuimm = (((c >> 11) & 0x3) << 4)
                    | (((c >> 7) & 0xF) << 6)
                    | (((c >> 6) & 0x1) << 2)
                    | (((c >> 5) & 0x1) << 3);
-        if (nzuimm == 0) throw new IllegalInstructionException(pc, c, "C.ADDI4SPN with nzuimm=0 is reserved");
-        return C(pc, c, rdp, [2,], ToothClass.IntegerAlu, new RvAddi(rdp, 2, nzuimm));
+        return nzuimm == 0
+            ? throw new IllegalInstructionException(pc, c, "C.ADDI4SPN with nzuimm=0 is reserved")
+            : C(pc, c, rdp, [2,], ToothClass.IntegerAlu, new RvAddi(rdp, 2, nzuimm));
     }
 
     private static int ClMemImm(ushort c) =>
@@ -855,23 +847,23 @@ public sealed class RvDecoder : IDecoder {
       | (((c >> 6) & 0x1) << 2)  // c[6]     → uimm[2]
       | (((c >> 5) & 0x1) << 6); // c[5]     → uimm[6]
 
-    private static ITooth DecodeCLw(ulong pc, ushort c, int rdp, int rs1p) =>
-        C(pc, c, rdp, [rs1p,], ToothClass.Load, new RvLw(rdp, rs1p, ClMemImm(c)));
+    private static RvInstruction DecodeCLw(ulong pc, ushort c, int rdp, int rs1P) =>
+        C(pc, c, rdp, [rs1P,], ToothClass.Load, new RvLw(rdp, rs1P, ClMemImm(c)));
 
-    private static ITooth DecodeCFlw(ulong pc, ushort c, int rdp, int rs1p) =>
-        C(pc, c, rdp + 32, [rs1p,], ToothClass.Load, new RvFlw(rdp + 32, rs1p, ClMemImm(c)));
+    private static RvInstruction DecodeCFlw(ulong pc, ushort c, int rdp, int rs1P) =>
+        C(pc, c, rdp + 32, [rs1P,], ToothClass.Load, new RvFlw(rdp + 32, rs1P, ClMemImm(c)));
 
-    private static ITooth DecodeCSw(ulong pc, ushort c, int rs2p, int rs1p) =>
-        C(pc, c, -1, [rs1p, rs2p,], ToothClass.Store, new RvSw(rs1p, rs2p, ClMemImm(c)));
+    private static RvInstruction DecodeCSw(ulong pc, ushort c, int rs2P, int rs1P) =>
+        C(pc, c, -1, [rs1P, rs2P,], ToothClass.Store, new RvSw(rs1P, rs2P, ClMemImm(c)));
 
-    private static ITooth DecodeCFsw(ulong pc, ushort c, int rs2p, int rs1p) =>
-        C(pc, c, -1, [rs1p, rs2p + 32,], ToothClass.Store, new RvFsw(rs1p, rs2p + 32, ClMemImm(c)));
+    private static RvInstruction DecodeCFsw(ulong pc, ushort c, int rs2P, int rs1P) =>
+        C(pc, c, -1, [rs1P, rs2P + 32,], ToothClass.Store, new RvFsw(rs1P, rs2P + 32, ClMemImm(c)));
 
     // ── Quadrant 1 ────────────────────────────────────────────────────────────
 
-    private static ITooth DecodeCompressedQ1(ulong pc, ushort c, uint funct3) {
+    private static RvInstruction DecodeCompressedQ1(ulong pc, ushort c, uint funct3) {
         int rd = (c >> 7) & 0x1F;
-        int rs1p = ((c >> 7) & 0x7) + 8; // for CB-type restricted registers
+        int rs1P = ((c >> 7) & 0x7) + 8; // for CB-type restricted registers
         int ci6Imm = SignExtendN((((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F), 6);
 
         return funct3 switch {
@@ -879,10 +871,10 @@ public sealed class RvDecoder : IDecoder {
             0x1 => DecodeCJal(pc, c), // C.JAL (RV32 only) → JAL x1, offset
             0x2 => C(pc, c, rd, [], ToothClass.IntegerAlu, new RvAddi(rd, 0, ci6Imm)), // C.LI → ADDI rd, x0, imm
             0x3 => DecodeQ1Funct3_011(pc, c, rd, ci6Imm),
-            0x4 => DecodeQ1Funct3_100(pc, c, rs1p, ci6Imm),
-            0x5 => DecodeCJ(pc, c), // C.J → JAL x0, offset
-            0x6 => C(pc, c, -1, [rs1p, 0,], ToothClass.ConditionalBranch, new RvBeq(rs1p, 0, CBranchImm(c))), // C.BEQZ
-            0x7 => C(pc, c, -1, [rs1p, 0,], ToothClass.ConditionalBranch, new RvBne(rs1p, 0, CBranchImm(c))), // C.BNEZ
+            0x4 => DecodeQ1Funct3_100(pc, c, rs1P, ci6Imm),
+            0x5 => DecodeCj(pc, c), // C.J → JAL x0, offset
+            0x6 => C(pc, c, -1, [rs1P, 0,], ToothClass.ConditionalBranch, new RvBeq(rs1P, 0, CBranchImm(c))), // C.BEQZ
+            0x7 => C(pc, c, -1, [rs1P, 0,], ToothClass.ConditionalBranch, new RvBne(rs1P, 0, CBranchImm(c))), // C.BNEZ
             _   => throw new IllegalInstructionException(pc, c, $"Unknown C.Q1 funct3=0x{funct3:X}"),
         };
     }
@@ -910,13 +902,13 @@ public sealed class RvDecoder : IDecoder {
         return SignExtendN(offset, 9);
     }
 
-    private static ITooth DecodeCJal(ulong pc, ushort c) =>
+    private static RvInstruction DecodeCJal(ulong pc, ushort c) =>
         C(pc, c, 1, [], ToothClass.Branch, new RvJal(1, CJumpOffset(c)));
 
-    private static ITooth DecodeCJ(ulong pc, ushort c) =>
+    private static RvInstruction DecodeCj(ulong pc, ushort c) =>
         C(pc, c, 0, [], ToothClass.Branch, new RvJal(0, CJumpOffset(c)));
 
-    private static ITooth DecodeQ1Funct3_011(ulong pc, ushort c, int rd, int ci6Imm) {
+    private static RvInstruction DecodeQ1Funct3_011(ulong pc, ushort c, int rd, int _) {
         if (rd == 2) {
             // C.ADDI16SP: nzimm[9]=c[12], [4]=c[6], [6]=c[5], [8:7]=c[4:3], [5]=c[2]
             int nzimm = (((c >> 12) & 0x1) << 9)
@@ -925,54 +917,52 @@ public sealed class RvDecoder : IDecoder {
                       | (((c >> 3) & 0x3) << 7)
                       | (((c >> 2) & 0x1) << 5);
             nzimm = SignExtendN(nzimm, 10);
-            if (nzimm == 0) throw new IllegalInstructionException(pc, c, "C.ADDI16SP with nzimm=0 is reserved");
-            return C(pc, c, 2, [2,], ToothClass.IntegerAlu, new RvAddi(2, 2, nzimm));
+            return nzimm == 0
+                ? throw new IllegalInstructionException(pc, c, "C.ADDI16SP with nzimm=0 is reserved")
+                : C(pc, c, 2, [2,], ToothClass.IntegerAlu, new RvAddi(2, 2, nzimm));
         }
 
         // C.LUI: nzimm[17]=c[12], nzimm[16:12]=c[6:2] → placed at bits [17:12]
         int raw6 = (((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F);
         int nzimmLui = SignExtendN(raw6, 6) << 12;
-        if (nzimmLui == 0) throw new IllegalInstructionException(pc, c, "C.LUI with nzimm=0 is reserved");
-        return C(pc, c, rd, [], ToothClass.IntegerAlu, new RvLui(rd, nzimmLui));
+        return nzimmLui == 0
+            ? throw new IllegalInstructionException(pc, c, "C.LUI with nzimm=0 is reserved")
+            : C(pc, c, rd, [], ToothClass.IntegerAlu, new RvLui(rd, nzimmLui));
     }
 
-    private static ITooth DecodeQ1Funct3_100(ulong pc, ushort c, int rs1p, int ci6Imm) {
+    private static RvInstruction DecodeQ1Funct3_100(ulong pc, ushort c, int rs1P, int ci6Imm) {
         int sub = (c >> 10) & 0x3;
         int shamt = (((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F);
 
-        if (sub == 0x0) {
+        switch (sub) {
             // C.SRLI → SRLI rs1', rs1', shamt
-            if ((shamt & 0x20) != 0)
+            case 0x0 when (shamt & 0x20) != 0:
                 throw new IllegalInstructionException(pc, c, "C.SRLI with shamt[5]=1 is reserved for RV32");
-            return C(pc, c, rs1p, [rs1p,], ToothClass.IntegerAlu, new RvSrli(rs1p, rs1p, shamt));
-        }
-
-        if (sub == 0x1) {
+            case 0x0: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvSrli(rs1P, rs1P, shamt));
             // C.SRAI → SRAI rs1', rs1', shamt
-            if ((shamt & 0x20) != 0)
+            case 0x1 when (shamt & 0x20) != 0:
                 throw new IllegalInstructionException(pc, c, "C.SRAI with shamt[5]=1 is reserved for RV32");
-            return C(pc, c, rs1p, [rs1p,], ToothClass.IntegerAlu, new RvSrai(rs1p, rs1p, shamt));
+            case 0x1: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvSrai(rs1P, rs1P, shamt));
+            // C.ANDI → ANDI rs1', rs1', imm
+            case 0x2: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvAndi(rs1P, rs1P, ci6Imm));
         }
 
-        if (sub == 0x2)
-            // C.ANDI → ANDI rs1', rs1', imm
-            return C(pc, c, rs1p, [rs1p,], ToothClass.IntegerAlu, new RvAndi(rs1p, rs1p, ci6Imm));
         // sub == 0x3: CA-type arithmetic
         if ((c & 0x1000) != 0)
             throw new IllegalInstructionException(pc, c, "C.SUB/XOR/OR/AND with c[12]=1 is reserved");
-        int rs2p = ((c >> 2) & 0x7) + 8;
+        int rs2P = ((c >> 2) & 0x7) + 8;
         return ((c >> 5) & 0x3) switch {
-            0x0 => C(pc, c, rs1p, [rs1p, rs2p,], ToothClass.IntegerAlu, new RvSub(rs1p, rs1p, rs2p)),
-            0x1 => C(pc, c, rs1p, [rs1p, rs2p,], ToothClass.IntegerAlu, new RvXor(rs1p, rs1p, rs2p)),
-            0x2 => C(pc, c, rs1p, [rs1p, rs2p,], ToothClass.IntegerAlu, new RvOr(rs1p, rs1p, rs2p)),
-            0x3 => C(pc, c, rs1p, [rs1p, rs2p,], ToothClass.IntegerAlu, new RvAnd(rs1p, rs1p, rs2p)),
+            0x0 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvSub(rs1P, rs1P, rs2P)),
+            0x1 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvXor(rs1P, rs1P, rs2P)),
+            0x2 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvOr(rs1P, rs1P, rs2P)),
+            0x3 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvAnd(rs1P, rs1P, rs2P)),
             _   => throw new IllegalInstructionException(pc, c, $"Unknown CA funct2=0x{(c >> 5) & 0x3:X}"),
         };
     }
 
     // ── Quadrant 2 ────────────────────────────────────────────────────────────
 
-    private static ITooth DecodeCompressedQ2(ulong pc, ushort c, uint funct3) {
+    private static RvInstruction DecodeCompressedQ2(ulong pc, ushort c, uint funct3) {
         int rd = (c >> 7) & 0x1F;
         int rs2 = (c >> 2) & 0x1F;
 
@@ -987,11 +977,11 @@ public sealed class RvDecoder : IDecoder {
         };
     }
 
-    private static ITooth DecodeCslli(ulong pc, ushort c, int rd, int rs2) {
+    private static RvInstruction DecodeCslli(ulong pc, ushort c, int rd, int rs2) {
         int shamt = (((c >> 12) & 0x1) << 5) | rs2;
-        if ((shamt & 0x20) != 0)
-            throw new IllegalInstructionException(pc, c, "C.SLLI with shamt[5]=1 is reserved for RV32");
-        return C(pc, c, rd, [rd,], ToothClass.IntegerAlu, new RvSlli(rd, rd, shamt));
+        return (shamt & 0x20) != 0
+            ? throw new IllegalInstructionException(pc, c, "C.SLLI with shamt[5]=1 is reserved for RV32")
+            : C(pc, c, rd, [rd,], ToothClass.IntegerAlu, new RvSlli(rd, rd, shamt));
     }
 
     private static int ClwspImm(ushort c) =>
@@ -999,43 +989,45 @@ public sealed class RvDecoder : IDecoder {
       | (((c >> 4) & 0x7) << 2)  // c[6:4] → uimm[4:2]
       | (((c >> 2) & 0x3) << 6); // c[3:2] → uimm[7:6]
 
-    private static ITooth DecodeCLwsp(ulong pc, ushort c, int rd) {
-        if (rd == 0) throw new IllegalInstructionException(pc, c, "C.LWSP with rd=x0 is reserved");
-        return C(pc, c, rd, [2,], ToothClass.Load, new RvLw(rd, 2, ClwspImm(c)));
-    }
+    private static RvInstruction DecodeCLwsp(ulong pc, ushort c, int rd) => rd == 0
+        ? throw new IllegalInstructionException(pc, c, "C.LWSP with rd=x0 is reserved")
+        : C(pc, c, rd, [2,], ToothClass.Load, new RvLw(rd, 2, ClwspImm(c)));
 
-    private static ITooth DecodeCFlwsp(ulong pc, ushort c, int rd) =>
+    private static RvInstruction DecodeCFlwsp(ulong pc, ushort c, int rd) =>
         C(pc, c, rd + 32, [2,], ToothClass.Load, new RvFlw(rd + 32, 2, ClwspImm(c)));
 
     private static int CswspImm(ushort c) =>
         (((c >> 9) & 0xF) << 2)  // c[12:9] → uimm[5:2]
       | (((c >> 7) & 0x3) << 6); // c[8:7] → uimm[7:6]
 
-    private static ITooth DecodeCSwsp(ulong pc, ushort c, int rs2) =>
+    private static RvInstruction DecodeCSwsp(ulong pc, ushort c, int rs2) =>
         C(pc, c, -1, [2, rs2,], ToothClass.Store, new RvSw(2, rs2, CswspImm(c)));
 
-    private static ITooth DecodeCFswsp(ulong pc, ushort c, int rs2) =>
+    private static RvInstruction DecodeCFswsp(ulong pc, ushort c, int rs2) =>
         C(pc, c, -1, [2, rs2 + 32,], ToothClass.Store, new RvFsw(2, rs2 + 32, CswspImm(c)));
 
-    private static ITooth DecodeQ2Funct3_100(ulong pc, ushort c, int rd, int rs2) {
-        bool inst12 = (c & 0x1000) != 0;
-        if (!inst12 && rs2 == 0) {
-            // C.JR → JALR x0, 0(rs1)
-            if (rd == 0) throw new IllegalInstructionException(pc, c, "C.JR with rs1=x0 is reserved");
-            return C(pc, c, 0, [rd,], ToothClass.Branch, new RvJalr(0, rd, 0));
+    private static RvInstruction DecodeQ2Funct3_100(ulong pc, ushort c, int rd, int rs2) {
+        switch ((c & 0x1000) != 0) {
+            case false when rs2 == 0: {
+                // C.JR → JALR x0, 0(rs1)
+                return rd == 0
+                    ? throw new IllegalInstructionException(pc, c, "C.JR with rs1=x0 is reserved")
+                    : C(pc, c, 0, [rd,], ToothClass.Branch, new RvJalr(0, rd, 0));
+            }
+            // C.MV → ADD rd, x0, rs2
+            case false: return C(pc, c, rd, [0, rs2,], ToothClass.IntegerAlu, new RvAdd(rd, 0, rs2));
         }
 
-        if (!inst12)
-            // C.MV → ADD rd, x0, rs2
-            return C(pc, c, rd, [0, rs2,], ToothClass.IntegerAlu, new RvAdd(rd, 0, rs2));
         if (rd == 0 && rs2 == 0)
             // C.EBREAK
             return C(pc, c, -1, [], ToothClass.System, new RvEbreak());
-        if (rs2 == 0)
+        return rs2 == 0
+            ?
             // C.JALR → JALR x1, 0(rs1)
-            return C(pc, c, 1, [rd,], ToothClass.Branch, new RvJalr(1, rd, 0));
-        // C.ADD → ADD rd, rd, rs2
-        return C(pc, c, rd, [rd, rs2,], ToothClass.IntegerAlu, new RvAdd(rd, rd, rs2));
+            C(pc, c, 1, [rd,], ToothClass.Branch, new RvJalr(1, rd, 0))
+            :
+            // C.ADD → ADD rd, rd, rs2
+            C(pc, c, rd, [rd, rs2,], ToothClass.IntegerAlu, new RvAdd(rd, rd, rs2));
     }
 
     // ── Immediate helpers ─────────────────────────────────────────────────────

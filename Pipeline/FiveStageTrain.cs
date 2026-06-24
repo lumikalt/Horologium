@@ -93,16 +93,18 @@ internal sealed class PipelineCore : Gear {
     private long _missStallBudget;
 
     // Pre-allocated for per-cycle forwarding/hazard checks — avoids heap allocation every RunCycle.
-    private readonly PipelineResident[] _fwdProviders    = new PipelineResident[2];
+    private readonly PipelineResident[] _fwdProviders = new PipelineResident[2];
     private readonly PipelineResident[] _hazardResidents = new PipelineResident[2];
+
+    private bool _anyCache;
 
     // Delta tracking for cache/TLB stat counters
     private long _lastIHits, _lastIMisses;
-    private long _lastIL2Hits, _lastIL2Misses;
-    private long _lastIL3Hits, _lastIL3Misses;
+    private long _lastIl2Hits, _lastIl2Misses;
+    private long _lastIl3Hits, _lastIl3Misses;
     private long _lastDHits, _lastDMisses;
-    private long _lastDL2Hits, _lastDL2Misses;
-    private long _lastDL3Hits, _lastDL3Misses;
+    private long _lastDl2Hits, _lastDl2Misses;
+    private long _lastDl3Hits, _lastDl3Misses;
     private long _lastITlbHits, _lastITlbMisses;
     private long _lastDTlbHits, _lastDTlbMisses;
     private long _lastStoreForwards;
@@ -186,6 +188,7 @@ internal sealed class PipelineCore : Gear {
                                                   || ILayers.L2Cache is not null || DLayers.L2Cache is not null
                                                   || ILayers.L3Cache is not null || DLayers.L3Cache is not null
                                                   || ILayers.Tlb is not null || DLayers.Tlb is not null;
+        _anyCache = anyCache;
         if (anyCache)
             _cacheMissStallsCounter = Dials.AddCounter(
                 "cache_miss_stalls", "Stall cycles from memory hierarchy misses"
@@ -243,7 +246,7 @@ internal sealed class PipelineCore : Gear {
     // written this cycle is visible to Decode's reads in the same cycle.
     private void RunCycle() {
         // Collect pending stalls from memory hierarchy (generated last cycle's stage execution).
-        _missStallBudget += CollectMemoryStalls();
+        if (_anyCache) _missStallBudget += CollectMemoryStalls();
 
         // Reflect retirements produced by last cycle's Writeback.
         long newRetired = _wb.RetiredCount;
@@ -269,20 +272,30 @@ internal sealed class PipelineCore : Gear {
         }
 
         // Snapshot pipeline-register contents from last cycle before any stage runs.
-        IfIdLatch  ifIdLast  = _if.LastSent;
-        IdExLatch  idExLast  = _id.LastSent;
+        IfIdLatch ifIdLast = _if.LastSent;
+        IdExLatch idExLast = _id.LastSent;
         ExMemLatch exMemLast = _ex.LastSent;
         MemWbLatch memWbLast = _mem.LastSent;
 
         // Forwarding providers: oldest-first so the freshest source wins.
         // MEM/WB (index 0, oldest) and EX/MEM (index 1, newest).
-        _fwdProviders[0] = new PipelineResident(memWbLast.IsValid, memWbLast.DestinationRegister, default, memWbLast.WritebackValue);
-        _fwdProviders[1] = new PipelineResident(exMemLast.IsValid, exMemLast.DestinationRegister, default, exMemLast.Result?.RegisterResult);
+        _fwdProviders[0] = new PipelineResident(
+            memWbLast.IsValid, memWbLast.DestinationRegister, default(ToothClass), memWbLast.WritebackValue
+        );
+        _fwdProviders[1] = new PipelineResident(
+            exMemLast.IsValid, exMemLast.DestinationRegister, default(ToothClass),
+            exMemLast.Result is { } fwdR && fwdR.RegisterResult.HasValue ? fwdR.RegisterResult.Value : null
+        );
         _ex.SetForwardingContext(_fwdProviders);
 
         // Hazard detection: residents newest-first (EX at 0, MEM at 1).
-        _hazardResidents[0] = new PipelineResident(idExLast.IsValid, idExLast.DestinationRegister, idExLast.Instruction?.Class ?? default, null);
-        _hazardResidents[1] = new PipelineResident(exMemLast.IsValid, exMemLast.DestinationRegister, exMemLast.Instruction?.Class ?? default, exMemLast.Result?.RegisterResult);
+        _hazardResidents[0] = new PipelineResident(
+            idExLast.IsValid, idExLast.DestinationRegister, idExLast.Instruction?.Class ?? default(ToothClass), null
+        );
+        _hazardResidents[1] = new PipelineResident(
+            exMemLast.IsValid, exMemLast.DestinationRegister, exMemLast.Instruction?.Class ?? default(ToothClass),
+            exMemLast.Result is { } hzR && hzR.RegisterResult.HasValue ? hzR.RegisterResult.Value : null
+        );
         bool stall = _hazard.MustStall(IncomingSources(ifIdLast), _hazardResidents);
 
         // Reconcile any branch leaving EX with the prediction made at fetch.
@@ -322,16 +335,20 @@ internal sealed class PipelineCore : Gear {
 
         // Trap redirect from WB (computed last cycle).
         if (_wb.TrapRedirect.HasValue) {
-            _if.Pc = _wb.TrapRedirect.Value;
+            _if.FlushTarget = _wb.TrapRedirect.Value;
             _if.Flush = true;
         }
 
         // Drive stages directly — WB before ID so the register file write
         // is visible to Decode's reads within the same cycle.
-        _wb.Inject(memWbLast); _wb.Cycle();
-        _id.Inject(ifIdLast);  _id.Cycle();
-        _ex.Inject(idExLast);  _ex.Cycle();
-        _mem.Inject(exMemLast); _mem.Cycle();
+        _wb.Inject(memWbLast);
+        _wb.Cycle();
+        _id.Inject(ifIdLast);
+        _id.Cycle();
+        _ex.Inject(idExLast);
+        _ex.Cycle();
+        _mem.Inject(exMemLast);
+        _mem.Cycle();
         _if.Cycle();
         StoreBuffer?.DrainEligible();
 
@@ -345,17 +362,17 @@ internal sealed class PipelineCore : Gear {
 
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
         UpdateCacheStat(
-            ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses
+            ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
         );
         UpdateCacheStat(
-            ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses
+            ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
         );
         UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
         UpdateCacheStat(
-            DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses
+            DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
         );
         UpdateCacheStat(
-            DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses
+            DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
         );
 
         if (ILayers.Tlb is { } it) {

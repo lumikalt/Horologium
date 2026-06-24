@@ -10,28 +10,27 @@ string? elfPath = null;
 string? sweepPath = null;
 long warmupTicks = 0;
 long maxTicks = 1_000_000;
-long snapshotInterval = 0; // 0 = off, -1 = auto, >0 = explicit ticks
-var format = "md";         // md | csv | both | ts-csv
+long snapshotInterval = 0;   // 0 = off, -1 = auto, >0 = explicit ticks
+var format = "md";           // md | csv | both | ts-csv
 int? memorySizeBytes = null; // null → default to 4 MB for ELF workloads
 
-string[] argv = args; // top-level programs expose args implicitly
-for (var i = 0; i < argv.Length; i++)
-    switch (argv[i]) {
-        case "--sweep":     sweepPath = argv[++i]; break;
-        case "--warmup":    warmupTicks = long.Parse(argv[++i]); break;
-        case "--max-ticks": maxTicks = long.Parse(argv[++i]); break;
-        case "--memory":    memorySizeBytes = int.Parse(argv[++i]); break;
+for (var i = 0; i < args.Length; i++)
+    switch (args[i]) {
+        case "--sweep":     sweepPath = args[++i]; break;
+        case "--warmup":    warmupTicks = long.Parse(args[++i]); break;
+        case "--max-ticks": maxTicks = long.Parse(args[++i]); break;
+        case "--memory":    memorySizeBytes = int.Parse(args[++i]); break;
         case "--snapshot-interval":
-            snapshotInterval = argv[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(argv[++i]);
+            snapshotInterval = args[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(args[++i]);
             break;
-        case "--format": format = argv[++i]; break;
+        case "--format": format = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
         default:
-            if (!argv[i].StartsWith("--") && elfPath is null) { elfPath = argv[i]; }
+            if (!args[i].StartsWith("--") && elfPath is null) { elfPath = args[i]; }
             else {
-                Console.Error.WriteLine($"Unknown argument: {argv[i]}");
+                Console.Error.WriteLine($"Unknown argument: {args[i]}");
                 PrintUsage();
                 return;
             }
@@ -87,8 +86,12 @@ ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(), m
 // ── Output ────────────────────────────────────────────────────────────────────
 
 if (format is "md" or "both") Console.WriteLine(result.ToMarkdownTable());
-if (format is "csv" or "both") Console.WriteLine(result.ToCsv());
-if (format is "ts-csv") Console.WriteLine(result.ToTimeSeriesCsv());
+switch (format) {
+    case "csv" or "both": Console.WriteLine(result.ToCsv()); break;
+    case "ts-csv":        Console.WriteLine(result.ToTimeSeriesCsv()); break;
+}
+
+return;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -96,7 +99,7 @@ static IReadOnlyList<NamedConfig> DefaultSweep() => [
     new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
     new("always_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
     new("1_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(1))),
-    new("2_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(2))),
+    new("2_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit())),
     new("3_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(3))),
     new("no_forwarding", new TrainConfig(Predictor: BranchPredictorConfig.NBit(), ForwardingEnabled: false)),
     new("scalar_2wide", new TrainConfig("superscalar", IssueWidth: 2)),

@@ -30,23 +30,31 @@ public partial class MainWindowViewModel : ObservableObject {
         new("Custom ELF…", ""),
     ];
 
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowBrowse))]
-    private WorkloadPreset _selectedPreset = null!;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowBrowse))]
+    public partial WorkloadPreset SelectedPreset { get; set; }
 
-    [ObservableProperty] private string? _workloadPath = null;
-    [ObservableProperty] private decimal _maxTicks = 1_000_000;
-    [ObservableProperty] private decimal _warmupTicks = 0;
-    [ObservableProperty] private decimal _snapshotInterval = 0;
-    [ObservableProperty] private bool _isRunning = false;
-    [ObservableProperty] private string _statusText = "Ready — configure and run an experiment.";
+    [ObservableProperty] public partial string? WorkloadPath { get; set; } = null;
 
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSelectedConfig))]
-    private ConfigViewModel? _selectedConfig = null;
+    [ObservableProperty] public partial decimal MaxTicks { get; set; } = 1_000_000;
 
-    [ObservableProperty] private string? _selectedMetric = null;
-    [ObservableProperty] private bool _hasResults = false;
+    [ObservableProperty] public partial decimal WarmupTicks { get; set; } = 0;
 
-    public bool ShowBrowse => SelectedPreset?.ElfFileName == "";
+    [ObservableProperty] public partial decimal SnapshotInterval { get; set; } = 0;
+
+    [ObservableProperty] public partial bool IsRunning { get; set; } = false;
+
+    [ObservableProperty] public partial string StatusText { get; set; } = "Ready — configure and run an experiment.";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedConfig))]
+    public partial ConfigViewModel? SelectedConfig { get; set; } = null;
+
+    [ObservableProperty] public partial string? SelectedMetric { get; set; } = null;
+
+    [ObservableProperty] public partial bool HasResults { get; set; } = false;
+
+    public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
     public ObservableCollection<ConfigViewModel> Configs { get; } = [];
     public ObservableCollection<string> AvailableMetrics { get; } = [];
@@ -246,7 +254,7 @@ public partial class MainWindowViewModel : ObservableObject {
         return merged;
     }
 
-    private static IWorkload CreateBuiltInWorkload() {
+    private static ByteArrayWorkload CreateBuiltInWorkload() {
         // Built-in demo: 100-iteration countdown loop
         uint[] words = [0x06400093, 0x00008663, 0xFFF08093, 0xFF9FF06F, 0x00100073,];
         var bytes = new byte[words.Length * 4];
@@ -264,7 +272,7 @@ public partial class MainWindowViewModel : ObservableObject {
         new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
         new("always_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
         new("1_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(1))),
-        new("2_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(2))),
+        new("2_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit())),
         new("3_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(3))),
         new("superscalar_2w", new TrainConfig("superscalar", IssueWidth: 2)),
         new("ooo_2w", new TrainConfig("ooo", Predictor: BranchPredictorConfig.NBit(), IssueWidth: 2)),

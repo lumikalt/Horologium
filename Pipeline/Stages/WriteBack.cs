@@ -16,7 +16,7 @@ public sealed class WritebackStage : Gear {
     public InArbor<MemWbLatch> Input { get; }
 
     public bool Halted { get; private set; }
-    public ulong? TrapRedirect { get; private set; }
+    public (ulong Value, bool HasValue) TrapRedirect { get; private set; }
     public long RetiredCount { get; private set; }
 
     internal Histogram? OpcodeHistogram { get; set; }
@@ -39,7 +39,7 @@ public sealed class WritebackStage : Gear {
     internal void Inject(MemWbLatch latch) => _current = latch;
 
     public void Cycle() {
-        TrapRedirect = null;
+        TrapRedirect = default((ulong Value, bool HasValue));
 
         if (_current is not { IsValid: true, } latch || latch.Instruction is null) {
             _current = MemWbLatch.Bubble;
@@ -53,9 +53,9 @@ public sealed class WritebackStage : Gear {
             return;
         }
 
-        if (latch.HasTrap && latch.Trap is not null) { TrapRedirect = _trap.RaiseTrap(latch.Trap, _state); }
+        if (latch.HasTrap && latch.Trap is not null) { TrapRedirect = (_trap.RaiseTrap(latch.Trap, _state), true); }
         else if (latch.IsReturnFromTrap && latch.ReturnPrivilege.HasValue) {
-            TrapRedirect = _trap.ReturnFromTrap(latch.ReturnPrivilege.Value, _state);
+            TrapRedirect = (_trap.ReturnFromTrap(latch.ReturnPrivilege.Value, _state), true);
         }
         else {
             latch.SideEffect?.Invoke(_state);
@@ -68,7 +68,7 @@ public sealed class WritebackStage : Gear {
                 );
         }
 
-        var instrType = latch.Instruction.Payload?.GetType();
+        Type? instrType = latch.Instruction.Payload?.GetType();
         if (instrType is not null) OpcodeHistogram?.Observe(instrType);
         RetiredCount++;
     }

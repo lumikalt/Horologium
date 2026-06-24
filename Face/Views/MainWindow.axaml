@@ -42,7 +42,7 @@
                         <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowBrowse}" ColumnSpacing="6">
                             <TextBox Grid.Column="0"
                                      Text="{Binding WorkloadPath}"
-                                     Watermark="Path to ELF binary…"
+                                     PlaceholderText="Path to ELF binary…"
                                      IsReadOnly="True" />
                             <Button Grid.Column="1" Content="Browse…"
                                     x:Name="BrowseButton" />

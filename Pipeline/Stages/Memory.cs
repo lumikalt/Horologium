@@ -39,7 +39,7 @@ public sealed class MemoryStage : Gear {
             IsValid = true,
             Pc = latch.Pc,
             Instruction = latch.Instruction,
-            WritebackValue = result.RegisterResult,
+            WritebackValue = result.RegisterResult.HasValue ? result.RegisterResult.Value : null,
             DestinationRegister = latch.DestinationRegister,
             HasTrap = result.HasTrap,
             Trap = result.Trap,

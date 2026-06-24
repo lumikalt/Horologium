@@ -53,7 +53,23 @@ public sealed class RvTrapController : ITrapController {
         var rv = (RvArchState)state;
         CsrFile csrs = rv.CsrFile;
 
-        // Restore mstatus: MPP → privilege, MPIE → MIE, set MPIE=1, MPP=U
+        if (returningFrom == RvPrivilege.Supervisor) {
+            // SRET: restore from sstatus.SPP/SPIE, return to sepc
+            uint sstatus = csrs.DirectRead(CsrFile.Sstatus);
+            uint spp = (sstatus >> 8) & 0x1;
+            uint spie = (sstatus >> 5) & 0x1;
+
+            sstatus &= ~CsrFile.SstatusSie; // clear SIE
+            sstatus |= spie << 1;           // SIE = SPIE
+            sstatus |= CsrFile.SstatusSpie; // SPIE = 1
+            sstatus &= ~CsrFile.SstatusSpp; // SPP = 0 (U-mode)
+
+            csrs.DirectWrite(CsrFile.Sstatus, sstatus);
+            state.PrivilegeLevel = (PrivilegeLevel)spp;
+            return csrs.DirectRead(CsrFile.Sepc);
+        }
+
+        // MRET: restore from mstatus.MPP/MPIE, return to mepc
         uint mstatus = csrs.DirectRead(CsrFile.Mstatus);
         uint mpp = (mstatus >> 11) & 0x3;
         uint mpie = (mstatus >> 7) & 0x1;
@@ -64,11 +80,7 @@ public sealed class RvTrapController : ITrapController {
         mstatus &= ~CsrFile.MstatusMpp; // MPP = U (0)
 
         csrs.DirectWrite(CsrFile.Mstatus, mstatus);
-
-        // Restore privilege level from MPP
         state.PrivilegeLevel = (PrivilegeLevel)mpp;
-
-        // Return to mepc
         return csrs.DirectRead(CsrFile.Mepc);
     }
 }

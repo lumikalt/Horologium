@@ -75,7 +75,9 @@ public sealed class OutArbor<T> {
     }
 
     private void Deliver() {
-        Debug.Assert(_queue.Count > 0, $"OutArbor '{Name}': Deliver called with empty queue — mismatched Send/Deliver count.");
+        Debug.Assert(
+            _queue.Count > 0, $"OutArbor '{Name}': Deliver called with empty queue — mismatched Send/Deliver count."
+        );
         _bound!.Deliver(_queue.Dequeue());
     }
 }

@@ -91,8 +91,8 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly record struct ExecResult(
         int RobIdx,
         int PhysDest,
-        ulong? RegValue,
-        ulong? ResolvedNextPc,
+        (ulong Value, bool HasValue) RegValue,
+        (ulong Value, bool HasValue) ResolvedNextPc,
         TrapInfo? Trap,
         bool IsReturnFromTrap,
         PrivilegeLevel? ReturnPrivilege,
@@ -170,9 +170,11 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
 
+    private bool _anyCache;
+
     // Delta tracking for hit/miss counters
-    private long _lastIHits, _lastIMisses, _lastIL2Hits, _lastIL2Misses, _lastIL3Hits, _lastIL3Misses;
-    private long _lastDHits, _lastDMisses, _lastDL2Hits, _lastDL2Misses, _lastDL3Hits, _lastDL3Misses;
+    private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
+    private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
     public IArchState State { get; }
@@ -234,11 +236,11 @@ internal sealed class OoOPipelineCore : Gear {
             "Instructions per cycle"
         );
 
-        bool anyCache = ILayers.Cache is not null || DLayers.Cache is not null
-                                                  || ILayers.L2Cache is not null || DLayers.L2Cache is not null
-                                                  || ILayers.L3Cache is not null || DLayers.L3Cache is not null
-                                                  || ILayers.Tlb is not null || DLayers.Tlb is not null;
-        if (anyCache)
+        _anyCache = ILayers.Cache is not null || DLayers.Cache is not null
+                                              || ILayers.L2Cache is not null || DLayers.L2Cache is not null
+                                              || ILayers.L3Cache is not null || DLayers.L3Cache is not null
+                                              || ILayers.Tlb is not null || DLayers.Tlb is not null;
+        if (_anyCache)
             // Lump-sum model: penalty cycles are appended per cycle, not overlapped.
             // This overestimates stalls relative to real out-of-order memory-level parallelism.
             _cacheMissStallsCounter = Dials.AddCounter(
@@ -296,7 +298,7 @@ internal sealed class OoOPipelineCore : Gear {
 
         // Drain cache/TLB stall penalties from the previous cycle's memory operations.
         // Lump-sum: does not model memory-level parallelism available in real OoO hardware.
-        long cacheStalls = DrainAndChargeStalls();
+        long cacheStalls = _anyCache ? DrainAndChargeStalls() : 0;
         if (cacheStalls > 0) {
             _cyclesCounter.IncrementBy(cacheStalls);
             _stallsCounter.IncrementBy(cacheStalls);
@@ -351,10 +353,9 @@ internal sealed class OoOPipelineCore : Gear {
                 rob.StoreWidth = r.StoreBytes;
             }
 
-            if (r.RegValue.HasValue && r.PhysDest >= 0) {
-                _prf.Write(r.PhysDest, r.RegValue.Value);
-                _iq.Broadcast(r.PhysDest, r.RegValue.Value);
-            }
+            if (!r.RegValue.HasValue || r.PhysDest < 0) continue;
+            _prf.Write(r.PhysDest, r.RegValue.Value);
+            _iq.Broadcast(r.PhysDest, r.RegValue.Value);
         }
 
         _cdbBuffer.Clear();
@@ -363,33 +364,33 @@ internal sealed class OoOPipelineCore : Gear {
     /// <summary>In-order retirement from the ROB head.</summary>
     private void StepCommit() {
         var committed = 0;
-        while (!_rob.IsEmpty && _rob.Head.IsComplete && committed < _issueWidth) {
+        while (_rob is { IsEmpty: false, Head.IsComplete: true, } && committed < _issueWidth) {
             RobEntry head = _rob.Head;
 
-            if (head.IsHalt) {
-                CommitRegisters(head);
-                _rob.Retire();
-                _retiredCounter.Increment();
-                _halted = true;
-                return;
-            }
-
-            if (head.HasTrap && head.Trap is not null) {
-                ulong target = _trapController.RaiseTrap(head.Trap, State);
-                CommitRegisters(head);
-                _rob.Retire();
-                _retiredCounter.Increment();
-                SetFlush(target);
-                return;
-            }
-
-            if (head.IsReturnFromTrap && head.ReturnPrivilege.HasValue) {
-                ulong target = _trapController.ReturnFromTrap(head.ReturnPrivilege.Value, State);
-                CommitRegisters(head);
-                _rob.Retire();
-                _retiredCounter.Increment();
-                SetFlush(target);
-                return;
+            switch (head) {
+                case { IsHalt: true, }: {
+                    CommitRegisters(head);
+                    _rob.Retire();
+                    _retiredCounter.Increment();
+                    _halted = true;
+                    return;
+                }
+                case { HasTrap: true, Trap: not null, }: {
+                    ulong target = _trapController.RaiseTrap(head.Trap, State);
+                    CommitRegisters(head);
+                    _rob.Retire();
+                    _retiredCounter.Increment();
+                    SetFlush(target);
+                    return;
+                }
+                case { IsReturnFromTrap: true, ReturnPrivilege: not null, }: {
+                    ulong target = _trapController.ReturnFromTrap(head.ReturnPrivilege.Value, State);
+                    CommitRegisters(head);
+                    _rob.Retire();
+                    _retiredCounter.Increment();
+                    SetFlush(target);
+                    return;
+                }
             }
 
             if (head.IsStore) DLayers.Accessor.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
@@ -439,6 +440,11 @@ internal sealed class OoOPipelineCore : Gear {
             // Conservative load ordering: stall a load if any preceding in-flight
             // store hasn't committed yet (its write is deferred to ROB commit).
             if (rs.Instruction?.Class == ToothClass.Load && HasPrecedingPendingStore(rs.RobIndex)) continue;
+
+            // CSR serialization: a System instruction may only issue when it is
+            // at the ROB head (all older instructions have committed). This prevents
+            // out-of-order CSR reads from seeing stale state written by earlier CSR ops.
+            if (rs.Instruction?.Class == ToothClass.System && rs.RobIndex != _rob.HeadIndex) continue;
 
             _execBuffer.Add(
                 new IssuedInstr(
@@ -624,14 +630,14 @@ internal sealed class OoOPipelineCore : Gear {
         if (s1 >= 0) regs.Write(s1, save1);
         if (s2 >= 0) regs.Write(s2, save2);
 
-        ulong? resolvedNextPc = issued.Instr.Class switch {
+        (ulong Value, bool HasValue) resolvedNextPc = issued.Instr.Class switch {
             ToothClass.Branch =>
-                er.BranchTarget ?? issued.Pc + (ulong)issued.Instr.SizeBytes,
+                (er.BranchTarget ?? issued.Pc + (ulong)issued.Instr.SizeBytes, true),
             ToothClass.ConditionalBranch =>
                 er.BranchTaken
-                    ? er.BranchTarget ?? issued.Pc + (ulong)issued.Instr.SizeBytes
-                    : issued.Pc + (ulong)issued.Instr.SizeBytes,
-            _ => null,
+                    ? (er.BranchTarget ?? issued.Pc + (ulong)issued.Instr.SizeBytes, true)
+                    : (issued.Pc + (ulong)issued.Instr.SizeBytes, true),
+            _ => default((ulong, bool)),
         };
 
         return new ExecResult(
@@ -665,17 +671,17 @@ internal sealed class OoOPipelineCore : Gear {
         long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
         UpdateCacheStat(
-            ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses
+            ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
         );
         UpdateCacheStat(
-            ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses
+            ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
         );
         UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
         UpdateCacheStat(
-            DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses
+            DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
         );
         UpdateCacheStat(
-            DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses
+            DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
         );
         UpdateTlbStat(ILayers.Tlb, _itlbHitsCounter, _itlbMissesCounter, ref _lastITlbHits, ref _lastITlbMisses);
         UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);

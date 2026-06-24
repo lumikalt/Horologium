@@ -14,7 +14,7 @@ public sealed class NBitPredictor : IBranchPredictor {
         Array.Fill(_counters, (byte)(_satThreshold - 1)); // weakly not-taken
     }
 
-    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         int idx = Index(pc);
         bool taken = _counters[idx] >= _satThreshold;
         return new BranchPrediction(taken, taken ? _btb[idx] : pc + 4);

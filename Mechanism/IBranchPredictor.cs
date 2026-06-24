@@ -12,12 +12,13 @@ public interface IBranchPredictor {
     /// Predicts whether the branch at <paramref name="pc"/> will be taken,
     /// and if so, what the target address will be.
     /// </summary>
+    /// <param name="pc">Calculated program counter.</param>
     /// <param name="knownTarget">
-    /// Statically decoded branch target for PC-relative instructions, or null for
+    /// Statically decoded branch target for PC-relative instructions, or HasValue=false for
     /// register-indirect branches (JALR) where the target is unknown at fetch time.
     /// Dynamic predictors ignore this; static predictors use it to avoid a cold BTB miss.
     /// </param>
-    BranchPrediction Predict(ulong pc, ulong? knownTarget = null);
+    BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default);
 
     /// <summary>
     /// Updates the predictor with the actual outcome of a branch.

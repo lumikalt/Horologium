@@ -29,11 +29,26 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Mimpid = 0xF13;
     public const uint Mhartid = 0xF14;
 
+    // Supervisor Trap Setup
+    public const uint Sstatus = 0x100;
+    public const uint Sie = 0x104;
+    public const uint Stvec = 0x105;
+
+    // Supervisor Trap Handling
+    public const uint Sscratch = 0x140;
+    public const uint Sepc = 0x141;
+    public const uint Scause = 0x142;
+    public const uint Stval = 0x143;
+    public const uint Sip = 0x144;
+
     // Machine Trap Setup
     public const uint Mstatus = 0x300;
     public const uint Misa = 0x301;
+    public const uint Medeleg = 0x302;
+    public const uint Mideleg = 0x303;
     public const uint Mie = 0x304;
     public const uint Mtvec = 0x305;
+    public const uint Mcounteren = 0x306;
 
     // Machine Trap Handling
     public const uint Mscratch = 0x340;
@@ -46,7 +61,7 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Mcycle = 0xB00;
     public const uint Minstret = 0xB02;
 
-    // ── mstatus bit positions ─────────────────────────────────────────────────
+    // ── mstatus / sstatus bit positions ──────────────────────────────────────
     public const uint MstatusUie = 1u << 0;
     public const uint MstatusSie = 1u << 1;
     public const uint MstatusMie = 1u << 3;
@@ -56,6 +71,13 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint MstatusSpp = 1u << 8;
     public const uint MstatusMpp = 3u << 11; // 2-bit field at bits 12:11
 
+    // sstatus-only aliases (same bit positions as in mstatus)
+    public const uint SstatusUie = CsrFile.MstatusUie;
+    public const uint SstatusSie = CsrFile.MstatusSie;
+    public const uint SstatusUpie = CsrFile.MstatusUpie;
+    public const uint SstatusSpie = CsrFile.MstatusSpie;
+    public const uint SstatusSpp = CsrFile.MstatusSpp;
+
     private readonly Dictionary<uint, uint> _csrs = new();
 
     public CsrFile() {
@@ -63,10 +85,23 @@ public sealed class CsrFile : ISystemRegisters {
         _csrs[CsrFile.Fflags] = 0;
         _csrs[CsrFile.Frm] = 0;
         _csrs[CsrFile.Fcsr] = 0;
+        // Supervisor Trap Setup
+        _csrs[CsrFile.Sstatus] = 0;
+        _csrs[CsrFile.Sie] = 0;
+        _csrs[CsrFile.Stvec] = 0;
+        _csrs[CsrFile.Sscratch] = 0;
+        _csrs[CsrFile.Sepc] = 0;
+        _csrs[CsrFile.Scause] = 0;
+        _csrs[CsrFile.Stval] = 0;
+        _csrs[CsrFile.Sip] = 0;
+
         _csrs[CsrFile.Mstatus] = 0;
         _csrs[CsrFile.Misa] = 0x40000100; // RV32I: MXL=01, I extension bit set
+        _csrs[CsrFile.Medeleg] = 0;
+        _csrs[CsrFile.Mideleg] = 0;
         _csrs[CsrFile.Mie] = 0;
         _csrs[CsrFile.Mtvec] = 0;
+        _csrs[CsrFile.Mcounteren] = 0;
         _csrs[CsrFile.Mscratch] = 0;
         _csrs[CsrFile.Mepc] = 0;
         _csrs[CsrFile.Mcause] = 0;

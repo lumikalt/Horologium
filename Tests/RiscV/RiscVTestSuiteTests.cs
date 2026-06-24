@@ -1,9 +1,9 @@
 using Mechanism;
 using Orrery.Observation;
 using Orrery.Train;
+using Pipeline;
 using RiscV;
 using RiscV.Memory;
-using Pipeline;
 using Xunit.Abstractions;
 
 namespace Tests.RiscV;

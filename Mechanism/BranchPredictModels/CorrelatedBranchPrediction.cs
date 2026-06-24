@@ -27,7 +27,7 @@ public sealed class CorrelatedPredictor : IBranchPredictor {
         Array.Fill(_pht, (byte)(_satThreshold - 1)); // weakly not-taken
     }
 
-    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         int idx = BhtIndex(pc);
         int history = _bht[idx];
         bool taken = _pht[history] >= _satThreshold;
@@ -78,7 +78,7 @@ public sealed class GselectPredictor : IBranchPredictor {
         Array.Fill(_pht, (byte)1); // weakly not-taken
     }
 
-    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         int idx = PhtIndex(pc);
         bool taken = _pht[idx] >= _satThreshold;
         ulong target = taken ? _btb[idx] : pc + 4;
@@ -120,7 +120,7 @@ public sealed class GsharePredictor : IBranchPredictor {
         Array.Fill(_pht, (byte)1); // weakly not-taken
     }
 
-    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         int idx = PhtIndex(pc);
         bool taken = _pht[idx] >= _satThreshold;
         ulong target = taken ? _btb[idx] : pc + 4;

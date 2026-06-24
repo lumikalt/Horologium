@@ -1,9 +1,9 @@
 using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
+using Pipeline;
 using RiscV;
 using RiscV.Memory;
-using Pipeline;
 
 namespace Tests.RiscV;
 

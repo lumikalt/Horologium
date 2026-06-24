@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using RiscV.Config;
@@ -43,15 +44,15 @@ public class IttageBranchPredictionTests {
         var p = new IttagePredictor();
         ulong pc = 0x3000, knownTarget = 0x3800;
         for (var i = 0; i < 8; i++) p.Update(pc, true, knownTarget);
-        BranchPrediction pred = p.Predict(pc, knownTarget);
+        BranchPrediction pred = p.Predict(pc, (knownTarget, true));
         Assert.Equal(knownTarget, pred.PredictedTarget);
     }
 
     [Fact]
     public void Config_RoundTrip() {
         var cfg = new IttageConfig();
-        string json = System.Text.Json.JsonSerializer.Serialize<BranchPredictorConfig>(cfg);
-        var rt = System.Text.Json.JsonSerializer.Deserialize<BranchPredictorConfig>(json);
+        string json = JsonSerializer.Serialize<BranchPredictorConfig>(cfg);
+        var rt = JsonSerializer.Deserialize<BranchPredictorConfig>(json);
         Assert.IsType<IttageConfig>(rt);
     }
 }

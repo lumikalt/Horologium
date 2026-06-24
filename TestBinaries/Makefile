@@ -46,6 +46,31 @@ isa/rv32um-p-%.elf: riscv-tests/isa/rv32um/%.S env/riscv_test.h env/link.ld
 	@mkdir -p isa
 	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $< -o $@
 
+# ── Official riscv-tests — rv32si (supervisor-level integer) ──────────────────
+#
+# sbreak: tests that EBREAK raises a Breakpoint exception rather than halting.
+#   Horologium uses EBREAK as the halt/pass-fail signal, so this test would
+#   halt immediately before the trap handler runs.  Excluded.
+#
+# dirty: tests VM referenced/dirty bits (Sv32 page table).  Horologium has no
+#   MMU.  Excluded.
+#
+# ma_fetch: tests misaligned-fetch trap.  Horologium's fetch does not check
+#   alignment.  Excluded.
+
+SI_INCLUDES = -I env -I riscv-tests/isa/macros/scalar
+
+RV32SI_SRC  = $(wildcard riscv-tests/isa/rv32si/*.S)
+RV32SI_SKIP = riscv-tests/isa/rv32si/sbreak.S \
+              riscv-tests/isa/rv32si/dirty.S \
+              riscv-tests/isa/rv32si/ma_fetch.S
+RV32SI_BUILD = $(filter-out $(RV32SI_SKIP), $(RV32SI_SRC))
+RV32SI_ELFS  = $(patsubst riscv-tests/isa/rv32si/%.S, isa/rv32si-p-%.elf, $(RV32SI_BUILD))
+
+isa/rv32si-p-%.elf: riscv-tests/isa/rv32si/%.S env/si/riscv_test.h env/riscv_test_s.h env/default_trap.S env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS) -I env/si -I env $(SI_INCLUDES) $(LDFLAGS) $< env/default_trap.S -o $@
+
 # ── riscv-tests benchmarks ───────────────────────────────────────────────────
 #
 # dhrystone: uses a retry loop guarded by read_csr(mcycle).  Our simulator
@@ -102,7 +127,7 @@ BMARKS_ELFS = $(patsubst %, benchmarks/%.elf, $(BMARKS))
 
 all: test.elf isa-tests benchmarks
 
-isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS)
+isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS) $(RV32SI_ELFS)
 
 benchmarks: $(BMARKS_ELFS)
 

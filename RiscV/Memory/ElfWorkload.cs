@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 using Mechanism;
 
 namespace RiscV.Memory;
@@ -55,7 +56,7 @@ public sealed class ElfWorkload : IWorkload {
                 var start = (int)(strtabOff + nameOff);
                 int end = start;
                 while (end < _elfBytes.Length && _elfBytes[end] != 0) end++;
-                if (System.Text.Encoding.ASCII.GetString(_elfBytes, start, end - start) == name) return value;
+                if (Encoding.ASCII.GetString(_elfBytes, start, end - start) == name) return value;
             }
         }
 

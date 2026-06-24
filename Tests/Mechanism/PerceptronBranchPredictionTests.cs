@@ -63,7 +63,7 @@ public class PerceptronBranchPredictionTests {
     public void TwoBranches_DifferentTableSlots_DoNotInterfere() {
         // historyLength=0 eliminates GHR coupling; each perceptron is a pure bias.
         // pcA and pcB map to different slots (they differ in bits [9:2]).
-        var p = new PerceptronPredictor(0, 256);
+        var p = new PerceptronPredictor(0);
 
         ulong pcA = 0x0000, pcB = 0x0100;
         for (var i = 0; i < 20; i++) p.Update(pcA, true, 0x200);

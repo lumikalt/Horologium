@@ -27,7 +27,7 @@ public sealed class PerceptronPredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
-    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         bool pred = DotProduct(pc) >= 0;
         ulong target = pred
             ? _btb.TryGetValue(pc, out ulong t) ? t : pc + 4

@@ -41,9 +41,9 @@ public sealed class IttagePredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
-    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         bool dir = _base[BaseIdx(pc)] >= 2;
-        ulong target = knownTarget ?? PredictTarget(pc);
+        ulong target = knownTarget.HasValue ? knownTarget.Value : PredictTarget(pc);
         return new BranchPrediction(dir, target);
     }
 

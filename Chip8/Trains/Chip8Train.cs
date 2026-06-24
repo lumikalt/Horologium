@@ -88,7 +88,7 @@ internal class SingleCycleCore(
         else
             ArchState.Pc = pc + (ulong)instr.SizeBytes;
 
-        var instrType = instr.Payload?.GetType();
+        Type? instrType = instr.Payload?.GetType();
         if (instrType is not null) _opcodeHistogram.Observe(instrType);
         _retiredCounter.Increment();
 

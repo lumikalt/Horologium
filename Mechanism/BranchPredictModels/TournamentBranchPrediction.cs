@@ -61,7 +61,7 @@ public sealed class TournamentPredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
-    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         bool pred = PreferGlobal(pc) ? GlobalPred(pc) : LocalPred(pc);
         ulong target = pred
             ? _btb.TryGetValue(pc, out ulong t) ? t : pc + 4
@@ -101,9 +101,11 @@ public sealed class TournamentPredictor : IBranchPredictor {
     private void UpdateLocal(ulong pc, bool taken) {
         int bhtIdx = BhtIdx(pc);
         var phtIdx = (int)(_bht[bhtIdx] & (ulong)_localPhtMask);
-        if (taken && _localPht[phtIdx] < 7)
-            _localPht[phtIdx]++;
-        else if (!taken && _localPht[phtIdx] > 0) _localPht[phtIdx]--;
+        switch (taken) {
+            case true when _localPht[phtIdx] < 7:  _localPht[phtIdx]++; break;
+            case false when _localPht[phtIdx] > 0: _localPht[phtIdx]--; break;
+        }
+
         _bht[bhtIdx] = ((_bht[bhtIdx] << 1) | (taken ? 1UL : 0UL)) & (ulong)_localPhtMask;
     }
 
@@ -113,14 +115,15 @@ public sealed class TournamentPredictor : IBranchPredictor {
 
     private void UpdateGlobal(ulong pc, bool taken) {
         int idx = GlobalIdx(pc);
-        if (taken && _globalPht[idx] < 3)
-            _globalPht[idx]++;
-        else if (!taken && _globalPht[idx] > 0) _globalPht[idx]--;
+        switch (taken) {
+            case true when _globalPht[idx] < 3:  _globalPht[idx]++; break;
+            case false when _globalPht[idx] > 0: _globalPht[idx]--; break;
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private bool PreferGlobal(ulong pc) => _chooser[ChooserIdx()] >= 2;
+    private bool PreferGlobal(ulong _) => _chooser[ChooserIdx()] >= 2;
 
     private int BhtIdx(ulong pc) => (int)((pc >> 2) & (ulong)_bhtMask);
 

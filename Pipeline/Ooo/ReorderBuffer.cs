@@ -49,7 +49,7 @@ public sealed class RobEntry {
     /// Null until then; a misprediction is detected when this differs from
     /// PredictedNextPc.
     /// </summary>
-    public ulong? ResolvedNextPc { get; set; }
+    public (ulong Value, bool HasValue) ResolvedNextPc { get; set; }
 
     // ── Deferred store ────────────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ public sealed class RobEntry {
         HasTrap = false;
         Trap = null;
         PredictedNextPc = 0;
-        ResolvedNextPc = null;
+        ResolvedNextPc = default((ulong Value, bool HasValue));
         IsStore = false;
         StoreAddress = 0;
         StoreValue = 0;

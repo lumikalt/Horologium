@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using RiscV.Config;
@@ -53,8 +54,8 @@ public class BatageBranchPredictionTests {
     [Fact]
     public void Config_RoundTrip() {
         var cfg = new BatageConfig();
-        string json = System.Text.Json.JsonSerializer.Serialize<BranchPredictorConfig>(cfg);
-        var rt = System.Text.Json.JsonSerializer.Deserialize<BranchPredictorConfig>(json);
+        string json = JsonSerializer.Serialize<BranchPredictorConfig>(cfg);
+        var rt = JsonSerializer.Deserialize<BranchPredictorConfig>(json);
         Assert.IsType<BatageConfig>(rt);
     }
 }

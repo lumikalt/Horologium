@@ -1,8 +1,8 @@
 using Mechanism;
 using Orrery.Train;
+using Pipeline;
 using RiscV.Config;
 using RiscV.Memory;
-using Pipeline;
 
 namespace RiscV.Analysis;
 

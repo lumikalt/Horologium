@@ -21,7 +21,7 @@ public readonly record struct FetchHint {
 
     /// <summary>
     /// Statically decoded branch target (PC + offset) for PC-relative instructions.
-    /// Null for register-indirect branches (e.g. JALR) where the target is unknown at fetch time.
+    /// HasValue=false for register-indirect branches (e.g. JALR) where the target is unknown at fetch time.
     /// </summary>
-    public ulong? BranchTarget { get; init; }
+    public (ulong Value, bool HasValue) BranchTarget { get; init; }
 }

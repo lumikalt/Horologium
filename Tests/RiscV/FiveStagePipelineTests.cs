@@ -3,9 +3,9 @@ using Mechanism.BranchPredictModels;
 using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
+using Pipeline;
 using RiscV;
 using RiscV.Memory;
-using Pipeline;
 
 namespace Tests.RiscV;
 
@@ -289,7 +289,7 @@ public class FiveStagePipelineTests {
         ];
 
         (FiveStageTrain ant, FlatMemory memAnt) = Make(predictor: new AlwaysNotTakenPredictor());
-        (FiveStageTrain twoB, FlatMemory memTwoB) = Make(predictor: new NBitPredictor(2));
+        (FiveStageTrain twoB, FlatMemory memTwoB) = Make(predictor: new NBitPredictor());
         Load(memAnt, program);
         Load(memTwoB, program);
 

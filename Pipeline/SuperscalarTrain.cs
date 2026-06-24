@@ -97,9 +97,11 @@ internal sealed class SuperscalarCore(
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
 
+    private bool _anyCache;
+
     // Delta tracking for hit/miss counters
-    private long _lastIHits, _lastIMisses, _lastIL2Hits, _lastIL2Misses, _lastIL3Hits, _lastIL3Misses;
-    private long _lastDHits, _lastDMisses, _lastDL2Hits, _lastDL2Misses, _lastDL3Hits, _lastDL3Misses;
+    private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
+    private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
     public IArchState ArchState { get; } = mechanism.CreateArchState();
@@ -121,11 +123,11 @@ internal sealed class SuperscalarCore(
             "Instructions per cycle"
         );
 
-        bool anyCache = ILayers.Cache is not null || DLayers.Cache is not null
-                                                  || ILayers.L2Cache is not null || DLayers.L2Cache is not null
-                                                  || ILayers.L3Cache is not null || DLayers.L3Cache is not null
-                                                  || ILayers.Tlb is not null || DLayers.Tlb is not null;
-        if (anyCache)
+        _anyCache = ILayers.Cache is not null || DLayers.Cache is not null
+                                              || ILayers.L2Cache is not null || DLayers.L2Cache is not null
+                                              || ILayers.L3Cache is not null || DLayers.L3Cache is not null
+                                              || ILayers.Tlb is not null || DLayers.Tlb is not null;
+        if (_anyCache)
             _cacheMissStallsCounter = Dials.AddCounter(
                 "cache_miss_stalls", "Stall cycles from memory hierarchy misses"
             );
@@ -236,7 +238,7 @@ internal sealed class SuperscalarCore(
         }
 
         // Drain cache stall penalties accumulated during this group's memory operations.
-        long cacheStalls = DrainAndChargeStalls();
+        long cacheStalls = _anyCache ? DrainAndChargeStalls() : 0;
 
         // Count the issue cycle (plus any cache penalty cycles).
         _cyclesCounter.Increment();
@@ -257,17 +259,17 @@ internal sealed class SuperscalarCore(
         long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
         UpdateCacheStat(
-            ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIL2Hits, ref _lastIL2Misses
+            ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
         );
         UpdateCacheStat(
-            ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIL3Hits, ref _lastIL3Misses
+            ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
         );
         UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
         UpdateCacheStat(
-            DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDL2Hits, ref _lastDL2Misses
+            DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
         );
         UpdateCacheStat(
-            DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDL3Hits, ref _lastDL3Misses
+            DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
         );
         UpdateTlbStat(ILayers.Tlb, _itlbHitsCounter, _itlbMissesCounter, ref _lastITlbHits, ref _lastITlbMisses);
         UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);

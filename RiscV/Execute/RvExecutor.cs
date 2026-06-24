@@ -1,5 +1,4 @@
 using Mechanism;
-using RiscV;
 using RiscV.Decode;
 using RiscV.Registers;
 using RiscV.State;
@@ -111,13 +110,13 @@ public sealed class RvExecutor : IExecutor {
             // ── Jumps ─────────────────────────────────────────────────────────
             RvJal (_, var imm) =>
                 new ExecuteResult {
-                    RegisterResult = pc + (ulong)instruction.SizeBytes,
+                    RegisterResult = (pc + (ulong)instruction.SizeBytes, true),
                     BranchTaken = true,
                     BranchTarget = (ulong)((long)pc + imm),
                 },
             RvJalr(_, var rs1, var imm) =>
                 new ExecuteResult {
-                    RegisterResult = pc + (ulong)instruction.SizeBytes,
+                    RegisterResult = (pc + (ulong)instruction.SizeBytes, true),
                     BranchTaken = true,
                     BranchTarget = (regs.Read(rs1) + (ulong)imm) & ~1UL,
                 },
@@ -128,14 +127,16 @@ public sealed class RvExecutor : IExecutor {
 
             // ── System ────────────────────────────────────────────────────────
             RvEcall => ExecuteResult.WithTrap(
-                new TrapInfo(
-                    RvTrapCause.EnvironmentCallFromM, 0, pc
-                )
+                new TrapInfo(EcallCause(state.PrivilegeLevel), 0, pc)
             ),
 
             RvEbreak => new ExecuteResult { IsHalt = true, },
 
             RvMret => new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Machine, },
+
+            RvSret => new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Supervisor, },
+
+            RvWfi => WfiResult(state),
 
             RvFence => ExecuteResult.Clean, // NOP in single-core simulation
 
@@ -172,7 +173,7 @@ public sealed class RvExecutor : IExecutor {
                 ? Reg(regs.Read(rs1))
                 : Reg((uint)regs.Read(rs1) % (uint)regs.Read(rs2)),
 
-            // ── A extension (single-core: SC always succeeds, no reservation needed) ──
+            // ── An extension (single-core: SC always succeeds, no reservation needed) ──
             RvLrW(_, var rs1) =>
                 Load(memory, regs.Read(rs1), 0, 4, false, 32),
 
@@ -188,9 +189,9 @@ public sealed class RvExecutor : IExecutor {
             RvAmomaxW (_, var rs1, var rs2) =>
                 Amo(memory, regs, rs1, rs2, (a, v) => (uint)Math.Max((int)a, (int)v)),
             RvAmominuW(_, var rs1, var rs2) =>
-                Amo(memory, regs, rs1, rs2, (a, v) => Math.Min(a, v)),
+                Amo(memory, regs, rs1, rs2, Math.Min),
             RvAmomaxuW(_, var rs1, var rs2) =>
-                Amo(memory, regs, rs1, rs2, (a, v) => Math.Max(a, v)),
+                Amo(memory, regs, rs1, rs2, Math.Max),
 
             // ── F extension ───────────────────────────────────────────────────
             // FLW: address computed from int rs1; result is raw bits stored in fp rd.
@@ -280,42 +281,42 @@ public sealed class RvExecutor : IExecutor {
             RvVsetivli (var rd, var zimm, var vtypei) => ExecuteVsetivli(state, rd, zimm, vtypei),
             RvVsetvl (var rd, var rs1, var rs2)       => ExecuteVsetvl(state, rd, rs1, rs2, regs),
 
-            RvVleVV (var vd, var rs1, var sew, var masked) =>
+            RvVleVv (var vd, var rs1, var sew, var masked) =>
                 ExecuteVle(state, memory, vd, rs1, sew, masked),
             RvVlm (var vd, var rs1) =>
                 ExecuteVlm(state, memory, vd, rs1),
-            RvVseVV (var vs3, var rs1, var sew, var masked) =>
+            RvVseVv (var vs3, var rs1, var sew, var masked) =>
                 ExecuteVse(state, memory, vs3, rs1, sew, masked),
             RvVsm (var vs3, var rs1) =>
                 ExecuteVsm(state, memory, vs3, rs1),
 
-            RvVIntAluVV (var op2, var vd, var vs2, var vs1, var masked) =>
+            RvVIntAluVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVIntAlu(
                     state, op2, vd, vs2, masked,
                     (i, ew) => VReadElem(state, vs1, i, ew)
                 ),
-            RvVIntAluVX (var op2, var vd, var vs2, var rs1, var masked) =>
+            RvVIntAluVx (var op2, var vd, var vs2, var rs1, var masked) =>
                 ExecuteVIntAlu(
                     state, op2, vd, vs2, masked,
                     (_, _) => regs.Read(rs1)
                 ),
-            RvVIntAluVI (var op2, var vd, var vs2, var imm, var masked) =>
+            RvVIntAluVi (var op2, var vd, var vs2, var imm, var masked) =>
                 ExecuteVIntAlu(
                     state, op2, vd, vs2, masked,
                     (_, _) => (ulong)imm
                 ),
 
-            RvVMaskCmpVV (var op2, var vd, var vs2, var vs1, var masked) =>
+            RvVMaskCmpVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVMaskCmp(
                     state, op2, vd, vs2, masked,
                     (i, ew) => VReadElem(state, vs1, i, ew)
                 ),
-            RvVMaskCmpVX (var op2, var vd, var vs2, var rs1, var masked) =>
+            RvVMaskCmpVx (var op2, var vd, var vs2, var rs1, var masked) =>
                 ExecuteVMaskCmp(
                     state, op2, vd, vs2, masked,
                     (_, _) => regs.Read(rs1)
                 ),
-            RvVMaskCmpVI (var op2, var vd, var vs2, var imm, var masked) =>
+            RvVMaskCmpVi (var op2, var vd, var vs2, var imm, var masked) =>
                 ExecuteVMaskCmp(
                     state, op2, vd, vs2, masked,
                     (_, _) => (ulong)imm
@@ -328,6 +329,22 @@ public sealed class RvExecutor : IExecutor {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static int EcallCause(PrivilegeLevel priv) => (int)priv switch {
+        0 => RvTrapCause.EnvironmentCallFromU,
+        1 => RvTrapCause.EnvironmentCallFromS,
+        _ => RvTrapCause.EnvironmentCallFromM,
+    };
+
+    private static ExecuteResult WfiResult(IArchState state) {
+        if (state.SystemRegisters is CsrFile csrs) {
+            uint pendingAndEnabled = csrs.DirectRead(CsrFile.Sip)
+                                   & csrs.DirectRead(CsrFile.Sie);
+            if (pendingAndEnabled != 0) return ExecuteResult.Clean; // interrupt pending → wake immediately
+        }
+
+        return new ExecuteResult { IsHalt = true, };
+    }
 
     private static ExecuteResult Reg(ulong value) =>
         ExecuteResult.WithResult(value & 0xFFFFFFFF); // truncate to 32 bits
@@ -430,18 +447,13 @@ public sealed class RvExecutor : IExecutor {
         bool sign = bits >> 31 != 0;
         uint exp = (bits >> 23) & 0xFF;
         uint frac = bits & 0x7FFFFF;
-        if (exp == 0xFF) {
-            if (frac == 0) return sign ? 1UL << 0 : 1UL << 7; // ±inf
-            return frac >> 22 != 0 ? 1UL << 9 : 1UL << 8;     // qNaN / sNaN
-        }
-
-        if (exp == 0)
-            return frac == 0
-                ? sign ? 1UL << 3 : 1UL << 4 // ±zero
-                : sign
-                    ? 1UL << 2
-                    : 1UL << 5;            // ±subnormal
-        return sign ? 1UL << 1 : 1UL << 6; // ±normal
+        return exp switch {
+            0xFF when frac == 0 => sign ? 1UL << 0 : 1UL << 7,
+            0xFF                => frac >> 22 != 0 ? 1UL << 9 : 1UL << 8,
+            0 => frac == 0 ? sign ? 1UL << 3 : 1UL << 4 // ±zero
+                : sign     ? 1UL << 2 : 1UL << 5,
+            _ => sign ? 1UL << 1 : 1UL << 6,
+        };
     }
 
     // RISC-V FMIN: if one arg is NaN, return the other; -0.0 < +0.0.
@@ -653,7 +665,7 @@ public sealed class RvExecutor : IExecutor {
     ) {
         (uint vl, int ewBytes) = VGetVlEw(state);
         byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
-        byte[] mask = VState(state).VectorRegisters.Read(0); // snapshot before any write
+        byte[] mask = VState(state).VectorRegisters.Read(0); // snapshot before any writes
         var result = new byte[VectorRegisterFile.VLenB];
 
         for (var i = 0; i < (int)vl; i++) {
@@ -702,8 +714,8 @@ public sealed class RvExecutor : IExecutor {
             VIntOp.Sll => a << (int)(b & (uint)shiftMask),
             VIntOp.Srl => (a & mask) >> (int)(b & (uint)shiftMask),
             VIntOp.Sra => ewBytes switch {
-                1 => (ulong)(byte)((sbyte)(byte)(a & 0xFF) >> (int)(b & 7)),
-                2 => (ulong)(ushort)((short)(ushort)(a & 0xFFFF) >> (int)(b & 15)),
+                1 => (byte)((sbyte)(byte)(a & 0xFF) >> (int)(b & 7)),
+                2 => (ushort)((short)(ushort)(a & 0xFFFF) >> (int)(b & 15)),
                 _ => (ulong)(uint)((int)(uint)(a & 0xFFFFFFFF) >> (int)(b & 31)),
             },
             _ => 0,

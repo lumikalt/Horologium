@@ -60,7 +60,7 @@ public class HashedPerceptronBranchPredictionTests {
         // Interleaved training: pcA always taken, pcB always not-taken.
         // Both branches share history tables, but their PC-based hashes differ,
         // so each converges to its own direction.
-        var p = new HashedPerceptronPredictor(512);
+        var p = new HashedPerceptronPredictor();
         ulong pcA = 0x1000, pcB = 0x1004;
         for (var i = 0; i < 80; i++) {
             p.Update(pcA, true, 0x2000);

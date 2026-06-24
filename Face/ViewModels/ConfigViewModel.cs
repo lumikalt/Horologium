@@ -5,41 +5,69 @@ using RiscV.Config;
 namespace Face.ViewModels;
 
 public partial class ConfigViewModel : ObservableObject {
-    [ObservableProperty] private string _name = "config";
-    [ObservableProperty] private string _pipeline = "five_stage";
-    [ObservableProperty] private bool _forwardingEnabled = true;
-    [ObservableProperty] private string _predictorType = "none";
-    [ObservableProperty] private int _predictorBits = 2;
-    [ObservableProperty] private int _predictorTableSize = 1024;
-    [ObservableProperty] private int _predictorHistoryBits = 8;
-    [ObservableProperty] private int _predictorPcBits = 4;
-    [ObservableProperty] private int _correlatedM = 2;
-    [ObservableProperty] private int _correlatedN = 2;
-    [ObservableProperty] private int _correlatedBhtSize = 1024;
-    [ObservableProperty] private int _perceptronHistoryLength = 24;
-    [ObservableProperty] private int _perceptronTableSize = 256;
-    [ObservableProperty] private int _hashedPerceptronTableSize = 512;
-    [ObservableProperty] private int _tournamentLocalHistoryBits = 10;
-    [ObservableProperty] private int _tournamentLocalTableSize = 1024;
-    [ObservableProperty] private int _tournamentGlobalHistoryBits = 12;
+    [ObservableProperty] public partial string Name { get; set; } = "config";
 
-    [ObservableProperty] private bool _iCacheEnabled = false;
-    [ObservableProperty] private int _iCacheCapacityKb = 32;
-    [ObservableProperty] private int _iCacheWays = 4;
-    [ObservableProperty] private int _iCacheBlockBytes = 32;
-    [ObservableProperty] private int _iCacheMissLatency = 10;
+    [ObservableProperty] public partial string Pipeline { get; set; } = "five_stage";
 
-    [ObservableProperty] private bool _dCacheEnabled = false;
-    [ObservableProperty] private int _dCacheCapacityKb = 32;
-    [ObservableProperty] private int _dCacheWays = 4;
-    [ObservableProperty] private int _dCacheBlockBytes = 32;
-    [ObservableProperty] private int _dCacheMissLatency = 10;
+    [ObservableProperty] public partial bool ForwardingEnabled { get; set; } = true;
 
-    [ObservableProperty] private int _storeBufferCapacity = 0;
-    [ObservableProperty] private int _issueWidth = 2;
-    [ObservableProperty] private int _robCapacity = 32;
-    [ObservableProperty] private int _iqCapacity = 16;
-    [ObservableProperty] private int _extraPhysRegs = 32;
+    [ObservableProperty] public partial string PredictorType { get; set; } = "none";
+
+    [ObservableProperty] public partial int PredictorBits { get; set; } = 2;
+
+    [ObservableProperty] public partial int PredictorTableSize { get; set; } = 1024;
+
+    [ObservableProperty] public partial int PredictorHistoryBits { get; set; } = 8;
+
+    [ObservableProperty] public partial int PredictorPcBits { get; set; } = 4;
+
+    [ObservableProperty] public partial int CorrelatedM { get; set; } = 2;
+
+    [ObservableProperty] public partial int CorrelatedN { get; set; } = 2;
+
+    [ObservableProperty] public partial int CorrelatedBhtSize { get; set; } = 1024;
+
+    [ObservableProperty] public partial int PerceptronHistoryLength { get; set; } = 24;
+
+    [ObservableProperty] public partial int PerceptronTableSize { get; set; } = 256;
+
+    [ObservableProperty] public partial int HashedPerceptronTableSize { get; set; } = 512;
+
+    [ObservableProperty] public partial int TournamentLocalHistoryBits { get; set; } = 10;
+
+    [ObservableProperty] public partial int TournamentLocalTableSize { get; set; } = 1024;
+
+    [ObservableProperty] public partial int TournamentGlobalHistoryBits { get; set; } = 12;
+
+    [ObservableProperty] public partial bool ICacheEnabled { get; set; } = false;
+
+    [ObservableProperty] public partial int ICacheCapacityKb { get; set; } = 32;
+
+    [ObservableProperty] public partial int ICacheWays { get; set; } = 4;
+
+    [ObservableProperty] public partial int ICacheBlockBytes { get; set; } = 32;
+
+    [ObservableProperty] public partial int ICacheMissLatency { get; set; } = 10;
+
+    [ObservableProperty] public partial bool DCacheEnabled { get; set; } = false;
+
+    [ObservableProperty] public partial int DCacheCapacityKb { get; set; } = 32;
+
+    [ObservableProperty] public partial int DCacheWays { get; set; } = 4;
+
+    [ObservableProperty] public partial int DCacheBlockBytes { get; set; } = 32;
+
+    [ObservableProperty] public partial int DCacheMissLatency { get; set; } = 10;
+
+    [ObservableProperty] public partial int StoreBufferCapacity { get; set; } = 0;
+
+    [ObservableProperty] public partial int IssueWidth { get; set; } = 2;
+
+    [ObservableProperty] public partial int RobCapacity { get; set; } = 32;
+
+    [ObservableProperty] public partial int IqCapacity { get; set; } = 16;
+
+    [ObservableProperty] public partial int ExtraPhysRegs { get; set; } = 32;
 
     public bool IsFiveStage => Pipeline == "five_stage";
     public bool IsOoo => Pipeline == "ooo";
@@ -163,35 +191,31 @@ public partial class ConfigViewModel : ObservableObject {
             DCacheEnabled = nc.Config.DCache is not null,
         };
 
-        if (nc.Config.Predictor is NBitConfig nb) {
-            vm.PredictorBits = nb.Bits;
-            vm.PredictorTableSize = nb.TableSize;
-        }
-
-        if (nc.Config.Predictor is GselectConfig gsel) {
-            vm.PredictorHistoryBits = gsel.HistoryBits;
-            vm.PredictorPcBits = gsel.PcBits;
-        }
-
-        if (nc.Config.Predictor is GshareConfig gsh) vm.PredictorHistoryBits = gsh.HistoryBits;
-
-        if (nc.Config.Predictor is CorrelatedConfig cor) {
-            vm.CorrelatedM = cor.M;
-            vm.CorrelatedN = cor.N;
-            vm.CorrelatedBhtSize = cor.BhtSize;
-        }
-
-        if (nc.Config.Predictor is PerceptronConfig perc) {
-            vm.PerceptronHistoryLength = perc.HistoryLength;
-            vm.PerceptronTableSize = perc.TableSize;
-        }
-
-        if (nc.Config.Predictor is HashedPerceptronConfig hp) vm.HashedPerceptronTableSize = hp.TableSize;
-
-        if (nc.Config.Predictor is TournamentConfig tour) {
-            vm.TournamentLocalHistoryBits = tour.LocalHistoryBits;
-            vm.TournamentLocalTableSize = tour.LocalTableSize;
-            vm.TournamentGlobalHistoryBits = tour.GlobalHistoryBits;
+        switch (nc.Config.Predictor) {
+            case NBitConfig nb:
+                vm.PredictorBits = nb.Bits;
+                vm.PredictorTableSize = nb.TableSize;
+                break;
+            case GselectConfig gsel:
+                vm.PredictorHistoryBits = gsel.HistoryBits;
+                vm.PredictorPcBits = gsel.PcBits;
+                break;
+            case GshareConfig gsh: vm.PredictorHistoryBits = gsh.HistoryBits; break;
+            case CorrelatedConfig cor:
+                vm.CorrelatedM = cor.M;
+                vm.CorrelatedN = cor.N;
+                vm.CorrelatedBhtSize = cor.BhtSize;
+                break;
+            case PerceptronConfig perc:
+                vm.PerceptronHistoryLength = perc.HistoryLength;
+                vm.PerceptronTableSize = perc.TableSize;
+                break;
+            case HashedPerceptronConfig hp: vm.HashedPerceptronTableSize = hp.TableSize; break;
+            case TournamentConfig tour:
+                vm.TournamentLocalHistoryBits = tour.LocalHistoryBits;
+                vm.TournamentLocalTableSize = tour.LocalTableSize;
+                vm.TournamentGlobalHistoryBits = tour.GlobalHistoryBits;
+                break;
         }
 
         if (nc.Config.ICache is { } ic) {

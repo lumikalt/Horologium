@@ -8,9 +8,9 @@ namespace Mechanism;
 public sealed record ExecuteResult {
     /// <summary>
     /// The value to write to the destination register,
-    /// or null if this instruction does not write a register.
+    /// or HasValue=false if this instruction does not write a register.
     /// </summary>
-    public ulong? RegisterResult { get; init; }
+    public (ulong Value, bool HasValue) RegisterResult { get; init; }
 
     /// <summary>Whether a branch was taken.</summary>
     public bool BranchTaken { get; init; }
@@ -35,7 +35,7 @@ public sealed record ExecuteResult {
 
     /// <summary>Convenience: a result that writes a register value.</summary>
     public static ExecuteResult WithResult(ulong value) =>
-        new() { RegisterResult = value, };
+        new() { RegisterResult = (value, true), };
 
     /// <summary>Convenience: a result that redirects control flow.</summary>
     public static ExecuteResult WithBranch(bool taken, ulong target) =>

@@ -135,6 +135,10 @@ public record RvCsrrci(int Rd, uint Zimm, uint Csr) : RvOp;
 
 public record RvMret : RvOp;
 
+public record RvSret : RvOp;
+
+public record RvWfi : RvOp;
+
 public record RvFence : RvOp;
 
 // ── M extension (multiply / divide) ──────────────────────────────────────────
@@ -242,12 +246,12 @@ public record RvVsetivli(int Rd, int Zimm, int Vtypei) : RvOp;
 public record RvVsetvl(int Rd, int Rs1, int Rs2) : RvOp;
 
 // Unit-stride loads: Vd = destination vector register, Rs1 = base address, Sew = element width in bits
-public record RvVleVV(int Vd, int Rs1, int Sew, bool Masked) : RvOp;
+public record RvVleVv(int Vd, int Rs1, int Sew, bool Masked) : RvOp;
 
 public record RvVlm(int Vd, int Rs1) : RvOp;
 
 // Unit-stride stores: Vs3 = source vector register, Rs1 = base address, Sew = element width in bits
-public record RvVseVV(int Vs3, int Rs1, int Sew, bool Masked) : RvOp;
+public record RvVseVv(int Vs3, int Rs1, int Sew, bool Masked) : RvOp;
 
 public record RvVsm(int Vs3, int Rs1) : RvOp;
 
@@ -272,15 +276,15 @@ public enum VMaskCmpOp {
     Gt,
 }
 
-public record RvVIntAluVV(VIntOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
+public record RvVIntAluVv(VIntOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
 
-public record RvVIntAluVX(VIntOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
+public record RvVIntAluVx(VIntOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
 
-public record RvVIntAluVI(VIntOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
+public record RvVIntAluVi(VIntOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
 
 // Mask comparisons (result: 1 bit per element packed in vd)
-public record RvVMaskCmpVV(VMaskCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
+public record RvVMaskCmpVv(VMaskCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
 
-public record RvVMaskCmpVX(VMaskCmpOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
+public record RvVMaskCmpVx(VMaskCmpOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
 
-public record RvVMaskCmpVI(VMaskCmpOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
+public record RvVMaskCmpVi(VMaskCmpOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;

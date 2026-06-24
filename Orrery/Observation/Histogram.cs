@@ -6,7 +6,8 @@ namespace Orrery.Observation;
 /// </summary>
 public sealed class Histogram {
     // Fast path for instruction-type counting — avoids per-call string hashing.
-    private readonly Dictionary<Type, long>   _typeBuckets   = new();
+    private readonly Dictionary<Type, long> _typeBuckets = new();
+
     // Legacy path for callers that key by string (and for tests).
     private readonly Dictionary<string, long> _stringBuckets = new();
 
@@ -31,11 +32,9 @@ public sealed class Histogram {
     public IReadOnlyDictionary<string, long> Buckets {
         get {
             if (_typeBuckets.Count == 0) return _stringBuckets;
-            if (_stringBuckets.Count == 0)
-                return _typeBuckets.ToDictionary(kv => kv.Key.Name, kv => kv.Value);
+            if (_stringBuckets.Count == 0) return _typeBuckets.ToDictionary(kv => kv.Key.Name, kv => kv.Value);
             var merged = new Dictionary<string, long>(_stringBuckets);
-            foreach ((Type t, long v) in _typeBuckets)
-                merged[t.Name] = merged.GetValueOrDefault(t.Name) + v;
+            foreach ((Type t, long v) in _typeBuckets) merged[t.Name] = merged.GetValueOrDefault(t.Name) + v;
             return merged;
         }
     }

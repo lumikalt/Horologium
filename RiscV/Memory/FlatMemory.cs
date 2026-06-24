@@ -36,10 +36,10 @@ public sealed class FlatMemory : IMemory {
     public void Write(ulong address, ulong value, int bytes) {
         ValidateAccess(address, bytes);
         switch (bytes) {
-            case 1: _data[(int)address] = (byte)value; break;
-            case 2: Unsafe.WriteUnaligned(ref _data[(int)address], (ushort)value); break;
-            case 4: Unsafe.WriteUnaligned(ref _data[(int)address], (uint)value); break;
-            case 8: Unsafe.WriteUnaligned(ref _data[(int)address], value); break;
+            case 1:  _data[(int)address] = (byte)value; break;
+            case 2:  Unsafe.WriteUnaligned(ref _data[(int)address], (ushort)value); break;
+            case 4:  Unsafe.WriteUnaligned(ref _data[(int)address], (uint)value); break;
+            case 8:  Unsafe.WriteUnaligned(ref _data[(int)address], value); break;
             default: WriteSlow(address, value, bytes); break;
         }
     }
