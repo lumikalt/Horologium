@@ -84,6 +84,8 @@ public partial class ConfigViewModel : ObservableObject {
         "hashed_perceptron",
         "tournament",
         "tage_sc_l",
+        "ittage",
+        "batage",
     ];
 
     public NamedConfig ToNamedConfig() {
@@ -102,6 +104,8 @@ public partial class ConfigViewModel : ObservableObject {
                 TournamentLocalHistoryBits, TournamentLocalTableSize, TournamentGlobalHistoryBits
             ),
             "tage_sc_l" => BranchPredictorConfig.TageScL(),
+            "ittage"    => BranchPredictorConfig.Ittage(),
+            "batage"    => BranchPredictorConfig.Batage(),
             _           => null,
         };
 
@@ -146,6 +150,8 @@ public partial class ConfigViewModel : ObservableObject {
                 HashedPerceptronConfig          => "hashed_perceptron",
                 TournamentConfig                => "tournament",
                 TageScLConfig                   => "tage_sc_l",
+                IttageConfig                    => "ittage",
+                BatageConfig                    => "batage",
                 _                               => "none",
             },
             StoreBufferCapacity = nc.Config.StoreBufferCapacity,

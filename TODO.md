@@ -27,5 +27,8 @@
 ### Branch Prediction
 
 - [x] Hashed Perceptron / Path-based Perceptron
-- [ ] ITTAGE (Indirect Branch Target Predictor)
-- [ ] BATAGE (Bimodal-Augmented TAGE)
+- [x] ITTAGE (Indirect Branch Target Predictor)
+- [x] BATAGE (Bimodal-Augmented TAGE)
+- [ ] LLBP: https://ieeexplore.ieee.org/abstract/document/11408567/
+- [ ] VLA-TAGE: https://ieeexplore.ieee.org/document/11417886
+- [ ] Branch pre-computation: https://hps.ece.utexas.edu/pub/TEA.pdf
