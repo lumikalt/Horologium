@@ -9,6 +9,7 @@ public partial class ConfigViewModel : ObservableObject {
     [ObservableProperty] private string _pipeline = "five_stage";
     [ObservableProperty] private bool _forwardingEnabled = true;
     [ObservableProperty] private string _predictorType = "none";
+    [ObservableProperty] private int _predictorBits = 2;
     [ObservableProperty] private int _predictorTableSize = 1024;
 
     [ObservableProperty] private bool _iCacheEnabled = false;
@@ -32,7 +33,7 @@ public partial class ConfigViewModel : ObservableObject {
     public bool IsFiveStage => Pipeline == "five_stage";
     public bool IsOoo => Pipeline == "ooo";
     public bool IsWidePipeline => Pipeline is "superscalar" or "ooo";
-    public bool HasTableSize => PredictorType is "one_bit" or "two_bit";
+    public bool HasNBitParams => PredictorType == "n_bit";
 
     partial void OnPipelineChanged(string value) {
         OnPropertyChanged(nameof(IsFiveStage));
@@ -41,17 +42,16 @@ public partial class ConfigViewModel : ObservableObject {
     }
 
     partial void OnPredictorTypeChanged(string value) =>
-        OnPropertyChanged(nameof(HasTableSize));
+        OnPropertyChanged(nameof(HasNBitParams));
 
     public string[] PipelineOptions { get; } = ["five_stage", "superscalar", "ooo",];
-    public string[] PredictorOptions { get; } = ["none", "always_not_taken", "always_taken", "one_bit", "two_bit",];
+    public string[] PredictorOptions { get; } = ["none", "always_not_taken", "always_taken", "n_bit",];
 
     public NamedConfig ToNamedConfig() {
         BranchPredictorConfig? predictor = PredictorType switch {
             "always_not_taken" => BranchPredictorConfig.AlwaysNotTaken(),
             "always_taken"     => BranchPredictorConfig.AlwaysTaken(),
-            "one_bit"          => BranchPredictorConfig.OneBit(PredictorTableSize),
-            "two_bit"          => BranchPredictorConfig.TwoBit(PredictorTableSize),
+            "n_bit"            => BranchPredictorConfig.NBit(PredictorBits, PredictorTableSize),
             _                  => null,
         };
 
@@ -86,8 +86,7 @@ public partial class ConfigViewModel : ObservableObject {
             PredictorType = nc.Config.Predictor switch {
                 AlwaysNotTakenConfig => "always_not_taken",
                 AlwaysTakenConfig    => "always_taken",
-                OneBitConfig         => "one_bit",
-                TwoBitConfig         => "two_bit",
+                NBitConfig           => "n_bit",
                 _                    => "none",
             },
             StoreBufferCapacity = nc.Config.StoreBufferCapacity,
@@ -99,9 +98,10 @@ public partial class ConfigViewModel : ObservableObject {
             DCacheEnabled = nc.Config.DCache is not null,
         };
 
-        if (nc.Config.Predictor is OneBitConfig ob)
-            vm.PredictorTableSize = ob.TableSize;
-        else if (nc.Config.Predictor is TwoBitConfig tb) vm.PredictorTableSize = tb.TableSize;
+        if (nc.Config.Predictor is NBitConfig nb) {
+            vm.PredictorBits = nb.Bits;
+            vm.PredictorTableSize = nb.TableSize;
+        }
 
         if (nc.Config.ICache is { } ic) {
             vm.ICacheCapacityKb = ic.CapacityBytes / 1024;

@@ -30,20 +30,22 @@ public class ExperimentTests {
     }
 
     [Fact]
-    public void BranchPredictorConfig_OneBit_RoundTrip() {
-        BranchPredictorConfig cfg = BranchPredictorConfig.OneBit(512);
+    public void BranchPredictorConfig_NBit_OneBit_RoundTrip() {
+        BranchPredictorConfig cfg = BranchPredictorConfig.NBit(1, 512);
         string json = JsonSerializer.Serialize(cfg);
         var result = JsonSerializer.Deserialize<BranchPredictorConfig>(json);
-        var typed = Assert.IsType<OneBitConfig>(result);
+        var typed = Assert.IsType<NBitConfig>(result);
+        Assert.Equal(1, typed.Bits);
         Assert.Equal(512, typed.TableSize);
     }
 
     [Fact]
-    public void BranchPredictorConfig_TwoBit_RoundTrip() {
-        BranchPredictorConfig cfg = BranchPredictorConfig.TwoBit(256);
+    public void BranchPredictorConfig_NBit_TwoBit_RoundTrip() {
+        BranchPredictorConfig cfg = BranchPredictorConfig.NBit(2, 256);
         string json = JsonSerializer.Serialize(cfg);
         var result = JsonSerializer.Deserialize<BranchPredictorConfig>(json);
-        var typed = Assert.IsType<TwoBitConfig>(result);
+        var typed = Assert.IsType<NBitConfig>(result);
+        Assert.Equal(2, typed.Bits);
         Assert.Equal(256, typed.TableSize);
     }
 
@@ -62,11 +64,12 @@ public class ExperimentTests {
 
     [Fact]
     public void TrainConfig_WithPredictor_RoundTrip() {
-        var cfg = new TrainConfig(ForwardingEnabled: false, Predictor: BranchPredictorConfig.TwoBit(512));
+        var cfg = new TrainConfig(ForwardingEnabled: false, Predictor: BranchPredictorConfig.NBit(2, 512));
         string json = cfg.ToJson();
         TrainConfig result = TrainConfig.FromJson(json);
         Assert.False(result.ForwardingEnabled);
-        var pred = Assert.IsType<TwoBitConfig>(result.Predictor);
+        var pred = Assert.IsType<NBitConfig>(result.Predictor);
+        Assert.Equal(2, pred.Bits);
         Assert.Equal(512, pred.TableSize);
     }
 
@@ -112,7 +115,7 @@ public class ExperimentTests {
     public void NamedConfig_SweepRoundTrip() {
         var sweep = new[] {
             new NamedConfig("ant", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
-            new NamedConfig("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit(512))),
+            new NamedConfig("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(2, 512))),
         };
         string json = NamedConfig.ToJson(sweep);
         IReadOnlyList<NamedConfig> result = NamedConfig.FromJson(json);
@@ -121,7 +124,8 @@ public class ExperimentTests {
         Assert.Equal("ant", result[0].Name);
         Assert.IsType<AlwaysNotTakenConfig>(result[0].Config.Predictor);
         Assert.Equal("two_bit", result[1].Name);
-        var pred = Assert.IsType<TwoBitConfig>(result[1].Config.Predictor);
+        var pred = Assert.IsType<NBitConfig>(result[1].Config.Predictor);
+        Assert.Equal(2, pred.Bits);
         Assert.Equal(512, pred.TableSize);
     }
 
@@ -206,7 +210,7 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
         NamedConfig[] configs = [
             new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
-            new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
+            new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit())),
         ];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
@@ -227,7 +231,7 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
         NamedConfig[] configs = [
             new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
-            new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
+            new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit())),
         ];
 
         ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism());
@@ -237,7 +241,7 @@ public class ExperimentTests {
 
         Assert.True(
             tbMisses < antMisses,
-            $"Expected TwoBit ({tbMisses}) < AlwaysNotTaken ({antMisses})"
+            $"Expected NBit(2) ({tbMisses}) < AlwaysNotTaken ({antMisses})"
         );
     }
 

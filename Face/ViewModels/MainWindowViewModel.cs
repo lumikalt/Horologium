@@ -263,9 +263,10 @@ public partial class MainWindowViewModel : ObservableObject {
     private static IReadOnlyList<NamedConfig> DefaultSweep() => [
         new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
         new("always_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
-        new("one_bit", new TrainConfig(Predictor: BranchPredictorConfig.OneBit())),
-        new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
+        new("1_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(1))),
+        new("2_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(2))),
+        new("3_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(3))),
         new("superscalar_2w", new TrainConfig("superscalar", IssueWidth: 2)),
-        new("ooo_2w", new TrainConfig("ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 2)),
+        new("ooo_2w", new TrainConfig("ooo", Predictor: BranchPredictorConfig.NBit(), IssueWidth: 2)),
     ];
 }

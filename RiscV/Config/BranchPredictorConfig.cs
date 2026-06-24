@@ -8,8 +8,7 @@ namespace RiscV.Config;
 [JsonDerivedType(typeof(AlwaysNotTakenConfig), "always_not_taken")]
 [JsonDerivedType(typeof(AlwaysTakenConfig), "always_taken")]
 [JsonDerivedType(typeof(AlwaysBackwardNotForwardsConfig), "always_backward_not_forwards")]
-[JsonDerivedType(typeof(OneBitConfig), "one_bit")]
-[JsonDerivedType(typeof(TwoBitConfig), "two_bit")]
+[JsonDerivedType(typeof(NBitConfig), "n_bit")]
 [JsonDerivedType(typeof(CorrelatedConfig), "correlated")]
 [JsonDerivedType(typeof(GselectConfig), "gselect")]
 [JsonDerivedType(typeof(GshareConfig), "gshare")]
@@ -20,8 +19,7 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig AlwaysNotTaken() => new AlwaysNotTakenConfig();
     public static BranchPredictorConfig AlwaysTaken() => new AlwaysTakenConfig();
     public static BranchPredictorConfig AlwaysBackwardNotForwards() => new AlwaysBackwardNotForwardsConfig();
-    public static BranchPredictorConfig OneBit(int tableSize = 1024) => new OneBitConfig(tableSize);
-    public static BranchPredictorConfig TwoBit(int tableSize = 1024) => new TwoBitConfig(tableSize);
+    public static BranchPredictorConfig NBit(int bits = 2, int tableSize = 1024) => new NBitConfig(bits, tableSize);
 
     public static BranchPredictorConfig Correlated(int m = 2, int n = 2, int bhtSize = 1024) =>
         new CorrelatedConfig(m, n, bhtSize);
@@ -46,12 +44,8 @@ public sealed record AlwaysBackwardNotForwardsConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() => new AlwaysBackwardNotForwards();
 }
 
-public sealed record OneBitConfig(int TableSize = 1024) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new OneBitPredictor(TableSize);
-}
-
-public sealed record TwoBitConfig(int TableSize = 1024) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new TwoBitPredictor(TableSize);
+public sealed record NBitConfig(int Bits = 2, int TableSize = 1024) : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new NBitPredictor(Bits, TableSize);
 }
 
 public sealed record CorrelatedConfig(int M = 2, int N = 2, int BhtSize = 1024) : BranchPredictorConfig {

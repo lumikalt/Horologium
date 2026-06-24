@@ -289,7 +289,7 @@ public class FiveStagePipelineTests {
         ];
 
         (FiveStageTrain ant, FlatMemory memAnt) = Make(predictor: new AlwaysNotTakenPredictor());
-        (FiveStageTrain twoB, FlatMemory memTwoB) = Make(predictor: new TwoBitPredictor());
+        (FiveStageTrain twoB, FlatMemory memTwoB) = Make(predictor: new NBitPredictor(2));
         Load(memAnt, program);
         Load(memTwoB, program);
 

@@ -93,16 +93,17 @@ if (format is "ts-csv") Console.WriteLine(result.ToTimeSeriesCsv());
 static IReadOnlyList<NamedConfig> DefaultSweep() => [
     new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
     new("always_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
-    new("one_bit", new TrainConfig(Predictor: BranchPredictorConfig.OneBit())),
-    new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit())),
-    new("no_forwarding", new TrainConfig(Predictor: BranchPredictorConfig.TwoBit(), ForwardingEnabled: false)),
+    new("1_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(1))),
+    new("2_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(2))),
+    new("3_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(3))),
+    new("no_forwarding", new TrainConfig(Predictor: BranchPredictorConfig.NBit(), ForwardingEnabled: false)),
     new("scalar_2wide", new TrainConfig("superscalar", IssueWidth: 2)),
     new("scalar_4wide", new TrainConfig("superscalar", IssueWidth: 4)),
-    new("ooo_2wide", new TrainConfig("ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 2)),
+    new("ooo_2wide", new TrainConfig("ooo", Predictor: BranchPredictorConfig.NBit(), IssueWidth: 2)),
     new(
         "ooo_4wide",
         new TrainConfig(
-            "ooo", Predictor: BranchPredictorConfig.TwoBit(), IssueWidth: 4, RobCapacity: 64, IqCapacity: 32
+            "ooo", Predictor: BranchPredictorConfig.NBit(), IssueWidth: 4, RobCapacity: 64, IqCapacity: 32
         )
     ),
 ];
@@ -127,14 +128,14 @@ static void PrintUsage() {
 
         Sweep file format (JSON array):
           [
-            {"name": "baseline",  "config": {"predictor": {"type": "two_bit"}}},
+            {"name": "baseline",  "config": {"predictor": {"type": "n_bit", "bits": 2}}},
             {"name": "no_cache",  "config": {"forwarding_enabled": false}},
             {"name": "ooo_2wide", "config": {"pipeline": "ooo", "issue_width": 2}},
             {"name": "ooo_4wide", "config": {"pipeline": "ooo", "issue_width": 4, "rob_capacity": 64}}
           ]
 
         Pipeline types  : five_stage (default), superscalar, ooo
-        Predictor types : always_not_taken, always_taken, one_bit, two_bit
+        Predictor types : always_not_taken, always_taken, n_bit (params: bits, table_size)
         OoO parameters  : issue_width (default 2), rob_capacity (32), iq_capacity (16), extra_phys_regs (32)
         """
     );

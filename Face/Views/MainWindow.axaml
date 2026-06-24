@@ -164,7 +164,16 @@
                                                           HorizontalAlignment="Stretch" />
                                             </Grid>
                                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasTableSize}">
+                                                  IsVisible="{Binding HasNBitParams}">
+                                                <TextBlock Grid.Column="0" Text="Bits"
+                                                           VerticalAlignment="Center" />
+                                                <NumericUpDown Grid.Column="1"
+                                                               Value="{Binding PredictorBits}"
+                                                               Minimum="1" Maximum="8"
+                                                               Increment="1" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                  IsVisible="{Binding HasNBitParams}">
                                                 <TextBlock Grid.Column="0" Text="Table size"
                                                            VerticalAlignment="Center" />
                                                 <NumericUpDown Grid.Column="1"
