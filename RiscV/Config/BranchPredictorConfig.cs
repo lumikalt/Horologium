@@ -7,6 +7,7 @@ namespace RiscV.Config;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(AlwaysNotTakenConfig), "always_not_taken")]
 [JsonDerivedType(typeof(AlwaysTakenConfig), "always_taken")]
+[JsonDerivedType(typeof(AlwaysBackwardNotForwardsConfig), "always_backward_not_forwards")]
 [JsonDerivedType(typeof(OneBitConfig), "one_bit")]
 [JsonDerivedType(typeof(TwoBitConfig), "two_bit")]
 [JsonDerivedType(typeof(CorrelatedConfig), "correlated")]
@@ -17,6 +18,7 @@ public abstract record BranchPredictorConfig {
 
     public static BranchPredictorConfig AlwaysNotTaken() => new AlwaysNotTakenConfig();
     public static BranchPredictorConfig AlwaysTaken() => new AlwaysTakenConfig();
+    public static BranchPredictorConfig AlwaysBackwardNotForwards() => new AlwaysBackwardNotForwardsConfig();
     public static BranchPredictorConfig OneBit(int tableSize = 1024) => new OneBitConfig(tableSize);
     public static BranchPredictorConfig TwoBit(int tableSize = 1024) => new TwoBitConfig(tableSize);
 
@@ -35,6 +37,10 @@ public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
 
 public sealed record AlwaysTakenConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() => new AlwaysTakenPredictor();
+}
+
+public sealed record AlwaysBackwardNotForwardsConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new AlwaysBackwardNotForwards();
 }
 
 public sealed record OneBitConfig(int TableSize = 1024) : BranchPredictorConfig {
