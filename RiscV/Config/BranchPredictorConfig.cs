@@ -14,6 +14,8 @@ namespace RiscV.Config;
 [JsonDerivedType(typeof(GshareConfig), "gshare")]
 [JsonDerivedType(typeof(LTageConfig), "l_tage")]
 [JsonDerivedType(typeof(PerceptronConfig), "perceptron")]
+[JsonDerivedType(typeof(TournamentConfig), "tournament")]
+[JsonDerivedType(typeof(TageScLConfig), "tage_sc_l")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
@@ -34,6 +36,14 @@ public abstract record BranchPredictorConfig {
 
     public static BranchPredictorConfig Perceptron(int historyLength = 24, int tableSize = 256) =>
         new PerceptronConfig(historyLength, tableSize);
+
+    public static BranchPredictorConfig Tournament(
+        int localHistoryBits = 10,
+        int localTableSize = 1024,
+        int globalHistoryBits = 12
+    ) => new TournamentConfig(localHistoryBits, localTableSize, globalHistoryBits);
+
+    public static BranchPredictorConfig TageScL() => new TageScLConfig();
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -70,4 +80,17 @@ public sealed record LTageConfig : BranchPredictorConfig {
 
 public sealed record PerceptronConfig(int HistoryLength = 24, int TableSize = 256) : BranchPredictorConfig {
     public override IBranchPredictor Build() => new PerceptronPredictor(HistoryLength, TableSize);
+}
+
+public sealed record TournamentConfig(
+    int LocalHistoryBits = 10,
+    int LocalTableSize = 1024,
+    int GlobalHistoryBits = 12
+) : BranchPredictorConfig {
+    public override IBranchPredictor Build() =>
+        new TournamentPredictor(LocalHistoryBits, LocalTableSize, GlobalHistoryBits);
+}
+
+public sealed record TageScLConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new TageScLPredictor();
 }

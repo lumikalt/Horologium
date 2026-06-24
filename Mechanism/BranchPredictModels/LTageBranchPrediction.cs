@@ -13,7 +13,7 @@ namespace Mechanism.BranchPredictModels;
 /// has exited a loop the same number of times on LoopConfThreshold consecutive
 /// invocations, it takes over from TAGE and predicts taken/not-taken exactly.
 /// </summary>
-public sealed class LTagePredictor : IBranchPredictor {
+public class LTagePredictor : IBranchPredictor {
     // ── TAGE parameters ───────────────────────────────────────────────────────
     private const int NumTables = 4;
     private const int TableIndexBits = 9; // 512 entries per tagged table
@@ -33,7 +33,7 @@ public sealed class LTagePredictor : IBranchPredictor {
     private readonly byte[] _base;        // 2-bit counters (taken ≥ 2)
     private readonly TageEntry[][] _tage; // [NumTables][1 << TableIndexBits]
     private readonly LoopEntry[] _loop;   // [1 << LoopIndexBits]
-    private ulong _ghr;                   // global history, LSB = most recent
+    protected ulong _ghr;                 // global history, LSB = most recent
 
     private readonly Dictionary<ulong, ulong> _btb = new();
 
@@ -53,9 +53,9 @@ public sealed class LTagePredictor : IBranchPredictor {
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
     public BranchPrediction Predict(ulong pc) {
-        TageLookup(pc, out _, out _, out bool tagePred, out _);
+        TageLookup(pc, out int provider, out _, out bool tagePred, out _);
+        bool pred = ResolvePrediction(pc, provider, tagePred);
 
-        bool pred = tagePred;
         ref LoopEntry le = ref _loop[LoopIdx(pc)];
         if (le.Tag == (ushort)LoopTag(pc) && le.Confident)
             pred = le.CurrentIter < le.LearnedIter; // taken while not yet at trip count
@@ -70,11 +70,37 @@ public sealed class LTagePredictor : IBranchPredictor {
         if (taken) _btb[pc] = actualTarget;
 
         TageLookup(pc, out int provider, out int altProvider, out bool provPred, out bool altPred);
+        int preScore = TageScore(pc, provider);
+        bool preLoopConfident = _loop[LoopIdx(pc)].Tag == (ushort)LoopTag(pc) && _loop[LoopIdx(pc)].Confident;
         UpdateTage(pc, taken, provider, altProvider, provPred, altPred);
         UpdateLoop(pc, taken);
+        OnAfterUpdate(pc, taken, provider, provPred, preScore, preLoopConfident);
 
         _ghr = ((_ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
     }
+
+    // ── Extension points for subclasses ──────────────────────────────────────
+
+    protected int TageScore(ulong pc, int provider) {
+        if (provider >= 0) {
+            byte c = _tage[provider][TageIdx(pc, provider)].Ctr;
+            return c * 2 - 7; // 0..7 → -7..+7
+        }
+
+        byte b = _base[BaseIdx(pc)];
+        return b * 2 - 3; // 0..3 → -3..+3
+    }
+
+    protected virtual bool ResolvePrediction(ulong pc, int provider, bool tagePred) => tagePred;
+
+    protected virtual void OnAfterUpdate(
+        ulong pc,
+        bool taken,
+        int provider,
+        bool provPred,
+        int preScore,
+        bool loopWasConfident
+    ) { }
 
     // ── TAGE internals ────────────────────────────────────────────────────────
 
