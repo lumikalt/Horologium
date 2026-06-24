@@ -22,12 +22,13 @@ public sealed class MemoryStage : Gear {
         Input.OnReceive = latch => _current = latch;
     }
 
+    internal void Inject(ExMemLatch latch) => _current = latch;
+
     public void Cycle() {
         if (_current is not { IsValid: true, } latch ||
             latch.Instruction is null || latch.Result is null) {
             _current = ExMemLatch.Bubble;
             LastSent = MemWbLatch.Bubble;
-            Output.Send(MemWbLatch.Bubble);
             return;
         }
 
@@ -47,7 +48,6 @@ public sealed class MemoryStage : Gear {
             ReturnPrivilege = result.ReturnPrivilege,
             SideEffect = result.SideEffect,
         };
-        Output.Send(newLatch);
         LastSent = newLatch;
     }
 }

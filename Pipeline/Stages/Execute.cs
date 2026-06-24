@@ -48,19 +48,19 @@ public sealed class ExecuteStage : Gear {
         Input.OnReceive = latch => _current = latch;
     }
 
+    internal void Inject(IdExLatch latch) => _current = latch;
+
     public void Cycle() {
         if (Squash) {
             Squash = false;
             _current = IdExLatch.Bubble;
             LastSent = ExMemLatch.Bubble;
-            Output.Send(ExMemLatch.Bubble);
             return;
         }
 
         if (_current is not { IsValid: true, } latch || latch.Instruction is null) {
             _current = IdExLatch.Bubble;
             LastSent = ExMemLatch.Bubble;
-            Output.Send(ExMemLatch.Bubble);
             return;
         }
 
@@ -101,7 +101,6 @@ public sealed class ExecuteStage : Gear {
             Rs2Value = rs2,
             PredictedNextPc = latch.PredictedNextPc,
         };
-        Output.Send(newLatch);
         LastSent = newLatch;
     }
 }

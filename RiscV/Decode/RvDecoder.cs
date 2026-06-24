@@ -3,10 +3,12 @@ using Mechanism;
 namespace RiscV.Decode;
 
 /// <summary>
-/// Stateless RV32I instruction decoder.
-/// Decodes a 32-bit word at a given PC into an RvInstruction.
+/// Instruction decoder with a (PC, raw) keyed cache.
+/// Safe for all programs — keying on both PC and raw encoding avoids false hits when
+/// two different instructions happen to share the same PC (e.g. in unit tests).
 /// </summary>
 public sealed class RvDecoder : IDecoder {
+    private readonly Dictionary<(ulong pc, uint raw), ITooth> _cache = new();
     public FetchHint GetFetchHint(ulong pc, uint firstWord) {
         bool isCompressed = (firstWord & 0x3) != 0x3;
         if (isCompressed) {
@@ -89,11 +91,26 @@ public sealed class RvDecoder : IDecoder {
 
     public ITooth Decode(ulong pc, IMemory memory) {
         var half = (ushort)memory.Read(pc, 2);
-        if ((half & 0x3) != 0x3) return DecodeCompressed(pc, half);
-        return Decode(pc, (uint)memory.Read(pc, 4));
+        if ((half & 0x3) != 0x3) {
+            if (_cache.TryGetValue((pc, half), out ITooth? c)) return c;
+            return Cache(pc, half, DecodeCompressed(pc, half));
+        }
+        var raw = (uint)memory.Read(pc, 4);
+        if (_cache.TryGetValue((pc, raw), out ITooth? cached)) return cached;
+        return Cache(pc, raw, DecodeRaw(pc, raw));
     }
 
     public ITooth Decode(ulong pc, uint raw) {
+        if (_cache.TryGetValue((pc, raw), out ITooth? cached)) return cached;
+        return Cache(pc, raw, DecodeRaw(pc, raw));
+    }
+
+    private ITooth Cache(ulong pc, uint raw, ITooth tooth) {
+        _cache[(pc, raw)] = tooth;
+        return tooth;
+    }
+
+    private static ITooth DecodeRaw(ulong pc, uint raw) {
         if ((raw & 0x3) != 0x3) return DecodeCompressed(pc, (ushort)(raw & 0xFFFF));
         uint opcode = raw & 0x7F;
         var rd = (int)((raw >> 7) & 0x1F);

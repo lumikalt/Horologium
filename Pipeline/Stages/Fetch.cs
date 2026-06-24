@@ -41,14 +41,12 @@ public sealed class FetchStage(
             Flush = false;
             _held = IfIdLatch.Bubble;
             LastSent = IfIdLatch.Bubble;
-            Output.Send(IfIdLatch.Bubble);
             return;
         }
 
         if (Stall) {
             // Hold: do not advance PC, re-present the instruction already in flight.
             LastSent = _held;
-            Output.Send(_held);
             return;
         }
 
@@ -75,7 +73,6 @@ public sealed class FetchStage(
         };
         _held = latch;
         LastSent = latch;
-        Output.Send(latch);
         Pc = nextPc;
     }
 }

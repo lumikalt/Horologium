@@ -36,6 +36,8 @@ public sealed class WritebackStage : Gear {
         };
     }
 
+    internal void Inject(MemWbLatch latch) => _current = latch;
+
     public void Cycle() {
         TrapRedirect = null;
 

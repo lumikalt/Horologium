@@ -38,25 +38,24 @@ public sealed class DecodeStage : Gear {
         Input.OnReceive = latch => _current = latch;
     }
 
+    internal void Inject(IfIdLatch latch) => _current = latch;
+
     public void Cycle() {
         if (Flush) {
             _current = IfIdLatch.Bubble;
             LastSent = IdExLatch.Bubble;
-            Output.Send(IdExLatch.Bubble);
             return;
         }
 
         if (Stall) {
             // Hold the current instruction; insert a bubble into EX.
             LastSent = IdExLatch.Bubble;
-            Output.Send(IdExLatch.Bubble);
             return;
         }
 
         if (_current is not { IsValid: true, } latch) {
             _current = IfIdLatch.Bubble;
             LastSent = IdExLatch.Bubble;
-            Output.Send(IdExLatch.Bubble);
             return;
         }
 
@@ -66,7 +65,6 @@ public sealed class DecodeStage : Gear {
         try { instr = _decoder.Decode(latch.Pc, latch.RawEncoding); }
         catch (IllegalInstructionException) {
             LastSent = IdExLatch.Bubble;
-            Output.Send(IdExLatch.Bubble);
             return;
         }
 
@@ -85,7 +83,6 @@ public sealed class DecodeStage : Gear {
             DestinationRegister = instr.DestinationRegister,
             PredictedNextPc = latch.PredictedNextPc,
         };
-        Output.Send(newLatch);
         LastSent = newLatch;
     }
 }

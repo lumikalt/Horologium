@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Orrery.Scheduling;
 
 namespace Orrery.Ports;
@@ -11,9 +12,11 @@ namespace Orrery.Ports;
 /// </summary>
 public sealed class OutArbor<T> {
     private readonly Escapement _escapement;
+    private readonly Action _deliverAction;
 
     private InArbor<T>? _bound;
     private int _latency;
+    private readonly Queue<T> _queue = new(4);
 
     public string Name { get; }
 
@@ -25,6 +28,7 @@ public sealed class OutArbor<T> {
         ArgumentNullException.ThrowIfNull(escapement);
         Name = name;
         _escapement = escapement;
+        _deliverAction = Deliver;
     }
 
     /// <summary>
@@ -66,11 +70,12 @@ public sealed class OutArbor<T> {
                 $"Call Bind() during the Finalizing lifecycle phase."
             );
 
-        InArbor<T>? target = _bound; // capture for closure
-        _escapement.ScheduleAfter(
-            () => target.Deliver(data),
-            _latency,
-            Phase.ArborUpdate
-        );
+        _queue.Enqueue(data);
+        _escapement.ScheduleAfter(_deliverAction, _latency, Phase.ArborUpdate);
+    }
+
+    private void Deliver() {
+        Debug.Assert(_queue.Count > 0, $"OutArbor '{Name}': Deliver called with empty queue — mismatched Send/Deliver count.");
+        _bound!.Deliver(_queue.Dequeue());
     }
 }

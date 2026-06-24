@@ -234,12 +234,9 @@ internal sealed class PipelineCore : Gear {
     public override void Wind() =>
         Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
 
-    // One clock cycle. Control logic runs first (Phase.Fetch), reading the
-    // latches produced by last cycle's stages. The stages themselves are then
-    // scheduled later this same tick — after Arbor delivery (Phase.ArborUpdate)
-    // has populated their input latches — so each inter-stage hop costs exactly
-    // one cycle. Writeback runs before Decode so a register written this cycle
-    // is visible to a read in the same cycle.
+    // One clock cycle. Control logic snapshots the pipeline registers from last
+    // cycle, then drives all stages directly. WB runs before ID so a register
+    // written this cycle is visible to Decode's reads in the same cycle.
     private void RunCycle() {
         // Collect pending stalls from memory hierarchy (generated last cycle's stage execution).
         _missStallBudget += CollectMemoryStalls();
@@ -267,31 +264,37 @@ internal sealed class PipelineCore : Gear {
             return;
         }
 
+        // Snapshot pipeline-register contents from last cycle before any stage runs.
+        IfIdLatch  ifIdLast  = _if.LastSent;
+        IdExLatch  idExLast  = _id.LastSent;
+        ExMemLatch exMemLast = _ex.LastSent;
+        MemWbLatch memWbLast = _mem.LastSent;
+
         // Forwarding providers: oldest-first so the freshest source wins.
         // MEM/WB (index 0, oldest) and EX/MEM (index 1, newest).
         _ex.SetForwardingContext(
             [
                 new PipelineResident(
-                    _mem.LastSent.IsValid, _mem.LastSent.DestinationRegister,
-                    default(ToothClass), _mem.LastSent.WritebackValue
+                    memWbLast.IsValid, memWbLast.DestinationRegister,
+                    default(ToothClass), memWbLast.WritebackValue
                 ),
                 new PipelineResident(
-                    _ex.LastSent.IsValid, _ex.LastSent.DestinationRegister,
-                    default(ToothClass), _ex.LastSent.Result?.RegisterResult
+                    exMemLast.IsValid, exMemLast.DestinationRegister,
+                    default(ToothClass), exMemLast.Result?.RegisterResult
                 ),
             ]
         );
 
         // Hazard detection: residents newest-first (EX at 0, MEM at 1).
         bool stall = _hazard.MustStall(
-            IncomingSources(), [
+            IncomingSources(ifIdLast), [
                 new PipelineResident(
-                    _id.LastSent.IsValid, _id.LastSent.DestinationRegister,
-                    _id.LastSent.Instruction?.Class ?? default(ToothClass), null
+                    idExLast.IsValid, idExLast.DestinationRegister,
+                    idExLast.Instruction?.Class ?? default(ToothClass), null
                 ),
                 new PipelineResident(
-                    _ex.LastSent.IsValid, _ex.LastSent.DestinationRegister,
-                    _ex.LastSent.Instruction?.Class ?? default(ToothClass), _ex.LastSent.Result?.RegisterResult
+                    exMemLast.IsValid, exMemLast.DestinationRegister,
+                    exMemLast.Instruction?.Class ?? default(ToothClass), exMemLast.Result?.RegisterResult
                 ),
             ]
         );
@@ -301,18 +304,17 @@ internal sealed class PipelineCore : Gear {
         // misprediction penalty) is only paid when the speculated next PC was
         // wrong.
         var flush = false;
-        ExMemLatch resolved = _ex.LastSent;
-        if (resolved is {
+        if (exMemLast is {
                 IsValid: true, Result: not null,
                 Instruction.Class: ToothClass.Branch or ToothClass.ConditionalBranch,
             }) {
-            bool taken = resolved.Result.BranchTaken;
+            bool taken = exMemLast.Result.BranchTaken;
             ulong actualNext = taken
-                ? resolved.Result.BranchTarget!.Value
-                : resolved.Pc + (ulong)(resolved.Instruction?.SizeBytes ?? 4);
-            _predictor.Update(resolved.Pc, taken, actualNext);
+                ? exMemLast.Result.BranchTarget!.Value
+                : exMemLast.Pc + (ulong)(exMemLast.Instruction?.SizeBytes ?? 4);
+            _predictor.Update(exMemLast.Pc, taken, actualNext);
 
-            if (actualNext != resolved.PredictedNextPc) {
+            if (actualNext != exMemLast.PredictedNextPc) {
                 flush = true;
                 _if.FlushTarget = actualNext;
                 _ex.Squash = true; // kill the wrong-path instruction now in EX
@@ -330,8 +332,7 @@ internal sealed class PipelineCore : Gear {
 
         // If a halt is about to retire through WB this tick, squash EX so
         // instructions speculatively fetched past the halt cannot execute.
-        MemWbLatch aboutToRetire = _mem.LastSent;
-        if (aboutToRetire is { IsValid: true, IsHalt: true, }) _ex.Squash = true;
+        if (memWbLast is { IsValid: true, IsHalt: true, }) _ex.Squash = true;
 
         // Trap redirect from WB (computed last cycle).
         if (_wb.TrapRedirect.HasValue) {
@@ -339,15 +340,14 @@ internal sealed class PipelineCore : Gear {
             _if.Flush = true;
         }
 
-        // Drive the stages this tick, after Arbor delivery (ArborUpdate, phase 2).
-        long t = Escapement.CurrentTick;
-        Escapement.Schedule(_wb.Cycle, t, Phase.Writeback); // write regfile first
-        Escapement.Schedule(_id.Cycle, t, Phase.Commit);    // then read regfile
-        Escapement.Schedule(_ex.Cycle, t, Phase.Commit);
-        Escapement.Schedule(_mem.Cycle, t, Phase.Commit);
-        Escapement.Schedule(_if.Cycle, t, Phase.Commit);
-
-        if (StoreBuffer is not null) Escapement.Schedule(StoreBuffer.DrainEligible, t, Phase.Collection);
+        // Drive stages directly — WB before ID so the register file write
+        // is visible to Decode's reads within the same cycle.
+        _wb.Inject(memWbLast); _wb.Cycle();
+        _id.Inject(ifIdLast);  _id.Cycle();
+        _ex.Inject(idExLast);  _ex.Cycle();
+        _mem.Inject(exMemLast); _mem.Cycle();
+        _if.Cycle();
+        StoreBuffer?.DrainEligible();
 
         Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
     }
@@ -411,8 +411,7 @@ internal sealed class PipelineCore : Gear {
     // Source registers of the instruction IF produced last cycle — the one
     // Decode will read this cycle. Decoding is side-effect free, so the
     // controller can peek without disturbing the pipeline.
-    private IReadOnlyList<int> IncomingSources() {
-        IfIdLatch incoming = _if.LastSent;
+    private IReadOnlyList<int> IncomingSources(IfIdLatch incoming) {
         if (!incoming.IsValid) return [];
         try { return _decoder.Decode(incoming.Pc, incoming.RawEncoding).SourceRegisters; }
         catch (IllegalInstructionException) { return []; }

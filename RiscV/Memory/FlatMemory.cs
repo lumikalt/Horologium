@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Mechanism;
 
 namespace RiscV.Memory;
@@ -23,13 +24,33 @@ public sealed class FlatMemory : IMemory {
 
     public ulong Read(ulong address, int bytes) {
         ValidateAccess(address, bytes);
+        return bytes switch {
+            1 => _data[(int)address],
+            2 => Unsafe.ReadUnaligned<ushort>(ref _data[(int)address]),
+            4 => Unsafe.ReadUnaligned<uint>(ref _data[(int)address]),
+            8 => Unsafe.ReadUnaligned<ulong>(ref _data[(int)address]),
+            _ => ReadSlow(address, bytes),
+        };
+    }
+
+    public void Write(ulong address, ulong value, int bytes) {
+        ValidateAccess(address, bytes);
+        switch (bytes) {
+            case 1: _data[(int)address] = (byte)value; break;
+            case 2: Unsafe.WriteUnaligned(ref _data[(int)address], (ushort)value); break;
+            case 4: Unsafe.WriteUnaligned(ref _data[(int)address], (uint)value); break;
+            case 8: Unsafe.WriteUnaligned(ref _data[(int)address], value); break;
+            default: WriteSlow(address, value, bytes); break;
+        }
+    }
+
+    private ulong ReadSlow(ulong address, int bytes) {
         ulong result = 0;
         for (var i = 0; i < bytes; i++) result |= (ulong)_data[address + (ulong)i] << (i * 8);
         return result;
     }
 
-    public void Write(ulong address, ulong value, int bytes) {
-        ValidateAccess(address, bytes);
+    private void WriteSlow(ulong address, ulong value, int bytes) {
         for (var i = 0; i < bytes; i++) _data[address + (ulong)i] = (byte)(value >> (i * 8));
     }
 
