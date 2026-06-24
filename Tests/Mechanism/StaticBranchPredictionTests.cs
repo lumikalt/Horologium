@@ -16,7 +16,7 @@ public class StaticBranchPredictionTests {
     public void BackwardNotForwards_BackwardBranch_PredictsTaken() {
         var p = new AlwaysBackwardNotForwards();
         ulong pc = 0x1000;
-        p.Update(pc, taken: true, actualTarget: 0x800); // backward: target < pc
+        p.Update(pc, true, 0x800); // backward: target < pc
         BranchPrediction pred = p.Predict(pc);
         Assert.True(pred.PredictedTaken);
         Assert.Equal(0x800UL, pred.PredictedTarget);
@@ -26,7 +26,7 @@ public class StaticBranchPredictionTests {
     public void BackwardNotForwards_ForwardBranch_PredictsNotTaken() {
         var p = new AlwaysBackwardNotForwards();
         ulong pc = 0x1000;
-        p.Update(pc, taken: true, actualTarget: 0x2000); // forward: target > pc
+        p.Update(pc, true, 0x2000); // forward: target > pc
         BranchPrediction pred = p.Predict(pc);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -36,7 +36,7 @@ public class StaticBranchPredictionTests {
     public void BackwardNotForwards_NotTakenUpdate_DoesNotPopulateBtb() {
         var p = new AlwaysBackwardNotForwards();
         ulong pc = 0x1000;
-        p.Update(pc, taken: false, actualTarget: 0x800);
+        p.Update(pc, false, 0x800);
         // BTB is unpopulated, so still a cold miss
         BranchPrediction pred = p.Predict(pc);
         Assert.False(pred.PredictedTaken);
