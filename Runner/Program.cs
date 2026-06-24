@@ -12,6 +12,7 @@ long warmupTicks = 0;
 long maxTicks = 1_000_000;
 long snapshotInterval = 0; // 0 = off, -1 = auto, >0 = explicit ticks
 var format = "md";         // md | csv | both | ts-csv
+int? memorySizeBytes = null; // null → default to 4 MB for ELF workloads
 
 string[] argv = args; // top-level programs expose args implicitly
 for (var i = 0; i < argv.Length; i++)
@@ -19,6 +20,7 @@ for (var i = 0; i < argv.Length; i++)
         case "--sweep":     sweepPath = argv[++i]; break;
         case "--warmup":    warmupTicks = long.Parse(argv[++i]); break;
         case "--max-ticks": maxTicks = long.Parse(argv[++i]); break;
+        case "--memory":    memorySizeBytes = int.Parse(argv[++i]); break;
         case "--snapshot-interval":
             snapshotInterval = argv[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(argv[++i]);
             break;
@@ -43,7 +45,7 @@ IWorkload workload;
 string workloadLabel;
 
 if (elfPath is not null) {
-    workload = new ElfWorkload(elfPath);
+    workload = new ElfWorkload(elfPath, memorySizeBytes ?? 4 * 1024 * 1024);
     workloadLabel = Path.GetFileName(elfPath);
 }
 else {
@@ -118,6 +120,7 @@ static void PrintUsage() {
         Options:
           --sweep <path>        JSON file with named hardware configurations to compare.
                                 Default: branch-predictor sweep + OoO 2-wide and 4-wide.
+          --memory <bytes>      Physical memory size in bytes (default: 4194304 = 4 MB).
           --warmup <n>          Ticks to run before recording statistics (default: 0).
           --max-ticks <n>       Maximum measurement ticks per run (default: 1000000).
           --snapshot-interval <n|auto>  Ticks between time-series snapshots. Use 'auto' to

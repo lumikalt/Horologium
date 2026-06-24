@@ -219,7 +219,8 @@ internal sealed class SingleCycleCore(
                 ArchState.Pc = pc + (ulong)instr.SizeBytes;
         }
 
-        _opcodeHistogram.Observe(instr.Payload?.GetType().Name ?? "unknown");
+        var instrType = instr.Payload?.GetType();
+        if (instrType is not null) _opcodeHistogram.Observe(instrType);
         _retiredCounter.Increment();
 
         // Detect halt: infinite self-loop (JAL x0, 0 — common halt idiom)

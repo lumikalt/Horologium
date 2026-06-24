@@ -8,8 +8,16 @@ namespace RiscV.Decode;
 /// two different instructions happen to share the same PC (e.g. in unit tests).
 /// </summary>
 public sealed class RvDecoder : IDecoder {
-    private readonly Dictionary<(ulong pc, uint raw), ITooth> _cache = new();
+    private readonly Dictionary<(ulong pc, uint raw), ITooth>    _cache     = new();
+    private readonly Dictionary<(ulong pc, uint raw), FetchHint> _hintCache = new();
     public FetchHint GetFetchHint(ulong pc, uint firstWord) {
+        if (_hintCache.TryGetValue((pc, firstWord), out FetchHint cached)) return cached;
+        FetchHint hint = ComputeFetchHint(pc, firstWord);
+        _hintCache[(pc, firstWord)] = hint;
+        return hint;
+    }
+
+    private static FetchHint ComputeFetchHint(ulong pc, uint firstWord) {
         bool isCompressed = (firstWord & 0x3) != 0x3;
         if (isCompressed) {
             var c = (ushort)(firstWord & 0xFFFF);

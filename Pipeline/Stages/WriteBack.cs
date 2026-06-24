@@ -68,7 +68,8 @@ public sealed class WritebackStage : Gear {
                 );
         }
 
-        OpcodeHistogram?.Observe(latch.Instruction.Payload?.GetType().Name ?? "unknown");
+        var instrType = latch.Instruction.Payload?.GetType();
+        if (instrType is not null) OpcodeHistogram?.Observe(instrType);
         RetiredCount++;
     }
 }

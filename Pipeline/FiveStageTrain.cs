@@ -92,6 +92,10 @@ internal sealed class PipelineCore : Gear {
     private long _lastRetired;
     private long _missStallBudget;
 
+    // Pre-allocated for per-cycle forwarding/hazard checks — avoids heap allocation every RunCycle.
+    private readonly PipelineResident[] _fwdProviders    = new PipelineResident[2];
+    private readonly PipelineResident[] _hazardResidents = new PipelineResident[2];
+
     // Delta tracking for cache/TLB stat counters
     private long _lastIHits, _lastIMisses;
     private long _lastIL2Hits, _lastIL2Misses;
@@ -272,32 +276,14 @@ internal sealed class PipelineCore : Gear {
 
         // Forwarding providers: oldest-first so the freshest source wins.
         // MEM/WB (index 0, oldest) and EX/MEM (index 1, newest).
-        _ex.SetForwardingContext(
-            [
-                new PipelineResident(
-                    memWbLast.IsValid, memWbLast.DestinationRegister,
-                    default(ToothClass), memWbLast.WritebackValue
-                ),
-                new PipelineResident(
-                    exMemLast.IsValid, exMemLast.DestinationRegister,
-                    default(ToothClass), exMemLast.Result?.RegisterResult
-                ),
-            ]
-        );
+        _fwdProviders[0] = new PipelineResident(memWbLast.IsValid, memWbLast.DestinationRegister, default, memWbLast.WritebackValue);
+        _fwdProviders[1] = new PipelineResident(exMemLast.IsValid, exMemLast.DestinationRegister, default, exMemLast.Result?.RegisterResult);
+        _ex.SetForwardingContext(_fwdProviders);
 
         // Hazard detection: residents newest-first (EX at 0, MEM at 1).
-        bool stall = _hazard.MustStall(
-            IncomingSources(ifIdLast), [
-                new PipelineResident(
-                    idExLast.IsValid, idExLast.DestinationRegister,
-                    idExLast.Instruction?.Class ?? default(ToothClass), null
-                ),
-                new PipelineResident(
-                    exMemLast.IsValid, exMemLast.DestinationRegister,
-                    exMemLast.Instruction?.Class ?? default(ToothClass), exMemLast.Result?.RegisterResult
-                ),
-            ]
-        );
+        _hazardResidents[0] = new PipelineResident(idExLast.IsValid, idExLast.DestinationRegister, idExLast.Instruction?.Class ?? default, null);
+        _hazardResidents[1] = new PipelineResident(exMemLast.IsValid, exMemLast.DestinationRegister, exMemLast.Instruction?.Class ?? default, exMemLast.Result?.RegisterResult);
+        bool stall = _hazard.MustStall(IncomingSources(ifIdLast), _hazardResidents);
 
         // Reconcile any branch leaving EX with the prediction made at fetch.
         // The predictor is trained on every resolved branch; a flush (and a
