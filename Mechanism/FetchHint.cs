@@ -18,4 +18,10 @@ public readonly record struct FetchHint {
 
     /// <summary>True if this is a return that pops a return address (used to pop RAS).</summary>
     public bool IsReturn { get; init; }
+
+    /// <summary>
+    /// Statically decoded branch target (PC + offset) for PC-relative instructions.
+    /// Null for register-indirect branches (e.g. JALR) where the target is unknown at fetch time.
+    /// </summary>
+    public ulong? BranchTarget { get; init; }
 }

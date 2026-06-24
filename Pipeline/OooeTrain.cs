@@ -565,7 +565,7 @@ internal sealed class OoOPipelineCore : Gear {
             FetchHint hint = _decoder.GetFetchHint(_fetchPc, raw);
             ulong predictedNext;
             if (hint.IsBranch) {
-                BranchPrediction pred = _predictor.Predict(_fetchPc);
+                BranchPrediction pred = _predictor.Predict(_fetchPc, hint.BranchTarget);
                 predictedNext = pred.PredictedTaken ? pred.PredictedTarget : _fetchPc + (ulong)decoded.SizeBytes;
             }
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }

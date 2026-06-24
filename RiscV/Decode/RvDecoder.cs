@@ -17,13 +17,28 @@ public sealed class RvDecoder : IDecoder {
             int crs2 = (c >> 2) & 0x1F;
             bool inst12 = (c & 0x1000) != 0;
 
+            // c.jal (RV32): PC-relative call with statically known target.
             if (q == 0x1 && cfunct3 == 0x1)
-                return new FetchHint { InstructionSize = 2, IsBranch = true, IsCall = true, };
-            if (q == 0x1 && cfunct3 == 0x5) return new FetchHint { InstructionSize = 2, IsBranch = true, };
+                return new FetchHint {
+                    InstructionSize = 2, IsBranch = true, IsCall = true,
+                    BranchTarget = (ulong)((long)pc + CJumpOffset(c)),
+                };
+            // c.j: unconditional PC-relative jump.
+            if (q == 0x1 && cfunct3 == 0x5)
+                return new FetchHint {
+                    InstructionSize = 2, IsBranch = true,
+                    BranchTarget = (ulong)((long)pc + CJumpOffset(c)),
+                };
+            // c.beqz / c.bnez: PC-relative conditional branches.
             if (q == 0x1 && (cfunct3 == 0x6 || cfunct3 == 0x7))
-                return new FetchHint { InstructionSize = 2, IsBranch = true, };
+                return new FetchHint {
+                    InstructionSize = 2, IsBranch = true,
+                    BranchTarget = (ulong)((long)pc + CBranchImm(c)),
+                };
+            // c.jalr: register-indirect call — target not statically known.
             if (q == 0x2 && cfunct3 == 0x4 && inst12 && crs2 == 0 && crs1 != 0)
                 return new FetchHint { InstructionSize = 2, IsBranch = true, IsCall = true, };
+            // c.jr / c.ret: register-indirect return — target not statically known.
             if (q == 0x2 && cfunct3 == 0x4 && !inst12 && crs2 == 0 && crs1 != 0)
                 return new FetchHint { InstructionSize = 2, IsBranch = true, IsReturn = crs1 is 1 or 5, };
             return new FetchHint { InstructionSize = 2, };
@@ -36,11 +51,34 @@ public sealed class RvDecoder : IDecoder {
         bool isJalr = opcode == 0x67;
         bool linkRd = rd is 1 or 5;
         bool linkRs1 = rs1 is 1 or 5;
+
+        ulong? branchTarget = null;
+        if (opcode == 0x63) {
+            // B-type: imm[12|10:5] in bits[31:25], imm[4:1|11] in bits[11:7]
+            var bImm = (int)(
+                (((firstWord >> 31) & 1) << 12) |
+                (((firstWord >> 7) & 1) << 11) |
+                (((firstWord >> 25) & 0x3F) << 5) |
+                (((firstWord >> 8) & 0xF) << 1));
+            branchTarget = (ulong)((long)pc + SignExtendN(bImm, 13));
+        }
+        else if (isJal) {
+            // J-type: imm[20|10:1|11|19:12] scattered across bits[31:12]
+            var jImm = (int)(
+                (((firstWord >> 31) & 1) << 20) |
+                (((firstWord >> 12) & 0xFF) << 12) |
+                (((firstWord >> 20) & 1) << 11) |
+                (((firstWord >> 21) & 0x3FF) << 1));
+            branchTarget = (ulong)((long)pc + SignExtendN(jImm, 21));
+        }
+        // JALR: register-indirect — target not statically known; branchTarget stays null.
+
         return new FetchHint {
             InstructionSize = 4,
             IsBranch = opcode is 0x63 || isJal || isJalr,
             IsCall = (isJal || isJalr) && linkRd,
             IsReturn = isJalr && linkRs1 && !linkRd,
+            BranchTarget = branchTarget,
         };
     }
 

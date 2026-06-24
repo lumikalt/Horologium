@@ -52,7 +52,7 @@ public class LTagePredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
-    public BranchPrediction Predict(ulong pc) {
+    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
         TageLookup(pc, out int provider, out _, out bool tagePred, out _);
         bool pred = ResolvePrediction(pc, provider, tagePred);
 

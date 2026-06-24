@@ -60,7 +60,7 @@ public sealed class FetchStage(
         // Non-branch instructions always continue to PC+instrSize; feeding them to the
         // predictor would corrupt the BTB with non-branch addresses.
         BranchPrediction pred = hint.IsBranch
-            ? predictor.Predict(Pc)
+            ? predictor.Predict(Pc, hint.BranchTarget)
             : BranchPrediction.NotTaken(Pc + (ulong)instrSize);
 
         if (hint.IsCall)

@@ -25,6 +25,6 @@
 
 ### Branch Prediction
 
-- [ ] Hashed Perceptron / Path-based Perceptron
+- [x] Hashed Perceptron / Path-based Perceptron
 - [ ] ITTAGE (Indirect Branch Target Predictor)
 - [ ] BATAGE (Bimodal-Augmented TAGE)

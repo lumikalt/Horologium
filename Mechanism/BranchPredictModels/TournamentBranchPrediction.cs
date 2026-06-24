@@ -61,7 +61,7 @@ public sealed class TournamentPredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
-    public BranchPrediction Predict(ulong pc) {
+    public BranchPrediction Predict(ulong pc, ulong? knownTarget = null) {
         bool pred = PreferGlobal(pc) ? GlobalPred(pc) : LocalPred(pc);
         ulong target = pred
             ? _btb.TryGetValue(pc, out ulong t) ? t : pc + 4

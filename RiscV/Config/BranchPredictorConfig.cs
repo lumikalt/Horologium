@@ -16,6 +16,7 @@ namespace RiscV.Config;
 [JsonDerivedType(typeof(PerceptronConfig), "perceptron")]
 [JsonDerivedType(typeof(TournamentConfig), "tournament")]
 [JsonDerivedType(typeof(TageScLConfig), "tage_sc_l")]
+[JsonDerivedType(typeof(HashedPerceptronConfig), "hashed_perceptron")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
@@ -44,6 +45,9 @@ public abstract record BranchPredictorConfig {
     ) => new TournamentConfig(localHistoryBits, localTableSize, globalHistoryBits);
 
     public static BranchPredictorConfig TageScL() => new TageScLConfig();
+
+    public static BranchPredictorConfig HashedPerceptron(int tableSize = 512) =>
+        new HashedPerceptronConfig(tableSize);
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -93,4 +97,8 @@ public sealed record TournamentConfig(
 
 public sealed record TageScLConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() => new TageScLPredictor();
+}
+
+public sealed record HashedPerceptronConfig(int TableSize = 512) : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new HashedPerceptronPredictor(TableSize);
 }
