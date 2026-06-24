@@ -26,6 +26,42 @@ public sealed class ElfWorkload : IWorkload {
 
     public void Load(IMemory memory) => ElfLoader.Load(memory, _elfBytes);
 
+    /// <summary>
+    /// Returns the virtual address of a named ELF symbol, or throws if not found.
+    /// </summary>
+    public ulong FindSymbol(string name) {
+        ReadOnlySpan<byte> elf = _elfBytes;
+        uint shoff = BinaryPrimitives.ReadUInt32LittleEndian(elf[32..]);
+        ushort shentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[46..]);
+        ushort shnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[48..]);
+
+        for (var i = 0; i < shnum; i++) {
+            var shdr = (int)(shoff + (uint)(i * shentsz));
+            uint shType = BinaryPrimitives.ReadUInt32LittleEndian(elf[(shdr + 4)..]);
+            if (shType != 2) continue; // SHT_SYMTAB
+
+            uint symOff = BinaryPrimitives.ReadUInt32LittleEndian(elf[(shdr + 16)..]);
+            uint symSz = BinaryPrimitives.ReadUInt32LittleEndian(elf[(shdr + 20)..]);
+            uint strtabIdx = BinaryPrimitives.ReadUInt32LittleEndian(elf[(shdr + 24)..]);
+
+            var strtabHdr = (int)(shoff + strtabIdx * shentsz);
+            uint strtabOff = BinaryPrimitives.ReadUInt32LittleEndian(elf[(strtabHdr + 16)..]);
+
+            for (uint s = 0; s < symSz / 16; s++) {
+                var sym = (int)(symOff + s * 16);
+                uint nameOff = BinaryPrimitives.ReadUInt32LittleEndian(elf[sym..]);
+                uint value = BinaryPrimitives.ReadUInt32LittleEndian(elf[(sym + 4)..]);
+
+                var start = (int)(strtabOff + nameOff);
+                int end = start;
+                while (end < _elfBytes.Length && _elfBytes[end] != 0) end++;
+                if (System.Text.Encoding.ASCII.GetString(_elfBytes, start, end - start) == name) return value;
+            }
+        }
+
+        throw new KeyNotFoundException($"ELF symbol '{name}' not found");
+    }
+
     // ── ELF header parsing ────────────────────────────────────────────────────
 
     private static ulong ParseEntryPoint(ReadOnlySpan<byte> elf) =>

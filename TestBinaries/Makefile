@@ -46,13 +46,65 @@ isa/rv32um-p-%.elf: riscv-tests/isa/rv32um/%.S env/riscv_test.h env/link.ld
 	@mkdir -p isa
 	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $< -o $@
 
+# ── riscv-tests benchmarks ───────────────────────────────────────────────────
+#
+# dhrystone: uses a retry loop guarded by read_csr(mcycle).  Our simulator
+#   keeps mcycle at 0, so the time check always fails, printf is called, and
+#   the benchmark spins forever waiting for an HTIF fromhost reply.  Excluded.
+#
+# mm / spmv: use double-precision floating point (D extension); the simulator
+#   only supports single-precision (F).  Excluded.
+#
+# mt-* / vec-*: multi-threaded or vector; not supported.  Excluded.
+#
+# pmp: exercises PMP CSRs not implemented by the simulator.  Excluded.
+
+BMARKS_DIR  = riscv-tests/benchmarks
+BMARKS_CC   = riscv32-none-elf-gcc
+BMARKS_CFLAGS = -march=rv32imafd_zicsr -mabi=ilp32d -O2 -static \
+                -nostdlib -nostartfiles \
+                -DPREALLOCATE=1 -mcmodel=medany -fno-common \
+                -fno-builtin-printf -fno-tree-loop-distribute-patterns \
+                -Wno-implicit-int -Wno-implicit-function-declaration
+BMARKS_LDFLAGS = -T bmarks.ld
+BMARKS_INCS = -I$(BMARKS_DIR) -I$(BMARKS_DIR)/common \
+              -Iriscv-tests/debug/programs \
+              -I$(BMARKS_DIR)/median -I$(BMARKS_DIR)/qsort \
+              -I$(BMARKS_DIR)/rsort  -I$(BMARKS_DIR)/towers \
+              -I$(BMARKS_DIR)/vvadd  -I$(BMARKS_DIR)/memcpy \
+              -I$(BMARKS_DIR)/multiply
+BMARKS_COMMON = $(BMARKS_DIR)/common/syscalls.c $(BMARKS_DIR)/common/crt.S
+
+BMARKS = median qsort rsort towers vvadd memcpy multiply
+
+BMARKS_SRCS_median   = $(BMARKS_DIR)/median/median_main.c   $(BMARKS_DIR)/median/median.c
+BMARKS_SRCS_qsort    = $(BMARKS_DIR)/qsort/qsort_main.c
+BMARKS_SRCS_rsort    = $(BMARKS_DIR)/rsort/rsort.c
+BMARKS_SRCS_towers   = $(BMARKS_DIR)/towers/towers_main.c
+BMARKS_SRCS_vvadd    = $(BMARKS_DIR)/vvadd/vvadd_main.c
+BMARKS_SRCS_memcpy   = $(BMARKS_DIR)/memcpy/memcpy_main.c
+BMARKS_SRCS_multiply = $(BMARKS_DIR)/multiply/multiply_main.c $(BMARKS_DIR)/multiply/multiply.c
+
+define bmark_template
+benchmarks/$(1).elf: $$(BMARKS_SRCS_$(1)) $$(BMARKS_COMMON) bmarks.ld
+	@mkdir -p benchmarks
+	$$(BMARKS_CC) $$(BMARKS_CFLAGS) $$(BMARKS_INCS) $$(BMARKS_LDFLAGS) \
+	    $$(BMARKS_SRCS_$(1)) $$(BMARKS_COMMON) -lgcc -o $$@
+endef
+
+$(foreach b,$(BMARKS),$(eval $(call bmark_template,$(b))))
+
+BMARKS_ELFS = $(patsubst %, benchmarks/%.elf, $(BMARKS))
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
-.PHONY: all isa-tests clean
+.PHONY: all isa-tests benchmarks clean
 
-all: test.elf isa-tests
+all: test.elf isa-tests benchmarks
 
 isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS)
 
+benchmarks: $(BMARKS_ELFS)
+
 clean:
-	rm -f test.elf isa/*.elf
+	rm -f test.elf isa/*.elf benchmarks/*.elf

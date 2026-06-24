@@ -252,11 +252,13 @@ public sealed class RvExecutor : IExecutor {
             ),
             RvCsrrs (_, var rs1, var csr) => ExecuteCsr(
                 state, rs1, csr,
-                (old, src) => old | src
+                (old, src) => old | src,
+                false
             ),
             RvCsrrc (_, var rs1, var csr) => ExecuteCsr(
                 state, rs1, csr,
-                (old, src) => old & ~src
+                (old, src) => old & ~src,
+                false
             ),
             RvCsrrwi (_, var zimm, var csr) => ExecuteCsrImm(
                 state, zimm, csr,
@@ -264,11 +266,13 @@ public sealed class RvExecutor : IExecutor {
             ),
             RvCsrrsi (_, var zimm, var csr) => ExecuteCsrImm(
                 state, zimm, csr,
-                (old, src) => old | src
+                (old, src) => old | src,
+                false
             ),
             RvCsrrci (_, var zimm, var csr) => ExecuteCsrImm(
                 state, zimm, csr,
-                (old, src) => old & ~src
+                (old, src) => old & ~src,
+                false
             ),
 
             // ── V extension ───────────────────────────────────────────────────
@@ -400,12 +404,14 @@ public sealed class RvExecutor : IExecutor {
         IArchState state,
         int rs1,
         uint csr,
-        Func<ulong, ulong, ulong> combine
+        Func<ulong, ulong, ulong> combine,
+        bool writeIfSrcZero = true
     ) {
         ISystemRegisters csrFile = state.SystemRegisters;
         ulong old = csrFile.Read(csr, state.PrivilegeLevel);
         ulong src = state.IntegerRegisters.Read(rs1);
-        csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
+        // Per spec §2.8: CSRRS/CSRRC with rs1==x0 must not write the CSR.
+        if (writeIfSrcZero || rs1 != 0) csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
         return ExecuteResult.WithResult(old & 0xFFFFFFFF);
     }
 
@@ -466,11 +472,13 @@ public sealed class RvExecutor : IExecutor {
         IArchState state,
         uint zimm,
         uint csr,
-        Func<ulong, ulong, ulong> combine
+        Func<ulong, ulong, ulong> combine,
+        bool writeIfSrcZero = true
     ) {
         ISystemRegisters csrFile = state.SystemRegisters;
         ulong old = csrFile.Read(csr, state.PrivilegeLevel);
-        csrFile.Write(csr, combine(old, zimm), state.PrivilegeLevel);
+        // Per spec §2.8: CSRRSI/CSRRCI with zimm==0 must not write the CSR.
+        if (writeIfSrcZero || zimm != 0) csrFile.Write(csr, combine(old, zimm), state.PrivilegeLevel);
         return ExecuteResult.WithResult(old & 0xFFFFFFFF);
     }
 
