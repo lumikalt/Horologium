@@ -1,4 +1,5 @@
 using Mechanism;
+using RiscV;
 using RiscV.Decode;
 using RiscV.Registers;
 using RiscV.State;
@@ -128,13 +129,13 @@ public sealed class RvExecutor : IExecutor {
             // ── System ────────────────────────────────────────────────────────
             RvEcall => ExecuteResult.WithTrap(
                 new TrapInfo(
-                    TrapCause.EnvironmentCallFromM, 0, pc
+                    RvTrapCause.EnvironmentCallFromM, 0, pc
                 )
             ),
 
             RvEbreak => new ExecuteResult { IsHalt = true, },
 
-            RvMret => new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = PrivilegeLevel.Machine, },
+            RvMret => new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Machine, },
 
             RvFence => ExecuteResult.Clean, // NOP in single-core simulation
 
@@ -401,7 +402,7 @@ public sealed class RvExecutor : IExecutor {
         uint csr,
         Func<ulong, ulong, ulong> combine
     ) {
-        ICsrFile csrFile = state.Csrs;
+        ISystemRegisters csrFile = state.SystemRegisters;
         ulong old = csrFile.Read(csr, state.PrivilegeLevel);
         ulong src = state.IntegerRegisters.Read(rs1);
         csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
@@ -467,7 +468,7 @@ public sealed class RvExecutor : IExecutor {
         uint csr,
         Func<ulong, ulong, ulong> combine
     ) {
-        ICsrFile csrFile = state.Csrs;
+        ISystemRegisters csrFile = state.SystemRegisters;
         ulong old = csrFile.Read(csr, state.PrivilegeLevel);
         csrFile.Write(csr, combine(old, zimm), state.PrivilegeLevel);
         return ExecuteResult.WithResult(old & 0xFFFFFFFF);

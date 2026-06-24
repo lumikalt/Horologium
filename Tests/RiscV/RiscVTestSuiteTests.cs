@@ -4,7 +4,6 @@ using Orrery.Train;
 using RiscV;
 using RiscV.Memory;
 using Pipeline;
-using RiscV.Trains;
 using Xunit.Abstractions;
 
 namespace Tests.RiscV;

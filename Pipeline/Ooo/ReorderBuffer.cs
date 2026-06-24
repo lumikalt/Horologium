@@ -1,6 +1,6 @@
 using Mechanism;
 
-namespace RiscV.Trains.Ooo;
+namespace Pipeline.Ooo;
 
 /// <summary>
 /// One slot in the Reorder Buffer.

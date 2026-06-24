@@ -10,9 +10,9 @@ public sealed class RvArchState : IArchState {
     private readonly UnifiedRegisterFile _intRegs;
 
     public ulong Pc { get; set; }
-    public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.Machine;
+    public PrivilegeLevel PrivilegeLevel { get; set; } = RvPrivilege.Machine;
     public IRegisterFile IntegerRegisters => _intRegs;
-    public ICsrFile Csrs => CsrFile;
+    public ISystemRegisters SystemRegisters => CsrFile;
 
     /// <summary>Typed access to the concrete CSR file for internal use.</summary>
     internal CsrFile CsrFile { get; }
@@ -56,7 +56,7 @@ public sealed class RvArchState : IArchState {
 
     public void Reset() {
         Pc = 0;
-        PrivilegeLevel = PrivilegeLevel.Machine;
+        PrivilegeLevel = RvPrivilege.Machine;
         _intRegs.Reset();
         CsrFile.Reset();
         VectorRegisters.Reset();

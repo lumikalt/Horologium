@@ -18,10 +18,9 @@ public interface IArchState {
     IRegisterFile IntegerRegisters { get; }
 
     /// <summary>
-    /// The CSR file. Null if the ISA does not define CSRs
-    /// (e.g. a minimal custom ISA with no privileged spec).
+    /// The system register file. Null if the ISA does not define system registers.
     /// </summary>
-    ICsrFile Csrs { get; }
+    ISystemRegisters SystemRegisters { get; }
 
     /// <summary>
     /// Creates a deep copy of this state.
@@ -33,7 +32,23 @@ public interface IArchState {
     void Reset();
 }
 
-/// <summary>The privilege level of the executing hart.</summary>
-public enum PrivilegeLevel {
-    User = 0, Supervisor = 1, Machine = 3,
+/// <summary>
+/// The privilege level of the executing hart.
+/// ISA-specific named levels (e.g. Machine, Supervisor) are defined by the ISA plugin.
+/// </summary>
+public readonly record struct PrivilegeLevel(int Level) : IComparable<PrivilegeLevel> {
+    /// <summary>The least-privileged mode; applicable to any ISA.</summary>
+    public static readonly PrivilegeLevel User = new(0);
+
+    public int CompareTo(PrivilegeLevel other) => Level.CompareTo(other.Level);
+
+    public static bool operator <(PrivilegeLevel a, PrivilegeLevel b) => a.Level < b.Level;
+    public static bool operator >(PrivilegeLevel a, PrivilegeLevel b) => a.Level > b.Level;
+    public static bool operator <=(PrivilegeLevel a, PrivilegeLevel b) => a.Level <= b.Level;
+    public static bool operator >=(PrivilegeLevel a, PrivilegeLevel b) => a.Level >= b.Level;
+
+    public static explicit operator PrivilegeLevel(int v) => new(v);
+    public static explicit operator PrivilegeLevel(uint v) => new((int)v);
+    public static explicit operator int(PrivilegeLevel p) => p.Level;
+    public static explicit operator uint(PrivilegeLevel p) => (uint)p.Level;
 }

@@ -6,7 +6,7 @@ using RiscV.Registers;
 using RiscV.State;
 
 // VectorRegisters is public on RvArchState; CsrFile constants are public statics.
-// CSR values are read via the public ICsrFile.Read() path.
+// CSR values are read via the public ISystemRegisters.Read() path.
 
 namespace Tests.RiscV;
 
@@ -216,7 +216,7 @@ public class VectorTests {
     }
 
     private static ulong ReadCsr(RvArchState s, uint addr) =>
-        s.Csrs.Read(addr, PrivilegeLevel.Machine);
+        s.SystemRegisters.Read(addr, RvPrivilege.Machine);
 
     private ExecuteResult Exec(uint raw, RvArchState state, ulong pc = 0) {
         ITooth instr = _dec.Decode(pc, raw);

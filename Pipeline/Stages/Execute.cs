@@ -25,9 +25,7 @@ public sealed class ExecuteStage : Gear {
     public bool Squash { get; set; }
 
     // The pipeline controller pushes forwarding providers each tick (oldest-first).
-    public void SetForwardingContext(IReadOnlyList<PipelineResident> providers) {
-        _forwardProviders = providers;
-    }
+    public void SetForwardingContext(IReadOnlyList<PipelineResident> providers) { _forwardProviders = providers; }
 
     public ExecuteStage(
         string name,

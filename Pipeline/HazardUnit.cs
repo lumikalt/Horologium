@@ -68,7 +68,9 @@ public sealed class HazardUnit(bool forwardingEnabled) {
     /// priority). Iterating oldest-to-newest ensures the most-recent result wins.
     /// </param>
     public (ulong rs1, ulong rs2, ulong rs3) Forward(
-        ulong rs1, ulong rs2, ulong rs3,
+        ulong rs1,
+        ulong rs2,
+        ulong rs3,
         IReadOnlyList<int> sources,
         IReadOnlyList<PipelineResident> providers
     ) {

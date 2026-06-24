@@ -1,4 +1,4 @@
-namespace RiscV.Trains.Ooo;
+namespace Pipeline.Ooo;
 
 /// <summary>
 /// Register Alias Table (RAT) paired with a free-physical-register list.

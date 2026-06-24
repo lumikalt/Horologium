@@ -11,7 +11,7 @@ public sealed class Chip8ArchState : IArchState {
     public ulong Pc { get; set; } = 0x200;
     public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
     public IRegisterFile IntegerRegisters => _vRegs;
-    public ICsrFile Csrs => _programRegs;
+    public ISystemRegisters SystemRegisters => _programRegs;
 
     public ushort I {
         get => (ushort)_programRegs.Read((uint)ProgramRegisterFile.I, PrivilegeLevel.User);

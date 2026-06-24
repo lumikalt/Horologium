@@ -30,8 +30,7 @@ public interface IDecoder {
     /// the first word already fetched, without a full decode.
     /// Used by the fetch stage for branch classification and RAS management.
     /// </summary>
-    FetchHint GetFetchHint(ulong pc, uint firstWord) =>
-        new() { InstructionSize = 4, IsBranch = false, IsCall = false, IsReturn = false, };
+    FetchHint GetFetchHint(ulong pc, uint firstWord);
 }
 
 /// <summary>

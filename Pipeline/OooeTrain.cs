@@ -6,9 +6,9 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
-using RiscV.Trains.Ooo;
+using Pipeline.Ooo;
 
-namespace RiscV.Trains;
+namespace Pipeline;
 
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 

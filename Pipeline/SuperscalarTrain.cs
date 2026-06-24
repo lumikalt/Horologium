@@ -7,7 +7,7 @@ using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
 
-namespace RiscV.Trains;
+namespace Pipeline;
 
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 

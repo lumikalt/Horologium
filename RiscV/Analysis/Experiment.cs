@@ -3,7 +3,6 @@ using Orrery.Train;
 using RiscV.Config;
 using RiscV.Memory;
 using Pipeline;
-using RiscV.Trains;
 
 namespace RiscV.Analysis;
 

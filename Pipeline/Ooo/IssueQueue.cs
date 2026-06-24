@@ -1,6 +1,6 @@
 using Mechanism;
 
-namespace RiscV.Trains.Ooo;
+namespace Pipeline.Ooo;
 
 /// <summary>
 /// One entry (reservation station) in the Issue Queue.

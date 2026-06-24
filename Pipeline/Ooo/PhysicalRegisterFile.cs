@@ -1,4 +1,4 @@
-namespace RiscV.Trains.Ooo;
+namespace Pipeline.Ooo;
 
 /// <summary>
 /// Holds speculative register values for OoOE execution.

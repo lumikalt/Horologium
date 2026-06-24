@@ -37,7 +37,7 @@ public sealed class RvTrapController : ITrapController {
         csrs.DirectWrite(CsrFile.Mstatus, mstatus);
 
         // Transition to Machine mode
-        state.PrivilegeLevel = PrivilegeLevel.Machine;
+        state.PrivilegeLevel = RvPrivilege.Machine;
 
         // Compute trap vector
         uint mtvec = csrs.DirectRead(CsrFile.Mtvec);

@@ -269,20 +269,32 @@ internal sealed class PipelineCore : Gear {
 
         // Forwarding providers: oldest-first so the freshest source wins.
         // MEM/WB (index 0, oldest) and EX/MEM (index 1, newest).
-        _ex.SetForwardingContext([
-            new PipelineResident(_mem.LastSent.IsValid, _mem.LastSent.DestinationRegister,
-                default, _mem.LastSent.WritebackValue),
-            new PipelineResident(_ex.LastSent.IsValid, _ex.LastSent.DestinationRegister,
-                default, _ex.LastSent.Result?.RegisterResult),
-        ]);
+        _ex.SetForwardingContext(
+            [
+                new PipelineResident(
+                    _mem.LastSent.IsValid, _mem.LastSent.DestinationRegister,
+                    default(ToothClass), _mem.LastSent.WritebackValue
+                ),
+                new PipelineResident(
+                    _ex.LastSent.IsValid, _ex.LastSent.DestinationRegister,
+                    default(ToothClass), _ex.LastSent.Result?.RegisterResult
+                ),
+            ]
+        );
 
         // Hazard detection: residents newest-first (EX at 0, MEM at 1).
-        bool stall = _hazard.MustStall(IncomingSources(), [
-            new PipelineResident(_id.LastSent.IsValid, _id.LastSent.DestinationRegister,
-                _id.LastSent.Instruction?.Class ?? default, null),
-            new PipelineResident(_ex.LastSent.IsValid, _ex.LastSent.DestinationRegister,
-                _ex.LastSent.Instruction?.Class ?? default, _ex.LastSent.Result?.RegisterResult),
-        ]);
+        bool stall = _hazard.MustStall(
+            IncomingSources(), [
+                new PipelineResident(
+                    _id.LastSent.IsValid, _id.LastSent.DestinationRegister,
+                    _id.LastSent.Instruction?.Class ?? default(ToothClass), null
+                ),
+                new PipelineResident(
+                    _ex.LastSent.IsValid, _ex.LastSent.DestinationRegister,
+                    _ex.LastSent.Instruction?.Class ?? default(ToothClass), _ex.LastSent.Result?.RegisterResult
+                ),
+            ]
+        );
 
         // Reconcile any branch leaving EX with the prediction made at fetch.
         // The predictor is trained on every resolved branch; a flush (and a

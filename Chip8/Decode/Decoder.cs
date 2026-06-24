@@ -5,6 +5,8 @@ namespace Chip8.Decode;
 public class Decoder : IDecoder {
     public int InstructionSize(ulong pc, IMemory memory) => 2;
 
+    public FetchHint GetFetchHint(ulong pc, uint firstWord) => new() { InstructionSize = 2, };
+
     public ITooth Decode(ulong pc, IMemory memory) => Decode(pc, (uint)memory.Read(pc, 2));
 
     public ITooth Decode(ulong pc, uint raw) {

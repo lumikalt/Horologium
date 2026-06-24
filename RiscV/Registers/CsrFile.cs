@@ -7,7 +7,7 @@ namespace RiscV.Registers;
 /// Implements the minimum set required for trap handling.
 /// CSR addresses from the RISC-V Privileged Specification.
 /// </summary>
-public sealed class CsrFile : ICsrFile {
+public sealed class CsrFile : ISystemRegisters {
     // ── CSR addresses ─────────────────────────────────────────────────────────
     // F extension (stub — always reads 0, writes accepted but ignored by hardware model)
     public const uint Fflags = 0x001;
@@ -97,13 +97,13 @@ public sealed class CsrFile : ICsrFile {
         CheckPrivilege(address, currentPrivilege);
         return _csrs.TryGetValue(address, out uint v)
             ? v
-            : throw new CsrAccessException($"CSR 0x{address:X3} does not exist.");
+            : throw new SystemRegisterAccessException($"CSR 0x{address:X3} does not exist.");
     }
 
     public void Write(uint address, ulong value, PrivilegeLevel currentPrivilege) {
         CheckPrivilege(address, currentPrivilege);
         CheckNotReadOnly(address);
-        if (!_csrs.ContainsKey(address)) throw new CsrAccessException($"CSR 0x{address:X3} does not exist.");
+        if (!_csrs.ContainsKey(address)) throw new SystemRegisterAccessException($"CSR 0x{address:X3} does not exist.");
         _csrs[address] = (uint)value;
     }
 
@@ -127,7 +127,7 @@ public sealed class CsrFile : ICsrFile {
         // Bits 9:8 of the CSR address encode the minimum privilege level
         var required = (PrivilegeLevel)((address >> 8) & 0x3);
         if (current < required)
-            throw new CsrAccessException(
+            throw new SystemRegisterAccessException(
                 $"CSR 0x{address:X3} requires privilege {required}, " +
                 $"but current privilege is {current}."
             );
@@ -136,7 +136,7 @@ public sealed class CsrFile : ICsrFile {
     private static void CheckNotReadOnly(uint address) {
         // Bits 11:10 == 11 means read-only
         if (((address >> 10) & 0x3) == 0x3)
-            throw new CsrAccessException(
+            throw new SystemRegisterAccessException(
                 $"CSR 0x{address:X3} is read-only."
             );
     }

@@ -6,7 +6,7 @@ using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
 
-namespace RiscV.Trains;
+namespace Pipeline;
 
 /// <summary>
 /// The simplest possible Train: one Gear that fetches, decodes, executes,

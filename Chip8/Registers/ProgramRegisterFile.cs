@@ -2,7 +2,7 @@ using Mechanism;
 
 namespace Chip8.Registers;
 
-public class ProgramRegisterFile : ICsrFile {
+public class ProgramRegisterFile : ISystemRegisters {
     public const short I = 0x0;
     public const byte DelayTimer = 0x1;
     public const byte SoundTimer = 0x2;

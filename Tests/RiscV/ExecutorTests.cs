@@ -1,4 +1,5 @@
 using Mechanism;
+using RiscV;
 using RiscV.Decode;
 using RiscV.Execute;
 using RiscV.Memory;
@@ -192,7 +193,7 @@ public class ExecutorTests {
         RvArchState s = MakeState();
         ExecuteResult r = Exec(0x00000073, s);
         Assert.True(r.HasTrap);
-        Assert.Equal(TrapCause.EnvironmentCallFromM, r.Trap!.Cause);
+        Assert.Equal(RvTrapCause.EnvironmentCallFromM, r.Trap!.Cause);
     }
 
     [Fact]

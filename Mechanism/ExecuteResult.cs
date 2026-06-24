@@ -63,28 +63,26 @@ public sealed record ExecuteResult {
 
 /// <summary>
 /// Describes a trap (exception or interrupt) raised during execution.
+/// The numeric Cause value is ISA-defined; use ISA-specific constants (e.g. RvTrapCause)
+/// to construct and interpret it.
 /// </summary>
 public sealed record TrapInfo(
-    TrapCause Cause,
+    int Cause,
     ulong TrapValue,
     ulong Pc
 );
 
-/// <summary>The cause of a trap.</summary>
-public enum TrapCause {
-    // Exceptions
-    InstructionAddressMisaligned = 0,
-    InstructionAccessFault = 1,
-    IllegalInstruction = 2,
-    Breakpoint = 3,
-    LoadAddressMisaligned = 4,
-    LoadAccessFault = 5,
-    StoreAddressMisaligned = 6,
-    StoreAccessFault = 7,
-    EnvironmentCallFromU = 8,
-    EnvironmentCallFromS = 9,
-    EnvironmentCallFromM = 11,
-    InstructionPageFault = 12,
-    LoadPageFault = 13,
-    StorePageFault = 15,
+/// <summary>ISA-agnostic trap cause codes. Numeric values match RISC-V mcause by convention.</summary>
+public static class TrapCause {
+    public const int InstructionAddressMisaligned = 0;
+    public const int InstructionAccessFault = 1;
+    public const int IllegalInstruction = 2;
+    public const int Breakpoint = 3;
+    public const int LoadAddressMisaligned = 4;
+    public const int LoadAccessFault = 5;
+    public const int StoreAddressMisaligned = 6;
+    public const int StoreAccessFault = 7;
+    public const int InstructionPageFault = 12;
+    public const int LoadPageFault = 13;
+    public const int StorePageFault = 15;
 }
