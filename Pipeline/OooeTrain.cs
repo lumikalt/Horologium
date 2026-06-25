@@ -446,6 +446,10 @@ internal sealed class OoOPipelineCore : Gear {
             // out-of-order CSR reads from seeing stale state written by earlier CSR ops.
             if (rs.Instruction?.Class == ToothClass.System && rs.RobIndex != _rob.HeadIndex) continue;
 
+            // Vector serialization: vector register renaming is not implemented.
+            // Head-gating ensures VRF writes are applied in program order.
+            if (rs.Instruction?.Class == ToothClass.Vector && rs.RobIndex != _rob.HeadIndex) continue;
+
             _execBuffer.Add(
                 new IssuedInstr(
                     rs.RobIndex, rs.PhysDestination, rs.Instruction!, rs.Pc,
@@ -460,10 +464,17 @@ internal sealed class OoOPipelineCore : Gear {
     private bool HasPrecedingPendingStore(int loadRobIndex) {
         foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
             if (idx == loadRobIndex) return false;
-            // Block if any preceding store is still in the ROB — stores write to
-            // memory only at commit, so a load must not execute until all prior
-            // stores have left the ROB (i.e., committed).
+            // Scalar stores commit-write; block until they leave the ROB.
             if (entry.IsStore) return true;
+            // Vector stores write eagerly at execute time (bypassing CapturingMemory)
+            // but IsStore is false. Block until the vector store executes and commits
+            // so memory is settled before the younger load reads it.
+            // Signature: Vector class, no VRF write (VecDest<0), no int write (Dest<0).
+            ITooth? instr = entry.Instruction;
+            if (instr?.Class == ToothClass.Vector &&
+                instr.VectorDestinationRegister < 0 &&
+                instr.DestinationRegister < 0)
+                return true;
         }
 
         return false;
@@ -622,8 +633,14 @@ internal sealed class OoOPipelineCore : Gear {
         if (s1 >= 0) regs.Write(s1, issued.Src2);
         if (s2 >= 0) regs.Write(s2, issued.Src3);
 
+        // Vector ops are head-serialized (non-speculative) and may write multiple
+        // elements to memory. Pass the real accessor so all element writes land;
+        // CapturingMemory can only capture a single write.
         _capMem.Reset();
-        ExecuteResult er = _executor.Execute(issued.Instr, State, _capMem);
+        bool isVec = issued.Instr.Class == ToothClass.Vector;
+        IMemory mem = isVec ? DLayers.Accessor : _capMem;
+        ExecuteResult er = _executor.Execute(issued.Instr, State, mem);
+        if (isVec) er.SideEffect?.Invoke(State);
 
         // Restore arch state to committed values.
         if (s0 >= 0) regs.Write(s0, save0);

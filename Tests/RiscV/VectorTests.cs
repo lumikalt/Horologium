@@ -1,4 +1,7 @@
 using Mechanism;
+using Orrery.Train;
+using Pipeline;
+using RiscV;
 using RiscV.Decode;
 using RiscV.Execute;
 using RiscV.Memory;
@@ -520,5 +523,130 @@ public class VectorTests {
         byte[] result = s.VectorRegisters.Read(3);
         Assert.Equal(0xC0000000u, BitConverter.ToUInt32(result, 0)); // sign extended
         Assert.Equal(0x3FFFFFFFu, BitConverter.ToUInt32(result, 4));
+    }
+
+    // ── Pipeline-level vector tests ───────────────────────────────────────────
+
+    private static void LoadProg(FlatMemory mem, params uint[] words) {
+        var bytes = new byte[words.Length * 4];
+        for (var i = 0; i < words.Length; i++) {
+            bytes[i * 4 + 0] = (byte)words[i];
+            bytes[i * 4 + 1] = (byte)(words[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(words[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(words[i] >> 24);
+        }
+
+        mem.Load(0, bytes);
+    }
+
+    private static byte[] VRegs(OooeTrain t, int vr) =>
+        ((RvArchState)t.ArchState).VectorRegisters.Read(vr);
+
+    private static byte[] VRegs(FiveStageTrain t, int vr) =>
+        ((RvArchState)t.ArchState).VectorRegisters.Read(vr);
+
+    private static uint Elem32(byte[] v, int i) => BitConverter.ToUInt32(v, i * 4);
+
+    [Fact]
+    public void OoOE_VectorStoreLoad_MultiElement() {
+        // Configure vl=4/e32, load [10,20,30,40] from 0x100, store to 0x200, ebreak.
+        // Validates that all four 32-bit elements survive the OoOE pipeline (not just
+        // the last one — bug: CapturingMemory captured only one element write).
+        var mem = new FlatMemory(0x400);
+        var train = new OooeTrain(new RvMechanism(), mem);
+        mem.Write(0x100, 10, 4);
+        mem.Write(0x104, 20, 4);
+        mem.Write(0x108, 30, 4);
+        mem.Write(0x10C, 40, 4);
+
+        LoadProg(
+            mem,
+            0x10000513,                                  // addi a0, x0, 0x100
+            0x20000593,                                  // addi a1, x0, 0x200
+            Vsetvli(12, 0, VectorTests.VtypeiE32M1Tama), // vsetvli a2, x0, e32m1ta
+            Vle(1, 10, 6),                               // vle32.v v1, (a0)
+            Vse(1, 11, 6),                               // vse32.v v1, (a1)
+            0x00100073                                   // ebreak
+        );
+        train.Run();
+
+        Assert.Equal(10UL, mem.Read(0x200, 4));
+        Assert.Equal(20UL, mem.Read(0x204, 4));
+        Assert.Equal(30UL, mem.Read(0x208, 4));
+        Assert.Equal(40UL, mem.Read(0x20C, 4));
+    }
+
+    [Fact]
+    public void OoOE_ChainedVectorAdd_Correct() {
+        // vadd.vi v1, v1, 3 then vadd.vi v1, v1, 5 → each element should be 8.
+        // Head-serialization in OoOE ensures the second vadd sees v1 already updated.
+        var mem = new FlatMemory(0x200);
+        var train = new OooeTrain(new RvMechanism(), mem);
+
+        LoadProg(
+            mem,
+            Vsetvli(10, 0, VectorTests.VtypeiE32M1Tama), // vsetvli a0, x0, e32m1ta
+            VopVi(0, 1, 1, 3),                           // vadd.vi v1, v1, 3
+            VopVi(0, 1, 1, 5),                           // vadd.vi v1, v1, 5  (reads v1)
+            0x00100073                                   // ebreak
+        );
+        train.Run();
+
+        byte[] v1 = VRegs(train, 1);
+        Assert.Equal(8u, Elem32(v1, 0));
+        Assert.Equal(8u, Elem32(v1, 1));
+        Assert.Equal(8u, Elem32(v1, 2));
+        Assert.Equal(8u, Elem32(v1, 3));
+    }
+
+    [Fact]
+    public void FiveStage_VectorRawHazard_Stalls() {
+        // vadd.vi v1, v1, 3 followed immediately by vadd.vi v2, v1, 5.
+        // The hazard unit stalls the second vadd until v1 is written in WB.
+        // Without the stall, the second vadd reads the unwritten v1 (all-zeros).
+        var mem = new FlatMemory(0x200);
+        var train = new FiveStageTrain(new RvMechanism(), mem);
+
+        LoadProg(
+            mem,
+            Vsetvli(10, 0, VectorTests.VtypeiE32M1Tama), // vsetvli a0, x0, e32m1ta
+            VopVi(0, 1, 1, 3),                           // vadd.vi v1, v1, 3   (writes v1)
+            VopVi(0, 2, 1, 5),                           // vadd.vi v2, v1, 5   (reads v1 → RAW)
+            0x00100073                                   // ebreak
+        );
+        train.Run();
+
+        // v1 starts all-zeros → +3 = 3; v2 = v1 + 5 = 8.
+        byte[] v2 = VRegs(train, 2);
+        Assert.Equal(8u, Elem32(v2, 0));
+        Assert.Equal(8u, Elem32(v2, 1));
+        Assert.Equal(8u, Elem32(v2, 2));
+        Assert.Equal(8u, Elem32(v2, 3));
+    }
+
+    [Fact]
+    public void OoOE_VectorStore_BlocksYoungerScalarLoad() {
+        // vse32.v v1, (a1) followed by lw x5, 0(a1). The scalar load must not
+        // issue until the vector store has executed and committed its write.
+        // Without the fix, HasPrecedingPendingStore misses vector stores (IsStore=false)
+        // and the load can race past, reading stale memory (0 instead of 42).
+        var mem = new FlatMemory(0x400);
+        var train = new OooeTrain(new RvMechanism(), mem);
+        mem.Write(0x100, 42, 4);
+
+        LoadProg(
+            mem,
+            0x10000513,                                  // addi a0, x0, 0x100
+            0x20000593,                                  // addi a1, x0, 0x200
+            Vsetvli(12, 0, VectorTests.VtypeiE32M1Tama), // vsetvli a2, x0, e32m1ta
+            Vle(1, 10, 6),                               // vle32.v v1, (a0)   → v1[0]=42
+            Vse(1, 11, 6),                               // vse32.v v1, (a1)   → mem[0x200]=42
+            0x0005A283,                                  // lw x5, 0(a1)       → x5 must = 42
+            0x00100073                                   // ebreak
+        );
+        train.Run();
+
+        ulong x5 = ((RvArchState)train.ArchState).IntegerRegisters.Read(5);
+        Assert.Equal(42UL, x5);
     }
 }

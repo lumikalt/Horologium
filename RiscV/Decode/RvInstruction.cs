@@ -25,6 +25,30 @@ public sealed class RvInstruction(
     public ToothClass Class { get; } = cls;
     public object? Payload { get; } = payload;
 
+    public int VectorDestinationRegister => Payload switch {
+        RvVIntAluVv op  => op.Vd,
+        RvVIntAluVx op  => op.Vd,
+        RvVIntAluVi op  => op.Vd,
+        RvVMaskCmpVv op => op.Vd,
+        RvVMaskCmpVx op => op.Vd,
+        RvVMaskCmpVi op => op.Vd,
+        RvVleVv op      => op.Vd,
+        RvVlm op        => op.Vd,
+        _               => -1,
+    };
+
+    public IReadOnlyList<int> VectorSourceRegisters => Payload switch {
+        RvVIntAluVv op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
+        RvVIntAluVx op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVIntAluVi op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVMaskCmpVv op => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
+        RvVMaskCmpVx op => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVMaskCmpVi op => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVseVv op      => op.Masked ? [op.Vs3, 0,] : [op.Vs3,],
+        RvVsm op        => [op.Vs3,],
+        _               => [],
+    };
+
     public override string ToString() =>
         $"[0x{Pc:X8}] {Payload?.GetType().Name ?? "?"} raw=0x{RawEncoding:X8}";
 }

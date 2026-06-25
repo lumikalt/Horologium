@@ -296,7 +296,15 @@ internal sealed class PipelineCore : Gear {
             exMemLast.IsValid, exMemLast.DestinationRegister, exMemLast.Instruction?.Class ?? default(ToothClass),
             exMemLast.Result is { } hzR && hzR.RegisterResult.HasValue ? hzR.RegisterResult.Value : null
         );
-        bool stall = _hazard.MustStall(IncomingSources(ifIdLast), _hazardResidents);
+        ITooth? incoming = TryDecode(ifIdLast);
+        bool stall = _hazard.MustStall(incoming?.SourceRegisters ?? [], _hazardResidents);
+
+        // Vector RAW hazard: VRF writes complete via SideEffect in WB with no
+        // forwarding path. Stall while any in-flight instruction writes a vector
+        // register read by the incoming instruction.
+        if (!stall && incoming != null)
+            stall = VectorRawHazard(incoming, idExLast.Instruction)
+                 || VectorRawHazard(incoming, exMemLast.Instruction);
 
         // Reconcile any branch leaving EX with the prediction made at fetch.
         // The predictor is trained on every resolved branch; a flush (and a
@@ -414,9 +422,17 @@ internal sealed class PipelineCore : Gear {
     // Source registers of the instruction IF produced last cycle — the one
     // Decode will read this cycle. Decoding is side-effect free, so the
     // controller can peek without disturbing the pipeline.
-    private IReadOnlyList<int> IncomingSources(IfIdLatch incoming) {
-        if (!incoming.IsValid) return [];
-        try { return _decoder.Decode(incoming.Pc, incoming.RawEncoding).SourceRegisters; }
-        catch (IllegalInstructionException) { return []; }
+    private ITooth? TryDecode(IfIdLatch latch) {
+        if (!latch.IsValid) return null;
+        try { return _decoder.Decode(latch.Pc, latch.RawEncoding); }
+        catch (IllegalInstructionException) { return null; }
+    }
+
+    // Returns true when the in-flight producer writes a vector register read by consumer.
+    private static bool VectorRawHazard(ITooth? consumer, ITooth? producer) {
+        if (producer is null || consumer is null) return false;
+        int vd = producer.VectorDestinationRegister;
+        if (vd < 0) return false;
+        return consumer.VectorSourceRegisters.Contains(vd);
     }
 }

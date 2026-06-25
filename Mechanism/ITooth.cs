@@ -37,6 +37,18 @@ public interface ITooth {
     /// The pipeline never inspects this field.
     /// </summary>
     object? Payload { get; }
+
+    /// <summary>
+    /// The vector destination register index, or -1 if this instruction does
+    /// not write a vector register. Non-vector instructions return -1.
+    /// </summary>
+    int VectorDestinationRegister => -1;
+
+    /// <summary>
+    /// The vector source register indices read by this instruction.
+    /// Non-vector instructions return an empty list.
+    /// </summary>
+    IReadOnlyList<int> VectorSourceRegisters => [];
 }
 
 /// <summary>
