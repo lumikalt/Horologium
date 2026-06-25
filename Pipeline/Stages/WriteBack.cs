@@ -71,5 +71,13 @@ public sealed class WritebackStage : Gear {
         Type? instrType = latch.Instruction.Payload?.GetType();
         if (instrType is not null) OpcodeHistogram?.Observe(instrType);
         RetiredCount++;
+
+        // Check for pending interrupts after a normal retire (not if trap/MRET/SRET already redirected).
+        if (!TrapRedirect.HasValue) {
+            // Update state.Pc to the committed next PC so mepc is correct.
+            _state.Pc = latch.NextPc;
+            TrapInfo? interrupt = _trap.PeekInterrupt(_state);
+            if (interrupt is not null) TrapRedirect = (_trap.RaiseTrap(interrupt, _state), true);
+        }
     }
 }

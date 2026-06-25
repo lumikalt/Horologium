@@ -5,7 +5,8 @@
 - [ ] L2 and L3 caches.
 - [ ] Assembler to simulate RISC-V in-place.
 - [ ] Cache and virtual addressing visualization.
-- [ ] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)
+- [ ] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
+  instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)
 
 ## CHIP8
 
@@ -17,18 +18,27 @@
 
 ### Extensions
 
-- [ ] Continue extending the V extension: strided/indexed loads-stores (VLSE, VSSE, VLUXEI, VSUXEI), reduction ops (vredsum, vredmax, …), widening/narrowing integer ops, integer multiply/divide (vmul, vmulh, vdiv), FP vector ops (vfadd, vfmul, vfmacc, …), slide and gather/scatter.
-- [ ] B extension: Zba (address generation), Zbb (basic bit manipulation), Zbc (carry-less multiplication), Zbs (single-bit ops).
+- [ ] Continue extending the V extension: strided/indexed loads-stores (VLSE, VSSE, VLUXEI, VSUXEI), reduction ops (
+  vredsum, vredmax, …), widening/narrowing integer ops, integer multiply/divide (vmul, vmulh, vdiv), FP vector ops (
+  vfadd, vfmul, vfmacc, …), slide and gather/scatter.
+- [ ] B extension: Zba (address generation), Zbb (basic bit manipulation), Zbc (carry-less multiplication), Zbs (
+  single-bit ops).
 - [ ] Zicond (conditional zero/nonzero move).
-- [x] Supervisor and user-privileged execution: trap delegation via `medeleg`, MRET/SRET privilege guards, S-mode CSRs in state snapshot.
-- [ ] UVE (Unlimited Vector Extension)
+- [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
+- [ ] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
+- [ ] UVE (Unlimited Vector Extension).
 
 ### Analysis
 
-- [ ] Per-instruction lifecycle events (PEvents): structured FETCH/DISPATCH/ISSUE/EXECUTE/RETIRE/FLUSH records with instruction ID and cycle number, enabling post-hoc filtering, phase analysis, and RTL correlation. (inspired by Olympia/Sparta)
-- [ ] Region-of-interest simulation: run full timing model only between named ELF symbols or address ranges; fast-forward the rest with the single-cycle train.
-- [ ] Simulation state checkpoint/restore: serialize registers, memory, and cache mid-run; resume the same saved state against a different hardware configuration.
-- [ ] Elastic trace recording + replay: capture a RAW-dependency-annotated instruction trace from an OoOE run and replay it against alternate memory hierarchies without re-simulating the core. (inspired by gem5 TraceCPU)
+- [ ] Per-instruction lifecycle events (PEvents): structured FETCH/DISPATCH/ISSUE/EXECUTE/RETIRE/FLUSH records with
+  instruction ID and cycle number, enabling post-hoc filtering, phase analysis, and RTL correlation. (inspired by
+  Olympia/Sparta)
+- [ ] Region-of-interest simulation: run full timing model only between named ELF symbols or address ranges;
+  fast-forward the rest with the single-cycle train.
+- [ ] Simulation state checkpoint/restore: serialize registers, memory, and cache mid-run; resume the same saved state
+  against a different hardware configuration.
+- [ ] Elastic trace recording + replay: capture a RAW-dependency-annotated instruction trace from an OoOE run and replay
+  it against alternate memory hierarchies without re-simulating the core. (inspired by gem5 TraceCPU)
 - [ ] STF (Simulation Trace Format) output for trace interop with external RISC-V tools (spike, dromajo).
 
 ## Performance
@@ -44,14 +54,19 @@
 ## Mechanism
 
 - [ ] Generic interfaces for external devices.
-  - [ ] Basic UART/MIMO?
-- [ ] Cache pre-fetching: next-line, stride (RPT), and stream prefetchers as pluggable `IPrefetcher` implementations on `SetAssociativeCache`.
-- [ ] Non-blocking cache with MSHR (Miss Status Holding Registers) to allow hits-under-misses and reduce cache-miss stall depth. (inspired by gem5)
+    - [ ] Basic UART/MIMO?
+- [ ] Cache pre-fetching: next-line, stride (RPT), and stream prefetchers as pluggable `IPrefetcher` implementations on
+  `SetAssociativeCache`.
+- [ ] Non-blocking cache with MSHR (Miss Status Holding Registers) to allow hits-under-misses and reduce cache-miss
+  stall depth. (inspired by gem5)
 
 ### Out-of-Order Execution
 
-- [x] Functional-unit classes with configurable count and per-class latency (integer ALU, multiplier/divider, FP pipelined, FP div/sqrt, load-store); result latency drives IQ wakeup via countdown-based in-flight buffer.
-- [x] Memory order violation detection and squash: detect when a speculative load read stale data because an older store to the same address resolved after it; flush and re-execute from the violating load; store-to-load forwarding at execute time avoids squash when the store has already resolved. (inspired by gem5 O3)
+- [x] Functional-unit classes with configurable count and per-class latency (integer ALU, multiplier/divider, FP
+  pipelined, FP div/sqrt, load-store); result latency drives IQ wakeup via countdown-based in-flight buffer.
+- [x] Memory order violation detection and squash: detect when a speculative load read stale data because an older store
+  to the same address resolved after it; flush and re-execute from the violating load; store-to-load forwarding at
+  execute time avoids squash when the store has already resolved. (inspired by gem5 O3)
 - [ ] Separate load queue and store queue for speculative memory disambiguation.
 - [ ] Streaming-Engine to allow for UVE.
 
@@ -67,7 +82,7 @@
 ## Multi-core
 
 - [ ] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.
-  - [ ] MESI cache coherence protocol between harts.
+    - [ ] MESI cache coherence protocol between harts.
 
 ## Other ISAs
 

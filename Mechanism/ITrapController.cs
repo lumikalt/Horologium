@@ -21,4 +21,11 @@ public interface ITrapController {
     /// </summary>
     /// <returns>The PC the pipeline should redirect to.</returns>
     ulong ReturnFromTrap(PrivilegeLevel returningFrom, IArchState state);
+
+    /// <summary>
+    /// Returns the highest-priority pending interrupt as a TrapInfo ready for RaiseTrap,
+    /// or null if no interrupt is pending and enabled for the current privilege/IE state.
+    /// ISAs without interrupt support return null from the default implementation.
+    /// </summary>
+    TrapInfo? PeekInterrupt(IArchState state) => null;
 }

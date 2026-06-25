@@ -228,6 +228,12 @@ internal sealed class SingleCycleCore(
         // Detect halt: infinite self-loop (JAL x0, 0 — common halt idiom)
         if (ArchState.Pc == pc && instr.Class == ToothClass.Branch) return;
 
+        // Check for pending interrupts after every normal retire (not after trap/MRET/SRET).
+        if (!result.HasTrap && !result.IsReturnFromTrap) {
+            TrapInfo? interrupt = mechanism.TrapController.PeekInterrupt(ArchState);
+            if (interrupt is not null) ArchState.Pc = mechanism.TrapController.RaiseTrap(interrupt, ArchState);
+        }
+
         ScheduleNextInstruction();
     }
 

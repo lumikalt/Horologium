@@ -3,6 +3,7 @@ using RiscV;
 using RiscV.Decode;
 using RiscV.Execute;
 using RiscV.Memory;
+using RiscV.Registers;
 using RiscV.State;
 
 namespace Tests.RiscV;
@@ -881,6 +882,133 @@ public class ExecutorTests {
         RvArchState s = MakeState();
         s.PrivilegeLevel = RvPrivilege.User;
         ExecuteResult r = Exec(0x10200073, s); // sret
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap.Cause);
+    }
+
+    // ── Sv32 address translation ───────────────────────────────────────────────
+
+    // Builds a 64KB flat memory with a two-level Sv32 page table:
+    //   Root PT (PPN=1) at PA 0x1000 — entry 0 points to level-1 PT (PPN=2) at PA 0x2000
+    //   Level-1 PT (PPN=2) at PA 0x2000 — entries 0-7 each map to PA (PPN+3)*0x1000
+    //   satp = 0x80000001 (MODE=1, PPN=1)
+    // Returns (mem, satp). The caller writes PTEs for individual VPN[0] entries.
+    private static (FlatMemory mem, uint satp) BuildSv32Memory() {
+        var mem = new FlatMemory(0x10000);
+        // Root PT entry 0: pointer to level-1 PT at PA 0x2000 (PPN=2), V=1
+        mem.Write(0x1000UL, 0x801u, 4); // (2<<10)|1
+        return (mem, 0x80000001u);
+    }
+
+    // PTE for a read-write user page at the given PPN, with A and D bits set.
+    private static uint UserRwPte(uint ppn) => (ppn << 10) | 0b1101_0111u; // D|A|U|W|R|V = 0xD7
+
+    [Fact]
+    public void Execute_Load_BareMode_NoTranslation() {
+        // satp = 0 (MODE=0) — VA is used directly as PA; existing memory semantics unchanged
+        var mem = new FlatMemory(4096);
+        mem.Write(100UL, 0xDEADBEEFu, 4);
+        RvArchState s = MakeState((1, 100u));
+        s.PrivilegeLevel = RvPrivilege.User;
+        // satp defaults to 0 in a freshly-constructed RvArchState
+        ITooth instr = _dec.Decode(0, 0x0000A183); // lw x3, 0(x1)
+        ExecuteResult r = _exe.Execute(instr, s, mem);
+        Assert.Null(r.Trap);
+        Assert.Equal(0xDEADBEEFUL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_Load_Sv32_ValidUserMapping_TranslatesAddress() {
+        // VA 0x00003000 → VPN[1]=0, VPN[0]=3, offset=0 → PA 0x3000
+        var (mem, satp) = BuildSv32Memory();
+        mem.Write(0x200CUL, UserRwPte(3), 4); // level-1 PT entry 3 → PA 0x3000
+        mem.Write(0x3000UL, 0xBEEFCAFEu, 4);
+        RvArchState s = MakeState((1, 0x00003000u));
+        s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
+        s.PrivilegeLevel = RvPrivilege.User;
+        ITooth instr = _dec.Decode(0, 0x0000A183); // lw x3, 0(x1)
+        ExecuteResult r = _exe.Execute(instr, s, mem);
+        Assert.Null(r.Trap);
+        Assert.Equal(0xBEEFCAFEUL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_Load_Sv32_InvalidPte_RaisesLoadPageFault() {
+        // Level-1 PTE for VPN[0]=4 is zero (V=0) — page not present
+        var (mem, satp) = BuildSv32Memory();
+        // PTE at 0x2010 left as 0 (default FlatMemory)
+        RvArchState s = MakeState((1, 0x00004000u)); // VA → VPN[0]=4
+        s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
+        s.PrivilegeLevel = RvPrivilege.User;
+        ITooth instr = _dec.Decode(0, 0x0000A183); // lw x3, 0(x1)
+        ExecuteResult r = _exe.Execute(instr, s, mem);
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.LoadPageFault, r.Trap.Cause);
+        Assert.Equal(0x00004000UL, r.Trap.TrapValue); // tval = faulting VA
+    }
+
+    [Fact]
+    public void Execute_Store_Sv32_WriteProtected_RaisesStorePageFault() {
+        // PTE has R=1, V=1, U=1, A=1 but W=0 — read-only page
+        var (mem, satp) = BuildSv32Memory();
+        uint roPage = (5u << 10) | 0b0101_0011u; // A|U|R|V, no W, no D
+        mem.Write(0x2014UL, roPage, 4);           // level-1 PT entry 5 → PA 0x5000
+        RvArchState s = MakeState((1, 0x00005000u), (2, 0xABCDu));
+        s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
+        s.PrivilegeLevel = RvPrivilege.User;
+        ITooth instr = _dec.Decode(0, 0x0020A023); // sw x2, 0(x1)
+        ExecuteResult r = _exe.Execute(instr, s, mem);
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.StorePageFault, r.Trap.Cause);
+        Assert.Equal(0x00005000UL, r.Trap.TrapValue);
+    }
+
+    [Fact]
+    public void Execute_Load_Sv32_AccessBitClear_RaisesLoadPageFault() {
+        // PTE is otherwise valid but A=0 (fault-on-access model)
+        var (mem, satp) = BuildSv32Memory();
+        uint noABit = (6u << 10) | 0b0001_0111u; // U|W|R|V, no A, no D
+        mem.Write(0x2018UL, noABit, 4);           // level-1 PT entry 6
+        RvArchState s = MakeState((1, 0x00006000u));
+        s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
+        s.PrivilegeLevel = RvPrivilege.User;
+        ITooth instr = _dec.Decode(0, 0x0000A183); // lw x3, 0(x1)
+        ExecuteResult r = _exe.Execute(instr, s, mem);
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.LoadPageFault, r.Trap.Cause);
+    }
+
+    [Fact]
+    public void Execute_Load_Sv32_KernelPage_UserAccess_RaisesLoadPageFault() {
+        // PTE has U=0 (kernel page); U-mode access must fault
+        var (mem, satp) = BuildSv32Memory();
+        uint kernelPage = (7u << 10) | 0b1100_0011u; // D|A|R|V, no U, no W
+        mem.Write(0x201CUL, kernelPage, 4);           // level-1 PT entry 7
+        RvArchState s = MakeState((1, 0x00007000u));
+        s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
+        s.PrivilegeLevel = RvPrivilege.User;
+        ITooth instr = _dec.Decode(0, 0x0000A183); // lw x3, 0(x1)
+        ExecuteResult r = _exe.Execute(instr, s, mem);
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.LoadPageFault, r.Trap.Cause);
+    }
+
+    [Fact]
+    public void Execute_CsrRead_InsufficientPrivilege_RaisesIllegalInstruction() {
+        // csrrs x10, mstatus, x0 (0x30002573) — U-mode cannot read M-mode CSR 0x300
+        RvArchState s = MakeState();
+        s.PrivilegeLevel = RvPrivilege.User;
+        ExecuteResult r = Exec(0x30002573, s);
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap.Cause);
+    }
+
+    [Fact]
+    public void Execute_CsrWrite_ReadOnlyCsr_RaisesIllegalInstruction() {
+        // csrrw x0, cycle, x1 (0xC0009073) — cycle (0xC00) is a read-only CSR
+        RvArchState s = MakeState((1, 42));
+        s.PrivilegeLevel = RvPrivilege.Machine;
+        ExecuteResult r = Exec(0xC0009073, s);
         Assert.NotNull(r.Trap);
         Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap.Cause);
     }

@@ -10,7 +10,7 @@ public class TrapControllerTests {
     private readonly RvTrapController _tc = new();
 
     private static RvArchState MakeState(PrivilegeLevel priv, ulong pc = 0x1000) {
-        var s = new RvArchState { Pc = pc };
+        var s = new RvArchState { Pc = pc, };
         s.PrivilegeLevel = priv;
         return s;
     }
@@ -98,5 +98,96 @@ public class TrapControllerTests {
         Assert.Equal(RvPrivilege.Machine, s.PrivilegeLevel);
         Assert.Equal(0x1000uL, Csr(s, CsrFile.Mepc));
         Assert.Equal(0uL, Csr(s, CsrFile.Sepc));
+    }
+
+    // ── Interrupt dispatch: PeekInterrupt ──────────────────────────────────────
+
+    [Fact]
+    public void PeekInterrupt_NoPendingInterrupts_ReturnsNull() {
+        RvArchState s = MakeState(RvPrivilege.Machine, 0x2000);
+        SetCsr(s, CsrFile.Mstatus, CsrFile.MstatusMie); // MIE=1
+        // mip = 0, mie = 0 → nothing pending
+        Assert.Null(_tc.PeekInterrupt(s));
+    }
+
+    [Fact]
+    public void PeekInterrupt_MachineTimerPending_MIE_Set_ReturnsMtiCause() {
+        RvArchState s = MakeState(RvPrivilege.Machine, 0x3000);
+        SetCsr(s, CsrFile.Mstatus, CsrFile.MstatusMie); // MIE=1
+        SetCsr(s, CsrFile.Mip, 1u << 7);                // MTI pending
+        SetCsr(s, CsrFile.Mie, 1u << 7);                // MTI enabled
+
+        TrapInfo? trap = _tc.PeekInterrupt(s);
+        Assert.NotNull(trap);
+        Assert.Equal(RvTrapCause.MachineTimerInterrupt, trap.Cause);
+    }
+
+    [Fact]
+    public void PeekInterrupt_MIE_Clear_InMMode_ReturnsNull() {
+        // MIE=0 in M-mode → no interrupt delivery
+        RvArchState s = MakeState(RvPrivilege.Machine, 0x4000);
+        SetCsr(s, CsrFile.Mip, 1u << 11); // MEI pending
+        SetCsr(s, CsrFile.Mie, 1u << 11); // MEI enabled
+        // mstatus.MIE defaults to 0
+
+        Assert.Null(_tc.PeekInterrupt(s));
+    }
+
+    [Fact]
+    public void PeekInterrupt_UMode_FiresEvenIfMIE_Clear() {
+        // Below M-mode → M-mode interrupts fire regardless of MIE bit
+        RvArchState s = MakeState(RvPrivilege.User, 0x5000);
+        SetCsr(s, CsrFile.Mip, 1u << 11); // MEI pending
+        SetCsr(s, CsrFile.Mie, 1u << 11); // MEI enabled
+        // mstatus.MIE = 0, but current privilege < M-mode
+
+        TrapInfo? trap = _tc.PeekInterrupt(s);
+        Assert.NotNull(trap);
+        Assert.Equal(RvTrapCause.MachineExternalInterrupt, trap.Cause);
+    }
+
+    [Fact]
+    public void PeekInterrupt_MEI_HigherPriorityThan_MTI() {
+        RvArchState s = MakeState(RvPrivilege.Machine, 0x6000);
+        SetCsr(s, CsrFile.Mstatus, CsrFile.MstatusMie);
+        SetCsr(s, CsrFile.Mip, (1u << 11) | (1u << 7)); // MEI + MTI both pending
+        SetCsr(s, CsrFile.Mie, (1u << 11) | (1u << 7)); // both enabled
+
+        TrapInfo? trap = _tc.PeekInterrupt(s);
+        Assert.NotNull(trap);
+        Assert.Equal(RvTrapCause.MachineExternalInterrupt, trap.Cause); // MEI wins
+    }
+
+    [Fact]
+    public void PeekInterrupt_DelegatedToSMode_SIESet_ReturnsInterrupt() {
+        // MTI delegated to S-mode; S-mode with SIE=1 should receive it
+        RvArchState s = MakeState(RvPrivilege.Supervisor, 0x7000);
+        SetCsr(s, CsrFile.Mip, 1u << 7);                       // MTI pending
+        SetCsr(s, CsrFile.Mie, 1u << 7);                       // MTI enabled
+        SetCsr(s, CsrFile.Mideleg, 1u << 7);                   // delegated to S-mode
+        SetCsr(s, CsrFile.Sstatus, CsrFile.SstatusSie);        // SIE=1
+
+        TrapInfo? trap = _tc.PeekInterrupt(s);
+        Assert.NotNull(trap);
+        Assert.Equal(RvTrapCause.MachineTimerInterrupt, trap.Cause);
+    }
+
+    [Fact]
+    public void RaiseTrap_Interrupt_UsesMidelegNotMedeleg() {
+        // An interrupt cause should be routed via mideleg, not medeleg.
+        // mideleg bit 7 set → MTI goes to S-mode.
+        // medeleg bit 7 not set (shouldn't matter for interrupts).
+        RvArchState s = MakeState(RvPrivilege.User, 0x8000);
+        SetCsr(s, CsrFile.Mideleg, 1u << 7);  // delegate MTI to S-mode
+        SetCsr(s, CsrFile.Stvec, 0xC000);
+
+        ulong vec = _tc.RaiseTrap(new TrapInfo(RvTrapCause.MachineTimerInterrupt, 0, 0x8000), s);
+
+        Assert.Equal(RvPrivilege.Supervisor, s.PrivilegeLevel);
+        Assert.Equal(0xC000uL, vec);
+        Assert.Equal(0x8000uL, Csr(s, CsrFile.Sepc));
+        Assert.Equal(unchecked((uint)RvTrapCause.MachineTimerInterrupt), Csr(s, CsrFile.Scause));
+        // mcause/mepc must not be touched
+        Assert.Equal(0uL, Csr(s, CsrFile.Mcause));
     }
 }

@@ -1,5 +1,6 @@
 using Mechanism;
 using RiscV.Decode;
+using RiscV.Memory;
 using RiscV.Registers;
 using RiscV.State;
 
@@ -65,33 +66,33 @@ public sealed class RvExecutor : IExecutor {
 
             // ── Loads ─────────────────────────────────────────────────────────
             RvLb (_, var rs1, var imm) => Load(
-                memory,
+                memory, state, pc,
                 regs.Read(rs1), imm, 1, true, 8
             ),
             RvLh (_, var rs1, var imm) => Load(
-                memory,
+                memory, state, pc,
                 regs.Read(rs1), imm, 2, true, 16
             ),
             RvLw (_, var rs1, var imm) => Load(
-                memory,
+                memory, state, pc,
                 regs.Read(rs1), imm, 4, false, 32
             ),
             RvLbu (_, var rs1, var imm) => Load(
-                memory,
+                memory, state, pc,
                 regs.Read(rs1), imm, 1, false, 8
             ),
             RvLhu (_, var rs1, var imm) => Load(
-                memory,
+                memory, state, pc,
                 regs.Read(rs1), imm, 2, false, 16
             ),
 
             // ── Stores ────────────────────────────────────────────────────────
             RvSb (var rs1, var rs2, var imm) =>
-                Store(memory, regs.Read(rs1), imm, regs.Read(rs2), 1),
+                Store(memory, state, pc, regs.Read(rs1), imm, regs.Read(rs2), 1),
             RvSh (var rs1, var rs2, var imm) =>
-                Store(memory, regs.Read(rs1), imm, regs.Read(rs2), 2),
+                Store(memory, state, pc, regs.Read(rs1), imm, regs.Read(rs2), 2),
             RvSw (var rs1, var rs2, var imm) =>
-                Store(memory, regs.Read(rs1), imm, regs.Read(rs2), 4),
+                Store(memory, state, pc, regs.Read(rs1), imm, regs.Read(rs2), 4),
 
             // ── Branches ──────────────────────────────────────────────────────
             RvBeq (var rs1, var rs2, var imm) =>
@@ -179,31 +180,31 @@ public sealed class RvExecutor : IExecutor {
 
             // ── An extension (single-core: SC always succeeds, no reservation needed) ──
             RvLrW(_, var rs1) =>
-                Load(memory, regs.Read(rs1), 0, 4, false, 32),
+                Load(memory, state, pc, regs.Read(rs1), 0, 4, false, 32),
 
-            RvScW(_, var rs1, var rs2) => AmoSc(memory, regs, rs1, rs2),
+            RvScW(_, var rs1, var rs2) => AmoSc(memory, state, pc, regs, rs1, rs2),
 
-            RvAmoswapW(_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (_, v) => v),
-            RvAmoaddW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a + v),
-            RvAmoxorW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a ^ v),
-            RvAmoandW (_, var rs1, var rs2) => Amo(memory, regs, rs1, rs2, (a, v) => a & v),
-            RvAmoorW (_, var rs1, var rs2)  => Amo(memory, regs, rs1, rs2, (a, v) => a | v),
+            RvAmoswapW(_, var rs1, var rs2) => Amo(memory, state, pc, regs, rs1, rs2, (_, v) => v),
+            RvAmoaddW (_, var rs1, var rs2) => Amo(memory, state, pc, regs, rs1, rs2, (a, v) => a + v),
+            RvAmoxorW (_, var rs1, var rs2) => Amo(memory, state, pc, regs, rs1, rs2, (a, v) => a ^ v),
+            RvAmoandW (_, var rs1, var rs2) => Amo(memory, state, pc, regs, rs1, rs2, (a, v) => a & v),
+            RvAmoorW (_, var rs1, var rs2)  => Amo(memory, state, pc, regs, rs1, rs2, (a, v) => a | v),
             RvAmominW (_, var rs1, var rs2) =>
-                Amo(memory, regs, rs1, rs2, (a, v) => (uint)Math.Min((int)a, (int)v)),
+                Amo(memory, state, pc, regs, rs1, rs2, (a, v) => (uint)Math.Min((int)a, (int)v)),
             RvAmomaxW (_, var rs1, var rs2) =>
-                Amo(memory, regs, rs1, rs2, (a, v) => (uint)Math.Max((int)a, (int)v)),
+                Amo(memory, state, pc, regs, rs1, rs2, (a, v) => (uint)Math.Max((int)a, (int)v)),
             RvAmominuW(_, var rs1, var rs2) =>
-                Amo(memory, regs, rs1, rs2, Math.Min),
+                Amo(memory, state, pc, regs, rs1, rs2, Math.Min),
             RvAmomaxuW(_, var rs1, var rs2) =>
-                Amo(memory, regs, rs1, rs2, Math.Max),
+                Amo(memory, state, pc, regs, rs1, rs2, Math.Max),
 
             // ── F extension ───────────────────────────────────────────────────
             // FLW: address computed from int rs1; result is raw bits stored in fp rd.
-            RvFlw(_, var rs1, var imm) => Load(memory, regs.Read(rs1), imm, 4, false, 32),
+            RvFlw(_, var rs1, var imm) => Load(memory, state, pc, regs.Read(rs1), imm, 4, false, 32),
 
             // FSW: rs1 = int base address, rs2 = fp data register (unified index).
             RvFsw(var rs1, var rs2, var imm) =>
-                Store(memory, regs.Read(rs1), imm, regs.Read(rs2), 4),
+                Store(memory, state, pc, regs.Read(rs1), imm, regs.Read(rs2), 4),
 
             RvFaddS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) + FBits(regs, rs2)),
             RvFsubS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) - FBits(regs, rs2)),
@@ -252,30 +253,30 @@ public sealed class RvExecutor : IExecutor {
                 FloatReg(MathF.FusedMultiplyAdd(-FBits(regs, rs1), FBits(regs, rs2), -FBits(regs, rs3))),
 
             RvCsrrw (_, var rs1, var csr) => ExecuteCsr(
-                state, rs1, csr,
+                state, rs1, csr, pc,
                 (_, src) => src
             ),
             RvCsrrs (_, var rs1, var csr) => ExecuteCsr(
-                state, rs1, csr,
+                state, rs1, csr, pc,
                 (old, src) => old | src,
                 false
             ),
             RvCsrrc (_, var rs1, var csr) => ExecuteCsr(
-                state, rs1, csr,
+                state, rs1, csr, pc,
                 (old, src) => old & ~src,
                 false
             ),
             RvCsrrwi (_, var zimm, var csr) => ExecuteCsrImm(
-                state, zimm, csr,
+                state, zimm, csr, pc,
                 (_, src) => src
             ),
             RvCsrrsi (_, var zimm, var csr) => ExecuteCsrImm(
-                state, zimm, csr,
+                state, zimm, csr, pc,
                 (old, src) => old | src,
                 false
             ),
             RvCsrrci (_, var zimm, var csr) => ExecuteCsrImm(
-                state, zimm, csr,
+                state, zimm, csr, pc,
                 (old, src) => old & ~src,
                 false
             ),
@@ -372,48 +373,71 @@ public sealed class RvExecutor : IExecutor {
     // Atomic read-modify-write. Returns original value; combines with rs2 and stores.
     private static ExecuteResult Amo(
         IMemory memory,
+        IArchState state,
+        ulong pc,
         IRegisterFile regs,
         int rs1,
         int rs2,
         Func<uint, uint, uint> combine
     ) {
-        ulong addr = regs.Read(rs1);
+        ulong vaddr = regs.Read(rs1);
+        var (addr, fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         var old = (uint)memory.Read(addr, 4);
         memory.Write(addr, combine(old, (uint)regs.Read(rs2)), 4);
         return Reg(old);
     }
 
     // SC.W always succeeds in single-core (no competing stores possible).
-    private static ExecuteResult AmoSc(IMemory memory, IRegisterFile regs, int rs1, int rs2) {
-        memory.Write(regs.Read(rs1), regs.Read(rs2), 4);
+    private static ExecuteResult AmoSc(
+        IMemory memory, IArchState state, ulong pc, IRegisterFile regs, int rs1, int rs2
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        var (addr, fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        memory.Write(addr, regs.Read(rs2), 4);
         return Reg(0); // 0 = success
+    }
+
+    private static (ulong paddr, int faultCause) Translate(
+        IMemory memory, IArchState state, ulong vaddr, bool isWrite, bool isExec
+    ) {
+        if (state.SystemRegisters is not CsrFile csrs) return (vaddr, 0);
+        return Sv32Walker.Translate(memory, csrs.DirectRead(CsrFile.Satp), vaddr, isWrite, isExec, state.PrivilegeLevel);
     }
 
     private static ExecuteResult Load(
         IMemory memory,
+        IArchState state,
+        ulong pc,
         ulong @base,
         int imm,
         int bytes,
         bool signExtend,
         int bits
     ) {
-        ulong addr = @base + (ulong)imm;
+        ulong vaddr = @base + (ulong)imm;
+        var (addr, fault) = Translate(memory, state, vaddr, false, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         ulong value = memory.Read(addr, bytes);
         if (!signExtend || bits >= 32) return ExecuteResult.WithResult(value & 0xFFFFFFFF);
         int shift = 32 - bits;
         value = (uint)((int)(value << shift) >> shift);
-
         return ExecuteResult.WithResult(value & 0xFFFFFFFF);
     }
 
     private static ExecuteResult Store(
         IMemory memory,
+        IArchState state,
+        ulong pc,
         ulong @base,
         int imm,
         ulong value,
         int bytes
     ) {
-        ulong addr = @base + (ulong)imm;
+        ulong vaddr = @base + (ulong)imm;
+        var (addr, fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         memory.Write(addr, value, bytes);
         return ExecuteResult.Clean;
     }
@@ -425,15 +449,20 @@ public sealed class RvExecutor : IExecutor {
         IArchState state,
         int rs1,
         uint csr,
+        ulong pc,
         Func<ulong, ulong, ulong> combine,
         bool writeIfSrcZero = true
     ) {
         ISystemRegisters csrFile = state.SystemRegisters;
-        ulong old = csrFile.Read(csr, state.PrivilegeLevel);
-        ulong src = state.IntegerRegisters.Read(rs1);
-        // Per spec §2.8: CSRRS/CSRRC with rs1==x0 must not write the CSR.
-        if (writeIfSrcZero || rs1 != 0) csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
-        return ExecuteResult.WithResult(old & 0xFFFFFFFF);
+        try {
+            ulong old = csrFile.Read(csr, state.PrivilegeLevel);
+            ulong src = state.IntegerRegisters.Read(rs1);
+            // Per spec §2.8: CSRRS/CSRRC with rs1==x0 must not write the CSR.
+            if (writeIfSrcZero || rs1 != 0) csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
+            return ExecuteResult.WithResult(old & 0xFFFFFFFF);
+        } catch (SystemRegisterAccessException) {
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+        }
     }
 
     // ── FP helpers ────────────────────────────────────────────────────────────
@@ -488,14 +517,19 @@ public sealed class RvExecutor : IExecutor {
         IArchState state,
         uint zimm,
         uint csr,
+        ulong pc,
         Func<ulong, ulong, ulong> combine,
         bool writeIfSrcZero = true
     ) {
         ISystemRegisters csrFile = state.SystemRegisters;
-        ulong old = csrFile.Read(csr, state.PrivilegeLevel);
-        // Per spec §2.8: CSRRSI/CSRRCI with zimm==0 must not write the CSR.
-        if (writeIfSrcZero || zimm != 0) csrFile.Write(csr, combine(old, zimm), state.PrivilegeLevel);
-        return ExecuteResult.WithResult(old & 0xFFFFFFFF);
+        try {
+            ulong old = csrFile.Read(csr, state.PrivilegeLevel);
+            // Per spec §2.8: CSRRSI/CSRRCI with zimm==0 must not write the CSR.
+            if (writeIfSrcZero || zimm != 0) csrFile.Write(csr, combine(old, zimm), state.PrivilegeLevel);
+            return ExecuteResult.WithResult(old & 0xFFFFFFFF);
+        } catch (SystemRegisterAccessException) {
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+        }
     }
 
     // ── V extension helpers ───────────────────────────────────────────────────

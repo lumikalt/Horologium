@@ -478,6 +478,12 @@ internal sealed class OoOPipelineCore : Gear {
             _retiredCounter.Increment();
             committed++;
         }
+
+        // Check for pending interrupts when the commit loop drains normally.
+        if (!_halted && !_flushPending) {
+            TrapInfo? interrupt = _trapController.PeekInterrupt(State);
+            if (interrupt is not null) SetFlush(_trapController.RaiseTrap(interrupt, State));
+        }
     }
 
     /// <summary>Execute instructions issued last tick, filling the CDB buffer.</summary>

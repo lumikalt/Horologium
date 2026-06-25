@@ -10,15 +10,19 @@ namespace RiscV.Trap;
 /// Privileged Specification, Section 3.1.
 /// </summary>
 public sealed class RvTrapController : ITrapController {
+    // Priority order per RISC-V spec §3.1.9: MEI > MSI > MTI > SEI > SSI > STI
+    private static readonly int[] _interruptPriority = { 11, 3, 7, 9, 1, 5 };
+
     public ulong RaiseTrap(TrapInfo trap, IArchState state) {
         var rv = (RvArchState)state;
         CsrFile csrs = rv.CsrFile;
 
-        // Delegate to S-mode if the medeleg bit for this cause is set and we are
-        // currently below Machine privilege (M-mode never delegates to itself).
-        uint medeleg = csrs.DirectRead(CsrFile.Medeleg);
-        bool delegated = state.PrivilegeLevel < RvPrivilege.Machine
-                      && ((medeleg >> trap.Cause) & 1) != 0;
+        // For exceptions, delegate via medeleg; for interrupts (bit 31 set), use mideleg.
+        bool isInterrupt = ((uint)trap.Cause & 0x80000000u) != 0;
+        uint causeNum    = (uint)trap.Cause & 0x7FFFFFFFu;
+        uint delegReg    = isInterrupt ? csrs.DirectRead(CsrFile.Mideleg) : csrs.DirectRead(CsrFile.Medeleg);
+        bool delegated   = state.PrivilegeLevel < RvPrivilege.Machine
+                        && ((delegReg >> (int)causeNum) & 1) != 0;
 
         if (delegated) {
             csrs.DirectWrite(CsrFile.Sepc, (uint)trap.Pc);
@@ -29,11 +33,11 @@ public sealed class RvTrapController : ITrapController {
             uint sie = (sstatus >> 1) & 1;
             var priv = (uint)state.PrivilegeLevel;
 
-            sstatus &= ~CsrFile.SstatusSpie;          // clear SPIE
-            sstatus |= sie << 5;                       // SPIE = old SIE
-            sstatus &= ~CsrFile.SstatusSie;            // clear SIE
-            sstatus &= ~CsrFile.SstatusSpp;            // clear SPP
-            sstatus |= (priv & 0x1) << 8;              // SPP = old privilege (1 bit)
+            sstatus &= ~CsrFile.SstatusSpie; // clear SPIE
+            sstatus |= sie << 5;             // SPIE = old SIE
+            sstatus &= ~CsrFile.SstatusSie;  // clear SIE
+            sstatus &= ~CsrFile.SstatusSpp;  // clear SPP
+            sstatus |= (priv & 0x1) << 8;    // SPP = old privilege (1 bit)
 
             csrs.DirectWrite(CsrFile.Sstatus, sstatus);
             state.PrivilegeLevel = RvPrivilege.Supervisor;
@@ -60,6 +64,34 @@ public sealed class RvTrapController : ITrapController {
         state.PrivilegeLevel = RvPrivilege.Machine;
 
         return csrs.DirectRead(CsrFile.Mtvec) & ~0x3u;
+    }
+
+    public TrapInfo? PeekInterrupt(IArchState state) {
+        var rv = (RvArchState)state;
+        CsrFile csrs = rv.CsrFile;
+
+        uint pending = csrs.DirectRead(CsrFile.Mip) & csrs.DirectRead(CsrFile.Mie);
+        if (pending == 0) return null;
+
+        uint mideleg = csrs.DirectRead(CsrFile.Mideleg);
+        uint mstatus = csrs.DirectRead(CsrFile.Mstatus);
+        uint sstatus = csrs.DirectRead(CsrFile.Sstatus);
+
+        // M-mode globally enabled: below M-mode, or in M-mode with MIE=1.
+        bool mEnabled = state.PrivilegeLevel < RvPrivilege.Machine
+                     || (mstatus & CsrFile.MstatusMie) != 0;
+        // S-mode globally enabled: in U-mode, or in S-mode with SIE=1.
+        bool sEnabled = state.PrivilegeLevel < RvPrivilege.Supervisor
+                     || (state.PrivilegeLevel == RvPrivilege.Supervisor
+                         && (sstatus & CsrFile.SstatusSie) != 0);
+
+        foreach (int bit in _interruptPriority) {
+            if (((pending >> bit) & 1) == 0) continue;
+            bool delegated = ((mideleg >> bit) & 1) != 0;
+            if (!delegated && mEnabled) return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);
+            if (delegated && sEnabled)  return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);
+        }
+        return null;
     }
 
     public ulong ReturnFromTrap(PrivilegeLevel returningFrom, IArchState state) {

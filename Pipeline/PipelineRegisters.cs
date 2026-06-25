@@ -60,6 +60,10 @@ public sealed record MemWbLatch {
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
+    // The actual committed next PC: branch target for taken branches/jumps,
+    // PC+size otherwise. Used by WritebackStage to set state.Pc for interrupt
+    // mepc precision.
+    public ulong NextPc { get; init; }
     public ITooth? Instruction { get; init; }
     public ulong? WritebackValue { get; init; }
     public int DestinationRegister { get; init; } = -1;

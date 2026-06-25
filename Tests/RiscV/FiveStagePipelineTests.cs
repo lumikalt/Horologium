@@ -6,6 +6,8 @@ using Orrery.Train;
 using Pipeline;
 using RiscV;
 using RiscV.Memory;
+using RiscV.Registers;
+using RiscV.State;
 
 namespace Tests.RiscV;
 
@@ -588,5 +590,67 @@ public class FiveStagePipelineTests {
             snap.Counters.ContainsKey("itlb_misses"), "itlb_misses counter should exist when I-TLB is configured"
         );
         Assert.True(snap.Counters["itlb_misses"] > 0, "I-TLB should record at least one cold miss");
+    }
+
+    // ── Interrupt dispatch (end-to-end) ──────────────────────────────────────
+
+    // Helpers shared by the interrupt tests.
+    private static ulong ReadCsr(FiveStageTrain t, uint addr) =>
+        t.ArchState.SystemRegisters.Read(addr, RvPrivilege.Machine);
+
+    private static void WriteCsr(FiveStageTrain t, uint addr, uint val) =>
+        t.ArchState.SystemRegisters.Write(addr, val, RvPrivilege.Machine);
+
+    // Layout used by interrupt tests:
+    //   0x0000..0x001F  five NOPs, then EBREAK (fallback halt if no interrupt)
+    //   0x0100          handler: EBREAK (halts the pipeline in the handler)
+    private static (FiveStageTrain train, FlatMemory mem) MakeInterruptFixture() {
+        var mem = new FlatMemory(4096);
+        var train = new FiveStageTrain(new RvMechanism(), mem, 0);
+        const uint Nop    = 0x00000013u; // addi x0, x0, 0
+        const uint Ebreak = 0x00100073u;
+        Load(mem, Nop, Nop, Nop, Nop, Nop, Ebreak);
+        // Write EBREAK to handler address using unchecked byte truncation.
+        mem.Load(0x100, BitConverter.GetBytes(Ebreak));
+        return (train, mem);
+    }
+
+    [Fact]
+    public void FiveStage_MachineTimerInterrupt_EntersHandler_AndSetsCorrectMepc() {
+        (FiveStageTrain train, _) = MakeInterruptFixture();
+
+        WriteCsr(train, CsrFile.Mtvec,   0x0100);           // handler at 0x0100
+        WriteCsr(train, CsrFile.Mip,     1u << 7);          // MTI pending
+        WriteCsr(train, CsrFile.Mie,     1u << 7);          // MTI enabled
+        WriteCsr(train, CsrFile.Mstatus, CsrFile.MstatusMie); // MIE=1
+
+        train.Run();
+
+        // The interrupt fires after the first NOP (at PC=0x0000) retires.
+        // mepc must be the PC of the first un-retired instruction = 0x0004.
+        Assert.Equal(0x0004uL, ReadCsr(train, CsrFile.Mepc));
+        Assert.Equal(unchecked((uint)RvTrapCause.MachineTimerInterrupt),
+                     (uint)ReadCsr(train, CsrFile.Mcause));
+        // After trap entry: MIE=0, MPIE=1 (old MIE), MPP=3 (M-mode).
+        ulong mstatus = ReadCsr(train, CsrFile.Mstatus);
+        Assert.Equal(0uL,  (mstatus >> 3) & 1);  // MIE = 0 (disabled during handler)
+        Assert.Equal(1uL,  (mstatus >> 7) & 1);  // MPIE = 1 (saved MIE)
+        Assert.Equal(3uL,  (mstatus >> 11) & 3); // MPP = 3 (was M-mode)
+    }
+
+    [Fact]
+    public void FiveStage_InterruptDisabled_MIE_Clear_DoesNotFire() {
+        (FiveStageTrain train, _) = MakeInterruptFixture();
+
+        // MTI pending and enabled in mie, but mstatus.MIE = 0.
+        WriteCsr(train, CsrFile.Mip, 1u << 7);
+        WriteCsr(train, CsrFile.Mie, 1u << 7);
+        // Do NOT set mstatus.MIE.
+
+        train.Run();
+
+        // Pipeline must retire through all NOPs and halt at the EBREAK in the main sequence.
+        // mepc stays 0 (no interrupt taken).
+        Assert.Equal(0uL, ReadCsr(train, CsrFile.Mepc));
     }
 }

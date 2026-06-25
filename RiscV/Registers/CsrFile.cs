@@ -29,6 +29,9 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Mimpid = 0xF13;
     public const uint Mhartid = 0xF14;
 
+    // Supervisor Protection and Translation
+    public const uint Satp = 0x180;
+
     // Supervisor Trap Setup
     public const uint Sstatus = 0x100;
     public const uint Sie = 0x104;
@@ -85,6 +88,8 @@ public sealed class CsrFile : ISystemRegisters {
         _csrs[CsrFile.Fflags] = 0;
         _csrs[CsrFile.Frm] = 0;
         _csrs[CsrFile.Fcsr] = 0;
+        // Supervisor Protection and Translation
+        _csrs[CsrFile.Satp] = 0;
         // Supervisor Trap Setup
         _csrs[CsrFile.Sstatus] = 0;
         _csrs[CsrFile.Sie] = 0;

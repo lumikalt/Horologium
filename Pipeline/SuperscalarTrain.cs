@@ -237,6 +237,12 @@ internal sealed class SuperscalarCore(
             if (instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch) break;
         }
 
+        // Check for pending interrupts after the issue group retires normally.
+        if (!halt) {
+            TrapInfo? interrupt = mechanism.TrapController.PeekInterrupt(ArchState);
+            if (interrupt is not null) ArchState.Pc = mechanism.TrapController.RaiseTrap(interrupt, ArchState);
+        }
+
         // Drain cache stall penalties accumulated during this group's memory operations.
         long cacheStalls = _anyCache ? DrainAndChargeStalls() : 0;
 

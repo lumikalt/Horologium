@@ -35,9 +35,14 @@ public sealed class MemoryStage : Gear {
         _current = ExMemLatch.Bubble;
         ExecuteResult result = latch.Result;
 
+        ulong nextPc = result.BranchTaken && result.BranchTarget.HasValue
+            ? result.BranchTarget.Value
+            : latch.Pc + (ulong)latch.Instruction!.SizeBytes;
+
         var newLatch = new MemWbLatch {
             IsValid = true,
             Pc = latch.Pc,
+            NextPc = nextPc,
             Instruction = latch.Instruction,
             WritebackValue = result.RegisterResult.HasValue ? result.RegisterResult.Value : null,
             DestinationRegister = latch.DestinationRegister,

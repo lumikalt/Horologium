@@ -42,6 +42,7 @@ public sealed class RvArchState : IArchState {
         // Copy CSRs via direct access
         foreach (uint addr in new[] {
                      CsrFile.Fflags, CsrFile.Frm, CsrFile.Fcsr,
+                     CsrFile.Satp,
                      CsrFile.Sstatus, CsrFile.Sie, CsrFile.Stvec,
                      CsrFile.Sscratch, CsrFile.Sepc, CsrFile.Scause, CsrFile.Stval, CsrFile.Sip,
                      CsrFile.Mstatus, CsrFile.Misa, CsrFile.Medeleg, CsrFile.Mideleg,
