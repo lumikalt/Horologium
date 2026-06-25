@@ -132,9 +132,13 @@ public sealed class RvExecutor : IExecutor {
 
             RvEbreak => new ExecuteResult { IsHalt = true, },
 
-            RvMret => new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Machine, },
+            RvMret => state.PrivilegeLevel == RvPrivilege.Machine
+                ? new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Machine, }
+                : ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc)),
 
-            RvSret => new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Supervisor, },
+            RvSret => state.PrivilegeLevel >= RvPrivilege.Supervisor
+                ? new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Supervisor, }
+                : ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc)),
 
             RvWfi => WfiResult(state),
 

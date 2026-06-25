@@ -14,39 +14,52 @@ public sealed class RvTrapController : ITrapController {
         var rv = (RvArchState)state;
         CsrFile csrs = rv.CsrFile;
 
-        // Save current PC to mepc
+        // Delegate to S-mode if the medeleg bit for this cause is set and we are
+        // currently below Machine privilege (M-mode never delegates to itself).
+        uint medeleg = csrs.DirectRead(CsrFile.Medeleg);
+        bool delegated = state.PrivilegeLevel < RvPrivilege.Machine
+                      && ((medeleg >> trap.Cause) & 1) != 0;
+
+        if (delegated) {
+            csrs.DirectWrite(CsrFile.Sepc, (uint)trap.Pc);
+            csrs.DirectWrite(CsrFile.Scause, (uint)trap.Cause);
+            csrs.DirectWrite(CsrFile.Stval, (uint)trap.TrapValue);
+
+            uint sstatus = csrs.DirectRead(CsrFile.Sstatus);
+            uint sie = (sstatus >> 1) & 1;
+            var priv = (uint)state.PrivilegeLevel;
+
+            sstatus &= ~CsrFile.SstatusSpie;          // clear SPIE
+            sstatus |= sie << 5;                       // SPIE = old SIE
+            sstatus &= ~CsrFile.SstatusSie;            // clear SIE
+            sstatus &= ~CsrFile.SstatusSpp;            // clear SPP
+            sstatus |= (priv & 0x1) << 8;              // SPP = old privilege (1 bit)
+
+            csrs.DirectWrite(CsrFile.Sstatus, sstatus);
+            state.PrivilegeLevel = RvPrivilege.Supervisor;
+
+            return csrs.DirectRead(CsrFile.Stvec) & ~0x3u;
+        }
+
+        // M-mode trap entry
         csrs.DirectWrite(CsrFile.Mepc, (uint)trap.Pc);
-
-        // Write mcause — bit 31 = 0 for exceptions (not interrupts)
         csrs.DirectWrite(CsrFile.Mcause, (uint)trap.Cause);
-
-        // Write mtval
         csrs.DirectWrite(CsrFile.Mtval, (uint)trap.TrapValue);
 
-        // Update mstatus: save MIE to MPIE, clear MIE, save current priv to MPP
         uint mstatus = csrs.DirectRead(CsrFile.Mstatus);
-        uint mie = (mstatus >> 3) & 1; // current MIE bit
-        var priv = (uint)state.PrivilegeLevel;
+        uint mie = (mstatus >> 3) & 1;
+        var mpriv = (uint)state.PrivilegeLevel;
 
-        mstatus &= ~CsrFile.MstatusMpie; // clear MPIE
-        mstatus |= mie << 7;             // MPIE = old MIE
-        mstatus &= ~CsrFile.MstatusMie;  // clear MIE
-        mstatus &= ~CsrFile.MstatusMpp;  // clear MPP
-        mstatus |= (priv & 0x3) << 11;   // MPP = old privilege
+        mstatus &= ~CsrFile.MstatusMpie;
+        mstatus |= mie << 7;
+        mstatus &= ~CsrFile.MstatusMie;
+        mstatus &= ~CsrFile.MstatusMpp;
+        mstatus |= (mpriv & 0x3) << 11;
 
         csrs.DirectWrite(CsrFile.Mstatus, mstatus);
-
-        // Transition to Machine mode
         state.PrivilegeLevel = RvPrivilege.Machine;
 
-        // Compute trap vector
-        uint mtvec = csrs.DirectRead(CsrFile.Mtvec);
-        uint @base = mtvec & ~0x3u;
-
-        // Direct mode: all traps go to BASE
-        // Vectored mode: exceptions go to BASE, interrupts to BASE + 4*cause
-        // (we only handle exceptions here — no interrupts yet)
-        return @base;
+        return csrs.DirectRead(CsrFile.Mtvec) & ~0x3u;
     }
 
     public ulong ReturnFromTrap(PrivilegeLevel returningFrom, IArchState state) {

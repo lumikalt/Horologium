@@ -89,6 +89,8 @@ ISA mutations (register writes, vector state, CSRs, trap returns) are delivered 
 
 **ISA coverage:** I/M/A/F (standard), C (compressed 16-bit instructions), and V (vector, VLEN=128, V1.0 subset). The V subset covers `vsetvli`/`vsetivli`/`vsetvl`, unit-stride loads/stores (`VLE8/16/32`, `VSE8/16/32`, `VLM`, `VSM`), integer ALU (`vadd`, `vsub`, `vand`, `vor`, `vxor`, `vsll`, `vsrl`, `vsra`) in VV/VX/VI variants, and mask comparisons (`vmseq`, `vmsne`, `vmsltu`, `vmslt`, `vmsgtu`, `vmsgt`) with `vm`-bit masking.
 
+**Privilege model:** Three privilege levels (User=0, Supervisor=1, Machine=3). Trap delegation: when an exception's `medeleg` bit is set and the hart is below Machine privilege, `RaiseTrap` enters S-mode (writes `sepc`/`scause`/`stval`, updates `sstatus` SPP/SPIE/SIE, sets privilege to Supervisor, returns `stvec` base); otherwise the existing M-mode path applies. `MRET` is guarded to Machine mode; `SRET` requires at least Supervisor. `ECALL` emits the correct cause code for the current privilege level (8=U, 9=S, 11=M).
+
 ### Benchmark workloads (TestBinaries/benchmarks)
 
 Seven bare-metal RISC-V benchmarks compiled from the riscv-tests suite: `median`, `memcpy`, `multiply`, `qsort`, `rsort`, `towers`, and `vvadd`. They are built against a minimal `crt0.s` + `bmarks.ld` (code at `0x0`, 4 MB RAM) and exit via the HTIF `tohost` symbol. All are available as preset workloads in the Face UI and can be passed to the Runner as ELF arguments. Note: benchmark tests are slow — run them selectively with `--filter`.

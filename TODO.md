@@ -20,7 +20,7 @@
 - [ ] Continue extending the V extension: strided/indexed loads-stores (VLSE, VSSE, VLUXEI, VSUXEI), reduction ops (vredsum, vredmax, …), widening/narrowing integer ops, integer multiply/divide (vmul, vmulh, vdiv), FP vector ops (vfadd, vfmul, vfmacc, …), slide and gather/scatter.
 - [ ] B extension: Zba (address generation), Zbb (basic bit manipulation), Zbc (carry-less multiplication), Zbs (single-bit ops).
 - [ ] Zicond (conditional zero/nonzero move).
-- [ ] Supervisor and user-privileged execution.
+- [x] Supervisor and user-privileged execution: trap delegation via `medeleg`, MRET/SRET privilege guards, S-mode CSRs in state snapshot.
 - [ ] UVE (Unlimited Vector Extension)
 
 ### Analysis

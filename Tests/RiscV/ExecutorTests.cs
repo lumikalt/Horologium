@@ -864,4 +864,24 @@ public class ExecutorTests {
         ExecuteResult r = Exec(0x203100CF, s);
         Assert.Equal(-7.0f, Af(r.RegisterResult.Value));
     }
+
+    // ── Privilege guards ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void Execute_Mret_FromSupervisor_RaisesIllegalInstruction() {
+        RvArchState s = MakeState();
+        s.PrivilegeLevel = RvPrivilege.Supervisor;
+        ExecuteResult r = Exec(0x30200073, s); // mret
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap.Cause);
+    }
+
+    [Fact]
+    public void Execute_Sret_FromUser_RaisesIllegalInstruction() {
+        RvArchState s = MakeState();
+        s.PrivilegeLevel = RvPrivilege.User;
+        ExecuteResult r = Exec(0x10200073, s); // sret
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap.Cause);
+    }
 }
