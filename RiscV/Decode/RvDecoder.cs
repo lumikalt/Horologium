@@ -693,8 +693,10 @@ public sealed class RvDecoder : IDecoder {
             0x00 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFaddS(rd + 32, rs1 + 32, rs2 + 32)),
             0x04 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsubS(rd + 32, rs1 + 32, rs2 + 32)),
             0x08 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmulS(rd + 32, rs1 + 32, rs2 + 32)),
-            0x0C => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFdivS(rd + 32, rs1 + 32, rs2 + 32)),
-            0x2C => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFsqrtS(rd + 32, rs1 + 32)),
+            0x0C => FpRr(
+                pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFdivS(rd + 32, rs1 + 32, rs2 + 32), ToothClass.FloatDivSqrt
+            ),
+            0x2C => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFsqrtS(rd + 32, rs1 + 32), ToothClass.FloatDivSqrt),
             0x10 => funct3 switch {
                 0 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjS(rd + 32, rs1 + 32, rs2 + 32)),
                 1 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjnS(rd + 32, rs1 + 32, rs2 + 32)),
@@ -777,17 +779,32 @@ public sealed class RvDecoder : IDecoder {
         };
         return new RvInstruction(
             pc, raw, rd + 32,
-            [rs1 + 32, rs2 + 32, rs3 + 32,], ToothClass.IntegerAlu, op
+            [rs1 + 32, rs2 + 32, rs3 + 32,], ToothClass.FloatingPoint, op
         );
     }
 
     // ── FP instruction factories ───────────────────────────────────────────────
 
-    private static RvInstruction FpRr(ulong pc, uint raw, int dest, int s0, int s1, RvOp op) =>
-        new(pc, raw, dest, [s0, s1,], ToothClass.IntegerAlu, op);
+    private static RvInstruction FpRr(
+        ulong pc,
+        uint raw,
+        int dest,
+        int s0,
+        int s1,
+        RvOp op,
+        ToothClass cls = ToothClass.FloatingPoint
+    ) =>
+        new(pc, raw, dest, [s0, s1,], cls, op);
 
-    private static RvInstruction FpR1(ulong pc, uint raw, int dest, int s0, RvOp op) =>
-        new(pc, raw, dest, [s0,], ToothClass.IntegerAlu, op);
+    private static RvInstruction FpR1(
+        ulong pc,
+        uint raw,
+        int dest,
+        int s0,
+        RvOp op,
+        ToothClass cls = ToothClass.FloatingPoint
+    ) =>
+        new(pc, raw, dest, [s0,], cls, op);
 
     // ── C extension (16-bit compressed instructions) ─────────────────────────
 

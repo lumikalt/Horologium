@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Orrery.Cache;
+using Pipeline.Ooo;
 
 namespace RiscV.Config;
 
@@ -51,7 +52,8 @@ public sealed record TrainConfig(
     int IssueWidth = 2,
     int RobCapacity = 32,
     int IqCapacity = 16,
-    int ExtraPhysRegs = 32
+    int ExtraPhysRegs = 32,
+    FuLatencyConfig? FuLatency = null // null → FuLatencyConfig.Default (all 1-cycle except MulDiv=3)
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,

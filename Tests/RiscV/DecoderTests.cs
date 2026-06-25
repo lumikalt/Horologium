@@ -622,7 +622,7 @@ public class DecoderTests {
         // (0x00<<25)|(3<<20)|(2<<15)|(0<<12)|(1<<7)|0x53 = 0x003100D3
         ITooth i = D(0x003100D3);
         Assert.IsType<RvFaddS>(i.Payload);
-        Assert.Equal(ToothClass.IntegerAlu, i.Class);
+        Assert.Equal(ToothClass.FloatingPoint, i.Class);
         var op = (RvFaddS)i.Payload!;
         Assert.Equal(33, op.Rd);
         Assert.Equal(34, op.Rs1);

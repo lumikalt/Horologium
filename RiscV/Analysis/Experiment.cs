@@ -73,7 +73,8 @@ public static class Experiment {
                     config.ExtraPhysRegs,
                     config.Predictor?.Build(),
                     config.ToIMemoryConfig(),
-                    config.ToDMemoryConfig()
+                    config.ToDMemoryConfig(),
+                    config.FuLatency
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
                 _ => new FiveStageTrain(

@@ -59,9 +59,33 @@ public sealed class RobEntry {
     /// </summary>
     public bool IsStore { get; set; }
 
+    /// <summary>True once the store has executed and its address/value are known.</summary>
+    public bool StoreAddressKnown { get; set; }
+
     public ulong StoreAddress { get; set; }
     public ulong StoreValue { get; set; }
     public int StoreWidth { get; set; }
+
+    // ── Speculative load tracking ─────────────────────────────────────────────
+
+    /// <summary>True for load instructions.</summary>
+    public bool IsLoad { get; set; }
+
+    /// <summary>True once the load has executed and LoadAddress is valid.</summary>
+    public bool LoadExecuted { get; set; }
+
+    /// <summary>Effective address read by this load at execute time.</summary>
+    public ulong LoadAddress { get; set; }
+
+    /// <summary>Number of bytes read by this load.</summary>
+    public int LoadBytes { get; set; }
+
+    /// <summary>
+    /// Set when a younger-to-this-load store executed with an overlapping address,
+    /// meaning this load may have read a stale value. The load is re-executed when
+    /// it reaches the ROB head and all older stores have committed.
+    /// </summary>
+    public bool LoadViolated { get; set; }
 
     // ── Misc ──────────────────────────────────────────────────────────────────
 
@@ -88,9 +112,15 @@ public sealed class RobEntry {
         PredictedNextPc = 0;
         ResolvedNextPc = default((ulong Value, bool HasValue));
         IsStore = false;
+        StoreAddressKnown = false;
         StoreAddress = 0;
         StoreValue = 0;
         StoreWidth = 0;
+        IsLoad = false;
+        LoadExecuted = false;
+        LoadAddress = 0;
+        LoadBytes = 0;
+        LoadViolated = false;
         IsHalt = false;
         IsReturnFromTrap = false;
         ReturnPrivilege = null;

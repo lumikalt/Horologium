@@ -89,4 +89,10 @@ public enum ToothClass {
 
     /// <summary>Halt instruction (e.g. EBREAK). Signals end-of-execution at commit.</summary>
     Halt,
+
+    /// <summary>Pipelined floating-point operation: add, sub, mul, fused-multiply-add, min, max, sign injection, conversions, comparisons.</summary>
+    FloatingPoint,
+
+    /// <summary>Non-pipelined floating-point divide or square root — substantially higher latency than other FP ops.</summary>
+    FloatDivSqrt,
 }
