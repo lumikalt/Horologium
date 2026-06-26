@@ -85,11 +85,10 @@
                       FontFamily="{StaticResource MonoFont}"
                       FontSize="12">
                 <DataGrid.Styles>
-                    <Style Selector="DataGridRow">
+                    <Style Selector="DataGridRow" x:DataType="models:AssemblyRow">
                         <Setter Property="Background"
-                                Value="{CompiledBinding IsCurrent,
-                                                        DataType={x:Type models:AssemblyRow},
-                                                        Converter={x:Static controls:BoolToBrushConverter.CurrentRow}}"/>
+                                Value="{Binding IsCurrent,
+                                               Converter={x:Static controls:BoolToBrushConverter.CurrentRow}}" />
                     </Style>
                 </DataGrid.Styles>
                 <DataGrid.Columns>
