@@ -69,8 +69,8 @@ public partial class MainWindowViewModel : ObservableObject {
     public partial int SelectedTabIndex { get; set; } = 0;
 
     public bool IsChartTableTab => SelectedTabIndex == 0;
-    public bool IsPEventsTab    => SelectedTabIndex == 1;
-    public bool IsAssemblerTab  => SelectedTabIndex == 2;
+    public bool IsPEventsTab => SelectedTabIndex == 1;
+    public bool IsAssemblerTab => SelectedTabIndex == 2;
 
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 

@@ -26,16 +26,13 @@ public partial class AssemblyRow(
     public bool IsCompressed { get; } = isCompressed;
     public IReadOnlyList<InstrField> Fields { get; } = fields;
 
-    [ObservableProperty]
-    public partial bool IsCurrent { get; set; }
+    [ObservableProperty] public partial bool IsCurrent { get; set; }
 }
 
 public partial class RegEntry(string name) : ObservableObject {
     public string Name { get; } = name;
 
-    [ObservableProperty]
-    public partial string Display { get; set; } = "0x00000000";
+    [ObservableProperty] public partial string Display { get; set; } = "0x00000000";
 
-    [ObservableProperty]
-    public partial bool Changed { get; set; }
+    [ObservableProperty] public partial bool Changed { get; set; }
 }

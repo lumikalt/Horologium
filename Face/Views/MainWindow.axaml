@@ -264,7 +264,8 @@
                                                Value="{Binding WarmupTicks}"
                                                Minimum="0" Maximum="100000000"
                                                Increment="10000" FormatString="N0" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Snapshot interval" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Snapshot interval"
+                                           VerticalAlignment="Center" />
                                 <NumericUpDown Grid.Row="2" Grid.Column="1"
                                                Value="{Binding SnapshotInterval}"
                                                Minimum="0" Maximum="1000000"
@@ -437,32 +438,38 @@
                                            FontSize="11" Opacity="0.45" />
                             </StackPanel>
 
-                            <!-- Transport buttons: ←  |▶  →  ⟳ -->
+                            <!-- Transport buttons: ←  |▶  →  ↺ -->
                             <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
                                 <Button Grid.Column="0" Content="←"
-                                        ToolTip.Tip="Back (not yet implemented)"
                                         Command="{Binding Assembler.BackCommand}"
                                         HorizontalAlignment="Stretch"
                                         HorizontalContentAlignment="Center"
                                         FontSize="16" Padding="0,8" />
                                 <Button Grid.Column="1" Content="|▶"
-                                        ToolTip.Tip="Run"
                                         Command="{Binding Assembler.RunCommand}"
                                         HorizontalAlignment="Stretch"
                                         HorizontalContentAlignment="Center"
                                         FontSize="16" Padding="0,8" />
                                 <Button Grid.Column="2" Content="→"
-                                        ToolTip.Tip="Step"
                                         Command="{Binding Assembler.StepCommand}"
                                         HorizontalAlignment="Stretch"
                                         HorizontalContentAlignment="Center"
                                         FontSize="16" Padding="0,8" />
-                                <Button Grid.Column="3" Content="⟳"
-                                        ToolTip.Tip="Reset"
+                                <Button Grid.Column="3" Content="↺"
                                         Command="{Binding Assembler.ResetCommand}"
                                         HorizontalAlignment="Stretch"
                                         HorizontalContentAlignment="Center"
                                         FontSize="16" Padding="0,8" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
+                                <TextBlock Grid.Column="0" Text="Back"
+                                           TextAlignment="Center" FontSize="10" Opacity="0.45" />
+                                <TextBlock Grid.Column="1" Text="Run"
+                                           TextAlignment="Center" FontSize="10" Opacity="0.45" />
+                                <TextBlock Grid.Column="2" Text="Step"
+                                           TextAlignment="Center" FontSize="10" Opacity="0.45" />
+                                <TextBlock Grid.Column="3" Text="Reset"
+                                           TextAlignment="Center" FontSize="10" Opacity="0.45" />
                             </Grid>
                         </StackPanel>
 

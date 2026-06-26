@@ -13,8 +13,11 @@ using RiscV.State;
 namespace Face.ViewModels;
 
 public partial class AssemblerViewModel : ObservableObject {
-    private static readonly Regex AsmErrPrefix  = new(@"^[^ \t]+horologium_asm\.s:", RegexOptions.Multiline);
-    private static readonly Regex ListingLineRx = new(@"^\s*(\d+)\s+([0-9a-fA-F]+)\s+[0-9a-fA-F]", RegexOptions.Multiline);
+    private static readonly Regex AsmErrPrefix = new(@"^[^ \t]+horologium_asm\.s:", RegexOptions.Multiline);
+
+    private static readonly Regex ListingLineRx = new(
+        @"^\s*(\d+)\s+([0-9a-fA-F]+)\s+[0-9a-fA-F]", RegexOptions.Multiline
+    );
 
     private readonly RvDecoder _decoder = new();
     private readonly RvExecutor _executor = new();
@@ -82,6 +85,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [RelayCommand(CanExecute = nameof(CanBack))]
     private void Back() { }
+
     private static bool CanBack() => false;
 
     [RelayCommand]
@@ -118,7 +122,7 @@ public partial class AssemblerViewModel : ObservableObject {
                     HasError = true;
                     AssembleError = string.IsNullOrWhiteSpace(asErr)
                         ? $"Assembler exited {asExit}"
-                        : AsmErrPrefix.Replace(asErr, "").Trim();
+                        : AssemblerViewModel.AsmErrPrefix.Replace(asErr, "").Trim();
                     StatusText = "Assembly failed.";
                     return;
                 }
@@ -189,18 +193,17 @@ public partial class AssemblerViewModel : ObservableObject {
         if (!CanStep) return;
         _runCts?.Cancel();
         _runCts = new CancellationTokenSource();
-        var token = _runCts.Token;
+        CancellationToken token = _runCts.Token;
 
         const int maxSteps = 10_000;
-        int delay = (int)MsPerCycle;
+        var delay = (int)MsPerCycle;
 
         for (var i = 0; i < maxSteps && CanStep && !token.IsCancellationRequested; i++) {
             StepOnce();
             if (!CanStep || token.IsCancellationRequested) break;
-            if (delay > 0) {
+            if (delay > 0)
                 try { await Task.Delay(delay, token); }
                 catch (OperationCanceledException) { break; }
-            }
         }
 
         if (CanStep && _archState != null && !token.IsCancellationRequested)
@@ -330,10 +333,9 @@ public partial class AssemblerViewModel : ObservableObject {
 
     private static Dictionary<ulong, int> ParseListing(string text) {
         var map = new Dictionary<ulong, int>();
-        foreach (Match m in ListingLineRx.Matches(text)) {
+        foreach (Match m in AssemblerViewModel.ListingLineRx.Matches(text))
             if (ulong.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.HexNumber, null, out ulong addr))
                 map.TryAdd(addr, int.Parse(m.Groups[1].Value));
-        }
         return map;
     }
 

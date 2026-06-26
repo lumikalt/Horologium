@@ -1,4 +1,6 @@
+using Avalonia;
 using Avalonia.Media;
+using AvaloniaEdit.Document;
 using AvaloniaEdit.Rendering;
 
 namespace Face.Controls;
@@ -13,8 +15,8 @@ public class CurrentLineHighlighter : IBackgroundRenderer {
 
     public void Draw(TextView textView, DrawingContext drawingContext) {
         if (Line <= 0 || Line > textView.Document.LineCount) return;
-        var docLine = textView.Document.GetLineByNumber(Line);
-        foreach (var rect in BackgroundGeometryBuilder.GetRectsForSegment(textView, docLine))
-            drawingContext.FillRectangle(Highlight, rect);
+        DocumentLine? docLine = textView.Document.GetLineByNumber(Line);
+        foreach (Rect rect in BackgroundGeometryBuilder.GetRectsForSegment(textView, docLine))
+            drawingContext.FillRectangle(CurrentLineHighlighter.Highlight, rect);
     }
 }

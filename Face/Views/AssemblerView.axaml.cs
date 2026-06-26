@@ -18,7 +18,7 @@ public partial class AssemblerView : UserControl {
         InitializeComponent();
         Editor.SyntaxHighlighting = RvHighlighting.GetDefinition();
         Editor.TextArea.TextView.BackgroundRenderers.Add(_lineHighlighter);
-        Editor.TextArea.AddHandler(KeyDownEvent, OnEditorClipboardKey, RoutingStrategies.Tunnel);
+        Editor.TextArea.AddHandler(InputElement.KeyDownEvent, OnEditorClipboardKey, RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
         Editor.TextChanged += OnEditorTextChanged;
     }
@@ -43,28 +43,29 @@ public partial class AssemblerView : UserControl {
         if (_vm == null) return;
         _vm.SourceCode = Editor.Text;
         _debounce?.Dispose();
-        _debounce = new Timer(_ =>
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-                if (_vm.AssembleCommand.CanExecute(null))
-                    _vm.AssembleCommand.Execute(null);
-            }),
-            null, 600, Timeout.Infinite);
+        _debounce = new Timer(
+            _ =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                        if (_vm.AssembleCommand.CanExecute(null)) _vm.AssembleCommand.Execute(null);
+                    }
+                ),
+            null, 600, Timeout.Infinite
+        );
     }
 
     private async void OnEditorClipboardKey(object? sender, KeyEventArgs e) {
         if (e.KeyModifiers != KeyModifiers.Control) return;
         if (e.Key is not (Key.C or Key.X or Key.V)) return;
 
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        IClipboard? clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard == null) return;
 
         e.Handled = true;
 
         switch (e.Key) {
             case Key.C:
-                var sel = Editor.SelectedText;
-                if (!string.IsNullOrEmpty(sel))
-                    await clipboard.SetTextAsync(sel);
+                string? sel = Editor.SelectedText;
+                if (!string.IsNullOrEmpty(sel)) await clipboard.SetTextAsync(sel);
                 break;
 
             case Key.X:
@@ -73,12 +74,12 @@ public partial class AssemblerView : UserControl {
                     await clipboard.SetTextAsync(sel);
                     Editor.TextArea.Selection.ReplaceSelectionWithText("");
                 }
+
                 break;
 
             case Key.V:
-                var text = await clipboard.TryGetValueAsync(DataFormat.Text);
-                if (!string.IsNullOrEmpty(text))
-                    Editor.TextArea.PerformTextInput(text);
+                string? text = await clipboard.TryGetValueAsync(DataFormat.Text);
+                if (!string.IsNullOrEmpty(text)) Editor.TextArea.PerformTextInput(text);
                 break;
         }
     }
