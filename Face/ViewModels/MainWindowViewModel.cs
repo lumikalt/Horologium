@@ -64,6 +64,14 @@ public partial class MainWindowViewModel : ObservableObject {
     [ObservableProperty]
     public partial string PEventStatusText { get; set; } = "Select a configuration and click Trace.";
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsChartTableTab), nameof(IsPEventsTab), nameof(IsAssemblerTab))]
+    public partial int SelectedTabIndex { get; set; } = 0;
+
+    public bool IsChartTableTab => SelectedTabIndex == 0;
+    public bool IsPEventsTab    => SelectedTabIndex == 1;
+    public bool IsAssemblerTab  => SelectedTabIndex == 2;
+
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
     public AssemblerViewModel Assembler { get; } = new();

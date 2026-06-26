@@ -2,11 +2,13 @@
 
 ## Face
 
+- [ ] Rollback/Back step: single-step backward in the assembler debugger (requires snapshot-based undo or reverse simulation).
 - [ ] L2 and L3 caches.
 - [x] Assembler to simulate RISC-V in-place.
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
   instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)
+- [ ] Make text properly monospace. It seems like the fonts aren't being loaded properly?
 
 ## CHIP8
 
@@ -15,6 +17,8 @@
 ## RISC-V
 
 - [ ] 64-bit support.
+- [ ] 128-bit support.
+- [ ] Enable or disable specific extensions.
 
 ### Extensions
 
@@ -27,7 +31,8 @@
 - [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
 - [ ] UVE (Unlimited Vector Extension).
-- [ ] SUM (Supervisor User Memory): honour `sstatus.SUM` so S-mode can deliberately access user pages (PTE.U=1); currently S-mode always faults on user pages.
+- [ ] SUM (Supervisor User Memory): honour `sstatus.SUM` so S-mode can deliberately access user pages (PTE.U=1);
+  currently S-mode always faults on user pages.
 
 ### Analysis
 

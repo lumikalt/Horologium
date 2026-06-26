@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Face.Models;
@@ -12,27 +13,40 @@ using RiscV.State;
 namespace Face.ViewModels;
 
 public partial class AssemblerViewModel : ObservableObject {
+    private static readonly Regex AsmErrPrefix  = new(@"^[^ \t]+horologium_asm\.s:", RegexOptions.Multiline);
+    private static readonly Regex ListingLineRx = new(@"^\s*(\d+)\s+([0-9a-fA-F]+)\s+[0-9a-fA-F]", RegexOptions.Multiline);
+
     private readonly RvDecoder _decoder = new();
     private readonly RvExecutor _executor = new();
     private FlatMemory? _memory;
     private RvArchState? _archState;
     private int _binarySize;
     private int _stepCount;
+    private Dictionary<ulong, int> _pcToLine = [];
 
-    [ObservableProperty] private string _sourceCode =
+    [ObservableProperty]
+    public partial string SourceCode { get; set; } =
         ".text\n.globl _start\n_start:\n    li a0, 10\n    li a1, 32\n    add a2, a0, a1\n";
 
-    [ObservableProperty] private string _assembleError = "";
-    [ObservableProperty] private bool _hasError;
-    [ObservableProperty] private string _statusText = "Enter assembly and click Assemble.";
-    [ObservableProperty] private bool _canStep;
-    [ObservableProperty] private bool _isAssembling;
+    [ObservableProperty] public partial string AssembleError { get; set; } = "";
 
-    [ObservableProperty] private AssemblyRow? _selectedInstruction;
+    [ObservableProperty] public partial bool HasError { get; set; }
 
-    [ObservableProperty] private RegFormat _intRegFormat = RegFormat.Hex;
-    [ObservableProperty] private RegFormat _floatRegFormat = RegFormat.Hex;
+    [ObservableProperty] public partial string StatusText { get; set; } = "Enter assembly and click Assemble.";
 
+    [ObservableProperty] public partial bool CanStep { get; set; }
+
+    [ObservableProperty] public partial bool IsAssembling { get; set; }
+
+    [ObservableProperty] public partial AssemblyRow? SelectedInstruction { get; set; }
+
+    [ObservableProperty] public partial int CurrentSourceLine { get; set; } // 1-based; 0 = none
+
+    [ObservableProperty] public partial RegFormat IntRegFormat { get; set; } = RegFormat.Hex;
+
+    [ObservableProperty] public partial RegFormat FloatRegFormat { get; set; } = RegFormat.Hex;
+
+    [ObservableProperty] public partial decimal MsPerCycle { get; set; } = 100;
     public ObservableCollection<AssemblyRow> Instructions { get; } = [];
     public ObservableCollection<RegEntry> IntRegisters { get; } = [];
     public ObservableCollection<RegEntry> FloatRegisters { get; } = [];
@@ -46,26 +60,14 @@ public partial class AssemblerViewModel : ObservableObject {
     ];
 
     public bool IsDecodeVisible => SelectedInstruction != null;
-    public string DecodeTitle => SelectedInstruction is { } r ? $"0x{r.Offset:X}: {r.HexEncoding}  {r.Mnemonic}" : "";
+    public string DecodeTitle => SelectedInstruction is { } r ? $"{r.Offset:X}: {r.HexEncoding}  {r.Mnemonic}" : "";
     public IReadOnlyList<InstrField> DecodeFields => SelectedInstruction?.Fields ?? [];
 
     public AssemblerViewModel() { InitRegisterEntries(); }
 
     private void InitRegisterEntries() {
-        string[] intNames = [
-            "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
-            "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
-            "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
-            "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6",
-        ];
-        string[] fpNames = [
-            "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7",
-            "fs0", "fs1", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5",
-            "fa6", "fa7", "fs2", "fs3", "fs4", "fs5", "fs6", "fs7",
-            "fs8", "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
-        ];
-        foreach (string n in intNames) IntRegisters.Add(new RegEntry(n));
-        foreach (string n in fpNames) FloatRegisters.Add(new RegEntry(n));
+        for (var i = 0; i < 32; i++) IntRegisters.Add(new RegEntry($"x{i}"));
+        for (var i = 0; i < 32; i++) FloatRegisters.Add(new RegEntry($"f{i}"));
     }
 
     partial void OnSelectedInstructionChanged(AssemblyRow? value) {
@@ -76,6 +78,10 @@ public partial class AssemblerViewModel : ObservableObject {
 
     partial void OnIntRegFormatChanged(RegFormat value) => RefreshIntRegisters();
     partial void OnFloatRegFormatChanged(RegFormat value) => RefreshFloatRegisters();
+
+    [RelayCommand(CanExecute = nameof(CanBack))]
+    private void Back() { }
+    private static bool CanBack() => false;
 
     [RelayCommand]
     private async Task Assemble() {
@@ -96,29 +102,49 @@ public partial class AssemblerViewModel : ObservableObject {
             string tmpDir = Path.GetTempPath();
             string asmFile = Path.Combine(tmpDir, "horologium_asm.s");
             string objFile = Path.Combine(tmpDir, "horologium_asm.o");
+            string elfFile = Path.Combine(tmpDir, "horologium_asm.elf");
             string binFile = Path.Combine(tmpDir, "horologium_asm.bin");
+            string lstFile = Path.Combine(tmpDir, "horologium_asm.lst");
 
             try {
                 await File.WriteAllTextAsync(asmFile, SourceCode);
 
                 (int asExit, _, string asErr) = await RunProcess(
                     prefix + "as",
-                    $"-march=rv32imafcv -mabi=ilp32f -o \"{objFile}\" \"{asmFile}\""
+                    $"-march=rv32imafcv -mabi=ilp32f -mno-relax -al=\"{lstFile}\" -o \"{objFile}\" \"{asmFile}\""
                 );
                 if (asExit != 0) {
                     HasError = true;
-                    AssembleError = string.IsNullOrWhiteSpace(asErr) ? $"Assembler exited {asExit}" : asErr;
+                    AssembleError = string.IsNullOrWhiteSpace(asErr)
+                        ? $"Assembler exited {asExit}"
+                        : AsmErrPrefix.Replace(asErr, "").Trim();
                     StatusText = "Assembly failed.";
+                    return;
+                }
+
+                // Link to resolve PC-relative relocations (call, la, tail, etc.)
+                (int ldExit, _, string ldErr) = await RunProcess(
+                    prefix + "ld",
+                    $"-Ttext=0x0 --no-relax -o \"{elfFile}\" \"{objFile}\""
+                );
+                if (ldExit != 0) {
+                    HasError = true;
+                    AssembleError = string.IsNullOrWhiteSpace(ldErr)
+                        ? $"Linker exited {ldExit}"
+                        : ldErr.Trim();
+                    StatusText = "Linking failed.";
                     return;
                 }
 
                 (int cpExit, _, string cpErr) = await RunProcess(
                     prefix + "objcopy",
-                    $"-O binary -j .text \"{objFile}\" \"{binFile}\""
+                    $"-O binary -j .text \"{elfFile}\" \"{binFile}\""
                 );
                 if (cpExit != 0) {
                     HasError = true;
-                    AssembleError = string.IsNullOrWhiteSpace(cpErr) ? $"objcopy exited {cpExit}" : cpErr;
+                    AssembleError = string.IsNullOrWhiteSpace(cpErr)
+                        ? $"objcopy exited {cpExit}"
+                        : cpErr.Trim();
                     StatusText = "Binary extraction failed.";
                     return;
                 }
@@ -131,12 +157,16 @@ public partial class AssemblerViewModel : ObservableObject {
                     return;
                 }
 
+                string lstContent = File.Exists(lstFile) ? await File.ReadAllTextAsync(lstFile) : "";
+                _pcToLine = ParseListing(lstContent);
                 LoadBinary(binary);
             }
             finally {
                 TryDelete(asmFile);
                 TryDelete(objFile);
+                TryDelete(elfFile);
                 TryDelete(binFile);
+                TryDelete(lstFile);
             }
         }
         catch (Exception ex) {
@@ -156,13 +186,13 @@ public partial class AssemblerViewModel : ObservableObject {
     [RelayCommand]
     private void Run() {
         if (!CanStep) return;
-        const int MaxSteps = 10_000;
-        for (var i = 0; i < MaxSteps && CanStep; i++) {
+        const int maxSteps = 10_000;
+        for (var i = 0; i < maxSteps && CanStep; i++) {
             StepOnce();
             if (!CanStep) break;
         }
 
-        if (CanStep && _archState != null) StatusText = $"Ran {MaxSteps} steps (hit limit). PC=0x{_archState.Pc:X}";
+        if (CanStep && _archState != null) StatusText = $"Ran {maxSteps} steps (hit limit). PC=0x{_archState.Pc:X}";
     }
 
     [RelayCommand]
@@ -230,8 +260,8 @@ public partial class AssemblerViewModel : ObservableObject {
     }
 
     private void LoadBinary(byte[] binary) {
-        const int MemSize = 1 << 20;
-        _memory = new FlatMemory(MemSize);
+        const int memSize = 1 << 20;
+        _memory = new FlatMemory(memSize);
         _memory.Load(0, binary);
         _binarySize = binary.Length;
         _archState = new RvArchState();
@@ -262,13 +292,12 @@ public partial class AssemblerViewModel : ObservableObject {
             catch {
                 mnemonic = "???";
                 int size = compressed ? 2 : 4;
-                string hex = compressed ? $"{raw & 0xFFFF:X4}" : $"{raw:X8}";
-                Instructions.Add(new AssemblyRow(pc, hex, mnemonic, compressed, []));
+                Instructions.Add(new AssemblyRow(pc, compressed ? $"{raw:X4}" : $"{raw:X8}", mnemonic, compressed, []));
                 pc += (ulong)size;
                 continue;
             }
 
-            string hexStr = compressed ? $"{raw & 0xFFFF:X4}" : $"{raw:X8}";
+            string hexStr = compressed ? $"{raw:X4}" : $"{raw:X8}";
             IReadOnlyList<InstrField> fields = RvFieldInfo.GetFields(compressed ? raw & 0xFFFF : raw);
             Instructions.Add(new AssemblyRow(pc, hexStr, mnemonic, compressed, fields));
             pc += (ulong)tooth.SizeBytes;
@@ -283,6 +312,16 @@ public partial class AssemblerViewModel : ObservableObject {
     private void UpdateCurrentRow() {
         ulong pc = _archState?.Pc ?? 0;
         foreach (AssemblyRow row in Instructions) row.IsCurrent = row.Offset == pc;
+        CurrentSourceLine = _pcToLine.TryGetValue(pc, out int line) ? line : 0;
+    }
+
+    private static Dictionary<ulong, int> ParseListing(string text) {
+        var map = new Dictionary<ulong, int>();
+        foreach (Match m in ListingLineRx.Matches(text)) {
+            if (ulong.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.HexNumber, null, out ulong addr))
+                map.TryAdd(addr, int.Parse(m.Groups[1].Value));
+        }
+        return map;
     }
 
     private void RefreshAllRegisters() {
@@ -310,34 +349,31 @@ public partial class AssemblerViewModel : ObservableObject {
         RegFormat.Hex             => $"0x{(uint)val:X8}",
         RegFormat.DecimalSigned   => ((int)(uint)val).ToString(),
         RegFormat.DecimalUnsigned => ((uint)val).ToString(),
-        RegFormat.Binary          => Convert.ToString((long)(uint)val, 2).PadLeft(32, '0'),
+        RegFormat.Binary          => Convert.ToString((uint)val, 2).PadLeft(32, '0'),
         _                         => $"0x{(uint)val:X8}",
     };
 
     private string FormatFloat(ulong val) => FloatRegFormat switch {
         RegFormat.Hex    => $"0x{(uint)val:X8}",
         RegFormat.Float  => BitConverter.UInt32BitsToSingle((uint)val).ToString("G6"),
-        RegFormat.Binary => Convert.ToString((long)(uint)val, 2).PadLeft(32, '0'),
+        RegFormat.Binary => Convert.ToString((uint)val, 2).PadLeft(32, '0'),
         _                => $"0x{(uint)val:X8}",
     };
 
     private static string? FindToolchainPrefix() {
         string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (string dir in pathEnv.Split(':')) {
-            string candidate = Path.Combine(dir, "riscv32-none-elf-as");
-            if (File.Exists(candidate)) return Path.Combine(dir, "riscv32-none-elf-");
-        }
-
-        return null;
+        return (from dir in pathEnv.Split(':')
+                let candidate = Path.Combine(dir, "riscv32-none-elf-as")
+                where File.Exists(candidate)
+                select Path.Combine(dir, "riscv32-none-elf-")).FirstOrDefault();
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcess(string exe, string args) {
-        using var proc = new Process {
-            StartInfo = new ProcessStartInfo(exe, args) {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            },
+        using var proc = new Process();
+        proc.StartInfo = new ProcessStartInfo(exe, args) {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
         };
         proc.Start();
         string stdout = await proc.StandardOutput.ReadToEndAsync();
@@ -348,6 +384,8 @@ public partial class AssemblerViewModel : ObservableObject {
 
     private static void TryDelete(string path) {
         try { File.Delete(path); }
-        catch { }
+        catch {
+            // ignored
+        }
     }
 }

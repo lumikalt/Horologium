@@ -3,6 +3,8 @@
              xmlns:vm="using:Face.ViewModels"
              xmlns:models="using:Face.Models"
              xmlns:rv="using:RiscV.Decode"
+             xmlns:avEdit="using:AvaloniaEdit"
+             xmlns:controls="using:Face.Controls"
              x:Class="Face.Views.AssemblerView"
              x:DataType="vm:AssemblerViewModel">
 
@@ -33,16 +35,15 @@
             </WrapPanel>
 
             <!-- Editor -->
-            <TextBox Grid.Row="1"
-                     Text="{Binding SourceCode}"
-                     AcceptsReturn="True"
-                     AcceptsTab="True"
-                     TextWrapping="NoWrap"
-                     FontFamily="Consolas, Courier New, monospace"
-                     FontSize="13"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                     Margin="8,0" />
+            <avEdit:TextEditor Grid.Row="1"
+                               x:Name="Editor"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="13"
+                               ShowLineNumbers="True"
+                               WordWrap="False"
+                               HorizontalScrollBarVisibility="Auto"
+                               VerticalScrollBarVisibility="Auto"
+                               Margin="8,0" />
 
             <!-- Error panel -->
             <Border Grid.Row="2"
@@ -52,9 +53,9 @@
                     Margin="8,4">
                 <TextBlock Text="{Binding AssembleError}"
                            TextWrapping="Wrap"
-                           FontFamily="Consolas, Courier New, monospace"
+                           FontFamily="{StaticResource MonoFont}"
                            FontSize="11"
-                           Foreground="#FF8888"
+                           Foreground="#FFAAAA"
                            Padding="8,6" />
             </Border>
 
@@ -72,6 +73,7 @@
               Margin="1,0,1,0">
 
             <DataGrid Grid.Row="0"
+                      x:Name="InstructionGrid"
                       ItemsSource="{Binding Instructions}"
                       SelectedItem="{Binding SelectedInstruction}"
                       IsReadOnly="True"
@@ -80,16 +82,24 @@
                       GridLinesVisibility="Horizontal"
                       HorizontalScrollBarVisibility="Auto"
                       VerticalScrollBarVisibility="Auto"
-                      FontFamily="Consolas, Courier New, monospace"
+                      FontFamily="{StaticResource MonoFont}"
                       FontSize="12">
+                <DataGrid.Styles>
+                    <Style Selector="DataGridRow">
+                        <Setter Property="Background"
+                                Value="{CompiledBinding IsCurrent,
+                                                        DataType={x:Type models:AssemblyRow},
+                                                        Converter={x:Static controls:BoolToBrushConverter.CurrentRow}}"/>
+                    </Style>
+                </DataGrid.Styles>
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Offset"
+                    <DataGridTextColumn Header="PC"
                                         Binding="{Binding OffsetHex}"
-                                        Width="80"
+                                        Width="60"
                                         IsReadOnly="True" />
                     <DataGridTextColumn Header="Hex"
                                         Binding="{Binding HexEncoding}"
-                                        Width="90"
+                                        Width="105"
                                         IsReadOnly="True" />
                     <DataGridTextColumn Header="Assembly"
                                         Binding="{Binding Mnemonic}"
@@ -107,7 +117,7 @@
                     Padding="10,8">
                 <StackPanel>
                     <TextBlock Text="{Binding DecodeTitle}"
-                               FontFamily="Consolas, Courier New, monospace"
+                               FontFamily="{StaticResource MonoFont}"
                                FontSize="12"
                                FontWeight="SemiBold"
                                Margin="0,0,0,6" />
@@ -128,7 +138,7 @@
                                                    FontSize="10"
                                                    Opacity="0.55" />
                                         <TextBlock Text="{Binding BitsText}"
-                                                   FontFamily="Consolas, Courier New, monospace"
+                                                   FontFamily="{StaticResource MonoFont}"
                                                    FontSize="11"
                                                    Foreground="#C8D8F0" />
                                         <TextBlock Text="{Binding Decoded}"
@@ -165,12 +175,12 @@
                         <Grid ColumnDefinitions="52,*" Margin="4,1">
                             <TextBlock Grid.Column="0"
                                        Text="{Binding Name}"
-                                       FontFamily="Consolas, Courier New, monospace"
+                                       FontFamily="{StaticResource MonoFont}"
                                        FontSize="11"
                                        Foreground="#8AAEC8" />
                             <TextBlock Grid.Column="1"
                                        Text="{Binding Display}"
-                                       FontFamily="Consolas, Courier New, monospace"
+                                       FontFamily="{StaticResource MonoFont}"
                                        FontSize="11" />
                         </Grid>
                     </DataTemplate>
@@ -194,12 +204,12 @@
                         <Grid ColumnDefinitions="52,*" Margin="4,1">
                             <TextBlock Grid.Column="0"
                                        Text="{Binding Name}"
-                                       FontFamily="Consolas, Courier New, monospace"
+                                       FontFamily="{StaticResource MonoFont}"
                                        FontSize="11"
                                        Foreground="#8AAEC8" />
                             <TextBlock Grid.Column="1"
                                        Text="{Binding Display}"
-                                       FontFamily="Consolas, Courier New, monospace"
+                                       FontFamily="{StaticResource MonoFont}"
                                        FontSize="11" />
                         </Grid>
                     </DataTemplate>

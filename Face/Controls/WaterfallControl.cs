@@ -21,7 +21,7 @@ public sealed class WaterfallControl : Control {
     // Total fixed gutter width (left of the cycle columns)
     private const double GutterW = WaterfallControl.InstrIdColW + WaterfallControl.PcColW + WaterfallControl.SpecPcColW;
 
-    private static readonly Typeface Mono = new("Consolas, Courier New, monospace");
+    private static readonly Typeface Mono = new("JetBrainsMono Nerd Font Mono, DejaVu Sans Mono, FreeMono");
     private static readonly IBrush HeaderBg = new SolidColorBrush(Color.Parse("#2A2A3E"));
     private static readonly IBrush RowBg0 = new SolidColorBrush(Color.Parse("#1C1C28"));
     private static readonly IBrush RowBg1 = new SolidColorBrush(Color.Parse("#22222F"));

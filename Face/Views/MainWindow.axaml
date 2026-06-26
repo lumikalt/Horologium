@@ -12,7 +12,7 @@
 
     <Grid ColumnDefinitions="400,*">
 
-        <!-- ── Left panel: settings ─────────────────────────────────────────── -->
+        <!-- ── Left panel: context-sensitive settings ───────────────────────── -->
         <Border Grid.Column="0"
                 BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
                 BorderThickness="0,0,1,0">
@@ -27,422 +27,487 @@
 
                     <Separator />
 
-                    <!-- Workload ─────────────────────────────────────────────── -->
-                    <StackPanel Margin="16,12,16,12" Spacing="8">
-                        <TextBlock Text="WORKLOAD" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                    <!-- ── Chart / Table sidebar ─────────────────────────────── -->
+                    <StackPanel IsVisible="{Binding IsChartTableTab}">
 
-                        <ComboBox ItemsSource="{Binding WorkloadPresets}"
-                                  SelectedItem="{Binding SelectedPreset}"
-                                  HorizontalAlignment="Stretch">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="vm:WorkloadPreset">
-                                    <TextBlock Text="{Binding Label}" />
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
+                        <!-- Workload -->
+                        <StackPanel Margin="16,12,16,12" Spacing="8">
+                            <TextBlock Text="WORKLOAD" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
 
-                        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowBrowse}" ColumnSpacing="6">
-                            <TextBox Grid.Column="0"
-                                     Text="{Binding WorkloadPath}"
-                                     PlaceholderText="Path to ELF binary…"
-                                     IsReadOnly="True" />
-                            <Button Grid.Column="1" Content="Browse…"
-                                    x:Name="BrowseButton" />
-                        </Grid>
-                    </StackPanel>
+                            <ComboBox ItemsSource="{Binding WorkloadPresets}"
+                                      SelectedItem="{Binding SelectedPreset}"
+                                      HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:WorkloadPreset">
+                                        <TextBlock Text="{Binding Label}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
 
-                    <Separator />
+                            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowBrowse}" ColumnSpacing="6">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding WorkloadPath}"
+                                         PlaceholderText="Path to ELF binary…"
+                                         IsReadOnly="True" />
+                                <Button Grid.Column="1" Content="Browse…"
+                                        x:Name="BrowseButton" />
+                            </Grid>
+                        </StackPanel>
 
-                    <!-- Run settings ─────────────────────────────────────────── -->
-                    <StackPanel Margin="16,12,16,12" Spacing="8">
-                        <TextBlock Text="RUN SETTINGS" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                        <Separator />
 
-                        <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6"
-                              ColumnSpacing="8">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Max ticks"
-                                       VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1"
-                                           Value="{Binding MaxTicks}"
-                                           Minimum="1" Maximum="1000000000"
-                                           Increment="100000" FormatString="N0" />
+                        <!-- Run settings -->
+                        <StackPanel Margin="16,12,16,12" Spacing="8">
+                            <TextBlock Text="RUN SETTINGS" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Warmup ticks"
-                                       VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="1" Grid.Column="1"
-                                           Value="{Binding WarmupTicks}"
-                                           Minimum="0" Maximum="100000000"
-                                           Increment="10000" FormatString="N0" />
+                            <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6"
+                                  ColumnSpacing="8">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Max ticks"
+                                           VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                               Value="{Binding MaxTicks}"
+                                               Minimum="1" Maximum="1000000000"
+                                               Increment="100000" FormatString="N0" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Snapshot interval"
-                                       VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="1"
-                                           Value="{Binding SnapshotInterval}"
-                                           Minimum="0" Maximum="1000000"
-                                           Increment="1000" FormatString="N0" />
-                        </Grid>
-                        <TextBlock Text="Snapshot interval = 0 disables time series."
-                                   FontSize="11" Opacity="0.45" />
-                    </StackPanel>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Warmup ticks"
+                                           VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                               Value="{Binding WarmupTicks}"
+                                               Minimum="0" Maximum="100000000"
+                                               Increment="10000" FormatString="N0" />
 
-                    <Separator />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Snapshot interval"
+                                           VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                               Value="{Binding SnapshotInterval}"
+                                               Minimum="0" Maximum="1000000"
+                                               Increment="1000" FormatString="N0" />
+                            </Grid>
+                            <TextBlock Text="Snapshot interval = 0 disables time series."
+                                       FontSize="11" Opacity="0.45" />
+                        </StackPanel>
 
-                    <!-- Configurations ───────────────────────────────────────── -->
-                    <StackPanel Margin="16,12,16,0" Spacing="8">
-                        <DockPanel>
-                            <TextBlock Text="CONFIGURATIONS" DockPanel.Dock="Left"
-                                       FontSize="11" FontWeight="SemiBold" Opacity="0.55"
-                                       VerticalAlignment="Center" />
-                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
-                                <Button Content="+" ToolTip.Tip="Add config"
-                                        Command="{Binding AddConfigCommand}"
-                                        Padding="8,4" />
-                                <Button Content="⧉" ToolTip.Tip="Duplicate selected"
-                                        Command="{Binding DuplicateConfigCommand}"
-                                        Padding="8,4" />
-                                <Button Content="−" ToolTip.Tip="Remove selected"
-                                        Command="{Binding RemoveConfigCommand}"
-                                        Padding="8,4" />
-                            </StackPanel>
-                        </DockPanel>
+                        <Separator />
 
-                        <ListBox ItemsSource="{Binding Configs}"
-                                 SelectedItem="{Binding SelectedConfig, Mode=TwoWay}"
-                                 MaxHeight="180">
-                            <ListBox.ItemTemplate>
+                        <!-- Configurations -->
+                        <StackPanel Margin="16,12,16,0" Spacing="8">
+                            <DockPanel>
+                                <TextBlock Text="CONFIGURATIONS" DockPanel.Dock="Left"
+                                           FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                                           VerticalAlignment="Center" />
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                                    <Button Content="+" ToolTip.Tip="Add config"
+                                            Command="{Binding AddConfigCommand}"
+                                            Padding="8,4" />
+                                    <Button Content="⧉" ToolTip.Tip="Duplicate selected"
+                                            Command="{Binding DuplicateConfigCommand}"
+                                            Padding="8,4" />
+                                    <Button Content="−" ToolTip.Tip="Remove selected"
+                                            Command="{Binding RemoveConfigCommand}"
+                                            Padding="8,4" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <ListBox ItemsSource="{Binding Configs}"
+                                     SelectedItem="{Binding SelectedConfig, Mode=TwoWay}"
+                                     MaxHeight="180">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ConfigViewModel">
+                                        <StackPanel Spacing="2" Margin="2,4">
+                                            <TextBlock Text="{Binding Name}"
+                                                       FontWeight="Medium" />
+                                            <TextBlock Text="{Binding Pipeline}"
+                                                       FontSize="11" Opacity="0.55" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </StackPanel>
+
+                        <!-- Config detail -->
+                        <ContentControl Margin="16,8,16,0"
+                                        Content="{Binding SelectedConfig}"
+                                        IsVisible="{Binding HasSelectedConfig}">
+                            <ContentControl.ContentTemplate>
                                 <DataTemplate x:DataType="vm:ConfigViewModel">
-                                    <StackPanel Spacing="2" Margin="2,4">
-                                        <TextBlock Text="{Binding Name}"
-                                                   FontWeight="Medium" />
-                                        <TextBlock Text="{Binding Pipeline}"
-                                                   FontSize="11" Opacity="0.55" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </StackPanel>
+                                    <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                            BorderThickness="1" CornerRadius="4"
+                                            Padding="12">
+                                        <StackPanel Spacing="8">
 
-                    <!-- Config detail ────────────────────────────────────────── -->
-                    <ContentControl Margin="16,8,16,0"
-                                    Content="{Binding SelectedConfig}"
-                                    IsVisible="{Binding HasSelectedConfig}">
-                        <ContentControl.ContentTemplate>
-                            <DataTemplate x:DataType="vm:ConfigViewModel">
-                                <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
-                                        BorderThickness="1" CornerRadius="4"
-                                        Padding="12">
-                                    <StackPanel Spacing="8">
-
-                                        <!-- Name -->
-                                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
-                                            <TextBlock Grid.Column="0" Text="Name"
-                                                       VerticalAlignment="Center" />
-                                            <TextBox Grid.Column="1"
-                                                     Text="{Binding Name}" />
-                                        </Grid>
-
-                                        <!-- Pipeline -->
-                                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
-                                            <TextBlock Grid.Column="0" Text="Pipeline"
-                                                       VerticalAlignment="Center" />
-                                            <ComboBox Grid.Column="1"
-                                                      ItemsSource="{Binding PipelineOptions}"
-                                                      SelectedItem="{Binding Pipeline}"
-                                                      HorizontalAlignment="Stretch" />
-                                        </Grid>
-
-                                        <!-- five_stage: forwarding -->
-                                        <CheckBox IsChecked="{Binding ForwardingEnabled}"
-                                                  Content="Forwarding enabled"
-                                                  IsVisible="{Binding IsFiveStage}" />
-
-                                        <!-- Predictor (five_stage + ooo) -->
-                                        <StackPanel IsVisible="{Binding !IsWidePipeline}" Spacing="6">
+                                            <!-- Name -->
                                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
-                                                <TextBlock Grid.Column="0" Text="Branch predictor"
+                                                <TextBlock Grid.Column="0" Text="Name"
+                                                           VerticalAlignment="Center" />
+                                                <TextBox Grid.Column="1"
+                                                         Text="{Binding Name}" />
+                                            </Grid>
+
+                                            <!-- Pipeline -->
+                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                                <TextBlock Grid.Column="0" Text="Pipeline"
                                                            VerticalAlignment="Center" />
                                                 <ComboBox Grid.Column="1"
-                                                          ItemsSource="{Binding PredictorOptions}"
-                                                          SelectedItem="{Binding PredictorType}"
+                                                          ItemsSource="{Binding PipelineOptions}"
+                                                          SelectedItem="{Binding Pipeline}"
                                                           HorizontalAlignment="Stretch" />
                                             </Grid>
+
+                                            <!-- five_stage: forwarding -->
+                                            <CheckBox IsChecked="{Binding ForwardingEnabled}"
+                                                      Content="Forwarding enabled"
+                                                      IsVisible="{Binding IsFiveStage}" />
+
+                                            <!-- Predictor (five_stage + ooo) -->
+                                            <StackPanel IsVisible="{Binding !IsWidePipeline}" Spacing="6">
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                                    <TextBlock Grid.Column="0" Text="Branch predictor"
+                                                               VerticalAlignment="Center" />
+                                                    <ComboBox Grid.Column="1"
+                                                              ItemsSource="{Binding PredictorOptions}"
+                                                              SelectedItem="{Binding PredictorType}"
+                                                              HorizontalAlignment="Stretch" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasNBitParams}">
+                                                    <TextBlock Grid.Column="0" Text="Bits"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding PredictorBits}"
+                                                                   Minimum="1" Maximum="8"
+                                                                   Increment="1" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasNBitParams}">
+                                                    <TextBlock Grid.Column="0" Text="Table size"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding PredictorTableSize}"
+                                                                   Minimum="4" Maximum="65536"
+                                                                   Increment="256" />
+                                                </Grid>
+
+                                                <!-- gshare / gselect: history bits -->
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasGshareParams}">
+                                                    <TextBlock Grid.Column="0" Text="History bits"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding PredictorHistoryBits}"
+                                                                   Minimum="1" Maximum="32"
+                                                                   Increment="1" />
+                                                </Grid>
+
+                                                <!-- gselect: PC bits -->
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasGselectParams}">
+                                                    <TextBlock Grid.Column="0" Text="PC bits"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding PredictorPcBits}"
+                                                                   Minimum="1" Maximum="16"
+                                                                   Increment="1" />
+                                                </Grid>
+
+                                                <!-- correlated: M, N, BHT size -->
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasCorrelatedParams}">
+                                                    <TextBlock Grid.Column="0" Text="M (hist bits)"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding CorrelatedM}"
+                                                                   Minimum="1" Maximum="16"
+                                                                   Increment="1" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasCorrelatedParams}">
+                                                    <TextBlock Grid.Column="0" Text="N (counter bits)"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding CorrelatedN}"
+                                                                   Minimum="1" Maximum="8"
+                                                                   Increment="1" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasCorrelatedParams}">
+                                                    <TextBlock Grid.Column="0" Text="BHT size"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding CorrelatedBhtSize}"
+                                                                   Minimum="4" Maximum="65536"
+                                                                   Increment="256" />
+                                                </Grid>
+
+                                                <!-- perceptron: history length, table size -->
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasPerceptronParams}">
+                                                    <TextBlock Grid.Column="0" Text="History length"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding PerceptronHistoryLength}"
+                                                                   Minimum="1" Maximum="256"
+                                                                   Increment="4" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasPerceptronParams}">
+                                                    <TextBlock Grid.Column="0" Text="Table size"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding PerceptronTableSize}"
+                                                                   Minimum="4" Maximum="65536"
+                                                                   Increment="256" />
+                                                </Grid>
+
+                                                <!-- hashed perceptron: table size -->
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasHashedPerceptronParams}">
+                                                    <TextBlock Grid.Column="0" Text="Table size"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding HashedPerceptronTableSize}"
+                                                                   Minimum="4" Maximum="65536"
+                                                                   Increment="256" />
+                                                </Grid>
+
+                                                <!-- tournament: local hist bits, local table, global hist bits -->
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasTournamentParams}">
+                                                    <TextBlock Grid.Column="0" Text="Local hist bits"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding TournamentLocalHistoryBits}"
+                                                                   Minimum="1" Maximum="16"
+                                                                   Increment="1" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasTournamentParams}">
+                                                    <TextBlock Grid.Column="0" Text="Local table"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding TournamentLocalTableSize}"
+                                                                   Minimum="4" Maximum="65536"
+                                                                   Increment="256" />
+                                                </Grid>
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding HasTournamentParams}">
+                                                    <TextBlock Grid.Column="0" Text="Global hist bits"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Column="1"
+                                                                   Value="{Binding TournamentGlobalHistoryBits}"
+                                                                   Minimum="1" Maximum="32"
+                                                                   Increment="1" />
+                                                </Grid>
+                                            </StackPanel>
+
+                                            <!-- five_stage: I-cache -->
+                                            <StackPanel IsVisible="{Binding IsFiveStage}" Spacing="6">
+                                                <CheckBox IsChecked="{Binding ICacheEnabled}"
+                                                          Content="I-cache" />
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding ICacheEnabled}"
+                                                      RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4">
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                                                   Value="{Binding ICacheCapacityKb}"
+                                                                   Minimum="1" Maximum="16384" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                                   Value="{Binding ICacheWays}"
+                                                                   Minimum="1" Maximum="16" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                                   Value="{Binding ICacheBlockBytes}"
+                                                                   Minimum="8" Maximum="256" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="3" Grid.Column="1"
+                                                                   Value="{Binding ICacheMissLatency}"
+                                                                   Minimum="1" Maximum="200" />
+                                                </Grid>
+                                            </StackPanel>
+
+                                            <!-- five_stage: D-cache -->
+                                            <StackPanel IsVisible="{Binding IsFiveStage}" Spacing="6">
+                                                <CheckBox IsChecked="{Binding DCacheEnabled}"
+                                                          Content="D-cache" />
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      IsVisible="{Binding DCacheEnabled}"
+                                                      RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4">
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                                                   Value="{Binding DCacheCapacityKb}"
+                                                                   Minimum="1" Maximum="16384" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                                   Value="{Binding DCacheWays}"
+                                                                   Minimum="1" Maximum="16" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                                   Value="{Binding DCacheBlockBytes}"
+                                                                   Minimum="8" Maximum="256" />
+                                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="3" Grid.Column="1"
+                                                                   Value="{Binding DCacheMissLatency}"
+                                                                   Minimum="1" Maximum="200" />
+                                                </Grid>
+                                            </StackPanel>
+
+                                            <!-- five_stage: store buffer -->
                                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasNBitParams}">
-                                                <TextBlock Grid.Column="0" Text="Bits"
+                                                  IsVisible="{Binding IsFiveStage}">
+                                                <TextBlock Grid.Column="0" Text="Store buffer"
                                                            VerticalAlignment="Center" />
                                                 <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding PredictorBits}"
-                                                               Minimum="1" Maximum="8"
-                                                               Increment="1" />
-                                            </Grid>
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasNBitParams}">
-                                                <TextBlock Grid.Column="0" Text="Table size"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding PredictorTableSize}"
-                                                               Minimum="4" Maximum="65536"
-                                                               Increment="256" />
+                                                               Value="{Binding StoreBufferCapacity}"
+                                                               Minimum="0" Maximum="64" />
                                             </Grid>
 
-                                            <!-- gshare / gselect: history bits -->
+                                            <!-- superscalar / ooo: issue width -->
                                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasGshareParams}">
-                                                <TextBlock Grid.Column="0" Text="History bits"
+                                                  IsVisible="{Binding IsWidePipeline}">
+                                                <TextBlock Grid.Column="0" Text="Issue width"
                                                            VerticalAlignment="Center" />
                                                 <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding PredictorHistoryBits}"
-                                                               Minimum="1" Maximum="32"
-                                                               Increment="1" />
-                                            </Grid>
-
-                                            <!-- gselect: PC bits -->
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasGselectParams}">
-                                                <TextBlock Grid.Column="0" Text="PC bits"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding PredictorPcBits}"
-                                                               Minimum="1" Maximum="16"
-                                                               Increment="1" />
-                                            </Grid>
-
-                                            <!-- correlated: M, N, BHT size -->
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasCorrelatedParams}">
-                                                <TextBlock Grid.Column="0" Text="M (hist bits)"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding CorrelatedM}"
-                                                               Minimum="1" Maximum="16"
-                                                               Increment="1" />
-                                            </Grid>
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasCorrelatedParams}">
-                                                <TextBlock Grid.Column="0" Text="N (counter bits)"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding CorrelatedN}"
-                                                               Minimum="1" Maximum="8"
-                                                               Increment="1" />
-                                            </Grid>
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasCorrelatedParams}">
-                                                <TextBlock Grid.Column="0" Text="BHT size"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding CorrelatedBhtSize}"
-                                                               Minimum="4" Maximum="65536"
-                                                               Increment="256" />
-                                            </Grid>
-
-                                            <!-- perceptron: history length, table size -->
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasPerceptronParams}">
-                                                <TextBlock Grid.Column="0" Text="History length"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding PerceptronHistoryLength}"
-                                                               Minimum="1" Maximum="256"
-                                                               Increment="4" />
-                                            </Grid>
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasPerceptronParams}">
-                                                <TextBlock Grid.Column="0" Text="Table size"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding PerceptronTableSize}"
-                                                               Minimum="4" Maximum="65536"
-                                                               Increment="256" />
-                                            </Grid>
-
-                                            <!-- hashed perceptron: table size -->
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasHashedPerceptronParams}">
-                                                <TextBlock Grid.Column="0" Text="Table size"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding HashedPerceptronTableSize}"
-                                                               Minimum="4" Maximum="65536"
-                                                               Increment="256" />
-                                            </Grid>
-
-                                            <!-- tournament: local hist bits, local table, global hist bits -->
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasTournamentParams}">
-                                                <TextBlock Grid.Column="0" Text="Local hist bits"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding TournamentLocalHistoryBits}"
-                                                               Minimum="1" Maximum="16"
-                                                               Increment="1" />
-                                            </Grid>
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasTournamentParams}">
-                                                <TextBlock Grid.Column="0" Text="Local table"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding TournamentLocalTableSize}"
-                                                               Minimum="4" Maximum="65536"
-                                                               Increment="256" />
-                                            </Grid>
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding HasTournamentParams}">
-                                                <TextBlock Grid.Column="0" Text="Global hist bits"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Column="1"
-                                                               Value="{Binding TournamentGlobalHistoryBits}"
-                                                               Minimum="1" Maximum="32"
-                                                               Increment="1" />
-                                            </Grid>
-                                        </StackPanel>
-
-                                        <!-- five_stage: I-cache -->
-                                        <StackPanel IsVisible="{Binding IsFiveStage}" Spacing="6">
-                                            <CheckBox IsChecked="{Binding ICacheEnabled}"
-                                                      Content="I-cache" />
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding ICacheEnabled}"
-                                                  RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4">
-                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="0" Grid.Column="1"
-                                                               Value="{Binding ICacheCapacityKb}"
-                                                               Minimum="1" Maximum="16384" />
-                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="1" Grid.Column="1"
-                                                               Value="{Binding ICacheWays}"
+                                                               Value="{Binding IssueWidth}"
                                                                Minimum="1" Maximum="16" />
-                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="2" Grid.Column="1"
-                                                               Value="{Binding ICacheBlockBytes}"
-                                                               Minimum="8" Maximum="256" />
-                                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="3" Grid.Column="1"
-                                                               Value="{Binding ICacheMissLatency}"
-                                                               Minimum="1" Maximum="200" />
                                             </Grid>
+
+                                            <!-- ooo: ROB / IQ / phys regs -->
+                                            <StackPanel IsVisible="{Binding IsOoo}" Spacing="6">
+                                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                                      RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="ROB capacity"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                                                   Value="{Binding RobCapacity}"
+                                                                   Minimum="4" Maximum="512" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="IQ capacity"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                                   Value="{Binding IqCapacity}"
+                                                                   Minimum="4" Maximum="256" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Extra phys regs"
+                                                               VerticalAlignment="Center" />
+                                                    <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                                   Value="{Binding ExtraPhysRegs}"
+                                                                   Minimum="0" Maximum="256" />
+                                                </Grid>
+                                            </StackPanel>
+
                                         </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ContentControl.ContentTemplate>
+                        </ContentControl>
 
-                                        <!-- five_stage: D-cache -->
-                                        <StackPanel IsVisible="{Binding IsFiveStage}" Spacing="6">
-                                            <CheckBox IsChecked="{Binding DCacheEnabled}"
-                                                      Content="D-cache" />
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  IsVisible="{Binding DCacheEnabled}"
-                                                  RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4">
-                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="0" Grid.Column="1"
-                                                               Value="{Binding DCacheCapacityKb}"
-                                                               Minimum="1" Maximum="16384" />
-                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="1" Grid.Column="1"
-                                                               Value="{Binding DCacheWays}"
-                                                               Minimum="1" Maximum="16" />
-                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="2" Grid.Column="1"
-                                                               Value="{Binding DCacheBlockBytes}"
-                                                               Minimum="8" Maximum="256" />
-                                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="3" Grid.Column="1"
-                                                               Value="{Binding DCacheMissLatency}"
-                                                               Minimum="1" Maximum="200" />
-                                            </Grid>
-                                        </StackPanel>
+                        <!-- Run button -->
+                        <StackPanel Margin="16,16,16,0" Spacing="8">
+                            <Button Content="▶  Run Experiment"
+                                    Command="{Binding RunCommand}"
+                                    IsEnabled="{Binding !IsRunning}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="0,10" />
+                            <ProgressBar IsIndeterminate="True"
+                                         IsVisible="{Binding IsRunning}"
+                                         Height="4" />
+                        </StackPanel>
 
-                                        <!-- five_stage: store buffer -->
-                                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                              IsVisible="{Binding IsFiveStage}">
-                                            <TextBlock Grid.Column="0" Text="Store buffer"
-                                                       VerticalAlignment="Center" />
-                                            <NumericUpDown Grid.Column="1"
-                                                           Value="{Binding StoreBufferCapacity}"
-                                                           Minimum="0" Maximum="64" />
-                                        </Grid>
-
-                                        <!-- superscalar / ooo: issue width -->
-                                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                              IsVisible="{Binding IsWidePipeline}">
-                                            <TextBlock Grid.Column="0" Text="Issue width"
-                                                       VerticalAlignment="Center" />
-                                            <NumericUpDown Grid.Column="1"
-                                                           Value="{Binding IssueWidth}"
-                                                           Minimum="1" Maximum="16" />
-                                        </Grid>
-
-                                        <!-- ooo: ROB / IQ / phys regs -->
-                                        <StackPanel IsVisible="{Binding IsOoo}" Spacing="6">
-                                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                                                  RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
-                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="ROB capacity"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="0" Grid.Column="1"
-                                                               Value="{Binding RobCapacity}"
-                                                               Minimum="4" Maximum="512" />
-                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="IQ capacity"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="1" Grid.Column="1"
-                                                               Value="{Binding IqCapacity}"
-                                                               Minimum="4" Maximum="256" />
-                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Extra phys regs"
-                                                           VerticalAlignment="Center" />
-                                                <NumericUpDown Grid.Row="2" Grid.Column="1"
-                                                               Value="{Binding ExtraPhysRegs}"
-                                                               Minimum="0" Maximum="256" />
-                                            </Grid>
-                                        </StackPanel>
-
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ContentControl.ContentTemplate>
-                    </ContentControl>
-
-                    <!-- Run button ───────────────────────────────────────────── -->
-                    <StackPanel Margin="16,16,16,0" Spacing="8">
-                        <Button Content="▶  Run Experiment"
-                                Command="{Binding RunCommand}"
-                                IsEnabled="{Binding !IsRunning}"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Center"
-                                Padding="0,10" />
-                        <ProgressBar IsIndeterminate="True"
-                                     IsVisible="{Binding IsRunning}"
-                                     Height="4" />
                     </StackPanel>
 
-                    <Separator Margin="0,8,0,0" />
+                    <!-- ── PEvents sidebar ───────────────────────────────────── -->
+                    <StackPanel IsVisible="{Binding IsPEventsTab}">
 
-                    <!-- Trace ────────────────────────────────────────────────── -->
-                    <StackPanel Margin="16,12,16,0" Spacing="8">
-                        <TextBlock Text="TRACE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
-                        <Grid ColumnDefinitions="130,*" ColumnSpacing="8">
-                            <TextBlock Grid.Column="0" Text="Max trace ticks"
-                                       VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Column="1"
-                                           Value="{Binding TraceMaxTicks}"
-                                           Minimum="100" Maximum="1000000"
-                                           Increment="1000" FormatString="N0" />
-                        </Grid>
-                        <TextBlock Text="Traces the selected configuration."
-                                   FontSize="11" Opacity="0.45" />
+                        <Separator />
+
+                        <StackPanel Margin="16,12,16,0" Spacing="8">
+                            <TextBlock Text="TRACE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <Grid ColumnDefinitions="130,*" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Text="Max trace ticks"
+                                           VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1"
+                                               Value="{Binding TraceMaxTicks}"
+                                               Minimum="100" Maximum="1000000"
+                                               Increment="1000" FormatString="N0" />
+                            </Grid>
+                            <TextBlock Text="Traces the selected configuration."
+                                       FontSize="11" Opacity="0.45" />
+                        </StackPanel>
+                        <StackPanel Margin="16,8,16,0" Spacing="8">
+                            <Button Content="▶  Trace Config"
+                                    Command="{Binding TraceCommand}"
+                                    IsEnabled="{Binding !IsTracing}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="0,10" />
+                            <ProgressBar IsIndeterminate="True"
+                                         IsVisible="{Binding IsTracing}"
+                                         Height="4" />
+                        </StackPanel>
+
                     </StackPanel>
-                    <StackPanel Margin="16,8,16,0" Spacing="8">
-                        <Button Content="▶  Trace Config"
-                                Command="{Binding TraceCommand}"
-                                IsEnabled="{Binding !IsTracing}"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Center"
-                                Padding="0,10" />
-                        <ProgressBar IsIndeterminate="True"
-                                     IsVisible="{Binding IsTracing}"
-                                     Height="4" />
+
+                    <!-- ── Assembler sidebar ─────────────────────────────────── -->
+                    <StackPanel IsVisible="{Binding IsAssemblerTab}">
+
+                        <Separator />
+
+                        <StackPanel Margin="16,12,16,12" Spacing="12">
+                            <TextBlock Text="ASSEMBLER" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+
+                            <!-- ms / cycle chooser -->
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Text="ms / cycle"
+                                           VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1"
+                                               Value="{Binding Assembler.MsPerCycle}"
+                                               Minimum="0" Maximum="5000"
+                                               Increment="10" FormatString="N0"
+                                               Width="110" />
+                            </Grid>
+                            <TextBlock Text="0 = run as fast as possible."
+                                       FontSize="11" Opacity="0.45" />
+
+                            <!-- Transport buttons: ←  |▶  →  ⟳ -->
+                            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
+                                <Button Grid.Column="0"
+                                        Content="←"
+                                        ToolTip.Tip="Back (not yet implemented)"
+                                        Command="{Binding Assembler.BackCommand}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        FontSize="16" Padding="0,8" />
+                                <Button Grid.Column="1"
+                                        Content="|▶"
+                                        ToolTip.Tip="Run"
+                                        Command="{Binding Assembler.RunCommand}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        FontSize="16" Padding="0,8" />
+                                <Button Grid.Column="2"
+                                        Content="→"
+                                        ToolTip.Tip="Step"
+                                        Command="{Binding Assembler.StepCommand}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        FontSize="16" Padding="0,8" />
+                                <Button Grid.Column="3"
+                                        Content="⟳"
+                                        ToolTip.Tip="Reset"
+                                        Command="{Binding Assembler.ResetCommand}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        FontSize="16" Padding="0,8" />
+                            </Grid>
+                        </StackPanel>
+
                     </StackPanel>
 
                 </StackPanel>
@@ -460,31 +525,37 @@
             </Border>
 
             <!-- Tabs -->
-            <TabControl Grid.Row="1">
+            <TabControl Grid.Row="1"
+                        SelectedIndex="{Binding SelectedTabIndex}">
 
-                <!-- Chart tab -->
-                <TabItem Header="Chart">
-                    <Grid RowDefinitions="Auto,*">
-                        <DockPanel Grid.Row="0" Margin="12,8" LastChildFill="True">
-                            <TextBlock Text="Metric: " DockPanel.Dock="Left"
-                                       VerticalAlignment="Center" Margin="0,0,6,0" />
-                            <ComboBox ItemsSource="{Binding AvailableMetrics}"
-                                      SelectedItem="{Binding SelectedMetric}"
-                                      MinWidth="240" />
-                        </DockPanel>
-                        <sp:AvaPlot x:Name="ChartView" Grid.Row="1" />
-                    </Grid>
-                </TabItem>
+                <!-- Charts tab (Chart + Table as sub-tabs) -->
+                <TabItem Header="Charts">
+                    <TabControl>
 
-                <!-- Table tab -->
-                <TabItem Header="Table">
-                    <DataGrid x:Name="ResultsGrid"
-                              IsReadOnly="True"
-                              CanUserSortColumns="True"
-                              CanUserResizeColumns="True"
-                              GridLinesVisibility="All"
-                              HorizontalScrollBarVisibility="Auto"
-                              VerticalScrollBarVisibility="Auto" />
+                        <TabItem Header="Chart">
+                            <Grid RowDefinitions="Auto,*">
+                                <DockPanel Grid.Row="0" Margin="12,8" LastChildFill="True">
+                                    <TextBlock Text="Metric: " DockPanel.Dock="Left"
+                                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <ComboBox ItemsSource="{Binding AvailableMetrics}"
+                                              SelectedItem="{Binding SelectedMetric}"
+                                              MinWidth="240" />
+                                </DockPanel>
+                                <sp:AvaPlot x:Name="ChartView" Grid.Row="1" />
+                            </Grid>
+                        </TabItem>
+
+                        <TabItem Header="Table">
+                            <DataGrid x:Name="ResultsGrid"
+                                      IsReadOnly="True"
+                                      CanUserSortColumns="True"
+                                      CanUserResizeColumns="True"
+                                      GridLinesVisibility="All"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto" />
+                        </TabItem>
+
+                    </TabControl>
                 </TabItem>
 
                 <!-- PEvents tab -->
