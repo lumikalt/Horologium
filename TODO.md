@@ -5,10 +5,12 @@
 - [ ] Rollback/Back step: single-step backward in the assembler debugger (requires snapshot-based undo or reverse simulation).
 - [ ] L2 and L3 caches.
 - [x] Assembler to simulate RISC-V in-place.
+- [ ] Compile from C to disassembly and simulate that.
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
   instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)
-- [ ] Make text properly monospace. It seems like the fonts aren't being loaded properly?
+- [ ] Complete Light Mode implementation — missing dark background on the chart background before execution, on the PEvents graph, on the decoding guide for the Assembly.
+- [ ] Work with other ISAs, not just RISC-V.
 
 ## CHIP8
 
@@ -31,8 +33,9 @@
 - [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
 - [ ] UVE (Unlimited Vector Extension).
-- [ ] SUM (Supervisor User Memory): honour `sstatus.SUM` so S-mode can deliberately access user pages (PTE.U=1);
+- [ ] SUM (Supervisor User Memory): honor `sstatus.SUM` so S-mode can deliberately access user pages (PTE.U=1);
   currently S-mode always faults on user pages.
+- [ ] Implement the rest of the extensions.
 
 ### Analysis
 
@@ -55,12 +58,12 @@
 - [x] Eliminate nullable `ulong?` property overhead on hot-path structs: `FetchHint.BranchTarget`,
   `WritebackStage.TrapRedirect`, `RobEntry.ResolvedNextPc`, `ExecuteResult.RegisterResult`. Converted to
   `(ulong Value, bool HasValue)` pairs. Profiler showed ~833ms combined across the four setters.
-- [ ] Memoization of instructions, results and branches.
+- [ ] Memoization of instructions, results, and branches.
 
 ## Mechanism
 
 - [ ] Generic interfaces for external devices.
-    - [ ] Basic UART/MIMO?
+  - [ ] Basic UART/MIMO?
 - [ ] Cache pre-fetching: next-line, stride (RPT), and stream prefetchers as pluggable `IPrefetcher` implementations on
   `SetAssociativeCache`.
 - [ ] Non-blocking cache with MSHR (Miss Status Holding Registers) to allow hits-under-misses and reduce cache-miss
@@ -71,8 +74,8 @@
 
 - [x] Functional-unit classes with configurable count and per-class latency (integer ALU, multiplier/divider, FP
   pipelined, FP div/sqrt, load-store); result latency drives IQ wakeup via countdown-based in-flight buffer.
-- [x] Memory order violation detection and squash: detect when a speculative load read stale data because an older store
-  to the same address resolved after it; flush and re-execute from the violating load; store-to-load forwarding at
+- [x] Memory order violation detection and squash. Detect when a speculative load read stale data because an older store
+  to the same address resolved after it. Flush and reexecute from the violating load; store-to-load forwarding at
   execute time avoids squash when the store has already resolved. (inspired by gem5 O3)
 - [ ] Separate load queue and store queue for speculative memory disambiguation.
 - [ ] Streaming-Engine to allow for UVE.
@@ -85,11 +88,20 @@
 - [ ] LLBP: https://ieeexplore.ieee.org/abstract/document/11408567/
 - [ ] VLA-TAGE: https://ieeexplore.ieee.org/document/11417886
 - [ ] Branch pre-computation: https://hps.ece.utexas.edu/pub/TEA.pdf
+- [ ] Check other interesting algorithms, specifically non-TAGE ones.
+- [ ] CBP-2025 front runner: correlate on register values rather than history.
+- [ ] BranchNet: CNN predictor.
+- [ ] Multiperspective Perceptron.
+- [ ] Bullseye/SDM as H2P helpers.
 
-## Multi-core
+## Multicore
 
 - [ ] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.
-    - [ ] MESI cache coherence protocol between harts.
+  - [ ] MESI cache coherence protocol between harts.
+
+## Orrery
+
+- [ ] Generic definition for a parser, plus whatever might be necessary for Face.
 
 ## Other ISAs
 
