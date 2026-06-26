@@ -217,8 +217,17 @@
 
                     <!-- Title -->
                     <Border Padding="16,14,16,14">
-                        <TextBlock Text="Horologium  ·  Face"
-                                   FontSize="16" FontWeight="SemiBold" />
+                        <DockPanel>
+                            <ToggleButton DockPanel.Dock="Right"
+                                          IsChecked="{Binding IsDarkTheme}"
+                                          Content="{Binding ThemeLabel}"
+                                          VerticalAlignment="Center"
+                                          Padding="8,3"
+                                          FontSize="11" />
+                            <TextBlock Text="Horologium  ·  Face"
+                                       FontSize="16" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                        </DockPanel>
                     </Border>
 
                     <Separator />

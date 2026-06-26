@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using Avalonia;
+using Avalonia.Styling;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Face.Models;
@@ -71,6 +73,15 @@ public partial class MainWindowViewModel : ObservableObject {
     public bool IsChartTableTab => SelectedTabIndex == 0;
     public bool IsPEventsTab => SelectedTabIndex == 1;
     public bool IsAssemblerTab => SelectedTabIndex == 2;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ThemeLabel))]
+    public partial bool IsDarkTheme { get; set; } = true;
+
+    public string ThemeLabel => IsDarkTheme ? "Dark" : "Light";
+
+    partial void OnIsDarkThemeChanged(bool value) =>
+        Application.Current!.RequestedThemeVariant = value ? ThemeVariant.Dark : ThemeVariant.Light;
 
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
