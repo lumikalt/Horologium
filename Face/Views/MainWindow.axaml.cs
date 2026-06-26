@@ -22,7 +22,13 @@ public partial class MainWindow : Window {
         Loaded += (_, _) => {
             _chartView = this.FindControl<AvaPlot>("ChartView");
             _resultsGrid = this.FindControl<DataGrid>("ResultsGrid");
-            if (Vm is not null) Vm.ResultsUpdated += () => Dispatcher.UIThread.Post(OnResultsUpdated);
+            if (Vm is not null) {
+                Vm.ResultsUpdated += () => Dispatcher.UIThread.Post(OnResultsUpdated);
+                Vm.PropertyChanged += (_, e) => {
+                    if (e.PropertyName == nameof(MainWindowViewModel.IsDarkTheme))
+                        OnResultsUpdated();
+                };
+            }
             ApplyChartStyle();
         };
     }
@@ -60,11 +66,19 @@ public partial class MainWindow : Window {
 
     private void ApplyChartStyle() {
         if (_chartView is null) return;
+        bool dark = Vm?.IsDarkTheme ?? true;
         Plot plt = _chartView.Plot;
-        plt.FigureBackground.Color = Color.FromHex("#1C1C28");
-        plt.DataBackground.Color = Color.FromHex("#1C1C28");
-        plt.Grid.MajorLineColor = Color.FromHex("#3A3A52");
-        plt.Axes.Color(Colors.White);
+        if (dark) {
+            plt.FigureBackground.Color = Color.FromHex("#1C1C28");
+            plt.DataBackground.Color  = Color.FromHex("#1C1C28");
+            plt.Grid.MajorLineColor   = Color.FromHex("#3A3A52");
+            plt.Axes.Color(Colors.White);
+        } else {
+            plt.FigureBackground.Color = Color.FromHex("#F5F5F5");
+            plt.DataBackground.Color   = Color.FromHex("#FFFFFF");
+            plt.Grid.MajorLineColor    = Color.FromHex("#CCCCDD");
+            plt.Axes.Color(Colors.Black);
+        }
         _chartView.Refresh();
     }
 

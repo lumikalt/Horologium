@@ -30,11 +30,30 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [ObservableProperty]
     public partial string SourceCode { get; set; } =
-        ".text\n.globl _start\n_start:\n    li a0, 10\n    li a1, 32\n    add a2, a0, a1\n";
+        """
+        j _start
+            
+        factorial:
+            li   t0, 1
+        loop:
+            blez a0, done
+            mul  t0, t0, a0
+            addi a0, a0, -1
+            j    loop
+        done:
+            mv   a0, t0
+            ret
+            
+        _start:
+            li   a0, 5
+            call factorial
+        """;
 
     [ObservableProperty] public partial string AssembleError { get; set; } = "";
 
     [ObservableProperty] public partial bool HasError { get; set; }
+
+    [ObservableProperty] public partial bool IsDarkTheme { get; set; } = true;
 
     [ObservableProperty] public partial string StatusText { get; set; } = "Enter assembly and click Assemble.";
 

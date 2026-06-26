@@ -16,7 +16,6 @@ public partial class AssemblerView : UserControl {
 
     public AssemblerView() {
         InitializeComponent();
-        Editor.SyntaxHighlighting = RvHighlighting.GetDefinition();
         Editor.TextArea.TextView.BackgroundRenderers.Add(_lineHighlighter);
         Editor.TextArea.AddHandler(InputElement.KeyDownEvent, OnEditorClipboardKey, RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
@@ -28,15 +27,22 @@ public partial class AssemblerView : UserControl {
         _vm = DataContext as AssemblerViewModel;
         if (_vm == null) return;
         Editor.Text = _vm.SourceCode;
+        Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(_vm.IsDarkTheme);
         _vm.PropertyChanged += OnVmPropertyChanged;
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e) {
-        if (e.PropertyName != nameof(AssemblerViewModel.CurrentSourceLine)) return;
-        int line = _vm?.CurrentSourceLine ?? 0;
-        _lineHighlighter.Line = line;
-        Editor.TextArea.TextView.InvalidateLayer(_lineHighlighter.Layer);
-        if (line > 0) Editor.ScrollToLine(line);
+        switch (e.PropertyName) {
+            case nameof(AssemblerViewModel.CurrentSourceLine):
+                int line = _vm?.CurrentSourceLine ?? 0;
+                _lineHighlighter.Line = line;
+                Editor.TextArea.TextView.InvalidateLayer(_lineHighlighter.Layer);
+                if (line > 0) Editor.ScrollToLine(line);
+                break;
+            case nameof(AssemblerViewModel.IsDarkTheme):
+                Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(_vm?.IsDarkTheme ?? true);
+                break;
+        }
     }
 
     private void OnEditorTextChanged(object? sender, EventArgs e) {

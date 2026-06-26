@@ -80,8 +80,10 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public string ThemeLabel => IsDarkTheme ? "Dark" : "Light";
 
-    partial void OnIsDarkThemeChanged(bool value) =>
+    partial void OnIsDarkThemeChanged(bool value) {
         Application.Current!.RequestedThemeVariant = value ? ThemeVariant.Dark : ThemeVariant.Light;
+        Assembler.IsDarkTheme = value;
+    }
 
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
