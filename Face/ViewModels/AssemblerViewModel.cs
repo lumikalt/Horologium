@@ -13,11 +13,13 @@ using RiscV.State;
 namespace Face.ViewModels;
 
 public partial class AssemblerViewModel : ObservableObject {
-    private static readonly Regex AsmErrPrefix = new(@"^[^ \t]+horologium_asm\.s:", RegexOptions.Multiline);
+    [GeneratedRegex(@"^[^ \t]+horologium_asm\.s:", RegexOptions.Multiline)]
+    private static partial Regex AsmErrPrefix { get; }
 
-    private static readonly Regex ListingLineRx = new(
+    [GeneratedRegex(
         @"^\s*(\d+)\s+([0-9a-fA-F]+)\s+[0-9a-fA-F]", RegexOptions.Multiline
-    );
+    )]
+    private static partial Regex ListingLineRx { get; }
 
     private readonly RvDecoder _decoder = new();
     private readonly RvExecutor _executor = new();
@@ -52,8 +54,6 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial string AssembleError { get; set; } = "";
 
     [ObservableProperty] public partial bool HasError { get; set; }
-
-    [ObservableProperty] public partial bool IsDarkTheme { get; set; } = true;
 
     [ObservableProperty] public partial string StatusText { get; set; } = "Enter assembly and click Assemble.";
 
