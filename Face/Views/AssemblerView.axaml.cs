@@ -1,9 +1,11 @@
 using System.ComponentModel;
 using System.Threading;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Styling;
 using Face.Controls;
 using Face.ViewModels;
 
@@ -20,29 +22,31 @@ public partial class AssemblerView : UserControl {
         Editor.TextArea.AddHandler(InputElement.KeyDownEvent, OnEditorClipboardKey, RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
         Editor.TextChanged += OnEditorTextChanged;
+        if (Application.Current is not null)
+            Application.Current.ActualThemeVariantChanged += OnThemeVariantChanged;
     }
+
+    private bool IsDark =>
+        Application.Current?.ActualThemeVariant != ThemeVariant.Light;
+
+    private void OnThemeVariantChanged(object? sender, EventArgs e) =>
+        Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(IsDark);
 
     private void OnDataContextChanged(object? sender, EventArgs e) {
         if (_vm != null) _vm.PropertyChanged -= OnVmPropertyChanged;
         _vm = DataContext as AssemblerViewModel;
         if (_vm == null) return;
         Editor.Text = _vm.SourceCode;
-        Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(_vm.IsDarkTheme);
+        Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(IsDark);
         _vm.PropertyChanged += OnVmPropertyChanged;
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e) {
-        switch (e.PropertyName) {
-            case nameof(AssemblerViewModel.CurrentSourceLine):
-                int line = _vm?.CurrentSourceLine ?? 0;
-                _lineHighlighter.Line = line;
-                Editor.TextArea.TextView.InvalidateLayer(_lineHighlighter.Layer);
-                if (line > 0) Editor.ScrollToLine(line);
-                break;
-            case nameof(AssemblerViewModel.IsDarkTheme):
-                Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(_vm?.IsDarkTheme ?? true);
-                break;
-        }
+        if (e.PropertyName != nameof(AssemblerViewModel.CurrentSourceLine)) return;
+        int line = _vm?.CurrentSourceLine ?? 0;
+        _lineHighlighter.Line = line;
+        Editor.TextArea.TextView.InvalidateLayer(_lineHighlighter.Layer);
+        if (line > 0) Editor.ScrollToLine(line);
     }
 
     private void OnEditorTextChanged(object? sender, EventArgs e) {
@@ -52,9 +56,8 @@ public partial class AssemblerView : UserControl {
         _debounce = new Timer(
             _ =>
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-                        if (_vm.AssembleCommand.CanExecute(null)) _vm.AssembleCommand.Execute(null);
-                    }
-                ),
+                    if (_vm.AssembleCommand.CanExecute(null)) _vm.AssembleCommand.Execute(null);
+                }),
             null, 600, Timeout.Infinite
         );
     }
@@ -80,7 +83,6 @@ public partial class AssemblerView : UserControl {
                     await clipboard.SetTextAsync(sel);
                     Editor.TextArea.Selection.ReplaceSelectionWithText("");
                 }
-
                 break;
 
             case Key.V:
