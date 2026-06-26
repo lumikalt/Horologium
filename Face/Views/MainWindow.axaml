@@ -243,7 +243,7 @@
                                          Text="{Binding WorkloadPath}"
                                          PlaceholderText="Path to ELF binary…"
                                          IsReadOnly="True" />
-                                <Button Grid.Column="1" Content="Browse…" x:Name="BrowseButton" />
+                                <Button Grid.Column="1" Content="Browse…" Click="OnBrowseClick" />
                             </Grid>
                         </StackPanel>
 
@@ -328,6 +328,29 @@
 
                     <!-- ── PEvents sidebar ───────────────────────────────────── -->
                     <StackPanel IsVisible="{Binding IsPEventsTab}">
+
+                        <Separator />
+
+                        <!-- Workload -->
+                        <StackPanel Margin="16,12,16,12" Spacing="8">
+                            <TextBlock Text="WORKLOAD" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <ComboBox ItemsSource="{Binding WorkloadPresets}"
+                                      SelectedItem="{Binding SelectedPreset}"
+                                      HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:WorkloadPreset">
+                                        <TextBlock Text="{Binding Label}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowBrowse}" ColumnSpacing="6">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding WorkloadPath}"
+                                         PlaceholderText="Path to ELF binary…"
+                                         IsReadOnly="True" />
+                                <Button Grid.Column="1" Content="Browse…" Click="OnBrowseClick" />
+                            </Grid>
+                        </StackPanel>
 
                         <Separator />
 

@@ -23,8 +23,6 @@ public partial class MainWindow : Window {
             _chartView = this.FindControl<AvaPlot>("ChartView");
             _resultsGrid = this.FindControl<DataGrid>("ResultsGrid");
             if (Vm is not null) Vm.ResultsUpdated += () => Dispatcher.UIThread.Post(OnResultsUpdated);
-
-            BrowseButton.Click += OnBrowseClick;
             ApplyChartStyle();
         };
     }
