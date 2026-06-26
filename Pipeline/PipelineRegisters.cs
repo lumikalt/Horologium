@@ -16,6 +16,10 @@ public sealed record IfIdLatch {
     // The PC Fetch speculatively went to after this instruction. Carried
     // downstream so EX can detect a misprediction once the branch resolves.
     public ulong PredictedNextPc { get; init; }
+
+    // Non-null when Fetch detected a page fault; downstream stages propagate
+    // this to WB without decoding or executing.
+    public TrapInfo? PreTrap { get; init; }
 }
 
 /// <summary>
@@ -33,6 +37,9 @@ public sealed record IdExLatch {
     public ulong Rs3Value { get; init; } // R4-type (FMADD family) third source
     public int DestinationRegister { get; init; } = -1;
     public ulong PredictedNextPc { get; init; }
+
+    // Propagated from IfIdLatch when a fetch page fault was detected.
+    public TrapInfo? PreTrap { get; init; }
 }
 
 /// <summary>

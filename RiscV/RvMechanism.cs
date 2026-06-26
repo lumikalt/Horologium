@@ -1,6 +1,7 @@
 using Mechanism;
 using RiscV.Decode;
 using RiscV.Execute;
+using RiscV.Memory;
 using RiscV.State;
 using RiscV.Trap;
 
@@ -19,4 +20,7 @@ public sealed class RvMechanism : IMechanism {
     public ITrapController TrapController { get; } = new RvTrapController();
 
     public IArchState CreateArchState() => new RvArchState();
+
+    public IFetchTranslator? CreateFetchTranslator(IArchState state, IMemory memory) =>
+        new RvFetchTranslator(state, memory);
 }

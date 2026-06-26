@@ -28,4 +28,10 @@ public interface IMechanism {
 
     /// <summary>The trap controller for this ISA.</summary>
     ITrapController TrapController { get; }
+
+    /// <summary>
+    /// Returns a fetch translator bound to the given state and memory,
+    /// or null if this ISA does not support virtual addressing.
+    /// </summary>
+    IFetchTranslator? CreateFetchTranslator(IArchState state, IMemory memory) => null;
 }

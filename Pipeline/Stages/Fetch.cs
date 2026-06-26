@@ -14,7 +14,8 @@ public sealed class FetchStage(
     IMemory memory,
     IBranchPredictor predictor,
     IDecoder decoder,
-    int rasDepth = 16
+    int rasDepth = 16,
+    IFetchTranslator? fetchTranslator = null
 )
     : Gear(name, parent, esc) {
     private readonly ReturnAddressStack _ras = new(rasDepth);
@@ -35,10 +36,15 @@ public sealed class FetchStage(
     // Decode stage retains the instruction it is holding.
     private IfIdLatch _held = IfIdLatch.Bubble;
 
+    // Suppress repeated fault latches: set when a fetch page-fault latch has
+    // been sent; cleared on flush when the trap redirect arrives.
+    private bool _fetchFaulted;
+
     public void Cycle() {
         if (Flush) {
             Pc = FlushTarget;
             Flush = false;
+            _fetchFaulted = false;
             _held = IfIdLatch.Bubble;
             LastSent = IfIdLatch.Bubble;
             return;
@@ -50,7 +56,31 @@ public sealed class FetchStage(
             return;
         }
 
-        var raw = (uint)memory.Read(Pc, 4);
+        // If a fault latch is already in the pipe, emit bubbles until the flush arrives.
+        if (_fetchFaulted) {
+            LastSent = IfIdLatch.Bubble;
+            return;
+        }
+
+        // Translate virtual PC → physical PC (Sv32 or bare mode).
+        ulong physPc = Pc;
+        if (fetchTranslator is not null) {
+            var (pa, faultCause) = fetchTranslator.Translate(Pc);
+            if (faultCause != 0) {
+                var faultLatch = new IfIdLatch {
+                    IsValid = true,
+                    Pc = Pc,
+                    PreTrap = new TrapInfo(faultCause, Pc, Pc),
+                };
+                _fetchFaulted = true;
+                _held = IfIdLatch.Bubble; // stall must not re-emit the fault
+                LastSent = faultLatch;
+                return;
+            }
+            physPc = pa;
+        }
+
+        var raw = (uint)memory.Read(physPc, 4);
         FetchHint hint = decoder.GetFetchHint(Pc, raw);
         int instrSize = hint.InstructionSize;
 

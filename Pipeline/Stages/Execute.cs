@@ -58,13 +58,27 @@ public sealed class ExecuteStage : Gear {
             return;
         }
 
-        if (_current is not { IsValid: true, } latch || latch.Instruction is null) {
+        if (_current is not { IsValid: true, } latch) {
             _current = IdExLatch.Bubble;
             LastSent = ExMemLatch.Bubble;
             return;
         }
 
         _current = IdExLatch.Bubble;
+
+        // Fetch page fault: bypass execution and forward the pre-baked trap result.
+        if (latch.PreTrap is not null) {
+            LastSent = new ExMemLatch {
+                IsValid = true, Pc = latch.Pc,
+                Result = ExecuteResult.WithTrap(latch.PreTrap),
+            };
+            return;
+        }
+
+        if (latch.Instruction is null) {
+            LastSent = ExMemLatch.Bubble;
+            return;
+        }
 
         IRegisterFile regs = _state.IntegerRegisters;
         ITooth instr = latch.Instruction;

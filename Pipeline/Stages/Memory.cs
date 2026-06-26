@@ -25,8 +25,8 @@ public sealed class MemoryStage : Gear {
     internal void Inject(ExMemLatch latch) => _current = latch;
 
     public void Cycle() {
-        if (_current is not { IsValid: true, } latch ||
-            latch.Instruction is null || latch.Result is null) {
+        if (_current is not { IsValid: true, } latch || latch.Result is null ||
+            (latch.Instruction is null && !latch.Result.HasTrap)) {
             _current = ExMemLatch.Bubble;
             LastSent = MemWbLatch.Bubble;
             return;
@@ -37,7 +37,7 @@ public sealed class MemoryStage : Gear {
 
         ulong nextPc = result.BranchTaken && result.BranchTarget.HasValue
             ? result.BranchTarget.Value
-            : latch.Pc + (ulong)latch.Instruction!.SizeBytes;
+            : latch.Pc + (ulong)(latch.Instruction?.SizeBytes ?? 4);
 
         var newLatch = new MemWbLatch {
             IsValid = true,

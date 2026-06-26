@@ -76,8 +76,9 @@ internal sealed class OoOPipelineCore : Gear {
 
     private readonly record struct FetchedInstr(
         ulong Pc,
-        ITooth Decoded,
-        ulong PredictedNextPc
+        ITooth? Decoded,
+        ulong PredictedNextPc,
+        TrapInfo? PreTrap = null
     );
 
     private readonly record struct IssuedInstr(
@@ -150,6 +151,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly IExecutor _executor;
     private readonly ITrapController _trapController;
     private readonly IBranchPredictor _predictor;
+    private readonly IFetchTranslator? _fetchTranslator;
     private readonly CapturingMemory _capMem;
     private readonly FuLatencyConfig _fuConfig;
 
@@ -176,6 +178,7 @@ internal sealed class OoOPipelineCore : Gear {
     private bool _halted;
     private bool _flushPending;
     private ulong _flushTarget;
+    private bool _fetchFaulted; // suppress repeated fault entries until flush clears
 
     // Counters (initialised in Initialize)
     private Counter _cyclesCounter = null!;
@@ -233,6 +236,7 @@ internal sealed class OoOPipelineCore : Gear {
 
         State = mechanism.CreateArchState();
         State.Pc = entryPoint;
+        _fetchTranslator = mechanism.CreateFetchTranslator(State, ILayers.Accessor);
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -636,10 +640,27 @@ internal sealed class OoOPipelineCore : Gear {
     private void StepDispatch() {
         while (_decodeQueue.Count > 0) {
             // Stop if any structural resource is exhausted.
-            if (_rob.IsFull || _iq.IsFull) break;
+            if (_rob.IsFull) break;
 
             FetchedInstr fi = _decodeQueue.Peek();
-            ITooth instr = fi.Decoded;
+
+            // Fetch page fault: park in ROB as a completed trap; skip IQ entirely.
+            if (fi.PreTrap is not null) {
+                int faultRobIdx = _rob.Allocate();
+                RobEntry robFault = _rob.At(faultRobIdx);
+                robFault.Pc = fi.Pc;
+                robFault.HasTrap = true;
+                robFault.Trap = fi.PreTrap;
+                robFault.IsComplete = true;
+                robFault.ArchDestination = -1;
+                robFault.PhysDestination = -1;
+                _decodeQueue.Dequeue();
+                continue;
+            }
+
+            if (_iq.IsFull) break;
+
+            ITooth instr = fi.Decoded!;
             int destArch = instr.DestinationRegister;
 
             bool needsRename = destArch > 0 && _rat.HasFree;
@@ -718,12 +739,29 @@ internal sealed class OoOPipelineCore : Gear {
 
     /// <summary>Fetch up to issueWidth instructions into the decode queue.</summary>
     private void StepFetch() {
+        if (_fetchFaulted) return; // wait for flush to clear before fetching again
+
         var fetched = 0;
         while (fetched < _issueWidth && _decodeQueue.Count < _maxDecodeDepth) {
+            // Translate virtual PC to physical (Sv32 or bare mode).
+            ulong physPc = _fetchPc;
+            if (_fetchTranslator is not null) {
+                var (pa, faultCause) = _fetchTranslator.Translate(_fetchPc);
+                if (faultCause != 0) {
+                    _decodeQueue.Enqueue(new FetchedInstr(
+                        _fetchPc, null, _fetchPc,
+                        new TrapInfo(faultCause, _fetchPc, _fetchPc)
+                    ));
+                    _fetchFaulted = true;
+                    return;
+                }
+                physPc = pa;
+            }
+
             ITooth decoded;
             uint raw;
             try {
-                raw = (uint)ILayers.Accessor.Read(_fetchPc, 4);
+                raw = (uint)ILayers.Accessor.Read(physPc, 4);
                 decoded = _decoder.Decode(_fetchPc, raw);
             }
             catch {
@@ -767,6 +805,7 @@ internal sealed class OoOPipelineCore : Gear {
 
         _fetchPc = _flushTarget;
         _flushPending = false;
+        _fetchFaulted = false;
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

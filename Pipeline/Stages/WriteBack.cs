@@ -41,7 +41,8 @@ public sealed class WritebackStage : Gear {
     public void Cycle() {
         TrapRedirect = default((ulong Value, bool HasValue));
 
-        if (_current is not { IsValid: true, } latch || latch.Instruction is null) {
+        if (_current is not { IsValid: true, } latch ||
+            (latch.Instruction is null && !latch.HasTrap)) {
             _current = MemWbLatch.Bubble;
             return;
         }
@@ -63,12 +64,12 @@ public sealed class WritebackStage : Gear {
                 _state.IntegerRegisters.Write(latch.DestinationRegister, latch.WritebackValue.Value);
             else if (latch.DestinationRegister > 0 && latch.SideEffect is null)
                 throw new InvalidOperationException(
-                    $"WB: instruction {latch.Instruction.Payload?.GetType().Name} " +
+                    $"WB: instruction {latch.Instruction?.Payload?.GetType().Name} " +
                     $"has rd={latch.DestinationRegister} but WritebackValue is null."
                 );
         }
 
-        Type? instrType = latch.Instruction.Payload?.GetType();
+        Type? instrType = latch.Instruction?.Payload?.GetType();
         if (instrType is not null) OpcodeHistogram?.Observe(instrType);
         RetiredCount++;
 

@@ -86,6 +86,7 @@ internal sealed class SingleCycleCore(
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
 
     private bool _anyCache;
+    private IFetchTranslator? _fetchTranslator;
 
     // Delta tracking for hit/miss counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
@@ -95,6 +96,7 @@ internal sealed class SingleCycleCore(
     public IArchState ArchState { get; } = mechanism.CreateArchState();
 
     public override void Initialize() {
+        _fetchTranslator = mechanism.CreateFetchTranslator(ArchState, ILayers.Accessor);
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles elapsed");
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
         _stallsCounter = Dials.AddCounter("stalls", "Stall cycles from memory hierarchy misses");
@@ -176,17 +178,40 @@ internal sealed class SingleCycleCore(
     private void ExecuteOneCycle() {
         ulong pc = ArchState.Pc;
 
-        // Fetch & Decode (through I-cache accessor)
+        // Fetch & Decode (through I-cache accessor).
+        // When a fetch translator is present, translate virtual→physical first;
+        // read physical bytes, then decode with the virtual PC for correct targets.
         ITooth instr;
-        try { instr = mechanism.Decoder.Decode(pc, ILayers.Accessor); }
-        catch (IllegalInstructionException ex) {
-            if (_anyCache) DrainAndChargeStalls();
-            _cyclesCounter.Increment();
-            var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);
-            ulong vector = mechanism.TrapController.RaiseTrap(trap, ArchState);
-            ArchState.Pc = vector;
-            ScheduleNextInstruction();
-            return;
+        if (_fetchTranslator is not null) {
+            var (physPc, faultCause) = _fetchTranslator.Translate(pc);
+            if (faultCause != 0) {
+                if (_anyCache) DrainAndChargeStalls();
+                _cyclesCounter.Increment();
+                ArchState.Pc = mechanism.TrapController.RaiseTrap(new TrapInfo(faultCause, pc, pc), ArchState);
+                ScheduleNextInstruction();
+                return;
+            }
+            try {
+                uint raw = (uint)ILayers.Accessor.Read(physPc, 4);
+                instr = mechanism.Decoder.Decode(pc, raw);
+            } catch (IllegalInstructionException ex) {
+                if (_anyCache) DrainAndChargeStalls();
+                _cyclesCounter.Increment();
+                ArchState.Pc = mechanism.TrapController.RaiseTrap(
+                    new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), ArchState);
+                ScheduleNextInstruction();
+                return;
+            }
+        } else {
+            try { instr = mechanism.Decoder.Decode(pc, ILayers.Accessor); }
+            catch (IllegalInstructionException ex) {
+                if (_anyCache) DrainAndChargeStalls();
+                _cyclesCounter.Increment();
+                var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);
+                ArchState.Pc = mechanism.TrapController.RaiseTrap(trap, ArchState);
+                ScheduleNextInstruction();
+                return;
+            }
         }
 
         // Execute (through D-cache accessor)

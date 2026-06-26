@@ -25,7 +25,7 @@
   single-bit ops).
 - [ ] Zicond (conditional zero/nonzero move).
 - [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
-- [ ] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
+- [x] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
 - [ ] UVE (Unlimited Vector Extension).
 
 ### Analysis
@@ -59,6 +59,7 @@
   `SetAssociativeCache`.
 - [ ] Non-blocking cache with MSHR (Miss Status Holding Registers) to allow hits-under-misses and reduce cache-miss
   stall depth. (inspired by gem5)
+- [ ] Make the ToothClass a tag instead of just using enum members?
 
 ### Out-of-Order Execution
 

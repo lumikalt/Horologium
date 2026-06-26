@@ -98,6 +98,7 @@ internal sealed class SuperscalarCore(
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
 
     private bool _anyCache;
+    private IFetchTranslator? _fetchTranslator;
 
     // Delta tracking for hit/miss counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
@@ -107,6 +108,7 @@ internal sealed class SuperscalarCore(
     public IArchState ArchState { get; } = mechanism.CreateArchState();
 
     public override void Initialize() {
+        _fetchTranslator = mechanism.CreateFetchTranslator(ArchState, ILayers.Accessor);
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
         _stallsCounter = Dials.AddCounter("stalls", "Cycles where issue group < issueWidth or cache miss");
@@ -193,11 +195,28 @@ internal sealed class SuperscalarCore(
 
             // Fetch & Decode (through I-cache accessor)
             ITooth instr;
-            try { instr = mechanism.Decoder.Decode(pc, ILayers.Accessor); }
-            catch (IllegalInstructionException ex) {
-                var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);
-                ArchState.Pc = mechanism.TrapController.RaiseTrap(trap, ArchState);
-                break;
+            if (_fetchTranslator is not null) {
+                var (physPc, faultCause) = _fetchTranslator.Translate(pc);
+                if (faultCause != 0) {
+                    ArchState.Pc = mechanism.TrapController.RaiseTrap(
+                        new TrapInfo(faultCause, pc, pc), ArchState);
+                    break;
+                }
+                try {
+                    uint raw = (uint)ILayers.Accessor.Read(physPc, 4);
+                    instr = mechanism.Decoder.Decode(pc, raw);
+                } catch (IllegalInstructionException ex) {
+                    ArchState.Pc = mechanism.TrapController.RaiseTrap(
+                        new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), ArchState);
+                    break;
+                }
+            } else {
+                try { instr = mechanism.Decoder.Decode(pc, ILayers.Accessor); }
+                catch (IllegalInstructionException ex) {
+                    var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);
+                    ArchState.Pc = mechanism.TrapController.RaiseTrap(trap, ArchState);
+                    break;
+                }
             }
 
             // Execute (through D-cache accessor)

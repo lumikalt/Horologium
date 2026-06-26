@@ -61,6 +61,12 @@ public sealed class DecodeStage : Gear {
 
         _current = IfIdLatch.Bubble;
 
+        // Propagate fetch page faults without decoding.
+        if (latch.PreTrap is not null) {
+            LastSent = new IdExLatch { IsValid = true, Pc = latch.Pc, PreTrap = latch.PreTrap };
+            return;
+        }
+
         ITooth instr;
         try { instr = _decoder.Decode(latch.Pc, latch.RawEncoding); }
         catch (IllegalInstructionException) {

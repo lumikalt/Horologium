@@ -144,7 +144,8 @@ internal sealed class PipelineCore : Gear {
         }
 
         // Create stages — IF uses instruction memory, EX/MEM use data memory.
-        _if = new FetchStage("if", parent, esc, ILayers.Accessor, predictor, _decoder);
+        _if = new FetchStage("if", parent, esc, ILayers.Accessor, predictor, _decoder,
+            fetchTranslator: mechanism.CreateFetchTranslator(State, memory));
         _id = new DecodeStage("id", parent, esc, mechanism.Decoder, State);
         _ex = new ExecuteStage(
             "ex", parent, esc,
