@@ -12,6 +12,7 @@ public sealed record IfIdLatch {
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
     public uint RawEncoding { get; init; }
+    public ulong InstrId { get; init; }
 
     // The PC Fetch speculatively went to after this instruction. Carried
     // downstream so EX can detect a misprediction once the branch resolves.
@@ -31,6 +32,7 @@ public sealed record IdExLatch {
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
+    public ulong InstrId { get; init; }
     public ITooth? Instruction { get; init; }
     public ulong Rs1Value { get; init; }
     public ulong Rs2Value { get; init; }
@@ -51,6 +53,7 @@ public sealed record ExMemLatch {
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
+    public ulong InstrId { get; init; }
     public ITooth? Instruction { get; init; }
     public ExecuteResult? Result { get; init; }
     public int DestinationRegister { get; init; } = -1;
@@ -67,6 +70,9 @@ public sealed record MemWbLatch {
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
+
+    public ulong InstrId { get; init; }
+
     // The actual committed next PC: branch target for taken branches/jumps,
     // PC+size otherwise. Used by WritebackStage to set state.Pc for interrupt
     // mepc precision.

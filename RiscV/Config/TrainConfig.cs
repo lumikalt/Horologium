@@ -33,7 +33,7 @@ public sealed record TlbHardwareConfig(
 /// </summary>
 public sealed record TrainConfig(
     // ── Pipeline selector ─────────────────────────────────────────────────────
-    string Pipeline = "five_stage", // "five_stage" | "superscalar" | "ooo"
+    string Pipeline = "five_stage", // "single_cycle" | "five_stage" | "superscalar" | "ooo"
 
     // ── FiveStageTrain parameters ─────────────────────────────────────────────
     bool ForwardingEnabled = true,

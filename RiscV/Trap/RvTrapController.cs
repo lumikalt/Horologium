@@ -11,7 +11,7 @@ namespace RiscV.Trap;
 /// </summary>
 public sealed class RvTrapController : ITrapController {
     // Priority order per RISC-V spec §3.1.9: MEI > MSI > MTI > SEI > SSI > STI
-    private static readonly int[] _interruptPriority = { 11, 3, 7, 9, 1, 5 };
+    private static readonly int[] _interruptPriority = { 11, 3, 7, 9, 1, 5, };
 
     public ulong RaiseTrap(TrapInfo trap, IArchState state) {
         var rv = (RvArchState)state;
@@ -19,10 +19,10 @@ public sealed class RvTrapController : ITrapController {
 
         // For exceptions, delegate via medeleg; for interrupts (bit 31 set), use mideleg.
         bool isInterrupt = ((uint)trap.Cause & 0x80000000u) != 0;
-        uint causeNum    = (uint)trap.Cause & 0x7FFFFFFFu;
-        uint delegReg    = isInterrupt ? csrs.DirectRead(CsrFile.Mideleg) : csrs.DirectRead(CsrFile.Medeleg);
-        bool delegated   = state.PrivilegeLevel < RvPrivilege.Machine
-                        && ((delegReg >> (int)causeNum) & 1) != 0;
+        uint causeNum = (uint)trap.Cause & 0x7FFFFFFFu;
+        uint delegReg = isInterrupt ? csrs.DirectRead(CsrFile.Mideleg) : csrs.DirectRead(CsrFile.Medeleg);
+        bool delegated = state.PrivilegeLevel < RvPrivilege.Machine
+                      && ((delegReg >> (int)causeNum) & 1) != 0;
 
         if (delegated) {
             csrs.DirectWrite(CsrFile.Sepc, (uint)trap.Pc);
@@ -83,14 +83,15 @@ public sealed class RvTrapController : ITrapController {
         // S-mode globally enabled: in U-mode, or in S-mode with SIE=1.
         bool sEnabled = state.PrivilegeLevel < RvPrivilege.Supervisor
                      || (state.PrivilegeLevel == RvPrivilege.Supervisor
-                         && (sstatus & CsrFile.SstatusSie) != 0);
+                      && (sstatus & CsrFile.SstatusSie) != 0);
 
-        foreach (int bit in _interruptPriority) {
+        foreach (int bit in RvTrapController._interruptPriority) {
             if (((pending >> bit) & 1) == 0) continue;
             bool delegated = ((mideleg >> bit) & 1) != 0;
             if (!delegated && mEnabled) return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);
-            if (delegated && sEnabled)  return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);
+            if (delegated && sEnabled) return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);
         }
+
         return null;
     }
 

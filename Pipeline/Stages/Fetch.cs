@@ -19,6 +19,7 @@ public sealed class FetchStage(
 )
     : Gear(name, parent, esc) {
     private readonly ReturnAddressStack _ras = new(rasDepth);
+    private ulong _nextInstrId = 1;
 
     public ulong Pc { get; set; }
     public bool Stall { get; set; }
@@ -65,11 +66,12 @@ public sealed class FetchStage(
         // Translate virtual PC → physical PC (Sv32 or bare mode).
         ulong physPc = Pc;
         if (fetchTranslator is not null) {
-            var (pa, faultCause) = fetchTranslator.Translate(Pc);
+            (ulong pa, int faultCause) = fetchTranslator.Translate(Pc);
             if (faultCause != 0) {
                 var faultLatch = new IfIdLatch {
                     IsValid = true,
                     Pc = Pc,
+                    InstrId = _nextInstrId++,
                     PreTrap = new TrapInfo(faultCause, Pc, Pc),
                 };
                 _fetchFaulted = true;
@@ -77,6 +79,7 @@ public sealed class FetchStage(
                 LastSent = faultLatch;
                 return;
             }
+
             physPc = pa;
         }
 
@@ -99,7 +102,7 @@ public sealed class FetchStage(
 
         ulong nextPc = pred.PredictedTaken ? pred.PredictedTarget : Pc + (ulong)instrSize;
         var latch = new IfIdLatch {
-            IsValid = true, Pc = Pc, RawEncoding = raw, PredictedNextPc = nextPc,
+            IsValid = true, Pc = Pc, InstrId = _nextInstrId++, RawEncoding = raw, PredictedNextPc = nextPc,
         };
         _held = latch;
         LastSent = latch;

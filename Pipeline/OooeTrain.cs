@@ -24,6 +24,7 @@ public sealed class OooeTrain {
     public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
     public Tlb? ITlb => _core.ILayers.Tlb;
     public Tlb? DTlb => _core.DLayers.Tlb;
+    public PEventLog? PEventLog => _core.PEventLog;
 
     public OooeTrain(
         IMechanism mechanism,
@@ -36,7 +37,8 @@ public sealed class OooeTrain {
         IBranchPredictor? predictor = null,
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null,
-        FuLatencyConfig? fuLatency = null
+        FuLatencyConfig? fuLatency = null,
+        PEventLog? pEventLog = null
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -48,7 +50,8 @@ public sealed class OooeTrain {
                 predictor ?? new AlwaysNotTakenPredictor(),
                 iMemConfig ?? MemoryConfig.None,
                 dMemConfig ?? MemoryConfig.None,
-                fuLatency ?? FuLatencyConfig.Default
+                fuLatency ?? FuLatencyConfig.Default,
+                pEventLog
             )
         );
         _train.Build();
@@ -78,6 +81,7 @@ internal sealed class OoOPipelineCore : Gear {
         ulong Pc,
         ITooth? Decoded,
         ulong PredictedNextPc,
+        ulong InstrId = 0,
         TrapInfo? PreTrap = null
     );
 
@@ -88,7 +92,8 @@ internal sealed class OoOPipelineCore : Gear {
         ulong Pc,
         ulong Src1,
         ulong Src2,
-        ulong Src3
+        ulong Src3,
+        ulong InstrId = 0
     );
 
     private readonly record struct ExecResult(
@@ -169,9 +174,9 @@ internal sealed class OoOPipelineCore : Gear {
 
     // Cross-tick latches
     private readonly Queue<FetchedInstr> _decodeQueue = new();
-    private readonly List<IssuedInstr> _execBuffer = new();
-    private readonly List<(int Countdown, ExecResult Result)> _inFlight = new();
-    private readonly List<ExecResult> _cdbBuffer = new();
+    private readonly List<IssuedInstr> _execBuffer = [];
+    private readonly List<(int Countdown, ExecResult Result)> _inFlight = [];
+    private readonly List<ExecResult> _cdbBuffer = [];
 
     // Runtime state
     private ulong _fetchPc;
@@ -179,6 +184,10 @@ internal sealed class OoOPipelineCore : Gear {
     private bool _flushPending;
     private ulong _flushTarget;
     private bool _fetchFaulted; // suppress repeated fault entries until flush clears
+
+    // PEvent recording
+    private ulong _nextInstrId = 1;
+    public PEventLog? PEventLog { get; }
 
     // Counters (initialised in Initialize)
     private Counter _cyclesCounter = null!;
@@ -220,8 +229,10 @@ internal sealed class OoOPipelineCore : Gear {
         IBranchPredictor predictor,
         MemoryConfig iMemConfig,
         MemoryConfig dMemConfig,
-        FuLatencyConfig fuConfig
+        FuLatencyConfig fuConfig,
+        PEventLog? pEventLog = null
     ) : base(name, parent, esc) {
+        PEventLog = pEventLog;
         _decoder = mechanism.Decoder;
         _executor = mechanism.Executor;
         _trapController = mechanism.TrapController;
@@ -420,6 +431,7 @@ internal sealed class OoOPipelineCore : Gear {
             switch (head) {
                 case { IsHalt: true, }: {
                     CommitRegisters(head);
+                    PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     _halted = true;
@@ -428,6 +440,7 @@ internal sealed class OoOPipelineCore : Gear {
                 case { HasTrap: true, Trap: not null, }: {
                     ulong target = _trapController.RaiseTrap(head.Trap, State);
                     CommitRegisters(head);
+                    PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     SetFlush(target);
@@ -436,6 +449,7 @@ internal sealed class OoOPipelineCore : Gear {
                 case { IsReturnFromTrap: true, ReturnPrivilege: not null, }: {
                     ulong target = _trapController.ReturnFromTrap(head.ReturnPrivilege.Value, State);
                     CommitRegisters(head);
+                    PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     SetFlush(target);
@@ -447,7 +461,7 @@ internal sealed class OoOPipelineCore : Gear {
             // conflicting store resolved after it. By the time the load reaches the
             // ROB head, all older instructions (including the store) have committed
             // and written memory, so re-executing the load from its own PC is safe.
-            if (head.IsLoad && head.LoadViolated) {
+            if (head is { IsLoad: true, LoadViolated: true, }) {
                 _memViolationsCounter.Increment();
                 SetFlush(head.Pc); // re-executes from the load's PC; flush clears the ROB
                 return;
@@ -470,6 +484,7 @@ internal sealed class OoOPipelineCore : Gear {
                 if (resolvedPc != predictedPc) {
                     _branchMissCounter.Increment();
                     State.Pc = resolvedPc;
+                    PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     SetFlush(resolvedPc);
@@ -478,6 +493,7 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             State.Pc = head.PredictedNextPc;
+            PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
             _rob.Retire();
             _retiredCounter.Increment();
             committed++;
@@ -506,6 +522,7 @@ internal sealed class OoOPipelineCore : Gear {
         // Start executing newly issued instructions.
         foreach (IssuedInstr issued in _execBuffer) {
             ExecResult result = ExecuteOne(issued);
+            PEventLog?.Record(issued.InstrId, issued.Pc, _cyclesCounter.Value, PEventKind.Execute);
             int countdown = _fuConfig.LatencyFor(issued.Instr.Class) - 1;
             if (countdown == 0)
                 _cdbBuffer.Add(result);
@@ -544,12 +561,14 @@ internal sealed class OoOPipelineCore : Gear {
             // Head-gating ensures VRF writes are applied in program order.
             if (cls == ToothClass.Vector && rs.RobIndex != _rob.HeadIndex) continue;
 
+            ulong issuedInstrId = _rob.At(rs.RobIndex).InstrId;
             _execBuffer.Add(
                 new IssuedInstr(
                     rs.RobIndex, rs.PhysDestination, rs.Instruction!, rs.Pc,
-                    rs.Src1Value, rs.Src2Value, rs.Src3Value
+                    rs.Src1Value, rs.Src2Value, rs.Src3Value, issuedInstrId
                 )
             );
+            PEventLog?.Record(issuedInstrId, rs.Pc, _cyclesCounter.Value, PEventKind.Issue);
             _iq.Free(slot);
             classIssued[(int)cls]++;
             issued++;
@@ -567,9 +586,7 @@ internal sealed class OoOPipelineCore : Gear {
         foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
             if (idx == loadRobIndex) return false;
             ITooth? instr = entry.Instruction;
-            if (instr?.Class == ToothClass.Vector &&
-                instr.VectorDestinationRegister < 0 &&
-                instr.DestinationRegister < 0)
+            if (instr is { Class: ToothClass.Vector, VectorDestinationRegister: < 0, DestinationRegister: < 0, })
                 return true;
         }
 
@@ -617,7 +634,7 @@ internal sealed class OoOPipelineCore : Gear {
     /// <summary>
     /// True if any store OLDER than <paramref name="loadRobIdx"/> has a known address
     /// that overlaps the load. Used at load-result time to detect violations that
-    /// weren't caught by <see cref="CheckLoadViolations"/> (e.g. same-CDB-batch case
+    /// weren't caught by <see cref="CheckLoadViolations"/> (e.g., same-CDB-batch case
     /// where the store was processed before the load in the same StepComplete iteration).
     /// </summary>
     private bool HasOlderConflictingStore(int loadRobIdx, ulong loadAddr, int loadBytes) {
@@ -649,11 +666,13 @@ internal sealed class OoOPipelineCore : Gear {
                 int faultRobIdx = _rob.Allocate();
                 RobEntry robFault = _rob.At(faultRobIdx);
                 robFault.Pc = fi.Pc;
+                robFault.InstrId = fi.InstrId;
                 robFault.HasTrap = true;
                 robFault.Trap = fi.PreTrap;
                 robFault.IsComplete = true;
                 robFault.ArchDestination = -1;
                 robFault.PhysDestination = -1;
+                PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
                 _decodeQueue.Dequeue();
                 continue;
             }
@@ -687,6 +706,7 @@ internal sealed class OoOPipelineCore : Gear {
             int robIdx = _rob.Allocate();
             RobEntry rob = _rob.At(robIdx);
             rob.Pc = fi.Pc;
+            rob.InstrId = fi.InstrId;
             rob.Instruction = instr;
             rob.ArchDestination = destArch > 0 ? destArch : -1;
             rob.PhysDestination = newPhys;
@@ -695,6 +715,7 @@ internal sealed class OoOPipelineCore : Gear {
             rob.IsStore = instr.Class == ToothClass.Store;
             rob.IsLoad = instr.Class == ToothClass.Load;
             rob.IsHalt = instr.Class == ToothClass.Halt;
+            PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
 
             // Allocate IQ slot and fill source operands from pre-rename RAT snapshot.
             int iqSlot = _iq.Allocate();
@@ -746,15 +767,20 @@ internal sealed class OoOPipelineCore : Gear {
             // Translate virtual PC to physical (Sv32 or bare mode).
             ulong physPc = _fetchPc;
             if (_fetchTranslator is not null) {
-                var (pa, faultCause) = _fetchTranslator.Translate(_fetchPc);
+                (ulong pa, int faultCause) = _fetchTranslator.Translate(_fetchPc);
                 if (faultCause != 0) {
-                    _decodeQueue.Enqueue(new FetchedInstr(
-                        _fetchPc, null, _fetchPc,
-                        new TrapInfo(faultCause, _fetchPc, _fetchPc)
-                    ));
+                    ulong faultId = _nextInstrId++;
+                    _decodeQueue.Enqueue(
+                        new FetchedInstr(
+                            _fetchPc, null, _fetchPc, faultId,
+                            new TrapInfo(faultCause, _fetchPc, _fetchPc)
+                        )
+                    );
+                    PEventLog?.Record(faultId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
                     _fetchFaulted = true;
                     return;
                 }
+
                 physPc = pa;
             }
 
@@ -765,7 +791,8 @@ internal sealed class OoOPipelineCore : Gear {
                 decoded = _decoder.Decode(_fetchPc, raw);
             }
             catch {
-                break; // memory fault or illegal instruction — stop fetching
+                _fetchFaulted = true; // stop retrying until flush redirects _fetchPc
+                break;
             }
 
             // Only branch/jump instructions consult the predictor; all others
@@ -778,7 +805,9 @@ internal sealed class OoOPipelineCore : Gear {
             }
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
-            _decodeQueue.Enqueue(new FetchedInstr(_fetchPc, decoded, predictedNext));
+            ulong instrId = _nextInstrId++;
+            _decodeQueue.Enqueue(new FetchedInstr(_fetchPc, decoded, predictedNext, instrId));
+            PEventLog?.Record(instrId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
             _fetchPc = predictedNext;
             fetched++;
         }
@@ -789,9 +818,14 @@ internal sealed class OoOPipelineCore : Gear {
     private void StepFlush() {
         _flushesCounter.Increment();
 
+        if (PEventLog is not null)
+            foreach ((_, RobEntry entry) in _rob.InOrder())
+                if (entry.InstrId != 0)
+                    PEventLog.Record(entry.InstrId, entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
+
         // Walk ROB youngest-to-oldest, restoring the RAT to committed state.
         foreach ((_, RobEntry entry) in _rob.InOrder().Reverse())
-            if (entry.ArchDestination > 0 && entry.PhysDestination >= 0) {
+            if (entry is { ArchDestination: > 0, PhysDestination: >= 0, }) {
                 _rat.RestoreMapping(entry.ArchDestination, entry.PrevPhysDestination);
                 _rat.FreePhysical(entry.PhysDestination);
             }
@@ -876,11 +910,10 @@ internal sealed class OoOPipelineCore : Gear {
     /// to the arch state, frees the old physical register, and advances State.Pc.
     /// </summary>
     private void CommitRegisters(RobEntry head) {
-        if (head.PhysDestination >= 0 && head.ArchDestination > 0) {
-            ulong val = _prf.Read(head.PhysDestination);
-            State.IntegerRegisters.Write(head.ArchDestination, val);
-            if (head.PrevPhysDestination >= 0) _rat.FreePhysical(head.PrevPhysDestination);
-        }
+        if (head is not { PhysDestination: >= 0, ArchDestination: > 0, }) return;
+        ulong val = _prf.Read(head.PhysDestination);
+        State.IntegerRegisters.Write(head.ArchDestination, val);
+        if (head.PrevPhysDestination >= 0) _rat.FreePhysical(head.PrevPhysDestination);
     }
 
     private void SetFlush(ulong target) {

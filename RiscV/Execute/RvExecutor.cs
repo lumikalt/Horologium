@@ -381,7 +381,7 @@ public sealed class RvExecutor : IExecutor {
         Func<uint, uint, uint> combine
     ) {
         ulong vaddr = regs.Read(rs1);
-        var (addr, fault) = Translate(memory, state, vaddr, true, false);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         var old = (uint)memory.Read(addr, 4);
         memory.Write(addr, combine(old, (uint)regs.Read(rs2)), 4);
@@ -390,20 +390,31 @@ public sealed class RvExecutor : IExecutor {
 
     // SC.W always succeeds in single-core (no competing stores possible).
     private static ExecuteResult AmoSc(
-        IMemory memory, IArchState state, ulong pc, IRegisterFile regs, int rs1, int rs2
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rs1,
+        int rs2
     ) {
         ulong vaddr = regs.Read(rs1);
-        var (addr, fault) = Translate(memory, state, vaddr, true, false);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         memory.Write(addr, regs.Read(rs2), 4);
         return Reg(0); // 0 = success
     }
 
     private static (ulong paddr, int faultCause) Translate(
-        IMemory memory, IArchState state, ulong vaddr, bool isWrite, bool isExec
+        IMemory memory,
+        IArchState state,
+        ulong vaddr,
+        bool isWrite,
+        bool isExec
     ) {
         if (state.SystemRegisters is not CsrFile csrs) return (vaddr, 0);
-        return Sv32Walker.Translate(memory, csrs.DirectRead(CsrFile.Satp), vaddr, isWrite, isExec, state.PrivilegeLevel);
+        return Sv32Walker.Translate(
+            memory, csrs.DirectRead(CsrFile.Satp), vaddr, isWrite, isExec, state.PrivilegeLevel
+        );
     }
 
     private static ExecuteResult Load(
@@ -417,7 +428,7 @@ public sealed class RvExecutor : IExecutor {
         int bits
     ) {
         ulong vaddr = @base + (ulong)imm;
-        var (addr, fault) = Translate(memory, state, vaddr, false, false);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, false, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         ulong value = memory.Read(addr, bytes);
         if (!signExtend || bits >= 32) return ExecuteResult.WithResult(value & 0xFFFFFFFF);
@@ -436,7 +447,7 @@ public sealed class RvExecutor : IExecutor {
         int bytes
     ) {
         ulong vaddr = @base + (ulong)imm;
-        var (addr, fault) = Translate(memory, state, vaddr, true, false);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         memory.Write(addr, value, bytes);
         return ExecuteResult.Clean;
@@ -460,7 +471,8 @@ public sealed class RvExecutor : IExecutor {
             // Per spec §2.8: CSRRS/CSRRC with rs1==x0 must not write the CSR.
             if (writeIfSrcZero || rs1 != 0) csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
             return ExecuteResult.WithResult(old & 0xFFFFFFFF);
-        } catch (SystemRegisterAccessException) {
+        }
+        catch (SystemRegisterAccessException) {
             return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
         }
     }
@@ -527,7 +539,8 @@ public sealed class RvExecutor : IExecutor {
             // Per spec §2.8: CSRRSI/CSRRCI with zimm==0 must not write the CSR.
             if (writeIfSrcZero || zimm != 0) csrFile.Write(csr, combine(old, zimm), state.PrivilegeLevel);
             return ExecuteResult.WithResult(old & 0xFFFFFFFF);
-        } catch (SystemRegisterAccessException) {
+        }
+        catch (SystemRegisterAccessException) {
             return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
         }
     }

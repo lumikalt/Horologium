@@ -12,6 +12,7 @@ namespace Pipeline.Ooo;
 public sealed class RobEntry {
     public bool Valid { get; set; }
     public ulong Pc { get; set; }
+    public ulong InstrId { get; set; }
     public ITooth? Instruction { get; set; }
 
     // ── Register tracking ─────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ public sealed class RobEntry {
     internal void Clear() {
         Valid = false;
         Pc = 0;
+        InstrId = 0;
         Instruction = null;
         ArchDestination = -1;
         PhysDestination = -1;

@@ -69,6 +69,7 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int ExtraPhysRegs { get; set; } = 32;
 
+    public bool IsSingleCycle => Pipeline == "single_cycle";
     public bool IsFiveStage => Pipeline == "five_stage";
     public bool IsOoo => Pipeline == "ooo";
     public bool IsWidePipeline => Pipeline is "superscalar" or "ooo";
@@ -96,7 +97,7 @@ public partial class ConfigViewModel : ObservableObject {
         OnPropertyChanged(nameof(HasTournamentParams));
     }
 
-    public string[] PipelineOptions { get; } = ["five_stage", "superscalar", "ooo",];
+    public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo",];
 
     public string[] PredictorOptions { get; } = [
         "none",

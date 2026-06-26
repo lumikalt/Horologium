@@ -183,7 +183,7 @@ internal sealed class SingleCycleCore(
         // read physical bytes, then decode with the virtual PC for correct targets.
         ITooth instr;
         if (_fetchTranslator is not null) {
-            var (physPc, faultCause) = _fetchTranslator.Translate(pc);
+            (ulong physPc, int faultCause) = _fetchTranslator.Translate(pc);
             if (faultCause != 0) {
                 if (_anyCache) DrainAndChargeStalls();
                 _cyclesCounter.Increment();
@@ -191,18 +191,22 @@ internal sealed class SingleCycleCore(
                 ScheduleNextInstruction();
                 return;
             }
+
             try {
-                uint raw = (uint)ILayers.Accessor.Read(physPc, 4);
+                var raw = (uint)ILayers.Accessor.Read(physPc, 4);
                 instr = mechanism.Decoder.Decode(pc, raw);
-            } catch (IllegalInstructionException ex) {
+            }
+            catch (IllegalInstructionException ex) {
                 if (_anyCache) DrainAndChargeStalls();
                 _cyclesCounter.Increment();
                 ArchState.Pc = mechanism.TrapController.RaiseTrap(
-                    new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), ArchState);
+                    new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), ArchState
+                );
                 ScheduleNextInstruction();
                 return;
             }
-        } else {
+        }
+        else {
             try { instr = mechanism.Decoder.Decode(pc, ILayers.Accessor); }
             catch (IllegalInstructionException ex) {
                 if (_anyCache) DrainAndChargeStalls();
@@ -254,7 +258,7 @@ internal sealed class SingleCycleCore(
         if (ArchState.Pc == pc && instr.Class == ToothClass.Branch) return;
 
         // Check for pending interrupts after every normal retire (not after trap/MRET/SRET).
-        if (!result.HasTrap && !result.IsReturnFromTrap) {
+        if (result is { HasTrap: false, IsReturnFromTrap: false, }) {
             TrapInfo? interrupt = mechanism.TrapController.PeekInterrupt(ArchState);
             if (interrupt is not null) ArchState.Pc = mechanism.TrapController.RaiseTrap(interrupt, ArchState);
         }

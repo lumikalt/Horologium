@@ -69,7 +69,7 @@ public sealed class ExecuteStage : Gear {
         // Fetch page fault: bypass execution and forward the pre-baked trap result.
         if (latch.PreTrap is not null) {
             LastSent = new ExMemLatch {
-                IsValid = true, Pc = latch.Pc,
+                IsValid = true, Pc = latch.Pc, InstrId = latch.InstrId,
                 Result = ExecuteResult.WithTrap(latch.PreTrap),
             };
             return;
@@ -109,6 +109,7 @@ public sealed class ExecuteStage : Gear {
         var newLatch = new ExMemLatch {
             IsValid = true,
             Pc = latch.Pc,
+            InstrId = latch.InstrId,
             Instruction = instr,
             Result = result,
             DestinationRegister = latch.DestinationRegister,

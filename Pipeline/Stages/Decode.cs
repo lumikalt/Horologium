@@ -63,7 +63,8 @@ public sealed class DecodeStage : Gear {
 
         // Propagate fetch page faults without decoding.
         if (latch.PreTrap is not null) {
-            LastSent = new IdExLatch { IsValid = true, Pc = latch.Pc, PreTrap = latch.PreTrap };
+            LastSent = new IdExLatch
+                { IsValid = true, Pc = latch.Pc, InstrId = latch.InstrId, PreTrap = latch.PreTrap, };
             return;
         }
 
@@ -82,6 +83,7 @@ public sealed class DecodeStage : Gear {
         var newLatch = new IdExLatch {
             IsValid = true,
             Pc = latch.Pc,
+            InstrId = latch.InstrId,
             Instruction = instr,
             Rs1Value = rs1,
             Rs2Value = rs2,

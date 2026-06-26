@@ -42,6 +42,7 @@ public sealed class MemoryStage : Gear {
         var newLatch = new MemWbLatch {
             IsValid = true,
             Pc = latch.Pc,
+            InstrId = latch.InstrId,
             NextPc = nextPc,
             Instruction = latch.Instruction,
             WritebackValue = result.RegisterResult.HasValue ? result.RegisterResult.Value : null,

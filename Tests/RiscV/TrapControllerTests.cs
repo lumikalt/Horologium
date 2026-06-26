@@ -162,10 +162,10 @@ public class TrapControllerTests {
     public void PeekInterrupt_DelegatedToSMode_SIESet_ReturnsInterrupt() {
         // MTI delegated to S-mode; S-mode with SIE=1 should receive it
         RvArchState s = MakeState(RvPrivilege.Supervisor, 0x7000);
-        SetCsr(s, CsrFile.Mip, 1u << 7);                       // MTI pending
-        SetCsr(s, CsrFile.Mie, 1u << 7);                       // MTI enabled
-        SetCsr(s, CsrFile.Mideleg, 1u << 7);                   // delegated to S-mode
-        SetCsr(s, CsrFile.Sstatus, CsrFile.SstatusSie);        // SIE=1
+        SetCsr(s, CsrFile.Mip, 1u << 7);                // MTI pending
+        SetCsr(s, CsrFile.Mie, 1u << 7);                // MTI enabled
+        SetCsr(s, CsrFile.Mideleg, 1u << 7);            // delegated to S-mode
+        SetCsr(s, CsrFile.Sstatus, CsrFile.SstatusSie); // SIE=1
 
         TrapInfo? trap = _tc.PeekInterrupt(s);
         Assert.NotNull(trap);
@@ -178,7 +178,7 @@ public class TrapControllerTests {
         // mideleg bit 7 set → MTI goes to S-mode.
         // medeleg bit 7 not set (shouldn't matter for interrupts).
         RvArchState s = MakeState(RvPrivilege.User, 0x8000);
-        SetCsr(s, CsrFile.Mideleg, 1u << 7);  // delegate MTI to S-mode
+        SetCsr(s, CsrFile.Mideleg, 1u << 7); // delegate MTI to S-mode
         SetCsr(s, CsrFile.Stvec, 0xC000);
 
         ulong vec = _tc.RaiseTrap(new TrapInfo(RvTrapCause.MachineTimerInterrupt, 0, 0x8000), s);

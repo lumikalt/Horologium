@@ -607,7 +607,7 @@ public class FiveStagePipelineTests {
     private static (FiveStageTrain train, FlatMemory mem) MakeInterruptFixture() {
         var mem = new FlatMemory(4096);
         var train = new FiveStageTrain(new RvMechanism(), mem, 0);
-        const uint Nop    = 0x00000013u; // addi x0, x0, 0
+        const uint Nop = 0x00000013u; // addi x0, x0, 0
         const uint Ebreak = 0x00100073u;
         Load(mem, Nop, Nop, Nop, Nop, Nop, Ebreak);
         // Write EBREAK to handler address using unchecked byte truncation.
@@ -619,9 +619,9 @@ public class FiveStagePipelineTests {
     public void FiveStage_MachineTimerInterrupt_EntersHandler_AndSetsCorrectMepc() {
         (FiveStageTrain train, _) = MakeInterruptFixture();
 
-        WriteCsr(train, CsrFile.Mtvec,   0x0100);           // handler at 0x0100
-        WriteCsr(train, CsrFile.Mip,     1u << 7);          // MTI pending
-        WriteCsr(train, CsrFile.Mie,     1u << 7);          // MTI enabled
+        WriteCsr(train, CsrFile.Mtvec, 0x0100);               // handler at 0x0100
+        WriteCsr(train, CsrFile.Mip, 1u << 7);                // MTI pending
+        WriteCsr(train, CsrFile.Mie, 1u << 7);                // MTI enabled
         WriteCsr(train, CsrFile.Mstatus, CsrFile.MstatusMie); // MIE=1
 
         train.Run();
@@ -629,13 +629,15 @@ public class FiveStagePipelineTests {
         // The interrupt fires after the first NOP (at PC=0x0000) retires.
         // mepc must be the PC of the first un-retired instruction = 0x0004.
         Assert.Equal(0x0004uL, ReadCsr(train, CsrFile.Mepc));
-        Assert.Equal(unchecked((uint)RvTrapCause.MachineTimerInterrupt),
-                     (uint)ReadCsr(train, CsrFile.Mcause));
+        Assert.Equal(
+            unchecked((uint)RvTrapCause.MachineTimerInterrupt),
+            (uint)ReadCsr(train, CsrFile.Mcause)
+        );
         // After trap entry: MIE=0, MPIE=1 (old MIE), MPP=3 (M-mode).
         ulong mstatus = ReadCsr(train, CsrFile.Mstatus);
-        Assert.Equal(0uL,  (mstatus >> 3) & 1);  // MIE = 0 (disabled during handler)
-        Assert.Equal(1uL,  (mstatus >> 7) & 1);  // MPIE = 1 (saved MIE)
-        Assert.Equal(3uL,  (mstatus >> 11) & 3); // MPP = 3 (was M-mode)
+        Assert.Equal(0uL, (mstatus >> 3) & 1);  // MIE = 0 (disabled during handler)
+        Assert.Equal(1uL, (mstatus >> 7) & 1);  // MPIE = 1 (saved MIE)
+        Assert.Equal(3uL, (mstatus >> 11) & 3); // MPP = 3 (was M-mode)
     }
 
     [Fact]

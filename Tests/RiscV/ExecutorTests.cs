@@ -920,7 +920,7 @@ public class ExecutorTests {
     [Fact]
     public void Execute_Load_Sv32_ValidUserMapping_TranslatesAddress() {
         // VA 0x00003000 → VPN[1]=0, VPN[0]=3, offset=0 → PA 0x3000
-        var (mem, satp) = BuildSv32Memory();
+        (FlatMemory mem, uint satp) = BuildSv32Memory();
         mem.Write(0x200CUL, UserRwPte(3), 4); // level-1 PT entry 3 → PA 0x3000
         mem.Write(0x3000UL, 0xBEEFCAFEu, 4);
         RvArchState s = MakeState((1, 0x00003000u));
@@ -935,7 +935,7 @@ public class ExecutorTests {
     [Fact]
     public void Execute_Load_Sv32_InvalidPte_RaisesLoadPageFault() {
         // Level-1 PTE for VPN[0]=4 is zero (V=0) — page not present
-        var (mem, satp) = BuildSv32Memory();
+        (FlatMemory mem, uint satp) = BuildSv32Memory();
         // PTE at 0x2010 left as 0 (default FlatMemory)
         RvArchState s = MakeState((1, 0x00004000u)); // VA → VPN[0]=4
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
@@ -950,9 +950,9 @@ public class ExecutorTests {
     [Fact]
     public void Execute_Store_Sv32_WriteProtected_RaisesStorePageFault() {
         // PTE has R=1, V=1, U=1, A=1 but W=0 — read-only page
-        var (mem, satp) = BuildSv32Memory();
+        (FlatMemory mem, uint satp) = BuildSv32Memory();
         uint roPage = (5u << 10) | 0b0101_0011u; // A|U|R|V, no W, no D
-        mem.Write(0x2014UL, roPage, 4);           // level-1 PT entry 5 → PA 0x5000
+        mem.Write(0x2014UL, roPage, 4);          // level-1 PT entry 5 → PA 0x5000
         RvArchState s = MakeState((1, 0x00005000u), (2, 0xABCDu));
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
         s.PrivilegeLevel = RvPrivilege.User;
@@ -966,9 +966,9 @@ public class ExecutorTests {
     [Fact]
     public void Execute_Load_Sv32_AccessBitClear_RaisesLoadPageFault() {
         // PTE is otherwise valid but A=0 (fault-on-access model)
-        var (mem, satp) = BuildSv32Memory();
+        (FlatMemory mem, uint satp) = BuildSv32Memory();
         uint noABit = (6u << 10) | 0b0001_0111u; // U|W|R|V, no A, no D
-        mem.Write(0x2018UL, noABit, 4);           // level-1 PT entry 6
+        mem.Write(0x2018UL, noABit, 4);          // level-1 PT entry 6
         RvArchState s = MakeState((1, 0x00006000u));
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
         s.PrivilegeLevel = RvPrivilege.User;
@@ -981,9 +981,9 @@ public class ExecutorTests {
     [Fact]
     public void Execute_Load_Sv32_KernelPage_UserAccess_RaisesLoadPageFault() {
         // PTE has U=0 (kernel page); U-mode access must fault
-        var (mem, satp) = BuildSv32Memory();
+        (FlatMemory mem, uint satp) = BuildSv32Memory();
         uint kernelPage = (7u << 10) | 0b1100_0011u; // D|A|R|V, no U, no W
-        mem.Write(0x201CUL, kernelPage, 4);           // level-1 PT entry 7
+        mem.Write(0x201CUL, kernelPage, 4);          // level-1 PT entry 7
         RvArchState s = MakeState((1, 0x00007000u));
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
         s.PrivilegeLevel = RvPrivilege.User;

@@ -54,15 +54,15 @@ public sealed class WritebackStage : Gear {
             return;
         }
 
-        if (latch.HasTrap && latch.Trap is not null) { TrapRedirect = (_trap.RaiseTrap(latch.Trap, _state), true); }
-        else if (latch.IsReturnFromTrap && latch.ReturnPrivilege.HasValue) {
+        if (latch is { HasTrap: true, Trap: not null, }) { TrapRedirect = (_trap.RaiseTrap(latch.Trap, _state), true); }
+        else if (latch is { IsReturnFromTrap: true, ReturnPrivilege: not null, }) {
             TrapRedirect = (_trap.ReturnFromTrap(latch.ReturnPrivilege.Value, _state), true);
         }
         else {
             latch.SideEffect?.Invoke(_state);
-            if (latch.WritebackValue.HasValue && latch.DestinationRegister > 0)
+            if (latch is { WritebackValue: not null, DestinationRegister: > 0, })
                 _state.IntegerRegisters.Write(latch.DestinationRegister, latch.WritebackValue.Value);
-            else if (latch.DestinationRegister > 0 && latch.SideEffect is null)
+            else if (latch is { DestinationRegister: > 0, SideEffect: null, })
                 throw new InvalidOperationException(
                     $"WB: instruction {latch.Instruction?.Payload?.GetType().Name} " +
                     $"has rd={latch.DestinationRegister} but WritebackValue is null."

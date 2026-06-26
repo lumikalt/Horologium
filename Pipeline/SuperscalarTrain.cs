@@ -196,21 +196,26 @@ internal sealed class SuperscalarCore(
             // Fetch & Decode (through I-cache accessor)
             ITooth instr;
             if (_fetchTranslator is not null) {
-                var (physPc, faultCause) = _fetchTranslator.Translate(pc);
+                (ulong physPc, int faultCause) = _fetchTranslator.Translate(pc);
                 if (faultCause != 0) {
                     ArchState.Pc = mechanism.TrapController.RaiseTrap(
-                        new TrapInfo(faultCause, pc, pc), ArchState);
+                        new TrapInfo(faultCause, pc, pc), ArchState
+                    );
                     break;
                 }
+
                 try {
-                    uint raw = (uint)ILayers.Accessor.Read(physPc, 4);
+                    var raw = (uint)ILayers.Accessor.Read(physPc, 4);
                     instr = mechanism.Decoder.Decode(pc, raw);
-                } catch (IllegalInstructionException ex) {
+                }
+                catch (IllegalInstructionException ex) {
                     ArchState.Pc = mechanism.TrapController.RaiseTrap(
-                        new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), ArchState);
+                        new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), ArchState
+                    );
                     break;
                 }
-            } else {
+            }
+            else {
                 try { instr = mechanism.Decoder.Decode(pc, ILayers.Accessor); }
                 catch (IllegalInstructionException ex) {
                     var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);

@@ -11,7 +11,7 @@ A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The sim
 | **Pipeline** | ISA-agnostic pipeline trains (`SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`), pipeline registers, `HazardUnit`, and stage implementations. No dependency on any ISA. |
 | **RiscV** | RV32IMAFCV implementation of the Mechanism contract. |
 | **Chip8** | A second ISA implementation, demonstrating that the engine is genuinely ISA-agnostic. |
-| **Face** | Avalonia desktop UI for running experiments and visualizing results interactively. Includes a workload preset picker for the built-in demo and all benchmark ELFs. |
+| **Face** | Avalonia desktop UI for running experiments and visualizing results interactively. Includes a workload preset picker for the built-in demo and all benchmark ELFs. A **PEvents tab** shows a scrollable Argos-style pipeline waterfall (rows = instructions, columns = cycles, cells = stage abbreviation F/DC/D/IS/EX/RT/FL). A **SpecPC** gutter column shows the fetch-window start address for each instruction. Flush/misprediction cycles are highlighted red; fetch-stall cycles are dimmed. |
 | **Runner** | Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. |
 | **Tests** | xUnit tests, organized by project (`Tests/Orrery`, `Tests/RiscV`, `Tests/Chip8`, `Tests/Mechanism`). |
 
@@ -98,6 +98,12 @@ ISA mutations (register writes, vector state, CSRs, trap returns) are delivered 
 ### Benchmark workloads (TestBinaries/benchmarks)
 
 Seven bare-metal RISC-V benchmarks compiled from the riscv-tests suite: `median`, `memcpy`, `multiply`, `qsort`, `rsort`, `towers`, and `vvadd`. They are built against a minimal `crt0.s` + `bmarks.ld` (code at `0x0`, 4 MB RAM) and exit via the HTIF `tohost` symbol. All are available as preset workloads in the Face UI and can be passed to the Runner as ELF arguments. Note: benchmark tests are slow — run them selectively with `--filter`.
+
+### Per-instruction lifecycle events (Orrery/Observation)
+
+`PEventLog` captures structured per-instruction lifecycle events — Fetch, Decode, Dispatch, Issue, Execute, Retire, Flush — tagged with an instruction ID, PC, and cycle number. A cycle-level `FetchStall` sentinel (instrId=0) marks cycles where the OoO fetch unit is blocked (faulted PC). Pass a `PEventLog` instance to `FiveStageTrain` or `OooeTrain` to enable recording (null = zero overhead). Query methods include `ForInstruction(id)`, `OfKind(kind)`, and `InCycleRange(from, to)` for post-hoc filtering and phase analysis. Every instruction is assigned a monotonically increasing `InstrId` at fetch time, unique across the full simulation run, so lifecycle phases can be correlated even for wrong-path instructions that are later flushed.
+
+FiveStage records Fetch/Decode/Execute/Retire/Flush. OoO records the full lifecycle: Fetch → Decode → Dispatch → Issue → Execute → Retire/Flush. Flush events appear as an additional terminal event for wrong-path or squashed instructions.
 
 ### Hardware comparison (RiscV/Analysis)
 

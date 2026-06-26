@@ -5,7 +5,7 @@
 - [ ] L2 and L3 caches.
 - [ ] Assembler to simulate RISC-V in-place.
 - [ ] Cache and virtual addressing visualization.
-- [ ] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
+- [x] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
   instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)
 
 ## CHIP8
@@ -27,10 +27,11 @@
 - [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
 - [ ] UVE (Unlimited Vector Extension).
+- [ ] SUM (Supervisor User Memory): honour `sstatus.SUM` so S-mode can deliberately access user pages (PTE.U=1); currently S-mode always faults on user pages.
 
 ### Analysis
 
-- [ ] Per-instruction lifecycle events (PEvents): structured FETCH/DISPATCH/ISSUE/EXECUTE/RETIRE/FLUSH records with
+- [x] Per-instruction lifecycle events (PEvents): structured FETCH/DISPATCH/ISSUE/EXECUTE/RETIRE/FLUSH records with
   instruction ID and cycle number, enabling post-hoc filtering, phase analysis, and RTL correlation. (inspired by
   Olympia/Sparta)
 - [ ] Region-of-interest simulation: run full timing model only between named ELF symbols or address ranges;

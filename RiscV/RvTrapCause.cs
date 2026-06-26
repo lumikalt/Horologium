@@ -20,11 +20,11 @@ public static class RvTrapCause {
 
     // Interrupts (bit 31 = 1)
     public const int SupervisorSoftwareInterrupt = unchecked((int)0x80000001u);
-    public const int MachineSoftwareInterrupt    = unchecked((int)0x80000003u);
-    public const int SupervisorTimerInterrupt    = unchecked((int)0x80000005u);
-    public const int MachineTimerInterrupt       = unchecked((int)0x80000007u);
+    public const int MachineSoftwareInterrupt = unchecked((int)0x80000003u);
+    public const int SupervisorTimerInterrupt = unchecked((int)0x80000005u);
+    public const int MachineTimerInterrupt = unchecked((int)0x80000007u);
     public const int SupervisorExternalInterrupt = unchecked((int)0x80000009u);
-    public const int MachineExternalInterrupt    = unchecked((int)0x8000000Bu);
+    public const int MachineExternalInterrupt = unchecked((int)0x8000000Bu);
 
     /// <summary>Maps a mip/mie bit index to its interrupt cause code.</summary>
     public static int InterruptCause(int bit) => unchecked((int)(0x80000000u | (uint)bit));

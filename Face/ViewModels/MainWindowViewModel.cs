@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Face.Models;
 using Mechanism;
 using Orrery.Observation;
 using RiscV;
@@ -53,6 +54,15 @@ public partial class MainWindowViewModel : ObservableObject {
     [ObservableProperty] public partial string? SelectedMetric { get; set; } = null;
 
     [ObservableProperty] public partial bool HasResults { get; set; } = false;
+
+    [ObservableProperty] public partial decimal TraceMaxTicks { get; set; } = 2_000;
+
+    [ObservableProperty] public partial bool IsTracing { get; set; } = false;
+
+    [ObservableProperty] public partial WaterfallData? CurrentWaterfall { get; set; } = null;
+
+    [ObservableProperty]
+    public partial string PEventStatusText { get; set; } = "Select a configuration and click Trace.";
 
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
@@ -148,6 +158,122 @@ public partial class MainWindowViewModel : ObservableObject {
         }
         catch (Exception ex) { StatusText = $"Error: {ex.Message}"; }
         finally { IsRunning = false; }
+    }
+
+    [RelayCommand]
+    private async Task Trace() {
+        if (SelectedConfig is null) {
+            PEventStatusText = "Select a configuration to trace.";
+            return;
+        }
+
+        var nc = SelectedConfig.ToNamedConfig();
+        if (nc.Config.Pipeline == "superscalar") {
+            PEventStatusText = "Superscalar pipeline does not support PEvent tracing.";
+            return;
+        }
+
+        if (SelectedPreset.ElfFileName == "" && string.IsNullOrWhiteSpace(WorkloadPath)) {
+            PEventStatusText = "Specify an ELF file or select a different workload.";
+            return;
+        }
+
+        IsTracing = true;
+        PEventStatusText = $"Tracing '{nc.Name}'…";
+
+        try {
+            IWorkload workload = SelectedPreset.ElfFileName switch {
+                null => CreateBuiltInWorkload(),
+                ""   => new ElfWorkload(WorkloadPath!),
+                var fn => new ElfWorkload(
+                    Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
+                    SelectedPreset.MemoryBytes
+                ),
+            };
+
+            var maxTicks = (long)(TraceMaxTicks > 0 ? TraceMaxTicks : 2_000);
+            PEventLog plog = await Task.Run(() => Experiment.Trace(workload, nc, new RvMechanism(), maxTicks));
+
+            if (plog.Events.Count == 0) {
+                PEventStatusText = "No events recorded. The workload may not have executed any instructions.";
+                CurrentWaterfall = null;
+                return;
+            }
+
+            CurrentWaterfall = BuildWaterfall(plog);
+            int instrCount = plog.Events.Select(e => e.InstrId).Distinct().Count();
+            int shown = Math.Min(instrCount, 500);
+            long minCy = CurrentWaterfall.MinCycle;
+            long maxCy = CurrentWaterfall.MaxCycle;
+            string extra = instrCount > 500 ? $", first {shown} shown" : "";
+            PEventStatusText = $"{instrCount:N0} instructions traced{extra}, cycles {minCy}–{maxCy}.";
+        }
+        catch (Exception ex) { PEventStatusText = $"Error: {ex.Message}"; }
+        finally { IsTracing = false; }
+    }
+
+    private static WaterfallData BuildWaterfall(PEventLog plog) {
+        static int Priority(PEventKind k) => k switch {
+            PEventKind.Flush      => 6,
+            PEventKind.Retire     => 5,
+            PEventKind.Execute    => 4,
+            PEventKind.Issue      => 3,
+            PEventKind.Dispatch   => 2,
+            PEventKind.Decode     => 1,
+            PEventKind.Fetch      => 0,
+            PEventKind.FetchStall => -1, // never wins in instruction rows
+            _                     => 0,
+        };
+
+        // Compute cycle-level maps first; SpecPc per row is derived from these.
+        // instrId=0 is the sentinel used by FetchStall events — excluded from instruction rows.
+        var fetchPcPerCycle = (IReadOnlyDictionary<long, ulong>)plog.Events
+                                                                    .Where(e => e.Kind == PEventKind.Fetch
+                                                                            || e.Kind == PEventKind.FetchStall
+                                                                     )
+                                                                    .GroupBy(e => e.Cycle)
+                                                                    .ToDictionary(g => g.Key, g => g.Min(e => e.Pc));
+
+        var flushCycles = (IReadOnlySet<long>)plog.Events
+                                                  .Where(e => e.Kind == PEventKind.Flush)
+                                                  .Select(e => e.Cycle)
+                                                  .ToHashSet();
+
+        var fetchStallCycles = (IReadOnlySet<long>)plog.Events
+                                                       .Where(e => e.Kind == PEventKind.FetchStall)
+                                                       .Select(e => e.Cycle)
+                                                       .ToHashSet();
+
+        List<IGrouping<ulong, PEvent>> groups = plog.Events
+                                                    .Where(e => e.InstrId != 0)
+                                                    .GroupBy(e => e.InstrId)
+                                                    .OrderBy(g => g.Key)
+                                                    .Take(500)
+                                                    .ToList();
+
+        List<WaterfallRow> rows = groups.Select(g => {
+                PEvent? fetchEv = g.Where(e => e.Kind == PEventKind.Fetch)
+                                   .Select(e => (PEvent?)e)
+                                   .FirstOrDefault();
+                ulong pc = fetchEv?.Pc ?? g.First().Pc;
+                // SpecPc is the fetch-window start for the cycle this instruction was fetched:
+                // the lowest PC fetched that cycle, showing which batch it belonged to.
+                ulong specPc = fetchEv is { } fe && fetchPcPerCycle.TryGetValue(fe.Cycle, out ulong fpc)
+                    ? fpc
+                    : pc;
+                var events = new Dictionary<long, PEventKind>();
+                foreach (PEvent ev in g)
+                    if (!events.TryGetValue(ev.Cycle, out PEventKind existing)
+                     || Priority(ev.Kind) > Priority(existing))
+                        events[ev.Cycle] = ev.Kind;
+                return new WaterfallRow(g.Key, pc, specPc, events);
+            }
+        ).ToList();
+
+        long minCy = rows.SelectMany(r => r.Events.Keys).Min();
+        long maxCy = rows.SelectMany(r => r.Events.Keys).Max();
+
+        return new WaterfallData(rows, minCy, maxCy, fetchPcPerCycle, flushCycles, fetchStallCycles);
     }
 
     public void SetWorkloadPath(string path) {

@@ -23,6 +23,7 @@ public sealed class FiveStageTrain {
     public Tlb? ITlb => _core.ILayers.Tlb;
     public Tlb? DTlb => _core.DLayers.Tlb;
     public StoreBuffer? StoreBuffer => _core.StoreBuffer;
+    public PEventLog? PEventLog => _core.PEventLog;
 
     public FiveStageTrain(
         IMechanism mechanism,
@@ -32,7 +33,8 @@ public sealed class FiveStageTrain {
         IBranchPredictor? predictor = null,
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null,
-        int storeBufferCapacity = 0
+        int storeBufferCapacity = 0,
+        PEventLog? pEventLog = null
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
@@ -43,7 +45,7 @@ public sealed class FiveStageTrain {
                 predictor ?? new AlwaysNotTakenPredictor(),
                 iMemConfig ?? MemoryConfig.None,
                 dMemConfig ?? MemoryConfig.None,
-                storeBufferCapacity
+                storeBufferCapacity, pEventLog
             )
         );
         _train.Build();
@@ -98,6 +100,10 @@ internal sealed class PipelineCore : Gear {
 
     private bool _anyCache;
 
+    // PEvent recording — null means recording is disabled (zero overhead path)
+    private readonly PEventLog? _plog;
+    private ulong _lastFetchedInstrId;
+
     // Delta tracking for cache/TLB stat counters
     private long _lastIHits, _lastIMisses;
     private long _lastIl2Hits, _lastIl2Misses;
@@ -113,6 +119,7 @@ internal sealed class PipelineCore : Gear {
     public MemoryLayers ILayers { get; }
     public MemoryLayers DLayers { get; }
     public StoreBuffer? StoreBuffer { get; }
+    public PEventLog? PEventLog => _plog;
 
     public PipelineCore(
         string name,
@@ -125,9 +132,11 @@ internal sealed class PipelineCore : Gear {
         IBranchPredictor predictor,
         MemoryConfig iMemConfig,
         MemoryConfig dMemConfig,
-        int storeBufferCapacity = 0
+        int storeBufferCapacity = 0,
+        PEventLog? pEventLog = null
     )
         : base(name, parent, esc) {
+        _plog = pEventLog;
         _predictor = predictor;
         _hazard = new HazardUnit(forwardingEnabled);
         _decoder = mechanism.Decoder;
@@ -144,8 +153,10 @@ internal sealed class PipelineCore : Gear {
         }
 
         // Create stages — IF uses instruction memory, EX/MEM use data memory.
-        _if = new FetchStage("if", parent, esc, ILayers.Accessor, predictor, _decoder,
-            fetchTranslator: mechanism.CreateFetchTranslator(State, memory));
+        _if = new FetchStage(
+            "if", parent, esc, ILayers.Accessor, predictor, _decoder,
+            fetchTranslator: mechanism.CreateFetchTranslator(State, memory)
+        );
         _id = new DecodeStage("id", parent, esc, mechanism.Decoder, State);
         _ex = new ExecuteStage(
             "ex", parent, esc,
@@ -285,7 +296,7 @@ internal sealed class PipelineCore : Gear {
         );
         _fwdProviders[1] = new PipelineResident(
             exMemLast.IsValid, exMemLast.DestinationRegister, default(ToothClass),
-            exMemLast.Result is { } fwdR && fwdR.RegisterResult.HasValue ? fwdR.RegisterResult.Value : null
+            exMemLast.Result is { RegisterResult.HasValue: true, } fwdR ? fwdR.RegisterResult.Value : null
         );
         _ex.SetForwardingContext(_fwdProviders);
 
@@ -295,7 +306,7 @@ internal sealed class PipelineCore : Gear {
         );
         _hazardResidents[1] = new PipelineResident(
             exMemLast.IsValid, exMemLast.DestinationRegister, exMemLast.Instruction?.Class ?? default(ToothClass),
-            exMemLast.Result is { } hzR && hzR.RegisterResult.HasValue ? hzR.RegisterResult.Value : null
+            exMemLast.Result is { RegisterResult.HasValue: true, } hzR ? hzR.RegisterResult.Value : null
         );
         ITooth? incoming = TryDecode(ifIdLast);
         bool stall = _hazard.MustStall(incoming?.SourceRegisters ?? [], _hazardResidents);
@@ -348,10 +359,29 @@ internal sealed class PipelineCore : Gear {
             _if.Flush = true;
         }
 
+        // PEvents: record DECODE/FLUSH for instruction in ID, EXECUTE/FLUSH for instruction in EX.
+        // These checks happen after all stall/squash/flush flags are set.
+        if (_plog is not null) {
+            long cyc = _cyclesCounter.Value;
+            if (_if.Flush && ifIdLast is { IsValid: true, InstrId: not 0, })
+                _plog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Flush);
+            else if (!_if.Flush && ifIdLast is { IsValid: true, InstrId: not 0, })
+                _plog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Decode);
+            if (_ex.Squash && idExLast is { IsValid: true, InstrId: not 0, })
+                _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Flush);
+            else if (!_ex.Squash && idExLast is { IsValid: true, InstrId: not 0, })
+                _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Execute);
+        }
+
         // Drive stages directly — WB before ID so the register file write
         // is visible to Decode's reads within the same cycle.
+        long preRetire = _wb.RetiredCount;
         _wb.Inject(memWbLast);
         _wb.Cycle();
+        if (_plog is not null && memWbLast is { IsValid: true, InstrId: not 0, } &&
+            (_wb.RetiredCount > preRetire || _wb.Halted))
+            _plog.Record(memWbLast.InstrId, memWbLast.Pc, _cyclesCounter.Value, PEventKind.Retire);
+
         _id.Inject(ifIdLast);
         _id.Cycle();
         _ex.Inject(idExLast);
@@ -359,6 +389,16 @@ internal sealed class PipelineCore : Gear {
         _mem.Inject(exMemLast);
         _mem.Cycle();
         _if.Cycle();
+
+        // PEvent: record FETCH for the instruction just produced by IF this cycle.
+        if (_plog is not null) {
+            IfIdLatch ifSent = _if.LastSent;
+            if (ifSent is { IsValid: true, InstrId: not 0, } && ifSent.InstrId != _lastFetchedInstrId) {
+                _lastFetchedInstrId = ifSent.InstrId;
+                _plog.Record(ifSent.InstrId, ifSent.Pc, _cyclesCounter.Value, PEventKind.Fetch);
+            }
+        }
+
         StoreBuffer?.DrainEligible();
 
         Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);

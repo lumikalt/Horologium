@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
 using RiscV.Config;
@@ -92,5 +93,44 @@ public static class Experiment {
         }
 
         return new ExperimentResult(records);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="workload"/> under a single <paramref name="config"/> with a
+    /// <see cref="PEventLog"/> attached and returns the log. Superscalar returns an empty log.
+    /// </summary>
+    public static PEventLog Trace(
+        IWorkload workload,
+        NamedConfig config,
+        IMechanism mechanism,
+        long maxTicks = 10_000
+    ) {
+        var memory = new FlatMemory(workload.MemorySize);
+        workload.Load(memory);
+        var plog = new PEventLog();
+        TrainConfig cfg = config.Config;
+        switch (cfg.Pipeline) {
+            case "ooo":
+                new OooeTrain(
+                    mechanism, memory, workload.EntryPoint,
+                    cfg.IssueWidth, cfg.RobCapacity, cfg.IqCapacity, cfg.ExtraPhysRegs,
+                    cfg.Predictor?.Build(),
+                    cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig(),
+                    cfg.FuLatency, plog
+                ).Run(maxTicks);
+                break;
+            case "superscalar": break;
+            default:
+                new FiveStageTrain(
+                    mechanism, memory, workload.EntryPoint,
+                    cfg.ForwardingEnabled,
+                    cfg.Predictor?.Build(),
+                    cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig(),
+                    cfg.StoreBufferCapacity, plog
+                ).Run(maxTicks);
+                break;
+        }
+
+        return plog;
     }
 }

@@ -135,7 +135,7 @@ public sealed class IssueQueue {
     public int FindReady(Func<RsEntry, bool>? filter = null) {
         for (var i = 0; i < Capacity; i++) {
             RsEntry e = _slots[i];
-            if (e.Busy && e.IsReady && (filter is null || filter(e))) return i;
+            if (e is { Busy: true, IsReady: true, } && (filter is null || filter(e))) return i;
         }
 
         return -1;
@@ -150,7 +150,7 @@ public sealed class IssueQueue {
         var found = 0;
         for (var i = 0; i < Capacity && found < maxCount; i++) {
             RsEntry e = _slots[i];
-            if (e.Busy && e.IsReady && (filter is null || filter(e))) results[found++] = i;
+            if (e is { Busy: true, IsReady: true, } && (filter is null || filter(e))) results[found++] = i;
         }
 
         return found;
