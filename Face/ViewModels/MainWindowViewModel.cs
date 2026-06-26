@@ -66,6 +66,8 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
+    public AssemblerViewModel Assembler { get; } = new();
+
     public ObservableCollection<ConfigViewModel> Configs { get; } = [];
     public ObservableCollection<string> AvailableMetrics { get; } = [];
     public ObservableCollection<Dictionary<string, string>> TableRows { get; } = [];

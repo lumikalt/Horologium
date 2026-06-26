@@ -3,7 +3,7 @@
 ## Face
 
 - [ ] L2 and L3 caches.
-- [ ] Assembler to simulate RISC-V in-place.
+- [x] Assembler to simulate RISC-V in-place.
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
   instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)

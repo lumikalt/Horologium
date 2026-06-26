@@ -1,0 +1,211 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Face.ViewModels"
+             xmlns:models="using:Face.Models"
+             xmlns:rv="using:RiscV.Decode"
+             x:Class="Face.Views.AssemblerView"
+             x:DataType="vm:AssemblerViewModel">
+
+    <Grid ColumnDefinitions="300,*,220">
+
+        <!-- ── Left: Assembly editor ─────────────────────────────────────────── -->
+        <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto"
+              Margin="0,0,1,0">
+
+            <!-- Toolbar -->
+            <WrapPanel Grid.Row="0" Margin="8,8,8,4" HorizontalAlignment="Left">
+                <Button Content="Assemble"
+                        Command="{Binding AssembleCommand}"
+                        IsEnabled="{Binding !IsAssembling}"
+                        Margin="0,0,4,4" Padding="10,5" />
+                <Button Content="Step"
+                        Command="{Binding StepCommand}"
+                        IsEnabled="{Binding CanStep}"
+                        Margin="0,0,4,4" Padding="10,5" />
+                <Button Content="Run"
+                        Command="{Binding RunCommand}"
+                        IsEnabled="{Binding CanStep}"
+                        Margin="0,0,4,4" Padding="10,5" />
+                <Button Content="Reset"
+                        Command="{Binding ResetCommand}"
+                        IsEnabled="{Binding CanStep}"
+                        Margin="0,0,0,4" Padding="10,5" />
+            </WrapPanel>
+
+            <!-- Editor -->
+            <TextBox Grid.Row="1"
+                     Text="{Binding SourceCode}"
+                     AcceptsReturn="True"
+                     AcceptsTab="True"
+                     TextWrapping="NoWrap"
+                     FontFamily="Consolas, Courier New, monospace"
+                     FontSize="13"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     Margin="8,0" />
+
+            <!-- Error panel -->
+            <Border Grid.Row="2"
+                    IsVisible="{Binding HasError}"
+                    Background="#4D1A1A"
+                    CornerRadius="4"
+                    Margin="8,4">
+                <TextBlock Text="{Binding AssembleError}"
+                           TextWrapping="Wrap"
+                           FontFamily="Consolas, Courier New, monospace"
+                           FontSize="11"
+                           Foreground="#FF8888"
+                           Padding="8,6" />
+            </Border>
+
+            <!-- Status bar -->
+            <TextBlock Grid.Row="3"
+                       Text="{Binding StatusText}"
+                       Margin="8,4,8,8"
+                       FontSize="11"
+                       Opacity="0.65"
+                       TextWrapping="Wrap" />
+        </Grid>
+
+        <!-- ── Middle: Instruction listing + decode panel ────────────────────── -->
+        <Grid Grid.Column="1" RowDefinitions="*,Auto"
+              Margin="1,0,1,0">
+
+            <DataGrid Grid.Row="0"
+                      ItemsSource="{Binding Instructions}"
+                      SelectedItem="{Binding SelectedInstruction}"
+                      IsReadOnly="True"
+                      CanUserSortColumns="False"
+                      CanUserResizeColumns="True"
+                      GridLinesVisibility="Horizontal"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      FontFamily="Consolas, Courier New, monospace"
+                      FontSize="12">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Offset"
+                                        Binding="{Binding OffsetHex}"
+                                        Width="80"
+                                        IsReadOnly="True" />
+                    <DataGridTextColumn Header="Hex"
+                                        Binding="{Binding HexEncoding}"
+                                        Width="90"
+                                        IsReadOnly="True" />
+                    <DataGridTextColumn Header="Assembly"
+                                        Binding="{Binding Mnemonic}"
+                                        Width="*"
+                                        IsReadOnly="True" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- Decode breakdown panel — appears when a row is selected -->
+            <Border Grid.Row="1"
+                    IsVisible="{Binding IsDecodeVisible}"
+                    Background="#1A1A28"
+                    BorderBrush="#3A3A52"
+                    BorderThickness="0,1,0,0"
+                    Padding="10,8">
+                <StackPanel>
+                    <TextBlock Text="{Binding DecodeTitle}"
+                               FontFamily="Consolas, Courier New, monospace"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,6" />
+                    <ItemsControl ItemsSource="{Binding DecodeFields}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="rv:InstrField">
+                                <Border Background="#252535"
+                                        CornerRadius="4"
+                                        Margin="3,2"
+                                        Padding="7,4">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontSize="10"
+                                                   Opacity="0.55" />
+                                        <TextBlock Text="{Binding BitsText}"
+                                                   FontFamily="Consolas, Courier New, monospace"
+                                                   FontSize="11"
+                                                   Foreground="#C8D8F0" />
+                                        <TextBlock Text="{Binding Decoded}"
+                                                   FontSize="10"
+                                                   Foreground="#8AAEC8"
+                                                   IsVisible="{Binding HasDecoded}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ── Right: Register file ──────────────────────────────────────────── -->
+        <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto,Auto,*"
+              Margin="1,0,0,0">
+
+            <TextBlock Grid.Row="0"
+                       Text="INTEGER"
+                       FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                       Margin="8,8,8,4" />
+            <ComboBox Grid.Row="1"
+                      ItemsSource="{Binding IntFormatOptions}"
+                      SelectedItem="{Binding IntRegFormat}"
+                      HorizontalAlignment="Stretch"
+                      Margin="8,0,8,4" />
+            <ListBox Grid.Row="2"
+                     ItemsSource="{Binding IntRegisters}"
+                     Padding="0">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:RegEntry">
+                        <Grid ColumnDefinitions="52,*" Margin="4,1">
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding Name}"
+                                       FontFamily="Consolas, Courier New, monospace"
+                                       FontSize="11"
+                                       Foreground="#8AAEC8" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding Display}"
+                                       FontFamily="Consolas, Courier New, monospace"
+                                       FontSize="11" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <TextBlock Grid.Row="3"
+                       Text="FLOAT"
+                       FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                       Margin="8,8,8,4" />
+            <ComboBox Grid.Row="4"
+                      ItemsSource="{Binding FloatFormatOptions}"
+                      SelectedItem="{Binding FloatRegFormat}"
+                      HorizontalAlignment="Stretch"
+                      Margin="8,0,8,4" />
+            <ListBox Grid.Row="5"
+                     ItemsSource="{Binding FloatRegisters}"
+                     Padding="0">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:RegEntry">
+                        <Grid ColumnDefinitions="52,*" Margin="4,1">
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding Name}"
+                                       FontFamily="Consolas, Courier New, monospace"
+                                       FontSize="11"
+                                       Foreground="#8AAEC8" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding Display}"
+                                       FontFamily="Consolas, Courier New, monospace"
+                                       FontSize="11" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+
+    </Grid>
+</UserControl>

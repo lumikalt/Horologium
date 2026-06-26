@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Face.ViewModels"
+        xmlns:views="using:Face.Views"
         xmlns:controls="using:Face.Controls"
         xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
         x:Class="Face.Views.MainWindow"
@@ -501,6 +502,11 @@
                             <controls:WaterfallControl Data="{Binding CurrentWaterfall}" />
                         </ScrollViewer>
                     </Grid>
+                </TabItem>
+
+                <!-- Assembler tab -->
+                <TabItem Header="Assembler">
+                    <views:AssemblerView DataContext="{Binding Assembler}" />
                 </TabItem>
 
             </TabControl>
