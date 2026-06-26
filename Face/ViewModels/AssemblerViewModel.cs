@@ -23,6 +23,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private int _binarySize;
     private int _stepCount;
     private Dictionary<ulong, int> _pcToLine = [];
+    private CancellationTokenSource? _runCts;
 
     [ObservableProperty]
     public partial string SourceCode { get; set; } =
@@ -184,19 +185,31 @@ public partial class AssemblerViewModel : ObservableObject {
     }
 
     [RelayCommand]
-    private void Run() {
+    private async Task Run() {
         if (!CanStep) return;
+        _runCts?.Cancel();
+        _runCts = new CancellationTokenSource();
+        var token = _runCts.Token;
+
         const int maxSteps = 10_000;
-        for (var i = 0; i < maxSteps && CanStep; i++) {
+        int delay = (int)MsPerCycle;
+
+        for (var i = 0; i < maxSteps && CanStep && !token.IsCancellationRequested; i++) {
             StepOnce();
-            if (!CanStep) break;
+            if (!CanStep || token.IsCancellationRequested) break;
+            if (delay > 0) {
+                try { await Task.Delay(delay, token); }
+                catch (OperationCanceledException) { break; }
+            }
         }
 
-        if (CanStep && _archState != null) StatusText = $"Ran {maxSteps} steps (hit limit). PC=0x{_archState.Pc:X}";
+        if (CanStep && _archState != null && !token.IsCancellationRequested)
+            StatusText = $"Ran {maxSteps} steps (hit limit). PC=0x{_archState.Pc:X}";
     }
 
     [RelayCommand]
     private void Reset() {
+        _runCts?.Cancel();
         _archState?.Reset();
         _stepCount = 0;
         UpdateCurrentRow();

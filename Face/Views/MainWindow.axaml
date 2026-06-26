@@ -463,17 +463,16 @@
                             <TextBlock Text="ASSEMBLER" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
 
                             <!-- ms / cycle chooser -->
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBlock Grid.Column="0" Text="ms / cycle"
-                                           VerticalAlignment="Center" />
-                                <NumericUpDown Grid.Column="1"
-                                               Value="{Binding Assembler.MsPerCycle}"
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="ms / cycle"
+                                           FontSize="11" Opacity="0.55" />
+                                <NumericUpDown Value="{Binding Assembler.MsPerCycle}"
                                                Minimum="0" Maximum="5000"
                                                Increment="10" FormatString="N0"
-                                               Width="110" />
-                            </Grid>
-                            <TextBlock Text="0 = run as fast as possible."
-                                       FontSize="11" Opacity="0.45" />
+                                               HorizontalAlignment="Stretch" />
+                                <TextBlock Text="0 = run as fast as possible."
+                                           FontSize="11" Opacity="0.45" />
+                            </StackPanel>
 
                             <!-- Transport buttons: ←  |▶  →  ⟳ -->
                             <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
