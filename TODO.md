@@ -9,7 +9,7 @@
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
   instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)
-- [ ] Complete Light Mode implementation — missing dark background on the chart background before execution, on the PEvents graph, on the decoding guide for the Assembly.
+- [x] Complete Light Mode implementation — missing dark background on the chart background before execution, on the PEvents graph, on the decoding guide for the Assembly.
 - [ ] Work with other ISAs, not just RISC-V.
 
 ## CHIP8
@@ -78,7 +78,8 @@
   to the same address resolved after it. Flush and reexecute from the violating load; store-to-load forwarding at
   execute time avoids squash when the store has already resolved. (inspired by gem5 O3)
 - [ ] Separate load queue and store queue for speculative memory disambiguation.
-- [ ] Streaming-Engine to allow for UVE.
+- [x] Streaming-Engine to allow for UVE: `StreamingEngine` in `Orrery/Streaming/`; 8 streams, affine (base/stride/count/width) with configurable prefetch depth; wired into `OooeTrain` (steps every cycle, survives flushes); ISA consumer (UVE instructions) remains a separate TODO.
+- [ ] Wire stream consumption into `OooeTrain`: add stream-ID metadata to `ITooth` (default -1, override in `RvInstruction`), inject stream-head value in `ExecuteOne` the same way `Src1/2/3` are injected, stall Issue when `HasElement` is false for a consuming instruction.
 
 ### Branch Prediction
 

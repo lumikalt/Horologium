@@ -4,6 +4,7 @@ using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
 using Orrery.Scheduling;
+using Orrery.Streaming;
 using Orrery.Train;
 using Orrery.Tree;
 using Pipeline.Ooo;
@@ -25,6 +26,7 @@ public sealed class OooeTrain {
     public Tlb? ITlb => _core.ILayers.Tlb;
     public Tlb? DTlb => _core.DLayers.Tlb;
     public PEventLog? PEventLog => _core.PEventLog;
+    public StreamingEngine StreamingEngine => _core.StreamingEngine;
 
     public OooeTrain(
         IMechanism mechanism,
@@ -38,7 +40,8 @@ public sealed class OooeTrain {
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null,
         FuLatencyConfig? fuLatency = null,
-        PEventLog? pEventLog = null
+        PEventLog? pEventLog = null,
+        int streamPrefetchDepth = 4
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -51,7 +54,8 @@ public sealed class OooeTrain {
                 iMemConfig ?? MemoryConfig.None,
                 dMemConfig ?? MemoryConfig.None,
                 fuLatency ?? FuLatencyConfig.Default,
-                pEventLog
+                pEventLog,
+                streamPrefetchDepth
             )
         );
         _train.Build();
@@ -160,6 +164,9 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly CapturingMemory _capMem;
     private readonly FuLatencyConfig _fuConfig;
 
+    // Streaming engine (architectural; survives pipeline flushes)
+    public StreamingEngine StreamingEngine { get; }
+
     // Memory hierarchy layers
     public MemoryLayers ILayers { get; }
     public MemoryLayers DLayers { get; }
@@ -230,7 +237,8 @@ internal sealed class OoOPipelineCore : Gear {
         MemoryConfig iMemConfig,
         MemoryConfig dMemConfig,
         FuLatencyConfig fuConfig,
-        PEventLog? pEventLog = null
+        PEventLog? pEventLog = null,
+        int streamPrefetchDepth = 4
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _decoder = mechanism.Decoder;
@@ -255,6 +263,7 @@ internal sealed class OoOPipelineCore : Gear {
         _rat = new RenameMap(archRegs, physRegs);
         _rob = new ReorderBuffer(robCapacity);
         _iq = new IssueQueue(iqCapacity);
+        StreamingEngine = new StreamingEngine(streamPrefetchDepth);
     }
 
     public override void Initialize() {
@@ -339,6 +348,10 @@ internal sealed class OoOPipelineCore : Gear {
 
     private void RunCycle() {
         if (_halted) return;
+
+        // Advance all active streams one prefetch step. Streams are architectural state
+        // and run every cycle, independent of pipeline flush/stall.
+        StreamingEngine.Step(DLayers.Accessor);
 
         // Drain cache/TLB stall penalties from the previous cycle's memory operations.
         // Lump-sum: does not model memory-level parallelism available in real OoO hardware.
