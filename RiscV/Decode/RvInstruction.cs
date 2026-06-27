@@ -48,6 +48,11 @@ public sealed class RvInstruction(
         _ => [],
     };
 
+    public IReadOnlyList<(int StreamId, int Dim)> UveDimBranchSources => Payload switch {
+        RvUveSoBNdc op => [(op.Urs, op.Dim),],
+        _ => [],
+    };
+
     public IReadOnlyList<int> VectorSourceRegisters => Payload switch {
         RvVIntAluVv op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         RvVIntAluVx op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
@@ -328,10 +333,29 @@ public record RvVMaskCmpVi(VMaskCmpOp Op, int Vd, int Vs2, int Imm, bool Masked)
 // Stream setup (custom-0, opcode=0x0B, R4-type):
 //   bits[31:27]=rs3_stride, bits[26:25]=funct2, bits[24:20]=rs2_count,
 //   bits[19:15]=rs1_base, bits[14:12]=funct3, bits[11:7]=ud, bits[6:0]=0x0B
-//   funct3=0x0 → ss.ld.w, funct3=0x1 → ss.st.w
+//   funct3=0x0 → ss.ld.w (1D)
+//   funct3=0x1 → ss.st.w (1D)
+//   funct3=0x2 → ss.sta.ld.w (start multi-dim load stream, first/innermost dimension)
+//   funct3=0x3 → ss.sta.st.w (start multi-dim store stream)
+//   funct3=0x4 → ss.app ud, _, rs2_count, rs3_stride (append next dimension)
+//   funct3=0x5 → ss.end ud, _, rs2_count, rs3_stride (outermost dimension + activate)
+//   funct3=0x6 → ss.cfg.vec ud (mark pending stream as vector-mode)
 public record RvUveSsLdW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride) : RvOp;
 
 public record RvUveSsStW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride) : RvOp;
+
+public record RvUveSsStaLdW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride) : RvOp;
+
+public record RvUveSsStaStW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride) : RvOp;
+
+// Rs2Count/Rs3Stride are the count and stride for this additional dimension.
+public record RvUveSsApp(int Ud, int Rs2Count, int Rs3Stride) : RvOp;
+
+// Same field layout as ss.app; also returns StreamConfig when IsLoad.
+public record RvUveSsEnd(int Ud, int Rs2Count, int Rs3Stride) : RvOp;
+
+// ss.cfg.vec ud — flag the pending stream as vector-mode (no-op until vector streaming).
+public record RvUveSsCfgVec(int Ud) : RvOp;
 
 // Scalar broadcast (custom-1, opcode=0x2B, R-type, funct3=0x0, funct7=0x00):
 //   so.v.dp.w ud, rs1 — broadcast float32 bits from int reg rs1 into u-reg ud
@@ -344,5 +368,10 @@ public enum UveFpOp { Mul = 0, Add = 1, Mac = 2, Sub = 3 }
 public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
 
 // Stream branch (custom-1, opcode=0x2B, B-type, funct3=0x4):
-//   so.b.nc urs, imm — taken (PC += imm) while stream urs is not exhausted
+//   so.b.nc urs, imm — taken (PC += imm) while whole stream urs is not exhausted
 public record RvUveSoBNc(int Urs, int Imm) : RvOp;
+
+// Per-dimension branch (custom-1, opcode=0x2B, B-type, funct3=0x5):
+//   so.b.ndc.D urs, imm — taken while dimension D of stream urs has not completed its pass
+//   Dim = rs2 field interpreted as a literal 0-based dimension index (0 = innermost)
+public record RvUveSoBNdc(int Urs, int Dim, int Imm) : RvOp;

@@ -1056,16 +1056,22 @@ public sealed class RvDecoder : IDecoder {
 
     private static RvInstruction DecodeUveSetup(ulong pc, uint raw) {
         // R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | 0x0B
-        var ud = (int)((raw >> 7) & 0x1F);
+        var ud  = (int)((raw >> 7)  & 0x1F);
         var rs1 = (int)((raw >> 15) & 0x1F);
         var rs2 = (int)((raw >> 20) & 0x1F);
         var rs3 = (int)((raw >> 27) & 0x1F);
         uint funct3 = (raw >> 12) & 0x7;
-        var sources = (IReadOnlyList<int>)[rs1, rs2, rs3,];
 
         return funct3 switch {
-            0x0 => new RvInstruction(pc, raw, -1, sources, ToothClass.Uve, new RvUveSsLdW(ud, rs1, rs2, rs3)),
-            0x1 => new RvInstruction(pc, raw, -1, sources, ToothClass.Uve, new RvUveSsStW(ud, rs1, rs2, rs3)),
+            // 1D stream setup (backward-compatible)
+            0x0 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsLdW(ud, rs1, rs2, rs3)),
+            0x1 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStW(ud, rs1, rs2, rs3)),
+            // Multi-dim stream setup: ss.sta starts, ss.app appends, ss.end finalises
+            0x2 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, rs2, rs3)),
+            0x3 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, rs2, rs3)),
+            0x4 => new RvInstruction(pc, raw, -1, [rs2, rs3,],      ToothClass.Uve, new RvUveSsApp(ud, rs2, rs3)),
+            0x5 => new RvInstruction(pc, raw, -1, [rs2, rs3,],      ToothClass.Uve, new RvUveSsEnd(ud, rs2, rs3)),
+            0x6 => new RvInstruction(pc, raw, -1, [],               ToothClass.Uve, new RvUveSsCfgVec(ud)),
             _ => throw new IllegalInstructionException(pc, raw, $"Unknown UVE setup funct3=0x{funct3:X}"),
         };
     }
@@ -1090,16 +1096,16 @@ public sealed class RvDecoder : IDecoder {
                 return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoAFp(op, rd, rs1, rs2));
             }
 
-            case 0x4: { // so.b.nc urs, imm — branch while stream not complete (B-type)
-                int imm = SignExtendN(
-                    (int)(((raw >> 31) & 1) << 12) |
-                    (int)(((raw >> 7) & 1) << 11) |
-                    (int)(((raw >> 25) & 0x3F) << 5) |
-                    (int)(((raw >> 8) & 0xF) << 1),
-                    13
-                );
-                // rs1 = u-reg to test; rs2=0 (nc variant), rd field encodes imm bits
+            case 0x4: { // so.b.nc urs, imm — branch while whole stream not exhausted (B-type)
+                int imm = BranchImm(raw);
                 return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNc(rs1, imm));
+            }
+
+            case 0x5: { // so.b.ndc.D urs, imm — branch while dim D of stream not complete (B-type)
+                // dim is encoded in rs2 field (0 = innermost; literal, not a register index)
+                int dim = rs2;
+                int imm = BranchImm(raw);
+                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNdc(rs1, dim, imm));
             }
 
             default:
@@ -1108,6 +1114,14 @@ public sealed class RvDecoder : IDecoder {
     }
 
     // ── Immediate helpers ─────────────────────────────────────────────────────
+
+    // Standard RISC-V B-type 13-bit signed branch immediate.
+    private static int BranchImm(uint raw) => SignExtendN(
+        (int)(((raw >> 31) & 1) << 12) |
+        (int)(((raw >> 7)  & 1) << 11) |
+        (int)(((raw >> 25) & 0x3F) << 5) |
+        (int)(((raw >> 8)  & 0xF) << 1),
+        13);
 
     private static int SignExtend12(int value) =>
         (value & 0x800) != 0 ? value | unchecked((int)0xFFFFF000) : value & 0xFFF;

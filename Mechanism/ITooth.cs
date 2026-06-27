@@ -59,10 +59,17 @@ public interface ITooth {
 
     /// <summary>
     /// UVE u-register indices whose exhaustion state this instruction inspects
-    /// (so.b.nc, so.b.ndc.*). The pipeline syncs IsExhausted to IUveScalars
+    /// (so.b.nc). The pipeline syncs IsExhausted to IUveScalars
     /// before calling the executor. Non-branch UVE ops return empty.
     /// </summary>
     IReadOnlyList<int> UveBranchStreams => [];
+
+    /// <summary>
+    /// (stream-id, dimension-index) pairs whose per-dimension pass-complete flag this
+    /// instruction inspects (so.b.ndc.*). The pipeline syncs IsDimPassComplete to
+    /// IUveScalars before calling the executor. Non-NDC ops return empty.
+    /// </summary>
+    IReadOnlyList<(int StreamId, int Dim)> UveDimBranchSources => [];
 }
 
 /// <summary>

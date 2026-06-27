@@ -328,16 +328,17 @@ public sealed class RvExecutor : IExecutor {
                 ),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsLdW (var ud, var rs1, var rs2, var rs3) =>
-                ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
-            RvUveSsStW (var ud, var rs1, var rs2, var rs3) =>
-                ExecuteUveSsSt(state, regs, ud, rs1, rs2, rs3),
-            RvUveSoVDpW (var ud, var rs1) =>
-                ExecuteUveSoVDpW(state, regs, ud, rs1),
-            RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) =>
-                ExecuteUveSoAFp(state, memory, fpOp, ud, usrc1, usrc2),
-            RvUveSoBNc (var urs, var imm) =>
-                ExecuteUveSoBNc(state, pc, urs, imm),
+            RvUveSsLdW    (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
+            RvUveSsStW    (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSt(state, regs, ud, rs1, rs2, rs3),
+            RvUveSsStaLdW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(state, regs, ud, rs1, rs2, rs3, isLoad: true),
+            RvUveSsStaStW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(state, regs, ud, rs1, rs2, rs3, isLoad: false),
+            RvUveSsApp    (var ud, var rs2, var rs3)           => ExecuteUveSsApp(state, regs, ud, rs2, rs3),
+            RvUveSsEnd    (var ud, var rs2, var rs3)           => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
+            RvUveSsCfgVec (var ud)                             => ExecuteUveSsCfgVec(state, ud),
+            RvUveSoVDpW   (var ud, var rs1)                   => ExecuteUveSoVDpW(state, regs, ud, rs1),
+            RvUveSoAFp    (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(state, memory, fpOp, ud, usrc1, usrc2),
+            RvUveSoBNc    (var urs, var imm)                   => ExecuteUveSoBNc(state, pc, urs, imm),
+            RvUveSoBNdc   (var urs, var dim, var imm)          => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
 
             _ => throw new InvalidOperationException(
                 $"Unhandled RvOp: {op.GetType().Name}"
@@ -890,6 +891,98 @@ public sealed class RvExecutor : IExecutor {
     // The pipeline has already synced the exhaustion state into UveState via IUveScalars.
     private static ExecuteResult ExecuteUveSoBNc(IArchState state, ulong pc, int urs, int imm) {
         bool done = UState(state).UveState.StreamDone[urs];
+        bool taken = !done;
+        return taken
+            ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)(long)imm, }
+            : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
+    }
+
+    // ss.sta.ld.w / ss.sta.st.w — start multi-dim stream configuration.
+    // Creates a pending config with the first (innermost) dimension and stores in UveState.
+    private static ExecuteResult ExecuteUveSsSta(IArchState state, IRegisterFile regs,
+        int ud, int rs1, int rs2, int rs3, bool isLoad) {
+        ulong baseAddr = regs.Read(rs1);
+        long count = (long)regs.Read(rs2);
+        long stride = (long)regs.Read(rs3);
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState uvs = UState(s).UveState;
+                var cfg = new PendingStreamConfig {
+                    BaseAddress  = baseAddr,
+                    ElementBytes = 4,
+                    IsLoad       = isLoad,
+                };
+                cfg.Dimensions.Add(new StreamDimension(count, stride));
+                uvs.PendingConfig[ud] = cfg;
+            },
+        };
+    }
+
+    // ss.app ud, _, rs2_count, rs3_stride — append next outer dimension to pending config.
+    private static ExecuteResult ExecuteUveSsApp(IArchState state, IRegisterFile regs, int ud, int rs2, int rs3) {
+        long count = (long)regs.Read(rs2);
+        long stride = (long)regs.Read(rs3);
+        return new ExecuteResult {
+            SideEffect = s => {
+                UState(s).UveState.PendingConfig[ud]?.Dimensions.Add(new StreamDimension(count, stride));
+            },
+        };
+    }
+
+    // ss.end ud, _, rs2_count, rs3_stride — outermost dimension + activate stream.
+    // For load streams: returns StreamConfig so the pipeline can configure StreamingEngine.
+    // For store streams: configures a flattened UveStoreStream (multi-dim store TBD).
+    private static ExecuteResult ExecuteUveSsEnd(IArchState state, IRegisterFile regs, int ud, int rs2, int rs3) {
+        long count = (long)regs.Read(rs2);
+        long stride = (long)regs.Read(rs3);
+        UveState uveState = UState(state).UveState;
+        PendingStreamConfig? pending = uveState.PendingConfig[ud];
+        if (pending is null) return ExecuteResult.Clean;
+
+        var dims = pending.Dimensions.Append(new StreamDimension(count, stride)).ToArray();
+        var descriptor = new StreamDescriptor(pending.BaseAddress, pending.ElementBytes, dims);
+        bool isLoad = pending.IsLoad;
+
+        if (isLoad) {
+            return new ExecuteResult {
+                StreamConfig = (ud, descriptor),
+                SideEffect = s => {
+                    UveState uvs = UState(s).UveState;
+                    uvs.PendingConfig[ud] = null;
+                    uvs.RegKind[ud] = UveRegKind.LoadStream;
+                },
+            };
+        }
+
+        // Store stream: flatten total count × stride for now (multi-dim cursors TBD).
+        long totalCount = 1;
+        foreach (StreamDimension d in dims) totalCount *= d.Count;
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState uvs = UState(s).UveState;
+                uvs.PendingConfig[ud] = null;
+                uvs.StoreStreams[ud] = new UveStoreStream {
+                    BaseAddress = descriptor.BaseAddress, ElementBytes = descriptor.ElementBytes,
+                    Count = totalCount, Stride = dims[0].Stride, NextIndex = 0,
+                };
+                uvs.RegKind[ud] = UveRegKind.StoreStream;
+            },
+        };
+    }
+
+    // ss.cfg.vec ud — flag pending stream as vector-mode (no-op until vector streaming).
+    private static ExecuteResult ExecuteUveSsCfgVec(IArchState state, int ud) =>
+        new ExecuteResult {
+            SideEffect = s => {
+                PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
+                if (cfg is not null) cfg.IsVector = true;
+            },
+        };
+
+    // so.b.ndc.D urs, imm — branch while dimension D of stream urs has not completed its pass.
+    // The pipeline has already synced IsDimPassComplete into UveState.DimDone before this call.
+    private static ExecuteResult ExecuteUveSoBNdc(IArchState state, ulong pc, int urs, int dim, int imm) {
+        bool done = UState(state).UveState.DimDone[urs, dim];
         bool taken = !done;
         return taken
             ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)(long)imm, }

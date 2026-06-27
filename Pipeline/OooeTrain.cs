@@ -909,6 +909,10 @@ internal sealed class OoOPipelineCore : Gear {
                         ? StreamingEngine.IsExhausted(uid)
                         : true); // inactive = deactivated = done
             }
+            foreach ((int uid, int dim) in issued.Instr.UveDimBranchSources) {
+                if (uid >= 0)
+                    uvs.SetDimDone(uid, dim, StreamingEngine.IsDimPassComplete(uid, dim));
+            }
         }
 
         IMemory mem = (isVec || isUve) ? DLayers.Accessor : _capMem;

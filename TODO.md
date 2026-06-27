@@ -33,7 +33,7 @@
 - [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
 - [x] UVE (Unlimited Vector Extension) — 1D SAXPY subset: `ss.ld.w`, `ss.st.w`, `so.v.dp.w`, `so.a.mul.fp`, `so.a.add.fp`, `so.b.nc`. Encodings in custom-0/custom-1 opcodes. Verified end-to-end via SAXPY integration test through OoO pipeline.
-- [ ] UVE multi-dimensional streams: `ss.sta.*`, `ss.app`, `ss.cfg.vec`, `ss.end` for GEMM-style n-dimensional access; `so.b.ndc.*` branch ops for inner-loop termination.
+- [x] UVE multi-dimensional streams: `ss.sta.ld.w`, `ss.sta.st.w`, `ss.app`, `ss.end` (custom-0 funct3 2–5) and `so.b.ndc.D` (custom-1 funct3 5, dim in rs2 field). `StreamDescriptor` extended to N-dim `StreamDimension[]`. `StreamingEngine` tracks per-dim consume-side pass-complete flags for `so.b.ndc.D`. Verified end-to-end via 2D strided matrix load integration test. `ss.cfg.vec` (funct3 6) decoded and no-op pending vector streaming. Multi-dim store-stream cursor TBD; full GEMM needs vector streaming (separate item).
 - [ ] SUM (Supervisor User Memory): honor `sstatus.SUM` so S-mode can deliberately access user pages (PTE.U=1);
   currently S-mode always faults on user pages.
 - [ ] Implement the rest of the extensions.

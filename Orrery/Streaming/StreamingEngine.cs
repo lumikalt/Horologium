@@ -59,13 +59,20 @@ public sealed class StreamingEngine {
         return _streams[streamId].HasElement;
     }
 
-    /// <summary>
-    /// Returns true when all <c>Count</c> elements have been fetched AND consumed.
-    /// False while the stream is still fetching or still has buffered elements.
-    /// </summary>
+    /// <summary>Returns true when all elements across all dimensions have been fetched AND consumed.</summary>
     public bool IsExhausted(int streamId) {
         Validate(streamId);
         return _streams[streamId].IsExhausted;
+    }
+
+    /// <summary>
+    /// Returns true when dimension <paramref name="dim"/> wrapped during the most recent
+    /// <see cref="Consume"/> call on this stream (consume-side odometer, not fetch-side).
+    /// False if the stream is inactive or <paramref name="dim"/> is out of range.
+    /// </summary>
+    public bool IsDimPassComplete(int streamId, int dim) {
+        Validate(streamId);
+        return _streams[streamId].IsDimPassComplete(dim);
     }
 
     /// <summary>Returns the next buffered element without advancing the consume pointer.</summary>
@@ -100,16 +107,37 @@ public sealed class StreamingEngine {
 
     private sealed class StreamState {
         private StreamDescriptor _desc;
-        private long _nextFetchIndex;
+        // Per-dimension fetch and consume indices. Innermost = index 0.
+        private long[] _fetchIndices  = [];
+        private long[] _consumeIndices = [];
+        // Set by Consume() for each dimension that wraps; cleared at the start of the next Consume().
+        private bool[] _dimPassComplete = [];
+        private long _totalFetched;
+        private long _totalConsumed;
         private readonly Queue<ulong> _buffer = new();
 
         public bool Active { get; private set; }
         public bool HasElement => _buffer.Count > 0;
-        public bool IsExhausted => Active && _nextFetchIndex >= _desc.Count && _buffer.Count == 0;
+
+        public bool IsExhausted {
+            get {
+                if (!Active) return false;
+                long total = TotalCount();
+                return _totalFetched >= total && _buffer.Count == 0;
+            }
+        }
+
+        public bool IsDimPassComplete(int dim) =>
+            Active && (uint)dim < (uint)_dimPassComplete.Length && _dimPassComplete[dim];
 
         public void Configure(StreamDescriptor desc) {
             _desc = desc;
-            _nextFetchIndex = 0;
+            int ndim = desc.Dimensions.Length;
+            _fetchIndices    = new long[ndim];
+            _consumeIndices  = new long[ndim];
+            _dimPassComplete = new bool[ndim];
+            _totalFetched  = 0;
+            _totalConsumed = 0;
             _buffer.Clear();
             Active = true;
         }
@@ -126,18 +154,51 @@ public sealed class StreamingEngine {
 
         public ulong Consume() {
             if (_buffer.Count == 0) throw new InvalidOperationException("Stream buffer is empty.");
-            return _buffer.Dequeue();
+            ulong val = _buffer.Dequeue();
+            AdvanceConsumeIndex();
+            _totalConsumed++;
+            return val;
         }
 
         public void Step(IMemory memory, int prefetchDepth) {
             if (!Active) return;
             if (_buffer.Count >= prefetchDepth) return;
-            if (_nextFetchIndex >= _desc.Count) return;
+            if (_totalFetched >= TotalCount()) return;
 
-            ulong addr = (ulong)((long)_desc.BaseAddress + _nextFetchIndex * _desc.Stride);
+            ulong addr = (ulong)((long)_desc.BaseAddress + FetchOffset());
             ulong element = memory.Read(addr, _desc.ElementBytes);
             _buffer.Enqueue(element);
-            _nextFetchIndex++;
+            _totalFetched++;
+            AdvanceFetchIndex();
+        }
+
+        private long TotalCount() {
+            long total = 1;
+            foreach (StreamDimension d in _desc.Dimensions) total *= d.Count;
+            return total;
+        }
+
+        private long FetchOffset() {
+            long offset = 0;
+            for (int d = 0; d < _fetchIndices.Length; d++)
+                offset += _fetchIndices[d] * _desc.Dimensions[d].Stride;
+            return offset;
+        }
+
+        private void AdvanceFetchIndex() {
+            for (int d = 0; d < _fetchIndices.Length; d++) {
+                if (++_fetchIndices[d] < _desc.Dimensions[d].Count) break;
+                _fetchIndices[d] = 0;
+            }
+        }
+
+        private void AdvanceConsumeIndex() {
+            Array.Fill(_dimPassComplete, false);
+            for (int d = 0; d < _consumeIndices.Length; d++) {
+                if (++_consumeIndices[d] < _desc.Dimensions[d].Count) break;
+                _consumeIndices[d] = 0;
+                _dimPassComplete[d] = true;
+            }
         }
     }
 }
