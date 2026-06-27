@@ -27,9 +27,31 @@
 - [ ] Continue extending the V extension: strided/indexed loads-stores (VLSE, VSSE, VLUXEI, VSUXEI), reduction ops (
   vredsum, vredmax, …), widening/narrowing integer ops, integer multiply/divide (vmul, vmulh, vdiv), FP vector ops (
   vfadd, vfmul, vfmacc, …), slide and gather/scatter.
-- [ ] B extension: Zba (address generation), Zbb (basic bit manipulation), Zbc (carry-less multiplication), Zbs (
-  single-bit ops).
-- [ ] Zicond (conditional zero/nonzero move).
+- [x] Zba (address generation): sh1add, sh2add, sh3add. 3 instructions.
+- [x] Zbb (basic bit manipulation): andn/orn/xnor, clz/ctz/cpop, min/minu/max/maxu, rol/ror/rori, sext.b/sext.h/zext.h, orc.b/rev8. 18 instructions.
+- [x] Zbs (single-bit ops): bclr/bext/binv/bset (register) and bclri/bexti/binvi/bseti (immediate). 8 instructions.
+- [x] Zicond (integer conditional ops): czero.eqz, czero.nez. 2 instructions.
+- [x] Zbc (carry-less multiplication): clmul, clmulh, clmulr. 3 instructions.
+- [ ] D extension (RV32D): double-precision FP registers and arithmetic (fadd.d, fsub.d, fmul.d, fdiv.d, fsqrt.d, fmadd.d, …, fcvt.d.w, fcvt.d.wu, fcvt.w.d, fcvt.wu.d, fmv.x.d, fmv.d.x — 26 instructions).
+- [ ] Zfh / Zfhmin: half-precision FP (fadd.h, fmul.h, fcvt.h.s, …). Zfhmin is the minimal convert-only subset.
+- [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file (no separate F/D register file). Simplifies embedded implementations.
+- [ ] Zicbom / Zicboz / Zicbop: cache management operations (cbo.clean, cbo.flush, cbo.inval, cbo.zero, prefetch.i/r/w).
+- [ ] Zawrs: wait-on-reservation-set (wrs.nto, wrs.sto) — pause until a reservation is invalidated.
+- [ ] Zimop: may-be-operations (mop.r.N, mop.rr.N) — reserved opcode space that is a NOP until defined.
+- [ ] Zcmop: compressed may-be-operations (c.mop.N) — same idea for 16-bit encoding space.
+- [ ] Zicntr / Zihpm: hardware performance counters (cycle, time, instret CSRs; hpmcounterN; hpmeventN).
+- [ ] Zabha: byte/halfword atomics (amoadd.b, amoswap.h, …) — extends A extension to sub-word granularity.
+- [ ] Zacas: compare-and-swap (amocas.w, amocas.d, amocas.q).
+- [ ] Scalar crypto: Zknd/Zkne/Zknh (NIST AES encrypt/decrypt, SHA-2), Zksd/Zkse/Zksh (ShangMi SM4/SM3), Zkr (entropy source / GetNoise CSR). Grouped as Zkn (NIST suite) and Zks (ShangMi suite).
+- [ ] Vector bit manipulation (Zvbb): vbrev8, vrev8, vandn, vclz, vctz, vcpop, vrol, vror, …
+- [ ] Vector carry-less multiply (Zvbc): vclmul, vclmulh.
+- [ ] Vector crypto (Zvkn / Zvkg / Zvks): vectorised AES, SHA, SM3/SM4 round instructions.
+- [ ] Zvfh / Zvfhmin: vector half-precision FP (vfadd.h, vfmul.h, …). Zvfhmin is convert-only.
+- [ ] H extension (hypervisor): VS-mode, VU-mode, hfence instructions, two-stage address translation (G-stage), virtual CSRs (hstatus, hedeleg, hideleg, htval, htinst, hgatp, …). Large; ~40 new CSRs.
+- [ ] Svnapot / Svpbmt / Svadu / Svinval: Sv32/Sv39 page-table extensions (naturally-aligned power-of-two superpages, page-based memory types, hardware A/D updates, local/global sfence.inval).
+- [ ] Smaia / Ssaia: Advanced Interrupt Architecture (APLIC, IMSIC, direct MSI delivery; replaces PLIC for scalable multi-hart interrupt routing).
+- [ ] Smstateen: state-enable CSRs (mstateen0–3, hstateen0–3, sstateen0) — per-privilege gating of extension state access.
+- [ ] Smnpm / Ssnpm: pointer masking (M-mode and S/U-mode) — ignore top N bits of pointers for tagged-memory schemes.
 - [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
 - [x] UVE (Unlimited Vector Extension) — 1D SAXPY subset: `ss.ld.w`, `ss.st.w`, `so.v.dp.w`, `so.a.mul.fp`, `so.a.add.fp`, `so.b.nc`. Encodings in custom-0/custom-1 opcodes. Verified end-to-end via SAXPY integration test through OoO pipeline.

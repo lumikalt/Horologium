@@ -189,6 +189,7 @@ public sealed class RvDecoder : IDecoder {
         }
 
         RvOp op = (funct3, funct7) switch {
+            // Base integer (I)
             (0x0, 0x00) => new RvAdd(rd, rs1, rs2),
             (0x0, 0x20) => new RvSub(rd, rs1, rs2),
             (0x4, 0x00) => new RvXor(rd, rs1, rs2),
@@ -199,6 +200,36 @@ public sealed class RvDecoder : IDecoder {
             (0x5, 0x20) => new RvSra(rd, rs1, rs2),
             (0x2, 0x00) => new RvSlt(rd, rs1, rs2),
             (0x3, 0x00) => new RvSltu(rd, rs1, rs2),
+            // Zbc carry-less multiply (funct7=0x05, funct3=1/2/3; no overlap with Zbb min/max funct3=4–7)
+            (0x1, 0x05) => new RvClmul (rd, rs1, rs2),
+            (0x2, 0x05) => new RvClmulr(rd, rs1, rs2),
+            (0x3, 0x05) => new RvClmulh(rd, rs1, rs2),
+            // Zba address generation (funct7=0x10): rd = rs2 + (rs1 << N)
+            (0x2, 0x10) => new RvSh1Add(rd, rs1, rs2),
+            (0x4, 0x10) => new RvSh2Add(rd, rs1, rs2),
+            (0x6, 0x10) => new RvSh3Add(rd, rs1, rs2),
+            // Zbs single-bit (R-type)
+            (0x1, 0x24) => new RvBclr(rd, rs1, rs2),
+            (0x5, 0x24) => new RvBext(rd, rs1, rs2),
+            (0x1, 0x34) => new RvBinv(rd, rs1, rs2),
+            (0x1, 0x14) => new RvBset(rd, rs1, rs2),
+            // Zicond (funct7=0x07)
+            (0x5, 0x07) => new RvCzeroEqz(rd, rs1, rs2),
+            (0x7, 0x07) => new RvCzeroNez(rd, rs1, rs2),
+            // Zbb logical-with-negate (funct7=0x20, distinct funct3 from SUB)
+            (0x7, 0x20) => new RvAndn(rd, rs1, rs2),
+            (0x6, 0x20) => new RvOrn(rd, rs1, rs2),
+            (0x4, 0x20) => new RvXnor(rd, rs1, rs2),
+            // Zbb min/max (funct7=0x05)
+            (0x4, 0x05) => new RvMin(rd, rs1, rs2),
+            (0x5, 0x05) => new RvMinu(rd, rs1, rs2),
+            (0x6, 0x05) => new RvMax(rd, rs1, rs2),
+            (0x7, 0x05) => new RvMaxu(rd, rs1, rs2),
+            // Zbb rotate (funct7=0x30)
+            (0x1, 0x30) => new RvRol(rd, rs1, rs2),
+            (0x5, 0x30) => new RvRor(rd, rs1, rs2),
+            // Zbb zero-extend halfword (funct7=0x04, rs2=0)
+            (0x4, 0x04) when rs2 == 0 => new RvZextH(rd, rs1),
             _ => throw new IllegalInstructionException(
                 pc, raw,
                 $"Unknown R-type funct3=0x{funct3:X} funct7=0x{funct7:X}"
@@ -229,10 +260,38 @@ public sealed class RvDecoder : IDecoder {
             0x7 => new RvAndi(rd, rs1, imm),
             0x2 => new RvSlti(rd, rs1, imm),
             0x3 => new RvSltiu(rd, rs1, imm),
-            0x1 => new RvSlli(rd, rs1, (int)shamt),
-            0x5 => funct7 == 0x20
-                ? new RvSrai(rd, rs1, (int)shamt)
-                : new RvSrli(rd, rs1, (int)shamt),
+            // SLLI space: funct7 selects base SLLI, Zbb unary ops, or Zbs immediate ops
+            0x1 => funct7 switch {
+                0x00 => new RvSlli(rd, rs1, (int)shamt),
+                0x14 => new RvBseti(rd, rs1, (int)shamt),
+                0x24 => new RvBclri(rd, rs1, (int)shamt),
+                0x30 => shamt switch {
+                    0 => (RvOp)new RvClz(rd, rs1),
+                    1 => new RvCtz(rd, rs1),
+                    2 => new RvCpop(rd, rs1),
+                    4 => new RvSextB(rd, rs1),
+                    5 => new RvSextH(rd, rs1),
+                    _ => throw new IllegalInstructionException(
+                        pc, raw, $"Unknown Zbb unary op shamt=0x{shamt:X}"
+                    ),
+                },
+                0x34 => new RvBinvi(rd, rs1, (int)shamt),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown OP-IMM funct3=1 funct7=0x{funct7:X}"
+                ),
+            },
+            // SRLI/SRAI space: Zbb and Zbs immediate ops
+            0x5 => funct7 switch {
+                0x00 => new RvSrli(rd, rs1, (int)shamt),
+                0x20 => new RvSrai(rd, rs1, (int)shamt),
+                0x14 => new RvOrcB(rd, rs1),
+                0x24 => new RvBexti(rd, rs1, (int)shamt),
+                0x30 => new RvRori(rd, rs1, (int)shamt),
+                0x34 => new RvRev8(rd, rs1),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown OP-IMM funct3=5 funct7=0x{funct7:X}"
+                ),
+            },
             _ => throw new IllegalInstructionException(
                 pc, raw,
                 $"Unknown OP-IMM funct3=0x{funct3:X}"

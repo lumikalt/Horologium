@@ -1,3 +1,4 @@
+using System.Numerics;
 using Mechanism;
 using RiscV.Decode;
 using RiscV.Memory;
@@ -178,6 +179,50 @@ public sealed class RvExecutor : IExecutor {
                 ? Reg(regs.Read(rs1))
                 : Reg((uint)regs.Read(rs1) % (uint)regs.Read(rs2)),
 
+            // ── Zbc extension (carry-less multiplication) ─────────────────────────────
+            RvClmul (_, var rs1, var rs2) => Reg(Clmul((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
+            RvClmulh(_, var rs1, var rs2) => Reg(Clmul((uint)regs.Read(rs1), (uint)regs.Read(rs2)) >> 32),
+            RvClmulr(_, var rs1, var rs2) => Reg(Clmul((uint)regs.Read(rs1), (uint)regs.Read(rs2)) >> 31),
+
+            // ── Zba extension (address generation) ───────────────────────────────────
+            RvSh1Add(_, var rs1, var rs2) => Reg(regs.Read(rs2) + (regs.Read(rs1) << 1)),
+            RvSh2Add(_, var rs1, var rs2) => Reg(regs.Read(rs2) + (regs.Read(rs1) << 2)),
+            RvSh3Add(_, var rs1, var rs2) => Reg(regs.Read(rs2) + (regs.Read(rs1) << 3)),
+
+            // ── Zbs extension (single-bit ops) ────────────────────────────────────────
+            RvBclr(_, var rs1, var rs2)   => Reg((uint)regs.Read(rs1) & ~(1u << (int)(regs.Read(rs2) & 31))),
+            RvBext(_, var rs1, var rs2)   => Reg(((uint)regs.Read(rs1) >> (int)(regs.Read(rs2) & 31)) & 1),
+            RvBinv(_, var rs1, var rs2)   => Reg((uint)regs.Read(rs1) ^ (1u << (int)(regs.Read(rs2) & 31))),
+            RvBset(_, var rs1, var rs2)   => Reg((uint)regs.Read(rs1) | (1u << (int)(regs.Read(rs2) & 31))),
+            RvBclri(_, var rs1, var sh)   => Reg((uint)regs.Read(rs1) & ~(1u << sh)),
+            RvBexti(_, var rs1, var sh)   => Reg(((uint)regs.Read(rs1) >> sh) & 1),
+            RvBinvi(_, var rs1, var sh)   => Reg((uint)regs.Read(rs1) ^ (1u << sh)),
+            RvBseti(_, var rs1, var sh)   => Reg((uint)regs.Read(rs1) | (1u << sh)),
+
+            // ── Zicond extension (integer conditional ops) ────────────────────────────
+            RvCzeroEqz(_, var rs1, var rs2) => Reg(regs.Read(rs2) == 0 ? 0UL : regs.Read(rs1)),
+            RvCzeroNez(_, var rs1, var rs2) => Reg(regs.Read(rs2) != 0 ? 0UL : regs.Read(rs1)),
+
+            // ── Zbb extension (basic bit manipulation) ────────────────────────────────
+            RvAndn(_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) & ~(uint)regs.Read(rs2)),
+            RvOrn (_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) | ~(uint)regs.Read(rs2)),
+            RvXnor(_, var rs1, var rs2) => Reg(~((uint)regs.Read(rs1) ^ (uint)regs.Read(rs2))),
+            RvMin (_, var rs1, var rs2) => Reg((int)regs.Read(rs1) < (int)regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)),
+            RvMinu(_, var rs1, var rs2) => Reg(regs.Read(rs1) < regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)),
+            RvMax (_, var rs1, var rs2) => Reg((int)regs.Read(rs1) > (int)regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)),
+            RvMaxu(_, var rs1, var rs2) => Reg(regs.Read(rs1) > regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)),
+            RvRol (_, var rs1, var rs2) => Reg(BitOperations.RotateLeft((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 31))),
+            RvRor (_, var rs1, var rs2) => Reg(BitOperations.RotateRight((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 31))),
+            RvZextH(_, var rs1)         => Reg((uint)regs.Read(rs1) & 0xFFFF),
+            RvClz  (_, var rs1)         => Reg((ulong)BitOperations.LeadingZeroCount((uint)regs.Read(rs1))),
+            RvCtz  (_, var rs1)         => Reg((ulong)BitOperations.TrailingZeroCount((uint)regs.Read(rs1))),
+            RvCpop (_, var rs1)         => Reg((ulong)BitOperations.PopCount((uint)regs.Read(rs1))),
+            RvSextB(_, var rs1)         => Reg((ulong)(int)(sbyte)regs.Read(rs1)),
+            RvSextH(_, var rs1)         => Reg((ulong)(int)(short)regs.Read(rs1)),
+            RvRori (_, var rs1, var sh) => Reg(BitOperations.RotateRight((uint)regs.Read(rs1), sh)),
+            RvOrcB (_, var rs1)         => OrcB(regs, rs1),
+            RvRev8 (_, var rs1)         => Rev8(regs, rs1),
+
             // ── An extension (single-core: SC always succeeds, no reservation needed) ──
             RvLrW(_, var rs1) =>
                 Load(memory, state, pc, regs.Read(rs1), 0, 4, false, 32),
@@ -347,6 +392,32 @@ public sealed class RvExecutor : IExecutor {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    // Carry-less multiply: XOR-sum of (a << i) for each set bit i in b.
+    // Returns the full 63-bit product as ulong; callers slice the desired half.
+    private static ulong Clmul(uint a, uint b) {
+        ulong result = 0;
+        for (int i = 0; i < 32; i++)
+            if (((b >> i) & 1u) != 0)
+                result ^= (ulong)a << i;
+        return result;
+    }
+
+    // orc.b: per-byte OR-combine — nonzero byte → 0xFF, zero byte → 0x00.
+    private static ExecuteResult OrcB(IRegisterFile regs, int rs1) {
+        uint v = (uint)regs.Read(rs1);
+        uint r = ((v & 0x000000FFu) != 0 ? 0x000000FFu : 0u)
+               | ((v & 0x0000FF00u) != 0 ? 0x0000FF00u : 0u)
+               | ((v & 0x00FF0000u) != 0 ? 0x00FF0000u : 0u)
+               | ((v & 0xFF000000u) != 0 ? 0xFF000000u : 0u);
+        return Reg(r);
+    }
+
+    // rev8: reverse byte order of a 32-bit word.
+    private static ExecuteResult Rev8(IRegisterFile regs, int rs1) {
+        uint v = (uint)regs.Read(rs1);
+        return Reg((v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24));
+    }
 
     private static int EcallCause(PrivilegeLevel priv) => (int)priv switch {
         0 => RvTrapCause.EnvironmentCallFromU,
