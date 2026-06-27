@@ -81,6 +81,11 @@ public class UveTests {
         (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
              | (0x2 << 12) | ((ud & 0x1F) << 7) | 0x0B);
 
+    // ss.sta.st.w ud, rs1, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x3
+    private static uint SsStaStW(int ud, int rs1, int rs2, int rs3) =>
+        (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
+             | (0x3 << 12) | ((ud & 0x1F) << 7) | 0x0B);
+
     // ss.app ud, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x4; rs1=x0 (ignored)
     private static uint SsApp(int ud, int rs2, int rs3) =>
         (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | (0x4 << 12) | ((ud & 0x1F) << 7) | 0x0B);
@@ -144,8 +149,8 @@ public class UveTests {
         UveStoreStream? ss = state.UveState.StoreStreams[3];
         Assert.NotNull(ss);
         Assert.Equal(0x2000UL, ss!.BaseAddress);
-        Assert.Equal(8L, ss.Count);
-        Assert.Equal(4L, ss.Stride);
+        Assert.Equal(8L, ss.Dimensions[0].Count);
+        Assert.Equal(4L, ss.Dimensions[0].Stride);
         Assert.Equal(UveRegKind.StoreStream, state.UveState.RegKind[3]);
     }
 
@@ -192,7 +197,12 @@ public class UveTests {
         var mem = new FlatMemory(64);
 
         // Configure u3 as a store stream starting at address 0
-        state.UveState.StoreStreams[3] = new UveStoreStream { BaseAddress = 0, ElementBytes = 4, Count = 4, Stride = 4 };
+        var storeStream = new UveStoreStream {
+            BaseAddress = 0, ElementBytes = 4,
+            Dimensions = [new StreamDimension(4, 4)], Indices = [0],
+        };
+        storeStream.Initialize();
+        state.UveState.StoreStreams[3] = storeStream;
         state.UveState.RegKind[3] = UveRegKind.StoreStream;
 
         state.UveState.Scalars[1] = 5.0f;
@@ -204,7 +214,7 @@ public class UveTests {
 
         float written = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(0, 4));
         Assert.Equal(15.0f, written, 4);
-        Assert.Equal(1L, state.UveState.StoreStreams[3]!.NextIndex); // cursor advanced
+        Assert.Equal(4UL, state.UveState.StoreStreams[3]!.CurrentAddress); // cursor advanced to next element
     }
 
     [Fact]
@@ -661,6 +671,87 @@ public class UveTests {
                 ulong outAddr = (ulong)(0x200 + (r * Cols + c) * 4);
                 float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(outAddr, 4));
                 float expected = inputMatrix[r, c] * Scalar;
+                Assert.Equal(expected, actual, 2);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Copies 12 floats from a 1D source to a 3×4 matrix stored with padded rows (8 floats wide
+    /// = 32 bytes per row). Uses a 1D load stream (ss.ld.w) as source and a 2D store stream
+    /// (ss.sta.st.w → ss.end) as destination. Verifies that UveStoreStream advances its inner/outer
+    /// indices correctly, skipping the 4-element padding gap between rows.
+    /// </summary>
+    [Fact]
+    public void Pipeline_2D_StridedStore_CorrectResult() {
+        const int Rows = 3, Cols = 4;
+        const int RowBytes = 8 * 4; // 8 floats per padded row = 32 bytes
+
+        // Source: 12 contiguous floats at 0x0000
+        float[] src = [1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f, 10f, 11f, 12f];
+
+        var mem = new FlatMemory(0x2000);
+        for (int i = 0; i < src.Length; i++)
+            mem.Load((ulong)(i * 4), BitConverter.GetBytes(src[i]));
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+
+        // Code at 0x1000.
+        // Register plan:
+        //   x1 = 0x0000       src base
+        //   x2 = 0x0400       dst matrix base
+        //   x3 = 12           load-stream count (all 12 elements)
+        //   x4 = 4            inner byte stride (sizeof float)
+        //   x5 = 4            inner col count
+        //   x6 = 3            outer row count
+        //   x7 = bits(1.0f)   scalar multiplier (copy via mul)
+        //   x8 = 32           outer row stride (RowBytes)
+        ulong code = 0x1000;
+        var words = new List<uint>();
+
+        words.Add(Addi(1, 0, 0x000));         // x1 = 0
+        words.Add(Addi(2, 0, 0x400));         // x2 = 0x400
+        words.Add(Addi(3, 0, Rows * Cols));   // x3 = 12
+        words.Add(Addi(4, 0, 4));             // x4 = 4
+        words.Add(Addi(5, 0, Cols));          // x5 = 4
+        words.Add(Addi(6, 0, Rows));          // x6 = 3
+        words.Add(Addi(8, 0, RowBytes));      // x8 = 32
+        // 1.0f = 0x3F800000; LUI x7, 0x3F800 gives 0x3F800000 (lower 12 bits = 0). ✓
+        words.Add(Lui(7, 0x3F800));           // x7 = bits(1.0f)
+
+        // Load stream: u1 reads all 12 source elements in order (1D)
+        words.Add(SsLdW(1, 1, 3, 4));         // ss.ld.w u1, x1, x3, x4
+
+        // Store stream: u2 writes to a 3×4 matrix with 32-byte rows (multi-dim)
+        words.Add(SsStaStW(2, 2, 5, 4));      // ss.sta.st.w u2, x2, x5, x4  (dim0: 4 cols, stride 4)
+        words.Add(SsEnd(2, 6, 8));            // ss.end u2, x6, x8            (dim1: 3 rows, stride 32)
+
+        // Broadcast scalar 1.0 into u4
+        words.Add(SoVDpW(4, 7));              // u4 = 1.0f
+
+        // Loop: copy each element (u1 elem × 1.0 = u1 elem), write to u2 store stream
+        //   [loop]: so.a.mul.fp u2, u1, u4   — writes dst[row][col], advances 2D cursor
+        //           so.b.nc u1, -4           — branch while load stream not exhausted
+        words.Add(SoAFp(UveFpOp.Mul, 2, 1, 4)); // u2 = u1[i] * u4
+        words.Add(SoBNc(1, -4));                 // so.b.nc u1, -4
+
+        words.Add(EBreak());
+
+        for (var i = 0; i < words.Count; i++)
+            mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(new RvMechanism(), mem, entryPoint: code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32);
+        train.Run(maxTicks: 5000);
+
+        // Verify each element landed at the right address in the strided matrix.
+        // src[r*Cols + c] should be at dst base + r*RowBytes + c*4.
+        for (int r = 0; r < Rows; r++) {
+            for (int c = 0; c < Cols; c++) {
+                ulong dstAddr = (ulong)(0x400 + r * RowBytes + c * 4);
+                float actual   = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(dstAddr, 4));
+                float expected = src[r * Cols + c];
                 Assert.Equal(expected, actual, 2);
             }
         }

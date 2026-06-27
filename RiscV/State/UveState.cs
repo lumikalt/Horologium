@@ -72,20 +72,42 @@ public sealed class PendingStreamConfig {
 public enum UveRegKind { None, LoadStream, StoreStream, Scalar }
 
 /// <summary>
-/// Mutable cursor for one affine store stream (ss.st.*).
-/// Tracks the current write position so consecutive so.a.* outputs land at
-/// the correct addresses.
+/// Mutable cursor for one affine store stream (ss.st.* / ss.sta.st.* → ss.end).
+/// Supports N-dimensional layouts: innermost dimension first, matching StreamState
+/// in StreamingEngine. <see cref="CurrentAddress"/> computes the flat memory address
+/// from per-dim indices; <see cref="Advance"/> carries across dimension boundaries.
 /// </summary>
 public sealed class UveStoreStream {
     public ulong BaseAddress;
     public int ElementBytes;
-    public long Count;
-    public long Stride;
-    public long NextIndex;
+    public StreamDimension[] Dimensions = [];
+    public long[] Indices = [];
+    private long _totalConsumed;
+    private long _totalCount;
 
-    public bool IsExhausted => NextIndex >= Count;
+    public void Initialize() {
+        _totalConsumed = 0;
+        _totalCount = 1;
+        foreach (StreamDimension d in Dimensions) _totalCount *= d.Count;
+    }
 
-    public ulong CurrentAddress => (ulong)((long)BaseAddress + NextIndex * Stride);
+    public bool IsExhausted => _totalConsumed >= _totalCount;
 
-    public void Advance() => NextIndex++;
+    public ulong CurrentAddress {
+        get {
+            long offset = 0;
+            for (int i = 0; i < Dimensions.Length; i++)
+                offset += Indices[i] * Dimensions[i].Stride;
+            return (ulong)((long)BaseAddress + offset);
+        }
+    }
+
+    public void Advance() {
+        _totalConsumed++;
+        for (int d = 0; d < Dimensions.Length; d++) {
+            Indices[d]++;
+            if (Indices[d] < Dimensions[d].Count) return;
+            Indices[d] = 0;
+        }
+    }
 }

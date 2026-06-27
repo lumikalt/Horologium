@@ -831,9 +831,13 @@ public sealed class RvExecutor : IExecutor {
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uveState = UState(s).UveState;
-                uveState.StoreStreams[ud] = new UveStoreStream {
-                    BaseAddress = baseAddr, ElementBytes = 4, Count = count, Stride = stride, NextIndex = 0,
+                var ss = new UveStoreStream {
+                    BaseAddress = baseAddr, ElementBytes = 4,
+                    Dimensions = [new StreamDimension(count, stride)],
+                    Indices = [0],
                 };
+                ss.Initialize();
+                uveState.StoreStreams[ud] = ss;
                 uveState.RegKind[ud] = UveRegKind.StoreStream;
             },
         };
@@ -954,17 +958,17 @@ public sealed class RvExecutor : IExecutor {
             };
         }
 
-        // Store stream: flatten total count × stride for now (multi-dim cursors TBD).
-        long totalCount = 1;
-        foreach (StreamDimension d in dims) totalCount *= d.Count;
+        // Store stream: full multi-dim cursor, innermost dimension first.
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uvs = UState(s).UveState;
                 uvs.PendingConfig[ud] = null;
-                uvs.StoreStreams[ud] = new UveStoreStream {
+                var ss = new UveStoreStream {
                     BaseAddress = descriptor.BaseAddress, ElementBytes = descriptor.ElementBytes,
-                    Count = totalCount, Stride = dims[0].Stride, NextIndex = 0,
+                    Dimensions = dims, Indices = new long[dims.Length],
                 };
+                ss.Initialize();
+                uvs.StoreStreams[ud] = ss;
                 uvs.RegKind[ud] = UveRegKind.StoreStream;
             },
         };
