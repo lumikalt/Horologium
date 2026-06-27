@@ -6,10 +6,10 @@ using CommunityToolkit.Mvvm.Input;
 using Face.Models;
 using Mechanism;
 using Orrery.Observation;
-using RiscV;
-using RiscV.Analysis;
-using RiscV.Config;
-using RiscV.Memory;
+using RiscV32;
+using RiscV32.Analysis;
+using RiscV32.Config;
+using RiscV32.Memory;
 
 namespace Face.ViewModels;
 
@@ -151,8 +151,8 @@ public partial class MainWindowViewModel : ObservableObject {
         try {
             IWorkload workload = SelectedPreset.ElfFileName switch {
                 null => CreateBuiltInWorkload(),
-                ""   => new ElfWorkload(WorkloadPath!),
-                var fn => new ElfWorkload(
+                ""   => new Rv32ElfWorkload(WorkloadPath!),
+                var fn => new Rv32ElfWorkload(
                     Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
                     SelectedPreset.MemoryBytes
                 ),
@@ -165,7 +165,7 @@ public partial class MainWindowViewModel : ObservableObject {
 
             ExperimentResult result = await Task.Run(() =>
                                                          Experiment.Run(
-                                                             workload, namedConfigs, new RvMechanism(), maxTicks,
+                                                             workload, namedConfigs, new Rv32Mechanism(), maxTicks,
                                                              warmupTicks, snapshotInterval
                                                          )
             );
@@ -205,15 +205,15 @@ public partial class MainWindowViewModel : ObservableObject {
         try {
             IWorkload workload = SelectedPreset.ElfFileName switch {
                 null => CreateBuiltInWorkload(),
-                ""   => new ElfWorkload(WorkloadPath!),
-                var fn => new ElfWorkload(
+                ""   => new Rv32ElfWorkload(WorkloadPath!),
+                var fn => new Rv32ElfWorkload(
                     Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
                     SelectedPreset.MemoryBytes
                 ),
             };
 
             var maxTicks = (long)(TraceMaxTicks > 0 ? TraceMaxTicks : 2_000);
-            PEventLog plog = await Task.Run(() => Experiment.Trace(workload, nc, new RvMechanism(), maxTicks));
+            PEventLog plog = await Task.Run(() => Experiment.Trace(workload, nc, new Rv32Mechanism(), maxTicks));
 
             if (plog.Events.Count == 0) {
                 PEventStatusText = "No events recorded. The workload may not have executed any instructions.";

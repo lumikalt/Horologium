@@ -35,11 +35,12 @@
 - [ ] D extension (RV32D): double-precision FP registers and arithmetic (fadd.d, fsub.d, fmul.d, fdiv.d, fsqrt.d, fmadd.d, …, fcvt.d.w, fcvt.d.wu, fcvt.w.d, fcvt.wu.d, fmv.x.d, fmv.d.x — 26 instructions).
 - [ ] Zfh / Zfhmin: half-precision FP (fadd.h, fmul.h, fcvt.h.s, …). Zfhmin is the minimal convert-only subset.
 - [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file (no separate F/D register file). Simplifies embedded implementations.
-- [ ] Zicbom / Zicboz / Zicbop: cache management operations (cbo.clean, cbo.flush, cbo.inval, cbo.zero, prefetch.i/r/w).
-- [ ] Zawrs: wait-on-reservation-set (wrs.nto, wrs.sto) — pause until a reservation is invalidated.
-- [ ] Zimop: may-be-operations (mop.r.N, mop.rr.N) — reserved opcode space that is a NOP until defined.
+- [x] Zicbom / Zicboz / Zicbop: cache management operations. Zicbom: cbo.inval/clean/flush (opcode=0x0F, funct3=2, bits[24:20]=0/1/2) — NOP in simulation. Zicboz: cbo.zero (bits[24:20]=4) — zeros 64 bytes at cache-line-aligned address. Zicbop: prefetch.i/r/w already work as NOPs via existing ORI path (opcode=0x13, funct3=6, rd=0).
+- [x] Zawrs: wrs.nto (imm=0x00D) and wrs.sto (imm=0x01D) — NOP in single-core simulation (SYSTEM space, funct3=0).
+- [x] Zimop: mop.r.N and mop.rr.N — always return 0 in rd (SYSTEM opcode, funct3=4; detected by CSR address pattern).
 - [ ] Zcmop: compressed may-be-operations (c.mop.N) — same idea for 16-bit encoding space.
-- [ ] Zicntr / Zihpm: hardware performance counters (cycle, time, instret CSRs; hpmcounterN; hpmeventN).
+- [x] Zicntr: hardware performance counters — cycle/cycleh (0xC00/0xC80), time/timeh (0xC01/0xC81, reads 0 — no CLINT), instret/instreth (0xC02/0xC82), and their M-mode mirrors mcycle/mcycleh/minstret/minstreth. User-level shadows alias M-mode counters. Pipeline trains call IArchState.OnCycle()/OnRetire() hooks; RvArchState increments CsrFile counters with 32-bit carry into high halves.
+- [ ] Zihpm: hardware performance monitor — hpmcounterN/hpmcounterNh (N=3–31) and hpmeventN CSRs.
 - [ ] Zabha: byte/halfword atomics (amoadd.b, amoswap.h, …) — extends A extension to sub-word granularity.
 - [ ] Zacas: compare-and-swap (amocas.w, amocas.d, amocas.q).
 - [ ] Scalar crypto: Zknd/Zkne/Zknh (NIST AES encrypt/decrypt, SHA-2), Zksd/Zkse/Zksh (ShangMi SM4/SM3), Zkr (entropy source / GetNoise CSR). Grouped as Zkn (NIST suite) and Zks (ShangMi suite).

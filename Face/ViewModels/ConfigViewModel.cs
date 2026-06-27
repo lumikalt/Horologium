@@ -1,6 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using RiscV.Analysis;
-using RiscV.Config;
+using RiscV32.Analysis;
+using RiscV32.Config;
 
 namespace Face.ViewModels;
 

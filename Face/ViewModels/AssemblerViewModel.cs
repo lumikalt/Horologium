@@ -5,10 +5,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Face.Models;
 using Mechanism;
-using RiscV.Decode;
-using RiscV.Execute;
-using RiscV.Memory;
-using RiscV.State;
+using RiscV32.Decode;
+using RiscV32.Execute;
+using RiscV32.Memory;
+using RiscV32.State;
 
 namespace Face.ViewModels;
 
@@ -21,10 +21,10 @@ public partial class AssemblerViewModel : ObservableObject {
     )]
     private static partial Regex ListingLineRx { get; }
 
-    private readonly RvDecoder _decoder = new();
-    private readonly RvExecutor _executor = new();
+    private readonly Rv32Decoder _decoder = new();
+    private readonly Rv32Executor _executor = new();
     private FlatMemory? _memory;
-    private RvArchState? _archState;
+    private Rv32ArchState? _archState;
     private int _binarySize;
     private int _stepCount;
     private Dictionary<ulong, int> _pcToLine = [];
@@ -299,7 +299,7 @@ public partial class AssemblerViewModel : ObservableObject {
         _memory = new FlatMemory(memSize);
         _memory.Load(0, binary);
         _binarySize = binary.Length;
-        _archState = new RvArchState();
+        _archState = new Rv32ArchState();
         _stepCount = 0;
 
         Instructions.Clear();

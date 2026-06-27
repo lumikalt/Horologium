@@ -1,0 +1,94 @@
+using Mechanism;
+using RiscV32.Registers;
+
+namespace RiscV32.State;
+
+/// <summary>
+/// The complete architectural state of one RV32IFV hart.
+/// </summary>
+public class Rv32ArchState : IArchState {
+    protected readonly IRegisterFile _intRegs;
+
+    public ulong Pc { get; set; }
+    public PrivilegeLevel PrivilegeLevel { get; set; } = RvPrivilege.Machine;
+    public IRegisterFile IntegerRegisters => _intRegs;
+    public ISystemRegisters SystemRegisters => CsrFile;
+
+    /// <summary>Typed access to the concrete CSR file for internal use.</summary>
+    internal CsrFile CsrFile { get; }
+
+    /// <summary>Vector register file (v0-v31, VLEN=128 bits each).</summary>
+    public VectorRegisterFile VectorRegisters { get; }
+
+    /// <summary>UVE scalar accumulator registers and store-stream cursors (u0–u31).</summary>
+    public UveState UveState { get; } = new();
+
+    public IUveScalars? UveScalars => UveState;
+
+    public Rv32ArchState() : this(new Rv32UnifiedRegisterFile()) { }
+
+    protected Rv32ArchState(IRegisterFile intRegs) {
+        _intRegs = intRegs;
+        CsrFile = new CsrFile();
+        VectorRegisters = new VectorRegisterFile();
+    }
+
+    protected Rv32ArchState(Rv32ArchState source, IRegisterFile intRegs) {
+        Pc = source.Pc;
+        PrivilegeLevel = source.PrivilegeLevel;
+        _intRegs = intRegs;
+        CsrFile = new CsrFile();
+        VectorRegisters = new VectorRegisterFile();
+
+        // Copy integer and floating-point registers
+        for (var i = 0; i < source._intRegs.Count; i++) _intRegs.Write(i, source._intRegs.Read(i));
+
+        // Copy vector registers
+        for (var i = 0; i < VectorRegisterFile.Count; i++) VectorRegisters.Write(i, source.VectorRegisters.Read(i));
+
+        // UveState is not copied: Snapshot() is only called by in-order trains (FiveStage,
+        // SingleCycle) which don't issue UVE ops. OooeTrain never calls Snapshot().
+
+        // Copy CSRs via direct access
+        foreach (uint addr in new[] {
+                     CsrFile.Fflags, CsrFile.Frm, CsrFile.Fcsr,
+                     CsrFile.Satp,
+                     CsrFile.Sstatus, CsrFile.Sie, CsrFile.Stvec,
+                     CsrFile.Sscratch, CsrFile.Sepc, CsrFile.Scause, CsrFile.Stval, CsrFile.Sip,
+                     CsrFile.Mstatus, CsrFile.Misa, CsrFile.Medeleg, CsrFile.Mideleg,
+                     CsrFile.Mie, CsrFile.Mtvec, CsrFile.Mcounteren,
+                     CsrFile.Mscratch, CsrFile.Mepc, CsrFile.Mcause, CsrFile.Mtval, CsrFile.Mip,
+                     CsrFile.Mcycle, CsrFile.Mcycleh, CsrFile.Minstret, CsrFile.Minstreth,
+                     CsrFile.Vstart, CsrFile.Vxsat, CsrFile.Vxrm, CsrFile.Vcsr,
+                     CsrFile.Vl, CsrFile.Vtype, CsrFile.Vlenb,
+                 })
+            CsrFile.DirectWrite(addr, source.CsrFile.DirectRead(addr));
+    }
+
+    public virtual IArchState Snapshot() => new Rv32ArchState(this, new Rv32UnifiedRegisterFile());
+
+    public void Reset() {
+        Pc = 0;
+        PrivilegeLevel = RvPrivilege.Machine;
+        _intRegs.Reset();
+        CsrFile.Reset();
+        VectorRegisters.Reset();
+        UveState.Reset();
+    }
+
+    public void OnCycle() {
+        uint lo = CsrFile.DirectRead(CsrFile.Mcycle);
+        uint newLo = lo + 1;
+        CsrFile.DirectWrite(CsrFile.Mcycle, newLo);
+        if (newLo == 0)
+            CsrFile.DirectWrite(CsrFile.Mcycleh, CsrFile.DirectRead(CsrFile.Mcycleh) + 1);
+    }
+
+    public void OnRetire() {
+        uint lo = CsrFile.DirectRead(CsrFile.Minstret);
+        uint newLo = lo + 1;
+        CsrFile.DirectWrite(CsrFile.Minstret, newLo);
+        if (newLo == 0)
+            CsrFile.DirectWrite(CsrFile.Minstreth, CsrFile.DirectRead(CsrFile.Minstreth) + 1);
+    }
+}

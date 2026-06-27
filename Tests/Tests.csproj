@@ -23,7 +23,8 @@
         <ProjectReference Include="..\Mechanism\Mechanism.csproj"/>
         <ProjectReference Include="..\Orrery\Orrery.csproj"/>
         <ProjectReference Include="..\Pipeline\Pipeline.csproj"/>
-        <ProjectReference Include="..\RiscV\RiscV.csproj"/>
+        <ProjectReference Include="..\RiscV32\RiscV32.csproj"/>
+        <ProjectReference Include="..\RiscV64\RiscV64.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Mechanism;
 using Mechanism.BranchPredictModels;
-using RiscV.Config;
+using RiscV32.Config;
 
 namespace Tests.Mechanism;
 

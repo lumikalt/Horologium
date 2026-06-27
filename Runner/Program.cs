@@ -1,8 +1,8 @@
 using Mechanism;
-using RiscV;
-using RiscV.Analysis;
-using RiscV.Config;
-using RiscV.Memory;
+using RiscV32;
+using RiscV32.Analysis;
+using RiscV32.Config;
+using RiscV32.Memory;
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ IWorkload workload;
 string workloadLabel;
 
 if (elfPath is not null) {
-    workload = new ElfWorkload(elfPath, memorySizeBytes ?? 4 * 1024 * 1024);
+    workload = new Rv32ElfWorkload(elfPath, memorySizeBytes ?? 4 * 1024 * 1024);
     workloadLabel = Path.GetFileName(elfPath);
 }
 else {
@@ -81,7 +81,7 @@ if (warmupTicks > 0) Console.Error.WriteLine($"Warmup   : {warmupTicks:N0} ticks
 Console.Error.WriteLine($"Max ticks: {maxTicks:N0}");
 Console.Error.WriteLine();
 
-ExperimentResult result = Experiment.Run(workload, configs, new RvMechanism(), maxTicks, warmupTicks, snapshotInterval);
+ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism(), maxTicks, warmupTicks, snapshotInterval);
 
 // ── Output ────────────────────────────────────────────────────────────────────
 

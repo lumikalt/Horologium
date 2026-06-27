@@ -1,6 +1,6 @@
 using Mechanism;
 using Orrery.Streaming;
-using RiscV.Memory;
+using RiscV32.Memory;
 
 namespace Tests.Orrery;
 

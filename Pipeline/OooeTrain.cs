@@ -360,9 +360,11 @@ internal sealed class OoOPipelineCore : Gear {
             _cyclesCounter.IncrementBy(cacheStalls);
             _stallsCounter.IncrementBy(cacheStalls);
             _cacheMissStallsCounter?.IncrementBy(cacheStalls);
+            for (long i = 0; i < cacheStalls; i++) State.OnCycle();
         }
 
         _cyclesCounter.Increment();
+        State.OnCycle();
 
         // Complete: broadcast last tick's execution results onto CDB.
         StepComplete();
@@ -447,6 +449,7 @@ internal sealed class OoOPipelineCore : Gear {
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     _rob.Retire();
                     _retiredCounter.Increment();
+                    State.OnRetire();
                     _halted = true;
                     return;
                 }
@@ -456,6 +459,7 @@ internal sealed class OoOPipelineCore : Gear {
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     _rob.Retire();
                     _retiredCounter.Increment();
+                    State.OnRetire();
                     SetFlush(target);
                     return;
                 }
@@ -465,6 +469,7 @@ internal sealed class OoOPipelineCore : Gear {
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     _rob.Retire();
                     _retiredCounter.Increment();
+                    State.OnRetire();
                     SetFlush(target);
                     return;
                 }
@@ -500,6 +505,7 @@ internal sealed class OoOPipelineCore : Gear {
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     _rob.Retire();
                     _retiredCounter.Increment();
+                    State.OnRetire();
                     SetFlush(resolvedPc);
                     return;
                 }
@@ -509,6 +515,7 @@ internal sealed class OoOPipelineCore : Gear {
             PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
             _rob.Retire();
             _retiredCounter.Increment();
+            State.OnRetire();
             committed++;
         }
 

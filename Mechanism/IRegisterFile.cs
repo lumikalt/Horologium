@@ -21,4 +21,7 @@ public interface IRegisterFile {
     /// Implementations may silently ignore writes to hardwired-zero registers.
     /// </summary>
     void Write(int index, ulong value);
+
+    /// <summary>Resets all registers to their power-on default (typically zero).</summary>
+    void Reset() { }
 }

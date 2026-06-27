@@ -1,5 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using RiscV.Decode;
+using RiscV32.Decode;
 
 namespace Face.Models;
 

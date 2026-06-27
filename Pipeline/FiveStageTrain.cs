@@ -264,6 +264,7 @@ internal sealed class PipelineCore : Gear {
         long newRetired = _wb.RetiredCount;
         while (_lastRetired < newRetired) {
             _retiredCounter.Increment();
+            State.OnRetire();
             _lastRetired++;
         }
 
@@ -273,6 +274,7 @@ internal sealed class PipelineCore : Gear {
         }
 
         _cyclesCounter.Increment();
+        State.OnCycle();
 
         if (_missStallBudget > 0) {
             // Drain one stall cycle: freeze all stages, advance the clock.

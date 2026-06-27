@@ -1,0 +1,1222 @@
+using Mechanism;
+
+namespace RiscV32.Decode;
+
+/// <summary>
+/// Instruction decoder with a (PC, raw) keyed cache.
+/// Safe for all programs — keying on both PC and raw encoding avoids false hits when
+/// two different instructions happen to share the same PC (e.g. in unit tests).
+/// </summary>
+public class Rv32Decoder : IDecoder {
+    private readonly Dictionary<(ulong pc, uint raw), ITooth> _cache = new();
+    private readonly Dictionary<(ulong pc, uint raw), FetchHint> _hintCache = new();
+
+    public FetchHint GetFetchHint(ulong pc, uint firstWord) {
+        if (_hintCache.TryGetValue((pc, firstWord), out FetchHint cached)) return cached;
+        FetchHint hint = ComputeFetchHint(pc, firstWord);
+        _hintCache[(pc, firstWord)] = hint;
+        return hint;
+    }
+
+    private static FetchHint ComputeFetchHint(ulong pc, uint firstWord) {
+        bool isCompressed = (firstWord & 0x3) != 0x3;
+        if (isCompressed) {
+            var c = (ushort)(firstWord & 0xFFFF);
+            var q = (uint)(c & 0x3);
+            var cfunct3 = (uint)(c >> 13);
+            int crs1 = (c >> 7) & 0x1F;
+            int crs2 = (c >> 2) & 0x1F;
+            bool inst12 = (c & 0x1000) != 0;
+
+            return q switch {
+                // c.jal (RV32): PC-relative call with statically known target.
+                0x1 when cfunct3 == 0x1 => new FetchHint {
+                    InstructionSize = 2,
+                    IsBranch = true,
+                    IsCall = true,
+                    BranchTarget = ((ulong)((long)pc + CJumpOffset(c)), true),
+                },
+                // c.j: unconditional PC-relative jump.
+                0x1 when cfunct3 == 0x5 => new FetchHint {
+                    InstructionSize = 2, IsBranch = true, BranchTarget = ((ulong)((long)pc + CJumpOffset(c)), true),
+                },
+                // c.beqz / c.bnez: PC-relative conditional branches.
+                0x1 when cfunct3 == 0x6 || cfunct3 == 0x7 => new FetchHint {
+                    InstructionSize = 2, IsBranch = true, BranchTarget = ((ulong)((long)pc + CBranchImm(c)), true),
+                },
+                // c.jalr: register-indirect call — target not statically known.
+                0x2 when cfunct3 == 0x4 && inst12 && crs2 == 0 && crs1 != 0 => new FetchHint {
+                    InstructionSize = 2, IsBranch = true, IsCall = true,
+                },
+                // c.jr / c.ret: register-indirect return — target not statically known.
+                0x2 when cfunct3 == 0x4 && !inst12 && crs2 == 0 && crs1 != 0 => new FetchHint {
+                    InstructionSize = 2, IsBranch = true, IsReturn = crs1 is 1 or 5,
+                },
+                _ => new FetchHint { InstructionSize = 2, },
+            };
+        }
+
+        var opcode = (int)(firstWord & 0x7F);
+        var rd = (int)((firstWord >> 7) & 0x1F);
+        var rs1 = (int)((firstWord >> 15) & 0x1F);
+        bool isJal = opcode == 0x6F;
+        bool isJalr = opcode == 0x67;
+        bool linkRd = rd is 1 or 5;
+        bool linkRs1 = rs1 is 1 or 5;
+
+        (ulong Value, bool HasValue) branchTarget = default;
+        if (opcode == 0x63) {
+            // B-type: imm[12|10:5] in bits[31:25], imm[4:1|11] in bits[11:7]
+            var bImm = (int)(
+                (((firstWord >> 31) & 1) << 12) |
+                (((firstWord >> 7) & 1) << 11) |
+                (((firstWord >> 25) & 0x3F) << 5) |
+                (((firstWord >> 8) & 0xF) << 1));
+            branchTarget = ((ulong)((long)pc + SignExtendN(bImm, 13)), true);
+        }
+        else if (isJal) {
+            // J-type: imm[20|10:1|11|19:12] scattered across bits[31:12]
+            var jImm = (int)(
+                (((firstWord >> 31) & 1) << 20) |
+                (((firstWord >> 12) & 0xFF) << 12) |
+                (((firstWord >> 20) & 1) << 11) |
+                (((firstWord >> 21) & 0x3FF) << 1));
+            branchTarget = ((ulong)((long)pc + SignExtendN(jImm, 21)), true);
+        }
+        // JALR: register-indirect — target not statically known; branchTarget stays default.
+
+        return new FetchHint {
+            InstructionSize = 4,
+            IsBranch = opcode is 0x63 || isJal || isJalr,
+            IsCall = (isJal || isJalr) && linkRd,
+            IsReturn = isJalr && linkRs1 && !linkRd,
+            BranchTarget = branchTarget,
+        };
+    }
+
+    public virtual int InstructionSize(ulong pc, IMemory memory) {
+        var half = (ushort)memory.Read(pc, 2);
+        return (half & 0x3) != 0x3 ? 2 : 4;
+    }
+
+    public virtual ITooth Decode(ulong pc, IMemory memory) {
+        var half = (ushort)memory.Read(pc, 2);
+        if ((half & 0x3) != 0x3)
+            return _cache.TryGetValue((pc, half), out ITooth? c) ? c : Cache(pc, half, DecodeCompressed(pc, half));
+
+        var raw = (uint)memory.Read(pc, 4);
+        return _cache.TryGetValue((pc, raw), out ITooth? cached) ? cached : Cache(pc, raw, DecodeRaw(pc, raw));
+    }
+
+    public virtual ITooth Decode(ulong pc, uint raw) => _cache.TryGetValue((pc, raw), out ITooth? cached)
+        ? cached
+        : Cache(pc, raw, DecodeRaw(pc, raw));
+
+    private ITooth Cache(ulong pc, uint raw, ITooth tooth) {
+        _cache[(pc, raw)] = tooth;
+        return tooth;
+    }
+
+    protected virtual ITooth DecodeRaw(ulong pc, uint raw) {
+        if ((raw & 0x3) != 0x3) return DecodeCompressed(pc, (ushort)(raw & 0xFFFF));
+        uint opcode = raw & 0x7F;
+        var rd = (int)((raw >> 7) & 0x1F);
+        var rs1 = (int)((raw >> 15) & 0x1F);
+        var rs2 = (int)((raw >> 20) & 0x1F);
+        uint funct3 = (raw >> 12) & 0x7;
+        uint funct7 = (raw >> 25) & 0x7F;
+
+        return opcode switch {
+            0x33 => DecodeRType(pc, raw, rd, rs1, rs2, funct3, funct7),
+            0x13 => DecodeITypeAlu(pc, raw, rd, rs1, funct3, raw),
+            0x03 => DecodeLoad(pc, raw, rd, rs1, funct3, raw),
+            0x23 => DecodeStore(pc, raw, rs1, rs2, funct3, raw),
+            0x63 => DecodeBranch(pc, raw, rs1, rs2, funct3, raw),
+            0x6F => DecodeJal(pc, raw, rd, raw),
+            0x67 => DecodeJalr(pc, raw, rd, rs1, raw),
+            0x37 => DecodeUType(pc, raw, rd, raw, true),
+            0x17 => DecodeUType(pc, raw, rd, raw, false),
+            0x73 => DecodeSystem(pc, raw, rd, rs1, funct3, raw),
+            0x2F => DecodeAmo(pc, raw, rd, rs1, rs2, funct3, (raw >> 27) & 0x1F),
+            0x0F => DecodeMiscMem(pc, raw, rs1, funct3),
+            // F and V extension load/store (share opcodes 0x07/0x27, disambiguated by funct3)
+            0x07 => DecodeFpOrVLoad(pc, raw, rd, rs1, funct3, raw),
+            0x27 => DecodeFpOrVStore(pc, raw, rd, rs1, rs2, funct3, raw),
+            0x53 => DecodeFpOp(pc, raw, rd, rs1, rs2, funct3, funct7),
+            // V extension arithmetic/config
+            0x57 => DecodeVOp(pc, raw, rs1, funct3),
+            0x43 or 0x47 or 0x4B or 0x4F =>
+                DecodeFmaR4(pc, raw, opcode, rd, rs1, rs2, (int)((raw >> 27) & 0x1F)),
+            // UVE extension: custom-0 (stream setup), custom-1 (stream ops)
+            0x0B => DecodeUveSetup(pc, raw),
+            0x2B => DecodeUveOp(pc, raw),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown opcode 0x{opcode:X2} at PC=0x{pc:X8}"
+            ),
+        };
+    }
+
+    // ── R-type ────────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeRType(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        int rs2,
+        uint funct3,
+        uint funct7
+    ) {
+        var sources = (IReadOnlyList<int>)[rs1, rs2,];
+        if (funct7 == 0x01) {
+            // M extension: multiply / divide
+            RvOp mop = funct3 switch {
+                0x0 => new RvMul(rd, rs1, rs2),
+                0x1 => new RvMulh(rd, rs1, rs2),
+                0x2 => new RvMulhsu(rd, rs1, rs2),
+                0x3 => new RvMulhu(rd, rs1, rs2),
+                0x4 => new RvDiv(rd, rs1, rs2),
+                0x5 => new RvDivu(rd, rs1, rs2),
+                0x6 => new RvRem(rd, rs1, rs2),
+                0x7 => new RvRemu(rd, rs1, rs2),
+                _ => throw new IllegalInstructionException(
+                    pc, raw,
+                    $"Unknown M-extension funct3=0x{funct3:X}"
+                ),
+            };
+            return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerMulDiv, mop);
+        }
+
+        RvOp op = (funct3, funct7) switch {
+            // Base integer (I)
+            (0x0, 0x00) => new RvAdd(rd, rs1, rs2),
+            (0x0, 0x20) => new RvSub(rd, rs1, rs2),
+            (0x4, 0x00) => new RvXor(rd, rs1, rs2),
+            (0x6, 0x00) => new RvOr(rd, rs1, rs2),
+            (0x7, 0x00) => new RvAnd(rd, rs1, rs2),
+            (0x1, 0x00) => new RvSll(rd, rs1, rs2),
+            (0x5, 0x00) => new RvSrl(rd, rs1, rs2),
+            (0x5, 0x20) => new RvSra(rd, rs1, rs2),
+            (0x2, 0x00) => new RvSlt(rd, rs1, rs2),
+            (0x3, 0x00) => new RvSltu(rd, rs1, rs2),
+            // Zbc carry-less multiply (funct7=0x05, funct3=1/2/3; no overlap with Zbb min/max funct3=4–7)
+            (0x1, 0x05) => new RvClmul (rd, rs1, rs2),
+            (0x2, 0x05) => new RvClmulr(rd, rs1, rs2),
+            (0x3, 0x05) => new RvClmulh(rd, rs1, rs2),
+            // Zba address generation (funct7=0x10): rd = rs2 + (rs1 << N)
+            (0x2, 0x10) => new RvSh1Add(rd, rs1, rs2),
+            (0x4, 0x10) => new RvSh2Add(rd, rs1, rs2),
+            (0x6, 0x10) => new RvSh3Add(rd, rs1, rs2),
+            // Zbs single-bit (R-type)
+            (0x1, 0x24) => new RvBclr(rd, rs1, rs2),
+            (0x5, 0x24) => new RvBext(rd, rs1, rs2),
+            (0x1, 0x34) => new RvBinv(rd, rs1, rs2),
+            (0x1, 0x14) => new RvBset(rd, rs1, rs2),
+            // Zicond (funct7=0x07)
+            (0x5, 0x07) => new RvCzeroEqz(rd, rs1, rs2),
+            (0x7, 0x07) => new RvCzeroNez(rd, rs1, rs2),
+            // Zbb logical-with-negate (funct7=0x20, distinct funct3 from SUB)
+            (0x7, 0x20) => new RvAndn(rd, rs1, rs2),
+            (0x6, 0x20) => new RvOrn(rd, rs1, rs2),
+            (0x4, 0x20) => new RvXnor(rd, rs1, rs2),
+            // Zbb min/max (funct7=0x05)
+            (0x4, 0x05) => new RvMin(rd, rs1, rs2),
+            (0x5, 0x05) => new RvMinu(rd, rs1, rs2),
+            (0x6, 0x05) => new RvMax(rd, rs1, rs2),
+            (0x7, 0x05) => new RvMaxu(rd, rs1, rs2),
+            // Zbb rotate (funct7=0x30)
+            (0x1, 0x30) => new RvRol(rd, rs1, rs2),
+            (0x5, 0x30) => new RvRor(rd, rs1, rs2),
+            // Zbb zero-extend halfword (funct7=0x04, rs2=0)
+            (0x4, 0x04) when rs2 == 0 => new RvZextH(rd, rs1),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown R-type funct3=0x{funct3:X} funct7=0x{funct7:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerAlu, op);
+    }
+
+    // ── I-type ALU ────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeITypeAlu(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        uint funct3,
+        uint word
+    ) {
+        int imm = SignExtend12((int)(word >> 20));
+        uint shamt = (word >> 20) & 0x1F;
+        uint funct7 = (word >> 25) & 0x7F;
+        var sources = (IReadOnlyList<int>)[rs1,];
+
+        RvOp op = funct3 switch {
+            0x0 => new RvAddi(rd, rs1, imm),
+            0x4 => new RvXori(rd, rs1, imm),
+            0x6 => new RvOri(rd, rs1, imm),
+            0x7 => new RvAndi(rd, rs1, imm),
+            0x2 => new RvSlti(rd, rs1, imm),
+            0x3 => new RvSltiu(rd, rs1, imm),
+            // SLLI space: funct7 selects base SLLI, Zbb unary ops, or Zbs immediate ops
+            0x1 => funct7 switch {
+                0x00 => new RvSlli(rd, rs1, (int)shamt),
+                0x14 => new RvBseti(rd, rs1, (int)shamt),
+                0x24 => new RvBclri(rd, rs1, (int)shamt),
+                0x30 => shamt switch {
+                    0 => (RvOp)new RvClz(rd, rs1),
+                    1 => new RvCtz(rd, rs1),
+                    2 => new RvCpop(rd, rs1),
+                    4 => new RvSextB(rd, rs1),
+                    5 => new RvSextH(rd, rs1),
+                    _ => throw new IllegalInstructionException(
+                        pc, raw, $"Unknown Zbb unary op shamt=0x{shamt:X}"
+                    ),
+                },
+                0x34 => new RvBinvi(rd, rs1, (int)shamt),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown OP-IMM funct3=1 funct7=0x{funct7:X}"
+                ),
+            },
+            // SRLI/SRAI space: Zbb and Zbs immediate ops
+            0x5 => funct7 switch {
+                0x00 => new RvSrli(rd, rs1, (int)shamt),
+                0x20 => new RvSrai(rd, rs1, (int)shamt),
+                0x14 => new RvOrcB(rd, rs1),
+                0x24 => new RvBexti(rd, rs1, (int)shamt),
+                0x30 => new RvRori(rd, rs1, (int)shamt),
+                0x34 => new RvRev8(rd, rs1),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown OP-IMM funct3=5 funct7=0x{funct7:X}"
+                ),
+            },
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown OP-IMM funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerAlu, op);
+    }
+
+    // ── Loads ─────────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeLoad(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        uint funct3,
+        uint word
+    ) {
+        int imm = SignExtend12((int)(word >> 20));
+        var sources = (IReadOnlyList<int>)[rs1,];
+
+        RvOp op = funct3 switch {
+            0x0 => new RvLb(rd, rs1, imm),
+            0x1 => new RvLh(rd, rs1, imm),
+            0x2 => new RvLw(rd, rs1, imm),
+            0x4 => new RvLbu(rd, rs1, imm),
+            0x5 => new RvLhu(rd, rs1, imm),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown LOAD funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.Load, op);
+    }
+
+    // ── Stores ────────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeStore(
+        ulong pc,
+        uint raw,
+        int rs1,
+        int rs2,
+        uint funct3,
+        uint word
+    ) {
+        int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
+        var sources = (IReadOnlyList<int>)[rs1, rs2,];
+
+        RvOp op = funct3 switch {
+            0x0 => new RvSb(rs1, rs2, imm),
+            0x1 => new RvSh(rs1, rs2, imm),
+            0x2 => new RvSw(rs1, rs2, imm),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown STORE funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, -1, sources, ToothClass.Store, op);
+    }
+
+    // ── Branches ──────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeBranch(
+        ulong pc,
+        uint raw,
+        int rs1,
+        int rs2,
+        uint funct3,
+        uint word
+    ) {
+        // B-type immediate: inst[31]|inst[7]|inst[30:25]|inst[11:8] << 1
+        var imm = (int)(
+            (((word >> 31) & 1) << 12) |
+            (((word >> 7) & 1) << 11) |
+            (((word >> 25) & 0x3F) << 5) |
+            (((word >> 8) & 0xF) << 1));
+        imm = SignExtendN(imm, 13);
+        var sources = (IReadOnlyList<int>)[rs1, rs2,];
+
+        RvOp op = funct3 switch {
+            0x0 => new RvBeq(rs1, rs2, imm),
+            0x1 => new RvBne(rs1, rs2, imm),
+            0x4 => new RvBlt(rs1, rs2, imm),
+            0x5 => new RvBge(rs1, rs2, imm),
+            0x6 => new RvBltu(rs1, rs2, imm),
+            0x7 => new RvBgeu(rs1, rs2, imm),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown BRANCH funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, -1, sources, ToothClass.ConditionalBranch, op);
+    }
+
+    // ── JAL ───────────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeJal(ulong pc, uint raw, int rd, uint word) {
+        // J-type immediate: inst[31]|inst[19:12]|inst[20]|inst[30:21] << 1
+        var imm = (int)(
+            (((word >> 31) & 1) << 20) |
+            (((word >> 12) & 0xFF) << 12) |
+            (((word >> 20) & 1) << 11) |
+            (((word >> 21) & 0x3FF) << 1));
+        imm = SignExtendN(imm, 21);
+        return new RvInstruction(
+            pc, raw, rd, [], ToothClass.Branch,
+            new RvJal(rd, imm)
+        );
+    }
+
+    // ── JALR ──────────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeJalr(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        uint word
+    ) {
+        int imm = SignExtend12((int)(word >> 20));
+        return new RvInstruction(
+            pc, raw, rd, [rs1,], ToothClass.Branch,
+            new RvJalr(rd, rs1, imm)
+        );
+    }
+
+    // ── U-type ────────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeUType(
+        ulong pc,
+        uint raw,
+        int rd,
+        uint word,
+        bool isLui
+    ) {
+        var imm = (int)(word & 0xFFFFF000); // upper 20 bits, lower 12 zeroed
+        RvOp op = isLui ? new RvLui(rd, imm) : new RvAuipc(rd, imm);
+        return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, op);
+    }
+
+    // ── System ────────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeSystem(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        uint funct3,
+        uint word
+    ) {
+        uint csr = word >> 20;
+        uint zimm = (word >> 15) & 0x1F;
+
+        if (funct3 == 0x0)
+            // ECALL / EBREAK / SRET / MRET / WFI / Zawrs
+            return (word >> 20) switch {
+                0x000 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEcall()),
+                0x001 => new RvInstruction(pc, raw, -1, [], ToothClass.Halt, new RvEbreak()),
+                0x102 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvSret()),
+                0x105 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWfi()),
+                0x302 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvMret()),
+                // Zawrs (single-core: NOP)
+                0x00D => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWrsNto()),
+                0x01D => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWrsSto()),
+                _ => throw new IllegalInstructionException(
+                    pc, raw,
+                    $"Unknown SYSTEM instruction at PC=0x{pc:X8}"
+                ),
+            };
+
+        // Zimop: funct3=4 is unused by standard CSR encoding; pattern-detect by CSR address bits.
+        if (funct3 == 0x4) {
+            if ((csr & 0xB3C) == 0x81C)
+                return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopR(rd));
+            if ((csr & 0xB3F) == 0x823)
+                return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopRr(rd));
+            throw new IllegalInstructionException(pc, raw, $"Unknown SYSTEM funct3=4 csr=0x{csr:X3}");
+        }
+
+        // CSR instructions
+        IReadOnlyList<int> sources = funct3 is 0x1 or 0x2 or 0x3
+            ? [rs1,]
+            : [];
+
+        RvOp op = funct3 switch {
+            0x1 => new RvCsrrw(rd, rs1, csr),
+            0x2 => new RvCsrrs(rd, rs1, csr),
+            0x3 => new RvCsrrc(rd, rs1, csr),
+            0x5 => new RvCsrrwi(rd, zimm, csr),
+            0x6 => new RvCsrrsi(rd, zimm, csr),
+            0x7 => new RvCsrrci(rd, zimm, csr),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown SYSTEM funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.System, op);
+    }
+
+    // ── MISC-MEM (opcode=0x0F): FENCE, Zicbom, Zicboz ───────────────────────────
+
+    private static RvInstruction DecodeMiscMem(ulong pc, uint raw, int rs1, uint funct3) {
+        if (funct3 == 0x0) return new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFence());
+        if (funct3 == 0x2) {
+            uint op = (raw >> 20) & 0x1F; // bits[24:20] select cbo operation
+            IReadOnlyList<int> src = [rs1,];
+            return op switch {
+                0x00 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboInval(rs1)),
+                0x01 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboClean(rs1)),
+                0x02 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboFlush(rs1)),
+                0x04 => new RvInstruction(pc, raw, -1, src, ToothClass.Store, new RvCboZero(rs1)),
+                _ => throw new IllegalInstructionException(pc, raw, $"Unknown CBO op bits[24:20]=0x{op:X2}"),
+            };
+        }
+        throw new IllegalInstructionException(pc, raw, $"Unknown MISC-MEM funct3=0x{funct3:X}");
+    }
+
+    // ── A extension (AMO) ─────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeAmo(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        int rs2,
+        uint funct3,
+        uint funct5
+    ) {
+        if (funct3 != 0x2)
+            throw new IllegalInstructionException(
+                pc, raw,
+                $"AMO with non-word funct3=0x{funct3:X} (only .W supported)"
+            );
+
+        // LR.W reads only the address register; all others use rs1 (addr) and rs2 (operand).
+        IReadOnlyList<int> sources = funct5 == 0x02 ? [rs1,] : [rs1, rs2,];
+
+        RvOp op = funct5 switch {
+            0x02 => new RvLrW(rd, rs1),
+            0x03 => new RvScW(rd, rs1, rs2),
+            0x01 => new RvAmoswapW(rd, rs1, rs2),
+            0x00 => new RvAmoaddW(rd, rs1, rs2),
+            0x04 => new RvAmoxorW(rd, rs1, rs2),
+            0x0C => new RvAmoandW(rd, rs1, rs2),
+            0x08 => new RvAmoorW(rd, rs1, rs2),
+            0x10 => new RvAmominW(rd, rs1, rs2),
+            0x14 => new RvAmomaxW(rd, rs1, rs2),
+            0x18 => new RvAmominuW(rd, rs1, rs2),
+            0x1C => new RvAmomaxuW(rd, rs1, rs2),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Unknown AMO funct5=0x{funct5:X2}"
+            ),
+        };
+        return new RvInstruction(pc, raw, rd, sources, ToothClass.Atomic, op);
+    }
+
+    // ── F extension ───────────────────────────────────────────────────────────
+
+    // LOAD-FP / vector load: opcode=0x07.
+    // funct3=2 → FLW; funct3=0/5/6 → VLE8/16/32.
+    private static RvInstruction DecodeFpOrVLoad(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        uint funct3,
+        uint word
+    ) {
+        if (funct3 == 2) {
+            int imm = SignExtend12((int)(word >> 20));
+            return new RvInstruction(
+                pc, raw, rd + 32, [rs1,], ToothClass.Load,
+                new RvFlw(rd + 32, rs1, imm)
+            );
+        }
+
+        // Vector load (funct3=0/5/6/7)
+        return DecodeVLoad(pc, raw, rd, rs1, funct3, word);
+    }
+
+    // STORE-FP / vector store: opcode=0x27.
+    // funct3=2 → FSW; funct3=0/5/6 → VSE8/16/32.
+    private static RvInstruction DecodeFpOrVStore(
+        ulong pc,
+        uint raw,
+        int rd, // bits[11:7] = vs3 for vector stores
+        int rs1,
+        int rs2, // bits[24:20] = sumop for unit-stride vector stores
+        uint funct3,
+        uint word
+    ) {
+        // Vector store (funct3=0/5/6/7)
+        if (funct3 != 2) return DecodeVStore(pc, raw, rd, rs1, rs2, funct3, word);
+        int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
+        return new RvInstruction(
+            pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store,
+            new RvFsw(rs1, rs2 + 32, imm)
+        );
+    }
+
+    // ── V extension ───────────────────────────────────────────────────────────
+
+    // VLE8/16/32 and VLM: opcode=0x07, funct3 ≠ 2.
+    private static RvInstruction DecodeVLoad(
+        ulong pc,
+        uint raw,
+        int vd,
+        int rs1,
+        uint funct3,
+        uint word
+    ) {
+        uint mop = (word >> 26) & 0x3;    // addressing mode: 00=unit-stride
+        uint lumop = (word >> 20) & 0x1F; // unit-stride sub-mode
+        bool masked = ((word >> 25) & 1) == 0;
+
+        if (mop != 0)
+            throw new IllegalInstructionException(
+                pc, raw, $"V load: only unit-stride (mop=0) supported, got mop={mop}"
+            );
+
+        // VLM: funct3=0 + lumop=01011
+        if (funct3 == 0 && lumop == 0x0B)
+            return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVlm(vd, rs1));
+
+        int sew = funct3 switch {
+            0 => 8,
+            5 => 16,
+            6 => 32,
+            _ => throw new IllegalInstructionException(
+                pc, raw, $"V load: unsupported element width funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVleVv(vd, rs1, sew, masked));
+    }
+
+    // VSE8/16/32 and VSM: opcode=0x27, funct3 ≠ 2.
+    // rd (bits[11:7]) = vs3, rs2 (bits[24:20]) = sumop.
+    private static RvInstruction DecodeVStore(
+        ulong pc,
+        uint raw,
+        int vs3, // bits[11:7]
+        int rs1,
+        int sumop, // bits[24:20]
+        uint funct3,
+        uint word
+    ) {
+        uint mop = (word >> 26) & 0x3;
+        bool masked = ((word >> 25) & 1) == 0;
+
+        if (mop != 0)
+            throw new IllegalInstructionException(
+                pc, raw, $"V store: only unit-stride (mop=0) supported, got mop={mop}"
+            );
+
+        // VSM: funct3=0 + sumop=01011
+        if (funct3 == 0 && sumop == 0x0B)
+            return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVsm(vs3, rs1));
+
+        int sew = funct3 switch {
+            0 => 8,
+            5 => 16,
+            6 => 32,
+            _ => throw new IllegalInstructionException(
+                pc, raw, $"V store: unsupported element width funct3=0x{funct3:X}"
+            ),
+        };
+        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVseVv(vs3, rs1, sew, masked));
+    }
+
+    // OPIVV / OPIVX / OPIVI / OPCFG: opcode=0x57.
+    private static RvInstruction DecodeVOp(
+        ulong pc,
+        uint raw,
+        int rs1,
+        uint funct3
+    ) {
+        var vd = (int)((raw >> 7) & 0x1F);
+        var vs2 = (int)((raw >> 20) & 0x1F);
+        bool masked = ((raw >> 25) & 1) == 0;
+        uint funct6 = (raw >> 26) & 0x3F;
+
+        // OPCFG (funct3=7)
+        if (funct3 == 7) return DecodeVCfg(pc, raw, vd, rs1, vs2);
+
+        // OPIVV (funct3=0), OPIVX (funct3=4), OPIVI (funct3=3)
+        if (funct3 is not (0 or 3 or 4))
+            throw new IllegalInstructionException(
+                pc, raw, $"V op: unsupported funct3=0x{funct3:X}"
+            );
+
+        VIntOp? intOp = funct6 switch {
+            0  => VIntOp.Add,
+            2  => VIntOp.Sub,
+            9  => VIntOp.And,
+            10 => VIntOp.Or,
+            11 => VIntOp.Xor,
+            37 => VIntOp.Sll,
+            40 => VIntOp.Srl,
+            41 => VIntOp.Sra,
+            _  => null,
+        };
+
+        VMaskCmpOp? cmpOp = funct6 switch {
+            24 => VMaskCmpOp.Eq,
+            25 => VMaskCmpOp.Ne,
+            26 => VMaskCmpOp.Ltu,
+            27 => VMaskCmpOp.Lt,
+            30 => VMaskCmpOp.Gtu,
+            31 => VMaskCmpOp.Gt,
+            _  => null,
+        };
+
+        return intOp switch {
+            null => cmpOp switch {
+                null => throw new IllegalInstructionException(
+                    pc, raw, $"V op: unknown funct6=0x{funct6:X2} funct3=0x{funct3:X}"
+                ),
+                // vmsgtu/vmsgt: VX and VI only, not VV
+                VMaskCmpOp.Gtu or VMaskCmpOp.Gt when funct3 == 0 => throw new IllegalInstructionException(
+                    pc, raw, "vmsgtu/vmsgt.vv is not a valid encoding"
+                ),
+                _ => funct3 switch {
+                    0 => new RvInstruction(
+                        pc, raw, -1, [], ToothClass.Vector, new RvVMaskCmpVv(cmpOp.Value, vd, vs2, rs1, masked)
+                    ),
+                    3 => new RvInstruction(
+                        pc, raw, -1, [], ToothClass.Vector,
+                        new RvVMaskCmpVi(cmpOp.Value, vd, vs2, SignExtend5(rs1), masked)
+                    ),
+                    _ => new RvInstruction(
+                        pc, raw, -1, [rs1,], ToothClass.Vector, new RvVMaskCmpVx(cmpOp.Value, vd, vs2, rs1, masked)
+                    ),
+                },
+            },
+            // vsub has no VI variant
+            VIntOp.Sub when funct3 == 3 => throw new IllegalInstructionException(
+                pc, raw, "vsub.vi is not a valid instruction"
+            ),
+            _ => funct3 switch {
+                0 => new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Vector, new RvVIntAluVv(intOp.Value, vd, vs2, rs1, masked)
+                ),
+                3 => new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Vector, new RvVIntAluVi(intOp.Value, vd, vs2, SignExtend5(rs1), masked)
+                ),
+                _ => new RvInstruction(
+                    pc, raw, -1, [rs1,], ToothClass.Vector, new RvVIntAluVx(intOp.Value, vd, vs2, rs1, masked)
+                ),
+            },
+        };
+    }
+
+    // OPCFG: vsetvli / vsetivli / vsetvl.
+    private static RvInstruction DecodeVCfg(ulong pc, uint raw, int rd, int rs1, int rs2) {
+        uint bits31 = raw >> 31;
+        uint bits3130 = (raw >> 30) & 0x3;
+
+        if (bits31 == 0) {
+            // vsetvli: bit[31]=0, vtypei = bits[30:20] (11 bits)
+            var vtypei = (int)((raw >> 20) & 0x7FF);
+            IReadOnlyList<int> sources = rs1 != 0 ? [rs1,] : [];
+            return new RvInstruction(pc, raw, rd, sources, ToothClass.Vector, new RvVsetvli(rd, rs1, vtypei));
+        }
+
+        if (bits3130 == 3) {
+            // vsetivli: bits[31:30]=11, vtypei = bits[29:20] (10 bits), zimm = bits[19:15]
+            var vtypei = (int)((raw >> 20) & 0x3FF);
+            var zimm = (int)((raw >> 15) & 0x1F);
+            return new RvInstruction(pc, raw, rd, [], ToothClass.Vector, new RvVsetivli(rd, zimm, vtypei));
+        }
+
+        // vsetvl: bits[31:25]=1000000
+        return new RvInstruction(pc, raw, rd, [rs1, rs2,], ToothClass.Vector, new RvVsetvl(rd, rs1, rs2));
+    }
+
+    private static int SignExtend5(int value) =>
+        (value & 0x10) != 0 ? value | unchecked((int)0xFFFFFFE0) : value & 0x1F;
+
+    // OP-FP (opcode=0x53): all two-source FP operations.
+    private static RvInstruction DecodeFpOp(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        int rs2,
+        uint funct3,
+        uint funct7
+    ) {
+        return funct7 switch {
+            0x00 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFaddS(rd + 32, rs1 + 32, rs2 + 32)),
+            0x04 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsubS(rd + 32, rs1 + 32, rs2 + 32)),
+            0x08 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmulS(rd + 32, rs1 + 32, rs2 + 32)),
+            0x0C => FpRr(
+                pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFdivS(rd + 32, rs1 + 32, rs2 + 32), ToothClass.FloatDivSqrt
+            ),
+            0x2C => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFsqrtS(rd + 32, rs1 + 32), ToothClass.FloatDivSqrt),
+            0x10 => funct3 switch {
+                0 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjS(rd + 32, rs1 + 32, rs2 + 32)),
+                1 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjnS(rd + 32, rs1 + 32, rs2 + 32)),
+                2 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjxS(rd + 32, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FSGNJ funct3=0x{funct3:X}"
+                ),
+            },
+            0x14 => funct3 switch {
+                0 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFminS(rd + 32, rs1 + 32, rs2 + 32)),
+                1 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmaxS(rd + 32, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FMIN/FMAX funct3=0x{funct3:X}"
+                ),
+            },
+            // Comparisons: FP sources, integer result
+            0x50 => funct3 switch {
+                0 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFleS(rd, rs1 + 32, rs2 + 32)),
+                1 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFltS(rd, rs1 + 32, rs2 + 32)),
+                2 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFeqS(rd, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FP compare funct3=0x{funct3:X}"
+                ),
+            },
+            // Conversions float→int
+            0x60 => rs2 switch {
+                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWs(rd, rs1 + 32)),
+                1 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWuS(rd, rs1 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FCVT.W rs2={rs2}"
+                ),
+            },
+            // Conversions int→float
+            0x68 => rs2 switch {
+                0 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSw(rd + 32, rs1)),
+                1 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSWu(rd + 32, rs1)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FCVT.S rs2={rs2}"
+                ),
+            },
+            // FMV.X.W / FCLASS.S
+            0x70 => funct3 switch {
+                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFmvXw(rd, rs1 + 32)),
+                1 => FpR1(pc, raw, rd, rs1 + 32, new RvFclassS(rd, rs1 + 32)),
+                _ => throw new IllegalInstructionException(
+                    pc, raw, $"Unknown FMV.X.W/FCLASS funct3=0x{funct3:X}"
+                ),
+            },
+            // FMV.W.X: int→float bit copy
+            0x78 => FpR1(pc, raw, rd + 32, rs1, new RvFmvWx(rd + 32, rs1)),
+            _ => throw new IllegalInstructionException(
+                pc, raw, $"Unknown OP-FP funct7=0x{funct7:X2}"
+            ),
+        };
+    }
+
+    // R4-type: FMADD/FMSUB/FNMADD/FNMSUB (opcodes 0x43/0x47/0x4B/0x4F).
+    private static RvInstruction DecodeFmaR4(
+        ulong pc,
+        uint raw,
+        uint opcode,
+        int rd,
+        int rs1,
+        int rs2,
+        int rs3
+    ) {
+        uint fmt = (raw >> 25) & 0x3;
+        if (fmt != 0)
+            throw new IllegalInstructionException(
+                pc, raw, $"FMA: only .S format (fmt=0) supported, got fmt={fmt}"
+            );
+        RvOp op = opcode switch {
+            0x43 => new RvFmaddS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            0x47 => new RvFmsubS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            0x4B => new RvFnmsubS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            0x4F => new RvFnmaddS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            _ => throw new IllegalInstructionException(
+                pc, raw, $"Unknown FMA opcode 0x{opcode:X2}"
+            ),
+        };
+        return new RvInstruction(
+            pc, raw, rd + 32,
+            [rs1 + 32, rs2 + 32, rs3 + 32,], ToothClass.FloatingPoint, op
+        );
+    }
+
+    // ── FP instruction factories ───────────────────────────────────────────────
+
+    private static RvInstruction FpRr(
+        ulong pc,
+        uint raw,
+        int dest,
+        int s0,
+        int s1,
+        RvOp op,
+        ToothClass cls = ToothClass.FloatingPoint
+    ) =>
+        new(pc, raw, dest, [s0, s1,], cls, op);
+
+    private static RvInstruction FpR1(
+        ulong pc,
+        uint raw,
+        int dest,
+        int s0,
+        RvOp op,
+        ToothClass cls = ToothClass.FloatingPoint
+    ) =>
+        new(pc, raw, dest, [s0,], cls, op);
+
+    // ── C extension (16-bit compressed instructions) ─────────────────────────
+
+    // Factory for a 2-byte instruction that expands to an existing RvOp.
+    private static RvInstruction C(
+        ulong pc,
+        ushort raw,
+        int dest,
+        IReadOnlyList<int> sources,
+        ToothClass cls,
+        RvOp op
+    ) =>
+        new(pc, raw, dest, sources, cls, op, 2);
+
+    private static ITooth DecodeCompressed(ulong pc, ushort c) {
+        var q = (uint)(c & 0x3);
+        var funct3 = (uint)(c >> 13);
+        return q switch {
+            0x0 => DecodeCompressedQ0(pc, c, funct3),
+            0x1 => DecodeCompressedQ1(pc, c, funct3),
+            0x2 => DecodeCompressedQ2(pc, c, funct3),
+            _ => throw new IllegalInstructionException(
+                pc, c, "Compressed opcode with quadrant 0x3 is a 32-bit instruction"
+            ),
+        };
+    }
+
+    // ── Quadrant 0 ────────────────────────────────────────────────────────────
+
+    private static ITooth DecodeCompressedQ0(ulong pc, ushort c, uint funct3) {
+        int rdp = ((c >> 2) & 0x7) + 8;  // rd'  → x8–x15
+        int rs1P = ((c >> 7) & 0x7) + 8; // rs1' → x8–x15
+
+        return funct3 switch {
+            0x0 => DecodeAddi4Spn(pc, c, rdp),
+            0x2 => DecodeCLw(pc, c, rdp, rs1P),
+            0x3 => DecodeCFlw(pc, c, rdp, rs1P),
+            0x6 => DecodeCSw(pc, c, rdp, rs1P),
+            0x7 => DecodeCFsw(pc, c, rdp, rs1P),
+            _   => throw new IllegalInstructionException(pc, c, $"Unknown C.Q0 funct3=0x{funct3:X}"),
+        };
+    }
+
+    private static ITooth DecodeAddi4Spn(ulong pc, ushort c, int rdp) {
+        // CIW: nzuimm[5:4]=c[12:11], nzuimm[9:6]=c[10:7], nzuimm[2]=c[6], nzuimm[3]=c[5]
+        int nzuimm = (((c >> 11) & 0x3) << 4)
+                   | (((c >> 7) & 0xF) << 6)
+                   | (((c >> 6) & 0x1) << 2)
+                   | (((c >> 5) & 0x1) << 3);
+        return nzuimm == 0
+            ? throw new IllegalInstructionException(pc, c, "C.ADDI4SPN with nzuimm=0 is reserved")
+            : C(pc, c, rdp, [2,], ToothClass.IntegerAlu, new RvAddi(rdp, 2, nzuimm));
+    }
+
+    private static int ClMemImm(ushort c) =>
+        (((c >> 10) & 0x7) << 3) // c[12:10] → uimm[5:3]
+      | (((c >> 6) & 0x1) << 2)  // c[6]     → uimm[2]
+      | (((c >> 5) & 0x1) << 6); // c[5]     → uimm[6]
+
+    private static RvInstruction DecodeCLw(ulong pc, ushort c, int rdp, int rs1P) =>
+        C(pc, c, rdp, [rs1P,], ToothClass.Load, new RvLw(rdp, rs1P, ClMemImm(c)));
+
+    private static RvInstruction DecodeCFlw(ulong pc, ushort c, int rdp, int rs1P) =>
+        C(pc, c, rdp + 32, [rs1P,], ToothClass.Load, new RvFlw(rdp + 32, rs1P, ClMemImm(c)));
+
+    private static RvInstruction DecodeCSw(ulong pc, ushort c, int rs2P, int rs1P) =>
+        C(pc, c, -1, [rs1P, rs2P,], ToothClass.Store, new RvSw(rs1P, rs2P, ClMemImm(c)));
+
+    private static RvInstruction DecodeCFsw(ulong pc, ushort c, int rs2P, int rs1P) =>
+        C(pc, c, -1, [rs1P, rs2P + 32,], ToothClass.Store, new RvFsw(rs1P, rs2P + 32, ClMemImm(c)));
+
+    // ── Quadrant 1 ────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeCompressedQ1(ulong pc, ushort c, uint funct3) {
+        int rd = (c >> 7) & 0x1F;
+        int rs1P = ((c >> 7) & 0x7) + 8; // for CB-type restricted registers
+        int ci6Imm = SignExtendN((((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F), 6);
+
+        return funct3 switch {
+            0x0 => C(pc, c, rd, [rd,], ToothClass.IntegerAlu, new RvAddi(rd, rd, ci6Imm)), // C.NOP / C.ADDI
+            0x1 => DecodeCJal(pc, c), // C.JAL (RV32 only) → JAL x1, offset
+            0x2 => C(pc, c, rd, [], ToothClass.IntegerAlu, new RvAddi(rd, 0, ci6Imm)), // C.LI → ADDI rd, x0, imm
+            0x3 => DecodeQ1Funct3_011(pc, c, rd, ci6Imm),
+            0x4 => DecodeQ1Funct3_100(pc, c, rs1P, ci6Imm),
+            0x5 => DecodeCj(pc, c), // C.J → JAL x0, offset
+            0x6 => C(pc, c, -1, [rs1P, 0,], ToothClass.ConditionalBranch, new RvBeq(rs1P, 0, CBranchImm(c))), // C.BEQZ
+            0x7 => C(pc, c, -1, [rs1P, 0,], ToothClass.ConditionalBranch, new RvBne(rs1P, 0, CBranchImm(c))), // C.BNEZ
+            _   => throw new IllegalInstructionException(pc, c, $"Unknown C.Q1 funct3=0x{funct3:X}"),
+        };
+    }
+
+    private static int CJumpOffset(ushort c) {
+        // CJ-format: offset[11]=c[12], [4]=c[11], [9:8]=c[10:9], [10]=c[8], [6]=c[7], [7]=c[6], [3:1]=c[5:3], [5]=c[2]
+        int offset = (((c >> 12) & 0x1) << 11)
+                   | (((c >> 11) & 0x1) << 4)
+                   | (((c >> 9) & 0x3) << 8)
+                   | (((c >> 8) & 0x1) << 10)
+                   | (((c >> 7) & 0x1) << 6)
+                   | (((c >> 6) & 0x1) << 7)
+                   | (((c >> 3) & 0x7) << 1)
+                   | (((c >> 2) & 0x1) << 5);
+        return SignExtendN(offset, 12);
+    }
+
+    private static int CBranchImm(ushort c) {
+        // CB-format: offset[8]=c[12], [4:3]=c[11:10], [7:6]=c[6:5], [2:1]=c[4:3], [5]=c[2]
+        int offset = (((c >> 12) & 0x1) << 8)
+                   | (((c >> 10) & 0x3) << 3)
+                   | (((c >> 5) & 0x3) << 6)
+                   | (((c >> 3) & 0x3) << 1)
+                   | (((c >> 2) & 0x1) << 5);
+        return SignExtendN(offset, 9);
+    }
+
+    private static RvInstruction DecodeCJal(ulong pc, ushort c) =>
+        C(pc, c, 1, [], ToothClass.Branch, new RvJal(1, CJumpOffset(c)));
+
+    private static RvInstruction DecodeCj(ulong pc, ushort c) =>
+        C(pc, c, 0, [], ToothClass.Branch, new RvJal(0, CJumpOffset(c)));
+
+    private static RvInstruction DecodeQ1Funct3_011(ulong pc, ushort c, int rd, int _) {
+        if (rd == 2) {
+            // C.ADDI16SP: nzimm[9]=c[12], [4]=c[6], [6]=c[5], [8:7]=c[4:3], [5]=c[2]
+            int nzimm = (((c >> 12) & 0x1) << 9)
+                      | (((c >> 6) & 0x1) << 4)
+                      | (((c >> 5) & 0x1) << 6)
+                      | (((c >> 3) & 0x3) << 7)
+                      | (((c >> 2) & 0x1) << 5);
+            nzimm = SignExtendN(nzimm, 10);
+            return nzimm == 0
+                ? throw new IllegalInstructionException(pc, c, "C.ADDI16SP with nzimm=0 is reserved")
+                : C(pc, c, 2, [2,], ToothClass.IntegerAlu, new RvAddi(2, 2, nzimm));
+        }
+
+        // C.LUI: nzimm[17]=c[12], nzimm[16:12]=c[6:2] → placed at bits [17:12]
+        int raw6 = (((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F);
+        int nzimmLui = SignExtendN(raw6, 6) << 12;
+        return nzimmLui == 0
+            ? throw new IllegalInstructionException(pc, c, "C.LUI with nzimm=0 is reserved")
+            : C(pc, c, rd, [], ToothClass.IntegerAlu, new RvLui(rd, nzimmLui));
+    }
+
+    private static RvInstruction DecodeQ1Funct3_100(ulong pc, ushort c, int rs1P, int ci6Imm) {
+        int sub = (c >> 10) & 0x3;
+        int shamt = (((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F);
+
+        switch (sub) {
+            // C.SRLI → SRLI rs1', rs1', shamt
+            case 0x0 when (shamt & 0x20) != 0:
+                throw new IllegalInstructionException(pc, c, "C.SRLI with shamt[5]=1 is reserved for RV32");
+            case 0x0: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvSrli(rs1P, rs1P, shamt));
+            // C.SRAI → SRAI rs1', rs1', shamt
+            case 0x1 when (shamt & 0x20) != 0:
+                throw new IllegalInstructionException(pc, c, "C.SRAI with shamt[5]=1 is reserved for RV32");
+            case 0x1: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvSrai(rs1P, rs1P, shamt));
+            // C.ANDI → ANDI rs1', rs1', imm
+            case 0x2: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvAndi(rs1P, rs1P, ci6Imm));
+        }
+
+        // sub == 0x3: CA-type arithmetic
+        if ((c & 0x1000) != 0)
+            throw new IllegalInstructionException(pc, c, "C.SUB/XOR/OR/AND with c[12]=1 is reserved");
+        int rs2P = ((c >> 2) & 0x7) + 8;
+        return ((c >> 5) & 0x3) switch {
+            0x0 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvSub(rs1P, rs1P, rs2P)),
+            0x1 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvXor(rs1P, rs1P, rs2P)),
+            0x2 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvOr(rs1P, rs1P, rs2P)),
+            0x3 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvAnd(rs1P, rs1P, rs2P)),
+            _   => throw new IllegalInstructionException(pc, c, $"Unknown CA funct2=0x{(c >> 5) & 0x3:X}"),
+        };
+    }
+
+    // ── Quadrant 2 ────────────────────────────────────────────────────────────
+
+    private static RvInstruction DecodeCompressedQ2(ulong pc, ushort c, uint funct3) {
+        int rd = (c >> 7) & 0x1F;
+        int rs2 = (c >> 2) & 0x1F;
+
+        return funct3 switch {
+            0x0 => DecodeCslli(pc, c, rd, rs2),
+            0x2 => DecodeCLwsp(pc, c, rd),
+            0x3 => DecodeCFlwsp(pc, c, rd),
+            0x4 => DecodeQ2Funct3_100(pc, c, rd, rs2),
+            0x6 => DecodeCSwsp(pc, c, rs2),
+            0x7 => DecodeCFswsp(pc, c, rs2),
+            _   => throw new IllegalInstructionException(pc, c, $"Unknown C.Q2 funct3=0x{funct3:X}"),
+        };
+    }
+
+    private static RvInstruction DecodeCslli(ulong pc, ushort c, int rd, int rs2) {
+        int shamt = (((c >> 12) & 0x1) << 5) | rs2;
+        return (shamt & 0x20) != 0
+            ? throw new IllegalInstructionException(pc, c, "C.SLLI with shamt[5]=1 is reserved for RV32")
+            : C(pc, c, rd, [rd,], ToothClass.IntegerAlu, new RvSlli(rd, rd, shamt));
+    }
+
+    private static int ClwspImm(ushort c) =>
+        (((c >> 12) & 0x1) << 5) // c[12] → uimm[5]
+      | (((c >> 4) & 0x7) << 2)  // c[6:4] → uimm[4:2]
+      | (((c >> 2) & 0x3) << 6); // c[3:2] → uimm[7:6]
+
+    private static RvInstruction DecodeCLwsp(ulong pc, ushort c, int rd) => rd == 0
+        ? throw new IllegalInstructionException(pc, c, "C.LWSP with rd=x0 is reserved")
+        : C(pc, c, rd, [2,], ToothClass.Load, new RvLw(rd, 2, ClwspImm(c)));
+
+    private static RvInstruction DecodeCFlwsp(ulong pc, ushort c, int rd) =>
+        C(pc, c, rd + 32, [2,], ToothClass.Load, new RvFlw(rd + 32, 2, ClwspImm(c)));
+
+    private static int CswspImm(ushort c) =>
+        (((c >> 9) & 0xF) << 2)  // c[12:9] → uimm[5:2]
+      | (((c >> 7) & 0x3) << 6); // c[8:7] → uimm[7:6]
+
+    private static RvInstruction DecodeCSwsp(ulong pc, ushort c, int rs2) =>
+        C(pc, c, -1, [2, rs2,], ToothClass.Store, new RvSw(2, rs2, CswspImm(c)));
+
+    private static RvInstruction DecodeCFswsp(ulong pc, ushort c, int rs2) =>
+        C(pc, c, -1, [2, rs2 + 32,], ToothClass.Store, new RvFsw(2, rs2 + 32, CswspImm(c)));
+
+    private static RvInstruction DecodeQ2Funct3_100(ulong pc, ushort c, int rd, int rs2) {
+        switch ((c & 0x1000) != 0) {
+            case false when rs2 == 0: {
+                // C.JR → JALR x0, 0(rs1)
+                return rd == 0
+                    ? throw new IllegalInstructionException(pc, c, "C.JR with rs1=x0 is reserved")
+                    : C(pc, c, 0, [rd,], ToothClass.Branch, new RvJalr(0, rd, 0));
+            }
+            // C.MV → ADD rd, x0, rs2
+            case false: return C(pc, c, rd, [0, rs2,], ToothClass.IntegerAlu, new RvAdd(rd, 0, rs2));
+        }
+
+        if (rd == 0 && rs2 == 0)
+            // C.EBREAK
+            return C(pc, c, -1, [], ToothClass.System, new RvEbreak());
+        return rs2 == 0
+            ?
+            // C.JALR → JALR x1, 0(rs1)
+            C(pc, c, 1, [rd,], ToothClass.Branch, new RvJalr(1, rd, 0))
+            :
+            // C.ADD → ADD rd, rd, rs2
+            C(pc, c, rd, [rd, rs2,], ToothClass.IntegerAlu, new RvAdd(rd, rd, rs2));
+    }
+
+    // ── UVE extension ─────────────────────────────────────────────────────────
+    // custom-0 (0x0B): stream setup (ss.*)
+    // custom-1 (0x2B): stream operations (so.*)
+
+    private static RvInstruction DecodeUveSetup(ulong pc, uint raw) {
+        // R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | 0x0B
+        var ud  = (int)((raw >> 7)  & 0x1F);
+        var rs1 = (int)((raw >> 15) & 0x1F);
+        var rs2 = (int)((raw >> 20) & 0x1F);
+        var rs3 = (int)((raw >> 27) & 0x1F);
+        uint funct3 = (raw >> 12) & 0x7;
+
+        return funct3 switch {
+            // 1D stream setup (backward-compatible)
+            0x0 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsLdW(ud, rs1, rs2, rs3)),
+            0x1 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStW(ud, rs1, rs2, rs3)),
+            // Multi-dim stream setup: ss.sta starts, ss.app appends, ss.end finalises
+            0x2 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, rs2, rs3)),
+            0x3 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, rs2, rs3)),
+            0x4 => new RvInstruction(pc, raw, -1, [rs2, rs3,],      ToothClass.Uve, new RvUveSsApp(ud, rs2, rs3)),
+            0x5 => new RvInstruction(pc, raw, -1, [rs2, rs3,],      ToothClass.Uve, new RvUveSsEnd(ud, rs2, rs3)),
+            0x6 => new RvInstruction(pc, raw, -1, [],               ToothClass.Uve, new RvUveSsCfgVec(ud)),
+            _ => throw new IllegalInstructionException(pc, raw, $"Unknown UVE setup funct3=0x{funct3:X}"),
+        };
+    }
+
+    private static RvInstruction DecodeUveOp(ulong pc, uint raw) {
+        // R-type fields for most ops; B-type for so.b.*
+        var rd = (int)((raw >> 7) & 0x1F);
+        var rs1 = (int)((raw >> 15) & 0x1F);
+        var rs2 = (int)((raw >> 20) & 0x1F);
+        uint funct3 = (raw >> 12) & 0x7;
+        uint funct7 = (raw >> 25) & 0x7F;
+
+        switch (funct3) {
+            case 0x0: // so.v.dp.w ud, rs1 — broadcast scalar (rs2 unused / p0 implicit)
+                return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDpW(rd, rs1));
+
+            case 0x1: { // so.a.fp ud, usrc1, usrc2 — arithmetic on stream elements
+                var op = (UveFpOp)((funct7 >> 4) & 0x7);
+                if (!Enum.IsDefined(op))
+                    throw new IllegalInstructionException(pc, raw, $"Unknown UVE so.a.fp op={op}");
+                // rd=dest u-reg, rs1=usrc1, rs2=usrc2; no integer source/dest registers
+                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoAFp(op, rd, rs1, rs2));
+            }
+
+            case 0x4: { // so.b.nc urs, imm — branch while whole stream not exhausted (B-type)
+                int imm = BranchImm(raw);
+                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNc(rs1, imm));
+            }
+
+            case 0x5: { // so.b.ndc.D urs, imm — branch while dim D of stream not complete (B-type)
+                // dim is encoded in rs2 field (0 = innermost; literal, not a register index)
+                int dim = rs2;
+                int imm = BranchImm(raw);
+                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNdc(rs1, dim, imm));
+            }
+
+            default:
+                throw new IllegalInstructionException(pc, raw, $"Unknown UVE op funct3=0x{funct3:X}");
+        }
+    }
+
+    // ── Immediate helpers ─────────────────────────────────────────────────────
+
+    // Standard RISC-V B-type 13-bit signed branch immediate.
+    private static int BranchImm(uint raw) => SignExtendN(
+        (int)(((raw >> 31) & 1) << 12) |
+        (int)(((raw >> 7)  & 1) << 11) |
+        (int)(((raw >> 25) & 0x3F) << 5) |
+        (int)(((raw >> 8)  & 0xF) << 1),
+        13);
+
+    private static int SignExtend12(int value) =>
+        (value & 0x800) != 0 ? value | unchecked((int)0xFFFFF000) : value & 0xFFF;
+
+    private static int SignExtendN(int value, int bits) {
+        int shift = 32 - bits;
+        return (value << shift) >> shift;
+    }
+}

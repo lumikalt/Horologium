@@ -37,6 +37,20 @@ public interface IArchState {
     /// and to sync stream-exhaustion state for branch ops.
     /// </summary>
     IUveScalars? UveScalars => null;
+
+    /// <summary>
+    /// Called by the pipeline once per elapsed clock cycle (including stall cycles).
+    /// ISA implementations that maintain a hardware cycle counter (e.g. Zicntr mcycle)
+    /// override this to increment it. Default: no-op.
+    /// </summary>
+    void OnCycle() {}
+
+    /// <summary>
+    /// Called by the pipeline once per instruction retired (committed, not flushed).
+    /// ISA implementations that maintain a retired-instruction counter (e.g. Zicntr minstret)
+    /// override this to increment it. Default: no-op.
+    /// </summary>
+    void OnRetire() {}
 }
 
 /// <summary>

@@ -1,6 +1,6 @@
 using Orrery.Cache;
 using Orrery.Scheduling;
-using RiscV.Memory;
+using RiscV32.Memory;
 
 namespace Tests.Orrery;
 

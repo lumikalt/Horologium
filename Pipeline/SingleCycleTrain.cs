@@ -228,10 +228,12 @@ internal sealed class SingleCycleCore(
         long stalls = _anyCache ? DrainAndChargeStalls() : 0;
 
         _cyclesCounter.Increment();
+        ArchState.OnCycle();
         if (stalls > 0) {
             _stallsCounter.IncrementBy(stalls);
             _cacheMissStallsCounter?.IncrementBy(stalls);
             _cyclesCounter.IncrementBy(stalls);
+            for (long i = 0; i < stalls; i++) ArchState.OnCycle();
         }
 
         // Writeback
@@ -253,6 +255,7 @@ internal sealed class SingleCycleCore(
         Type? instrType = instr.Payload?.GetType();
         if (instrType is not null) _opcodeHistogram.Observe(instrType);
         _retiredCounter.Increment();
+        ArchState.OnRetire();
 
         // Detect halt: infinite self-loop (JAL x0, 0 — common halt idiom)
         if (ArchState.Pc == pc && instr.Class == ToothClass.Branch) return;
