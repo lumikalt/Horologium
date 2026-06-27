@@ -20,6 +20,11 @@ public sealed class RvArchState : IArchState {
     /// <summary>Vector register file (v0-v31, VLEN=128 bits each).</summary>
     public VectorRegisterFile VectorRegisters { get; }
 
+    /// <summary>UVE scalar accumulator registers and store-stream cursors (u0–u31).</summary>
+    public UveState UveState { get; } = new();
+
+    public IUveScalars? UveScalars => UveState;
+
     public RvArchState() {
         _intRegs = new UnifiedRegisterFile();
         CsrFile = new CsrFile();
@@ -38,6 +43,9 @@ public sealed class RvArchState : IArchState {
 
         // Copy vector registers
         for (var i = 0; i < VectorRegisterFile.Count; i++) VectorRegisters.Write(i, source.VectorRegisters.Read(i));
+
+        // UveState is not copied: Snapshot() is only called by in-order trains (FiveStage,
+        // SingleCycle) which don't issue UVE ops. OooeTrain never calls Snapshot().
 
         // Copy CSRs via direct access
         foreach (uint addr in new[] {
@@ -63,5 +71,6 @@ public sealed class RvArchState : IArchState {
         _intRegs.Reset();
         CsrFile.Reset();
         VectorRegisters.Reset();
+        UveState.Reset();
     }
 }

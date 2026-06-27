@@ -37,6 +37,17 @@ public sealed class RvInstruction(
         _               => -1,
     };
 
+    public IReadOnlyList<int> UveStreamSources => Payload switch {
+        // so.a.fp consumes one element from each source u-reg (if they are load streams).
+        RvUveSoAFp op => [op.Usrc1, op.Usrc2,],
+        _ => [],
+    };
+
+    public IReadOnlyList<int> UveBranchStreams => Payload switch {
+        RvUveSoBNc op => [op.Urs,],
+        _ => [],
+    };
+
     public IReadOnlyList<int> VectorSourceRegisters => Payload switch {
         RvVIntAluVv op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         RvVIntAluVx op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
@@ -312,3 +323,26 @@ public record RvVMaskCmpVv(VMaskCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked)
 public record RvVMaskCmpVx(VMaskCmpOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
 
 public record RvVMaskCmpVi(VMaskCmpOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
+
+// ── UVE extension ─────────────────────────────────────────────────────────────
+// Stream setup (custom-0, opcode=0x0B, R4-type):
+//   bits[31:27]=rs3_stride, bits[26:25]=funct2, bits[24:20]=rs2_count,
+//   bits[19:15]=rs1_base, bits[14:12]=funct3, bits[11:7]=ud, bits[6:0]=0x0B
+//   funct3=0x0 → ss.ld.w, funct3=0x1 → ss.st.w
+public record RvUveSsLdW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride) : RvOp;
+
+public record RvUveSsStW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride) : RvOp;
+
+// Scalar broadcast (custom-1, opcode=0x2B, R-type, funct3=0x0, funct7=0x00):
+//   so.v.dp.w ud, rs1 — broadcast float32 bits from int reg rs1 into u-reg ud
+public record RvUveSoVDpW(int Ud, int Rs1) : RvOp;
+
+// Arithmetic on stream elements (custom-1, opcode=0x2B, R-type, funct3=0x1):
+//   funct7[6:4] selects the FP operation; ud=dest u-reg, usrc1/usrc2=source u-regs
+public enum UveFpOp { Mul = 0, Add = 1, Mac = 2, Sub = 3 }
+
+public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
+
+// Stream branch (custom-1, opcode=0x2B, B-type, funct3=0x4):
+//   so.b.nc urs, imm — taken (PC += imm) while stream urs is not exhausted
+public record RvUveSoBNc(int Urs, int Imm) : RvOp;

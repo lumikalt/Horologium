@@ -147,6 +147,9 @@ public sealed class RvDecoder : IDecoder {
             0x57 => DecodeVOp(pc, raw, rs1, funct3),
             0x43 or 0x47 or 0x4B or 0x4F =>
                 DecodeFmaR4(pc, raw, opcode, rd, rs1, rs2, (int)((raw >> 27) & 0x1F)),
+            // UVE extension: custom-0 (stream setup), custom-1 (stream ops)
+            0x0B => DecodeUveSetup(pc, raw),
+            0x2B => DecodeUveOp(pc, raw),
             _ => throw new IllegalInstructionException(
                 pc, raw,
                 $"Unknown opcode 0x{opcode:X2} at PC=0x{pc:X8}"
@@ -1045,6 +1048,63 @@ public sealed class RvDecoder : IDecoder {
             :
             // C.ADD → ADD rd, rd, rs2
             C(pc, c, rd, [rd, rs2,], ToothClass.IntegerAlu, new RvAdd(rd, rd, rs2));
+    }
+
+    // ── UVE extension ─────────────────────────────────────────────────────────
+    // custom-0 (0x0B): stream setup (ss.*)
+    // custom-1 (0x2B): stream operations (so.*)
+
+    private static RvInstruction DecodeUveSetup(ulong pc, uint raw) {
+        // R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | 0x0B
+        var ud = (int)((raw >> 7) & 0x1F);
+        var rs1 = (int)((raw >> 15) & 0x1F);
+        var rs2 = (int)((raw >> 20) & 0x1F);
+        var rs3 = (int)((raw >> 27) & 0x1F);
+        uint funct3 = (raw >> 12) & 0x7;
+        var sources = (IReadOnlyList<int>)[rs1, rs2, rs3,];
+
+        return funct3 switch {
+            0x0 => new RvInstruction(pc, raw, -1, sources, ToothClass.Uve, new RvUveSsLdW(ud, rs1, rs2, rs3)),
+            0x1 => new RvInstruction(pc, raw, -1, sources, ToothClass.Uve, new RvUveSsStW(ud, rs1, rs2, rs3)),
+            _ => throw new IllegalInstructionException(pc, raw, $"Unknown UVE setup funct3=0x{funct3:X}"),
+        };
+    }
+
+    private static RvInstruction DecodeUveOp(ulong pc, uint raw) {
+        // R-type fields for most ops; B-type for so.b.*
+        var rd = (int)((raw >> 7) & 0x1F);
+        var rs1 = (int)((raw >> 15) & 0x1F);
+        var rs2 = (int)((raw >> 20) & 0x1F);
+        uint funct3 = (raw >> 12) & 0x7;
+        uint funct7 = (raw >> 25) & 0x7F;
+
+        switch (funct3) {
+            case 0x0: // so.v.dp.w ud, rs1 — broadcast scalar (rs2 unused / p0 implicit)
+                return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDpW(rd, rs1));
+
+            case 0x1: { // so.a.fp ud, usrc1, usrc2 — arithmetic on stream elements
+                var op = (UveFpOp)((funct7 >> 4) & 0x7);
+                if (!Enum.IsDefined(op))
+                    throw new IllegalInstructionException(pc, raw, $"Unknown UVE so.a.fp op={op}");
+                // rd=dest u-reg, rs1=usrc1, rs2=usrc2; no integer source/dest registers
+                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoAFp(op, rd, rs1, rs2));
+            }
+
+            case 0x4: { // so.b.nc urs, imm — branch while stream not complete (B-type)
+                int imm = SignExtendN(
+                    (int)(((raw >> 31) & 1) << 12) |
+                    (int)(((raw >> 7) & 1) << 11) |
+                    (int)(((raw >> 25) & 0x3F) << 5) |
+                    (int)(((raw >> 8) & 0xF) << 1),
+                    13
+                );
+                // rs1 = u-reg to test; rs2=0 (nc variant), rd field encodes imm bits
+                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNc(rs1, imm));
+            }
+
+            default:
+                throw new IllegalInstructionException(pc, raw, $"Unknown UVE op funct3=0x{funct3:X}");
+        }
     }
 
     // ── Immediate helpers ─────────────────────────────────────────────────────

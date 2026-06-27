@@ -59,6 +59,13 @@ public sealed record ExecuteResult {
     /// Invoked by the pipeline after the standard register writeback.
     /// </summary>
     public Action<IArchState>? SideEffect { get; init; }
+
+    /// <summary>
+    /// Stream configuration command emitted by a stream-setup instruction (ss.*).
+    /// When non-null, the pipeline calls StreamingEngine.Configure with the given
+    /// stream ID and descriptor. Null for all non-stream-setup instructions.
+    /// </summary>
+    public (int StreamId, StreamDescriptor Descriptor)? StreamConfig { get; init; }
 }
 
 /// <summary>

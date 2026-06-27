@@ -574,6 +574,22 @@ internal sealed class OoOPipelineCore : Gear {
             // Head-gating ensures VRF writes are applied in program order.
             if (cls == ToothClass.Vector && rs.RobIndex != _rob.HeadIndex) continue;
 
+            // UVE serialization: stream state is not renamed; head-gating preserves order.
+            // Additionally stall until every load-stream source has a buffered element.
+            if (cls == ToothClass.Uve) {
+                if (rs.RobIndex != _rob.HeadIndex) continue;
+                bool streamStall = false;
+                if (rs.Instruction is not null) {
+                    foreach (int uid in rs.Instruction.UveStreamSources) {
+                        if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
+                            streamStall = true;
+                            break;
+                        }
+                    }
+                }
+                if (streamStall) continue;
+            }
+
             ulong issuedInstrId = _rob.At(rs.RobIndex).InstrId;
             _execBuffer.Add(
                 new IssuedInstr(
@@ -873,14 +889,38 @@ internal sealed class OoOPipelineCore : Gear {
         if (s1 >= 0) regs.Write(s1, issued.Src2);
         if (s2 >= 0) regs.Write(s2, issued.Src3);
 
-        // Vector ops are head-serialized (non-speculative) and may write multiple
-        // elements to memory. Pass the real accessor so all element writes land;
-        // CapturingMemory can only capture a single write.
+        // Vector and UVE ops are head-serialized (non-speculative) and bypass
+        // CapturingMemory so their element writes land in real memory.
         _capMem.Reset();
         bool isVec = issued.Instr.Class == ToothClass.Vector;
-        IMemory mem = isVec ? DLayers.Accessor : _capMem;
+        bool isUve = issued.Instr.Class == ToothClass.Uve;
+
+        // For UVE ops: inject stream element values into UveState.Scalars before the
+        // executor runs, and sync exhaustion state for branch ops. The pipeline owns
+        // the StreamingEngine; the executor reads results from IUveScalars.
+        if (isUve && State.UveScalars is { } uvs) {
+            foreach (int uid in issued.Instr.UveStreamSources) {
+                if (uid >= 0 && StreamingEngine.IsActive(uid) && StreamingEngine.HasElement(uid))
+                    uvs.SetScalar(uid, BitConverter.Int32BitsToSingle((int)(uint)StreamingEngine.Consume(uid)));
+            }
+            foreach (int uid in issued.Instr.UveBranchStreams) {
+                if (uid >= 0)
+                    uvs.SetStreamDone(uid, StreamingEngine.IsActive(uid)
+                        ? StreamingEngine.IsExhausted(uid)
+                        : true); // inactive = deactivated = done
+            }
+        }
+
+        IMemory mem = (isVec || isUve) ? DLayers.Accessor : _capMem;
         ExecuteResult er = _executor.Execute(issued.Instr, State, mem);
-        if (isVec) er.SideEffect?.Invoke(State);
+
+        // Apply SideEffect immediately for head-serialized ops (VRF/UveState writes
+        // must be visible to the next head instruction in the same cycle).
+        if (isVec || isUve) er.SideEffect?.Invoke(State);
+
+        // Configure streaming engine if the instruction set up a load stream.
+        if (er.StreamConfig is { } sc)
+            StreamingEngine.Configure(sc.StreamId, sc.Descriptor);
 
         // Restore arch state to committed values.
         if (s0 >= 0) regs.Write(s0, save0);
@@ -894,6 +934,9 @@ internal sealed class OoOPipelineCore : Gear {
                 er.BranchTaken
                     ? (er.BranchTarget ?? issued.Pc + (ulong)issued.Instr.SizeBytes, true)
                     : (issued.Pc + (ulong)issued.Instr.SizeBytes, true),
+            // UVE branch ops (so.b.nc) resolve control flow like a conditional branch.
+            ToothClass.Uve when er.BranchTarget.HasValue =>
+                (er.BranchTarget.Value, true),
             _ => default((ulong, bool)),
         };
 

@@ -30,6 +30,13 @@ public interface IArchState {
 
     /// <summary>Resets the state to its power-on default.</summary>
     void Reset();
+
+    /// <summary>
+    /// UVE scalar accumulator registers. Null for ISAs that do not implement UVE.
+    /// The pipeline uses this to inject stream element values before executor dispatch
+    /// and to sync stream-exhaustion state for branch ops.
+    /// </summary>
+    IUveScalars? UveScalars => null;
 }
 
 /// <summary>

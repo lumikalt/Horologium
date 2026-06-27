@@ -49,6 +49,20 @@ public interface ITooth {
     /// Non-vector instructions return an empty list.
     /// </summary>
     IReadOnlyList<int> VectorSourceRegisters => [];
+
+    /// <summary>
+    /// UVE u-register indices whose stream element this instruction consumes.
+    /// The pipeline stalls Issue when the streaming engine has no element ready
+    /// for any listed ID that is an active load stream. Non-UVE ops return empty.
+    /// </summary>
+    IReadOnlyList<int> UveStreamSources => [];
+
+    /// <summary>
+    /// UVE u-register indices whose exhaustion state this instruction inspects
+    /// (so.b.nc, so.b.ndc.*). The pipeline syncs IsExhausted to IUveScalars
+    /// before calling the executor. Non-branch UVE ops return empty.
+    /// </summary>
+    IReadOnlyList<int> UveBranchStreams => [];
 }
 
 /// <summary>
@@ -95,4 +109,13 @@ public enum ToothClass {
 
     /// <summary>Non-pipelined floating-point divide or square root — substantially higher latency than other FP ops.</summary>
     FloatDivSqrt,
+
+    /// <summary>
+    /// UVE stream operation — stream setup (ss.*), stream compute (so.a.*, so.v.*),
+    /// or stream branch (so.b.*). Head-serialized in OoO; stalls Issue when a
+    /// required load stream has no buffered element. Latency must be 1: eager
+    /// memory writes and SideEffect application are only flush-safe because the
+    /// next UVE op cannot issue until this one retires.
+    /// </summary>
+    Uve,
 }

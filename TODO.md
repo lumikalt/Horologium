@@ -32,7 +32,8 @@
 - [ ] Zicond (conditional zero/nonzero move).
 - [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
-- [ ] UVE (Unlimited Vector Extension).
+- [x] UVE (Unlimited Vector Extension) — 1D SAXPY subset: `ss.ld.w`, `ss.st.w`, `so.v.dp.w`, `so.a.mul.fp`, `so.a.add.fp`, `so.b.nc`. Encodings in custom-0/custom-1 opcodes. Verified end-to-end via SAXPY integration test through OoO pipeline.
+- [ ] UVE multi-dimensional streams: `ss.sta.*`, `ss.app`, `ss.cfg.vec`, `ss.end` for GEMM-style n-dimensional access; `so.b.ndc.*` branch ops for inner-loop termination.
 - [ ] SUM (Supervisor User Memory): honor `sstatus.SUM` so S-mode can deliberately access user pages (PTE.U=1);
   currently S-mode always faults on user pages.
 - [ ] Implement the rest of the extensions.
@@ -78,8 +79,8 @@
   to the same address resolved after it. Flush and reexecute from the violating load; store-to-load forwarding at
   execute time avoids squash when the store has already resolved. (inspired by gem5 O3)
 - [ ] Separate load queue and store queue for speculative memory disambiguation.
-- [x] Streaming-Engine to allow for UVE: `StreamingEngine` in `Orrery/Streaming/`; 8 streams, affine (base/stride/count/width) with configurable prefetch depth; wired into `OooeTrain` (steps every cycle, survives flushes); ISA consumer (UVE instructions) remains a separate TODO.
-- [ ] Wire stream consumption into `OooeTrain`: add stream-ID metadata to `ITooth` (default -1, override in `RvInstruction`), inject stream-head value in `ExecuteOne` the same way `Src1/2/3` are injected, stall Issue when `HasElement` is false for a consuming instruction.
+- [x] Streaming-Engine to allow for UVE: `StreamingEngine` in `Orrery/Streaming/`; 8 streams, affine (base/stride/count/width) with configurable prefetch depth; wired into `OooeTrain` (steps every cycle, survives flushes).
+- [x] Wire stream consumption into `OooeTrain`: `UveStreamSources`/`UveBranchStreams` on `ITooth`; pipeline injects load-stream elements into `IUveScalars` and syncs exhaustion before calling executor; Issue stalls when a required load stream has no buffered element; `StreamConfig` field on `ExecuteResult` carries `ss.ld.w` descriptor to pipeline for `StreamingEngine.Configure` call.
 
 ### Branch Prediction
 

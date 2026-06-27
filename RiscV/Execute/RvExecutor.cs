@@ -327,6 +327,18 @@ public sealed class RvExecutor : IExecutor {
                     (_, _) => (ulong)imm
                 ),
 
+            // ── UVE extension ─────────────────────────────────────────────────
+            RvUveSsLdW (var ud, var rs1, var rs2, var rs3) =>
+                ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
+            RvUveSsStW (var ud, var rs1, var rs2, var rs3) =>
+                ExecuteUveSsSt(state, regs, ud, rs1, rs2, rs3),
+            RvUveSoVDpW (var ud, var rs1) =>
+                ExecuteUveSoVDpW(state, regs, ud, rs1),
+            RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) =>
+                ExecuteUveSoAFp(state, memory, fpOp, ud, usrc1, usrc2),
+            RvUveSoBNc (var urs, var imm) =>
+                ExecuteUveSoBNc(state, pc, urs, imm),
+
             _ => throw new InvalidOperationException(
                 $"Unhandled RvOp: {op.GetType().Name}"
             ),
@@ -792,4 +804,95 @@ public sealed class RvExecutor : IExecutor {
             },
             _ => false,
         };
+
+    // ── UVE extension helpers ─────────────────────────────────────────────────
+
+    private static RvArchState UState(IArchState state) => (RvArchState)state;
+
+    // ss.ld.w ud, rs1_base, rs2_count, rs3_stride
+    // Returns a StreamConfig so the pipeline can configure the streaming engine.
+    private static ExecuteResult ExecuteUveSsLd(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
+        ulong baseAddr = regs.Read(rs1);
+        long count = (long)regs.Read(rs2);
+        long stride = (long)regs.Read(rs3);
+        return new ExecuteResult {
+            StreamConfig = (ud, new StreamDescriptor(baseAddr, 4, count, stride)),
+            SideEffect = s => { UState(s).UveState.RegKind[ud] = UveRegKind.LoadStream; },
+        };
+    }
+
+    // ss.st.w ud, rs1_base, rs2_count, rs3_stride
+    // Configures a store-stream cursor in UveState; no StreamingEngine involvement.
+    private static ExecuteResult ExecuteUveSsSt(IArchState state, IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
+        ulong baseAddr = regs.Read(rs1);
+        long count = (long)regs.Read(rs2);
+        long stride = (long)regs.Read(rs3);
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState uveState = UState(s).UveState;
+                uveState.StoreStreams[ud] = new UveStoreStream {
+                    BaseAddress = baseAddr, ElementBytes = 4, Count = count, Stride = stride, NextIndex = 0,
+                };
+                uveState.RegKind[ud] = UveRegKind.StoreStream;
+            },
+        };
+    }
+
+    // so.v.dp.w ud, rs1 — broadcast float32 bits from integer register into u-reg scalar slot
+    private static ExecuteResult ExecuteUveSoVDpW(IArchState state, IRegisterFile regs, int ud, int rs1) {
+        float value = BitConverter.Int32BitsToSingle((int)(uint)regs.Read(rs1));
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState uveState = UState(s).UveState;
+                uveState.Scalars[ud] = value;
+                uveState.RegKind[ud] = UveRegKind.Scalar;
+            },
+        };
+    }
+
+    // so.a.fp ud, usrc1, usrc2 — element-wise FP arithmetic
+    // Source values were injected into UveState.Scalars[usrc*] by the pipeline before this call.
+    // If ud is a store stream, the result is written to memory and the store cursor advances.
+    private static ExecuteResult ExecuteUveSoAFp(IArchState state, IMemory memory, UveFpOp op, int ud, int usrc1, int usrc2) {
+        UveState uveState = UState(state).UveState;
+        float a = uveState.Scalars[usrc1];
+        float b = uveState.Scalars[usrc2];
+        float result = op switch {
+            UveFpOp.Mul => a * b,
+            UveFpOp.Add => a + b,
+            UveFpOp.Mac => uveState.Scalars[ud] + a * b,
+            UveFpOp.Sub => a - b,
+            _ => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
+        };
+        uint resultBits = (uint)BitConverter.SingleToInt32Bits(result);
+
+        if (uveState.RegKind[ud] == UveRegKind.StoreStream && uveState.StoreStreams[ud] is { } ss) {
+            // Write result element to the store stream's current memory address.
+            ulong addr = ss.CurrentAddress;
+            int ewBytes = ss.ElementBytes;
+            memory.Write(addr, resultBits, ewBytes);
+            return new ExecuteResult {
+                SideEffect = s => {
+                    UveState uvs = UState(s).UveState;
+                    uvs.StoreStreams[ud]?.Advance();
+                    uvs.Scalars[ud] = result;
+                },
+            };
+        }
+
+        // Destination is a scalar/accumulator u-reg: just store the result.
+        return new ExecuteResult {
+            SideEffect = s => { UState(s).UveState.Scalars[ud] = result; },
+        };
+    }
+
+    // so.b.nc urs, imm — branch (PC += imm) while stream urs is not exhausted
+    // The pipeline has already synced the exhaustion state into UveState via IUveScalars.
+    private static ExecuteResult ExecuteUveSoBNc(IArchState state, ulong pc, int urs, int imm) {
+        bool done = UState(state).UveState.StreamDone[urs];
+        bool taken = !done;
+        return taken
+            ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)(long)imm, }
+            : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
+    }
 }

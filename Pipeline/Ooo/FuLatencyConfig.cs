@@ -38,6 +38,7 @@ public sealed record FuLatencyConfig(
         ToothClass.Branch or ToothClass.ConditionalBranch        => BranchCount,
         ToothClass.FloatingPoint                                 => FloatCount,
         ToothClass.FloatDivSqrt                                  => FloatDivSqrtCount,
+        ToothClass.Uve                                           => 1,
         _                                                        => SystemCount,
     };
 
@@ -48,6 +49,7 @@ public sealed record FuLatencyConfig(
         ToothClass.Branch or ToothClass.ConditionalBranch        => BranchLatency,
         ToothClass.FloatingPoint                                 => FloatLatency,
         ToothClass.FloatDivSqrt                                  => FloatDivSqrtLatency,
+        ToothClass.Uve                                           => 1,
         _                                                        => SystemLatency,
     };
 }

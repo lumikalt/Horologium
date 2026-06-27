@@ -3,21 +3,6 @@ using Mechanism;
 namespace Orrery.Streaming;
 
 /// <summary>
-/// Describes one affine memory stream: a base address, element width, element count,
-/// and byte stride between consecutive element starts.
-///
-/// Negative strides walk backward through memory. Stride must be non-zero when Count &gt; 1.
-/// ElementBytes must be 1–8; elements are stored as <c>ulong</c> in the prefetch buffer,
-/// so element widths &gt; 8 bytes (e.g. 128-bit SIMD) require a future extension.
-/// </summary>
-public readonly record struct StreamDescriptor(
-    ulong BaseAddress,
-    int ElementBytes,
-    long Count,
-    long Stride
-);
-
-/// <summary>
 /// ISA-agnostic streaming prefetch engine.
 ///
 /// Manages up to <see cref="MaxStreams"/> independently configured affine memory streams.
