@@ -539,7 +539,8 @@
                         <ScrollViewer Grid.Row="1"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto">
-                            <controls:WaterfallControl Data="{Binding CurrentWaterfall}" />
+                            <controls:WaterfallControl Data="{Binding CurrentWaterfall}"
+                                                       IsDark="{Binding IsDarkTheme}" />
                         </ScrollViewer>
                     </Grid>
                 </TabItem>

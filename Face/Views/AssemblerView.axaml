@@ -90,7 +90,7 @@
             <!-- Decode breakdown panel — appears when a row is selected -->
             <Border Grid.Row="1"
                     IsVisible="{Binding IsDecodeVisible}"
-                    Background="#1A1A28"
+                    Background="{DynamicResource DecodePanelBg}"
                     BorderBrush="#3A3A52"
                     BorderThickness="0,1,0,0"
                     Padding="10,8">
@@ -108,7 +108,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="rv:InstrField">
-                                <Border Background="#252535"
+                                <Border Background="{DynamicResource DecodeFieldBg}"
                                         CornerRadius="4"
                                         Margin="3,2"
                                         Padding="7,4">
@@ -119,10 +119,10 @@
                                         <TextBlock Text="{Binding BitsText}"
                                                    FontFamily="{StaticResource MonoFont}"
                                                    FontSize="11"
-                                                   Foreground="#C8D8F0" />
+                                                   Foreground="{DynamicResource DecodeFieldBitsFg}" />
                                         <TextBlock Text="{Binding Decoded}"
                                                    FontSize="10"
-                                                   Foreground="#8AAEC8"
+                                                   Foreground="{DynamicResource AccentFg}"
                                                    IsVisible="{Binding HasDecoded}" />
                                     </StackPanel>
                                 </Border>
@@ -156,7 +156,7 @@
                                        Text="{Binding Name}"
                                        FontFamily="{StaticResource MonoFont}"
                                        FontSize="11"
-                                       Foreground="#8AAEC8" />
+                                       Foreground="{DynamicResource AccentFg}" />
                             <TextBlock Grid.Column="1"
                                        Text="{Binding Display}"
                                        FontFamily="{StaticResource MonoFont}"
@@ -185,7 +185,7 @@
                                        Text="{Binding Name}"
                                        FontFamily="{StaticResource MonoFont}"
                                        FontSize="11"
-                                       Foreground="#8AAEC8" />
+                                       Foreground="{DynamicResource AccentFg}" />
                             <TextBlock Grid.Column="1"
                                        Text="{Binding Display}"
                                        FontFamily="{StaticResource MonoFont}"

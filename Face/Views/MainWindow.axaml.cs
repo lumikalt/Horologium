@@ -85,11 +85,15 @@ public partial class MainWindow : Window {
     private void RefreshChart() {
         if (_chartView is null || Vm is null) return;
         (string[] names, double[] values) = Vm.GetChartData();
-        if (names.Length == 0) return;
 
         Plot plt = _chartView.Plot;
         plt.Clear();
         ApplyChartStyle();
+
+        if (names.Length == 0) {
+            _chartView.Refresh();
+            return;
+        }
 
         // Horizontal bars: config names on Y axis, values on X — no label rotation needed
         Bar[] bars = Enumerable.Range(0, names.Length)
