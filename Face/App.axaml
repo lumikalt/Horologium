@@ -7,16 +7,16 @@
             <FontFamily x:Key="MonoFont">JetBrainsMono Nerd Font Mono, DejaVu Sans Mono, FreeMono</FontFamily>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="DecodePanelBg"    Color="#1A1A28" />
-                    <SolidColorBrush x:Key="DecodeFieldBg"    Color="#252535" />
+                    <SolidColorBrush x:Key="DecodePanelBg" Color="#1A1A28" />
+                    <SolidColorBrush x:Key="DecodeFieldBg" Color="#252535" />
                     <SolidColorBrush x:Key="DecodeFieldBitsFg" Color="#C8D8F0" />
-                    <SolidColorBrush x:Key="AccentFg"         Color="#8AAEC8" />
+                    <SolidColorBrush x:Key="AccentFg" Color="#8AAEC8" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="DecodePanelBg"    Color="#EEEEF5" />
-                    <SolidColorBrush x:Key="DecodeFieldBg"    Color="#E0E0EC" />
+                    <SolidColorBrush x:Key="DecodePanelBg" Color="#EEEEF5" />
+                    <SolidColorBrush x:Key="DecodeFieldBg" Color="#E0E0EC" />
                     <SolidColorBrush x:Key="DecodeFieldBitsFg" Color="#303050" />
-                    <SolidColorBrush x:Key="AccentFg"         Color="#3A6080" />
+                    <SolidColorBrush x:Key="AccentFg" Color="#3A6080" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

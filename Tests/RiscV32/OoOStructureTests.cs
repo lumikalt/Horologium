@@ -1,6 +1,6 @@
 using Pipeline.Ooo;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 /// PhysicalRegisterFile
 public class PhysicalRegisterFileTests {

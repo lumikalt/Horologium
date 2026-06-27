@@ -11,10 +11,12 @@ public interface IUveScalars {
     void SetScalar(int uid, float value);
     bool GetStreamDone(int uid);
     void SetStreamDone(int uid, bool done);
+
     /// <summary>
     /// Returns true when dimension <paramref name="dim"/> of stream <paramref name="streamId"/>
     /// completed its pass on the most recent consume (i.e. that dimension's index wrapped).
     /// </summary>
     bool GetDimDone(int streamId, int dim);
+
     void SetDimDone(int streamId, int dim, bool done);
 }

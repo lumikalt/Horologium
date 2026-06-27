@@ -16,7 +16,7 @@ public readonly record struct StreamDescriptor(
 ) {
     /// <summary>Backward-compatible 1D constructor.</summary>
     public StreamDescriptor(ulong baseAddress, int elementBytes, long count, long stride)
-        : this(baseAddress, elementBytes, [new StreamDimension(count, stride)]) { }
+        : this(baseAddress, elementBytes, [new StreamDimension(count, stride),]) { }
 
     /// <summary>Convenience accessor for 1D streams.</summary>
     public long Count => Dimensions[0].Count;

@@ -5,7 +5,7 @@ using RiscV32;
 using RiscV32.Memory;
 using Xunit.Abstractions;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 /// <summary>
 /// Runs the riscv-tests benchmark suite under all three pipeline configurations.

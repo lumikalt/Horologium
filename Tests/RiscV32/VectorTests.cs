@@ -1,5 +1,4 @@
 using Mechanism;
-using Orrery.Train;
 using Pipeline;
 using RiscV32;
 using RiscV32.Decode;
@@ -11,7 +10,7 @@ using RiscV32.State;
 // VectorRegisters is public on Rv32ArchState; CsrFile constants are public statics.
 // CSR values are read via the public ISystemRegisters.Read() path.
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 /// <summary>
 /// Unit tests for the RISC-V V extension (decoder + executor).

@@ -201,7 +201,7 @@ public class Rv32Decoder : IDecoder {
             (0x2, 0x00) => new RvSlt(rd, rs1, rs2),
             (0x3, 0x00) => new RvSltu(rd, rs1, rs2),
             // Zbc carry-less multiply (funct7=0x05, funct3=1/2/3; no overlap with Zbb min/max funct3=4–7)
-            (0x1, 0x05) => new RvClmul (rd, rs1, rs2),
+            (0x1, 0x05) => new RvClmul(rd, rs1, rs2),
             (0x2, 0x05) => new RvClmulr(rd, rs1, rs2),
             (0x3, 0x05) => new RvClmulh(rd, rs1, rs2),
             // Zba address generation (funct7=0x10): rd = rs2 + (rs1 << N)
@@ -503,9 +503,10 @@ public class Rv32Decoder : IDecoder {
                 0x01 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboClean(rs1)),
                 0x02 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboFlush(rs1)),
                 0x04 => new RvInstruction(pc, raw, -1, src, ToothClass.Store, new RvCboZero(rs1)),
-                _ => throw new IllegalInstructionException(pc, raw, $"Unknown CBO op bits[24:20]=0x{op:X2}"),
+                _    => throw new IllegalInstructionException(pc, raw, $"Unknown CBO op bits[24:20]=0x{op:X2}"),
             };
         }
+
         throw new IllegalInstructionException(pc, raw, $"Unknown MISC-MEM funct3=0x{funct3:X}");
     }
 
@@ -1145,7 +1146,7 @@ public class Rv32Decoder : IDecoder {
 
     private static RvInstruction DecodeUveSetup(ulong pc, uint raw) {
         // R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | 0x0B
-        var ud  = (int)((raw >> 7)  & 0x1F);
+        var ud = (int)((raw >> 7) & 0x1F);
         var rs1 = (int)((raw >> 15) & 0x1F);
         var rs2 = (int)((raw >> 20) & 0x1F);
         var rs3 = (int)((raw >> 27) & 0x1F);
@@ -1156,12 +1157,16 @@ public class Rv32Decoder : IDecoder {
             0x0 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsLdW(ud, rs1, rs2, rs3)),
             0x1 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStW(ud, rs1, rs2, rs3)),
             // Multi-dim stream setup: ss.sta starts, ss.app appends, ss.end finalises
-            0x2 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, rs2, rs3)),
-            0x3 => new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, rs2, rs3)),
-            0x4 => new RvInstruction(pc, raw, -1, [rs2, rs3,],      ToothClass.Uve, new RvUveSsApp(ud, rs2, rs3)),
-            0x5 => new RvInstruction(pc, raw, -1, [rs2, rs3,],      ToothClass.Uve, new RvUveSsEnd(ud, rs2, rs3)),
-            0x6 => new RvInstruction(pc, raw, -1, [],               ToothClass.Uve, new RvUveSsCfgVec(ud)),
-            _ => throw new IllegalInstructionException(pc, raw, $"Unknown UVE setup funct3=0x{funct3:X}"),
+            0x2 => new RvInstruction(
+                pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, rs2, rs3)
+            ),
+            0x3 => new RvInstruction(
+                pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, rs2, rs3)
+            ),
+            0x4 => new RvInstruction(pc, raw, -1, [rs2, rs3,], ToothClass.Uve, new RvUveSsApp(ud, rs2, rs3)),
+            0x5 => new RvInstruction(pc, raw, -1, [rs2, rs3,], ToothClass.Uve, new RvUveSsEnd(ud, rs2, rs3)),
+            0x6 => new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSsCfgVec(ud)),
+            _   => throw new IllegalInstructionException(pc, raw, $"Unknown UVE setup funct3=0x{funct3:X}"),
         };
     }
 
@@ -1177,28 +1182,29 @@ public class Rv32Decoder : IDecoder {
             case 0x0: // so.v.dp.w ud, rs1 — broadcast scalar (rs2 unused / p0 implicit)
                 return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDpW(rd, rs1));
 
-            case 0x1: { // so.a.fp ud, usrc1, usrc2 — arithmetic on stream elements
+            case 0x1: {
+                // so.a.fp ud, usrc1, usrc2 — arithmetic on stream elements
                 var op = (UveFpOp)((funct7 >> 4) & 0x7);
-                if (!Enum.IsDefined(op))
-                    throw new IllegalInstructionException(pc, raw, $"Unknown UVE so.a.fp op={op}");
+                if (!Enum.IsDefined(op)) throw new IllegalInstructionException(pc, raw, $"Unknown UVE so.a.fp op={op}");
                 // rd=dest u-reg, rs1=usrc1, rs2=usrc2; no integer source/dest registers
                 return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoAFp(op, rd, rs1, rs2));
             }
 
-            case 0x4: { // so.b.nc urs, imm — branch while whole stream not exhausted (B-type)
+            case 0x4: {
+                // so.b.nc urs, imm — branch while whole stream not exhausted (B-type)
                 int imm = BranchImm(raw);
                 return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNc(rs1, imm));
             }
 
-            case 0x5: { // so.b.ndc.D urs, imm — branch while dim D of stream not complete (B-type)
+            case 0x5: {
+                // so.b.ndc.D urs, imm — branch while dim D of stream not complete (B-type)
                 // dim is encoded in rs2 field (0 = innermost; literal, not a register index)
                 int dim = rs2;
                 int imm = BranchImm(raw);
                 return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNdc(rs1, dim, imm));
             }
 
-            default:
-                throw new IllegalInstructionException(pc, raw, $"Unknown UVE op funct3=0x{funct3:X}");
+            default: throw new IllegalInstructionException(pc, raw, $"Unknown UVE op funct3=0x{funct3:X}");
         }
     }
 
@@ -1207,10 +1213,11 @@ public class Rv32Decoder : IDecoder {
     // Standard RISC-V B-type 13-bit signed branch immediate.
     private static int BranchImm(uint raw) => SignExtendN(
         (int)(((raw >> 31) & 1) << 12) |
-        (int)(((raw >> 7)  & 1) << 11) |
+        (int)(((raw >> 7) & 1) << 11) |
         (int)(((raw >> 25) & 0x3F) << 5) |
-        (int)(((raw >> 8)  & 0xF) << 1),
-        13);
+        (int)(((raw >> 8) & 0xF) << 1),
+        13
+    );
 
     private static int SignExtend12(int value) =>
         (value & 0x800) != 0 ? value | unchecked((int)0xFFFFF000) : value & 0xFFF;

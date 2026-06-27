@@ -25,10 +25,10 @@ public partial class MainWindow : Window {
             if (Vm is not null) {
                 Vm.ResultsUpdated += () => Dispatcher.UIThread.Post(OnResultsUpdated);
                 Vm.PropertyChanged += (_, e) => {
-                    if (e.PropertyName == nameof(MainWindowViewModel.IsDarkTheme))
-                        OnResultsUpdated();
+                    if (e.PropertyName == nameof(MainWindowViewModel.IsDarkTheme)) OnResultsUpdated();
                 };
             }
+
             ApplyChartStyle();
         };
     }
@@ -70,15 +70,17 @@ public partial class MainWindow : Window {
         Plot plt = _chartView.Plot;
         if (dark) {
             plt.FigureBackground.Color = Color.FromHex("#1C1C28");
-            plt.DataBackground.Color  = Color.FromHex("#1C1C28");
-            plt.Grid.MajorLineColor   = Color.FromHex("#3A3A52");
+            plt.DataBackground.Color = Color.FromHex("#1C1C28");
+            plt.Grid.MajorLineColor = Color.FromHex("#3A3A52");
             plt.Axes.Color(Colors.White);
-        } else {
+        }
+        else {
             plt.FigureBackground.Color = Color.FromHex("#F5F5F5");
-            plt.DataBackground.Color   = Color.FromHex("#FFFFFF");
-            plt.Grid.MajorLineColor    = Color.FromHex("#CCCCDD");
+            plt.DataBackground.Color = Color.FromHex("#FFFFFF");
+            plt.Grid.MajorLineColor = Color.FromHex("#CCCCDD");
             plt.Axes.Color(Colors.Black);
         }
+
         _chartView.Refresh();
     }
 

@@ -61,17 +61,17 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Mip = 0x344;
 
     // Machine Counters (Zicntr)
-    public const uint Mcycle    = 0xB00;
-    public const uint Mcycleh   = 0xB80;
-    public const uint Minstret  = 0xB02;
+    public const uint Mcycle = 0xB00;
+    public const uint Mcycleh = 0xB80;
+    public const uint Minstret = 0xB02;
     public const uint Minstreth = 0xB82;
 
     // User-level counter shadows (Zicntr, read-only — bits[11:10]=3)
-    public const uint Cycle    = 0xC00;
-    public const uint Time     = 0xC01;
-    public const uint Instret  = 0xC02;
-    public const uint Cycleh   = 0xC80;
-    public const uint Timeh    = 0xC81;
+    public const uint Cycle = 0xC00;
+    public const uint Time = 0xC01;
+    public const uint Instret = 0xC02;
+    public const uint Cycleh = 0xC80;
+    public const uint Timeh = 0xC81;
     public const uint Instreth = 0xC82;
 
     // ── mstatus / sstatus bit positions ──────────────────────────────────────
@@ -122,9 +122,9 @@ public sealed class CsrFile : ISystemRegisters {
         _csrs[CsrFile.Mcause] = 0;
         _csrs[CsrFile.Mtval] = 0;
         _csrs[CsrFile.Mip] = 0;
-        _csrs[CsrFile.Mcycle]    = 0;
-        _csrs[CsrFile.Mcycleh]   = 0;
-        _csrs[CsrFile.Minstret]  = 0;
+        _csrs[CsrFile.Mcycle] = 0;
+        _csrs[CsrFile.Mcycleh] = 0;
+        _csrs[CsrFile.Minstret] = 0;
         _csrs[CsrFile.Minstreth] = 0;
 
         // Read-only machine information
@@ -149,13 +149,13 @@ public sealed class CsrFile : ISystemRegisters {
         CheckPrivilege(address, currentPrivilege);
         // Zicntr: user-level read-only counter shadows (bits[11:10]=3 → read-only enforcement
         // is already handled by CheckNotReadOnly on writes). time/timeh have no external CLINT.
-        if (address is Time or Timeh) return 0;
+        if (address is CsrFile.Time or CsrFile.Timeh) return 0;
         uint effective = address switch {
-            Cycle    => Mcycle,
-            Cycleh   => Mcycleh,
-            Instret  => Minstret,
-            Instreth => Minstreth,
-            _        => address,
+            CsrFile.Cycle    => CsrFile.Mcycle,
+            CsrFile.Cycleh   => CsrFile.Mcycleh,
+            CsrFile.Instret  => CsrFile.Minstret,
+            CsrFile.Instreth => CsrFile.Minstreth,
+            _                => address,
         };
         return _csrs.TryGetValue(effective, out uint v)
             ? v

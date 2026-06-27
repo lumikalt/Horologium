@@ -9,7 +9,7 @@ using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV32.State;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 public class FiveStagePipelineTests {
     private static (FiveStageTrain train, FlatMemory mem) Make(

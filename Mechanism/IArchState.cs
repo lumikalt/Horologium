@@ -43,14 +43,14 @@ public interface IArchState {
     /// ISA implementations that maintain a hardware cycle counter (e.g. Zicntr mcycle)
     /// override this to increment it. Default: no-op.
     /// </summary>
-    void OnCycle() {}
+    void OnCycle() { }
 
     /// <summary>
     /// Called by the pipeline once per instruction retired (committed, not flushed).
     /// ISA implementations that maintain a retired-instruction counter (e.g. Zicntr minstret)
     /// override this to increment it. Default: no-op.
     /// </summary>
-    void OnRetire() {}
+    void OnRetire() { }
 }
 
 /// <summary>

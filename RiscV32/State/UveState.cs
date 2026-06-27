@@ -19,25 +19,25 @@ public sealed class UveState : IUveScalars {
     // Load-stream sources: the pipeline overwrites Scalars[uid] with the consumed
     // element value before calling the executor. Scalar sources: value set by so.v.dp.w.
     // Compute results: written via SideEffect from so.a.*.
-    public readonly float[] Scalars = new float[Count];
+    public readonly float[] Scalars = new float[UveState.Count];
 
     // Per-u-reg store-stream configuration. Non-null only for u-regs configured
     // via ss.st.* that have not been deactivated.
-    public readonly UveStoreStream?[] StoreStreams = new UveStoreStream?[Count];
+    public readonly UveStoreStream?[] StoreStreams = new UveStoreStream?[UveState.Count];
 
     // Tracks which kind of entity each u-reg slot holds.
-    public readonly UveRegKind[] RegKind = new UveRegKind[Count];
+    public readonly UveRegKind[] RegKind = new UveRegKind[UveState.Count];
 
     // Whole-stream exhaustion state synced by the pipeline for so.b.nc.
-    public readonly bool[] StreamDone = new bool[Count];
+    public readonly bool[] StreamDone = new bool[UveState.Count];
 
     // Per-dimension pass-complete flags, synced by the pipeline for so.b.ndc.*:
     // DimDone[uid, dim] = true when dimension dim of stream uid wrapped on last consume.
-    public readonly bool[,] DimDone = new bool[Count, MaxDims];
+    public readonly bool[,] DimDone = new bool[UveState.Count, UveState.MaxDims];
 
     // Pending multi-dim stream config being built by ss.sta → ss.app* → ss.end.
     // Non-null while a configuration sequence is in progress for that u-reg.
-    public readonly PendingStreamConfig?[] PendingConfig = new PendingStreamConfig?[Count];
+    public readonly PendingStreamConfig?[] PendingConfig = new PendingStreamConfig?[UveState.Count];
 
     // IUveScalars implementation — used by the pipeline.
     public float GetScalar(int uid) => Scalars[uid];
@@ -69,7 +69,12 @@ public sealed class PendingStreamConfig {
     public readonly List<StreamDimension> Dimensions = [];
 }
 
-public enum UveRegKind { None, LoadStream, StoreStream, Scalar }
+public enum UveRegKind {
+    None,
+    LoadStream,
+    StoreStream,
+    Scalar,
+}
 
 /// <summary>
 /// Mutable cursor for one affine store stream (ss.st.* / ss.sta.st.* → ss.end).
@@ -96,15 +101,14 @@ public sealed class UveStoreStream {
     public ulong CurrentAddress {
         get {
             long offset = 0;
-            for (int i = 0; i < Dimensions.Length; i++)
-                offset += Indices[i] * Dimensions[i].Stride;
+            for (var i = 0; i < Dimensions.Length; i++) offset += Indices[i] * Dimensions[i].Stride;
             return (ulong)((long)BaseAddress + offset);
         }
     }
 
     public void Advance() {
         _totalConsumed++;
-        for (int d = 0; d < Dimensions.Length; d++) {
+        for (var d = 0; d < Dimensions.Length; d++) {
             Indices[d]++;
             if (Indices[d] < Dimensions[d].Count) return;
             Indices[d] = 0;

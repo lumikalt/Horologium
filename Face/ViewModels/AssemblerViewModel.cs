@@ -141,7 +141,7 @@ public partial class AssemblerViewModel : ObservableObject {
                     HasError = true;
                     AssembleError = string.IsNullOrWhiteSpace(asErr)
                         ? $"Assembler exited {asExit}"
-                        : AssemblerViewModel.AsmErrPrefix.Replace(asErr, "").Trim();
+                        : AsmErrPrefix.Replace(asErr, "").Trim();
                     StatusText = "Assembly failed.";
                     return;
                 }
@@ -352,7 +352,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     private static Dictionary<ulong, int> ParseListing(string text) {
         var map = new Dictionary<ulong, int>();
-        foreach (Match m in AssemblerViewModel.ListingLineRx.Matches(text))
+        foreach (Match m in ListingLineRx.Matches(text))
             if (ulong.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.HexNumber, null, out ulong addr))
                 map.TryAdd(addr, int.Parse(m.Groups[1].Value));
         return map;

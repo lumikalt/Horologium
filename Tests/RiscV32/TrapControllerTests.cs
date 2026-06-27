@@ -4,7 +4,7 @@ using RiscV32.Registers;
 using RiscV32.State;
 using RiscV32.Trap;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 public class TrapControllerTests {
     private readonly RvTrapController _tc = new();

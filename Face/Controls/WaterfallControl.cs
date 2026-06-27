@@ -23,26 +23,26 @@ public sealed class WaterfallControl : Control {
 
     private static readonly Typeface Mono = new("JetBrainsMono Nerd Font Mono, DejaVu Sans Mono, FreeMono");
 
-    private static readonly IBrush DarkHeaderBg    = new SolidColorBrush(Color.Parse("#2A2A3E"));
-    private static readonly IBrush DarkRowBg0      = new SolidColorBrush(Color.Parse("#1C1C28"));
-    private static readonly IBrush DarkRowBg1      = new SolidColorBrush(Color.Parse("#22222F"));
-    private static readonly IBrush DarkLabelFg     = new SolidColorBrush(Color.Parse("#B0B0C8"));
-    private static readonly IBrush DarkHeaderFg    = new SolidColorBrush(Color.Parse("#E0E0F0"));
-    private static readonly IBrush DarkSpecPcFg    = new SolidColorBrush(Color.Parse("#8AAEC8"));
-    private static readonly IBrush DarkStallHdrFg  = new SolidColorBrush(Color.Parse("#606878"));
-    private static readonly IPen   DarkGridPen     = new Pen(new SolidColorBrush(Color.Parse("#3A3A52")), 0.5);
+    private static readonly IBrush DarkHeaderBg = new SolidColorBrush(Color.Parse("#2A2A3E"));
+    private static readonly IBrush DarkRowBg0 = new SolidColorBrush(Color.Parse("#1C1C28"));
+    private static readonly IBrush DarkRowBg1 = new SolidColorBrush(Color.Parse("#22222F"));
+    private static readonly IBrush DarkLabelFg = new SolidColorBrush(Color.Parse("#B0B0C8"));
+    private static readonly IBrush DarkHeaderFg = new SolidColorBrush(Color.Parse("#E0E0F0"));
+    private static readonly IBrush DarkSpecPcFg = new SolidColorBrush(Color.Parse("#8AAEC8"));
+    private static readonly IBrush DarkStallHdrFg = new SolidColorBrush(Color.Parse("#606878"));
+    private static readonly IPen DarkGridPen = new Pen(new SolidColorBrush(Color.Parse("#3A3A52")), 0.5);
 
-    private static readonly IBrush LightHeaderBg   = new SolidColorBrush(Color.Parse("#D8D8E8"));
-    private static readonly IBrush LightRowBg0     = new SolidColorBrush(Color.Parse("#F5F5FC"));
-    private static readonly IBrush LightRowBg1     = new SolidColorBrush(Color.Parse("#EDEDF8"));
-    private static readonly IBrush LightLabelFg    = new SolidColorBrush(Color.Parse("#404060"));
-    private static readonly IBrush LightHeaderFg   = new SolidColorBrush(Color.Parse("#1A1A30"));
-    private static readonly IBrush LightSpecPcFg   = new SolidColorBrush(Color.Parse("#3A6080"));
+    private static readonly IBrush LightHeaderBg = new SolidColorBrush(Color.Parse("#D8D8E8"));
+    private static readonly IBrush LightRowBg0 = new SolidColorBrush(Color.Parse("#F5F5FC"));
+    private static readonly IBrush LightRowBg1 = new SolidColorBrush(Color.Parse("#EDEDF8"));
+    private static readonly IBrush LightLabelFg = new SolidColorBrush(Color.Parse("#404060"));
+    private static readonly IBrush LightHeaderFg = new SolidColorBrush(Color.Parse("#1A1A30"));
+    private static readonly IBrush LightSpecPcFg = new SolidColorBrush(Color.Parse("#3A6080"));
     private static readonly IBrush LightStallHdrFg = new SolidColorBrush(Color.Parse("#888898"));
-    private static readonly IPen   LightGridPen    = new Pen(new SolidColorBrush(Color.Parse("#C0C0D4")), 0.5);
+    private static readonly IPen LightGridPen = new Pen(new SolidColorBrush(Color.Parse("#C0C0D4")), 0.5);
 
-    private static readonly IBrush FlushHdrBg   = new SolidColorBrush(Color.Parse("#6B2020"));
-    private static readonly IBrush FlushColTint  = new SolidColorBrush(Color.FromArgb(45, 200, 60, 60));
+    private static readonly IBrush FlushHdrBg = new SolidColorBrush(Color.Parse("#6B2020"));
+    private static readonly IBrush FlushColTint = new SolidColorBrush(Color.FromArgb(45, 200, 60, 60));
 
     private static readonly Dictionary<PEventKind, (IBrush Bg, string Label)> KindStyle = new() {
         [PEventKind.Fetch] = (new SolidColorBrush(Color.Parse("#4A7EC7")), "F"),
@@ -63,7 +63,7 @@ public sealed class WaterfallControl : Control {
         AvaloniaProperty.Register<WaterfallControl, WaterfallData?>(nameof(Data));
 
     public static readonly StyledProperty<bool> IsDarkProperty =
-        AvaloniaProperty.Register<WaterfallControl, bool>(nameof(IsDark), defaultValue: true);
+        AvaloniaProperty.Register<WaterfallControl, bool>(nameof(IsDark), true);
 
     public WaterfallData? Data {
         get => GetValue(WaterfallControl.DataProperty);
@@ -101,14 +101,14 @@ public sealed class WaterfallControl : Control {
         if (data is null || data.Rows.Count == 0) return;
 
         bool dark = IsDark;
-        IBrush headerBg   = dark ? WaterfallControl.DarkHeaderBg   : WaterfallControl.LightHeaderBg;
-        IBrush rowBg0     = dark ? WaterfallControl.DarkRowBg0     : WaterfallControl.LightRowBg0;
-        IBrush rowBg1     = dark ? WaterfallControl.DarkRowBg1     : WaterfallControl.LightRowBg1;
-        IBrush labelFg    = dark ? WaterfallControl.DarkLabelFg    : WaterfallControl.LightLabelFg;
-        IBrush headerFg   = dark ? WaterfallControl.DarkHeaderFg   : WaterfallControl.LightHeaderFg;
-        IBrush specPcFg   = dark ? WaterfallControl.DarkSpecPcFg   : WaterfallControl.LightSpecPcFg;
+        IBrush headerBg = dark ? WaterfallControl.DarkHeaderBg : WaterfallControl.LightHeaderBg;
+        IBrush rowBg0 = dark ? WaterfallControl.DarkRowBg0 : WaterfallControl.LightRowBg0;
+        IBrush rowBg1 = dark ? WaterfallControl.DarkRowBg1 : WaterfallControl.LightRowBg1;
+        IBrush labelFg = dark ? WaterfallControl.DarkLabelFg : WaterfallControl.LightLabelFg;
+        IBrush headerFg = dark ? WaterfallControl.DarkHeaderFg : WaterfallControl.LightHeaderFg;
+        IBrush specPcFg = dark ? WaterfallControl.DarkSpecPcFg : WaterfallControl.LightSpecPcFg;
         IBrush stallHdrFg = dark ? WaterfallControl.DarkStallHdrFg : WaterfallControl.LightStallHdrFg;
-        IPen   gridPen    = dark ? WaterfallControl.DarkGridPen    : WaterfallControl.LightGridPen;
+        IPen gridPen = dark ? WaterfallControl.DarkGridPen : WaterfallControl.LightGridPen;
 
         int numRows = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
         long numCols = Math.Min(data.MaxCycle - data.MinCycle + 1, WaterfallControl.MaxCols);
@@ -208,7 +208,9 @@ public sealed class WaterfallControl : Control {
         }
 
         // Vertical gutter separators (full height)
-        ctx.DrawLine(gridPen, new Point(WaterfallControl.InstrIdColW, 0), new Point(WaterfallControl.InstrIdColW, totalH));
+        ctx.DrawLine(
+            gridPen, new Point(WaterfallControl.InstrIdColW, 0), new Point(WaterfallControl.InstrIdColW, totalH)
+        );
         ctx.DrawLine(
             gridPen, new Point(WaterfallControl.InstrIdColW + WaterfallControl.PcColW, 0),
             new Point(WaterfallControl.InstrIdColW + WaterfallControl.PcColW, totalH)

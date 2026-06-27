@@ -8,7 +8,7 @@ using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 public class ExperimentTests {
     // ── BranchPredictorConfig JSON round-trips ────────────────────────────────

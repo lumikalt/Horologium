@@ -5,7 +5,7 @@ using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV32.State;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 /// <summary>
 /// End-to-end tests for instruction fetch address translation (Sv32).

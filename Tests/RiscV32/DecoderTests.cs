@@ -1,7 +1,7 @@
 using Mechanism;
 using RiscV32.Decode;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 public class DecoderTests {
     private readonly Rv32Decoder _dec = new();

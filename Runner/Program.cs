@@ -81,7 +81,9 @@ if (warmupTicks > 0) Console.Error.WriteLine($"Warmup   : {warmupTicks:N0} ticks
 Console.Error.WriteLine($"Max ticks: {maxTicks:N0}");
 Console.Error.WriteLine();
 
-ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism(), maxTicks, warmupTicks, snapshotInterval);
+ExperimentResult result = Experiment.Run(
+    workload, configs, new Rv32Mechanism(), maxTicks, warmupTicks, snapshotInterval
+);
 
 // ── Output ────────────────────────────────────────────────────────────────────
 

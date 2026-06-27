@@ -40,7 +40,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Step_FillsBuffer_WithCorrectElement() {
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         FlatMemory mem = MakeMemory(10, 20, 30);
 
         eng.Configure(0, UnitStride(0, 4, 3));
@@ -52,11 +52,13 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Consume_ReturnsAndAdvances() {
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         FlatMemory mem = MakeMemory(10, 20, 30);
 
         eng.Configure(0, UnitStride(0, 4, 3));
-        eng.Step(mem); eng.Step(mem); eng.Step(mem); // prefetch all 3
+        eng.Step(mem);
+        eng.Step(mem);
+        eng.Step(mem); // prefetch all 3
 
         Assert.Equal(10UL, eng.Consume(0));
         Assert.Equal(20UL, eng.Consume(0));
@@ -66,7 +68,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Peek_DoesNotConsumeElement() {
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         FlatMemory mem = MakeMemory(42);
 
         eng.Configure(0, UnitStride(0, 4, 1));
@@ -81,7 +83,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Step_StopsFillingAtPrefetchDepth() {
-        var eng = new StreamingEngine(prefetchDepth: 2);
+        var eng = new StreamingEngine(2);
         FlatMemory mem = MakeMemory(1, 2, 3, 4, 5);
 
         eng.Configure(0, UnitStride(0, 4, 5));
@@ -96,11 +98,12 @@ public class StreamingEngineTests {
 
     [Fact]
     public void PrefetchDepth_RefillsAfterConsume() {
-        var eng = new StreamingEngine(prefetchDepth: 2);
+        var eng = new StreamingEngine(2);
         FlatMemory mem = MakeMemory(1, 2, 3, 4);
 
         eng.Configure(0, UnitStride(0, 4, 4));
-        eng.Step(mem); eng.Step(mem); // fill to depth
+        eng.Step(mem);
+        eng.Step(mem); // fill to depth
 
         eng.Consume(0); // open one slot
         eng.Step(mem);  // fills the slot with element 3
@@ -113,11 +116,12 @@ public class StreamingEngineTests {
 
     [Fact]
     public void IsExhausted_TrueAfterAllConsumed() {
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         FlatMemory mem = MakeMemory(1, 2);
 
         eng.Configure(0, UnitStride(0, 4, 2));
-        eng.Step(mem); eng.Step(mem);
+        eng.Step(mem);
+        eng.Step(mem);
 
         eng.Consume(0);
         Assert.False(eng.IsExhausted(0));
@@ -127,7 +131,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void FetchStops_AtCountBoundary() {
-        var eng = new StreamingEngine(prefetchDepth: 8);
+        var eng = new StreamingEngine(8);
         FlatMemory mem = MakeMemory(1, 2, 3);
 
         eng.Configure(0, UnitStride(0, 4, 2)); // only 2 elements despite 3 in memory
@@ -150,9 +154,10 @@ public class StreamingEngineTests {
         mem.Load(8, BitConverter.GetBytes(30u));
         mem.Load(12, BitConverter.GetBytes(40u));
 
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         eng.Configure(0, new StreamDescriptor(0, 4, 2, 8)); // stride=8
-        eng.Step(mem); eng.Step(mem);
+        eng.Step(mem);
+        eng.Step(mem);
 
         Assert.Equal(10UL, eng.Consume(0));
         Assert.Equal(30UL, eng.Consume(0));
@@ -167,9 +172,11 @@ public class StreamingEngineTests {
         mem.Load(8, BitConverter.GetBytes(3u));
         mem.Load(12, BitConverter.GetBytes(4u));
 
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         eng.Configure(0, new StreamDescriptor(12, 4, 3, -4)); // start=12, stride=-4
-        eng.Step(mem); eng.Step(mem); eng.Step(mem);
+        eng.Step(mem);
+        eng.Step(mem);
+        eng.Step(mem);
 
         Assert.Equal(4UL, eng.Consume(0)); // addr 12
         Assert.Equal(3UL, eng.Consume(0)); // addr 8
@@ -183,9 +190,11 @@ public class StreamingEngineTests {
         var mem = new FlatMemory(16);
         mem.Load(0, [0xAB, 0xCD, 0xEF,]);
 
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         eng.Configure(0, new StreamDescriptor(0, 1, 3, 1));
-        eng.Step(mem); eng.Step(mem); eng.Step(mem);
+        eng.Step(mem);
+        eng.Step(mem);
+        eng.Step(mem);
 
         Assert.Equal(0xABUL, eng.Consume(0));
         Assert.Equal(0xCDUL, eng.Consume(0));
@@ -200,7 +209,7 @@ public class StreamingEngineTests {
         mem.Load(0, BitConverter.GetBytes(100u));
         mem.Load(4, BitConverter.GetBytes(200u));
 
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         eng.Configure(0, new StreamDescriptor(0, 4, 1, 4));
         eng.Configure(1, new StreamDescriptor(4, 4, 1, 4));
 
@@ -216,25 +225,25 @@ public class StreamingEngineTests {
         for (var i = 0; i < StreamingEngine.MaxStreams; i++)
             mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
 
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         for (var i = 0; i < StreamingEngine.MaxStreams; i++)
             eng.Configure(i, new StreamDescriptor((ulong)(i * 4), 4, 1, 4));
 
         for (var step = 0; step < 4; step++) eng.Step(mem);
 
-        for (var i = 0; i < StreamingEngine.MaxStreams; i++)
-            Assert.Equal((ulong)(i + 1), eng.Consume(i));
+        for (var i = 0; i < StreamingEngine.MaxStreams; i++) Assert.Equal((ulong)(i + 1), eng.Consume(i));
     }
 
     // ── Deactivate ────────────────────────────────────────────────────────────
 
     [Fact]
     public void Deactivate_StopsPrefetchAndClearsBuffer() {
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         FlatMemory mem = MakeMemory(1, 2, 3);
 
         eng.Configure(0, UnitStride(0, 4, 3));
-        eng.Step(mem); eng.Step(mem); // 2 elements buffered
+        eng.Step(mem);
+        eng.Step(mem); // 2 elements buffered
 
         eng.Deactivate(0);
 
@@ -247,11 +256,12 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Deactivate_ThenReconfigure_StartsClean() {
-        var eng = new StreamingEngine(prefetchDepth: 4);
+        var eng = new StreamingEngine(4);
         FlatMemory mem = MakeMemory(10, 20);
 
         eng.Configure(0, UnitStride(0, 4, 2));
-        eng.Step(mem); eng.Consume(0); // consume first element
+        eng.Step(mem);
+        eng.Consume(0); // consume first element
         eng.Deactivate(0);
 
         // Re-configure from start

@@ -5,7 +5,7 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 public class ElfLoaderTests {
     private static string TestElfPath =>

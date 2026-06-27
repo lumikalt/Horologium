@@ -6,7 +6,7 @@ using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV32.State;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 public class ExecutorTests {
     private readonly Rv32Decoder _dec = new();
@@ -166,7 +166,7 @@ public class ExecutorTests {
 
     [Fact]
     public void Execute_Jalr_ClearsLSB() {
-        Rv32ArchState s = MakeState((2, 0x101));        // rs1 has LSB set
+        Rv32ArchState s = MakeState((2, 0x101));      // rs1 has LSB set
         ExecuteResult r = Exec(0x00010067, s, 0x100); // jalr x0, x2, 0
         Assert.Equal(0x100UL, r.BranchTarget);        // LSB cleared
     }
@@ -356,8 +356,8 @@ public class ExecutorTests {
     [Fact]
     public void Execute_Sh_Then_Lh_SignExtends() {
         Rv32ArchState s = MakeState((1, 100), (2, 0x8000)); // 0x8000 = -32768 as int16
-        Exec(0x00209023, s);                              // sh x2, 0(x1)
-        ExecuteResult r = Exec(0x00009183, s);            // lh x3, 0(x1)
+        Exec(0x00209023, s);                                // sh x2, 0(x1)
+        ExecuteResult r = Exec(0x00009183, s);              // lh x3, 0(x1)
         Assert.Equal(0xFFFF8000UL, r.RegisterResult.Value);
     }
 
@@ -402,7 +402,7 @@ public class ExecutorTests {
     public void Execute_Mulh_SignedUpperHalf() {
         // (-1) × (-1) = 1, upper 32 of 0x0000_0000_0000_0001 = 0
         Rv32ArchState s = MakeState((2, 0xFFFFFFFF), (3, 0xFFFFFFFF)); // -1 × -1
-        ExecuteResult r = Exec(0x023110B3, s);                       // mulh x1, x2, x3
+        ExecuteResult r = Exec(0x023110B3, s);                         // mulh x1, x2, x3
         Assert.Equal(0UL, r.RegisterResult.Value);
     }
 
@@ -427,7 +427,7 @@ public class ExecutorTests {
         // -1 (signed) × 0xFFFFFFFF (unsigned) = -0xFFFFFFFF = -4294967295
         // As 64-bit: 0xFFFF_FFFF_0000_0001, upper 32 = 0xFFFFFFFF
         Rv32ArchState s = MakeState((2, 0xFFFFFFFF), (3, 0xFFFFFFFF)); // -1 × 4294967295
-        ExecuteResult r = Exec(0x023120B3, s);                       // mulhsu x1, x2, x3
+        ExecuteResult r = Exec(0x023120B3, s);                         // mulhsu x1, x2, x3
         Assert.Equal(0xFFFFFFFFUL, r.RegisterResult.Value);
     }
 

@@ -24,8 +24,8 @@ public sealed class StreamingEngine {
     public StreamingEngine(int prefetchDepth = 4) {
         if (prefetchDepth < 1) throw new ArgumentOutOfRangeException(nameof(prefetchDepth));
         _prefetchDepth = prefetchDepth;
-        _streams = new StreamState[MaxStreams];
-        for (var i = 0; i < MaxStreams; i++) _streams[i] = new StreamState();
+        _streams = new StreamState[StreamingEngine.MaxStreams];
+        for (var i = 0; i < StreamingEngine.MaxStreams; i++) _streams[i] = new StreamState();
     }
 
     /// <summary>
@@ -99,17 +99,20 @@ public sealed class StreamingEngine {
     }
 
     private static void Validate(int id) {
-        if ((uint)id >= MaxStreams)
-            throw new ArgumentOutOfRangeException(nameof(id), $"Stream ID must be 0–{MaxStreams - 1}.");
+        if ((uint)id >= StreamingEngine.MaxStreams)
+            throw new ArgumentOutOfRangeException(nameof(id), $"Stream ID must be 0–{StreamingEngine.MaxStreams - 1}.");
     }
 
     // ── Per-stream state ───────────────────────────────────────────────────────
 
     private sealed class StreamState {
         private StreamDescriptor _desc;
+
         // Per-dimension fetch and consume indices. Innermost = index 0.
-        private long[] _fetchIndices  = [];
+        private long[] _fetchIndices = [];
+
         private long[] _consumeIndices = [];
+
         // Set by Consume() for each dimension that wraps; cleared at the start of the next Consume().
         private bool[] _dimPassComplete = [];
         private long _totalFetched;
@@ -133,10 +136,10 @@ public sealed class StreamingEngine {
         public void Configure(StreamDescriptor desc) {
             _desc = desc;
             int ndim = desc.Dimensions.Length;
-            _fetchIndices    = new long[ndim];
-            _consumeIndices  = new long[ndim];
+            _fetchIndices = new long[ndim];
+            _consumeIndices = new long[ndim];
             _dimPassComplete = new bool[ndim];
-            _totalFetched  = 0;
+            _totalFetched = 0;
             _totalConsumed = 0;
             _buffer.Clear();
             Active = true;
@@ -165,7 +168,7 @@ public sealed class StreamingEngine {
             if (_buffer.Count >= prefetchDepth) return;
             if (_totalFetched >= TotalCount()) return;
 
-            ulong addr = (ulong)((long)_desc.BaseAddress + FetchOffset());
+            var addr = (ulong)((long)_desc.BaseAddress + FetchOffset());
             ulong element = memory.Read(addr, _desc.ElementBytes);
             _buffer.Enqueue(element);
             _totalFetched++;
@@ -180,13 +183,12 @@ public sealed class StreamingEngine {
 
         private long FetchOffset() {
             long offset = 0;
-            for (int d = 0; d < _fetchIndices.Length; d++)
-                offset += _fetchIndices[d] * _desc.Dimensions[d].Stride;
+            for (var d = 0; d < _fetchIndices.Length; d++) offset += _fetchIndices[d] * _desc.Dimensions[d].Stride;
             return offset;
         }
 
         private void AdvanceFetchIndex() {
-            for (int d = 0; d < _fetchIndices.Length; d++) {
+            for (var d = 0; d < _fetchIndices.Length; d++) {
                 if (++_fetchIndices[d] < _desc.Dimensions[d].Count) break;
                 _fetchIndices[d] = 0;
             }
@@ -194,7 +196,7 @@ public sealed class StreamingEngine {
 
         private void AdvanceConsumeIndex() {
             Array.Fill(_dimPassComplete, false);
-            for (int d = 0; d < _consumeIndices.Length; d++) {
+            for (var d = 0; d < _consumeIndices.Length; d++) {
                 if (++_consumeIndices[d] < _desc.Dimensions[d].Count) break;
                 _consumeIndices[d] = 0;
                 _dimPassComplete[d] = true;

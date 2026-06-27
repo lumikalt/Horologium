@@ -6,7 +6,7 @@ using RiscV32;
 using RiscV32.Memory;
 using Xunit.Abstractions;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 /// <summary>
 /// Runs the official RISC-V ISA test suite (rv32ui-p-* and rv32um-p-*)

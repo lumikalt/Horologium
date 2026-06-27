@@ -5,7 +5,7 @@ using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 /// <summary>
 /// End-to-end tests for OooeTrain: superscalar out-of-order pipeline.

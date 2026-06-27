@@ -1,10 +1,9 @@
-using Mechanism.BranchPredictModels;
 using Orrery.Observation;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 public class PEventTests {
     // addi x1, x0, 10 / addi x2, x0, 20 / add x3, x1, x2 / ebreak

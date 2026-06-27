@@ -151,13 +151,13 @@ public class Rv32Executor : IExecutor {
             RvWrsSto => ExecuteResult.Clean,
 
             // ── Zicbom / Zicboz extensions ────────────────────────────────────
-            RvCboInval => ExecuteResult.Clean, // NOP — no coherence model
-            RvCboClean => ExecuteResult.Clean,
-            RvCboFlush => ExecuteResult.Clean,
+            RvCboInval         => ExecuteResult.Clean, // NOP — no coherence model
+            RvCboClean         => ExecuteResult.Clean,
+            RvCboFlush         => ExecuteResult.Clean,
             RvCboZero(var rs1) => CboZero(memory, state, pc, regs.Read(rs1)),
 
             // ── Zimop extension (always return 0) ─────────────────────────────
-            RvMopR  _ => Reg(0),
+            RvMopR _  => Reg(0),
             RvMopRr _ => Reg(0),
 
             // ── M extension ───────────────────────────────────────────────────
@@ -204,14 +204,14 @@ public class Rv32Executor : IExecutor {
             RvSh3Add(_, var rs1, var rs2) => Reg(regs.Read(rs2) + (regs.Read(rs1) << 3)),
 
             // ── Zbs extension (single-bit ops) ────────────────────────────────────────
-            RvBclr(_, var rs1, var rs2)   => Reg((uint)regs.Read(rs1) & ~(1u << (int)(regs.Read(rs2) & 31))),
-            RvBext(_, var rs1, var rs2)   => Reg(((uint)regs.Read(rs1) >> (int)(regs.Read(rs2) & 31)) & 1),
-            RvBinv(_, var rs1, var rs2)   => Reg((uint)regs.Read(rs1) ^ (1u << (int)(regs.Read(rs2) & 31))),
-            RvBset(_, var rs1, var rs2)   => Reg((uint)regs.Read(rs1) | (1u << (int)(regs.Read(rs2) & 31))),
-            RvBclri(_, var rs1, var sh)   => Reg((uint)regs.Read(rs1) & ~(1u << sh)),
-            RvBexti(_, var rs1, var sh)   => Reg(((uint)regs.Read(rs1) >> sh) & 1),
-            RvBinvi(_, var rs1, var sh)   => Reg((uint)regs.Read(rs1) ^ (1u << sh)),
-            RvBseti(_, var rs1, var sh)   => Reg((uint)regs.Read(rs1) | (1u << sh)),
+            RvBclr(_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) & ~(1u << (int)(regs.Read(rs2) & 31))),
+            RvBext(_, var rs1, var rs2) => Reg(((uint)regs.Read(rs1) >> (int)(regs.Read(rs2) & 31)) & 1),
+            RvBinv(_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) ^ (1u << (int)(regs.Read(rs2) & 31))),
+            RvBset(_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) | (1u << (int)(regs.Read(rs2) & 31))),
+            RvBclri(_, var rs1, var sh) => Reg((uint)regs.Read(rs1) & ~(1u << sh)),
+            RvBexti(_, var rs1, var sh) => Reg(((uint)regs.Read(rs1) >> sh) & 1),
+            RvBinvi(_, var rs1, var sh) => Reg((uint)regs.Read(rs1) ^ (1u << sh)),
+            RvBseti(_, var rs1, var sh) => Reg((uint)regs.Read(rs1) | (1u << sh)),
 
             // ── Zicond extension (integer conditional ops) ────────────────────────────
             RvCzeroEqz(_, var rs1, var rs2) => Reg(regs.Read(rs2) == 0 ? 0UL : regs.Read(rs1)),
@@ -221,15 +221,23 @@ public class Rv32Executor : IExecutor {
             RvAndn(_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) & ~(uint)regs.Read(rs2)),
             RvOrn (_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) | ~(uint)regs.Read(rs2)),
             RvXnor(_, var rs1, var rs2) => Reg(~((uint)regs.Read(rs1) ^ (uint)regs.Read(rs2))),
-            RvMin (_, var rs1, var rs2) => Reg((int)regs.Read(rs1) < (int)regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)),
+            RvMin (_, var rs1, var rs2) => Reg(
+                (int)regs.Read(rs1) < (int)regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)
+            ),
             RvMinu(_, var rs1, var rs2) => Reg(regs.Read(rs1) < regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)),
-            RvMax (_, var rs1, var rs2) => Reg((int)regs.Read(rs1) > (int)regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)),
+            RvMax (_, var rs1, var rs2) => Reg(
+                (int)regs.Read(rs1) > (int)regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)
+            ),
             RvMaxu(_, var rs1, var rs2) => Reg(regs.Read(rs1) > regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)),
-            RvRol (_, var rs1, var rs2) => Reg(BitOperations.RotateLeft((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 31))),
-            RvRor (_, var rs1, var rs2) => Reg(BitOperations.RotateRight((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 31))),
+            RvRol (_, var rs1, var rs2) => Reg(
+                BitOperations.RotateLeft((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 31))
+            ),
+            RvRor (_, var rs1, var rs2) => Reg(
+                BitOperations.RotateRight((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 31))
+            ),
             RvZextH(_, var rs1)         => Reg((uint)regs.Read(rs1) & 0xFFFF),
-            RvClz  (_, var rs1)         => Reg((ulong)BitOperations.LeadingZeroCount((uint)regs.Read(rs1))),
-            RvCtz  (_, var rs1)         => Reg((ulong)BitOperations.TrailingZeroCount((uint)regs.Read(rs1))),
+            RvClz (_, var rs1)          => Reg((ulong)BitOperations.LeadingZeroCount((uint)regs.Read(rs1))),
+            RvCtz (_, var rs1)          => Reg((ulong)BitOperations.TrailingZeroCount((uint)regs.Read(rs1))),
             RvCpop (_, var rs1)         => Reg((ulong)BitOperations.PopCount((uint)regs.Read(rs1))),
             RvSextB(_, var rs1)         => Reg((ulong)(int)(sbyte)regs.Read(rs1)),
             RvSextH(_, var rs1)         => Reg((ulong)(int)(short)regs.Read(rs1)),
@@ -387,17 +395,19 @@ public class Rv32Executor : IExecutor {
                 ),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsLdW    (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
-            RvUveSsStW    (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSt(state, regs, ud, rs1, rs2, rs3),
-            RvUveSsStaLdW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(state, regs, ud, rs1, rs2, rs3, isLoad: true),
-            RvUveSsStaStW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(state, regs, ud, rs1, rs2, rs3, isLoad: false),
-            RvUveSsApp    (var ud, var rs2, var rs3)           => ExecuteUveSsApp(state, regs, ud, rs2, rs3),
-            RvUveSsEnd    (var ud, var rs2, var rs3)           => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
-            RvUveSsCfgVec (var ud)                             => ExecuteUveSsCfgVec(state, ud),
-            RvUveSoVDpW   (var ud, var rs1)                   => ExecuteUveSoVDpW(state, regs, ud, rs1),
-            RvUveSoAFp    (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(state, memory, fpOp, ud, usrc1, usrc2),
-            RvUveSoBNc    (var urs, var imm)                   => ExecuteUveSoBNc(state, pc, urs, imm),
-            RvUveSoBNdc   (var urs, var dim, var imm)          => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
+            RvUveSsLdW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
+            RvUveSsStW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsSt(state, regs, ud, rs1, rs2, rs3),
+            RvUveSsStaLdW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(state, regs, ud, rs1, rs2, rs3, true),
+            RvUveSsStaStW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(state, regs, ud, rs1, rs2, rs3, false),
+            RvUveSsApp (var ud, var rs2, var rs3)             => ExecuteUveSsApp(state, regs, ud, rs2, rs3),
+            RvUveSsEnd (var ud, var rs2, var rs3)             => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
+            RvUveSsCfgVec (var ud)                            => ExecuteUveSsCfgVec(state, ud),
+            RvUveSoVDpW (var ud, var rs1)                     => ExecuteUveSoVDpW(state, regs, ud, rs1),
+            RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
+                state, memory, fpOp, ud, usrc1, usrc2
+            ),
+            RvUveSoBNc (var urs, var imm)           => ExecuteUveSoBNc(state, pc, urs, imm),
+            RvUveSoBNdc (var urs, var dim, var imm) => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
 
             _ => throw new InvalidOperationException(
                 $"Unhandled RvOp: {op.GetType().Name}"
@@ -411,7 +421,7 @@ public class Rv32Executor : IExecutor {
     // Returns the full 63-bit product as ulong; callers slice the desired half.
     private static ulong Clmul(uint a, uint b) {
         ulong result = 0;
-        for (int i = 0; i < 32; i++)
+        for (var i = 0; i < 32; i++)
             if (((b >> i) & 1u) != 0)
                 result ^= (ulong)a << i;
         return result;
@@ -419,7 +429,7 @@ public class Rv32Executor : IExecutor {
 
     // orc.b: per-byte OR-combine — nonzero byte → 0xFF, zero byte → 0x00.
     private ExecuteResult OrcB(IRegisterFile regs, int rs1) {
-        uint v = (uint)regs.Read(rs1);
+        var v = (uint)regs.Read(rs1);
         uint r = ((v & 0x000000FFu) != 0 ? 0x000000FFu : 0u)
                | ((v & 0x0000FF00u) != 0 ? 0x0000FF00u : 0u)
                | ((v & 0x00FF0000u) != 0 ? 0x00FF0000u : 0u)
@@ -429,7 +439,7 @@ public class Rv32Executor : IExecutor {
 
     // rev8: reverse byte order of a 32-bit word.
     private ExecuteResult Rev8(IRegisterFile regs, int rs1) {
-        uint v = (uint)regs.Read(rs1);
+        var v = (uint)regs.Read(rs1);
         return Reg((v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24));
     }
 
@@ -555,8 +565,7 @@ public class Rv32Executor : IExecutor {
         ulong lineAddr = addr & ~63UL; // align down to 64-byte cache line
         (ulong physAddr, int fault) = Translate(memory, state, lineAddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, lineAddr, pc));
-        for (int i = 0; i < 16; i++)
-            memory.Write(physAddr + (ulong)(i * 4), 0, 4);
+        for (var i = 0; i < 16; i++) memory.Write(physAddr + (ulong)(i * 4), 0, 4);
         return ExecuteResult.Clean;
     }
 
@@ -908,8 +917,8 @@ public class Rv32Executor : IExecutor {
     // Returns a StreamConfig so the pipeline can configure the streaming engine.
     private static ExecuteResult ExecuteUveSsLd(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
         ulong baseAddr = regs.Read(rs1);
-        long count = (long)regs.Read(rs2);
-        long stride = (long)regs.Read(rs3);
+        var count = (long)regs.Read(rs2);
+        var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
             StreamConfig = (ud, new StreamDescriptor(baseAddr, 4, count, stride)),
             SideEffect = s => { UState(s).UveState.RegKind[ud] = UveRegKind.LoadStream; },
@@ -918,17 +927,24 @@ public class Rv32Executor : IExecutor {
 
     // ss.st.w ud, rs1_base, rs2_count, rs3_stride
     // Configures a store-stream cursor in UveState; no StreamingEngine involvement.
-    private static ExecuteResult ExecuteUveSsSt(IArchState state, IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
+    private static ExecuteResult ExecuteUveSsSt(
+        IArchState state,
+        IRegisterFile regs,
+        int ud,
+        int rs1,
+        int rs2,
+        int rs3
+    ) {
         ulong baseAddr = regs.Read(rs1);
-        long count = (long)regs.Read(rs2);
-        long stride = (long)regs.Read(rs3);
+        var count = (long)regs.Read(rs2);
+        var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uveState = UState(s).UveState;
                 var ss = new UveStoreStream {
                     BaseAddress = baseAddr, ElementBytes = 4,
-                    Dimensions = [new StreamDimension(count, stride)],
-                    Indices = [0],
+                    Dimensions = [new StreamDimension(count, stride),],
+                    Indices = [0,],
                 };
                 ss.Initialize();
                 uveState.StoreStreams[ud] = ss;
@@ -952,7 +968,14 @@ public class Rv32Executor : IExecutor {
     // so.a.fp ud, usrc1, usrc2 — element-wise FP arithmetic
     // Source values were injected into UveState.Scalars[usrc*] by the pipeline before this call.
     // If ud is a store stream, the result is written to memory and the store cursor advances.
-    private static ExecuteResult ExecuteUveSoAFp(IArchState state, IMemory memory, UveFpOp op, int ud, int usrc1, int usrc2) {
+    private static ExecuteResult ExecuteUveSoAFp(
+        IArchState state,
+        IMemory memory,
+        UveFpOp op,
+        int ud,
+        int usrc1,
+        int usrc2
+    ) {
         UveState uveState = UState(state).UveState;
         float a = uveState.Scalars[usrc1];
         float b = uveState.Scalars[usrc2];
@@ -961,9 +984,9 @@ public class Rv32Executor : IExecutor {
             UveFpOp.Add => a + b,
             UveFpOp.Mac => uveState.Scalars[ud] + a * b,
             UveFpOp.Sub => a - b,
-            _ => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
+            _           => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
         };
-        uint resultBits = (uint)BitConverter.SingleToInt32Bits(result);
+        var resultBits = (uint)BitConverter.SingleToInt32Bits(result);
 
         if (uveState.RegKind[ud] == UveRegKind.StoreStream && uveState.StoreStreams[ud] is { } ss) {
             // Write result element to the store stream's current memory address.
@@ -997,18 +1020,25 @@ public class Rv32Executor : IExecutor {
 
     // ss.sta.ld.w / ss.sta.st.w — start multi-dim stream configuration.
     // Creates a pending config with the first (innermost) dimension and stores in UveState.
-    private static ExecuteResult ExecuteUveSsSta(IArchState state, IRegisterFile regs,
-        int ud, int rs1, int rs2, int rs3, bool isLoad) {
+    private static ExecuteResult ExecuteUveSsSta(
+        IArchState state,
+        IRegisterFile regs,
+        int ud,
+        int rs1,
+        int rs2,
+        int rs3,
+        bool isLoad
+    ) {
         ulong baseAddr = regs.Read(rs1);
-        long count = (long)regs.Read(rs2);
-        long stride = (long)regs.Read(rs3);
+        var count = (long)regs.Read(rs2);
+        var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uvs = UState(s).UveState;
                 var cfg = new PendingStreamConfig {
-                    BaseAddress  = baseAddr,
+                    BaseAddress = baseAddr,
                     ElementBytes = 4,
-                    IsLoad       = isLoad,
+                    IsLoad = isLoad,
                 };
                 cfg.Dimensions.Add(new StreamDimension(count, stride));
                 uvs.PendingConfig[ud] = cfg;
@@ -1018,8 +1048,8 @@ public class Rv32Executor : IExecutor {
 
     // ss.app ud, _, rs2_count, rs3_stride — append next outer dimension to pending config.
     private static ExecuteResult ExecuteUveSsApp(IArchState state, IRegisterFile regs, int ud, int rs2, int rs3) {
-        long count = (long)regs.Read(rs2);
-        long stride = (long)regs.Read(rs3);
+        var count = (long)regs.Read(rs2);
+        var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
             SideEffect = s => {
                 UState(s).UveState.PendingConfig[ud]?.Dimensions.Add(new StreamDimension(count, stride));
@@ -1031,17 +1061,17 @@ public class Rv32Executor : IExecutor {
     // For load streams: returns StreamConfig so the pipeline can configure StreamingEngine.
     // For store streams: configures a flattened UveStoreStream (multi-dim store TBD).
     private static ExecuteResult ExecuteUveSsEnd(IArchState state, IRegisterFile regs, int ud, int rs2, int rs3) {
-        long count = (long)regs.Read(rs2);
-        long stride = (long)regs.Read(rs3);
+        var count = (long)regs.Read(rs2);
+        var stride = (long)regs.Read(rs3);
         UveState uveState = UState(state).UveState;
         PendingStreamConfig? pending = uveState.PendingConfig[ud];
         if (pending is null) return ExecuteResult.Clean;
 
-        var dims = pending.Dimensions.Append(new StreamDimension(count, stride)).ToArray();
+        StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).ToArray();
         var descriptor = new StreamDescriptor(pending.BaseAddress, pending.ElementBytes, dims);
         bool isLoad = pending.IsLoad;
 
-        if (isLoad) {
+        if (isLoad)
             return new ExecuteResult {
                 StreamConfig = (ud, descriptor),
                 SideEffect = s => {
@@ -1050,7 +1080,6 @@ public class Rv32Executor : IExecutor {
                     uvs.RegKind[ud] = UveRegKind.LoadStream;
                 },
             };
-        }
 
         // Store stream: full multi-dim cursor, innermost dimension first.
         return new ExecuteResult {
@@ -1070,7 +1099,7 @@ public class Rv32Executor : IExecutor {
 
     // ss.cfg.vec ud — flag pending stream as vector-mode (no-op until vector streaming).
     private static ExecuteResult ExecuteUveSsCfgVec(IArchState state, int ud) =>
-        new ExecuteResult {
+        new() {
             SideEffect = s => {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
                 if (cfg is not null) cfg.IsVector = true;

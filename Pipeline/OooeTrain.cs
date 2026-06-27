@@ -585,15 +585,14 @@ internal sealed class OoOPipelineCore : Gear {
             // Additionally stall until every load-stream source has a buffered element.
             if (cls == ToothClass.Uve) {
                 if (rs.RobIndex != _rob.HeadIndex) continue;
-                bool streamStall = false;
-                if (rs.Instruction is not null) {
-                    foreach (int uid in rs.Instruction.UveStreamSources) {
+                var streamStall = false;
+                if (rs.Instruction is not null)
+                    foreach (int uid in rs.Instruction.UveStreamSources)
                         if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
                             streamStall = true;
                             break;
                         }
-                    }
-                }
+
                 if (streamStall) continue;
             }
 
@@ -906,23 +905,22 @@ internal sealed class OoOPipelineCore : Gear {
         // executor runs, and sync exhaustion state for branch ops. The pipeline owns
         // the StreamingEngine; the executor reads results from IUveScalars.
         if (isUve && State.UveScalars is { } uvs) {
-            foreach (int uid in issued.Instr.UveStreamSources) {
+            foreach (int uid in issued.Instr.UveStreamSources)
                 if (uid >= 0 && StreamingEngine.IsActive(uid) && StreamingEngine.HasElement(uid))
                     uvs.SetScalar(uid, BitConverter.Int32BitsToSingle((int)(uint)StreamingEngine.Consume(uid)));
-            }
-            foreach (int uid in issued.Instr.UveBranchStreams) {
+            foreach (int uid in issued.Instr.UveBranchStreams)
                 if (uid >= 0)
-                    uvs.SetStreamDone(uid, StreamingEngine.IsActive(uid)
-                        ? StreamingEngine.IsExhausted(uid)
-                        : true); // inactive = deactivated = done
-            }
-            foreach ((int uid, int dim) in issued.Instr.UveDimBranchSources) {
+                    uvs.SetStreamDone(
+                        uid, StreamingEngine.IsActive(uid)
+                            ? StreamingEngine.IsExhausted(uid)
+                            : true
+                    ); // inactive = deactivated = done
+            foreach ((int uid, int dim) in issued.Instr.UveDimBranchSources)
                 if (uid >= 0)
                     uvs.SetDimDone(uid, dim, StreamingEngine.IsDimPassComplete(uid, dim));
-            }
         }
 
-        IMemory mem = (isVec || isUve) ? DLayers.Accessor : _capMem;
+        IMemory mem = isVec || isUve ? DLayers.Accessor : _capMem;
         ExecuteResult er = _executor.Execute(issued.Instr, State, mem);
 
         // Apply SideEffect immediately for head-serialized ops (VRF/UveState writes
@@ -930,8 +928,7 @@ internal sealed class OoOPipelineCore : Gear {
         if (isVec || isUve) er.SideEffect?.Invoke(State);
 
         // Configure streaming engine if the instruction set up a load stream.
-        if (er.StreamConfig is { } sc)
-            StreamingEngine.Configure(sc.StreamId, sc.Descriptor);
+        if (er.StreamConfig is { } sc) StreamingEngine.Configure(sc.StreamId, sc.Descriptor);
 
         // Restore arch state to committed values.
         if (s0 >= 0) regs.Write(s0, save0);

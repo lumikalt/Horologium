@@ -80,15 +80,13 @@ public class Rv32ArchState : IArchState {
         uint lo = CsrFile.DirectRead(CsrFile.Mcycle);
         uint newLo = lo + 1;
         CsrFile.DirectWrite(CsrFile.Mcycle, newLo);
-        if (newLo == 0)
-            CsrFile.DirectWrite(CsrFile.Mcycleh, CsrFile.DirectRead(CsrFile.Mcycleh) + 1);
+        if (newLo == 0) CsrFile.DirectWrite(CsrFile.Mcycleh, CsrFile.DirectRead(CsrFile.Mcycleh) + 1);
     }
 
     public void OnRetire() {
         uint lo = CsrFile.DirectRead(CsrFile.Minstret);
         uint newLo = lo + 1;
         CsrFile.DirectWrite(CsrFile.Minstret, newLo);
-        if (newLo == 0)
-            CsrFile.DirectWrite(CsrFile.Minstreth, CsrFile.DirectRead(CsrFile.Minstreth) + 1);
+        if (newLo == 0) CsrFile.DirectWrite(CsrFile.Minstreth, CsrFile.DirectRead(CsrFile.Minstreth) + 1);
     }
 }

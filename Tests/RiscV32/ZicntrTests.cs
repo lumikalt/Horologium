@@ -2,7 +2,7 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
-namespace Tests.RiscV;
+namespace Tests.RiscV32;
 
 /// <summary>
 /// Tests for Zicntr (hardware performance counters):
@@ -14,12 +14,12 @@ namespace Tests.RiscV;
 /// </summary>
 public class ZicntrTests {
     private const ulong CodeBase = 0x1000u;
-    private const ulong OutBase  = 0x0100u;
+    private const ulong OutBase = 0x0100u;
 
     // ── Encoding helpers ──────────────────────────────────────────────────────
 
     private static uint EBreak() => 0x00100073u;
-    private static uint Nop()    => 0x00000013u; // ADDI x0, x0, 0
+    private static uint Nop() => 0x00000013u; // ADDI x0, x0, 0
 
     // CSRRS rd, csr, x0 — read CSR into rd (rs1=x0 means no write side-effect)
     private static uint CsrRead(int rd, uint csr) =>
@@ -28,19 +28,19 @@ public class ZicntrTests {
     // SW rs2, imm(rs1)
     private static uint Sw(int rs1, int rs2, int imm) =>
         (((uint)(imm >> 5) & 0x7Fu) << 25) | ((uint)(rs2 & 0x1F) << 20) | ((uint)(rs1 & 0x1F) << 15)
-        | (2u << 12) | ((uint)(imm & 0x1F) << 7) | 0x23u;
+      | (2u << 12) | ((uint)(imm & 0x1F) << 7) | 0x23u;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static uint ReadCsr(uint[] instructions, uint csr) {
         var mem = new FlatMemory(0x4000);
         // Program: read CSR into x1, store x1 to OutBase
-        uint[] prog = [..instructions, CsrRead(1, csr), Sw(0, 1, (int)OutBase), EBreak()];
-        for (int i = 0; i < prog.Length; i++)
-            mem.Load(CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, entryPoint: CodeBase);
-        train.Run(maxTicks: 500);
-        return (uint)mem.Read(OutBase, 4);
+        uint[] prog = [..instructions, CsrRead(1, csr), Sw(0, 1, (int)ZicntrTests.OutBase), EBreak(),];
+        for (var i = 0; i < prog.Length; i++)
+            mem.Load(ZicntrTests.CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, ZicntrTests.CodeBase);
+        train.Run(500);
+        return (uint)mem.Read(ZicntrTests.OutBase, 4);
     }
 
     // ── time / timeh — always 0 ───────────────────────────────────────────────
@@ -57,7 +57,7 @@ public class ZicntrTests {
     public void Cycle_IsNonZeroAfterExecution() {
         // After at least one instruction retires, cycle should be > 0.
         // (The CSRRS itself reads the count from the cycle that just completed.)
-        uint v = ReadCsr([Nop()], 0xC00);
+        uint v = ReadCsr([Nop(),], 0xC00);
         Assert.True(v > 0, $"cycle should be > 0, got {v}");
     }
 
@@ -68,16 +68,16 @@ public class ZicntrTests {
         uint[] prog = [
             CsrRead(1, 0xC00), // x1 = cycle
             CsrRead(2, 0xB00), // x2 = mcycle  (one more cycle later)
-            Sw(0, 1, (int)OutBase),
-            Sw(0, 2, (int)(OutBase + 4)),
+            Sw(0, 1, (int)ZicntrTests.OutBase),
+            Sw(0, 2, (int)(ZicntrTests.OutBase + 4)),
             EBreak(),
         ];
-        for (int i = 0; i < prog.Length; i++)
-            mem.Load(CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, entryPoint: CodeBase);
-        train.Run(maxTicks: 500);
-        uint cyc  = (uint)mem.Read(OutBase,     4);
-        uint mcyc = (uint)mem.Read(OutBase + 4, 4);
+        for (var i = 0; i < prog.Length; i++)
+            mem.Load(ZicntrTests.CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, ZicntrTests.CodeBase);
+        train.Run(500);
+        var cyc = (uint)mem.Read(ZicntrTests.OutBase, 4);
+        var mcyc = (uint)mem.Read(ZicntrTests.OutBase + 4, 4);
         // mcycle is read one cycle after cycle; it must be ≥ cycle.
         Assert.True(mcyc >= cyc, $"mcycle ({mcyc}) should be ≥ cycle ({cyc})");
     }
@@ -87,18 +87,18 @@ public class ZicntrTests {
         var mem = new FlatMemory(0x4000);
         uint[] prog = [
             CsrRead(1, 0xC00), // x1 = cycle at T
-            Nop(),              // burn a cycle
+            Nop(),             // burn a cycle
             CsrRead(2, 0xC00), // x2 = cycle at T+2 (or later)
-            Sw(0, 1, (int)OutBase),
-            Sw(0, 2, (int)(OutBase + 4)),
+            Sw(0, 1, (int)ZicntrTests.OutBase),
+            Sw(0, 2, (int)(ZicntrTests.OutBase + 4)),
             EBreak(),
         ];
-        for (int i = 0; i < prog.Length; i++)
-            mem.Load(CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, entryPoint: CodeBase);
-        train.Run(maxTicks: 500);
-        uint first  = (uint)mem.Read(OutBase,     4);
-        uint second = (uint)mem.Read(OutBase + 4, 4);
+        for (var i = 0; i < prog.Length; i++)
+            mem.Load(ZicntrTests.CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, ZicntrTests.CodeBase);
+        train.Run(500);
+        var first = (uint)mem.Read(ZicntrTests.OutBase, 4);
+        var second = (uint)mem.Read(ZicntrTests.OutBase + 4, 4);
         Assert.True(second > first, $"second cycle read ({second}) must exceed first ({first})");
     }
 
@@ -107,7 +107,7 @@ public class ZicntrTests {
     [Fact]
     public void Instret_IsNonZeroAfterExecution() {
         // After at least one instruction retires, instret should be > 0.
-        uint v = ReadCsr([Nop()], 0xC02);
+        uint v = ReadCsr([Nop(),], 0xC02);
         Assert.True(v > 0, $"instret should be > 0, got {v}");
     }
 
@@ -118,16 +118,16 @@ public class ZicntrTests {
         uint[] prog = [
             CsrRead(1, 0xC02), // x1 = instret
             CsrRead(2, 0xB02), // x2 = minstret (one retire later)
-            Sw(0, 1, (int)OutBase),
-            Sw(0, 2, (int)(OutBase + 4)),
+            Sw(0, 1, (int)ZicntrTests.OutBase),
+            Sw(0, 2, (int)(ZicntrTests.OutBase + 4)),
             EBreak(),
         ];
-        for (int i = 0; i < prog.Length; i++)
-            mem.Load(CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, entryPoint: CodeBase);
-        train.Run(maxTicks: 500);
-        uint ir  = (uint)mem.Read(OutBase,     4);
-        uint mir = (uint)mem.Read(OutBase + 4, 4);
+        for (var i = 0; i < prog.Length; i++)
+            mem.Load(ZicntrTests.CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, ZicntrTests.CodeBase);
+        train.Run(500);
+        var ir = (uint)mem.Read(ZicntrTests.OutBase, 4);
+        var mir = (uint)mem.Read(ZicntrTests.OutBase + 4, 4);
         Assert.True(mir >= ir, $"minstret ({mir}) should be ≥ instret ({ir})");
     }
 
@@ -138,16 +138,16 @@ public class ZicntrTests {
             CsrRead(1, 0xC02), // x1 = instret at T
             Nop(),
             CsrRead(2, 0xC02), // x2 = instret at T+2
-            Sw(0, 1, (int)OutBase),
-            Sw(0, 2, (int)(OutBase + 4)),
+            Sw(0, 1, (int)ZicntrTests.OutBase),
+            Sw(0, 2, (int)(ZicntrTests.OutBase + 4)),
             EBreak(),
         ];
-        for (int i = 0; i < prog.Length; i++)
-            mem.Load(CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, entryPoint: CodeBase);
-        train.Run(maxTicks: 500);
-        uint first  = (uint)mem.Read(OutBase,     4);
-        uint second = (uint)mem.Read(OutBase + 4, 4);
+        for (var i = 0; i < prog.Length; i++)
+            mem.Load(ZicntrTests.CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, ZicntrTests.CodeBase);
+        train.Run(500);
+        var first = (uint)mem.Read(ZicntrTests.OutBase, 4);
+        var second = (uint)mem.Read(ZicntrTests.OutBase + 4, 4);
         Assert.True(second > first, $"second instret read ({second}) must exceed first ({first})");
     }
 
@@ -156,18 +156,18 @@ public class ZicntrTests {
         // Run exactly N NOPs before reading instret; the delta should be N.
         const int nNops = 10;
         var mem = new FlatMemory(0x4000);
-        var prog = new List<uint> { CsrRead(1, 0xC02) }; // x1 = instret before
-        for (int i = 0; i < nNops; i++) prog.Add(Nop());
-        prog.Add(CsrRead(2, 0xC02));                      // x2 = instret after
-        prog.Add(Sw(0, 1, (int)OutBase));
-        prog.Add(Sw(0, 2, (int)(OutBase + 4)));
+        var prog = new List<uint> { CsrRead(1, 0xC02), }; // x1 = instret before
+        for (var i = 0; i < nNops; i++) prog.Add(Nop());
+        prog.Add(CsrRead(2, 0xC02)); // x2 = instret after
+        prog.Add(Sw(0, 1, (int)ZicntrTests.OutBase));
+        prog.Add(Sw(0, 2, (int)(ZicntrTests.OutBase + 4)));
         prog.Add(EBreak());
-        for (int i = 0; i < prog.Count; i++)
-            mem.Load(CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, entryPoint: CodeBase);
-        train.Run(maxTicks: 500);
-        uint before = (uint)mem.Read(OutBase,     4);
-        uint after  = (uint)mem.Read(OutBase + 4, 4);
+        for (var i = 0; i < prog.Count; i++)
+            mem.Load(ZicntrTests.CodeBase + (ulong)(i * 4), BitConverter.GetBytes(prog[i]));
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, ZicntrTests.CodeBase);
+        train.Run(500);
+        var before = (uint)mem.Read(ZicntrTests.OutBase, 4);
+        var after = (uint)mem.Read(ZicntrTests.OutBase + 4, 4);
         // nNops NOPs retire between the two reads; the second CSRRS also retires before
         // its own store. Delta = nNops + 1 (the second CSRRS itself).
         uint delta = after - before;

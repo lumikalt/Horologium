@@ -22,8 +22,7 @@ public partial class AssemblerView : UserControl {
         Editor.TextArea.AddHandler(InputElement.KeyDownEvent, OnEditorClipboardKey, RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
         Editor.TextChanged += OnEditorTextChanged;
-        if (Application.Current is not null)
-            Application.Current.ActualThemeVariantChanged += OnThemeVariantChanged;
+        if (Application.Current is not null) Application.Current.ActualThemeVariantChanged += OnThemeVariantChanged;
     }
 
     private bool IsDark =>
@@ -56,8 +55,9 @@ public partial class AssemblerView : UserControl {
         _debounce = new Timer(
             _ =>
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-                    if (_vm.AssembleCommand.CanExecute(null)) _vm.AssembleCommand.Execute(null);
-                }),
+                        if (_vm.AssembleCommand.CanExecute(null)) _vm.AssembleCommand.Execute(null);
+                    }
+                ),
             null, 600, Timeout.Infinite
         );
     }
@@ -83,6 +83,7 @@ public partial class AssemblerView : UserControl {
                     await clipboard.SetTextAsync(sel);
                     Editor.TextArea.Selection.ReplaceSelectionWithText("");
                 }
+
                 break;
 
             case Key.V:
