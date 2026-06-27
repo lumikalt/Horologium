@@ -18,7 +18,11 @@
 
 ## RISC-V
 
-- [ ] 64-bit support.
+- [x] 64-bit support — RiscV64 project with `Rv64Mechanism`/`Rv64Decoder`/`Rv64Executor`/`Rv64ArchState` extending RiscV32 via inheritance. RV64I W-suffix ops (ADDW/SUBW/SLLW/SRLW/SRAW/ADDIW/SLLIW/SRLIW/SRAIW), new loads/stores (LD/LWU/SD), 6-bit shifts, 64-bit SLT/BLT comparisons, LW sign-extension.
+  - [ ] ELF64 loader (`Rv64ElfLoader` / `Rv64ElfWorkload`) for running RV64 binaries.
+  - [ ] Sv39 page-table walker for RV64 virtual memory.
+  - [ ] RV64 M extension (MUL[H/HU/HSU], DIV[U], REM[U] on 64-bit operands).
+  - [ ] RV64 F/D extension: 64-bit FP conversions (fcvt.l.s, fcvt.lu.s, fcvt.s.l, etc.).
 - [ ] 128-bit support.
 - [ ] Enable or disable specific extensions.
 

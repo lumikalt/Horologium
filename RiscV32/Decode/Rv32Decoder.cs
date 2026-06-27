@@ -1219,10 +1219,10 @@ public class Rv32Decoder : IDecoder {
         13
     );
 
-    private static int SignExtend12(int value) =>
+    protected static int SignExtend12(int value) =>
         (value & 0x800) != 0 ? value | unchecked((int)0xFFFFF000) : value & 0xFFF;
 
-    private static int SignExtendN(int value, int bits) {
+    protected static int SignExtendN(int value, int bits) {
         int shift = 32 - bits;
         return (value << shift) >> shift;
     }

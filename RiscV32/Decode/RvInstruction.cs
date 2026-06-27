@@ -486,3 +486,20 @@ public record RvUveSoBNc(int Urs, int Imm) : RvOp;
 //   so.b.ndc.D urs, imm — taken while dimension D of stream urs has not completed its pass
 //   Dim = rs2 field interpreted as a literal 0-based dimension index (0 = innermost)
 public record RvUveSoBNdc(int Urs, int Dim, int Imm) : RvOp;
+
+// ── RV64I W-suffix instructions (opcode=0x3B: OP-32; opcode=0x1B: OP-IMM-32) ──────────────
+// Each performs the operation on the lower 32 bits and sign-extends the 32-bit result to 64.
+public record RvAddw (int Rd, int Rs1, int Rs2)  : RvOp;
+public record RvSubw (int Rd, int Rs1, int Rs2)  : RvOp;
+public record RvSllw (int Rd, int Rs1, int Rs2)  : RvOp;
+public record RvSrlw (int Rd, int Rs1, int Rs2)  : RvOp;
+public record RvSraw (int Rd, int Rs1, int Rs2)  : RvOp;
+public record RvAddiw(int Rd, int Rs1, int Imm)  : RvOp;
+public record RvSlliw(int Rd, int Rs1, int Shamt) : RvOp;
+public record RvSrliw(int Rd, int Rs1, int Shamt) : RvOp;
+public record RvSraiw(int Rd, int Rs1, int Shamt) : RvOp;
+
+// ── RV64I new load/store variants ───────────────────────────────────────────────────────────
+public record RvLwu(int Rd, int Rs1, int Imm) : RvOp; // load word unsigned — zero-extend to 64 bits
+public record RvLd (int Rd, int Rs1, int Imm) : RvOp; // load doubleword
+public record RvSd (int Rs1, int Rs2, int Imm) : RvOp; // store doubleword

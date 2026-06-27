@@ -569,7 +569,7 @@ public class Rv32Executor : IExecutor {
         return ExecuteResult.Clean;
     }
 
-    private static ExecuteResult Branch(bool taken, ulong pc, int imm, int instrSize) =>
+    protected static ExecuteResult Branch(bool taken, ulong pc, int imm, int instrSize) =>
         ExecuteResult.WithBranch(taken, taken ? (ulong)((long)pc + imm) : pc + (ulong)instrSize);
 
     private static ExecuteResult ExecuteCsr(

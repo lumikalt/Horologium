@@ -9,11 +9,12 @@ A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The sim
 | **Orrery** | The simulation engine. Knows nothing about instructions or ISAs. |
 | **Mechanism** | Interfaces only. Defines the ISA-plugin contract. |
 | **Pipeline** | ISA-agnostic pipeline trains (`SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`), pipeline registers, `HazardUnit`, and stage implementations. No dependency on any ISA. |
-| **RiscV** | RV32IMAFCV implementation of the Mechanism contract. |
+| **RiscV32** | RV32IMAFCV implementation of the Mechanism contract. Includes Zba/Zbb/Zbc/Zbs/Zicond/Zawrs/Zicbom/Zicboz/Zimop/Zicntr and UVE. |
+| **RiscV64** | RV64I implementation extending RiscV32 via inheritance. Adds W-suffix ops (ADDW/SUBW/…/ADDIW/…), LD/LWU/SD, and corrects shift/comparison/LW semantics for 64-bit. |
 | **Chip8** | A second ISA implementation, demonstrating that the engine is genuinely ISA-agnostic. |
 | **Face** | Avalonia desktop UI for running experiments and visualizing results interactively. Includes a workload preset picker for the built-in demo and all benchmark ELFs. A **PEvents tab** shows a scrollable Argos-style pipeline waterfall (rows = instructions, columns = cycles, cells = stage abbreviation F/DC/D/IS/EX/RT/FL). A **SpecPC** gutter column shows the fetch-window start address for each instruction. Flush/misprediction cycles are highlighted red; fetch-stall cycles are dimmed. An **Assembler tab** provides a three-pane RISC-V assembly editor: left pane is a text editor with Assemble/Step/Run/Reset controls; centre pane lists decoded instructions (offset, hex encoding, disassembly with ABI names and pseudo-instructions) and shows a bit-field breakdown panel when a row is selected; right pane displays integer and float register contents with a per-file format selector (hex, decimal, binary, float). |
 | **Runner** | Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. |
-| **Tests** | xUnit tests, organized by project (`Tests/Orrery`, `Tests/RiscV`, `Tests/Chip8`, `Tests/Mechanism`). |
+| **Tests** | xUnit tests, organized by project (`Tests/Orrery`, `Tests/RiscV32`, `Tests/RiscV64`, `Tests/Chip8`, `Tests/Mechanism`). |
 
 ## Commands
 
@@ -77,7 +78,7 @@ The **Train** (`Orrery/Train/Train.cs`) owns the Gears and the Escapement and dr
 
 ### Pipeline trains (Pipeline/)
 
-Four Trains, all ISA-agnostic — they operate on `IArchState` and `ExecuteResult` closures with no dependency on RiscV.dll. When used with RISC-V they pair with `RvMechanism` (RV32IMAFCV):
+Four Trains, all ISA-agnostic — they operate on `IArchState` and `ExecuteResult` closures with no dependency on any ISA assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `Rv64Mechanism` (RV64I):
 
 - **`SingleCycleTrain`** — one Gear, one instruction per tick (fetch → decode → execute → writeback, all inline). Used to validate the Mechanism independently of pipeline complexity.
 - **`FiveStageTrain`** — classic IF/ID/EX/MEM/WB pipeline. Each stage is its own Gear wired in sequence via Arbors. A `HazardUnit` handles RAW stall detection and register forwarding (controlled by a `forwardingEnabled` flag). Branch handling uses a pluggable `IBranchPredictor`; built-in implementations include static predictors (`AlwaysNotTaken`, `AlwaysTaken`, `AlwaysBackwardNotForwards`), 1-bit and 2-bit saturating counter predictors, correlated (m,n), Gselect, Gshare, and L-TAGE (TAGE with a loop predictor overlay), plus a `ReturnAddressStack` wrapper for call/return prediction. Both instruction and data memory support optional set-associative caches and TLBs. A `StoreBuffer` provides deferred writes with store-to-load forwarding.
