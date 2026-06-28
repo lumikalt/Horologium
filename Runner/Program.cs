@@ -82,7 +82,7 @@ Console.Error.WriteLine($"Max ticks: {maxTicks:N0}");
 Console.Error.WriteLine();
 
 ExperimentResult result = Experiment.Run(
-    workload, configs, new Rv32Mechanism(), maxTicks, warmupTicks, snapshotInterval
+    workload, configs, new Rv32Mechanism(workload.HtifTohostAddress), maxTicks, warmupTicks, snapshotInterval
 );
 
 // ── Output ────────────────────────────────────────────────────────────────────

@@ -34,4 +34,12 @@ public interface IWorkload {
     /// (e.g. HTIF auto-ACK for RISC-V benchmark ELFs). The default is a no-op pass-through.
     /// </summary>
     IMemory WrapMemory(IMemory memory) => memory;
+
+    /// <summary>
+    /// Address of the HTIF <c>tohost</c> exit register, if this workload terminates
+    /// via HTIF. Pass to the mechanism so an exit-code store halts the run at the
+    /// write itself (first-class termination) rather than relying on the spin-loop
+    /// that follows. Null for workloads that do not use HTIF (the common case).
+    /// </summary>
+    ulong? HtifTohostAddress => null;
 }

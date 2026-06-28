@@ -37,7 +37,31 @@ public class HtifExitTests {
     [MemberData(nameof(Trains))]
     public void JumpToSelf_StopsAtSpinLoop(string train) => RunAndAssert(train, configureTohost: false);
 
+    /// <summary>
+    /// Proves <c>RequestHalt</c> actually fires rather than being dead code masked
+    /// by the jump-to-self backstop. With tohost configured the train halts AT the
+    /// exit store, so the following spin <c>j</c> never retires; without it the
+    /// train falls through to jump-to-self, retiring that <c>j</c> exactly once.
+    /// The two paths therefore retire identically up to the store, differing by the
+    /// single spin jump.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Trains))]
+    public void RequestHalt_RetiresOneFewerThanJumpToSelf(string train) {
+        long withTohost = Run(train, configureTohost: true).Retired;
+        long without = Run(train, configureTohost: false).Retired;
+        Assert.Equal(without - 1, withTohost);
+    }
+
     private static void RunAndAssert(string train, bool configureTohost) {
+        (RevolutionResult result, long _, uint tohostLow) = Run(train, configureTohost);
+
+        // Halted (did not exhaust the tick budget) and exited 0 (tohost low word == 1).
+        Assert.True(result.TotalTicks < MaxTicks, $"{train} did not halt — ran the full {MaxTicks} ticks");
+        Assert.Equal(1u, tohostLow);
+    }
+
+    private static (RevolutionResult Result, long Retired, uint TohostLow) Run(string train, bool configureTohost) {
         var workload = new Rv32ElfWorkload(HtifElf, MemoryBytes);
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
@@ -45,15 +69,14 @@ public class HtifExitTests {
         ulong tohost = workload.FindSymbol("tohost");
         var mech = new Rv32Mechanism(configureTohost ? tohost : null);
 
-        RevolutionResult result = train switch {
-            "single_cycle" => new SingleCycleTrain(mech, mem, workload.EntryPoint).Run(MaxTicks),
-            "five_stage"   => new FiveStageTrain(mech, mem, workload.EntryPoint).Run(MaxTicks),
-            "ooo"          => new OooeTrain(mech, mem, workload.EntryPoint).Run(MaxTicks),
+        (RevolutionResult result, string ownerPath) = train switch {
+            "single_cycle" => (new SingleCycleTrain(mech, mem, workload.EntryPoint).Run(MaxTicks), "single_cycle.core"),
+            "five_stage"   => (new FiveStageTrain(mech, mem, workload.EntryPoint).Run(MaxTicks), "five_stage.pipeline"),
+            "ooo"          => (new OooeTrain(mech, mem, workload.EntryPoint).Run(MaxTicks), "ooo.pipeline"),
             _              => throw new ArgumentOutOfRangeException(nameof(train)),
         };
 
-        // Halted (did not exhaust the tick budget) and exited 0 (tohost low word == 1).
-        Assert.True(result.TotalTicks < MaxTicks, $"{train} did not halt — ran the full {MaxTicks} ticks");
-        Assert.Equal(1u, (uint)mem.Read(tohost, 4));
+        long retired = result.Find(ownerPath)?.Counters.GetValueOrDefault("retired") ?? -1;
+        return (result, retired, (uint)mem.Read(tohost, 4));
     }
 }

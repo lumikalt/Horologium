@@ -165,7 +165,8 @@ public partial class MainWindowViewModel : ObservableObject {
 
             ExperimentResult result = await Task.Run(() =>
                                                          Experiment.Run(
-                                                             workload, namedConfigs, new Rv32Mechanism(), maxTicks,
+                                                             workload, namedConfigs,
+                                                             new Rv32Mechanism(workload.HtifTohostAddress), maxTicks,
                                                              warmupTicks, snapshotInterval
                                                          )
             );
@@ -213,7 +214,8 @@ public partial class MainWindowViewModel : ObservableObject {
             };
 
             var maxTicks = (long)(TraceMaxTicks > 0 ? TraceMaxTicks : 2_000);
-            PEventLog plog = await Task.Run(() => Experiment.Trace(workload, nc, new Rv32Mechanism(), maxTicks));
+            PEventLog plog = await Task.Run(() =>
+                Experiment.Trace(workload, nc, new Rv32Mechanism(workload.HtifTohostAddress), maxTicks));
 
             if (plog.Events.Count == 0) {
                 PEventStatusText = "No events recorded. The workload may not have executed any instructions.";

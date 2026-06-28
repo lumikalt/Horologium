@@ -23,6 +23,9 @@ public sealed class Rv32ElfWorkload : IWorkload {
     /// </summary>
     public ulong BaseAddress { get; }
 
+    /// <summary>The HTIF <c>tohost</c> exit register address if the ELF exports it; null otherwise.</summary>
+    public ulong? HtifTohostAddress { get; }
+
     public Rv32ElfWorkload(string path, int? memorySizeBytes = null)
         : this(File.ReadAllBytes(path), memorySizeBytes) { }
 
@@ -31,6 +34,7 @@ public sealed class Rv32ElfWorkload : IWorkload {
         EntryPoint = ParseEntryPoint(elfBytes);
         BaseAddress = ComputeBaseAddress(elfBytes);
         MemorySize = memorySizeBytes ?? ComputeMinMemorySize(elfBytes, BaseAddress);
+        HtifTohostAddress = TryFindSymbol("tohost", out ulong tohost) ? tohost : null;
     }
 
     public void Load(IMemory memory) => Rv32ElfLoader.Load(memory, _elfBytes);
