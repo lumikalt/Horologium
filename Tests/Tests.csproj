@@ -32,6 +32,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>test.elf</Link>
         </None>
+        <None Include="..\TestBinaries\rich.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>rich.elf</Link>
+        </None>
         <None Include="..\TestBinaries\isa\*.elf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <LinkBase>isa</LinkBase>
