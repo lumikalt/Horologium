@@ -41,7 +41,8 @@ public sealed class OooeTrain {
         MemoryConfig? dMemConfig = null,
         FuLatencyConfig? fuLatency = null,
         PEventLog? pEventLog = null,
-        int streamPrefetchDepth = 4
+        int streamPrefetchDepth = 4,
+        ICommitObserver? commitObserver = null
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -55,7 +56,8 @@ public sealed class OooeTrain {
                 dMemConfig ?? MemoryConfig.None,
                 fuLatency ?? FuLatencyConfig.Default,
                 pEventLog,
-                streamPrefetchDepth
+                streamPrefetchDepth,
+                commitObserver
             )
         );
         _train.Build();
@@ -163,6 +165,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly IFetchTranslator? _fetchTranslator;
     private readonly CapturingMemory _capMem;
     private readonly FuLatencyConfig _fuConfig;
+    private readonly ICommitObserver? _commitObserver;
 
     // Streaming engine (architectural; survives pipeline flushes)
     public StreamingEngine StreamingEngine { get; }
@@ -238,9 +241,11 @@ internal sealed class OoOPipelineCore : Gear {
         MemoryConfig dMemConfig,
         FuLatencyConfig fuConfig,
         PEventLog? pEventLog = null,
-        int streamPrefetchDepth = 4
+        int streamPrefetchDepth = 4,
+        ICommitObserver? commitObserver = null
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
+        _commitObserver = commitObserver;
         _decoder = mechanism.Decoder;
         _executor = mechanism.Executor;
         _trapController = mechanism.TrapController;
@@ -491,6 +496,12 @@ internal sealed class OoOPipelineCore : Gear {
             if (head.IsStore) DLayers.Accessor.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
 
             CommitRegisters(head);
+
+            // Co-sim notification. Reaching here guarantees a real commit: halt,
+            // trap, return-from-trap, and load-violation cases all returned above.
+            // Fires for both the normal and branch-mispredict retire paths below.
+            if (_commitObserver is not null && head.Instruction is not null)
+                _commitObserver.OnCommit(head.Pc, head.Instruction.RawEncoding, State);
 
             if (head.ResolvedNextPc.HasValue) {
                 // Capture all fields from head before Retire() clears the slot.

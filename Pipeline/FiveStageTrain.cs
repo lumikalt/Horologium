@@ -34,7 +34,8 @@ public sealed class FiveStageTrain {
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null,
         int storeBufferCapacity = 0,
-        PEventLog? pEventLog = null
+        PEventLog? pEventLog = null,
+        ICommitObserver? commitObserver = null
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
@@ -45,7 +46,7 @@ public sealed class FiveStageTrain {
                 predictor ?? new AlwaysNotTakenPredictor(),
                 iMemConfig ?? MemoryConfig.None,
                 dMemConfig ?? MemoryConfig.None,
-                storeBufferCapacity, pEventLog
+                storeBufferCapacity, pEventLog, commitObserver
             )
         );
         _train.Build();
@@ -137,7 +138,8 @@ internal sealed class PipelineCore : Gear {
         MemoryConfig iMemConfig,
         MemoryConfig dMemConfig,
         int storeBufferCapacity = 0,
-        PEventLog? pEventLog = null
+        PEventLog? pEventLog = null,
+        ICommitObserver? commitObserver = null
     )
         : base(name, parent, esc) {
         _plog = pEventLog;
@@ -169,7 +171,7 @@ internal sealed class PipelineCore : Gear {
         _mem = new MemoryStage("mem", parent, esc);
         _wb = new WritebackStage(
             "wb", parent, esc,
-            State, mechanism.TrapController
+            State, mechanism.TrapController, commitObserver
         );
 
         _if.Pc = entryPoint;

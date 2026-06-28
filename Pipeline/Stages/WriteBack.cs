@@ -10,6 +10,7 @@ namespace Pipeline.Stages;
 public sealed class WritebackStage : Gear {
     private readonly IArchState _state;
     private readonly ITrapController _trap;
+    private readonly ICommitObserver? _commitObserver;
 
     private MemWbLatch _current = MemWbLatch.Bubble;
 
@@ -26,11 +27,13 @@ public sealed class WritebackStage : Gear {
         SimNode parent,
         Escapement esc,
         IArchState state,
-        ITrapController trap
+        ITrapController trap,
+        ICommitObserver? commitObserver = null
     )
         : base(name, parent, esc) {
         _state = state;
         _trap = trap;
+        _commitObserver = commitObserver;
         Input = new InArbor<MemWbLatch>($"{name}.in") {
             OnReceive = latch => _current = latch,
         };
@@ -77,6 +80,13 @@ public sealed class WritebackStage : Gear {
         if (!TrapRedirect.HasValue) {
             // Update state.Pc to the committed next PC so mepc is correct.
             _state.Pc = latch.NextPc;
+
+            // Co-sim notification — a normal retire (trap/return set TrapRedirect
+            // above and skip this block). Fire before the interrupt peek so an
+            // instruction that triggers a following interrupt still commits.
+            if (_commitObserver is not null && latch.Instruction is not null)
+                _commitObserver.OnCommit(latch.Pc, latch.Instruction.RawEncoding, _state);
+
             TrapInfo? interrupt = _trap.PeekInterrupt(_state);
             if (interrupt is not null) TrapRedirect = (_trap.RaiseTrap(interrupt, _state), true);
         }

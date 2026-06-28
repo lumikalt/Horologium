@@ -37,4 +37,47 @@ public class SpikeCoSimTests {
         // CoSimDivergenceException is thrown on the first mismatch.
         train.Run();
     }
+
+    /// <summary>
+    /// FiveStageTrain running test.elf must match Spike commit-for-commit. This
+    /// exercises the in-order hazard/forwarding datapath that SingleCycle skips.
+    /// </summary>
+    [Fact]
+    public void FiveStage_TestElf_MatchesSpike() {
+        var workload = new Rv32ElfWorkload(TestElfPath);
+
+        var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(mem);
+
+        using var cosim = new SpikeCoSimReference(TestElfPath, workload.BaseAddress, workload.MemorySize);
+
+        var train = new FiveStageTrain(
+            new Rv32Mechanism(), mem, workload.EntryPoint,
+            commitObserver: cosim
+        );
+
+        train.Run();
+    }
+
+    /// <summary>
+    /// OooeTrain running test.elf must match Spike commit-for-commit. This
+    /// exercises the out-of-order issue/execute and speculative-memory datapath;
+    /// the observer fires in program order at the ROB head.
+    /// </summary>
+    [Fact]
+    public void Oooe_TestElf_MatchesSpike() {
+        var workload = new Rv32ElfWorkload(TestElfPath);
+
+        var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(mem);
+
+        using var cosim = new SpikeCoSimReference(TestElfPath, workload.BaseAddress, workload.MemorySize);
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, workload.EntryPoint,
+            commitObserver: cosim
+        );
+
+        train.Run();
+    }
 }

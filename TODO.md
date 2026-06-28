@@ -137,7 +137,7 @@
 ## Co-simulation
 
 - [x] Spike online lock-step co-simulation via streaming `--log-commits`: `ICommitObserver` in `Mechanism/`, wired into `SingleCycleTrain`; `SpikeCoSimReference` launches Spike as a live child process, reads its commit log line-by-line in real time (one `ReadLine()` per `OnCommit`), and compares PC + encoding + integer register writes immediately — divergence is reported at the exact failing instruction. `SpikeCoSimTests` verifies `test.elf` end-to-end in ~50 ms. Covers standard ISA; UVE is invisible to Spike.
-  - [ ] Extend `ICommitObserver` to `FiveStageTrain` and `OooeTrain` so the co-sim check also covers the pipeline hazard and forwarding paths.
+  - [x] Extend `ICommitObserver` to `FiveStageTrain` and `OooeTrain` so the co-sim check also covers the pipeline hazard and forwarding paths. `WritebackStage` fires `OnCommit` on normal retire (after the committed-PC update, before the interrupt peek); `OooeTrain` fires once per ROB-head commit (after `CommitRegisters`, covering both the normal and branch-mispredict retire paths). Verified via `FiveStage_TestElf_MatchesSpike` / `Oooe_TestElf_MatchesSpike`.
   - [ ] Auto-skip `SpikeCoSimTests` in CI without Spike (requires `Xunit.SkippableFact` or xunit 3.x upgrade).
 - [ ] gem5 timing co-simulation: compare pipeline event timing (fetch cycle, issue cycle, retire cycle) against gem5's O3CPU. Verifies IPC and stall counts, not ISA correctness. Requires gem5 Python integration and a structural mapping between PEvents and gem5's stats. Substantially more complex than Spike ISA co-sim.
 
