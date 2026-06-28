@@ -91,59 +91,70 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint SstatusSpie = CsrFile.MstatusSpie;
     public const uint SstatusSpp = CsrFile.MstatusSpp;
 
-    private readonly Dictionary<uint, uint> _csrs = new();
+    // CSR addresses are 12-bit, so a flat array (indexed by address) replaces a
+    // Dictionary: DirectRead is called twice every cycle by PeekInterrupt, and
+    // dictionary hashing showed up as a top hot spot. _present preserves the
+    // distinction between an existing zero CSR and an illegal/absent one.
+    private const int CsrSpace = 4096;
+    private readonly uint[] _csrs = new uint[CsrSpace];
+    private readonly bool[] _present = new bool[CsrSpace];
+
+    private void Seed(uint address, uint value) {
+        _csrs[address] = value;
+        _present[address] = true;
+    }
 
     public CsrFile() {
         // Initialise to reset values
-        _csrs[CsrFile.Fflags] = 0;
-        _csrs[CsrFile.Frm] = 0;
-        _csrs[CsrFile.Fcsr] = 0;
+        Seed(CsrFile.Fflags, 0);
+        Seed(CsrFile.Frm, 0);
+        Seed(CsrFile.Fcsr, 0);
         // Supervisor Protection and Translation
-        _csrs[CsrFile.Satp] = 0;
+        Seed(CsrFile.Satp, 0);
         // Supervisor Trap Setup
-        _csrs[CsrFile.Sstatus] = 0;
-        _csrs[CsrFile.Sie] = 0;
-        _csrs[CsrFile.Stvec] = 0;
-        _csrs[CsrFile.Sscratch] = 0;
-        _csrs[CsrFile.Sepc] = 0;
-        _csrs[CsrFile.Scause] = 0;
-        _csrs[CsrFile.Stval] = 0;
-        _csrs[CsrFile.Sip] = 0;
+        Seed(CsrFile.Sstatus, 0);
+        Seed(CsrFile.Sie, 0);
+        Seed(CsrFile.Stvec, 0);
+        Seed(CsrFile.Sscratch, 0);
+        Seed(CsrFile.Sepc, 0);
+        Seed(CsrFile.Scause, 0);
+        Seed(CsrFile.Stval, 0);
+        Seed(CsrFile.Sip, 0);
 
-        _csrs[CsrFile.Mstatus] = 0;
-        _csrs[CsrFile.Misa] = 0x40000100; // RV32I: MXL=01, I extension bit set
-        _csrs[CsrFile.Medeleg] = 0;
-        _csrs[CsrFile.Mideleg] = 0;
-        _csrs[CsrFile.Mie] = 0;
-        _csrs[CsrFile.Mtvec] = 0;
-        _csrs[CsrFile.Mcounteren] = 0;
-        _csrs[CsrFile.Mscratch] = 0;
-        _csrs[CsrFile.Mepc] = 0;
-        _csrs[CsrFile.Mcause] = 0;
-        _csrs[CsrFile.Mtval] = 0;
-        _csrs[CsrFile.Mip] = 0;
-        _csrs[CsrFile.Mcycle] = 0;
-        _csrs[CsrFile.Mcycleh] = 0;
-        _csrs[CsrFile.Minstret] = 0;
-        _csrs[CsrFile.Minstreth] = 0;
+        Seed(CsrFile.Mstatus, 0);
+        Seed(CsrFile.Misa, 0x40000100); // RV32I: MXL=01, I extension bit set
+        Seed(CsrFile.Medeleg, 0);
+        Seed(CsrFile.Mideleg, 0);
+        Seed(CsrFile.Mie, 0);
+        Seed(CsrFile.Mtvec, 0);
+        Seed(CsrFile.Mcounteren, 0);
+        Seed(CsrFile.Mscratch, 0);
+        Seed(CsrFile.Mepc, 0);
+        Seed(CsrFile.Mcause, 0);
+        Seed(CsrFile.Mtval, 0);
+        Seed(CsrFile.Mip, 0);
+        Seed(CsrFile.Mcycle, 0);
+        Seed(CsrFile.Mcycleh, 0);
+        Seed(CsrFile.Minstret, 0);
+        Seed(CsrFile.Minstreth, 0);
 
         // Read-only machine information
-        _csrs[CsrFile.Mvendorid] = 0;
-        _csrs[CsrFile.Marchid] = 0;
-        _csrs[CsrFile.Mimpid] = 0;
-        _csrs[CsrFile.Mhartid] = 0;
+        Seed(CsrFile.Mvendorid, 0);
+        Seed(CsrFile.Marchid, 0);
+        Seed(CsrFile.Mimpid, 0);
+        Seed(CsrFile.Mhartid, 0);
 
         // V extension
-        _csrs[CsrFile.Vstart] = 0;
-        _csrs[CsrFile.Vxsat] = 0;
-        _csrs[CsrFile.Vxrm] = 0;
-        _csrs[CsrFile.Vcsr] = 0;
-        _csrs[CsrFile.Vl] = 0;
-        _csrs[CsrFile.Vtype] = 0;
-        _csrs[CsrFile.Vlenb] = VectorRegisterFile.VLenB;
+        Seed(CsrFile.Vstart, 0);
+        Seed(CsrFile.Vxsat, 0);
+        Seed(CsrFile.Vxrm, 0);
+        Seed(CsrFile.Vcsr, 0);
+        Seed(CsrFile.Vl, 0);
+        Seed(CsrFile.Vtype, 0);
+        Seed(CsrFile.Vlenb, VectorRegisterFile.VLenB);
     }
 
-    public bool Exists(uint address) => _csrs.ContainsKey(address);
+    public bool Exists(uint address) => address < CsrSpace && _present[address];
 
     public ulong Read(uint address, PrivilegeLevel currentPrivilege) {
         CheckPrivilege(address, currentPrivilege);
@@ -157,30 +168,31 @@ public sealed class CsrFile : ISystemRegisters {
             CsrFile.Instreth => CsrFile.Minstreth,
             _                => address,
         };
-        return _csrs.TryGetValue(effective, out uint v)
-            ? v
+        return effective < CsrSpace && _present[effective]
+            ? _csrs[effective]
             : throw new SystemRegisterAccessException($"CSR 0x{effective:X3} does not exist.");
     }
 
     public void Write(uint address, ulong value, PrivilegeLevel currentPrivilege) {
         CheckPrivilege(address, currentPrivilege);
         CheckNotReadOnly(address);
-        if (!_csrs.ContainsKey(address)) throw new SystemRegisterAccessException($"CSR 0x{address:X3} does not exist.");
+        if (address >= CsrSpace || !_present[address])
+            throw new SystemRegisterAccessException($"CSR 0x{address:X3} does not exist.");
         _csrs[address] = (uint)value;
     }
 
     /// <summary>Direct read bypassing privilege checks — used internally by the trap controller.</summary>
     internal uint DirectRead(uint address) =>
-        _csrs.TryGetValue(address, out uint v) ? v : 0;
+        address < CsrSpace && _present[address] ? _csrs[address] : 0;
 
     /// <summary>Direct write bypassing privilege checks — used internally by the trap controller.</summary>
-    internal void DirectWrite(uint address, uint value) =>
-        _csrs[address] = value;
+    internal void DirectWrite(uint address, uint value) => Seed(address, value);
 
     public void Reset() {
-        foreach (uint key in _csrs.Keys.ToList()) _csrs[key] = 0;
-        _csrs[CsrFile.Misa] = 0x40000100;
-        _csrs[CsrFile.Vlenb] = VectorRegisterFile.VLenB;
+        for (var i = 0; i < CsrSpace; i++)
+            if (_present[i]) _csrs[i] = 0;
+        Seed(CsrFile.Misa, 0x40000100);
+        Seed(CsrFile.Vlenb, VectorRegisterFile.VLenB);
     }
 
     // ── Privilege enforcement ─────────────────────────────────────────────────

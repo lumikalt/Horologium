@@ -89,6 +89,15 @@
   `WritebackStage.TrapRedirect`, `RobEntry.ResolvedNextPc`, `ExecuteResult.RegisterResult`. Converted to
   `(ulong Value, bool HasValue)` pairs. Profiler showed ~833ms combined across the four setters.
 - [ ] Memoization of instructions, results, and branches.
+- [ ] Replace the executor's ~150-arm type-pattern `switch` over `RvOp` records with O(1) dispatch (an
+  `RvOpKind` enum/int discriminator switched as a jump table, or virtual dispatch on the op). Roslyn compiles
+  type-pattern switches to a linear `isinst` chain; a Timeline profile (rsort) showed `CastHelpers.IsInstanceOfClass`
+  at ~3.4% of real main-thread work. Same shape in `RvInstruction`'s remaining type-pattern properties.
+- [ ] Structural stage-model rework for the in-order trains: the per-cycle pipeline allocates a latch record
+  (`IfIdLatch`/`IdExLatch`/`ExMemLatch`/`MemWbLatch`) per stage per cycle and dispatches operands through
+  `IRegisterFile`/`IMemory` interfaces with a save/inject/restore dance in `ExecuteStage`. Converting latches to
+  structs and cutting the per-cycle interface hops is the lever for a large (vs. incremental) speedup; the Timeline
+  profile showed no single hotspot — cost is spread across the stage `Cycle()` methods.
 
 ## Mechanism
 

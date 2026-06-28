@@ -42,9 +42,18 @@ public sealed class HazardUnit(bool forwardingEnabled) {
     /// index 1 = currently in MEM, etc.).
     /// </param>
     public bool MustStall(IReadOnlyList<int> incomingSources, IReadOnlyList<PipelineResident> residents) {
-        if (incomingSources.Count == 0 || residents.Count == 0) return false;
+        int srcCount = incomingSources.Count;
+        if (srcCount == 0 || residents.Count == 0) return false;
 
-        bool Reads(int dest) => dest > 0 && incomingSources.Any(src => src == dest);
+        // Manual scan instead of LINQ — this runs once per instruction on the hot
+        // path, and Enumerable.Any over an interface-typed list allocates an
+        // enumerator (and a capturing closure) every call.
+        bool Reads(int dest) {
+            if (dest <= 0) return false;
+            for (var i = 0; i < srcCount; i++)
+                if (incomingSources[i] == dest) return true;
+            return false;
+        }
 
         if (forwardingEnabled)
             // Load-use hazard: a load (or AMO) in the EX stage (index 0) produces its
@@ -53,7 +62,9 @@ public sealed class HazardUnit(bool forwardingEnabled) {
                 && Reads(residents[0].DestReg);
 
         // Without forwarding, stall while any producer is still ahead in the pipeline.
-        return residents.Any(r => r.IsValid && Reads(r.DestReg));
+        for (var i = 0; i < residents.Count; i++)
+            if (residents[i].IsValid && Reads(residents[i].DestReg)) return true;
+        return false;
     }
 
     /// <summary>
@@ -77,7 +88,10 @@ public sealed class HazardUnit(bool forwardingEnabled) {
         if (!forwardingEnabled || sources.Count == 0) return (rs1, rs2, rs3);
 
         // Apply oldest to newest so the freshest result overwrites stale ones.
-        foreach (PipelineResident p in providers) {
+        // Indexed loop avoids the enumerator allocation of foreach over an
+        // interface-typed list on this per-instruction hot path.
+        for (var pi = 0; pi < providers.Count; pi++) {
+            PipelineResident p = providers[pi];
             if (!p.IsValid || p.DestReg <= 0 || !p.ForwardValue.HasValue) continue;
             ulong fwd = p.ForwardValue.Value;
             if (sources.Count > 0 && sources[0] == p.DestReg) rs1 = fwd;

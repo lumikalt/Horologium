@@ -342,9 +342,12 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     public override void Wind() =>
-        Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
+        Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
 
     // ── Main driver ────────────────────────────────────────────────────────────
+
+    // Cached to avoid a fresh Action allocation per simulated cycle.
+    private Action? _runCycle;
 
     private void RunCycle() {
         if (_halted) return;
@@ -374,7 +377,7 @@ internal sealed class OoOPipelineCore : Gear {
 
         if (_halted || _flushPending) {
             if (_flushPending) StepFlush();
-            if (!_halted) Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
+            if (!_halted) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
             return;
         }
 
@@ -390,7 +393,7 @@ internal sealed class OoOPipelineCore : Gear {
         // Fetch: fill the decode queue with new speculative instructions.
         StepFetch();
 
-        Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
+        Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
     }
 
     // ── Pipeline stages ────────────────────────────────────────────────────────

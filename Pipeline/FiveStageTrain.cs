@@ -98,6 +98,10 @@ internal sealed class PipelineCore : Gear {
     private readonly PipelineResident[] _fwdProviders = new PipelineResident[2];
     private readonly PipelineResident[] _hazardResidents = new PipelineResident[2];
 
+    // Cached delegate: a method-group conversion (RunCycle) allocates a fresh
+    // Action on every ScheduleNextTick call — once per simulated cycle. Cache it.
+    private Action? _runCycle;
+
     private bool _anyCache;
 
     // PEvent recording — null means recording is disabled (zero overhead path)
@@ -251,7 +255,7 @@ internal sealed class PipelineCore : Gear {
     }
 
     public override void Wind() =>
-        Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
+        Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
 
     // One clock cycle. Control logic snapshots the pipeline registers from last
     // cycle, then drives all stages directly. WB runs before ID so a register
@@ -281,7 +285,7 @@ internal sealed class PipelineCore : Gear {
             _stallsCounter.Increment();
             _cacheMissStallsCounter?.Increment();
             _missStallBudget--;
-            Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
+            Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
             return;
         }
 
@@ -403,7 +407,7 @@ internal sealed class PipelineCore : Gear {
 
         StoreBuffer?.DrainEligible();
 
-        Escapement.ScheduleNextTick(RunCycle, Phase.Fetch);
+        Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
     }
 
     // Drain accumulated stall cycles from all memory hierarchy layers and

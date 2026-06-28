@@ -181,9 +181,12 @@ internal sealed class SuperscalarCore(
         ArchState.Pc = entryPoint;
     }
 
+    // Cached to avoid a fresh Action allocation per simulated cycle.
+    private Action? _runCycle;
+
     public override void Wind() {
         ArchState.Pc = entryPoint;
-        Escapement.ScheduleNextTick(RunCycle, Phase.Execute);
+        Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Execute);
     }
 
     private void RunCycle() {
@@ -281,7 +284,7 @@ internal sealed class SuperscalarCore(
         // A cycle where the group ran short (branch cut / halt) counts as a stall cycle.
         if (issued < issueWidth) _stallsCounter.Increment();
 
-        if (!halt) Escapement.ScheduleNextTick(RunCycle, Phase.Execute);
+        if (!halt) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Execute);
     }
 
     // Drains all pending stalls and updates hit/miss counters. Returns total stall count.

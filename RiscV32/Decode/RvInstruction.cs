@@ -25,7 +25,11 @@ public sealed class RvInstruction(
     public ToothClass Class { get; } = cls;
     public object? Payload { get; } = payload;
 
-    public int VectorDestinationRegister => Payload switch {
+    // These views are derived purely from the (immutable) Payload. Decode results
+    // are cached and reused millions of times on the hot path, so compute each
+    // once at construction rather than re-running the type-pattern switch — and the
+    // collection-valued ones (below) re-allocated an array on every access.
+    public int VectorDestinationRegister { get; } = payload switch {
         RvVIntAluVv op  => op.Vd,
         RvVIntAluVx op  => op.Vd,
         RvVIntAluVi op  => op.Vd,
@@ -37,29 +41,29 @@ public sealed class RvInstruction(
         _               => -1,
     };
 
-    public IReadOnlyList<int> UveStreamSources => Payload switch {
+    public IReadOnlyList<int> UveStreamSources { get; } = payload switch {
         // so.a.fp consumes one element from each source u-reg (if they are load streams).
         RvUveSoAFp op => [op.Usrc1, op.Usrc2,],
         _             => [],
     };
 
-    public IReadOnlyList<int> UveBranchStreams => Payload switch {
+    public IReadOnlyList<int> UveBranchStreams { get; } = payload switch {
         RvUveSoBNc op => [op.Urs,],
         _             => [],
     };
 
-    public IReadOnlyList<(int StreamId, int Dim)> UveDimBranchSources => Payload switch {
+    public IReadOnlyList<(int StreamId, int Dim)> UveDimBranchSources { get; } = payload switch {
         RvUveSoBNdc op => [(op.Urs, op.Dim),],
         _              => [],
     };
 
-    public int LoadSignExtendBytes => Payload switch {
+    public int LoadSignExtendBytes { get; } = payload switch {
         RvLb => 1,
         RvLh => 2,
         _    => 0,
     };
 
-    public IReadOnlyList<int> VectorSourceRegisters => Payload switch {
+    public IReadOnlyList<int> VectorSourceRegisters { get; } = payload switch {
         RvVIntAluVv op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         RvVIntAluVx op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVIntAluVi op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],

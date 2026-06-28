@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Orrery.Observation;
 
 /// <summary>
@@ -21,8 +23,12 @@ public sealed class Histogram {
     }
 
     /// <summary>Increments the count for <paramref name="key"/> using type-identity hashing.</summary>
-    public void Observe(Type key) =>
-        _typeBuckets[key] = _typeBuckets.GetValueOrDefault(key) + 1;
+    public void Observe(Type key) {
+        // Single hash lookup instead of GetValueOrDefault + indexer-set (two lookups);
+        // runs once per retired instruction.
+        ref long count = ref CollectionsMarshal.GetValueRefOrAddDefault(_typeBuckets, key, out _);
+        count++;
+    }
 
     /// <summary>Increments the count for <paramref name="key"/> by string.</summary>
     public void Observe(string key) =>
