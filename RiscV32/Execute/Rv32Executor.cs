@@ -984,6 +984,7 @@ public class Rv32Executor : IExecutor {
             UveFpOp.Add => a + b,
             UveFpOp.Mac => uveState.Scalars[ud] + a * b,
             UveFpOp.Sub => a - b,
+            UveFpOp.Div => a / b,
             _           => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
         };
         var resultBits = (uint)BitConverter.SingleToInt32Bits(result);

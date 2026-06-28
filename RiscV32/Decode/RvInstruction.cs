@@ -474,6 +474,7 @@ public enum UveFpOp {
     Add = 1,
     Mac = 2,
     Sub = 3,
+    Div = 4,
 }
 
 public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
