@@ -124,23 +124,41 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
         }
     }
 
+    /// <summary>
+    /// True when the Spike co-simulation toolchain can be located: the
+    /// <c>spike</c> simulator on PATH and the <c>dtc</c> device-tree compiler it
+    /// needs (on PATH or in the Nix store). Lets callers skip the co-sim tests
+    /// gracefully where the toolchain is absent. The Nix dev-shell provides both.
+    /// </summary>
+    public static bool IsAvailable() =>
+        FindOnPath("spike") is not null && (FindOnPath("dtc") is not null || NixDtcBin() is not null);
+
     private static string BuildSpikeEnvPath() {
         var existing = Environment.GetEnvironmentVariable("PATH") ?? "";
-        if (existing.Split(':').Any(d => File.Exists(Path.Combine(d, "dtc"))))
-            return existing;
+        if (FindOnPath("dtc") is not null) return existing;
 
         // dtc not in PATH — search the nix store (dev-shell may not be reloaded).
+        string? dtcBin = NixDtcBin();
+        return dtcBin is not null ? $"{dtcBin}:{existing}" : existing;
+    }
+
+    // Returns the directory containing the named executable on PATH, or null.
+    private static string? FindOnPath(string exe) {
+        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        return path.Split(Path.PathSeparator)
+            .FirstOrDefault(d => d.Length > 0 && File.Exists(Path.Combine(d, exe)));
+    }
+
+    // Returns a nix-store bin directory containing dtc, or null.
+    private static string? NixDtcBin() {
         try {
             var nixStore = new DirectoryInfo("/nix/store");
-            if (nixStore.Exists) {
-                var dtcBin = nixStore.GetDirectories("*-dtc-*")
-                    .Select(d => Path.Combine(d.FullName, "bin"))
-                    .FirstOrDefault(d => File.Exists(Path.Combine(d, "dtc")));
-                if (dtcBin is not null)
-                    return $"{dtcBin}:{existing}";
-            }
-        } catch { }
-
-        return existing;
+            if (!nixStore.Exists) return null;
+            return nixStore.GetDirectories("*-dtc-*")
+                .Select(d => Path.Combine(d.FullName, "bin"))
+                .FirstOrDefault(d => File.Exists(Path.Combine(d, "dtc")));
+        } catch {
+            return null;
+        }
     }
 }

@@ -124,3 +124,18 @@ Because the five-stage and out-of-order trains previously spun HTIF binaries to 
 ### Hardware comparison (RiscV/Analysis)
 
 `Experiment.Run(workload, configs, mechanism)` runs the same workload under multiple `NamedConfig` entries (each a named `TrainConfig` describing forwarding, predictor, cache, TLB, and store-buffer parameters), returns an `ExperimentResult`, and supports warmup ticks and periodic time-series snapshots. Results can be formatted as a Markdown table, summary CSV, or time-series CSV for graphing. `NamedConfig` sweep files are plain JSON arrays, readable by the Runner's `--sweep` flag.
+
+## Co-simulation contract
+
+Spike is the reference of record for ISA correctness. The contract: **every change to the decoder, executor, register/CSR/trap state, or any train's commit path must keep `SpikeCoSimTests` green.** Those tests run all three trains (`SingleCycleTrain`, `FiveStageTrain`, `OooeTrain`) against `test.elf`, `rich.elf`, and `htif.elf`, comparing every committed instruction's PC, encoding, and integer register writes to Spike commit-for-commit (see *Spike lock-step co-simulation* above). A green run means the simulated datapath agrees with a real RISC-V reference instruction-by-instruction — the strongest correctness signal in the project.
+
+If you add an instruction, extension, pipeline behaviour, or fixture, add or extend a co-sim fixture so the new path is covered, and run:
+
+```bash
+dotnet test Tests/ --filter "FullyQualifiedName~SpikeCoSim"                            # run the co-sim contract
+HOROLOGIUM_REQUIRE_COSIM=1 dotnet test Tests/ --filter "FullyQualifiedName~SpikeCoSim" # CI mode: missing toolchain → failure
+```
+
+**Toolchain.** The tests need `spike` and `dtc`; the Nix dev-shell (`flake.nix` + `direnv`) provides both. When the toolchain is absent the tests **skip** rather than fail, so the suite stays runnable everywhere. Set **`HOROLOGIUM_REQUIRE_COSIM=1`** to flip a missing toolchain into a hard failure — use this in CI (or before merging) so the contract cannot be satisfied by silently skipping. ISA-correctness coverage that does *not* need Spike (e.g. HTIF termination, the official `riscv-tests` self-checks) lives in `HtifExitTests` / `RiscVTestSuiteTests` and always runs.
+
+> Note: Spike sees only the standard ISA. UVE and other custom extensions are invisible to it, so their correctness is covered by Horologium's own integration tests, not co-sim.
