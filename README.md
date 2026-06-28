@@ -108,6 +108,10 @@ ISA conformance tests (`TestBinaries/isa/`) are also linked at `0x80000000`. `Fl
 
 FiveStage records Fetch/Decode/Execute/Retire/Flush. OoO records the full lifecycle: Fetch → Decode → Dispatch → Issue → Execute → Retire/Flush. Flush events appear as an additional terminal event for wrong-path or squashed instructions.
 
+### Spike lock-step co-simulation (RiscV32/CoSim)
+
+`SpikeCoSimReference` implements `ICommitObserver` and runs Spike (`--log-commits`) against the same ELF at construction time. For each instruction that Horologium commits, it checks the PC, raw encoding, and any integer register write against the corresponding Spike commit record, throwing `CoSimDivergenceException` on the first divergence. Boot-ROM commits (PC below `baseAddress`) are filtered from Spike's log automatically. Attach it to `SingleCycleTrain` via the optional `commitObserver` parameter. `dtc` must be on PATH (the Nix dev-shell provides it); tests in `SpikeCoSimTests` can be excluded from CI without Spike with `--filter "FullyQualifiedName!~SpikeCoSim"`.
+
 ### Hardware comparison (RiscV/Analysis)
 
 `Experiment.Run(workload, configs, mechanism)` runs the same workload under multiple `NamedConfig` entries (each a named `TrainConfig` describing forwarding, predictor, cache, TLB, and store-buffer parameters), returns an `ExperimentResult`, and supports warmup ticks and periodic time-series snapshots. Results can be formatted as a Markdown table, summary CSV, or time-series CSV for graphing. `NamedConfig` sweep files are plain JSON arrays, readable by the Runner's `--sweep` flag.

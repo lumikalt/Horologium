@@ -961,9 +961,9 @@ internal sealed class OoOPipelineCore : Gear {
                 int signExtBytes = issued.Instr.LoadSignExtendBytes;
                 if (signExtBytes > 0) {
                     ulong signBit = 1UL << (signExtBytes * 8 - 1);
-                    if ((fwd & signBit) != 0)
-                        fwd |= ~((1UL << (signExtBytes * 8)) - 1);
+                    if ((fwd & signBit) != 0) fwd |= ~((1UL << (signExtBytes * 8)) - 1);
                 }
+
                 regValue = (fwd, true);
                 loadForwarded = true;
             }

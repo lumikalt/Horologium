@@ -127,7 +127,9 @@
 
 ## Co-simulation
 
-- [ ] Spike lock-step co-simulation (online, driven via spike `-d` interactive debug mode): step both Horologium and Spike instruction-by-instruction, halt and report on first divergence. Covers standard ISA only — UVE and other custom extensions are invisible to Spike. Address space is now compatible: all ELFs and FlatMemory use Spike's `DRAM_BASE` (0x80000000). Remaining work: `ICoSimReference` in Mechanism/, `ICommitObserver` hook in trains, `SpikeCoSimReference` in RiscV32/CoSim/ using `-d` stdin/stdout protocol, co-sim integration tests.
+- [x] Spike lock-step co-simulation (offline trace compare via `--log-commits`): `ICommitObserver` in `Mechanism/`, wired into `SingleCycleTrain`; `SpikeCoSimReference` in `RiscV32/CoSim/` runs Spike at construction, parses the commit log, and checks PC + encoding + integer register writes on each Horologium commit; `SpikeCoSimTests` verifies `test.elf` end-to-end. Covers standard ISA; UVE is invisible to Spike.
+  - [ ] Extend `ICommitObserver` to `FiveStageTrain` and `OooeTrain` so the co-sim check also covers the pipeline hazard and forwarding paths.
+  - [ ] Auto-skip `SpikeCoSimTests` in CI without Spike (requires `Xunit.SkippableFact` or xunit 3.x upgrade).
 - [ ] gem5 timing co-simulation: compare pipeline event timing (fetch cycle, issue cycle, retire cycle) against gem5's O3CPU. Verifies IPC and stall counts, not ISA correctness. Requires gem5 Python integration and a structural mapping between PEvents and gem5's stats. Substantially more complex than Spike ISA co-sim.
 
 ## Multicore

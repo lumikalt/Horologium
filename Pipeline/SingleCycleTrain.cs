@@ -31,7 +31,8 @@ public sealed class SingleCycleTrain {
         IMemory memory,
         ulong entryPoint = 0,
         MemoryConfig? iMemConfig = null,
-        MemoryConfig? dMemConfig = null
+        MemoryConfig? dMemConfig = null,
+        ICommitObserver? commitObserver = null
     ) {
         var esc = new Escapement();
         _train = new Train("single_cycle", esc);
@@ -39,7 +40,8 @@ public sealed class SingleCycleTrain {
             new SingleCycleCore(
                 "core", _train.Root, esc, mechanism, memory, entryPoint,
                 iMemConfig ?? MemoryConfig.None,
-                dMemConfig ?? MemoryConfig.None
+                dMemConfig ?? MemoryConfig.None,
+                commitObserver
             )
         );
         _train.Build();
@@ -65,7 +67,8 @@ internal sealed class SingleCycleCore(
     IMemory memory,
     ulong entryPoint,
     MemoryConfig iMemConfig,
-    MemoryConfig dMemConfig
+    MemoryConfig dMemConfig,
+    ICommitObserver? commitObserver = null
 )
     : Gear(name, parent, esc) {
     public MemoryLayers ILayers { get; } = MemoryLayers.Build(memory, iMemConfig);
@@ -250,6 +253,8 @@ internal sealed class SingleCycleCore(
                 ArchState.Pc = result.BranchTarget.Value;
             else
                 ArchState.Pc = pc + (ulong)instr.SizeBytes;
+
+            commitObserver?.OnCommit(pc, instr.RawEncoding, ArchState);
         }
 
         Type? instrType = instr.Payload?.GetType();
