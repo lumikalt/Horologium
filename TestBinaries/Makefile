@@ -20,6 +20,11 @@ CFLAGS_RICH = -march=rv32im -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
 rich.elf: crt0.s rich.c test.ld
 	$(CC) $(CFLAGS_RICH) -T test.ld crt0.s rich.c -o $@
 
+# HTIF-terminating variant: exits via the tohost register (no EBREAK), so
+# standalone Spike halts cleanly. Same RV32IM workload as rich.c.
+htif.elf: htif_crt.s htif.c htif.ld
+	$(CC) $(CFLAGS_RICH) -T htif.ld htif_crt.s htif.c -o $@
+
 # ── Official riscv-tests — rv32ui (base integer ISA) ─────────────────────────
 #
 # fence_i.S: self-modifying-code test; Horologium does not model I-cache
@@ -132,11 +137,11 @@ BMARKS_ELFS = $(patsubst %, benchmarks/%.elf, $(BMARKS))
 
 .PHONY: all isa-tests benchmarks clean
 
-all: test.elf rich.elf isa-tests benchmarks
+all: test.elf rich.elf htif.elf isa-tests benchmarks
 
 isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS) $(RV32SI_ELFS)
 
 benchmarks: $(BMARKS_ELFS)
 
 clean:
-	rm -f test.elf rich.elf isa/*.elf benchmarks/*.elf
+	rm -f test.elf rich.elf htif.elf isa/*.elf benchmarks/*.elf

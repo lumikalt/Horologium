@@ -503,6 +503,21 @@ internal sealed class OoOPipelineCore : Gear {
             if (_commitObserver is not null && head.Instruction is not null)
                 _commitObserver.OnCommit(head.Pc, head.Instruction.RawEncoding, State);
 
+            // Halt on a jump-to-self (resolved target == own PC) — the bare-metal
+            // halt idiom, e.g. the spin after an HTIF tohost exit. Mirrors the
+            // single-cycle and five-stage trains so the out-of-order core also
+            // stops at the terminator instead of spinning to maxTicks. The
+            // instruction has committed above; retire it, then halt.
+            if (head.ResolvedNextPc is { HasValue: true, Value: var selfPc } && selfPc == head.Pc) {
+                State.Pc = selfPc;
+                PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                _rob.Retire();
+                _retiredCounter.Increment();
+                State.OnRetire();
+                _halted = true;
+                return;
+            }
+
             if (head.ResolvedNextPc.HasValue) {
                 // Capture all fields from head before Retire() clears the slot.
                 ulong resolvedPc = head.ResolvedNextPc.Value;

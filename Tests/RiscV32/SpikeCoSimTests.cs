@@ -24,12 +24,15 @@ public class SpikeCoSimTests {
 
     // Runs the ELF through the train produced by trainFactory with Spike attached.
     // Spike runs as a live child process; dispose kills it when the run ends.
+    // memorySize overrides the ELF-derived sizing (the HTIF fixture reserves a
+    // stack beyond its tiny load extent, so it needs an explicit region size).
     private static void RunCoSim(
         string elfName,
-        Func<IMechanism, IMemory, ulong, ICommitObserver, object> trainFactory
+        Func<IMechanism, IMemory, ulong, ICommitObserver, object> trainFactory,
+        int? memorySize = null
     ) {
         string elfPath = ElfPath(elfName);
-        var workload = new Rv32ElfWorkload(elfPath);
+        var workload = new Rv32ElfWorkload(elfPath, memorySize);
 
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
@@ -75,4 +78,22 @@ public class SpikeCoSimTests {
 
     [Fact]
     public void Oooe_RichElf_MatchesSpike() => RunCoSim("rich.elf", Oooe);
+
+    // ── htif.elf: RV32IM workload that exits via the HTIF tohost register ────────
+    //
+    // Spike exits cleanly (no EBREAK debug-stub hang) and logs the post-exit
+    // self-loop an indeterminate number of times; each train commits the exit
+    // store and a single self-loop jump, then halts, so its stream is a clean
+    // prefix of Spike's. A 1 MB region covers the fixture's reserved stack.
+
+    private const int HtifMemoryBytes = 0x100000;
+
+    [Fact]
+    public void SingleCycle_HtifElf_MatchesSpike() => RunCoSim("htif.elf", SingleCycle, HtifMemoryBytes);
+
+    [Fact]
+    public void FiveStage_HtifElf_MatchesSpike() => RunCoSim("htif.elf", FiveStage, HtifMemoryBytes);
+
+    [Fact]
+    public void Oooe_HtifElf_MatchesSpike() => RunCoSim("htif.elf", Oooe, HtifMemoryBytes);
 }

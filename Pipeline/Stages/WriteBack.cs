@@ -87,6 +87,17 @@ public sealed class WritebackStage : Gear {
             if (_commitObserver is not null && latch.Instruction is not null)
                 _commitObserver.OnCommit(latch.Pc, latch.Instruction.RawEncoding, _state);
 
+            // Halt on a jump-to-self (NextPc == Pc, only possible for a taken
+            // branch/jump back to its own PC — the conventional bare-metal halt
+            // idiom, e.g. the spin after an HTIF tohost exit). Mirrors the
+            // single-cycle train's halt detection. The instruction has already
+            // committed above, so this stops the next cycle before any further
+            // retire.
+            if (latch.NextPc == latch.Pc) {
+                Halted = true;
+                return;
+            }
+
             TrapInfo? interrupt = _trap.PeekInterrupt(_state);
             if (interrupt is not null) TrapRedirect = (_trap.RaiseTrap(interrupt, _state), true);
         }
