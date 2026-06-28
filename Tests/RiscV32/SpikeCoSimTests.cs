@@ -129,4 +129,32 @@ public class SpikeCoSimTests {
 
     [SkippableFact]
     public void Oooe_HtifElf_MatchesSpike() => RunCoSim("htif.elf", Oooe, HtifMemoryBytes);
+
+    // ── Official riscv-tests conformance suite (rv32ui + rv32um) ─────────────────
+    //
+    // Co-simulates every base-integer and mul/div conformance ELF already shipped
+    // under TestBinaries/isa/ — per-commit verification on top of the existing
+    // self-checking RiscVTestSuiteTests (which only check the final gp pass code).
+    // These are EBREAK-terminated like test.elf, so no HTIF handling is needed.
+    // Run on the single-cycle train: this validates the decoder/executor against
+    // Spike across the whole suite; the per-train datapaths are already covered by
+    // the test/rich/htif fixtures on all three trains. The rv32si (supervisor)
+    // tests are excluded — their trap-handler control flow is a separate concern.
+    //
+    // ma_data is excluded by design: it tests misaligned data access, which Spike
+    // traps and a handler fixes up, whereas Horologium's FlatMemory permits the
+    // access directly (documented in TestBinaries/Makefile). The two therefore
+    // diverge in control flow by intent, so co-sim cannot apply.
+
+    private static readonly string IsaDir = Path.Combine(AppContext.BaseDirectory, "isa");
+
+    public static IEnumerable<object[]> ConformanceElfs() =>
+        Directory.EnumerateFiles(IsaDir, "rv32u*.elf")
+            .Where(p => !p.Contains("ma_data"))
+            .OrderBy(p => p)
+            .Select(p => new object[] { Path.Combine("isa", Path.GetFileName(p)), });
+
+    [SkippableTheory]
+    [MemberData(nameof(ConformanceElfs))]
+    public void SingleCycle_Conformance_MatchesSpike(string elf) => RunCoSim(elf, SingleCycle);
 }

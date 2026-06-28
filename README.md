@@ -129,6 +129,8 @@ Because the five-stage and out-of-order trains previously spun HTIF binaries to 
 
 Spike is the reference of record for ISA correctness. The contract: **every change to the decoder, executor, register/CSR/trap state, or any train's commit path must keep `SpikeCoSimTests` green.** Those tests run all three trains (`SingleCycleTrain`, `FiveStageTrain`, `OooeTrain`) against `test.elf`, `rich.elf`, and `htif.elf`, comparing every committed instruction's PC, encoding, and integer register writes to Spike commit-for-commit (see *Spike lock-step co-simulation* above). A green run means the simulated datapath agrees with a real RISC-V reference instruction-by-instruction — the strongest correctness signal in the project.
 
+Beyond the three hand-written fixtures, `SingleCycle_Conformance_MatchesSpike` co-simulates all 48 official `riscv-tests` `rv32ui`/`rv32um` ELFs (already shipped under `TestBinaries/isa/`) commit-for-commit — per-instruction verification on top of the self-checking `RiscVTestSuiteTests`, which only inspect the final `gp` pass code. (`ma_data` is excluded: it tests misaligned access, which Spike traps and a handler fixes up while Horologium's `FlatMemory` permits directly, so the two diverge by design.)
+
 If you add an instruction, extension, pipeline behaviour, or fixture, add or extend a co-sim fixture so the new path is covered, and run:
 
 ```bash
