@@ -12,57 +12,65 @@ build .#olympia` or `nix develop` — and the .NET Runner).
 ## Method
 
 Horologium emits a functional instruction trace (`Runner --trace-json`,
-single-cycle); Olympia replays it through its timing model at three arch widths
-(`small`/`medium`/`big_core` = 2/3/8-wide). Horologium's own OoO train runs the
-same program at matching `issue_width` (2/3/8), with and without an L1 cache.
-IPC is read from each side's stats.
+single-cycle); the trace carries the raw **opcode** per instruction, so Olympia's
+Mavis decodes it directly — covering FP/vector/compressed, which an earlier
+mnemonic+registers form could not (it mis-encoded FP registers → Mavis
+`InvalidRegisterNumber`, and every riscv-tests benchmark is FP). Olympia replays
+the trace at three arch widths (`small`/`medium`/`big_core` = 2/3/8-wide);
+Horologium's OoO train runs the same program at matching `issue_width`.
 
-## Results (IPC)
+## Results (IPC), no-cache Horologium vs Olympia
 
-| workload          | Horologium OoO 2/3/8 | + L1 I/D cache 2/3/8 | Olympia s/m/b |
-|-------------------|----------------------|----------------------|---------------|
-| test.elf (882 i)  | 1.03 / 0.95 / 1.03   | 0.71 / 0.74 / 0.81   | 0.98 / 0.99 / 0.98 |
-| rich.elf (4813 i) | 1.35 / 1.76 / 2.10   | 1.17 / 1.46 / 1.69   | 0.76 / 0.98 / 0.95 |
+| workload | Horologium OoO 2/3/8 | Olympia s/m/b      |
+|----------|----------------------|--------------------|
+| rich     | 1.35 / 1.76 / 2.10   | 0.75 / 1.01 / 0.97 |
+| vvadd    | 1.35 / 1.68 / 1.56   | 0.90 / 1.02 / 1.07 |
+| multiply | 1.52 / 1.73 / 1.77   | 1.09 / 1.88 / 2.03 |
+| median   | 0.84 / 0.90 / 0.83   | 1.01 / 1.09 / 1.11 |
+| towers   | 0.88 / 0.91 / 0.77   | 0.61 / 0.64 / 0.65 |
+| qsort    | 1.00 / 1.13 / 1.17   | 1.24 / 1.45 / 1.47 |
+| rsort    | 1.85 / 2.32 / 2.37   | 0.99 / 1.04 / 1.03 |
+| memcpy   | 1.71 / 2.09 / 1.94   | 0.90 / 0.92 / 0.92 |
+
+This is the **unmatched** comparison: Horologium here has 1-cycle loads
+(`FuLatencyConfig.LoadStoreLatency = 1`, no cache); Olympia models a real L1. A
+cache-matched run is currently **not possible** — see the bug below.
 
 ## What this shows
 
-- **The cross-model IPC gap is dominated by the memory configuration, not a
-  fixed fidelity difference.** Horologium's default OoO has no cache and a
-  1-cycle load (`FuLatencyConfig.LoadStoreLatency = 1`); Olympia's arches model a
-  real hierarchy. Adding an L1 moves Horologium's IPC substantially — *past*
-  Olympia on the tiny test.elf (cold misses dominate an 882-instruction run) and
-  *toward but above* it on rich.elf. So an unmatched run measures the missing
-  cache, not "Horologium is optimistic."
-- **Internal consistency holds (the safe signal).** The cache knob moves IPC the
-  expected direction (down, introducing miss latency); width increases IPC on
-  both models. The model responds correctly to configuration.
-- **Residual gap on rich.elf** (cache: 1.17 vs Olympia 0.76 at 2-wide) is *not*
-  a single matchable knob. Both L1-I and L1-D are on and exercised (D: 1387
-  hits / 50 misses), and Olympia's `small_core` has a 16 KB L1 with **no L2/L3**,
-  so it is not a missing cache layer. Raising Horologium's L1-hit load-use
-  latency 1→3 cycles barely moves IPC (1.165→1.173) — the loads are hidden by the
-  OoO window on rich.elf's small working set. The residual is a **structural
-  difference between two OoO models** (issue/execution-port modelling,
-  front-end queue depths, the per-pipe latency matrix), not a config mismatch to
-  close. Chasing it on two tiny workloads would be curve-fitting; the sound move
-  is breadth (below), not knob-tuning.
+- **Both models live in the same IPC band (~0.6–2.4)** — the opcode trace drives
+  Olympia correctly across the whole suite, so the pipeline is sound.
+- **Horologium's idealized-memory OoO runs optimistic on most workloads**
+  (higher on 6 of 8 at 2-wide) but not uniformly (lower on median, qsort). With
+  1-cycle loads it over-extracts ILP where Olympia's load-use latency throttles
+  it — but the per-workload spread is wide and there is **no clean cross-model
+  rank correspondence** at this config. That is expected: the memory model is
+  unmatched, and matching it is blocked.
+
+## Bug surfaced: OoO + L1 cache inflates cycles
+
+Adding an L1 to the OoO train to *match* Olympia produced nonsense: median goes
+from 16,138 cycles (no cache) to **1,009,570** with an L1, reporting ~989k
+dcache hits and ~995k stall cycles for a ~13.5k-instruction program (≈73 cache
+accesses/instruction). The cache column was constant ~1.9–2.0 across all
+workloads. This is a Horologium **OoO+cache modelling bug** (a miss appears to
+re-poll/replay the load every cycle instead of waiting), independent of Olympia
+— the cross-model exercise just surfaced it. Filed in TODO; until it is fixed the
+cache-matched comparison cannot be run.
 
 ## Caveats
 
 - **Trace replay has no wrong path.** Olympia replays the committed trace, so it
-  pays no misprediction penalty — which should *inflate* its IPC relative to a
-  real run. Direction (Horologium higher) is therefore robust; magnitude is not.
-  (Negligible here anyway: rich.elf had ~66 mispredicts.)
-- **Two tiny workloads.** 882 and 4813 instructions, with visible noise (test
-  dips at 3-wide; Olympia dips at big). No trend *law* should be read from this —
-  e.g. "Olympia saturates, Horologium doesn't" is not supported at this scale.
+  pays no misprediction penalty — which should *inflate* its IPC versus a real
+  run. So where Horologium is higher, the direction is robust; the magnitude is
+  not.
+- **Benchmarks vary in size** (vvadd ~9k → rsort ~368k instructions). Olympia's
+  trace replay and Horologium's OoO both scale fine, but absolute IPC is still
+  config-sensitive; read the band and the spread, not individual deltas.
 
-## The real next step: breadth (gated on FP)
+## Next steps
 
-A credible study needs more, larger, ILP-diverse workloads. The blocker is the
-JSON trace writer: it is integer-focused and emits FP register operands in the
-integer `rd`/`rs1`/`rs2` fields, which Mavis rejects (`InvalidRegisterNumber`).
-**Every riscv-tests benchmark uses FP** (compute and/or the stats harness), so
-only `test.elf`/`rich.elf` ingest cleanly today. Emitting `fs1`/`fs2`/`fd` with
-0–31 f-register numbering (and per-operand type) unlocks the benchmark suite and
-is the prerequisite for a real calibration study.
+1. **Fix the OoO+L1 cache bug** (above) — prerequisite for any cache-matched
+   comparison, and a real correctness issue in its own right.
+2. Then re-run cache-matched and look at directional/rank agreement across the
+   (now broad) suite, plus a width sweep — descriptively, not as a fit.
