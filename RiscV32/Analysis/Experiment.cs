@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
@@ -57,6 +58,7 @@ public static class Experiment {
             var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
             workload.Load(memory);
             IMemory runMemory = workload.WrapMemory(memory);
+            MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
 
             RevolutionResult result = config.Pipeline switch {
                 "superscalar" => new SuperscalarTrain(
@@ -64,7 +66,7 @@ public static class Experiment {
                     workload.EntryPoint,
                     config.IssueWidth,
                     config.ToIMemoryConfig(),
-                    config.ToDMemoryConfig()
+                    dCfg
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
                 "ooo" => new OooeTrain(
@@ -76,7 +78,7 @@ public static class Experiment {
                     config.ExtraPhysRegs,
                     config.Predictor?.Build(),
                     config.ToIMemoryConfig(),
-                    config.ToDMemoryConfig(),
+                    dCfg,
                     config.FuLatency
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
@@ -86,7 +88,7 @@ public static class Experiment {
                     config.ForwardingEnabled,
                     config.Predictor?.Build(),
                     config.ToIMemoryConfig(),
-                    config.ToDMemoryConfig(),
+                    dCfg,
                     config.StoreBufferCapacity
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
             };
@@ -112,13 +114,14 @@ public static class Experiment {
         IMemory runMemory = workload.WrapMemory(memory);
         var plog = new PEventLog();
         TrainConfig cfg = config.Config;
+        MemoryConfig dCfg = WithMmio(cfg.ToDMemoryConfig(), workload);
         switch (cfg.Pipeline) {
             case "ooo":
                 new OooeTrain(
                     mechanism, runMemory, workload.EntryPoint,
                     cfg.IssueWidth, cfg.RobCapacity, cfg.IqCapacity, cfg.ExtraPhysRegs,
                     cfg.Predictor?.Build(),
-                    cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig(),
+                    cfg.ToIMemoryConfig(), dCfg,
                     cfg.FuLatency, plog
                 ).Run(maxTicks);
                 break;
@@ -128,7 +131,7 @@ public static class Experiment {
                     mechanism, runMemory, workload.EntryPoint,
                     cfg.ForwardingEnabled,
                     cfg.Predictor?.Build(),
-                    cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig(),
+                    cfg.ToIMemoryConfig(), dCfg,
                     cfg.StoreBufferCapacity, plog
                 ).Run(maxTicks);
                 break;
@@ -136,6 +139,15 @@ public static class Experiment {
 
         return plog;
     }
+
+    // The HTIF tohost/fromhost registers are memory-mapped I/O and must bypass the
+    // cache: HtifMemory's auto-ACK writes fromhost to the backing below the cache,
+    // so a cached copy goes stale and the printstr poll loop spins forever. They
+    // are two adjacent 8-byte registers (tohost at the symbol, fromhost at +8).
+    private static MemoryConfig WithMmio(MemoryConfig dCfg, IWorkload workload) =>
+        workload.HtifTohostAddress is ulong tohost
+            ? dCfg with { UncacheableBase = tohost, UncacheableSize = 16 }
+            : dCfg;
 
     /// <summary>
     /// Runs <paramref name="workload"/> functionally on the single-cycle train and

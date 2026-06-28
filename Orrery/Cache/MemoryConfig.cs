@@ -17,6 +17,11 @@ namespace Orrery.Cache;
 /// <param name="TlbEntries">0 = disabled.</param>
 /// <param name="TlbPageBytes">Page size in bytes. Ignored when TlbEntries = 0.</param>
 /// <param name="TlbMissLatency">Extra cycles per TLB miss.</param>
+/// <param name="UncacheableBase">Start of a memory-mapped-I/O region that bypasses all
+/// caches (0 with <see cref="UncacheableSize"/> = 0 disables it). Such a region <em>must</em>
+/// be uncacheable: a device's side effects (e.g. an HTIF <c>fromhost</c> ACK written to the
+/// backing below the cache) are otherwise masked by stale cached lines, hanging the run.</param>
+/// <param name="UncacheableSize">Size of the uncacheable MMIO region in bytes (0 = disabled).</param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,
@@ -32,7 +37,9 @@ public sealed record MemoryConfig(
     int L3MissLatency = 50,
     int TlbEntries = 0,
     int TlbPageBytes = 4096,
-    int TlbMissLatency = 20
+    int TlbMissLatency = 20,
+    ulong UncacheableBase = 0,
+    ulong UncacheableSize = 0
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -84,6 +91,11 @@ public sealed record MemoryLayers(
             tlb = new Tlb(current, cfg.TlbEntries, cfg.TlbPageBytes, cfg.TlbMissLatency);
             current = tlb;
         }
+
+        // Route a memory-mapped-I/O region straight to the backing, bypassing the
+        // cache/TLB chain — only meaningful when something is cached above it.
+        if (cfg.UncacheableSize > 0 && (l1 ?? l2 ?? l3) is not null)
+            current = new UncacheableMemory(current, backing, cfg.UncacheableBase, cfg.UncacheableSize);
 
         return new MemoryLayers(current, l1, l2, l3, tlb);
     }
