@@ -129,6 +129,13 @@ Because the five-stage and out-of-order trains previously spun HTIF binaries to 
 
 `Experiment.WriteOlympiaTrace(workload, mechanism, output)` runs the workload functionally on the single-cycle train (via `OlympiaJsonTraceWriter`, an `ICommitObserver`) and emits an [Olympia](https://github.com/riscv-software-src/riscv-perf-model)-compatible JSON instruction trace — one object per retired instruction with `mnemonic`, `rs1`/`rs2`/`rd`, `csr`, and `vaddr` (loads/stores). The CLI exposes it as `--trace-json <path>`. It reuses `RvDisassembler` for the mnemonic, `ITooth` for registers, and a `TracingMemory` wrapper for the effective address. Olympia is trace-driven (it replays the stream through its timing model without functional execution), so this is the prerequisite for *timing* co-simulation against the Sparta-based RISC-V performance model the project is patterned on — distinct from the *functional* Spike co-sim, which verifies ISA correctness.
 
+Olympia (and its Sparta framework) are packaged by the flake from source — `nix/{softfloat,sparta,olympia}.nix`, exposed as `packages.{softfloat,sparta,olympia}` and on PATH inside `nix develop`. End to end:
+
+```bash
+dotnet run --project Runner -- TestBinaries/rich.elf --trace-json trace.json
+nix run .#olympia -- trace.json --report-all report.txt   # IPC / cycles / retired in report.txt
+```
+
 ## Co-simulation contract
 
 Spike is the reference of record for ISA correctness. The contract: **every change to the decoder, executor, register/CSR/trap state, or any train's commit path must keep `SpikeCoSimTests` green.** Those tests run all three trains (`SingleCycleTrain`, `FiveStageTrain`, `OooeTrain`) against `test.elf`, `rich.elf`, and `htif.elf`, comparing every committed instruction's PC, encoding, and integer register writes to Spike commit-for-commit (see *Spike lock-step co-simulation* above). A green run means the simulated datapath agrees with a real RISC-V reference instruction-by-instruction — the strongest correctness signal in the project.

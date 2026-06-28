@@ -22,11 +22,38 @@
             };
           }
         );
+
+      # Olympia timing-model toolchain (Sparta + Olympia), packaged from source
+      # since neither is in nixpkgs. Used for trace-driven timing co-simulation
+      # against Horologium's OoO train. Each derivation lives in ./nix.
+      olympiaToolchain =
+        pkgs:
+        let
+          softfloat = pkgs.callPackage ./nix/softfloat.nix { };
+          sparta = pkgs.callPackage ./nix/sparta.nix { };
+          olympia = pkgs.callPackage ./nix/olympia.nix { inherit sparta softfloat; };
+        in
+        {
+          inherit softfloat sparta olympia;
+        };
     in
     {
+      packages = forEachSupportedSystem (
+        { pkgs }:
+        let
+          t = olympiaToolchain pkgs;
+        in
+        {
+          inherit (t) softfloat sparta olympia;
+          default = t.olympia;
+        }
+      );
+
       devShells = forEachSupportedSystem (
         { pkgs }:
         let
+          olympia = (olympiaToolchain pkgs).olympia;
+
           extra-path = with pkgs; [
             dotnetCorePackages.sdk_11_0-bin
             dotnet-sdk_11
@@ -41,6 +68,12 @@
             # RISC-V ISA reference simulator for lock-step co-simulation
             spike
             dtc # device tree compiler, required by spike
+
+            # Olympia timing model (`olympia` on PATH), built by the flake — see
+            # packages.olympia / nix/olympia.nix. Feed it a Horologium trace:
+            #   dotnet run --project Runner -- <elf> --trace-json trace.json
+            #   olympia trace.json
+            olympia
           ];
 
           extra-lib = with pkgs; [

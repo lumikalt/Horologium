@@ -79,7 +79,8 @@
 - [ ] Elastic trace recording + replay: capture a RAW-dependency-annotated instruction trace from an OoOE run and replay
   it against alternate memory hierarchies without re-simulating the core. (inspired by gem5 TraceCPU)
 - [x] Olympia JSON instruction-trace output: `Experiment.WriteOlympiaTrace` runs a functional `SingleCycleTrain` with `OlympiaJsonTraceWriter` (an `ICommitObserver`) and emits Olympia's JSON schema (`mnemonic` + `rs1`/`rs2`/`rd` + `csr` + `vaddr` for loads/stores). Reuses `RvDisassembler` (first token = mnemonic), `ITooth` registers, and a `TracingMemory` wrapper for the effective address. CLI: `--trace-json <path>`. Self-validated by `OlympiaTraceTests` (schema + register ranges + load/store↔vaddr + entry-count == retired dial). Prerequisite for Olympia timing co-sim.
-  - [ ] Phase 2 — actual Olympia co-sim: add Olympia/Mavis/Sparta to `flake.nix`, run a produced trace through Olympia, and compare IPC/cycle/stall stats against Horologium's OoO dials (a *calibration* signal — relative trends across config sweeps, not exact match). Also validates the mnemonic vocabulary against Mavis.
+  - [x] Phase 2a — package Olympia in the flake: `packages.{softfloat,sparta,olympia}` (`nix/*.nix`), built from source (Sparta map_v2.2.3 + Olympia), available via `nix build .#olympia` / `nix run .#olympia` and on PATH in `nix develop`. Verified end-to-end: a Horologium `--trace-json` trace runs through it ("Run Successful!") and reports IPC/cycle/retired (test.elf → IPC 0.978, 902 cycles, 882 retired) — confirming the JSON schema actually drives Mavis/Olympia and the integer mnemonic vocabulary matches.
+  - [ ] Phase 2b — the calibration study: config-match Olympia's arch to a Horologium OoO `NamedConfig` and compare IPC/cycle/stall *trends* across sweeps (issue width, ROB, predictor). Relative trends, not exact match. The pipeline (trace → Olympia → stats) is proven; this is the analysis on top.
   - [ ] JSON-format limitations to address when needed: no PC/opcode in the schema, so RVC fetch-width effects are invisible to the timing model; FP register numbering (disassembler offsets f-regs by 32) and vector/UVE ops need dedicated handling — the current writer is integer-focused.
 - [ ] STF (Simulation Trace Format) binary output for trace interop with external RISC-V tools (spike, dromajo) and large traces. The Olympia JSON trace (above) is the simpler near-term path; STF is the standardized format that also carries PC/opcode (preserving RVC width info the JSON loses).
 
@@ -101,6 +102,27 @@
   `IRegisterFile`/`IMemory` interfaces with a save/inject/restore dance in `ExecuteStage`. Converting latches to
   structs and cutting the per-cycle interface hops is the lever for a large (vs. incremental) speedup; the Timeline
   profile showed no single hotspot — cost is spread across the stage `Cycle()` methods.
+
+### Parallelism (run-level, not intra-revolution)
+
+A single revolution is inherently sequential — the `Escapement`'s fixed phase order (Fetch→…→Collection) and the
+shared mutable `IArchState` mean one simulation cannot be threaded internally. **Do not** try to parallelize within a
+tick. The leverage is at the *run* level, where whole simulations are independent:
+
+- [ ] Parallelize the config sweep in `Experiment.Run`: each `NamedConfig` iteration is already independent (fresh
+  `FlatMemory`, fresh train, fresh predictor via `config.Predictor?.Build()`), so design-space exploration is
+  embarrassingly parallel — the biggest wall-clock win for the analysis workflow (and the perf-investigation sweep
+  playbook). Blocker to handle first: the `mechanism` is shared across runs and `Rv32Decoder`'s `_cache`/`_hintCache`
+  are plain `Dictionary` (not thread-safe). Fix by giving each parallel run its own mechanism — change the API to take a
+  `Func<IMechanism>` factory rather than a shared instance — and collect into a thread-safe results structure
+  (`Parallel.ForEach` + `ConcurrentBag`, or `Task.WhenAll` over indexed slots). `Experiment.Trace`/`WriteOlympiaTrace`
+  are single-run and unaffected.
+- [ ] Parallelize multi-workload sweeps the same way: `BenchmarkPerfSummary` (and any future ROI/sweep driver) loops
+  over ELFs sequentially; once the mechanism-factory change above lands, these become independent tasks too. (xUnit
+  already parallelizes across test *classes*, but not `[Theory]` cases within one, nor these in-method loops.)
+- [ ] Cross-reference: per-`NamedConfig` parallelism composes with — but is distinct from — multi-hart concurrency
+  (see Multicore: multiple harts *within one* simulation sharing a memory hierarchy, which needs MESI, not just
+  independent runs).
 
 ## Mechanism
 
