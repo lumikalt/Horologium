@@ -1,0 +1,3 @@
+[
+  {"name": "ooo_2wide", "config": {"pipeline": "ooo", "predictor": {"type": "n_bit", "bits": 2}, "issue_width": 2}}
+]
