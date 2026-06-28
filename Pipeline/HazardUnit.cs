@@ -51,7 +51,8 @@ public sealed class HazardUnit(bool forwardingEnabled) {
         bool Reads(int dest) {
             if (dest <= 0) return false;
             for (var i = 0; i < srcCount; i++)
-                if (incomingSources[i] == dest) return true;
+                if (incomingSources[i] == dest)
+                    return true;
             return false;
         }
 
@@ -63,7 +64,8 @@ public sealed class HazardUnit(bool forwardingEnabled) {
 
         // Without forwarding, stall while any producer is still ahead in the pipeline.
         for (var i = 0; i < residents.Count; i++)
-            if (residents[i].IsValid && Reads(residents[i].DestReg)) return true;
+            if (residents[i].IsValid && Reads(residents[i].DestReg))
+                return true;
         return false;
     }
 

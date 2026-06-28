@@ -4,6 +4,7 @@ using Orrery.Train;
 using Pipeline;
 using RiscV32.Config;
 using RiscV32.Memory;
+using RiscV32.Trace;
 
 namespace RiscV32.Analysis;
 
@@ -134,5 +135,27 @@ public static class Experiment {
         }
 
         return plog;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="workload"/> functionally on the single-cycle train and
+    /// writes an Olympia-compatible JSON instruction trace to <paramref name="output"/>.
+    /// Returns the number of instructions written. The single-cycle train is the
+    /// natural source: it retires exactly one instruction per commit, so the trace
+    /// is an exact functional instruction stream (the timing model is Olympia's job).
+    /// </summary>
+    public static int WriteOlympiaTrace(
+        IWorkload workload,
+        IMechanism mechanism,
+        TextWriter output,
+        long maxTicks = 10_000_000
+    ) {
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+        var tracing = new TracingMemory(workload.WrapMemory(memory));
+
+        using var writer = new OlympiaJsonTraceWriter(mechanism.Decoder, tracing, output);
+        new SingleCycleTrain(mechanism, tracing, workload.EntryPoint, commitObserver: writer).Run(maxTicks);
+        return writer.Count;
     }
 }

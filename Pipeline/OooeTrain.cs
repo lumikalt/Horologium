@@ -117,7 +117,7 @@ internal sealed class OoOPipelineCore : Gear {
         bool HasLoadAccess,
         ulong LoadAddr,
         int LoadBytes,
-        bool LoadWasForwarded, // true if TryForwardFromStore supplied the register value
+        bool LoadWasForwarded,   // true if TryForwardFromStore supplied the register value
         bool RequestHalt = false // true for an HTIF tohost-exit store: halt after commit
     );
 
@@ -524,7 +524,7 @@ internal sealed class OoOPipelineCore : Gear {
             // single-cycle and five-stage trains so the OoO core also stops at the
             // terminator instead of spinning to maxTicks.
             if (head.Instruction?.Class == ToothClass.Branch
-                && head.ResolvedNextPc is { HasValue: true, Value: var selfPc } && selfPc == head.Pc) {
+             && head.ResolvedNextPc is { HasValue: true, Value: var selfPc, } && selfPc == head.Pc) {
                 State.Pc = selfPc;
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                 _rob.Retire();
@@ -967,9 +967,8 @@ internal sealed class OoOPipelineCore : Gear {
 
         IMemory mem = isVec || isUve ? DLayers.Accessor : _capMem;
         ExecuteResult er;
-        try {
-            er = _executor.Execute(issued.Instr, State, mem);
-        } catch (AccessViolationException) {
+        try { er = _executor.Execute(issued.Instr, State, mem); }
+        catch (AccessViolationException) {
             // Speculative load/store hit an out-of-bounds address. Restore registers
             // and return a trap result so the ROB can squash it on misprediction or
             // take the fault if it reaches the head while still on the correct path.
@@ -978,9 +977,12 @@ internal sealed class OoOPipelineCore : Gear {
             if (s2 >= 0) regs.Write(s2, save2);
             int cause = _capMem.HasRead ? TrapCause.LoadAccessFault : TrapCause.StoreAccessFault;
             ulong faultAddr = _capMem.HasRead ? _capMem.ReadAddress : _capMem.WriteAddress;
-            return new ExecResult(issued.RobIdx, issued.PhysDest,
-                default, default, new TrapInfo(cause, faultAddr, issued.Pc),
-                false, null, false, 0, 0, 0, false, 0, 0, false);
+            return new ExecResult(
+                issued.RobIdx, issued.PhysDest,
+                default((ulong Value, bool HasValue)), default((ulong Value, bool HasValue)),
+                new TrapInfo(cause, faultAddr, issued.Pc),
+                false, null, false, 0, 0, 0, false, 0, 0, false
+            );
         }
 
         // Apply SideEffect immediately for head-serialized ops (VRF/UveState writes

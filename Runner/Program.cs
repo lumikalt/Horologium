@@ -10,9 +10,10 @@ string? elfPath = null;
 string? sweepPath = null;
 long warmupTicks = 0;
 long maxTicks = 1_000_000;
-long snapshotInterval = 0;   // 0 = off, -1 = auto, >0 = explicit ticks
-var format = "md";           // md | csv | both | ts-csv
-int? memorySizeBytes = null; // null → default to 4 MB for ELF workloads
+long snapshotInterval = 0;    // 0 = off, -1 = auto, >0 = explicit ticks
+var format = "md";            // md | csv | both | ts-csv
+int? memorySizeBytes = null;  // null → default to 4 MB for ELF workloads
+string? traceJsonPath = null; // --trace-json <path>: emit an Olympia JSON trace and exit
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -23,7 +24,8 @@ for (var i = 0; i < args.Length; i++)
         case "--snapshot-interval":
             snapshotInterval = args[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(args[++i]);
             break;
-        case "--format": format = args[++i]; break;
+        case "--format":     format = args[++i]; break;
+        case "--trace-json": traceJsonPath = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -65,6 +67,17 @@ else {
 
     workload = new ByteArrayWorkload(bytes);
     workloadLabel = "built-in countdown loop (100 iterations)";
+}
+
+// ── Olympia JSON trace output ─────────────────────────────────────────────────
+
+if (traceJsonPath is not null) {
+    using var sw = new StreamWriter(traceJsonPath);
+    int written = Experiment.WriteOlympiaTrace(
+        workload, new Rv32Mechanism(workload.HtifTohostAddress), sw, maxTicks
+    );
+    Console.Error.WriteLine($"Wrote {written} instructions to {traceJsonPath}");
+    return;
 }
 
 // ── Hardware configurations ───────────────────────────────────────────────────
@@ -132,6 +145,8 @@ static void PrintUsage() {
                                         estimate from binary size (default: off).
           --format md|csv|both|ts-csv   Output format (default: md). ts-csv emits
                                         time-series data (requires --snapshot-interval).
+          --trace-json <path>   Emit an Olympia-compatible JSON instruction trace
+                                (functional single-cycle run) to <path> and exit.
           --help                        Show this message.
 
         Sweep file format (JSON array):

@@ -20,7 +20,7 @@ public sealed class Rv32Mechanism : IMechanism {
     /// common EBREAK-terminated case.
     /// </param>
     public Rv32Mechanism(ulong? htifTohost = null) =>
-        Executor = new Rv32Executor { HtifTohostAddress = htifTohost };
+        Executor = new Rv32Executor { HtifTohostAddress = htifTohost, };
 
     public string Name => "RV32I";
     public IDecoder Decoder { get; } = new Rv32Decoder();

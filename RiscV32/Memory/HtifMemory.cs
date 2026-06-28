@@ -19,8 +19,7 @@ public sealed class HtifMemory(IMemory inner, ulong tohostAddr) : IMemory {
 
     public void Write(ulong address, ulong value, int bytes) {
         inner.Write(address, value, bytes);
-        if (address == tohostAddr && bytes == 4 && value != 0 && (value & 1) == 0)
-            inner.Write(tohostAddr + 8, 1, 4);
+        if (address == tohostAddr && bytes == 4 && value != 0 && (value & 1) == 0) inner.Write(tohostAddr + 8, 1, 4);
     }
 
     public void Load(ulong address, ReadOnlySpan<byte> data) => inner.Load(address, data);

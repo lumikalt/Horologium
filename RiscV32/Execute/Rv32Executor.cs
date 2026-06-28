@@ -572,7 +572,7 @@ public class Rv32Executor : IExecutor {
         // engine stops at the exit write rather than the spin-loop after it.
         // (Even values are syscall pointers — e.g. printstr — and are ignored.)
         if (HtifTohostAddress is ulong t && addr == t && bytes == 4 && (value & 1) == 1)
-            return new ExecuteResult { RequestHalt = true };
+            return new ExecuteResult { RequestHalt = true, };
 
         return ExecuteResult.Clean;
     }

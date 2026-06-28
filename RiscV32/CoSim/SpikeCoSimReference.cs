@@ -57,7 +57,7 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
         psi.Environment["PATH"] = BuildSpikeEnvPath();
 
         _proc = Process.Start(psi)
-                ?? throw new InvalidOperationException("Failed to start spike. Is it on PATH?");
+             ?? throw new InvalidOperationException("Failed to start spike. Is it on PATH?");
         _log = _proc.StandardError;
     }
 
@@ -67,7 +67,7 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
     /// then compares PC, encoding, and any integer register write.
     /// </summary>
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
-        var entry = ReadNextElfEntry(pc);
+        SpikeEntry entry = ReadNextElfEntry(pc);
         _committed++;
 
         if (entry.Pc != pc)
@@ -95,6 +95,7 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
             _proc.Kill();
             _proc.WaitForExit(1000);
         }
+
         _proc.Dispose();
     }
 
@@ -102,14 +103,14 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
     // boot-ROM commits, until it finds the next ELF-range commit record.
     private SpikeEntry ReadNextElfEntry(ulong expectedPc) {
         while (true) {
-            var line = _log.ReadLine();
+            string? line = _log.ReadLine();
             if (line is null)
                 throw new CoSimDivergenceException(
                     $"Spike commit log ended unexpectedly at commit #{_committed + 1} " +
                     $"(Horologium about to commit 0x{expectedPc:x8})"
                 );
 
-            var m = CommitLine.Match(line);
+            Match m = SpikeCoSimReference.CommitLine.Match(line);
             if (!m.Success) continue;
 
             var pc = Convert.ToUInt64(m.Groups[1].Value, 16);
@@ -134,7 +135,7 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
         FindOnPath("spike") is not null && (FindOnPath("dtc") is not null || NixDtcBin() is not null);
 
     private static string BuildSpikeEnvPath() {
-        var existing = Environment.GetEnvironmentVariable("PATH") ?? "";
+        string existing = Environment.GetEnvironmentVariable("PATH") ?? "";
         if (FindOnPath("dtc") is not null) return existing;
 
         // dtc not in PATH — search the nix store (dev-shell may not be reloaded).
@@ -144,9 +145,9 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
 
     // Returns the directory containing the named executable on PATH, or null.
     private static string? FindOnPath(string exe) {
-        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        string path = Environment.GetEnvironmentVariable("PATH") ?? "";
         return path.Split(Path.PathSeparator)
-            .FirstOrDefault(d => d.Length > 0 && File.Exists(Path.Combine(d, exe)));
+                   .FirstOrDefault(d => d.Length > 0 && File.Exists(Path.Combine(d, exe)));
     }
 
     // Returns a nix-store bin directory containing dtc, or null.
@@ -155,10 +156,9 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
             var nixStore = new DirectoryInfo("/nix/store");
             if (!nixStore.Exists) return null;
             return nixStore.GetDirectories("*-dtc-*")
-                .Select(d => Path.Combine(d.FullName, "bin"))
-                .FirstOrDefault(d => File.Exists(Path.Combine(d, "dtc")));
-        } catch {
-            return null;
+                           .Select(d => Path.Combine(d.FullName, "bin"))
+                           .FirstOrDefault(d => File.Exists(Path.Combine(d, "dtc")));
         }
+        catch { return null; }
     }
 }

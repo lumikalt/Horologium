@@ -96,8 +96,8 @@ public sealed class CsrFile : ISystemRegisters {
     // dictionary hashing showed up as a top hot spot. _present preserves the
     // distinction between an existing zero CSR and an illegal/absent one.
     private const int CsrSpace = 4096;
-    private readonly uint[] _csrs = new uint[CsrSpace];
-    private readonly bool[] _present = new bool[CsrSpace];
+    private readonly uint[] _csrs = new uint[CsrFile.CsrSpace];
+    private readonly bool[] _present = new bool[CsrFile.CsrSpace];
 
     private void Seed(uint address, uint value) {
         _csrs[address] = value;
@@ -154,7 +154,7 @@ public sealed class CsrFile : ISystemRegisters {
         Seed(CsrFile.Vlenb, VectorRegisterFile.VLenB);
     }
 
-    public bool Exists(uint address) => address < CsrSpace && _present[address];
+    public bool Exists(uint address) => address < CsrFile.CsrSpace && _present[address];
 
     public ulong Read(uint address, PrivilegeLevel currentPrivilege) {
         CheckPrivilege(address, currentPrivilege);
@@ -168,7 +168,7 @@ public sealed class CsrFile : ISystemRegisters {
             CsrFile.Instreth => CsrFile.Minstreth,
             _                => address,
         };
-        return effective < CsrSpace && _present[effective]
+        return effective < CsrFile.CsrSpace && _present[effective]
             ? _csrs[effective]
             : throw new SystemRegisterAccessException($"CSR 0x{effective:X3} does not exist.");
     }
@@ -176,21 +176,22 @@ public sealed class CsrFile : ISystemRegisters {
     public void Write(uint address, ulong value, PrivilegeLevel currentPrivilege) {
         CheckPrivilege(address, currentPrivilege);
         CheckNotReadOnly(address);
-        if (address >= CsrSpace || !_present[address])
+        if (address >= CsrFile.CsrSpace || !_present[address])
             throw new SystemRegisterAccessException($"CSR 0x{address:X3} does not exist.");
         _csrs[address] = (uint)value;
     }
 
     /// <summary>Direct read bypassing privilege checks — used internally by the trap controller.</summary>
     internal uint DirectRead(uint address) =>
-        address < CsrSpace && _present[address] ? _csrs[address] : 0;
+        address < CsrFile.CsrSpace && _present[address] ? _csrs[address] : 0;
 
     /// <summary>Direct write bypassing privilege checks — used internally by the trap controller.</summary>
     internal void DirectWrite(uint address, uint value) => Seed(address, value);
 
     public void Reset() {
-        for (var i = 0; i < CsrSpace; i++)
-            if (_present[i]) _csrs[i] = 0;
+        for (var i = 0; i < CsrFile.CsrSpace; i++)
+            if (_present[i])
+                _csrs[i] = 0;
         Seed(CsrFile.Misa, 0x40000100);
         Seed(CsrFile.Vlenb, VectorRegisterFile.VLenB);
     }

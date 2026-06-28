@@ -38,10 +38,10 @@ public class SpikeCoSimTests {
     private static void RequireSpikeOrSkip() {
         if (SpikeCoSimReference.IsAvailable()) return;
 
-        bool required = Environment.GetEnvironmentVariable(RequireEnvVar) is "1" or "true";
+        bool required = Environment.GetEnvironmentVariable(SpikeCoSimTests.RequireEnvVar) is "1" or "true";
         if (required)
             throw new InvalidOperationException(
-                $"{RequireEnvVar} is set but the Spike co-sim toolchain (spike + dtc) was not found. " +
+                $"{SpikeCoSimTests.RequireEnvVar} is set but the Spike co-sim toolchain (spike + dtc) was not found. " +
                 "Run inside the Nix dev-shell, which provides both, or unset the variable to allow skipping."
             );
 
@@ -75,9 +75,9 @@ public class SpikeCoSimTests {
         // CoSimDivergenceException is thrown on the first mismatch during Run().
         switch (trainFactory(new Rv32Mechanism(tohost), mem, workload.EntryPoint, cosim)) {
             case SingleCycleTrain t: t.Run(); break;
-            case FiveStageTrain t: t.Run(); break;
-            case OooeTrain t: t.Run(); break;
-            default: throw new InvalidOperationException("unknown train");
+            case FiveStageTrain t:   t.Run(); break;
+            case OooeTrain t:        t.Run(); break;
+            default:                 throw new InvalidOperationException("unknown train");
         }
     }
 
@@ -122,13 +122,14 @@ public class SpikeCoSimTests {
     private const int HtifMemoryBytes = 0x100000;
 
     [SkippableFact]
-    public void SingleCycle_HtifElf_MatchesSpike() => RunCoSim("htif.elf", SingleCycle, HtifMemoryBytes);
+    public void SingleCycle_HtifElf_MatchesSpike() =>
+        RunCoSim("htif.elf", SingleCycle, SpikeCoSimTests.HtifMemoryBytes);
 
     [SkippableFact]
-    public void FiveStage_HtifElf_MatchesSpike() => RunCoSim("htif.elf", FiveStage, HtifMemoryBytes);
+    public void FiveStage_HtifElf_MatchesSpike() => RunCoSim("htif.elf", FiveStage, SpikeCoSimTests.HtifMemoryBytes);
 
     [SkippableFact]
-    public void Oooe_HtifElf_MatchesSpike() => RunCoSim("htif.elf", Oooe, HtifMemoryBytes);
+    public void Oooe_HtifElf_MatchesSpike() => RunCoSim("htif.elf", Oooe, SpikeCoSimTests.HtifMemoryBytes);
 
     // ── Official riscv-tests conformance suite (rv32ui + rv32um) ─────────────────
     //
@@ -149,10 +150,10 @@ public class SpikeCoSimTests {
     private static readonly string IsaDir = Path.Combine(AppContext.BaseDirectory, "isa");
 
     public static IEnumerable<object[]> ConformanceElfs() =>
-        Directory.EnumerateFiles(IsaDir, "rv32u*.elf")
-            .Where(p => !p.Contains("ma_data"))
-            .OrderBy(p => p)
-            .Select(p => new object[] { Path.Combine("isa", Path.GetFileName(p)), });
+        Directory.EnumerateFiles(SpikeCoSimTests.IsaDir, "rv32u*.elf")
+                 .Where(p => !p.Contains("ma_data"))
+                 .OrderBy(p => p)
+                 .Select(p => new object[] { Path.Combine("isa", Path.GetFileName(p)), });
 
     [SkippableTheory]
     [MemberData(nameof(ConformanceElfs))]

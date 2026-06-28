@@ -89,7 +89,8 @@ public sealed class Rv32ElfWorkload : IWorkload {
         try {
             address = FindSymbol(name);
             return true;
-        } catch (KeyNotFoundException) {
+        }
+        catch (KeyNotFoundException) {
             address = 0;
             return false;
         }

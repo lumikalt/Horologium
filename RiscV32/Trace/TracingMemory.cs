@@ -1,0 +1,47 @@
+using Mechanism;
+
+namespace RiscV32.Trace;
+
+/// <summary>
+/// Pass-through <see cref="IMemory"/> that records the most recent access since
+/// the last <see cref="Reset"/>. A trace writer uses this to recover the
+/// effective address of a load/store — which is <c>base_reg + imm</c>, computed
+/// at runtime and not derivable from the instruction encoding alone (and the
+/// base register may be overwritten by the instruction itself).
+///
+/// Unlike the OoO pipeline's CapturingMemory it does not defer writes; reads and
+/// writes pass straight through to <paramref name="inner"/>.
+/// </summary>
+public sealed class TracingMemory(IMemory inner) : IMemory {
+    /// <summary>True if any access has occurred since the last <see cref="Reset"/>.</summary>
+    public bool HasAccess { get; private set; }
+
+    /// <summary>Address of the most recent access.</summary>
+    public ulong Address { get; private set; }
+
+    /// <summary>Width in bytes of the most recent access.</summary>
+    public int Bytes { get; private set; }
+
+    /// <summary>True if the most recent access was a write.</summary>
+    public bool IsWrite { get; private set; }
+
+    public void Reset() => HasAccess = false;
+
+    public ulong Read(ulong address, int bytes) {
+        HasAccess = true;
+        Address = address;
+        Bytes = bytes;
+        IsWrite = false;
+        return inner.Read(address, bytes);
+    }
+
+    public void Write(ulong address, ulong value, int bytes) {
+        HasAccess = true;
+        Address = address;
+        Bytes = bytes;
+        IsWrite = true;
+        inner.Write(address, value, bytes);
+    }
+
+    public void Load(ulong address, ReadOnlySpan<byte> data) => inner.Load(address, data);
+}

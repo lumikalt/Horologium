@@ -26,16 +26,16 @@ public class HtifExitTests {
     private const long MaxTicks = 1_000_000;
 
     public static IEnumerable<object[]> Trains() => [
-        ["single_cycle"], ["five_stage"], ["ooo"],
+        ["single_cycle",], ["five_stage",], ["ooo",],
     ];
 
     [Theory]
     [MemberData(nameof(Trains))]
-    public void RequestHalt_StopsAtTohostExit(string train) => RunAndAssert(train, configureTohost: true);
+    public void RequestHalt_StopsAtTohostExit(string train) => RunAndAssert(train, true);
 
     [Theory]
     [MemberData(nameof(Trains))]
-    public void JumpToSelf_StopsAtSpinLoop(string train) => RunAndAssert(train, configureTohost: false);
+    public void JumpToSelf_StopsAtSpinLoop(string train) => RunAndAssert(train, false);
 
     /// <summary>
     /// Proves <c>RequestHalt</c> actually fires rather than being dead code masked
@@ -48,8 +48,8 @@ public class HtifExitTests {
     [Theory]
     [MemberData(nameof(Trains))]
     public void RequestHalt_RetiresOneFewerThanJumpToSelf(string train) {
-        long withTohost = Run(train, configureTohost: true).Retired;
-        long without = Run(train, configureTohost: false).Retired;
+        long withTohost = Run(train, true).Retired;
+        long without = Run(train, false).Retired;
         Assert.Equal(without - 1, withTohost);
     }
 
@@ -57,12 +57,15 @@ public class HtifExitTests {
         (RevolutionResult result, long _, uint tohostLow) = Run(train, configureTohost);
 
         // Halted (did not exhaust the tick budget) and exited 0 (tohost low word == 1).
-        Assert.True(result.TotalTicks < MaxTicks, $"{train} did not halt — ran the full {MaxTicks} ticks");
+        Assert.True(
+            result.TotalTicks < HtifExitTests.MaxTicks,
+            $"{train} did not halt — ran the full {HtifExitTests.MaxTicks} ticks"
+        );
         Assert.Equal(1u, tohostLow);
     }
 
     private static (RevolutionResult Result, long Retired, uint TohostLow) Run(string train, bool configureTohost) {
-        var workload = new Rv32ElfWorkload(HtifElf, MemoryBytes);
+        var workload = new Rv32ElfWorkload(HtifElf, HtifExitTests.MemoryBytes);
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
 
@@ -70,10 +73,12 @@ public class HtifExitTests {
         var mech = new Rv32Mechanism(configureTohost ? tohost : null);
 
         (RevolutionResult result, string ownerPath) = train switch {
-            "single_cycle" => (new SingleCycleTrain(mech, mem, workload.EntryPoint).Run(MaxTicks), "single_cycle.core"),
-            "five_stage"   => (new FiveStageTrain(mech, mem, workload.EntryPoint).Run(MaxTicks), "five_stage.pipeline"),
-            "ooo"          => (new OooeTrain(mech, mem, workload.EntryPoint).Run(MaxTicks), "ooo.pipeline"),
-            _              => throw new ArgumentOutOfRangeException(nameof(train)),
+            "single_cycle" => (new SingleCycleTrain(mech, mem, workload.EntryPoint).Run(HtifExitTests.MaxTicks),
+                               "single_cycle.core"),
+            "five_stage" => (new FiveStageTrain(mech, mem, workload.EntryPoint).Run(HtifExitTests.MaxTicks),
+                             "five_stage.pipeline"),
+            "ooo" => (new OooeTrain(mech, mem, workload.EntryPoint).Run(HtifExitTests.MaxTicks), "ooo.pipeline"),
+            _     => throw new ArgumentOutOfRangeException(nameof(train)),
         };
 
         long retired = result.Find(ownerPath)?.Counters.GetValueOrDefault("retired") ?? -1;

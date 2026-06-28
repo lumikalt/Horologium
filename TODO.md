@@ -78,7 +78,10 @@
   against a different hardware configuration.
 - [ ] Elastic trace recording + replay: capture a RAW-dependency-annotated instruction trace from an OoOE run and replay
   it against alternate memory hierarchies without re-simulating the core. (inspired by gem5 TraceCPU)
-- [ ] STF (Simulation Trace Format) output for trace interop with external RISC-V tools (spike, dromajo).
+- [x] Olympia JSON instruction-trace output: `Experiment.WriteOlympiaTrace` runs a functional `SingleCycleTrain` with `OlympiaJsonTraceWriter` (an `ICommitObserver`) and emits Olympia's JSON schema (`mnemonic` + `rs1`/`rs2`/`rd` + `csr` + `vaddr` for loads/stores). Reuses `RvDisassembler` (first token = mnemonic), `ITooth` registers, and a `TracingMemory` wrapper for the effective address. CLI: `--trace-json <path>`. Self-validated by `OlympiaTraceTests` (schema + register ranges + load/store↔vaddr + entry-count == retired dial). Prerequisite for Olympia timing co-sim.
+  - [ ] Phase 2 — actual Olympia co-sim: add Olympia/Mavis/Sparta to `flake.nix`, run a produced trace through Olympia, and compare IPC/cycle/stall stats against Horologium's OoO dials (a *calibration* signal — relative trends across config sweeps, not exact match). Also validates the mnemonic vocabulary against Mavis.
+  - [ ] JSON-format limitations to address when needed: no PC/opcode in the schema, so RVC fetch-width effects are invisible to the timing model; FP register numbering (disassembler offsets f-regs by 32) and vector/UVE ops need dedicated handling — the current writer is integer-focused.
+- [ ] STF (Simulation Trace Format) binary output for trace interop with external RISC-V tools (spike, dromajo) and large traces. The Olympia JSON trace (above) is the simpler near-term path; STF is the standardized format that also carries PC/opcode (preserving RVC width info the JSON loses).
 
 ## Performance
 
