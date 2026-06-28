@@ -53,6 +53,12 @@ public sealed class RvInstruction(
         _              => [],
     };
 
+    public int LoadSignExtendBytes => Payload switch {
+        RvLb => 1,
+        RvLh => 2,
+        _    => 0,
+    };
+
     public IReadOnlyList<int> VectorSourceRegisters => Payload switch {
         RvVIntAluVv op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         RvVIntAluVx op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],

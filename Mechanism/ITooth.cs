@@ -70,6 +70,14 @@ public interface ITooth {
     /// IUveScalars before calling the executor. Non-NDC ops return empty.
     /// </summary>
     IReadOnlyList<(int StreamId, int Dim)> UveDimBranchSources => [];
+
+    /// <summary>
+    /// For signed load instructions: the number of bytes being loaded that require
+    /// sign extension into the full register width. Used by the OoO pipeline to
+    /// apply the correct extension to store-forwarded values.
+    /// Returns 0 for all non-loads and for zero-extending loads (lbu, lhu, lwu).
+    /// </summary>
+    int LoadSignExtendBytes => 0;
 }
 
 /// <summary>

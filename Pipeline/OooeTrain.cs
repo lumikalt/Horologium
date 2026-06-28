@@ -955,6 +955,15 @@ internal sealed class OoOPipelineCore : Gear {
         if (_capMem.HasRead) {
             (ulong fwd, bool hasFwd) = TryForwardFromStore(issued.RobIdx, _capMem.ReadAddress, _capMem.ReadBytes);
             if (hasFwd) {
+                // Apply sign extension for signed loads (lb → 1 byte, lh → 2 bytes).
+                // TryForwardFromStore returns the raw masked store value; signed load
+                // semantics require extending the sign bit into the upper bits.
+                int signExtBytes = issued.Instr.LoadSignExtendBytes;
+                if (signExtBytes > 0) {
+                    ulong signBit = 1UL << (signExtBytes * 8 - 1);
+                    if ((fwd & signBit) != 0)
+                        fwd |= ~((1UL << (signExtBytes * 8)) - 1);
+                }
                 regValue = (fwd, true);
                 loadForwarded = true;
             }
