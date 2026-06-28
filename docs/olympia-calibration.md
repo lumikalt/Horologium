@@ -36,10 +36,16 @@ IPC is read from each side's stats.
 - **Internal consistency holds (the safe signal).** The cache knob moves IPC the
   expected direction (down, introducing miss latency); width increases IPC on
   both models. The model responds correctly to configuration.
-- **Residual gap on rich.elf** (cache: 1.17 vs Olympia 0.76 at 2-wide) is partly
-  Horologium modelling an L1 *hit* as 1-cycle load-use (vs Olympia's multi-cycle)
-  and rich.elf's tiny working set (a 48-int array → mostly hits, so the cache
-  barely bites). Load-use latency is the natural next modelling refinement.
+- **Residual gap on rich.elf** (cache: 1.17 vs Olympia 0.76 at 2-wide) is *not*
+  a single matchable knob. Both L1-I and L1-D are on and exercised (D: 1387
+  hits / 50 misses), and Olympia's `small_core` has a 16 KB L1 with **no L2/L3**,
+  so it is not a missing cache layer. Raising Horologium's L1-hit load-use
+  latency 1→3 cycles barely moves IPC (1.165→1.173) — the loads are hidden by the
+  OoO window on rich.elf's small working set. The residual is a **structural
+  difference between two OoO models** (issue/execution-port modelling,
+  front-end queue depths, the per-pipe latency matrix), not a config mismatch to
+  close. Chasing it on two tiny workloads would be curve-fitting; the sound move
+  is breadth (below), not knob-tuning.
 
 ## Caveats
 
