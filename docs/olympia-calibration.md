@@ -17,60 +17,66 @@ Mavis decodes it directly — covering FP/vector/compressed, which an earlier
 mnemonic+registers form could not (it mis-encoded FP registers → Mavis
 `InvalidRegisterNumber`, and every riscv-tests benchmark is FP). Olympia replays
 the trace at three arch widths (`small`/`medium`/`big_core` = 2/3/8-wide);
-Horologium's OoO train runs the same program at matching `issue_width`.
+Horologium's OoO train runs the same program at matching `issue_width`, both
+without a cache (idealized 1-cycle loads) and with a 16 KB L1 I/D (matching
+Olympia's `small_core` L1).
 
-## Results (IPC), no-cache Horologium vs Olympia
+## Results (IPC)
 
-| workload | Horologium OoO 2/3/8 | Olympia s/m/b      |
-|----------|----------------------|--------------------|
-| rich     | 1.35 / 1.76 / 2.10   | 0.75 / 1.01 / 0.97 |
-| vvadd    | 1.35 / 1.68 / 1.56   | 0.90 / 1.02 / 1.07 |
-| multiply | 1.52 / 1.73 / 1.77   | 1.09 / 1.88 / 2.03 |
-| median   | 0.84 / 0.90 / 0.83   | 1.01 / 1.09 / 1.11 |
-| towers   | 0.88 / 0.91 / 0.77   | 0.61 / 0.64 / 0.65 |
-| qsort    | 1.00 / 1.13 / 1.17   | 1.24 / 1.45 / 1.47 |
-| rsort    | 1.85 / 2.32 / 2.37   | 0.99 / 1.04 / 1.03 |
-| memcpy   | 1.71 / 2.09 / 1.94   | 0.90 / 0.92 / 0.92 |
-
-This is the **unmatched** comparison: Horologium here has 1-cycle loads
-(`FuLatencyConfig.LoadStoreLatency = 1`, no cache); Olympia models a real L1. A
-cache-matched run is currently **not possible** — see the bug below.
+| workload | Horologium 2/3/8   | + L1$ 2/3/8        | Olympia s/m/b      |
+|----------|--------------------|--------------------|--------------------|
+| rich     | 1.35 / 1.76 / 2.10 | 1.17 / 1.46 / 1.69 | 0.75 / 1.01 / 0.97 |
+| vvadd    | 1.35 / 1.68 / 1.56 | 0.64 / 0.70 / 0.68 | 0.90 / 1.02 / 1.07 |
+| multiply | 1.52 / 1.73 / 1.77 | 1.41 / 1.58 / 1.61 | 1.09 / 1.88 / 2.03 |
+| median   | 0.84 / 0.90 / 0.83 | 0.53 / 0.55 / 0.52 | 1.01 / 1.09 / 1.11 |
+| towers   | 0.88 / 0.91 / 0.77 | 0.75 / 0.77 / 0.63 | 0.61 / 0.64 / 0.65 |
+| qsort    | 1.00 / 1.13 / 1.17 | 0.99 / 1.11 / 1.15 | 1.24 / 1.45 / 1.47 |
+| rsort    | 1.85 / 2.32 / 2.37 | 1.37 / 1.61 / 1.64 | 0.99 / 1.04 / 1.03 |
+| memcpy   | 1.71 / 2.09 / 1.94 | 0.50 / 0.53 / 0.52 | 0.90 / 0.92 / 0.92 |
 
 ## What this shows
 
-- **Both models live in the same IPC band (~0.6–2.4)** — the opcode trace drives
+- **Both models live in the same IPC band (~0.5–2.4)** — the opcode trace drives
   Olympia correctly across the whole suite, so the pipeline is sound.
-- **Horologium's idealized-memory OoO runs optimistic on most workloads**
-  (higher on 6 of 8 at 2-wide) but not uniformly (lower on median, qsort). With
-  1-cycle loads it over-extracts ILP where Olympia's load-use latency throttles
-  it — but the per-workload spread is wide and there is **no clean cross-model
-  rank correspondence** at this config. That is expected: the memory model is
-  unmatched, and matching it is blocked.
+- **No-cache Horologium (1-cycle loads) is optimistic** — higher than Olympia on
+  6 of 8 workloads, as expected for an idealized memory model.
+- **With a matched L1, the error goes bidirectional, and the pattern is the real
+  finding.** Horologium is now *higher* on compute-bound code (multiply 1.41 vs
+  1.09, rich 1.17 vs 0.75) but markedly *lower* on memory-bound code (memcpy 0.50
+  vs 0.90, median 0.53 vs 1.01, vvadd 0.64 vs 0.90). That signature points at
+  Horologium's OoO charging cache-miss stalls **lump-sum, with no memory-level
+  parallelism** (`OooeTrain.RunCycle`: "Lump-sum: does not model memory-level
+  parallelism"): independent misses are summed instead of overlapped, so
+  memory-bound workloads are over-penalized. The existing *non-blocking cache /
+  MSHR* TODO is exactly the fix; this study gives it a concrete, measured
+  motivation. There is still **no clean cross-model rank correspondence** — two
+  different microarchitectures — so read the *pattern*, not the deltas.
 
-## Bug surfaced: OoO + L1 cache inflates cycles
+## Bug found and fixed: HTIF MMIO was cached
 
-Adding an L1 to the OoO train to *match* Olympia produced nonsense: median goes
-from 16,138 cycles (no cache) to **1,009,570** with an L1, reporting ~989k
-dcache hits and ~995k stall cycles for a ~13.5k-instruction program (≈73 cache
-accesses/instruction). The cache column was constant ~1.9–2.0 across all
-workloads. This is a Horologium **OoO+cache modelling bug** (a miss appears to
-re-poll/replay the load every cycle instead of waiting), independent of Olympia
-— the cross-model exercise just surfaced it. Filed in TODO; until it is fixed the
-cache-matched comparison cannot be run.
+Getting the L1 column at all required a fix. The first cache-matched run hung:
+median went from 16k cycles to 1.0M (= maxTicks) with ~989k dcache hits for a
+~13.5k-instruction program. Root cause (confirmed on both FiveStage and OoO, so
+*not* OoO-specific): the L1 sits above `HtifMemory`, whose auto-ACK writes
+`fromhost` to the backing *below* the cache; `tohost`/`fromhost` share a line, so
+once `printstr` write-allocates it the poll loop reads a stale cached `0` forever.
+`rich.elf` (EBREAK, no `printstr`) was immune — the tell. Fix: model MMIO as
+uncacheable (`MemoryConfig.Uncacheable*` + `UncacheableMemory` router; `Experiment`
+sets the window to the workload's HTIF registers). Regression-tested.
 
 ## Caveats
 
 - **Trace replay has no wrong path.** Olympia replays the committed trace, so it
   pays no misprediction penalty — which should *inflate* its IPC versus a real
-  run. So where Horologium is higher, the direction is robust; the magnitude is
-  not.
-- **Benchmarks vary in size** (vvadd ~9k → rsort ~368k instructions). Olympia's
-  trace replay and Horologium's OoO both scale fine, but absolute IPC is still
-  config-sensitive; read the band and the spread, not individual deltas.
+  run. Factor that in when reading the compute-bound rows.
+- **Two different microarchitectures.** Absolute IPC and rank order will not
+  match; the value is the *direction* of the per-class error (memory- vs
+  compute-bound), which is robust here.
 
 ## Next steps
 
-1. **Fix the OoO+L1 cache bug** (above) — prerequisite for any cache-matched
-   comparison, and a real correctness issue in its own right.
-2. Then re-run cache-matched and look at directional/rank agreement across the
-   (now broad) suite, plus a width sweep — descriptively, not as a fit.
+1. **Non-blocking cache / MSHR in the OoO** — overlap independent misses (model
+   memory-level parallelism) instead of the lump-sum stall. This study predicts
+   it would lift the memory-bound IPCs (memcpy/median/vvadd) toward Olympia.
+2. Re-run this harness after that change to see whether the memory-bound gap
+   closes — descriptively, not as a fit.
