@@ -64,7 +64,7 @@ public class BenchmarkTests(ITestOutputHelper output) {
 
     private static (FlatMemory Mem, IMemory HtifMem, ulong EntryPoint, ulong TohostAddr) Load(string name) {
         var wl = new Rv32ElfWorkload(ElfPath(name), BenchmarkTests.MemoryBytes);
-        var mem = new FlatMemory(BenchmarkTests.MemoryBytes);
+        var mem = new FlatMemory(BenchmarkTests.MemoryBytes, wl.BaseAddress);
         wl.Load(mem);
         ulong tohost = wl.FindSymbol("tohost");
         return (mem, new HtifMemory(mem, tohost), wl.EntryPoint, tohost);

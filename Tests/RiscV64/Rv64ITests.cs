@@ -12,9 +12,9 @@ namespace Tests.RiscV64;
 /// corrected 64-bit semantics for shifts, comparisons, and LW.
 /// </summary>
 public class Rv64ITests {
-    private readonly Rv64Decoder  _dec = new();
+    private readonly Rv64Decoder _dec = new();
     private readonly Rv64Executor _exe = new();
-    private readonly FlatMemory   _mem = new(65536);
+    private readonly FlatMemory _mem = new(65536);
 
     private Rv64ArchState MakeState(params (int reg, ulong val)[] regs) {
         var s = new Rv64ArchState();

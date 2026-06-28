@@ -1,5 +1,5 @@
 /* Linker script for Horologium riscv-tests.
- * Places everything at address 0x0 so FlatMemory can hold it directly.
+ * Uses Spike's DRAM_BASE (0x80000000) for lock-step co-simulation compatibility.
  * 64 KB is enough for every individual instruction test.
  */
 
@@ -7,11 +7,11 @@ OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 MEMORY {
-    RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 64K
+    RAM (rwx) : ORIGIN = 0x80000000, LENGTH = 64K
 }
 
 SECTIONS {
-    . = 0x0;
+    . = 0x80000000;
 
     .text.start : { *(.text.start) } > RAM
     .text       : { *(.text .text.*)

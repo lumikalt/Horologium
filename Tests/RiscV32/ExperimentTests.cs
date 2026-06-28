@@ -153,9 +153,9 @@ public class ExperimentTests {
 
     [Fact]
     public void ElfWorkload_EntryPointMatchesElfLoader() {
-        var mem = new FlatMemory(1 << 20);
-        ulong expected = Rv32ElfLoader.LoadFile(mem, TestElfPath);
         var workload = new Rv32ElfWorkload(TestElfPath);
+        var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        ulong expected = Rv32ElfLoader.LoadFile(mem, TestElfPath);
         Assert.Equal(expected, workload.EntryPoint);
     }
 

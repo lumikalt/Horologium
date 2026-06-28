@@ -79,9 +79,9 @@ public class TrisolvTests {
     // ── Reference solution ────────────────────────────────────────────────────
 
     private static float[] ReferenceSolve(int n, float[] L, float[] b) {
-        float[] x = new float[n];
+        var x = new float[n];
         for (var i = 0; i < n; i++) {
-            float sum = 0f;
+            var sum = 0f;
             for (var j = 0; j < i; j++) sum += L[i * n + j] * x[j];
             x[i] = (b[i] - sum) / L[i * n + i];
         }

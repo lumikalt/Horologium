@@ -125,6 +125,11 @@
 - [ ] Multiperspective Perceptron.
 - [ ] Bullseye/SDM as H2P helpers.
 
+## Co-simulation
+
+- [ ] Spike lock-step co-simulation (online, driven via spike `-d` interactive debug mode): step both Horologium and Spike instruction-by-instruction, halt and report on first divergence. Covers standard ISA only — UVE and other custom extensions are invisible to Spike. Address space is now compatible: all ELFs and FlatMemory use Spike's `DRAM_BASE` (0x80000000). Remaining work: `ICoSimReference` in Mechanism/, `ICommitObserver` hook in trains, `SpikeCoSimReference` in RiscV32/CoSim/ using `-d` stdin/stdout protocol, co-sim integration tests.
+- [ ] gem5 timing co-simulation: compare pipeline event timing (fetch cycle, issue cycle, retire cycle) against gem5's O3CPU. Verifies IPC and stall counts, not ISA correctness. Requires gem5 Python integration and a structural mapping between PEvents and gem5's stats. Substantially more complex than Spike ISA co-sim.
+
 ## Multicore
 
 - [ ] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.

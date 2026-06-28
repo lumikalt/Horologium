@@ -1,9 +1,9 @@
 MEMORY {
-    RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 64K
+    RAM (rwx) : ORIGIN = 0x80000000, LENGTH = 64K
 }
 
 SECTIONS {
-    . = 0x0;
+    . = 0x80000000;
 
     .text : {
         *(.text.start)

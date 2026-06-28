@@ -53,7 +53,7 @@ public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
     [MemberData(nameof(AllTests))]
     public void SingleCycle_Passes(string name) {
         var wl = new Rv32ElfWorkload(ElfPath(name));
-        var mem = new FlatMemory(wl.MemorySize);
+        var mem = new FlatMemory(wl.MemorySize, wl.BaseAddress);
         wl.Load(mem);
 
         var train = new SingleCycleTrain(new Rv32Mechanism(), mem, wl.EntryPoint);
@@ -68,7 +68,7 @@ public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
     [MemberData(nameof(AllTests))]
     public void FiveStage_Passes(string name) {
         var wl = new Rv32ElfWorkload(ElfPath(name));
-        var mem = new FlatMemory(wl.MemorySize);
+        var mem = new FlatMemory(wl.MemorySize, wl.BaseAddress);
         wl.Load(mem);
 
         var train = new FiveStageTrain(new Rv32Mechanism(), mem, wl.EntryPoint);
@@ -83,7 +83,7 @@ public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
     [MemberData(nameof(AllTests))]
     public void OoOE_Passes(string name) {
         var wl = new Rv32ElfWorkload(ElfPath(name));
-        var mem = new FlatMemory(wl.MemorySize);
+        var mem = new FlatMemory(wl.MemorySize, wl.BaseAddress);
         wl.Load(mem);
 
         var train = new OooeTrain(new Rv32Mechanism(), mem, wl.EntryPoint);
@@ -104,7 +104,7 @@ public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
         foreach (object[] row in AllTests()) {
             var name = (string)row[0];
             var wl = new Rv32ElfWorkload(ElfPath(name));
-            var mem = new FlatMemory(wl.MemorySize);
+            var mem = new FlatMemory(wl.MemorySize, wl.BaseAddress);
             wl.Load(mem);
 
             var train = new OooeTrain(new Rv32Mechanism(), mem, wl.EntryPoint);

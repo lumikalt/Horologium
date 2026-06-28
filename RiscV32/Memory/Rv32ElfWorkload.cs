@@ -16,13 +16,21 @@ public sealed class Rv32ElfWorkload : IWorkload {
     public int MemorySize { get; }
     public int CodeSize => _elfBytes.Length;
 
+    /// <summary>
+    /// The physical base address of the first PT_LOAD segment, e.g. 0x80000000
+    /// for Spike-compatible ELFs. Pass this to FlatMemory's constructor so that
+    /// the backing array covers only the actual code/data range.
+    /// </summary>
+    public ulong BaseAddress { get; }
+
     public Rv32ElfWorkload(string path, int? memorySizeBytes = null)
         : this(File.ReadAllBytes(path), memorySizeBytes) { }
 
     public Rv32ElfWorkload(byte[] elfBytes, int? memorySizeBytes = null) {
         _elfBytes = elfBytes;
         EntryPoint = ParseEntryPoint(elfBytes);
-        MemorySize = memorySizeBytes ?? ComputeMinMemorySize(elfBytes);
+        BaseAddress = ComputeBaseAddress(elfBytes);
+        MemorySize = memorySizeBytes ?? ComputeMinMemorySize(elfBytes, BaseAddress);
     }
 
     public void Load(IMemory memory) => Rv32ElfLoader.Load(memory, _elfBytes);
@@ -68,7 +76,23 @@ public sealed class Rv32ElfWorkload : IWorkload {
     private static ulong ParseEntryPoint(ReadOnlySpan<byte> elf) =>
         BinaryPrimitives.ReadUInt32LittleEndian(elf[24..]);
 
-    private static int ComputeMinMemorySize(ReadOnlySpan<byte> elf) {
+    private static ulong ComputeBaseAddress(ReadOnlySpan<byte> elf) {
+        uint phoff = BinaryPrimitives.ReadUInt32LittleEndian(elf[28..]);
+        ushort phentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[42..]);
+        ushort phnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[44..]);
+
+        var minBase = uint.MaxValue;
+        for (var i = 0; i < phnum; i++) {
+            var ph = (int)(phoff + (uint)(i * phentsz));
+            if (BinaryPrimitives.ReadUInt32LittleEndian(elf[ph..]) != 1) continue; // PT_LOAD = 1
+            uint paddr = BinaryPrimitives.ReadUInt32LittleEndian(elf[(ph + 12)..]);
+            if (paddr < minBase) minBase = paddr;
+        }
+
+        return minBase == uint.MaxValue ? 0u : minBase;
+    }
+
+    private static int ComputeMinMemorySize(ReadOnlySpan<byte> elf, ulong baseAddress) {
         uint phoff = BinaryPrimitives.ReadUInt32LittleEndian(elf[28..]);
         ushort phentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[42..]);
         ushort phnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[44..]);
@@ -82,7 +106,8 @@ public sealed class Rv32ElfWorkload : IWorkload {
             maxEnd = Math.Max(maxEnd, paddr + memsz);
         }
 
-        // Round to next 64 KB boundary and add 64 KB for stack/heap.
-        return (int)((maxEnd + 0xFFFF) & ~0xFFFFU) + 0x10000;
+        // Size relative to the base address, rounded to next 64 KB + 64 KB for stack/heap.
+        uint relativeEnd = maxEnd - (uint)baseAddress;
+        return (int)((relativeEnd + 0xFFFF) & ~0xFFFFU) + 0x10000;
     }
 }

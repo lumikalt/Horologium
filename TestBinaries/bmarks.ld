@@ -1,18 +1,18 @@
 /* Linker script for riscv-tests benchmarks in Horologium.
- * Mirrors bmarks/common/test.ld but places everything at 0x0
- * so FlatMemory can hold it directly without a 2 GB allocation.
- * .tohost lands at 0x1000 (first page boundary after .text.init).
+ * Uses Spike's DRAM_BASE (0x80000000) as the load address so that ELFs can
+ * be run unmodified under spike for lock-step co-simulation.
+ * .tohost lands at 0x80001000 (first page boundary after .text.init).
  */
 
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 MEMORY {
-    RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 4M
+    RAM (rwx) : ORIGIN = 0x80000000, LENGTH = 4M
 }
 
 SECTIONS {
-    . = 0x0;
+    . = 0x80000000;
     .text.init : { *(.text.init) }
 
     . = ALIGN(0x1000);

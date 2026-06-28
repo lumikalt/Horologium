@@ -37,6 +37,10 @@
             # RISC-V bare-metal toolchain
             pkgsCross.riscv32-embedded.buildPackages.gcc
             pkgsCross.riscv32-embedded.buildPackages.binutils
+
+            # RISC-V ISA reference simulator for lock-step co-simulation
+            spike
+            dtc # device tree compiler, required by spike
           ];
 
           extra-lib = with pkgs; [

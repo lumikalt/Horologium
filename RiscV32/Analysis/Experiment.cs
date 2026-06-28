@@ -53,7 +53,7 @@ public static class Experiment {
 
         foreach (NamedConfig named in configurations) {
             TrainConfig config = named.Config;
-            var memory = new FlatMemory(workload.MemorySize);
+            var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
             workload.Load(memory);
 
             RevolutionResult result = config.Pipeline switch {

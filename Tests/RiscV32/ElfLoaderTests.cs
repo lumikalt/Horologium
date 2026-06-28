@@ -18,18 +18,18 @@ public class ElfLoaderTests {
 
     [Fact]
     public void LoadFile_ReturnsEntryPoint() {
-        var mem = new FlatMemory(0x10000);
+        var mem = new FlatMemory(0x10000, 0x80000000);
         ulong entry = Rv32ElfLoader.LoadFile(mem, TestElfPath);
-        Assert.Equal(0UL, entry); // linker script places _start at 0x0
+        Assert.Equal(0x80000000UL, entry); // linker script places _start at Spike's DRAM_BASE
     }
 
     [Fact]
     public void LoadFile_FirstInstructionIsStart() {
-        // _start begins with: lui sp, 0x10  (encoding 0x00010137)
-        var mem = new FlatMemory(0x10000);
+        // _start begins with: lui sp, 0x80010  (encoding 0x80010137, sets sp = 0x80010000)
+        var mem = new FlatMemory(0x10000, 0x80000000);
         Rv32ElfLoader.LoadFile(mem, TestElfPath);
-        var firstWord = (uint)mem.Read(0, 4);
-        Assert.Equal(0x00010137u, firstWord);
+        var firstWord = (uint)mem.Read(0x80000000, 4);
+        Assert.Equal(0x80010137u, firstWord);
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class ElfLoaderTests {
     public void RunElf_SumLoop_A0Equals55() {
         // main() computes sum(1..10) = 55 and returns it.
         // After ebreak, a0 (x10) holds the return value.
-        var mem = new FlatMemory(0x10000);
+        var mem = new FlatMemory(0x10000, 0x80000000);
         ulong entry = Rv32ElfLoader.LoadFile(mem, TestElfPath);
 
         var train = new FiveStageTrain(new Rv32Mechanism(), mem, entry);
@@ -80,7 +80,7 @@ public class ElfLoaderTests {
     [Fact]
     public void RunElf_Fibonacci_A1Equals13() {
         // main() computes fib(7) = 13 and stores it in a1 before returning.
-        var mem = new FlatMemory(0x10000);
+        var mem = new FlatMemory(0x10000, 0x80000000);
         ulong entry = Rv32ElfLoader.LoadFile(mem, TestElfPath);
 
         var train = new FiveStageTrain(new Rv32Mechanism(), mem, entry);
@@ -92,7 +92,7 @@ public class ElfLoaderTests {
     [Fact]
     public void RunElf_ArraySumViaMemory_A2Equals136() {
         // main() stores [1..16] on the stack then sums them; a2 = 1+2+…+16 = 136.
-        var mem = new FlatMemory(0x10000);
+        var mem = new FlatMemory(0x10000, 0x80000000);
         ulong entry = Rv32ElfLoader.LoadFile(mem, TestElfPath);
 
         var train = new FiveStageTrain(new Rv32Mechanism(), mem, entry);
@@ -104,7 +104,7 @@ public class ElfLoaderTests {
     [Fact]
     public void RunElf_RetiredCountReflectsActualWork() {
         // A non-trivial program should retire more than a handful of instructions.
-        var mem = new FlatMemory(0x10000);
+        var mem = new FlatMemory(0x10000, 0x80000000);
         ulong entry = Rv32ElfLoader.LoadFile(mem, TestElfPath);
 
         var train = new FiveStageTrain(new Rv32Mechanism(), mem, entry);
@@ -125,7 +125,7 @@ public class ElfLoaderTests {
             512, 4, 16, 5
         );
 
-        var mem = new FlatMemory(0x10000);
+        var mem = new FlatMemory(0x10000, 0x80000000);
         ulong entry = Rv32ElfLoader.LoadFile(mem, TestElfPath);
 
         var train = new FiveStageTrain(new Rv32Mechanism(), mem, entry, iMemConfig: iCfg);

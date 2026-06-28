@@ -20,4 +20,12 @@ public interface IWorkload {
     /// Default returns 0 (disables auto-estimation).
     /// </summary>
     int CodeSize => 0;
+
+    /// <summary>
+    /// The base physical address of this workload's memory region. Pass this to
+    /// FlatMemory so that ELF-style high addresses (e.g. 0x80000000) map to
+    /// array index 0 rather than requiring a 2 GB allocation.
+    /// Default is 0 for zero-based images.
+    /// </summary>
+    ulong BaseAddress => 0;
 }
