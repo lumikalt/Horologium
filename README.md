@@ -110,7 +110,7 @@ FiveStage records Fetch/Decode/Execute/Retire/Flush. OoO records the full lifecy
 
 ### Spike lock-step co-simulation (RiscV32/CoSim)
 
-`SpikeCoSimReference` implements `ICommitObserver` and runs Spike (`--log-commits`) against the same ELF at construction time. For each instruction that Horologium commits, it checks the PC, raw encoding, and any integer register write against the corresponding Spike commit record, throwing `CoSimDivergenceException` on the first divergence. Boot-ROM commits (PC below `baseAddress`) are filtered from Spike's log automatically. Attach it to `SingleCycleTrain` via the optional `commitObserver` parameter. `dtc` must be on PATH (the Nix dev-shell provides it); tests in `SpikeCoSimTests` can be excluded from CI without Spike with `--filter "FullyQualifiedName!~SpikeCoSim"`.
+`SpikeCoSimReference` implements `ICommitObserver` and launches Spike as a live child process with `--log-commits`. For each instruction that Horologium commits, it reads the next line from Spike's stderr stream (blocking until Spike produces it), then immediately compares PC, raw encoding, and any integer register write — divergence is reported at the exact failing instruction. Boot-ROM commits (PC below `baseAddress`) are skipped. Attach it to `SingleCycleTrain` via the optional `commitObserver` parameter; wrap in `using` to kill Spike on completion. `dtc` must be on PATH (the Nix dev-shell provides it); tests in `SpikeCoSimTests` can be excluded from CI without Spike with `--filter "FullyQualifiedName!~SpikeCoSim"`.
 
 ### Hardware comparison (RiscV/Analysis)
 

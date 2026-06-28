@@ -5,17 +5,23 @@ using Mechanism;
 namespace RiscV32.CoSim;
 
 /// <summary>
-/// Lock-step co-verification against Spike. Runs Spike with <c>--log-commits</c>
-/// at construction time, parses its commit log, and checks each Horologium commit
-/// against the corresponding Spike entry via <see cref="ICommitObserver.OnCommit"/>.
+/// Online lock-step co-verification against Spike.
 ///
-/// Only integer register writes are compared; stores and branches are verified
-/// implicitly via PC ordering. Boot-ROM instructions (PC below
-/// <paramref name="baseAddress"/>) are skipped from Spike's log automatically.
+/// Launches Spike with <c>--log-commits</c> and keeps it running as a child
+/// process. Each call to <see cref="ICommitObserver.OnCommit"/> reads the
+/// next commit record from Spike's live stderr stream, blocks until Spike
+/// has produced the matching instruction, and immediately compares PC, raw
+/// encoding, and any integer register write.
 ///
-/// Throws <see cref="CoSimDivergenceException"/> on the first mismatch.
+/// Divergence (PC out-of-order, encoding mismatch, wrong register value) is
+/// detected at the exact failing instruction and reported via
+/// <see cref="CoSimDivergenceException"/>. Boot-ROM commits (PC below
+/// <paramref name="baseAddress"/>) are skipped transparently.
+///
+/// Implements <see cref="IDisposable"/> — the caller must dispose to kill
+/// Spike when the simulation ends.
 /// </summary>
-public sealed class SpikeCoSimReference : ICommitObserver {
+public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
     private readonly record struct SpikeEntry(ulong Pc, uint RawEncoding, int RegIndex, uint RegValue);
 
     private static readonly Regex CommitLine = new(
@@ -23,33 +29,50 @@ public sealed class SpikeCoSimReference : ICommitObserver {
         RegexOptions.Compiled
     );
 
-    private readonly List<SpikeEntry> _log;
-    private int _index;
+    private readonly Process _proc;
+    private readonly StreamReader _log;
+    private readonly ulong _baseAddress;
+    private int _committed;
 
     /// <param name="elfPath">Path to the ELF binary to run under Spike.</param>
     /// <param name="baseAddress">ELF base address; Spike boot-ROM commits below this are skipped.</param>
-    /// <param name="memorySizeBytes">Spike <c>-m</c> region size.</param>
-    /// <param name="isa">ISA string passed to <c>--isa=</c>.</param>
+    /// <param name="memorySizeBytes">Spike <c>-m</c> region size in bytes.</param>
+    /// <param name="isa">ISA string passed to Spike's <c>--isa=</c>.</param>
     public SpikeCoSimReference(
         string elfPath,
         ulong baseAddress = 0x80000000UL,
         int memorySizeBytes = 0x400000,
         string isa = "rv32imafcv"
     ) {
-        _log = CollectSpikeLog(elfPath, baseAddress, memorySizeBytes, isa);
+        _baseAddress = baseAddress;
+
+        var psi = new ProcessStartInfo {
+            FileName = "spike",
+            Arguments =
+                $"--log-commits --isa={isa} -m0x{baseAddress:x}:0x{memorySizeBytes:x} {elfPath}",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.Environment["PATH"] = BuildSpikeEnvPath();
+
+        _proc = Process.Start(psi)
+                ?? throw new InvalidOperationException("Failed to start spike. Is it on PATH?");
+        _log = _proc.StandardError;
     }
 
+    /// <summary>
+    /// Called by the pipeline for each committed instruction. Reads the next
+    /// ELF-range commit from Spike's live output (blocking until available),
+    /// then compares PC, encoding, and any integer register write.
+    /// </summary>
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
-        if (_index >= _log.Count)
-            throw new CoSimDivergenceException(
-                $"Horologium committed instruction at 0x{pc:x8} but Spike log is exhausted after {_log.Count} entries"
-            );
-
-        var entry = _log[_index++];
+        var entry = ReadNextElfEntry(pc);
+        _committed++;
 
         if (entry.Pc != pc)
             throw new CoSimDivergenceException(
-                $"PC mismatch at commit #{_index}: Horologium=0x{pc:x8}, Spike=0x{entry.Pc:x8}"
+                $"PC mismatch at commit #{_committed}: Horologium=0x{pc:x8}, Spike=0x{entry.Pc:x8}"
             );
 
         if (entry.RawEncoding != rawEncoding)
@@ -67,64 +90,38 @@ public sealed class SpikeCoSimReference : ICommitObserver {
         }
     }
 
-    private static List<SpikeEntry> CollectSpikeLog(
-        string elfPath,
-        ulong baseAddress,
-        int memorySizeBytes,
-        string isa
-    ) {
-        var psi = new ProcessStartInfo {
-            FileName = "spike",
-            Arguments =
-                $"--log-commits --isa={isa} -m0x{baseAddress:x}:0x{memorySizeBytes:x} {elfPath}",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        psi.Environment["PATH"] = BuildSpikeEnvPath();
-
-        using var proc = Process.Start(psi)
-                         ?? throw new InvalidOperationException("Failed to start spike");
-
-        // Read commit log from stderr. Spike stalls in a fault loop after EBREAK
-        // (never generates more output but never exits), so we kill it once the
-        // stream has gone quiet for 500 ms.
-        var lines = new List<string>(1024);
-        var readTask = Task.Run(() => {
-            string? line;
-            while ((line = proc.StandardError.ReadLine()) != null)
-                lines.Add(line);
-        });
-
-        // Wait up to 3 s for the log to settle, then kill Spike. For typical test
-        // binaries all output arrives in well under 1 s.
-        readTask.Wait(TimeSpan.FromSeconds(3));
-        if (!proc.HasExited) {
-            proc.Kill();
-            proc.WaitForExit(1000);
+    public void Dispose() {
+        if (!_proc.HasExited) {
+            _proc.Kill();
+            _proc.WaitForExit(1000);
         }
-        // Let the background reader drain EOF after the kill.
-        readTask.Wait(500);
-
-        return ParseLog(lines, baseAddress);
+        _proc.Dispose();
     }
 
-    private static List<SpikeEntry> ParseLog(List<string> lines, ulong baseAddress) {
-        var entries = new List<SpikeEntry>(lines.Count);
-        foreach (var line in lines) {
+    // Reads lines from Spike's live commit log, discarding warning lines and
+    // boot-ROM commits, until it finds the next ELF-range commit record.
+    private SpikeEntry ReadNextElfEntry(ulong expectedPc) {
+        while (true) {
+            var line = _log.ReadLine();
+            if (line is null)
+                throw new CoSimDivergenceException(
+                    $"Spike commit log ended unexpectedly at commit #{_committed + 1} " +
+                    $"(Horologium about to commit 0x{expectedPc:x8})"
+                );
+
             var m = CommitLine.Match(line);
             if (!m.Success) continue;
 
             var pc = Convert.ToUInt64(m.Groups[1].Value, 16);
-            if (pc < baseAddress) continue;
+            if (pc < _baseAddress) continue;
 
-            var rawEncoding = Convert.ToUInt32(m.Groups[2].Value, 16);
-            var regIndex = m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : 0;
-            var regValue = m.Groups[4].Success ? (uint)Convert.ToUInt64(m.Groups[4].Value, 16) : 0u;
-
-            entries.Add(new SpikeEntry(pc, rawEncoding, regIndex, regValue));
+            return new SpikeEntry(
+                pc,
+                Convert.ToUInt32(m.Groups[2].Value, 16),
+                m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : 0,
+                m.Groups[4].Success ? (uint)Convert.ToUInt64(m.Groups[4].Value, 16) : 0u
+            );
         }
-        return entries;
     }
 
     private static string BuildSpikeEnvPath() {
@@ -132,7 +129,7 @@ public sealed class SpikeCoSimReference : ICommitObserver {
         if (existing.Split(':').Any(d => File.Exists(Path.Combine(d, "dtc"))))
             return existing;
 
-        // dtc not in PATH — search the nix store (dev-shell may not be active).
+        // dtc not in PATH — search the nix store (dev-shell may not be reloaded).
         try {
             var nixStore = new DirectoryInfo("/nix/store");
             if (nixStore.Exists) {

@@ -22,10 +22,12 @@ public class SpikeCoSimTests {
     [Fact]
     public void SingleCycle_TestElf_MatchesSpike() {
         var workload = new Rv32ElfWorkload(TestElfPath);
-        var cosim = new SpikeCoSimReference(TestElfPath, workload.BaseAddress, workload.MemorySize);
 
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
+
+        // Spike runs as a live child process; dispose kills it when the simulation ends.
+        using var cosim = new SpikeCoSimReference(TestElfPath, workload.BaseAddress, workload.MemorySize);
 
         var train = new SingleCycleTrain(
             new Rv32Mechanism(), mem, workload.EntryPoint,
