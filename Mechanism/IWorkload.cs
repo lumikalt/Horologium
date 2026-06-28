@@ -28,4 +28,10 @@ public interface IWorkload {
     /// Default is 0 for zero-based images.
     /// </summary>
     ulong BaseAddress => 0;
+
+    /// <summary>
+    /// Wraps a freshly-loaded memory with any workload-specific peripheral emulation
+    /// (e.g. HTIF auto-ACK for RISC-V benchmark ELFs). The default is a no-op pass-through.
+    /// </summary>
+    IMemory WrapMemory(IMemory memory) => memory;
 }

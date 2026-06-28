@@ -39,24 +39,6 @@ public class BenchmarkTests(ITestOutputHelper output) {
            .OrderBy(p => p)
            .Select(p => new object[] { Path.GetFileNameWithoutExtension(p), });
 
-    // ── HTIF memory wrapper ───────────────────────────────────────────────────
-
-    // When tohost receives a magic-memory write (even non-zero value = HTIF syscall
-    // pointer), immediately acknowledge by writing 1 to fromhost (tohost+8).
-    // This unblocks printstr's fromhost poll loop so the benchmark can reach
-    // tohost_exit.  Odd writes (tohost_exit's exit code) are not acknowledged.
-    private sealed class HtifMemory(FlatMemory inner, ulong tohostAddr) : IMemory {
-        public ulong Read(ulong address, int bytes) => inner.Read(address, bytes);
-
-        public void Write(ulong address, ulong value, int bytes) {
-            inner.Write(address, value, bytes);
-            if (address == tohostAddr && bytes == 4 && value != 0 && (value & 1) == 0)
-                inner.Write(tohostAddr + 8, 1, 4);
-        }
-
-        public void Load(ulong address, ReadOnlySpan<byte> data) => inner.Load(address, data);
-    }
-
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static string ElfPath(string name) =>

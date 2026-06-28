@@ -921,7 +921,22 @@ internal sealed class OoOPipelineCore : Gear {
         }
 
         IMemory mem = isVec || isUve ? DLayers.Accessor : _capMem;
-        ExecuteResult er = _executor.Execute(issued.Instr, State, mem);
+        ExecuteResult er;
+        try {
+            er = _executor.Execute(issued.Instr, State, mem);
+        } catch (AccessViolationException) {
+            // Speculative load/store hit an out-of-bounds address. Restore registers
+            // and return a trap result so the ROB can squash it on misprediction or
+            // take the fault if it reaches the head while still on the correct path.
+            if (s0 >= 0) regs.Write(s0, save0);
+            if (s1 >= 0) regs.Write(s1, save1);
+            if (s2 >= 0) regs.Write(s2, save2);
+            int cause = _capMem.HasRead ? TrapCause.LoadAccessFault : TrapCause.StoreAccessFault;
+            ulong faultAddr = _capMem.HasRead ? _capMem.ReadAddress : _capMem.WriteAddress;
+            return new ExecResult(issued.RobIdx, issued.PhysDest,
+                default, default, new TrapInfo(cause, faultAddr, issued.Pc),
+                false, null, false, 0, 0, 0, false, 0, 0, false);
+        }
 
         // Apply SideEffect immediately for head-serialized ops (VRF/UveState writes
         // must be visible to the next head instruction in the same cycle).

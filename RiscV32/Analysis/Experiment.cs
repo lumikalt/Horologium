@@ -55,10 +55,11 @@ public static class Experiment {
             TrainConfig config = named.Config;
             var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
             workload.Load(memory);
+            IMemory runMemory = workload.WrapMemory(memory);
 
             RevolutionResult result = config.Pipeline switch {
                 "superscalar" => new SuperscalarTrain(
-                    mechanism, memory,
+                    mechanism, runMemory,
                     workload.EntryPoint,
                     config.IssueWidth,
                     config.ToIMemoryConfig(),
@@ -66,7 +67,7 @@ public static class Experiment {
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
                 "ooo" => new OooeTrain(
-                    mechanism, memory,
+                    mechanism, runMemory,
                     workload.EntryPoint,
                     config.IssueWidth,
                     config.RobCapacity,
@@ -79,7 +80,7 @@ public static class Experiment {
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
 
                 _ => new FiveStageTrain(
-                    mechanism, memory,
+                    mechanism, runMemory,
                     workload.EntryPoint,
                     config.ForwardingEnabled,
                     config.Predictor?.Build(),
@@ -105,14 +106,15 @@ public static class Experiment {
         IMechanism mechanism,
         long maxTicks = 10_000
     ) {
-        var memory = new FlatMemory(workload.MemorySize);
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(memory);
+        IMemory runMemory = workload.WrapMemory(memory);
         var plog = new PEventLog();
         TrainConfig cfg = config.Config;
         switch (cfg.Pipeline) {
             case "ooo":
                 new OooeTrain(
-                    mechanism, memory, workload.EntryPoint,
+                    mechanism, runMemory, workload.EntryPoint,
                     cfg.IssueWidth, cfg.RobCapacity, cfg.IqCapacity, cfg.ExtraPhysRegs,
                     cfg.Predictor?.Build(),
                     cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig(),
@@ -122,7 +124,7 @@ public static class Experiment {
             case "superscalar": break;
             default:
                 new FiveStageTrain(
-                    mechanism, memory, workload.EntryPoint,
+                    mechanism, runMemory, workload.EntryPoint,
                     cfg.ForwardingEnabled,
                     cfg.Predictor?.Build(),
                     cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig(),

@@ -36,6 +36,15 @@ public sealed class Rv32ElfWorkload : IWorkload {
     public void Load(IMemory memory) => Rv32ElfLoader.Load(memory, _elfBytes);
 
     /// <summary>
+    /// Wraps <paramref name="memory"/> with <see cref="HtifMemory"/> when the ELF contains
+    /// a <c>tohost</c> symbol so that HTIF syscall writes are auto-acknowledged.
+    /// Without this, benchmarks that call printstr would spin forever in the fromhost
+    /// polling loop, preventing them from reaching tohost_exit.
+    /// </summary>
+    public IMemory WrapMemory(IMemory memory) =>
+        TryFindSymbol("tohost", out ulong tohost) ? new HtifMemory(memory, tohost) : memory;
+
+    /// <summary>
     /// Returns the virtual address of a named ELF symbol, or throws if not found.
     /// </summary>
     public ulong FindSymbol(string name) {
@@ -69,6 +78,17 @@ public sealed class Rv32ElfWorkload : IWorkload {
         }
 
         throw new KeyNotFoundException($"ELF symbol '{name}' not found");
+    }
+
+    /// <summary>Like <see cref="FindSymbol"/> but returns false instead of throwing.</summary>
+    public bool TryFindSymbol(string name, out ulong address) {
+        try {
+            address = FindSymbol(name);
+            return true;
+        } catch (KeyNotFoundException) {
+            address = 0;
+            return false;
+        }
     }
 
     // ── ELF header parsing ────────────────────────────────────────────────────
