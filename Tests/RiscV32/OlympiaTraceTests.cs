@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Orrery.Train;
 using Pipeline;
@@ -10,8 +11,9 @@ namespace Tests.RiscV32;
 /// <summary>
 /// Self-validation for the Olympia JSON instruction-trace output (no Olympia
 /// build required): confirms the trace is well-formed and matches Olympia's
-/// schema (mnemonic + rs1/rs2/rd + vaddr for loads/stores), and that it is an
-/// exact functional instruction stream (one entry per retired instruction).
+/// schema (raw <c>opcode</c> + optional <c>mnemonic</c> + <c>vaddr</c> for
+/// loads/stores), and that it is an exact functional instruction stream (one
+/// entry per retired instruction).
 /// </summary>
 public class OlympiaTraceTests {
     private static string ElfPath(string name) => Path.Combine(AppContext.BaseDirectory, name);
@@ -39,20 +41,24 @@ public class OlympiaTraceTests {
         Assert.True(root.GetArrayLength() > 0);
 
         foreach (JsonElement e in root.EnumerateArray()) {
-            string m = e.GetProperty("mnemonic").GetString()!;
-            Assert.False(string.IsNullOrEmpty(m));
-            Assert.Equal(m.ToLowerInvariant(), m); // standard lowercase mnemonic
+            // opcode is the required field Mavis decodes — "0x" + hex.
+            string op = e.GetProperty("opcode").GetString()!;
+            Assert.StartsWith("0x", op);
+            Assert.True(uint.TryParse(op.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _),
+                $"opcode '{op}' should be hex");
 
-            foreach (string reg in (string[])["rs1", "rs2", "rd",])
-                if (e.TryGetProperty(reg, out JsonElement rv))
-                    Assert.InRange(rv.GetInt32(), 0, 31);
+            // mnemonic is optional/best-effort; lowercase when present.
+            if (e.TryGetProperty("mnemonic", out JsonElement mn)) {
+                string m = mn.GetString()!;
+                Assert.Equal(m.ToLowerInvariant(), m);
 
-            bool hasVaddr = e.TryGetProperty("vaddr", out JsonElement va);
-            if (OlympiaTraceTests.LoadStore.Contains(m)) {
-                Assert.True(hasVaddr, $"load/store '{m}' should carry a vaddr");
-                Assert.StartsWith("0x", va.GetString());
+                bool hasVaddr = e.TryGetProperty("vaddr", out JsonElement va);
+                if (OlympiaTraceTests.LoadStore.Contains(m)) {
+                    Assert.True(hasVaddr, $"load/store '{m}' should carry a vaddr");
+                    Assert.StartsWith("0x", va.GetString());
+                }
+                else { Assert.False(hasVaddr, $"non-memory op '{m}' should not carry a vaddr"); }
             }
-            else { Assert.False(hasVaddr, $"non-memory op '{m}' should not carry a vaddr"); }
         }
     }
 

@@ -12,21 +12,25 @@ namespace RiscV32.Trace;
 /// <see cref="OnCommit"/> corresponds to exactly one retired instruction.
 ///
 /// Olympia is trace-driven: it replays this trace through its timing model and
-/// does not execute functionally, so each record carries only the decoded
-/// instruction and — for loads/stores — the effective address:
+/// does not execute functionally. Each record carries the raw <c>opcode</c> and —
+/// for loads/stores — the effective address:
 /// <code>
 /// [
-///   { "mnemonic": "lw", "rs1": 8, "rd": 15, "vaddr": "0x80001f90" },
-///   { "mnemonic": "add", "rs1": 15, "rs2": 14, "rd": 15 }
+///   { "opcode": "0x0007a783", "mnemonic": "lw", "vaddr": "0x80001f90" },
+///   { "opcode": "0x00e787b3", "mnemonic": "add" }
 /// ]
 /// </code>
 ///
-/// Reuses the existing decode/disassembly: the mnemonic is the first token of
-/// <see cref="RvDisassembler"/> (compressed instructions decode to their expanded
-/// base ops, so mnemonics are standard); registers come from <see cref="ITooth"/>;
-/// the effective address comes from the <see cref="TracingMemory"/> the run is
-/// wrapped in. <see cref="Dispose"/> closes the JSON array (it flushes but does
-/// not close the underlying writer).
+/// The <c>opcode</c> is the source of truth: Olympia's Mavis decodes the operands
+/// and the instruction width (including 16-bit RVC) from it, so this covers every
+/// instruction — integer, floating-point, vector, compressed — with no
+/// register-numbering or mnemonic-vocabulary games. (The earlier
+/// mnemonic+registers form mis-encoded FP register operands, which Mavis rejected.)
+/// <c>mnemonic</c> is a best-effort human-readable label only (Olympia ignores it
+/// when <c>opcode</c> is present). <c>vaddr</c> is required for loads/stores because
+/// Olympia, not executing functionally, cannot compute it; it comes from the
+/// <see cref="TracingMemory"/> the run is wrapped in. <see cref="Dispose"/> closes
+/// the JSON array (it flushes but does not close the underlying writer).
 /// </summary>
 public sealed class OlympiaJsonTraceWriter : ICommitObserver, IDisposable {
     private readonly IDecoder _decoder;
@@ -45,23 +49,26 @@ public sealed class OlympiaJsonTraceWriter : ICommitObserver, IDisposable {
     }
 
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
+        // The trace contains only committed instructions, so the decode always
+        // succeeds; it yields the class (for vaddr gating) and payload (mnemonic).
         ITooth instr = _decoder.Decode(pc, rawEncoding);
 
         var sb = new StringBuilder(_first ? "\n  " : ",\n  ");
         _first = false;
 
-        sb.Append("{ \"mnemonic\": \"").Append(Mnemonic(instr.Payload, pc)).Append('"');
+        // Raw opcode — the source of truth Mavis decodes (16-bit for RVC).
+        sb.Append("{ \"opcode\": \"0x")
+          .Append(rawEncoding.ToString("x", CultureInfo.InvariantCulture))
+          .Append('"');
 
-        IReadOnlyList<int> srcs = instr.SourceRegisters;
-        if (srcs.Count > 0) sb.Append(", \"rs1\": ").Append(srcs[0]);
-        if (srcs.Count > 1) sb.Append(", \"rs2\": ").Append(srcs[1]);
-        if (instr.DestinationRegister >= 0) sb.Append(", \"rd\": ").Append(instr.DestinationRegister);
-
-        if (CsrOf(instr.Payload) is { } csr) sb.Append(", \"csr\": ").Append(csr);
+        // Best-effort human-readable label; omitted if the disassembler doesn't
+        // cover the op (it's cosmetic — Olympia uses the opcode).
+        if (TryMnemonic(instr.Payload, pc) is { } m)
+            sb.Append(", \"mnemonic\": \"").Append(m).Append('"');
 
         // The effective address is the data access. Loads/stores reach memory
         // during execute, after the fetch, so it is the last recorded access.
-        if (instr.Class is ToothClass.Load or ToothClass.Store && _mem.HasAccess)
+        if (instr.Class is ToothClass.Load or ToothClass.Store or ToothClass.Atomic && _mem.HasAccess)
             sb.Append(", \"vaddr\": \"0x")
               .Append(_mem.Address.ToString("x", CultureInfo.InvariantCulture))
               .Append('"');
@@ -77,21 +84,17 @@ public sealed class OlympiaJsonTraceWriter : ICommitObserver, IDisposable {
         _out.Flush();
     }
 
-    // Mnemonic = first token of the disassembly (e.g. "add x3, x1, x2" → "add",
-    // "ecall" → "ecall"). Reuses RvDisassembler's exhaustive op→string mapping.
-    private static string Mnemonic(object? payload, ulong pc) {
-        string dis = RvDisassembler.Disassemble(payload, pc);
-        int space = dis.IndexOf(' ');
-        return space < 0 ? dis : dis[..space];
+    // Best-effort mnemonic = first token of the disassembly (e.g. "add x3, x1, x2"
+    // → "add"). The disassembler has no general fallback, so ops it doesn't cover
+    // (some FP/vector) throw; the mnemonic is cosmetic, so swallow and omit it.
+    private static string? TryMnemonic(object? payload, ulong pc) {
+        try {
+            string dis = RvDisassembler.Disassemble(payload, pc);
+            int space = dis.IndexOf(' ');
+            return space < 0 ? dis : dis[..space];
+        }
+        catch {
+            return null;
+        }
     }
-
-    private static uint? CsrOf(object? payload) => payload switch {
-        RvCsrrw o  => o.Csr,
-        RvCsrrs o  => o.Csr,
-        RvCsrrc o  => o.Csr,
-        RvCsrrwi o => o.Csr,
-        RvCsrrsi o => o.Csr,
-        RvCsrrci o => o.Csr,
-        _          => null,
-    };
 }
