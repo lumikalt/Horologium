@@ -83,6 +83,7 @@ public sealed record MemWbLatch {
     public bool HasTrap { get; init; }
     public TrapInfo? Trap { get; init; }
     public bool IsHalt { get; init; }
+    public bool RequestHalt { get; init; }
     public bool IsReturnFromTrap { get; init; }
     public PrivilegeLevel? ReturnPrivilege { get; init; }
     public Action<IArchState>? SideEffect { get; init; }

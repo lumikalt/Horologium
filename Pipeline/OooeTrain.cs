@@ -117,7 +117,8 @@ internal sealed class OoOPipelineCore : Gear {
         bool HasLoadAccess,
         ulong LoadAddr,
         int LoadBytes,
-        bool LoadWasForwarded // true if TryForwardFromStore supplied the register value
+        bool LoadWasForwarded, // true if TryForwardFromStore supplied the register value
+        bool RequestHalt = false // true for an HTIF tohost-exit store: halt after commit
     );
 
     /// <summary>
@@ -413,6 +414,7 @@ internal sealed class OoOPipelineCore : Gear {
             rob.Trap = r.Trap;
             rob.IsReturnFromTrap = r.IsReturnFromTrap;
             rob.ReturnPrivilege = r.ReturnPrivilege;
+            rob.RequestHalt = r.RequestHalt;
 
             if (r.HasStoreCapture) {
                 rob.StoreAddressKnown = true;
@@ -503,12 +505,26 @@ internal sealed class OoOPipelineCore : Gear {
             if (_commitObserver is not null && head.Instruction is not null)
                 _commitObserver.OnCommit(head.Pc, head.Instruction.RawEncoding, State);
 
-            // Halt on a jump-to-self (resolved target == own PC) — the bare-metal
-            // halt idiom, e.g. the spin after an HTIF tohost exit. Mirrors the
-            // single-cycle and five-stage trains so the out-of-order core also
-            // stops at the terminator instead of spinning to maxTicks. The
-            // instruction has committed above; retire it, then halt.
-            if (head.ResolvedNextPc is { HasValue: true, Value: var selfPc } && selfPc == head.Pc) {
+            // First-class HTIF tohost exit: the store flagged a post-commit halt.
+            // It has committed (memory write + OnCommit) above; advance PC, retire
+            // it, and halt.
+            if (head.RequestHalt) {
+                State.Pc = head.PredictedNextPc;
+                PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                _rob.Retire();
+                _retiredCounter.Increment();
+                State.OnRetire();
+                _halted = true;
+                return;
+            }
+
+            // Backstop: halt on an unconditional jump-to-self (resolved target ==
+            // own PC), the bare-metal terminator. Gated on Branch (jal/jalr) so a
+            // conditional spin-wait is not mistaken for a halt. Mirrors the
+            // single-cycle and five-stage trains so the OoO core also stops at the
+            // terminator instead of spinning to maxTicks.
+            if (head.Instruction?.Class == ToothClass.Branch
+                && head.ResolvedNextPc is { HasValue: true, Value: var selfPc } && selfPc == head.Pc) {
                 State.Pc = selfPc;
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                 _rob.Retire();
@@ -1018,7 +1034,8 @@ internal sealed class OoOPipelineCore : Gear {
             regValue, resolvedNextPc, er.Trap,
             er.IsReturnFromTrap, er.ReturnPrivilege,
             _capMem.HasWrite, _capMem.WriteAddress, _capMem.WriteValue, _capMem.WriteBytes,
-            _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes, loadForwarded
+            _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes, loadForwarded,
+            er.RequestHalt
         );
     }
 

@@ -48,6 +48,15 @@ public sealed record ExecuteResult {
     /// <summary>True if this instruction halts the simulation (e.g. EBREAK).</summary>
     public bool IsHalt { get; init; }
 
+    /// <summary>
+    /// True if the simulation should halt <em>after</em> this instruction commits
+    /// (in contrast to <see cref="IsHalt"/>, which halts without committing the
+    /// instruction). Set by an HTIF tohost-exit store so the engine terminates at
+    /// the exit write itself rather than the spin-loop that conventionally follows
+    /// it. ISA-agnostic to the trains: they act on the flag without knowing why.
+    /// </summary>
+    public bool RequestHalt { get; init; }
+
     /// <summary>True if this instruction returns from a trap (e.g. MRET).</summary>
     public bool IsReturnFromTrap { get; init; }
 

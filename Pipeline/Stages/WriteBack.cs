@@ -87,13 +87,19 @@ public sealed class WritebackStage : Gear {
             if (_commitObserver is not null && latch.Instruction is not null)
                 _commitObserver.OnCommit(latch.Pc, latch.Instruction.RawEncoding, _state);
 
-            // Halt on a jump-to-self (NextPc == Pc, only possible for a taken
-            // branch/jump back to its own PC — the conventional bare-metal halt
-            // idiom, e.g. the spin after an HTIF tohost exit). Mirrors the
-            // single-cycle train's halt detection. The instruction has already
-            // committed above, so this stops the next cycle before any further
-            // retire.
-            if (latch.NextPc == latch.Pc) {
+            // First-class HTIF tohost exit: the store flagged a post-commit halt.
+            // The instruction has committed above; stop before any further retire.
+            if (latch.RequestHalt) {
+                Halted = true;
+                return;
+            }
+
+            // Backstop: halt on an unconditional jump-to-self (the conventional
+            // bare-metal terminator, e.g. the spin after a non-HTIF program ends).
+            // Gated on Branch (jal/jalr) so a conditional spin-wait — which may be
+            // waiting on an interrupt — is not mistaken for a halt. Mirrors the
+            // single-cycle train.
+            if (latch.NextPc == latch.Pc && latch.Instruction?.Class == ToothClass.Branch) {
                 Halted = true;
                 return;
             }

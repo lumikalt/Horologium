@@ -262,6 +262,10 @@ internal sealed class SingleCycleCore(
         _retiredCounter.Increment();
         ArchState.OnRetire();
 
+        // First-class HTIF tohost exit: the store flagged a post-commit halt.
+        // It has committed and retired above; stop without scheduling the next.
+        if (result.RequestHalt) return;
+
         // Detect halt: infinite self-loop (JAL x0, 0 — common halt idiom)
         if (ArchState.Pc == pc && instr.Class == ToothClass.Branch) return;
 

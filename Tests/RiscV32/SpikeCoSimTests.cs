@@ -39,8 +39,13 @@ public class SpikeCoSimTests {
 
         using var cosim = new SpikeCoSimReference(elfPath, workload.BaseAddress, workload.MemorySize);
 
+        // When the ELF exits via HTIF, give the mechanism the tohost address so
+        // the exit store terminates the run at the write itself (first-class
+        // RequestHalt). ELFs without tohost (EBREAK-terminated) get null.
+        ulong? tohost = workload.TryFindSymbol("tohost", out ulong tohostAddr) ? tohostAddr : null;
+
         // CoSimDivergenceException is thrown on the first mismatch during Run().
-        switch (trainFactory(new Rv32Mechanism(), mem, workload.EntryPoint, cosim)) {
+        switch (trainFactory(new Rv32Mechanism(tohost), mem, workload.EntryPoint, cosim)) {
             case SingleCycleTrain t: t.Run(); break;
             case FiveStageTrain t: t.Run(); break;
             case OooeTrain t: t.Run(); break;

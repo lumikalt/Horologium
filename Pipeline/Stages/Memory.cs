@@ -50,6 +50,7 @@ public sealed class MemoryStage : Gear {
             HasTrap = result.HasTrap,
             Trap = result.Trap,
             IsHalt = result.IsHalt,
+            RequestHalt = result.RequestHalt,
             IsReturnFromTrap = result.IsReturnFromTrap,
             ReturnPrivilege = result.ReturnPrivilege,
             SideEffect = result.SideEffect,

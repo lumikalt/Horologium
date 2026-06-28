@@ -93,6 +93,13 @@ public sealed class RobEntry {
     /// <summary>True for EBREAK or other halt-on-commit instructions.</summary>
     public bool IsHalt { get; set; }
 
+    /// <summary>
+    /// True when the engine should halt <em>after</em> this instruction commits
+    /// (e.g. an HTIF tohost-exit store). Unlike <see cref="IsHalt"/>, the
+    /// instruction retires normally first.
+    /// </summary>
+    public bool RequestHalt { get; set; }
+
     /// <summary>True if this instruction returns from a trap at commit (e.g. MRET).</summary>
     public bool IsReturnFromTrap { get; set; }
 
@@ -124,6 +131,7 @@ public sealed class RobEntry {
         LoadBytes = 0;
         LoadViolated = false;
         IsHalt = false;
+        RequestHalt = false;
         IsReturnFromTrap = false;
         ReturnPrivilege = null;
     }

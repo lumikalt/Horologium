@@ -12,6 +12,14 @@ namespace RiscV32.Execute;
 /// Reads from IArchState, returns an ExecuteResult — never writes back directly.
 /// </summary>
 public class Rv32Executor : IExecutor {
+    /// <summary>
+    /// Address of the HTIF <c>tohost</c> register, if this workload uses HTIF.
+    /// A 4-byte store of an odd value here is a tohost exit code: the executor
+    /// flags it with <see cref="ExecuteResult.RequestHalt"/> so the engine
+    /// terminates at the exit write. Null disables the check.
+    /// </summary>
+    public ulong? HtifTohostAddress { get; init; }
+
     public virtual ExecuteResult Execute(ITooth instruction, IArchState state, IMemory memory) {
         if (instruction.Payload is not RvOp op)
             throw new InvalidOperationException(
@@ -558,6 +566,14 @@ public class Rv32Executor : IExecutor {
         (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         memory.Write(addr, value, bytes);
+
+        // HTIF tohost exit: a word store of an odd value to the tohost register
+        // is an exit code ((code << 1) | 1). Request a post-commit halt so the
+        // engine stops at the exit write rather than the spin-loop after it.
+        // (Even values are syscall pointers — e.g. printstr — and are ignored.)
+        if (HtifTohostAddress is ulong t && addr == t && bytes == 4 && (value & 1) == 1)
+            return new ExecuteResult { RequestHalt = true };
+
         return ExecuteResult.Clean;
     }
 
