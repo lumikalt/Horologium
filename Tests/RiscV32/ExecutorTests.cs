@@ -565,6 +565,7 @@ public class ExecutorTests {
     [Fact]
     public void Execute_ScW_StoresAndReturnsZero() {
         Rv32ArchState s = MakeState((2, 100), (3, 0xABCD));
+        Exec(0x100120AF, s);                       // lr.w x1, (x2) — establishes reservation at 100
         ExecuteResult r = Exec(0x183120AF, s);     // sc.w x1, x3, (x2)
         Assert.Equal(0UL, r.RegisterResult.Value); // 0 = success
         Assert.Equal(0xABCDUL, _mem.Read(100, 4)); // value stored
@@ -844,9 +845,9 @@ public class ExecutorTests {
 
     [Fact]
     public void Execute_FcvtWS_TruncatesPositiveFloat() {
-        // fcvt.w.s x1, f2  0xC00100D3 — 3.7f → 3
+        // fcvt.w.s x1, f2, rtz  0xC00110D3 — 3.7f → 3 (RTZ truncates toward zero)
         Rv32ArchState s = MakeState((34, Fb(3.7f)));
-        ExecuteResult r = Exec(0xC00100D3, s);
+        ExecuteResult r = Exec(0xC00110D3, s);
         Assert.Equal(3UL, r.RegisterResult.Value);
     }
 
@@ -854,15 +855,15 @@ public class ExecutorTests {
     public void Execute_FcvtWS_TruncatesNegativeFloat() {
         // -3.7f → -3 (truncation toward zero) → 0xFFFFFFFD as uint32
         Rv32ArchState s = MakeState((34, Fb(-3.7f)));
-        ExecuteResult r = Exec(0xC00100D3, s);
+        ExecuteResult r = Exec(0xC00110D3, s);
         Assert.Equal(unchecked((uint)-3), r.RegisterResult.Value);
     }
 
     [Fact]
     public void Execute_FcvtWuS_ConvertsPositiveFloat() {
-        // fcvt.wu.s x1, f2  0xC01100D3 — 5.9f → 5u
+        // fcvt.wu.s x1, f2, rtz  0xC01110D3 — 5.9f → 5u (RTZ truncates toward zero)
         Rv32ArchState s = MakeState((34, Fb(5.9f)));
-        ExecuteResult r = Exec(0xC01100D3, s);
+        ExecuteResult r = Exec(0xC01110D3, s);
         Assert.Equal(5UL, r.RegisterResult.Value);
     }
 

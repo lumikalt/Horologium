@@ -27,13 +27,17 @@
 // Code / data section boundaries
 // ---------------------------------------------------------------------------
 
-// Entry point.  Sets a small stack pointer so sp-relative addressing in
-// bypass-test macros has a valid base; the exact value just needs to
-// land within the 64 KB address space and above the code/data segments.
+// Entry point.  Sets mstatus.FS=Dirty so Spike (which enforces the
+// mstatus.FS field) does not trap on FP instructions.  Horologium
+// ignores mstatus.FS for FP execution but commits the csrs instruction
+// identically, so both simulators agree instruction-for-instruction.
+// Stack pointer follows.
 #define RVTEST_CODE_BEGIN   \
     .section .text.start;   \
     .global  _start;        \
 _start:                     \
+    li   t0, 0x6000;        \
+    csrs mstatus, t0;       \
     li   sp, 0xF000;
 
 #define RVTEST_CODE_END

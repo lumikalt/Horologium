@@ -433,7 +433,7 @@ public class SingleCycleTests {
             mem,
             0x10000593, // addi a1, x0, 256
             0x20000613, // addi a2, x0, 512
-            0x0C207557, // vsetvli a0, x0, e32,m1,ta,ma
+            0x0D007557, // vsetvli a0, x0, e32,m1,ta,ma
             0x0205E087, // vle32.v v1, (a1)
             0x02108157, // vadd.vv v2, v1, v1
             0x02066127, // vse32.v v2, (a2)

@@ -77,13 +77,13 @@ public class ZihpmTests {
     [Fact]
     public void MHpmEvent3_IsWritableAndReadBack() {
         // addi x1, x0, 0xAB → write 0xAB to mhpmevent3 → read back
-        uint val = ReadCsr([Addi(1, 0xAB), CsrWrite(1, 0x323)], 0x323);
+        uint val = ReadCsr([Addi(1, 0xAB), CsrWrite(1, 0x323),], 0x323);
         Assert.Equal(0xABu, val);
     }
 
     [Fact]
     public void MHpmEvent31_IsWritableAndReadBack() {
-        uint val = ReadCsr([Addi(1, 0x55), CsrWrite(1, 0x33F)], 0x33F);
+        uint val = ReadCsr([Addi(1, 0x55), CsrWrite(1, 0x33F),], 0x33F);
         Assert.Equal(0x55u, val);
     }
 }

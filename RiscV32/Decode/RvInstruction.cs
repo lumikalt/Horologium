@@ -72,6 +72,7 @@ public sealed class RvInstruction(
         RvVMaskCmpVi op => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVseVv op      => op.Masked ? [op.Vs3, 0,] : [op.Vs3,],
         RvVsm op        => [op.Vs3,],
+        RvVMvXS op      => [op.Vs2,],
         _               => [],
     };
 
@@ -243,13 +244,13 @@ public record RvFleS(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
 
 public record RvFclassS(int Rd, int Rs1) : RvOp; // Rd=int result
 
-public record RvFcvtWs(int Rd, int Rs1) : RvOp; // float→signed int
+public record RvFcvtWs(int Rd, int Rs1, int Rm) : RvOp; // float→signed int
 
-public record RvFcvtWuS(int Rd, int Rs1) : RvOp; // float→unsigned int
+public record RvFcvtWuS(int Rd, int Rs1, int Rm) : RvOp; // float→unsigned int
 
-public record RvFcvtSw(int Rd, int Rs1) : RvOp; // signed int→float
+public record RvFcvtSw(int Rd, int Rs1, int Rm) : RvOp; // signed int→float
 
-public record RvFcvtSWu(int Rd, int Rs1) : RvOp; // unsigned int→float
+public record RvFcvtSWu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int→float
 
 public record RvFmvXw(int Rd, int Rs1) : RvOp; // fp bits→int reg
 
@@ -356,6 +357,7 @@ public enum VIntOp {
     Sll,
     Srl,
     Sra,
+    Mov, // vmv.v.v / vmv.v.x / vmv.v.i: vd[i] = source[i] (broadcast)
 }
 
 public enum VMaskCmpOp {
@@ -372,6 +374,9 @@ public record RvVIntAluVv(VIntOp Op, int Vd, int Vs2, int Vs1, bool Masked) : Rv
 public record RvVIntAluVx(VIntOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
 
 public record RvVIntAluVi(VIntOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
+
+// vmv.x.s rd, vs2: extract element 0 from vs2 into integer rd (OPMVV, funct6=16)
+public record RvVMvXS(int Rd, int Vs2) : RvOp;
 
 // Mask comparisons (result: 1 bit per element packed in vd)
 public record RvVMaskCmpVv(VMaskCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
@@ -485,6 +490,12 @@ public record RvCboZero(int Rs1) : RvOp;
 public record RvMopR(int Rd) : RvOp; // mop.r.N: read-only may-be-op
 
 public record RvMopRr(int Rd) : RvOp; // mop.rr.N: register-register may-be-op
+
+// ── Zcmop extension (compressed may-be-operations) ────────────────────────────
+// Q1/funct3=3, nzimm=0, rd=odd 1..15; 8 variants: c.mop.N, N ∈ {1,3,5,...,15}.
+// Pattern: (c & 0xF8FF) == 0x6081; N = 2*(bits[10:8])+1.
+// All are hint NOPs with no architectural effect.
+public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
 
 // ── UVE extension ─────────────────────────────────────────────────────────────
 // Stream setup (custom-0, opcode=0x0B, R4-type):

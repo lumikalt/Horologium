@@ -716,6 +716,12 @@ public class Rv32Decoder : IDecoder {
         // OPCFG (funct3=7)
         if (funct3 == 7) return DecodeVCfg(pc, raw, vd, rs1, vs2);
 
+        // OPMVV (funct3=2): vmv.x.s rd, vs2 (funct6=16)
+        if (funct3 == 2) {
+            if (funct6 == 16) return new RvInstruction(pc, raw, vd /*rd*/, [], ToothClass.Vector, new RvVMvXS(vd, vs2));
+            throw new IllegalInstructionException(pc, raw, $"V op: unsupported OPMVV funct6=0x{funct6:X2}");
+        }
+
         // OPIVV (funct3=0), OPIVX (funct3=4), OPIVI (funct3=3)
         if (funct3 is not (0 or 3 or 4))
             throw new IllegalInstructionException(
@@ -728,6 +734,7 @@ public class Rv32Decoder : IDecoder {
             9  => VIntOp.And,
             10 => VIntOp.Or,
             11 => VIntOp.Xor,
+            23 => VIntOp.Mov, // vmv.v.v / vmv.v.x / vmv.v.i
             37 => VIntOp.Sll,
             40 => VIntOp.Srl,
             41 => VIntOp.Sra,
@@ -852,18 +859,18 @@ public class Rv32Decoder : IDecoder {
                     pc, raw, $"Unknown FP compare funct3=0x{funct3:X}"
                 ),
             },
-            // Conversions float→int
+            // Conversions float→int (funct3 = rounding mode)
             0x60 => rs2 switch {
-                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWs(rd, rs1 + 32)),
-                1 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWuS(rd, rs1 + 32)),
+                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWs(rd, rs1 + 32, (int)funct3)),
+                1 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWuS(rd, rs1 + 32, (int)funct3)),
                 _ => throw new IllegalInstructionException(
                     pc, raw, $"Unknown FCVT.W rs2={rs2}"
                 ),
             },
-            // Conversions int→float
+            // Conversions int→float (funct3 = rounding mode)
             0x68 => rs2 switch {
-                0 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSw(rd + 32, rs1)),
-                1 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSWu(rd + 32, rs1)),
+                0 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSw(rd + 32, rs1, (int)funct3)),
+                1 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSWu(rd + 32, rs1, (int)funct3)),
                 _ => throw new IllegalInstructionException(
                     pc, raw, $"Unknown FCVT.S rs2={rs2}"
                 ),
@@ -1057,6 +1064,14 @@ public class Rv32Decoder : IDecoder {
         C(pc, c, 0, [], ToothClass.Branch, new RvJal(0, CJumpOffset(c)));
 
     private static RvInstruction DecodeQ1Funct3_011(ulong pc, ushort c, int rd, int _) {
+        // Zcmop: c.mop.N — 8 NOP hints encoded with nzimm=0 and rd ∈ {1,3,5,7,9,11,13,15}.
+        // Pattern: bits[15:13]=011, bit[12]=0, bit[11]=0, bits[7:0]=0x81, bits[10:8]=N_index.
+        // N = 2*N_index + 1 ∈ {1,3,5,...,15}.
+        if ((c & 0xF8FF) == 0x6081) {
+            int n = (((c >> 8) & 7) << 1) | 1; // N = 2*(bits[10:8]) + 1
+            return C(pc, c, -1, [], ToothClass.IntegerAlu, new RvCMopN(n));
+        }
+
         if (rd == 2) {
             // C.ADDI16SP: nzimm[9]=c[12], [4]=c[6], [6]=c[5], [8:7]=c[4:3], [5]=c[2]
             int nzimm = (((c >> 12) & 0x1) << 9)
@@ -1168,7 +1183,7 @@ public class Rv32Decoder : IDecoder {
 
         if (rd == 0 && rs2 == 0)
             // C.EBREAK
-            return C(pc, c, -1, [], ToothClass.System, new RvEbreak());
+            return C(pc, c, -1, [], ToothClass.Halt, new RvEbreak());
         return rs2 == 0
             ?
             // C.JALR → JALR x1, 0(rs1)

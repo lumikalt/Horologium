@@ -149,6 +149,9 @@ public static class RvDisassembler {
         RvAmominuH op => $"amominu.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
         RvAmomaxuH op => $"amomaxu.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
 
+        // Zcmop extension
+        RvCMopN op => $"c.mop.{op.N}",
+
         // V extension
         RvVsetvli op    => $"vsetvli {Xi(op.Rd)}, {Xi(op.Rs1)}, {VtypeStr(op.Vtypei)}",
         RvVsetivli op   => $"vsetivli {Xi(op.Rd)}, {op.Zimm}, {VtypeStr(op.Vtypei)}",

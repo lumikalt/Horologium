@@ -25,6 +25,55 @@ rich.elf: crt0.s rich.c test.ld
 htif.elf: htif_crt.s htif.c htif.ld
 	$(CC) $(CFLAGS_RICH) -T htif.ld htif_crt.s htif.c -o $@
 
+# ── Zcmop co-sim workload (c.mop.N hint NOPs) ────────────────────────────────
+#
+# Uses .2byte directives for the 16-bit c.mop.N encodings; no special -march
+# flag is needed since they are emitted as raw literals, not named mnemonics.
+
+CFLAGS_ZCMOP = -march=rv32ic -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+zcmop.elf: crt0.s zcmop.c test.ld
+	$(CC) $(CFLAGS_ZCMOP) -T test.ld crt0.s zcmop.c -o $@
+
+# ── Zimop co-sim workload (mop.r.N / mop.rr.N hint NOPs) ────────────────────
+#
+# Raw .4byte encodings — no special -march flag needed.
+
+CFLAGS_ZIMOP = -march=rv32imafc -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+zimop.elf: crt0.s zimop.c test.ld
+	$(CC) $(CFLAGS_ZIMOP) -T test.ld crt0.s zimop.c -o $@
+
+# ── Zabha co-sim workload (byte / halfword AMOs) ──────────────────────────────
+
+CFLAGS_ZABHA = -march=rv32imaf_zabha -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+zabha.elf: crt0.s zabha.c test.ld
+	$(CC) $(CFLAGS_ZABHA) -T test.ld crt0.s zabha.c -o $@
+
+# ── Zawrs co-sim workload (wrs.nto / wrs.sto hint NOPs) ──────────────────────
+
+CFLAGS_ZAWRS = -march=rv32imaf_zawrs -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+zawrs.elf: crt0.s zawrs.c test.ld
+	$(CC) $(CFLAGS_ZAWRS) -T test.ld crt0.s zawrs.c -o $@
+
+# ── Zicbom/Zicboz co-sim workload (cache block operations) ───────────────────
+
+CFLAGS_CBO = -march=rv32imaf_zicbom_zicboz -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+cbo.elf: crt0.s cbo.c test.ld
+	$(CC) $(CFLAGS_CBO) -T test.ld crt0.s cbo.c -o $@
+
+# ── RVV co-sim workload (vector ALU ops) ─────────────────────────────────────
+#
+# Sets mstatus.VS in main() so Spike does not trap on vector instructions.
+
+CFLAGS_VECTOR = -march=rv32gcv -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+vector.elf: crt0.s vector.c test.ld
+	$(CC) $(CFLAGS_VECTOR) -T test.ld crt0.s vector.c -o $@
+
 # ── Official riscv-tests — rv32ui (base integer ISA) ─────────────────────────
 #
 # fence_i.S: self-modifying-code test; Horologium does not model I-cache
@@ -57,6 +106,86 @@ RV32UM_ELFS = $(patsubst riscv-tests/isa/rv32um/%.S, isa/rv32um-p-%.elf, $(RV32U
 isa/rv32um-p-%.elf: riscv-tests/isa/rv32um/%.S env/riscv_test.h env/link.ld
 	@mkdir -p isa
 	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $< -o $@
+
+# ── Official riscv-tests — rv32ua (atomic AMOs + LR/SC) ──────────────────────
+#
+# The existing CFLAGS already include the A extension (-march=rv32imaf).
+
+RV32UA_SRC  = $(wildcard riscv-tests/isa/rv32ua/*.S)
+RV32UA_ELFS = $(patsubst riscv-tests/isa/rv32ua/%.S, isa/rv32ua-p-%.elf, $(RV32UA_SRC))
+
+isa/rv32ua-p-%.elf: riscv-tests/isa/rv32ua/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $< -o $@
+
+# ── Official riscv-tests — rv32uc (compressed instructions) ──────────────────
+
+CFLAGS_C = -march=rv32imafc -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+RV32UC_SRC  = $(wildcard riscv-tests/isa/rv32uc/*.S)
+RV32UC_ELFS = $(patsubst riscv-tests/isa/rv32uc/%.S, isa/rv32uc-p-%.elf, $(RV32UC_SRC))
+
+isa/rv32uc-p-%.elf: riscv-tests/isa/rv32uc/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS_C) $(INCLUDES) $(LDFLAGS) $< -o $@
+
+# ── Official riscv-tests — rv32uf (single-precision float) ───────────────────
+#
+# The existing CFLAGS already include the F extension (-march=rv32imaf).
+# mstatus.FS is now set in RVTEST_CODE_BEGIN so Spike does not trap.
+
+RV32UF_SRC  = $(wildcard riscv-tests/isa/rv32uf/*.S)
+RV32UF_ELFS = $(patsubst riscv-tests/isa/rv32uf/%.S, isa/rv32uf-p-%.elf, $(RV32UF_SRC))
+
+isa/rv32uf-p-%.elf: riscv-tests/isa/rv32uf/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $< -o $@
+
+# ── Official riscv-tests — rv32uzba/zbb/zbc/zbs (bit-manipulation) ───────────
+
+CFLAGS_ZBA = -march=rv32imaf_zba -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS_ZBB = -march=rv32imaf_zbb -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS_ZBC = -march=rv32imaf_zbc -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS_ZBS = -march=rv32imaf_zbs -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+RV32UZBA_SRC  = $(wildcard riscv-tests/isa/rv32uzba/*.S)
+RV32UZBA_ELFS = $(patsubst riscv-tests/isa/rv32uzba/%.S, isa/rv32uzba-p-%.elf, $(RV32UZBA_SRC))
+
+isa/rv32uzba-p-%.elf: riscv-tests/isa/rv32uzba/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS_ZBA) $(INCLUDES) $(LDFLAGS) $< -o $@
+
+RV32UZBB_SRC  = $(wildcard riscv-tests/isa/rv32uzbb/*.S)
+RV32UZBB_ELFS = $(patsubst riscv-tests/isa/rv32uzbb/%.S, isa/rv32uzbb-p-%.elf, $(RV32UZBB_SRC))
+
+isa/rv32uzbb-p-%.elf: riscv-tests/isa/rv32uzbb/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS_ZBB) $(INCLUDES) $(LDFLAGS) $< -o $@
+
+RV32UZBC_SRC  = $(wildcard riscv-tests/isa/rv32uzbc/*.S)
+RV32UZBC_ELFS = $(patsubst riscv-tests/isa/rv32uzbc/%.S, isa/rv32uzbc-p-%.elf, $(RV32UZBC_SRC))
+
+isa/rv32uzbc-p-%.elf: riscv-tests/isa/rv32uzbc/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS_ZBC) $(INCLUDES) $(LDFLAGS) $< -o $@
+
+RV32UZBS_SRC  = $(wildcard riscv-tests/isa/rv32uzbs/*.S)
+RV32UZBS_ELFS = $(patsubst riscv-tests/isa/rv32uzbs/%.S, isa/rv32uzbs-p-%.elf, $(RV32UZBS_SRC))
+
+isa/rv32uzbs-p-%.elf: riscv-tests/isa/rv32uzbs/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS_ZBS) $(INCLUDES) $(LDFLAGS) $< -o $@
+
+# ── Official riscv-tests — rv32uzicond (Zicond conditional ops) ───────────────
+
+CFLAGS_ZICOND = -march=rv32imaf_zicond -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+RV32UZICOND_SRC  = $(wildcard riscv-tests/isa/rv32uzicond/*.S)
+RV32UZICOND_ELFS = $(patsubst riscv-tests/isa/rv32uzicond/%.S, isa/rv32uzicond-p-%.elf, $(RV32UZICOND_SRC))
+
+isa/rv32uzicond-p-%.elf: riscv-tests/isa/rv32uzicond/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC) $(CFLAGS_ZICOND) $(INCLUDES) $(LDFLAGS) $< -o $@
 
 # ── Official riscv-tests — rv32si (supervisor-level integer) ──────────────────
 #
@@ -135,13 +264,19 @@ BMARKS_ELFS = $(patsubst %, benchmarks/%.elf, $(BMARKS))
 
 # ── Targets ───────────────────────────────────────────────────────────────────
 
-.PHONY: all isa-tests benchmarks clean
+.PHONY: all isa-tests custom-elfs benchmarks clean
 
-all: test.elf rich.elf htif.elf isa-tests benchmarks
+all: test.elf rich.elf htif.elf zcmop.elf custom-elfs isa-tests benchmarks
 
-isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS) $(RV32SI_ELFS)
+custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
+
+isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS) $(RV32SI_ELFS) \
+           $(RV32UA_ELFS) $(RV32UC_ELFS) $(RV32UF_ELFS) \
+           $(RV32UZBA_ELFS) $(RV32UZBB_ELFS) $(RV32UZBC_ELFS) $(RV32UZBS_ELFS) \
+           $(RV32UZICOND_ELFS)
 
 benchmarks: $(BMARKS_ELFS)
 
 clean:
-	rm -f test.elf rich.elf htif.elf isa/*.elf benchmarks/*.elf
+	rm -f test.elf rich.elf htif.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
+	rm -f isa/*.elf benchmarks/*.elf

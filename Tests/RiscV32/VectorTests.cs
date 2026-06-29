@@ -54,8 +54,8 @@ public class VectorTests {
     private static uint Vse(int vs3, int rs1, int funct3Width) =>
         (uint)((1 << 25) | (rs1 << 15) | (funct3Width << 12) | (vs3 << 7) | 0x27);
 
-    // vtypei for e32, m1, ta, ma = vsew=2, vlmul=0, vta=1, vma=1 → 0xC2
-    private const int VtypeiE32M1Tama = (1 << 7) | (1 << 6) | 2;
+    // vtypei for e32, m1, ta, ma: vma=bit7, vta=bit6, vsew[5:3]=010, vlmul[2:0]=000 → 0xD0
+    private const int VtypeiE32M1Tama = (1 << 7) | (1 << 6) | (2 << 3);
 
     // ── Decoder tests ─────────────────────────────────────────────────────────
 

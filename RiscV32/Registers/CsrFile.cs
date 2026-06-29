@@ -79,6 +79,7 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Instret = 0xC02;
     public const uint Cycleh = 0xC80;
     public const uint Timeh = 0xC81;
+
     public const uint Instreth = 0xC82;
     // User-level HPM shadows (Zihpm, read-only — bits[11:10]=3)
     // hpmcounterN:  0xC03–0xC1F  routed → mhpmcounterN  (0xB03–0xB1F)
@@ -186,8 +187,9 @@ public sealed class CsrFile : ISystemRegisters {
             // Zihpm: route user-level read-only shadows to their M-mode mirrors
             >= 0xC03u and <= 0xC1Fu => address - 0xC00u + 0xB00u, // hpmcounterN  → mhpmcounterN
             >= 0xC83u and <= 0xC9Fu => address - 0xC80u + 0xB80u, // hpmcounterNh → mhpmcounterNh
-            _                => address,
+            _                       => address,
         };
+        if (effective == CsrFile.Fcsr) return (_csrs[CsrFile.Frm] << 5) | _csrs[CsrFile.Fflags];
         return effective < CsrFile.CsrSpace && _present[effective]
             ? _csrs[effective]
             : throw new SystemRegisterAccessException($"CSR 0x{effective:X3} does not exist.");
@@ -198,7 +200,22 @@ public sealed class CsrFile : ISystemRegisters {
         CheckNotReadOnly(address);
         if (address >= CsrFile.CsrSpace || !_present[address])
             throw new SystemRegisterAccessException($"CSR 0x{address:X3} does not exist.");
-        _csrs[address] = (uint)value;
+        switch (address) {
+            case CsrFile.Fcsr:
+                _csrs[CsrFile.Fflags] = (uint)value & 0x1F;
+                _csrs[CsrFile.Frm] = ((uint)value >> 5) & 0x7;
+                _csrs[CsrFile.Fcsr] = (uint)value & 0xFF;
+                break;
+            case CsrFile.Frm:
+                _csrs[CsrFile.Frm] = (uint)value & 0x7;
+                _csrs[CsrFile.Fcsr] = (_csrs[CsrFile.Frm] << 5) | _csrs[CsrFile.Fflags];
+                break;
+            case CsrFile.Fflags:
+                _csrs[CsrFile.Fflags] = (uint)value & 0x1F;
+                _csrs[CsrFile.Fcsr] = (_csrs[CsrFile.Frm] << 5) | _csrs[CsrFile.Fflags];
+                break;
+            default: _csrs[address] = (uint)value; break;
+        }
     }
 
     /// <summary>Direct read bypassing privilege checks — used internally by the trap controller.</summary>
@@ -207,6 +224,12 @@ public sealed class CsrFile : ISystemRegisters {
 
     /// <summary>Direct write bypassing privilege checks — used internally by the trap controller.</summary>
     internal void DirectWrite(uint address, uint value) => Seed(address, value);
+
+    /// <summary>OR new FP exception flags into fflags (and keep fcsr in sync). Used by the FP executor.</summary>
+    internal void OrFflags(uint flags) {
+        _csrs[CsrFile.Fflags] = (_csrs[CsrFile.Fflags] | flags) & 0x1F;
+        _csrs[CsrFile.Fcsr] = (_csrs[CsrFile.Frm] << 5) | _csrs[CsrFile.Fflags];
+    }
 
     public void Reset() {
         for (var i = 0; i < CsrFile.CsrSpace; i++)

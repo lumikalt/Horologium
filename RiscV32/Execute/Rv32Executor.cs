@@ -20,6 +20,9 @@ public class Rv32Executor : IExecutor {
     /// </summary>
     public ulong? HtifTohostAddress { get; init; }
 
+    // LR/SC reservation: physical address reserved by the most recent LR.W. Null means no active reservation.
+    private ulong? _reservation;
+
     public virtual ExecuteResult Execute(ITooth instruction, IArchState state, IMemory memory) {
         if (instruction.Payload is not RvOp op)
             throw new InvalidOperationException(
@@ -168,6 +171,9 @@ public class Rv32Executor : IExecutor {
             RvMopR _  => Reg(0),
             RvMopRr _ => Reg(0),
 
+            // ── Zcmop extension (compressed NOPs, no effect) ──────────────────
+            RvCMopN _ => ExecuteResult.Clean,
+
             // ── M extension ───────────────────────────────────────────────────
             // MUL: lower 32 bits of product (signed or unsigned — same result)
             RvMul(_, var rs1, var rs2) =>
@@ -253,9 +259,8 @@ public class Rv32Executor : IExecutor {
             RvOrcB (_, var rs1)         => OrcB(regs, rs1),
             RvRev8 (_, var rs1)         => Rev8(regs, rs1),
 
-            // ── An extension (single-core: SC always succeeds, no reservation needed) ──
-            RvLrW(_, var rs1) =>
-                Load(memory, state, pc, regs.Read(rs1), 0, 4, false, 32),
+            // ── An extension ──────────────────────────────────────────────────────────
+            RvLrW(_, var rs1) => AmoLr(memory, state, pc, regs, rs1),
 
             RvScW(_, var rs1, var rs2) => AmoSc(memory, state, pc, regs, rs1, rs2),
 
@@ -317,11 +322,11 @@ public class Rv32Executor : IExecutor {
             RvFsw(var rs1, var rs2, var imm) =>
                 Store(memory, state, pc, regs.Read(rs1), imm, regs.Read(rs2), 4),
 
-            RvFaddS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) + FBits(regs, rs2)),
-            RvFsubS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) - FBits(regs, rs2)),
-            RvFmulS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) * FBits(regs, rs2)),
-            RvFdivS (_, var rs1, var rs2) => FloatReg(FBits(regs, rs1) / FBits(regs, rs2)),
-            RvFsqrtS(_, var rs1)          => FloatReg(MathF.Sqrt(FBits(regs, rs1))),
+            RvFaddS (_, var rs1, var rs2) => FpBin(FBits(regs, rs1), FBits(regs, rs2), 0),
+            RvFsubS (_, var rs1, var rs2) => FpBin(FBits(regs, rs1), FBits(regs, rs2), 1),
+            RvFmulS (_, var rs1, var rs2) => FpBin(FBits(regs, rs1), FBits(regs, rs2), 2),
+            RvFdivS (_, var rs1, var rs2) => FpBin(FBits(regs, rs1), FBits(regs, rs2), 3),
+            RvFsqrtS(_, var rs1)          => FpSqrt(FBits(regs, rs1)),
 
             RvFsgnjS (_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
@@ -337,31 +342,32 @@ public class Rv32Executor : IExecutor {
                     (((uint)regs.Read(rs1) ^ (uint)regs.Read(rs2)) & 0x80000000)
                 ),
 
-            RvFminS(_, var rs1, var rs2) => FloatReg(FMin(FBits(regs, rs1), FBits(regs, rs2))),
-            RvFmaxS(_, var rs1, var rs2) => FloatReg(FMax(FBits(regs, rs1), FBits(regs, rs2))),
+            RvFminS(_, var rs1, var rs2) => FpMinMax(regs, rs1, rs2, true),
+            RvFmaxS(_, var rs1, var rs2) => FpMinMax(regs, rs1, rs2, false),
 
-            RvFeqS(_, var rs1, var rs2) => Reg(FBits(regs, rs1).Equals(FBits(regs, rs2)) ? 1UL : 0UL),
-            RvFltS(_, var rs1, var rs2) => Reg(FBits(regs, rs1) < FBits(regs, rs2) ? 1UL : 0UL),
-            RvFleS(_, var rs1, var rs2) => Reg(FBits(regs, rs1) <= FBits(regs, rs2) ? 1UL : 0UL),
+            // IEEE 754: NaN comparisons return false; sNaN inputs set NV flag
+            RvFeqS(_, var rs1, var rs2) => FpCmp(regs, rs1, rs2, 0),
+            RvFltS(_, var rs1, var rs2) => FpCmp(regs, rs1, rs2, 1),
+            RvFleS(_, var rs1, var rs2) => FpCmp(regs, rs1, rs2, 2),
 
             RvFclassS(_, var rs1) => Reg(FClass((uint)regs.Read(rs1))),
 
-            RvFcvtWs (_, var rs1) => Reg((uint)(int)FBits(regs, rs1)),
-            RvFcvtWuS(_, var rs1) => Reg((uint)FBits(regs, rs1)),
-            RvFcvtSw (_, var rs1) => FloatReg((int)regs.Read(rs1)),
-            RvFcvtSWu(_, var rs1) => FloatReg((uint)regs.Read(rs1)),
+            RvFcvtWs (_, var rs1, var rm) => FcvtWsResult(FBits(regs, rs1), rm, state),
+            RvFcvtWuS(_, var rs1, var rm) => FcvtWuSResult(FBits(regs, rs1), rm, state),
+            RvFcvtSw (_, var rs1, var rm) => FpIntToFloat((long)(int)(uint)regs.Read(rs1), rm),
+            RvFcvtSWu(_, var rs1, var rm) => FpIntToFloat((long)(uint)regs.Read(rs1), rm),
 
             RvFmvXw(_, var rs1) => Reg(regs.Read(rs1)), // fp bits → int (bit-exact)
             RvFmvWx(_, var rs1) => ExecuteResult.WithResult(regs.Read(rs1) & 0xFFFFFFFF),
 
             RvFmaddS (_, var rs1, var rs2, var rs3) =>
-                FloatReg(MathF.FusedMultiplyAdd(FBits(regs, rs1), FBits(regs, rs2), FBits(regs, rs3))),
+                FpFma(FBits(regs, rs1), FBits(regs, rs2), FBits(regs, rs3)),
             RvFmsubS (_, var rs1, var rs2, var rs3) =>
-                FloatReg(MathF.FusedMultiplyAdd(FBits(regs, rs1), FBits(regs, rs2), -FBits(regs, rs3))),
+                FpFma(FBits(regs, rs1), FBits(regs, rs2), -FBits(regs, rs3)),
             RvFnmsubS(_, var rs1, var rs2, var rs3) =>
-                FloatReg(MathF.FusedMultiplyAdd(-FBits(regs, rs1), FBits(regs, rs2), FBits(regs, rs3))),
+                FpFma(-FBits(regs, rs1), FBits(regs, rs2), FBits(regs, rs3)),
             RvFnmaddS(_, var rs1, var rs2, var rs3) =>
-                FloatReg(MathF.FusedMultiplyAdd(-FBits(regs, rs1), FBits(regs, rs2), -FBits(regs, rs3))),
+                FpFma(-FBits(regs, rs1), FBits(regs, rs2), -FBits(regs, rs3)),
 
             RvCsrrw (_, var rs1, var csr) => ExecuteCsr(
                 state, rs1, csr, pc,
@@ -437,6 +443,8 @@ public class Rv32Executor : IExecutor {
                     state, op2, vd, vs2, masked,
                     (_, _) => (ulong)imm
                 ),
+
+            RvVMvXS (var rd, var vs2) => ExecuteVMvXS(state, rd, vs2),
 
             // ── UVE extension ─────────────────────────────────────────────────
             RvUveSsLdW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
@@ -540,7 +548,20 @@ public class Rv32Executor : IExecutor {
         return Reg(old);
     }
 
-    // SC.W always succeeds in single-core (no competing stores possible).
+    private ExecuteResult AmoLr(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rs1
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong paddr, int fault) = Translate(memory, state, vaddr, false, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        _reservation = paddr;
+        return ExecuteResult.WithResult(memory.Read(paddr, 4) & 0xFFFFFFFF);
+    }
+
     private ExecuteResult AmoSc(
         IMemory memory,
         IArchState state,
@@ -550,9 +571,11 @@ public class Rv32Executor : IExecutor {
         int rs2
     ) {
         ulong vaddr = regs.Read(rs1);
-        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        (ulong paddr, int fault) = Translate(memory, state, vaddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
-        memory.Write(addr, regs.Read(rs2), 4);
+        if (_reservation != paddr) return Reg(1); // no matching reservation → fail
+        _reservation = null;
+        memory.Write(paddr, regs.Read(rs2), 4);
         return Reg(0); // 0 = success
     }
 
@@ -691,9 +714,181 @@ public class Rv32Executor : IExecutor {
     private static float FBits(IRegisterFile regs, int rs) =>
         BitConverter.Int32BitsToSingle((int)regs.Read(rs));
 
-    // Produce a float result stored as raw 32-bit bits.
-    private static ExecuteResult FloatReg(float value) =>
-        ExecuteResult.WithResult((uint)BitConverter.SingleToInt32Bits(value));
+    // RISC-V canonical NaN for float32 (positive, quiet NaN with one mantissa bit set).
+    private const uint RvCanonicalNaN = 0x7FC00000u;
+
+    // Produce a float result stored as raw 32-bit bits (no flag update).
+    // Per RISC-V spec: any NaN result is canonicalized to the canonical NaN.
+    private static ExecuteResult FloatReg(float value) {
+        uint bits = float.IsNaN(value) ? Rv32Executor.RvCanonicalNaN : (uint)BitConverter.SingleToInt32Bits(value);
+        return ExecuteResult.WithResult(bits);
+    }
+
+    // Float result + OR flags into fflags via SideEffect.
+    private static ExecuteResult FloatRegF(float value, uint flags) {
+        uint bits = float.IsNaN(value) ? Rv32Executor.RvCanonicalNaN : (uint)BitConverter.SingleToInt32Bits(value);
+        if (flags == 0) return ExecuteResult.WithResult(bits);
+        return new ExecuteResult
+            { RegisterResult = (bits, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
+    }
+
+    // Integer result + OR flags into fflags via SideEffect.
+    private static ExecuteResult IntRegF(uint value, uint flags) {
+        if (flags == 0) return ExecuteResult.WithResult(value);
+        return new ExecuteResult
+            { RegisterResult = (value, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
+    }
+
+    // ── Float32 minimum normal magnitude (2^-126) ─────────────────────────────
+    private const float MinNormalF = 1.1754944e-38f;
+
+    // Detect FP exception flags for a binary arithmetic op by comparing the float
+    // result against double-precision arithmetic (which is exact for 24-bit mantissa ops).
+    // op: 0=add, 1=sub, 2=mul, 3=div
+    private static uint FpArithFlags(float a, float b, float r, int op) {
+        uint rawA = BitConverter.SingleToUInt32Bits(a);
+        uint rawB = BitConverter.SingleToUInt32Bits(b);
+        bool aNaN = float.IsNaN(a), bNaN = float.IsNaN(b);
+        uint flags = 0;
+
+        // NV: sNaN input, or NaN result from non-NaN inputs (e.g. Inf-Inf, 0*Inf)
+        if (IsSNan(rawA) || IsSNan(rawB) || (float.IsNaN(r) && !aNaN && !bNaN)) flags |= 0x10;
+        if (float.IsNaN(r)) return flags;
+
+        double da = a, db = b;
+        double exact = op switch { 0 => da + db, 1 => da - db, 2 => da * db, _ => da / db, };
+
+        // DZ: finite non-zero / 0
+        if (op == 3 && b == 0f && !aNaN && !float.IsInfinity(a)) flags |= 0x08;
+        // OF: float overflowed to Inf but math didn't
+        if (float.IsInfinity(r) && !double.IsInfinity(exact)) flags |= 0x04;
+        if (float.IsInfinity(r)) return flags;
+
+        bool nx = (double)r != exact;
+        if (nx) flags |= 0x01;
+        // UF: subnormal result that is also inexact
+        if (nx && r != 0f && MathF.Abs(r) < Rv32Executor.MinNormalF) flags |= 0x02;
+        return flags;
+    }
+
+    // FMA version: r = a*b + c, exact via double FMA.
+    private static uint FpFmaFlags(float a, float b, float c, float r) {
+        uint rawA = BitConverter.SingleToUInt32Bits(a);
+        uint rawB = BitConverter.SingleToUInt32Bits(b);
+        uint rawC = BitConverter.SingleToUInt32Bits(c);
+        bool aNaN = float.IsNaN(a), bNaN = float.IsNaN(b), cNaN = float.IsNaN(c);
+        uint flags = 0;
+        if (IsSNan(rawA) || IsSNan(rawB) || IsSNan(rawC) ||
+            (float.IsNaN(r) && !aNaN && !bNaN && !cNaN))
+            flags |= 0x10;
+        if (float.IsNaN(r)) return flags;
+
+        double exact = Math.FusedMultiplyAdd((double)a, (double)b, (double)c);
+        if (float.IsInfinity(r) && !double.IsInfinity(exact)) flags |= 0x04;
+        if (float.IsInfinity(r)) return flags;
+
+        bool nx = (double)r != exact;
+        if (nx) flags |= 0x01;
+        if (nx && r != 0f && MathF.Abs(r) < Rv32Executor.MinNormalF) flags |= 0x02;
+        return flags;
+    }
+
+    // FSQRT flags: NV if a < 0, otherwise same NX/UF/OF logic.
+    private static uint FpSqrtFlags(float a, float r) {
+        uint rawA = BitConverter.SingleToUInt32Bits(a);
+        if (IsSNan(rawA)) return 0x10;
+        if (a < 0f) return 0x10; // sqrt of negative
+        if (float.IsNaN(r)) return 0;
+        double exact = Math.Sqrt((double)a);
+        if (float.IsInfinity(r) && !double.IsInfinity(exact)) return 0x04;
+        if (float.IsInfinity(r)) return 0;
+        bool nx = (double)r != exact;
+        uint flags = nx ? 0x01u : 0u;
+        if (nx && r != 0f && MathF.Abs(r) < Rv32Executor.MinNormalF) flags |= 0x02;
+        return flags;
+    }
+
+    // Signaling NaN check: exponent=0xFF, fraction!=0, quiet bit (bit 22) = 0.
+    private static bool IsSNan(uint bits) =>
+        (bits & 0x7F800000u) == 0x7F800000u && (bits & 0x7FFFFFu) != 0 && (bits & 0x400000u) == 0;
+
+    // ── MXCSR-tracked FP arithmetic ───────────────────────────────────────────
+
+    private static ExecuteResult FpBin(float a, float b, int op) {
+        float r = op switch { 0 => a + b, 1 => a - b, 2 => a * b, _ => a / b, };
+        return FloatRegF(r, FpArithFlags(a, b, r, op));
+    }
+
+    private static ExecuteResult FpSqrt(float a) {
+        float r = MathF.Sqrt(a);
+        return FloatRegF(r, FpSqrtFlags(a, r));
+    }
+
+    private static ExecuteResult FpFma(float a, float b, float c) {
+        float r = MathF.FusedMultiplyAdd(a, b, c);
+        return FloatRegF(r, FpFmaFlags(a, b, c, r));
+    }
+
+    // FCVT.S.W / FCVT.S.WU: integer → float (may set NX if inexact).
+    // Note: rounding mode affects which float is chosen; C# uses RNE by default.
+    // We use the hardware default (RNE) since .NET doesn't expose per-op rounding.
+    private static ExecuteResult FpIntToFloat(long intVal, int rm) {
+        var r = (float)intVal;
+        // NX if the integer can't be exactly represented in float32 (24-bit mantissa)
+        bool nx = (long)r != intVal;
+        return FloatRegF(r, nx ? 0x01u : 0u);
+    }
+
+    // FCVT.W.S with rounding mode and NV/NX flags.
+    private static ExecuteResult FcvtWsResult(float f, int rm, IArchState state) {
+        rm = ResolveRm(rm, state);
+        if (float.IsNaN(f)) return IntRegF(0x7FFFFFFFu, 0x10u); // NaN → INT_MAX + NV
+        float rounded = ApplyRm(f, rm);
+        // Check if rounded value is out of int32 range
+        if (rounded >= 2147483648f) return IntRegF(0x7FFFFFFFu, 0x10u); // > INT_MAX → NV
+        if (rounded < -2147483648f) return IntRegF(0x80000000u, 0x10u); // < INT_MIN → NV
+        var result = (uint)(int)rounded;
+        uint flags = f != (float)(int)result ? 0x01u : 0u; // NX if original was not exact integer
+        return IntRegF(result, flags);
+    }
+
+    // FCVT.WU.S with rounding mode and NV/NX flags.
+    private static ExecuteResult FcvtWuSResult(float f, int rm, IArchState state) {
+        rm = ResolveRm(rm, state);
+        if (float.IsNaN(f)) return IntRegF(0xFFFFFFFFu, 0x10u); // NaN → UINT_MAX + NV
+        float rounded = ApplyRm(f, rm);
+        // Check if rounded value is out of uint32 range
+        if (rounded >= 4294967296f) return IntRegF(0xFFFFFFFFu, 0x10u); // > UINT_MAX → NV
+        if (rounded < 0f) return IntRegF(0u, 0x10u);                    // < 0 → NV
+        var result = (uint)rounded;
+        uint flags = f != (float)result ? 0x01u : 0u; // NX if original was not exact integer
+        return IntRegF(result, flags);
+    }
+
+    // FMIN/FMAX: set NV if either input is a signaling NaN.
+    private static ExecuteResult FpMinMax(IRegisterFile regs, int rs1, int rs2, bool isMin) {
+        uint raw1 = (uint)regs.Read(rs1), raw2 = (uint)regs.Read(rs2);
+        float a = BitConverter.Int32BitsToSingle((int)raw1);
+        float b = BitConverter.Int32BitsToSingle((int)raw2);
+        uint flags = IsSNan(raw1) || IsSNan(raw2) ? 0x10u : 0u;
+        float result = isMin ? FMin(a, b) : FMax(a, b);
+        return FloatRegF(result, flags);
+    }
+
+    // FEQ/FLT/FLE: NV flag for sNaN (FEQ) or any NaN (FLT/FLE).
+    private static ExecuteResult FpCmp(IRegisterFile regs, int rs1, int rs2, int op) {
+        uint raw1 = (uint)regs.Read(rs1), raw2 = (uint)regs.Read(rs2);
+        float a = BitConverter.Int32BitsToSingle((int)raw1);
+        float b = BitConverter.Int32BitsToSingle((int)raw2);
+        // FLT/FLE: NV if either operand is NaN; FEQ: NV only for sNaN
+        bool nvFlt = float.IsNaN(a) || float.IsNaN(b);
+        bool nvFeq = IsSNan(raw1) || IsSNan(raw2);
+        uint flags = op switch { 0 => nvFeq ? 0x10u : 0u, _ => nvFlt ? 0x10u : 0u, };
+        ulong cmp = op switch { 0  => a == b ? 1UL : 0UL, 1 => a < b ? 1UL : 0UL, _ => a <= b ? 1UL : 0UL, };
+        return flags != 0
+            ? new ExecuteResult { RegisterResult = (cmp, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), }
+            : ExecuteResult.WithResult(cmp);
+    }
 
     // RISC-V FCLASS encoding (10-bit result).
     private static ulong FClass(uint bits) {
@@ -707,6 +902,34 @@ public class Rv32Executor : IExecutor {
                 : sign     ? 1UL << 2 : 1UL << 5,
             _ => sign ? 1UL << 1 : 1UL << 6,
         };
+    }
+
+    // Apply rounding mode to a float before converting to integer.
+    // rm: 0=RNE, 1=RTZ, 2=RDN, 3=RUP, 4=RMM, 7=DYN (resolved before call).
+    private static float ApplyRm(float f, int rm) => rm switch {
+        0 => MathF.Round(f, MidpointRounding.ToEven),
+        2 => MathF.Floor(f),
+        3 => MathF.Ceiling(f),
+        4 => MathF.Round(f, MidpointRounding.AwayFromZero),
+        _ => f >= 0f ? MathF.Floor(f) : MathF.Ceiling(f), // RTZ (truncate toward zero)
+    };
+
+    // Resolve DYN rounding mode (rm=7) from fcsr.frm.
+    private static int ResolveRm(int rm, IArchState state) =>
+        rm == 7 ? (int)((Rv32ArchState)state).CsrFile.DirectRead(CsrFile.Frm) : rm;
+
+    // RISC-V FCVT.W.S: float → signed int with rounding mode and saturating clamp.
+    private static uint FcvtWS(float f) {
+        if (float.IsNaN(f) || f >= 2147483648f) return 0x7FFFFFFF; // INT_MAX
+        if (f < -2147483648f) return 0x80000000u;                  // INT_MIN
+        return (uint)(int)f;
+    }
+
+    // RISC-V FCVT.WU.S: float → unsigned int with saturating clamp.
+    private static uint FcvtWuS(float f) {
+        if (float.IsNaN(f) || f >= 4294967296f) return 0xFFFFFFFF;
+        if (f < 0f) return 0;
+        return (uint)f;
     }
 
     // RISC-V FMIN: if one arg is NaN, return the other; -0.0 < +0.0.
@@ -783,15 +1006,15 @@ public class Rv32Executor : IExecutor {
     private static (uint vl, int ewBytes) VGetVlEw(IArchState state) {
         CsrFile csrs = VState(state).CsrFile;
         uint vl = csrs.DirectRead(CsrFile.Vl);
-        uint vsew = csrs.DirectRead(CsrFile.Vtype) & 0x7;
-        var ewBytes = (int)(1u << (int)vsew); // 1, 2, 4, 8
+        uint vsew = (csrs.DirectRead(CsrFile.Vtype) >> 3) & 0x7; // vtype bits [5:3]
+        var ewBytes = (int)(1u << (int)vsew);                    // 1, 2, 4, 8
         return (vl, ewBytes);
     }
 
     private static uint ComputeVlmax(int vtypei) {
-        var vsew = (uint)(vtypei & 0x7);
-        var ewBits = (int)(8u << (int)vsew); // 8, 16, 32, 64
-        int vlmulField = (vtypei >> 3) & 0x7;
+        var vsew = (uint)((vtypei >> 3) & 0x7); // vtypei bits [5:3] = vsew
+        var ewBits = (int)(8u << (int)vsew);    // 8, 16, 32, 64
+        int vlmulField = vtypei & 0x7;          // vtypei bits [2:0] = vlmul
         // LMUL: fields 0-3 = 1,2,4,8; fields 5-7 = 1/8,1/4,1/2 (fractional)
         uint vlmax;
         if (vlmulField <= 3)
@@ -970,6 +1193,7 @@ public class Rv32Executor : IExecutor {
             VIntOp.And => a & b,
             VIntOp.Or  => a | b,
             VIntOp.Xor => a ^ b,
+            VIntOp.Mov => b, // vmv.v.v/x/i: broadcast second operand (vs1 or scalar or imm)
             VIntOp.Sll => a << (int)(b & (uint)shiftMask),
             VIntOp.Srl => (a & mask) >> (int)(b & (uint)shiftMask),
             VIntOp.Sra => ewBytes switch {
@@ -1000,6 +1224,19 @@ public class Rv32Executor : IExecutor {
             },
             _ => false,
         };
+
+    // vmv.x.s rd, vs2 — read element 0 of vs2 into integer rd (sign-extended to XLEN).
+    private static ExecuteResult ExecuteVMvXS(IArchState state, int rd, int vs2) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (vl == 0 || rd == 0) return ExecuteResult.Clean;
+        ulong elem = VReadElem(state, vs2, 0, ewBytes);
+        ulong result = ewBytes switch {
+            1 => (ulong)(long)(sbyte)(byte)elem,
+            2 => (ulong)(long)(short)(ushort)elem,
+            _ => elem,
+        };
+        return ExecuteResult.WithResult(result);
+    }
 
     // ── UVE extension helpers ─────────────────────────────────────────────────
 

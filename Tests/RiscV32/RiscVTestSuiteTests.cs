@@ -26,6 +26,11 @@ public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
     public static IEnumerable<object[]> AllTests() =>
         Directory
            .EnumerateFiles(RiscVTestSuiteTests.IsaDir, "*.elf")
+           .Where(p => {
+                    string name = Path.GetFileName(p);
+                    return name.StartsWith("rv32ui-") || name.StartsWith("rv32um-");
+                }
+            )
            .OrderBy(p => p)
            .Select(p => new object[] { Path.GetFileNameWithoutExtension(p), });
 

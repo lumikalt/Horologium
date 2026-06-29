@@ -52,10 +52,12 @@ public class SpikeCoSimTests {
     // Spike runs as a live child process; dispose kills it when the run ends.
     // memorySize overrides the ELF-derived sizing (the HTIF fixture reserves a
     // stack beyond its tiny load extent, so it needs an explicit region size).
+    // isa overrides the Spike --isa= string (default rv32imafcv covers I/M/A/F/C/V).
     private static void RunCoSim(
         string elfName,
         Func<IMechanism, IMemory, ulong, ICommitObserver, object> trainFactory,
-        int? memorySize = null
+        int? memorySize = null,
+        string isa = "rv32imafcv"
     ) {
         RequireSpikeOrSkip();
 
@@ -65,7 +67,7 @@ public class SpikeCoSimTests {
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
 
-        using var cosim = new SpikeCoSimReference(elfPath, workload.BaseAddress, workload.MemorySize);
+        using var cosim = new SpikeCoSimReference(elfPath, workload.BaseAddress, workload.MemorySize, isa);
 
         // When the ELF exits via HTIF, give the mechanism the tohost address so
         // the exit store terminates the run at the write itself (first-class
@@ -131,31 +133,161 @@ public class SpikeCoSimTests {
     [SkippableFact]
     public void Oooe_HtifElf_MatchesSpike() => RunCoSim("htif.elf", Oooe, SpikeCoSimTests.HtifMemoryBytes);
 
-    // ── Official riscv-tests conformance suite (rv32ui + rv32um) ─────────────────
+    // ── Official riscv-tests conformance suite ────────────────────────────────
     //
-    // Co-simulates every base-integer and mul/div conformance ELF already shipped
-    // under TestBinaries/isa/ — per-commit verification on top of the existing
-    // self-checking RiscVTestSuiteTests (which only check the final gp pass code).
-    // These are EBREAK-terminated like test.elf, so no HTIF handling is needed.
-    // Run on the single-cycle train: this validates the decoder/executor against
-    // Spike across the whole suite; the per-train datapaths are already covered by
-    // the test/rich/htif fixtures on all three trains. The rv32si (supervisor)
-    // tests are excluded — their trap-handler control flow is a separate concern.
+    // Co-simulates every conformance ELF under TestBinaries/isa/.  Run on the
+    // single-cycle train: this validates the decoder/executor against Spike
+    // across the whole suite; the per-train datapaths are covered by the
+    // test/rich/htif fixtures on all three trains.  rv32si (supervisor) tests
+    // are excluded — their trap-handler control flow is a separate concern.
     //
-    // ma_data is excluded by design: it tests misaligned data access, which Spike
-    // traps and a handler fixes up, whereas Horologium's FlatMemory permits the
-    // access directly (documented in TestBinaries/Makefile). The two therefore
-    // diverge in control flow by intent, so co-sim cannot apply.
+    // ma_data is excluded by design: Spike traps misaligned data access while
+    // Horologium's FlatMemory permits it directly, so co-sim cannot apply.
+    //
+    // rv32uz* (bit-manipulation, Zicond) need extended ISA strings — handled by
+    // separate theories below.
 
     private static readonly string IsaDir = Path.Combine(AppContext.BaseDirectory, "isa");
 
+    // rv32ui / rv32um / rv32ua / rv32uc / rv32uf — all covered by rv32imafcv.
     public static IEnumerable<object[]> ConformanceElfs() =>
         Directory.EnumerateFiles(SpikeCoSimTests.IsaDir, "rv32u*.elf")
-                 .Where(p => !p.Contains("ma_data"))
+                 .Where(p => !p.Contains("ma_data")
+                          && !Path.GetFileName(p).StartsWith("rv32uz")
+                  )
                  .OrderBy(p => p)
                  .Select(p => new object[] { Path.Combine("isa", Path.GetFileName(p)), });
 
     [SkippableTheory]
     [MemberData(nameof(ConformanceElfs))]
     public void SingleCycle_Conformance_MatchesSpike(string elf) => RunCoSim(elf, SingleCycle);
+
+    // rv32uzba / rv32uzbb / rv32uzbc / rv32uzbs — need Zba/Zbb/Zbc/Zbs in ISA string.
+    public static IEnumerable<object[]> ConformanceElfsZb() =>
+        Directory.EnumerateFiles(SpikeCoSimTests.IsaDir, "rv32uzb*.elf")
+                 .OrderBy(p => p)
+                 .Select(p => new object[] { Path.Combine("isa", Path.GetFileName(p)), });
+
+    [SkippableTheory]
+    [MemberData(nameof(ConformanceElfsZb))]
+    public void SingleCycle_ConformanceZb_MatchesSpike(string elf) =>
+        RunCoSim(elf, SingleCycle, isa: "rv32imafcv_zba_zbb_zbc_zbs");
+
+    // rv32uzicond — needs Zicond in ISA string.
+    public static IEnumerable<object[]> ConformanceElfsZicond() =>
+        Directory.EnumerateFiles(SpikeCoSimTests.IsaDir, "rv32uzicond-p-*.elf")
+                 .OrderBy(p => p)
+                 .Select(p => new object[] { Path.Combine("isa", Path.GetFileName(p)), });
+
+    [SkippableTheory]
+    [MemberData(nameof(ConformanceElfsZicond))]
+    public void SingleCycle_ConformanceZicond_MatchesSpike(string elf) =>
+        RunCoSim(elf, SingleCycle, isa: "rv32imafcv_zicond");
+
+    // ── zcmop.elf: Zcmop c.mop.N hint NOPs on all three trains ─────────────────
+    //
+    // Requires Spike with Zcmop support (available since 1.1.0-unstable-2024-09-21
+    // with --isa=..._zcmop). Verifies that all 8 c.mop.N instructions commit as
+    // hint NOPs (no register write) and that PC advances agree between Horologium
+    // and Spike.
+
+    private static void RunCoSimZcmop(Func<IMechanism, IMemory, ulong, ICommitObserver, object> trainFactory) {
+        RequireSpikeOrSkip();
+
+        string elfPath = ElfPath("zcmop.elf");
+        var workload = new Rv32ElfWorkload(elfPath);
+
+        var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(mem);
+
+        using var cosim = new SpikeCoSimReference(
+            elfPath,
+            workload.BaseAddress,
+            workload.MemorySize,
+            "rv32gc_zcmop"
+        );
+
+        switch (trainFactory(new Rv32Mechanism(), mem, workload.EntryPoint, cosim)) {
+            case SingleCycleTrain t: t.Run(); break;
+            case FiveStageTrain t:   t.Run(); break;
+            case OooeTrain t:        t.Run(); break;
+            default:                 throw new InvalidOperationException("unknown train");
+        }
+    }
+
+    [SkippableFact]
+    public void SingleCycle_ZcmopElf_MatchesSpike() => RunCoSimZcmop(SingleCycle);
+
+    [SkippableFact]
+    public void FiveStage_ZcmopElf_MatchesSpike() => RunCoSimZcmop(FiveStage);
+
+    [SkippableFact]
+    public void Oooe_ZcmopElf_MatchesSpike() => RunCoSimZcmop(Oooe);
+
+    // ── zimop.elf: Zimop mop.r.N / mop.rr.N hint NOPs ────────────────────────
+
+    [SkippableFact]
+    public void SingleCycle_ZimopElf_MatchesSpike() =>
+        RunCoSim("zimop.elf", SingleCycle, isa: "rv32imafcv_zimop");
+
+    [SkippableFact]
+    public void FiveStage_ZimopElf_MatchesSpike() =>
+        RunCoSim("zimop.elf", FiveStage, isa: "rv32imafcv_zimop");
+
+    [SkippableFact]
+    public void Oooe_ZimopElf_MatchesSpike() =>
+        RunCoSim("zimop.elf", Oooe, isa: "rv32imafcv_zimop");
+
+    // ── zabha.elf: Zabha byte / halfword AMOs ─────────────────────────────────
+
+    [SkippableFact]
+    public void SingleCycle_ZabhaElf_MatchesSpike() =>
+        RunCoSim("zabha.elf", SingleCycle, isa: "rv32imafcv_zabha");
+
+    [SkippableFact]
+    public void FiveStage_ZabhaElf_MatchesSpike() =>
+        RunCoSim("zabha.elf", FiveStage, isa: "rv32imafcv_zabha");
+
+    [SkippableFact]
+    public void Oooe_ZabhaElf_MatchesSpike() =>
+        RunCoSim("zabha.elf", Oooe, isa: "rv32imafcv_zabha");
+
+    // ── zawrs.elf: Zawrs wrs.nto / wrs.sto hint NOPs ─────────────────────────
+
+    [SkippableFact]
+    public void SingleCycle_ZawrsElf_MatchesSpike() =>
+        RunCoSim("zawrs.elf", SingleCycle, isa: "rv32imafcv_zawrs");
+
+    [SkippableFact]
+    public void FiveStage_ZawrsElf_MatchesSpike() =>
+        RunCoSim("zawrs.elf", FiveStage, isa: "rv32imafcv_zawrs");
+
+    [SkippableFact]
+    public void Oooe_ZawrsElf_MatchesSpike() =>
+        RunCoSim("zawrs.elf", Oooe, isa: "rv32imafcv_zawrs");
+
+    // ── cbo.elf: Zicbom / Zicboz cache block operations ──────────────────────
+
+    [SkippableFact]
+    public void SingleCycle_CboElf_MatchesSpike() =>
+        RunCoSim("cbo.elf", SingleCycle, isa: "rv32imafcv_zicbom_zicboz");
+
+    [SkippableFact]
+    public void FiveStage_CboElf_MatchesSpike() =>
+        RunCoSim("cbo.elf", FiveStage, isa: "rv32imafcv_zicbom_zicboz");
+
+    [SkippableFact]
+    public void Oooe_CboElf_MatchesSpike() =>
+        RunCoSim("cbo.elf", Oooe, isa: "rv32imafcv_zicbom_zicboz");
+
+    // ── vector.elf: RVV vsetvli / vmv.v.x / vadd.vv / vmv.x.s ───────────────
+
+    [SkippableFact]
+    public void SingleCycle_VectorElf_MatchesSpike() => RunCoSim("vector.elf", SingleCycle);
+
+    [SkippableFact]
+    public void FiveStage_VectorElf_MatchesSpike() => RunCoSim("vector.elf", FiveStage);
+
+    [SkippableFact]
+    public void Oooe_VectorElf_MatchesSpike() => RunCoSim("vector.elf", Oooe);
 }
