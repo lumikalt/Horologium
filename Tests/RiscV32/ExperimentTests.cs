@@ -170,7 +170,7 @@ public class ExperimentTests {
         var workload = new Rv32ElfWorkload(TestElfPath);
         NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism());
+        ExperimentResult result = Experiment.Run(workload, configs, () => new Rv32Mechanism());
 
         DialBoardSnapshot? snap = result.Runs[0].Result.Find("five_stage.pipeline");
         Assert.NotNull(snap);
@@ -213,7 +213,7 @@ public class ExperimentTests {
             new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit())),
         ];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism());
+        ExperimentResult result = Experiment.Run(workload, configs, () => new Rv32Mechanism());
 
         Assert.Equal(2, result.Runs.Count);
         Assert.Equal("always_not_taken", result.Runs[0].Name);
@@ -234,7 +234,7 @@ public class ExperimentTests {
             new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit())),
         ];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism());
+        ExperimentResult result = Experiment.Run(workload, configs, () => new Rv32Mechanism());
 
         long antMisses = result.Runs[0].Result.Find("five_stage.pipeline")!.Counters["branch_misses"];
         long tbMisses = result.Runs[1].Result.Find("five_stage.pipeline")!.Counters["branch_misses"];
@@ -250,8 +250,8 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
         NamedConfig[] configs = [new("test", new TrainConfig()),];
 
-        ExperimentResult noWarmup = Experiment.Run(workload, configs, new Rv32Mechanism());
-        ExperimentResult withWarmup = Experiment.Run(workload, configs, new Rv32Mechanism(), warmupTicks: 50);
+        ExperimentResult noWarmup = Experiment.Run(workload, configs, () => new Rv32Mechanism());
+        ExperimentResult withWarmup = Experiment.Run(workload, configs, () => new Rv32Mechanism(), warmupTicks: 50);
 
         long totalCycles = noWarmup.Runs[0].Result.Find("five_stage.pipeline")!.Counters["cycles"];
         long measuredCycles = withWarmup.Runs[0].Result.Find("five_stage.pipeline")!.Counters["cycles"];
@@ -271,7 +271,7 @@ public class ExperimentTests {
             new("config_b", new TrainConfig(ForwardingEnabled: false)),
         ];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism());
+        ExperimentResult result = Experiment.Run(workload, configs, () => new Rv32Mechanism());
         string csv = result.ToCsv();
 
         Assert.Contains("config_a", csv);
@@ -285,7 +285,7 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
         NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism());
+        ExperimentResult result = Experiment.Run(workload, configs, () => new Rv32Mechanism());
         string md = result.ToMarkdownTable();
 
         Assert.Contains("|---|", md);
@@ -299,7 +299,7 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
         NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism());
+        ExperimentResult result = Experiment.Run(workload, configs, () => new Rv32Mechanism());
 
         Assert.Null(result.Runs[0].Result.TimeSeries);
     }
@@ -310,7 +310,7 @@ public class ExperimentTests {
         NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
         ExperimentResult result = Experiment.Run(
-            workload, configs, new Rv32Mechanism(),
+            workload, configs, () => new Rv32Mechanism(),
             snapshotInterval: 5
         );
 
@@ -325,7 +325,7 @@ public class ExperimentTests {
         NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
         ExperimentResult result = Experiment.Run(
-            workload, configs, new Rv32Mechanism(),
+            workload, configs, () => new Rv32Mechanism(),
             snapshotInterval: 5
         );
 
@@ -346,7 +346,7 @@ public class ExperimentTests {
         NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
         ExperimentResult result = Experiment.Run(
-            workload, configs, new Rv32Mechanism(),
+            workload, configs, () => new Rv32Mechanism(),
             snapshotInterval: -1
         );
 
@@ -362,7 +362,7 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(MakeCountdownProgram());
         NamedConfig[] configs = [new("baseline", new TrainConfig()),];
 
-        ExperimentResult result = Experiment.Run(workload, configs, new Rv32Mechanism());
+        ExperimentResult result = Experiment.Run(workload, configs, () => new Rv32Mechanism());
         string csv = result.ToTimeSeriesCsv();
 
         Assert.Equal(string.Empty, csv);
@@ -377,7 +377,7 @@ public class ExperimentTests {
         ];
 
         ExperimentResult result = Experiment.Run(
-            workload, configs, new Rv32Mechanism(),
+            workload, configs, () => new Rv32Mechanism(),
             snapshotInterval: 5
         );
         string csv = result.ToTimeSeriesCsv();
@@ -421,7 +421,7 @@ public class ExperimentTests {
         const long maxTicks = 400_000;
 
         ExperimentResult result = Experiment.Run(
-            workload, [config,], new Rv32Mechanism(workload.HtifTohostAddress), maxTicks
+            workload, [config,], () => new Rv32Mechanism(workload.HtifTohostAddress), maxTicks
         );
 
         RevolutionResult r = result.Runs[0].Result;

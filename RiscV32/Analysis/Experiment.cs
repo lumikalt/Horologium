@@ -33,8 +33,8 @@ public static class Experiment {
     /// <param name="configurations">
     /// The hardware configurations to run under.
     /// </param>
-    /// <param name="mechanism">
-    /// The mechanism to use.
+    /// <param name="mechanismFactory">
+    /// Factory called once per configuration run to produce an independent mechanism instance.
     /// </param>
     /// <param name="maxTicks">
     /// The maximum number of ticks to run for each configuration.
@@ -42,7 +42,7 @@ public static class Experiment {
     public static ExperimentResult Run(
         IWorkload workload,
         IEnumerable<NamedConfig> configurations,
-        IMechanism mechanism,
+        Func<IMechanism> mechanismFactory,
         long maxTicks = 1_000_000,
         long warmupTicks = 0,
         long snapshotInterval = 0
@@ -51,9 +51,12 @@ public static class Experiment {
             ? Math.Max(10, workload.CodeSize / 200)
             : snapshotInterval;
 
-        var records = new List<RunRecord>();
+        List<NamedConfig> configs = configurations.ToList();
+        var records = new RunRecord[configs.Count];
 
-        foreach (NamedConfig named in configurations) {
+        Parallel.For(0, configs.Count, i => {
+            IMechanism mechanism = mechanismFactory();
+            NamedConfig named = configs[i];
             TrainConfig config = named.Config;
             var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
             workload.Load(memory);
@@ -93,10 +96,10 @@ public static class Experiment {
                 ).Run(maxTicks, warmupTicks, resolvedInterval),
             };
 
-            records.Add(new RunRecord(named.Name, config, result));
-        }
+            records[i] = new RunRecord(named.Name, config, result);
+        });
 
-        return new ExperimentResult(records);
+        return new ExperimentResult(records.ToList());
     }
 
     /// <summary>

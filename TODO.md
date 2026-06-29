@@ -112,14 +112,10 @@ A single revolution is inherently sequential — the `Escapement`'s fixed phase 
 shared mutable `IArchState` mean one simulation cannot be threaded internally. **Do not** try to parallelize within a
 tick. The leverage is at the *run* level, where whole simulations are independent:
 
-- [ ] Parallelize the config sweep in `Experiment.Run`: each `NamedConfig` iteration is already independent (fresh
-  `FlatMemory`, fresh train, fresh predictor via `config.Predictor?.Build()`), so design-space exploration is
-  embarrassingly parallel — the biggest wall-clock win for the analysis workflow (and the perf-investigation sweep
-  playbook). Blocker to handle first: the `mechanism` is shared across runs and `Rv32Decoder`'s `_cache`/`_hintCache`
-  are plain `Dictionary` (not thread-safe). Fix by giving each parallel run its own mechanism — change the API to take a
-  `Func<IMechanism>` factory rather than a shared instance — and collect into a thread-safe results structure
-  (`Parallel.ForEach` + `ConcurrentBag`, or `Task.WhenAll` over indexed slots). `Experiment.Trace`/`WriteOlympiaTrace`
-  are single-run and unaffected.
+- [x] Parallelize the config sweep in `Experiment.Run`: changed `IMechanism mechanism` → `Func<IMechanism> mechanismFactory`
+  so each parallel run creates its own independent mechanism (sidesteps the non-thread-safe `Rv32Decoder` `Dictionary`
+  caches); replaced the sequential `foreach` with `Parallel.For` over a pre-sized `RunRecord[]` indexed by position to
+  preserve input ordering. `Experiment.Trace`/`WriteOlympiaTrace` are single-run and unchanged.
 - [ ] Parallelize multi-workload sweeps the same way: `BenchmarkPerfSummary` (and any future ROI/sweep driver) loops
   over ELFs sequentially; once the mechanism-factory change above lands, these become independent tasks too. (xUnit
   already parallelizes across test *classes*, but not `[Theory]` cases within one, nor these in-method loops.)
