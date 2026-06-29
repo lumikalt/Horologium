@@ -100,30 +100,23 @@ public sealed class WaterfallControl : Control {
 
     // Sets _instrIdColW and _pcColW wide enough to display the widest value in each column.
     private void ComputeColumnWidths(WaterfallData data) {
-        var widestId = "ID"; // header is the minimum width reference
-        var widestPc = "PC";
-        var widestSPc = "";
+        string widestId = "ID"; // header label is the minimum width reference
+        double widestPcW = MeasureFtWidth("PC", 10.5);
 
         ulong basePc = data.BasePc;
         int limit = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
-        for (var i = 0; i < limit; i++) {
+        for (int i = 0; i < limit; i++) {
             WaterfallRow row = data.Rows[i];
-            var id = row.InstrId.ToString();
+            string id = row.InstrId.ToString();
             if (id.Length > widestId.Length) widestId = id;
-            var pc = $"+{row.Pc - basePc:X}";
-            if (pc.Length > widestPc.Length) widestPc = pc;
-            if (row.SpecPc != row.Pc) {
-                var spc = $"~+{row.SpecPc - basePc:X}";
-                if (spc.Length > widestSPc.Length) widestSPc = spc;
-            }
+            double pcW = MeasureFtWidth($"+{row.Pc - basePc:X}", 10);
+            if (row.SpecPc != row.Pc)
+                pcW += MeasureFtWidth($"/+{row.SpecPc - basePc:X}", 10);
+            if (pcW > widestPcW) widestPcW = pcW;
         }
 
-        double idW = MeasureFtWidth(widestId, widestId == "ID" ? 10.5 : 10);
-        double pcW = Math.Max(MeasureFtWidth("PC", 10.5), MeasureFtWidth(widestPc, widestPc == "PC" ? 10.5 : 10));
-        if (widestSPc.Length > 0) pcW = Math.Max(pcW, MeasureFtWidth(widestSPc, 7.5));
-
-        _instrIdColW = idW + WaterfallControl.ColPad;
-        _pcColW = pcW + WaterfallControl.ColPad;
+        _instrIdColW = MeasureFtWidth(widestId, widestId == "ID" ? 10.5 : 10) + WaterfallControl.ColPad;
+        _pcColW = widestPcW + WaterfallControl.ColPad;
     }
 
     private static double MeasureFtWidth(string text, double size) {
@@ -256,16 +249,13 @@ public sealed class WaterfallControl : Control {
                 new Rect(sx, rowY, gutterW, WaterfallControl.RowH)
             );
             DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 3));
-            bool twoLine = row.SpecPc != row.Pc;
-            DrawFt(
-                ctx, $"+{row.Pc - basePc:X}", labelFg, twoLine ? 8.5 : 10,
-                new Point(sx + _instrIdColW + 4, rowY + (twoLine ? 2 : 3))
-            );
-            if (twoLine)
-                DrawFt(
-                    ctx, $"~+{row.SpecPc - basePc:X}", specPcFg, 7.5,
-                    new Point(sx + _instrIdColW + 4, rowY + 11)
-                );
+            string pcStr = $"+{row.Pc - basePc:X}";
+            double pcX = sx + _instrIdColW + 4;
+            DrawFt(ctx, pcStr, labelFg, 10, new Point(pcX, rowY + 3));
+            if (row.SpecPc != row.Pc) {
+                double slashX = pcX + MeasureFtWidth(pcStr, 10);
+                DrawFt(ctx, $"/+{row.SpecPc - basePc:X}", specPcFg, 10, new Point(slashX, rowY + 3));
+            }
         }
 
         ctx.DrawLine(
