@@ -13,7 +13,7 @@
 
         <!-- ── CPU tab — editor, instruction listing, register file ─────────── -->
         <TabItem Header="CPU">
-            <Grid ColumnDefinitions="*,320,220">
+            <Grid ColumnDefinitions="*,Auto,220">
 
                 <!-- ── Left: Assembly editor ─────────────────────────────────── -->
                 <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto"
@@ -55,6 +55,7 @@
 
                 <!-- ── Middle: Instruction listing + decode panel ─────────────── -->
                 <Grid Grid.Column="1" RowDefinitions="*,Auto"
+                      MinWidth="260"
                       Margin="1,0,1,0">
 
                     <DataGrid Grid.Row="0"
@@ -79,19 +80,23 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Stage"
                                                 Binding="{Binding Stage}"
-                                                Width="48"
+                                                Width="Auto"
+                                                MinWidth="48"
                                                 IsReadOnly="True" />
                             <DataGridTextColumn Header="PC"
                                                 Binding="{Binding OffsetHex}"
-                                                Width="60"
+                                                Width="Auto"
+                                                MinWidth="60"
                                                 IsReadOnly="True" />
                             <DataGridTextColumn Header="Hex"
                                                 Binding="{Binding HexEncoding}"
-                                                Width="105"
+                                                Width="Auto"
+                                                MinWidth="90"
                                                 IsReadOnly="True" />
                             <DataGridTextColumn Header="Assembly"
                                                 Binding="{Binding Mnemonic}"
-                                                Width="*"
+                                                Width="Auto"
+                                                MinWidth="80"
                                                 IsReadOnly="True" />
                         </DataGrid.Columns>
                     </DataGrid>

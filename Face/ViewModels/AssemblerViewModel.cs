@@ -698,7 +698,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 var mem = BuildFreshMemory();
                 _oooeTrain = new OooeTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
-                    iMemConfig: iCfg, dMemConfig: dCfg
+                    iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
                 );
                 _oooeTrain.BeginStepping();
                 break;
