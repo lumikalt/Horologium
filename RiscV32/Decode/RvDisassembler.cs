@@ -124,6 +124,31 @@ public static class RvDisassembler {
         RvAmominuW op => $"amominu.w {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
         RvAmomaxuW op => $"amomaxu.w {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
 
+        // Zacas extension
+        RvAmocasW op => $"amocas.w {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+
+        // Zabha extension — byte variants
+        RvAmoswapB op => $"amoswap.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmoaddB op  => $"amoadd.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmoxorB op  => $"amoxor.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmoandB op  => $"amoand.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmoorB op   => $"amoor.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmominB op  => $"amomin.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmomaxB op  => $"amomax.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmominuB op => $"amominu.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmomaxuB op => $"amomaxu.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+
+        // Zabha extension — halfword variants
+        RvAmoswapH op => $"amoswap.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmoaddH op  => $"amoadd.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmoxorH op  => $"amoxor.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmoandH op  => $"amoand.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmoorH op   => $"amoor.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmominH op  => $"amomin.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmomaxH op  => $"amomax.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmominuH op => $"amominu.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmomaxuH op => $"amomaxu.h {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+
         // V extension
         RvVsetvli op    => $"vsetvli {Xi(op.Rd)}, {Xi(op.Rs1)}, {VtypeStr(op.Vtypei)}",
         RvVsetivli op   => $"vsetivli {Xi(op.Rd)}, {op.Zimm}, {VtypeStr(op.Vtypei)}",

@@ -45,8 +45,15 @@
 - [ ] Zcmop: compressed may-be-operations (c.mop.N) — same idea for 16-bit encoding space.
 - [x] Zicntr: hardware performance counters — cycle/cycleh (0xC00/0xC80), time/timeh (0xC01/0xC81, reads 0 — no CLINT), instret/instreth (0xC02/0xC82), and their M-mode mirrors mcycle/mcycleh/minstret/minstreth. User-level shadows alias M-mode counters. Pipeline trains call IArchState.OnCycle()/OnRetire() hooks; RvArchState increments CsrFile counters with 32-bit carry into high halves.
 - [ ] Zihpm: hardware performance monitor — hpmcounterN/hpmcounterNh (N=3–31) and hpmeventN CSRs.
-- [ ] Zabha: byte/halfword atomics (amoadd.b, amoswap.h, …) — extends A extension to sub-word granularity.
-- [ ] Zacas: compare-and-swap (amocas.w, amocas.d, amocas.q).
+- [x] Zabha: byte/halfword atomics — all 9 AMO operations in .b (funct3=0) and .h (funct3=1) variants:
+  amoswap, amoadd, amoxor, amoand, amoor, amomin, amomax, amominu, amomaxu. rd receives the
+  sign-extended old byte/halfword value. Signed min/max sign-extends from the narrow width for
+  comparison. `DecodeZabha` routes funct3=0/1 in the AMO opcode block.
+- [x] Zacas: compare-and-swap word (amocas.w, funct5=0x05). rd is both the comparand (source) and
+  destination for the old value — included in the `sources` list so the OoO pipeline tracks the
+  dependency correctly. amocas.d (register pairs, RV32) and amocas.q deferred.
+- [ ] Zabha+Zacas narrower variants: amocas.b / amocas.h (sub-word CAS from Zabha+Zacas interplay);
+  amocas.d for RV32 (uses rd||rd+1 and rs2||rs2+1 register pairs — needs special dispatch).
 - [ ] Scalar crypto: Zknd/Zkne/Zknh (NIST AES encrypt/decrypt, SHA-2), Zksd/Zkse/Zksh (ShangMi SM4/SM3), Zkr (entropy source / GetNoise CSR). Grouped as Zkn (NIST suite) and Zks (ShangMi suite).
 - [ ] Vector bit manipulation (Zvbb): vbrev8, vrev8, vandn, vclz, vctz, vcpop, vrol, vror, …
 - [ ] Vector carry-less multiply (Zvbc): vclmul, vclmulh.

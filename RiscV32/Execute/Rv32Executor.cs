@@ -273,6 +273,42 @@ public class Rv32Executor : IExecutor {
             RvAmomaxuW(_, var rs1, var rs2) =>
                 Amo(memory, state, pc, regs, rs1, rs2, Math.Max),
 
+            // ── Zacas extension ───────────────────────────────────────────────
+            RvAmocasW(var rd, var rs1, var rs2) => AmoCasW(memory, state, pc, regs, rd, rs1, rs2),
+
+            // ── Zabha extension (byte and halfword AMOs) ──────────────────────
+            RvAmoswapB(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (_, v) => v),
+            RvAmoaddB (_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (a, v) => a + v),
+            RvAmoxorB (_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (a, v) => a ^ v),
+            RvAmoandB (_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (a, v) => a & v),
+            RvAmoorB (_, var rs1, var rs2)  => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (a, v) => a | v),
+            RvAmominB (_, var rs1, var rs2) => AmoNarrow(
+                memory, state, pc, regs, rs1, rs2, 1,
+                (a, v) => (uint)Math.Min((int)(sbyte)(byte)a, (int)(sbyte)(byte)v)
+            ),
+            RvAmomaxB (_, var rs1, var rs2) => AmoNarrow(
+                memory, state, pc, regs, rs1, rs2, 1,
+                (a, v) => (uint)Math.Max((int)(sbyte)(byte)a, (int)(sbyte)(byte)v)
+            ),
+            RvAmominuB(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, Math.Min),
+            RvAmomaxuB(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, Math.Max),
+
+            RvAmoswapH(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, (_, v) => v),
+            RvAmoaddH (_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, (a, v) => a + v),
+            RvAmoxorH (_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, (a, v) => a ^ v),
+            RvAmoandH (_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, (a, v) => a & v),
+            RvAmoorH (_, var rs1, var rs2)  => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, (a, v) => a | v),
+            RvAmominH (_, var rs1, var rs2) => AmoNarrow(
+                memory, state, pc, regs, rs1, rs2, 2,
+                (a, v) => (uint)Math.Min((int)(short)(ushort)a, (int)(short)(ushort)v)
+            ),
+            RvAmomaxH (_, var rs1, var rs2) => AmoNarrow(
+                memory, state, pc, regs, rs1, rs2, 2,
+                (a, v) => (uint)Math.Max((int)(short)(ushort)a, (int)(short)(ushort)v)
+            ),
+            RvAmominuH(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, Math.Min),
+            RvAmomaxuH(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, Math.Max),
+
             // ── F extension ───────────────────────────────────────────────────
             // FLW: address computed from int rs1; result is raw bits stored in fp rd.
             RvFlw(_, var rs1, var imm) => Load(memory, state, pc, regs.Read(rs1), imm, 4, false, 32),
@@ -518,6 +554,46 @@ public class Rv32Executor : IExecutor {
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         memory.Write(addr, regs.Read(rs2), 4);
         return Reg(0); // 0 = success
+    }
+
+    // Zabha: narrow (byte or halfword) atomic RMW. rd receives the sign-extended old value.
+    private ExecuteResult AmoNarrow(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rs1,
+        int rs2,
+        int bytes,
+        Func<uint, uint, uint> combine
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        var old = (uint)memory.Read(addr, bytes);
+        memory.Write(addr, combine(old, (uint)regs.Read(rs2)), bytes);
+        uint rd = bytes == 1
+            ? (uint)(int)(sbyte)(byte)old
+            : (uint)(int)(short)(ushort)old;
+        return Reg(rd);
+    }
+
+    // Zacas: compare-and-swap word. rdReg is both comparand (source) and destination.
+    private ExecuteResult AmoCasW(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rdReg,
+        int rs1,
+        int rs2
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        var old = (uint)memory.Read(addr, 4);
+        if (old == (uint)regs.Read(rdReg)) memory.Write(addr, regs.Read(rs2), 4);
+        return Reg(old);
     }
 
     protected virtual (ulong paddr, int faultCause) Translate(

@@ -166,7 +166,8 @@ public partial class MainWindowViewModel : ObservableObject {
             ExperimentResult result = await Task.Run(() =>
                                                          Experiment.Run(
                                                              workload, namedConfigs,
-                                                             () => new Rv32Mechanism(workload.HtifTohostAddress), maxTicks,
+                                                             () => new Rv32Mechanism(workload.HtifTohostAddress),
+                                                             maxTicks,
                                                              warmupTicks, snapshotInterval
                                                          )
             );

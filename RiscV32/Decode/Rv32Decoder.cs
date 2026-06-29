@@ -521,13 +521,23 @@ public class Rv32Decoder : IDecoder {
         uint funct3,
         uint funct5
     ) {
+        // Zabha: byte (.b) and halfword (.h) AMOs — funct3=0 and funct3=1 respectively.
+        if (funct3 is 0x0 or 0x1) return DecodeZabha(pc, raw, rd, rs1, rs2, funct3, funct5);
+
         if (funct3 != 0x2)
             throw new IllegalInstructionException(
                 pc, raw,
-                $"AMO with non-word funct3=0x{funct3:X} (only .W supported)"
+                $"AMO with unsupported funct3=0x{funct3:X}"
             );
 
-        // LR.W reads only the address register; all others use rs1 (addr) and rs2 (operand).
+        // Zacas amocas.w: rd is also a source (it's the comparand).
+        if (funct5 == 0x05)
+            return new RvInstruction(
+                pc, raw, rd, [rs1, rs2, rd,], ToothClass.Atomic,
+                new RvAmocasW(rd, rs1, rs2)
+            );
+
+        // LR.W reads only the address register; all other word AMOs use rs1 and rs2.
         IReadOnlyList<int> sources = funct5 == 0x02 ? [rs1,] : [rs1, rs2,];
 
         RvOp op = funct5 switch {
@@ -548,6 +558,34 @@ public class Rv32Decoder : IDecoder {
             ),
         };
         return new RvInstruction(pc, raw, rd, sources, ToothClass.Atomic, op);
+    }
+
+    private static RvInstruction DecodeZabha(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        int rs2,
+        uint funct3,
+        uint funct5
+    ) {
+        bool isByte = funct3 == 0x0;
+        RvOp op = funct5 switch {
+            0x01 => isByte ? new RvAmoswapB(rd, rs1, rs2) : new RvAmoswapH(rd, rs1, rs2),
+            0x00 => isByte ? new RvAmoaddB(rd, rs1, rs2) : new RvAmoaddH(rd, rs1, rs2),
+            0x04 => isByte ? new RvAmoxorB(rd, rs1, rs2) : new RvAmoxorH(rd, rs1, rs2),
+            0x0C => isByte ? new RvAmoandB(rd, rs1, rs2) : new RvAmoandH(rd, rs1, rs2),
+            0x08 => isByte ? new RvAmoorB(rd, rs1, rs2) : new RvAmoorH(rd, rs1, rs2),
+            0x10 => isByte ? new RvAmominB(rd, rs1, rs2) : new RvAmominH(rd, rs1, rs2),
+            0x14 => isByte ? new RvAmomaxB(rd, rs1, rs2) : new RvAmomaxH(rd, rs1, rs2),
+            0x18 => isByte ? new RvAmominuB(rd, rs1, rs2) : new RvAmominuH(rd, rs1, rs2),
+            0x1C => isByte ? new RvAmomaxuB(rd, rs1, rs2) : new RvAmomaxuH(rd, rs1, rs2),
+            _ => throw new IllegalInstructionException(
+                pc, raw,
+                $"Zabha: unsupported funct5=0x{funct5:X2}"
+            ),
+        };
+        return new RvInstruction(pc, raw, rd, [rs1, rs2,], ToothClass.Atomic, op);
     }
 
     // ── F extension ───────────────────────────────────────────────────────────

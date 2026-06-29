@@ -54,50 +54,52 @@ public static class Experiment {
         List<NamedConfig> configs = configurations.ToList();
         var records = new RunRecord[configs.Count];
 
-        Parallel.For(0, configs.Count, i => {
-            IMechanism mechanism = mechanismFactory();
-            NamedConfig named = configs[i];
-            TrainConfig config = named.Config;
-            var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
-            workload.Load(memory);
-            IMemory runMemory = workload.WrapMemory(memory);
-            MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
+        Parallel.For(
+            0, configs.Count, i => {
+                IMechanism mechanism = mechanismFactory();
+                NamedConfig named = configs[i];
+                TrainConfig config = named.Config;
+                var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+                workload.Load(memory);
+                IMemory runMemory = workload.WrapMemory(memory);
+                MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
 
-            RevolutionResult result = config.Pipeline switch {
-                "superscalar" => new SuperscalarTrain(
-                    mechanism, runMemory,
-                    workload.EntryPoint,
-                    config.IssueWidth,
-                    config.ToIMemoryConfig(),
-                    dCfg
-                ).Run(maxTicks, warmupTicks, resolvedInterval),
+                RevolutionResult result = config.Pipeline switch {
+                    "superscalar" => new SuperscalarTrain(
+                        mechanism, runMemory,
+                        workload.EntryPoint,
+                        config.IssueWidth,
+                        config.ToIMemoryConfig(),
+                        dCfg
+                    ).Run(maxTicks, warmupTicks, resolvedInterval),
 
-                "ooo" => new OooeTrain(
-                    mechanism, runMemory,
-                    workload.EntryPoint,
-                    config.IssueWidth,
-                    config.RobCapacity,
-                    config.IqCapacity,
-                    config.ExtraPhysRegs,
-                    config.Predictor?.Build(),
-                    config.ToIMemoryConfig(),
-                    dCfg,
-                    config.FuLatency
-                ).Run(maxTicks, warmupTicks, resolvedInterval),
+                    "ooo" => new OooeTrain(
+                        mechanism, runMemory,
+                        workload.EntryPoint,
+                        config.IssueWidth,
+                        config.RobCapacity,
+                        config.IqCapacity,
+                        config.ExtraPhysRegs,
+                        config.Predictor?.Build(),
+                        config.ToIMemoryConfig(),
+                        dCfg,
+                        config.FuLatency
+                    ).Run(maxTicks, warmupTicks, resolvedInterval),
 
-                _ => new FiveStageTrain(
-                    mechanism, runMemory,
-                    workload.EntryPoint,
-                    config.ForwardingEnabled,
-                    config.Predictor?.Build(),
-                    config.ToIMemoryConfig(),
-                    dCfg,
-                    config.StoreBufferCapacity
-                ).Run(maxTicks, warmupTicks, resolvedInterval),
-            };
+                    _ => new FiveStageTrain(
+                        mechanism, runMemory,
+                        workload.EntryPoint,
+                        config.ForwardingEnabled,
+                        config.Predictor?.Build(),
+                        config.ToIMemoryConfig(),
+                        dCfg,
+                        config.StoreBufferCapacity
+                    ).Run(maxTicks, warmupTicks, resolvedInterval),
+                };
 
-            records[i] = new RunRecord(named.Name, config, result);
-        });
+                records[i] = new RunRecord(named.Name, config, result);
+            }
+        );
 
         return new ExperimentResult(records.ToList());
     }

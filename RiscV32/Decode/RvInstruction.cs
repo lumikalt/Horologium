@@ -286,6 +286,47 @@ public record RvAmominuW(int Rd, int Rs1, int Rs2) : RvOp;
 
 public record RvAmomaxuW(int Rd, int Rs1, int Rs2) : RvOp;
 
+// ── Zacas extension (compare-and-swap) ───────────────────────────────────────
+// rd is both comparand (source) and destination for the old value.
+public record RvAmocasW(int Rd, int Rs1, int Rs2) : RvOp;
+
+// ── Zabha extension (byte/halfword atomics) ───────────────────────────────────
+public record RvAmoswapB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoaddB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoxorB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoandB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoorB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmominB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmomaxB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmominuB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmomaxuB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoswapH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoaddH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoxorH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoandH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoorH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmominH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmomaxH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmominuH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmomaxuH(int Rd, int Rs1, int Rs2) : RvOp;
+
 // ── V extension (vector) ──────────────────────────────────────────────────────
 
 // Config: rd = new vl (integer), vtypei/rs2 = new vtype

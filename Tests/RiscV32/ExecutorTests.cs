@@ -570,6 +570,72 @@ public class ExecutorTests {
         Assert.Equal(0xABCDUL, _mem.Read(100, 4)); // value stored
     }
 
+    // ── Zabha extension (byte/halfword AMOs) ─────────────────────────────────
+
+    [Fact]
+    public void Execute_AmoswapB_ReturnsSignExtendedOldByteAndWritesNew() {
+        // amoswap.b x1, x3, (x2) — x2=100, x3=42, mem[100]=0xFF (byte -1 signed)
+        // rd = sign_ext(0xFF from 8 bits) = 0xFFFFFFFF; mem[100] = 42
+        Rv32ArchState s = MakeState((2, 100), (3, 42));
+        _mem.Write(100, 0xFF, 1);
+        ExecuteResult r = Exec(0x083100AF, s); // amoswap.b x1, x3, (x2)
+        Assert.Equal(0xFFFFFFFFUL, r.RegisterResult.Value);
+        Assert.Equal(42UL, _mem.Read(100, 1));
+    }
+
+    [Fact]
+    public void Execute_AmominB_SignedByteComparison() {
+        // amomin.b x1, x3, (x2) — mem[100]=0xFF (-1), rs2=1 → min(-1,1)=-1 → memory unchanged
+        Rv32ArchState s = MakeState((2, 100), (3, 1));
+        _mem.Write(100, 0xFF, 1);
+        ExecuteResult r = Exec(0x803100AF, s);              // amomin.b x1, x3, (x2)
+        Assert.Equal(0xFFFFFFFFUL, r.RegisterResult.Value); // sign-extended -1
+        Assert.Equal(0xFFUL, _mem.Read(100, 1));            // unchanged (−1 is the minimum)
+    }
+
+    [Fact]
+    public void Execute_AmoaddH_UpdatesHalfwordAndSignExtends() {
+        // amoadd.h x1, x3, (x2) — mem[100]=255 (0x00FF halfword), rs2=1 → 256; rd=255
+        Rv32ArchState s = MakeState((2, 100), (3, 1));
+        _mem.Write(100, 0x00FF, 2);
+        ExecuteResult r = Exec(0x003110AF, s);       // amoadd.h x1, x3, (x2)
+        Assert.Equal(255UL, r.RegisterResult.Value); // sign_ext(0x00FF from 16 bits) = 255
+        Assert.Equal(256UL, _mem.Read(100, 2));
+    }
+
+    [Fact]
+    public void Execute_AmoaddH_NegativeHalfwordSignExtends() {
+        // Halfword 0x8000 = -32768; sign-extended to 32 bits = 0xFFFF8000
+        Rv32ArchState s = MakeState((2, 100), (3, 0));
+        _mem.Write(100, 0x8000, 2);
+        ExecuteResult r = Exec(0x003110AF, s); // amoadd.h x1, x3, (x2)  (add 0 → no change)
+        Assert.Equal(0xFFFF8000UL, r.RegisterResult.Value);
+    }
+
+    // ── Zacas extension (compare-and-swap) ───────────────────────────────────
+
+    [Fact]
+    public void Execute_AmocasW_Success_WritesNewValueAndReturnsOld() {
+        // amocas.w x1, x3, (x2) — x1=42 (comparand), x2=100 (address), x3=99 (new)
+        // mem[100]=42 matches rd → write 99; return 42
+        Rv32ArchState s = MakeState((1, 42), (2, 100), (3, 99));
+        _mem.Write(100, 42, 4);
+        ExecuteResult r = Exec(0x283120AF, s); // amocas.w x1, x3, (x2)
+        Assert.Equal(42UL, r.RegisterResult.Value);
+        Assert.Equal(99UL, _mem.Read(100, 4));
+    }
+
+    [Fact]
+    public void Execute_AmocasW_Failure_LeavesMemoryUnchangedAndReturnsOld() {
+        // amocas.w x1, x3, (x2) — x1=7 (comparand), x2=100, x3=99 (new)
+        // mem[100]=42 ≠ rd → no write; return 42
+        Rv32ArchState s = MakeState((1, 7), (2, 100), (3, 99));
+        _mem.Write(100, 42, 4);
+        ExecuteResult r = Exec(0x283120AF, s); // amocas.w x1, x3, (x2)
+        Assert.Equal(42UL, r.RegisterResult.Value);
+        Assert.Equal(42UL, _mem.Read(100, 4)); // unchanged
+    }
+
     // ── F extension ───────────────────────────────────────────────────────────
     // FP registers are at unified indices 32-63 (f0=32 … f31=63).
     // MakeState accepts any index in 0-63; indices 32+ write float registers.
