@@ -408,18 +408,21 @@ public class ExperimentTests {
         // loop spun to maxTicks. With the fix the run terminates at its true
         // length (towers ≈ 10k instructions).
         var workload = new Rv32ElfWorkload(
-            Path.Combine(AppContext.BaseDirectory, "benchmarks", "towers.elf"), 4 * 1024 * 1024);
+            Path.Combine(AppContext.BaseDirectory, "benchmarks", "towers.elf"), 4 * 1024 * 1024
+        );
         var config = new NamedConfig(
             "cached",
             new TrainConfig(
                 pipeline,
                 Predictor: BranchPredictorConfig.NBit(),
                 DCache: new CacheHardwareConfig(16384, 4, 64, 10)
-            ));
+            )
+        );
         const long maxTicks = 400_000;
 
         ExperimentResult result = Experiment.Run(
-            workload, [config], new Rv32Mechanism(workload.HtifTohostAddress), maxTicks);
+            workload, [config,], new Rv32Mechanism(workload.HtifTohostAddress), maxTicks
+        );
 
         RevolutionResult r = result.Runs[0].Result;
         long retired = r.Find($"{pipeline}.pipeline")!.Counters["retired"];

@@ -362,15 +362,11 @@ internal sealed class OoOPipelineCore : Gear {
         // and run every cycle, independent of pipeline flush/stall.
         StreamingEngine.Step(DLayers.Accessor);
 
-        // Drain cache/TLB stall penalties from the previous cycle's memory operations.
-        // Lump-sum: does not model memory-level parallelism available in real OoO hardware.
-        long cacheStalls = _anyCache ? DrainAndChargeStalls() : 0;
-        if (cacheStalls > 0) {
-            _cyclesCounter.IncrementBy(cacheStalls);
-            _stallsCounter.IncrementBy(cacheStalls);
-            _cacheMissStallsCounter?.IncrementBy(cacheStalls);
-            for (long i = 0; i < cacheStalls; i++) State.OnCycle();
-        }
+        // Charge the previous cycle's instruction-fetch (and any store-commit) stall
+        // penalties. Load-miss penalties are NOT lump-summed here — StepExecute gives
+        // each load its own in-flight latency so independent misses overlap
+        // (memory-level parallelism); see StepExecute.
+        if (_anyCache) ChargeStallCycles(DrainAndChargeStalls());
 
         _cyclesCounter.Increment();
         State.OnCycle();
@@ -426,18 +422,11 @@ internal sealed class OoOPipelineCore : Gear {
                 CheckLoadViolations(r.RobIdx, r.StoreAddr, r.StoreBytes);
             }
 
-            if (r.HasLoadAccess) {
-                rob.LoadExecuted = true;
-                rob.LoadAddress = r.LoadAddr;
-                rob.LoadBytes = r.LoadBytes;
-                // If the load was not forwarded from an already-resolved store, check
-                // whether any older store now has a known address that conflicts. This
-                // catches the case where the store and load complete in the same CDB
-                // batch (store processed first → StoreAddressKnown=true by the time
-                // we reach the load entry).
-                if (!r.LoadWasForwarded && HasOlderConflictingStore(r.RobIdx, r.LoadAddr, r.LoadBytes))
-                    rob.LoadViolated = true;
-            }
+            // Load disambiguation state (LoadExecuted/LoadAddress + violation check) is
+            // registered at EXECUTE time in StepExecute, not here — see the comment there.
+            // Registering at broadcast time opened a window, under memory-level
+            // parallelism, where a missed load sat invisible in _inFlight while an older
+            // store resolved and committed, so the load broadcast a stale value.
 
             if (!r.RegValue.HasValue || r.PhysDest < 0) continue;
             _prf.Write(r.PhysDest, r.RegValue.Value);
@@ -584,12 +573,50 @@ internal sealed class OoOPipelineCore : Gear {
             else { _inFlight[i] = (countdown, result); }
         }
 
+        // Stalls already pending here are store-commit write misses (StepCommit ran
+        // earlier this cycle). Stores are off the load critical path, so charge them
+        // lump-sum — and clear the accumulator so each load below sees only its own
+        // miss penalty.
+        if (_anyCache) ChargeStallCycles(DLayers.ConsumeAllStalls());
+
         // Start executing newly issued instructions.
         foreach (IssuedInstr issued in _execBuffer) {
             ExecResult result = ExecuteOne(issued);
             PEventLog?.Record(issued.InstrId, issued.Pc, _cyclesCounter.Value, PEventKind.Execute);
+
+            // Register load disambiguation state at EXECUTE time (not at CDB broadcast).
+            // Under memory-level parallelism a missed load sits in _inFlight for many
+            // cycles before it broadcasts; registering here keeps it visible to
+            // CheckLoadViolations for its whole in-flight life, so an older store that
+            // resolves meanwhile marks it violated → re-execution at the ROB head. (Doing
+            // this only at broadcast time left the load invisible during the miss window,
+            // letting an older store resolve+commit unseen and the load return stale data.)
+            // The load still cannot commit early: commit requires IsComplete, set only by
+            // the CDB broadcast.
+            if (result.HasLoadAccess) {
+                RobEntry lrob = _rob.At(result.RobIdx);
+                lrob.LoadExecuted = true;
+                lrob.LoadAddress = result.LoadAddr;
+                lrob.LoadBytes = result.LoadBytes;
+                // If not forwarded from an already-resolved store, check whether an older
+                // store already has a known overlapping address (the store resolved before
+                // this load executed; the converse ordering is caught by CheckLoadViolations
+                // when the store later resolves).
+                if (!result.LoadWasForwarded
+                 && HasOlderConflictingStore(result.RobIdx, result.LoadAddr, result.LoadBytes))
+                    lrob.LoadViolated = true;
+            }
+
             int countdown = _fuConfig.LatencyFor(issued.Instr.Class) - 1;
-            if (countdown == 0)
+
+            // Memory-level parallelism: a load/atomic that missed (its cache access just
+            // accrued a stall) carries the miss penalty in its own latency countdown, so it
+            // overlaps with other in-flight work instead of freezing the clock. At most one
+            // load issues per cycle (the LoadStore port), so the drained stall is this op's.
+            if (_anyCache && issued.Instr.Class is ToothClass.Load or ToothClass.Atomic)
+                countdown += (int)DLayers.ConsumeAllStalls();
+
+            if (countdown <= 0)
                 _cdbBuffer.Add(result);
             else
                 _inFlight.Add((countdown, result));
@@ -1058,6 +1085,15 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     // ── Memory hierarchy stat collection ──────────────────────────────────────
+
+    // Advance the clock by n lump-sum stall cycles (instruction fetch, store commit).
+    private void ChargeStallCycles(long n) {
+        if (n <= 0) return;
+        _cyclesCounter.IncrementBy(n);
+        _stallsCounter.IncrementBy(n);
+        _cacheMissStallsCounter?.IncrementBy(n);
+        for (long i = 0; i < n; i++) State.OnCycle();
+    }
 
     private long DrainAndChargeStalls() {
         long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();

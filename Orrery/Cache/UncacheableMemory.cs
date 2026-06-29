@@ -20,8 +20,10 @@ public sealed class UncacheableMemory(IMemory cached, IMemory backing, ulong bas
         IsMmio(address) ? backing.Read(address, bytes) : cached.Read(address, bytes);
 
     public void Write(ulong address, ulong value, int bytes) {
-        if (IsMmio(address)) backing.Write(address, value, bytes);
-        else cached.Write(address, value, bytes);
+        if (IsMmio(address))
+            backing.Write(address, value, bytes);
+        else
+            cached.Write(address, value, bytes);
     }
 
     // Program-image loading goes straight to the backing (pre-run initialisation).

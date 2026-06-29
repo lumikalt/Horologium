@@ -63,8 +63,7 @@ public sealed class OlympiaJsonTraceWriter : ICommitObserver, IDisposable {
 
         // Best-effort human-readable label; omitted if the disassembler doesn't
         // cover the op (it's cosmetic — Olympia uses the opcode).
-        if (TryMnemonic(instr.Payload, pc) is { } m)
-            sb.Append(", \"mnemonic\": \"").Append(m).Append('"');
+        if (TryMnemonic(instr.Payload, pc) is { } m) sb.Append(", \"mnemonic\": \"").Append(m).Append('"');
 
         // The effective address is the data access. Loads/stores reach memory
         // during execute, after the fetch, so it is the last recorded access.
@@ -93,8 +92,6 @@ public sealed class OlympiaJsonTraceWriter : ICommitObserver, IDisposable {
             int space = dis.IndexOf(' ');
             return space < 0 ? dis : dis[..space];
         }
-        catch {
-            return null;
-        }
+        catch { return null; }
     }
 }

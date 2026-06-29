@@ -137,14 +137,15 @@ tick. The leverage is at the *run* level, where whole simulations are independen
   stall depth. (inspired by gem5) **Motivated by the Olympia calibration** (`docs/olympia-calibration.md`): the OoO
   currently charges cache-miss stalls lump-sum with no memory-level parallelism, which makes it ~2× pessimistic vs
   Olympia on memory-bound workloads (memcpy, median). Overlapping independent misses should close that gap.
-  - [ ] Load-side MLP — **first attempt (commit cb91a56) was reverted: it was functionally incorrect.** It gave each
-    load-miss its own in-flight latency countdown, but a missed load's `LoadAddress`/`LoadExecuted` were only registered
-    in `StepComplete` (at broadcast time), not at execute time. That opened a window where an older store could resolve
-    *and commit* while the load sat in `_inFlight`, invisible to `CheckLoadViolations`/`HasOlderConflictingStore`, so the
-    load broadcast a stale value. Observed: memcpy at w8+L1 read a stale `ra=0`, `ret` jumped to PC 0, and the fetcher
-    wedged (no test covered load-miss + store-disambiguation with a cache, which is how it shipped). REDO must register
-    the load's address/`LoadExecuted` at **execute** time (routing through the existing violation→re-execute machinery)
-    and ship with a load-miss+store-disambiguation regression test (e.g. memcpy w8+L1) plus a clean full-harness re-run.
+  - [x] Load-side MLP — **done (redo).** Each missed load carries its miss penalty in its own in-flight latency countdown
+    so independent misses overlap. The first attempt (commit cb91a56) was reverted as functionally incorrect: it registered
+    a missed load's `LoadAddress`/`LoadExecuted` only in `StepComplete` (broadcast time), opening a window where an older
+    store could resolve *and commit* while the load sat in `_inFlight`, invisible to `CheckLoadViolations`/
+    `HasOlderConflictingStore` → the load broadcast a stale value (memcpy w8+L1 read a stale `ra`, `ret`→PC 0, fetcher
+    wedged). The redo registers the load's address/`LoadExecuted` at **execute** time, keeping the in-flight load visible
+    to violation detection for its whole life (re-executes at the ROB head on a real violation). Shipped with
+    `Tests/RiscV32/OoOMemoryParallelismTests.cs` (memcpy w8+L1, **verified to fail on the broken model**) and a clean
+    full-harness re-run: memcpy 0.50→0.56, vvadd 0.64→0.68, towers 0.63→0.69 (w8). See `docs/olympia-calibration.md`.
   - [ ] Store-side: store-commit write misses are charged lump-sum (serial). Real hardware retires them into a
     write buffer (async, off the critical path). Model that (or a bounded store buffer) — it's the remaining bottleneck
     on store-heavy workloads (memcpy/vvadd), capping how far load-side MLP can close the gap.
@@ -170,6 +171,12 @@ tick. The leverage is at the *run* level, where whole simulations are independen
   enum value**, so a Load and an Atomic (and a Store) can each issue in the same cycle despite `LoadStoreCount=1` — i.e.
   more cache accesses/cycle than the single modeled port. Decide whether to share one issue counter across the memory
   classes. (Surfaced reviewing the load-miss work.)
+- [ ] **Gap: a younger load does not disambiguate against an older *atomic*'s store half via the load-side checks.**
+  `HasOlderConflictingStore`/`TryForwardFromStore` skip `!entry.IsStore`, and atomics are `IsStore=false`, so a load that
+  executes *after* an older atomic has already resolved won't see the conflict from the load side. The converse ordering
+  (atomic resolves after the load executes) *is* covered — `CheckLoadViolations` keys off `HasStoreCapture`, which atomics
+  set. Pre-existing and atomic-light in the benchmark suite, so load-side MLP deliberately left it untouched (the MLP
+  countdown does cover `Atomic`). Fix by teaching the load-side checks to treat an atomic's write half as a store.
 - [x] Streaming-Engine to allow for UVE: `StreamingEngine` in `Orrery/Streaming/`; 8 streams, affine (base/stride/count/width) with configurable prefetch depth; wired into `OooeTrain` (steps every cycle, survives flushes).
 - [x] Wire stream consumption into `OooeTrain`: `UveStreamSources`/`UveBranchStreams` on `ITooth`; pipeline injects load-stream elements into `IUveScalars` and syncs exhaustion before calling executor; Issue stalls when a required load stream has no buffered element; `StreamConfig` field on `ExecuteResult` carries `ss.ld.w` descriptor to pipeline for `StreamingEngine.Configure` call.
 

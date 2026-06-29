@@ -44,8 +44,10 @@ public class OlympiaTraceTests {
             // opcode is the required field Mavis decodes — "0x" + hex.
             string op = e.GetProperty("opcode").GetString()!;
             Assert.StartsWith("0x", op);
-            Assert.True(uint.TryParse(op.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _),
-                $"opcode '{op}' should be hex");
+            Assert.True(
+                uint.TryParse(op.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _),
+                $"opcode '{op}' should be hex"
+            );
 
             // mnemonic is optional/best-effort; lowercase when present.
             if (e.TryGetProperty("mnemonic", out JsonElement mn)) {
