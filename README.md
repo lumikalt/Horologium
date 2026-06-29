@@ -1,5 +1,7 @@
 # Horologium
 
+[▶ Face demo](face.mp4)
+
 A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The simulation engine is ISA-agnostic; concrete ISAs are plugged in as separate assemblies without modifying the engine. The primary goal is comparing hardware configurations (branch predictors, caches, pipelines) and generating measurement data for analysis.
 
 ## Projects
