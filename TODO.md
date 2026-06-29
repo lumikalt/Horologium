@@ -2,16 +2,15 @@
 
 ## Face
 
-- [ ] Rollback/Back step: single-step backward in the assembler debugger (requires snapshot-based undo or reverse simulation).
-- [x] Pipeline stage viewer in Assembler tab: colour-coded instruction rows showing live stage (IF/ID/EX/MEM/WB for 5-Stage; IF/Dis/Iss/Ex/Ret for OoO) derived from PEventLog at each step; pipeline mode selector (Single Cycle / 5-Stage / OoO) in the left sidebar; `Train.BeginStepping`/`StepCycle`/`FinishStepping` API added.
+- [ ] Rollback/Back step: single-step backward in the assembler debugger.
+- [x] Pipeline stage viewer in Assembler tab.
 - [ ] L2 and L3 caches.
 - [x] Assembler to simulate RISC-V in-place.
 - [ ] Compile from C to disassembly and simulate that.
-- [ ] Browser assembly support: implement a pure C# RV32 two-pass assembler (tokenizer → label resolution → encoder → ELF emitter) so the Assemble command works in the FaceWeb browser build without a GAS subprocess. GAS-to-WASM via Emscripten is feasible but impractical (~500k lines of C with complex file-I/O assumptions).
+- [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS subprocess.
 - [ ] Cache and virtual addressing visualization.
-- [x] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
-  instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)
-- [x] Complete Light Mode implementation — missing dark background on the chart background before execution, on the PEvents graph, on the decoding guide for the Assembly.
+- [x] Execution visualization: Argos-style pipeline waterfall.
+- [x] Light mode.
 - [ ] Work with other ISAs, not just RISC-V.
 
 ## CHIP8
@@ -20,186 +19,103 @@
 
 ## RISC-V
 
-- [x] 64-bit support — RiscV64 project with `Rv64Mechanism`/`Rv64Decoder`/`Rv64Executor`/`Rv64ArchState` extending RiscV32 via inheritance. RV64I W-suffix ops (ADDW/SUBW/SLLW/SRLW/SRAW/ADDIW/SLLIW/SRLIW/SRAIW), new loads/stores (LD/LWU/SD), 6-bit shifts, 64-bit SLT/BLT comparisons, LW sign-extension.
-  - [ ] ELF64 loader (`Rv64ElfLoader` / `Rv64ElfWorkload`) for running RV64 binaries.
+- [x] 64-bit support.
+  - [ ] ELF64 loader for running RV64 binaries.
   - [ ] Sv39 page-table walker for RV64 virtual memory.
-  - [ ] RV64 M extension (MUL[H/HU/HSU], DIV[U], REM[U] on 64-bit operands).
-  - [ ] RV64 F/D extension: 64-bit FP conversions (fcvt.l.s, fcvt.lu.s, fcvt.s.l, etc.).
+  - [ ] RV64 M extension.
+  - [ ] RV64 F/D extension.
 - [ ] 128-bit support.
 - [x] Enable or disable specific extensions.
 
 ### Extensions
 
-- [ ] Continue extending the V extension: strided/indexed loads-stores (VLSE, VSSE, VLUXEI, VSUXEI), reduction ops (
-  vredsum, vredmax, …), widening/narrowing integer ops, integer multiply/divide (vmul, vmulh, vdiv), FP vector ops (
-  vfadd, vfmul, vfmacc, …), slide and gather/scatter.
-- [x] Zba (address generation): sh1add, sh2add, sh3add. 3 instructions.
-- [x] Zbb (basic bit manipulation): andn/orn/xnor, clz/ctz/cpop, min/minu/max/maxu, rol/ror/rori, sext.b/sext.h/zext.h, orc.b/rev8. 18 instructions.
-- [x] Zbs (single-bit ops): bclr/bext/binv/bset (register) and bclri/bexti/binvi/bseti (immediate). 8 instructions.
-- [x] Zicond (integer conditional ops): czero.eqz, czero.nez. 2 instructions.
-- [x] Zbc (carry-less multiplication): clmul, clmulh, clmulr. 3 instructions.
-- [ ] D extension (RV32D): double-precision FP registers and arithmetic (fadd.d, fsub.d, fmul.d, fdiv.d, fsqrt.d, fmadd.d, …, fcvt.d.w, fcvt.d.wu, fcvt.w.d, fcvt.wu.d, fmv.x.d, fmv.d.x — 26 instructions).
-- [ ] Zfh / Zfhmin: half-precision FP (fadd.h, fmul.h, fcvt.h.s, …). Zfhmin is the minimal convert-only subset.
-- [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file (no separate F/D register file). Simplifies embedded implementations.
-- [x] Zicbom / Zicboz / Zicbop: cache management operations. Zicbom: cbo.inval/clean/flush (opcode=0x0F, funct3=2, bits[24:20]=0/1/2) — NOP in simulation. Zicboz: cbo.zero (bits[24:20]=4) — zeros 64 bytes at cache-line-aligned address. Zicbop: prefetch.i/r/w already work as NOPs via existing ORI path (opcode=0x13, funct3=6, rd=0).
-- [x] Zawrs: wrs.nto (imm=0x00D) and wrs.sto (imm=0x01D) — NOP in single-core simulation (SYSTEM space, funct3=0).
-- [x] Zimop: mop.r.N and mop.rr.N — always return 0 in rd (SYSTEM opcode, funct3=4; detected by CSR address pattern).
-- [ ] Zcmop: compressed may-be-operations (c.mop.N) — same idea for 16-bit encoding space.
-- [x] Zicntr: hardware performance counters — cycle/cycleh (0xC00/0xC80), time/timeh (0xC01/0xC81, reads 0 — no CLINT), instret/instreth (0xC02/0xC82), and their M-mode mirrors mcycle/mcycleh/minstret/minstreth. User-level shadows alias M-mode counters. Pipeline trains call IArchState.OnCycle()/OnRetire() hooks; RvArchState increments CsrFile counters with 32-bit carry into high halves.
-- [x] Zihpm: hardware performance monitor — hpmcounterN/hpmcounterNh (N=3–31, 0xC03–0xC1F / 0xC83–0xC9F,
-  read-only user shadows always returning 0), mhpmcounterN/Nh (0xB03–0xB1F / 0xB83–0xB9F, M-mode,
-  always 0 — no event hardware), and mhpmeventN (0x323–0x33F, M-mode writable selectors, functionally
-  ignored). Seeded in a loop in the CsrFile constructor; user shadows routed to M-mode mirrors via two
-  range arms in the Read switch. Covered by ZihpmTests.
-- [x] Zabha: byte/halfword atomics — all 9 AMO operations in .b (funct3=0) and .h (funct3=1) variants:
-  amoswap, amoadd, amoxor, amoand, amoor, amomin, amomax, amominu, amomaxu. rd receives the
-  sign-extended old byte/halfword value. Signed min/max sign-extends from the narrow width for
-  comparison. `DecodeZabha` routes funct3=0/1 in the AMO opcode block.
-- [x] Zacas: compare-and-swap word (amocas.w, funct5=0x05). rd is both the comparand (source) and
-  destination for the old value — included in the `sources` list so the OoO pipeline tracks the
-  dependency correctly. amocas.d (register pairs, RV32) and amocas.q deferred.
-- [ ] Zabha+Zacas narrower variants: amocas.b / amocas.h (sub-word CAS from Zabha+Zacas interplay);
-  amocas.d for RV32 (uses rd||rd+1 and rs2||rs2+1 register pairs — needs special dispatch).
-- [ ] Scalar crypto: Zknd/Zkne/Zknh (NIST AES encrypt/decrypt, SHA-2), Zksd/Zkse/Zksh (ShangMi SM4/SM3), Zkr (entropy source / GetNoise CSR). Grouped as Zkn (NIST suite) and Zks (ShangMi suite).
-- [ ] Vector bit manipulation (Zvbb): vbrev8, vrev8, vandn, vclz, vctz, vcpop, vrol, vror, …
-- [ ] Vector carry-less multiply (Zvbc): vclmul, vclmulh.
-- [ ] Vector crypto (Zvkn / Zvkg / Zvks): vectorised AES, SHA, SM3/SM4 round instructions.
-- [ ] Zvfh / Zvfhmin: vector half-precision FP (vfadd.h, vfmul.h, …). Zvfhmin is convert-only.
-- [ ] H extension (hypervisor): VS-mode, VU-mode, hfence instructions, two-stage address translation (G-stage), virtual CSRs (hstatus, hedeleg, hideleg, htval, htinst, hgatp, …). Large; ~40 new CSRs.
-- [ ] Svnapot / Svpbmt / Svadu / Svinval: Sv32/Sv39 page-table extensions (naturally-aligned power-of-two superpages, page-based memory types, hardware A/D updates, local/global sfence.inval).
-- [ ] Smaia / Ssaia: Advanced Interrupt Architecture (APLIC, IMSIC, direct MSI delivery; replaces PLIC for scalable multi-hart interrupt routing).
-- [ ] Smstateen: state-enable CSRs (mstateen0–3, hstateen0–3, sstateen0) — per-privilege gating of extension state access.
-- [ ] Smnpm / Ssnpm: pointer masking (M-mode and S/U-mode) — ignore top N bits of pointers for tagged-memory schemes.
-- [x] Supervisor and user-privileged execution (trap delegation, data-path Sv32, page faults, interrupt dispatch).
-- [x] Instruction fetch translation: wire pipeline fetch stages through Sv32Walker so InstructionPageFault is reachable.
-- [x] UVE (Unlimited Vector Extension) — 1D SAXPY subset: `ss.ld.w`, `ss.st.w`, `so.v.dp.w`, `so.a.mul.fp`, `so.a.add.fp`, `so.b.nc`. Encodings in custom-0/custom-1 opcodes. Verified end-to-end via SAXPY integration test through OoO pipeline.
-- [x] UVE multi-dimensional streams: `ss.sta.ld.w`, `ss.sta.st.w`, `ss.app`, `ss.end` (custom-0 funct3 2–5) and `so.b.ndc.D` (custom-1 funct3 5, dim in rs2 field). `StreamDescriptor` extended to N-dim `StreamDimension[]`. `StreamingEngine` tracks per-dim consume-side pass-complete flags for `so.b.ndc.D`. Verified end-to-end via 2D strided matrix load integration test. `ss.cfg.vec` (funct3 6) decoded and no-op pending vector streaming. `UveStoreStream` extended to `StreamDimension[]`/`Indices[]`; multi-dim store-stream cursors fully implemented and verified via 2D strided copy test.
-- [ ] UVE 2 (ISCA 2024): 474 instructions, 16 architectural predicate registers (p0–p15), scatter/gather (`ss.idx.ld.*`, `ss.idx.st.*`), predicated execution (`ss.pfr.*`, `so.a.*.pr`), widening/narrowing conversions, structured gather patterns. Far more complex than UVE 1; defer until UVE 1 is complete.
-- [ ] `ss.cfg.vec` effect: deliver vector-width (sub-element-grouped) elements from a load stream into the pipeline instead of scalar floats; required for vector streaming mode.
-- [ ] SUM (Supervisor User Memory): honor `sstatus.SUM` so S-mode can deliberately access user pages (PTE.U=1);
-  currently S-mode always faults on user pages.
+- [ ] Continue extending the V extension: strided/indexed loads-stores, reduction ops, widening/narrowing integer ops, integer multiply/divide, FP vector ops, slide and gather/scatter.
+- [x] Zba, Zbb, Zbs, Zicond, Zbc.
+- [ ] D extension (RV32D): double-precision FP registers and arithmetic.
+- [ ] Zfh / Zfhmin: half-precision FP.
+- [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file.
+- [x] Zicbom / Zicboz / Zicbop: cache management operations.
+- [x] Zawrs: wrs.nto and wrs.sto.
+- [x] Zimop: mop.r.N and mop.rr.N.
+- [ ] Zcmop: compressed may-be-operations.
+- [x] Zicntr: hardware performance counters.
+- [x] Zihpm: hardware performance monitor CSRs.
+- [x] Zabha: byte/halfword atomics.
+- [x] Zacas: compare-and-swap word.
+- [ ] Zabha+Zacas narrower variants: amocas.b / amocas.h; amocas.d for RV32.
+- [ ] Scalar crypto: Zknd/Zkne/Zknh, Zksd/Zkse/Zksh, Zkr.
+- [ ] Vector bit manipulation (Zvbb), carry-less multiply (Zvbc), crypto (Zvkn/Zvkg/Zvks).
+- [ ] Zvfh / Zvfhmin: vector half-precision FP.
+- [ ] H extension (hypervisor): VS-mode, VU-mode, two-stage address translation.
+- [ ] Svnapot / Svpbmt / Svadu / Svinval: Sv32/Sv39 page-table extensions.
+- [ ] Smaia / Ssaia: Advanced Interrupt Architecture.
+- [ ] Smstateen: state-enable CSRs.
+- [ ] Smnpm / Ssnpm: pointer masking.
+- [x] Supervisor and user-privileged execution (trap delegation, Sv32, page faults, interrupt dispatch).
+- [x] Instruction fetch translation through Sv32Walker.
+- [x] UVE (Unlimited Vector Extension) — 1D and multi-dimensional streams.
+- [ ] UVE 2 (ISCA 2024): predicates, scatter/gather, widening/narrowing.
+- [ ] `ss.cfg.vec` effect: vector-width element delivery from load streams.
+- [ ] SUM: honor `sstatus.SUM` so S-mode can access user pages.
 - [ ] Implement the rest of the extensions.
 
 ### Analysis
 
-- [x] Per-instruction lifecycle events (PEvents): structured FETCH/DISPATCH/ISSUE/EXECUTE/RETIRE/FLUSH records with
-  instruction ID and cycle number, enabling post-hoc filtering, phase analysis, and RTL correlation. (inspired by
-  Olympia/Sparta)
-- [ ] Region-of-interest simulation: run full timing model only between named ELF symbols or address ranges;
-  fast-forward the rest with the single-cycle train.
-- [ ] Simulation state checkpoint/restore: serialize registers, memory, and cache mid-run; resume the same saved state
-  against a different hardware configuration.
-- [ ] Elastic trace recording + replay: capture a RAW-dependency-annotated instruction trace from an OoOE run and replay
-  it against alternate memory hierarchies without re-simulating the core. (inspired by gem5 TraceCPU)
-- [x] Olympia JSON instruction-trace output: `Experiment.WriteOlympiaTrace` runs a functional `SingleCycleTrain` with `OlympiaJsonTraceWriter` (an `ICommitObserver`) and emits Olympia's JSON schema (`mnemonic` + `rs1`/`rs2`/`rd` + `csr` + `vaddr` for loads/stores). Reuses `RvDisassembler` (first token = mnemonic), `ITooth` registers, and a `TracingMemory` wrapper for the effective address. CLI: `--trace-json <path>`. Self-validated by `OlympiaTraceTests` (schema + register ranges + load/store↔vaddr + entry-count == retired dial). Prerequisite for Olympia timing co-sim.
-  - [x] Phase 2a — package Olympia in the flake: `packages.{softfloat,sparta,olympia}` (`nix/*.nix`), built from source (Sparta map_v2.2.3 + Olympia), available via `nix build .#olympia` / `nix run .#olympia` and on PATH in `nix develop`. Verified end-to-end: a Horologium `--trace-json` trace runs through it ("Run Successful!") and reports IPC/cycle/retired (test.elf → IPC 0.978, 902 cycles, 882 retired) — confirming the JSON schema actually drives Mavis/Olympia and the integer mnemonic vocabulary matches.
-  - [x] Phase 2b — cross-model comparison harness + first study (`scripts/olympia-calibrate.sh`, `docs/olympia-calibration.md`): Horologium OoO vs Olympia at matching widths (2/3/8 = small/medium/big_core), with/without L1. Finding: the IPC gap is dominated by the (unmatched) memory config, not a fidelity flaw — adding an L1 moves Horologium's IPC the expected direction (past Olympia on tiny test.elf, toward it on rich.elf); internal consistency holds. Descriptive only — Olympia is a peer, not ground truth.
-  - [x] Unblock benchmark breadth: switched the JSON trace writer to the raw-`opcode` path (`OlympiaJsonTraceWriter`), so Mavis decodes operands/width directly — all riscv-tests benchmarks (all FP) now ingest into Olympia, where the old mnemonic+integer-register form failed with `InvalidRegisterNumber`. Harness (`scripts/olympia-calibrate.sh`) + study (`docs/olympia-calibration.md`) now cover the suite.
-  - [x] **Bug fixed — HTIF MMIO was cached** (not the "miss replay" first guessed): the L1 sits above `HtifMemory`, whose auto-ACK writes `fromhost` to the backing below the cache; `tohost`/`fromhost` share a line, so `printstr`'s poll loop read a stale cached `0` and hung to maxTicks (median 16k → 1.0M cycles). Affected FiveStage too (not OoO-specific); `rich.elf` (EBREAK) was immune. Fix: `MemoryConfig.Uncacheable*` + `UncacheableMemory` router; `Experiment` sets the window to the workload's HTIF registers. Regression-tested (`CachedRun_OnHtifBenchmark_Terminates`).
-  - [x] Phase-2b matched study: with the L1 working, the cross-model error goes bidirectional — Horologium higher on compute-bound, **markedly lower on memory-bound** (memcpy 0.50 vs Olympia 0.90, median 0.53 vs 1.01). Cause: OoO charges cache-miss stalls lump-sum (no memory-level parallelism). See `docs/olympia-calibration.md`. The next modelling step is the MSHR item below.
-  - [ ] JSON-format limitations to address when needed: no PC/opcode in the schema, so RVC fetch-width effects are invisible to the timing model; FP register numbering (disassembler offsets f-regs by 32) and vector/UVE ops need dedicated handling — the current writer is integer-focused.
-- [ ] STF (Simulation Trace Format) binary output for trace interop with external RISC-V tools (spike, dromajo) and large traces. The Olympia JSON trace (above) is the simpler near-term path; STF is the standardized format that also carries PC/opcode (preserving RVC width info the JSON loses).
+- [x] Per-instruction lifecycle events (PEvents).
+- [ ] Region-of-interest simulation: fast-forward outside named ELF symbol ranges.
+- [ ] Simulation state checkpoint/restore.
+- [ ] Elastic trace recording + replay.
+- [x] Olympia JSON instruction-trace output.
+  - [x] Package Olympia in the Nix flake.
+  - [x] Cross-model comparison harness and calibration study.
+  - [x] Unblock benchmark breadth via raw-opcode trace path.
+  - [x] Fix HTIF MMIO caching bug.
+  - [x] Phase-2b matched study with working L1.
+  - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
+- [ ] STF (Simulation Trace Format) binary output.
 
 ## Performance
 
-- [x] Guard `CollectMemoryStalls` / `ConsumeAllStalls` / `UpdateCacheStat` — skip the entire call when no cache layers
-  are configured. Add `bool _anyCache` field to `PipelineCore`, set in constructor. Profiler showed ~681ms combined cost
-  called unconditionally every cycle.
-- [x] Eliminate nullable `ulong?` property overhead on hot-path structs: `FetchHint.BranchTarget`,
-  `WritebackStage.TrapRedirect`, `RobEntry.ResolvedNextPc`, `ExecuteResult.RegisterResult`. Converted to
-  `(ulong Value, bool HasValue)` pairs. Profiler showed ~833ms combined across the four setters.
+- [x] Guard cache-stat collection calls when no cache is configured.
+- [x] Eliminate nullable `ulong?` overhead on hot-path structs.
 - [ ] Memoization of instructions, results, and branches.
-- [ ] Replace the executor's ~150-arm type-pattern `switch` over `RvOp` records with O(1) dispatch (an
-  `RvOpKind` enum/int discriminator switched as a jump table, or virtual dispatch on the op). Roslyn compiles
-  type-pattern switches to a linear `isinst` chain; a Timeline profile (rsort) showed `CastHelpers.IsInstanceOfClass`
-  at ~3.4% of real main-thread work. Same shape in `RvInstruction`'s remaining type-pattern properties.
-- [ ] Structural stage-model rework for the in-order trains: the per-cycle pipeline allocates a latch record
-  (`IfIdLatch`/`IdExLatch`/`ExMemLatch`/`MemWbLatch`) per stage per cycle and dispatches operands through
-  `IRegisterFile`/`IMemory` interfaces with a save/inject/restore dance in `ExecuteStage`. Converting latches to
-  structs and cutting the per-cycle interface hops is the lever for a large (vs. incremental) speedup; the Timeline
-  profile showed no single hotspot — cost is spread across the stage `Cycle()` methods.
+- [ ] O(1) executor dispatch (jump table or virtual dispatch on op kind).
+- [ ] Structural stage-model rework for in-order trains: struct latches, fewer interface hops.
 
-### Parallelism (run-level, not intra-revolution)
+### Parallelism
 
-A single revolution is inherently sequential — the `Escapement`'s fixed phase order (Fetch→…→Collection) and the
-shared mutable `IArchState` mean one simulation cannot be threaded internally. **Do not** try to parallelize within a
-tick. The leverage is at the *run* level, where whole simulations are independent:
-
-- [x] Parallelize the config sweep in `Experiment.Run`: changed `IMechanism mechanism` → `Func<IMechanism> mechanismFactory`
-  so each parallel run creates its own independent mechanism (sidesteps the non-thread-safe `Rv32Decoder` `Dictionary`
-  caches); replaced the sequential `foreach` with `Parallel.For` over a pre-sized `RunRecord[]` indexed by position to
-  preserve input ordering. `Experiment.Trace`/`WriteOlympiaTrace` are single-run and unchanged.
-- [ ] Parallelize multi-workload sweeps the same way: `BenchmarkPerfSummary` (and any future ROI/sweep driver) loops
-  over ELFs sequentially; once the mechanism-factory change above lands, these become independent tasks too. (xUnit
-  already parallelizes across test *classes*, but not `[Theory]` cases within one, nor these in-method loops.)
-- [ ] Cross-reference: per-`NamedConfig` parallelism composes with — but is distinct from — multi-hart concurrency
-  (see Multicore: multiple harts *within one* simulation sharing a memory hierarchy, which needs MESI, not just
-  independent runs).
+- [x] Parallelize config sweep in `Experiment.Run`.
+- [ ] Parallelize multi-workload sweeps.
+- [ ] Multi-hart concurrency (distinct from run-level parallelism).
 
 ## Mechanism
 
-- [ ] Generic interfaces for external devices.
-  - [ ] Basic UART/MIMO?
-- [ ] Cache pre-fetching: next-line, stride (RPT), and stream prefetchers as pluggable `IPrefetcher` implementations on
-  `SetAssociativeCache`.
-- [ ] Non-blocking cache with MSHR (Miss Status Holding Registers) to allow hits-under-misses and reduce cache-miss
-  stall depth. (inspired by gem5) **Motivated by the Olympia calibration** (`docs/olympia-calibration.md`): the OoO
-  currently charges cache-miss stalls lump-sum with no memory-level parallelism, which makes it ~2× pessimistic vs
-  Olympia on memory-bound workloads (memcpy, median). Overlapping independent misses should close that gap.
-  - [x] Load-side MLP — **done (redo).** Each missed load carries its miss penalty in its own in-flight latency countdown
-    so independent misses overlap. The first attempt (commit cb91a56) was reverted as functionally incorrect: it registered
-    a missed load's `LoadAddress`/`LoadExecuted` only in `StepComplete` (broadcast time), opening a window where an older
-    store could resolve *and commit* while the load sat in `_inFlight`, invisible to `CheckLoadViolations`/
-    `HasOlderConflictingStore` → the load broadcast a stale value (memcpy w8+L1 read a stale `ra`, `ret`→PC 0, fetcher
-    wedged). The redo registers the load's address/`LoadExecuted` at **execute** time, keeping the in-flight load visible
-    to violation detection for its whole life (re-executes at the ROB head on a real violation). Shipped with
-    `Tests/RiscV32/OoOMemoryParallelismTests.cs` (memcpy w8+L1, **verified to fail on the broken model**) and a clean
-    full-harness re-run: memcpy 0.50→0.56, vvadd 0.64→0.68, towers 0.63→0.69 (w8). See `docs/olympia-calibration.md`.
-  - [ ] Store-side: store-commit write misses are charged lump-sum (serial). Real hardware retires them into a
-    write buffer (async, off the critical path). Model that (or a bounded store buffer) — it's the remaining bottleneck
-    on store-heavy workloads (memcpy/vvadd), capping how far load-side MLP can close the gap.
-  - [ ] Bound the cache to one access port per cycle: load *issue* is already port-limited (`LoadStoreCount=1`), but
-    store *commit* writes the D-cache up to `issue_width`× per cycle with no port budget (`StepCommit`), an unrealistic
-    multi-ported cache. (Surfaced reviewing the load-miss work; secondary — store-commit writes mostly hit.)
-- [ ] Make the ToothClass a tag instead of just using enum members?
+- [ ] Generic interfaces for external devices (basic UART/MMIO).
+- [ ] Cache pre-fetching: next-line, stride (RPT), and stream prefetchers.
+- [ ] Non-blocking cache with MSHR.
+  - [x] Load-side MLP: independent misses overlap via per-load latency countdown.
+  - [ ] Store-side: model write buffer / bounded store buffer.
+  - [ ] One D-cache access port per cycle (store-commit currently multi-ported).
+- [ ] Make `ToothClass` a tag instead of an enum?
 
 ### Out-of-Order Execution
 
-- [x] Functional-unit classes with configurable count and per-class latency (integer ALU, multiplier/divider, FP
-  pipelined, FP div/sqrt, load-store); result latency drives IQ wakeup via countdown-based in-flight buffer.
-- [x] Memory order violation detection and squash. Detect when a speculative load read stale data because an older store
-  to the same address resolved after it. Flush and reexecute from the violating load; store-to-load forwarding at
-  execute time avoids squash when the store has already resolved. (inspired by gem5 O3)
+- [x] Functional-unit classes with configurable count and per-class latency.
+- [x] Memory order violation detection and squash.
 - [ ] Separate load queue and store queue for speculative memory disambiguation.
-- [x] **Bug: fetch decode-fault can permanently wedge the fetcher.** `StepFetch`'s `catch` now catches
-  `IllegalInstructionException` specifically and enqueues a `PreTrap` entry (same path as the translation-fault case).
-  On a wrong speculative path the entry is squashed by the flush; on the architectural path it commits and `RaiseTrap`
-  redirects the PC. Covered by `IllegalInstruction_OnArchitecturalPath_TakesTraps_DoesNotWedge` and
-  `IllegalInstruction_OnWrongSpeculativePath_IsSquashed_NoSpuriousTrap`.
-- [x] **Bug: Load/Store/Atomic share one FU budget (`FuLatencyConfig.CountFor`) but `StepIssue` counted per `ToothClass`
-  enum value**, so a Load and an Atomic could issue in the same cycle despite `LoadStoreCount=1`. Fixed by adding
-  `FuLatencyConfig.BudgetSlot` (maps Store/Atomic → Load slot; ConditionalBranch → Branch slot) and using it in
-  `StepIssue`. Covered by `LoadAndAtomic_WithLoadStoreCount1_IssueInSeparateCycles`.
-- [x] **Gap: atomic write-half disambiguation and commit.** Three coupled bugs: (1) `StepCommit` checked `IsStore`
-  (false for atomics) so AMO writes were silently dropped — fixed by switching to `StoreAddressKnown`, which is only
-  set when `CapturingMemory` captured a real write. (2) `TryForwardFromStore`/`HasOlderConflictingStore` required
-  `IsStore`, so younger loads couldn't forward from or detect conflicts with an older atomic's captured write — fixed
-  by dropping the `IsStore` guard (both now key off `StoreAddressKnown`). (3) `IsLoad` was false for atomics, so
-  `CheckLoadViolations` never flagged a stale AMO read — fixed by setting `IsLoad` for `ToothClass.Atomic` in
-  `StepDispatch`. Covered by `AmoSwap_CommitsWriteToMemory_AndReturnsOldValue` and
-  `AmoSwap_LoadForwardsFromAtomicWrite_BeforeCommit`.
-- [x] Streaming-Engine to allow for UVE: `StreamingEngine` in `Orrery/Streaming/`; 8 streams, affine (base/stride/count/width) with configurable prefetch depth; wired into `OooeTrain` (steps every cycle, survives flushes).
-- [x] Wire stream consumption into `OooeTrain`: `UveStreamSources`/`UveBranchStreams` on `ITooth`; pipeline injects load-stream elements into `IUveScalars` and syncs exhaustion before calling executor; Issue stalls when a required load stream has no buffered element; `StreamConfig` field on `ExecuteResult` carries `ss.ld.w` descriptor to pipeline for `StreamingEngine.Configure` call.
+- [x] Fix: fetch decode-fault wedging the fetcher.
+- [x] Fix: Load/Store/Atomic sharing one FU budget incorrectly.
+- [x] Fix: atomic write-half disambiguation and commit.
+- [x] Streaming Engine for UVE wired into OooeTrain.
 
 ### Branch Prediction
 
-- [x] Hashed Perceptron / Path-based Perceptron
-- [x] ITTAGE (Indirect Branch Target Predictor)
-- [x] BATAGE (Bimodal-Augmented TAGE)
+- [x] Hashed Perceptron / Path-based Perceptron.
+- [x] ITTAGE.
+- [x] BATAGE.
 - [ ] LLBP: https://ieeexplore.ieee.org/abstract/document/11408567/
 - [ ] VLA-TAGE: https://ieeexplore.ieee.org/document/11417886
 - [ ] Branch pre-computation: https://hps.ece.utexas.edu/pub/TEA.pdf
-- [ ] Check other interesting algorithms, specifically non-TAGE ones.
 - [ ] CBP-2025 front runner: correlate on register values rather than history.
 - [ ] BranchNet: CNN predictor.
 - [ ] Multiperspective Perceptron.
@@ -207,24 +123,24 @@ tick. The leverage is at the *run* level, where whole simulations are independen
 
 ## Co-simulation
 
-- [x] Spike online lock-step co-simulation via streaming `--log-commits`: `ICommitObserver` in `Mechanism/`, wired into `SingleCycleTrain`; `SpikeCoSimReference` launches Spike as a live child process, reads its commit log line-by-line in real time (one `ReadLine()` per `OnCommit`), and compares PC + encoding + integer register writes immediately — divergence is reported at the exact failing instruction. `SpikeCoSimTests` verifies `test.elf` end-to-end in ~50 ms. Covers standard ISA; UVE is invisible to Spike.
-  - [x] Extend `ICommitObserver` to `FiveStageTrain` and `OooeTrain` so the co-sim check also covers the pipeline hazard and forwarding paths. `WritebackStage` fires `OnCommit` on normal retire (after the committed-PC update, before the interrupt peek); `OooeTrain` fires once per ROB-head commit (after `CommitRegisters`, covering both the normal and branch-mispredict retire paths). Verified via `FiveStage_TestElf_MatchesSpike` / `Oooe_TestElf_MatchesSpike`.
-  - [x] HTIF tohost co-sim fixture (`htif.elf`, RV32IM): terminates through the HTIF `tohost` register instead of EBREAK so standalone Spike exits cleanly. Verified via `*_HtifElf_MatchesSpike` across all three trains.
-  - [x] First-class HTIF tohost terminator: `ExecuteResult.RequestHalt` — a word store of an odd exit code to the configured `tohost` address (`new Rv32Mechanism(htifTohost)`) flags a post-commit halt, carried ISA-agnostically through `MemWbLatch` (in-order) and the ROB (OoO). The engine stops at the exit write itself. Plus a backstop: unconditional jump-to-self (`ToothClass.Branch` with resolved target == own PC) halts all three trains uniformly — previously only `SingleCycleTrain` recognised the spin idiom, so the pipelined/OoO trains spun HTIF binaries to `maxTicks` (also why the benchmark suite was slow; now finishes in seconds). Non-Spike coverage in `HtifExitTests`.
-  - [x] Auto-skip `SpikeCoSimTests` when the toolchain is absent (`Xunit.SkippableFact`; `SpikeCoSimReference.IsAvailable()` probes spike+dtc). `HOROLOGIUM_REQUIRE_COSIM=1` turns a missing toolchain into a hard failure so an enforcing CI can't pass with the contract silently skipped. The co-sim contract is documented in README (*Co-simulation contract*).
-  - [ ] CI workflow that runs the suite inside the Nix dev-shell with `HOROLOGIUM_REQUIRE_COSIM=1`, making the co-sim contract genuinely binding rather than just documented. Deferred — not worth the maintenance until the project is more serious; the enforce switch is already in place for when it is.
-  - [x] Broaden the co-sim oracle to the official `riscv-tests` conformance ELFs under `TestBinaries/isa/`: `SingleCycle_Conformance_MatchesSpike` co-sims all 71 rv32ui/rv32um/rv32ua/rv32uc/rv32uf ELFs (EBREAK-terminated, no HTIF) commit-for-commit against Spike, on top of the self-checking `RiscVTestSuiteTests`. Excludes `ma_data` (misaligned access — Spike traps and fixes up, Horologium's FlatMemory permits it directly, so control flow diverges by design) and the rv32si supervisor tests. Extending to rv32ua/rv32uf required: LR/SC reservation tracking (`_reservation` field in `Rv32Executor`), fcsr/frm/fflags aliasing fixes in `CsrFile`, RISC-V canonical NaN (0x7FC00000) on all FP results, FP exception flag detection (NX/OF/NV/DZ via double-precision comparison), FEQ.S NaN behaviour (IEEE 754: NaN==NaN is false), and FCVT.W.S/WU.S rounding-before-bounds-check to correctly handle cases like RTZ(-0.9)=0 (NX, not NV).
-  - [ ] Harness robustness: a divergence where Horologium over-runs Spike's commit log currently *hangs* on `StreamReader.ReadLine()` (Spike sits in its EBREAK debug stub with the stream open, so no line and no EOF) instead of failing cleanly. Add a read timeout / watchdog to `SpikeCoSimReference` so an over-run reports a `CoSimDivergenceException` rather than blocking the suite. (Surfaced by the `ma_data` exclusion above.)
-- [ ] gem5 timing co-simulation: compare pipeline event timing (fetch cycle, issue cycle, retire cycle) against gem5's O3CPU. Verifies IPC and stall counts, not ISA correctness. Requires gem5 Python integration and a structural mapping between PEvents and gem5's stats. Substantially more complex than Spike ISA co-sim.
+- [x] Spike online lock-step co-simulation.
+  - [x] Extend to FiveStageTrain and OooeTrain.
+  - [x] HTIF tohost co-sim fixture.
+  - [x] First-class HTIF tohost terminator and self-loop halt.
+  - [x] Auto-skip when toolchain is absent; `HOROLOGIUM_REQUIRE_COSIM=1` enforcement switch.
+  - [x] Broaden to official riscv-tests conformance ELFs (rv32ui/um/ua/uc/uf).
+  - [ ] Watchdog on `ReadLine` to fail cleanly on over-run instead of hanging.
+  - [ ] CI workflow with `HOROLOGIUM_REQUIRE_COSIM=1`.
+- [ ] gem5 timing co-simulation.
 
 ## Multicore
 
 - [ ] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.
-  - [ ] MESI cache coherence protocol between harts.
+  - [ ] MESI cache coherence.
 
 ## Orrery
 
-- [ ] Generic definition for a parser, plus whatever might be necessary for Face.
+- [ ] Generic definition for a parser.
 
 ## Other ISAs
 
