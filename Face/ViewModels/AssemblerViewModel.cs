@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Face.Models;
 using Mechanism;
+using Orrery.Cache;
 using Orrery.Observation;
 using Pipeline;
 using RiscV32;
@@ -30,6 +31,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private FlatMemory? _memory;
     private Rv32ArchState? _archState;
     private byte[]? _binaryData;
+    private byte[]? _elfBytes;
     private int _binarySize;
     private int _stepCount;
     private Dictionary<ulong, int> _pcToLine = [];
@@ -40,6 +42,10 @@ public partial class AssemblerViewModel : ObservableObject {
     private FiveStageTrain? _fiveStageTrain;
     private OooeTrain? _oooeTrain;
     private long _currentCycle;
+
+    // Cache hit-rate history — one sample per StepCycle call
+    private readonly List<(long Cycle, double HitRate)> _iCacheHitHistory = [];
+    private readonly List<(long Cycle, double HitRate)> _dCacheHitHistory = [];
 
     [ObservableProperty]
     public partial string SourceCode { get; set; } =
@@ -85,11 +91,43 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [ObservableProperty] public partial string PipelineModeLabel { get; set; } = "Single Cycle";
 
+    // ── Cache config ──────────────────────────────────────────────────────────
+    [ObservableProperty] public partial bool ICacheEnabled { get; set; }
+    [ObservableProperty] public partial int ICacheCapacityKb { get; set; } = 4;
+    [ObservableProperty] public partial int ICacheWays { get; set; } = 4;
+    [ObservableProperty] public partial int ICacheBlockBytes { get; set; } = 32;
+    [ObservableProperty] public partial int ICacheMissLatency { get; set; } = 10;
+    [ObservableProperty] public partial bool DCacheEnabled { get; set; }
+    [ObservableProperty] public partial int DCacheCapacityKb { get; set; } = 4;
+    [ObservableProperty] public partial int DCacheWays { get; set; } = 4;
+    [ObservableProperty] public partial int DCacheBlockBytes { get; set; } = 32;
+    [ObservableProperty] public partial int DCacheMissLatency { get; set; } = 10;
+
+    // ── Cache display state ───────────────────────────────────────────────────
+    [ObservableProperty] public partial int SelectedCacheTab { get; set; }
+    [ObservableProperty] public partial string CacheHits { get; set; } = "–";
+    [ObservableProperty] public partial string CacheMisses { get; set; } = "–";
+    [ObservableProperty] public partial string CacheHitRate { get; set; } = "–";
+    [ObservableProperty] public partial string CacheEvictions { get; set; } = "–";
+    [ObservableProperty] public partial ulong? CacheLastAddress { get; set; }
+    [ObservableProperty] public partial bool CacheLastIsHit { get; set; }
+    [ObservableProperty] public partial int CacheTagBits { get; set; }
+    [ObservableProperty] public partial int CacheIndexBits { get; set; }
+    [ObservableProperty] public partial int CacheOffsetBits { get; set; }
+
     public static IReadOnlyList<string> PipelineModeLabels { get; } = ["Single Cycle", "5-Stage", "OoO",];
+    public static IReadOnlyList<int> CacheCapacityKbOptions { get; } = [1, 2, 4, 8, 16, 32];
+    public static IReadOnlyList<int> CacheWaysOptions { get; } = [1, 2, 4, 8];
+    public static IReadOnlyList<int> CacheBlockBytesOptions { get; } = [8, 16, 32, 64];
 
     public ObservableCollection<AssemblyRow> Instructions { get; } = [];
     public ObservableCollection<RegEntry> IntRegisters { get; } = [];
     public ObservableCollection<RegEntry> FloatRegisters { get; } = [];
+    public ObservableCollection<CacheLineEntry> CacheRows { get; } = [];
+
+    public event Action? CacheUpdated;
+
+    public bool IsPipelineMode => CurrentMode != PipelineMode.SingleCycle;
 
     public IReadOnlyList<RegFormat> IntFormatOptions { get; } = [
         RegFormat.Hex, RegFormat.DecimalSigned, RegFormat.DecimalUnsigned, RegFormat.Binary,
@@ -183,6 +221,26 @@ public partial class AssemblerViewModel : ObservableObject {
                 ? $"PC=0x{_archState?.Pc:X}"
                 : "Cycle 0. Press Step to advance.";
         }
+        OnPropertyChanged(nameof(IsPipelineMode));
+    }
+
+    partial void OnICacheEnabledChanged(bool value) => ApplyCacheConfigChange();
+    partial void OnDCacheEnabledChanged(bool value) => ApplyCacheConfigChange();
+
+    partial void OnSelectedCacheTabChanged(int value) {
+        RefreshCacheDisplay();
+        CacheUpdated?.Invoke();
+    }
+
+    private void ApplyCacheConfigChange() {
+        _runCts?.Cancel();
+        if (_binaryData != null) {
+            SetupPipeline();
+            CanStep = Instructions.Count > 0;
+            StatusText = CurrentMode == PipelineMode.SingleCycle
+                ? $"PC=0x{_archState?.Pc:X}"
+                : "Cycle 0. Press Step to advance.";
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanBack))]
@@ -198,6 +256,13 @@ public partial class AssemblerViewModel : ObservableObject {
         StatusText = "Assembling…";
 
         try {
+            if (OperatingSystem.IsBrowser()) {
+                HasError = true;
+                AssembleError = "Assembly requires the native GAS toolchain — not available in browser.";
+                StatusText = "Not supported in browser.";
+                return;
+            }
+
             string? prefix = FindToolchainPrefix();
             if (prefix == null) {
                 HasError = true;
@@ -255,6 +320,7 @@ public partial class AssemblerViewModel : ObservableObject {
                     return;
                 }
 
+                byte[] elfBytes = await File.ReadAllBytesAsync(elfFile);
                 byte[] binary = await File.ReadAllBytesAsync(binFile);
                 if (binary.Length == 0) {
                     HasError = true;
@@ -265,6 +331,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
                 string lstContent = File.Exists(lstFile) ? await File.ReadAllTextAsync(lstFile) : "";
                 _pcToLine = ParseListing(lstContent);
+                _elfBytes = elfBytes;
                 LoadBinary(binary);
             }
             finally {
@@ -287,6 +354,10 @@ public partial class AssemblerViewModel : ObservableObject {
     private void Step() {
         if (!CanStep) return;
         StepOnce();
+        if (IsPipelineMode) {
+            RefreshCacheDisplay();
+            CacheUpdated?.Invoke();
+        }
     }
 
     [RelayCommand]
@@ -302,10 +373,14 @@ public partial class AssemblerViewModel : ObservableObject {
         for (var i = 0; i < maxSteps && CanStep && !token.IsCancellationRequested; i++) {
             StepOnce();
             if (!CanStep || token.IsCancellationRequested) break;
-            if (delay > 0)
+            if (delay > 0) {
+                if (IsPipelineMode) { RefreshCacheDisplay(); CacheUpdated?.Invoke(); }
                 try { await Task.Delay(delay, token); }
                 catch (OperationCanceledException) { break; }
+            }
         }
+
+        if (IsPipelineMode) { RefreshCacheDisplay(); CacheUpdated?.Invoke(); }
 
         if (CanStep && !token.IsCancellationRequested) {
             if (CurrentMode == PipelineMode.SingleCycle && _archState != null)
@@ -394,6 +469,19 @@ public partial class AssemblerViewModel : ObservableObject {
 
     private const long MaxPipelineCycles = 500_000;
 
+    private void SampleCacheHistory() {
+        SetAssociativeCache? ic = _fiveStageTrain?.ICache ?? _oooeTrain?.ICache;
+        SetAssociativeCache? dc = _fiveStageTrain?.DCache ?? _oooeTrain?.DCache;
+        if (ic is not null) {
+            long total = ic.Hits + ic.Misses;
+            if (total > 0) _iCacheHitHistory.Add((_currentCycle, (double)ic.Hits / total));
+        }
+        if (dc is not null) {
+            long total = dc.Hits + dc.Misses;
+            if (total > 0) _dCacheHitHistory.Add((_currentCycle, (double)dc.Hits / total));
+        }
+    }
+
     private void StepPipeline() {
         bool running;
 
@@ -407,6 +495,7 @@ public partial class AssemblerViewModel : ObservableObject {
         }
         else { return; }
 
+        SampleCacheHistory();
         UpdateStages();
         RefreshAllRegisters();
 
@@ -429,7 +518,8 @@ public partial class AssemblerViewModel : ObservableObject {
         _binaryData = binary;
         const int memSize = 1 << 20;
         _memory = new FlatMemory(memSize);
-        _memory.Load(0, binary);
+        if (_elfBytes != null) Rv32ElfLoader.Load(_memory, _elfBytes);
+        else _memory.Load(0, binary);
         _binarySize = binary.Length;
         _archState = new Rv32ArchState();
         _stepCount = 0;
@@ -475,29 +565,46 @@ public partial class AssemblerViewModel : ObservableObject {
         StatusText = $"Assembled: {Instructions.Count} instructions, {binary.Length} bytes.";
     }
 
+    private MemoryConfig BuildCacheConfig(bool enabled, int capacityKb, int ways, int blockBytes, int missLatency) =>
+        enabled
+            ? new MemoryConfig(
+                CacheCapacityBytes: capacityKb * 1024,
+                CacheWays: ways,
+                CacheBlockBytes: blockBytes,
+                CacheMissLatency: missLatency
+            )
+            : MemoryConfig.None;
+
     private void SetupPipeline() {
         _fiveStageTrain = null;
         _oooeTrain = null;
         _pEventLog.Reset();
         _currentCycle = 0;
+        _iCacheHitHistory.Clear();
+        _dCacheHitHistory.Clear();
+
+        MemoryConfig iCfg = BuildCacheConfig(ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency);
+        MemoryConfig dCfg = BuildCacheConfig(DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency);
 
         switch (CurrentMode) {
             case PipelineMode.FiveStage when _binaryData != null: {
                 var mem = new FlatMemory(1 << 20);
-                mem.Load(0, _binaryData);
+                if (_elfBytes != null) Rv32ElfLoader.Load(mem, _elfBytes);
+                else mem.Load(0, _binaryData);
                 _fiveStageTrain = new FiveStageTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
-                    pEventLog: _pEventLog
+                    iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
                 );
                 _fiveStageTrain.BeginStepping();
                 break;
             }
             case PipelineMode.OoO when _binaryData != null: {
                 var mem = new FlatMemory(1 << 20);
-                mem.Load(0, _binaryData);
+                if (_elfBytes != null) Rv32ElfLoader.Load(mem, _elfBytes);
+                else mem.Load(0, _binaryData);
                 _oooeTrain = new OooeTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
-                    pEventLog: _pEventLog
+                    iMemConfig: iCfg, dMemConfig: dCfg
                 );
                 _oooeTrain.BeginStepping();
                 break;
@@ -510,6 +617,8 @@ public partial class AssemblerViewModel : ObservableObject {
 
         UpdateStages();
         RefreshAllRegisters();
+        RefreshCacheDisplay();
+        CacheUpdated?.Invoke();
     }
 
     private void UpdateStages() {
@@ -603,6 +712,64 @@ public partial class AssemblerViewModel : ObservableObject {
         }
     }
 
+    public void RefreshCacheDisplay() {
+        SetAssociativeCache? cache = SelectedCacheTab == 0
+            ? (_fiveStageTrain?.ICache ?? _oooeTrain?.ICache)
+            : (_fiveStageTrain?.DCache ?? _oooeTrain?.DCache);
+
+        if (cache == null) {
+            CacheHits = "–"; CacheMisses = "–"; CacheHitRate = "–"; CacheEvictions = "–";
+            CacheLastAddress = null;
+            CacheTagBits = 0; CacheIndexBits = 0; CacheOffsetBits = 0;
+            CacheRows.Clear();
+            return;
+        }
+
+        long hits = cache.Hits, misses = cache.Misses, total = hits + misses;
+        CacheHits = hits.ToString("N0");
+        CacheMisses = misses.ToString("N0");
+        CacheHitRate = total > 0 ? $"{100.0 * hits / total:F1}%" : "–";
+        CacheEvictions = cache.Evictions.ToString("N0");
+
+        CacheLastAddress = cache.LastAccessAddress;
+        CacheLastIsHit   = cache.LastAccessWasHit;
+        CacheOffsetBits  = cache.OffsetBits;
+        CacheIndexBits   = cache.IndexBits;
+        CacheTagBits     = 32 - cache.IndexBits - cache.OffsetBits;
+
+        ulong? lastAddr = cache.LastAccessAddress;
+        int lastSet = -1;
+        ulong lastTag = 0;
+        if (lastAddr.HasValue) {
+            lastSet = (int)((lastAddr.Value >> cache.OffsetBits) & (uint)((1 << cache.IndexBits) - 1));
+            lastTag = lastAddr.Value >> (cache.OffsetBits + cache.IndexBits);
+        }
+
+        CacheLine[] snapshot = cache.GetSnapshot();
+        CacheRows.Clear();
+        foreach (CacheLine line in snapshot) {
+            bool isLast = lastSet >= 0 && line.Set == lastSet && line.Valid && line.Tag == lastTag;
+            CacheRows.Add(new CacheLineEntry(line, isLast));
+        }
+    }
+
+    public (double[] X, double[] Y, double[] Ma) GetCacheChartData() {
+        List<(long Cycle, double HitRate)> history =
+            SelectedCacheTab == 0 ? _iCacheHitHistory : _dCacheHitHistory;
+        if (history.Count == 0) return ([], [], []);
+        double[] x = history.Select(p => (double)p.Cycle).ToArray();
+        double[] y = history.Select(p => p.HitRate * 100.0).ToArray();
+        const int window = 20;
+        double[] ma = new double[y.Length];
+        for (int i = 0; i < y.Length; i++) {
+            int start = Math.Max(0, i - window + 1);
+            double sum = 0;
+            for (int j = start; j <= i; j++) sum += y[j];
+            ma[i] = sum / (i - start + 1);
+        }
+        return (x, y, ma);
+    }
+
     private string FormatInt(ulong val) => IntRegFormat switch {
         RegFormat.Hex             => $"0x{(uint)val:X8}",
         RegFormat.DecimalSigned   => ((int)(uint)val).ToString(),
@@ -618,6 +785,7 @@ public partial class AssemblerViewModel : ObservableObject {
         _                => $"0x{(uint)val:X8}",
     };
 
+    [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
     private static string? FindToolchainPrefix() {
         string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
         return (from dir in pathEnv.Split(':')
@@ -626,6 +794,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 select Path.Combine(dir, "riscv32-none-elf-")).FirstOrDefault();
     }
 
+    [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcess(string exe, string args) {
         using var proc = new Process();
         proc.StartInfo = new ProcessStartInfo(exe, args) {

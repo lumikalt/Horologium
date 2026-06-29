@@ -8,6 +8,9 @@ using Avalonia.Interactivity;
 using Avalonia.Styling;
 using Face.Controls;
 using Face.ViewModels;
+using ScottPlot;
+using ScottPlot.Avalonia;
+using ScottPlot.Plottables;
 
 namespace Face.Views;
 
@@ -15,6 +18,7 @@ public partial class AssemblerView : UserControl {
     private AssemblerViewModel? _vm;
     private Timer? _debounce;
     private readonly CurrentLineHighlighter _lineHighlighter = new();
+    private AvaPlot? _cacheChartView;
 
     public AssemblerView() {
         InitializeComponent();
@@ -23,21 +27,37 @@ public partial class AssemblerView : UserControl {
         DataContextChanged += OnDataContextChanged;
         Editor.TextChanged += OnEditorTextChanged;
         if (Application.Current is not null) Application.Current.ActualThemeVariantChanged += OnThemeVariantChanged;
+        Loaded += OnLoaded;
+    }
+
+    private void OnLoaded(object? sender, RoutedEventArgs e) {
+        _cacheChartView = this.FindControl<AvaPlot>("CacheChartView");
+        ApplyCacheChartStyle();
+        if (this.FindControl<TabControl>("MainTabControl") is { } tc)
+            tc.SelectionChanged += (_, _) => RefreshCacheChart();
     }
 
     private bool IsDark =>
         Application.Current?.ActualThemeVariant != ThemeVariant.Light;
 
-    private void OnThemeVariantChanged(object? sender, EventArgs e) =>
+    private void OnThemeVariantChanged(object? sender, EventArgs e) {
         Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(IsDark);
+        ApplyCacheChartStyle();
+        _cacheChartView?.Refresh();
+    }
 
     private void OnDataContextChanged(object? sender, EventArgs e) {
-        if (_vm != null) _vm.PropertyChanged -= OnVmPropertyChanged;
+        if (_vm != null) {
+            _vm.PropertyChanged -= OnVmPropertyChanged;
+            _vm.CacheUpdated -= OnCacheUpdated;
+        }
+
         _vm = DataContext as AssemblerViewModel;
         if (_vm == null) return;
         Editor.Text = _vm.SourceCode;
         Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(IsDark);
         _vm.PropertyChanged += OnVmPropertyChanged;
+        _vm.CacheUpdated += OnCacheUpdated;
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e) {
@@ -46,6 +66,49 @@ public partial class AssemblerView : UserControl {
         _lineHighlighter.Line = line;
         Editor.TextArea.TextView.InvalidateLayer(_lineHighlighter.Layer);
         if (line > 0) Editor.ScrollToLine(line);
+    }
+
+    private void OnCacheUpdated() => RefreshCacheChart();
+
+    private void RefreshCacheChart() {
+        if (_cacheChartView == null || _vm == null) return;
+        (double[] x, double[] y, double[] ma) = _vm.GetCacheChartData();
+        Plot plt = _cacheChartView.Plot;
+        plt.Clear();
+        ApplyCacheChartStyle();
+        if (x.Length > 1) {
+            Scatter total = plt.Add.ScatterLine(x, y);
+            total.Color = Color.FromHex("#5B9BD5");
+            total.LineWidth = 1;
+            Scatter moving = plt.Add.ScatterLine(x, ma);
+            moving.Color = Color.FromHex("#F0A050");
+            moving.LineWidth = 1.5f;
+            plt.Axes.SetLimitsX(0, x[^1] * 1.05 + 1);
+        }
+        else { plt.Axes.SetLimitsX(0, 10); }
+
+        plt.Axes.SetLimitsY(0, 100);
+        plt.Axes.Bottom.Label.Text = "Cycle";
+        plt.Axes.Left.Label.Text = "Hit Rate (%)";
+        _cacheChartView.Refresh();
+    }
+
+    private void ApplyCacheChartStyle() {
+        if (_cacheChartView == null) return;
+        Plot plt = _cacheChartView.Plot;
+        bool dark = IsDark;
+        if (dark) {
+            plt.FigureBackground.Color = Color.FromHex("#1C1C28");
+            plt.DataBackground.Color = Color.FromHex("#1C1C28");
+            plt.Grid.MajorLineColor = Color.FromHex("#3A3A52");
+            plt.Axes.Color(Colors.White);
+        }
+        else {
+            plt.FigureBackground.Color = Color.FromHex("#F5F5F5");
+            plt.DataBackground.Color = Color.FromHex("#FFFFFF");
+            plt.Grid.MajorLineColor = Color.FromHex("#CCCCDD");
+            plt.Axes.Color(Colors.Black);
+        }
     }
 
     private void OnEditorTextChanged(object? sender, EventArgs e) {

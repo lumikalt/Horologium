@@ -7,6 +7,7 @@
 - [ ] L2 and L3 caches.
 - [x] Assembler to simulate RISC-V in-place.
 - [ ] Compile from C to disassembly and simulate that.
+- [ ] Browser assembly support: implement a pure C# RV32 two-pass assembler (tokenizer → label resolution → encoder → ELF emitter) so the Assemble command works in the FaceWeb browser build without a GAS subprocess. GAS-to-WASM via Emscripten is feasible but impractical (~500k lines of C with complex file-I/O assumptions).
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline transaction viewer (scrollable waterfall; rows = in-flight
   instructions, columns = cycles, cells = pipeline stage). (inspired by Olympia/Sparta)

@@ -5,200 +5,349 @@
              xmlns:rv="using:RiscV32.Decode"
              xmlns:avEdit="using:AvaloniaEdit"
              xmlns:controls="using:Face.Controls"
+             xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
              x:Class="Face.Views.AssemblerView"
              x:DataType="vm:AssemblerViewModel">
 
-    <Grid ColumnDefinitions="300,*,220">
+    <TabControl x:Name="MainTabControl">
 
-        <!-- ── Left: Assembly editor ─────────────────────────────────────────── -->
-        <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto"
-              Margin="0,0,1,0">
+        <!-- ── CPU tab — editor, instruction listing, register file ─────────── -->
+        <TabItem Header="CPU">
+            <Grid ColumnDefinitions="*,320,220">
 
-            <!-- Editor -->
-            <avEdit:TextEditor Grid.Row="1"
-                               x:Name="Editor"
-                               FontFamily="{StaticResource MonoFont}"
-                               FontSize="13"
-                               ShowLineNumbers="True"
-                               WordWrap="False"
-                               HorizontalScrollBarVisibility="Auto"
-                               VerticalScrollBarVisibility="Auto"
-                               Margin="8,0" />
+                <!-- ── Left: Assembly editor ─────────────────────────────────── -->
+                <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto"
+                      Margin="0,0,1,0">
 
-            <!-- Error panel -->
-            <Border Grid.Row="2"
-                    IsVisible="{Binding HasError}"
-                    Background="#4D1A1A"
-                    CornerRadius="4"
-                    Margin="8,4">
-                <TextBlock Text="{Binding AssembleError}"
-                           TextWrapping="Wrap"
-                           FontFamily="{StaticResource MonoFont}"
-                           FontSize="11"
-                           Foreground="#FFAAAA"
-                           Padding="8,6" />
-            </Border>
+                    <!-- Editor -->
+                    <avEdit:TextEditor Grid.Row="1"
+                                       x:Name="Editor"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="13"
+                                       ShowLineNumbers="True"
+                                       WordWrap="False"
+                                       HorizontalScrollBarVisibility="Auto"
+                                       VerticalScrollBarVisibility="Auto"
+                                       Margin="8,0" />
 
-            <!-- Status bar -->
-            <TextBlock Grid.Row="3"
-                       Text="{Binding StatusText}"
-                       Margin="8,4,8,8"
-                       FontSize="11"
-                       Opacity="0.65"
-                       TextWrapping="Wrap" />
-        </Grid>
+                    <!-- Error panel -->
+                    <Border Grid.Row="2"
+                            IsVisible="{Binding HasError}"
+                            Background="#4D1A1A"
+                            CornerRadius="4"
+                            Margin="8,4">
+                        <TextBlock Text="{Binding AssembleError}"
+                                   TextWrapping="Wrap"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="11"
+                                   Foreground="#FFAAAA"
+                                   Padding="8,6" />
+                    </Border>
 
-        <!-- ── Middle: Instruction listing + decode panel ────────────────────── -->
-        <Grid Grid.Column="1" RowDefinitions="*,Auto"
-              Margin="1,0,1,0">
+                    <!-- Status bar -->
+                    <TextBlock Grid.Row="3"
+                               Text="{Binding StatusText}"
+                               Margin="8,4,8,8"
+                               FontSize="11"
+                               Opacity="0.65"
+                               TextWrapping="Wrap" />
+                </Grid>
 
-            <DataGrid Grid.Row="0"
-                      x:Name="InstructionGrid"
-                      ItemsSource="{Binding Instructions}"
-                      SelectedItem="{Binding SelectedInstruction}"
-                      IsReadOnly="True"
-                      CanUserSortColumns="False"
-                      CanUserResizeColumns="True"
-                      GridLinesVisibility="Horizontal"
-                      HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollBarVisibility="Auto"
-                      FontFamily="{StaticResource MonoFont}"
-                      FontSize="12">
-                <DataGrid.Styles>
-                    <Style Selector="DataGridRow" x:DataType="models:AssemblyRow">
-                        <Setter Property="Background"
-                                Value="{Binding Stage,
-                                               Converter={x:Static controls:StageBrushConverter.Instance}}" />
-                    </Style>
-                </DataGrid.Styles>
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Stage"
-                                        Binding="{Binding Stage}"
-                                        Width="48"
-                                        IsReadOnly="True" />
-                    <DataGridTextColumn Header="PC"
-                                        Binding="{Binding OffsetHex}"
-                                        Width="60"
-                                        IsReadOnly="True" />
-                    <DataGridTextColumn Header="Hex"
-                                        Binding="{Binding HexEncoding}"
-                                        Width="105"
-                                        IsReadOnly="True" />
-                    <DataGridTextColumn Header="Assembly"
-                                        Binding="{Binding Mnemonic}"
-                                        Width="*"
-                                        IsReadOnly="True" />
-                </DataGrid.Columns>
-            </DataGrid>
+                <!-- ── Middle: Instruction listing + decode panel ─────────────── -->
+                <Grid Grid.Column="1" RowDefinitions="*,Auto"
+                      Margin="1,0,1,0">
 
-            <!-- Decode breakdown panel — appears when a row is selected -->
-            <Border Grid.Row="1"
-                    IsVisible="{Binding IsDecodeVisible}"
-                    Background="{DynamicResource DecodePanelBg}"
-                    BorderBrush="#3A3A52"
-                    BorderThickness="0,1,0,0"
-                    Padding="10,8">
-                <StackPanel>
-                    <TextBlock Text="{Binding DecodeTitle}"
-                               FontFamily="{StaticResource MonoFont}"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               Margin="0,0,0,6" />
-                    <ItemsControl ItemsSource="{Binding DecodeFields}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <WrapPanel />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="rv:InstrField">
-                                <Border Background="{DynamicResource DecodeFieldBg}"
-                                        CornerRadius="4"
-                                        Margin="3,2"
-                                        Padding="7,4">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding Name}"
-                                                   FontSize="10"
-                                                   Opacity="0.55" />
-                                        <TextBlock Text="{Binding BitsText}"
-                                                   FontFamily="{StaticResource MonoFont}"
-                                                   FontSize="11"
-                                                   Foreground="{DynamicResource DecodeFieldBitsFg}" />
-                                        <TextBlock Text="{Binding Decoded}"
-                                                   FontSize="10"
-                                                   Foreground="{DynamicResource AccentFg}"
-                                                   IsVisible="{Binding HasDecoded}" />
-                                    </StackPanel>
-                                </Border>
+                    <DataGrid Grid.Row="0"
+                              x:Name="InstructionGrid"
+                              ItemsSource="{Binding Instructions}"
+                              SelectedItem="{Binding SelectedInstruction}"
+                              IsReadOnly="True"
+                              CanUserSortColumns="False"
+                              CanUserResizeColumns="True"
+                              GridLinesVisibility="Horizontal"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto"
+                              FontFamily="{StaticResource MonoFont}"
+                              FontSize="12">
+                        <DataGrid.Styles>
+                            <Style Selector="DataGridRow" x:DataType="models:AssemblyRow">
+                                <Setter Property="Background"
+                                        Value="{Binding Stage,
+                                                       Converter={x:Static controls:StageBrushConverter.Instance}}" />
+                            </Style>
+                        </DataGrid.Styles>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Stage"
+                                                Binding="{Binding Stage}"
+                                                Width="48"
+                                                IsReadOnly="True" />
+                            <DataGridTextColumn Header="PC"
+                                                Binding="{Binding OffsetHex}"
+                                                Width="60"
+                                                IsReadOnly="True" />
+                            <DataGridTextColumn Header="Hex"
+                                                Binding="{Binding HexEncoding}"
+                                                Width="105"
+                                                IsReadOnly="True" />
+                            <DataGridTextColumn Header="Assembly"
+                                                Binding="{Binding Mnemonic}"
+                                                Width="*"
+                                                IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- Decode breakdown panel -->
+                    <Border Grid.Row="1"
+                            IsVisible="{Binding IsDecodeVisible}"
+                            Background="{DynamicResource DecodePanelBg}"
+                            BorderBrush="#3A3A52"
+                            BorderThickness="0,1,0,0"
+                            Padding="10,8">
+                        <StackPanel>
+                            <TextBlock Text="{Binding DecodeTitle}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,6" />
+                            <ItemsControl ItemsSource="{Binding DecodeFields}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="rv:InstrField">
+                                        <Border Background="{DynamicResource DecodeFieldBg}"
+                                                CornerRadius="4"
+                                                Margin="3,2"
+                                                Padding="7,4">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontSize="10"
+                                                           Opacity="0.55" />
+                                                <TextBlock Text="{Binding BitsText}"
+                                                           FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="11"
+                                                           Foreground="{DynamicResource DecodeFieldBitsFg}" />
+                                                <TextBlock Text="{Binding Decoded}"
+                                                           FontSize="10"
+                                                           Foreground="{DynamicResource AccentFg}"
+                                                           IsVisible="{Binding HasDecoded}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- ── Right: Register file ───────────────────────────────────── -->
+                <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto,Auto,*"
+                      Margin="1,0,0,0">
+
+                    <TextBlock Grid.Row="0"
+                               Text="INTEGER"
+                               FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                               Margin="8,8,8,4" />
+                    <ComboBox Grid.Row="1"
+                              ItemsSource="{Binding IntFormatOptions}"
+                              SelectedItem="{Binding IntRegFormat}"
+                              HorizontalAlignment="Stretch"
+                              Margin="8,0,8,4" />
+                    <ListBox Grid.Row="2"
+                             ItemsSource="{Binding IntRegisters}"
+                             Padding="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:RegEntry">
+                                <Grid ColumnDefinitions="52,*" Margin="4,1">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Name}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource AccentFg}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Display}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11" />
+                                </Grid>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </Border>
-        </Grid>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
-        <!-- ── Right: Register file ──────────────────────────────────────────── -->
-        <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto,Auto,*"
-              Margin="1,0,0,0">
+                    <TextBlock Grid.Row="3"
+                               Text="FLOAT"
+                               FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                               Margin="8,8,8,4" />
+                    <ComboBox Grid.Row="4"
+                              ItemsSource="{Binding FloatFormatOptions}"
+                              SelectedItem="{Binding FloatRegFormat}"
+                              HorizontalAlignment="Stretch"
+                              Margin="8,0,8,4" />
+                    <ListBox Grid.Row="5"
+                             ItemsSource="{Binding FloatRegisters}"
+                             Padding="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:RegEntry">
+                                <Grid ColumnDefinitions="52,*" Margin="4,1">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Name}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource AccentFg}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Display}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
 
-            <TextBlock Grid.Row="0"
-                       Text="INTEGER"
-                       FontSize="11" FontWeight="SemiBold" Opacity="0.55"
-                       Margin="8,8,8,4" />
-            <ComboBox Grid.Row="1"
-                      ItemsSource="{Binding IntFormatOptions}"
-                      SelectedItem="{Binding IntRegFormat}"
-                      HorizontalAlignment="Stretch"
-                      Margin="8,0,8,4" />
-            <ListBox Grid.Row="2"
-                     ItemsSource="{Binding IntRegisters}"
-                     Padding="0">
-                <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="models:RegEntry">
-                        <Grid ColumnDefinitions="52,*" Margin="4,1">
-                            <TextBlock Grid.Column="0"
-                                       Text="{Binding Name}"
+            </Grid>
+        </TabItem>
+
+        <!-- ── Cache tab — hit-rate chart + cache contents grid ─────────────── -->
+        <TabItem Header="Cache">
+            <Grid RowDefinitions="Auto,Auto,Auto,*">
+
+                <!-- Row 0: Cache selector + hint -->
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,200,*" Margin="10,8,10,6">
+                    <TextBlock Grid.Column="0" Text="Viewing:"
+                               VerticalAlignment="Center" Margin="0,0,8,0"
+                               FontSize="12" FontWeight="SemiBold" Opacity="0.7" />
+                    <ComboBox Grid.Column="1"
+                              SelectedIndex="{Binding SelectedCacheTab}">
+                        <ComboBoxItem Content="I-Cache (Instruction)" />
+                        <ComboBoxItem Content="D-Cache (Data)" />
+                    </ComboBox>
+                    <TextBlock Grid.Column="2"
+                               Text="Switch to 5-Stage or OoO pipeline mode, then enable I-Cache / D-Cache in the sidebar. Caches reset on mode or config change."
+                               VerticalAlignment="Center"
+                               Margin="12,0,0,0"
+                               FontSize="11"
+                               Opacity="0.45"
+                               TextWrapping="Wrap" />
+                </Grid>
+
+                <!-- Row 1: Stats bar -->
+                <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*" Margin="10,0,10,8" ColumnSpacing="6">
+                    <Border Grid.Column="0" Background="{DynamicResource DecodePanelBg}"
+                            CornerRadius="4" Padding="10,6">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="HITS" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
+                            <TextBlock Text="{Binding CacheHits}"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="11"
+                                       FontSize="14" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="1" Background="{DynamicResource DecodePanelBg}"
+                            CornerRadius="4" Padding="10,6">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="MISSES" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
+                            <TextBlock Text="{Binding CacheMisses}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="14" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Background="{DynamicResource DecodePanelBg}"
+                            CornerRadius="4" Padding="10,6">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="HIT RATE" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
+                            <TextBlock Text="{Binding CacheHitRate}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="14" FontWeight="SemiBold"
                                        Foreground="{DynamicResource AccentFg}" />
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding Display}"
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="3" Background="{DynamicResource DecodePanelBg}"
+                            CornerRadius="4" Padding="10,6">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="EVICTIONS" FontSize="10" FontWeight="SemiBold" Opacity="0.55" />
+                            <TextBlock Text="{Binding CacheEvictions}"
                                        FontFamily="{StaticResource MonoFont}"
-                                       FontSize="11" />
-                        </Grid>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+                                       FontSize="14" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
 
-            <TextBlock Grid.Row="3"
-                       Text="FLOAT"
-                       FontSize="11" FontWeight="SemiBold" Opacity="0.55"
-                       Margin="8,8,8,4" />
-            <ComboBox Grid.Row="4"
-                      ItemsSource="{Binding FloatFormatOptions}"
-                      SelectedItem="{Binding FloatRegFormat}"
-                      HorizontalAlignment="Stretch"
-                      Margin="8,0,8,4" />
-            <ListBox Grid.Row="5"
-                     ItemsSource="{Binding FloatRegisters}"
-                     Padding="0">
-                <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="models:RegEntry">
-                        <Grid ColumnDefinitions="52,*" Margin="4,1">
-                            <TextBlock Grid.Column="0"
-                                       Text="{Binding Name}"
-                                       FontFamily="{StaticResource MonoFont}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource AccentFg}" />
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding Display}"
-                                       FontFamily="{StaticResource MonoFont}"
-                                       FontSize="11" />
-                        </Grid>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-        </Grid>
+                <!-- Row 2: Address decoder strip -->
+                <controls:CacheAddressDecoder
+                    Grid.Row="2"
+                    Address="{Binding CacheLastAddress}"
+                    IsHit="{Binding CacheLastIsHit}"
+                    TagBits="{Binding CacheTagBits}"
+                    IndexBits="{Binding CacheIndexBits}"
+                    OffsetBits="{Binding CacheOffsetBits}"
+                    Height="96"
+                    Margin="10,0,10,8" />
 
-    </Grid>
+                <!-- Row 3: Hit-rate chart (left) + cache contents (right) -->
+                <Grid Grid.Row="3" ColumnDefinitions="300,*" Margin="10,0,10,8">
+
+                    <!-- Hit-rate chart -->
+                    <sp:AvaPlot Grid.Column="0"
+                                x:Name="CacheChartView"
+                                Margin="0,0,6,0" />
+
+                    <!-- Cache contents DataGrid -->
+                    <DataGrid Grid.Column="1"
+                              ItemsSource="{Binding CacheRows}"
+                              IsReadOnly="True"
+                              CanUserSortColumns="False"
+                              CanUserResizeColumns="True"
+                              GridLinesVisibility="Horizontal"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto"
+                              FontFamily="{StaticResource MonoFont}"
+                              FontSize="11">
+                        <DataGrid.Styles>
+                            <Style Selector="DataGridRow" x:DataType="models:CacheLineEntry">
+                                <Setter Property="Background"
+                                        Value="{Binding IsLastAccessed,
+                                                       Converter={x:Static controls:BoolToBrushConverter.CacheLastAccess}}" />
+                            </Style>
+                        </DataGrid.Styles>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Set"
+                                                Binding="{Binding Set}"
+                                                Width="Auto"
+                                                MinWidth="52"
+                                                IsReadOnly="True" />
+                            <DataGridTextColumn Header="Way"
+                                                Binding="{Binding Way}"
+                                                Width="Auto"
+                                                MinWidth="52"
+                                                IsReadOnly="True" />
+                            <DataGridTextColumn Header="V"
+                                                Binding="{Binding Valid}"
+                                                Width="Auto"
+                                                MinWidth="40"
+                                                IsReadOnly="True" />
+                            <DataGridTextColumn Header="LRU"
+                                                Binding="{Binding Lru}"
+                                                Width="Auto"
+                                                MinWidth="50"
+                                                IsReadOnly="True" />
+                            <DataGridTextColumn Header="Tag"
+                                                Binding="{Binding Tag}"
+                                                Width="Auto"
+                                                MinWidth="90"
+                                                IsReadOnly="True" />
+                            <DataGridTextColumn Header="Block (32-bit words)"
+                                                Binding="{Binding Bytes}"
+                                                Width="*"
+                                                MinWidth="160"
+                                                IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                </Grid>
+
+            </Grid>
+        </TabItem>
+
+    </TabControl>
+
 </UserControl>

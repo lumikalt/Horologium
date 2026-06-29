@@ -3,6 +3,8 @@ using Mechanism;
 
 namespace Orrery.Cache;
 
+public sealed record CacheLine(int Set, int Way, bool Valid, ulong Tag, int LruAge, byte[] Block);
+
 /// <summary>
 /// N-way set-associative cache implementing IMemory.
 /// Policy: write-through, no-write-allocate, LRU replacement.
@@ -28,6 +30,8 @@ public sealed class SetAssociativeCache : IMemory {
     public long Hits { get; private set; }
     public long Misses { get; private set; }
     public long Evictions { get; private set; }
+    public ulong? LastAccessAddress { get; private set; }
+    public bool LastAccessWasHit { get; private set; }
 
     /// <param name="backing">Backing memory.</param>
     /// <param name="capacityBytes">Total cache size in bytes. Must be a power of 2.</param>
@@ -143,12 +147,15 @@ public sealed class SetAssociativeCache : IMemory {
 
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
+        LastAccessAddress = address;
         if (way >= 0) {
+            LastAccessWasHit = true;
             Hits++;
             TouchLru(set, way);
             return ReadBytes(_blocks[set][way], offset, bytes);
         }
 
+        LastAccessWasHit = false;
         Misses++;
         _pendingStalls += MissLatency;
         int evict = LruWay(set);
@@ -176,12 +183,15 @@ public sealed class SetAssociativeCache : IMemory {
 
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
+        LastAccessAddress = address;
         if (way >= 0) {
+            LastAccessWasHit = true;
             Hits++;
             TouchLru(set, way);
             WriteBytes(_blocks[set][way], offset, value, bytes);
         }
         else {
+            LastAccessWasHit = false;
             Misses++;
             _pendingStalls += MissLatency;
             // No-write-allocate: don't install the line.
@@ -198,5 +208,29 @@ public sealed class SetAssociativeCache : IMemory {
                 if (_tags[set][w] == tag)
                     _tags[set][w] = null;
         }
+    }
+
+    // ── Inspection ───────────────────────────────────────────────────────────
+
+    public int Sets => _tags.Length;
+    public int Ways => _ways;
+    public int BlockBytes => _blockSize;
+    public int OffsetBits => _offsetBits;
+    public int IndexBits => _indexBits;
+
+    public CacheLine[] GetSnapshot() {
+        int sets = _tags.Length;
+        var lines = new CacheLine[sets * _ways];
+        var idx = 0;
+        for (var s = 0; s < sets; s++)
+        for (var w = 0; w < _ways; w++) {
+            bool valid = _tags[s][w].HasValue;
+            ulong tag = _tags[s][w] ?? 0;
+            var blockCopy = new byte[_blockSize];
+            Buffer.BlockCopy(_blocks[s][w], 0, blockCopy, 0, _blockSize);
+            lines[idx++] = new CacheLine(s, w, valid, tag, _lruAge[s][w], blockCopy);
+        }
+
+        return lines;
     }
 }

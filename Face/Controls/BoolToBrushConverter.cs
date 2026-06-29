@@ -10,6 +10,11 @@ public sealed class BoolToBrushConverter : IValueConverter {
         FalseColor = Colors.Transparent,
     };
 
+    public static readonly BoolToBrushConverter CacheLastAccess = new() {
+        TrueColor = Color.FromArgb(50, 0, 180, 255),
+        FalseColor = Colors.Transparent,
+    };
+
     public Color TrueColor { get; init; }
     public Color FalseColor { get; init; }
 

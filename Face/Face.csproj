@@ -1,13 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <OutputType>WinExe</OutputType>
-        <TargetFramework>net11.0</TargetFramework>
+        <TargetFrameworks>net11.0;net11.0-browser</TargetFrameworks>
+        <OutputType Condition="!$(TargetFramework.Contains('browser'))">WinExe</OutputType>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <RootNamespace>Face</RootNamespace>
         <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
+
+    <!-- Exclude desktop-only entry point from browser builds -->
+    <ItemGroup Condition="$(TargetFramework.Contains('browser'))">
+        <Compile Remove="Program.cs" />
+    </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\Orrery\Orrery.csproj"/>
@@ -27,7 +33,7 @@
         <PackageReference Include="Avalonia" Version="12.0.4"/>
         <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.0"/>
         <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.0"/>
-        <PackageReference Include="Avalonia.Desktop" Version="12.0.4"/>
+        <PackageReference Condition="!$(TargetFramework.Contains('browser'))" Include="Avalonia.Desktop" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4"/>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2"/>
