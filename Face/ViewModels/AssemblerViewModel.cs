@@ -5,6 +5,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Face.Models;
 using Mechanism;
+using Orrery.Observation;
+using Pipeline;
+using RiscV32;
 using RiscV32.Config;
 using RiscV32.Decode;
 using RiscV32.Execute;
@@ -26,16 +29,23 @@ public partial class AssemblerViewModel : ObservableObject {
     private readonly Rv32Executor _executor = new();
     private FlatMemory? _memory;
     private Rv32ArchState? _archState;
+    private byte[]? _binaryData;
     private int _binarySize;
     private int _stepCount;
     private Dictionary<ulong, int> _pcToLine = [];
     private CancellationTokenSource? _runCts;
 
+    // Pipeline stepping
+    private readonly PEventLog _pEventLog = new();
+    private FiveStageTrain? _fiveStageTrain;
+    private OooeTrain? _oooeTrain;
+    private long _currentCycle;
+
     [ObservableProperty]
     public partial string SourceCode { get; set; } =
         """
         j _start
-            
+
         factorial:
             li   t0, 1
         loop:
@@ -46,7 +56,7 @@ public partial class AssemblerViewModel : ObservableObject {
         done:
             mv   a0, t0
             ret
-            
+
         _start:
             li   a0, 5
             call factorial
@@ -71,6 +81,11 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial RegFormat FloatRegFormat { get; set; } = RegFormat.Hex;
 
     [ObservableProperty] public partial decimal MsPerCycle { get; set; } = 100;
+
+    [ObservableProperty] public partial string PipelineModeLabel { get; set; } = "Single Cycle";
+
+    public static IReadOnlyList<string> PipelineModeLabels { get; } = ["Single Cycle", "5-Stage", "OoO"];
+
     public ObservableCollection<AssemblyRow> Instructions { get; } = [];
     public ObservableCollection<RegEntry> IntRegisters { get; } = [];
     public ObservableCollection<RegEntry> FloatRegisters { get; } = [];
@@ -105,9 +120,30 @@ public partial class AssemblerViewModel : ObservableObject {
         }
     }
 
+    private RvExtension ActiveExtensions {
+        get {
+            var flags = RvExtension.None;
+            foreach (ExtensionToggle t in AvailableExtensions)
+                if (t.IsEnabled) flags |= t.Flag;
+            return flags;
+        }
+    }
+
     private string GasAbi => AvailableExtensions.Any(t => t.Flag == RvExtension.F && t.IsEnabled)
         ? "ilp32f"
         : "ilp32";
+
+    private PipelineMode CurrentMode => PipelineModeLabel switch {
+        "5-Stage" => PipelineMode.FiveStage,
+        "OoO"     => PipelineMode.OoO,
+        _         => PipelineMode.SingleCycle,
+    };
+
+    private IArchState? ActiveArchState => CurrentMode switch {
+        PipelineMode.FiveStage => _fiveStageTrain?.ArchState,
+        PipelineMode.OoO       => _oooeTrain?.ArchState,
+        _                      => _archState,
+    };
 
     public bool IsDecodeVisible => SelectedInstruction != null;
     public string DecodeTitle => SelectedInstruction is { } r ? $"{r.Offset:X}: {r.HexEncoding}  {r.Mnemonic}" : "";
@@ -135,6 +171,17 @@ public partial class AssemblerViewModel : ObservableObject {
 
     partial void OnIntRegFormatChanged(RegFormat value) => RefreshIntRegisters();
     partial void OnFloatRegFormatChanged(RegFormat value) => RefreshFloatRegisters();
+
+    partial void OnPipelineModeLabelChanged(string value) {
+        _runCts?.Cancel();
+        if (_binaryData != null) {
+            SetupPipeline();
+            CanStep = Instructions.Count > 0;
+            StatusText = CurrentMode == PipelineMode.SingleCycle
+                ? $"PC=0x{_archState?.Pc:X}"
+                : "Cycle 0. Press Step to advance.";
+        }
+    }
 
     [RelayCommand(CanExecute = nameof(CanBack))]
     private void Back() { }
@@ -180,7 +227,6 @@ public partial class AssemblerViewModel : ObservableObject {
                     return;
                 }
 
-                // Link to resolve PC-relative relocations (call, la, tail, etc.)
                 (int ldExit, _, string ldErr) = await RunProcess(
                     prefix + "ld",
                     $"-Ttext=0x0 --no-relax -o \"{elfFile}\" \"{objFile}\""
@@ -259,22 +305,39 @@ public partial class AssemblerViewModel : ObservableObject {
                 catch (OperationCanceledException) { break; }
         }
 
-        if (CanStep && _archState != null && !token.IsCancellationRequested)
-            StatusText = $"Ran {maxSteps} steps (hit limit). PC=0x{_archState.Pc:X}";
+        if (CanStep && !token.IsCancellationRequested) {
+            if (CurrentMode == PipelineMode.SingleCycle && _archState != null)
+                StatusText = $"Ran {maxSteps} steps (hit limit). PC=0x{_archState.Pc:X}";
+            else
+                StatusText = $"Ran {maxSteps} cycles (hit limit). Cycle {_currentCycle}";
+        }
     }
 
     [RelayCommand]
     private void Reset() {
         _runCts?.Cancel();
-        _archState?.Reset();
-        _stepCount = 0;
-        UpdateCurrentRow();
-        RefreshAllRegisters();
+        if (CurrentMode == PipelineMode.SingleCycle) {
+            _archState?.Reset();
+            _stepCount = 0;
+        }
+        if (_binaryData != null) SetupPipeline();
         CanStep = Instructions.Count > 0;
-        StatusText = "Reset. PC=0x0";
+        StatusText = CurrentMode == PipelineMode.SingleCycle ? "Reset. PC=0x0" : "Reset. Cycle 0.";
     }
 
     private void StepOnce() {
+        switch (CurrentMode) {
+            case PipelineMode.SingleCycle:
+                StepSingleCycle();
+                break;
+            case PipelineMode.FiveStage when _fiveStageTrain != null:
+            case PipelineMode.OoO when _oooeTrain != null:
+                StepPipeline();
+                break;
+        }
+    }
+
+    private void StepSingleCycle() {
         if (_archState == null || _memory == null) return;
         ulong pc = _archState.Pc;
 
@@ -298,7 +361,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 CanStep = false;
                 _stepCount++;
                 RefreshAllRegisters();
-                UpdateCurrentRow();
+                UpdateStages();
                 StatusText = $"Halted at step {_stepCount}.";
                 return;
             }
@@ -307,7 +370,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 CanStep = false;
                 _stepCount++;
                 RefreshAllRegisters();
-                UpdateCurrentRow();
+                UpdateStages();
                 StatusText = $"Trap at 0x{pc:X}: {result.Trap.Cause}";
                 return;
             }
@@ -319,7 +382,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
             _stepCount++;
             RefreshAllRegisters();
-            UpdateCurrentRow();
+            UpdateStages();
             StatusText = $"Step {_stepCount}: PC=0x{_archState.Pc:X}";
         }
         catch (Exception ex) {
@@ -328,7 +391,30 @@ public partial class AssemblerViewModel : ObservableObject {
         }
     }
 
+    private void StepPipeline() {
+        bool running;
+
+        if (_fiveStageTrain != null) {
+            running = _fiveStageTrain.StepCycle();
+            _currentCycle = _fiveStageTrain.CurrentTick;
+        } else if (_oooeTrain != null) {
+            running = _oooeTrain.StepCycle();
+            _currentCycle = _oooeTrain.CurrentTick;
+        } else { return; }
+
+        UpdateStages();
+        RefreshAllRegisters();
+
+        if (!running) {
+            CanStep = false;
+            StatusText = $"Halted at cycle {_currentCycle}.";
+        } else {
+            StatusText = $"Cycle {_currentCycle}";
+        }
+    }
+
     private void LoadBinary(byte[] binary) {
+        _binaryData = binary;
         const int memSize = 1 << 20;
         _memory = new FlatMemory(memSize);
         _memory.Load(0, binary);
@@ -372,17 +458,105 @@ public partial class AssemblerViewModel : ObservableObject {
             pc += (ulong)tooth.SizeBytes;
         }
 
-        UpdateCurrentRow();
-        RefreshAllRegisters();
+        SetupPipeline();
         CanStep = Instructions.Count > 0;
         StatusText = $"Assembled: {Instructions.Count} instructions, {binary.Length} bytes.";
     }
 
-    private void UpdateCurrentRow() {
-        ulong pc = _archState?.Pc ?? 0;
-        foreach (AssemblyRow row in Instructions) row.IsCurrent = row.Offset == pc;
-        CurrentSourceLine = _pcToLine.TryGetValue(pc, out int line) ? line : 0;
+    private void SetupPipeline() {
+        _fiveStageTrain = null;
+        _oooeTrain = null;
+        _pEventLog.Reset();
+        _currentCycle = 0;
+
+        switch (CurrentMode) {
+            case PipelineMode.FiveStage when _binaryData != null: {
+                var mem = new FlatMemory(1 << 20);
+                mem.Load(0, _binaryData);
+                _fiveStageTrain = new FiveStageTrain(
+                    new Rv32Mechanism(extensions: ActiveExtensions), mem,
+                    pEventLog: _pEventLog);
+                _fiveStageTrain.BeginStepping();
+                break;
+            }
+            case PipelineMode.OoO when _binaryData != null: {
+                var mem = new FlatMemory(1 << 20);
+                mem.Load(0, _binaryData);
+                _oooeTrain = new OooeTrain(
+                    new Rv32Mechanism(extensions: ActiveExtensions), mem,
+                    pEventLog: _pEventLog);
+                _oooeTrain.BeginStepping();
+                break;
+            }
+            case PipelineMode.SingleCycle:
+                _archState?.Reset();
+                _stepCount = 0;
+                break;
+        }
+
+        UpdateStages();
+        RefreshAllRegisters();
     }
+
+    private void UpdateStages() {
+        if (CurrentMode == PipelineMode.SingleCycle) {
+            ulong pc = _archState?.Pc ?? 0;
+            foreach (AssemblyRow row in Instructions)
+                row.Stage = row.Offset == pc ? "PC" : "";
+            CurrentSourceLine = _pcToLine.TryGetValue(pc, out int line) ? line : 0;
+        } else {
+            Dictionary<ulong, string> stageMap = ComputeStages();
+            foreach (AssemblyRow row in Instructions)
+                row.Stage = stageMap.TryGetValue(row.Offset, out string? stage) ? stage : "";
+            CurrentSourceLine = 0;
+        }
+    }
+
+    private Dictionary<ulong, string> ComputeStages() {
+        // For each InstrId: find the latest event with Cycle <= _currentCycle
+        var latest = new Dictionary<ulong, PEvent>();
+        foreach (PEvent ev in _pEventLog.Events) {
+            if (ev.Cycle > _currentCycle) continue;
+            if (!latest.TryGetValue(ev.InstrId, out PEvent existing) || ev.Cycle > existing.Cycle)
+                latest[ev.InstrId] = ev;
+        }
+
+        // For each PC: pick the entry with the highest InstrId (most recently fetched iteration)
+        var byPc = new Dictionary<ulong, PEvent>();
+        foreach (PEvent ev in latest.Values) {
+            if (!byPc.TryGetValue(ev.Pc, out PEvent existing) || ev.InstrId > existing.InstrId)
+                byPc[ev.Pc] = ev;
+        }
+
+        // Map to stage labels
+        var result = new Dictionary<ulong, string>();
+        foreach ((ulong pc, PEvent ev) in byPc) {
+            string stage = CurrentMode == PipelineMode.FiveStage
+                ? MapFiveStage(ev.Kind, ev.Cycle)
+                : MapOoo(ev.Kind, ev.Cycle);
+            if (stage != "") result[pc] = stage;
+        }
+        return result;
+    }
+
+    private string MapFiveStage(PEventKind kind, long eventCycle) => kind switch {
+        PEventKind.Fetch      => "IF",
+        PEventKind.FetchStall => "IF",
+        PEventKind.Decode     => "ID",
+        PEventKind.Execute when eventCycle == _currentCycle => "EX",
+        PEventKind.Execute                                  => "MEM",
+        PEventKind.Retire  when eventCycle == _currentCycle => "WB",
+        _                                                   => "",
+    };
+
+    private string MapOoo(PEventKind kind, long eventCycle) => kind switch {
+        PEventKind.Fetch    => "IF",
+        PEventKind.Dispatch => "Dis",
+        PEventKind.Issue    => "Iss",
+        PEventKind.Execute  => "Ex",
+        PEventKind.Retire when eventCycle == _currentCycle => "Ret",
+        _                                                  => "",
+    };
 
     private static Dictionary<ulong, int> ParseListing(string text) {
         var map = new Dictionary<ulong, int>();
@@ -398,17 +572,19 @@ public partial class AssemblerViewModel : ObservableObject {
     }
 
     private void RefreshIntRegisters() {
-        if (_archState == null) return;
+        IArchState? state = ActiveArchState;
+        if (state == null) return;
         for (var i = 0; i < 32; i++) {
-            IntRegisters[i].Display = FormatInt(_archState.IntegerRegisters.Read(i));
+            IntRegisters[i].Display = FormatInt(state.IntegerRegisters.Read(i));
             IntRegisters[i].Changed = false;
         }
     }
 
     private void RefreshFloatRegisters() {
-        if (_archState == null) return;
+        IArchState? state = ActiveArchState;
+        if (state == null) return;
         for (var i = 0; i < 32; i++) {
-            FloatRegisters[i].Display = FormatFloat(_archState.IntegerRegisters.Read(i + 32));
+            FloatRegisters[i].Display = FormatFloat(state.IntegerRegisters.Read(i + 32));
             FloatRegisters[i].Changed = false;
         }
     }

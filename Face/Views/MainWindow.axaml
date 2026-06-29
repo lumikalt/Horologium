@@ -476,6 +476,14 @@
                             </Grid>
                         </Button>
 
+                        <!-- Pipeline mode selector -->
+                        <StackPanel Margin="16,12,16,0" Spacing="6">
+                            <TextBlock Text="PIPELINE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <ComboBox ItemsSource="{Binding Assembler.PipelineModeLabels}"
+                                      SelectedItem="{Binding Assembler.PipelineModeLabel}"
+                                      HorizontalAlignment="Stretch" />
+                        </StackPanel>
+
                         <StackPanel Margin="16,12,16,12" Spacing="12">
                             <TextBlock Text="ASSEMBLER" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
 

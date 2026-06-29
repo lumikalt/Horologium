@@ -12,6 +12,8 @@ public enum RegFormat {
     Float,
 }
 
+public enum PipelineMode { SingleCycle, FiveStage, OoO }
+
 public partial class AssemblyRow(
     ulong offset,
     string hexEncoding,
@@ -27,7 +29,7 @@ public partial class AssemblyRow(
     public bool IsCompressed { get; } = isCompressed;
     public IReadOnlyList<InstrField> Fields { get; } = fields;
 
-    [ObservableProperty] public partial bool IsCurrent { get; set; }
+    [ObservableProperty] public partial string Stage { get; set; } = "";
 }
 
 public partial class ExtensionToggle(string name, RvExtension flag, bool enabled = true) : ObservableObject {

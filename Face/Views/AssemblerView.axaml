@@ -67,11 +67,15 @@
                 <DataGrid.Styles>
                     <Style Selector="DataGridRow" x:DataType="models:AssemblyRow">
                         <Setter Property="Background"
-                                Value="{Binding IsCurrent,
-                                               Converter={x:Static controls:BoolToBrushConverter.CurrentRow}}" />
+                                Value="{Binding Stage,
+                                               Converter={x:Static controls:StageBrushConverter.Instance}}" />
                     </Style>
                 </DataGrid.Styles>
                 <DataGrid.Columns>
+                    <DataGridTextColumn Header="Stage"
+                                        Binding="{Binding Stage}"
+                                        Width="48"
+                                        IsReadOnly="True" />
                     <DataGridTextColumn Header="PC"
                                         Binding="{Binding OffsetHex}"
                                         Width="60"

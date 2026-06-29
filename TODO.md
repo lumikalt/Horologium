@@ -3,6 +3,7 @@
 ## Face
 
 - [ ] Rollback/Back step: single-step backward in the assembler debugger (requires snapshot-based undo or reverse simulation).
+- [x] Pipeline stage viewer in Assembler tab: colour-coded instruction rows showing live stage (IF/ID/EX/MEM/WB for 5-Stage; IF/Dis/Iss/Ex/Ret for OoO) derived from PEventLog at each step; pipeline mode selector (Single Cycle / 5-Stage / OoO) in the left sidebar; `Train.BeginStepping`/`StepCycle`/`FinishStepping` API added.
 - [ ] L2 and L3 caches.
 - [x] Assembler to simulate RISC-V in-place.
 - [ ] Compile from C to disassembly and simulate that.
@@ -24,7 +25,7 @@
   - [ ] RV64 M extension (MUL[H/HU/HSU], DIV[U], REM[U] on 64-bit operands).
   - [ ] RV64 F/D extension: 64-bit FP conversions (fcvt.l.s, fcvt.lu.s, fcvt.s.l, etc.).
 - [ ] 128-bit support.
-- [ ] Enable or disable specific extensions.
+- [x] Enable or disable specific extensions.
 
 ### Extensions
 

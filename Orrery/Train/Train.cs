@@ -263,6 +263,51 @@ public sealed class Train {
         Root.ForceLifecycle(SimLifecycle.Finalizing);
     }
 
+    // ── Step-by-step API ─────────────────────────────────────────────────────
+
+    /// <summary>The current simulation tick (delegates to the Escapement).</summary>
+    public long CurrentTick => _escapement.CurrentTick;
+
+    /// <summary>True when no pending events remain — the simulation has halted.</summary>
+    public bool IsIdle => _escapement.IsIdle;
+
+    /// <summary>
+    /// Transitions to Running and winds all Gears, readying the train for
+    /// <see cref="StepCycle"/>. Equivalent to the first two steps of <see cref="Run"/>.
+    /// </summary>
+    public void BeginStepping() {
+        if (!_built)
+            throw new InvalidOperationException(
+                $"Train '{Name}' has not been built. Call Build() before BeginStepping().");
+        if (Root.Lifecycle != SimLifecycle.Finalizing)
+            throw new InvalidOperationException(
+                $"Train '{Name}' is in lifecycle '{Root.Lifecycle}'. Expected 'Finalizing'.");
+        Root.BeginRunning();
+        foreach (Gear gear in _gears) gear.Wind();
+    }
+
+    /// <summary>
+    /// Advances the simulation by exactly one tick.
+    /// Returns <c>true</c> if the simulation is still running (more events pending),
+    /// or <c>false</c> if it has halted (no events remain after this step).
+    /// </summary>
+    public bool StepCycle() {
+        _escapement.Step();
+        return !_escapement.IsIdle;
+    }
+
+    /// <summary>
+    /// Finalizes a step-by-step run, transitioning to Finished and returning the
+    /// accumulated statistics — equivalent to the tail of <see cref="Run"/>.
+    /// </summary>
+    public RevolutionResult FinishStepping() {
+        Root.BeginFinished();
+        return new RevolutionResult(
+            _escapement.CurrentTick, 0,
+            [.._gears.Select(g => g.Dials.Snapshot()),]
+        );
+    }
+
     // ── Diagnostics ───────────────────────────────────────────────────────────
 
     /// <summary>Dumps the full tree topology for debugging.</summary>

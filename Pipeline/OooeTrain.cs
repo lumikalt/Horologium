@@ -65,6 +65,12 @@ public sealed class OooeTrain {
 
     public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
         _train.Run(maxTicks, warmupTicks, snapshotInterval);
+
+    public long CurrentTick => _train.CurrentTick;
+    public bool IsIdle => _train.IsIdle;
+    public void BeginStepping() => _train.BeginStepping();
+    public bool StepCycle() => _train.StepCycle();
+    public RevolutionResult FinishStepping() => _train.FinishStepping();
 }
 
 // ── Pipeline core Gear ─────────────────────────────────────────────────────────
