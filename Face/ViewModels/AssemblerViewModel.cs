@@ -60,6 +60,7 @@ public partial class AssemblerViewModel : ObservableObject {
         _start:
             li   a0, 5
             call factorial
+            ebreak
         """;
 
     [ObservableProperty] public partial string AssembleError { get; set; } = "";
@@ -391,6 +392,8 @@ public partial class AssemblerViewModel : ObservableObject {
         }
     }
 
+    private const long MaxPipelineCycles = 500_000;
+
     private void StepPipeline() {
         bool running;
 
@@ -408,6 +411,12 @@ public partial class AssemblerViewModel : ObservableObject {
         if (!running) {
             CanStep = false;
             StatusText = $"Halted at cycle {_currentCycle}.";
+        } else if (_binarySize > 0 && (ActiveArchState?.Pc ?? 0) >= (ulong)_binarySize) {
+            CanStep = false;
+            StatusText = $"PC past program end at cycle {_currentCycle}.";
+        } else if (_currentCycle >= MaxPipelineCycles) {
+            CanStep = false;
+            StatusText = $"Stopped at cycle {_currentCycle} (limit reached — add ebreak to terminate).";
         } else {
             StatusText = $"Cycle {_currentCycle}";
         }
