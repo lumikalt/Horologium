@@ -104,15 +104,16 @@ public sealed class WaterfallControl : Control {
         var widestPc = "PC";
         var widestSPc = "";
 
+        ulong basePc = data.BasePc;
         int limit = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
         for (var i = 0; i < limit; i++) {
             WaterfallRow row = data.Rows[i];
             var id = row.InstrId.ToString();
             if (id.Length > widestId.Length) widestId = id;
-            var pc = $"{row.Pc:X}";
+            var pc = $"+{row.Pc - basePc:X}";
             if (pc.Length > widestPc.Length) widestPc = pc;
             if (row.SpecPc != row.Pc) {
-                var spc = $"~{row.SpecPc:X}";
+                var spc = $"~+{row.SpecPc - basePc:X}";
                 if (spc.Length > widestSPc.Length) widestSPc = spc;
             }
         }
@@ -246,6 +247,7 @@ public sealed class WaterfallControl : Control {
         );
 
         // ── Sticky gutter columns (redrawn at viewport-left x = sx) ─────────────
+        ulong basePc = data.BasePc;
         for (int r = rFirst; r <= rLast; r++) {
             WaterfallRow row = data.Rows[r];
             double rowY = WaterfallControl.HeaderH + r * WaterfallControl.RowH;
@@ -256,12 +258,12 @@ public sealed class WaterfallControl : Control {
             DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 3));
             bool twoLine = row.SpecPc != row.Pc;
             DrawFt(
-                ctx, $"{row.Pc:X}", labelFg, twoLine ? 8.5 : 10,
+                ctx, $"+{row.Pc - basePc:X}", labelFg, twoLine ? 8.5 : 10,
                 new Point(sx + _instrIdColW + 4, rowY + (twoLine ? 2 : 3))
             );
             if (twoLine)
                 DrawFt(
-                    ctx, $"~{row.SpecPc:X}", specPcFg, 7.5,
+                    ctx, $"~+{row.SpecPc - basePc:X}", specPcFg, 7.5,
                     new Point(sx + _instrIdColW + 4, rowY + 11)
                 );
         }

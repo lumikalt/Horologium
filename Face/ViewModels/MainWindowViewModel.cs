@@ -300,8 +300,9 @@ public partial class MainWindowViewModel : ObservableObject {
 
         long minCy = rows.SelectMany(r => r.Events.Keys).Min();
         long maxCy = rows.SelectMany(r => r.Events.Keys).Max();
+        ulong basePc = rows.Min(r => Math.Min(r.Pc, r.SpecPc));
 
-        return new WaterfallData(rows, minCy, maxCy, fetchPcPerCycle, flushCycles, fetchStallCycles);
+        return new WaterfallData(rows, minCy, maxCy, fetchPcPerCycle, flushCycles, fetchStallCycles, basePc);
     }
 
     public void SetWorkloadPath(string path) {

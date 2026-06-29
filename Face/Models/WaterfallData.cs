@@ -10,5 +10,6 @@ public record WaterfallData(
     long MaxCycle,
     IReadOnlyDictionary<long, ulong> FetchPcPerCycle,
     IReadOnlySet<long> FlushCycles,
-    IReadOnlySet<long> FetchStallCycles
+    IReadOnlySet<long> FetchStallCycles,
+    ulong BasePc
 );
