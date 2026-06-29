@@ -66,6 +66,13 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Minstret = 0xB02;
     public const uint Minstreth = 0xB82;
 
+    // Machine Hardware Performance Counters (Zihpm, N=3–31)
+    // mhpmcounterN:  0xB03–0xB1F  (N = address − 0xB00)
+    // mhpmcounterNh: 0xB83–0xB9F  (N = address − 0xB80)
+    // mhpmeventN:    0x323–0x33F  (N = address − 0x320)
+    // All counters read as 0 — no hardware event counting in simulation.
+    // Event selectors are writable from M-mode but have no effect.
+
     // User-level counter shadows (Zicntr, read-only — bits[11:10]=3)
     public const uint Cycle = 0xC00;
     public const uint Time = 0xC01;
@@ -73,6 +80,9 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Cycleh = 0xC80;
     public const uint Timeh = 0xC81;
     public const uint Instreth = 0xC82;
+    // User-level HPM shadows (Zihpm, read-only — bits[11:10]=3)
+    // hpmcounterN:  0xC03–0xC1F  routed → mhpmcounterN  (0xB03–0xB1F)
+    // hpmcounterNh: 0xC83–0xC9F  routed → mhpmcounterNh (0xB83–0xB9F)
 
     // ── mstatus / sstatus bit positions ──────────────────────────────────────
     public const uint MstatusUie = 1u << 0;
@@ -138,6 +148,13 @@ public sealed class CsrFile : ISystemRegisters {
         Seed(CsrFile.Minstret, 0);
         Seed(CsrFile.Minstreth, 0);
 
+        // Zihpm: machine hardware performance counters (always 0) and event selectors
+        for (uint n = 3; n <= 31; n++) {
+            Seed(0xB00 + n, 0); // mhpmcounterN
+            Seed(0xB80 + n, 0); // mhpmcounterNh
+            Seed(0x320 + n, 0); // mhpmeventN
+        }
+
         // Read-only machine information
         Seed(CsrFile.Mvendorid, 0);
         Seed(CsrFile.Marchid, 0);
@@ -166,6 +183,9 @@ public sealed class CsrFile : ISystemRegisters {
             CsrFile.Cycleh   => CsrFile.Mcycleh,
             CsrFile.Instret  => CsrFile.Minstret,
             CsrFile.Instreth => CsrFile.Minstreth,
+            // Zihpm: route user-level read-only shadows to their M-mode mirrors
+            >= 0xC03u and <= 0xC1Fu => address - 0xC00u + 0xB00u, // hpmcounterN  → mhpmcounterN
+            >= 0xC83u and <= 0xC9Fu => address - 0xC80u + 0xB80u, // hpmcounterNh → mhpmcounterNh
             _                => address,
         };
         return effective < CsrFile.CsrSpace && _present[effective]

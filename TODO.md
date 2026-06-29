@@ -44,7 +44,11 @@
 - [x] Zimop: mop.r.N and mop.rr.N — always return 0 in rd (SYSTEM opcode, funct3=4; detected by CSR address pattern).
 - [ ] Zcmop: compressed may-be-operations (c.mop.N) — same idea for 16-bit encoding space.
 - [x] Zicntr: hardware performance counters — cycle/cycleh (0xC00/0xC80), time/timeh (0xC01/0xC81, reads 0 — no CLINT), instret/instreth (0xC02/0xC82), and their M-mode mirrors mcycle/mcycleh/minstret/minstreth. User-level shadows alias M-mode counters. Pipeline trains call IArchState.OnCycle()/OnRetire() hooks; RvArchState increments CsrFile counters with 32-bit carry into high halves.
-- [ ] Zihpm: hardware performance monitor — hpmcounterN/hpmcounterNh (N=3–31) and hpmeventN CSRs.
+- [x] Zihpm: hardware performance monitor — hpmcounterN/hpmcounterNh (N=3–31, 0xC03–0xC1F / 0xC83–0xC9F,
+  read-only user shadows always returning 0), mhpmcounterN/Nh (0xB03–0xB1F / 0xB83–0xB9F, M-mode,
+  always 0 — no event hardware), and mhpmeventN (0x323–0x33F, M-mode writable selectors, functionally
+  ignored). Seeded in a loop in the CsrFile constructor; user shadows routed to M-mode mirrors via two
+  range arms in the Read switch. Covered by ZihpmTests.
 - [x] Zabha: byte/halfword atomics — all 9 AMO operations in .b (funct3=0) and .h (funct3=1) variants:
   amoswap, amoadd, amoxor, amoand, amoor, amomin, amomax, amominu, amomaxu. rd receives the
   sign-extended old byte/halfword value. Signed min/max sign-extends from the narrow width for
