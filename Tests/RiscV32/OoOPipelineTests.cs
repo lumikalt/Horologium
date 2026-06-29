@@ -508,6 +508,64 @@ public class OoOPipelineTests {
         Assert.Equal(42u, Reg(train, 1));
     }
 
+    // ── Bug: Atomic write-half disambiguation gap ──────────────────────────────────
+    // Before the fix, AMO writes were silently dropped at commit (StepCommit checked
+    // `IsStore`, which was false for atomics), and younger loads could not forward
+    // from an AMO's captured write (TryForwardFromStore / HasOlderConflictingStore
+    // both required `IsStore`). Additionally, `IsLoad` was false for atomics, so
+    // CheckLoadViolations never flagged a violated AMO read.
+
+    [Fact]
+    public void AmoSwap_CommitsWriteToMemory_AndReturnsOldValue() {
+        // addi x1, x0, 0x100   → x1 = 0x100 (address)
+        // addi x2, x0, 42      → x2 = 42  (initial store value)
+        // sw   x2, 0(x1)       → mem[0x100] = 42
+        // addi x3, x0, 99      → x3 = 99  (value to swap in)
+        // amoswap.w x4, x3, (x1) → x4 = 42 (old); mem[0x100] = 99
+        // lw   x5, 0(x1)       → x5 = 99  (from committed AMO write)
+        // ebreak
+        (OooeTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 0x100
+            0x02a00113, // addi x2, x0, 42
+            0x0020A023, // sw   x2, 0(x1)
+            0x06300193, // addi x3, x0, 99
+            0x0830A22F, // amoswap.w x4, x3, (x1)
+            0x0000A283, // lw   x5, 0(x1)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(42u, Reg(train, 4));            // rd = old value before swap
+        Assert.Equal(99u, Reg(train, 5));            // load after AMO sees committed write
+        Assert.Equal(99u, (uint)mem.Read(0x100, 4)); // memory itself holds the new value
+    }
+
+    [Fact]
+    public void AmoSwap_LoadForwardsFromAtomicWrite_BeforeCommit() {
+        // AMO writes 77 to address 0x100 (initialised to 0 by FlatMemory).
+        // A younger load to the same address must forward the AMO's captured value,
+        // not the stale zero from backing memory.
+        //
+        // addi x1, x0, 0x100  → x1 = 0x100 (address)
+        // addi x2, x0, 77     → x2 = 77
+        // amoswap.w x3, x2, (x1) → x3 = 0 (old at 0x100); mem[0x100] = 77
+        // lw   x4, 0(x1)      → x4 = 77 (forwarded from AMO write)
+        // ebreak
+        (OooeTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 0x100
+            0x04D00113, // addi x2, x0, 77
+            0x0820A1AF, // amoswap.w x3, x2, (x1)
+            0x0000A203, // lw   x4, 0(x1)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(0u, Reg(train, 3));  // rd = old value (memory was 0)
+        Assert.Equal(77u, Reg(train, 4)); // load forwarded from AMO's captured write
+    }
+
     // ── Bug: Load/Store/Atomic share one FU budget but StepIssue counted per-class ──
     // Before the fix, Load and Atomic each had their own counter slot in classIssued[],
     // so with LoadStoreCount=1 a Load and an Atomic that were both ready could issue

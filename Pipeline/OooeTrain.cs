@@ -484,7 +484,7 @@ internal sealed class OoOPipelineCore : Gear {
                 return;
             }
 
-            if (head.IsStore) DLayers.Accessor.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
+            if (head.StoreAddressKnown) DLayers.Accessor.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
 
             CommitRegisters(head);
 
@@ -729,7 +729,7 @@ internal sealed class OoOPipelineCore : Gear {
         (ulong Value, bool HasValue) result = default;
         foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
             if (idx == loadRobIdx) break;
-            if (!entry.IsStore || !entry.StoreAddressKnown) continue;
+            if (!entry.StoreAddressKnown) continue;
             // Only exact base-address forwarding; partial-overlap cases require shifting.
             if (entry.StoreAddress != loadAddr || entry.StoreWidth < loadBytes) continue;
             ulong mask = loadBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, _ => 0xFFFF_FFFFUL, };
@@ -748,7 +748,7 @@ internal sealed class OoOPipelineCore : Gear {
     private bool HasOlderConflictingStore(int loadRobIdx, ulong loadAddr, int loadBytes) {
         foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
             if (idx == loadRobIdx) return false;
-            if (!entry.IsStore || !entry.StoreAddressKnown) continue;
+            if (!entry.StoreAddressKnown) continue;
             if (AddressOverlaps(entry.StoreAddress, entry.StoreWidth, loadAddr, loadBytes)) return true;
         }
 
@@ -821,7 +821,7 @@ internal sealed class OoOPipelineCore : Gear {
             rob.PrevPhysDestination = oldPhys;
             rob.PredictedNextPc = fi.PredictedNextPc;
             rob.IsStore = instr.Class == ToothClass.Store;
-            rob.IsLoad = instr.Class == ToothClass.Load;
+            rob.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             rob.IsHalt = instr.Class == ToothClass.Halt;
             PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
 

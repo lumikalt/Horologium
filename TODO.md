@@ -171,12 +171,14 @@ tick. The leverage is at the *run* level, where whole simulations are independen
   enum value**, so a Load and an Atomic could issue in the same cycle despite `LoadStoreCount=1`. Fixed by adding
   `FuLatencyConfig.BudgetSlot` (maps Store/Atomic → Load slot; ConditionalBranch → Branch slot) and using it in
   `StepIssue`. Covered by `LoadAndAtomic_WithLoadStoreCount1_IssueInSeparateCycles`.
-- [ ] **Gap: a younger load does not disambiguate against an older *atomic*'s store half via the load-side checks.**
-  `HasOlderConflictingStore`/`TryForwardFromStore` skip `!entry.IsStore`, and atomics are `IsStore=false`, so a load that
-  executes *after* an older atomic has already resolved won't see the conflict from the load side. The converse ordering
-  (atomic resolves after the load executes) *is* covered — `CheckLoadViolations` keys off `HasStoreCapture`, which atomics
-  set. Pre-existing and atomic-light in the benchmark suite, so load-side MLP deliberately left it untouched (the MLP
-  countdown does cover `Atomic`). Fix by teaching the load-side checks to treat an atomic's write half as a store.
+- [x] **Gap: atomic write-half disambiguation and commit.** Three coupled bugs: (1) `StepCommit` checked `IsStore`
+  (false for atomics) so AMO writes were silently dropped — fixed by switching to `StoreAddressKnown`, which is only
+  set when `CapturingMemory` captured a real write. (2) `TryForwardFromStore`/`HasOlderConflictingStore` required
+  `IsStore`, so younger loads couldn't forward from or detect conflicts with an older atomic's captured write — fixed
+  by dropping the `IsStore` guard (both now key off `StoreAddressKnown`). (3) `IsLoad` was false for atomics, so
+  `CheckLoadViolations` never flagged a stale AMO read — fixed by setting `IsLoad` for `ToothClass.Atomic` in
+  `StepDispatch`. Covered by `AmoSwap_CommitsWriteToMemory_AndReturnsOldValue` and
+  `AmoSwap_LoadForwardsFromAtomicWrite_BeforeCommit`.
 - [x] Streaming-Engine to allow for UVE: `StreamingEngine` in `Orrery/Streaming/`; 8 streams, affine (base/stride/count/width) with configurable prefetch depth; wired into `OooeTrain` (steps every cycle, survives flushes).
 - [x] Wire stream consumption into `OooeTrain`: `UveStreamSources`/`UveBranchStreams` on `ITooth`; pipeline injects load-stream elements into `IUveScalars` and syncs exhaustion before calling executor; Issue stalls when a required load stream has no buffered element; `StreamConfig` field on `ExecuteResult` carries `ss.ld.w` descriptor to pipeline for `StreamingEngine.Configure` call.
 
