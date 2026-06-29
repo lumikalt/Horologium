@@ -137,6 +137,20 @@ tick. The leverage is at the *run* level, where whole simulations are independen
   stall depth. (inspired by gem5) **Motivated by the Olympia calibration** (`docs/olympia-calibration.md`): the OoO
   currently charges cache-miss stalls lump-sum with no memory-level parallelism, which makes it ~2× pessimistic vs
   Olympia on memory-bound workloads (memcpy, median). Overlapping independent misses should close that gap.
+  - [ ] Load-side MLP — **first attempt (commit cb91a56) was reverted: it was functionally incorrect.** It gave each
+    load-miss its own in-flight latency countdown, but a missed load's `LoadAddress`/`LoadExecuted` were only registered
+    in `StepComplete` (at broadcast time), not at execute time. That opened a window where an older store could resolve
+    *and commit* while the load sat in `_inFlight`, invisible to `CheckLoadViolations`/`HasOlderConflictingStore`, so the
+    load broadcast a stale value. Observed: memcpy at w8+L1 read a stale `ra=0`, `ret` jumped to PC 0, and the fetcher
+    wedged (no test covered load-miss + store-disambiguation with a cache, which is how it shipped). REDO must register
+    the load's address/`LoadExecuted` at **execute** time (routing through the existing violation→re-execute machinery)
+    and ship with a load-miss+store-disambiguation regression test (e.g. memcpy w8+L1) plus a clean full-harness re-run.
+  - [ ] Store-side: store-commit write misses are charged lump-sum (serial). Real hardware retires them into a
+    write buffer (async, off the critical path). Model that (or a bounded store buffer) — it's the remaining bottleneck
+    on store-heavy workloads (memcpy/vvadd), capping how far load-side MLP can close the gap.
+  - [ ] Bound the cache to one access port per cycle: load *issue* is already port-limited (`LoadStoreCount=1`), but
+    store *commit* writes the D-cache up to `issue_width`× per cycle with no port budget (`StepCommit`), an unrealistic
+    multi-ported cache. (Surfaced reviewing the load-miss work; secondary — store-commit writes mostly hit.)
 - [ ] Make the ToothClass a tag instead of just using enum members?
 
 ### Out-of-Order Execution
@@ -147,6 +161,15 @@ tick. The leverage is at the *run* level, where whole simulations are independen
   to the same address resolved after it. Flush and reexecute from the violating load; store-to-load forwarding at
   execute time avoids squash when the store has already resolved. (inspired by gem5 O3)
 - [ ] Separate load queue and store queue for speculative memory disambiguation.
+- [ ] **Bug: fetch decode-fault can permanently wedge the fetcher.** `StepFetch`'s `catch` sets `_fetchFaulted=true` and
+  `break`s without enqueuing anything; if the ROB then drains before any flush, nothing ever clears the flag and the core
+  spins idle to `maxTicks`. (A real RISC-V core takes an instruction-access-fault.) Should enqueue a fetch trap the way
+  the translation-fault path does. NOTE: do not "fix" this to paper over a value-corruption bug — on a wrong path it must
+  stay squashable. Surfaced while diagnosing the reverted load-side MLP attempt.
+- [ ] **Bug: Load/Store/Atomic share one FU budget (`FuLatencyConfig.CountFor`) but `StepIssue` counts per `ToothClass`
+  enum value**, so a Load and an Atomic (and a Store) can each issue in the same cycle despite `LoadStoreCount=1` — i.e.
+  more cache accesses/cycle than the single modeled port. Decide whether to share one issue counter across the memory
+  classes. (Surfaced reviewing the load-miss work.)
 - [x] Streaming-Engine to allow for UVE: `StreamingEngine` in `Orrery/Streaming/`; 8 streams, affine (base/stride/count/width) with configurable prefetch depth; wired into `OooeTrain` (steps every cycle, survives flushes).
 - [x] Wire stream consumption into `OooeTrain`: `UveStreamSources`/`UveBranchStreams` on `ITooth`; pipeline injects load-stream elements into `IUveScalars` and syncs exhaustion before calling executor; Issue stalls when a required load stream has no buffered element; `StreamConfig` field on `ExecuteResult` carries `ss.ld.w` descriptor to pipeline for `StreamingEngine.Configure` call.
 
