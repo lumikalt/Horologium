@@ -1,4 +1,5 @@
 using Mechanism;
+using RiscV32.Config;
 using RiscV32.Decode;
 using RiscV32.Execute;
 using RiscV32.Memory;
@@ -19,9 +20,17 @@ public sealed class Rv32Mechanism : IMechanism {
     /// itself (see <see cref="Rv32Executor.HtifTohostAddress"/>). Null for the
     /// common EBREAK-terminated case.
     /// </param>
-    public Rv32Mechanism(ulong? htifTohost = null) =>
+    /// <param name="extensions">
+    /// The set of ISA extensions this hart implements. Used to generate the
+    /// correct ISA string for Spike co-simulation and other tooling.
+    /// Defaults to <see cref="RvExtension.All"/> (every implemented extension).
+    /// </param>
+    public Rv32Mechanism(ulong? htifTohost = null, RvExtension extensions = RvExtension.All) {
+        Extensions = extensions;
         Executor = new Rv32Executor { HtifTohostAddress = htifTohost, };
+    }
 
+    public RvExtension Extensions { get; }
     public string Name => "RV32I";
     public IDecoder Decoder { get; } = new Rv32Decoder();
     public IExecutor Executor { get; }

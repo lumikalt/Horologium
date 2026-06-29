@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Face.Models;
 using Mechanism;
+using RiscV32.Config;
 using RiscV32.Decode;
 using RiscV32.Execute;
 using RiscV32.Memory;
@@ -82,11 +83,44 @@ public partial class AssemblerViewModel : ObservableObject {
         RegFormat.Hex, RegFormat.Float, RegFormat.Binary,
     ];
 
+    public IReadOnlyList<ExtensionToggle> AvailableExtensions { get; } = [
+        new("M", RvExtension.M),
+        new("A", RvExtension.A),
+        new("F", RvExtension.F),
+        new("C", RvExtension.C),
+        new("V", RvExtension.V),
+        new("Zba", RvExtension.Zba),
+        new("Zbb", RvExtension.Zbb),
+        new("Zbc", RvExtension.Zbc),
+        new("Zbs", RvExtension.Zbs),
+    ];
+
+    public string GasArchString {
+        get {
+            var flags = RvExtension.None;
+            foreach (ExtensionToggle t in AvailableExtensions)
+                if (t.IsEnabled)
+                    flags |= t.Flag;
+            return flags.ToIsaString();
+        }
+    }
+
+    private string GasAbi => AvailableExtensions.Any(t => t.Flag == RvExtension.F && t.IsEnabled)
+        ? "ilp32f"
+        : "ilp32";
+
     public bool IsDecodeVisible => SelectedInstruction != null;
     public string DecodeTitle => SelectedInstruction is { } r ? $"{r.Offset:X}: {r.HexEncoding}  {r.Mnemonic}" : "";
     public IReadOnlyList<InstrField> DecodeFields => SelectedInstruction?.Fields ?? [];
 
-    public AssemblerViewModel() { InitRegisterEntries(); }
+    public AssemblerViewModel() {
+        InitRegisterEntries();
+        foreach (ExtensionToggle ext in AvailableExtensions)
+            ext.PropertyChanged += (_, _) => {
+                OnPropertyChanged(nameof(GasArchString));
+                if (Instructions.Count > 0 && !IsAssembling) _ = AssembleCommand.ExecuteAsync(null);
+            };
+    }
 
     private void InitRegisterEntries() {
         for (var i = 0; i < 32; i++) IntRegisters.Add(new RegEntry($"x{i}"));
@@ -135,7 +169,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
                 (int asExit, _, string asErr) = await RunProcess(
                     prefix + "as",
-                    $"-march=rv32imafcv -mabi=ilp32f -mno-relax -al=\"{lstFile}\" -o \"{objFile}\" \"{asmFile}\""
+                    $"-march={GasArchString} -mabi={GasAbi} -mno-relax -al=\"{lstFile}\" -o \"{objFile}\" \"{asmFile}\""
                 );
                 if (asExit != 0) {
                     HasError = true;

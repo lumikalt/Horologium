@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using RiscV32.Config;
 using RiscV32.Decode;
 
 namespace Face.Models;
@@ -27,6 +28,12 @@ public partial class AssemblyRow(
     public IReadOnlyList<InstrField> Fields { get; } = fields;
 
     [ObservableProperty] public partial bool IsCurrent { get; set; }
+}
+
+public partial class ExtensionToggle(string name, RvExtension flag, bool enabled = true) : ObservableObject {
+    public string Name { get; } = name;
+    public RvExtension Flag { get; } = flag;
+    [ObservableProperty] public partial bool IsEnabled { get; set; } = enabled;
 }
 
 public partial class RegEntry(string name) : ObservableObject {

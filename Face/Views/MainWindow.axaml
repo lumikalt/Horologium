@@ -3,6 +3,7 @@
         xmlns:vm="using:Face.ViewModels"
         xmlns:views="using:Face.Views"
         xmlns:controls="using:Face.Controls"
+        xmlns:models="using:Face.Models"
         xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
         x:Class="Face.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -432,6 +433,48 @@
                     <StackPanel IsVisible="{Binding IsAssemblerTab}">
 
                         <Separator />
+
+                        <!-- ISA extension selector -->
+                        <Button HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Margin="16,12,16,0"
+                                Padding="12,10">
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedLeft">
+                                    <StackPanel Margin="4,2" Width="160">
+                                        <TextBlock Text="EXTENSIONS"
+                                                   FontSize="10" FontWeight="SemiBold" Opacity="0.55"
+                                                   Margin="0,0,0,8" />
+                                        <ItemsControl ItemsSource="{Binding Assembler.AvailableExtensions}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="models:ExtensionToggle">
+                                                    <CheckBox IsChecked="{Binding IsEnabled}"
+                                                              Content="{Binding Name}"
+                                                              Margin="0,3" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="ISA Extensions"
+                                               FontWeight="SemiBold"
+                                               FontSize="13" />
+                                    <TextBlock Text="{Binding Assembler.GasArchString}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11"
+                                               Opacity="0.55" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1"
+                                           Text="›"
+                                           VerticalAlignment="Center"
+                                           Opacity="0.4"
+                                           FontSize="18"
+                                           Margin="8,0,0,0" />
+                            </Grid>
+                        </Button>
 
                         <StackPanel Margin="16,12,16,12" Spacing="12">
                             <TextBlock Text="ASSEMBLER" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
