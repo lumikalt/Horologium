@@ -585,7 +585,16 @@
                         <Border Grid.Row="0" Padding="12,7"
                                 BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
                                 BorderThickness="0,0,0,1">
-                            <TextBlock Text="{Binding PEventStatusText}" Opacity="0.75" FontSize="12" />
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right"
+                                        Content="Save Image"
+                                        FontSize="12"
+                                        Padding="10,2"
+                                        IsEnabled="{Binding CurrentWaterfall, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        Click="OnSaveWaterfallClick" />
+                                <TextBlock Text="{Binding PEventStatusText}" Opacity="0.75" FontSize="12"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
                         </Border>
                         <ScrollViewer Grid.Row="1"
                                       HorizontalScrollBarVisibility="Auto"

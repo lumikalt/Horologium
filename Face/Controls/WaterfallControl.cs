@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using Face.Models;
 using Orrery.Observation;
@@ -9,15 +10,12 @@ using Orrery.Observation;
 namespace Face.Controls;
 
 public sealed class WaterfallControl : Control {
-    private const double InstrIdColW = 64;
-    private const double PcColW = 100; // merged PC + SpecPC (SpecPC shown inline when it differs)
-    private const double CellW = 44;
-    private const double RowH = 20;
+    private const double CellW   = 44;
+    private const double RowH    = 20;
     private const double HeaderH = 26;
     private const int MaxRows = 500;
     private const int MaxCols = 300;
-
-    private const double GutterW = WaterfallControl.InstrIdColW + WaterfallControl.PcColW;
+    private const double ColPad  = 12; // horizontal padding added to each gutter column
 
     private static readonly Typeface Mono = new("JetBrainsMono Nerd Font Mono, DejaVu Sans Mono, FreeMono");
 
@@ -73,6 +71,11 @@ public sealed class WaterfallControl : Control {
         set => SetValue(WaterfallControl.IsDarkProperty, value);
     }
 
+    // Computed per-data in MeasureOverride; sized to fit actual content + ColPad.
+    private double _instrIdColW = 64;
+    private double _pcColW = 100;
+    private double GutterW => _instrIdColW + _pcColW;
+
     static WaterfallControl() {
         WaterfallControl.DataProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => {
                 c.InvalidateMeasure();
@@ -86,18 +89,62 @@ public sealed class WaterfallControl : Control {
         WaterfallData? data = Data;
         if (data is null || data.Rows.Count == 0)
             return new Size(100, WaterfallControl.HeaderH + WaterfallControl.RowH);
+        ComputeColumnWidths(data);
         int rows = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
         long cols = Math.Min(data.MaxCycle - data.MinCycle + 1, WaterfallControl.MaxCols);
         return new Size(
-            WaterfallControl.GutterW + cols * WaterfallControl.CellW,
+            GutterW + cols * WaterfallControl.CellW,
             WaterfallControl.HeaderH + rows * WaterfallControl.RowH
         );
+    }
+
+    // Sets _instrIdColW and _pcColW wide enough to display the widest value in each column.
+    private void ComputeColumnWidths(WaterfallData data) {
+        string widestId  = "InstrId"; // header is the minimum width reference
+        string widestPc  = "PC";
+        string widestSPc = "";
+
+        int limit = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
+        for (int i = 0; i < limit; i++) {
+            WaterfallRow row = data.Rows[i];
+            string id = row.InstrId.ToString();
+            if (id.Length > widestId.Length) widestId = id;
+            string pc = $"{row.Pc:X}";
+            if (pc.Length > widestPc.Length) widestPc = pc;
+            if (row.SpecPc != row.Pc) {
+                string spc = $"~{row.SpecPc:X}";
+                if (spc.Length > widestSPc.Length) widestSPc = spc;
+            }
+        }
+
+        double idW  = MeasureFtWidth(widestId,  widestId == "InstrId" ? 10.5 : 10);
+        double pcW  = Math.Max(MeasureFtWidth("PC", 10.5), MeasureFtWidth(widestPc, widestPc == "PC" ? 10.5 : 10));
+        if (widestSPc.Length > 0)
+            pcW = Math.Max(pcW, MeasureFtWidth(widestSPc, 7.5));
+
+        _instrIdColW = idW + WaterfallControl.ColPad;
+        _pcColW      = pcW + WaterfallControl.ColPad;
+    }
+
+    private static double MeasureFtWidth(string text, double size) {
+        (string, double, IBrush) key = (text, size, WaterfallControl.DarkLabelFg);
+        if (!WaterfallControl.FtCache.TryGetValue(key, out FormattedText? ft)) {
+            ft = new FormattedText(
+                text, CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight, WaterfallControl.Mono, size, WaterfallControl.DarkLabelFg
+            );
+            WaterfallControl.FtCache[key] = ft;
+        }
+        return ft.Width;
     }
 
     public override void Render(DrawingContext ctx) {
         WaterfallData? data = Data;
         if (data is null || data.Rows.Count == 0) return;
+        RenderCore(ctx, data);
+    }
 
+    private void RenderCore(DrawingContext ctx, WaterfallData data) {
         bool dark = IsDark;
         IBrush headerBg   = dark ? WaterfallControl.DarkHeaderBg   : WaterfallControl.LightHeaderBg;
         IBrush rowBg0     = dark ? WaterfallControl.DarkRowBg0     : WaterfallControl.LightRowBg0;
@@ -108,9 +155,10 @@ public sealed class WaterfallControl : Control {
         IBrush stallHdrFg = dark ? WaterfallControl.DarkStallHdrFg : WaterfallControl.LightStallHdrFg;
         IPen gridPen      = dark ? WaterfallControl.DarkGridPen    : WaterfallControl.LightGridPen;
 
+        double gutterW = GutterW;
         int numRows = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
         long numCols = Math.Min(data.MaxCycle - data.MinCycle + 1, WaterfallControl.MaxCols);
-        double totalW = WaterfallControl.GutterW + numCols * WaterfallControl.CellW;
+        double totalW = gutterW + numCols * WaterfallControl.CellW;
         double totalH = WaterfallControl.HeaderH + numRows * WaterfallControl.RowH;
         long minCy = data.MinCycle;
 
@@ -123,8 +171,8 @@ public sealed class WaterfallControl : Control {
         int rFirst = Math.Max(0, (int)((sy - WaterfallControl.HeaderH) / WaterfallControl.RowH));
         int rLast  = Math.Min(numRows - 1, (int)((sy + vh - WaterfallControl.HeaderH) / WaterfallControl.RowH) + 1);
 
-        long cFirst = Math.Max(0L, (long)((sx - WaterfallControl.GutterW) / WaterfallControl.CellW) - 1);
-        long cLast  = Math.Min(numCols - 1, (long)((sx + vw - WaterfallControl.GutterW) / WaterfallControl.CellW) + 1);
+        long cFirst = Math.Max(0L, (long)((sx - gutterW) / WaterfallControl.CellW) - 1);
+        long cLast  = Math.Min(numCols - 1, (long)((sx + vw - gutterW) / WaterfallControl.CellW) + 1);
 
         // ── Row backgrounds (full-width stripe, gutter included) ─────────────────
         for (int r = rFirst; r <= rLast; r++) {
@@ -140,7 +188,7 @@ public sealed class WaterfallControl : Control {
         double colTintH = (rLast - rFirst + 1) * WaterfallControl.RowH;
         for (long c = cFirst; c <= cLast; c++)
             if (data.FlushCycles.Contains(minCy + c)) {
-                double cx = WaterfallControl.GutterW + c * WaterfallControl.CellW;
+                double cx = gutterW + c * WaterfallControl.CellW;
                 ctx.DrawRectangle(
                     WaterfallControl.FlushColTint, null,
                     new Rect(cx, colTintTop, WaterfallControl.CellW, colTintH)
@@ -155,7 +203,7 @@ public sealed class WaterfallControl : Control {
                 if (!WaterfallControl.KindStyle.TryGetValue(kind, out (IBrush Bg, string Label) style)) continue;
                 long ci = cycle - minCy;
                 if (ci < cFirst || ci > cLast) continue;
-                double cx = WaterfallControl.GutterW + ci * WaterfallControl.CellW;
+                double cx = gutterW + ci * WaterfallControl.CellW;
                 ctx.DrawRectangle(
                     style.Bg, null,
                     new Rect(cx + 1, rowY + 1, WaterfallControl.CellW - 2, WaterfallControl.RowH - 2), 2, 2
@@ -167,11 +215,11 @@ public sealed class WaterfallControl : Control {
         // ── Grid lines (cycle columns + horizontal row lines) ────────────────────
         for (int r = rFirst + 1; r <= rLast + 1; r++) {
             double y = WaterfallControl.HeaderH + r * WaterfallControl.RowH;
-            ctx.DrawLine(gridPen, new Point(WaterfallControl.GutterW, y), new Point(totalW, y));
+            ctx.DrawLine(gridPen, new Point(gutterW, y), new Point(totalW, y));
         }
         if (cLast - cFirst <= 100)
             for (long c = cFirst; c <= cLast + 1; c++) {
-                double x = WaterfallControl.GutterW + c * WaterfallControl.CellW;
+                double x = gutterW + c * WaterfallControl.CellW;
                 ctx.DrawLine(gridPen, new Point(x, 0), new Point(x, totalH));
             }
 
@@ -179,8 +227,8 @@ public sealed class WaterfallControl : Control {
         ctx.DrawRectangle(headerBg, null, new Rect(sx, sy, vw, WaterfallControl.HeaderH));
         for (long c = cFirst; c <= cLast; c++) {
             long cycle = minCy + c;
-            double cx = WaterfallControl.GutterW + c * WaterfallControl.CellW;
-            if (cx + WaterfallControl.CellW <= sx + WaterfallControl.GutterW) continue; // behind sticky gutter
+            double cx = gutterW + c * WaterfallControl.CellW;
+            if (cx + WaterfallControl.CellW <= sx + gutterW) continue; // behind sticky gutter
             bool isFlush = data.FlushCycles.Contains(cycle);
             bool isStall = data.FetchStallCycles.Contains(cycle);
             if (isFlush)
@@ -199,45 +247,59 @@ public sealed class WaterfallControl : Control {
             double rowY = WaterfallControl.HeaderH + r * WaterfallControl.RowH;
             ctx.DrawRectangle(
                 r % 2 == 0 ? rowBg0 : rowBg1, null,
-                new Rect(sx, rowY, WaterfallControl.GutterW, WaterfallControl.RowH)
+                new Rect(sx, rowY, gutterW, WaterfallControl.RowH)
             );
             DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 3));
             bool twoLine = row.SpecPc != row.Pc;
             DrawFt(
                 ctx, $"{row.Pc:X}", labelFg, twoLine ? 8.5 : 10,
-                new Point(sx + WaterfallControl.InstrIdColW + 4, rowY + (twoLine ? 2 : 3))
+                new Point(sx + _instrIdColW + 4, rowY + (twoLine ? 2 : 3))
             );
             if (twoLine)
                 DrawFt(
                     ctx, $"~{row.SpecPc:X}", specPcFg, 7.5,
-                    new Point(sx + WaterfallControl.InstrIdColW + 4, rowY + 11)
+                    new Point(sx + _instrIdColW + 4, rowY + 11)
                 );
         }
         ctx.DrawLine(
             gridPen,
-            new Point(sx + WaterfallControl.GutterW, sy),
-            new Point(sx + WaterfallControl.GutterW, sy + vh)
+            new Point(sx + gutterW, sy),
+            new Point(sx + gutterW, sy + vh)
         );
 
         // ── Sticky corner (header × gutter, drawn last so it sits on top) ────────
-        ctx.DrawRectangle(headerBg, null, new Rect(sx, sy, WaterfallControl.GutterW, WaterfallControl.HeaderH));
+        ctx.DrawRectangle(headerBg, null, new Rect(sx, sy, gutterW, WaterfallControl.HeaderH));
         DrawFt(ctx, "InstrId", headerFg, 10.5, new Point(sx + 4, sy + 6));
-        DrawFt(ctx, "PC", headerFg, 10.5, new Point(sx + WaterfallControl.InstrIdColW + 6, sy + 6));
+        DrawFt(ctx, "PC", headerFg, 10.5, new Point(sx + _instrIdColW + 6, sy + 6));
         ctx.DrawLine(
             gridPen,
-            new Point(sx + WaterfallControl.InstrIdColW, sy),
-            new Point(sx + WaterfallControl.InstrIdColW, sy + WaterfallControl.HeaderH)
+            new Point(sx + _instrIdColW, sy),
+            new Point(sx + _instrIdColW, sy + WaterfallControl.HeaderH)
         );
         ctx.DrawLine(
             gridPen,
-            new Point(sx + WaterfallControl.GutterW, sy),
-            new Point(sx + WaterfallControl.GutterW, sy + WaterfallControl.HeaderH)
+            new Point(sx + gutterW, sy),
+            new Point(sx + gutterW, sy + WaterfallControl.HeaderH)
         );
         ctx.DrawLine(
             gridPen,
             new Point(sx, sy + WaterfallControl.HeaderH),
-            new Point(sx + WaterfallControl.GutterW, sy + WaterfallControl.HeaderH)
+            new Point(sx + gutterW, sy + WaterfallControl.HeaderH)
         );
+    }
+
+    // Renders the full waterfall (up to MaxRows × MaxCols) to a PNG file at 96 DPI.
+    internal static void RenderToFile(WaterfallData data, bool isDark, string path) {
+        var ctrl = new WaterfallControl { Data = data, IsDark = isDark };
+        ctrl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        ctrl.Arrange(new Rect(ctrl.DesiredSize));
+        Size sz = ctrl.DesiredSize;
+        using var bitmap = new RenderTargetBitmap(
+            new PixelSize((int)Math.Ceiling(sz.Width), (int)Math.Ceiling(sz.Height)),
+            new Vector(96, 96)
+        );
+        bitmap.Render(ctrl);
+        bitmap.Save(path);
     }
 
     private static void DrawFt(DrawingContext ctx, string text, IBrush fg, double size, Point origin) {

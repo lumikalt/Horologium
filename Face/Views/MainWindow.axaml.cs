@@ -3,6 +3,7 @@ using Avalonia.Data;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Face.Controls;
 using Face.ViewModels;
 using ScottPlot;
 using ScottPlot.Avalonia;
@@ -31,6 +32,22 @@ public partial class MainWindow : Window {
 
             ApplyChartStyle();
         };
+    }
+
+    private async void OnSaveWaterfallClick(object? sender, RoutedEventArgs e) {
+        if (Vm?.CurrentWaterfall is not { } data) return;
+        TopLevel topLevel = GetTopLevel(this)!;
+        IStorageFile? file = await topLevel.StorageProvider.SaveFilePickerAsync(
+            new FilePickerSaveOptions {
+                Title = "Save Waterfall Image",
+                DefaultExtension = "png",
+                SuggestedFileName = "waterfall",
+                FileTypeChoices = [new FilePickerFileType("PNG Image") { Patterns = ["*.png"] }],
+            }
+        );
+        if (file is null) return;
+        bool dark = Vm.IsDarkTheme;
+        await Task.Run(() => WaterfallControl.RenderToFile(data, dark, file.Path.LocalPath));
     }
 
     private async void OnBrowseClick(object? sender, RoutedEventArgs e) {
