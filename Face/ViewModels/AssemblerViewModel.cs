@@ -85,7 +85,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [ObservableProperty] public partial string PipelineModeLabel { get; set; } = "Single Cycle";
 
-    public static IReadOnlyList<string> PipelineModeLabels { get; } = ["Single Cycle", "5-Stage", "OoO"];
+    public static IReadOnlyList<string> PipelineModeLabels { get; } = ["Single Cycle", "5-Stage", "OoO",];
 
     public ObservableCollection<AssemblyRow> Instructions { get; } = [];
     public ObservableCollection<RegEntry> IntRegisters { get; } = [];
@@ -125,7 +125,8 @@ public partial class AssemblerViewModel : ObservableObject {
         get {
             var flags = RvExtension.None;
             foreach (ExtensionToggle t in AvailableExtensions)
-                if (t.IsEnabled) flags |= t.Flag;
+                if (t.IsEnabled)
+                    flags |= t.Flag;
             return flags;
         }
     }
@@ -321,6 +322,7 @@ public partial class AssemblerViewModel : ObservableObject {
             _archState?.Reset();
             _stepCount = 0;
         }
+
         if (_binaryData != null) SetupPipeline();
         CanStep = Instructions.Count > 0;
         StatusText = CurrentMode == PipelineMode.SingleCycle ? "Reset. PC=0x0" : "Reset. Cycle 0.";
@@ -328,9 +330,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     private void StepOnce() {
         switch (CurrentMode) {
-            case PipelineMode.SingleCycle:
-                StepSingleCycle();
-                break;
+            case PipelineMode.SingleCycle: StepSingleCycle(); break;
             case PipelineMode.FiveStage when _fiveStageTrain != null:
             case PipelineMode.OoO when _oooeTrain != null:
                 StepPipeline();
@@ -400,10 +400,12 @@ public partial class AssemblerViewModel : ObservableObject {
         if (_fiveStageTrain != null) {
             running = _fiveStageTrain.StepCycle();
             _currentCycle = _fiveStageTrain.CurrentTick;
-        } else if (_oooeTrain != null) {
+        }
+        else if (_oooeTrain != null) {
             running = _oooeTrain.StepCycle();
             _currentCycle = _oooeTrain.CurrentTick;
-        } else { return; }
+        }
+        else { return; }
 
         UpdateStages();
         RefreshAllRegisters();
@@ -411,15 +413,16 @@ public partial class AssemblerViewModel : ObservableObject {
         if (!running) {
             CanStep = false;
             StatusText = $"Halted at cycle {_currentCycle}.";
-        } else if (_binarySize > 0 && (ActiveArchState?.Pc ?? 0) >= (ulong)_binarySize) {
+        }
+        else if (_binarySize > 0 && (ActiveArchState?.Pc ?? 0) >= (ulong)_binarySize) {
             CanStep = false;
             StatusText = $"PC past program end at cycle {_currentCycle}.";
-        } else if (_currentCycle >= MaxPipelineCycles) {
+        }
+        else if (_currentCycle >= AssemblerViewModel.MaxPipelineCycles) {
             CanStep = false;
             StatusText = $"Stopped at cycle {_currentCycle} (limit reached — add ebreak to terminate).";
-        } else {
-            StatusText = $"Cycle {_currentCycle}";
         }
+        else { StatusText = $"Cycle {_currentCycle}"; }
     }
 
     private void LoadBinary(byte[] binary) {
@@ -484,7 +487,8 @@ public partial class AssemblerViewModel : ObservableObject {
                 mem.Load(0, _binaryData);
                 _fiveStageTrain = new FiveStageTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
-                    pEventLog: _pEventLog);
+                    pEventLog: _pEventLog
+                );
                 _fiveStageTrain.BeginStepping();
                 break;
             }
@@ -493,7 +497,8 @@ public partial class AssemblerViewModel : ObservableObject {
                 mem.Load(0, _binaryData);
                 _oooeTrain = new OooeTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
-                    pEventLog: _pEventLog);
+                    pEventLog: _pEventLog
+                );
                 _oooeTrain.BeginStepping();
                 break;
             }
@@ -510,10 +515,10 @@ public partial class AssemblerViewModel : ObservableObject {
     private void UpdateStages() {
         if (CurrentMode == PipelineMode.SingleCycle) {
             ulong pc = _archState?.Pc ?? 0;
-            foreach (AssemblyRow row in Instructions)
-                row.Stage = row.Offset == pc ? "PC" : "";
+            foreach (AssemblyRow row in Instructions) row.Stage = row.Offset == pc ? "PC" : "";
             CurrentSourceLine = _pcToLine.TryGetValue(pc, out int line) ? line : 0;
-        } else {
+        }
+        else {
             Dictionary<ulong, string> stageMap = ComputeStages();
             foreach (AssemblyRow row in Instructions)
                 row.Stage = stageMap.TryGetValue(row.Offset, out string? stage) ? stage : "";
@@ -532,10 +537,9 @@ public partial class AssemblerViewModel : ObservableObject {
 
         // For each PC: pick the entry with the highest InstrId (most recently fetched iteration)
         var byPc = new Dictionary<ulong, PEvent>();
-        foreach (PEvent ev in latest.Values) {
+        foreach (PEvent ev in latest.Values)
             if (!byPc.TryGetValue(ev.Pc, out PEvent existing) || ev.InstrId > existing.InstrId)
                 byPc[ev.Pc] = ev;
-        }
 
         // Map to stage labels
         var result = new Dictionary<ulong, string>();
@@ -545,24 +549,25 @@ public partial class AssemblerViewModel : ObservableObject {
                 : MapOoo(ev.Kind, ev.Cycle);
             if (stage != "") result[pc] = stage;
         }
+
         return result;
     }
 
     private string MapFiveStage(PEventKind kind, long eventCycle) => kind switch {
-        PEventKind.Fetch      => "IF",
-        PEventKind.FetchStall => "IF",
-        PEventKind.Decode     => "ID",
+        PEventKind.Fetch                                    => "IF",
+        PEventKind.FetchStall                               => "IF",
+        PEventKind.Decode                                   => "ID",
         PEventKind.Execute when eventCycle == _currentCycle => "EX",
         PEventKind.Execute                                  => "MEM",
-        PEventKind.Retire  when eventCycle == _currentCycle => "WB",
+        PEventKind.Retire when eventCycle == _currentCycle  => "WB",
         _                                                   => "",
     };
 
     private string MapOoo(PEventKind kind, long eventCycle) => kind switch {
-        PEventKind.Fetch    => "IF",
-        PEventKind.Dispatch => "Dis",
-        PEventKind.Issue    => "Iss",
-        PEventKind.Execute  => "Ex",
+        PEventKind.Fetch                                   => "IF",
+        PEventKind.Dispatch                                => "Dis",
+        PEventKind.Issue                                   => "Iss",
+        PEventKind.Execute                                 => "Ex",
         PEventKind.Retire when eventCycle == _currentCycle => "Ret",
         _                                                  => "",
     };

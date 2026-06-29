@@ -42,7 +42,7 @@ public partial class MainWindow : Window {
                 Title = "Save Waterfall Image",
                 DefaultExtension = "png",
                 SuggestedFileName = "waterfall",
-                FileTypeChoices = [new FilePickerFileType("PNG Image") { Patterns = ["*.png"] }],
+                FileTypeChoices = [new FilePickerFileType("PNG Image") { Patterns = ["*.png",], },],
             }
         );
         if (file is null) return;

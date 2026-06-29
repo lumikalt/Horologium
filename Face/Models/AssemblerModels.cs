@@ -12,7 +12,9 @@ public enum RegFormat {
     Float,
 }
 
-public enum PipelineMode { SingleCycle, FiveStage, OoO }
+public enum PipelineMode {
+    SingleCycle, FiveStage, OoO,
+}
 
 public partial class AssemblyRow(
     ulong offset,

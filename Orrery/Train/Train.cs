@@ -278,10 +278,12 @@ public sealed class Train {
     public void BeginStepping() {
         if (!_built)
             throw new InvalidOperationException(
-                $"Train '{Name}' has not been built. Call Build() before BeginStepping().");
+                $"Train '{Name}' has not been built. Call Build() before BeginStepping()."
+            );
         if (Root.Lifecycle != SimLifecycle.Finalizing)
             throw new InvalidOperationException(
-                $"Train '{Name}' is in lifecycle '{Root.Lifecycle}'. Expected 'Finalizing'.");
+                $"Train '{Name}' is in lifecycle '{Root.Lifecycle}'. Expected 'Finalizing'."
+            );
         Root.BeginRunning();
         foreach (Gear gear in _gears) gear.Wind();
     }
