@@ -109,9 +109,9 @@ public sealed class WaterfallControl : Control {
             WaterfallRow row = data.Rows[i];
             string id = row.InstrId.ToString();
             if (id.Length > widestId.Length) widestId = id;
-            double pcW = MeasureFtWidth($"+{row.Pc - basePc:X}", 10);
+            double pcW = MeasureFtWidth($"{row.Pc - basePc:X}", 10);
             if (row.SpecPc != row.Pc)
-                pcW += MeasureFtWidth($"/+{row.SpecPc - basePc:X}", 10);
+                pcW += MeasureFtWidth($"/{row.SpecPc - basePc:X}", 10);
             if (pcW > widestPcW) widestPcW = pcW;
         }
 
@@ -249,12 +249,12 @@ public sealed class WaterfallControl : Control {
                 new Rect(sx, rowY, gutterW, WaterfallControl.RowH)
             );
             DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 3));
-            string pcStr = $"+{row.Pc - basePc:X}";
+            string pcStr = $"{row.Pc - basePc:X}";
             double pcX = sx + _instrIdColW + 4;
             DrawFt(ctx, pcStr, labelFg, 10, new Point(pcX, rowY + 3));
             if (row.SpecPc != row.Pc) {
                 double slashX = pcX + MeasureFtWidth(pcStr, 10);
-                DrawFt(ctx, $"/+{row.SpecPc - basePc:X}", specPcFg, 10, new Point(slashX, rowY + 3));
+                DrawFt(ctx, $"/{row.SpecPc - basePc:X}", specPcFg, 10, new Point(slashX, rowY + 3));
             }
         }
 
