@@ -162,15 +162,15 @@ tick. The leverage is at the *run* level, where whole simulations are independen
   to the same address resolved after it. Flush and reexecute from the violating load; store-to-load forwarding at
   execute time avoids squash when the store has already resolved. (inspired by gem5 O3)
 - [ ] Separate load queue and store queue for speculative memory disambiguation.
-- [ ] **Bug: fetch decode-fault can permanently wedge the fetcher.** `StepFetch`'s `catch` sets `_fetchFaulted=true` and
-  `break`s without enqueuing anything; if the ROB then drains before any flush, nothing ever clears the flag and the core
-  spins idle to `maxTicks`. (A real RISC-V core takes an instruction-access-fault.) Should enqueue a fetch trap the way
-  the translation-fault path does. NOTE: do not "fix" this to paper over a value-corruption bug — on a wrong path it must
-  stay squashable. Surfaced while diagnosing the reverted load-side MLP attempt.
-- [ ] **Bug: Load/Store/Atomic share one FU budget (`FuLatencyConfig.CountFor`) but `StepIssue` counts per `ToothClass`
-  enum value**, so a Load and an Atomic (and a Store) can each issue in the same cycle despite `LoadStoreCount=1` — i.e.
-  more cache accesses/cycle than the single modeled port. Decide whether to share one issue counter across the memory
-  classes. (Surfaced reviewing the load-miss work.)
+- [x] **Bug: fetch decode-fault can permanently wedge the fetcher.** `StepFetch`'s `catch` now catches
+  `IllegalInstructionException` specifically and enqueues a `PreTrap` entry (same path as the translation-fault case).
+  On a wrong speculative path the entry is squashed by the flush; on the architectural path it commits and `RaiseTrap`
+  redirects the PC. Covered by `IllegalInstruction_OnArchitecturalPath_TakesTraps_DoesNotWedge` and
+  `IllegalInstruction_OnWrongSpeculativePath_IsSquashed_NoSpuriousTrap`.
+- [x] **Bug: Load/Store/Atomic share one FU budget (`FuLatencyConfig.CountFor`) but `StepIssue` counted per `ToothClass`
+  enum value**, so a Load and an Atomic could issue in the same cycle despite `LoadStoreCount=1`. Fixed by adding
+  `FuLatencyConfig.BudgetSlot` (maps Store/Atomic → Load slot; ConditionalBranch → Branch slot) and using it in
+  `StepIssue`. Covered by `LoadAndAtomic_WithLoadStoreCount1_IssueInSeparateCycles`.
 - [ ] **Gap: a younger load does not disambiguate against an older *atomic*'s store half via the load-side checks.**
   `HasOlderConflictingStore`/`TryForwardFromStore` skip `!entry.IsStore`, and atomics are `IsStore=false`, so a load that
   executes *after* an older atomic has already resolved won't see the conflict from the load side. The converse ordering

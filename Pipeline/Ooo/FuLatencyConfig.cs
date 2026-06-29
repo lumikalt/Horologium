@@ -31,6 +31,18 @@ public sealed record FuLatencyConfig(
 ) {
     public static FuLatencyConfig Default { get; } = new();
 
+    /// <summary>
+    /// Maps a ToothClass to the issue-port counter slot used in StepIssue.
+    /// Classes that share a single FU pool (Load/Store/Atomic; Branch/ConditionalBranch)
+    /// must share the same slot so their combined issue count respects CountFor's limit.
+    /// Must be kept in sync with the groupings in CountFor.
+    /// </summary>
+    public static int BudgetSlot(ToothClass cls) => cls switch {
+        ToothClass.Store or ToothClass.Atomic => (int)ToothClass.Load,
+        ToothClass.ConditionalBranch          => (int)ToothClass.Branch,
+        _                                     => (int)cls,
+    };
+
     public int CountFor(ToothClass cls) => cls switch {
         ToothClass.IntegerAlu                                    => IntAluCount,
         ToothClass.IntegerMulDiv                                 => MulDivCount,

@@ -1,3 +1,4 @@
+using Mechanism;
 using Pipeline.Ooo;
 
 namespace Tests.RiscV32;
@@ -495,5 +496,30 @@ public class IssueQueueTests {
         iq.Broadcast(20, 777);
         Assert.True(iq.At(slot).Src3Ready);
         Assert.Equal(777UL, iq.At(slot).Src3Value);
+    }
+}
+
+/// FuLatencyConfig.BudgetSlot
+public class FuLatencyConfigBudgetSlotTests {
+    [Fact]
+    public void MemoryClasses_ShareOneSlot() {
+        int loadSlot = FuLatencyConfig.BudgetSlot(ToothClass.Load);
+        Assert.Equal(loadSlot, FuLatencyConfig.BudgetSlot(ToothClass.Store));
+        Assert.Equal(loadSlot, FuLatencyConfig.BudgetSlot(ToothClass.Atomic));
+    }
+
+    [Fact]
+    public void BranchClasses_ShareOneSlot() {
+        int branchSlot = FuLatencyConfig.BudgetSlot(ToothClass.Branch);
+        Assert.Equal(branchSlot, FuLatencyConfig.BudgetSlot(ToothClass.ConditionalBranch));
+    }
+
+    [Fact]
+    public void OtherClasses_DoNotShareWithMemoryOrBranch() {
+        int loadSlot = FuLatencyConfig.BudgetSlot(ToothClass.Load);
+        int branchSlot = FuLatencyConfig.BudgetSlot(ToothClass.Branch);
+        Assert.NotEqual(loadSlot, FuLatencyConfig.BudgetSlot(ToothClass.IntegerAlu));
+        Assert.NotEqual(loadSlot, FuLatencyConfig.BudgetSlot(ToothClass.FloatingPoint));
+        Assert.NotEqual(branchSlot, FuLatencyConfig.BudgetSlot(ToothClass.IntegerAlu));
     }
 }

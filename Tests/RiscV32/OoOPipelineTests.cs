@@ -21,7 +21,8 @@ public class OoOPipelineTests {
         int robCapacity = 16,
         int iqCapacity = 8,
         int memSize = 4096,
-        FuLatencyConfig? fuLatency = null
+        FuLatencyConfig? fuLatency = null,
+        PEventLog? pEventLog = null
     ) {
         var mem = new FlatMemory(memSize);
         var train = new OooeTrain(
@@ -29,7 +30,8 @@ public class OoOPipelineTests {
             issueWidth: issueWidth,
             robCapacity: robCapacity,
             iqCapacity: iqCapacity,
-            fuLatency: fuLatency
+            fuLatency: fuLatency,
+            pEventLog: pEventLog
         );
         return (train, mem);
     }
@@ -451,5 +453,91 @@ public class OoOPipelineTests {
             snap.Counters["cycles"] >= snap.Counters["retired"],
             $"cycles={snap.Counters["cycles"]} retired={snap.Counters["retired"]}"
         );
+    }
+
+    // ── Bug: fetch decode-fault wedge ─────────────────────────────────────────
+    // Before the fix, a decode exception in StepFetch set _fetchFaulted=true
+    // without enqueuing anything. If the ROB subsequently drained without a flush
+    // (no misprediction, no in-flight trap), the fetcher was stuck permanently and
+    // the core spun to maxTicks with no further commits.
+
+    [Fact]
+    public void IllegalInstruction_OnArchitecturalPath_TakesTraps_DoesNotWedge() {
+        // csrwi mtvec, 12   (PC=0)  — point trap handler at PC=12
+        // 0x00000000        (PC=4)  — illegal; ROB has nothing else when it commits
+        // ebreak            (PC=8)  — not reached in correct execution
+        // ebreak            (PC=12) — trap handler: clean halt
+        //
+        // Bug: csrwi commits, ROB empties, _fetchFaulted=true, fetcher stuck → maxTicks.
+        // Fix: PreTrap(PC=4) commits after csrwi → RaiseTrap → redirect to PC=12 → halt.
+        const long maxTicks = 1_000;
+        (OooeTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x30565073, // csrwi mtvec, 12
+            0x00000000, // illegal instruction
+            0x00100073, // ebreak (PC=8, not reached)
+            0x00100073  // ebreak (PC=12, trap handler)
+        );
+        RevolutionResult r = train.Run(maxTicks);
+        Assert.True(
+            r.TotalTicks < maxTicks,
+            $"fetcher wedged on illegal instruction — spun to maxTicks ({r.TotalTicks})"
+        );
+    }
+
+    [Fact]
+    public void IllegalInstruction_OnWrongSpeculativePath_IsSquashed_NoSpuriousTrap() {
+        // beq x0, x0, +8   (PC=0)  — always-taken; AlwaysNotTaken predictor predicts
+        //                            not-taken, so fetch speculatively reads PC=4 next.
+        // 0x00000000        (PC=4)  — illegal, on wrong speculative path
+        // addi x1, x0, 42  (PC=8)  — correct path
+        // ebreak            (PC=12)
+        //
+        // The PreTrap at PC=4 must be squashed by the branch-misprediction flush;
+        // it must never commit and must not cause a spurious IllegalInstruction trap.
+        (OooeTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x00000463, // beq x0, x0, +8
+            0x00000000, // illegal (wrong path)
+            0x02A00093, // addi x1, x0, 42
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(42u, Reg(train, 1));
+    }
+
+    // ── Bug: Load/Store/Atomic share one FU budget but StepIssue counted per-class ──
+    // Before the fix, Load and Atomic each had their own counter slot in classIssued[],
+    // so with LoadStoreCount=1 a Load and an Atomic that were both ready could issue
+    // in the same cycle — exceeding the single modeled port.
+
+    [Fact]
+    public void LoadAndAtomic_WithLoadStoreCount1_IssueInSeparateCycles() {
+        // lw  x1, 0(x0)   (PC=0) — Load, no deps
+        // lr.w x2, (x0)   (PC=4) — Atomic, no deps
+        // ebreak           (PC=8)
+        //
+        // With issueWidth=2, both instructions are dispatched in the same cycle
+        // and are immediately ready. With LoadStoreCount=1 (the default), at most
+        // one memory-class instruction may issue per cycle. The bug allows both to
+        // issue the same cycle; the fix defers the second to the next cycle.
+        var log = new PEventLog();
+        (OooeTrain train, FlatMemory mem) = Make(pEventLog: log);
+        Load(
+            mem,
+            0x00002083, // lw  x1, 0(x0)
+            0x1000212F, // lr.w x2, (x0)
+            0x00100073  // ebreak
+        );
+        train.Run();
+
+        Dictionary<ulong, PEvent> issues = log.Events
+                                              .Where(e => e.Kind == PEventKind.Issue)
+                                              .ToDictionary(e => e.Pc);
+        Assert.True(issues.ContainsKey(0), "lw at PC=0 must have an Issue event");
+        Assert.True(issues.ContainsKey(4), "lr.w at PC=4 must have an Issue event");
+        Assert.NotEqual(issues[0].Cycle, issues[4].Cycle);
     }
 }

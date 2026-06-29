@@ -636,7 +636,8 @@ internal sealed class OoOPipelineCore : Gear {
             if (!rs.Busy || !rs.IsReady) continue;
 
             ToothClass cls = rs.Instruction?.Class ?? ToothClass.IntegerAlu;
-            if (classIssued[(int)cls] >= _fuConfig.CountFor(cls)) continue;
+            int fuSlot = FuLatencyConfig.BudgetSlot(cls);
+            if (classIssued[fuSlot] >= _fuConfig.CountFor(cls)) continue;
 
             // Loads issue speculatively; only block on preceding vector stores (which
             // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
@@ -677,7 +678,7 @@ internal sealed class OoOPipelineCore : Gear {
             );
             PEventLog?.Record(issuedInstrId, rs.Pc, _cyclesCounter.Value, PEventKind.Issue);
             _iq.Free(slot);
-            classIssued[(int)cls]++;
+            classIssued[fuSlot]++;
             issued++;
         }
     }
@@ -897,8 +898,21 @@ internal sealed class OoOPipelineCore : Gear {
                 raw = (uint)ILayers.Accessor.Read(physPc, 4);
                 decoded = _decoder.Decode(_fetchPc, raw);
             }
-            catch {
-                _fetchFaulted = true; // stop retrying until flush redirects _fetchPc
+            catch (IllegalInstructionException ex) {
+                // Enqueue a pre-trap so the fault propagates through the ROB and
+                // commits in-order. Without this, _fetchFaulted=true with nothing
+                // in the ROB permanently wedges the fetcher until a flush arrives.
+                // On a wrong speculative path the PreTrap entry is squashed by the
+                // flush just like any other in-flight instruction.
+                ulong faultId = _nextInstrId++;
+                _decodeQueue.Enqueue(
+                    new FetchedInstr(
+                        _fetchPc, null, _fetchPc, faultId,
+                        new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, _fetchPc)
+                    )
+                );
+                PEventLog?.Record(faultId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
+                _fetchFaulted = true;
                 break;
             }
 
