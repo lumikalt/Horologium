@@ -12,7 +12,7 @@
 
     <!-- Exclude desktop-only entry point from browser builds -->
     <ItemGroup Condition="$(TargetFramework.Contains('browser'))">
-        <Compile Remove="Program.cs" />
+        <Compile Remove="Program.cs"/>
     </ItemGroup>
 
     <ItemGroup>

@@ -116,9 +116,9 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial int CacheOffsetBits { get; set; }
 
     public static IReadOnlyList<string> PipelineModeLabels { get; } = ["Single Cycle", "5-Stage", "OoO",];
-    public static IReadOnlyList<int> CacheCapacityKbOptions { get; } = [1, 2, 4, 8, 16, 32];
-    public static IReadOnlyList<int> CacheWaysOptions { get; } = [1, 2, 4, 8];
-    public static IReadOnlyList<int> CacheBlockBytesOptions { get; } = [8, 16, 32, 64];
+    public static IReadOnlyList<int> CacheCapacityKbOptions { get; } = [1, 2, 4, 8, 16, 32,];
+    public static IReadOnlyList<int> CacheWaysOptions { get; } = [1, 2, 4, 8,];
+    public static IReadOnlyList<int> CacheBlockBytesOptions { get; } = [8, 16, 32, 64,];
 
     public ObservableCollection<AssemblyRow> Instructions { get; } = [];
     public ObservableCollection<RegEntry> IntRegisters { get; } = [];
@@ -221,6 +221,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 ? $"PC=0x{_archState?.Pc:X}"
                 : "Cycle 0. Press Step to advance.";
         }
+
         OnPropertyChanged(nameof(IsPipelineMode));
     }
 
@@ -244,9 +245,92 @@ public partial class AssemblerViewModel : ObservableObject {
     }
 
     [RelayCommand(CanExecute = nameof(CanBack))]
-    private void Back() { }
+    private void Back() {
+        _runCts?.Cancel();
+        if (CurrentMode == PipelineMode.SingleCycle)
+            BackSingleCycle();
+        else
+            BackPipeline();
+    }
 
-    private static bool CanBack() => false;
+    private void BackSingleCycle() {
+        int target = _stepCount - 1;
+        if (target < 0) return;
+        _memory = BuildFreshMemory();
+        _archState = new Rv32ArchState();
+        _stepCount = 0;
+        for (var i = 0; i < target; i++) {
+            if (!CoreStepSingleCycle()) break;
+            _stepCount++;
+        }
+        CanStep = Instructions.Count > 0;
+        RefreshAllRegisters();
+        UpdateStages();
+        StatusText = _stepCount == 0
+            ? $"PC=0x{_archState.Pc:X}"
+            : $"Step {_stepCount}: PC=0x{_archState.Pc:X}";
+        BackCommand.NotifyCanExecuteChanged();
+    }
+
+    private void BackPipeline() {
+        long targetCycle = _currentCycle - 1;
+        if (targetCycle < 0) return;
+        SetupPipeline();
+        for (long i = 0; i < targetCycle; i++) {
+            bool running;
+            if (_fiveStageTrain != null) {
+                running = _fiveStageTrain.StepCycle();
+                _currentCycle = _fiveStageTrain.CurrentTick;
+            }
+            else if (_oooeTrain != null) {
+                running = _oooeTrain.StepCycle();
+                _currentCycle = _oooeTrain.CurrentTick;
+            }
+            else { return; }
+            SampleCacheHistory();
+            if (!running) break;
+        }
+        CanStep = Instructions.Count > 0 && _currentCycle < MaxPipelineCycles;
+        UpdateStages();
+        RefreshAllRegisters();
+        RefreshCacheDisplay();
+        CacheUpdated?.Invoke();
+        StatusText = _currentCycle == 0 ? "Reset. Cycle 0." : $"Cycle {_currentCycle}";
+        BackCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanBack() => CurrentMode == PipelineMode.SingleCycle
+        ? _stepCount > 0
+        : _currentCycle > 0;
+
+    private bool CoreStepSingleCycle() {
+        if (_archState == null || _memory == null) return false;
+        ulong pc = _archState.Pc;
+        if (pc >= (ulong)_binarySize) return false;
+        try {
+            ITooth tooth = _decoder.Decode(pc, _memory);
+            ExecuteResult result = _executor.Execute(tooth, _archState, _memory);
+            result.SideEffect?.Invoke(_archState);
+            if (result.RegisterResult.HasValue && tooth.DestinationRegister >= 0)
+                _archState.IntegerRegisters.Write(tooth.DestinationRegister, result.RegisterResult.Value);
+            if (result.IsHalt) { _archState.Pc = pc + (ulong)tooth.SizeBytes; return false; }
+            if (result.Trap != null) return false;
+            _archState.Pc = result.BranchTaken && result.BranchTarget.HasValue
+                ? result.BranchTarget.Value
+                : pc + (ulong)tooth.SizeBytes;
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private FlatMemory BuildFreshMemory() {
+        var mem = new FlatMemory(1 << 20);
+        if (_elfBytes != null)
+            Rv32ElfLoader.Load(mem, _elfBytes);
+        else if (_binaryData != null)
+            mem.Load(0, _binaryData);
+        return mem;
+    }
 
     [RelayCommand]
     private async Task Assemble() {
@@ -374,13 +458,20 @@ public partial class AssemblerViewModel : ObservableObject {
             StepOnce();
             if (!CanStep || token.IsCancellationRequested) break;
             if (delay > 0) {
-                if (IsPipelineMode) { RefreshCacheDisplay(); CacheUpdated?.Invoke(); }
+                if (IsPipelineMode) {
+                    RefreshCacheDisplay();
+                    CacheUpdated?.Invoke();
+                }
+
                 try { await Task.Delay(delay, token); }
                 catch (OperationCanceledException) { break; }
             }
         }
 
-        if (IsPipelineMode) { RefreshCacheDisplay(); CacheUpdated?.Invoke(); }
+        if (IsPipelineMode) {
+            RefreshCacheDisplay();
+            CacheUpdated?.Invoke();
+        }
 
         if (CanStep && !token.IsCancellationRequested) {
             if (CurrentMode == PipelineMode.SingleCycle && _archState != null)
@@ -401,6 +492,7 @@ public partial class AssemblerViewModel : ObservableObject {
         if (_binaryData != null) SetupPipeline();
         CanStep = Instructions.Count > 0;
         StatusText = CurrentMode == PipelineMode.SingleCycle ? "Reset. PC=0x0" : "Reset. Cycle 0.";
+        BackCommand.NotifyCanExecuteChanged();
     }
 
     private void StepOnce() {
@@ -439,6 +531,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 RefreshAllRegisters();
                 UpdateStages();
                 StatusText = $"Halted at step {_stepCount}.";
+                BackCommand.NotifyCanExecuteChanged();
                 return;
             }
 
@@ -448,6 +541,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 RefreshAllRegisters();
                 UpdateStages();
                 StatusText = $"Trap at 0x{pc:X}: {result.Trap.Cause}";
+                BackCommand.NotifyCanExecuteChanged();
                 return;
             }
 
@@ -460,6 +554,7 @@ public partial class AssemblerViewModel : ObservableObject {
             RefreshAllRegisters();
             UpdateStages();
             StatusText = $"Step {_stepCount}: PC=0x{_archState.Pc:X}";
+            BackCommand.NotifyCanExecuteChanged();
         }
         catch (Exception ex) {
             CanStep = false;
@@ -476,6 +571,7 @@ public partial class AssemblerViewModel : ObservableObject {
             long total = ic.Hits + ic.Misses;
             if (total > 0) _iCacheHitHistory.Add((_currentCycle, (double)ic.Hits / total));
         }
+
         if (dc is not null) {
             long total = dc.Hits + dc.Misses;
             if (total > 0) _dCacheHitHistory.Add((_currentCycle, (double)dc.Hits / total));
@@ -512,14 +608,12 @@ public partial class AssemblerViewModel : ObservableObject {
             StatusText = $"Stopped at cycle {_currentCycle} (limit reached — add ebreak to terminate).";
         }
         else { StatusText = $"Cycle {_currentCycle}"; }
+        BackCommand.NotifyCanExecuteChanged();
     }
 
     private void LoadBinary(byte[] binary) {
         _binaryData = binary;
-        const int memSize = 1 << 20;
-        _memory = new FlatMemory(memSize);
-        if (_elfBytes != null) Rv32ElfLoader.Load(_memory, _elfBytes);
-        else _memory.Load(0, binary);
+        _memory = BuildFreshMemory();
         _binarySize = binary.Length;
         _archState = new Rv32ArchState();
         _stepCount = 0;
@@ -568,10 +662,10 @@ public partial class AssemblerViewModel : ObservableObject {
     private MemoryConfig BuildCacheConfig(bool enabled, int capacityKb, int ways, int blockBytes, int missLatency) =>
         enabled
             ? new MemoryConfig(
-                CacheCapacityBytes: capacityKb * 1024,
-                CacheWays: ways,
-                CacheBlockBytes: blockBytes,
-                CacheMissLatency: missLatency
+                capacityKb * 1024,
+                ways,
+                blockBytes,
+                missLatency
             )
             : MemoryConfig.None;
 
@@ -583,14 +677,16 @@ public partial class AssemblerViewModel : ObservableObject {
         _iCacheHitHistory.Clear();
         _dCacheHitHistory.Clear();
 
-        MemoryConfig iCfg = BuildCacheConfig(ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency);
-        MemoryConfig dCfg = BuildCacheConfig(DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency);
+        MemoryConfig iCfg = BuildCacheConfig(
+            ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency
+        );
+        MemoryConfig dCfg = BuildCacheConfig(
+            DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency
+        );
 
         switch (CurrentMode) {
             case PipelineMode.FiveStage when _binaryData != null: {
-                var mem = new FlatMemory(1 << 20);
-                if (_elfBytes != null) Rv32ElfLoader.Load(mem, _elfBytes);
-                else mem.Load(0, _binaryData);
+                var mem = BuildFreshMemory();
                 _fiveStageTrain = new FiveStageTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
@@ -599,9 +695,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 break;
             }
             case PipelineMode.OoO when _binaryData != null: {
-                var mem = new FlatMemory(1 << 20);
-                if (_elfBytes != null) Rv32ElfLoader.Load(mem, _elfBytes);
-                else mem.Load(0, _binaryData);
+                var mem = BuildFreshMemory();
                 _oooeTrain = new OooeTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg
@@ -619,6 +713,7 @@ public partial class AssemblerViewModel : ObservableObject {
         RefreshAllRegisters();
         RefreshCacheDisplay();
         CacheUpdated?.Invoke();
+        BackCommand.NotifyCanExecuteChanged();
     }
 
     private void UpdateStages() {
@@ -714,13 +809,18 @@ public partial class AssemblerViewModel : ObservableObject {
 
     public void RefreshCacheDisplay() {
         SetAssociativeCache? cache = SelectedCacheTab == 0
-            ? (_fiveStageTrain?.ICache ?? _oooeTrain?.ICache)
-            : (_fiveStageTrain?.DCache ?? _oooeTrain?.DCache);
+            ? _fiveStageTrain?.ICache ?? _oooeTrain?.ICache
+            : _fiveStageTrain?.DCache ?? _oooeTrain?.DCache;
 
         if (cache == null) {
-            CacheHits = "–"; CacheMisses = "–"; CacheHitRate = "–"; CacheEvictions = "–";
+            CacheHits = "–";
+            CacheMisses = "–";
+            CacheHitRate = "–";
+            CacheEvictions = "–";
             CacheLastAddress = null;
-            CacheTagBits = 0; CacheIndexBits = 0; CacheOffsetBits = 0;
+            CacheTagBits = 0;
+            CacheIndexBits = 0;
+            CacheOffsetBits = 0;
             CacheRows.Clear();
             return;
         }
@@ -732,10 +832,10 @@ public partial class AssemblerViewModel : ObservableObject {
         CacheEvictions = cache.Evictions.ToString("N0");
 
         CacheLastAddress = cache.LastAccessAddress;
-        CacheLastIsHit   = cache.LastAccessWasHit;
-        CacheOffsetBits  = cache.OffsetBits;
-        CacheIndexBits   = cache.IndexBits;
-        CacheTagBits     = 32 - cache.IndexBits - cache.OffsetBits;
+        CacheLastIsHit = cache.LastAccessWasHit;
+        CacheOffsetBits = cache.OffsetBits;
+        CacheIndexBits = cache.IndexBits;
+        CacheTagBits = 32 - cache.IndexBits - cache.OffsetBits;
 
         ulong? lastAddr = cache.LastAccessAddress;
         int lastSet = -1;
@@ -760,13 +860,14 @@ public partial class AssemblerViewModel : ObservableObject {
         double[] x = history.Select(p => (double)p.Cycle).ToArray();
         double[] y = history.Select(p => p.HitRate * 100.0).ToArray();
         const int window = 20;
-        double[] ma = new double[y.Length];
-        for (int i = 0; i < y.Length; i++) {
+        var ma = new double[y.Length];
+        for (var i = 0; i < y.Length; i++) {
             int start = Math.Max(0, i - window + 1);
             double sum = 0;
             for (int j = start; j <= i; j++) sum += y[j];
             ma[i] = sum / (i - start + 1);
         }
+
         return (x, y, ma);
     }
 

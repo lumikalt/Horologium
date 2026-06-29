@@ -100,18 +100,17 @@ public sealed class WaterfallControl : Control {
 
     // Sets _instrIdColW and _pcColW wide enough to display the widest value in each column.
     private void ComputeColumnWidths(WaterfallData data) {
-        string widestId = "ID"; // header label is the minimum width reference
+        var widestId = "ID"; // header label is the minimum width reference
         double widestPcW = MeasureFtWidth("PC", 10.5);
 
         ulong basePc = data.BasePc;
         int limit = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
-        for (int i = 0; i < limit; i++) {
+        for (var i = 0; i < limit; i++) {
             WaterfallRow row = data.Rows[i];
-            string id = row.InstrId.ToString();
+            var id = row.InstrId.ToString();
             if (id.Length > widestId.Length) widestId = id;
             double pcW = MeasureFtWidth($"{row.Pc - basePc:X}", 10);
-            if (row.SpecPc != row.Pc)
-                pcW += MeasureFtWidth($"/{row.SpecPc - basePc:X}", 10);
+            if (row.SpecPc != row.Pc) pcW += MeasureFtWidth($"/{row.SpecPc - basePc:X}", 10);
             if (pcW > widestPcW) widestPcW = pcW;
         }
 
@@ -249,7 +248,7 @@ public sealed class WaterfallControl : Control {
                 new Rect(sx, rowY, gutterW, WaterfallControl.RowH)
             );
             DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 3));
-            string pcStr = $"{row.Pc - basePc:X}";
+            var pcStr = $"{row.Pc - basePc:X}";
             double pcX = sx + _instrIdColW + 4;
             DrawFt(ctx, pcStr, labelFg, 10, new Point(pcX, rowY + 3));
             if (row.SpecPc != row.Pc) {

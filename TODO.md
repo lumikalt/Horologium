@@ -2,7 +2,7 @@
 
 ## Face
 
-- [ ] Rollback/Back step: single-step backward in the assembler debugger.
+- [x] Rollback/Back step: single-step backward in the assembler debugger.
 - [x] Pipeline stage viewer in Assembler tab.
 - [ ] L2 and L3 caches.
 - [x] Assembler to simulate RISC-V in-place.
