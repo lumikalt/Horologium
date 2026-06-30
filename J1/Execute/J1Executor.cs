@@ -9,33 +9,33 @@ public sealed class J1Executor : IExecutor {
         ulong pc = instruction.Pc;
 
         return instruction.Payload switch {
-            Literal lit  => ExecLiteral(lit),
-            Jump jmp     => ExecuteResult.WithBranch(true, (ulong)jmp.WordTarget * 2),
-            CondJump cj  => ExecCondJump(cj, pc, j1),
-            Call call    => ExecCall(call, pc),
-            Alu alu      => ExecAlu(alu, pc, j1, memory),
-            _            => throw new InvalidOperationException($"Unknown J1 op: {instruction.Payload}"),
+            Literal lit => ExecLiteral(lit),
+            Jump jmp    => ExecuteResult.WithBranch(true, (ulong)jmp.WordTarget * 2),
+            CondJump cj => ExecCondJump(cj, pc, j1),
+            Call call   => ExecCall(call, pc),
+            Alu alu     => ExecAlu(alu, pc, j1, memory),
+            _           => throw new InvalidOperationException($"Unknown J1 op: {instruction.Payload}"),
         };
     }
 
     private static ExecuteResult ExecLiteral(Literal lit) =>
-        new() { SideEffect = s => ((J1ArchState)s).DPush(lit.Value) };
+        new() { SideEffect = s => ((J1ArchState)s).DPush(lit.Value), };
 
     private static ExecuteResult ExecCondJump(CondJump cj, ulong pc, J1ArchState j1) {
-        bool  taken  = j1.T == 0;
+        bool taken = j1.T == 0;
         ulong target = taken ? (ulong)cj.WordTarget * 2 : pc + 2;
         return new ExecuteResult {
-            BranchTaken  = taken,
+            BranchTaken = taken,
             BranchTarget = target,
-            SideEffect   = s => ((J1ArchState)s).DPop(),
+            SideEffect = s => ((J1ArchState)s).DPop(),
         };
     }
 
     private static ExecuteResult ExecCall(Call call, ulong pc) =>
         new() {
-            BranchTaken  = true,
+            BranchTaken = true,
             BranchTarget = (ulong)call.WordTarget * 2,
-            SideEffect   = s => ((J1ArchState)s).RPush((ushort)((pc / 2) + 1)),
+            SideEffect = s => ((J1ArchState)s).RPush((ushort)(pc / 2 + 1)),
         };
 
     private static ExecuteResult ExecAlu(Alu op, ulong pc, J1ArchState j1, IMemory memory) {
@@ -61,36 +61,46 @@ public sealed class J1Executor : IExecutor {
             _   => t,
         };
 
-        bool  isReturn     = op.ReturnFromR;
+        bool isReturn = op.ReturnFromR;
         ulong branchTarget = isReturn ? (ulong)r * 2 : pc + 2;
 
         ushort captT = t, captN = n, captNewT = newT;
         return new ExecuteResult {
-            BranchTaken  = isReturn,
+            BranchTaken = isReturn,
             BranchTarget = branchTarget,
-            SideEffect   = s => {
+            SideEffect = s => {
                 var j = (J1ArchState)s;
                 if (op.NtoMem) memory.Write((ulong)captT * 2, captN, 2);
-                if (isReturn)  j.RPop();
-                else           ApplyRDelta(j, op.RDelta);
-                if (op.TtoR)   j.R = captT;   // write to new RSP slot after adjustment
+                if (isReturn)
+                    j.RPop();
+                else
+                    ApplyRDelta(j, op.RDelta);
+                if (op.TtoR) j.R = captT; // write to new RSP slot after adjustment
                 ApplyDDelta(j, op.DDelta, captNewT);
-                if (op.TtoN)   j.N = captT;
+                if (op.TtoN) j.N = captT;
             },
         };
     }
 
     private static void ApplyDDelta(J1ArchState j, int delta, ushort newT) {
         switch (delta) {
-            case  0: j.T = newT; break;
-            case  1: j.DPush(newT); break;
-            case -1: j.DPop(); j.T = newT; break;
-            case -2: j.DPop(); j.DPop(); j.T = newT; break;
+            case 0: j.T = newT; break;
+            case 1: j.DPush(newT); break;
+            case -1:
+                j.DPop();
+                j.T = newT;
+                break;
+            case -2:
+                j.DPop();
+                j.DPop();
+                j.T = newT;
+                break;
         }
     }
 
     private static void ApplyRDelta(J1ArchState j, int delta) {
-        if      (delta ==  1) j.RPush(0);
+        if (delta == 1)
+            j.RPush(0);
         else if (delta == -1) j.RPop();
     }
 }

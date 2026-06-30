@@ -6,6 +6,7 @@ public sealed class MoveRegisterFile(MoveArchState state) : IRegisterFile {
     public int Count => 8;
     public int Width => 16;
     public ulong Read(int index) => index is >= 0 and < 8 ? state.R[index] : 0ul;
+
     public void Write(int index, ulong value) {
         if (index is >= 0 and < 8) state.R[index] = (ushort)value;
     }

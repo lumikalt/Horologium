@@ -15,7 +15,7 @@ and which pipeline train to reach for first.
 2. [[bd95dba6-implementing-pdp-8|PDP-8]] — Accumulator, 12-bit (easy)
 3. [[7b2f2489-implementing-j1-forth|J1 Forth]] — Stack machine (easy)
 4. [[a3c51f9e-implementing-move-tta|TTA/MOVE]] — Triggered side-effect (medium)
-5. GA144 F18A — Async multi-core (medium)
+5. [[c9d0e1f2-implementing-f18a|GA144 F18A]] — Async multi-core, 4-slot word, RendezvousPort (medium)
 
 ## What you always implement
 

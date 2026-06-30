@@ -28,6 +28,7 @@
         <ProjectReference Include="..\RiscV64\RiscV64.csproj"/>
         <ProjectReference Include="..\J1\J1.csproj"/>
         <ProjectReference Include="..\Move\Move.csproj"/>
+        <ProjectReference Include="..\F18A\F18A.csproj"/>
         <ProjectReference Include="..\Pdp8\Pdp8.csproj"/>
         <ProjectReference Include="..\Subleq\Subleq.csproj"/>
     </ItemGroup>

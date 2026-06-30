@@ -10,15 +10,17 @@ public sealed class MoveInstruction : ITooth {
     public IReadOnlyList<int> SourceRegisters => [];
     public object? Payload => null;
 
-    public byte   Dst { get; }
-    public byte   Src { get; }
+    public byte Dst { get; }
+    public byte Src { get; }
     public ushort Imm { get; }
     public ToothClass Class { get; }
 
     public MoveInstruction(ulong pc, byte dst, byte src, ushort imm) {
-        Pc  = pc;
-        Dst = dst; Src = src; Imm = imm;
-        RawEncoding = (uint)(dst << 24 | src << 16 | imm);
+        Pc = pc;
+        Dst = dst;
+        Src = src;
+        Imm = imm;
+        RawEncoding = (uint)((dst << 24) | (src << 16) | imm);
         Class = dst switch {
             0x20 => ToothClass.Load,
             0x22 => ToothClass.Store,

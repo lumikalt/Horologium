@@ -201,6 +201,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
 
 ## Multicore
 
+- [x] F18A: 144-node GA144 grid with RendezvousArbor channels — first multi-core ISA in the engine. Each node runs SingleCycleTrain; `F18AGrid.Step()` coordinates synchronous rendezvous. Canonical opcode encoding (0x00–0x1F), `-if` (MinusIf), `+*` (MulStep), correct `if`-on-zero semantics.
 - [ ] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.
   - [ ] MESI cache coherence.
 
@@ -216,7 +217,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
 | 2        | ~~PDP-8~~        | Accumulator, 12b, minimal opcodes      | 2 (Easy)     |
 | 3        | ~~J1 Forth~~     | Stack machine, packed opcodes          | 2 (Easy)     |
 | 4        | ~~TTA/MOVE~~     | Triggered side-effect execution        | 3 (Medium)   |
-| 5        | GA144 F18A       | Async, multi-core, packed 5-op words   | 3 (Medium)   |
+| 5        | ~~GA144 F18A~~   | Async, multi-core, packed 5-op words   | 3 (Medium)   |
 | 6        | MIL-STD-1750A    | Committee designed, spec driven        | 3 (Medium)   |
 | 7        | Burroughs B5000  | Tagged stack-machine, segmented memory | 4 (Hard)     |
 | 8        | Symbolica/CADR   | Full tagged LISP machine               | 4 (Hard)     |

@@ -6,9 +6,12 @@ public sealed class J1RegisterFile(J1ArchState state) : IRegisterFile {
     public int Count => 2;
     public int Width => 16;
     public ulong Read(int index) => index == 0 ? state.T : state.N;
+
     public void Write(int index, ulong value) {
-        if (index == 0) state.T = (ushort)value;
-        else            state.N = (ushort)value;
+        if (index == 0)
+            state.T = (ushort)value;
+        else
+            state.N = (ushort)value;
     }
 }
 
