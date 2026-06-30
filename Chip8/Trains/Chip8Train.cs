@@ -25,6 +25,18 @@ public sealed class Chip8Train {
     public RevolutionResult Run(long maxTicks = 100_000, long snapshotInterval = 0) =>
         _train.Run(maxTicks, snapshotInterval: snapshotInterval);
 
+    public void BeginInteractive() => _train.BeginStepping();
+
+    public void StepN(int n) {
+        for (var i = 0; i < n && !_train.IsIdle; i++) _train.StepCycle();
+    }
+
+    public bool IsHalted => _train.IsIdle;
+
+    public void FinalizeInteractive() => _train.FinishStepping();
+
+    public void Reset() => _train.Reset();
+
     public string DumpTopology() => _train.DumpTopology();
 }
 

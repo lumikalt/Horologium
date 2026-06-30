@@ -24,6 +24,7 @@ public class SingleCycleTests {
 
     private static byte Reg(Chip8Train t, int r) => (byte)t.ArchState.IntegerRegisters.Read(r);
     private static Chip8ArchState State(Chip8Train t) => (Chip8ArchState)t.ArchState;
+    private static bool Pixel(Chip8Train t, int x, int y) => State(t).Display[y * 64 + x];
 
     // ── SetImm ────────────────────────────────────────────────────────────────
 
@@ -339,6 +340,175 @@ public class SingleCycleTests {
         Assert.Equal(1UL, mem.Read(0x300, 1));
         Assert.Equal(5UL, mem.Read(0x301, 1));
         Assert.Equal(0UL, mem.Read(0x302, 1));
+    }
+
+    // ── Draw ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Draw_SetsPixels() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        mem.Write(0x300, 0b11110000, 1); // top row of sprite: first 4 pixels on
+        Load(
+            mem,
+            0xA300, // LD I, 0x300
+            0x6000, // SET V0, 0  (x)
+            0x6100, // SET V1, 0  (y)
+            0xD011, // DRAW V0,V1,1
+            0x1208  // HALT
+        );
+        train.Run();
+        Assert.True(Pixel(train, 0, 0));
+        Assert.True(Pixel(train, 1, 0));
+        Assert.True(Pixel(train, 2, 0));
+        Assert.True(Pixel(train, 3, 0));
+        Assert.False(Pixel(train, 4, 0));
+    }
+
+    [Fact]
+    public void Draw_NoCollision_ClearsVF() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        mem.Write(0x300, 0xFF, 1);
+        Load(
+            mem,
+            0xA300, // LD I, 0x300
+            0x6000, // SET V0, 0
+            0x6100, // SET V1, 0
+            0xD011, // DRAW V0,V1,1  (first draw, no collision)
+            0x1208  // HALT
+        );
+        train.Run();
+        Assert.Equal(0, Reg(train, 0xF));
+    }
+
+    [Fact]
+    public void Draw_Collision_SetsVF() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        mem.Write(0x300, 0xFF, 1);
+        Load(
+            mem,
+            0xA300, // LD I, 0x300
+            0x6000, // SET V0, 0
+            0x6100, // SET V1, 0
+            0xD011, // DRAW V0,V1,1  (first draw)
+            0xD011, // DRAW V0,V1,1  (same location → collision)
+            0x120A  // HALT
+        );
+        train.Run();
+        Assert.Equal(1, Reg(train, 0xF));
+    }
+
+    [Fact]
+    public void Draw_XorTogglesPixels() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        mem.Write(0x300, 0xFF, 1);
+        Load(
+            mem,
+            0xA300, // LD I, 0x300
+            0x6000, // SET V0, 0
+            0x6100, // SET V1, 0
+            0xD011, // DRAW V0,V1,1  (on)
+            0xD011, // DRAW V0,V1,1  (off again)
+            0x120A  // HALT
+        );
+        train.Run();
+        Assert.False(Pixel(train, 0, 0)); // XOR erased the pixel
+    }
+
+    // ── ClearDisplay ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ClearDisplay_ErasesPixels() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        mem.Write(0x300, 0xFF, 1);
+        Load(
+            mem,
+            0xA300, // LD I, 0x300
+            0x6000, // SET V0, 0
+            0x6100, // SET V1, 0
+            0xD011, // DRAW V0,V1,1  (turn pixels on)
+            0x00E0, // CLS
+            0x120A  // HALT
+        );
+        train.Run();
+        Assert.False(Pixel(train, 0, 0));
+        Assert.False(Pixel(train, 7, 0));
+    }
+
+    // ── SkipKeyPressed / SkipKeyNotPressed ────────────────────────────────────
+
+    [Fact]
+    public void SkipKeyPressed_Taken_WhenKeyIsDown() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        Load(
+            mem,
+            0x6105, // SET V1, 5
+            0xE19E, // SKP V1 (skip if key 5 pressed)
+            0x6001, // SET V0, 1  ← skipped
+            0x600A, // SET V0, 10
+            0x1208  // HALT
+        );
+        State(train).Keys[5] = true;
+        train.Run();
+        Assert.Equal(10, Reg(train, 0));
+    }
+
+    [Fact]
+    public void SkipKeyPressed_NotTaken_WhenKeyIsUp() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        Load(
+            mem,
+            0x6105, // SET V1, 5
+            0xE19E, // SKP V1 (key 5 not pressed → don't skip)
+            0x6001, // SET V0, 1  ← reached when not taken
+            0x1206  // HALT
+        );
+        train.Run();
+        Assert.Equal(1, Reg(train, 0));
+    }
+
+    [Fact]
+    public void SkipKeyNotPressed_Taken_WhenKeyIsUp() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        Load(
+            mem,
+            0x6105, // SET V1, 5
+            0xE1A1, // SKNP V1 (skip if key 5 not pressed)
+            0x6001, // SET V0, 1  ← skipped
+            0x600A, // SET V0, 10
+            0x1208  // HALT
+        );
+        train.Run();
+        Assert.Equal(10, Reg(train, 0));
+    }
+
+    [Fact]
+    public void SkipKeyNotPressed_NotTaken_WhenKeyIsDown() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        Load(
+            mem,
+            0x6105, // SET V1, 5
+            0xE1A1, // SKNP V1 (key 5 is pressed → don't skip)
+            0x6001, // SET V0, 1  ← reached when not taken
+            0x1206  // HALT
+        );
+        State(train).Keys[5] = true;
+        train.Run();
+        Assert.Equal(1, Reg(train, 0));
+    }
+
+    // ── GetKey ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void GetKey_ReturnsIndexOfPressedKey() {
+        (Chip8Train train, Chip8Memory mem) = Make();
+        Load(
+            mem,
+            0xF00A, // GET_KEY V0 (wait for any key)
+            0x1202  // HALT
+        );
+        State(train).Keys[7] = true; // pre-press key 7
+        train.Run();
+        Assert.Equal(7, Reg(train, 0));
     }
 
     // ── RegDump / RegLoad ─────────────────────────────────────────────────────

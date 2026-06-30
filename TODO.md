@@ -15,7 +15,7 @@
 
 ## CHIP8
 
-- [ ] Screen and keyboard.
+- [x] Screen and keyboard.
 
 ## RISC-V
 

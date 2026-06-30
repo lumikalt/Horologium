@@ -13,6 +13,9 @@ public sealed class Chip8ArchState : IArchState {
     public IRegisterFile IntegerRegisters => _vRegs;
     public ISystemRegisters SystemRegisters => _programRegs;
 
+    public bool[] Display { get; } = new bool[64 * 32];
+    public bool[] Keys { get; } = new bool[16];
+
     public ushort I {
         get => (ushort)_programRegs.Read((uint)ProgramRegisterFile.I, PrivilegeLevel.User);
         set => _programRegs.Write((uint)ProgramRegisterFile.I, value, PrivilegeLevel.User);
@@ -31,12 +34,25 @@ public sealed class Chip8ArchState : IArchState {
     public void PushStack(ushort addr) => _stack.Push(addr);
     public ushort PopStack() => _stack.Pop();
 
+    public bool TryGetPressedKey(out int key) {
+        for (var i = 0; i < 16; i++) {
+            if (!Keys[i]) continue;
+            key = i;
+            return true;
+        }
+
+        key = -1;
+        return false;
+    }
+
     public IArchState Snapshot() {
         var snap = new Chip8ArchState { Pc = Pc, PrivilegeLevel = PrivilegeLevel, };
         for (var i = 0; i < 16; i++) snap.IntegerRegisters.Write(i, IntegerRegisters.Read(i));
         snap.I = I;
         snap.DelayTimer = DelayTimer;
         snap.SoundTimer = SoundTimer;
+        Display.CopyTo(snap.Display, 0);
+        Keys.CopyTo(snap.Keys, 0);
         return snap;
     }
 
@@ -48,5 +64,7 @@ public sealed class Chip8ArchState : IArchState {
         DelayTimer = 0;
         SoundTimer = 0;
         _stack.Clear();
+        Array.Clear(Display);
+        Array.Clear(Keys);
     }
 }

@@ -20,6 +20,7 @@
         <ProjectReference Include="..\Mechanism\Mechanism.csproj"/>
         <ProjectReference Include="..\RiscV32\RiscV32.csproj"/>
         <ProjectReference Include="..\Pipeline\Pipeline.csproj"/>
+        <ProjectReference Include="..\Chip8\Chip8.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

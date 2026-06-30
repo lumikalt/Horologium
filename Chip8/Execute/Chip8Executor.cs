@@ -10,41 +10,41 @@ public sealed class Chip8Executor : IExecutor {
         ulong pc = instruction.Pc;
 
         return instruction.Payload switch {
-            ClearDisplay      => ExecuteResult.Clean,
-            Call              => ExecuteResult.Clean, // RCA 1802 — no-op
-            Return            => ExecReturn(chip8),
-            Goto g            => ExecuteResult.WithBranch(true, g.Imm),
-            CallSub c         => ExecCallSub(chip8, (ushort)(pc + 2), c.Imm),
-            SkipEqImm s       => v.Read(s.Vx) == s.Imm ? Skip(pc) : ExecuteResult.Clean,
-            SkipNeqImm s      => v.Read(s.Vx) != s.Imm ? Skip(pc) : ExecuteResult.Clean,
-            SkipEq s          => v.Read(s.Vx) == v.Read(s.Vy) ? Skip(pc) : ExecuteResult.Clean,
-            SkipNeq s         => v.Read(s.Vx) != v.Read(s.Vy) ? Skip(pc) : ExecuteResult.Clean,
-            SetImm s          => ExecuteResult.WithResult(s.Imm),
-            AddImm a          => ExecuteResult.WithResult((byte)(v.Read(a.Vx) + a.Imm)),
-            Set s             => ExecuteResult.WithResult(v.Read(s.Vy)),
-            BitOr b           => ExecuteResult.WithResult((byte)(v.Read(b.Vx) | v.Read(b.Vy))),
-            BitAnd b          => ExecuteResult.WithResult((byte)(v.Read(b.Vx) & v.Read(b.Vy))),
-            BitXor b          => ExecuteResult.WithResult((byte)(v.Read(b.Vx) ^ v.Read(b.Vy))),
-            Add a             => ExecAdd(v, a.Vx, a.Vy),
-            Sub s             => ExecSub(v, s.Vx, s.Vy),
-            ShiftRight1 s     => ExecShr(v, s.Vx),
-            SubYx s           => ExecSubYx(v, s.Vx, s.Vy),
-            ShiftLeft1 s      => ExecShl(v, s.Vx),
-            SetIImm s         => ExecSetI(chip8, s.Imm),
-            JumpV0Offset j    => ExecuteResult.WithBranch(true, j.Imm + v.Read(0)),
-            RandAnd r         => ExecuteResult.WithResult((byte)(Random.Shared.Next(256) & r.Imm)),
-            Draw              => ExecuteResult.Clean, // display not implemented
-            SkipKeyPressed    => ExecuteResult.Clean, // key never pressed
-            SkipKeyNotPressed => Skip(pc),            // key never pressed — always skip
-            GetDelayTimer     => ExecuteResult.WithResult(chip8.DelayTimer),
-            GetKey            => ExecuteResult.WithResult(0), // no input — return 0
-            SetDelayTimer s   => ExecSetDelay(chip8, v, s.Vx),
-            SetSoundTimer s   => ExecSetSound(chip8, v, s.Vx),
-            AddToI a          => ExecAddToI(chip8, v, a.Vx),
-            SetISprite s      => ExecSetISprite(chip8, v, s.Vx),
-            Bcd b             => ExecBcd(chip8, v, b.Vx, memory),
-            RegDump r         => ExecRegDump(chip8, v, r.Vx, memory),
-            RegLoad r         => ExecRegLoad(chip8, v, r.Vx, memory),
+            ClearDisplay        => ExecClearDisplay(chip8),
+            Call                => ExecuteResult.Clean, // RCA 1802 — no-op
+            Return              => ExecReturn(chip8),
+            Goto g              => ExecuteResult.WithBranch(true, g.Imm),
+            CallSub c           => ExecCallSub(chip8, (ushort)(pc + 2), c.Imm),
+            SkipEqImm s         => v.Read(s.Vx) == s.Imm ? Skip(pc) : ExecuteResult.Clean,
+            SkipNeqImm s        => v.Read(s.Vx) != s.Imm ? Skip(pc) : ExecuteResult.Clean,
+            SkipEq s            => v.Read(s.Vx) == v.Read(s.Vy) ? Skip(pc) : ExecuteResult.Clean,
+            SkipNeq s           => v.Read(s.Vx) != v.Read(s.Vy) ? Skip(pc) : ExecuteResult.Clean,
+            SetImm s            => ExecuteResult.WithResult(s.Imm),
+            AddImm a            => ExecuteResult.WithResult((byte)(v.Read(a.Vx) + a.Imm)),
+            Set s               => ExecuteResult.WithResult(v.Read(s.Vy)),
+            BitOr b             => ExecuteResult.WithResult((byte)(v.Read(b.Vx) | v.Read(b.Vy))),
+            BitAnd b            => ExecuteResult.WithResult((byte)(v.Read(b.Vx) & v.Read(b.Vy))),
+            BitXor b            => ExecuteResult.WithResult((byte)(v.Read(b.Vx) ^ v.Read(b.Vy))),
+            Add a               => ExecAdd(v, a.Vx, a.Vy),
+            Sub s               => ExecSub(v, s.Vx, s.Vy),
+            ShiftRight1 s       => ExecShr(v, s.Vx),
+            SubYx s             => ExecSubYx(v, s.Vx, s.Vy),
+            ShiftLeft1 s        => ExecShl(v, s.Vx),
+            SetIImm s           => ExecSetI(chip8, s.Imm),
+            JumpV0Offset j      => ExecuteResult.WithBranch(true, j.Imm + v.Read(0)),
+            RandAnd r           => ExecuteResult.WithResult((byte)(Random.Shared.Next(256) & r.Imm)),
+            Draw d              => ExecDraw(chip8, v, d.Vx, d.Vy, d.Imm, memory),
+            SkipKeyPressed s    => chip8.Keys[v.Read(s.Vx) & 0xF] ? Skip(pc) : ExecuteResult.Clean,
+            SkipKeyNotPressed s => !chip8.Keys[v.Read(s.Vx) & 0xF] ? Skip(pc) : ExecuteResult.Clean,
+            GetDelayTimer       => ExecuteResult.WithResult(chip8.DelayTimer),
+            GetKey              => ExecGetKey(chip8, pc),
+            SetDelayTimer s     => ExecSetDelay(chip8, v, s.Vx),
+            SetSoundTimer s     => ExecSetSound(chip8, v, s.Vx),
+            AddToI a            => ExecAddToI(chip8, v, a.Vx),
+            SetISprite s        => ExecSetISprite(chip8, v, s.Vx),
+            Bcd b               => ExecBcd(chip8, v, b.Vx, memory),
+            RegDump r           => ExecRegDump(chip8, v, r.Vx, memory),
+            RegLoad r           => ExecRegLoad(chip8, v, r.Vx, memory),
             _ => throw new InvalidOperationException(
                 $"Unknown CHIP-8 op: {instruction.Payload}"
             ),
@@ -52,6 +52,45 @@ public sealed class Chip8Executor : IExecutor {
     }
 
     private static ExecuteResult Skip(ulong pc) => ExecuteResult.WithBranch(true, pc + 4);
+
+    private static ExecuteResult ExecClearDisplay(Chip8ArchState chip8) {
+        Array.Clear(chip8.Display);
+        return ExecuteResult.Clean;
+    }
+
+    // Sprites are clipped at the right (x≥64) and bottom (y≥32) edges per COSMAC VIP behavior.
+    private static ExecuteResult ExecDraw(
+        Chip8ArchState chip8,
+        IRegisterFile v,
+        int vx,
+        int vy,
+        byte height,
+        IMemory memory
+    ) {
+        var x0 = (int)(v.Read(vx) % 64);
+        var y0 = (int)(v.Read(vy) % 32);
+        var collision = false;
+        for (var row = 0; row < height; row++) {
+            int y = y0 + row;
+            if (y >= 32) break;
+            var spriteByte = (byte)memory.Read((ulong)(chip8.I + row), 1);
+            for (var col = 0; col < 8; col++) {
+                int x = x0 + col;
+                if (x >= 64) break;
+                if ((spriteByte & (0x80 >> col)) == 0) continue;
+                int idx = y * 64 + x;
+                if (chip8.Display[idx]) collision = true;
+                chip8.Display[idx] ^= true;
+            }
+        }
+
+        v.Write(0xF, collision ? 1UL : 0UL);
+        return ExecuteResult.Clean;
+    }
+
+    // Stalls (re-executes same PC) until any key is pressed; returns its index in Vx.
+    private static ExecuteResult ExecGetKey(Chip8ArchState chip8, ulong pc) =>
+        chip8.TryGetPressedKey(out int key) ? ExecuteResult.WithResult((ulong)key) : ExecuteResult.WithBranch(true, pc);
 
     private static ExecuteResult ExecReturn(Chip8ArchState chip8) =>
         ExecuteResult.WithBranch(true, chip8.PopStack());

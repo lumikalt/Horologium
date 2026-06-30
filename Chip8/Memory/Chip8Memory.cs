@@ -41,4 +41,9 @@ public sealed class Chip8Memory : IMemory {
 
     public void Load(ulong address, ReadOnlySpan<byte> data) =>
         data.CopyTo(_data.AsSpan((int)address));
+
+    public void Reset() {
+        Array.Clear(_data);
+        Chip8Memory.FontSprites.CopyTo(_data, 0);
+    }
 }
