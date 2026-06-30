@@ -571,6 +571,80 @@ public class OoOPipelineTests {
     // so with LoadStoreCount=1 a Load and an Atomic that were both ready could issue
     // in the same cycle — exceeding the single modeled port.
 
+    // ── Structural stall: small LQ/SQ capacity ─────────────────────────────────
+    // With lqCapacity=1 or sqCapacity=1, the pipeline must stall at Dispatch when
+    // the queue is full. These tests verify correctness is preserved under the stall.
+
+    [Fact]
+    public void SmallLQ_MultipleLoads_ProduceCorrectResults() {
+        // Two independent loads through a LQ of capacity 1.
+        // addi x1, x0, 0x100  → x1 = 256 (base address)
+        // sw   x0, 0(x1)       → mem[256] = 0
+        // sw   x0, 4(x1)       → mem[260] = 0
+        // addi x2, x0, 42
+        // sw   x2, 0(x1)       → mem[256] = 42
+        // addi x3, x0, 99
+        // sw   x3, 4(x1)       → mem[260] = 99
+        // lw   x4, 0(x1)       → x4 = 42  (first load occupies the lone LQ slot)
+        // lw   x5, 4(x1)       → x5 = 99  (second load must wait for x4 to retire)
+        // ebreak
+        var mem = new FlatMemory(4096);
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem,
+            issueWidth: 2, robCapacity: 16, iqCapacity: 8,
+            lqCapacity: 1
+        );
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 256
+            0x00008023, // sw   x0, 0(x1)
+            0x00008223, // sw   x0, 4(x1)
+            0x02a00113, // addi x2, x0, 42
+            0x00208023, // sw   x2, 0(x1)
+            0x06300193, // addi x3, x0, 99
+            0x00308223, // sw   x3, 4(x1)
+            0x00008203, // lw   x4, 0(x1)
+            0x00408283, // lw   x5, 4(x1)
+            0x00100073  // ebreak
+        );
+        train.Run(maxTicks: 10_000);
+        Assert.Equal(42u, Reg(train, 4));
+        Assert.Equal(99u, Reg(train, 5));
+    }
+
+    [Fact]
+    public void SmallSQ_MultipleStores_ProduceCorrectResults() {
+        // Two independent stores through an SQ of capacity 1.
+        // addi x1, x0, 0x100  → x1 = 256
+        // addi x2, x0, 42
+        // addi x3, x0, 99
+        // sw   x2, 0(x1)       → mem[256] = 42  (occupies lone SQ slot until commit)
+        // sw   x3, 4(x1)       → mem[260] = 99  (must stall until first store retires)
+        // lw   x4, 0(x1)       → x4 = 42
+        // lw   x5, 4(x1)       → x5 = 99
+        // ebreak
+        var mem = new FlatMemory(4096);
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem,
+            issueWidth: 2, robCapacity: 16, iqCapacity: 8,
+            sqCapacity: 1
+        );
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 256
+            0x02a00113, // addi x2, x0, 42
+            0x06300193, // addi x3, x0, 99
+            0x00208023, // sw   x2, 0(x1)
+            0x00308223, // sw   x3, 4(x1)
+            0x00008203, // lw   x4, 0(x1)
+            0x00408283, // lw   x5, 4(x1)
+            0x00100073  // ebreak
+        );
+        train.Run(maxTicks: 10_000);
+        Assert.Equal(42u, Reg(train, 4));
+        Assert.Equal(99u, Reg(train, 5));
+    }
+
     [Fact]
     public void LoadAndAtomic_WithLoadStoreCount1_IssueInSeparateCycles() {
         // lw  x1, 0(x0)   (PC=0) — Load, no deps

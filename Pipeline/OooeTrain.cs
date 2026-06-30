@@ -42,7 +42,9 @@ public sealed class OooeTrain {
         FuLatencyConfig? fuLatency = null,
         PEventLog? pEventLog = null,
         int streamPrefetchDepth = 4,
-        ICommitObserver? commitObserver = null
+        ICommitObserver? commitObserver = null,
+        int lqCapacity = 0,
+        int sqCapacity = 0
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -57,7 +59,9 @@ public sealed class OooeTrain {
                 fuLatency ?? FuLatencyConfig.Default,
                 pEventLog,
                 streamPrefetchDepth,
-                commitObserver
+                commitObserver,
+                lqCapacity,
+                sqCapacity
             )
         );
         _train.Build();
@@ -123,8 +127,8 @@ internal sealed class OoOPipelineCore : Gear {
         bool HasLoadAccess,
         ulong LoadAddr,
         int LoadBytes,
-        bool LoadWasForwarded,   // true if TryForwardFromStore supplied the register value
-        bool RequestHalt = false // true for an HTIF tohost-exit store: halt after commit
+        bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
+        bool RequestHalt = false  // true for an HTIF tohost-exit store: halt after commit
     );
 
     /// <summary>
@@ -186,8 +190,16 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly RenameMap _rat;
     private readonly ReorderBuffer _rob;
     private readonly IssueQueue _iq;
+    private readonly LoadQueue _lq;
+    private readonly StoreQueue _sq;
     private readonly int _issueWidth;
     private readonly int _maxDecodeDepth;
+
+    // Monotonically increasing sequence number assigned at dispatch to each
+    // load/store/atomic. Shared between LQ and SQ so that program-order comparisons
+    // across the two queues don't rely on ROB index arithmetic (which wraps).
+    // Not reset on flush — entries are discarded by Flush(), the counter climbs.
+    private ulong _nextMemSeqNo;
 
     // Cross-tick latches
     private readonly Queue<FetchedInstr> _decodeQueue = new();
@@ -249,7 +261,9 @@ internal sealed class OoOPipelineCore : Gear {
         FuLatencyConfig fuConfig,
         PEventLog? pEventLog = null,
         int streamPrefetchDepth = 4,
-        ICommitObserver? commitObserver = null
+        ICommitObserver? commitObserver = null,
+        int lqCapacity = 0,
+        int sqCapacity = 0
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -275,6 +289,8 @@ internal sealed class OoOPipelineCore : Gear {
         _rat = new RenameMap(archRegs, physRegs);
         _rob = new ReorderBuffer(robCapacity);
         _iq = new IssueQueue(iqCapacity);
+        _lq = new LoadQueue(lqCapacity > 0 ? lqCapacity : robCapacity);
+        _sq = new StoreQueue(sqCapacity > 0 ? sqCapacity : robCapacity);
         StreamingEngine = new StreamingEngine(streamPrefetchDepth);
     }
 
@@ -419,16 +435,18 @@ internal sealed class OoOPipelineCore : Gear {
             rob.RequestHalt = r.RequestHalt;
 
             if (r.HasStoreCapture) {
-                rob.StoreAddressKnown = true;
-                rob.StoreAddress = r.StoreAddr;
-                rob.StoreValue = r.StoreVal;
-                rob.StoreWidth = r.StoreBytes;
+                // Update the SQ entry with the resolved store address and value.
+                SqEntry sq = _sq.At(rob.SqIdx);
+                sq.AddressKnown = true;
+                sq.Address = r.StoreAddr;
+                sq.Value = r.StoreVal;
+                sq.Width = r.StoreBytes;
                 // A store's address just became known: check whether any younger speculative
                 // load has already executed against the same address with a stale value.
-                CheckLoadViolations(r.RobIdx, r.StoreAddr, r.StoreBytes);
+                CheckLoadViolations(sq.SeqNo, r.StoreAddr, r.StoreBytes);
             }
 
-            // Load disambiguation state (LoadExecuted/LoadAddress + violation check) is
+            // Load disambiguation state (LQ.Executed/Address + violation check) is
             // registered at EXECUTE time in StepExecute, not here — see the comment there.
             // Registering at broadcast time opened a window, under memory-level
             // parallelism, where a missed load sat invisible in _inFlight while an older
@@ -452,6 +470,7 @@ internal sealed class OoOPipelineCore : Gear {
                 case { IsHalt: true, }: {
                     CommitRegisters(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                    RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -462,6 +481,7 @@ internal sealed class OoOPipelineCore : Gear {
                     ulong target = _trapController.RaiseTrap(head.Trap, State);
                     CommitRegisters(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                    RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -472,6 +492,7 @@ internal sealed class OoOPipelineCore : Gear {
                     ulong target = _trapController.ReturnFromTrap(head.ReturnPrivilege.Value, State);
                     CommitRegisters(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                    RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -484,13 +505,18 @@ internal sealed class OoOPipelineCore : Gear {
             // conflicting store resolved after it. By the time the load reaches the
             // ROB head, all older instructions (including the store) have committed
             // and written memory, so re-executing the load from its own PC is safe.
-            if (head is { IsLoad: true, LoadViolated: true, }) {
+            // Check LQ violation before the store-write below (matters for atomics).
+            if (head.IsLoad && head.LqIdx >= 0 && _lq.At(head.LqIdx).Violated) {
                 _memViolationsCounter.Increment();
-                SetFlush(head.Pc); // re-executes from the load's PC; flush clears the ROB
+                SetFlush(head.Pc); // re-executes from the load's PC; flush clears the ROB+LQ+SQ
                 return;
             }
 
-            if (head.StoreAddressKnown) DLayers.Accessor.Write(head.StoreAddress, head.StoreValue, head.StoreWidth);
+            // Write deferred store/atomic data to memory at commit time.
+            if (head.SqIdx >= 0) {
+                SqEntry sq = _sq.At(head.SqIdx);
+                if (sq.AddressKnown) DLayers.Accessor.Write(sq.Address, sq.Value, sq.Width);
+            }
 
             CommitRegisters(head);
 
@@ -506,6 +532,7 @@ internal sealed class OoOPipelineCore : Gear {
             if (head.RequestHalt) {
                 State.Pc = head.PredictedNextPc;
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                RetireMemQueues(head);
                 _rob.Retire();
                 _retiredCounter.Increment();
                 State.OnRetire();
@@ -522,6 +549,7 @@ internal sealed class OoOPipelineCore : Gear {
              && head.ResolvedNextPc is { HasValue: true, Value: var selfPc, } && selfPc == head.Pc) {
                 State.Pc = selfPc;
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                RetireMemQueues(head);
                 _rob.Retire();
                 _retiredCounter.Increment();
                 State.OnRetire();
@@ -543,6 +571,7 @@ internal sealed class OoOPipelineCore : Gear {
                     _branchMissCounter.Increment();
                     State.Pc = resolvedPc;
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                    RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -553,6 +582,7 @@ internal sealed class OoOPipelineCore : Gear {
 
             State.Pc = head.PredictedNextPc;
             PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+            RetireMemQueues(head);
             _rob.Retire();
             _retiredCounter.Increment();
             State.OnRetire();
@@ -587,7 +617,12 @@ internal sealed class OoOPipelineCore : Gear {
 
         // Start executing newly issued instructions.
         foreach (IssuedInstr issued in _execBuffer) {
-            ExecResult result = ExecuteOne(issued);
+            // Look up the LQ SeqNo before calling ExecuteOne so TryForwardFromStore
+            // can use it for SQ ordering without any ROB index arithmetic.
+            RobEntry issuedRob = _rob.At(issued.RobIdx);
+            ulong lqSeqNo = issuedRob.LqIdx >= 0 ? _lq.At(issuedRob.LqIdx).SeqNo : 0;
+
+            ExecResult result = ExecuteOne(issued, lqSeqNo);
             PEventLog?.Record(issued.InstrId, issued.Pc, _cyclesCounter.Value, PEventKind.Execute);
 
             // Register load disambiguation state at EXECUTE time (not at CDB broadcast).
@@ -600,17 +635,17 @@ internal sealed class OoOPipelineCore : Gear {
             // The load still cannot commit early: commit requires IsComplete, set only by
             // the CDB broadcast.
             if (result.HasLoadAccess) {
-                RobEntry lrob = _rob.At(result.RobIdx);
-                lrob.LoadExecuted = true;
-                lrob.LoadAddress = result.LoadAddr;
-                lrob.LoadBytes = result.LoadBytes;
+                LqEntry lq = _lq.At(issuedRob.LqIdx);
+                lq.Executed = true;
+                lq.Address = result.LoadAddr;
+                lq.Bytes = result.LoadBytes;
                 // If not forwarded from an already-resolved store, check whether an older
                 // store already has a known overlapping address (the store resolved before
                 // this load executed; the converse ordering is caught by CheckLoadViolations
                 // when the store later resolves).
                 if (!result.LoadWasForwarded
-                 && HasOlderConflictingStore(result.RobIdx, result.LoadAddr, result.LoadBytes))
-                    lrob.LoadViolated = true;
+                 && HasOlderConflictingStore(lq.SeqNo, result.LoadAddr, result.LoadBytes))
+                    lq.Violated = true;
             }
 
             int countdown = _fuConfig.LatencyFor(issued.Instr.Class) - 1;
@@ -708,54 +743,50 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// After a scalar store's address resolves, scan younger ROB entries for loads
-    /// that have already executed against the same (or overlapping) address.
-    /// Those loads read a stale value and are flagged for re-execution at the ROB head.
+    /// After a store's address resolves, scan LQ entries younger than the store's
+    /// sequence number for loads that have already executed against the same (or
+    /// overlapping) address. Those loads read a stale value and are flagged for
+    /// re-execution at the ROB head.
     /// </summary>
-    private void CheckLoadViolations(int storeRobIdx, ulong storeAddr, int storeBytes) {
-        var pastStore = false;
-        foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
-            if (!pastStore) {
-                if (idx == storeRobIdx) pastStore = true;
-                continue;
-            }
-
-            if (!entry.IsLoad || !entry.LoadExecuted) continue;
-            if (AddressOverlaps(entry.LoadAddress, entry.LoadBytes, storeAddr, storeBytes)) entry.LoadViolated = true;
+    private void CheckLoadViolations(ulong storeSeqNo, ulong storeAddr, int storeBytes) {
+        foreach (LqEntry lq in _lq.InOrder()) {
+            if (lq.SeqNo <= storeSeqNo) continue; // older than or equal to the store
+            if (!lq.Executed) continue;
+            if (AddressOverlaps(lq.Address, lq.Bytes, storeAddr, storeBytes)) lq.Violated = true;
         }
     }
 
     /// <summary>
-    /// If any older ROB store has already executed against the same address as
+    /// If any older SQ entry has already executed against the same address as
     /// <paramref name="loadAddr"/>, return its stored value as a forwarded result.
     /// Returns <c>default</c> (HasValue=false) when no forwarding match is found.
     /// The youngest matching store wins (last seen in program order = head-to-tail).
     /// </summary>
-    private (ulong Value, bool HasValue) TryForwardFromStore(int loadRobIdx, ulong loadAddr, int loadBytes) {
+    private (ulong Value, bool HasValue) TryForwardFromStore(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
         (ulong Value, bool HasValue) result = default;
-        foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
-            if (idx == loadRobIdx) break;
-            if (!entry.StoreAddressKnown) continue;
+        foreach (SqEntry sq in _sq.InOrder()) {
+            if (sq.SeqNo >= loadSeqNo) break; // reached entries younger than or equal to this load
+            if (!sq.AddressKnown) continue;
             // Only exact base-address forwarding; partial-overlap cases require shifting.
-            if (entry.StoreAddress != loadAddr || entry.StoreWidth < loadBytes) continue;
+            if (sq.Address != loadAddr || sq.Width < loadBytes) continue;
             ulong mask = loadBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, _ => 0xFFFF_FFFFUL, };
-            result = (entry.StoreValue & mask, true);
+            result = (sq.Value & mask, true); // keep overwriting to get youngest match
         }
 
         return result;
     }
 
     /// <summary>
-    /// True if any store OLDER than <paramref name="loadRobIdx"/> has a known address
-    /// that overlaps the load. Used at load-result time to detect violations that
-    /// weren't caught by <see cref="CheckLoadViolations"/> (e.g., same-CDB-batch case
-    /// where the store was processed before the load in the same StepComplete iteration).
+    /// True if any SQ entry older than <paramref name="loadSeqNo"/> has a known address
+    /// that overlaps the load. Used at load-execute time to detect violations that
+    /// weren't caught by <see cref="CheckLoadViolations"/> (the store resolved before
+    /// the load executed; the converse ordering is caught when the store later resolves).
     /// </summary>
-    private bool HasOlderConflictingStore(int loadRobIdx, ulong loadAddr, int loadBytes) {
-        foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
-            if (idx == loadRobIdx) return false;
-            if (!entry.StoreAddressKnown) continue;
-            if (AddressOverlaps(entry.StoreAddress, entry.StoreWidth, loadAddr, loadBytes)) return true;
+    private bool HasOlderConflictingStore(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
+        foreach (SqEntry sq in _sq.InOrder()) {
+            if (sq.SeqNo >= loadSeqNo) break; // past the load's position — done
+            if (!sq.AddressKnown) continue;
+            if (AddressOverlaps(sq.Address, sq.Width, loadAddr, loadBytes)) return true;
         }
 
         return false;
@@ -767,7 +798,7 @@ internal sealed class OoOPipelineCore : Gear {
         return aAddr < bEnd && bAddr < aEnd;
     }
 
-    /// <summary>Rename and allocate ROB + IQ slots for decoded instructions.</summary>
+    /// <summary>Rename and allocate ROB + IQ + LQ/SQ slots for decoded instructions.</summary>
     private void StepDispatch() {
         while (_decodeQueue.Count > 0) {
             // Stop if any structural resource is exhausted.
@@ -795,6 +826,12 @@ internal sealed class OoOPipelineCore : Gear {
 
             ITooth instr = fi.Decoded!;
             int destArch = instr.DestinationRegister;
+
+            // Check memory queue capacity before committing any allocation.
+            bool needsLq = instr.Class is ToothClass.Load or ToothClass.Atomic;
+            bool needsSq = instr.Class is ToothClass.Store or ToothClass.Atomic;
+            if (needsLq && _lq.IsFull) break;
+            if (needsSq && _sq.IsFull) break;
 
             bool needsRename = destArch > 0 && _rat.HasFree;
             if (destArch > 0 && !_rat.HasFree) break; // stall: no free physical registers
@@ -830,6 +867,29 @@ internal sealed class OoOPipelineCore : Gear {
             rob.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             rob.IsHalt = instr.Class == ToothClass.Halt;
             PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
+
+            // ── Allocate LQ/SQ entries ─────────────────────────────────────────
+            // Each memory instruction gets a shared SeqNo so that cross-queue
+            // program-order comparisons don't need ROB index arithmetic (which wraps).
+            // An Atomic occupies one slot in both queues with the same SeqNo.
+            ulong memSeqNo = 0;
+            if (needsLq || needsSq) memSeqNo = _nextMemSeqNo++;
+
+            if (needsLq) {
+                int lqIdx = _lq.Allocate();
+                LqEntry lq = _lq.At(lqIdx);
+                lq.RobIdx = robIdx;
+                lq.SeqNo = memSeqNo;
+                rob.LqIdx = lqIdx;
+            }
+
+            if (needsSq) {
+                int sqIdx = _sq.Allocate();
+                SqEntry sq = _sq.At(sqIdx);
+                sq.RobIdx = robIdx;
+                sq.SeqNo = memSeqNo;
+                rob.SqIdx = sqIdx;
+            }
 
             // Allocate IQ slot and fill source operands from pre-rename RAT snapshot.
             int iqSlot = _iq.Allocate();
@@ -959,6 +1019,8 @@ internal sealed class OoOPipelineCore : Gear {
 
         _rob.Flush();
         _iq.Flush();
+        _lq.Flush();
+        _sq.Flush();
         _decodeQueue.Clear();
         _execBuffer.Clear();
         _inFlight.Clear();
@@ -971,7 +1033,7 @@ internal sealed class OoOPipelineCore : Gear {
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private ExecResult ExecuteOne(IssuedInstr issued) {
+    private ExecResult ExecuteOne(IssuedInstr issued, ulong loadSeqNo) {
         IReadOnlyList<int> srcs = issued.Instr.SourceRegisters;
         IRegisterFile regs = State.IntegerRegisters;
 
@@ -1062,7 +1124,7 @@ internal sealed class OoOPipelineCore : Gear {
         (ulong Value, bool HasValue) regValue = er.RegisterResult;
         var loadForwarded = false;
         if (_capMem.HasRead) {
-            (ulong fwd, bool hasFwd) = TryForwardFromStore(issued.RobIdx, _capMem.ReadAddress, _capMem.ReadBytes);
+            (ulong fwd, bool hasFwd) = TryForwardFromStore(loadSeqNo, _capMem.ReadAddress, _capMem.ReadBytes);
             if (hasFwd) {
                 // Apply sign extension for signed loads (lb → 1 byte, lh → 2 bytes).
                 // TryForwardFromStore returns the raw masked store value; signed load
@@ -1086,6 +1148,16 @@ internal sealed class OoOPipelineCore : Gear {
             _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes, loadForwarded,
             er.RequestHalt
         );
+    }
+
+    /// <summary>
+    /// Retires the LQ entry (for loads/atomics) and/or SQ entry (for stores/atomics)
+    /// corresponding to a retiring ROB entry. Must be called before <c>_rob.Retire()</c>
+    /// since the LQ/SQ indices are read from the entry's fields.
+    /// </summary>
+    private void RetireMemQueues(RobEntry head) {
+        if (head.LqIdx >= 0) _lq.Retire();
+        if (head.SqIdx >= 0) _sq.Retire();
     }
 
     /// <summary>

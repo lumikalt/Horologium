@@ -318,14 +318,11 @@ public class ReorderBufferTests {
         int idx = rob.Allocate();
         rob.At(idx).IsHalt = true;
         rob.At(idx).IsStore = true;
-        rob.At(idx).StoreAddress = 0xFF00;
-        rob.At(idx).StoreValue = 0xDEAD;
-        rob.At(idx).StoreWidth = 4;
+        rob.At(idx).SqIdx = 2;
 
         Assert.True(rob.At(idx).IsHalt);
         Assert.True(rob.At(idx).IsStore);
-        Assert.Equal(0xFF00UL, rob.At(idx).StoreAddress);
-        Assert.Equal(0xDEADUL, rob.At(idx).StoreValue);
+        Assert.Equal(2, rob.At(idx).SqIdx);
     }
 }
 
@@ -496,6 +493,179 @@ public class IssueQueueTests {
         iq.Broadcast(20, 777);
         Assert.True(iq.At(slot).Src3Ready);
         Assert.Equal(777UL, iq.At(slot).Src3Value);
+    }
+}
+
+/// LoadQueue
+public class LoadQueueTests {
+    [Fact]
+    public void InitialState_EmptyNotFull() {
+        var lq = new LoadQueue(4);
+        Assert.True(lq.IsEmpty);
+        Assert.False(lq.IsFull);
+        Assert.Equal(0, lq.Count);
+    }
+
+    [Fact]
+    public void Allocate_ReturnsIndex_CountIncreases() {
+        var lq = new LoadQueue(4);
+        int idx = lq.Allocate();
+        Assert.Equal(1, lq.Count);
+        Assert.False(lq.IsEmpty);
+        lq.At(idx).RobIdx = 7;
+        Assert.Equal(7, lq.At(idx).RobIdx);
+    }
+
+    [Fact]
+    public void Allocate_WhenFull_Throws() {
+        var lq = new LoadQueue(2);
+        lq.Allocate();
+        lq.Allocate();
+        Assert.True(lq.IsFull);
+        Assert.Throws<InvalidOperationException>(() => lq.Allocate());
+    }
+
+    [Fact]
+    public void Retire_AdvancesHead() {
+        var lq = new LoadQueue(4);
+        int a = lq.Allocate();
+        lq.At(a).SeqNo = 10;
+        lq.Retire();
+        Assert.Equal(0, lq.Count);
+        Assert.True(lq.IsEmpty);
+    }
+
+    [Fact]
+    public void Retire_WhenEmpty_Throws() {
+        var lq = new LoadQueue(4);
+        Assert.Throws<InvalidOperationException>(lq.Retire);
+    }
+
+    [Fact]
+    public void Flush_ResetsToEmpty() {
+        var lq = new LoadQueue(4);
+        lq.Allocate();
+        lq.Allocate();
+        lq.Flush();
+        Assert.True(lq.IsEmpty);
+        Assert.Equal(0, lq.Count);
+    }
+
+    [Fact]
+    public void InOrder_OldestFirst_SeqNoMonotonic() {
+        var lq = new LoadQueue(4);
+        int a = lq.Allocate(); lq.At(a).SeqNo = 10;
+        int b = lq.Allocate(); lq.At(b).SeqNo = 20;
+        int c = lq.Allocate(); lq.At(c).SeqNo = 30;
+
+        List<ulong> seqNos = lq.InOrder().Select(e => e.SeqNo).ToList();
+        Assert.Equal([10UL, 20UL, 30UL,], seqNos);
+    }
+
+    [Fact]
+    public void AllocateRetire_CircularWrap() {
+        var lq = new LoadQueue(3);
+        for (var i = 0; i < 3; i++) lq.Allocate();
+        lq.Retire();
+        // Now 2 entries; tail wraps to slot 0
+        int wrapped = lq.Allocate();
+        Assert.Equal(0, wrapped);
+    }
+
+    [Fact]
+    public void Retire_ClearsEntry() {
+        var lq = new LoadQueue(4);
+        int idx = lq.Allocate();
+        LqEntry e = lq.At(idx);
+        e.Executed = true;
+        e.Violated = true;
+        e.SeqNo = 99;
+        lq.Retire();
+        // Slot is cleared by Retire; At() allows direct inspection of the underlying slot.
+        Assert.False(lq.At(idx).Executed);
+        Assert.False(lq.At(idx).Violated);
+        Assert.Equal(0UL, lq.At(idx).SeqNo);
+    }
+}
+
+/// StoreQueue
+public class StoreQueueTests {
+    [Fact]
+    public void InitialState_EmptyNotFull() {
+        var sq = new StoreQueue(4);
+        Assert.True(sq.IsEmpty);
+        Assert.False(sq.IsFull);
+        Assert.Equal(0, sq.Count);
+    }
+
+    [Fact]
+    public void Allocate_ReturnsIndex_FieldsSet() {
+        var sq = new StoreQueue(4);
+        int idx = sq.Allocate();
+        Assert.Equal(1, sq.Count);
+        sq.At(idx).RobIdx = 3;
+        sq.At(idx).SeqNo = 7;
+        Assert.Equal(3, sq.At(idx).RobIdx);
+        Assert.Equal(7UL, sq.At(idx).SeqNo);
+    }
+
+    [Fact]
+    public void Allocate_WhenFull_Throws() {
+        var sq = new StoreQueue(2);
+        sq.Allocate();
+        sq.Allocate();
+        Assert.True(sq.IsFull);
+        Assert.Throws<InvalidOperationException>(() => sq.Allocate());
+    }
+
+    [Fact]
+    public void Retire_AdvancesHead() {
+        var sq = new StoreQueue(4);
+        sq.Allocate();
+        sq.Retire();
+        Assert.Equal(0, sq.Count);
+        Assert.True(sq.IsEmpty);
+    }
+
+    [Fact]
+    public void Retire_WhenEmpty_Throws() {
+        var sq = new StoreQueue(4);
+        Assert.Throws<InvalidOperationException>(sq.Retire);
+    }
+
+    [Fact]
+    public void Flush_ResetsToEmpty() {
+        var sq = new StoreQueue(4);
+        sq.Allocate();
+        sq.Allocate();
+        sq.Flush();
+        Assert.True(sq.IsEmpty);
+        Assert.Equal(0, sq.Count);
+    }
+
+    [Fact]
+    public void InOrder_SeqNoMonotonic() {
+        var sq = new StoreQueue(4);
+        int a = sq.Allocate(); sq.At(a).SeqNo = 5;
+        int b = sq.Allocate(); sq.At(b).SeqNo = 15;
+
+        List<ulong> seqNos = sq.InOrder().Select(e => e.SeqNo).ToList();
+        Assert.Equal([5UL, 15UL,], seqNos);
+    }
+
+    [Fact]
+    public void Retire_ClearsEntry() {
+        var sq = new StoreQueue(4);
+        int idx = sq.Allocate();
+        sq.At(idx).AddressKnown = true;
+        sq.At(idx).Address = 0x1000;
+        sq.At(idx).Value = 0xDEAD;
+        sq.At(idx).Width = 4;
+        sq.Retire();
+        // Slot is cleared by Retire; At() allows direct inspection of the underlying slot.
+        Assert.False(sq.At(idx).AddressKnown);
+        Assert.Equal(0UL, sq.At(idx).Address);
+        Assert.Equal(0UL, sq.At(idx).Value);
     }
 }
 

@@ -102,7 +102,7 @@
 
 - [x] Functional-unit classes with configurable count and per-class latency.
 - [x] Memory order violation detection and squash.
-- [ ] Separate load queue and store queue for speculative memory disambiguation.
+- [x] Separate load queue and store queue for speculative memory disambiguation.
 - [x] Fix: fetch decode-fault wedging the fetcher.
 - [x] Fix: Load/Store/Atomic sharing one FU budget incorrectly.
 - [x] Fix: atomic write-half disambiguation and commit.
