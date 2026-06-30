@@ -249,6 +249,7 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
     private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
+    private Counter? _dcachePrefetchesCounter;
     private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
     private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
@@ -256,9 +257,10 @@ internal sealed class OoOPipelineCore : Gear {
 
     private bool _anyCache;
 
-    // Delta tracking for hit/miss counters
+    // Delta tracking for hit/miss/prefetch counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
+    private long _lastDPrefetches;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
     public IArchState State { get; }
@@ -379,6 +381,8 @@ internal sealed class OoOPipelineCore : Gear {
         if (DLayers.Cache is not null) {
             _dcacheHitsCounter = Dials.AddCounter("dcache_hits", "L1 D-cache hits");
             _dcacheMissesCounter = Dials.AddCounter("dcache_misses", "L1 D-cache misses");
+            if (DLayers.Prefetcher is not null)
+                _dcachePrefetchesCounter = Dials.AddCounter("dcache_prefetches", "L1 D-cache prefetch fills");
         }
 
         if (DLayers.L2Cache is not null) {
@@ -690,6 +694,14 @@ internal sealed class OoOPipelineCore : Gear {
                 if (!result.LoadWasForwarded
                  && HasOlderConflictingStore(lq.SeqNo, result.LoadAddr, result.LoadBytes))
                     lq.Violated = true;
+            }
+
+            // D-cache prefetch: fire before draining stalls so the prefetch sees the cache
+            // state left by this access. Fires only for demand loads (not store-forwarded).
+            if (result.HasLoadAccess && !result.LoadWasForwarded && DLayers.Prefetcher is not null) {
+                bool wasHit = DLayers.Cache?.LastAccessWasHit ?? true;
+                ulong? pAddr = DLayers.Prefetcher.OnAccess(issued.Pc, result.LoadAddr, wasHit);
+                if (pAddr.HasValue) DLayers.TryPrefetch(pAddr.Value);
             }
 
             int countdown = _fuConfig.LatencyFor(issued.Instr.Class) - 1;
@@ -1295,6 +1307,10 @@ internal sealed class OoOPipelineCore : Gear {
             ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
         );
         UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
+        if (_dcachePrefetchesCounter is not null && DLayers.Cache is not null) {
+            _dcachePrefetchesCounter.IncrementBy(DLayers.Cache.Prefetches - _lastDPrefetches);
+            _lastDPrefetches = DLayers.Cache.Prefetches;
+        }
         UpdateCacheStat(
             DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
         );

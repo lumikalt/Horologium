@@ -2,6 +2,8 @@ using Mechanism;
 
 namespace Orrery.Cache;
 
+public enum PrefetcherKind { None, NextLine, Stride }
+
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
 /// <param name="CacheWays">Associativity. Ignored when CacheCapacityBytes = 0.</param>
 /// <param name="CacheBlockBytes">Cache line size. Ignored when CacheCapacityBytes = 0.</param>
@@ -22,6 +24,10 @@ namespace Orrery.Cache;
 /// be uncacheable: a device's side effects (e.g. an HTIF <c>fromhost</c> ACK written to the
 /// backing below the cache) are otherwise masked by stale cached lines, hanging the run.</param>
 /// <param name="UncacheableSize">Size of the uncacheable MMIO region in bytes (0 = disabled).</param>
+/// <param name="Prefetcher">Prefetch strategy for this memory port. Ignored when no L1 cache
+/// is configured. Prefetches are free (no stall penalty) and respect the uncacheable region.</param>
+/// <param name="PrefetcherTableSize">RPT table entries for <see cref="PrefetcherKind.Stride"/>;
+/// must be a power of 2. Ignored for other prefetcher kinds.</param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,
@@ -39,7 +45,9 @@ public sealed record MemoryConfig(
     int TlbPageBytes = 4096,
     int TlbMissLatency = 20,
     ulong UncacheableBase = 0,
-    ulong UncacheableSize = 0
+    ulong UncacheableSize = 0,
+    PrefetcherKind Prefetcher = PrefetcherKind.None,
+    int PrefetcherTableSize = 64
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -55,7 +63,10 @@ public sealed record MemoryLayers(
     SetAssociativeCache? Cache,
     SetAssociativeCache? L2Cache,
     SetAssociativeCache? L3Cache,
-    Tlb? Tlb
+    Tlb? Tlb,
+    IPrefetcher? Prefetcher,
+    ulong UncacheableBase,
+    ulong UncacheableSize
 ) {
     /// <summary>
     /// Build a layer stack: backing → [L3] → [L2] → [L1] → [TLB].
@@ -97,7 +108,13 @@ public sealed record MemoryLayers(
         if (cfg.UncacheableSize > 0 && (l1 ?? l2 ?? l3) is not null)
             current = new UncacheableMemory(current, backing, cfg.UncacheableBase, cfg.UncacheableSize);
 
-        return new MemoryLayers(current, l1, l2, l3, tlb);
+        IPrefetcher? prefetcher = l1 is not null ? cfg.Prefetcher switch {
+            PrefetcherKind.NextLine => new NextLinePrefetcher(cfg.CacheBlockBytes),
+            PrefetcherKind.Stride  => new StridePrefetcher(cfg.PrefetcherTableSize),
+            _                      => null,
+        } : null;
+
+        return new MemoryLayers(current, l1, l2, l3, tlb, prefetcher, cfg.UncacheableBase, cfg.UncacheableSize);
     }
 
     /// <summary>Drains and sums pending stall cycles from all cache and TLB levels.</summary>
@@ -106,4 +123,20 @@ public sealed record MemoryLayers(
         (L2Cache?.ConsumePendingStalls() ?? 0) +
         (L3Cache?.ConsumePendingStalls() ?? 0) +
         (Tlb?.ConsumePendingStalls() ?? 0);
+
+    /// <summary>
+    /// Prefetches the L1 line covering <paramref name="address"/> without any stall penalty.
+    /// Guards against the uncacheable MMIO region: any prefetch that would land on (or overlap)
+    /// an uncacheable line is silently dropped, preventing re-caching of HTIF registers.
+    /// No-ops when no prefetcher is configured or no L1 is present.
+    /// </summary>
+    public void TryPrefetch(ulong address) {
+        if (Cache is null || Prefetcher is null) return;
+        if (UncacheableSize > 0) {
+            ulong lineStart = address & ~(ulong)(Cache.BlockBytes - 1);
+            ulong lineEnd   = lineStart + (ulong)Cache.BlockBytes;
+            if (lineEnd > UncacheableBase && lineStart < UncacheableBase + UncacheableSize) return;
+        }
+        Cache.Prefetch(address);
+    }
 }

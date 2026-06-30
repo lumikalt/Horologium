@@ -175,4 +175,47 @@ public class OoOMemoryParallelismTests {
             $"MSHR cap mysteriously reduced cycles: cap={capCycles} < base={baseCycles}"
         );
     }
+
+    /// <summary>
+    /// Prefetcher correctness: a next-line prefetcher on the D-cache must not corrupt
+    /// HTIF MMIO registers. The uncacheable guard in MemoryLayers.TryPrefetch prevents
+    /// a prefetch landing on the tohost/fromhost line from re-caching stale ACK values,
+    /// which would re-introduce the stale-fromhost livelock fixed earlier.
+    ///
+    /// The test runs memcpy with a next-line prefetcher, asserts HTIF PASS (correctness)
+    /// and dcache_prefetches > 0 (prefetcher actually fired). It is the MMIO-safety
+    /// counterpart to the base L1 test above.
+    /// </summary>
+    [Fact]
+    public void OoO_Memcpy_NextLinePrefetcher_SelfChecksPass_AndPrefetchesFired() {
+        var workload = new Rv32ElfWorkload(
+            Path.Combine(AppContext.BaseDirectory, "benchmarks", "memcpy.elf"), 4 * 1024 * 1024
+        );
+        var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(mem);
+        IMemory runMem = workload.WrapMemory(mem);
+        ulong tohost = workload.HtifTohostAddress!.Value;
+
+        var l1 = new CacheHardwareConfig(16384, 4, 64, 10);
+        var cfg = new TrainConfig("ooo", ICache: l1, DCache: l1, DPrefetcher: "next_line");
+        MemoryConfig iMem = cfg.ToIMemoryConfig();
+        MemoryConfig dMem = cfg.ToDMemoryConfig() with { UncacheableBase = tohost, UncacheableSize = 16, };
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(workload.HtifTohostAddress), runMem, workload.EntryPoint,
+            8, 128, 64,
+            predictor: BranchPredictorConfig.NBit().Build(),
+            iMemConfig: iMem, dMemConfig: dMem
+        );
+
+        RevolutionResult r = train.Run(MaxTicks);
+        IReadOnlyDictionary<string, long> counters = r.Find("ooo.pipeline")!.Counters;
+        ulong tohostLow = mem.Read(tohost, 4);
+
+        AssertHtifPass(tohostLow, counters["cycles"], "memcpy OoO + L1 + next-line prefetcher");
+        Assert.True(
+            counters.GetValueOrDefault("dcache_prefetches") > 0,
+            "next-line prefetcher did not fire any prefetches"
+        );
+    }
 }

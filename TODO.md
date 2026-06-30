@@ -71,8 +71,35 @@
   - [x] Unblock benchmark breadth via raw-opcode trace path.
   - [x] Fix HTIF MMIO caching bug.
   - [x] Phase-2b matched study with working L1.
+  - [x] Write buffer (WB∝w) + MSHR cap + D-cache write port + prefetcher (Phase 3).
   - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
 - [ ] STF (Simulation Trace Format) binary output.
+
+### Calibration research: open structural gaps
+
+The following are research directions that explain remaining IPC divergences between
+Horologium and Olympia (see docs/olympia-calibration.md for per-row evidence).
+Each requires measurement (oracle predictor run, profiling) before implementation.
+
+- [ ] **Branch misprediction cost** — qsort no-cache IPC (0.99) is ~25% below
+  Olympia trace-replay (1.24); oracle-predictor run would isolate misprediction
+  overhead and quantify how much ITTAGE/BATAGE recovers vs the 2-bit sweep config.
+- [ ] **Result-bypass / forwarding latency** — Horologium assumes zero-cycle
+  forwarding; adding 1–2 cycle bypass latency to `FuLatencyConfig` would deflate
+  compute-bound overestimates (rich, multiply).
+- [ ] **FU reservation-station depth** — Olympia models per-class RS limits;
+  Horologium's flat IQ may over-schedule at wide issue (multiply/big_core gap).
+  A per-class IQ partition would test this.
+- [ ] **Memory-bus bandwidth cap** — rsort's scatter-write pattern triggers Olympia's
+  bus-occupancy limits (IPC ≈ 1.0 vs Horologium 1.6–2.1). A per-cycle cap on
+  outstanding write-bus transactions (beyond the single D-cache write port) is the
+  structural lever.
+- [ ] **ROB head pressure from long-latency misses** — MLP loads fill ROB slots for
+  their full miss countdown; when the ROB fills, fetch/dispatch stall. Horologium
+  doesn't model this pressure; real hardware does.
+- [ ] **Realistic prefetch latency** — idealized free prefetcher (+PF column) adds
+  ≤2% because load-side MLP already hides miss latency. A prefetch-with-countdown
+  model (demand hit pays remaining countdown) would test the true prefetch benefit.
 
 ## Performance
 
@@ -91,7 +118,8 @@
 ## Mechanism
 
 - [ ] Generic interfaces for external devices (basic UART/MMIO).
-- [ ] Cache pre-fetching: next-line, stride (RPT), and stream prefetchers.
+- [x] Cache pre-fetching: next-line and stride (RPT) prefetchers; `MemoryConfig.Prefetcher`, `TrainConfig.DPrefetcher` JSON field, MMIO guard in `MemoryLayers.TryPrefetch`.
+- [ ] Cache pre-fetching: stream prefetcher.
 - [x] Non-blocking cache with MSHR.
   - [x] Load-side MLP: independent misses overlap via per-load latency countdown.
   - [x] Store-side: model write buffer / bounded store buffer.

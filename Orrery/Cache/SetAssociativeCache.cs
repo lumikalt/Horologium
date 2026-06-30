@@ -30,6 +30,7 @@ public sealed class SetAssociativeCache : IMemory {
     public long Hits { get; private set; }
     public long Misses { get; private set; }
     public long Evictions { get; private set; }
+    public long Prefetches { get; private set; }
     public ulong? LastAccessAddress { get; private set; }
     public bool LastAccessWasHit { get; private set; }
 
@@ -207,6 +208,29 @@ public sealed class SetAssociativeCache : IMemory {
             for (var w = 0; w < _ways; w++)
                 if (_tags[set][w] == tag)
                     _tags[set][w] = null;
+        }
+    }
+
+    // ── Prefetch ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Installs the cache line covering <paramref name="address"/> without charging any stall
+    /// penalty. No-ops if the line is already present. Used by prefetchers to warm the cache
+    /// ahead of demand accesses; callers are responsible for ensuring the address is not in
+    /// an uncacheable MMIO region.
+    /// </summary>
+    public void Prefetch(ulong address) {
+        var offset = (int)(address & (ulong)_offsetMask);
+        if (offset + 1 > _blockSize) return;
+        Decompose(address, out int set, out ulong tag);
+        if (FindWay(set, tag) >= 0) return; // already present
+        int evict = LruWay(set);
+        try {
+            FillBlock(set, evict, address);
+            Prefetches++;
+        }
+        catch {
+            // Prefetch address is outside the backing memory's valid range; drop silently.
         }
     }
 

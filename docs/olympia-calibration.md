@@ -34,18 +34,19 @@ column is the closest structural match.
 ## Results (IPC)
 
 WB∝w = write buffer sized to issue width (2/3/8 slots for w2/w3/w8).
++PF = WB∝w + stride prefetcher (idealized: free, instant fill).
 Horologium w2/w3/w8 maps to Olympia small/medium/big_core.
 
-| workload | Horo 2/3/8         | + L1$ 2/3/8        | + WB∝w 2/3/8       | Olympia s/m/b      |
-|----------|--------------------|--------------------|--------------------|--------------------|
-| rich     | 1.44 / 1.79 / 1.98 | 1.24 / 1.50 / 1.63 | 1.41 / 1.74 / 1.93 | 0.75 / 1.01 / 0.97 |
-| vvadd    | 1.28 / 1.42 / 1.27 | 0.66 / 0.71 / 0.66 | 0.93 / 1.09 / 1.12 | 0.90 / 1.02 / 1.07 |
-| multiply | 1.51 / 1.69 / 1.73 | 1.41 / 1.57 / 1.60 | 1.48 / 1.66 / 1.69 | 1.09 / 1.88 / 2.03 |
-| median   | 0.83 / 0.83 / 0.74 | 0.53 / 0.54 / 0.50 | 0.77 / 0.78 / 0.70 | 1.01 / 1.09 / 1.11 |
-| towers   | 0.73 / 0.59 / 0.49 | 0.67 / 0.54 / 0.46 | 0.67 / 0.55 / 0.46 | 0.61 / 0.64 / 0.65 |
-| qsort    | 0.99 / 1.10 / 1.01 | 0.98 / 1.10 / 1.01 | 0.99 / 1.10 / 1.01 | 1.24 / 1.45 / 1.47 |
-| rsort    | 1.76 / 2.08 / 2.14 | 1.35 / 1.55 / 1.58 | 1.58 / 1.97 / 2.13 | 0.99 / 1.04 / 1.03 |
-| memcpy   | 1.50 / 1.63 / 1.55 | 0.53 / 0.56 / 0.55 | 0.68 / 0.81 / 1.19 | 0.90 / 0.92 / 0.92 |
+| workload | Horo 2/3/8         | + L1$ 2/3/8        | + WB∝w 2/3/8       | + PF 2/3/8         | Olympia s/m/b      |
+|----------|--------------------|--------------------|--------------------|--------------------|--------------------|
+| rich     | 1.44 / 1.79 / 1.98 | 1.24 / 1.50 / 1.63 | 1.41 / 1.74 / 1.93 | 1.41 / 1.75 / 1.93 | 0.75 / 1.01 / 0.97 |
+| vvadd    | 1.28 / 1.42 / 1.27 | 0.66 / 0.71 / 0.66 | 0.93 / 1.09 / 1.12 | 0.94 / 1.09 / 1.13 | 0.90 / 1.02 / 1.07 |
+| multiply | 1.51 / 1.69 / 1.73 | 1.41 / 1.57 / 1.60 | 1.48 / 1.66 / 1.69 | 1.48 / 1.66 / 1.69 | 1.09 / 1.88 / 2.03 |
+| median   | 0.83 / 0.83 / 0.74 | 0.53 / 0.54 / 0.50 | 0.77 / 0.78 / 0.70 | 0.79 / 0.79 / 0.71 | 1.01 / 1.09 / 1.11 |
+| towers   | 0.73 / 0.59 / 0.49 | 0.67 / 0.54 / 0.46 | 0.67 / 0.55 / 0.46 | 0.67 / 0.55 / 0.46 | 0.61 / 0.64 / 0.65 |
+| qsort    | 0.99 / 1.10 / 1.01 | 0.98 / 1.10 / 1.01 | 0.99 / 1.10 / 1.01 | 0.99 / 1.10 / 1.01 | 1.24 / 1.45 / 1.47 |
+| rsort    | 1.76 / 2.08 / 2.14 | 1.35 / 1.55 / 1.58 | 1.58 / 1.97 / 2.13 | 1.60 / 1.97 / 2.13 | 0.99 / 1.04 / 1.03 |
+| memcpy   | 1.50 / 1.63 / 1.55 | 0.53 / 0.56 / 0.55 | 0.68 / 0.81 / 1.19 | 0.68 / 0.78 / 1.18 | 0.90 / 0.92 / 0.92 |
 
 ## What this shows
 
@@ -87,6 +88,32 @@ Horologium w2/w3/w8 maps to Olympia small/medium/big_core.
 
 - **No clean cross-model rank correspondence** — two different microarchitectures
   — read the *direction* of error by workload class, not the absolute deltas.
+
+## Prefetcher result: MLP already hides what prefetching would fix (done)
+
+An idealized stride prefetcher (free, instant fill; RPT table indexed by PC) was added
+to the WB∝w configuration (+PF column). Across every workload the improvement is at
+most ~2%, well within noise. Three reasons this is the expected ceiling:
+
+1. **Load-side MLP is already active.** Each missed load carries its own in-flight
+   countdown so independent misses overlap without blocking dispatch or issue.
+   A prefetch that arrives for free does not improve on a miss that is already
+   non-blocking — both expose the load to the pipeline at the same effective cost.
+
+2. **The workloads with remaining gaps are not prefetch-amenable.** qsort and
+   median are branch-prediction and ILP bound, not miss-latency bound. rsort is an
+   architectural-model mismatch (memory-bus occupancy). A prefetcher can only help
+   when miss latency is on the critical path.
+
+3. **The idealized model is a ceiling, not a floor.** Real prefetchers cost bandwidth
+   and arrive with a finite latency. Adding a realistic prefetch latency (a countdown
+   like the MSHR mechanism, with the demand hit paying the remaining countdown rather
+   than zero) would make the effective benefit even smaller than the idealized numbers
+   show.
+
+The prefetcher infrastructure (next-line, stride RPT, `MemoryLayers.TryPrefetch` with
+MMIO guard, `dcache_prefetches` counter, `TrainConfig.DPrefetcher` JSON field) is in
+place and wired. The calibration script now includes the +PF column.
 
 ## Load-side memory-level parallelism (done)
 
@@ -141,21 +168,69 @@ sets the window to the workload's HTIF registers). Regression-tested.
   match; the value is the *direction* of the per-class error (memory- vs
   compute-bound), which is robust here.
 
-## Next steps
+## Next steps and research points
 
 1. **Load-side MLP — done.** Lifted memory-bound IPCs partway toward Olympia.
 2. **Store-side MLP — done.** Write buffer wired with width-proportional sizing
    (WB∝w); vvadd matches Olympia within ~5% at all widths.
-3. **Store-stream density vs WB capacity.** The proportional policy matches vvadd
-   well but under/overshoots memcpy in opposite directions across widths because
-   the two workloads have different store-stream densities. A capacity formula
-   based on actual store density (observed store/cycle rate) rather than
-   issue-width could narrow this further — but that requires profiling or
-   per-workload tuning, moving away from a structural model.
+3. **Prefetcher (next-line + stride RPT) — done.** Wired; idealized +PF column
+   shows ≤2% improvement because load-side MLP already hides miss latency. The
+   remaining gaps are not prefetch-amenable (see §Prefetcher result above).
 4. **D-cache read port constraint — covered by FU budget.** The
    `FuLatencyConfig.LoadStoreCount = 1` default already enforces at most one
-   Load/Store/Atomic issue per cycle, so at most one load reads the D-cache per
-   cycle. A separate gate in execute would be unreachable dead code at this
-   configuration. The remaining divergence on rsort and wide-issue vvadd is
-   attributable to other structural limits in Olympia (memory-bus occupancy, LSU
-   queuing) absent in Horologium, not a missing read-port gate.
+   Load/Store/Atomic issue per cycle. A separate gate in execute would be dead code.
+5. **Store-stream density vs WB capacity.** The proportional policy matches vvadd
+   well but under/overshoots memcpy in opposite directions across widths because
+   the two workloads have different store-stream densities. Per-workload tuning
+   would move away from a structural model.
+
+### Open structural gaps (research directions)
+
+These items identify *why* the remaining rows diverge and what model additions would
+close them. They are not necessarily implementation tasks — each requires measurement
+first.
+
+- **Branch misprediction cost (qsort, median).** qsort's Horologium no-cache IPC
+  (0.99–1.01) is ~25% below Olympia's trace-replay IPC (1.24–1.47). Since Olympia
+  has no misprediction cost (committed trace), this delta is a direct measurement of
+  Horologium's misprediction overhead on qsort. Running Horologium with an oracle
+  predictor would isolate this and quantify how much a better predictor
+  (ITTAGE/BATAGE vs. 2-bit in the sweep) would recover.
+
+- **Result-bypass / forwarding latency (rich, multiply).** Horologium assumes
+  zero-cycle forwarding; real pipelines add 1–2 cycles to the effective latency of
+  results forwarded from an executing instruction to a dependent issue. This inflates
+  compute-bound IPC across all widths. Adding a bypass latency parameter to
+  `FuLatencyConfig` (separate from the instruction's own latency) is the structural
+  lever; the multiply/big_core gap (1.69 Horo vs 2.03 Olympia) may also involve FU
+  reservation-station depth (see below).
+
+- **FU reservation-station queuing depth (multiply/big_core).** Olympia models
+  per-class RS depth limits; instructions stall in dispatch when the RS is full.
+  Horologium's IQ is flat (all classes share the pool). At big_core Olympia wins on
+  multiply (2.03 vs 1.69) despite having no misprediction cost, suggesting the deeper
+  RS enables better out-of-order scheduling across the wider instruction window. A
+  per-class IQ partition would test this.
+
+- **Memory-bus occupancy / write-bus bandwidth cap (rsort).** rsort's scattered
+  write pattern triggers Olympia's structural LSU limits (memory-bus occupancy,
+  finite outstanding write-bus transactions) that keep its IPC near 1.0.
+  Horologium (1.58–2.13) runs far above because it models no bus bandwidth cap on
+  store commits. Adding a limit on total outstanding write-bus transactions (a
+  per-cycle cap across all committed stores, distinct from the single D-cache write
+  port already implemented) is the lever for rsort.
+
+- **ROB head pressure from long-latency misses.** Under load-side MLP, a missed
+  load occupies its ROB slot for its full miss countdown while younger instructions
+  execute past it. When the ROB fills with miss-pending loads, fetch and dispatch
+  stall even though younger instructions could still issue. Horologium allows fetch
+  to run ahead freely; real cores stall when the ROB head has been pending for too
+  long. This is most visible on median and memory-bound workloads at wide issue.
+
+- **Realistic prefetch latency.** The idealized prefetcher (+PF column) shows that a
+  free prefetcher adds nothing when MLP is active. A realistic model would issue the
+  prefetch with a countdown (like `_inFlight` for loads) and service a demand hit
+  that arrives while the prefetch is pending by paying the remaining countdown rather
+  than zero. This would interact with MSHR capacity and would only improve IPC when
+  the prefetch arrives before the demand miss — a narrower benefit window than the
+  idealized model suggests.

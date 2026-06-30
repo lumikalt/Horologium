@@ -44,6 +44,14 @@ cat > "$TMP/cache_wb.json" <<JSON
  {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":3}},
  {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":8}}]
 JSON
+# WB∝w + stride prefetcher: tests whether a hardware prefetcher closes the remaining gaps.
+# Using stride (not next-line) since several workloads have strided but non-unit access patterns.
+# Prefetch model is idealized (free, instant) — see docs/olympia-calibration.md for caveats.
+cat > "$TMP/cache_wb_pf.json" <<JSON
+[{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":32,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":2,"d_prefetcher":"stride"}},
+ {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":3,"d_prefetcher":"stride"}},
+ {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":8,"d_prefetcher":"stride"}}]
+JSON
 
 horo() { # elf sweep.json name
   dotnet run --project Runner -- "$1" --sweep "$2" 2>/dev/null \
@@ -61,15 +69,16 @@ for b in vvadd multiply median towers qsort rsort memcpy; do
   WORKLOADS+=("$b:TestBinaries/benchmarks/$b.elf")
 done
 
-printf '%-9s | %-20s | %-20s | %-20s | %-20s\n' \
-  workload 'Horologium (w2/3/8)' '+ L1$ (w2/3/8)' '+ WB∝w (w2/3/8)' 'Olympia (s/m/b)'
-printf -- '----------+----------------------+----------------------+----------------------+---------------------\n'
+printf '%-9s | %-20s | %-20s | %-20s | %-20s | %-20s\n' \
+  workload 'Horologium (w2/3/8)' '+ L1$ (w2/3/8)' '+ WB∝w (w2/3/8)' '+stride-PF (w2/3/8)' 'Olympia (s/m/b)'
+printf -- '----------+----------------------+----------------------+----------------------+----------------------+---------------------\n'
 for spec in "${WORKLOADS[@]}"; do
   name=${spec%%:*}; elf=${spec##*:}
   dotnet run --project Runner -- "$elf" --trace-json "$TMP/t.json" >/dev/null 2>&1
-  printf '%-9s | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s\n' "$name" \
+  printf '%-9s | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s\n' "$name" \
     "$(horo "$elf" "$TMP/nocache.json" w2)" "$(horo "$elf" "$TMP/nocache.json" w3)" "$(horo "$elf" "$TMP/nocache.json" w8)" \
     "$(horo "$elf" "$TMP/cache.json"   w2)" "$(horo "$elf" "$TMP/cache.json"   w3)" "$(horo "$elf" "$TMP/cache.json"   w8)" \
-    "$(horo "$elf" "$TMP/cache_wb.json" w2)" "$(horo "$elf" "$TMP/cache_wb.json" w3)" "$(horo "$elf" "$TMP/cache_wb.json" w8)" \
+    "$(horo "$elf" "$TMP/cache_wb.json"    w2)" "$(horo "$elf" "$TMP/cache_wb.json"    w3)" "$(horo "$elf" "$TMP/cache_wb.json"    w8)" \
+    "$(horo "$elf" "$TMP/cache_wb_pf.json" w2)" "$(horo "$elf" "$TMP/cache_wb_pf.json" w3)" "$(horo "$elf" "$TMP/cache_wb_pf.json" w8)" \
     "$(oly "$TMP/t.json" small_core)" "$(oly "$TMP/t.json" medium_core)" "$(oly "$TMP/t.json" big_core)"
 done

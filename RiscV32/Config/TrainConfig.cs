@@ -54,7 +54,9 @@ public sealed record TrainConfig(
     int IqCapacity = 16,
     int ExtraPhysRegs = 32,
     FuLatencyConfig? FuLatency = null, // null → FuLatencyConfig.Default (all 1-cycle except MulDiv=3)
-    int MshrCapacity = 0              // 0 = unlimited outstanding misses
+    int MshrCapacity = 0,             // 0 = unlimited outstanding misses
+    string? DPrefetcher = null,       // null | "next_line" | "stride"
+    int DPrefetcherTableSize = 64
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,
@@ -63,7 +65,16 @@ public sealed record TrainConfig(
     };
 
     public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, L2Cache, L3Cache, ITlb);
-    public MemoryConfig ToDMemoryConfig() => ToMemoryConfig(DCache, L2Cache, L3Cache, DTlb);
+
+    public MemoryConfig ToDMemoryConfig() {
+        var mc = ToMemoryConfig(DCache, L2Cache, L3Cache, DTlb);
+        PrefetcherKind kind = DPrefetcher?.ToLowerInvariant() switch {
+            "next_line" => PrefetcherKind.NextLine,
+            "stride"    => PrefetcherKind.Stride,
+            _           => PrefetcherKind.None,
+        };
+        return mc with { Prefetcher = kind, PrefetcherTableSize = DPrefetcherTableSize };
+    }
 
     public string ToJson() => JsonSerializer.Serialize(this, TrainConfig.JsonOptions);
 
