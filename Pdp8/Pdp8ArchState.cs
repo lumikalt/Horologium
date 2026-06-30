@@ -1,0 +1,36 @@
+using Mechanism;
+using Pdp8.Registers;
+
+namespace Pdp8;
+
+public sealed class Pdp8ArchState : IArchState {
+    private readonly Pdp8RegisterFile _regs = new();
+
+    public ulong Pc { get; set; }
+    public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
+    public IRegisterFile IntegerRegisters => _regs;
+    public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
+
+    public ulong Ac {
+        get => _regs.Read(0);
+        set => _regs.Write(0, value);
+    }
+
+    public ulong L {
+        get => _regs.Read(1);
+        set => _regs.Write(1, value);
+    }
+
+    public IArchState Snapshot() {
+        var s = new Pdp8ArchState { Pc = Pc, PrivilegeLevel = PrivilegeLevel, };
+        s.Ac = Ac;
+        s.L = L;
+        return s;
+    }
+
+    public void Reset() {
+        Pc = 0;
+        Ac = 0;
+        L = 0;
+    }
+}

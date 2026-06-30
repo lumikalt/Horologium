@@ -212,8 +212,8 @@ See the "Olympia execution model: structural comparison" section for source-leve
 
 | Priority | Architecture     | Paradigm to test                       | Difficulty   |
 |----------|------------------|----------------------------------------|--------------|
-| 1        | SUBLEQ           | OISC, no opcode field                  | 1 (Trivial)  |
-| 2        | PDP-8            | Accumulator, 12b, minimal opcodes      | 2 (Easy)     |
+| 1        | ~~SUBLEQ~~       | OISC, no opcode field                  | 1 (Trivial)  |
+| 2        | ~~PDP-8~~        | Accumulator, 12b, minimal opcodes      | 2 (Easy)     |
 | 3        | J1 Forth         | Stack machine, packed opcodes          | 2 (Easy)     |
 | 4        | TTA/NOVE         | Triggered side-effect execution        | 3 (Medium)   |
 | 5        | GA144 F18A       | Async, multi-core, packed 5-op words   | 3 (Medium)   |
