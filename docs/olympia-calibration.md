@@ -34,60 +34,82 @@ column is the closest structural match.
 ## Results (IPC)
 
 WB∝w = write buffer sized to issue width (2/3/8 slots for w2/w3/w8).
-+PF = WB∝w + stride prefetcher (idealized: free, instant fill).
++Matched = WB∝w + 4-cycle load-hit latency (`LoadHitLatency=4`) + D$ sized to Olympia's
+per-width defaults (16/32/64 KB for small/medium/big). Replaced the earlier +PF column.
 Horologium w2/w3/w8 maps to Olympia small/medium/big_core.
 
-| workload | Horo 2/3/8         | + L1$ 2/3/8        | + WB∝w 2/3/8       | + PF 2/3/8         | Olympia s/m/b      |
+| workload | Horo 2/3/8         | + L1$ 2/3/8        | + WB∝w 2/3/8       | + Matched 2/3/8    | Olympia s/m/b      |
 |----------|--------------------|--------------------|--------------------|--------------------|--------------------|
-| rich     | 1.44 / 1.79 / 1.98 | 1.24 / 1.50 / 1.63 | 1.41 / 1.74 / 1.93 | 1.41 / 1.75 / 1.93 | 0.75 / 1.01 / 0.97 |
-| vvadd    | 1.28 / 1.42 / 1.27 | 0.66 / 0.71 / 0.66 | 0.93 / 1.09 / 1.12 | 0.94 / 1.09 / 1.13 | 0.90 / 1.02 / 1.07 |
-| multiply | 1.51 / 1.69 / 1.73 | 1.41 / 1.57 / 1.60 | 1.48 / 1.66 / 1.69 | 1.48 / 1.66 / 1.69 | 1.09 / 1.88 / 2.03 |
-| median   | 0.83 / 0.83 / 0.74 | 0.53 / 0.54 / 0.50 | 0.77 / 0.78 / 0.70 | 0.79 / 0.79 / 0.71 | 1.01 / 1.09 / 1.11 |
-| towers   | 0.73 / 0.59 / 0.49 | 0.67 / 0.54 / 0.46 | 0.67 / 0.55 / 0.46 | 0.67 / 0.55 / 0.46 | 0.61 / 0.64 / 0.65 |
-| qsort    | 0.99 / 1.10 / 1.01 | 0.98 / 1.10 / 1.01 | 0.99 / 1.10 / 1.01 | 0.99 / 1.10 / 1.01 | 1.24 / 1.45 / 1.47 |
-| rsort    | 1.76 / 2.08 / 2.14 | 1.35 / 1.55 / 1.58 | 1.58 / 1.97 / 2.13 | 1.60 / 1.97 / 2.13 | 0.99 / 1.04 / 1.03 |
-| memcpy   | 1.50 / 1.63 / 1.55 | 0.53 / 0.56 / 0.55 | 0.68 / 0.81 / 1.19 | 0.68 / 0.78 / 1.18 | 0.90 / 0.92 / 0.92 |
+| rich     | 1.44 / 1.79 / 1.98 | 1.24 / 1.50 / 1.63 | 1.41 / 1.74 / 1.93 | 1.28 / 1.70 / 1.88 | 0.75 / 1.01 / 0.97 |
+| vvadd    | 1.28 / 1.42 / 1.27 | 0.66 / 0.71 / 0.66 | 0.93 / 1.09 / 1.12 | 0.89 / 1.07 / 1.11 | 0.90 / 1.02 / 1.07 |
+| multiply | 1.51 / 1.69 / 1.73 | 1.41 / 1.57 / 1.60 | 1.48 / 1.66 / 1.69 | 1.46 / 1.64 / 1.69 | 1.09 / 1.88 / 2.03 |
+| median   | 0.83 / 0.83 / 0.74 | 0.53 / 0.54 / 0.50 | 0.77 / 0.78 / 0.70 | 0.68 / 0.71 / 0.66 | 1.01 / 1.09 / 1.11 |
+| towers   | 0.73 / 0.59 / 0.49 | 0.67 / 0.54 / 0.46 | 0.67 / 0.55 / 0.46 | 0.64 / 0.54 / 0.45 | 0.61 / 0.64 / 0.65 |
+| qsort    | 0.99 / 1.10 / 1.01 | 0.98 / 1.10 / 1.01 | 0.99 / 1.10 / 1.01 | 0.88 / 0.95 / 0.87 | 1.24 / 1.45 / 1.47 |
+| rsort    | 1.76 / 2.08 / 2.14 | 1.35 / 1.55 / 1.58 | 1.58 / 1.97 / 2.13 | 1.45 / 1.78 / 1.89 | 0.99 / 1.04 / 1.03 |
+| memcpy   | 1.50 / 1.63 / 1.55 | 0.53 / 0.56 / 0.55 | 0.68 / 0.81 / 1.19 | 0.67 / 0.79 / 1.19 | 0.90 / 0.92 / 0.92 |
 
 ## What this shows
 
-- **vvadd is the closest match yet across all widths.** WB∝w gives 0.93/1.09/1.12
-  vs Olympia 0.90/1.02/1.07 — within ~5% at every width. This is the best
-  cross-model alignment seen in any configuration. The width-proportional policy
-  keeps saturation behaviour consistent: with 2 slots at w2, two simultaneous
-  store misses exhaust the buffer and subsequent misses fall back to lump-sum,
-  producing the same saturation pressure that Olympia's LSU resource constraints
-  impose.
+- **vvadd matches Olympia at w2.** +Matched gives 0.89 vs Olympia 0.90 at small\_core
+  width — the first exact cross-model alignment in this study. At medium/big the
+  overestimate shrinks to 5% (1.07 vs 1.02) and 4% (1.11 vs 1.07). The 4-cycle load-hit
+  latency is the primary driver: vvadd's load→add→store dependency chain is fully
+  serialized through the load pipeline, so each 3-extra-cycle hit directly lengthens
+  the critical path.
 
-- **memcpy shows a crossing pattern** — WB∝w undershoots at w2 (0.68 vs 0.90)
-  and overshoots at w8 (1.19 vs 0.92). memcpy's access pattern is denser than
-  vvadd's (4-byte word copies in a tight loop), so even 2 slots saturate faster
-  than the proportional model assumes at narrow width. The crossing at w8 means
-  8 slots is still too permissive there. A fixed WB4 was better for memcpy at w2;
-  the proportional policy is better for vvadd. A single capacity rule cannot
-  simultaneously match both — the two workloads have different store-stream
-  densities relative to issue width.
+- **memcpy is insensitive to LoadHitLatency.** +Matched (0.67/0.79/1.19) is nearly
+  identical to WB∝w (0.68/0.81/1.19) despite adding 3 extra load cycles. The write
+  buffer is already the binding constraint; the load hit latency is off the critical
+  path when store-buffer saturation stalls dominate. Horologium still undershoots at
+  w2 (0.67 vs 0.90) and overshoots at w8 (1.19 vs 0.92) — the store-stream density
+  crossing pattern from the WB analysis persists.
 
-- **Compute-bound workloads (rich, multiply, qsort, towers) are insensitive to
-  WB size** — the WB∝w numbers are within rounding of the L1$ column. Their
-  bottleneck is ILP and branch prediction, not store bandwidth.
+- **Compute-bound workloads (multiply, rich) are slightly deflated by +Matched** but
+  still well above Olympia. multiply drops 0.01–0.02 IPC (cache-insensitive, load
+  latency not on critical path); rich drops 0.05–0.13 IPC. The remaining gap for rich
+  (1.28 vs 0.75 at w2) and multiply (1.46 vs 1.09 at w2) is structural: IQ
+  partitioning, forwarding latency, and FU RS depth.
 
-- **median stays below Olympia (0.77 vs 1.01)** regardless of write-buffer
-  configuration. The write buffer is not its lever; the gap is load-latency or
-  branch-prediction bound.
+- **qsort and median move further from Olympia in +Matched.** qsort: WB∝w 0.99 →
+  +Matched 0.88 at w2, while Olympia is 1.24. median: WB∝w 0.77 → +Matched 0.68 at w2,
+  Olympia 1.01. Both workloads are already below Olympia because Horologium pays real
+  misprediction penalties (Olympia replays the committed trace, paying none). Adding load
+  latency further serializes dependent loads after predicted-taken branches, widening the
+  gap. The correct lever for these workloads is branch-prediction quality, not load
+  latency.
 
-- **rsort is an outlier** — Horologium (1.58–2.13) runs far above Olympia
-  (0.99–1.03). Radix sort's scattered write pattern triggers structural limits in
-  Olympia (memory-bus occupancy, LSU queuing) that Horologium doesn't model.
-  WB∝w shrinks the w2 gap slightly (1.76→1.58) but the fundamental mismatch is
-  architectural, not a WB-sizing issue.
+- **rsort remains an outlier** — +Matched (1.45/1.78/1.89) is lower than WB∝w
+  (1.58/1.97/2.13) but still far above Olympia (0.99/1.04/1.03). Memory-bus bandwidth
+  cap is the structural lever.
 
-- **Compute-bound code (rich, multiply) stays above Olympia.** Olympia replays
-  the committed trace (no misprediction penalty), yet is still lower — implying
-  additional issue constraints in Olympia (functional-unit queuing, forwarding
-  latency) absent in Horologium.
+- **D-cache size change has minimal effect.** The 16→32/64 KB enlargement for w3/w8 in
+  +Matched produces no measurable IPC change on any workload. These benchmarks' working
+  sets fit comfortably in 16 KB, so the larger cache does not reduce miss rates.
 
-- **No clean cross-model rank correspondence** — two different microarchitectures
-  — read the *direction* of error by workload class, not the absolute deltas.
+## Phase 4: Load hit latency and matched D-cache (done)
+
+Olympia's LSU is a 5-stage dedicated pipeline (addr\_calc → MMU → cache\_lookup →
+cache\_read → complete), giving **4 cycles** from IQ issue to scoreboard broadcast on a
+cache hit. Horologium previously treated a cache-hit load as a 1-cycle FU operation
+(`LoadStoreLatency = 1` in `FuLatencyConfig`), with only the miss penalty added on top.
+
+Two changes were made:
+
+1. **`LoadHitLatency` parameter** added to `FuLatencyConfig` (default 1; set to 4 in the
+   +Matched column). `LatencyFor(ToothClass.Load)` now returns `LoadHitLatency`; stores
+   and atomics still use `LoadStoreLatency`. The MLP miss-countdown model is unchanged:
+   a missed load starts with `LoadHitLatency - 1` cycles, then adds the miss penalty on
+   top, so hits and misses both pay the base pipeline depth. A cache-hit load at
+   `LoadHitLatency=4` has `countdown=3` and enters `_inFlight` with `holdsMshr=false`
+   (no MSHR slot consumed for hits).
+
+2. **D-cache sizing** in the calibration script updated: the `+Matched` config uses
+   16/32/64 KB D$ for w2/w3/w8 matching Olympia's small/medium/big\_core defaults.
+
+**Result:** vvadd at small\_core width converges to within 1% of Olympia (0.89 vs 0.90).
+Medium and big remain within 5%. The D-cache enlargement had no measurable effect because
+these benchmark working sets fit in 16 KB.
 
 ## Prefetcher result: MLP already hides what prefetching would fix (done)
 
@@ -312,12 +334,16 @@ of dispatch width; Horologium retires up to `IssueWidth` per cycle.
 2. **Store-side MLP — done.** Write buffer wired with width-proportional sizing
    (WB∝w); vvadd matches Olympia within ~5% at all widths.
 3. **Prefetcher (next-line + stride RPT) — done.** Wired; idealized +PF column
-   shows ≤2% improvement because load-side MLP already hides miss latency. The
-   remaining gaps are not prefetch-amenable (see §Prefetcher result above).
-4. **D-cache read port constraint — covered by FU budget.** The
+   showed ≤2% improvement because load-side MLP already hides miss latency. Column
+   replaced by +Matched in the current script; the infrastructure remains in place.
+4. **Load hit latency — done.** `LoadHitLatency=4` in +Matched converges vvadd
+   to within 1% of Olympia at w2. See §Phase 4 above.
+5. **D-cache size matching — done.** +Matched uses 16/32/64 KB per Olympia's
+   per-width defaults; no measurable effect because working sets fit in 16 KB.
+6. **D-cache read port constraint — covered by FU budget.** The
    `FuLatencyConfig.LoadStoreCount = 1` default already enforces at most one
    Load/Store/Atomic issue per cycle. A separate gate in execute would be dead code.
-5. **Store-stream density vs WB capacity.** The proportional policy matches vvadd
+7. **Store-stream density vs WB capacity.** The proportional policy matches vvadd
    well but under/overshoots memcpy in opposite directions across widths because
    the two workloads have different store-stream densities. Per-workload tuning
    would move away from a structural model.

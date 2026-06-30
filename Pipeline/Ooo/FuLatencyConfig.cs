@@ -9,9 +9,10 @@ namespace Pipeline.Ooo;
 /// independent issue ports for that class per cycle; Latency is the number of
 /// cycles from issue until the result is broadcast on the CDB.
 ///
-/// <b>LoadStore latency</b> should remain 1 — the lump-sum cache-miss stall model
-/// already owns miss penalty cycles, and giving loads a multi-cycle FU latency
-/// would double-count the stall.
+/// <b>LoadHitLatency</b> models the LSU pipeline depth on a cache hit (addr_calc →
+/// MMU → cache_lookup → cache_read → complete = 4 cycles in Olympia). The MLP
+/// miss-countdown adds the cache miss penalty on top of this base latency.
+/// <b>LoadStoreLatency</b> applies to stores and atomics only.
 /// </summary>
 public sealed record FuLatencyConfig(
     int IntAluCount = 2,
@@ -20,6 +21,7 @@ public sealed record FuLatencyConfig(
     int MulDivLatency = 3,
     int LoadStoreCount = 1,
     int LoadStoreLatency = 1,
+    int LoadHitLatency = 1,
     int BranchCount = 1,
     int BranchLatency = 1,
     int FloatCount = 1,
@@ -55,13 +57,14 @@ public sealed record FuLatencyConfig(
     };
 
     public int LatencyFor(ToothClass cls) => cls switch {
-        ToothClass.IntegerAlu                                    => IntAluLatency,
-        ToothClass.IntegerMulDiv                                 => MulDivLatency,
-        ToothClass.Load or ToothClass.Store or ToothClass.Atomic => LoadStoreLatency,
-        ToothClass.Branch or ToothClass.ConditionalBranch        => BranchLatency,
-        ToothClass.FloatingPoint                                 => FloatLatency,
-        ToothClass.FloatDivSqrt                                  => FloatDivSqrtLatency,
-        ToothClass.Uve                                           => 1,
-        _                                                        => SystemLatency,
+        ToothClass.IntegerAlu                             => IntAluLatency,
+        ToothClass.IntegerMulDiv                          => MulDivLatency,
+        ToothClass.Load                                   => LoadHitLatency,
+        ToothClass.Store or ToothClass.Atomic             => LoadStoreLatency,
+        ToothClass.Branch or ToothClass.ConditionalBranch => BranchLatency,
+        ToothClass.FloatingPoint                          => FloatLatency,
+        ToothClass.FloatDivSqrt                           => FloatDivSqrtLatency,
+        ToothClass.Uve                                    => 1,
+        _                                                 => SystemLatency,
     };
 }

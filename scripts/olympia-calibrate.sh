@@ -3,7 +3,7 @@
 #
 # For each integer workload: emit a Horologium instruction trace, run it through
 # Olympia at three arch widths, and run Horologium's own OoO train at matching
-# widths (no-cache, L1-only, L1+write-buffer). Prints an IPC comparison table.
+# widths (no-cache, L1-only, L1+write-buffer, matched). Prints an IPC comparison table.
 #
 # This is a *descriptive* cross-model comparison, NOT a fit — Olympia is not
 # ground truth. See docs/olympia-calibration.md for interpretation and caveats.
@@ -19,15 +19,13 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # OoO sweep at widths 2/3/8 (= Olympia small/medium/big_core).
-# Three Horologium configurations:
+# Four Horologium configurations:
 #   no-cache  — pure timing baseline, load latency 1 cycle
 #   L1$       — 16 KB split I/D, 10-cycle miss penalty, load-side MLP, lump-sum store-commit
 #   L1$+WB    — same L1, write buffer sized to issue_width (2/3/8 slots per width)
-# (Olympia's small_core models a 16 KB L1 write-through cache.)
-# Width-proportional sizing: a fixed slot count works well at one width but over- or
-# under-shoots at others. Setting store_buffer_capacity = issue_width keeps saturation
-# behaviour consistent: the buffer covers exactly one burst of the maximum commit width,
-# so sustained store streams saturate it and fall back to lump-sum for the excess.
+#   +Matched  — WB∝w + 4-cycle load-hit latency + D$ sized to match Olympia (16/32/64 KB)
+# (Olympia small/medium/big_core use 16/32/64 KB D$. LoadHitLatency=4 models Olympia's
+# 5-stage LSU pipeline: addr_calc → MMU → cache_lookup → cache_read → complete.)
 cat > "$TMP/nocache.json" <<'JSON'
 [{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":32,"predictor":{"type":"n_bit","bits":2}}},
  {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2}}},
@@ -44,13 +42,14 @@ cat > "$TMP/cache_wb.json" <<JSON
  {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":3}},
  {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":8}}]
 JSON
-# WB∝w + stride prefetcher: tests whether a hardware prefetcher closes the remaining gaps.
-# Using stride (not next-line) since several workloads have strided but non-unit access patterns.
-# Prefetch model is idealized (free, instant) — see docs/olympia-calibration.md for caveats.
-cat > "$TMP/cache_wb_pf.json" <<JSON
-[{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":32,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":2,"d_prefetcher":"stride"}},
- {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":3,"d_prefetcher":"stride"}},
- {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":8,"d_prefetcher":"stride"}}]
+# +Matched: WB∝w + 4-cycle load-hit latency + D$ sized to Olympia's per-width defaults.
+# Isolates the structural gap from load pipeline depth and cache size.
+FU4='"fu_latency":{"load_hit_latency":4}'
+IC='"i_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10}'
+cat > "$TMP/cache_wb_matched.json" <<JSON
+[{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":32,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":2,$FU4}},
+ {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":32768,"ways":8,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":3,$FU4}},
+ {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":65536,"ways":8,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":8,$FU4}}]
 JSON
 
 horo() { # elf sweep.json name
@@ -70,7 +69,7 @@ for b in vvadd multiply median towers qsort rsort memcpy; do
 done
 
 printf '%-9s | %-20s | %-20s | %-20s | %-20s | %-20s\n' \
-  workload 'Horologium (w2/3/8)' '+ L1$ (w2/3/8)' '+ WB∝w (w2/3/8)' '+stride-PF (w2/3/8)' 'Olympia (s/m/b)'
+  workload 'Horologium (w2/3/8)' '+ L1$ (w2/3/8)' '+ WB∝w (w2/3/8)' '+Matched (w2/3/8)' 'Olympia (s/m/b)'
 printf -- '----------+----------------------+----------------------+----------------------+----------------------+---------------------\n'
 for spec in "${WORKLOADS[@]}"; do
   name=${spec%%:*}; elf=${spec##*:}
@@ -78,7 +77,7 @@ for spec in "${WORKLOADS[@]}"; do
   printf '%-9s | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s\n' "$name" \
     "$(horo "$elf" "$TMP/nocache.json" w2)" "$(horo "$elf" "$TMP/nocache.json" w3)" "$(horo "$elf" "$TMP/nocache.json" w8)" \
     "$(horo "$elf" "$TMP/cache.json"   w2)" "$(horo "$elf" "$TMP/cache.json"   w3)" "$(horo "$elf" "$TMP/cache.json"   w8)" \
-    "$(horo "$elf" "$TMP/cache_wb.json"    w2)" "$(horo "$elf" "$TMP/cache_wb.json"    w3)" "$(horo "$elf" "$TMP/cache_wb.json"    w8)" \
-    "$(horo "$elf" "$TMP/cache_wb_pf.json" w2)" "$(horo "$elf" "$TMP/cache_wb_pf.json" w3)" "$(horo "$elf" "$TMP/cache_wb_pf.json" w8)" \
+    "$(horo "$elf" "$TMP/cache_wb.json"         w2)" "$(horo "$elf" "$TMP/cache_wb.json"         w3)" "$(horo "$elf" "$TMP/cache_wb.json"         w8)" \
+    "$(horo "$elf" "$TMP/cache_wb_matched.json" w2)" "$(horo "$elf" "$TMP/cache_wb_matched.json" w3)" "$(horo "$elf" "$TMP/cache_wb_matched.json" w8)" \
     "$(oly "$TMP/t.json" small_core)" "$(oly "$TMP/t.json" medium_core)" "$(oly "$TMP/t.json" big_core)"
 done
