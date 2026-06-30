@@ -168,6 +168,144 @@ sets the window to the workload's HTIF registers). Regression-tested.
   match; the value is the *direction* of the per-class error (memory- vs
   compute-bound), which is robust here.
 
+## Olympia execution model: structural comparison
+
+Source: `/tmp/olympia` (cloned from
+`https://github.com/riscv-software-src/riscv-perf-model`). Files read:
+`core/lsu/LSU.cpp`, `core/lsu/LSU.hpp`, `core/lsu/DCache.hpp`,
+`core/execute/ExecutePipe.cpp`, `core/execute/IssueQueue.cpp`,
+`core/dispatch/Dispatch.cpp`, `core/dispatch/Dispatch.hpp`,
+`core/ROB.hpp`, `core/fetch/Fetch.hpp`, `core/fetch/SimpleBranchPred.cpp`,
+`arches/small_core.yaml`, `arches/isa_json/olympia_uarch_rv64g.json`.
+
+### Instruction latencies
+
+From `olympia_uarch_rv64g.json` (vs Horologium `FuLatencyConfig.Default`):
+
+| class        | Olympia cycles | Horologium cycles | note |
+|--------------|---------------|-------------------|------|
+| INT ALU      | 1              | 1                 | match |
+| Branch       | 1              | 1                 | match |
+| MUL          | 3              | 3                 | match |
+| DIV/REM      | 23             | 3 (MulDiv)        | **Horo 7.7× faster** |
+| FLOAT (move/cmp) | 2          | 4                 | Horo 2× slower |
+| FADDSUB      | 4              | 4 (Float)         | match |
+| FMUL         | 4              | 4 (Float)         | match |
+| FDIV.S       | 30             | 16 (FloatDivSqrt) | Horo 1.9× faster |
+| FDIV.D       | 63             | 16 (FloatDivSqrt) | Horo 3.9× faster |
+| Load (cache hit) | **4** (LSU pipeline) | **1** (FU latency) | **Horo 4× faster** |
+
+The load latency gap is the biggest mismatch for memory-bound workloads. Olympia's LSU
+is a dedicated 5-stage pipelined unit (addr\_calc → MMU\_lookup → cache\_lookup →
+cache\_read → complete, each 1 cycle), giving 4 cycles from IQ issue to scoreboard
+broadcast. The `"latency": 1` field in the uarch JSON for `lw`/`ld` belongs to the
+`ExecutePipe` dispatch path and is not consumed by the LSU unit. Horologium treats a
+cache-hit load as a 1-cycle FU operation (consistent with the comment in
+`FuLatencyConfig.cs` that miss penalty is charged separately). This inflates
+Horologium's IPC for load-heavy workloads (vvadd, memcpy) relative to Olympia.
+
+### Issue queue structure
+
+Olympia uses **per-class bounded issue queues** dispatched directly to functional units,
+not a flat shared pool:
+
+| arch   | IQs | classes (example small\_core) |
+|--------|-----|-------------------------------|
+| small  | 4   | INT+SYS+MUL+DIV+VSET / FPU / BR / Vector |
+| medium | 5   | INT×2 / FPU / BR / Vector / LSU-dedicated |
+| big    | 6   | INT×3 / FPU×2 / BR / Vector |
+
+LSU is a **separate unit** dispatched via its own credit port (not part of any IQ),
+with a bounded `ldst_inst_queue_size = 8` (default). Each IQ also has a bounded
+`scheduler_size`; dispatch stalls when any target queue is full, even if other queues
+have capacity. Horologium uses a single flat IQ pool per width.
+
+### Cache-miss model
+
+| model       | on miss |
+|-------------|---------|
+| Olympia     | Instruction **invalidated** from LSU pipeline; put back in ready queue after `replay_issue_delay = 3` cycles; re-issues when replay delay expires + LSU not busy |
+| Horologium  | Load gets an **in-flight countdown** (non-blocking IQ slot freed immediately); other instructions continue to issue past it; result broadcast when countdown reaches 0 |
+
+The replay model serializes the missing load through the LSU pipeline twice: first
+attempt detects the miss; second attempt (≥3 cycles later) completes. The IQ slot is
+freed immediately after first issue, so the replay slot is re-used. Horologium's MLP
+model also frees the IQ slot immediately but keeps the result in-flight — meaning
+dependent instructions may issue before the value is ready and must detect the hazard.
+Both models expose the miss to overlap, but Olympia's replay adds 3 + 4 = 7+ extra
+cycles to the critical path per miss vs Horologium's pure countdown.
+
+### Load speculation
+
+```
+Olympia default: allow_speculative_load_exec = false
+```
+
+With speculation disabled, loads wait until all older stores have resolved their
+addresses before issuing. This prevents store-to-load forwarding errors at the cost of
+IPC. Horologium speculates by default: a load can issue as long as
+`HasPrecedingPendingStore` returns false for its address range (stores with unknown
+addresses are assumed non-conflicting). The speculation adds IPC but requires the store
+violation check.
+
+### D-cache sizes (calibration mismatch)
+
+| arch   | Olympia D-cache | Horologium (calibration) |
+|--------|-----------------|--------------------------|
+| small  | 16 KB           | 16 KB ← match            |
+| medium | 32 KB           | 16 KB ← 2× smaller       |
+| big    | 64 KB           | 16 KB ← 4× smaller       |
+
+The Horologium calibration sweep uses 16 KB L1 at all three widths to isolate the IPC
+effect of width, not cache size. Olympia's medium and big cores have larger caches,
+which reduces miss rate and inflates their relative IPC for miss-prone workloads. This
+partially explains why Olympia's medium/big IPCs are not always lower than its small
+IPC despite the same pipeline depth — a wider core with a proportionally larger cache
+sees fewer misses per cycle.
+
+### Branch predictor
+
+Both Olympia and Horologium use a **2-bit saturating counter BHT + BTB**, indexed by
+fetch PC (local history, no GHR). Initial bias is weakly not-taken. This is a close
+structural match; branch prediction quality should not be a primary driver of IPC
+divergence. However, Olympia's `SimpleBranchPred` is disabled in trace-replay mode
+(no wrong-path execution), so the *misprediction penalty itself* is zero in Olympia
+runs — Horologium's predictor pays real penalties even when replaying the same trace.
+
+### ROB and commit
+
+| parameter | Olympia default | Horologium default |
+|-----------|----------------|-------------------|
+| ROB depth | 30             | need to check `OooeConfig.RobSize` |
+| retire/cycle | 4           | `IssueWidth` (no separate retire cap) |
+
+Olympia's `num_to_retire = 4` caps how many instructions commit per cycle independent
+of dispatch width; Horologium retires up to `IssueWidth` per cycle.
+
+### Summary of structural gaps (priority order)
+
+1. **Load hit latency** — Olympia 4 cycles, Horologium 1 cycle. Single largest driver
+   of Horologium's inflated IPC on load-heavy workloads (vvadd, memcpy, rsort reads).
+   Adding a `LoadHitLatency` parameter to `FuLatencyConfig` and setting it to 4 would
+   directly reduce these gaps.
+
+2. **D-cache size mismatch** — medium/big Olympia runs use 2–4× larger caches.
+   Running Horologium at 32/64 KB for medium/big comparisons would equalize miss rates.
+
+3. **Integer div latency** — Olympia 23 cycles, Horologium 3. No current calibration
+   workload is div-heavy, but the gap will matter for any division-intensive program.
+
+4. **IQ partitioning** — per-class bounded queues in Olympia vs flat pool. Becomes
+   relevant when one class backs up: in Horologium, a stalled MUL doesn't block INT
+   issues; in Olympia it may.
+
+5. **Replay vs countdown** — Olympia replays miss → 7+ extra cycles; Horologium
+   countdown → miss penalty only. Replay adds more structural pressure on the LSU
+   queue, which is separately bounded.
+
+6. **Load speculation** — Olympia conservative (no speculative loads by default);
+   Horologium speculates. Reduces Olympia IPC on store-then-load patterns.
+
 ## Next steps and research points
 
 1. **Load-side MLP — done.** Lifted memory-bound IPCs partway toward Olympia.

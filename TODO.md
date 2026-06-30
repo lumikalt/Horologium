@@ -80,7 +80,19 @@
 The following are research directions that explain remaining IPC divergences between
 Horologium and Olympia (see docs/olympia-calibration.md for per-row evidence).
 Each requires measurement (oracle predictor run, profiling) before implementation.
+See the "Olympia execution model: structural comparison" section for source-level details.
 
+- [ ] **Load hit latency** — Olympia's LSU pipeline is 4 cycles deep (addr_calc →
+  MMU → cache_lookup → cache_read → complete) while Horologium treats a cache-hit load
+  as 1 cycle. Largest single driver of Horologium's inflated IPC on load-heavy
+  workloads (vvadd, memcpy). Add `LoadHitLatency` to `FuLatencyConfig` (default 4)
+  and charge it before the miss penalty countdown to equalize.
+- [ ] **D-cache size mismatch** — Olympia medium=32KB, big=64KB vs Horologium always
+  16KB in calibration. Run Horologium with 32/64KB for medium/big-core comparisons
+  to equalize miss rates before attributing IPC gaps to other causes.
+- [ ] **Integer DIV latency** — Olympia 23 cycles, Horologium 3 (`MulDivLatency`).
+  Current workloads are not div-heavy; update `MulDivLatency` once a div-heavy
+  benchmark is added.
 - [ ] **Branch misprediction cost** — qsort no-cache IPC (0.99) is ~25% below
   Olympia trace-replay (1.24); oracle-predictor run would isolate misprediction
   overhead and quantify how much ITTAGE/BATAGE recovers vs the 2-bit sweep config.
