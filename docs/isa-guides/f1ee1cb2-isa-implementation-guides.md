@@ -13,8 +13,8 @@ and which pipeline train to reach for first.
 
 1. [[2fede37b-implementing-subleq|SUBLEQ]] — OISC, no opcode field (trivial)
 2. [[bd95dba6-implementing-pdp-8|PDP-8]] — Accumulator, 12-bit (easy)
-3. J1 Forth — Stack machine (easy)
-4. TTA/NOVE — Triggered side-effect (medium)
+3. [[7b2f2489-implementing-j1-forth|J1 Forth]] — Stack machine (easy)
+4. [[a3c51f9e-implementing-move-tta|TTA/MOVE]] — Triggered side-effect (medium)
 5. GA144 F18A — Async multi-core (medium)
 
 ## What you always implement
