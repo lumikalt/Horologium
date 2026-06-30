@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Olympia timing calibration harness (TODO "Phase 2b").
+# Olympia timing calibration harness.
 #
 # For each integer workload: emit a Horologium instruction trace, run it through
 # Olympia at three arch widths, and run Horologium's own OoO train at matching
-# widths (with and without an L1 cache). Prints an IPC comparison table.
+# widths (no-cache, L1-only, L1+write-buffer). Prints an IPC comparison table.
 #
 # This is a *descriptive* cross-model comparison, NOT a fit — Olympia is not
 # ground truth. See docs/olympia-calibration.md for interpretation and caveats.
@@ -18,10 +18,16 @@ cd "$(dirname "$0")/.."
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# OoO sweep at widths 2/3/8 (= Olympia small/medium/big_core), no-cache vs an L1
-# I/D cache (the matched comparison: Olympia's small_core models a 16 KB L1). The
-# cache column needs the HTIF-uncacheable fix — before it, an L1 hung HTIF
-# benchmarks (stale cached fromhost); see docs/olympia-calibration.md.
+# OoO sweep at widths 2/3/8 (= Olympia small/medium/big_core).
+# Three Horologium configurations:
+#   no-cache  — pure timing baseline, load latency 1 cycle
+#   L1$       — 16 KB split I/D, 10-cycle miss penalty, load-side MLP, lump-sum store-commit
+#   L1$+WB    — same L1, write buffer sized to issue_width (2/3/8 slots per width)
+# (Olympia's small_core models a 16 KB L1 write-through cache.)
+# Width-proportional sizing: a fixed slot count works well at one width but over- or
+# under-shoots at others. Setting store_buffer_capacity = issue_width keeps saturation
+# behaviour consistent: the buffer covers exactly one burst of the maximum commit width,
+# so sustained store streams saturate it and fall back to lump-sum for the excess.
 cat > "$TMP/nocache.json" <<'JSON'
 [{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":32,"predictor":{"type":"n_bit","bits":2}}},
  {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2}}},
@@ -32,6 +38,11 @@ cat > "$TMP/cache.json" <<JSON
 [{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":32,"predictor":{"type":"n_bit","bits":2},$L1}},
  {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$L1}},
  {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$L1}}]
+JSON
+cat > "$TMP/cache_wb.json" <<JSON
+[{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":32,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":2}},
+ {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":3}},
+ {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":8}}]
 JSON
 
 horo() { # elf sweep.json name
@@ -50,13 +61,15 @@ for b in vvadd multiply median towers qsort rsort memcpy; do
   WORKLOADS+=("$b:TestBinaries/benchmarks/$b.elf")
 done
 
-printf '%-9s | %-20s | %-20s | %-20s\n' workload 'Horologium (w2/3/8)' '+ L1$ (w2/3/8)' 'Olympia (s/m/b)'
-printf -- '----------+----------------------+----------------------+---------------------\n'
+printf '%-9s | %-20s | %-20s | %-20s | %-20s\n' \
+  workload 'Horologium (w2/3/8)' '+ L1$ (w2/3/8)' '+ WB∝w (w2/3/8)' 'Olympia (s/m/b)'
+printf -- '----------+----------------------+----------------------+----------------------+---------------------\n'
 for spec in "${WORKLOADS[@]}"; do
   name=${spec%%:*}; elf=${spec##*:}
   dotnet run --project Runner -- "$elf" --trace-json "$TMP/t.json" >/dev/null 2>&1
-  printf '%-9s | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s\n' "$name" \
+  printf '%-9s | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s\n' "$name" \
     "$(horo "$elf" "$TMP/nocache.json" w2)" "$(horo "$elf" "$TMP/nocache.json" w3)" "$(horo "$elf" "$TMP/nocache.json" w8)" \
-    "$(horo "$elf" "$TMP/cache.json" w2)"   "$(horo "$elf" "$TMP/cache.json" w3)"   "$(horo "$elf" "$TMP/cache.json" w8)" \
+    "$(horo "$elf" "$TMP/cache.json"   w2)" "$(horo "$elf" "$TMP/cache.json"   w3)" "$(horo "$elf" "$TMP/cache.json"   w8)" \
+    "$(horo "$elf" "$TMP/cache_wb.json" w2)" "$(horo "$elf" "$TMP/cache_wb.json" w3)" "$(horo "$elf" "$TMP/cache_wb.json" w8)" \
     "$(oly "$TMP/t.json" small_core)" "$(oly "$TMP/t.json" medium_core)" "$(oly "$TMP/t.json" big_core)"
 done

@@ -53,7 +53,8 @@ public sealed record TrainConfig(
     int RobCapacity = 32,
     int IqCapacity = 16,
     int ExtraPhysRegs = 32,
-    FuLatencyConfig? FuLatency = null // null → FuLatencyConfig.Default (all 1-cycle except MulDiv=3)
+    FuLatencyConfig? FuLatency = null, // null → FuLatencyConfig.Default (all 1-cycle except MulDiv=3)
+    int MshrCapacity = 0              // 0 = unlimited outstanding misses
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,

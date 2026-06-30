@@ -44,7 +44,9 @@ public sealed class OooeTrain {
         int streamPrefetchDepth = 4,
         ICommitObserver? commitObserver = null,
         int lqCapacity = 0,
-        int sqCapacity = 0
+        int sqCapacity = 0,
+        int writeBufferCapacity = 0,
+        int mshrCapacity = 0
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -61,7 +63,9 @@ public sealed class OooeTrain {
                 streamPrefetchDepth,
                 commitObserver,
                 lqCapacity,
-                sqCapacity
+                sqCapacity,
+                writeBufferCapacity,
+                mshrCapacity
             )
         );
         _train.Build();
@@ -201,10 +205,23 @@ internal sealed class OoOPipelineCore : Gear {
     // Not reset on flush — entries are discarded by Flush(), the counter climbs.
     private ulong _nextMemSeqNo;
 
+    // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
+    // doesn't freeze for them. Each slot holds a countdown (in cycles) until the
+    // corresponding write bus penalty expires. Capacity 0 disables the feature
+    // and falls back to lump-sum charging (old behaviour).
+    private readonly int _wbCapacity;
+    private readonly int[] _wbSlots;      // per-slot miss countdown
+    private int _wbOccupied;              // number of slots currently counting down
+
+    // MSHR (Miss Status Holding Register) capacity: limits the number of simultaneously
+    // outstanding load/atomic cache misses. Capacity 0 means unlimited (old behaviour).
+    private readonly int _mshrCapacity;
+    private int _mshrUsed;                // MSHR slots currently occupied
+
     // Cross-tick latches
     private readonly Queue<FetchedInstr> _decodeQueue = new();
     private readonly List<IssuedInstr> _execBuffer = [];
-    private readonly List<(int Countdown, ExecResult Result)> _inFlight = [];
+    private readonly List<(int Countdown, ExecResult Result, bool HoldsMshr)> _inFlight = [];
     private readonly List<ExecResult> _cdbBuffer = [];
 
     // Runtime state
@@ -226,6 +243,8 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _stallsCounter = null!;
     private Counter _memViolationsCounter = null!;
     private Counter? _cacheMissStallsCounter;
+    private Counter? _wbAbsorbedStallsCounter;
+    private Counter? _mshrStallsCounter;
     private Counter? _icacheHitsCounter, _icacheMissesCounter;
     private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
     private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
@@ -263,7 +282,9 @@ internal sealed class OoOPipelineCore : Gear {
         int streamPrefetchDepth = 4,
         ICommitObserver? commitObserver = null,
         int lqCapacity = 0,
-        int sqCapacity = 0
+        int sqCapacity = 0,
+        int writeBufferCapacity = 0,
+        int mshrCapacity = 0
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -292,6 +313,9 @@ internal sealed class OoOPipelineCore : Gear {
         _lq = new LoadQueue(lqCapacity > 0 ? lqCapacity : robCapacity);
         _sq = new StoreQueue(sqCapacity > 0 ? sqCapacity : robCapacity);
         StreamingEngine = new StreamingEngine(streamPrefetchDepth);
+        _wbCapacity = writeBufferCapacity;
+        _wbSlots = writeBufferCapacity > 0 ? new int[writeBufferCapacity] : [];
+        _mshrCapacity = mshrCapacity;
     }
 
     public override void Initialize() {
@@ -321,12 +345,21 @@ internal sealed class OoOPipelineCore : Gear {
                                               || ILayers.L2Cache is not null || DLayers.L2Cache is not null
                                               || ILayers.L3Cache is not null || DLayers.L3Cache is not null
                                               || ILayers.Tlb is not null || DLayers.Tlb is not null;
-        if (_anyCache)
+        if (_anyCache) {
             // Lump-sum model: penalty cycles are appended per cycle, not overlapped.
             // This overestimates stalls relative to real out-of-order memory-level parallelism.
             _cacheMissStallsCounter = Dials.AddCounter(
                 "cache_miss_stalls", "Stall cycles from memory hierarchy misses"
             );
+            if (_wbCapacity > 0)
+                _wbAbsorbedStallsCounter = Dials.AddCounter(
+                    "wb_absorbed_stalls", "Store write-miss cycles absorbed by the write buffer"
+                );
+            if (_mshrCapacity > 0)
+                _mshrStallsCounter = Dials.AddCounter(
+                    "mshr_stalls", "Cycles a load was held at issue waiting for a free MSHR slot"
+                );
+        }
 
         if (ILayers.Cache is not null) {
             _icacheHitsCounter = Dials.AddCounter("icache_hits", "L1 I-cache hits");
@@ -399,6 +432,10 @@ internal sealed class OoOPipelineCore : Gear {
         // Commit: retire completed ROB heads in program order.
         StepCommit();
 
+        // Tick down write-buffer miss countdowns. Runs every cycle (including halt/flush cycles)
+        // because the write buffer holds committed architectural state, not speculative state.
+        StepWriteBuffer();
+
         if (_halted || _flushPending) {
             if (_flushPending) StepFlush();
             if (!_halted) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
@@ -463,6 +500,7 @@ internal sealed class OoOPipelineCore : Gear {
     /// <summary>In-order retirement from the ROB head.</summary>
     private void StepCommit() {
         var committed = 0;
+        var dcachePortUsed = false;
         while (_rob is { IsEmpty: false, Head.IsComplete: true, } && committed < _issueWidth) {
             RobEntry head = _rob.Head;
 
@@ -513,9 +551,14 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             // Write deferred store/atomic data to memory at commit time.
+            // Real hardware has one D-cache write port: break if already used this cycle.
             if (head.SqIdx >= 0) {
                 SqEntry sq = _sq.At(head.SqIdx);
-                if (sq.AddressKnown) DLayers.Accessor.Write(sq.Address, sq.Value, sq.Width);
+                if (sq.AddressKnown) {
+                    if (dcachePortUsed) break;
+                    CommitStore(sq.Address, sq.Value, sq.Width);
+                    dcachePortUsed = true;
+                }
             }
 
             CommitRegisters(head);
@@ -601,12 +644,13 @@ internal sealed class OoOPipelineCore : Gear {
         // Drain multi-cycle in-flight executes (started in previous ticks).
         // Countdown is decremented; entries reaching zero broadcast on the CDB.
         for (int i = _inFlight.Count - 1; i >= 0; i--) {
-            (int countdown, ExecResult result) = _inFlight[i];
+            (int countdown, ExecResult result, bool holdsMshr) = _inFlight[i];
             if (--countdown <= 0) {
                 _cdbBuffer.Add(result);
                 _inFlight.RemoveAt(i);
+                if (holdsMshr) _mshrUsed--;
             }
-            else { _inFlight[i] = (countdown, result); }
+            else { _inFlight[i] = (countdown, result, holdsMshr); }
         }
 
         // Stalls already pending here are store-commit write misses (StepCommit ran
@@ -654,13 +698,20 @@ internal sealed class OoOPipelineCore : Gear {
             // accrued a stall) carries the miss penalty in its own latency countdown, so it
             // overlaps with other in-flight work instead of freezing the clock. At most one
             // load issues per cycle (the LoadStore port), so the drained stall is this op's.
-            if (_anyCache && issued.Instr.Class is ToothClass.Load or ToothClass.Atomic)
-                countdown += (int)DLayers.ConsumeAllStalls();
+            var holdsMshr = false;
+            if (_anyCache && issued.Instr.Class is ToothClass.Load or ToothClass.Atomic) {
+                long stalls = DLayers.ConsumeAllStalls();
+                if (stalls > 0) {
+                    countdown += (int)stalls;
+                    holdsMshr = true;
+                    _mshrUsed++;
+                }
+            }
 
             if (countdown <= 0)
                 _cdbBuffer.Add(result);
             else
-                _inFlight.Add((countdown, result));
+                _inFlight.Add((countdown, result, holdsMshr));
         }
 
         _execBuffer.Clear();
@@ -685,6 +736,14 @@ internal sealed class OoOPipelineCore : Gear {
             // Scalar store-to-load ordering is maintained through forwarding and, when
             // necessary, memory-order violation detection and squash at the ROB head.
             if (cls == ToothClass.Load && HasPrecedingVectorStore(rs.RobIndex)) continue;
+
+            // MSHR capacity: if all miss-tracking slots are occupied, this load/atomic
+            // cannot start yet — it stays in the IQ and retries next cycle.
+            if (cls is ToothClass.Load or ToothClass.Atomic
+             && _mshrCapacity > 0 && _mshrUsed >= _mshrCapacity) {
+                _mshrStallsCounter?.Increment();
+                continue;
+            }
 
             // CSR serialization: a System instruction may only issue when it is
             // at the ROB head (all older instructions have committed). This prevents
@@ -1024,6 +1083,7 @@ internal sealed class OoOPipelineCore : Gear {
         _decodeQueue.Clear();
         _execBuffer.Clear();
         _inFlight.Clear();
+        _mshrUsed = 0;
         _cdbBuffer.Clear();
 
         _fetchPc = _flushTarget;
@@ -1174,6 +1234,44 @@ internal sealed class OoOPipelineCore : Gear {
     private void SetFlush(ulong target) {
         _flushPending = true;
         _flushTarget = target;
+    }
+
+    /// <summary>
+    /// Write a committed store to memory and optionally absorb the write-miss stall
+    /// into the write buffer so the pipeline doesn't freeze for it.
+    ///
+    /// Because the D-cache is write-through / no-write-allocate, data reaches memory
+    /// the instant Write() returns — forwarding correctness is never at risk regardless
+    /// of whether the stall is absorbed or charged to the clock.
+    /// </summary>
+    private void CommitStore(ulong address, ulong value, int width) {
+        DLayers.Accessor.Write(address, value, width);
+        if (!_anyCache || _wbCapacity == 0 || _wbOccupied >= _wbCapacity) return;
+
+        // Buffer has space: absorb the miss stall so the pipeline can keep running.
+        long stalls = DLayers.ConsumeAllStalls();
+        if (stalls <= 0) return; // cache hit — nothing to absorb
+
+        for (int i = 0; i < _wbCapacity; i++) {
+            if (_wbSlots[i] != 0) continue;
+            _wbSlots[i] = (int)stalls;
+            _wbOccupied++;
+            _wbAbsorbedStallsCounter?.IncrementBy(stalls);
+            return;
+        }
+    }
+
+    /// <summary>
+    /// Tick down all active write-buffer miss countdowns. Called every cycle (including
+    /// halt/flush cycles) because the buffer holds committed state, not speculation.
+    /// Slots whose countdown reaches zero are freed (the write bus penalty has expired).
+    /// </summary>
+    private void StepWriteBuffer() {
+        if (_wbOccupied == 0) return;
+        for (int i = 0; i < _wbCapacity; i++) {
+            if (_wbSlots[i] <= 0) continue;
+            if (--_wbSlots[i] == 0) _wbOccupied--;
+        }
     }
 
     // ── Memory hierarchy stat collection ──────────────────────────────────────

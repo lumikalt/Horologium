@@ -83,7 +83,9 @@ public static class Experiment {
                         config.Predictor?.Build(),
                         config.ToIMemoryConfig(),
                         dCfg,
-                        config.FuLatency
+                        config.FuLatency,
+                        writeBufferCapacity: config.StoreBufferCapacity,
+                        mshrCapacity: config.MshrCapacity
                     ).Run(maxTicks, warmupTicks, resolvedInterval),
 
                     _ => new FiveStageTrain(
@@ -127,7 +129,9 @@ public static class Experiment {
                     cfg.IssueWidth, cfg.RobCapacity, cfg.IqCapacity, cfg.ExtraPhysRegs,
                     cfg.Predictor?.Build(),
                     cfg.ToIMemoryConfig(), dCfg,
-                    cfg.FuLatency, plog
+                    cfg.FuLatency, plog,
+                    writeBufferCapacity: cfg.StoreBufferCapacity,
+                    mshrCapacity: cfg.MshrCapacity
                 ).Run(maxTicks);
                 break;
             case "superscalar": break;

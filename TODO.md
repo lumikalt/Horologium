@@ -92,10 +92,12 @@
 
 - [ ] Generic interfaces for external devices (basic UART/MMIO).
 - [ ] Cache pre-fetching: next-line, stride (RPT), and stream prefetchers.
-- [ ] Non-blocking cache with MSHR.
+- [x] Non-blocking cache with MSHR.
   - [x] Load-side MLP: independent misses overlap via per-load latency countdown.
-  - [ ] Store-side: model write buffer / bounded store buffer.
-  - [ ] One D-cache access port per cycle (store-commit currently multi-ported).
+  - [x] Store-side: model write buffer / bounded store buffer.
+  - [x] One D-cache write port per cycle (store-commit was multi-ported).
+  - [x] One D-cache read port per cycle: covered by FuLatencyConfig.LoadStoreCount=1 (at most one Load/Store/Atomic issues per cycle, so at most one load reads D-cache per cycle).
+  - [x] MSHR capacity cap: configurable limit on simultaneous outstanding load-miss countdowns.
 - [ ] Make `ToothClass` a tag instead of an enum?
 
 ### Out-of-Order Execution

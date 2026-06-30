@@ -10,13 +10,14 @@ using RiscV32.Memory;
 namespace Tests.RiscV32;
 
 /// <summary>
-/// Regression coverage for the out-of-order memory-level-parallelism (MLP) load model.
+/// Regression coverage for the out-of-order memory-level-parallelism (MLP) load model
+/// and the store-side write-buffer MLP model.
 ///
-/// The OoO pipeline gives each missed load its own in-flight latency countdown so
-/// independent misses overlap (instead of freezing the clock lump-sum). The danger is
-/// that a load now sits in flight for many cycles before it broadcasts its value, which
-/// widens the store-to-load memory-disambiguation window: an older store can resolve and
-/// commit while the load is still in flight. Load disambiguation state is therefore
+/// Load-side MLP: the OoO pipeline gives each missed load its own in-flight latency
+/// countdown so independent misses overlap (instead of freezing the clock lump-sum). The
+/// danger is that a load now sits in flight for many cycles before it broadcasts its value,
+/// which widens the store-to-load memory-disambiguation window: an older store can resolve
+/// and commit while the load is still in flight. Load disambiguation state is therefore
 /// registered at EXECUTE time (not at CDB-broadcast time) so the in-flight load stays
 /// visible to CheckLoadViolations for its whole life.
 ///
@@ -25,6 +26,17 @@ namespace Tests.RiscV32;
 /// load-miss + store-to-same-address + an L1 cache together. memcpy is store-heavy and
 /// copies a buffer it then verifies; on an L1 (so loads actually miss) the broken model
 /// read a stale value, jumped through a corrupted return address, and livelocked.
+///
+/// Store-side MLP: committed stores write through the cache immediately (write-through /
+/// no-write-allocate), but their write-miss penalty is absorbed into a bounded write buffer
+/// rather than lump-summed against the pipeline clock. Subsequent instructions keep
+/// executing while the write bus drains in the background. The write buffer is enabled by
+/// passing writeBufferCapacity > 0 to OooeTrain; the default (0) restores the lump-sum path.
+///
+/// MSHR capacity: limits the number of simultaneously outstanding load-miss countdowns in
+/// _inFlight. When all slots are occupied, loads and atomics are held in the IQ until a
+/// slot frees. This models finite miss-status-holding registers and is the mechanism that
+/// prevents unbounded load-level parallelism in real hardware.
 ///
 /// The ground-truth correctness signal is the benchmark's own HTIF exit verdict: memcpy
 /// checks the copied buffer and writes PASS (tohost low word == 1) or a FAIL code. This
@@ -39,7 +51,9 @@ public class OoOMemoryParallelismTests {
     // MLP model livelocked on. Split 16 KB I/D L1, 10-cycle miss penalty (the harness config).
     private const long MaxTicks = 4_000_000;
 
-    private static (ulong TohostLow, long Retired, long Ticks) RunMemcpy(bool withL1) {
+    private static (ulong TohostLow, long Retired, long CpuCycles, long WbAbsorbed, long MshrStalls) RunMemcpy(
+        bool withL1, int writeBufferCapacity = 0, int mshrCapacity = 0
+    ) {
         var workload = new Rv32ElfWorkload(
             Path.Combine(AppContext.BaseDirectory, "benchmarks", "memcpy.elf"), 4 * 1024 * 1024
         );
@@ -58,12 +72,19 @@ public class OoOMemoryParallelismTests {
             new Rv32Mechanism(workload.HtifTohostAddress), runMem, workload.EntryPoint,
             8, 128, 64,
             predictor: BranchPredictorConfig.NBit().Build(),
-            iMemConfig: iMem, dMemConfig: dMem
+            iMemConfig: iMem, dMemConfig: dMem,
+            writeBufferCapacity: writeBufferCapacity,
+            mshrCapacity: mshrCapacity
         );
 
         RevolutionResult r = train.Run(OoOMemoryParallelismTests.MaxTicks);
-        long retired = r.Find("ooo.pipeline")!.Counters["retired"];
-        return (mem.Read(tohost, 4), retired, r.TotalTicks);
+        IReadOnlyDictionary<string, long> counters = r.Find("ooo.pipeline")!.Counters;
+        long retired = counters["retired"];
+        // "cycles" is the simulated CPU cycle count including stall cycles charged via ChargeStallCycles.
+        long cycles = counters["cycles"];
+        long absorbed = counters.GetValueOrDefault("wb_absorbed_stalls");
+        long mshrStalls = counters.GetValueOrDefault("mshr_stalls");
+        return (mem.Read(tohost, 4), retired, cycles, absorbed, mshrStalls);
     }
 
     // tohost low word: 1 = exit(0) PASS, 0 = never halted, else FAIL code (N<<1)|1.
@@ -77,20 +98,81 @@ public class OoOMemoryParallelismTests {
 
     [Fact]
     public void OoO_Memcpy_WithL1_SelfChecksPass_AndDoesNotLivelock() {
-        (ulong cachedTohost, long cachedRetired, long cachedTicks) = RunMemcpy(true);
-        (ulong refTohost, long refRetired, long refTicks) = RunMemcpy(false);
+        (ulong cachedTohost, long cachedRetired, long cachedCycles, _, _) = RunMemcpy(true);
+        (ulong refTohost, long refRetired, _, _, _) = RunMemcpy(false);
 
         // The trusted reference: no cache → loads always hit → the miss/disambiguation race
         // cannot occur. It must self-check PASS.
-        AssertHtifPass(refTohost, refTicks, "memcpy OoO no-cache");
+        AssertHtifPass(refTohost, 0, "memcpy OoO no-cache");
 
         // The bug-exposing config: the broken MLP model livelocked here (tohost stays 0) or, in
         // a milder corruption, would write a FAIL code. Both are caught by the PASS assertion.
-        AssertHtifPass(cachedTohost, cachedTicks, "memcpy OoO + 16 KB L1");
+        AssertHtifPass(cachedTohost, cachedCycles, "memcpy OoO + 16 KB L1");
 
         // Sanity: the L1 run committed a comparable amount of work to the reference (not a few
         // hundred poll iterations). HTIF poll-loop jitter aside, the two stay close.
         Assert.True(refRetired > 10_000, $"memcpy retired implausibly few: {refRetired}");
         Assert.InRange(cachedRetired, refRetired - 2_000, refRetired + 2_000);
+    }
+
+    /// <summary>
+    /// Store-side MLP: a bounded write buffer absorbs the write-miss stall for each committed
+    /// store so the pipeline can keep running while the write bus drains. Asserts both
+    /// correctness (HTIF PASS) and performance (fewer CPU cycles than the lump-sum baseline).
+    /// </summary>
+    [Fact]
+    public void OoO_Memcpy_WriteBuffer_ReducesCycles_AndSelfChecksPass() {
+        // Baseline: write buffer disabled → store-commit write misses charged lump-sum.
+        (ulong baseTohost, _, long baseCycles, long baseAbsorbed, _) = RunMemcpy(true, writeBufferCapacity: 0);
+
+        // Write buffer enabled with 16 slots (enough to cover burst commit width of 8).
+        (ulong wbTohost, _, long wbCycles, long wbAbsorbed, _) = RunMemcpy(true, writeBufferCapacity: 16);
+
+        AssertHtifPass(baseTohost, baseCycles, "memcpy OoO + L1, no write buffer");
+        AssertHtifPass(wbTohost, wbCycles, "memcpy OoO + L1, write buffer");
+
+        // The write buffer should have absorbed some miss stalls.
+        Assert.True(wbAbsorbed > 0, $"write buffer absorbed no stalls (absorbed={wbAbsorbed})");
+        Assert.Equal(0L, baseAbsorbed);
+
+        // The write buffer run should have fewer (or equal) CPU cycles.
+        Assert.True(
+            wbCycles <= baseCycles,
+            $"write buffer did not reduce cycles: wb={wbCycles} >= base={baseCycles}"
+        );
+    }
+
+    /// <summary>
+    /// MSHR capacity cap: when the cap is set to 1, only one load miss can be outstanding
+    /// at a time. Subsequent loads are held in the IQ until the slot frees.
+    ///
+    /// Correctness: the benchmark must still PASS (the gate is a timing-only resource
+    /// constraint — loads still execute and produce correct values). Performance: the
+    /// constrained run accumulates mshr_stalls > 0 (backpressure was exercised) and takes
+    /// at least as many cycles as the unlimited run (serialising misses can only hurt or be
+    /// neutral vs. overlapping them).
+    /// </summary>
+    [Fact]
+    public void OoO_Memcpy_MshrCap_ExercisesBackpressure_AndSelfChecksPass() {
+        // Unlimited MSHRs: baseline for cycle comparison.
+        (ulong baseTohost, _, long baseCycles, _, long baseMshrStalls) = RunMemcpy(true, mshrCapacity: 0);
+
+        // Cap at 1: at most one load miss in-flight → serialises all misses.
+        (ulong capTohost, _, long capCycles, _, long capMshrStalls) = RunMemcpy(true, mshrCapacity: 1);
+
+        AssertHtifPass(baseTohost, baseCycles, "memcpy OoO + L1, unlimited MSHR");
+        AssertHtifPass(capTohost, capCycles, "memcpy OoO + L1, MSHR cap 1");
+
+        // Unlimited path must not report any MSHR stalls (counter not even registered).
+        Assert.Equal(0L, baseMshrStalls);
+
+        // Constrained path must have exercised the backpressure at least once.
+        Assert.True(capMshrStalls > 0, $"MSHR cap did not generate any stalls (capMshrStalls={capMshrStalls})");
+
+        // Serialising misses can only be equal-to or worse than overlapping them.
+        Assert.True(
+            capCycles >= baseCycles,
+            $"MSHR cap mysteriously reduced cycles: cap={capCycles} < base={baseCycles}"
+        );
     }
 }
