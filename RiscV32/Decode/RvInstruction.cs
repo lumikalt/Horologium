@@ -63,6 +63,8 @@ public sealed class RvInstruction(
         _    => 0,
     };
 
+    public bool IsDiv { get; } = payload is RvDiv or RvDivu or RvRem or RvRemu;
+
     public IReadOnlyList<int> VectorSourceRegisters { get; } = payload switch {
         RvVIntAluVv op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         RvVIntAluVx op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],

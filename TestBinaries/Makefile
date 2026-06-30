@@ -238,10 +238,12 @@ BMARKS_INCS = -I$(BMARKS_DIR) -I$(BMARKS_DIR)/common \
               -I$(BMARKS_DIR)/median -I$(BMARKS_DIR)/qsort \
               -I$(BMARKS_DIR)/rsort  -I$(BMARKS_DIR)/towers \
               -I$(BMARKS_DIR)/vvadd  -I$(BMARKS_DIR)/memcpy \
-              -I$(BMARKS_DIR)/multiply
+              -I$(BMARKS_DIR)/multiply \
+              -I$(BMARKS_DIR)/gcd    -I$(BMARKS_DIR)/treesum \
+              -I$(BMARKS_DIR)/pchase
 BMARKS_COMMON = $(BMARKS_DIR)/common/syscalls.c $(BMARKS_DIR)/common/crt.S
 
-BMARKS = median qsort rsort towers vvadd memcpy multiply
+BMARKS = median qsort rsort towers vvadd memcpy multiply gcd treesum pchase
 
 BMARKS_SRCS_median   = $(BMARKS_DIR)/median/median_main.c   $(BMARKS_DIR)/median/median.c
 BMARKS_SRCS_qsort    = $(BMARKS_DIR)/qsort/qsort_main.c
@@ -250,6 +252,9 @@ BMARKS_SRCS_towers   = $(BMARKS_DIR)/towers/towers_main.c
 BMARKS_SRCS_vvadd    = $(BMARKS_DIR)/vvadd/vvadd_main.c
 BMARKS_SRCS_memcpy   = $(BMARKS_DIR)/memcpy/memcpy_main.c
 BMARKS_SRCS_multiply = $(BMARKS_DIR)/multiply/multiply_main.c $(BMARKS_DIR)/multiply/multiply.c
+BMARKS_SRCS_gcd      = $(BMARKS_DIR)/gcd/gcd_main.c
+BMARKS_SRCS_treesum  = $(BMARKS_DIR)/treesum/treesum_main.c
+BMARKS_SRCS_pchase   = $(BMARKS_DIR)/pchase/pchase_main.c
 
 define bmark_template
 benchmarks/$(1).elf: $$(BMARKS_SRCS_$(1)) $$(BMARKS_COMMON) bmarks.ld

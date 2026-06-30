@@ -52,7 +52,9 @@ public class OoOMemoryParallelismTests {
     private const long MaxTicks = 4_000_000;
 
     private static (ulong TohostLow, long Retired, long CpuCycles, long WbAbsorbed, long MshrStalls) RunMemcpy(
-        bool withL1, int writeBufferCapacity = 0, int mshrCapacity = 0
+        bool withL1,
+        int writeBufferCapacity = 0,
+        int mshrCapacity = 0
     ) {
         var workload = new Rv32ElfWorkload(
             Path.Combine(AppContext.BaseDirectory, "benchmarks", "memcpy.elf"), 4 * 1024 * 1024
@@ -123,10 +125,10 @@ public class OoOMemoryParallelismTests {
     [Fact]
     public void OoO_Memcpy_WriteBuffer_ReducesCycles_AndSelfChecksPass() {
         // Baseline: write buffer disabled → store-commit write misses charged lump-sum.
-        (ulong baseTohost, _, long baseCycles, long baseAbsorbed, _) = RunMemcpy(true, writeBufferCapacity: 0);
+        (ulong baseTohost, _, long baseCycles, long baseAbsorbed, _) = RunMemcpy(true, 0);
 
         // Write buffer enabled with 16 slots (enough to cover burst commit width of 8).
-        (ulong wbTohost, _, long wbCycles, long wbAbsorbed, _) = RunMemcpy(true, writeBufferCapacity: 16);
+        (ulong wbTohost, _, long wbCycles, long wbAbsorbed, _) = RunMemcpy(true, 16);
 
         AssertHtifPass(baseTohost, baseCycles, "memcpy OoO + L1, no write buffer");
         AssertHtifPass(wbTohost, wbCycles, "memcpy OoO + L1, write buffer");
@@ -208,7 +210,7 @@ public class OoOMemoryParallelismTests {
             iMemConfig: iMem, dMemConfig: dMem
         );
 
-        RevolutionResult r = train.Run(MaxTicks);
+        RevolutionResult r = train.Run(OoOMemoryParallelismTests.MaxTicks);
         IReadOnlyDictionary<string, long> counters = r.Find("ooo.pipeline")!.Counters;
         ulong tohostLow = mem.Read(tohost, 4);
 

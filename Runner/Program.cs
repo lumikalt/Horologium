@@ -159,7 +159,7 @@ static void PrintUsage() {
 
         Pipeline types  : five_stage (default), superscalar, ooo
         Predictor types : always_not_taken, always_taken, n_bit (params: bits, table_size)
-        OoO parameters  : issue_width (default 2), rob_capacity (32), iq_capacity (16), extra_phys_regs (32)
+        OoO parameters  : issue_width (default 2), rob_capacity (32), iq_capacity (8, per-class), extra_phys_regs (32)
         """
     );
 }

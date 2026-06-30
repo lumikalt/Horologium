@@ -19,6 +19,7 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(HashedPerceptronConfig), "hashed_perceptron")]
 [JsonDerivedType(typeof(IttageConfig), "ittage")]
 [JsonDerivedType(typeof(BatageConfig), "batage")]
+[JsonDerivedType(typeof(OracleConfig), "oracle")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
@@ -53,6 +54,7 @@ public abstract record BranchPredictorConfig {
 
     public static BranchPredictorConfig Ittage() => new IttageConfig();
     public static BranchPredictorConfig Batage() => new BatageConfig();
+    public static BranchPredictorConfig Oracle() => new OracleConfig();
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -114,4 +116,8 @@ public sealed record IttageConfig : BranchPredictorConfig {
 
 public sealed record BatageConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() => new BatagePredictor();
+}
+
+public sealed record OracleConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new OraclePredictor();
 }

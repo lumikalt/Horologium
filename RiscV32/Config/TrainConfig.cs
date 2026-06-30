@@ -51,11 +51,11 @@ public sealed record TrainConfig(
     // ── OooeTrain parameters ──────────────────────────────────────────────────
     int IssueWidth = 2,
     int RobCapacity = 32,
-    int IqCapacity = 16,
+    int IqCapacity = 8, // per-class depth; 5 classes × 8 = 40 total slots
     int ExtraPhysRegs = 32,
     FuLatencyConfig? FuLatency = null, // null → FuLatencyConfig.Default (all 1-cycle except MulDiv=3)
-    int MshrCapacity = 0,             // 0 = unlimited outstanding misses
-    string? DPrefetcher = null,       // null | "next_line" | "stride"
+    int MshrCapacity = 0,              // 0 = unlimited outstanding misses
+    string? DPrefetcher = null,        // null | "next_line" | "stride"
     int DPrefetcherTableSize = 64
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
@@ -67,13 +67,13 @@ public sealed record TrainConfig(
     public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, L2Cache, L3Cache, ITlb);
 
     public MemoryConfig ToDMemoryConfig() {
-        var mc = ToMemoryConfig(DCache, L2Cache, L3Cache, DTlb);
+        MemoryConfig mc = ToMemoryConfig(DCache, L2Cache, L3Cache, DTlb);
         PrefetcherKind kind = DPrefetcher?.ToLowerInvariant() switch {
             "next_line" => PrefetcherKind.NextLine,
             "stride"    => PrefetcherKind.Stride,
             _           => PrefetcherKind.None,
         };
-        return mc with { Prefetcher = kind, PrefetcherTableSize = DPrefetcherTableSize };
+        return mc with { Prefetcher = kind, PrefetcherTableSize = DPrefetcherTableSize, };
     }
 
     public string ToJson() => JsonSerializer.Serialize(this, TrainConfig.JsonOptions);

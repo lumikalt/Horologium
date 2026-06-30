@@ -2,7 +2,9 @@ using Mechanism;
 
 namespace Orrery.Cache;
 
-public enum PrefetcherKind { None, NextLine, Stride }
+public enum PrefetcherKind {
+    None, NextLine, Stride,
+}
 
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
 /// <param name="CacheWays">Associativity. Ignored when CacheCapacityBytes = 0.</param>
@@ -108,11 +110,13 @@ public sealed record MemoryLayers(
         if (cfg.UncacheableSize > 0 && (l1 ?? l2 ?? l3) is not null)
             current = new UncacheableMemory(current, backing, cfg.UncacheableBase, cfg.UncacheableSize);
 
-        IPrefetcher? prefetcher = l1 is not null ? cfg.Prefetcher switch {
-            PrefetcherKind.NextLine => new NextLinePrefetcher(cfg.CacheBlockBytes),
-            PrefetcherKind.Stride  => new StridePrefetcher(cfg.PrefetcherTableSize),
-            _                      => null,
-        } : null;
+        IPrefetcher? prefetcher = l1 is not null
+            ? cfg.Prefetcher switch {
+                PrefetcherKind.NextLine => new NextLinePrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Stride   => new StridePrefetcher(cfg.PrefetcherTableSize),
+                _                       => null,
+            }
+            : null;
 
         return new MemoryLayers(current, l1, l2, l3, tlb, prefetcher, cfg.UncacheableBase, cfg.UncacheableSize);
     }
@@ -134,9 +138,10 @@ public sealed record MemoryLayers(
         if (Cache is null || Prefetcher is null) return;
         if (UncacheableSize > 0) {
             ulong lineStart = address & ~(ulong)(Cache.BlockBytes - 1);
-            ulong lineEnd   = lineStart + (ulong)Cache.BlockBytes;
+            ulong lineEnd = lineStart + (ulong)Cache.BlockBytes;
             if (lineEnd > UncacheableBase && lineStart < UncacheableBase + UncacheableSize) return;
         }
+
         Cache.Prefetch(address);
     }
 }

@@ -554,9 +554,12 @@ public class LoadQueueTests {
     [Fact]
     public void InOrder_OldestFirst_SeqNoMonotonic() {
         var lq = new LoadQueue(4);
-        int a = lq.Allocate(); lq.At(a).SeqNo = 10;
-        int b = lq.Allocate(); lq.At(b).SeqNo = 20;
-        int c = lq.Allocate(); lq.At(c).SeqNo = 30;
+        int a = lq.Allocate();
+        lq.At(a).SeqNo = 10;
+        int b = lq.Allocate();
+        lq.At(b).SeqNo = 20;
+        int c = lq.Allocate();
+        lq.At(c).SeqNo = 30;
 
         List<ulong> seqNos = lq.InOrder().Select(e => e.SeqNo).ToList();
         Assert.Equal([10UL, 20UL, 30UL,], seqNos);
@@ -646,8 +649,10 @@ public class StoreQueueTests {
     [Fact]
     public void InOrder_SeqNoMonotonic() {
         var sq = new StoreQueue(4);
-        int a = sq.Allocate(); sq.At(a).SeqNo = 5;
-        int b = sq.Allocate(); sq.At(b).SeqNo = 15;
+        int a = sq.Allocate();
+        sq.At(a).SeqNo = 5;
+        int b = sq.Allocate();
+        sq.At(b).SeqNo = 15;
 
         List<ulong> seqNos = sq.InOrder().Select(e => e.SeqNo).ToList();
         Assert.Equal([5UL, 15UL,], seqNos);

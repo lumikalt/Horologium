@@ -78,6 +78,14 @@ public interface ITooth {
     /// Returns 0 for all non-loads and for zero-extending loads (lbu, lhu, lwu).
     /// </summary>
     int LoadSignExtendBytes => 0;
+
+    /// <summary>
+    /// True for integer divide and remainder instructions (DIV/DIVU/REM/REMU and
+    /// their variants). Used by the pipeline to apply a separate <c>DivLatency</c>
+    /// when modelling the higher-latency division unit independently from multiply.
+    /// False for all other instructions, including MUL/MULH/MULHSU/MULHU.
+    /// </summary>
+    bool IsDiv => false;
 }
 
 /// <summary>

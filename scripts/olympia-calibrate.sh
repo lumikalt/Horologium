@@ -42,14 +42,18 @@ cat > "$TMP/cache_wb.json" <<JSON
  {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":3}},
  {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$L1,"store_buffer_capacity":8}}]
 JSON
-# +Matched: WB∝w + 4-cycle load-hit latency + D$ sized to Olympia's per-width defaults.
-# Isolates the structural gap from load pipeline depth and cache size.
-FU4='"fu_latency":{"load_hit_latency":4}'
+# +Matched: WB∝w + 4-cycle load-hit latency + 1-cycle bypass latency + D$ sized to Olympia's per-width defaults
+# + per-width INT ALU count (w8: int_alu_count=3 to match Olympia big_core's 3 INT execution ports)
+# + ROB capacity=30 to match Olympia's retire_queue_depth=30 (fixed across all arch widths in Olympia YAMLs).
+# Olympia small/medium/big_core all use the same 30-slot ROB; Horologium previously used 32/48/128.
+# Reducing ROB limits wrong-path speculation window, cutting misprediction flush overhead at wider widths.
+FU4='"fu_latency":{"load_hit_latency":4,"bypass_latency":1,"div_latency":23}'
+FU4W8='"fu_latency":{"int_alu_count":3,"load_hit_latency":4,"bypass_latency":1,"div_latency":23}'
 IC='"i_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10}'
 cat > "$TMP/cache_wb_matched.json" <<JSON
-[{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":32,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":2,$FU4}},
- {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":48,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":32768,"ways":8,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":3,$FU4}},
- {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":128,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":65536,"ways":8,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":8,$FU4}}]
+[{"name":"w2","config":{"pipeline":"ooo","issue_width":2,"rob_capacity":30,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":2,$FU4}},
+ {"name":"w3","config":{"pipeline":"ooo","issue_width":3,"rob_capacity":30,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":32768,"ways":8,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":3,$FU4}},
+ {"name":"w8","config":{"pipeline":"ooo","issue_width":8,"rob_capacity":30,"predictor":{"type":"n_bit","bits":2},$IC,"d_cache":{"capacity_bytes":65536,"ways":8,"block_bytes":64,"miss_latency":10},"store_buffer_capacity":8,$FU4W8}}]
 JSON
 
 horo() { # elf sweep.json name
@@ -63,8 +67,11 @@ oly() { # trace arch
 
 # Workloads: rich.elf plus the riscv-tests benchmark suite. The opcode-based
 # trace writer ingests FP, so the benchmarks (all FP) now work.
+# gcd: div/rem-heavy (Euclidean algorithm); stresses MulDivLatency mismatch.
+# treesum: two-call recursion (tree_sum calls itself twice) — RAS stress test.
+# pchase: pointer-chase through 64 KB shuffled array; serial load-dependency chain.
 WORKLOADS=("rich:TestBinaries/rich.elf")
-for b in vvadd multiply median towers qsort rsort memcpy; do
+for b in vvadd multiply median towers qsort rsort memcpy gcd treesum pchase; do
   WORKLOADS+=("$b:TestBinaries/benchmarks/$b.elf")
 done
 

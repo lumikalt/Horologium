@@ -90,25 +90,49 @@ See the "Olympia execution model: structural comparison" section for source-leve
 - [x] **D-cache size mismatch** — Olympia medium=32KB, big=64KB vs Horologium always
   16KB in calibration. Run Horologium with 32/64KB for medium/big-core comparisons
   to equalize miss rates before attributing IPC gaps to other causes.
-- [ ] **Integer DIV latency** — Olympia 23 cycles, Horologium 3 (`MulDivLatency`).
-  Current workloads are not div-heavy; update `MulDivLatency` once a div-heavy
-  benchmark is added.
-- [ ] **Branch misprediction cost** — qsort no-cache IPC (0.99) is ~25% below
-  Olympia trace-replay (1.24); oracle-predictor run would isolate misprediction
-  overhead and quantify how much ITTAGE/BATAGE recovers vs the 2-bit sweep config.
-- [ ] **Result-bypass / forwarding latency** — Horologium assumes zero-cycle
-  forwarding; adding 1–2 cycle bypass latency to `FuLatencyConfig` would deflate
-  compute-bound overestimates (rich, multiply).
-- [ ] **FU reservation-station depth** — Olympia models per-class RS limits;
-  Horologium's flat IQ may over-schedule at wide issue (multiply/big_core gap).
-  A per-class IQ partition would test this.
-- [ ] **Memory-bus bandwidth cap** — rsort's scatter-write pattern triggers Olympia's
-  bus-occupancy limits (IPC ≈ 1.0 vs Horologium 1.6–2.1). A per-cycle cap on
-  outstanding write-bus transactions (beyond the single D-cache write port) is the
-  structural lever.
-- [ ] **ROB head pressure from long-latency misses** — MLP loads fill ROB slots for
-  their full miss countdown; when the ROB fills, fetch/dispatch stall. Horologium
-  doesn't model this pressure; real hardware does.
+- [x] **Integer DIV latency** — added `DivLatency` parameter to `FuLatencyConfig`
+  (0 = inherit from `MulDivLatency`, backward-compatible); `bool IsDiv` on `ITooth`,
+  overridden in `RvInstruction` for RvDiv/RvDivu/RvRem/RvRemu; +Matched sets
+  `div_latency=23`. Added gcd and treesum benchmarks. gcd w2 matches Olympia within 0.5%.
+- [x] **Branch misprediction cost** — ITTAGE sweep (vs 2-bit): qsort gains 6–10% IPC
+  (14.7% fewer misses), still 23% below Olympia at w8; median/towers unaffected (<1.5%).
+  Gap is trace-replay structural advantage, not predictor quality. Oracle predictor added
+  (`OracleConfig` / `OraclePredictor`) but is last-value (not true oracle) — works for
+  stable branches, degrades on volatile ones. True two-pass oracle deferred.
+- [x] **Result-bypass / forwarding latency** — `BypassLatency=1` added to
+  `FuLatencyConfig`; applied in `OooeTrain.StepExecute`; compute-bound workloads
+  (rich, multiply/small) moved toward Olympia. Default 0 (backward-compatible).
+- [x] **FU reservation-station depth** — per-class IQ partitioning implemented
+  (5 classes × 8 slots = 40 total; matches Olympia's `scheduler_size=8`). Most
+  workloads dropped 5–15% IPC. IQ depth confirmed non-bottleneck (iq8→iq64 = +3.8%
+  for multiply). Gap is FU execution-port bound: `IntAluCount=3` for the w8 +Matched
+  config brings no-cache multiply IPC to 2.067 vs Olympia 2.034.
+- [x] **Memory-bus bandwidth cap** — investigated; write-bus bandwidth was not the lever.
+  No-cache data proves it (rsort 1.67 vs Olympia 0.99 with zero cache). Root cause:
+  load speculation inflates rsort IPC; `ConservativeLoads` flag added to `FuLatencyConfig`
+  and benchmarked. Adding it to +Matched overshoots (0.58 vs 0.99) due to trace-replay
+  asymmetry — Olympia's "conservative loads" is nearly a no-op in trace replay (addresses
+  pre-known from trace). Gap is a trace-replay structural difference, not a missing bandwidth model.
+- [x] **ROB head pressure from long-latency misses** — investigated. ROB capacity sweep
+  (ROB=32/128/512) showed ROB does NOT fill from cache-miss head pressure (ROB=512 =
+  ROB=128). Real cause: Olympia uses 30-slot ROB at all widths; +Matched updated to
+  rob_capacity=30. Mechanism: smaller ROB limits wrong-path speculation window, reducing
+  flush overhead per misprediction. towers w8 +25%, vvadd w8 now within 0.8% of Olympia.
+- [x] **Return Address Stack in OooeTrain** — RAS existed in `FetchStage` (used by
+  FiveStage) but was never wired into `OooeTrain.StepFetch`. Added 16-entry RAS with
+  `hint.IsCall` push / `hint.IsReturn` pop. Effect on current benchmarks: +0–2%
+  (marginal) because BTB already predicted return targets correctly for per-call-site
+  entries. Correctness: OoO and FiveStage fetch now behave identically on call/return.
+- [x] **Load replay model** — investigated. Olympia invalidates missed loads and
+  re-issues after replay_issue_delay=3 cycles (7+ extra cycles vs Horologium's countdown).
+  Measured: all current benchmarks have 15–19 cold misses and 0 replays in Olympia.
+  Working sets fit in 16 KB L1. No implementation effect. Needs a large-working-set
+  benchmark (>16 KB data) to be relevant.
+- [x] **pchase benchmark** — 64 KB pointer-chase (Fisher-Yates permutation, N=16384)
+  added to expose the replay model gap. Key finding: Olympia stores never access the
+  D-cache (`getAckFromROB_()` bypasses cache at retirement), so init_permutation's
+  writes don't warm Olympia's L1 and the replay model cannot be isolated via
+  trace-replay. pchase +Matched: 0.61/0.67/0.77 vs Olympia 0.48/0.71/0.52.
 - [ ] **Realistic prefetch latency** — idealized free prefetcher (+PF column) adds
   ≤2% because load-side MLP already hides miss latency. A prefetch-with-countdown
   model (demand hit pays remaining countdown) would test the true prefetch benefit.

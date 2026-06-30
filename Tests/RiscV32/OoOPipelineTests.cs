@@ -607,7 +607,7 @@ public class OoOPipelineTests {
             0x00408283, // lw   x5, 4(x1)
             0x00100073  // ebreak
         );
-        train.Run(maxTicks: 10_000);
+        train.Run(10_000);
         Assert.Equal(42u, Reg(train, 4));
         Assert.Equal(99u, Reg(train, 5));
     }
@@ -640,7 +640,7 @@ public class OoOPipelineTests {
             0x00408283, // lw   x5, 4(x1)
             0x00100073  // ebreak
         );
-        train.Run(maxTicks: 10_000);
+        train.Run(10_000);
         Assert.Equal(42u, Reg(train, 4));
         Assert.Equal(99u, Reg(train, 5));
     }

@@ -3,19 +3,25 @@ namespace Pipeline.Ooo;
 /// <summary>One slot in the Store Queue.</summary>
 public sealed class SqEntry {
     public bool Valid { get; set; }
+
     /// <summary>ROB index of the owning instruction.</summary>
     public int RobIdx { get; set; } = -1;
+
     /// <summary>
     /// Monotonic dispatch sequence number shared with the LoadQueue.
     /// An Atomic instruction receives the same SeqNo in both its LQ and SQ entry.
     /// </summary>
     public ulong SeqNo { get; set; }
+
     /// <summary>True once the store has executed and Address/Value/Width are valid.</summary>
     public bool AddressKnown { get; set; }
+
     /// <summary>Effective address written at execute time.</summary>
     public ulong Address { get; set; }
+
     /// <summary>Value to be written to memory at commit time.</summary>
     public ulong Value { get; set; }
+
     /// <summary>Number of bytes to write.</summary>
     public int Width { get; set; }
 
@@ -94,7 +100,6 @@ public sealed class StoreQueue {
     /// SeqNo values are monotonically increasing in this order.
     /// </summary>
     public IEnumerable<SqEntry> InOrder() {
-        for (var i = 0; i < Count; i++)
-            yield return _slots[(_head + i) % Capacity];
+        for (var i = 0; i < Count; i++) yield return _slots[(_head + i) % Capacity];
     }
 }

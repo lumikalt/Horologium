@@ -34,7 +34,7 @@ public sealed class OooeTrain {
         ulong entryPoint = 0,
         int issueWidth = 2,
         int robCapacity = 32,
-        int iqCapacity = 16,
+        int iqCapacity = 8,
         int extraPhysRegs = 32,
         IBranchPredictor? predictor = null,
         MemoryConfig? iMemConfig = null,
@@ -131,8 +131,8 @@ internal sealed class OoOPipelineCore : Gear {
         bool HasLoadAccess,
         ulong LoadAddr,
         int LoadBytes,
-        bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
-        bool RequestHalt = false  // true for an HTIF tohost-exit store: halt after commit
+        bool LoadWasForwarded,   // true if TryForwardFromStore supplied the register value
+        bool RequestHalt = false // true for an HTIF tohost-exit store: halt after commit
     );
 
     /// <summary>
@@ -177,6 +177,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly IExecutor _executor;
     private readonly ITrapController _trapController;
     private readonly IBranchPredictor _predictor;
+    private readonly ReturnAddressStack _ras = new(16);
     private readonly IFetchTranslator? _fetchTranslator;
     private readonly CapturingMemory _capMem;
     private readonly FuLatencyConfig _fuConfig;
@@ -189,11 +190,22 @@ internal sealed class OoOPipelineCore : Gear {
     public MemoryLayers ILayers { get; }
     public MemoryLayers DLayers { get; }
 
+    // IQ index 0=INT(Alu/MulDiv/Sys/Fence/Halt), 1=FP, 2=BR, 3=VEC(Vector/UVE), 4=LSU
+    private const int IqCount = 5;
+
+    private static int IqIndex(ToothClass cls) => cls switch {
+        ToothClass.FloatingPoint or ToothClass.FloatDivSqrt      => 1,
+        ToothClass.Branch or ToothClass.ConditionalBranch        => 2,
+        ToothClass.Vector or ToothClass.Uve                      => 3,
+        ToothClass.Load or ToothClass.Store or ToothClass.Atomic => 4,
+        _                                                        => 0,
+    };
+
     // OoOE structures
     private readonly PhysicalRegisterFile _prf;
     private readonly RenameMap _rat;
     private readonly ReorderBuffer _rob;
-    private readonly IssueQueue _iq;
+    private readonly IssueQueue[] _iqs;
     private readonly LoadQueue _lq;
     private readonly StoreQueue _sq;
     private readonly int _issueWidth;
@@ -210,13 +222,13 @@ internal sealed class OoOPipelineCore : Gear {
     // corresponding write bus penalty expires. Capacity 0 disables the feature
     // and falls back to lump-sum charging (old behaviour).
     private readonly int _wbCapacity;
-    private readonly int[] _wbSlots;      // per-slot miss countdown
-    private int _wbOccupied;              // number of slots currently counting down
+    private readonly int[] _wbSlots; // per-slot miss countdown
+    private int _wbOccupied;         // number of slots currently counting down
 
     // MSHR (Miss Status Holding Register) capacity: limits the number of simultaneously
     // outstanding load/atomic cache misses. Capacity 0 means unlimited (old behaviour).
     private readonly int _mshrCapacity;
-    private int _mshrUsed;                // MSHR slots currently occupied
+    private int _mshrUsed; // MSHR slots currently occupied
 
     // Cross-tick latches
     private readonly Queue<FetchedInstr> _decodeQueue = new();
@@ -311,7 +323,8 @@ internal sealed class OoOPipelineCore : Gear {
         _prf = new PhysicalRegisterFile(physRegs);
         _rat = new RenameMap(archRegs, physRegs);
         _rob = new ReorderBuffer(robCapacity);
-        _iq = new IssueQueue(iqCapacity);
+        _iqs = new IssueQueue[OoOPipelineCore.IqCount];
+        for (var i = 0; i < OoOPipelineCore.IqCount; i++) _iqs[i] = new IssueQueue(iqCapacity);
         _lq = new LoadQueue(lqCapacity > 0 ? lqCapacity : robCapacity);
         _sq = new StoreQueue(sqCapacity > 0 ? sqCapacity : robCapacity);
         StreamingEngine = new StreamingEngine(streamPrefetchDepth);
@@ -495,7 +508,7 @@ internal sealed class OoOPipelineCore : Gear {
 
             if (!r.RegValue.HasValue || r.PhysDest < 0) continue;
             _prf.Write(r.PhysDest, r.RegValue.Value);
-            _iq.Broadcast(r.PhysDest, r.RegValue.Value);
+            foreach (IssueQueue iq in _iqs) iq.Broadcast(r.PhysDest, r.RegValue.Value);
         }
 
         _cdbBuffer.Clear();
@@ -704,7 +717,7 @@ internal sealed class OoOPipelineCore : Gear {
                 if (pAddr.HasValue) DLayers.TryPrefetch(pAddr.Value);
             }
 
-            int countdown = _fuConfig.LatencyFor(issued.Instr.Class) - 1;
+            int countdown = _fuConfig.LatencyFor(issued.Instr) - 1 + _fuConfig.BypassLatency;
 
             // Memory-level parallelism: a load/atomic that missed (its cache access just
             // accrued a stall) carries the miss penalty in its own latency countdown, so it
@@ -735,63 +748,74 @@ internal sealed class OoOPipelineCore : Gear {
         // class can be issued in a single cycle.
         Span<int> classIssued = stackalloc int[16]; // one slot per ToothClass value; sized for current + future growth
         var issued = 0;
-        for (var slot = 0; slot < _iq.Capacity && issued < _issueWidth; slot++) {
-            RsEntry rs = _iq.At(slot);
-            if (!rs.Busy || !rs.IsReady) continue;
+        for (var iqIdx = 0; iqIdx < OoOPipelineCore.IqCount && issued < _issueWidth; iqIdx++) {
+            IssueQueue iq = _iqs[iqIdx];
+            for (var slot = 0; slot < iq.Capacity && issued < _issueWidth; slot++) {
+                RsEntry rs = iq.At(slot);
+                if (!rs.Busy || !rs.IsReady) continue;
 
-            ToothClass cls = rs.Instruction?.Class ?? ToothClass.IntegerAlu;
-            int fuSlot = FuLatencyConfig.BudgetSlot(cls);
-            if (classIssued[fuSlot] >= _fuConfig.CountFor(cls)) continue;
+                ToothClass cls = rs.Instruction?.Class ?? ToothClass.IntegerAlu;
+                int fuSlot = FuLatencyConfig.BudgetSlot(cls);
+                if (classIssued[fuSlot] >= _fuConfig.CountFor(cls)) continue;
 
-            // Loads issue speculatively; only block on preceding vector stores (which
-            // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
-            // Scalar store-to-load ordering is maintained through forwarding and, when
-            // necessary, memory-order violation detection and squash at the ROB head.
-            if (cls == ToothClass.Load && HasPrecedingVectorStore(rs.RobIndex)) continue;
+                // Loads issue speculatively; only block on preceding vector stores (which
+                // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
+                // Scalar store-to-load ordering is maintained through forwarding and, when
+                // necessary, memory-order violation detection and squash at the ROB head.
+                if (cls == ToothClass.Load && HasPrecedingVectorStore(rs.RobIndex)) continue;
 
-            // MSHR capacity: if all miss-tracking slots are occupied, this load/atomic
-            // cannot start yet — it stays in the IQ and retries next cycle.
-            if (cls is ToothClass.Load or ToothClass.Atomic
-             && _mshrCapacity > 0 && _mshrUsed >= _mshrCapacity) {
-                _mshrStallsCounter?.Increment();
-                continue;
+                // Conservative load ordering (FuLatencyConfig.ConservativeLoads): a load
+                // may not issue while any older SQ entry still has an unresolved address.
+                // Models Olympia's allow_speculative_load_exec = false.
+                if (cls == ToothClass.Load && _fuConfig.ConservativeLoads) {
+                    int lqIdx = _rob.At(rs.RobIndex).LqIdx;
+                    if (lqIdx >= 0 && HasUnresolvedPrecedingStore(_lq.At(lqIdx).SeqNo)) continue;
+                }
+
+                // MSHR capacity: if all miss-tracking slots are occupied, this load/atomic
+                // cannot start yet — it stays in the IQ and retries next cycle.
+                if (cls is ToothClass.Load or ToothClass.Atomic
+                 && _mshrCapacity > 0 && _mshrUsed >= _mshrCapacity) {
+                    _mshrStallsCounter?.Increment();
+                    continue;
+                }
+
+                // CSR serialization: a System instruction may only issue when it is
+                // at the ROB head (all older instructions have committed). This prevents
+                // out-of-order CSR reads from seeing stale state written by earlier CSR ops.
+                if (cls == ToothClass.System && rs.RobIndex != _rob.HeadIndex) continue;
+
+                // Vector serialization: vector register renaming is not implemented.
+                // Head-gating ensures VRF writes are applied in program order.
+                if (cls == ToothClass.Vector && rs.RobIndex != _rob.HeadIndex) continue;
+
+                // UVE serialization: stream state is not renamed; head-gating preserves order.
+                // Additionally stall until every load-stream source has a buffered element.
+                if (cls == ToothClass.Uve) {
+                    if (rs.RobIndex != _rob.HeadIndex) continue;
+                    var streamStall = false;
+                    if (rs.Instruction is not null)
+                        foreach (int uid in rs.Instruction.UveStreamSources)
+                            if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
+                                streamStall = true;
+                                break;
+                            }
+
+                    if (streamStall) continue;
+                }
+
+                ulong issuedInstrId = _rob.At(rs.RobIndex).InstrId;
+                _execBuffer.Add(
+                    new IssuedInstr(
+                        rs.RobIndex, rs.PhysDestination, rs.Instruction!, rs.Pc,
+                        rs.Src1Value, rs.Src2Value, rs.Src3Value, issuedInstrId
+                    )
+                );
+                PEventLog?.Record(issuedInstrId, rs.Pc, _cyclesCounter.Value, PEventKind.Issue);
+                iq.Free(slot);
+                classIssued[fuSlot]++;
+                issued++;
             }
-
-            // CSR serialization: a System instruction may only issue when it is
-            // at the ROB head (all older instructions have committed). This prevents
-            // out-of-order CSR reads from seeing stale state written by earlier CSR ops.
-            if (cls == ToothClass.System && rs.RobIndex != _rob.HeadIndex) continue;
-
-            // Vector serialization: vector register renaming is not implemented.
-            // Head-gating ensures VRF writes are applied in program order.
-            if (cls == ToothClass.Vector && rs.RobIndex != _rob.HeadIndex) continue;
-
-            // UVE serialization: stream state is not renamed; head-gating preserves order.
-            // Additionally stall until every load-stream source has a buffered element.
-            if (cls == ToothClass.Uve) {
-                if (rs.RobIndex != _rob.HeadIndex) continue;
-                var streamStall = false;
-                if (rs.Instruction is not null)
-                    foreach (int uid in rs.Instruction.UveStreamSources)
-                        if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
-                            streamStall = true;
-                            break;
-                        }
-
-                if (streamStall) continue;
-            }
-
-            ulong issuedInstrId = _rob.At(rs.RobIndex).InstrId;
-            _execBuffer.Add(
-                new IssuedInstr(
-                    rs.RobIndex, rs.PhysDestination, rs.Instruction!, rs.Pc,
-                    rs.Src1Value, rs.Src2Value, rs.Src3Value, issuedInstrId
-                )
-            );
-            PEventLog?.Record(issuedInstrId, rs.Pc, _cyclesCounter.Value, PEventKind.Issue);
-            _iq.Free(slot);
-            classIssued[fuSlot]++;
-            issued++;
         }
     }
 
@@ -808,6 +832,21 @@ internal sealed class OoOPipelineCore : Gear {
             ITooth? instr = entry.Instruction;
             if (instr is { Class: ToothClass.Vector, VectorDestinationRegister: < 0, DestinationRegister: < 0, })
                 return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True if any SQ entry older than <paramref name="loadSeqNo"/> has not yet
+    /// resolved its effective address. Used to implement conservative load ordering
+    /// (FuLatencyConfig.ConservativeLoads), mirroring Olympia's
+    /// allow_speculative_load_exec = false.
+    /// </summary>
+    private bool HasUnresolvedPrecedingStore(ulong loadSeqNo) {
+        foreach (SqEntry sq in _sq.InOrder()) {
+            if (sq.SeqNo >= loadSeqNo) break; // past the load — done
+            if (!sq.AddressKnown) return true;
         }
 
         return false;
@@ -893,9 +932,9 @@ internal sealed class OoOPipelineCore : Gear {
                 continue;
             }
 
-            if (_iq.IsFull) break;
-
             ITooth instr = fi.Decoded!;
+            if (_iqs[IqIndex(instr.Class)].IsFull) break;
+
             int destArch = instr.DestinationRegister;
 
             // Check memory queue capacity before committing any allocation.
@@ -963,8 +1002,9 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             // Allocate IQ slot and fill source operands from pre-rename RAT snapshot.
-            int iqSlot = _iq.Allocate();
-            RsEntry rs = _iq.At(iqSlot);
+            IssueQueue classIq = _iqs[IqIndex(instr.Class)];
+            int iqSlot = classIq.Allocate();
+            RsEntry rs = classIq.At(iqSlot);
             rs.RobIndex = robIdx;
             rs.Instruction = instr;
             rs.Pc = fi.Pc;
@@ -1058,7 +1098,13 @@ internal sealed class OoOPipelineCore : Gear {
             FetchHint hint = _decoder.GetFetchHint(_fetchPc, raw);
             ulong predictedNext;
             if (hint.IsBranch) {
-                BranchPrediction pred = _predictor.Predict(_fetchPc, hint.BranchTarget);
+                if (hint.IsCall) _ras.Push(_fetchPc + (ulong)decoded.SizeBytes);
+
+                BranchPrediction pred;
+                if (hint.IsReturn && _ras.TryPop(out ulong ret))
+                    pred = BranchPrediction.Taken(ret);
+                else
+                    pred = _predictor.Predict(_fetchPc, hint.BranchTarget);
                 predictedNext = pred.PredictedTaken ? pred.PredictedTarget : _fetchPc + (ulong)decoded.SizeBytes;
             }
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
@@ -1089,7 +1135,7 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
         _rob.Flush();
-        _iq.Flush();
+        foreach (IssueQueue iq in _iqs) iq.Flush();
         _lq.Flush();
         _sq.Flush();
         _decodeQueue.Clear();
@@ -1264,7 +1310,7 @@ internal sealed class OoOPipelineCore : Gear {
         long stalls = DLayers.ConsumeAllStalls();
         if (stalls <= 0) return; // cache hit — nothing to absorb
 
-        for (int i = 0; i < _wbCapacity; i++) {
+        for (var i = 0; i < _wbCapacity; i++) {
             if (_wbSlots[i] != 0) continue;
             _wbSlots[i] = (int)stalls;
             _wbOccupied++;
@@ -1280,7 +1326,7 @@ internal sealed class OoOPipelineCore : Gear {
     /// </summary>
     private void StepWriteBuffer() {
         if (_wbOccupied == 0) return;
-        for (int i = 0; i < _wbCapacity; i++) {
+        for (var i = 0; i < _wbCapacity; i++) {
             if (_wbSlots[i] <= 0) continue;
             if (--_wbSlots[i] == 0) _wbOccupied--;
         }
@@ -1311,6 +1357,7 @@ internal sealed class OoOPipelineCore : Gear {
             _dcachePrefetchesCounter.IncrementBy(DLayers.Cache.Prefetches - _lastDPrefetches);
             _lastDPrefetches = DLayers.Cache.Prefetches;
         }
+
         UpdateCacheStat(
             DLayers.L2Cache, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
         );

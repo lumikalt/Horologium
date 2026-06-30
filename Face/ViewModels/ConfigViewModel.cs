@@ -65,7 +65,7 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int RobCapacity { get; set; } = 32;
 
-    [ObservableProperty] public partial int IqCapacity { get; set; } = 16;
+    [ObservableProperty] public partial int IqCapacity { get; set; } = 8;
 
     [ObservableProperty] public partial int ExtraPhysRegs { get; set; } = 32;
 

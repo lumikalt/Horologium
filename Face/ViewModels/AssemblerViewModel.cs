@@ -263,6 +263,7 @@ public partial class AssemblerViewModel : ObservableObject {
             if (!CoreStepSingleCycle()) break;
             _stepCount++;
         }
+
         CanStep = Instructions.Count > 0;
         RefreshAllRegisters();
         UpdateStages();
@@ -287,10 +288,12 @@ public partial class AssemblerViewModel : ObservableObject {
                 _currentCycle = _oooeTrain.CurrentTick;
             }
             else { return; }
+
             SampleCacheHistory();
             if (!running) break;
         }
-        CanStep = Instructions.Count > 0 && _currentCycle < MaxPipelineCycles;
+
+        CanStep = Instructions.Count > 0 && _currentCycle < AssemblerViewModel.MaxPipelineCycles;
         UpdateStages();
         RefreshAllRegisters();
         RefreshCacheDisplay();
@@ -313,7 +316,11 @@ public partial class AssemblerViewModel : ObservableObject {
             result.SideEffect?.Invoke(_archState);
             if (result.RegisterResult.HasValue && tooth.DestinationRegister >= 0)
                 _archState.IntegerRegisters.Write(tooth.DestinationRegister, result.RegisterResult.Value);
-            if (result.IsHalt) { _archState.Pc = pc + (ulong)tooth.SizeBytes; return false; }
+            if (result.IsHalt) {
+                _archState.Pc = pc + (ulong)tooth.SizeBytes;
+                return false;
+            }
+
             if (result.Trap != null) return false;
             _archState.Pc = result.BranchTaken && result.BranchTarget.HasValue
                 ? result.BranchTarget.Value
@@ -327,8 +334,7 @@ public partial class AssemblerViewModel : ObservableObject {
         var mem = new FlatMemory(1 << 20);
         if (_elfBytes != null)
             Rv32ElfLoader.Load(mem, _elfBytes);
-        else if (_binaryData != null)
-            mem.Load(0, _binaryData);
+        else if (_binaryData != null) mem.Load(0, _binaryData);
         return mem;
     }
 
@@ -608,6 +614,7 @@ public partial class AssemblerViewModel : ObservableObject {
             StatusText = $"Stopped at cycle {_currentCycle} (limit reached — add ebreak to terminate).";
         }
         else { StatusText = $"Cycle {_currentCycle}"; }
+
         BackCommand.NotifyCanExecuteChanged();
     }
 
@@ -686,7 +693,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
         switch (CurrentMode) {
             case PipelineMode.FiveStage when _binaryData != null: {
-                var mem = BuildFreshMemory();
+                FlatMemory mem = BuildFreshMemory();
                 _fiveStageTrain = new FiveStageTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
@@ -695,7 +702,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 break;
             }
             case PipelineMode.OoO when _binaryData != null: {
-                var mem = BuildFreshMemory();
+                FlatMemory mem = BuildFreshMemory();
                 _oooeTrain = new OooeTrain(
                     new Rv32Mechanism(extensions: ActiveExtensions), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog

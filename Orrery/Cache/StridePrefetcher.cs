@@ -8,9 +8,9 @@ namespace Orrery.Cache;
 public sealed class StridePrefetcher : IPrefetcher {
     private struct RptEntry {
         public ulong LastAddr;
-        public long  Stride;
-        public int   Confidence; // 0–3; prefetch when ≥ 2
-        public bool  Initialized; // false on first access → skip stride computation
+        public long Stride;
+        public int Confidence;   // 0–3; prefetch when ≥ 2
+        public bool Initialized; // false on first access → skip stride computation
     }
 
     private readonly RptEntry[] _table;
@@ -43,6 +43,7 @@ public sealed class StridePrefetcher : IPrefetcher {
             e.Stride = stride;
             if (e.Confidence > 0) e.Confidence--;
         }
+
         e.LastAddr = address;
 
         return e.Confidence >= 2 && e.Stride != 0

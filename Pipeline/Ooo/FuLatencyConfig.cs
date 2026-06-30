@@ -13,12 +13,23 @@ namespace Pipeline.Ooo;
 /// MMU → cache_lookup → cache_read → complete = 4 cycles in Olympia). The MLP
 /// miss-countdown adds the cache miss penalty on top of this base latency.
 /// <b>LoadStoreLatency</b> applies to stores and atomics only.
+/// <b>BypassLatency</b> models the result-bypass network delay: cycles added between
+/// a result broadcast and when a dependent instruction can issue. Real hardware
+/// typically adds 1 cycle on the bypass path; 0 = zero-cycle (ideal) forwarding.
+/// <b>ConservativeLoads</b> models Olympia's <c>allow_speculative_load_exec = false</c>:
+/// a load may not issue while any older store in the SQ still has an unresolved
+/// address. Matches store-to-load ordering policy in conservative LSU designs.
+/// <b>DivLatency</b> overrides <b>MulDivLatency</b> for DIV/DIVU/REM/REMU instructions
+/// specifically. 0 = inherit from MulDivLatency (default, backward-compatible).
+/// Olympia models DIV at 23 cycles vs MUL at 3 cycles; setting DivLatency=23
+/// enables that distinction without changing the MUL latency.
 /// </summary>
 public sealed record FuLatencyConfig(
     int IntAluCount = 2,
     int IntAluLatency = 1,
     int MulDivCount = 1,
     int MulDivLatency = 3,
+    int DivLatency = 0,
     int LoadStoreCount = 1,
     int LoadStoreLatency = 1,
     int LoadHitLatency = 1,
@@ -29,7 +40,9 @@ public sealed record FuLatencyConfig(
     int FloatDivSqrtCount = 1,
     int FloatDivSqrtLatency = 16,
     int SystemCount = 1,
-    int SystemLatency = 1
+    int SystemLatency = 1,
+    int BypassLatency = 0,
+    bool ConservativeLoads = false
 ) {
     public static FuLatencyConfig Default { get; } = new();
 
@@ -67,4 +80,10 @@ public sealed record FuLatencyConfig(
         ToothClass.Uve                                    => 1,
         _                                                 => SystemLatency,
     };
+
+    // Instruction-aware overload: uses DivLatency for DIV/REM when it is set.
+    public int LatencyFor(ITooth tooth) =>
+        tooth.Class == ToothClass.IntegerMulDiv && tooth.IsDiv && DivLatency > 0
+            ? DivLatency
+            : LatencyFor(tooth.Class);
 }

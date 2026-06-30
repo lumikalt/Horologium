@@ -3,20 +3,26 @@ namespace Pipeline.Ooo;
 /// <summary>One slot in the Load Queue.</summary>
 public sealed class LqEntry {
     public bool Valid { get; set; }
+
     /// <summary>ROB index of the owning instruction.</summary>
     public int RobIdx { get; set; } = -1;
+
     /// <summary>
     /// Monotonic dispatch sequence number shared with the StoreQueue.
     /// Used to determine program-order relationship between LQ and SQ entries
     /// without relying on ROB index comparison (which wraps).
     /// </summary>
     public ulong SeqNo { get; set; }
+
     /// <summary>True once the load has executed and Address/Bytes are valid.</summary>
     public bool Executed { get; set; }
+
     /// <summary>Effective address read at execute time.</summary>
     public ulong Address { get; set; }
+
     /// <summary>Number of bytes accessed.</summary>
     public int Bytes { get; set; }
+
     /// <summary>
     /// Set when a younger-to-this-load store resolved with an overlapping address,
     /// meaning the load may have read a stale value. Triggers re-execution at commit.
@@ -97,7 +103,6 @@ public sealed class LoadQueue {
     /// SeqNo values are monotonically increasing in this order.
     /// </summary>
     public IEnumerable<LqEntry> InOrder() {
-        for (var i = 0; i < Count; i++)
-            yield return _slots[(_head + i) % Capacity];
+        for (var i = 0; i < Count; i++) yield return _slots[(_head + i) % Capacity];
     }
 }
