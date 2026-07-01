@@ -10,7 +10,7 @@ using Pipeline.Stages;
 
 namespace Pipeline;
 
-public sealed class FiveStageTrain {
+public sealed class FiveStageTrain : ISteppableTrain {
     private readonly Train _train;
     private readonly PipelineCore _core;
 

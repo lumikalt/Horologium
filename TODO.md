@@ -209,6 +209,8 @@ See the "Olympia execution model: structural comparison" section for source-leve
   - [x] Wire `MesiCache` / `MesiBus` into `MultiHartKernel` (per-hart `IMemory[]` overload).
   - [x] LR/SC over MESI: `MesiBus(backing, table:)` calls `table.InvalidateAt(lineBase, blockSize)` inside `BusReadInvalidate`, covering write-miss and S→M upgrade paths without `ReservationAwareMemory`.
   - [x] LR/SC silent-upgrade gap: `MesiCache` now calls `_bus.BusSilentUpgrade(lineBase)` on E→M write hits; `MesiBus.BusSilentUpgrade` calls `_table?.InvalidateAt` so any remote reservation on the line is cancelled even though no snoop was issued.
+  - [x] `MultiHartPipeline`: ISA-agnostic coordinator (`Pipeline/`) that steps N `ISteppableTrain` instances round-robin per cycle; `ISteppableTrain` interface in `Orrery/Train/` with `BeginStepping()`, `StepCycle()`, `IsIdle`, `FinishStepping()`; all four train types implement it.
+  - [ ] SMT / cycle-interleaved issuing: within a single `MultiHartPipeline` cycle, interleave hart instructions at issue-slot granularity (e.g. share a superscalar issue window across harts) rather than whole-tick round-robin.
 
 ## Orrery
 

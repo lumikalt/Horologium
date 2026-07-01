@@ -13,7 +13,7 @@ namespace Pipeline;
 /// and writes back one instruction per tick. No pipeline, no hazards.
 /// Used to validate the Mechanism before any pipeline complexity is added.
 /// </summary>
-public sealed class SingleCycleTrain {
+public sealed class SingleCycleTrain : ISteppableTrain {
     private readonly Train _train;
     private readonly SingleCycleCore _core;
 
@@ -49,6 +49,11 @@ public sealed class SingleCycleTrain {
 
     public RevolutionResult Run(long maxTicks = 100_000, long warmupTicks = 0, long snapshotInterval = 0) =>
         _train.Run(maxTicks, warmupTicks, snapshotInterval);
+
+    public bool IsIdle => _train.IsIdle;
+    public void BeginStepping() => _train.BeginStepping();
+    public bool StepCycle() => _train.StepCycle();
+    public RevolutionResult FinishStepping() => _train.FinishStepping();
 
     public string DumpTopology() => _train.DumpTopology();
 }

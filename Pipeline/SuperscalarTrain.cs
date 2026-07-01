@@ -21,7 +21,7 @@ namespace Pipeline;
 /// This makes it straightforward to compare against <see cref="OooeTrain"/>:
 /// same issue width, same branch predictor absence, purely in-order semantics.
 /// </summary>
-public sealed class SuperscalarTrain {
+public sealed class SuperscalarTrain : ISteppableTrain {
     private readonly Train _train;
     private readonly SuperscalarCore _core;
 
@@ -56,6 +56,11 @@ public sealed class SuperscalarTrain {
 
     public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
         _train.Run(maxTicks, warmupTicks, snapshotInterval);
+
+    public bool IsIdle => _train.IsIdle;
+    public void BeginStepping() => _train.BeginStepping();
+    public bool StepCycle() => _train.StepCycle();
+    public RevolutionResult FinishStepping() => _train.FinishStepping();
 }
 
 // ── Pipeline core Gear ─────────────────────────────────────────────────────────

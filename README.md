@@ -168,11 +168,32 @@ var kernel = new MultiHartKernel([cache0, cache1],
 
 Instruction fetch and data access both route through the per-hart cache (unified I/D model). `ReservationAwareMemory` is not required in this stack. All three write paths cancel reservations via the bus:
 
+
 | Path | Bus transaction | Reservation cancellation |
 |------|----------------|--------------------------|
 | Write miss (write-allocate) | `BusReadInvalidate` | `table.InvalidateAt` in `BusReadInvalidate` |
 | S→M upgrade (write hit on Shared) | `BusReadInvalidate` | same |
 | E→M upgrade (write hit on Exclusive) | none (silent) | `table.InvalidateAt` in `BusSilentUpgrade` |
+
+### MultiHartPipeline (Pipeline/)
+
+`MultiHartPipeline` coordinates N full pipeline trains (`ISteppableTrain`) in round-robin cycle-interleaved order — the pipeline-train analogue of `MultiHartKernel`. Each hart owns its own train instance (and typically its own `MesiCache`); the coordinator advances every non-halted train by one tick per logical cycle.
+
+`ISteppableTrain` (`Orrery/Train/`) is a minimal interface: `BeginStepping()`, `StepCycle() → bool`, `IsIdle`, `FinishStepping() → RevolutionResult`. All four train types implement it: `SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`.
+
+```csharp
+var flat   = new FlatMemory(0x10000);
+var bus    = new MesiBus(flat);
+var cache0 = new MesiCache(bus, 4096, 2, 64);
+var cache1 = new MesiCache(bus, 4096, 2, 64);
+
+var train0 = new SingleCycleTrain(new Rv32Mechanism(), cache0, entryPoint: 0x00);
+var train1 = new SingleCycleTrain(new Rv32Mechanism(), cache1, entryPoint: 0x40);
+
+RevolutionResult[] results = new MultiHartPipeline(train0, train1).Run(maxTicks: 100_000);
+```
+
+`Run` returns one `RevolutionResult` per hart. Combine with `MesiBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` for LR/SC atomics between pipeline trains.
 
 ### Per-instruction lifecycle events (Orrery/Observation)
 

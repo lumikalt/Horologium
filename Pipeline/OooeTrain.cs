@@ -13,7 +13,7 @@ namespace Pipeline;
 
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 
-public sealed class OooeTrain {
+public sealed class OooeTrain : ISteppableTrain {
     private readonly Train _train;
     private readonly OoOPipelineCore _core;
 
