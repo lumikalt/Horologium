@@ -10,7 +10,7 @@ A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The sim
 |---|---|
 | **Orrery** | The simulation engine. Knows nothing about instructions or ISAs. |
 | **Mechanism** | Interfaces only. Defines the ISA-plugin contract. |
-| **Pipeline** | ISA-agnostic pipeline trains (`SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`), pipeline registers, `HazardUnit`, and stage implementations. No dependency on any ISA. |
+| **Pipeline** | ISA-agnostic pipeline trains (`SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`, `SmtTrain`), pipeline registers, `HazardUnit`, and stage implementations. No dependency on any ISA. |
 | **RiscV32** | RV32IMAFCV implementation of the Mechanism contract. Includes Zba/Zbb/Zbc/Zbs/Zicond/Zawrs/Zicbom/Zicboz/Zimop/Zicntr and UVE. |
 | **RiscV64** | RV64I implementation extending RiscV32 via inheritance. Adds W-suffix ops (ADDW/SUBW/…/ADDIW/…), LD/LWU/SD, and corrects shift/comparison/LW semantics for 64-bit. |
 | **Chip8** | A second ISA implementation, demonstrating that the engine is genuinely ISA-agnostic. Full display (64×32 XOR-sprite framebuffer) and 16-key keyboard support. |
@@ -179,7 +179,7 @@ Instruction fetch and data access both route through the per-hart cache (unified
 
 `MultiHartPipeline` coordinates N full pipeline trains (`ISteppableTrain`) in round-robin cycle-interleaved order — the pipeline-train analogue of `MultiHartKernel`. Each hart owns its own train instance (and typically its own `MesiCache`); the coordinator advances every non-halted train by one tick per logical cycle.
 
-`ISteppableTrain` (`Orrery/Train/`) is a minimal interface: `BeginStepping()`, `StepCycle() → bool`, `IsIdle`, `FinishStepping() → RevolutionResult`. All four train types implement it: `SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`.
+`ISteppableTrain` (`Orrery/Train/`) is a minimal interface: `BeginStepping()`, `StepCycle() → bool`, `IsIdle`, `FinishStepping() → RevolutionResult`. All five train types implement it: `SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`, `SmtTrain`.
 
 ```csharp
 var flat   = new FlatMemory(0x10000);
@@ -194,6 +194,31 @@ RevolutionResult[] results = new MultiHartPipeline(train0, train1).Run(maxTicks:
 ```
 
 `Run` returns one `RevolutionResult` per hart. Combine with `MesiBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` for LR/SC atomics between pipeline trains.
+
+### SmtTrain (Pipeline/)
+
+`SmtTrain` is a barrel-processor SMT train: N independent hart contexts share a single issue window of width `issueWidth`. Each tick the coordinator distributes the available slots round-robin across active harts, rotating the starting hart every cycle for long-run fairness. This interleaves hart instructions at issue-slot granularity rather than the whole-tick round-robin of `MultiHartPipeline`.
+
+Each hart has its own `IArchState` and `MemoryLayers` (typically backed by per-hart `MesiCache` instances sharing a `MesiBus`). All harts share the same `Escapement` and advance in lock-step. A hart that hits a branch, halt, trap, or MRET is blocked for the rest of the current cycle's issue window; the remaining slots go to other harts. When all harts have halted the Gear stops scheduling itself.
+
+```csharp
+var flat   = new FlatMemory(0x10000);
+var bus    = new MesiBus(flat);
+var cache0 = new MesiCache(bus, 4096, 2, 64);
+var cache1 = new MesiCache(bus, 4096, 2, 64);
+
+var smt = new SmtTrain(
+    new IMechanism[] { new Rv32Mechanism(), new Rv32Mechanism() },
+    new IMemory[]    { cache0, cache1 },
+    entryPoints: new ulong[] { 0x00, 0x40 },
+    issueWidth: 2
+);
+smt.Run(maxTicks: 100_000);
+IArchState s0 = smt.StateOf(0); // hart 0 register state
+IArchState s1 = smt.StateOf(1); // hart 1 register state
+```
+
+`SmtTrain` also implements `ISteppableTrain` and can be wrapped in `MultiHartPipeline` for nested multi-level parallelism. Aggregate cycle/retired/stall/IPC counters appear in `FinishStepping().Dials`.
 
 ### Per-instruction lifecycle events (Orrery/Observation)
 
