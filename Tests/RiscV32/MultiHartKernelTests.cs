@@ -189,28 +189,28 @@ public class MultiHartKernelTests {
         // Tick 1: H0 lr.w → reserve 0x200; H1 sw 0x200 → BusReadInvalidate → reservation cancelled.
         // Tick 2: H0 sc.w → TryConsume fails → x4=1 (SC failure).
 
-        const uint LrW  = 0x100120AF;
+        const uint LrW = 0x100120AF;
         const uint ScWX4 = 0x1831222F;
-        const uint SwX5  = 0x00532023;
+        const uint SwX5 = 0x00532023;
 
-        var flat  = new FlatMemory(0x1000);
+        var flat = new FlatMemory(0x1000);
         flat.Load(0x00, ToBytes(LrW, ScWX4, MultiHartKernelTests.Ebreak));
         flat.Load(0x40, ToBytes(SwX5, MultiHartKernelTests.Ebreak));
         flat.Write(0x200, 0xBEEF, 4);
 
-        var table  = new ReservationTable();
-        var bus    = new MesiBus(flat, table: table);
-        var cache0 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
-        var cache1 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+        var table = new ReservationTable();
+        var bus = new MesiBus(flat, table);
+        var cache0 = new MesiCache(bus, 256, 2, 64);
+        var cache1 = new MesiCache(bus, 256, 2, 64);
 
-        var mech0  = new Rv32Mechanism(reservationTable: table, hartId: 0);
-        var mech1  = new Rv32Mechanism(reservationTable: table, hartId: 1);
-        var kernel = new MultiHartKernel([cache0, cache1], mech0, mech1);
+        var mech0 = new Rv32Mechanism(reservationTable: table, hartId: 0);
+        var mech1 = new Rv32Mechanism(reservationTable: table, hartId: 1);
+        var kernel = new MultiHartKernel([cache0, cache1,], mech0, mech1);
 
         kernel.SetEntryPoint(0, 0x00);
         kernel.SetEntryPoint(1, 0x40);
 
-        kernel.StateOf(0).IntegerRegisters.Write(2, 0x200); // LR/SC address
+        kernel.StateOf(0).IntegerRegisters.Write(2, 0x200);  // LR/SC address
         kernel.StateOf(0).IntegerRegisters.Write(3, 0xCAFE); // desired SC value
         kernel.StateOf(1).IntegerRegisters.Write(5, 0xDEAD); // SW value
         kernel.StateOf(1).IntegerRegisters.Write(6, 0x200);  // SW address (same line)
@@ -229,9 +229,9 @@ public class MultiHartKernelTests {
         // Hart 1 writes to a different cache line → BusReadInvalidate targets a different
         // lineBase → reservation at 0x200 is not cancelled → SC succeeds.
 
-        const uint LrW   = 0x100120AF;
+        const uint LrW = 0x100120AF;
         const uint ScWX4 = 0x1831222F;
-        const uint SwX5  = 0x00532023;
+        const uint SwX5 = 0x00532023;
 
         var flat = new FlatMemory(0x1000);
         flat.Load(0x00, ToBytes(LrW, ScWX4, MultiHartKernelTests.Ebreak));
@@ -239,14 +239,14 @@ public class MultiHartKernelTests {
         flat.Write(0x200, 0xBEEF, 4);
         flat.Write(0x300, 0, 4); // different 64-byte line (0x2C0..0x2FF vs 0x200..0x23F)
 
-        var table  = new ReservationTable();
-        var bus    = new MesiBus(flat, table: table);
-        var cache0 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
-        var cache1 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+        var table = new ReservationTable();
+        var bus = new MesiBus(flat, table);
+        var cache0 = new MesiCache(bus, 256, 2, 64);
+        var cache1 = new MesiCache(bus, 256, 2, 64);
 
-        var mech0  = new Rv32Mechanism(reservationTable: table, hartId: 0);
-        var mech1  = new Rv32Mechanism(reservationTable: table, hartId: 1);
-        var kernel = new MultiHartKernel([cache0, cache1], mech0, mech1);
+        var mech0 = new Rv32Mechanism(reservationTable: table, hartId: 0);
+        var mech1 = new Rv32Mechanism(reservationTable: table, hartId: 1);
+        var kernel = new MultiHartKernel([cache0, cache1,], mech0, mech1);
 
         kernel.SetEntryPoint(0, 0x00);
         kernel.SetEntryPoint(1, 0x40);
@@ -285,13 +285,13 @@ public class MultiHartKernelTests {
         flat.Load(0x00, ToBytes(SwX1, MultiHartKernelTests.Ebreak));
         flat.Load(0x40, ToBytes(LwX3, MultiHartKernelTests.Ebreak));
 
-        var bus    = new MesiBus(flat);
-        var cache0 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
-        var cache1 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+        var bus = new MesiBus(flat);
+        var cache0 = new MesiCache(bus, 256, 2, 64);
+        var cache1 = new MesiCache(bus, 256, 2, 64);
 
-        var mech0  = new Rv32Mechanism();
-        var mech1  = new Rv32Mechanism();
-        var kernel = new MultiHartKernel([cache0, cache1], mech0, mech1);
+        var mech0 = new Rv32Mechanism();
+        var mech1 = new Rv32Mechanism();
+        var kernel = new MultiHartKernel([cache0, cache1,], mech0, mech1);
 
         kernel.SetEntryPoint(0, 0x00);
         kernel.SetEntryPoint(1, 0x40);

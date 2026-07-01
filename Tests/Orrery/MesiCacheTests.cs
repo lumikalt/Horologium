@@ -26,15 +26,17 @@ public class MesiCacheTests {
         return (bus, backing);
     }
 
-    private static MesiCache MakeCache(MesiBus bus) => new(bus, Capacity, Ways, Block);
+    private static MesiCache MakeCache(MesiBus bus) => new(
+        bus, MesiCacheTests.Capacity, MesiCacheTests.Ways, MesiCacheTests.Block
+    );
 
     // ── Single-cache basic correctness ────────────────────────────────────────
 
     [Fact]
     public void ReadMiss_InstallsLine_Exclusive() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var cache = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache cache = MakeCache(bus);
 
         _ = cache.Read(0x00, 4);
 
@@ -45,13 +47,16 @@ public class MesiCacheTests {
 
     [Fact]
     public void ReadHit_ReturnsData_ExclusiveUnchanged() {
-        var (bus, backing) = MakeBus();
-        var payload = new byte[Block];
-        payload[0] = 0xAB; payload[1] = 0xCD; payload[2] = 0xEF; payload[3] = 0x12;
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        var payload = new byte[MesiCacheTests.Block];
+        payload[0] = 0xAB;
+        payload[1] = 0xCD;
+        payload[2] = 0xEF;
+        payload[3] = 0x12;
         backing.Load(0x00, payload);
-        var cache = MakeCache(bus);
+        MesiCache cache = MakeCache(bus);
 
-        _ = cache.Read(0x00, 4); // cold miss
+        _ = cache.Read(0x00, 4);         // cold miss
         ulong val = cache.Read(0x00, 4); // hit
 
         Assert.Equal(0x12EFCDABUL, val);
@@ -62,11 +67,11 @@ public class MesiCacheTests {
 
     [Fact]
     public void WriteHit_Exclusive_TransitionsToModified_NoWriteback() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var cache = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache cache = MakeCache(bus);
 
-        _ = cache.Read(0x00, 4); // → E
+        _ = cache.Read(0x00, 4);  // → E
         cache.Write(0x00, 42, 4); // E → M, no bus traffic
 
         Assert.Equal(MesiState.Modified, cache.StateOf(0x00));
@@ -77,9 +82,9 @@ public class MesiCacheTests {
 
     [Fact]
     public void WriteHit_Modified_StaysModified_NoWriteback() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var cache = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache cache = MakeCache(bus);
 
         _ = cache.Read(0x00, 4);
         cache.Write(0x00, 1, 4);
@@ -92,9 +97,9 @@ public class MesiCacheTests {
 
     [Fact]
     public void WriteMiss_InstallsLine_Modified_WriteAllocate() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var cache = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache cache = MakeCache(bus);
 
         cache.Write(0x00, 0xDEADBEEFUL, 4);
 
@@ -105,9 +110,9 @@ public class MesiCacheTests {
 
     [Fact]
     public void Flush_WritesMLinesToBacking() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var cache = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache cache = MakeCache(bus);
 
         cache.Write(0x00, 0xCAFE1234UL, 4);
         Assert.NotEqual(0xCAFE1234UL, backing.Read(0x00, 4)); // not yet in backing
@@ -119,8 +124,8 @@ public class MesiCacheTests {
 
     [Fact]
     public void StateOf_Invalid_WhenLineNotPresent() {
-        var (bus, _) = MakeBus();
-        var cache = MakeCache(bus);
+        (MesiBus bus, _) = MakeBus();
+        MesiCache cache = MakeCache(bus);
         Assert.Equal(MesiState.Invalid, cache.StateOf(0x00));
     }
 
@@ -128,11 +133,11 @@ public class MesiCacheTests {
     public void Evict_Modified_WritesBackToBacking() {
         // With 256B / 2-way / 64B: 2 sets. Set 0 = addr where bit6 == 0.
         // Addresses 0x000, 0x080, 0x100 all map to set 0 (3 > 2 ways → eviction).
-        var (bus, backing) = MakeBus(0x400);
-        backing.Load(0x000, new byte[Block]);
-        backing.Load(0x080, new byte[Block]);
-        backing.Load(0x100, new byte[Block]);
-        var cache = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus(0x400);
+        backing.Load(0x000, new byte[MesiCacheTests.Block]);
+        backing.Load(0x080, new byte[MesiCacheTests.Block]);
+        backing.Load(0x100, new byte[MesiCacheTests.Block]);
+        MesiCache cache = MakeCache(bus);
 
         cache.Write(0x000, 0xBEEFUL, 4); // set 0, way 0 → M, MRU
         cache.Write(0x080, 0xCAFEUL, 4); // set 0, way 1 → M (evicts invalid), now MRU
@@ -147,10 +152,10 @@ public class MesiCacheTests {
 
     [Fact]
     public void TwoCaches_BothRead_BothGetShared() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var c0 = MakeCache(bus);
-        var c1 = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache c0 = MakeCache(bus);
+        MesiCache c1 = MakeCache(bus);
 
         _ = c0.Read(0x00, 4); // c0: E
         _ = c1.Read(0x00, 4); // BusRead: c0 E→S, c1→S
@@ -161,13 +166,13 @@ public class MesiCacheTests {
 
     [Fact]
     public void TwoCaches_WriteInvalidatesSharedCopy() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var c0 = MakeCache(bus);
-        var c1 = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache c0 = MakeCache(bus);
+        MesiCache c1 = MakeCache(bus);
 
-        _ = c0.Read(0x00, 4); // c0: E
-        _ = c1.Read(0x00, 4); // both S
+        _ = c0.Read(0x00, 4);  // c0: E
+        _ = c1.Read(0x00, 4);  // both S
         c0.Write(0x00, 99, 4); // BusReadInvalidate: c1→I, c0→M
 
         Assert.Equal(MesiState.Modified, c0.StateOf(0x00));
@@ -177,10 +182,10 @@ public class MesiCacheTests {
 
     [Fact]
     public void TwoCaches_ReadModified_CausesWriteback_BothShared() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var c0 = MakeCache(bus);
-        var c1 = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache c0 = MakeCache(bus);
+        MesiCache c1 = MakeCache(bus);
 
         c0.Write(0x00, 0xABCDUL, 4); // c0: M
 
@@ -188,18 +193,18 @@ public class MesiCacheTests {
 
         Assert.Equal(MesiState.Shared, c0.StateOf(0x00));
         Assert.Equal(MesiState.Shared, c1.StateOf(0x00));
-        Assert.Equal(0xABCDUL, val);      // c1 sees c0's written value
-        Assert.Equal(1, c0.Writebacks);   // c0 wrote back on snoop
+        Assert.Equal(0xABCDUL, val);    // c1 sees c0's written value
+        Assert.Equal(1, c0.Writebacks); // c0 wrote back on snoop
     }
 
     [Fact]
     public void TwoCaches_ExclusiveUpgrade_ToModified_NoBusTraffic() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var c0 = MakeCache(bus);
-        var c1 = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache c0 = MakeCache(bus);
+        MesiCache c1 = MakeCache(bus);
 
-        _ = c0.Read(0x00, 4); // c0: E
+        _ = c0.Read(0x00, 4);  // c0: E
         c0.Write(0x00, 77, 4); // E→M silently, no bus traffic
 
         Assert.Equal(MesiState.Modified, c0.StateOf(0x00));
@@ -210,10 +215,10 @@ public class MesiCacheTests {
 
     [Fact]
     public void TwoCaches_FullCoherenceRoundTrip() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var c0 = MakeCache(bus);
-        var c1 = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache c0 = MakeCache(bus);
+        MesiCache c1 = MakeCache(bus);
 
         // Step 1: c0 writes → M
         c0.Write(0x00, 0x1111UL, 4);
@@ -241,31 +246,98 @@ public class MesiCacheTests {
     [Fact]
     public void TwoCaches_WriteAfterSharedWrite_SeesLatestValue() {
         // c0 writes X, c1 reads X (both S), c1 writes X, c0 reads X → c0 sees c1's write.
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var c0 = MakeCache(bus);
-        var c1 = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache c0 = MakeCache(bus);
+        MesiCache c1 = MakeCache(bus);
 
-        c0.Write(0x00, 0xAAAAUL, 4); // c0: M
-        _ = c1.Read(0x00, 4);        // c0→S, c1→S
-        c1.Write(0x00, 0xBBBBUL, 4); // c0→I, c1→M
+        c0.Write(0x00, 0xAAAAUL, 4);  // c0: M
+        _ = c1.Read(0x00, 4);         // c0→S, c1→S
+        c1.Write(0x00, 0xBBBBUL, 4);  // c0→I, c1→M
         ulong val = c0.Read(0x00, 4); // c1→S, c0→S, sees 0xBBBB
 
         Assert.Equal(0xBBBBUL, val);
     }
 
+    // ── LR/SC reservation cancellation ───────────────────────────────────────
+
+    [Fact]
+    public void SilentExclusiveUpgrade_CancelsReservation() {
+        // Scenario: hart A has an active LR reservation at 0x200 but its cache line was
+        // evicted (so cache0 is empty).  Hart B reads 0x200 → Exclusive (no peer holds it).
+        // Hart B then writes 0x200 → E→M silent upgrade — no bus snoop is issued, but
+        // BusSilentUpgrade must still cancel hart A's reservation.
+        var backing = new FlatMemory(0x1000);
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        var table = new ReservationTable();
+        var bus = new MesiBus(backing, table);
+        MesiCache cache0 = MakeCache(bus); // hart A's cache — deliberately left empty
+        MesiCache cache1 = MakeCache(bus); // hart B's cache
+
+        // Simulate an LR.W: hart A holds a reservation but its line is not cached.
+        table.Set(0, 0x200);
+        Assert.Equal(1, table.ActiveCount);
+
+        // Hart B reads 0x200; no peer holds the line → installs as Exclusive.
+        _ = cache1.Read(0x200, 4);
+        Assert.Equal(MesiState.Exclusive, cache1.StateOf(0x200));
+
+        // Hart B writes 0x200 → E→M silent upgrade.  Must cancel hart A's reservation.
+        cache1.Write(0x200, 0xABCD, 4);
+
+        Assert.Equal(MesiState.Modified, cache1.StateOf(0x200));
+        Assert.Equal(0, table.ActiveCount); // reservation cancelled despite no bus snoop
+    }
+
+    [Fact]
+    public void SharedUpgrade_CancelsReservation() {
+        // Sanity-check the S→M path (BusReadInvalidate) also cancels the reservation.
+        var backing = new FlatMemory(0x1000);
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        var table = new ReservationTable();
+        var bus = new MesiBus(backing, table);
+        MesiCache cache0 = MakeCache(bus);
+        MesiCache cache1 = MakeCache(bus);
+
+        _ = cache0.Read(0x00, 4); // c0: E
+        _ = cache1.Read(0x00, 4); // both S
+
+        table.Set(0, 0x00);
+        Assert.Equal(1, table.ActiveCount);
+
+        cache1.Write(0x00, 42, 4); // S→M: BusReadInvalidate → cancels reservation
+
+        Assert.Equal(0, table.ActiveCount);
+    }
+
+    [Fact]
+    public void ModifiedWrite_DoesNotDoubleCancel() {
+        // A second write to an already-Modified line (M→M) should not crash or over-cancel.
+        var backing = new FlatMemory(0x1000);
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        var table = new ReservationTable();
+        var bus = new MesiBus(backing, table);
+        MesiCache cache0 = MakeCache(bus);
+
+        cache0.Write(0x00, 1, 4); // write-allocate → M
+        table.Set(1, 0x40);       // unrelated reservation
+        cache0.Write(0x00, 2, 4); // M→M: no bus call, reservation at 0x40 untouched
+
+        Assert.Equal(1, table.ActiveCount); // reservation still intact
+    }
+
     [Fact]
     public void Load_InvalidatesAllCaches() {
-        var (bus, backing) = MakeBus();
-        backing.Load(0x00, new byte[Block]);
-        var c0 = MakeCache(bus);
-        var c1 = MakeCache(bus);
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MesiCacheTests.Block]);
+        MesiCache c0 = MakeCache(bus);
+        MesiCache c1 = MakeCache(bus);
 
         _ = c0.Read(0x00, 4); // c0: E
         _ = c1.Read(0x00, 4); // c0: S, c1: S
 
         // Load replaces backing data and invalidates all cached copies.
-        var fresh = new byte[Block];
+        var fresh = new byte[MesiCacheTests.Block];
         fresh[0] = 0xFF;
         c0.Load(0x00, fresh);
 

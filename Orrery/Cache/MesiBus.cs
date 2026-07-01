@@ -41,10 +41,11 @@ public sealed class MesiBus {
     /// </summary>
     internal bool BusRead(MesiCache requester, ulong lineBase) {
         var anyHeld = false;
-        foreach (var c in _caches) {
+        foreach (MesiCache c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
             anyHeld |= c.SnoopRead(lineBase);
         }
+
         return anyHeld;
     }
 
@@ -55,10 +56,11 @@ public sealed class MesiBus {
     /// whose 4-byte granule falls within the invalidated cache line is also cancelled here.
     /// </summary>
     internal void BusReadInvalidate(MesiCache requester, ulong lineBase) {
-        foreach (var c in _caches) {
+        foreach (MesiCache c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
             c.SnoopInvalidate(lineBase);
         }
+
         _table?.InvalidateAt(lineBase, _blockSize);
     }
 
@@ -68,8 +70,18 @@ public sealed class MesiBus {
     /// bypassing the coherence path.
     /// </summary>
     internal void BusLoad(ulong lineBase) {
-        foreach (var c in _caches) c.SnoopInvalidate(lineBase);
+        foreach (MesiCache c in _caches) c.SnoopInvalidate(lineBase);
     }
+
+    /// <summary>
+    /// Called when a cache silently upgrades an Exclusive line to Modified without
+    /// issuing a BusReadInvalidate (no peers to snoop).
+    /// Cancels any LR/SC reservation whose granule falls within the line so that
+    /// a remote hart's reservation on the same line is invalidated even though no
+    /// bus snoop was issued.
+    /// </summary>
+    internal void BusSilentUpgrade(ulong lineBase) =>
+        _table?.InvalidateAt(lineBase, _blockSize);
 
     /// <summary>Writes a dirty cache block to backing memory.</summary>
     internal void Writeback(ulong lineBase, ReadOnlySpan<byte> block) =>

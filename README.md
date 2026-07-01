@@ -166,7 +166,13 @@ var kernel = new MultiHartKernel([cache0, cache1],
     new Rv32Mechanism(reservationTable: table, hartId: 1));
 ```
 
-Instruction fetch and data access both route through the per-hart cache (unified I/D model). `ReservationAwareMemory` is not required in this stack — the bus invalidates the reservation table directly when another hart's write triggers a `BusReadInvalidate`. The one remaining gap: an E→M silent upgrade (write hit on an Exclusive line) issues no bus transaction and therefore cannot cancel reservations; this covers the common write-miss path but not capacity-eviction-then-silent-upgrade sequences.
+Instruction fetch and data access both route through the per-hart cache (unified I/D model). `ReservationAwareMemory` is not required in this stack. All three write paths cancel reservations via the bus:
+
+| Path | Bus transaction | Reservation cancellation |
+|------|----------------|--------------------------|
+| Write miss (write-allocate) | `BusReadInvalidate` | `table.InvalidateAt` in `BusReadInvalidate` |
+| S→M upgrade (write hit on Shared) | `BusReadInvalidate` | same |
+| E→M upgrade (write hit on Exclusive) | none (silent) | `table.InvalidateAt` in `BusSilentUpgrade` |
 
 ### Per-instruction lifecycle events (Orrery/Observation)
 

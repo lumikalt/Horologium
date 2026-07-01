@@ -41,7 +41,8 @@ public sealed class MesiCache : IMemory {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(blockSizeBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(missLatency);
-        if (!BitOperations.IsPow2(capacityBytes) || !BitOperations.IsPow2(ways) || !BitOperations.IsPow2(blockSizeBytes))
+        if (!BitOperations.IsPow2(capacityBytes) || !BitOperations.IsPow2(ways)
+                                                 || !BitOperations.IsPow2(blockSizeBytes))
             throw new ArgumentException("Cache dimensions must be powers of 2.");
 
         _bus = bus;
@@ -90,21 +91,24 @@ public sealed class MesiCache : IMemory {
 
     private int FindWay(int set, ulong tag) {
         for (var w = 0; w < _ways; w++)
-            if (_tags[set][w] == tag) return w;
+            if (_tags[set][w] == tag)
+                return w;
         return -1;
     }
 
     private int LruWay(int set) {
         var oldest = 0;
         for (var w = 1; w < _ways; w++)
-            if (_lruAge[set][w] > _lruAge[set][oldest]) oldest = w;
+            if (_lruAge[set][w] > _lruAge[set][oldest])
+                oldest = w;
         return oldest;
     }
 
     private void TouchLru(int set, int way) {
         int age = _lruAge[set][way];
         for (var w = 0; w < _ways; w++)
-            if (_lruAge[set][w] < age) _lruAge[set][w]++;
+            if (_lruAge[set][w] < age)
+                _lruAge[set][w]++;
         _lruAge[set][way] = 0;
     }
 
@@ -116,8 +120,7 @@ public sealed class MesiCache : IMemory {
     // ── Block fill / writeback ───────────────────────────────────────────────
 
     private void FillFromBacking(int set, int way, ulong lineBase) {
-        for (var i = 0; i < _blockSize; i++)
-            _blocks[set][way][i] = (byte)_bus.Backing.Read(lineBase + (ulong)i, 1);
+        for (var i = 0; i < _blockSize; i++) _blocks[set][way][i] = (byte)_bus.Backing.Read(lineBase + (ulong)i, 1);
     }
 
     private void WriteBackBlock(int set, int way) {
@@ -135,6 +138,7 @@ public sealed class MesiCache : IMemory {
             if (_state[set][way] == MesiState.Modified) WriteBackBlock(set, way);
             Evictions++;
         }
+
         _tags[set][way] = null;
         _state[set][way] = MesiState.Invalid;
         return way;
@@ -160,9 +164,8 @@ public sealed class MesiCache : IMemory {
             WriteBackBlock(set, way);
             _state[set][way] = MesiState.Shared;
         }
-        else if (_state[set][way] == MesiState.Exclusive) {
-            _state[set][way] = MesiState.Shared;
-        }
+        else if (_state[set][way] == MesiState.Exclusive) { _state[set][way] = MesiState.Shared; }
+
         return true;
     }
 
@@ -183,8 +186,7 @@ public sealed class MesiCache : IMemory {
         if (offset + bytes > _blockSize) {
             // Cross-boundary: force M→writeback in any holder, then read backing directly.
             ulong end = address + (ulong)bytes;
-            for (ulong a = LineBase(address); a < end; a += (ulong)_blockSize)
-                _bus.BusRead(this, a);
+            for (ulong a = LineBase(address); a < end; a += (ulong)_blockSize) _bus.BusRead(this, a);
             return _bus.Backing.Read(address, bytes);
         }
 
@@ -217,6 +219,7 @@ public sealed class MesiCache : IMemory {
                 _bus.BusReadInvalidate(this, a);
                 LocalInvalidate(a);
             }
+
             _bus.Backing.Write(address, value, bytes);
             return;
         }
@@ -228,7 +231,9 @@ public sealed class MesiCache : IMemory {
         if (way >= 0) {
             Hits++;
             if (_state[set][way] == MesiState.Shared)
-                _bus.BusReadInvalidate(this, lineBase); // upgrade: others → I
+                _bus.BusReadInvalidate(this, lineBase); // S→M: snoop all peers + cancel reservations
+            else if (_state[set][way] == MesiState.Exclusive)
+                _bus.BusSilentUpgrade(lineBase); // E→M: no snoop needed, but cancel reservations
             _state[set][way] = MesiState.Modified;
             TouchLru(set, way);
             WriteBytes(_blocks[set][way], offset, value, bytes);
@@ -251,8 +256,7 @@ public sealed class MesiCache : IMemory {
         // Bulk write directly to backing; invalidate all cached copies in every cache.
         _bus.Backing.Load(address, data);
         ulong end = address + (ulong)data.Length;
-        for (ulong a = LineBase(address); a < end; a += (ulong)_blockSize)
-            _bus.BusLoad(a);
+        for (ulong a = LineBase(address); a < end; a += (ulong)_blockSize) _bus.BusLoad(a);
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
@@ -283,8 +287,8 @@ public sealed class MesiCache : IMemory {
     public void Flush() {
         int sets = _tags.Length;
         for (var s = 0; s < sets; s++)
-        for (var w = 0; w < _ways; w++) {
-            if (_state[s][w] == MesiState.Modified) WriteBackBlock(s, w);
-        }
+        for (var w = 0; w < _ways; w++)
+            if (_state[s][w] == MesiState.Modified)
+                WriteBackBlock(s, w);
     }
 }

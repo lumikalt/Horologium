@@ -208,7 +208,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
   - [x] MESI cache coherence: `MesiCache` (write-back, write-allocate, LRU) + `MesiBus` (snooping); full state-transition coverage — E→M silent upgrade, S→M via BusReadInvalidate, M→writeback on snoop, eviction writeback; `StateOf()` / `Flush()` inspection hooks; 15 tests in `Tests/Orrery/MesiCacheTests.cs`.
   - [x] Wire `MesiCache` / `MesiBus` into `MultiHartKernel` (per-hart `IMemory[]` overload).
   - [x] LR/SC over MESI: `MesiBus(backing, table:)` calls `table.InvalidateAt(lineBase, blockSize)` inside `BusReadInvalidate`, covering write-miss and S→M upgrade paths without `ReservationAwareMemory`.
-  - [ ] LR/SC silent-upgrade gap: an E→M write hit issues no bus transaction, so a reservation on a line another hart holds in Exclusive is not cancelled. Fix: hook `MesiBus` into `MesiCache`'s silent E→M path (new `BusSilentUpgrade` call or reserve-table check at write-hit time).
+  - [x] LR/SC silent-upgrade gap: `MesiCache` now calls `_bus.BusSilentUpgrade(lineBase)` on E→M write hits; `MesiBus.BusSilentUpgrade` calls `_table?.InvalidateAt` so any remote reservation on the line is cancelled even though no snoop was issued.
 
 ## Orrery
 
