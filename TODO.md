@@ -203,6 +203,8 @@ See the "Olympia execution model: structural comparison" section for source-leve
 
 - [x] F18A: 144-node GA144 grid with RendezvousArbor channels — first multi-core ISA in the engine. Each node runs SingleCycleTrain; `F18AGrid.Step()` coordinates synchronous rendezvous. Canonical opcode encoding (0x00–0x1F), `-if` (MinusIf), `+*` (MulStep), correct `if`-on-zero semantics.
 - [ ] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.
+  - [x] LR/SC memory safeguard: `ReservationTable` + `ReservationAwareMemory` wrapper; `Rv32Executor` routes LR.W/SC.W through a shared table when `ReservationTable` is set; any write to the shared backing invalidates overlapping reservations so SC fails correctly after a cross-hart store.
+  - [x] `MultiHartKernel`: direct-drive round-robin scheduler for N RISC-V harts against shared physical memory (`RiscV32/MultiCore/`). `Step()` / `Run()`, per-hart `IArchState`, halt detection (EBREAK, HTIF tohost, self-loop). `Rv32Mechanism` accepts `reservationTable` + `hartId` constructor params.
   - [ ] MESI cache coherence.
 
 ## Orrery

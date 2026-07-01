@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mechanism;
+using Orrery.Cache;
 using RiscV32.Decode;
 using RiscV32.Memory;
 using RiscV32.Registers;
@@ -20,7 +21,22 @@ public class Rv32Executor : IExecutor {
     /// </summary>
     public ulong? HtifTohostAddress { get; init; }
 
-    // LR/SC reservation: physical address reserved by the most recent LR.W. Null means no active reservation.
+    /// <summary>
+    /// Shared reservation table for multi-hart LR/SC.  When set, LR.W registers
+    /// this hart's reservation in the table and SC.W consults it; a write from
+    /// any other hart to the same granule will cancel the reservation before SC
+    /// even executes.  Null = single-hart mode (private <see cref="_reservation"/>
+    /// field is used instead, preserving backward compatibility).
+    /// </summary>
+    public ReservationTable? ReservationTable { get; init; }
+
+    /// <summary>
+    /// Hart identifier used as the key in <see cref="ReservationTable"/>.
+    /// Ignored when <see cref="ReservationTable"/> is null.
+    /// </summary>
+    public int HartId { get; init; } = 0;
+
+    // Single-hart fallback: used when ReservationTable is null.
     private ulong? _reservation;
 
     public virtual ExecuteResult Execute(ITooth instruction, IArchState state, IMemory memory) {
@@ -558,7 +574,10 @@ public class Rv32Executor : IExecutor {
         ulong vaddr = regs.Read(rs1);
         (ulong paddr, int fault) = Translate(memory, state, vaddr, false, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
-        _reservation = paddr;
+        if (ReservationTable is not null)
+            ReservationTable.Set(HartId, paddr);
+        else
+            _reservation = paddr;
         return ExecuteResult.WithResult(memory.Read(paddr, 4) & 0xFFFFFFFF);
     }
 
@@ -573,10 +592,19 @@ public class Rv32Executor : IExecutor {
         ulong vaddr = regs.Read(rs1);
         (ulong paddr, int fault) = Translate(memory, state, vaddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
-        if (_reservation != paddr) return Reg(1); // no matching reservation → fail
-        _reservation = null;
+        bool success = ReservationTable is not null
+            ? ReservationTable.TryConsume(HartId, paddr)
+            : ConsumePrivateReservation(paddr);
+        if (!success) return Reg(1); // reservation absent or invalidated → fail
         memory.Write(paddr, regs.Read(rs2), 4);
         return Reg(0); // 0 = success
+    }
+
+    // Single-hart reservation consume: clears _reservation regardless of match (per spec).
+    private bool ConsumePrivateReservation(ulong paddr) {
+        bool matched = _reservation == paddr;
+        _reservation = null; // SC always releases the reservation
+        return matched;
     }
 
     // Zabha: narrow (byte or halfword) atomic RMW. rd receives the sign-extended old value.

@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Cache;
 using RiscV32.Config;
 using RiscV32.Decode;
 using RiscV32.Execute;
@@ -25,9 +26,28 @@ public sealed class Rv32Mechanism : IMechanism {
     /// correct ISA string for Spike co-simulation and other tooling.
     /// Defaults to <see cref="RvExtension.All"/> (every implemented extension).
     /// </param>
-    public Rv32Mechanism(ulong? htifTohost = null, RvExtension extensions = RvExtension.All) {
+    /// <param name="reservationTable">
+    /// Shared LR/SC reservation tracker for multi-hart simulation.
+    /// When non-null, LR.W and SC.W route through this table instead of the
+    /// single-hart private reservation. Pass the same instance to all harts
+    /// that share a memory bus.
+    /// </param>
+    /// <param name="hartId">
+    /// The hart identifier used as the key in <paramref name="reservationTable"/>.
+    /// Ignored when <paramref name="reservationTable"/> is null.
+    /// </param>
+    public Rv32Mechanism(
+        ulong? htifTohost = null,
+        RvExtension extensions = RvExtension.All,
+        ReservationTable? reservationTable = null,
+        int hartId = 0
+    ) {
         Extensions = extensions;
-        Executor = new Rv32Executor { HtifTohostAddress = htifTohost, };
+        Executor = new Rv32Executor {
+            HtifTohostAddress = htifTohost,
+            ReservationTable = reservationTable,
+            HartId = hartId,
+        };
     }
 
     public RvExtension Extensions { get; }
