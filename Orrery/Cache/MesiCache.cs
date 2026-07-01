@@ -10,7 +10,7 @@ namespace Orrery.Cache;
 /// Policy: write-back, write-allocate, LRU replacement.
 /// </summary>
 public sealed class MesiCache : IMemory {
-    private readonly MesiBus _bus;
+    private readonly IBus _bus;
     private readonly int _ways;
     private readonly int _blockSize;
     private readonly int _offsetMask;
@@ -35,7 +35,7 @@ public sealed class MesiCache : IMemory {
     public int Ways => _ways;
     public int BlockBytes => _blockSize;
 
-    public MesiCache(MesiBus bus, int capacityBytes, int ways, int blockSizeBytes, int missLatency = 0) {
+    public MesiCache(IBus bus, int capacityBytes, int ways, int blockSizeBytes, int missLatency = 0) {
         ArgumentNullException.ThrowIfNull(bus);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -179,6 +179,35 @@ public sealed class MesiCache : IMemory {
         if (_state[set][way] == MesiState.Modified) WriteBackBlock(set, way);
         _state[set][way] = MesiState.Invalid;
         _tags[set][way] = null;
+    }
+
+    // ── DeferredBus phase-2 hooks ────────────────────────────────────────────
+
+    /// <summary>
+    /// Corrects E→S after a phase-2 <see cref="IBus.BusRead"/> reveals that a peer
+    /// held the line. No-op for M (a same-tick intra-hart write must not be downgraded).
+    /// Called only by <c>DeferredBus.Drain()</c>.
+    /// </summary>
+    internal void UpdateCoherenceState(ulong lineBase, bool shared) {
+        if (!shared) return;
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
+        if (_state[set][way] == MesiState.Exclusive) _state[set][way] = MesiState.Shared;
+    }
+
+    /// <summary>
+    /// Re-reads the cache line from backing after a cross-hart writeback has updated
+    /// backing memory during phase 2.  Skips M-state lines to avoid clobbering
+    /// intra-hart writes from the same phase-1 tick.
+    /// Called only by <c>DeferredBus.Drain()</c>.
+    /// </summary>
+    internal void RefillFromBacking(ulong lineBase) {
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
+        if (_state[set][way] == MesiState.Modified) return;
+        FillFromBacking(set, way, lineBase);
     }
 
     // ── IMemory ──────────────────────────────────────────────────────────────

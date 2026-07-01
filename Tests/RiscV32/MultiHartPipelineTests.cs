@@ -220,21 +220,24 @@ public class MultiHartPipelineTests {
         // Nop count chosen so lw executes ~4 cycles after H0's commit; revisit if the OoO
         // pipeline timing changes (e.g. wider issue or different IQ partitioning).
 
-        const uint luiX1  = 0x0000D0B7; // lui  x1, 0xD          → x1 = 0x0000D000
+        const uint luiX1 = 0x0000D0B7;  // lui  x1, 0xD          → x1 = 0x0000D000
         const uint addiX1 = 0xAFE08093; // addi x1, x1, -1282    → x1 = 0x0000CAFE
         const uint addiX2 = 0x20000113; // addi x2, x0, 0x200    → x2 = 0x200
-        const uint swX1   = 0x00112023; // sw   x1, 0(x2)
-        const uint nop    = 0x00000013; // addi x0, x0, 0         (timing pad — delays lw dispatch)
+        const uint swX1 = 0x00112023;   // sw   x1, 0(x2)
+        const uint nop = 0x00000013;    // addi x0, x0, 0         (timing pad — delays lw dispatch)
         const uint addiX4 = 0x20000213; // addi x4, x0, 0x200    → x4 = 0x200
-        const uint lwX3   = 0x00022183; // lw   x3, 0(x4)
+        const uint lwX3 = 0x00022183;   // lw   x3, 0(x4)
 
         var flat = new FlatMemory(0x1000);
-        flat.Load(0x00, ToBytes(luiX1, addiX1, addiX2, swX1, Ebreak));
-        flat.Load(0x40, ToBytes(
-            nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop,
-            addiX4, lwX3, Ebreak));
+        flat.Load(0x00, ToBytes(luiX1, addiX1, addiX2, swX1, MultiHartPipelineTests.Ebreak));
+        flat.Load(
+            0x40, ToBytes(
+                nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop,
+                addiX4, lwX3, MultiHartPipelineTests.Ebreak
+            )
+        );
 
-        var bus    = new MesiBus(flat);
+        var bus = new MesiBus(flat);
         var cache0 = new MesiCache(bus, 256, 2, 64);
         var cache1 = new MesiCache(bus, 256, 2, 64);
 

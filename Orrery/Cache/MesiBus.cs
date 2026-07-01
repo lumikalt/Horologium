@@ -8,7 +8,7 @@ namespace Orrery.Cache;
 /// Bus transactions are synchronous — suited for direct-drive multi-hart simulation where
 /// no actual parallelism exists between caches within a single kernel step.
 /// </summary>
-public sealed class MesiBus {
+public sealed class MesiBus : IBus {
     private readonly IMemory _backing;
     private readonly ReservationTable? _table;
     private readonly List<MesiCache> _caches = new();
@@ -29,7 +29,7 @@ public sealed class MesiBus {
         _table = table;
     }
 
-    internal void Register(MesiCache cache) {
+    public void Register(MesiCache cache) {
         if (_caches.Count == 0) _blockSize = cache.BlockBytes;
         _caches.Add(cache);
     }
@@ -39,7 +39,7 @@ public sealed class MesiBus {
     /// M-state holders write back to backing and downgrade to S; E-state holders downgrade to S.
     /// Returns true if any peer held the line — the requester should install the line as S, not E.
     /// </summary>
-    internal bool BusRead(MesiCache requester, ulong lineBase) {
+    public bool BusRead(MesiCache requester, ulong lineBase) {
         var anyHeld = false;
         foreach (MesiCache c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
@@ -55,7 +55,7 @@ public sealed class MesiBus {
     /// If a <see cref="ReservationTable"/> was supplied at construction, any LR/SC reservation
     /// whose 4-byte granule falls within the invalidated cache line is also cancelled here.
     /// </summary>
-    internal void BusReadInvalidate(MesiCache requester, ulong lineBase) {
+    public void BusReadInvalidate(MesiCache requester, ulong lineBase) {
         foreach (MesiCache c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
             c.SnoopInvalidate(lineBase);
@@ -69,7 +69,7 @@ public sealed class MesiBus {
     /// Used when data is written directly to backing memory via <see cref="IMemory.Load"/>,
     /// bypassing the coherence path.
     /// </summary>
-    internal void BusLoad(ulong lineBase) {
+    public void BusLoad(ulong lineBase) {
         foreach (MesiCache c in _caches) c.SnoopInvalidate(lineBase);
     }
 
@@ -80,10 +80,10 @@ public sealed class MesiBus {
     /// a remote hart's reservation on the same line is invalidated even though no
     /// bus snoop was issued.
     /// </summary>
-    internal void BusSilentUpgrade(ulong lineBase) =>
+    public void BusSilentUpgrade(ulong lineBase) =>
         _table?.InvalidateAt(lineBase, _blockSize);
 
     /// <summary>Writes a dirty cache block to backing memory.</summary>
-    internal void Writeback(ulong lineBase, ReadOnlySpan<byte> block) =>
+    public void Writeback(ulong lineBase, ReadOnlySpan<byte> block) =>
         _backing.Load(lineBase, block);
 }
