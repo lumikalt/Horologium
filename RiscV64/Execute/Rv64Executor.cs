@@ -1,7 +1,6 @@
 using Mechanism;
 using RiscV32.Decode;
 using RiscV32.Execute;
-using RiscV32.State;
 
 namespace RiscV64.Execute;
 
@@ -85,7 +84,7 @@ public class Rv64Executor : Rv32Executor {
             // ── RV64 semantic overrides for base instructions ──────────────────────
             // ORI: immediate must be sign-extended to 64 bits, not zero-extended via (uint).
             RvOri(_, var rs1, var imm) =>
-                Reg(regs.Read(rs1) | (ulong)(long)imm),
+                Reg(regs.Read(rs1) | (uint)imm),
 
             // Shifts: 6-bit shamt mask in RV64 (RV32 uses 5-bit).
             RvSll(_, var rs1, var rs2) =>
@@ -107,7 +106,7 @@ public class Rv64Executor : Rv32Executor {
             RvSlti(_, var rs1, var imm) =>
                 Reg((long)regs.Read(rs1) < imm ? 1UL : 0UL),
             RvSltiu(_, var rs1, var imm) =>
-                Reg(regs.Read(rs1) < (ulong)(long)imm ? 1UL : 0UL),
+                Reg(regs.Read(rs1) < (ulong)imm ? 1UL : 0UL),
 
             // BLT/BGE: 64-bit signed comparisons.
             RvBlt(var rs1, var rs2, var imm) =>

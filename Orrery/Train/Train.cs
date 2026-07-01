@@ -43,21 +43,22 @@ public sealed record RevolutionResult(
 
 /// <summary>
 /// The Train — the topology builder and lifecycle orchestrator.
-/// <p/>
+/// <para>
 /// A Train owns a collection of Gears, wires them together through
 /// typed Arbor bindings, and drives the full simulation lifecycle:
-/// <p/>
-///
-///   1. AddGear()     — register gears (Building phase)
-///   2. Build()       — Initialize all gears, then transition to Finalizing,
-///                      then Seal all gears, then lock all settings
-///   3. Run(ticks)    — transition to Running, Wind all gears, run Escapement,
-///                      transition to Finished, return RevolutionResult
-///   4. Reset()       — reset Escapement and all gears for another Revolution
-///
-/// <p/>
+/// <list type="number">
+///   <item><description>AddGear() — register gears (Building phase)</description></item>
+///   <item><description>Build() — Initialize all gears, then transition to Finalizing,
+///     then Seal all gears, then lock all settings</description></item>
+///   <item><description>Run(ticks) — transition to Running, Wind all gears, run Escapement,
+///     transition to Finished, return RevolutionResult</description></item>
+///   <item><description>Reset() — reset Escapement and all gears for another Revolution</description></item>
+/// </list>
+/// </para>
+/// <para>
 /// The Train does not know about ISAs, pipelines, or instruction semantics.
 /// It is purely a lifecycle and topology manager.
+/// </para>
 /// </summary>
 public sealed class Train {
     private readonly List<Gear> _gears = new();
@@ -121,12 +122,13 @@ public sealed class Train {
 
     /// <summary>
     /// Runs the full build sequence:
-    ///   1. Initialize() all Gears        (Building phase)
-    ///   2. Transition tree to Finalizing
-    ///   3. Seal() all Gears              (Finalizing phase — bind arbors here)
-    ///   4. Lock all Settings
-    ///
-    /// After Build(), the Train is ready for Run().
+    /// <list type="number">
+    ///   <item><description>Initialize() all Gears (Building phase)</description></item>
+    ///   <item><description>Transition tree to Finalizing</description></item>
+    ///   <item><description>Seal() all Gears (Finalizing phase — bind arbors here)</description></item>
+    ///   <item><description>Lock all Settings</description></item>
+    /// </list>
+    /// <para>After Build(), the Train is ready for Run().</para>
     /// </summary>
     public void Build() {
         if (_built)
@@ -151,20 +153,22 @@ public sealed class Train {
 
     /// <summary>
     /// Runs the simulation for up to <paramref name="maxTicks"/> ticks.
-    /// 
-    ///   1. Transition tree to Running
-    ///   2. Wind() all Gears             (each gear schedules its first event)
-    ///   3. Run Escapement for warmupTicks (if any) — warms up caches / predictors
-    ///   4. Snapshot DialBoards as baseline (warmup phase only)
-    ///   5. Run Escapement for maxTicks   — measurement phase
-    ///   6. Transition tree to Finished
-    ///   7. Snapshot all DialBoards; subtract baseline when warmup was used
-    ///   8. Return RevolutionResult
-    /// 
+    /// <list type="number">
+    ///   <item><description>Transition tree to Running</description></item>
+    ///   <item><description>Wind() all Gears (each gear schedules its first event)</description></item>
+    ///   <item><description>Run Escapement for warmupTicks (if any) — warms up caches / predictors</description></item>
+    ///   <item><description>Snapshot DialBoards as baseline (warmup phase only)</description></item>
+    ///   <item><description>Run Escapement for maxTicks — measurement phase</description></item>
+    ///   <item><description>Transition tree to Finished</description></item>
+    ///   <item><description>Snapshot all DialBoards; subtract baseline when warmup was used</description></item>
+    ///   <item><description>Return RevolutionResult</description></item>
+    /// </list>
+    /// <para>
     /// When <paramref name="warmupTicks"/> &gt; 0 the returned counters and
     /// histograms reflect only the measurement phase. Dials (which are rates)
     /// are taken from the final snapshot and therefore approximate the full run;
     /// this is acceptable for long measurements where warmup is a small fraction.
+    /// </para>
     /// </summary>
     /// <param name="warmupTicks">Warmup phase duration in ticks.
     /// </param>

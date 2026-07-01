@@ -11,7 +11,7 @@ public sealed class MoveDecoder : IDecoder {
         var imm = (ushort)(firstWord & 0xFFFF);
         bool isBranch = dst is 0x31 or 0xFF;
         (ulong Value, bool HasValue) target = dst == 0x31 && src == 0xFE
-            ? ((ulong)imm, true)
+            ? (imm, true)
             : default((ulong, bool));
         return new FetchHint {
             InstructionSize = 4,

@@ -5,15 +5,17 @@ namespace Tests.Orrery;
 
 /// <summary>
 /// Tests for <see cref="MesiCache"/> coherence correctness.
-///
+/// <para>
 /// Cache configuration used throughout:
 ///   capacityBytes=256, ways=2, blockSize=64 → 2 sets
 ///   set = (address >> 6) &amp; 1
 ///   Addresses mapping to set 0: 0x000, 0x080, 0x100, 0x180, 0x200, …
 ///   Addresses mapping to set 1: 0x040, 0x0C0, 0x140, 0x1C0, …
-///
+/// </para>
+/// <para>
 /// IMPORTANT: assertions on Modified data must go through a cache read (or Flush()),
 /// never directly against backing — the authoritative copy lives in the M-state cache.
+/// </para>
 /// </summary>
 public class MesiCacheTests {
     private const int Capacity = 256;
@@ -271,7 +273,7 @@ public class MesiCacheTests {
         backing.Load(0x00, new byte[MesiCacheTests.Block]);
         var table = new ReservationTable();
         var bus = new MesiBus(backing, table);
-        MesiCache cache0 = MakeCache(bus); // hart A's cache — deliberately left empty
+        MakeCache(bus);
         MesiCache cache1 = MakeCache(bus); // hart B's cache
 
         // Simulate an LR.W: hart A holds a reservation but its line is not cached.
@@ -286,7 +288,7 @@ public class MesiCacheTests {
         cache1.Write(0x200, 0xABCD, 4);
 
         Assert.Equal(MesiState.Modified, cache1.StateOf(0x200));
-        Assert.Equal(0, table.ActiveCount); // reservation cancelled despite no bus snoop
+        Assert.Equal(0, table.ActiveCount); // reservation canceled despite no bus snoop
     }
 
     [Fact]

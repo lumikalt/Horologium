@@ -42,7 +42,7 @@ public sealed class J1Decoder : IDecoder {
             1 => new J1Instruction(pc, new CondJump(target), ToothClass.ConditionalBranch),
             2 => new J1Instruction(pc, new Call(target), ToothClass.Branch),
             3 => DecodeAlu(pc, raw),
-            _ => throw new IllegalInstructionException(pc, raw, $"Unknown J1 type {type}"),
+            _ => throw new IllegalInstructionException(raw, $"Unknown J1 type {type}"),
         };
     }
 
@@ -60,7 +60,7 @@ public sealed class J1Decoder : IDecoder {
         );
 
         ToothClass cls = op.NtoMem ? ToothClass.Store
-            : op.TOut == 0xC       ? ToothClass.Load
+            : op.Out == 0xC        ? ToothClass.Load
             : op.ReturnFromR       ? ToothClass.Branch
                                      : ToothClass.IntegerAlu;
         return new J1Instruction(pc, op, cls);

@@ -6,6 +6,8 @@ using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV32.State;
 
+// ReSharper disable CompareOfFloatsByEqualityOperator
+
 namespace RiscV32.Execute;
 
 /// <summary>
@@ -23,7 +25,7 @@ public class Rv32Executor : IExecutor {
 
     /// <summary>
     /// Shared reservation table for multi-hart LR/SC.  When set, LR.W registers
-    /// this hart's reservation in the table and SC.W consults it; a write from
+    /// this hart's reservation in the table, and SC.W consults it; a write from
     /// any other hart to the same granule will cancel the reservation before SC
     /// even executes.  Null = single-hart mode (private <see cref="_reservation"/>
     /// field is used instead, preserving backward compatibility).
@@ -34,7 +36,7 @@ public class Rv32Executor : IExecutor {
     /// Hart identifier used as the key in <see cref="ReservationTable"/>.
     /// Ignored when <see cref="ReservationTable"/> is null.
     /// </summary>
-    public int HartId { get; init; } = 0;
+    public int HartId { get; init; }
 
     // Single-hart fallback: used when ReservationTable is null.
     private ulong? _reservation;
@@ -269,8 +271,8 @@ public class Rv32Executor : IExecutor {
             RvClz (_, var rs1)          => Reg((ulong)BitOperations.LeadingZeroCount((uint)regs.Read(rs1))),
             RvCtz (_, var rs1)          => Reg((ulong)BitOperations.TrailingZeroCount((uint)regs.Read(rs1))),
             RvCpop (_, var rs1)         => Reg((ulong)BitOperations.PopCount((uint)regs.Read(rs1))),
-            RvSextB(_, var rs1)         => Reg((ulong)(int)(sbyte)regs.Read(rs1)),
-            RvSextH(_, var rs1)         => Reg((ulong)(int)(short)regs.Read(rs1)),
+            RvSextB(_, var rs1)         => Reg((ulong)(sbyte)regs.Read(rs1)),
+            RvSextH(_, var rs1)         => Reg((ulong)(short)regs.Read(rs1)),
             RvRori (_, var rs1, var sh) => Reg(BitOperations.RotateRight((uint)regs.Read(rs1), sh)),
             RvOrcB (_, var rs1)         => OrcB(regs, rs1),
             RvRev8 (_, var rs1)         => Rev8(regs, rs1),
@@ -305,11 +307,11 @@ public class Rv32Executor : IExecutor {
             RvAmoorB (_, var rs1, var rs2)  => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (a, v) => a | v),
             RvAmominB (_, var rs1, var rs2) => AmoNarrow(
                 memory, state, pc, regs, rs1, rs2, 1,
-                (a, v) => (uint)Math.Min((int)(sbyte)(byte)a, (int)(sbyte)(byte)v)
+                (a, v) => (uint)Math.Min((sbyte)(byte)a, (int)(sbyte)(byte)v)
             ),
             RvAmomaxB (_, var rs1, var rs2) => AmoNarrow(
                 memory, state, pc, regs, rs1, rs2, 1,
-                (a, v) => (uint)Math.Max((int)(sbyte)(byte)a, (int)(sbyte)(byte)v)
+                (a, v) => (uint)Math.Max((sbyte)(byte)a, (int)(sbyte)(byte)v)
             ),
             RvAmominuB(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, Math.Min),
             RvAmomaxuB(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, Math.Max),
@@ -321,11 +323,11 @@ public class Rv32Executor : IExecutor {
             RvAmoorH (_, var rs1, var rs2)  => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, (a, v) => a | v),
             RvAmominH (_, var rs1, var rs2) => AmoNarrow(
                 memory, state, pc, regs, rs1, rs2, 2,
-                (a, v) => (uint)Math.Min((int)(short)(ushort)a, (int)(short)(ushort)v)
+                (a, v) => (uint)Math.Min((short)(ushort)a, (int)(short)(ushort)v)
             ),
             RvAmomaxH (_, var rs1, var rs2) => AmoNarrow(
                 memory, state, pc, regs, rs1, rs2, 2,
-                (a, v) => (uint)Math.Max((int)(short)(ushort)a, (int)(short)(ushort)v)
+                (a, v) => (uint)Math.Max((short)(ushort)a, (int)(short)(ushort)v)
             ),
             RvAmominuH(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, Math.Min),
             RvAmomaxuH(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 2, Math.Max),
@@ -370,8 +372,8 @@ public class Rv32Executor : IExecutor {
 
             RvFcvtWs (_, var rs1, var rm) => FcvtWsResult(FBits(regs, rs1), rm, state),
             RvFcvtWuS(_, var rs1, var rm) => FcvtWuSResult(FBits(regs, rs1), rm, state),
-            RvFcvtSw (_, var rs1, var rm) => FpIntToFloat((long)(int)(uint)regs.Read(rs1), rm),
-            RvFcvtSWu(_, var rs1, var rm) => FpIntToFloat((long)(uint)regs.Read(rs1), rm),
+            RvFcvtSw (_, var rs1, _)      => FpIntToFloat((int)(uint)regs.Read(rs1)),
+            RvFcvtSWu(_, var rs1, _)      => FpIntToFloat((uint)regs.Read(rs1)),
 
             RvFmvXw(_, var rs1) => Reg(regs.Read(rs1)), // fp bits → int (bit-exact)
             RvFmvWx(_, var rs1) => ExecuteResult.WithResult(regs.Read(rs1) & 0xFFFFFFFF),
@@ -460,17 +462,17 @@ public class Rv32Executor : IExecutor {
                     (_, _) => (ulong)imm
                 ),
 
-            RvVMvXS (var rd, var vs2) => ExecuteVMvXS(state, rd, vs2),
+            RvVMvXs (var rd, var vs2) => ExecuteVMvXs(state, rd, vs2),
 
             // ── UVE extension ─────────────────────────────────────────────────
             RvUveSsLdW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
-            RvUveSsStW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsSt(state, regs, ud, rs1, rs2, rs3),
-            RvUveSsStaLdW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(state, regs, ud, rs1, rs2, rs3, true),
-            RvUveSsStaStW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(state, regs, ud, rs1, rs2, rs3, false),
-            RvUveSsApp (var ud, var rs2, var rs3)             => ExecuteUveSsApp(state, regs, ud, rs2, rs3),
+            RvUveSsStW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsSt(regs, ud, rs1, rs2, rs3),
+            RvUveSsStaLdW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(regs, ud, rs1, rs2, rs3, true),
+            RvUveSsStaStW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(regs, ud, rs1, rs2, rs3, false),
+            RvUveSsApp (var ud, var rs2, var rs3)             => ExecuteUveSsApp(regs, ud, rs2, rs3),
             RvUveSsEnd (var ud, var rs2, var rs3)             => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
-            RvUveSsCfgVec (var ud)                            => ExecuteUveSsCfgVec(state, ud),
-            RvUveSoVDpW (var ud, var rs1)                     => ExecuteUveSoVDpW(state, regs, ud, rs1),
+            RvUveSsCfgVec (var ud)                            => ExecuteUveSsCfgVec(ud),
+            RvUveSoVDpW (var ud, var rs1)                     => ExecuteUveSoVDpW(regs, ud, rs1),
             RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
                 state, memory, fpOp, ud, usrc1, usrc2
             ),
@@ -592,9 +594,7 @@ public class Rv32Executor : IExecutor {
         ulong vaddr = regs.Read(rs1);
         (ulong paddr, int fault) = Translate(memory, state, vaddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
-        bool success = ReservationTable is not null
-            ? ReservationTable.TryConsume(HartId, paddr)
-            : ConsumePrivateReservation(paddr);
+        bool success = ReservationTable?.TryConsume(HartId, paddr) ?? ConsumePrivateReservation(paddr);
         if (!success) return Reg(1); // reservation absent or invalidated → fail
         memory.Write(paddr, regs.Read(rs2), 4);
         return Reg(0); // 0 = success
@@ -624,8 +624,8 @@ public class Rv32Executor : IExecutor {
         var old = (uint)memory.Read(addr, bytes);
         memory.Write(addr, combine(old, (uint)regs.Read(rs2)), bytes);
         uint rd = bytes == 1
-            ? (uint)(int)(sbyte)(byte)old
-            : (uint)(int)(short)(ushort)old;
+            ? (uint)(sbyte)(byte)old
+            : (uint)(short)(ushort)old;
         return Reg(rd);
     }
 
@@ -697,8 +697,8 @@ public class Rv32Executor : IExecutor {
         // HTIF tohost exit: a word store of an odd value to the tohost register
         // is an exit code ((code << 1) | 1). Request a post-commit halt so the
         // engine stops at the exit write rather than the spin-loop after it.
-        // (Even values are syscall pointers — e.g. printstr — and are ignored.)
-        if (HtifTohostAddress is ulong t && addr == t && bytes == 4 && (value & 1) == 1)
+        // (Even values are syscall pointers — e.g., printstr — and are ignored.)
+        if (HtifTohostAddress is { } t && addr == t && bytes == 4 && (value & 1) == 1)
             return new ExecuteResult { RequestHalt = true, };
 
         return ExecuteResult.Clean;
@@ -745,13 +745,6 @@ public class Rv32Executor : IExecutor {
     // RISC-V canonical NaN for float32 (positive, quiet NaN with one mantissa bit set).
     private const uint RvCanonicalNaN = 0x7FC00000u;
 
-    // Produce a float result stored as raw 32-bit bits (no flag update).
-    // Per RISC-V spec: any NaN result is canonicalized to the canonical NaN.
-    private static ExecuteResult FloatReg(float value) {
-        uint bits = float.IsNaN(value) ? Rv32Executor.RvCanonicalNaN : (uint)BitConverter.SingleToInt32Bits(value);
-        return ExecuteResult.WithResult(bits);
-    }
-
     // Float result + OR flags into fflags via SideEffect.
     private static ExecuteResult FloatRegF(float value, uint flags) {
         uint bits = float.IsNaN(value) ? Rv32Executor.RvCanonicalNaN : (uint)BitConverter.SingleToInt32Bits(value);
@@ -779,7 +772,7 @@ public class Rv32Executor : IExecutor {
         bool aNaN = float.IsNaN(a), bNaN = float.IsNaN(b);
         uint flags = 0;
 
-        // NV: sNaN input, or NaN result from non-NaN inputs (e.g. Inf-Inf, 0*Inf)
+        // NV: sNaN input, or NaN result from non-NaN inputs (e.g., Inf-Inf, 0*Inf)
         if (IsSNan(rawA) || IsSNan(rawB) || (float.IsNaN(r) && !aNaN && !bNaN)) flags |= 0x10;
         if (float.IsNaN(r)) return flags;
 
@@ -792,7 +785,7 @@ public class Rv32Executor : IExecutor {
         if (float.IsInfinity(r) && !double.IsInfinity(exact)) flags |= 0x04;
         if (float.IsInfinity(r)) return flags;
 
-        bool nx = (double)r != exact;
+        bool nx = r != exact;
         if (nx) flags |= 0x01;
         // UF: subnormal result that is also inexact
         if (nx && r != 0f && MathF.Abs(r) < Rv32Executor.MinNormalF) flags |= 0x02;
@@ -811,11 +804,11 @@ public class Rv32Executor : IExecutor {
             flags |= 0x10;
         if (float.IsNaN(r)) return flags;
 
-        double exact = Math.FusedMultiplyAdd((double)a, (double)b, (double)c);
+        double exact = Math.FusedMultiplyAdd(a, b, c);
         if (float.IsInfinity(r) && !double.IsInfinity(exact)) flags |= 0x04;
         if (float.IsInfinity(r)) return flags;
 
-        bool nx = (double)r != exact;
+        bool nx = r != exact;
         if (nx) flags |= 0x01;
         if (nx && r != 0f && MathF.Abs(r) < Rv32Executor.MinNormalF) flags |= 0x02;
         return flags;
@@ -827,10 +820,10 @@ public class Rv32Executor : IExecutor {
         if (IsSNan(rawA)) return 0x10;
         if (a < 0f) return 0x10; // sqrt of negative
         if (float.IsNaN(r)) return 0;
-        double exact = Math.Sqrt((double)a);
+        double exact = Math.Sqrt(a);
         if (float.IsInfinity(r) && !double.IsInfinity(exact)) return 0x04;
         if (float.IsInfinity(r)) return 0;
-        bool nx = (double)r != exact;
+        bool nx = r != exact;
         uint flags = nx ? 0x01u : 0u;
         if (nx && r != 0f && MathF.Abs(r) < Rv32Executor.MinNormalF) flags |= 0x02;
         return flags;
@@ -860,7 +853,7 @@ public class Rv32Executor : IExecutor {
     // FCVT.S.W / FCVT.S.WU: integer → float (may set NX if inexact).
     // Note: rounding mode affects which float is chosen; C# uses RNE by default.
     // We use the hardware default (RNE) since .NET doesn't expose per-op rounding.
-    private static ExecuteResult FpIntToFloat(long intVal, int rm) {
+    private static ExecuteResult FpIntToFloat(long intVal) {
         var r = (float)intVal;
         // NX if the integer can't be exactly represented in float32 (24-bit mantissa)
         bool nx = (long)r != intVal;
@@ -872,11 +865,14 @@ public class Rv32Executor : IExecutor {
         rm = ResolveRm(rm, state);
         if (float.IsNaN(f)) return IntRegF(0x7FFFFFFFu, 0x10u); // NaN → INT_MAX + NV
         float rounded = ApplyRm(f, rm);
-        // Check if rounded value is out of int32 range
-        if (rounded >= 2147483648f) return IntRegF(0x7FFFFFFFu, 0x10u); // > INT_MAX → NV
-        if (rounded < -2147483648f) return IntRegF(0x80000000u, 0x10u); // < INT_MIN → NV
+        switch (rounded) {
+            // Check if rounded value is out of int32 range
+            case >= 2147483648f: return IntRegF(0x7FFFFFFFu, 0x10u); // > INT_MAX → NV
+            case < -2147483648f: return IntRegF(0x80000000u, 0x10u); // < INT_MIN → NV
+        }
+
         var result = (uint)(int)rounded;
-        uint flags = f != (float)(int)result ? 0x01u : 0u; // NX if original was not exact integer
+        uint flags = f != (int)result ? 0x01u : 0u; // NX if original was not exact integer
         return IntRegF(result, flags);
     }
 
@@ -885,11 +881,14 @@ public class Rv32Executor : IExecutor {
         rm = ResolveRm(rm, state);
         if (float.IsNaN(f)) return IntRegF(0xFFFFFFFFu, 0x10u); // NaN → UINT_MAX + NV
         float rounded = ApplyRm(f, rm);
-        // Check if rounded value is out of uint32 range
-        if (rounded >= 4294967296f) return IntRegF(0xFFFFFFFFu, 0x10u); // > UINT_MAX → NV
-        if (rounded < 0f) return IntRegF(0u, 0x10u);                    // < 0 → NV
+        switch (rounded) {
+            // Check if rounded value is out of uint32 range
+            case >= 4294967296f: return IntRegF(0xFFFFFFFFu, 0x10u); // > UINT_MAX → NV
+            case < 0f:           return IntRegF(0u, 0x10u);          // < 0 → NV
+        }
+
         var result = (uint)rounded;
-        uint flags = f != (float)result ? 0x01u : 0u; // NX if original was not exact integer
+        uint flags = f != result ? 0x01u : 0u; // NX if original was not exact integer
         return IntRegF(result, flags);
     }
 
@@ -947,18 +946,22 @@ public class Rv32Executor : IExecutor {
         rm == 7 ? (int)((Rv32ArchState)state).CsrFile.DirectRead(CsrFile.Frm) : rm;
 
     // RISC-V FCVT.W.S: float → signed int with rounding mode and saturating clamp.
-    private static uint FcvtWS(float f) {
-        if (float.IsNaN(f) || f >= 2147483648f) return 0x7FFFFFFF; // INT_MAX
-        if (f < -2147483648f) return 0x80000000u;                  // INT_MIN
-        return (uint)(int)f;
-    }
+    private static uint FcvtWs(float f) =>
+        f switch {
+            float.NaN or >= 2147483648f => 0x7FFFFFFF // INT_MAX
+           ,
+            < -2147483648f => 0x80000000u // INT_MIN
+           ,
+            _ => (uint)(int)f,
+        };
 
     // RISC-V FCVT.WU.S: float → unsigned int with saturating clamp.
-    private static uint FcvtWuS(float f) {
-        if (float.IsNaN(f) || f >= 4294967296f) return 0xFFFFFFFF;
-        if (f < 0f) return 0;
-        return (uint)f;
-    }
+    private static uint FcvtWuS(float f) =>
+        f switch {
+            float.NaN or >= 4294967296f => 0xFFFFFFFF,
+            < 0f                        => 0,
+            _                           => (uint)f,
+        };
 
     // RISC-V FMIN: if one arg is NaN, return the other; -0.0 < +0.0.
     private static float FMin(float a, float b) {
@@ -1254,13 +1257,13 @@ public class Rv32Executor : IExecutor {
         };
 
     // vmv.x.s rd, vs2 — read element 0 of vs2 into integer rd (sign-extended to XLEN).
-    private static ExecuteResult ExecuteVMvXS(IArchState state, int rd, int vs2) {
+    private static ExecuteResult ExecuteVMvXs(IArchState state, int rd, int vs2) {
         (uint vl, int ewBytes) = VGetVlEw(state);
         if (vl == 0 || rd == 0) return ExecuteResult.Clean;
         ulong elem = VReadElem(state, vs2, 0, ewBytes);
         ulong result = ewBytes switch {
-            1 => (ulong)(long)(sbyte)(byte)elem,
-            2 => (ulong)(long)(short)(ushort)elem,
+            1 => (ulong)(sbyte)(byte)elem,
+            2 => (ulong)(short)(ushort)elem,
             _ => elem,
         };
         return ExecuteResult.WithResult(result);
@@ -1285,7 +1288,6 @@ public class Rv32Executor : IExecutor {
     // ss.st.w ud, rs1_base, rs2_count, rs3_stride
     // Configures a store-stream cursor in UveState; no StreamingEngine involvement.
     private static ExecuteResult ExecuteUveSsSt(
-        IArchState state,
         IRegisterFile regs,
         int ud,
         int rs1,
@@ -1311,7 +1313,7 @@ public class Rv32Executor : IExecutor {
     }
 
     // so.v.dp.w ud, rs1 — broadcast float32 bits from integer register into u-reg scalar slot
-    private static ExecuteResult ExecuteUveSoVDpW(IArchState state, IRegisterFile regs, int ud, int rs1) {
+    private static ExecuteResult ExecuteUveSoVDpW(IRegisterFile regs, int ud, int rs1) {
         float value = BitConverter.Int32BitsToSingle((int)(uint)regs.Read(rs1));
         return new ExecuteResult {
             SideEffect = s => {
@@ -1323,7 +1325,7 @@ public class Rv32Executor : IExecutor {
     }
 
     // so.a.fp ud, usrc1, usrc2 — element-wise FP arithmetic
-    // Source values were injected into UveState.Scalars[usrc*] by the pipeline before this call.
+    // The pipeline injected source values into UveState.Scalars[usrc*] before this call.
     // If ud is a store stream, the result is written to memory and the store cursor advances.
     private static ExecuteResult ExecuteUveSoAFp(
         IArchState state,
@@ -1372,14 +1374,13 @@ public class Rv32Executor : IExecutor {
         bool done = UState(state).UveState.StreamDone[urs];
         bool taken = !done;
         return taken
-            ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)(long)imm, }
+            ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)imm, }
             : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
     }
 
     // ss.sta.ld.w / ss.sta.st.w — start multi-dim stream configuration.
     // Creates a pending config with the first (innermost) dimension and stores in UveState.
     private static ExecuteResult ExecuteUveSsSta(
-        IArchState state,
         IRegisterFile regs,
         int ud,
         int rs1,
@@ -1405,7 +1406,7 @@ public class Rv32Executor : IExecutor {
     }
 
     // ss.app ud, _, rs2_count, rs3_stride — append next outer dimension to pending config.
-    private static ExecuteResult ExecuteUveSsApp(IArchState state, IRegisterFile regs, int ud, int rs2, int rs3) {
+    private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs2, int rs3) {
         var count = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
@@ -1456,11 +1457,11 @@ public class Rv32Executor : IExecutor {
     }
 
     // ss.cfg.vec ud — flag pending stream as vector-mode (no-op until vector streaming).
-    private static ExecuteResult ExecuteUveSsCfgVec(IArchState state, int ud) =>
+    private static ExecuteResult ExecuteUveSsCfgVec(int ud) =>
         new() {
             SideEffect = s => {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
-                if (cfg is not null) cfg.IsVector = true;
+                cfg?.IsVector = true;
             },
         };
 
@@ -1470,7 +1471,7 @@ public class Rv32Executor : IExecutor {
         bool done = UState(state).UveState.DimDone[urs, dim];
         bool taken = !done;
         return taken
-            ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)(long)imm, }
+            ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)imm, }
             : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
     }
 }

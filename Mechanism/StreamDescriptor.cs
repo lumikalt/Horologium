@@ -23,4 +23,4 @@ public readonly record struct StreamDescriptor(
 
     /// <summary>Convenience accessor for 1D streams.</summary>
     public long Stride => Dimensions[0].Stride;
-};
+}

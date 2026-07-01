@@ -20,14 +20,20 @@ public readonly record struct PipelineResident(
 
 /// <summary>
 /// Detects data and control hazards for a linear in-order pipeline of any depth.
-///
+/// <para>
 /// Data hazards:
-///   - RAW (Read After Write): a stage needs a value not yet written back.
+/// <list type="bullet">
+///   <item><description>RAW (Read After Write): a stage needs a value not yet written back.
 ///     Without forwarding: stall until the producing instruction reaches WB.
-///     With forwarding: forward from any later stage that has the value ready.
-///
+///     With forwarding: forward from any later stage that has the value ready.</description></item>
+/// </list>
+/// </para>
+/// <para>
 /// Control hazards:
-///   - Branch/jump resolved in EX: the caller flushes IF and ID (2-cycle penalty).
+/// <list type="bullet">
+///   <item><description>Branch/jump resolved in EX: the caller flushes IF and ID (2-cycle penalty).</description></item>
+/// </list>
+/// </para>
 /// </summary>
 public sealed class HazardUnit(bool forwardingEnabled) {
     /// <summary>

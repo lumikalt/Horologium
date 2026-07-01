@@ -1,3 +1,4 @@
+using JetBrains.Annotations;
 using Mechanism;
 
 namespace Pdp8.Decode;
@@ -17,7 +18,7 @@ public enum MriCode {
 public sealed record MriOp(MriCode Code, int DirectEa, bool Indirect) : Pdp8Op;
 
 // IOT: device number + pulse bits
-public sealed record IotOp(int Device, int Pulses) : Pdp8Op;
+public sealed record IotOp([UsedImplicitly] int Device, [UsedImplicitly] int Pulses) : Pdp8Op;
 
 // OPR Group 1: micro-ops in fixed hardware order CLA/CLL → CMA/CML → rotate/BSW → IAC
 // Bit assignments (C# LSB-0 notation):
@@ -62,5 +63,5 @@ public sealed class Pdp8Instruction(
     public int DestinationRegister => dest;
     public IReadOnlyList<int> SourceRegisters => srcs;
     public ToothClass Class => cls;
-    public object? Payload => op;
+    public object Payload => op;
 }

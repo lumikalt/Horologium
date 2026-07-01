@@ -2,6 +2,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
@@ -21,9 +23,9 @@ public class ZicntrTests {
     private static uint EBreak() => 0x00100073u;
     private static uint Nop() => 0x00000013u; // ADDI x0, x0, 0
 
-    // CSRRS rd, csr, x0 — read CSR into rd (rs1=x0 means no write side-effect)
+    // CSRRS rd, csr, x0 — read CSR into rd (rs1=x0 means no write side effects)
     private static uint CsrRead(int rd, uint csr) =>
-        (uint)(((csr & 0xFFF) << 20) | (0 << 15) | (2 << 12) | ((rd & 0x1F) << 7) | 0x73u);
+        ((csr & 0xFFF) << 20) | (0 << 15) | (2 << 12) | (uint)((rd & 0x1F) << 7) | 0x73u;
 
     // SW rs2, imm(rs1)
     private static uint Sw(int rs1, int rs2, int imm) =>
@@ -55,7 +57,7 @@ public class ZicntrTests {
 
     [Fact]
     public void Cycle_IsNonZeroAfterExecution() {
-        // After at least one instruction retires, cycle should be > 0.
+        // After at least one instruction retires, the cycle should be > 0.
         // (The CSRRS itself reads the count from the cycle that just completed.)
         uint v = ReadCsr([Nop(),], 0xC00);
         Assert.True(v > 0, $"cycle should be > 0, got {v}");

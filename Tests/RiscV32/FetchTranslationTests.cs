@@ -80,7 +80,7 @@ public class FetchTranslationTests {
         // Place EBREAK at PA 0x4000 — it should never be reached.
         mem.Load(FetchTranslationTests.DataPa, BitConverter.GetBytes(FetchTranslationTests.Nop));
 
-        var train = new FiveStageTrain(new Rv32Mechanism(), mem, 0);
+        var train = new FiveStageTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(20);
@@ -97,7 +97,7 @@ public class FetchTranslationTests {
         // L1 PT entry 0 left as zero (V=0) — page not present.
         FlatMemory mem = BuildMemory(_ => { });
 
-        var train = new FiveStageTrain(new Rv32Mechanism(), mem, 0);
+        var train = new FiveStageTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(20);
@@ -117,7 +117,7 @@ public class FetchTranslationTests {
             ]
         );
 
-        var train = new FiveStageTrain(new Rv32Mechanism(), mem, 0);
+        var train = new FiveStageTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(30);
@@ -139,7 +139,7 @@ public class FetchTranslationTests {
             ]
         );
 
-        var train = new FiveStageTrain(new Rv32Mechanism(), mem, 0);
+        var train = new FiveStageTrain(new Rv32Mechanism(), mem);
         // Leave satp = 0 (default); switch to User mode.
         train.ArchState.PrivilegeLevel = RvPrivilege.User;
 
@@ -156,7 +156,7 @@ public class FetchTranslationTests {
         FlatMemory mem = BuildMemory(m => m.Write(FetchTranslationTests.L1PtPa, RoUserPte(4), 4));
         mem.Load(FetchTranslationTests.DataPa, BitConverter.GetBytes(FetchTranslationTests.Nop));
 
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, 0);
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(20);
@@ -176,7 +176,7 @@ public class FetchTranslationTests {
             ]
         );
 
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, 0);
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(20);
@@ -192,7 +192,7 @@ public class FetchTranslationTests {
         FlatMemory mem = BuildMemory(m => m.Write(FetchTranslationTests.L1PtPa, RoUserPte(4), 4));
         mem.Load(FetchTranslationTests.DataPa, BitConverter.GetBytes(FetchTranslationTests.Nop));
 
-        var train = new OooeTrain(new Rv32Mechanism(), mem, 0);
+        var train = new OooeTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(50);
@@ -212,7 +212,7 @@ public class FetchTranslationTests {
             ]
         );
 
-        var train = new OooeTrain(new Rv32Mechanism(), mem, 0);
+        var train = new OooeTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(50);
@@ -228,7 +228,7 @@ public class FetchTranslationTests {
         FlatMemory mem = BuildMemory(m => m.Write(FetchTranslationTests.L1PtPa, RoUserPte(4), 4));
         mem.Load(FetchTranslationTests.DataPa, BitConverter.GetBytes(FetchTranslationTests.Nop));
 
-        var train = new SuperscalarTrain(new Rv32Mechanism(), mem, 0);
+        var train = new SuperscalarTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(20);
@@ -248,7 +248,7 @@ public class FetchTranslationTests {
             ]
         );
 
-        var train = new SuperscalarTrain(new Rv32Mechanism(), mem, 0);
+        var train = new SuperscalarTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(20);

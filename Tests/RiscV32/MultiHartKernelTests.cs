@@ -1,4 +1,3 @@
-using Mechanism;
 using Orrery.Cache;
 using RiscV32;
 using RiscV32.Memory;
@@ -9,7 +8,7 @@ namespace Tests.RiscV32;
 /// <summary>
 /// Integration tests for <see cref="MultiHartKernel"/>: round-robin scheduling,
 /// independent execution, and LR/SC cross-hart invalidation end-to-end.
-///
+/// <para>
 /// Encoded instructions used below:
 ///   addi x1, x0, 42      = 0x02A00093
 ///   addi x1, x0, 99      = 0x06300093
@@ -17,19 +16,10 @@ namespace Tests.RiscV32;
 ///   sc.w  x4, x3, (x2)   = 0x1831222F
 ///   sw    x5, 0(x6)      = 0x00532023
 ///   ebreak                = 0x00100073
+/// </para>
 /// </summary>
 public class MultiHartKernelTests {
     private const uint Ebreak = 0x00100073;
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static FlatMemory LoadProgram(uint startAddress, uint[] words, int memSize = 0x2000) {
-        var mem = new FlatMemory(memSize);
-        var bytes = new byte[words.Length * 4];
-        for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), words[i]);
-        mem.Load(startAddress, bytes);
-        return mem;
-    }
 
     // ── Independent execution ─────────────────────────────────────────────────
 
@@ -37,12 +27,12 @@ public class MultiHartKernelTests {
     public void TwoHarts_RunIndependently_BothHalt() {
         // addi x1, x0, 42; ebreak  →  hart 0
         // addi x1, x0, 99; ebreak  →  hart 1
-        const uint Addi42 = 0x02A00093;
-        const uint Addi99 = 0x06300093;
+        const uint addi42 = 0x02A00093;
+        const uint addi99 = 0x06300093;
 
         var mem = new FlatMemory(0x200);
-        mem.Load(0x00, [..BitConverter.GetBytes(Addi42), ..BitConverter.GetBytes(MultiHartKernelTests.Ebreak),]);
-        mem.Load(0x40, [..BitConverter.GetBytes(Addi99), ..BitConverter.GetBytes(MultiHartKernelTests.Ebreak),]);
+        mem.Load(0x00, [..BitConverter.GetBytes(addi42), ..BitConverter.GetBytes(MultiHartKernelTests.Ebreak),]);
+        mem.Load(0x40, [..BitConverter.GetBytes(addi99), ..BitConverter.GetBytes(MultiHartKernelTests.Ebreak),]);
 
         var mech0 = new Rv32Mechanism();
         var mech1 = new Rv32Mechanism();
@@ -104,15 +94,15 @@ public class MultiHartKernelTests {
         //
         // x4 == 1 proves the reservation was invalidated by hart 1's store.
 
-        const uint LrW = 0x100120AF;   // lr.w  x1, (x2)
-        const uint ScWX4 = 0x1831222F; // sc.w  x4, x3, (x2)
-        const uint SwX5 = 0x00532023;  // sw    x5, 0(x6)
+        const uint lrW = 0x100120AF;   // lr.w  x1, (x2)
+        const uint scWx4 = 0x1831222F; // sc.w  x4, x3, (x2)
+        const uint swX5 = 0x00532023;  // sw    x5, 0(x6)
 
         var flat = new FlatMemory(0x1000);
 
         // Program code
-        flat.Load(0x00, ToBytes(LrW, ScWX4, MultiHartKernelTests.Ebreak));
-        flat.Load(0x40, ToBytes(SwX5, MultiHartKernelTests.Ebreak));
+        flat.Load(0x00, ToBytes(lrW, scWx4, MultiHartKernelTests.Ebreak));
+        flat.Load(0x40, ToBytes(swX5, MultiHartKernelTests.Ebreak));
 
         // Initial data at 0x200
         flat.Write(0x200, 0xBEEF, 4);
@@ -144,14 +134,14 @@ public class MultiHartKernelTests {
 
     [Fact]
     public void CrossHart_NoInterleavingWrite_ScSucceeds() {
-        // Hart 1 writes to a different address → reservation is NOT cancelled → SC succeeds.
-        const uint LrW = 0x100120AF;   // lr.w  x1, (x2)
-        const uint ScWX4 = 0x1831222F; // sc.w  x4, x3, (x2)
-        const uint SwX5 = 0x00532023;  // sw    x5, 0(x6)
+        // Hart 1 writes to a different address → reservation is NOT canceled → SC succeeds.
+        const uint lrW = 0x100120AF;   // lr.w  x1, (x2)
+        const uint scWx4 = 0x1831222F; // sc.w  x4, x3, (x2)
+        const uint swX5 = 0x00532023;  // sw    x5, 0(x6)
 
         var flat = new FlatMemory(0x1000);
-        flat.Load(0x00, ToBytes(LrW, ScWX4, MultiHartKernelTests.Ebreak));
-        flat.Load(0x40, ToBytes(SwX5, MultiHartKernelTests.Ebreak));
+        flat.Load(0x00, ToBytes(lrW, scWx4, MultiHartKernelTests.Ebreak));
+        flat.Load(0x40, ToBytes(swX5, MultiHartKernelTests.Ebreak));
         flat.Write(0x200, 0xBEEF, 4);
         flat.Write(0x300, 0, 4); // hart 1's target — different address
 
@@ -186,16 +176,16 @@ public class MultiHartKernelTests {
         // Hart 0 at 0x00: lr.w x1,(x2)  →  sc.w x4,x3,(x2)  →  ebreak
         // Hart 1 at 0x40: sw x5, 0(x6)  →  ebreak
         //
-        // Tick 1: H0 lr.w → reserve 0x200; H1 sw 0x200 → BusReadInvalidate → reservation cancelled.
+        // Tick 1: H0 lr.w → reserve 0x200; H1 sw 0x200 → BusReadInvalidate → reservation canceled.
         // Tick 2: H0 sc.w → TryConsume fails → x4=1 (SC failure).
 
-        const uint LrW = 0x100120AF;
-        const uint ScWX4 = 0x1831222F;
-        const uint SwX5 = 0x00532023;
+        const uint lrW = 0x100120AF;
+        const uint scWx4 = 0x1831222F;
+        const uint swX5 = 0x00532023;
 
         var flat = new FlatMemory(0x1000);
-        flat.Load(0x00, ToBytes(LrW, ScWX4, MultiHartKernelTests.Ebreak));
-        flat.Load(0x40, ToBytes(SwX5, MultiHartKernelTests.Ebreak));
+        flat.Load(0x00, ToBytes(lrW, scWx4, MultiHartKernelTests.Ebreak));
+        flat.Load(0x40, ToBytes(swX5, MultiHartKernelTests.Ebreak));
         flat.Write(0x200, 0xBEEF, 4);
 
         var table = new ReservationTable();
@@ -227,15 +217,15 @@ public class MultiHartKernelTests {
     [Fact]
     public void MesiCaches_NoInterleavingWrite_ScSucceeds() {
         // Hart 1 writes to a different cache line → BusReadInvalidate targets a different
-        // lineBase → reservation at 0x200 is not cancelled → SC succeeds.
+        // lineBase → reservation at 0x200 is not canceled → SC succeeds.
 
-        const uint LrW = 0x100120AF;
-        const uint ScWX4 = 0x1831222F;
-        const uint SwX5 = 0x00532023;
+        const uint lrW = 0x100120AF;
+        const uint scWx4 = 0x1831222F;
+        const uint swX5 = 0x00532023;
 
         var flat = new FlatMemory(0x1000);
-        flat.Load(0x00, ToBytes(LrW, ScWX4, MultiHartKernelTests.Ebreak));
-        flat.Load(0x40, ToBytes(SwX5, MultiHartKernelTests.Ebreak));
+        flat.Load(0x00, ToBytes(lrW, scWx4, MultiHartKernelTests.Ebreak));
+        flat.Load(0x40, ToBytes(swX5, MultiHartKernelTests.Ebreak));
         flat.Write(0x200, 0xBEEF, 4);
         flat.Write(0x300, 0, 4); // different 64-byte line (0x2C0..0x2FF vs 0x200..0x23F)
 
@@ -278,12 +268,12 @@ public class MultiHartKernelTests {
         //
         // sw x1, 0(x2) = 0x00112023   lw x3, 0(x4) = 0x00022183
 
-        const uint SwX1 = 0x00112023;
-        const uint LwX3 = 0x00022183;
+        const uint swX1 = 0x00112023;
+        const uint lwX3 = 0x00022183;
 
         var flat = new FlatMemory(0x1000);
-        flat.Load(0x00, ToBytes(SwX1, MultiHartKernelTests.Ebreak));
-        flat.Load(0x40, ToBytes(LwX3, MultiHartKernelTests.Ebreak));
+        flat.Load(0x00, ToBytes(swX1, MultiHartKernelTests.Ebreak));
+        flat.Load(0x40, ToBytes(lwX3, MultiHartKernelTests.Ebreak));
 
         var bus = new MesiBus(flat);
         var cache0 = new MesiCache(bus, 256, 2, 64);

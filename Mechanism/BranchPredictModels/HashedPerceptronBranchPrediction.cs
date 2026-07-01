@@ -2,16 +2,18 @@ namespace Mechanism.BranchPredictModels;
 
 /// <summary>
 /// Hashed / path-based perceptron predictor (Jimenez, 2005).
-///
+/// <para>
 /// Extends the classic perceptron by spreading weights across multiple tables
 /// at geometrically increasing history lengths. Each table has one weight per
 /// entry, indexed by PC XOR XOR-folded history of that length (table 0 is a
 /// bias table indexed by PC only). Prediction is the sign of the sum of all
 /// looked-up weights. Training fires when wrong OR |sum| ≤ θ = ⌊1.93·H + 14⌋.
-///
+/// </para>
+/// <para>
 /// Compared to the classic perceptron: no per-PC weight vector — different PCs
 /// that share the same history path contribute to the same table entries, giving
 /// better generalization across correlated branches with less storage.
+/// </para>
 /// </summary>
 public sealed class HashedPerceptronPredictor : IBranchPredictor {
     // Default: 8 tables with geometric history lengths.
@@ -26,6 +28,15 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
     private ulong _ghr;
     private readonly Dictionary<ulong, ulong> _btb = new();
 
+    /// <summary>
+    /// Hashed / path-based perceptron predictor.
+    /// </summary>
+    /// <param name="tableSize">
+    /// Entries in each table. Must be a power of 2.
+    /// </param>
+    /// <param name="histLengths">
+    /// History lengths for each table. If null, the default geometric is used.
+    /// </param>
     public HashedPerceptronPredictor(int tableSize = 512, int[]? histLengths = null) {
         _histLengths = histLengths ?? HashedPerceptronPredictor.DefaultHistLengths;
         _maxHist = _histLengths.Max();
@@ -38,6 +49,7 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
+    /// <inheritdoc />
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         bool pred = Sum(pc) >= 0;
         ulong target = pred
@@ -46,6 +58,7 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
         return new BranchPrediction(pred, target);
     }
 
+    /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
         int y = Sum(pc);

@@ -6,14 +6,14 @@ namespace Move;
 public sealed class MoveArchState : IArchState {
     public readonly ushort[] R = new ushort[8];
 
-    public byte AluOp = 0;
-    public ushort AluIn1 = 0;
-    public ushort AluOut = 0;
+    public byte AluOp;
+    public ushort AluIn1;
+    public ushort AluOut;
 
-    public ushort MemAddr = 0;
-    public ushort MemOut = 0;
+    public ushort MemAddr;
+    public ushort MemOut;
 
-    public ushort BrCond = 0;
+    public ushort BrCond;
 
     private readonly MoveRegisterFile _regs;
 

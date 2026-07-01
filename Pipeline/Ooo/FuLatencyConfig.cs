@@ -4,11 +4,12 @@ namespace Pipeline.Ooo;
 
 /// <summary>
 /// Per-functional-unit issue count (parallel issue ports) and execution latency.
-///
+/// <para>
 /// All functional units are modeled as fully pipelined: Count is the number of
 /// independent issue ports for that class per cycle; Latency is the number of
 /// cycles from issue until the result is broadcast on the CDB.
-///
+/// </para>
+/// <para>
 /// <b>LoadHitLatency</b> models the LSU pipeline depth on a cache hit (addr_calc →
 /// MMU → cache_lookup → cache_read → complete = 4 cycles in Olympia). The MLP
 /// miss-countdown adds the cache miss penalty on top of this base latency.
@@ -23,6 +24,7 @@ namespace Pipeline.Ooo;
 /// specifically. 0 = inherit from MulDivLatency (default, backward-compatible).
 /// Olympia models DIV at 23 cycles vs MUL at 3 cycles; setting DivLatency=23
 /// enables that distinction without changing the MUL latency.
+/// </para>
 /// </summary>
 public sealed record FuLatencyConfig(
     int IntAluCount = 2,

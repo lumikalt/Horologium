@@ -110,8 +110,8 @@ public class PEventTests {
         // At least one fetch of PC=8 must have a corresponding FLUSH with no RETIRE.
         bool anyFlushedNoRetire = wrongPathFetch.Any(fetch => {
                 IEnumerable<PEvent> forInstr = plog.ForInstruction(fetch.InstrId);
-                return forInstr.Any(e => e.Kind == PEventKind.Flush) &&
-                       !forInstr.Any(e => e.Kind == PEventKind.Retire);
+                IEnumerable<PEvent> pEvents = forInstr as PEvent[] ?? forInstr.ToArray();
+                return pEvents.Any(e => e.Kind == PEventKind.Flush) && pEvents.All(e => e.Kind != PEventKind.Retire);
             }
         );
         Assert.True(anyFlushedNoRetire, "Wrong-path instruction at PC=8 should be flushed without retiring");
@@ -152,15 +152,13 @@ public class PEventTests {
         var train = new OooeTrain(new Rv32Mechanism(), mem, pEventLog: plog);
         train.Run();
 
-        foreach (PEvent retire in plog.OfKind(PEventKind.Retire)) {
-            ulong id = retire.InstrId;
+        foreach ((ulong id, _, long retireCycle, _) in plog.OfKind(PEventKind.Retire)) {
             IEnumerable<PEvent> lifecycle = plog.ForInstruction(id).ToList();
 
             long fetchCycle = lifecycle.First(e => e.Kind == PEventKind.Fetch).Cycle;
             long dispatchCycle = lifecycle.First(e => e.Kind == PEventKind.Dispatch).Cycle;
             long issueCycle = lifecycle.First(e => e.Kind == PEventKind.Issue).Cycle;
             long executeCycle = lifecycle.First(e => e.Kind == PEventKind.Execute).Cycle;
-            long retireCycle = retire.Cycle;
 
             Assert.True(
                 fetchCycle <= dispatchCycle,

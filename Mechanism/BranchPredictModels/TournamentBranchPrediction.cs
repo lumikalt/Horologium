@@ -2,15 +2,15 @@ namespace Mechanism.BranchPredictModels;
 
 /// <summary>
 /// Tournament branch predictor (Alpha 21264 style).
-///
+/// <para>
 /// Combines a local predictor (per-branch 10-bit BHT → 3-bit local PHT) with
 /// a global gshare predictor (2-bit PHT indexed by GHR XOR PC). A 2-bit
 /// chooser table indexed by GHR selects between them; ≥2 → global, &lt;2 → local.
 /// Both predictors are updated on every branch; the chooser is updated only
 /// when they disagree.
+/// </para>
 /// </summary>
 public sealed class TournamentPredictor : IBranchPredictor {
-    private readonly int _localHistoryBits;
     private readonly int _globalHistoryBits;
 
     // Local predictor
@@ -31,12 +31,23 @@ public sealed class TournamentPredictor : IBranchPredictor {
 
     private readonly Dictionary<ulong, ulong> _btb = new();
 
+    /// <summary>
+    /// Constructs a Tournament predictor.
+    /// </summary>
+    /// <param name="localHistoryBits">
+    /// Bits in the local BHT.
+    /// </param>
+    /// <param name="localTableSize">
+    /// Entries in the local BHT.
+    /// </param>
+    /// <param name="globalHistoryBits">
+    /// Bits in the global PHT.
+    /// </param>
     public TournamentPredictor(
         int localHistoryBits = 10,
         int localTableSize = 1024,
         int globalHistoryBits = 12
     ) {
-        _localHistoryBits = localHistoryBits;
         _globalHistoryBits = globalHistoryBits;
 
         int bhtSize = localTableSize;
@@ -61,6 +72,7 @@ public sealed class TournamentPredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
+    /// <inheritdoc />
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         bool pred = PreferGlobal(pc) ? GlobalPred(pc) : LocalPred(pc);
         ulong target = pred
@@ -69,6 +81,7 @@ public sealed class TournamentPredictor : IBranchPredictor {
         return new BranchPrediction(pred, target);
     }
 
+    /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
 

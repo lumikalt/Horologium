@@ -23,7 +23,7 @@ public sealed class F18AExecutor : IExecutor {
         for (var i = 0; i < 4 && !branchTaken && !halted; i++)
             RunSlot(
                 slots[i], addrs[i], tooth.Pc, work, memory,
-                ref pOffset, ref branchTaken, ref branchTarget, ref halted
+                ref pOffset, ref branchTaken, ref branchTarget
             );
 
         // @p+ / !p+ advanced P past literals: return explicit sequential target
@@ -49,8 +49,7 @@ public sealed class F18AExecutor : IExecutor {
         IMemory memory,
         ref int pOffset,
         ref bool branchTaken,
-        ref ulong branchTarget,
-        ref bool halted
+        ref ulong branchTarget
     ) {
         switch (op) {
             case F18AOp.Return:
@@ -221,10 +220,6 @@ public sealed class F18AExecutor : IExecutor {
             case F18AOp.BStore: w.B = w.DPop(); break;
 
             case F18AOp.AStore: w.A = w.DPop(); break;
-
-            default:
-                // Opcodes 0x1E and 0x1F are undefined; treat as nop
-                break;
         }
     }
 }

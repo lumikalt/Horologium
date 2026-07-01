@@ -1,4 +1,3 @@
-using Mechanism;
 using Orrery.Cache;
 using Pipeline;
 using RiscV32;
@@ -9,7 +8,7 @@ namespace Tests.RiscV32;
 /// <summary>
 /// Integration tests for <see cref="SmtTrain"/>: barrel-processor SMT that
 /// distributes <c>issueWidth</c> issue slots round-robin across N hart contexts.
-///
+/// <para>
 /// Encoded instructions:
 ///   addi x1, x0, 10  = 0x00A00093
 ///   addi x1, x0, 20  = 0x01400093
@@ -17,6 +16,7 @@ namespace Tests.RiscV32;
 ///   addi x1, x0, 42  = 0x02A00093
 ///   addi x1, x0, 99  = 0x06300093
 ///   ebreak            = 0x00100073
+/// </para>
 /// </summary>
 public class SmtTrainTests {
     private const uint Ebreak = 0x00100073;
@@ -115,8 +115,7 @@ public class SmtTrainTests {
         var smt = new SmtTrain(
             [new Rv32Mechanism(), new Rv32Mechanism(),],
             [cache0, cache1,],
-            entryPoints: [0x00, 0x40,],
-            issueWidth: 2
+            [0x00, 0x40,]
         );
 
         smt.StateOf(0).IntegerRegisters.Write(1, 0xCAFE); // value to store
@@ -146,8 +145,7 @@ public class SmtTrainTests {
         var smt = new SmtTrain(
             [new Rv32Mechanism(), new Rv32Mechanism(),],
             [mem, mem,],
-            entryPoints: [0x00, 0x10,],
-            issueWidth: 2
+            [0x00, 0x10,]
         );
         smt.Run(1_000);
 

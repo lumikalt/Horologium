@@ -11,7 +11,7 @@ namespace RiscV32.Trap;
 /// </summary>
 public sealed class RvTrapController : ITrapController {
     // Priority order per RISC-V spec §3.1.9: MEI > MSI > MTI > SEI > SSI > STI
-    private static readonly int[] _interruptPriority = { 11, 3, 7, 9, 1, 5, };
+    private static readonly int[] InterruptPriority = [11, 3, 7, 9, 1, 5,];
 
     public ulong RaiseTrap(TrapInfo trap, IArchState state) {
         var rv = (Rv32ArchState)state;
@@ -85,7 +85,7 @@ public sealed class RvTrapController : ITrapController {
                      || (state.PrivilegeLevel == RvPrivilege.Supervisor
                       && (sstatus & CsrFile.SstatusSie) != 0);
 
-        foreach (int bit in RvTrapController._interruptPriority) {
+        foreach (int bit in RvTrapController.InterruptPriority) {
             if (((pending >> bit) & 1) == 0) continue;
             bool delegated = ((mideleg >> bit) & 1) != 0;
             if (!delegated && mEnabled) return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);

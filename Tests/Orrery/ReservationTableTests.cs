@@ -1,4 +1,3 @@
-using Mechanism;
 using Orrery.Cache;
 using RiscV32.Memory;
 

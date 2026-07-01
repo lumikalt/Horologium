@@ -21,6 +21,6 @@ public sealed class Rv64Mechanism : IMechanism {
 
     public IArchState CreateArchState() => new Rv64ArchState();
 
-    public IFetchTranslator? CreateFetchTranslator(IArchState state, IMemory memory) =>
+    public IFetchTranslator CreateFetchTranslator(IArchState state, IMemory memory) =>
         new RvFetchTranslator(state, memory);
 }

@@ -2,9 +2,10 @@ namespace Mechanism;
 
 /// <summary>
 /// A flat, indexed register file.
-///
+/// <para>
 /// Register indices are ISA-defined. For RISC-V, index 0 is always zero.
 /// The pipeline uses indices opaquely — it does not interpret their meaning.
+/// </para>
 /// </summary>
 public interface IRegisterFile {
     /// <summary>The number of architectural registers.</summary>

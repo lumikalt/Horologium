@@ -2,12 +2,13 @@ namespace Pipeline.Ooo;
 
 /// <summary>
 /// Register Alias Table (RAT) paired with a free-physical-register list.
-///
+/// <para>
 /// Maps each architectural register to the physical register holding its
 /// current speculative value. At Dispatch, each instruction's destination
 /// is renamed to a freshly-allocated physical register; the old mapping is
 /// stored in the ROB so it can be restored on a flush (walk-back recovery)
 /// or freed on commit (the old value is no longer live).
+/// </para>
 /// </summary>
 public sealed class RenameMap {
     private readonly int[] _rat;
@@ -47,12 +48,12 @@ public sealed class RenameMap {
     /// <summary>
     /// Renames an architectural destination register: allocates a new physical register,
     /// updates the RAT, and returns <c>(newPhys, oldPhys)</c>.
-    ///
+    /// <para>
     /// <c>oldPhys</c> is stored in the ROB entry so that on flush it can be
     /// written back into the RAT (walk-back recovery), and on commit it can be
     /// returned to the free list.
-    ///
-    /// Call only when <see cref="HasFree"/> is true.
+    /// </para>
+    /// <para>Call only when <see cref="HasFree"/> is true.</para>
     /// </summary>
     public (int NewPhys, int OldPhys) Rename(int arch) {
         ValidateArch(arch);

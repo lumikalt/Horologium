@@ -4,10 +4,11 @@ namespace Orrery.Observation;
 
 /// <summary>
 /// The collection of all observable metrics on a Gear.
-///
+/// <para>
 /// A DialBoard owns a Gear's Counters and Dials, and exposes them
 /// for querying by name. At the end of a Revolution, the Train calls
 /// Snapshot() to capture a point-in-time reading of all values.
+/// </para>
 /// </summary>
 public sealed class DialBoard {
     private readonly Dictionary<string, Counter> _counters = new();

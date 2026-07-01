@@ -377,14 +377,23 @@ internal sealed class PipelineCore : Gear {
         // These checks happen after all stall/squash/flush flags are set.
         if (_plog is not null) {
             long cyc = _cyclesCounter.Value;
-            if (_if.Flush && ifIdLast is { IsValid: true, InstrId: not 0, })
-                _plog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Flush);
-            else if (!_if.Flush && ifIdLast is { IsValid: true, InstrId: not 0, })
-                _plog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Decode);
-            if (_ex.Squash && idExLast is { IsValid: true, InstrId: not 0, })
-                _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Flush);
-            else if (!_ex.Squash && idExLast is { IsValid: true, InstrId: not 0, })
-                _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Execute);
+            switch (_if.Flush) {
+                case true when ifIdLast is { IsValid: true, InstrId: not 0, }:
+                    _plog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Flush);
+                    break;
+                case false when ifIdLast is { IsValid: true, InstrId: not 0, }:
+                    _plog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Decode);
+                    break;
+            }
+
+            switch (_ex.Squash) {
+                case true when idExLast is { IsValid: true, InstrId: not 0, }:
+                    _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Flush);
+                    break;
+                case false when idExLast is { IsValid: true, InstrId: not 0, }:
+                    _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Execute);
+                    break;
+            }
         }
 
         // Drive stages directly — WB before ID so the register file write

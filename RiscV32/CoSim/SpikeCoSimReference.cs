@@ -6,18 +6,21 @@ namespace RiscV32.CoSim;
 
 /// <summary>
 /// Online lock-step co-verification against Spike.
-///
+/// 
 /// Launches Spike with <c>--log-commits</c> and keeps it running as a child
 /// process. Each call to <see cref="ICommitObserver.OnCommit"/> reads the
 /// next commit record from Spike's live stderr stream, blocks until Spike
 /// has produced the matching instruction, and immediately compares PC, raw
 /// encoding, and any integer register write.
-///
+/// 
 /// Divergence (PC out-of-order, encoding mismatch, wrong register value) is
 /// detected at the exact failing instruction and reported via
 /// <see cref="CoSimDivergenceException"/>. Boot-ROM commits (PC below
-/// <paramref name="baseAddress"/>) are skipped transparently.
-///
+/// <paramref>
+///     <name>baseAddress</name>
+/// </paramref>
+/// ) are skipped transparently.
+/// 
 /// Implements <see cref="IDisposable"/> — the caller must dispose to kill
 /// Spike when the simulation ends.
 /// </summary>

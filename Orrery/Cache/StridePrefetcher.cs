@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace Orrery.Cache;
 
 /// <summary>
@@ -17,7 +19,7 @@ public sealed class StridePrefetcher : IPrefetcher {
     private readonly int _mask;
 
     public StridePrefetcher(int tableSize = 64) {
-        if (!System.Numerics.BitOperations.IsPow2(tableSize))
+        if (!BitOperations.IsPow2(tableSize))
             throw new ArgumentException("tableSize must be a power of 2.", nameof(tableSize));
         _table = new RptEntry[tableSize];
         _mask = tableSize - 1;

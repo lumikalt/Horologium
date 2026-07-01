@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -75,9 +77,9 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [ObservableProperty] public partial string StatusText { get; set; } = "Enter assembly and click Assemble.";
 
-    [ObservableProperty] public partial bool CanStep { get; set; }
+    [ObservableProperty] private partial bool CanStep { get; set; }
 
-    [ObservableProperty] public partial bool IsAssembling { get; set; }
+    [ObservableProperty] private partial bool IsAssembling { get; set; }
 
     [ObservableProperty] public partial AssemblyRow? SelectedInstruction { get; set; }
 
@@ -149,27 +151,11 @@ public partial class AssemblerViewModel : ObservableObject {
         new("Zbs", RvExtension.Zbs),
     ];
 
-    public string GasArchString {
-        get {
-            var flags = RvExtension.None;
-            foreach (ExtensionToggle t in AvailableExtensions)
-                if (t.IsEnabled)
-                    flags |= t.Flag;
-            return flags.ToIsaString();
-        }
-    }
+    public string GasArchString => AvailableExtensions.Where(t => t.IsEnabled)
+                                                      .Aggregate(RvExtension.None, (current, t) => current | t.Flag)
+                                                      .ToIsaString();
 
-    private RvExtension ActiveExtensions {
-        get {
-            var flags = RvExtension.None;
-            foreach (ExtensionToggle t in AvailableExtensions)
-                if (t.IsEnabled)
-                    flags |= t.Flag;
-            return flags;
-        }
-    }
-
-    private string GasAbi => AvailableExtensions.Any(t => t.Flag == RvExtension.F && t.IsEnabled)
+    private string GasAbi => AvailableExtensions.Any(t => t is { Flag: RvExtension.F, IsEnabled: true, })
         ? "ilp32f"
         : "ilp32";
 
@@ -203,16 +189,21 @@ public partial class AssemblerViewModel : ObservableObject {
         for (var i = 0; i < 32; i++) FloatRegisters.Add(new RegEntry($"f{i}"));
     }
 
-    partial void OnSelectedInstructionChanged(AssemblyRow? value) {
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnSelectedInstructionChanged(AssemblyRow? _) {
         OnPropertyChanged(nameof(IsDecodeVisible));
         OnPropertyChanged(nameof(DecodeTitle));
         OnPropertyChanged(nameof(DecodeFields));
     }
 
-    partial void OnIntRegFormatChanged(RegFormat value) => RefreshIntRegisters();
-    partial void OnFloatRegFormatChanged(RegFormat value) => RefreshFloatRegisters();
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnIntRegFormatChanged(RegFormat _) => RefreshIntRegisters();
 
-    partial void OnPipelineModeLabelChanged(string value) {
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnFloatRegFormatChanged(RegFormat _) => RefreshFloatRegisters();
+
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnPipelineModeLabelChanged(string _) {
         _runCts?.Cancel();
         if (_binaryData != null) {
             SetupPipeline();
@@ -225,10 +216,14 @@ public partial class AssemblerViewModel : ObservableObject {
         OnPropertyChanged(nameof(IsPipelineMode));
     }
 
-    partial void OnICacheEnabledChanged(bool value) => ApplyCacheConfigChange();
-    partial void OnDCacheEnabledChanged(bool value) => ApplyCacheConfigChange();
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnICacheEnabledChanged(bool _) => ApplyCacheConfigChange();
 
-    partial void OnSelectedCacheTabChanged(int value) {
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnDCacheEnabledChanged(bool _) => ApplyCacheConfigChange();
+
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnSelectedCacheTabChanged(int _) {
         RefreshCacheDisplay();
         CacheUpdated?.Invoke();
     }
@@ -322,7 +317,7 @@ public partial class AssemblerViewModel : ObservableObject {
             }
 
             if (result.Trap != null) return false;
-            _archState.Pc = result.BranchTaken && result.BranchTarget.HasValue
+            _archState.Pc = result is { BranchTaken: true, BranchTarget: not null, }
                 ? result.BranchTarget.Value
                 : pc + (ulong)tooth.SizeBytes;
             return true;
@@ -444,16 +439,15 @@ public partial class AssemblerViewModel : ObservableObject {
     private void Step() {
         if (!CanStep) return;
         StepOnce();
-        if (IsPipelineMode) {
-            RefreshCacheDisplay();
-            CacheUpdated?.Invoke();
-        }
+        if (!IsPipelineMode) return;
+        RefreshCacheDisplay();
+        CacheUpdated?.Invoke();
     }
 
     [RelayCommand]
     private async Task Run() {
         if (!CanStep) return;
-        _runCts?.Cancel();
+        await _runCts?.CancelAsync()!;
         _runCts = new CancellationTokenSource();
         CancellationToken token = _runCts.Token;
 
@@ -463,15 +457,14 @@ public partial class AssemblerViewModel : ObservableObject {
         for (var i = 0; i < maxSteps && CanStep && !token.IsCancellationRequested; i++) {
             StepOnce();
             if (!CanStep || token.IsCancellationRequested) break;
-            if (delay > 0) {
-                if (IsPipelineMode) {
-                    RefreshCacheDisplay();
-                    CacheUpdated?.Invoke();
-                }
-
-                try { await Task.Delay(delay, token); }
-                catch (OperationCanceledException) { break; }
+            if (delay <= 0) continue;
+            if (IsPipelineMode) {
+                RefreshCacheDisplay();
+                CacheUpdated?.Invoke();
             }
+
+            try { await Task.Delay(delay, token); }
+            catch (OperationCanceledException) { break; }
         }
 
         if (IsPipelineMode) {
@@ -508,6 +501,7 @@ public partial class AssemblerViewModel : ObservableObject {
             case PipelineMode.OoO when _oooeTrain != null:
                 StepPipeline();
                 break;
+            default: throw new ArgumentOutOfRangeException();
         }
     }
 
@@ -551,7 +545,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 return;
             }
 
-            if (result.BranchTaken && result.BranchTarget.HasValue)
+            if (result is { BranchTaken: true, BranchTarget: not null, })
                 _archState.Pc = result.BranchTarget.Value;
             else
                 _archState.Pc = pc + (ulong)tooth.SizeBytes;
@@ -666,7 +660,13 @@ public partial class AssemblerViewModel : ObservableObject {
         StatusText = $"Assembled: {Instructions.Count} instructions, {binary.Length} bytes.";
     }
 
-    private MemoryConfig BuildCacheConfig(bool enabled, int capacityKb, int ways, int blockBytes, int missLatency) =>
+    private static MemoryConfig BuildCacheConfig(
+        bool enabled,
+        int capacityKb,
+        int ways,
+        int blockBytes,
+        int missLatency
+    ) =>
         enabled
             ? new MemoryConfig(
                 capacityKb * 1024,
@@ -695,7 +695,7 @@ public partial class AssemblerViewModel : ObservableObject {
             case PipelineMode.FiveStage when _binaryData != null: {
                 FlatMemory mem = BuildFreshMemory();
                 _fiveStageTrain = new FiveStageTrain(
-                    new Rv32Mechanism(extensions: ActiveExtensions), mem,
+                    new Rv32Mechanism(), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
                 );
                 _fiveStageTrain.BeginStepping();
@@ -704,7 +704,7 @@ public partial class AssemblerViewModel : ObservableObject {
             case PipelineMode.OoO when _binaryData != null: {
                 FlatMemory mem = BuildFreshMemory();
                 _oooeTrain = new OooeTrain(
-                    new Rv32Mechanism(extensions: ActiveExtensions), mem,
+                    new Rv32Mechanism(), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
                 );
                 _oooeTrain.BeginStepping();
@@ -714,6 +714,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 _archState?.Reset();
                 _stepCount = 0;
                 break;
+            default: throw new ArgumentOutOfRangeException();
         }
 
         UpdateStages();
@@ -727,12 +728,11 @@ public partial class AssemblerViewModel : ObservableObject {
         if (CurrentMode == PipelineMode.SingleCycle) {
             ulong pc = _archState?.Pc ?? 0;
             foreach (AssemblyRow row in Instructions) row.Stage = row.Offset == pc ? "PC" : "";
-            CurrentSourceLine = _pcToLine.TryGetValue(pc, out int line) ? line : 0;
+            CurrentSourceLine = _pcToLine.GetValueOrDefault(pc, 0);
         }
         else {
             Dictionary<ulong, string> stageMap = ComputeStages();
-            foreach (AssemblyRow row in Instructions)
-                row.Stage = stageMap.TryGetValue(row.Offset, out string? stage) ? stage : "";
+            foreach (AssemblyRow row in Instructions) row.Stage = stageMap.GetValueOrDefault(row.Offset, "");
             CurrentSourceLine = 0;
         }
     }
@@ -786,7 +786,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private static Dictionary<ulong, int> ParseListing(string text) {
         var map = new Dictionary<ulong, int>();
         foreach (Match m in ListingLineRx.Matches(text))
-            if (ulong.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.HexNumber, null, out ulong addr))
+            if (ulong.TryParse(m.Groups[2].Value, NumberStyles.HexNumber, null, out ulong addr))
                 map.TryAdd(addr, int.Parse(m.Groups[1].Value));
         return map;
     }
@@ -814,7 +814,7 @@ public partial class AssemblerViewModel : ObservableObject {
         }
     }
 
-    public void RefreshCacheDisplay() {
+    private void RefreshCacheDisplay() {
         SetAssociativeCache? cache = SelectedCacheTab == 0
             ? _fiveStageTrain?.ICache ?? _oooeTrain?.ICache
             : _fiveStageTrain?.DCache ?? _oooeTrain?.DCache;
@@ -893,7 +893,7 @@ public partial class AssemblerViewModel : ObservableObject {
         _                => $"0x{(uint)val:X8}",
     };
 
-    [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
+    [UnsupportedOSPlatform("browser")]
     private static string? FindToolchainPrefix() {
         string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
         return (from dir in pathEnv.Split(':')
@@ -902,7 +902,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 select Path.Combine(dir, "riscv32-none-elf-")).FirstOrDefault();
     }
 
-    [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
+    [UnsupportedOSPlatform("browser")]
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcess(string exe, string args) {
         using var proc = new Process();
         proc.StartInfo = new ProcessStartInfo(exe, args) {

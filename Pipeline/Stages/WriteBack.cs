@@ -57,19 +57,26 @@ public sealed class WritebackStage : Gear {
             return;
         }
 
-        if (latch is { HasTrap: true, Trap: not null, }) { TrapRedirect = (_trap.RaiseTrap(latch.Trap, _state), true); }
-        else if (latch is { IsReturnFromTrap: true, ReturnPrivilege: not null, }) {
-            TrapRedirect = (_trap.ReturnFromTrap(latch.ReturnPrivilege.Value, _state), true);
-        }
-        else {
-            latch.SideEffect?.Invoke(_state);
-            if (latch is { WritebackValue: not null, DestinationRegister: > 0, })
-                _state.IntegerRegisters.Write(latch.DestinationRegister, latch.WritebackValue.Value);
-            else if (latch is { DestinationRegister: > 0, SideEffect: null, })
-                throw new InvalidOperationException(
-                    $"WB: instruction {latch.Instruction?.Payload?.GetType().Name} " +
-                    $"has rd={latch.DestinationRegister} but WritebackValue is null."
-                );
+        switch (latch) {
+            case { HasTrap: true, Trap: not null, }: TrapRedirect = (_trap.RaiseTrap(latch.Trap, _state), true); break;
+            case { IsReturnFromTrap: true, ReturnPrivilege: not null, }:
+                TrapRedirect = (_trap.ReturnFromTrap(latch.ReturnPrivilege.Value, _state), true);
+                break;
+            default: {
+                latch.SideEffect?.Invoke(_state);
+                switch (latch) {
+                    case { WritebackValue: not null, DestinationRegister: > 0, }:
+                        _state.IntegerRegisters.Write(latch.DestinationRegister, latch.WritebackValue.Value);
+                        break;
+                    case { DestinationRegister: > 0, SideEffect: null, }:
+                        throw new InvalidOperationException(
+                            $"WB: instruction {latch.Instruction?.Payload?.GetType().Name} " +
+                            $"has rd={latch.DestinationRegister} but WritebackValue is null."
+                        );
+                }
+
+                break;
+            }
         }
 
         Type? instrType = latch.Instruction?.Payload?.GetType();

@@ -2,10 +2,11 @@ namespace Orrery.Observation;
 
 /// <summary>
 /// A named, typed configuration parameter.
-///
+/// <para>
 /// Settings are declared during Building, given values before Running,
 /// and locked once the simulation starts. Attempting to write after
 /// lock throws immediately — this prevents accidental mid-run mutation.
+/// </para>
 /// </summary>
 public sealed class Setting<T> : ILockable {
     private T _value;

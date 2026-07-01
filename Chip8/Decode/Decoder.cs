@@ -202,7 +202,7 @@ public class Decoder : IDecoder {
                 cls = ToothClass.Load;
                 read.AddRange(Enumerable.Range(0, x + 1));
                 break;
-            default: throw new IllegalInstructionException(pc, raw, $"Unknown CHIP-8 instruction: 0x{raw:X4}");
+            default: throw new IllegalInstructionException(raw, $"Unknown CHIP-8 instruction: 0x{raw:X4}");
         }
 
         return new Instruction((ushort)pc, (ushort)raw, dest, read, cls, op);

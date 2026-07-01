@@ -12,9 +12,10 @@ public sealed class Pdp8RegisterFile : IRegisterFile {
     public ulong Read(int index) => index is 0 or 1 ? _r[index] : 0;
 
     public void Write(int index, ulong value) {
-        if (index == 0)
-            _r[0] = value & 0xFFF;
-        else if (index == 1) _r[1] = value & 1;
+        switch (index) {
+            case 0: _r[0] = value & 0xFFF; break;
+            case 1: _r[1] = value & 1; break;
+        }
     }
 }
 

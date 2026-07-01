@@ -1,5 +1,5 @@
-using Mechanism;
 using J1.Registers;
+using Mechanism;
 
 namespace J1;
 
@@ -8,8 +8,8 @@ public sealed class J1ArchState : IArchState {
 
     private readonly ushort[] _dstack = new ushort[J1ArchState.StackDepth];
     private readonly ushort[] _rstack = new ushort[J1ArchState.StackDepth];
-    private int _dsp = 0;
-    private int _rsp = 0;
+    private int _dsp;
+    private int _rsp;
 
     private readonly J1RegisterFile _regs;
 

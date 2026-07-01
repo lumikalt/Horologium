@@ -2,10 +2,11 @@ namespace Mechanism;
 
 /// <summary>
 /// The top-level ISA plugin.
-///
+/// <para>
 /// A Mechanism is a factory and registry for all ISA-specific components.
 /// The Train receives one Mechanism and uses it to construct the pipeline.
 /// Swapping the Mechanism swaps the entire ISA without touching the Train.
+/// </para>
 /// </summary>
 public interface IMechanism {
     /// <summary>A human-readable name for this ISA (e.g. "RV32I", "RV64GC").</summary>

@@ -11,5 +11,5 @@ public sealed class SubleqInstruction(ulong pc, SubleqOp op) : ITooth {
     public int DestinationRegister => -1;
     public IReadOnlyList<int> SourceRegisters => [];
     public ToothClass Class => ToothClass.ConditionalBranch;
-    public object? Payload => op;
+    public object Payload => op;
 }

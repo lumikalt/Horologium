@@ -39,7 +39,7 @@ public sealed class Pdp8Decoder : IDecoder {
                 ToothClass.System, new IotOp((word >> 3) & 0x3F, word & 7)
             ),
             7 => DecodeOpr(pc, word),
-            _ => throw new IllegalInstructionException(pc, raw, $"impossible opcode {opcode}"),
+            _ => throw new IllegalInstructionException(raw, $"impossible opcode {opcode}"),
         };
     }
 
@@ -86,7 +86,7 @@ public sealed class Pdp8Decoder : IDecoder {
             // OPR Group 2 (bit0=1 → Group 3 EAE, not implemented)
             if ((word & 0x01) != 0)
                 throw new IllegalInstructionException(
-                    (ulong)pc, (uint)word,
+                    (uint)word,
                     "EAE (OPR Group 3) is not implemented."
                 );
 

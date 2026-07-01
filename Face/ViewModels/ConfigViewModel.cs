@@ -81,13 +81,15 @@ public partial class ConfigViewModel : ObservableObject {
     public bool HasHashedPerceptronParams => PredictorType == "hashed_perceptron";
     public bool HasTournamentParams => PredictorType == "tournament";
 
-    partial void OnPipelineChanged(string value) {
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnPipelineChanged(string _) {
         OnPropertyChanged(nameof(IsFiveStage));
         OnPropertyChanged(nameof(IsOoo));
         OnPropertyChanged(nameof(IsWidePipeline));
     }
 
-    partial void OnPredictorTypeChanged(string value) {
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnPredictorTypeChanged(string _) {
         OnPropertyChanged(nameof(HasNBitParams));
         OnPropertyChanged(nameof(HasGshareParams));
         OnPropertyChanged(nameof(HasGselectParams));

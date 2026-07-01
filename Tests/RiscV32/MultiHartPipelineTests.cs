@@ -8,13 +8,14 @@ namespace Tests.RiscV32;
 /// <summary>
 /// Integration tests for <see cref="MultiHartPipeline"/>: two independent
 /// SingleCycleTrains stepped round-robin, and coherent read via shared MesiBus.
-///
+/// <para>
 /// Encoded instructions:
 ///   addi x1, x0, 42  = 0x02A00093
 ///   addi x1, x0, 99  = 0x06300093
 ///   sw   x1, 0(x2)   = 0x00112023
 ///   lw   x3, 0(x4)   = 0x00022183
 ///   ebreak            = 0x00100073
+/// </para>
 /// </summary>
 public class MultiHartPipelineTests {
     private const uint Ebreak = 0x00100073;
@@ -31,13 +32,13 @@ public class MultiHartPipelineTests {
     public void TwoHarts_RunIndependently_BothProduceCorrectResult() {
         // Hart 0: addi x1, x0, 42; ebreak  →  x1 = 42
         // Hart 1: addi x1, x0, 99; ebreak  →  x1 = 99
-        const uint Addi42 = 0x02A00093;
-        const uint Addi99 = 0x06300093;
+        const uint addi42 = 0x02A00093;
+        const uint addi99 = 0x06300093;
 
         var mem0 = new FlatMemory(0x100);
         var mem1 = new FlatMemory(0x100);
-        mem0.Load(0x00, ToBytes(Addi42, MultiHartPipelineTests.Ebreak));
-        mem1.Load(0x00, ToBytes(Addi99, MultiHartPipelineTests.Ebreak));
+        mem0.Load(0x00, ToBytes(addi42, MultiHartPipelineTests.Ebreak));
+        mem1.Load(0x00, ToBytes(addi99, MultiHartPipelineTests.Ebreak));
 
         var train0 = new SingleCycleTrain(new Rv32Mechanism(), mem0);
         var train1 = new SingleCycleTrain(new Rv32Mechanism(), mem1);
@@ -74,18 +75,18 @@ public class MultiHartPipelineTests {
         //                     H1 lw → BusRead: cache0 M→writeback+S, cache1 installs S, reads 0xCAFE.
         // After run: train1.ArchState.IntegerRegisters.Read(3) == 0xCAFE.
 
-        const uint SwX1 = 0x00112023; // sw x1, 0(x2)
-        const uint LwX3 = 0x00022183; // lw x3, 0(x4)
+        const uint swX1 = 0x00112023; // sw x1, 0(x2)
+        const uint lwX3 = 0x00022183; // lw x3, 0(x4)
 
         var flat = new FlatMemory(0x1000);
-        flat.Load(0x00, ToBytes(SwX1, MultiHartPipelineTests.Ebreak));
-        flat.Load(0x40, ToBytes(LwX3, MultiHartPipelineTests.Ebreak));
+        flat.Load(0x00, ToBytes(swX1, MultiHartPipelineTests.Ebreak));
+        flat.Load(0x40, ToBytes(lwX3, MultiHartPipelineTests.Ebreak));
 
         var bus = new MesiBus(flat);
         var cache0 = new MesiCache(bus, 256, 2, 64);
         var cache1 = new MesiCache(bus, 256, 2, 64);
 
-        var train0 = new SingleCycleTrain(new Rv32Mechanism(), cache0, 0x00);
+        var train0 = new SingleCycleTrain(new Rv32Mechanism(), cache0);
         var train1 = new SingleCycleTrain(new Rv32Mechanism(), cache1, 0x40);
 
         train0.ArchState.IntegerRegisters.Write(1, 0xCAFE); // value to store

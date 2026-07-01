@@ -5,18 +5,20 @@ namespace Pipeline;
 /// <summary>
 /// Coordinates N independent pipeline trains in round-robin cycle-interleaved order,
 /// analogous to <c>MultiHartKernel</c> but for full pipeline trains.
-///
+/// <para>
 /// Each hart owns its own <see cref="ISteppableTrain"/> instance (and typically its
 /// own <c>MesiCache</c> backed by a shared <c>MesiBus</c>). The coordinator advances
 /// harts one tick at a time in hart-0 → hart-1 → … → hart-(N-1) order within each
 /// logical cycle, so cross-hart coherence effects are interleaved at instruction
 /// granularity just like <c>MultiHartKernel</c>.
-///
+/// </para>
+/// <para>
 /// Usage:
 /// <code>
 ///   var pipeline = new MultiHartPipeline(train0, train1);
 ///   RevolutionResult[] results = pipeline.Run(maxTicks: 100_000);
 /// </code>
+/// </para>
 /// </summary>
 public sealed class MultiHartPipeline {
     private readonly ISteppableTrain[] _trains;

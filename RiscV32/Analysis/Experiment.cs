@@ -154,7 +154,7 @@ public static class Experiment {
     // so a cached copy goes stale and the printstr poll loop spins forever. They
     // are two adjacent 8-byte registers (tohost at the symbol, fromhost at +8).
     private static MemoryConfig WithMmio(MemoryConfig dCfg, IWorkload workload) =>
-        workload.HtifTohostAddress is ulong tohost
+        workload.HtifTohostAddress is { } tohost
             ? dCfg with { UncacheableBase = tohost, UncacheableSize = 16, }
             : dCfg;
 

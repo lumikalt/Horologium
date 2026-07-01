@@ -74,7 +74,7 @@ public sealed class RvInstruction(
         RvVMaskCmpVi op => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVseVv op      => op.Masked ? [op.Vs3, 0,] : [op.Vs3,],
         RvVsm op        => [op.Vs3,],
-        RvVMvXS op      => [op.Vs2,],
+        RvVMvXs op      => [op.Vs2,],
         _               => [],
     };
 
@@ -378,7 +378,7 @@ public record RvVIntAluVx(VIntOp Op, int Vd, int Vs2, int Rs1, bool Masked) : Rv
 public record RvVIntAluVi(VIntOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
 
 // vmv.x.s rd, vs2: extract element 0 from vs2 into integer rd (OPMVV, funct6=16)
-public record RvVMvXS(int Rd, int Vs2) : RvOp;
+public record RvVMvXs(int Rd, int Vs2) : RvOp;
 
 // Mask comparisons (result: 1 bit per element packed in vd)
 public record RvVMaskCmpVv(VMaskCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;

@@ -4,11 +4,12 @@ namespace Orrery.Scheduling;
 /// The phase of an event within a single tick.
 /// Events at the same tick are executed in ascending phase order.
 /// This ordering is the contract — pipeline stages depend on it.
-///
+/// <para>
 /// In-order pipelines use: Fetch, Execute, ArborUpdate, Writeback, Commit, Flush, Collection.
 /// Out-of-order pipelines additionally use: Dispatch (rename + ROB allocate),
 /// Issue (leave issue queue), and Complete (CDB broadcast / write physical RF).
 /// Unused phases are simply never scheduled.
+/// </para>
 /// </summary>
 public enum Phase {
     /// <summary>Instruction fetch logic.</summary>
@@ -55,12 +56,12 @@ internal readonly record struct SimEvent(long Tick, Phase Phase)
 
 /// <summary>
 /// The Escapement — the discrete-event scheduler that drives time forward.
-///
+/// <para>
 /// Like the escapement in a mechanical clock, it releases work in discrete,
 /// ordered steps. Nothing in the simulation happens except through the
 /// Escapement scheduling it.
-///
-/// Thread safety: not thread-safe. The simulation runs on a single thread.
+/// </para>
+/// <para>Thread safety: not thread-safe. The simulation runs on a single thread.</para>
 /// </summary>
 public sealed class Escapement {
     private readonly PriorityQueue<Action, SimEvent> _queue = new();

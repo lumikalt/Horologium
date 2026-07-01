@@ -2,10 +2,11 @@ namespace Pipeline.Ooo;
 
 /// <summary>
 /// Holds speculative register values for OoOE execution.
-///
+/// <para>
 /// Each slot has a ready bit: cleared at Dispatch when an instruction claims
 /// the register as its destination; set again at Complete when the CDB
 /// broadcasts the result. Waiting RS entries check IsReady before issuing.
+/// </para>
 /// </summary>
 public sealed class PhysicalRegisterFile {
     private readonly ulong[] _values;

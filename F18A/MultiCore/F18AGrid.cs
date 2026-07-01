@@ -8,15 +8,19 @@ namespace F18A.MultiCore;
 /// <summary>
 /// A rectangular grid of F18A nodes wired together with rendezvous arbors.
 /// Each call to <see cref="Step"/> advances all non-blocked nodes by one instruction word.
-///
+/// <para>
 /// Arbor rendezvous is resolved in two sub-phases per tick:
-///   1. <em>Arbor reset</em>: all nodes call BeginTick; arbors discard stale state.
-///   2. <em>Readiness check</em>: each node declares intent; nodes whose arbor will
-///      block are skipped this tick.
-///   3. <em>Execution</em>: ready nodes decode → execute → commit.
-///
+/// <list type="number">
+///   <item><description><em>Arbor reset</em>: all nodes call BeginTick; arbors discard stale state.</description></item>
+///   <item><description><em>Readiness check</em>: each node declares intent; nodes whose arbor will
+///     block are skipped this tick.</description></item>
+///   <item><description><em>Execution</em>: ready nodes decode → execute → commit.</description></item>
+/// </list>
+/// </para>
+/// <para>
 /// Nodes that need an arbor partner to proceed will retry on subsequent ticks until
 /// both sides arrive in the same tick.
+/// </para>
 /// </summary>
 public sealed class F18AGrid {
     private readonly F18ANode[,] _nodes;

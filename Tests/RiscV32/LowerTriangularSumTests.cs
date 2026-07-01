@@ -2,6 +2,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
@@ -12,8 +14,8 @@ namespace Tests.RiscV32;
 ///
 /// Program structure:
 ///   outer (r = 0..N-1):
-///     ss.ld.w u1, &matrix[r][0], count=(r+1), stride=4   — reconfigure per row
-///     inner: so.a.add.fp u2, u1, u2 ; so.b.nc u1, -4    — accumulate into u2
+///     ss.ld.w u1, &amp;matrix[r][0], count=(r+1), stride=4   — reconfigure per row
+///     inner: so.a.add.fp u2, u1, u2 ; so.b.nc u1, -4         — accumulate into u2
 ///   final: write u2 to resultAddr via a 1-element store stream
 /// </summary>
 public class LowerTriangularSumTests {

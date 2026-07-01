@@ -16,12 +16,13 @@ namespace Pipeline;
 /// contexts share a single issue window of width <c>issueWidth</c>.  Each tick
 /// the coordinator distributes available issue slots round-robin across active
 /// harts, rotating the starting hart every cycle for long-run fairness.
-///
+/// <para>
 /// All harts share the same Escapement and therefore advance in lock-step.
 /// Each hart has its own <see cref="IArchState"/> and <see cref="MemoryLayers"/>
 /// (typically backed by per-hart caches sharing a <c>MesiBus</c>), making MESI
 /// coherence effects observable at instruction granularity.
-///
+/// </para>
+/// <para>
 /// Usage:
 /// <code>
 ///   var smt = new SmtTrain(
@@ -32,6 +33,7 @@ namespace Pipeline;
 ///   );
 ///   smt.Run(1_000_000);
 /// </code>
+/// </para>
 /// </summary>
 public sealed class SmtTrain : ISteppableTrain {
     private readonly Train _train;
@@ -98,9 +100,10 @@ internal sealed class HartContext {
 /// The SMT core Gear. Each tick it distributes up to <c>issueWidth</c> issue
 /// slots round-robin across the N hart contexts, skipping halted harts and harts
 /// that have been blocked by a branch or halt within the current cycle.
-///
+/// <para>
 /// The starting hart rotates by 1 each cycle so every hart gets equal priority
 /// over time regardless of how <c>issueWidth</c> divides by N.
+/// </para>
 /// </summary>
 internal sealed class SmtCore(
     string name,

@@ -2,6 +2,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
@@ -53,10 +55,10 @@ public class ZbaZbsZicondTests {
         mem.Load(0x200u, BitConverter.GetBytes(x1Val));
         mem.Load(0x204u, BitConverter.GetBytes(x2Val));
 
-        var lw1 = (uint)((0x200 << 20) | (0 << 15) | (2 << 12) | (1 << 7) | 0x03u);
-        var lw2 = (uint)((0x204 << 20) | (0 << 15) | (2 << 12) | (2 << 7) | 0x03u);
-        var sw3 = (uint)((((0x100 >> 5) & 0x7F) << 25) | (3 << 20) | (0 << 15)
-                       | (2 << 12) | ((0x100 & 0x1F) << 7) | 0x23u);
+        const uint lw1 = (0x200 << 20) | (0 << 15) | (2 << 12) | (1 << 7) | 0x03u;
+        const uint lw2 = (0x204 << 20) | (0 << 15) | (2 << 12) | (2 << 7) | 0x03u;
+        const uint sw3 = (((0x100 >> 5) & 0x7F) << 25) | (3 << 20) | (0 << 15)
+                       | (2 << 12) | ((0x100 & 0x1F) << 7) | 0x23u;
 
         uint[] words = [lw1, lw2, instr, sw3, EBreak(),];
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));

@@ -151,7 +151,7 @@ public class Rv32Decoder : IDecoder {
             0x0B => DecodeUveSetup(pc, raw),
             0x2B => DecodeUveOp(pc, raw),
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Unknown opcode 0x{opcode:X2} at PC=0x{pc:X8}"
             ),
         };
@@ -181,7 +181,7 @@ public class Rv32Decoder : IDecoder {
                 0x6 => new RvRem(rd, rs1, rs2),
                 0x7 => new RvRemu(rd, rs1, rs2),
                 _ => throw new IllegalInstructionException(
-                    pc, raw,
+                    raw,
                     $"Unknown M-extension funct3=0x{funct3:X}"
                 ),
             };
@@ -231,7 +231,7 @@ public class Rv32Decoder : IDecoder {
             // Zbb zero-extend halfword (funct7=0x04, rs2=0)
             (0x4, 0x04) when rs2 == 0 => new RvZextH(rd, rs1),
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Unknown R-type funct3=0x{funct3:X} funct7=0x{funct7:X}"
             ),
         };
@@ -266,18 +266,18 @@ public class Rv32Decoder : IDecoder {
                 0x14 => new RvBseti(rd, rs1, (int)shamt),
                 0x24 => new RvBclri(rd, rs1, (int)shamt),
                 0x30 => shamt switch {
-                    0 => (RvOp)new RvClz(rd, rs1),
+                    0 => new RvClz(rd, rs1),
                     1 => new RvCtz(rd, rs1),
                     2 => new RvCpop(rd, rs1),
                     4 => new RvSextB(rd, rs1),
                     5 => new RvSextH(rd, rs1),
                     _ => throw new IllegalInstructionException(
-                        pc, raw, $"Unknown Zbb unary op shamt=0x{shamt:X}"
+                        raw, $"Unknown Zbb unary op shamt=0x{shamt:X}"
                     ),
                 },
                 0x34 => new RvBinvi(rd, rs1, (int)shamt),
                 _ => throw new IllegalInstructionException(
-                    pc, raw, $"Unknown OP-IMM funct3=1 funct7=0x{funct7:X}"
+                    raw, $"Unknown OP-IMM funct3=1 funct7=0x{funct7:X}"
                 ),
             },
             // SRLI/SRAI space: Zbb and Zbs immediate ops
@@ -289,11 +289,11 @@ public class Rv32Decoder : IDecoder {
                 0x30 => new RvRori(rd, rs1, (int)shamt),
                 0x34 => new RvRev8(rd, rs1),
                 _ => throw new IllegalInstructionException(
-                    pc, raw, $"Unknown OP-IMM funct3=5 funct7=0x{funct7:X}"
+                    raw, $"Unknown OP-IMM funct3=5 funct7=0x{funct7:X}"
                 ),
             },
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Unknown OP-IMM funct3=0x{funct3:X}"
             ),
         };
@@ -320,7 +320,7 @@ public class Rv32Decoder : IDecoder {
             0x4 => new RvLbu(rd, rs1, imm),
             0x5 => new RvLhu(rd, rs1, imm),
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Unknown LOAD funct3=0x{funct3:X}"
             ),
         };
@@ -345,7 +345,7 @@ public class Rv32Decoder : IDecoder {
             0x1 => new RvSh(rs1, rs2, imm),
             0x2 => new RvSw(rs1, rs2, imm),
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Unknown STORE funct3=0x{funct3:X}"
             ),
         };
@@ -379,7 +379,7 @@ public class Rv32Decoder : IDecoder {
             0x6 => new RvBltu(rs1, rs2, imm),
             0x7 => new RvBgeu(rs1, rs2, imm),
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Unknown BRANCH funct3=0x{funct3:X}"
             ),
         };
@@ -445,30 +445,31 @@ public class Rv32Decoder : IDecoder {
         uint csr = word >> 20;
         uint zimm = (word >> 15) & 0x1F;
 
-        if (funct3 == 0x0)
+        switch (funct3) {
             // ECALL / EBREAK / SRET / MRET / WFI / Zawrs
-            return (word >> 20) switch {
-                0x000 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEcall()),
-                0x001 => new RvInstruction(pc, raw, -1, [], ToothClass.Halt, new RvEbreak()),
-                0x102 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvSret()),
-                0x105 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWfi()),
-                0x302 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvMret()),
-                // Zawrs (single-core: NOP)
-                0x00D => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWrsNto()),
-                0x01D => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWrsSto()),
-                _ => throw new IllegalInstructionException(
-                    pc, raw,
-                    $"Unknown SYSTEM instruction at PC=0x{pc:X8}"
-                ),
-            };
-
-        // Zimop: funct3=4 is unused by standard CSR encoding; pattern-detect by CSR address bits.
-        if (funct3 == 0x4) {
-            if ((csr & 0xB3C) == 0x81C)
-                return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopR(rd));
-            if ((csr & 0xB3F) == 0x823)
-                return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopRr(rd));
-            throw new IllegalInstructionException(pc, raw, $"Unknown SYSTEM funct3=4 csr=0x{csr:X3}");
+            case 0x0:
+                return (word >> 20) switch {
+                    0x000 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEcall()),
+                    0x001 => new RvInstruction(pc, raw, -1, [], ToothClass.Halt, new RvEbreak()),
+                    0x102 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvSret()),
+                    0x105 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWfi()),
+                    0x302 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvMret()),
+                    // Zawrs (single-core: NOP)
+                    0x00D => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWrsNto()),
+                    0x01D => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvWrsSto()),
+                    _ => throw new IllegalInstructionException(
+                        raw,
+                        $"Unknown SYSTEM instruction at PC=0x{pc:X8}"
+                    ),
+                };
+            // Zimop: funct3=4 is unused by standard CSR encoding; pattern-detect by CSR address bits.
+            case 0x4: {
+                if ((csr & 0xB3C) == 0x81C)
+                    return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopR(rd));
+                if ((csr & 0xB3F) == 0x823)
+                    return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopRr(rd));
+                throw new IllegalInstructionException(raw, $"Unknown SYSTEM funct3=4 csr=0x{csr:X3}");
+            }
         }
 
         // CSR instructions
@@ -484,7 +485,7 @@ public class Rv32Decoder : IDecoder {
             0x6 => new RvCsrrsi(rd, zimm, csr),
             0x7 => new RvCsrrci(rd, zimm, csr),
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Unknown SYSTEM funct3=0x{funct3:X}"
             ),
         };
@@ -494,20 +495,21 @@ public class Rv32Decoder : IDecoder {
     // ── MISC-MEM (opcode=0x0F): FENCE, Zicbom, Zicboz ───────────────────────────
 
     private static RvInstruction DecodeMiscMem(ulong pc, uint raw, int rs1, uint funct3) {
-        if (funct3 == 0x0) return new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFence());
-        if (funct3 == 0x2) {
-            uint op = (raw >> 20) & 0x1F; // bits[24:20] select cbo operation
-            IReadOnlyList<int> src = [rs1,];
-            return op switch {
-                0x00 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboInval(rs1)),
-                0x01 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboClean(rs1)),
-                0x02 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboFlush(rs1)),
-                0x04 => new RvInstruction(pc, raw, -1, src, ToothClass.Store, new RvCboZero(rs1)),
-                _    => throw new IllegalInstructionException(pc, raw, $"Unknown CBO op bits[24:20]=0x{op:X2}"),
-            };
+        switch (funct3) {
+            case 0x0: return new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFence());
+            case 0x2: {
+                uint op = (raw >> 20) & 0x1F; // bits[24:20] select cbo operation
+                IReadOnlyList<int> src = [rs1,];
+                return op switch {
+                    0x00 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboInval(rs1)),
+                    0x01 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboClean(rs1)),
+                    0x02 => new RvInstruction(pc, raw, -1, src, ToothClass.Fence, new RvCboFlush(rs1)),
+                    0x04 => new RvInstruction(pc, raw, -1, src, ToothClass.Store, new RvCboZero(rs1)),
+                    _    => throw new IllegalInstructionException(raw, $"Unknown CBO op bits[24:20]=0x{op:X2}"),
+                };
+            }
+            default: throw new IllegalInstructionException(raw, $"Unknown MISC-MEM funct3=0x{funct3:X}");
         }
-
-        throw new IllegalInstructionException(pc, raw, $"Unknown MISC-MEM funct3=0x{funct3:X}");
     }
 
     // ── A extension (AMO) ─────────────────────────────────────────────────────
@@ -526,7 +528,7 @@ public class Rv32Decoder : IDecoder {
 
         if (funct3 != 0x2)
             throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"AMO with unsupported funct3=0x{funct3:X}"
             );
 
@@ -553,7 +555,7 @@ public class Rv32Decoder : IDecoder {
             0x18 => new RvAmominuW(rd, rs1, rs2),
             0x1C => new RvAmomaxuW(rd, rs1, rs2),
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Unknown AMO funct5=0x{funct5:X2}"
             ),
         };
@@ -581,7 +583,7 @@ public class Rv32Decoder : IDecoder {
             0x18 => isByte ? new RvAmominuB(rd, rs1, rs2) : new RvAmominuH(rd, rs1, rs2),
             0x1C => isByte ? new RvAmomaxuB(rd, rs1, rs2) : new RvAmomaxuH(rd, rs1, rs2),
             _ => throw new IllegalInstructionException(
-                pc, raw,
+                raw,
                 $"Zabha: unsupported funct5=0x{funct5:X2}"
             ),
         };
@@ -649,7 +651,7 @@ public class Rv32Decoder : IDecoder {
 
         if (mop != 0)
             throw new IllegalInstructionException(
-                pc, raw, $"V load: only unit-stride (mop=0) supported, got mop={mop}"
+                raw, $"V load: only unit-stride (mop=0) supported, got mop={mop}"
             );
 
         // VLM: funct3=0 + lumop=01011
@@ -661,7 +663,7 @@ public class Rv32Decoder : IDecoder {
             5 => 16,
             6 => 32,
             _ => throw new IllegalInstructionException(
-                pc, raw, $"V load: unsupported element width funct3=0x{funct3:X}"
+                raw, $"V load: unsupported element width funct3=0x{funct3:X}"
             ),
         };
         return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVleVv(vd, rs1, sew, masked));
@@ -683,7 +685,7 @@ public class Rv32Decoder : IDecoder {
 
         if (mop != 0)
             throw new IllegalInstructionException(
-                pc, raw, $"V store: only unit-stride (mop=0) supported, got mop={mop}"
+                raw, $"V store: only unit-stride (mop=0) supported, got mop={mop}"
             );
 
         // VSM: funct3=0 + sumop=01011
@@ -695,7 +697,7 @@ public class Rv32Decoder : IDecoder {
             5 => 16,
             6 => 32,
             _ => throw new IllegalInstructionException(
-                pc, raw, $"V store: unsupported element width funct3=0x{funct3:X}"
+                raw, $"V store: unsupported element width funct3=0x{funct3:X}"
             ),
         };
         return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Vector, new RvVseVv(vs3, rs1, sew, masked));
@@ -713,19 +715,21 @@ public class Rv32Decoder : IDecoder {
         bool masked = ((raw >> 25) & 1) == 0;
         uint funct6 = (raw >> 26) & 0x3F;
 
-        // OPCFG (funct3=7)
-        if (funct3 == 7) return DecodeVCfg(pc, raw, vd, rs1, vs2);
-
-        // OPMVV (funct3=2): vmv.x.s rd, vs2 (funct6=16)
-        if (funct3 == 2) {
-            if (funct6 == 16) return new RvInstruction(pc, raw, vd /*rd*/, [], ToothClass.Vector, new RvVMvXS(vd, vs2));
-            throw new IllegalInstructionException(pc, raw, $"V op: unsupported OPMVV funct6=0x{funct6:X2}");
+        switch (funct3) {
+            // OPCFG (funct3=7)
+            case 7: return DecodeVCfg(pc, raw, vd, rs1, vs2);
+            // OPMVV (funct3=2): vmv.x.s rd, vs2 (funct6=16)
+            case 2: {
+                if (funct6 == 16)
+                    return new RvInstruction(pc, raw, vd /*rd*/, [], ToothClass.Vector, new RvVMvXs(vd, vs2));
+                throw new IllegalInstructionException(raw, $"V op: unsupported OPMVV funct6=0x{funct6:X2}");
+            }
         }
 
         // OPIVV (funct3=0), OPIVX (funct3=4), OPIVI (funct3=3)
         if (funct3 is not (0 or 3 or 4))
             throw new IllegalInstructionException(
-                pc, raw, $"V op: unsupported funct3=0x{funct3:X}"
+                raw, $"V op: unsupported funct3=0x{funct3:X}"
             );
 
         VIntOp? intOp = funct6 switch {
@@ -754,11 +758,11 @@ public class Rv32Decoder : IDecoder {
         return intOp switch {
             null => cmpOp switch {
                 null => throw new IllegalInstructionException(
-                    pc, raw, $"V op: unknown funct6=0x{funct6:X2} funct3=0x{funct3:X}"
+                    raw, $"V op: unknown funct6=0x{funct6:X2} funct3=0x{funct3:X}"
                 ),
                 // vmsgtu/vmsgt: VX and VI only, not VV
                 VMaskCmpOp.Gtu or VMaskCmpOp.Gt when funct3 == 0 => throw new IllegalInstructionException(
-                    pc, raw, "vmsgtu/vmsgt.vv is not a valid encoding"
+                    raw, "vmsgtu/vmsgt.vv is not a valid encoding"
                 ),
                 _ => funct3 switch {
                     0 => new RvInstruction(
@@ -775,7 +779,7 @@ public class Rv32Decoder : IDecoder {
             },
             // vsub has no VI variant
             VIntOp.Sub when funct3 == 3 => throw new IllegalInstructionException(
-                pc, raw, "vsub.vi is not a valid instruction"
+                raw, "vsub.vi is not a valid instruction"
             ),
             _ => funct3 switch {
                 0 => new RvInstruction(
@@ -840,14 +844,14 @@ public class Rv32Decoder : IDecoder {
                 1 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjnS(rd + 32, rs1 + 32, rs2 + 32)),
                 2 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjxS(rd + 32, rs1 + 32, rs2 + 32)),
                 _ => throw new IllegalInstructionException(
-                    pc, raw, $"Unknown FSGNJ funct3=0x{funct3:X}"
+                    raw, $"Unknown FSGNJ funct3=0x{funct3:X}"
                 ),
             },
             0x14 => funct3 switch {
                 0 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFminS(rd + 32, rs1 + 32, rs2 + 32)),
                 1 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmaxS(rd + 32, rs1 + 32, rs2 + 32)),
                 _ => throw new IllegalInstructionException(
-                    pc, raw, $"Unknown FMIN/FMAX funct3=0x{funct3:X}"
+                    raw, $"Unknown FMIN/FMAX funct3=0x{funct3:X}"
                 ),
             },
             // Comparisons: FP sources, integer result
@@ -856,7 +860,7 @@ public class Rv32Decoder : IDecoder {
                 1 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFltS(rd, rs1 + 32, rs2 + 32)),
                 2 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFeqS(rd, rs1 + 32, rs2 + 32)),
                 _ => throw new IllegalInstructionException(
-                    pc, raw, $"Unknown FP compare funct3=0x{funct3:X}"
+                    raw, $"Unknown FP compare funct3=0x{funct3:X}"
                 ),
             },
             // Conversions float→int (funct3 = rounding mode)
@@ -864,7 +868,7 @@ public class Rv32Decoder : IDecoder {
                 0 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWs(rd, rs1 + 32, (int)funct3)),
                 1 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWuS(rd, rs1 + 32, (int)funct3)),
                 _ => throw new IllegalInstructionException(
-                    pc, raw, $"Unknown FCVT.W rs2={rs2}"
+                    raw, $"Unknown FCVT.W rs2={rs2}"
                 ),
             },
             // Conversions int→float (funct3 = rounding mode)
@@ -872,7 +876,7 @@ public class Rv32Decoder : IDecoder {
                 0 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSw(rd + 32, rs1, (int)funct3)),
                 1 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSWu(rd + 32, rs1, (int)funct3)),
                 _ => throw new IllegalInstructionException(
-                    pc, raw, $"Unknown FCVT.S rs2={rs2}"
+                    raw, $"Unknown FCVT.S rs2={rs2}"
                 ),
             },
             // FMV.X.W / FCLASS.S
@@ -880,13 +884,13 @@ public class Rv32Decoder : IDecoder {
                 0 => FpR1(pc, raw, rd, rs1 + 32, new RvFmvXw(rd, rs1 + 32)),
                 1 => FpR1(pc, raw, rd, rs1 + 32, new RvFclassS(rd, rs1 + 32)),
                 _ => throw new IllegalInstructionException(
-                    pc, raw, $"Unknown FMV.X.W/FCLASS funct3=0x{funct3:X}"
+                    raw, $"Unknown FMV.X.W/FCLASS funct3=0x{funct3:X}"
                 ),
             },
             // FMV.W.X: int→float bit copy
             0x78 => FpR1(pc, raw, rd + 32, rs1, new RvFmvWx(rd + 32, rs1)),
             _ => throw new IllegalInstructionException(
-                pc, raw, $"Unknown OP-FP funct7=0x{funct7:X2}"
+                raw, $"Unknown OP-FP funct7=0x{funct7:X2}"
             ),
         };
     }
@@ -904,7 +908,7 @@ public class Rv32Decoder : IDecoder {
         uint fmt = (raw >> 25) & 0x3;
         if (fmt != 0)
             throw new IllegalInstructionException(
-                pc, raw, $"FMA: only .S format (fmt=0) supported, got fmt={fmt}"
+                raw, $"FMA: only .S format (fmt=0) supported, got fmt={fmt}"
             );
         RvOp op = opcode switch {
             0x43 => new RvFmaddS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
@@ -912,7 +916,7 @@ public class Rv32Decoder : IDecoder {
             0x4B => new RvFnmsubS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             0x4F => new RvFnmaddS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             _ => throw new IllegalInstructionException(
-                pc, raw, $"Unknown FMA opcode 0x{opcode:X2}"
+                raw, $"Unknown FMA opcode 0x{opcode:X2}"
             ),
         };
         return new RvInstruction(
@@ -965,7 +969,7 @@ public class Rv32Decoder : IDecoder {
             0x1 => DecodeCompressedQ1(pc, c, funct3),
             0x2 => DecodeCompressedQ2(pc, c, funct3),
             _ => throw new IllegalInstructionException(
-                pc, c, "Compressed opcode with quadrant 0x3 is a 32-bit instruction"
+                c, "Compressed opcode with quadrant 0x3 is a 32-bit instruction"
             ),
         };
     }
@@ -982,7 +986,7 @@ public class Rv32Decoder : IDecoder {
             0x3 => DecodeCFlw(pc, c, rdp, rs1P),
             0x6 => DecodeCSw(pc, c, rdp, rs1P),
             0x7 => DecodeCFsw(pc, c, rdp, rs1P),
-            _   => throw new IllegalInstructionException(pc, c, $"Unknown C.Q0 funct3=0x{funct3:X}"),
+            _   => throw new IllegalInstructionException(c, $"Unknown C.Q0 funct3=0x{funct3:X}"),
         };
     }
 
@@ -993,7 +997,7 @@ public class Rv32Decoder : IDecoder {
                    | (((c >> 6) & 0x1) << 2)
                    | (((c >> 5) & 0x1) << 3);
         return nzuimm == 0
-            ? throw new IllegalInstructionException(pc, c, "C.ADDI4SPN with nzuimm=0 is reserved")
+            ? throw new IllegalInstructionException(c, "C.ADDI4SPN with nzuimm=0 is reserved")
             : C(pc, c, rdp, [2,], ToothClass.IntegerAlu, new RvAddi(rdp, 2, nzuimm));
     }
 
@@ -1030,7 +1034,7 @@ public class Rv32Decoder : IDecoder {
             0x5 => DecodeCj(pc, c), // C.J → JAL x0, offset
             0x6 => C(pc, c, -1, [rs1P, 0,], ToothClass.ConditionalBranch, new RvBeq(rs1P, 0, CBranchImm(c))), // C.BEQZ
             0x7 => C(pc, c, -1, [rs1P, 0,], ToothClass.ConditionalBranch, new RvBne(rs1P, 0, CBranchImm(c))), // C.BNEZ
-            _   => throw new IllegalInstructionException(pc, c, $"Unknown C.Q1 funct3=0x{funct3:X}"),
+            _   => throw new IllegalInstructionException(c, $"Unknown C.Q1 funct3=0x{funct3:X}"),
         };
     }
 
@@ -1081,7 +1085,7 @@ public class Rv32Decoder : IDecoder {
                       | (((c >> 2) & 0x1) << 5);
             nzimm = SignExtendN(nzimm, 10);
             return nzimm == 0
-                ? throw new IllegalInstructionException(pc, c, "C.ADDI16SP with nzimm=0 is reserved")
+                ? throw new IllegalInstructionException(c, "C.ADDI16SP with nzimm=0 is reserved")
                 : C(pc, c, 2, [2,], ToothClass.IntegerAlu, new RvAddi(2, 2, nzimm));
         }
 
@@ -1089,7 +1093,7 @@ public class Rv32Decoder : IDecoder {
         int raw6 = (((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F);
         int nzimmLui = SignExtendN(raw6, 6) << 12;
         return nzimmLui == 0
-            ? throw new IllegalInstructionException(pc, c, "C.LUI with nzimm=0 is reserved")
+            ? throw new IllegalInstructionException(c, "C.LUI with nzimm=0 is reserved")
             : C(pc, c, rd, [], ToothClass.IntegerAlu, new RvLui(rd, nzimmLui));
     }
 
@@ -1100,11 +1104,11 @@ public class Rv32Decoder : IDecoder {
         switch (sub) {
             // C.SRLI → SRLI rs1', rs1', shamt
             case 0x0 when (shamt & 0x20) != 0:
-                throw new IllegalInstructionException(pc, c, "C.SRLI with shamt[5]=1 is reserved for RV32");
+                throw new IllegalInstructionException(c, "C.SRLI with shamt[5]=1 is reserved for RV32");
             case 0x0: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvSrli(rs1P, rs1P, shamt));
             // C.SRAI → SRAI rs1', rs1', shamt
             case 0x1 when (shamt & 0x20) != 0:
-                throw new IllegalInstructionException(pc, c, "C.SRAI with shamt[5]=1 is reserved for RV32");
+                throw new IllegalInstructionException(c, "C.SRAI with shamt[5]=1 is reserved for RV32");
             case 0x1: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvSrai(rs1P, rs1P, shamt));
             // C.ANDI → ANDI rs1', rs1', imm
             case 0x2: return C(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, new RvAndi(rs1P, rs1P, ci6Imm));
@@ -1112,14 +1116,14 @@ public class Rv32Decoder : IDecoder {
 
         // sub == 0x3: CA-type arithmetic
         if ((c & 0x1000) != 0)
-            throw new IllegalInstructionException(pc, c, "C.SUB/XOR/OR/AND with c[12]=1 is reserved");
+            throw new IllegalInstructionException(c, "C.SUB/XOR/OR/AND with c[12]=1 is reserved");
         int rs2P = ((c >> 2) & 0x7) + 8;
         return ((c >> 5) & 0x3) switch {
             0x0 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvSub(rs1P, rs1P, rs2P)),
             0x1 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvXor(rs1P, rs1P, rs2P)),
             0x2 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvOr(rs1P, rs1P, rs2P)),
             0x3 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvAnd(rs1P, rs1P, rs2P)),
-            _   => throw new IllegalInstructionException(pc, c, $"Unknown CA funct2=0x{(c >> 5) & 0x3:X}"),
+            _   => throw new IllegalInstructionException(c, $"Unknown CA funct2=0x{(c >> 5) & 0x3:X}"),
         };
     }
 
@@ -1136,14 +1140,14 @@ public class Rv32Decoder : IDecoder {
             0x4 => DecodeQ2Funct3_100(pc, c, rd, rs2),
             0x6 => DecodeCSwsp(pc, c, rs2),
             0x7 => DecodeCFswsp(pc, c, rs2),
-            _   => throw new IllegalInstructionException(pc, c, $"Unknown C.Q2 funct3=0x{funct3:X}"),
+            _   => throw new IllegalInstructionException(c, $"Unknown C.Q2 funct3=0x{funct3:X}"),
         };
     }
 
     private static RvInstruction DecodeCslli(ulong pc, ushort c, int rd, int rs2) {
         int shamt = (((c >> 12) & 0x1) << 5) | rs2;
         return (shamt & 0x20) != 0
-            ? throw new IllegalInstructionException(pc, c, "C.SLLI with shamt[5]=1 is reserved for RV32")
+            ? throw new IllegalInstructionException(c, "C.SLLI with shamt[5]=1 is reserved for RV32")
             : C(pc, c, rd, [rd,], ToothClass.IntegerAlu, new RvSlli(rd, rd, shamt));
     }
 
@@ -1153,7 +1157,7 @@ public class Rv32Decoder : IDecoder {
       | (((c >> 2) & 0x3) << 6); // c[3:2] → uimm[7:6]
 
     private static RvInstruction DecodeCLwsp(ulong pc, ushort c, int rd) => rd == 0
-        ? throw new IllegalInstructionException(pc, c, "C.LWSP with rd=x0 is reserved")
+        ? throw new IllegalInstructionException(c, "C.LWSP with rd=x0 is reserved")
         : C(pc, c, rd, [2,], ToothClass.Load, new RvLw(rd, 2, ClwspImm(c)));
 
     private static RvInstruction DecodeCFlwsp(ulong pc, ushort c, int rd) =>
@@ -1174,7 +1178,7 @@ public class Rv32Decoder : IDecoder {
             case false when rs2 == 0: {
                 // C.JR → JALR x0, 0(rs1)
                 return rd == 0
-                    ? throw new IllegalInstructionException(pc, c, "C.JR with rs1=x0 is reserved")
+                    ? throw new IllegalInstructionException(c, "C.JR with rs1=x0 is reserved")
                     : C(pc, c, 0, [rd,], ToothClass.Branch, new RvJalr(0, rd, 0));
             }
             // C.MV → ADD rd, x0, rs2
@@ -1219,7 +1223,7 @@ public class Rv32Decoder : IDecoder {
             0x4 => new RvInstruction(pc, raw, -1, [rs2, rs3,], ToothClass.Uve, new RvUveSsApp(ud, rs2, rs3)),
             0x5 => new RvInstruction(pc, raw, -1, [rs2, rs3,], ToothClass.Uve, new RvUveSsEnd(ud, rs2, rs3)),
             0x6 => new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSsCfgVec(ud)),
-            _   => throw new IllegalInstructionException(pc, raw, $"Unknown UVE setup funct3=0x{funct3:X}"),
+            _   => throw new IllegalInstructionException(raw, $"Unknown UVE setup funct3=0x{funct3:X}"),
         };
     }
 
@@ -1238,7 +1242,7 @@ public class Rv32Decoder : IDecoder {
             case 0x1: {
                 // so.a.fp ud, usrc1, usrc2 — arithmetic on stream elements
                 var op = (UveFpOp)((funct7 >> 4) & 0x7);
-                if (!Enum.IsDefined(op)) throw new IllegalInstructionException(pc, raw, $"Unknown UVE so.a.fp op={op}");
+                if (!Enum.IsDefined(op)) throw new IllegalInstructionException(raw, $"Unknown UVE so.a.fp op={op}");
                 // rd=dest u-reg, rs1=usrc1, rs2=usrc2; no integer source/dest registers
                 return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoAFp(op, rd, rs1, rs2));
             }
@@ -1257,7 +1261,7 @@ public class Rv32Decoder : IDecoder {
                 return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNdc(rs1, dim, imm));
             }
 
-            default: throw new IllegalInstructionException(pc, raw, $"Unknown UVE op funct3=0x{funct3:X}");
+            default: throw new IllegalInstructionException(raw, $"Unknown UVE op funct3=0x{funct3:X}");
         }
     }
 

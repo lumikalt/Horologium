@@ -4,10 +4,11 @@ namespace Pipeline.Ooo;
 
 /// <summary>
 /// One slot in the Reorder Buffer.
-///
+/// <para>
 /// Allocated at Dispatch and retired at Commit. Instructions may complete
 /// out-of-order (IsComplete may become true in any order) but they are
 /// retired strictly in program order from the head of the ROB.
+/// </para>
 /// </summary>
 public sealed class RobEntry {
     public bool Valid { get; set; }
@@ -117,11 +118,12 @@ public sealed class RobEntry {
 
 /// <summary>
 /// Circular Reorder Buffer — the backbone of in-order commitment in an OoOE pipeline.
-///
+/// <para>
 /// Instructions are allocated at the <em>tail</em> (Dispatch phase) and retired
 /// from the <em>head</em> (Commit phase). Execution results arrive out-of-order
 /// and are written into the matching entry; the head can only retire once its
 /// IsComplete flag is set, ensuring precise exception semantics.
+/// </para>
 /// </summary>
 public sealed class ReorderBuffer {
     private readonly RobEntry[] _slots;
@@ -175,11 +177,12 @@ public sealed class ReorderBuffer {
 
     /// <summary>
     /// Squashes all in-flight entries, resetting the ROB to empty.
-    ///
+    /// <para>
     /// Before calling Flush, the caller should iterate <see cref="InOrder"/>
     /// in <em>reverse</em> to walk back the RAT: for each entry with a valid
     /// ArchDestination, call RenameMap.RestoreMapping and
     /// RenameMap.FreePhysical to undo the Dispatch-time rename.
+    /// </para>
     /// </summary>
     public void Flush() {
         for (var i = 0; i < Capacity; i++) _slots[i].Clear();

@@ -406,7 +406,7 @@ public class FiveStagePipelineTests {
     [Fact]
     public void WithDCache_LoadHitAfterStore_CorrectValue() {
         // SW to address 0x100 then LW from the same address through a D-cache.
-        // The SW is a write-through so backing stays consistent; the LW should
+        // The SW is a write-through, so backing stays consistent; the LW should
         // fill the cache and return the stored value.
         var mem = new FlatMemory(4096);
         var train = new FiveStageTrain(
@@ -469,7 +469,7 @@ public class FiveStagePipelineTests {
     public void StoreBuffer_StoreFollowedByLoad_Forwards() {
         // sw x2, 0(x1) then immediately lw x3, 0(x1) at the same address.
         // With D-cache (write-through, no-write-allocate) and a store buffer:
-        // the load should forward from the buffer → store_forwards == 1 and
+        // the load should forward from the buffer → store_forwards == 1, and
         // x3 holds the stored value.
         //
         //   addi x1, x0, 256   (base address)
@@ -503,7 +503,7 @@ public class FiveStagePipelineTests {
 
     [Fact]
     public void StoreBuffer_WithoutCache_CorrectResult() {
-        // Store buffer works without D-cache too: stores go to FlatMemory on drain
+        // Store buffer works without D-cache too: stores go to FlatMemory on drain,
         // and forwards happen within the 1-tick window.
         var mem = new FlatMemory(4096);
         var train = new FiveStageTrain(
@@ -604,20 +604,20 @@ public class FiveStagePipelineTests {
     // Layout used by interrupt tests:
     //   0x0000..0x001F  five NOPs, then EBREAK (fallback halt if no interrupt)
     //   0x0100          handler: EBREAK (halts the pipeline in the handler)
-    private static (FiveStageTrain train, FlatMemory mem) MakeInterruptFixture() {
+    private static FiveStageTrain MakeInterruptFixture() {
         var mem = new FlatMemory(4096);
-        var train = new FiveStageTrain(new Rv32Mechanism(), mem, 0);
-        const uint Nop = 0x00000013u; // addi x0, x0, 0
-        const uint Ebreak = 0x00100073u;
-        Load(mem, Nop, Nop, Nop, Nop, Nop, Ebreak);
+        var train = new FiveStageTrain(new Rv32Mechanism(), mem);
+        const uint nop = 0x00000013u; // addi x0, x0, 0
+        const uint ebreak = 0x00100073u;
+        Load(mem, nop, nop, nop, nop, nop, ebreak);
         // Write EBREAK to handler address using unchecked byte truncation.
-        mem.Load(0x100, BitConverter.GetBytes(Ebreak));
-        return (train, mem);
+        mem.Load(0x100, BitConverter.GetBytes(ebreak));
+        return train;
     }
 
     [Fact]
     public void FiveStage_MachineTimerInterrupt_EntersHandler_AndSetsCorrectMepc() {
-        (FiveStageTrain train, _) = MakeInterruptFixture();
+        FiveStageTrain train = MakeInterruptFixture();
 
         WriteCsr(train, CsrFile.Mtvec, 0x0100);               // handler at 0x0100
         WriteCsr(train, CsrFile.Mip, 1u << 7);                // MTI pending
@@ -627,7 +627,7 @@ public class FiveStagePipelineTests {
         train.Run();
 
         // The interrupt fires after the first NOP (at PC=0x0000) retires.
-        // mepc must be the PC of the first un-retired instruction = 0x0004.
+        // mepc must be the PC of the first unretired instruction = 0x0004.
         Assert.Equal(0x0004uL, ReadCsr(train, CsrFile.Mepc));
         Assert.Equal(
             unchecked((uint)RvTrapCause.MachineTimerInterrupt),
@@ -642,7 +642,7 @@ public class FiveStagePipelineTests {
 
     [Fact]
     public void FiveStage_InterruptDisabled_MIE_Clear_DoesNotFire() {
-        (FiveStageTrain train, _) = MakeInterruptFixture();
+        FiveStageTrain train = MakeInterruptFixture();
 
         // MTI pending and enabled in mie, but mstatus.MIE = 0.
         WriteCsr(train, CsrFile.Mip, 1u << 7);

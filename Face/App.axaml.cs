@@ -10,13 +10,14 @@ public class App : Application {
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted() {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) {
-            desktop.MainWindow = new MainWindow();
-        }
-        else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView) {
-            var panel = new MainPanel();
-            panel.DataContext = new MainWindowViewModel();
-            singleView.MainView = panel;
+        switch (ApplicationLifetime) {
+            case IClassicDesktopStyleApplicationLifetime desktop: desktop.MainWindow = new MainWindow(); break;
+            case ISingleViewApplicationLifetime singleView: {
+                var panel = new MainPanel();
+                panel.DataContext = new MainWindowViewModel();
+                singleView.MainView = panel;
+                break;
+            }
         }
 
         base.OnFrameworkInitializationCompleted();

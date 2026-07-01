@@ -8,9 +8,10 @@ namespace RiscV32.Trace;
 /// effective address of a load/store — which is <c>base_reg + imm</c>, computed
 /// at runtime and not derivable from the instruction encoding alone (and the
 /// base register may be overwritten by the instruction itself).
-///
+/// <para>
 /// Unlike the OoO pipeline's CapturingMemory it does not defer writes; reads and
 /// writes pass straight through to <paramref name="inner"/>.
+/// </para>
 /// </summary>
 public sealed class TracingMemory(IMemory inner) : IMemory {
     /// <summary>True if any access has occurred since the last <see cref="Reset"/>.</summary>

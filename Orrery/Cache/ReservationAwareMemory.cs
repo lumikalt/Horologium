@@ -5,12 +5,13 @@ namespace Orrery.Cache;
 /// <summary>
 /// Wraps a shared backing <see cref="IMemory"/> and cancels cross-hart LR/SC
 /// reservations on every write.
-///
+/// <para>
 /// Place this immediately above the shared physical memory (e.g. FlatMemory)
 /// in the multi-hart memory stack.  Each hart's per-hart cache and TLB layers
 /// sit above this wrapper; writes that penetrate to the shared backing
 /// (write-through cache or committed-store path) automatically invalidate any
 /// other hart's outstanding reservation that overlaps the written range.
+/// </para>
 /// </summary>
 public sealed class ReservationAwareMemory(IMemory backing, ReservationTable table) : IMemory {
     public ulong Read(ulong address, int bytes) =>

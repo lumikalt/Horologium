@@ -1,6 +1,5 @@
 using Mechanism;
 using RiscV32.Memory;
-using RiscV64;
 using RiscV64.Decode;
 using RiscV64.Execute;
 using RiscV64.State;

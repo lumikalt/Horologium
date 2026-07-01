@@ -85,14 +85,16 @@ public sealed class OooeTrain : ISteppableTrain {
 
 /// <summary>
 /// Superscalar out-of-order pipeline Gear using Tomasulo's algorithm.
-///
+/// <para>
 /// Pipeline stages (cross-tick latches connect them):
 ///   Fetch → [decodeQueue] → Dispatch → [IssueQueue] → Issue
 ///     → [_execBuffer] → Execute → [_cdbBuffer] → Complete → [ROB] → Commit
-///
+/// </para>
+/// <para>
 /// All six logical stages execute within a single RunCycle tick, reading from
 /// the latch populated by the previous tick. Minimum end-to-end latency for
 /// an independent instruction is ~4 ticks (Fetch, Dispatch, Execute, Complete+Commit).
+/// </para>
 /// </summary>
 internal sealed class OoOPipelineCore : Gear {
     // ── Nested helper types ────────────────────────────────────────────────────
@@ -177,7 +179,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly IExecutor _executor;
     private readonly ITrapController _trapController;
     private readonly IBranchPredictor _predictor;
-    private readonly ReturnAddressStack _ras = new(16);
+    private readonly ReturnAddressStack _ras = new();
     private readonly IFetchTranslator? _fetchTranslator;
     private readonly CapturingMemory _capMem;
     private readonly FuLatencyConfig _fuConfig;
@@ -758,50 +760,52 @@ internal sealed class OoOPipelineCore : Gear {
                 int fuSlot = FuLatencyConfig.BudgetSlot(cls);
                 if (classIssued[fuSlot] >= _fuConfig.CountFor(cls)) continue;
 
-                // Loads issue speculatively; only block on preceding vector stores (which
-                // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
-                // Scalar store-to-load ordering is maintained through forwarding and, when
-                // necessary, memory-order violation detection and squash at the ROB head.
-                if (cls == ToothClass.Load && HasPrecedingVectorStore(rs.RobIndex)) continue;
-
-                // Conservative load ordering (FuLatencyConfig.ConservativeLoads): a load
-                // may not issue while any older SQ entry still has an unresolved address.
-                // Models Olympia's allow_speculative_load_exec = false.
-                if (cls == ToothClass.Load && _fuConfig.ConservativeLoads) {
-                    int lqIdx = _rob.At(rs.RobIndex).LqIdx;
-                    if (lqIdx >= 0 && HasUnresolvedPrecedingStore(_lq.At(lqIdx).SeqNo)) continue;
+                switch (cls) {
+                    // Loads issue speculatively; only block on preceding vector stores (which
+                    // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
+                    // Scalar store-to-load ordering is maintained through forwarding and, when
+                    // necessary, memory-order violation detection and squash at the ROB head.
+                    case ToothClass.Load when HasPrecedingVectorStore(rs.RobIndex): continue;
+                    // Conservative load ordering (FuLatencyConfig.ConservativeLoads): a load
+                    // may not issue while any older SQ entry still has an unresolved address.
+                    // Models Olympia's allow_speculative_load_exec = false.
+                    case ToothClass.Load when _fuConfig.ConservativeLoads: {
+                        int lqIdx = _rob.At(rs.RobIndex).LqIdx;
+                        if (lqIdx >= 0 && HasUnresolvedPrecedingStore(_lq.At(lqIdx).SeqNo)) continue;
+                        break;
+                    }
                 }
 
-                // MSHR capacity: if all miss-tracking slots are occupied, this load/atomic
-                // cannot start yet — it stays in the IQ and retries next cycle.
-                if (cls is ToothClass.Load or ToothClass.Atomic
-                 && _mshrCapacity > 0 && _mshrUsed >= _mshrCapacity) {
-                    _mshrStallsCounter?.Increment();
-                    continue;
-                }
+                switch (cls) {
+                    // MSHR capacity: if all miss-tracking slots are occupied, this load/atomic
+                    // cannot start yet — it stays in the IQ and retries next cycle.
+                    case ToothClass.Load or ToothClass.Atomic
+                        when _mshrCapacity > 0 && _mshrUsed >= _mshrCapacity:
+                        _mshrStallsCounter?.Increment();
+                        continue;
+                    // CSR serialization: a System instruction may only issue when it is
+                    // at the ROB head (all older instructions have committed). This prevents
+                    // out-of-order CSR reads from seeing stale state written by earlier CSR ops.
+                    case ToothClass.System when rs.RobIndex != _rob.HeadIndex:
+                    // Vector serialization: vector register renaming is not implemented.
+                    // Head-gating ensures VRF writes are applied in program order.
+                    case ToothClass.Vector when rs.RobIndex != _rob.HeadIndex:
+                        continue;
+                    // UVE serialization: stream state is not renamed; head-gating preserves order.
+                    // Additionally stall until every load-stream source has a buffered element.
+                    case ToothClass.Uve: {
+                        if (rs.RobIndex != _rob.HeadIndex) continue;
+                        var streamStall = false;
+                        if (rs.Instruction is not null)
+                            foreach (int uid in rs.Instruction.UveStreamSources)
+                                if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
+                                    streamStall = true;
+                                    break;
+                                }
 
-                // CSR serialization: a System instruction may only issue when it is
-                // at the ROB head (all older instructions have committed). This prevents
-                // out-of-order CSR reads from seeing stale state written by earlier CSR ops.
-                if (cls == ToothClass.System && rs.RobIndex != _rob.HeadIndex) continue;
-
-                // Vector serialization: vector register renaming is not implemented.
-                // Head-gating ensures VRF writes are applied in program order.
-                if (cls == ToothClass.Vector && rs.RobIndex != _rob.HeadIndex) continue;
-
-                // UVE serialization: stream state is not renamed; head-gating preserves order.
-                // Additionally stall until every load-stream source has a buffered element.
-                if (cls == ToothClass.Uve) {
-                    if (rs.RobIndex != _rob.HeadIndex) continue;
-                    var streamStall = false;
-                    if (rs.Instruction is not null)
-                        foreach (int uid in rs.Instruction.UveStreamSources)
-                            if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
-                                streamStall = true;
-                                break;
-                            }
-
-                    if (streamStall) continue;
+                        if (streamStall) continue;
+                        break;
+                    }
                 }
 
                 ulong issuedInstrId = _rob.At(rs.RobIndex).InstrId;
@@ -1297,10 +1301,11 @@ internal sealed class OoOPipelineCore : Gear {
     /// <summary>
     /// Write a committed store to memory and optionally absorb the write-miss stall
     /// into the write buffer so the pipeline doesn't freeze for it.
-    ///
+    /// <para>
     /// Because the D-cache is write-through / no-write-allocate, data reaches memory
     /// the instant Write() returns — forwarding correctness is never at risk regardless
     /// of whether the stall is absorbed or charged to the clock.
+    /// </para>
     /// </summary>
     private void CommitStore(ulong address, ulong value, int width) {
         DLayers.Accessor.Write(address, value, width);

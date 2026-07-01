@@ -10,9 +10,15 @@ public sealed class ByteArrayWorkload(
     ulong? entryPoint = null,
     int? memorySizeBytes = null
 ) : IWorkload {
+    /// <inheritdoc />
     public ulong EntryPoint { get; } = entryPoint ?? loadAddress;
+
+    /// <inheritdoc />
     public int MemorySize { get; } = memorySizeBytes ?? Math.Max(65536, program.Length + (int)loadAddress);
+
+    /// <inheritdoc />
     public int CodeSize => program.Length;
 
+    /// <inheritdoc />
     public void Load(IMemory memory) => memory.Load(loadAddress, program);
 }

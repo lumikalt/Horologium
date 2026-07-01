@@ -1,5 +1,5 @@
-using Mechanism;
 using J1.Decode;
+using Mechanism;
 
 namespace J1.Execute;
 
@@ -41,7 +41,7 @@ public sealed class J1Executor : IExecutor {
     private static ExecuteResult ExecAlu(Alu op, ulong pc, J1ArchState j1, IMemory memory) {
         ushort t = j1.T, n = j1.N, r = j1.R;
 
-        ushort newT = op.TOut switch {
+        ushort newT = op.Out switch {
             0x0 => t,
             0x1 => n,
             0x2 => (ushort)(t + n),
@@ -51,13 +51,13 @@ public sealed class J1Executor : IExecutor {
             0x6 => (ushort)~t,
             0x7 => n == t ? (ushort)0xFFFF : (ushort)0,
             0x8 => (short)n < (short)t ? (ushort)0xFFFF : (ushort)0,
-            0x9 => (ushort)((ushort)n >> (t & 0xF)),
+            0x9 => (ushort)(n >> (t & 0xF)),
             0xA => (ushort)(t - 1),
             0xB => r,
             0xC => (ushort)memory.Read((ulong)t * 2, 2),
-            0xD => (ushort)((ushort)n << (t & 0xF)),
+            0xD => (ushort)(n << (t & 0xF)),
             0xE => (ushort)j1.Dsp,
-            0xF => (ushort)n < (ushort)t ? (ushort)0xFFFF : (ushort)0,
+            0xF => n < t ? (ushort)0xFFFF : (ushort)0,
             _   => t,
         };
 
@@ -99,8 +99,9 @@ public sealed class J1Executor : IExecutor {
     }
 
     private static void ApplyRDelta(J1ArchState j, int delta) {
-        if (delta == 1)
-            j.RPush(0);
-        else if (delta == -1) j.RPop();
+        switch (delta) {
+            case 1:  j.RPush(0); break;
+            case -1: j.RPop(); break;
+        }
     }
 }

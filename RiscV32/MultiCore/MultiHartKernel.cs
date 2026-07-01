@@ -5,15 +5,17 @@ namespace RiscV32.MultiCore;
 /// <summary>
 /// Drives N RISC-V harts round-robin against a shared physical memory.
 /// Each call to <see cref="Step"/> advances every non-halted hart by one instruction.
-///
+/// <para>
 /// Callers are responsible for wrapping the shared backing memory in
 /// <c>ReservationAwareMemory</c> and wiring each <see cref="Rv32Mechanism"/>
 /// with the same <c>ReservationTable</c> so that LR/SC sequences are correctly
 /// cross-invalidated across harts.
-///
+/// </para>
+/// <para>
 /// This kernel operates entirely in physical address space. It does not apply
 /// any fetch translation or cache hierarchy — it is suited for bare-metal
 /// multi-hart workloads where harts share a flat physical memory.
+/// </para>
 /// </summary>
 public sealed class MultiHartKernel {
     private readonly Rv32Mechanism[] _mechanisms;

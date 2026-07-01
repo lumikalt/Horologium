@@ -2,10 +2,11 @@ namespace Mechanism;
 
 /// <summary>
 /// Handles trap entry and return for a hart.
-///
+/// <para>
 /// The trap controller is the only place privileged state transitions live.
 /// It saves context, updates CSRs, and redirects the PC — all atomically
 /// from the pipeline's perspective, at the commit stage.
+/// </para>
 /// </summary>
 public interface ITrapController {
     /// <summary>

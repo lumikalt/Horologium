@@ -7,11 +7,11 @@ namespace RiscV32.State;
 /// The complete architectural state of one RV32IFV hart.
 /// </summary>
 public class Rv32ArchState : IArchState {
-    protected readonly IRegisterFile _intRegs;
+    protected readonly IRegisterFile IntRegs;
 
     public ulong Pc { get; set; }
     public PrivilegeLevel PrivilegeLevel { get; set; } = RvPrivilege.Machine;
-    public IRegisterFile IntegerRegisters => _intRegs;
+    public IRegisterFile IntegerRegisters => IntRegs;
     public ISystemRegisters SystemRegisters => CsrFile;
 
     /// <summary>Typed access to the concrete CSR file for internal use.</summary>
@@ -23,12 +23,12 @@ public class Rv32ArchState : IArchState {
     /// <summary>UVE scalar accumulator registers and store-stream cursors (u0–u31).</summary>
     public UveState UveState { get; } = new();
 
-    public IUveScalars? UveScalars => UveState;
+    public IUveScalars UveScalars => UveState;
 
     public Rv32ArchState() : this(new Rv32UnifiedRegisterFile()) { }
 
     protected Rv32ArchState(IRegisterFile intRegs) {
-        _intRegs = intRegs;
+        IntRegs = intRegs;
         CsrFile = new CsrFile();
         VectorRegisters = new VectorRegisterFile();
     }
@@ -36,12 +36,12 @@ public class Rv32ArchState : IArchState {
     protected Rv32ArchState(Rv32ArchState source, IRegisterFile intRegs) {
         Pc = source.Pc;
         PrivilegeLevel = source.PrivilegeLevel;
-        _intRegs = intRegs;
+        IntRegs = intRegs;
         CsrFile = new CsrFile();
         VectorRegisters = new VectorRegisterFile();
 
         // Copy integer and floating-point registers
-        for (var i = 0; i < source._intRegs.Count; i++) _intRegs.Write(i, source._intRegs.Read(i));
+        for (var i = 0; i < source.IntRegs.Count; i++) IntRegs.Write(i, source.IntRegs.Read(i));
 
         // Copy vector registers
         for (var i = 0; i < VectorRegisterFile.Count; i++) VectorRegisters.Write(i, source.VectorRegisters.Read(i));
@@ -70,7 +70,7 @@ public class Rv32ArchState : IArchState {
     public void Reset() {
         Pc = 0;
         PrivilegeLevel = RvPrivilege.Machine;
-        _intRegs.Reset();
+        IntRegs.Reset();
         CsrFile.Reset();
         VectorRegisters.Reset();
         UveState.Reset();

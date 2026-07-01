@@ -2,9 +2,10 @@ namespace Mechanism;
 
 /// <summary>
 /// The memory subsystem visible to the ISA executor.
-///
+/// <para>
 /// Addresses are byte-addressed. Width is specified per-access.
 /// The implementation handles alignment, endianness, and memory-mapped I/O.
+/// </para>
 /// </summary>
 public interface IMemory {
     /// <summary>Reads <paramref name="bytes"/> bytes from <paramref name="address"/>.</summary>

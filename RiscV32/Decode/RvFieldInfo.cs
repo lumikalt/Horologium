@@ -82,7 +82,7 @@ public static class RvFieldInfo {
             Reg("rs2", 24, 20, raw),
             Reg("rs1", 19, 15, raw),
             F("funct3", 14, 12, raw),
-            new InstrField("imm[4:0]", 11, 7, lo, null),
+            new InstrField("imm[4:0]", 11, 7, lo),
             F("opcode", 6, 0, raw, OpcodeLabel(op)),
         ];
     }
@@ -99,7 +99,7 @@ public static class RvFieldInfo {
             Reg("rs2", 24, 20, raw),
             Reg("rs1", 19, 15, raw),
             F("funct3", 14, 12, raw),
-            new InstrField("imm[4:1|11]", 11, 7, Bits(raw, 11, 7), null),
+            new InstrField("imm[4:1|11]", 11, 7, Bits(raw, 11, 7)),
             F("opcode", 6, 0, raw, "BRANCH"),
         ];
     }

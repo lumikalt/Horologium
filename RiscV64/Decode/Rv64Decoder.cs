@@ -33,7 +33,7 @@ public class Rv64Decoder : Rv32Decoder {
                     (0x5, 0x00) => new RvSrlw(rd, rs1, rs2),
                     (0x5, 0x20) => new RvSraw(rd, rs1, rs2),
                     _ => throw new IllegalInstructionException(
-                        pc, raw,
+                        raw,
                         $"Unknown OP-32 funct3=0x{funct3:X} funct7=0x{funct7:X}"
                     ),
                 };
@@ -51,7 +51,7 @@ public class Rv64Decoder : Rv32Decoder {
                     0x5 when f7 == 0x00 => new RvSrliw(rd, rs1, (int)shamt),
                     0x5 when f7 == 0x20 => new RvSraiw(rd, rs1, (int)shamt),
                     _ => throw new IllegalInstructionException(
-                        pc, raw,
+                        raw,
                         $"Unknown OP-IMM-32 funct3=0x{funct3:X} funct7=0x{f7:X}"
                     ),
                 };
@@ -83,7 +83,7 @@ public class Rv64Decoder : Rv32Decoder {
                     (0x5, 0x00) => new RvSrli(rd, rs1, (int)shamt6),
                     (0x5, 0x10) => new RvSrai(rd, rs1, (int)shamt6),
                     _ => throw new IllegalInstructionException(
-                        pc, raw,
+                        raw,
                         $"Unknown RV64 OP-IMM shift funct3=0x{funct3:X} top6=0x{top6:X}"
                     ),
                 };

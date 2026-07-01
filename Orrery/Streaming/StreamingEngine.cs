@@ -4,15 +4,17 @@ namespace Orrery.Streaming;
 
 /// <summary>
 /// ISA-agnostic streaming prefetch engine.
-///
+/// <para>
 /// Manages up to <see cref="MaxStreams"/> independently configured affine memory streams.
 /// Each call to <see cref="Step"/> advances every active stream by one prefetch step,
 /// filling each stream's buffer up to the configured <c>prefetchDepth</c>. Software (or
 /// executor SideEffects) configures streams; compute instructions consume elements via
 /// <see cref="Consume"/>.
-///
+/// </para>
+/// <para>
 /// Streams are architectural state: they survive pipeline flushes. The pipeline should
 /// call <see cref="Step"/> unconditionally every cycle, even during flush cycles.
+/// </para>
 /// </summary>
 public sealed class StreamingEngine {
     public const int MaxStreams = 8;
@@ -116,7 +118,6 @@ public sealed class StreamingEngine {
         // Set by Consume() for each dimension that wraps; cleared at the start of the next Consume().
         private bool[] _dimPassComplete = [];
         private long _totalFetched;
-        private long _totalConsumed;
         private readonly Queue<ulong> _buffer = new();
 
         public bool Active { get; private set; }
@@ -140,7 +141,6 @@ public sealed class StreamingEngine {
             _consumeIndices = new long[ndim];
             _dimPassComplete = new bool[ndim];
             _totalFetched = 0;
-            _totalConsumed = 0;
             _buffer.Clear();
             Active = true;
         }
@@ -159,7 +159,6 @@ public sealed class StreamingEngine {
             if (_buffer.Count == 0) throw new InvalidOperationException("Stream buffer is empty.");
             ulong val = _buffer.Dequeue();
             AdvanceConsumeIndex();
-            _totalConsumed++;
             return val;
         }
 

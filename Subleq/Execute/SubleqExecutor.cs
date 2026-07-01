@@ -13,7 +13,7 @@ public sealed class SubleqExecutor : IExecutor {
         long result = valB - valA;
 
         if (op.B != -1)
-            memory.Write((ulong)op.B, (ulong)(uint)(int)result, 4);
+            memory.Write((ulong)op.B, (uint)(int)result, 4);
         else
             Console.Write((char)(result & 0xFF));
 

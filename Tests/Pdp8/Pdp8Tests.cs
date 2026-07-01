@@ -12,7 +12,6 @@ namespace Tests.Pdp8;
 /// </summary>
 public class Pdp8Tests {
     private const int DataWord = 64; // first data word address
-    private const int DataByte = Pdp8Tests.DataWord * 2;
 
     private static (SingleCycleTrain Train, FlatMemory Mem) Make(int wordCount = 256) {
         var mem = new FlatMemory(wordCount * 2);
@@ -142,7 +141,7 @@ public class Pdp8Tests {
         (SingleCycleTrain t, FlatMemory m) = Make();
         WriteWord(m, Pdp8Tests.DataWord, 0x123);    // TAD source
         WriteWord(m, Pdp8Tests.DataWord + 1, 0);    // first DCA target
-        WriteWord(m, Pdp8Tests.DataWord + 2, 0xFF); // second DCA target (pre-filled to verify overwrite)
+        WriteWord(m, Pdp8Tests.DataWord + 2, 0xFF); // second DCA target (pre-filled to verify overwriting)
 
         // DCA stores AC into mem[dest] then clears AC.
         // Second DCA proves AC was cleared after first.
@@ -200,7 +199,7 @@ public class Pdp8Tests {
         (SingleCycleTrain t, FlatMemory m) = Make();
 
         // Subroutine at word 10: DCA result, HLT
-        var subWord = 10;
+        const int subWord = 10;
         WriteWord(m, Pdp8Tests.DataWord, 0x777); // TAD source
         WriteWord(m, Pdp8Tests.DataWord + 1, 0); // subroutine return addr slot (mem[subWord])
         WriteWord(m, Pdp8Tests.DataWord + 2, 0); // DCA target inside sub
@@ -230,21 +229,21 @@ public class Pdp8Tests {
 
     [Fact]
     public void Indirect_ReadsPointer() {
-        (SingleCycleTrain t, FlatMemory m) = Make();
-        int ptrWord = Pdp8Tests.DataWord;       // pointer cell
-        int dataWordB = Pdp8Tests.DataWord + 1; // actual data
+        (SingleCycleTrain _, FlatMemory m) = Make();
+        const int ptrWord = Pdp8Tests.DataWord;       // pointer cell
+        const int dataWordB = Pdp8Tests.DataWord + 1; // actual data
 
         WriteWord(m, ptrWord, dataWordB); // pointer: points to dataWordB
         WriteWord(m, dataWordB, 0x321);   // data
 
         // TAD indirect through ptrWord: first reads mem[ptrWord]=dataWordB, then reads mem[dataWordB]
         WriteWord(m, 0, Instr(1, true, false, ptrWord - 64 + 64)); // TAD I ptrWord (page 0)
-        // ptrWord=64, but page-0 offset is only 7 bits (0-127), and DataWord=64 is within range
+        // ptrWord=64, but the page-0 offset is only 7 bits (0-127), and DataWord=64 is within range
         // Hmm: ptrWord=64 > 127. So we need the pointer and data in the low 128 words (page 0).
         // Let's rewrite with smaller addresses.
         WriteWord(m, 0, 0); // reset
-        var ptr2 = 30;
-        var data2 = 31;
+        const int ptr2 = 30;
+        const int data2 = 31;
         WriteWord(m, ptr2, data2);                                   // pointer
         WriteWord(m, data2, 0x777);                                  // data
         WriteWord(m, 0, Instr(1, true, false, ptr2));                // TAD I ptr2
@@ -286,8 +285,8 @@ public class Pdp8Tests {
         // Place code and data in page 1 (words 128-255)
         // JMP and CLA are easier in page 0, so put program at page 1 start.
         // Page 1 starts at word 128. Offset bits [6:0] within that page.
-        (SingleCycleTrain t, FlatMemory m) = Make(512);
-        var pageBase = 128; // page 1
+        (SingleCycleTrain _, FlatMemory m) = Make(512);
+        const int pageBase = 128; // page 1
 
         // word 128: TAD Z+1 (current-page, offset=1 → word 129)
         // word 129: data = 0x555
@@ -300,9 +299,9 @@ public class Pdp8Tests {
         WriteWord(m, pageBase + 3, HltWord);
 
         // For the first HLT and NOP we need an unconditional jump from word 0 to 128
-        // Use JMP to pageBase (offset=0 from page 0 is 128 which is > 127, impossible)
+        // Use JMP to pageBase (offset=0 from page 0 is 128 that is > 127, impossible)
         // Page 0 offset range is 0-127; page 1 = 128+: must use indirect or another approach.
-        // Simplest: just place code at word 0 where SingleCycleTrain starts (entryPoint=0).
+        // Simplest: just place code at the word 0 where SingleCycleTrain starts (entryPoint=0).
         // Reset and test with a separate program that uses current-page within page 0.
 
         // Simpler version: use code in page 0, with current-page addressing to word 100.
@@ -451,7 +450,7 @@ public class Pdp8Tests {
         WriteWord(m, 2, Instr(3, false, false, Pdp8Tests.DataWord + 1));
         WriteWord(m, 3, HltWord);
         t.Run(20);
-        int expected = ((0xA87 & 0x3F) << 6) | ((0xA87 >> 6) & 0x3F); // 0x1EA
+        const int expected = ((0xA87 & 0x3F) << 6) | ((0xA87 >> 6) & 0x3F); // 0x1EA
         Assert.Equal(expected, ReadWord(m, Pdp8Tests.DataWord + 1));
     }
 
@@ -486,9 +485,6 @@ public class Pdp8Tests {
         WriteWord(m, 3, Instr(3, false, false, Pdp8Tests.DataWord + 1)); // DCA → sets sentinel=0 to confirm we got here
         WriteWord(m, 4, HltWord);
         t.Run(15);
-        // If SMA skipped word 2 (HLT), execution continued to word 3 (DCA) then word 4 (HLT)
-        // sentinel = 0x800 (stored by DCA? No — DCA stores AC, AC was cleared by... wait no, DCA stores AC then clears it)
-        // Actually after SMA skip: AC=0x800 (no CLA). DCA stores 0x800 then clears AC.
         Assert.Equal(0x800, ReadWord(m, Pdp8Tests.DataWord + 1));
     }
 
@@ -579,12 +575,12 @@ public class Pdp8Tests {
     [Fact]
     public void Loop_CountdownWithIsz() {
         // Classic ISZ loop: decrement a counter from -3 (0xFFD) and stop when it hits 0.
-        // word 0: ISZ counter → increments counter; if==0: skip word 1 (branch to word 2)
+        // word 0: ISZ counter → increment counter; if==0: skip word 1 (branch to word 2)
         // word 1: JMP 0 (loop back)
         // word 2: HLT
         // counter initialized to 0xFFD (-3 in 12-bit two's-complement)
         (SingleCycleTrain t, FlatMemory m) = Make();
-        int counter = Pdp8Tests.DataWord;
+        const int counter = Pdp8Tests.DataWord;
         WriteWord(m, counter, 0xFFD); // -3
 
         WriteWord(m, 0, Instr(2, false, false, counter)); // ISZ counter

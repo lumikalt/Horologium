@@ -9,11 +9,12 @@ namespace Tests.RiscV32;
 
 /// <summary>
 /// End-to-end tests for OooeTrain: superscalar out-of-order pipeline.
-///
+/// <para>
 /// Hand-assembled RV32I programs are loaded into FlatMemory and run through
 /// the train. Final register values are compared against expected results
 /// identical to what SingleCycleTrain produces, verifying that OoO execution
 /// produces correct outputs despite scheduling instructions out of order.
+/// </para>
 /// </summary>
 public class OoOPipelineTests {
     private static (OooeTrain train, FlatMemory mem) Make(
@@ -287,7 +288,7 @@ public class OoOPipelineTests {
 
         // A violation or forwarding must have occurred (exact count not asserted
         // because forwarding may avoid squash in some timing configurations).
-        long violations = snap.Counters.GetValueOrDefault("mem_order_violations");
+        long _ = snap.Counters.GetValueOrDefault("mem_order_violations");
         long retired = snap.Counters["retired"];
         Assert.True(
             retired >= 5,
@@ -373,7 +374,7 @@ public class OoOPipelineTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain wide, FlatMemory wideMem) = Make(fuLatency: new FuLatencyConfig(2));
+        (OooeTrain wide, FlatMemory wideMem) = Make(fuLatency: new FuLatencyConfig());
         (OooeTrain narrow, FlatMemory narrowMem) = Make(fuLatency: new FuLatencyConfig(1));
         Load(wideMem, program);
         Load(narrowMem, program);
@@ -456,9 +457,9 @@ public class OoOPipelineTests {
     }
 
     // ── Bug: fetch decode-fault wedge ─────────────────────────────────────────
-    // Before the fix, a decode exception in StepFetch set _fetchFaulted=true
+    // Before the fix, a decoded exception in StepFetch set _fetchFaulted=true
     // without enqueuing anything. If the ROB subsequently drained without a flush
-    // (no misprediction, no in-flight trap), the fetcher was stuck permanently and
+    // (no misprediction, no in-flight trap), the fetcher was stuck permanently, and
     // the core spun to maxTicks with no further commits.
 
     [Fact]

@@ -13,7 +13,7 @@ public record CondJump(int WordTarget) : J1Op;
 public record Call(int WordTarget) : J1Op;
 
 public record Alu(
-    int TOut,
+    int Out,
     bool ReturnFromR,
     bool TtoN,
     bool TtoR,
@@ -29,5 +29,5 @@ public sealed class J1Instruction(ulong pc, J1Op op, ToothClass cls) : ITooth {
     public int DestinationRegister => -1;
     public IReadOnlyList<int> SourceRegisters => [];
     public ToothClass Class { get; } = cls;
-    public object? Payload => op;
+    public object Payload => op;
 }

@@ -2,19 +2,21 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
 /// Tests for Zawrs, Zicbom, Zicboz, and Zimop NOP/minor-effect extensions.
-///
+/// <para>
 /// Zawrs: wrs.nto / wrs.sto — NOP in single-core simulation.
 /// Zicbom: cbo.inval / cbo.clean / cbo.flush — NOP (no coherence model).
 /// Zicboz: cbo.zero — zeros a 64-byte cache-line-aligned block.
 /// Zimop: mop.r.N / mop.rr.N — always write 0 to rd.
+/// </para>
 /// </summary>
 public class ZawrsZicbomZicbozZimopTests {
     private const ulong CodeBase = 0x1000u;
-    private const ulong MemBase = 0x0200u;
 
     // ── Encoding helpers ──────────────────────────────────────────────────────
 
@@ -24,9 +26,6 @@ public class ZawrsZicbomZicbozZimopTests {
     private static uint IType(int imm12, int rs1, int funct3, int rd, int opcode) =>
         (uint)(((imm12 & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | ((funct3 & 0x7) << 12) | ((rd & 0x1F) << 7)
              | (opcode & 0x7F));
-
-    // LW: opcode=0x03, funct3=2
-    private static uint Lw(int rd, int rs1, int imm12) => IType(imm12, rs1, 2, rd, 0x03);
 
     // SW: opcode=0x23; imm split into [11:5] in bits[31:25] and [4:0] in bits[11:7]
     private static uint Sw(int rs1, int rs2, int imm12) =>
@@ -208,9 +207,9 @@ public class ZawrsZicbomZicbozZimopTests {
         // x3 = 0xDEAD_BEEF, then mop.r.0 x3, then store x3 — expect 0
         uint[] prog = [
             // Load 0xDEADBEEF into x3 via LUI + ADDI
-            (uint)(0xDEADC000u | (3 << 7) | 0x37u), // LUI x3, 0xDEADB
-            IType(-0x411, 3, 0, 3, 0x13),           // ADDI x3, x3, -0x411 (makes DEADBEEF)
-            MopR(3),                                // mop.r.0 x3 → x3 = 0
+            0xDEADC000u | (3 << 7) | 0x37u, // LUI x3, 0xDEADB
+            IType(-0x411, 3, 0, 3, 0x13),   // ADDI x3, x3, -0x411 (makes DEADBEEF)
+            MopR(3),                        // mop.r.0 x3 → x3 = 0
             Sw(0, 3, 0x100),
             EBreak(),
         ];
@@ -231,21 +230,23 @@ public class ZawrsZicbomZicbozZimopTests {
 
     [Fact]
     public void MopR_DifferentNValues_AllReturnZero() {
-        // mop.r.1: csr=0x81D, mop.r.7: csr=0x81F (N=0b00111 → all bottom 3 bits set)
-        // mop.r.31: csr = 0x81C | (1<<10) | (1<<7) | (1<<6) | (1<<1) | 1 = 0xBC7
-        // These are some N values; all should produce 0 in rd.
-        uint MopRN(int rd, int csr) =>
-            (uint)(((csr & 0xFFF) << 20) | (0 << 15) | (4 << 12) | ((rd & 0x1F) << 7) | 0x73u);
-
         // mop.r.1 (N=1, csr=0x81D), mop.r.7 (N=7, csr=0x81F), mop.r.16 (N=16, csr=0x91C)
         foreach (int csr in new[] { 0x81D, 0x81F, 0x91C, }) {
             uint[] prog = [
                 Addi(3, 0, 99),
-                MopRN(3, csr),
+                MopRn(3, csr),
                 Sw(0, 3, 0x100),
                 EBreak(),
             ];
             Assert.Equal(0u, RunForResult(prog));
         }
+
+        return;
+
+        // mop.r.1: csr=0x81D, mop.r.7: csr=0x81F (N=0b00111 → all bottom 3 bits set)
+        // mop.r.31: csr = 0x81C | (1<<10) | (1<<7) | (1<<6) | (1<<1) | 1 = 0xBC7
+        // These are some N values; all should produce 0 in rd.
+        uint MopRn(int rd, int csr) =>
+            (uint)(((csr & 0xFFF) << 20) | (0 << 15) | (4 << 12) | ((rd & 0x1F) << 7) | 0x73u);
     }
 }

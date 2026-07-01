@@ -6,9 +6,9 @@ namespace RiscV32.Memory;
 /// <summary>
 /// A simple flat byte-array memory. Sufficient for single-core simulation
 /// without caches or memory-mapped I/O. Little-endian.
-///
-/// <paramref name="baseAddress"/> allows the backing array to start at an
-/// address other than 0 (e.g. 0x80000000 for Spike-compatible DRAM layout),
+/// 
+/// <c> baseAddress </c> allows the backing array to start at an
+/// address other than 0 (e.g., 0x80000000 for Spike-compatible DRAM layout),
 /// so ELF images linked at high addresses do not require a multi-GB allocation.
 /// All public addresses are virtual; the implementation subtracts the base
 /// before indexing into the array.
@@ -16,8 +16,6 @@ namespace RiscV32.Memory;
 public sealed class FlatMemory : IMemory {
     private readonly byte[] _data;
     private readonly ulong _base;
-
-    public int Size => _data.Length;
 
     public FlatMemory(int sizeBytes, ulong baseAddress = 0) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sizeBytes);

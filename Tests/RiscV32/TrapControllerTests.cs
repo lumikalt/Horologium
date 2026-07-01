@@ -9,11 +9,11 @@ namespace Tests.RiscV32;
 public class TrapControllerTests {
     private readonly RvTrapController _tc = new();
 
-    private static Rv32ArchState MakeState(PrivilegeLevel priv, ulong pc = 0x1000) {
-        var s = new Rv32ArchState { Pc = pc, };
-        s.PrivilegeLevel = priv;
-        return s;
-    }
+    private static Rv32ArchState MakeState(PrivilegeLevel priv, ulong pc = 0x1000) =>
+        new() {
+            Pc = pc,
+            PrivilegeLevel = priv,
+        };
 
     // Read/write CSRs through the public interface using Machine privilege, which
     // allows access to all registers regardless of the hart's current privilege level.
@@ -64,7 +64,7 @@ public class TrapControllerTests {
 
     [Fact]
     public void RaiseTrap_Delegated_OldSIE_SavedToSPIE() {
-        Rv32ArchState s = MakeState(RvPrivilege.User, 0x1000);
+        Rv32ArchState s = MakeState(RvPrivilege.User);
         SetCsr(s, CsrFile.Sstatus, CsrFile.SstatusSie); // SIE = 1 before trap
         SetCsr(s, CsrFile.Medeleg, 1u << RvTrapCause.EnvironmentCallFromU);
 
@@ -90,7 +90,7 @@ public class TrapControllerTests {
 
     [Fact]
     public void RaiseTrap_MMode_NeverDelegated_EvenIfMedelegSet() {
-        Rv32ArchState s = MakeState(RvPrivilege.Machine, 0x1000);
+        Rv32ArchState s = MakeState(RvPrivilege.Machine);
         SetCsr(s, CsrFile.Medeleg, 0xFFFFFFFF); // every bit set
 
         _tc.RaiseTrap(new TrapInfo(RvTrapCause.EnvironmentCallFromM, 0, 0x1000), s);

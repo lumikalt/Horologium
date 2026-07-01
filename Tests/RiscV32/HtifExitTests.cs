@@ -1,3 +1,4 @@
+using Mechanism;
 using Orrery.Train;
 using Pipeline;
 using RiscV32;
@@ -8,17 +9,18 @@ namespace Tests.RiscV32;
 /// <summary>
 /// Verifies HTIF tohost-exit termination across all three trains <em>without</em>
 /// Spike, so the halt paths stay covered in CI where the co-sim harness can't run.
-///
+/// <para>
 /// htif.elf does real RV32IM work, then exits via the tohost register (writing
 /// (0 &lt;&lt; 1) | 1 == 1 for a clean exit-0) and spins in <c>j .</c>:
-///
-/// - <b>RequestHalt</b> (tohost address configured): the executor flags the exit
-///   store with <see cref="Mechanism.ExecuteResult.RequestHalt"/> and the train
-///   stops at the store itself — the first-class HTIF terminator.
-/// - <b>Jump-to-self</b> (tohost not configured): the train falls back to the
-///   unconditional jump-to-self halt on the following spin.
-///
-/// Both must terminate well before maxTicks and leave the tohost low word == 1.
+/// <list type="bullet">
+///   <item><description><b>RequestHalt</b> (tohost address configured): the executor flags the exit
+///     store with <see cref="ExecuteResult.RequestHalt"/> and the train
+///     stops at the store itself — the first-class HTIF terminator.</description></item>
+///   <item><description><b>Jump-to-self</b> (tohost not configured): the train falls back to the
+///     unconditional jump-to-self halt on the following spin.</description></item>
+/// </list>
+/// </para>
+/// <para>Both must terminate well before maxTicks and leave the tohost low word == 1.</para>
 /// </summary>
 public class HtifExitTests {
     private static string HtifElf => Path.Combine(AppContext.BaseDirectory, "htif.elf");
@@ -75,9 +77,9 @@ public class HtifExitTests {
         (RevolutionResult result, string ownerPath) = train switch {
             "single_cycle" => (new SingleCycleTrain(mech, mem, workload.EntryPoint).Run(HtifExitTests.MaxTicks),
                                "single_cycle.core"),
-            "five_stage" => (new FiveStageTrain(mech, mem, workload.EntryPoint).Run(HtifExitTests.MaxTicks),
+            "five_stage" => (new FiveStageTrain(mech, mem, workload.EntryPoint).Run(),
                              "five_stage.pipeline"),
-            "ooo" => (new OooeTrain(mech, mem, workload.EntryPoint).Run(HtifExitTests.MaxTicks), "ooo.pipeline"),
+            "ooo" => (new OooeTrain(mech, mem, workload.EntryPoint).Run(), "ooo.pipeline"),
             _     => throw new ArgumentOutOfRangeException(nameof(train)),
         };
 

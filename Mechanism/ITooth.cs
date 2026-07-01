@@ -2,10 +2,11 @@ namespace Mechanism;
 
 /// <summary>
 /// A decoded instruction — the unit of work the pipeline operates on.
-///
+/// <para>
 /// The pipeline reads the structural fields (PC, register indices, class)
 /// for hazard detection and scheduling. The ISA-opaque payload carries
 /// everything the executor needs to actually compute the result.
+/// </para>
 /// </summary>
 public interface ITooth {
     /// <summary>The address this instruction was fetched from.</summary>

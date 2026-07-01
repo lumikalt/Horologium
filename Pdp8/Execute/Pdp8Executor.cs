@@ -10,7 +10,7 @@ public sealed class Pdp8Executor : IExecutor {
         var l = (int)state.IntegerRegisters.Read(1);
 
         return instruction.Payload switch {
-            MriOp mri   => ExecMri(mri, pc, ac, l, state, memory),
+            MriOp mri   => ExecMri(mri, pc, ac, l, memory),
             Opr1Op opr1 => ExecOpr1(opr1, ac, l),
             Opr2Op opr2 => ExecOpr2(opr2, pc, ac, l),
             IotOp       => ExecuteResult.Clean, // no peripheral model
@@ -31,7 +31,7 @@ public sealed class Pdp8Executor : IExecutor {
         return (int)memory.Read((ulong)(ea * 2), 2) & 0xFFF;
     }
 
-    private static ExecuteResult ExecMri(MriOp mri, ulong pc, int ac, int l, IArchState state, IMemory memory) {
+    private static ExecuteResult ExecMri(MriOp mri, ulong pc, int ac, int l, IMemory memory) {
         int ea = ResolveEa(mri, memory);
         var eaBytes = (ulong)(ea * 2);
 

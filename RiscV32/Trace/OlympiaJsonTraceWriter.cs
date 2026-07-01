@@ -10,7 +10,7 @@ namespace RiscV32.Trace;
 /// run. Attach as the <see cref="ICommitObserver"/> of a <c>SingleCycleTrain</c>,
 /// which executes one instruction to completion per commit, so each
 /// <see cref="OnCommit"/> corresponds to exactly one retired instruction.
-///
+/// <para>
 /// Olympia is trace-driven: it replays this trace through its timing model and
 /// does not execute functionally. Each record carries the raw <c>opcode</c> and —
 /// for loads/stores — the effective address:
@@ -20,7 +20,8 @@ namespace RiscV32.Trace;
 ///   { "opcode": "0x00e787b3", "mnemonic": "add" }
 /// ]
 /// </code>
-///
+/// </para>
+/// <para>
 /// The <c>opcode</c> is the source of truth: Olympia's Mavis decodes the operands
 /// and the instruction width (including 16-bit RVC) from it, so this covers every
 /// instruction — integer, floating-point, vector, compressed — with no
@@ -31,6 +32,7 @@ namespace RiscV32.Trace;
 /// Olympia, not executing functionally, cannot compute it; it comes from the
 /// <see cref="TracingMemory"/> the run is wrapped in. <see cref="Dispose"/> closes
 /// the JSON array (it flushes but does not close the underlying writer).
+/// </para>
 /// </summary>
 public sealed class OlympiaJsonTraceWriter : ICommitObserver, IDisposable {
     private readonly IDecoder _decoder;

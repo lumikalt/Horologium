@@ -5,11 +5,12 @@ namespace RiscV32.State;
 /// <summary>
 /// Architectural state for the UVE extension: 32 scalar accumulator registers
 /// (u0–u31, each holding one float32 value) and 32 store-stream configurations.
-///
+/// <para>
 /// Load streams are managed by the ISA-agnostic StreamingEngine; this class holds
 /// the complementary per-u-register state that cannot live there: scalar values
 /// (so.v.dp.w, so.a.* results), store-stream cursors (ss.st.*), pending multi-dim
 /// config (ss.sta → ss.app → ss.end), and per-dim completion flags (so.b.ndc.*).
+/// </para>
 /// </summary>
 public sealed class UveState : IUveScalars {
     public const int Count = 32;

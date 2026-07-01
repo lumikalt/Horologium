@@ -7,6 +7,8 @@ using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.State;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
@@ -16,24 +18,10 @@ namespace Tests.RiscV32;
 public class UveTests {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    // Build a FlatMemory pre-loaded with N floats at addresses 0, 4, 8, ...
-    private static FlatMemory FloatMemory(params float[] values) {
-        var mem = new FlatMemory(values.Length * 4);
-        for (var i = 0; i < values.Length; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes(values[i]));
-        return mem;
-    }
-
     // Execute a single UVE instruction directly via the executor.
     private static ExecuteResult Exec(RvOp payload, Rv32ArchState state, IMemory? memory = null) {
         var instr = new RvInstruction(0x1000, 0xDEADBEEF, -1, [], ToothClass.Uve, payload);
         return new Rv32Executor().Execute(instr, state, memory ?? new FlatMemory(256));
-    }
-
-    // Build an OooeTrain running a hand-assembled UVE instruction sequence.
-    // Instructions are encoded as raw 32-bit words and loaded starting at PC=0.
-    private static OooeTrain BuildTrain(FlatMemory mem, params uint[] words) {
-        for (var i = 0; i < words.Length; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes(words[i]));
-        return new OooeTrain(new Rv32Mechanism(), mem, 0, streamPrefetchDepth: 8);
     }
 
     // ── Encode helpers ────────────────────────────────────────────────────────
@@ -62,10 +50,10 @@ public class UveTests {
         var i = (uint)imm;
         uint bit12 = (i >> 12) & 1;
         uint bit11 = (i >> 11) & 1;
-        uint bits10_5 = (i >> 5) & 0x3F;
-        uint bits4_1 = (i >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | (rs2 << 20) | (rs1 << 15)
-             | (funct3 << 12) | (bits4_1 << 8) | (bit11 << 7) | 0x2Bu;
+        uint bits10To5 = (i >> 5) & 0x3F;
+        uint bits4To1 = (i >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | (rs2 << 20) | (rs1 << 15)
+             | (funct3 << 12) | (bits4To1 << 8) | (bit11 << 7) | 0x2Bu;
     }
 
     // so.b.nc urs, imm — B-type, opcode=0x2B, funct3=0x4
@@ -84,10 +72,6 @@ public class UveTests {
         (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
              | (0x3 << 12) | ((ud & 0x1F) << 7) | 0x0B);
 
-    // ss.app ud, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x4; rs1=x0 (ignored)
-    private static uint SsApp(int ud, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | (0x4 << 12) | ((ud & 0x1F) << 7) | 0x0B);
-
     // ss.end ud, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x5; rs1=x0 (ignored)
     private static uint SsEnd(int ud, int rs2, int rs3) =>
         (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | (0x5 << 12) | ((ud & 0x1F) << 7) | 0x0B);
@@ -98,9 +82,6 @@ public class UveTests {
     // ADDI rd, rs1, imm — used to set up integer registers in integration tests
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | (0x0 << 12) | ((rd & 0x1F) << 7) | 0x13);
-
-    // LI rd, imm — pseudo-instruction, maps to addi rd, x0, imm (for small immediates)
-    private static uint Li(int rd, int imm) => Addi(rd, 0, imm);
 
     // ── Executor unit tests ───────────────────────────────────────────────────
 
@@ -146,7 +127,7 @@ public class UveTests {
 
         UveStoreStream? ss = state.UveState.StoreStreams[3];
         Assert.NotNull(ss);
-        Assert.Equal(0x2000UL, ss!.BaseAddress);
+        Assert.Equal(0x2000UL, ss.BaseAddress);
         Assert.Equal(8L, ss.Dimensions[0].Count);
         Assert.Equal(4L, ss.Dimensions[0].Stride);
         Assert.Equal(UveRegKind.StoreStream, state.UveState.RegKind[3]);
@@ -218,7 +199,7 @@ public class UveTests {
     [Fact]
     public void SoBNc_TakenWhenNotDone() {
         var state = new Rv32ArchState();
-        state.UveState.StreamDone[1] = false; // stream not exhausted
+        state.UveState.StreamDone[1] = false; // stream isn't exhausted
 
         // so.b.nc u1, -12 — should take branch back by 12 bytes
         ExecuteResult er = Exec(new RvUveSoBNc(1, -12), state);
@@ -303,7 +284,7 @@ public class UveTests {
 
         PendingStreamConfig? cfg = state.UveState.PendingConfig[2];
         Assert.NotNull(cfg);
-        Assert.Equal(0x1000UL, cfg!.BaseAddress);
+        Assert.Equal(0x1000UL, cfg.BaseAddress);
         Assert.True(cfg.IsLoad);
         Assert.Single(cfg.Dimensions);
         Assert.Equal(4L, cfg.Dimensions[0].Count);
@@ -440,37 +421,39 @@ public class UveTests {
 
     /// <summary>
     /// Runs a SAXPY computation (Y = A*X + Y) through the OoO pipeline using UVE streams.
-    ///
+    /// <para>
     /// Memory layout:
     ///   [0x0000..0x003F]  source X array: 8 floats
     ///   [0x0040..0x007F]  destination Y array: 8 floats (output overwrites in-place)
     ///   [0x1000..]        code
-    ///
+    /// </para>
+    /// <para>
     /// Register assignments in setup ADDI sequence:
     ///   x1 = 0x0000  (base of X)
     ///   x2 = 0x0040  (base of Y)
     ///   x3 = 8       (element count)
     ///   x4 = 4       (stride in bytes, = element width)
     ///   x5 = bits(A) (scalar multiplier, as float32 raw bits)
+    /// </para>
     /// </summary>
     [Fact]
     public void Pipeline_Saxpy_CorrectResult() {
-        const int N = 4; // keep small so test runs fast
-        const float A = 2.0f;
+        const int n = 4; // keep small so test runs fast
+        const float a = 2.0f;
 
         float[] x = [1.0f, 2.0f, 3.0f, 4.0f,];
         float[] y = [10.0f, 20.0f, 30.0f, 40.0f,];
-        float[] expected = x.Zip(y, (xi, yi) => A * xi + yi).ToArray();
+        float[] expected = x.Zip(y, (xi, yi) => a * xi + yi).ToArray();
 
         var mem = new FlatMemory(0x2000);
 
         // Write X at 0x0000 and Y at 0x0100
-        for (var i = 0; i < N; i++) {
+        for (var i = 0; i < n; i++) {
             mem.Load((ulong)(i * 4), BitConverter.GetBytes(x[i]));
             mem.Load((ulong)(0x100 + i * 4), BitConverter.GetBytes(y[i]));
         }
 
-        var scalarBits = (uint)BitConverter.SingleToInt32Bits(A);
+        _ = (uint)BitConverter.SingleToInt32Bits(a);
 
         // Register allocation for the instruction sequence:
         // x1=base_x, x2=base_y, x3=N, x4=stride(4), x5=bits(A)
@@ -490,42 +473,33 @@ public class UveTests {
         // bits: 0x40000000 = 0b0100_0000_0000_0000_0000_0000_0000_0000
         // LUI x5, 0x40000 (20-bit imm placed in bits[31:12])
 
-        uint Lui(int rd, int imm20) =>
-            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
-
         // A=2.0f bits = 0x40000000 → upper 20 bits = 0x40000
-        ulong code = 0x1000;
-        var words = new List<uint>();
-
-        // Setup integer registers
-        words.Add(Addi(1, 0, 0));     // x1 = 0 (base X)
-        words.Add(Addi(2, 0, 0x100)); // x2 = 0x100 (base Y)
-        words.Add(Addi(3, 0, N));     // x3 = N (count)
-        words.Add(Addi(4, 0, 4));     // x4 = 4 (stride)
-        words.Add(Lui(5, 0x40000));   // x5 = 0x40000000 (A=2.0 raw bits, lower 12 = 0)
-
-        // Configure streams:
-        //   u1 = load from X (base=x1, count=x3, stride=x4)
-        //   u2 = load from Y (base=x2, count=x3, stride=x4)
-        //   u3 = store to Y  (base=x2, count=x3, stride=x4)
-        words.Add(SsLdW(1, 1, 3, 4)); // u1 = load stream X
-        words.Add(SsLdW(2, 2, 3, 4)); // u2 = load stream Y
-        words.Add(SsStW(3, 2, 3, 4)); // u3 = store stream Y
-
-        // Broadcast scalar A into u4
-        words.Add(SoVDpW(4, 5)); // u4 = broadcast A
-
-        // Loop body:  so.b.nc u1, loop_back
-        // Loop: so.a.mul.fp u5, u1, u4  — u5 = x[i] * A
-        //        so.a.add.fp u3, u2, u5  — u3(y) = y[i] + u5
-        //        so.b.nc u1, -8          — branch back -8 bytes (2 instructions × 4 bytes)
-        var loopStart = (uint)words.Count;
-
-        words.Add(SoAFp(UveFpOp.Mul, 5, 1, 4)); // u5 = u1[i] * u4
-        words.Add(SoAFp(UveFpOp.Add, 3, 2, 5)); // u3[i] = u2[i] + u5
-        words.Add(SoBNc(1, -8));                // loop while u1 not done (-2 instructions)
-
-        words.Add(EBreak());
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            // Setup integer registers
+            Addi(1, 0, 0),     // x1 = 0 (base X)
+            Addi(2, 0, 0x100), // x2 = 0x100 (base Y)
+            Addi(3, 0, n),     // x3 = N (count)
+            Addi(4, 0, 4),     // x4 = 4 (stride)
+            Lui(5, 0x40000),   // x5 = 0x40000000 (A=2.0 raw bits, lower 12 = 0)
+            // Configure streams:
+            //   u1 = load from X (base=x1, count=x3, stride=x4)
+            //   u2 = load from Y (base=x2, count=x3, stride=x4)
+            //   u3 = store to Y  (base=x2, count=x3, stride=x4)
+            SsLdW(1, 1, 3, 4), // u1 = load stream X
+            SsLdW(2, 2, 3, 4), // u2 = load stream Y
+            SsStW(3, 2, 3, 4), // u3 = store stream Y
+            // Broadcast scalar A into u4
+            SoVDpW(4, 5),
+            // Loop body:  so.b.nc u1, loop_back
+            // Loop: so.a.mul.fp u5, u1, u4  — u5 = x[i] * A
+            //        so.a.add.fp u3, u2, u5  — u3(y) = y[i] + u5
+            //        so.b.nc u1, -8          — branch back -8 bytes (2 instructions × 4 bytes)
+            SoAFp(UveFpOp.Mul, 5, 1, 4), // u5 = u1[i] * u4
+            SoAFp(UveFpOp.Add, 3, 2, 5), // u3[i] = u2[i] + u5
+            SoBNc(1, -8),                // loop while u1 not done (-2 instructions)
+            EBreak(),                    // u4 = broadcast A
+        };
 
         // Load code at 0x1000
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
@@ -537,62 +511,65 @@ public class UveTests {
         train.Run(2000);
 
         // Verify Y array was overwritten with A*X + Y
-        for (var i = 0; i < N; i++) {
+        for (var i = 0; i < n; i++) {
             float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read((ulong)(0x100 + i * 4), 4));
             Assert.Equal(expected[i], actual, 2);
         }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
     // ── Integration test: 2D strided load via OoO pipeline ────────────────────
 
     /// <summary>
-    /// Verifies multi-dimensional stream access and so.b.ndc.D loop control.
-    ///
+    /// Verifies multidimensional stream access and so.b.ndc.D loop control.
+    /// <para>
     /// Memory layout (data region at 0x0000):
     ///   A 3×4 matrix stored in row-major order in an 8-float-wide (32 byte) row buffer.
     ///   Only the first 4 floats of each row are part of the matrix; the trailing 4 are padding.
     ///   Row 0: A[0][0..3] at 0x0000–0x000F, padding 0x0010–0x001F
     ///   Row 1: A[1][0..3] at 0x0020–0x002F, padding 0x0030–0x003F
     ///   Row 2: A[2][0..3] at 0x0040–0x004F, padding 0x0050–0x005F
-    ///
-    ///   Output: 12 floats at 0x0200 (linearised, row-major).
-    ///
+    ///   Output: 12 floats at 0x0200 (linearized, row-major).
+    /// </para>
+    /// <para>
     /// Stream u1 configured as a 2D load stream:
     ///   ss.sta.ld.w u1, x1, x3, x4   — base=0x0000, inner count=4, inner stride=4
     ///   ss.app      u1, x5, x6        — outer count=3, outer stride=32
     ///   ss.end      u1, x0, x0        — no additional dimension (0-count dim ignored? No —
     ///                                   we use a 2-dim stream: ss.sta provides dim0, ss.end provides dim1)
-    ///
+    /// </para>
+    /// <para>
     /// Loop structure:
     ///   outer: so.b.ndc.1 u1, outer  — outer dim (dim1) loop
     ///     inner: so.a.mul.fp u2, u1, u4   — u2 = elem * scalar
     ///            so.b.ndc.0 u1, inner     — inner dim (dim0) loop
     ///   ebreak
-    ///
-    /// Expected output[i*4+j] = A[i][j] * scalar.
+    /// </para>
+    /// <para>Expected output[i*4+j] = A[i][j] * scalar.</para>
     /// </summary>
     [Fact]
     public void Pipeline_2D_StridedLoad_CorrectResult() {
-        const int Rows = 3, Cols = 4;
-        const int RowBytes = 8 * 4; // 8 floats per padded row = 32 bytes
-        const float Scalar = 3.0f;
+        const int rows = 3, cols = 4;
+        const int rowBytes = 8 * 4; // 8 floats per padded row = 32 bytes
+        const float scalar = 3.0f;
 
-        var inputMatrix = new float[Rows, Cols];
-        for (var r = 0; r < Rows; r++)
-        for (var c = 0; c < Cols; c++)
-            inputMatrix[r, c] = r * Cols + c + 1.0f; // 1..12
+        var inputMatrix = new float[rows, cols];
+        for (var r = 0; r < rows; r++)
+        for (var c = 0; c < cols; c++)
+            inputMatrix[r, c] = r * cols + c + 1.0f; // 1..12
 
         var mem = new FlatMemory(0x2000);
 
         // Write matrix with padded rows at 0x0000
-        for (var r = 0; r < Rows; r++)
-        for (var c = 0; c < Cols; c++)
-            mem.Load((ulong)(r * RowBytes + c * 4), BitConverter.GetBytes(inputMatrix[r, c]));
+        for (var r = 0; r < rows; r++)
+        for (var c = 0; c < cols; c++)
+            mem.Load((ulong)(r * rowBytes + c * 4), BitConverter.GetBytes(inputMatrix[r, c]));
 
-        var scalarBits = (uint)BitConverter.SingleToInt32Bits(Scalar);
-
-        uint Lui(int rd, int imm20) =>
-            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+        _ = (uint)BitConverter.SingleToInt32Bits(scalar);
 
         // Code at 0x1000.
         // Register plan:
@@ -604,30 +581,26 @@ public class UveTests {
         //   x6 = RowBytes=32  outer stride (bytes per row)
         //   x7 = bits(Scalar) scalar multiplier raw bits
         //   x8 = 12           output count
-        ulong code = 0x1000;
-        var words = new List<uint>();
-
-        words.Add(Addi(1, 0, 0x000));       // x1 = 0 (matrix base)
-        words.Add(Addi(2, 0, 0x200));       // x2 = 0x200 (output base)
-        words.Add(Addi(3, 0, Cols));        // x3 = 4
-        words.Add(Addi(4, 0, 4));           // x4 = 4 (byte stride)
-        words.Add(Addi(5, 0, Rows));        // x5 = 3
-        words.Add(Addi(6, 0, RowBytes));    // x6 = 32
-        words.Add(Addi(8, 0, Rows * Cols)); // x8 = 12 (output element count)
-
-        // Scalar: 3.0f = 0x40400000. LUI x7, 0x40400 puts 0x40400000 in x7 (lower 12=0). ✓
-        words.Add(Lui(7, 0x40400));
-
-        // 2D load stream on u1: dim0=inner(count=4,stride=4), dim1=outer(count=3,stride=32)
-        // ss.sta provides the innermost dimension; ss.end provides the outermost and activates.
-        words.Add(SsStaLdW(1, 1, 3, 4)); // ss.sta.ld.w u1, x1, x3, x4  — dim0: inner
-        words.Add(SsEnd(1, 5, 6));       // ss.end      u1, x5, x6       — dim1: outer, finalise
-
-        // 1D store stream on u2: 12 elements at 0x0200, stride=4
-        words.Add(SsStW(2, 2, 8, 4)); // ss.st.w u2, x2, x8, x4
-
-        // Broadcast scalar into u4
-        words.Add(SoVDpW(4, 7)); // u4 = broadcast Scalar
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, 0x000),       // x1 = 0 (matrix base)
+            Addi(2, 0, 0x200),       // x2 = 0x200 (output base)
+            Addi(3, 0, cols),        // x3 = 4
+            Addi(4, 0, 4),           // x4 = 4 (byte stride)
+            Addi(5, 0, rows),        // x5 = 3
+            Addi(6, 0, rowBytes),    // x6 = 32
+            Addi(8, 0, rows * cols), // x8 = 12 (output element count)
+            // Scalar: 3.0f = 0x40400000. LUI x7, 0x40400 puts 0x40400000 in x7 (lower 12=0). ✓
+            Lui(7, 0x40400),
+            // 2D load stream on u1: dim0=inner(count=4,stride=4), dim1=outer(count=3,stride=32)
+            // ss.sta provides the innermost dimension; ss.end provides the outermost and activates.
+            SsStaLdW(1, 1, 3, 4), // ss.sta.ld.w u1, x1, x3, x4  — dim0: inner
+            SsEnd(1, 5, 6),       // ss.end      u1, x5, x6       — dim1: outer, finalize
+            // 1D store stream on u2: 12 elements at 0x0200, stride=4
+            SsStW(2, 2, 8, 4), // ss.st.w u2, x2, x8, x4
+            // Broadcast scalar into u4
+            SoVDpW(4, 7), // u4 = broadcast Scalar
+        };
 
         // Loop:
         //   outer: (check dim1 not complete at bottom)
@@ -667,13 +640,18 @@ public class UveTests {
         train.Run(5000);
 
         // Verify output = A[r][c] * Scalar for every element, linearised row-major
-        for (var r = 0; r < Rows; r++)
-        for (var c = 0; c < Cols; c++) {
-            var outAddr = (ulong)(0x200 + (r * Cols + c) * 4);
+        for (var r = 0; r < rows; r++)
+        for (var c = 0; c < cols; c++) {
+            var outAddr = (ulong)(0x200 + (r * cols + c) * 4);
             float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(outAddr, 4));
-            float expected = inputMatrix[r, c] * Scalar;
+            float expected = inputMatrix[r, c] * scalar;
             Assert.Equal(expected, actual, 2);
         }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
     /// <summary>
@@ -684,17 +662,14 @@ public class UveTests {
     /// </summary>
     [Fact]
     public void Pipeline_2D_StridedStore_CorrectResult() {
-        const int Rows = 3, Cols = 4;
-        const int RowBytes = 8 * 4; // 8 floats per padded row = 32 bytes
+        const int rows = 3, cols = 4;
+        const int rowBytes = 8 * 4; // 8 floats per padded row = 32 bytes
 
         // Source: 12 contiguous floats at 0x0000
         float[] src = [1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f, 10f, 11f, 12f,];
 
         var mem = new FlatMemory(0x2000);
         for (var i = 0; i < src.Length; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes(src[i]));
-
-        uint Lui(int rd, int imm20) =>
-            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
 
         // Code at 0x1000.
         // Register plan:
@@ -706,36 +681,31 @@ public class UveTests {
         //   x6 = 3            outer row count
         //   x7 = bits(1.0f)   scalar multiplier (copy via mul)
         //   x8 = 32           outer row stride (RowBytes)
-        ulong code = 0x1000;
-        var words = new List<uint>();
-
-        words.Add(Addi(1, 0, 0x000));       // x1 = 0
-        words.Add(Addi(2, 0, 0x400));       // x2 = 0x400
-        words.Add(Addi(3, 0, Rows * Cols)); // x3 = 12
-        words.Add(Addi(4, 0, 4));           // x4 = 4
-        words.Add(Addi(5, 0, Cols));        // x5 = 4
-        words.Add(Addi(6, 0, Rows));        // x6 = 3
-        words.Add(Addi(8, 0, RowBytes));    // x8 = 32
-        // 1.0f = 0x3F800000; LUI x7, 0x3F800 gives 0x3F800000 (lower 12 bits = 0). ✓
-        words.Add(Lui(7, 0x3F800)); // x7 = bits(1.0f)
-
-        // Load stream: u1 reads all 12 source elements in order (1D)
-        words.Add(SsLdW(1, 1, 3, 4)); // ss.ld.w u1, x1, x3, x4
-
-        // Store stream: u2 writes to a 3×4 matrix with 32-byte rows (multi-dim)
-        words.Add(SsStaStW(2, 2, 5, 4)); // ss.sta.st.w u2, x2, x5, x4  (dim0: 4 cols, stride 4)
-        words.Add(SsEnd(2, 6, 8));       // ss.end u2, x6, x8            (dim1: 3 rows, stride 32)
-
-        // Broadcast scalar 1.0 into u4
-        words.Add(SoVDpW(4, 7)); // u4 = 1.0f
-
-        // Loop: copy each element (u1 elem × 1.0 = u1 elem), write to u2 store stream
-        //   [loop]: so.a.mul.fp u2, u1, u4   — writes dst[row][col], advances 2D cursor
-        //           so.b.nc u1, -4           — branch while load stream not exhausted
-        words.Add(SoAFp(UveFpOp.Mul, 2, 1, 4)); // u2 = u1[i] * u4
-        words.Add(SoBNc(1, -4));                // so.b.nc u1, -4
-
-        words.Add(EBreak());
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, 0x000),       // x1 = 0
+            Addi(2, 0, 0x400),       // x2 = 0x400
+            Addi(3, 0, rows * cols), // x3 = 12
+            Addi(4, 0, 4),           // x4 = 4
+            Addi(5, 0, cols),        // x5 = 4
+            Addi(6, 0, rows),        // x6 = 3
+            Addi(8, 0, rowBytes),    // x8 = 32
+            // 1.0f = 0x3F800000; LUI x7, 0x3F800 gives 0x3F800000 (lower 12 bits = 0). ✓
+            Lui(7, 0x3F800), // x7 = bits(1.0f)
+            // Load stream: u1 reads all 12 source elements in order (1D)
+            SsLdW(1, 1, 3, 4), // ss.ld.w u1, x1, x3, x4
+            // Store stream: u2 writes to a 3×4 matrix with 32-byte rows (multi-dim)
+            SsStaStW(2, 2, 5, 4), // ss.sta.st.w u2, x2, x5, x4  (dim0: 4 cols, stride 4)
+            SsEnd(2, 6, 8),       // ss.end u2, x6, x8            (dim1: 3 rows, stride 32)
+            // Broadcast scalar 1.0 into u4
+            SoVDpW(4, 7), // u4 = 1.0f
+            // Loop: copy each element (u1 elem × 1.0 = u1 elem), write to u2 store stream
+            //   [loop]: so.a.mul.fp u2, u1, u4   — writes dst[row][col], advances 2D cursor
+            //           so.b.nc u1, -4           — branch while load stream not exhausted
+            SoAFp(UveFpOp.Mul, 2, 1, 4), // u2 = u1[i] * u4
+            SoBNc(1, -4),                // so.b.nc u1, -4
+            EBreak(),
+        };
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
@@ -747,12 +717,17 @@ public class UveTests {
 
         // Verify each element landed at the right address in the strided matrix.
         // src[r*Cols + c] should be at dst base + r*RowBytes + c*4.
-        for (var r = 0; r < Rows; r++)
-        for (var c = 0; c < Cols; c++) {
-            var dstAddr = (ulong)(0x400 + r * RowBytes + c * 4);
+        for (var r = 0; r < rows; r++)
+        for (var c = 0; c < cols; c++) {
+            var dstAddr = (ulong)(0x400 + r * rowBytes + c * 4);
             float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(dstAddr, 4));
-            float expected = src[r * Cols + c];
+            float expected = src[r * cols + c];
             Assert.Equal(expected, actual, 2);
         }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 }

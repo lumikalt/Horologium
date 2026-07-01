@@ -11,27 +11,27 @@ public sealed class MoveExecutor : IExecutor {
         ushort value = ReadSource(mv.Src, mv.Imm, m);
 
         return mv.Dst switch {
-            >= 0x00 and <= 0x07 => WriteReg(mv.Dst, value),
-            0x10                => SetAluOp((byte)value),
-            0x11                => SetAluIn1(value),
-            0x12                => TriggerAlu(m, value),
-            0x20                => TriggerLoad(memory, value),
-            0x21                => LatchAddr(value),
-            0x22                => TriggerStore(memory, m, value),
-            0x30                => SetBrCond(value),
-            0x31                => TriggerBranch(m, value),
-            0xFF                => new ExecuteResult { IsHalt = true, },
-            _                   => new ExecuteResult(),
+            <= 0x07 => WriteReg(mv.Dst, value),
+            0x10    => SetAluOp((byte)value),
+            0x11    => SetAluIn1(value),
+            0x12    => TriggerAlu(m, value),
+            0x20    => TriggerLoad(memory, value),
+            0x21    => LatchAddr(value),
+            0x22    => TriggerStore(memory, m, value),
+            0x30    => SetBrCond(value),
+            0x31    => TriggerBranch(m, value),
+            0xFF    => new ExecuteResult { IsHalt = true, },
+            _       => new ExecuteResult(),
         };
     }
 
     private static ushort ReadSource(byte src, ushort imm, MoveArchState m) => src switch {
-        >= 0x00 and <= 0x07 => m.R[src],
-        0x10                => m.AluOut,
-        0x20                => m.MemOut,
-        0xFE                => imm,
-        0xFF                => (ushort)m.Pc,
-        _                   => 0,
+        <= 0x07 => m.R[src],
+        0x10    => m.AluOut,
+        0x20    => m.MemOut,
+        0xFE    => imm,
+        0xFF    => (ushort)m.Pc,
+        _       => 0,
     };
 
     private static ExecuteResult WriteReg(byte idx, ushort value) =>

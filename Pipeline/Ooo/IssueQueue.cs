@@ -4,13 +4,13 @@ namespace Pipeline.Ooo;
 
 /// <summary>
 /// One entry (reservation station) in the Issue Queue.
-///
+/// <para>
 /// Each source operand is described by a tag (the physical register index)
 /// and a ready/value pair. A tag of -1 means that source is not used by this
 /// instruction. When the CDB broadcasts a result, all entries whose tag
 /// matches the broadcasting register have their Ready bit set and Value filled.
-///
-/// An entry becomes eligible for issue once all needed sources are ready.
+/// </para>
+/// <para>An entry becomes eligible for issue once all needed sources are ready.</para>
 /// </summary>
 public sealed class RsEntry {
     public bool Busy { get; set; }
@@ -61,15 +61,17 @@ public sealed class RsEntry {
 
 /// <summary>
 /// Unified Issue Queue (reservation stations).
-///
+/// <para>
 /// Instructions wait here after Dispatch until all their source operands are
 /// ready. At Issue, the scheduler scans for ready entries and selects up to
 /// <c>issueWidth</c> per cycle (one per distinct functional-unit class, or
 /// simply the oldest-first policy for a single-port design).
-///
+/// </para>
+/// <para>
 /// CDB broadcasts (<see cref="Broadcast"/>) propagate results to all waiting
 /// entries in O(capacity) time — the issue queue size should be kept small
 /// (16–32 entries) so this is cheap.
+/// </para>
 /// </summary>
 public sealed class IssueQueue {
     private readonly RsEntry[] _slots;

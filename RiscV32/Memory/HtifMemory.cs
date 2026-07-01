@@ -5,14 +5,16 @@ namespace RiscV32.Memory;
 /// <summary>
 /// Intercepts writes to the HTIF tohost register and auto-acknowledges
 /// syscall requests by writing 1 to fromhost (tohost+8).
-///
+/// <para>
 /// HTIF benchmarks write a syscall pointer (even non-zero value) to tohost and then
 /// spin on fromhost waiting for acknowledgement. Without an ACK, the program stalls
 /// in the polling loop forever. This wrapper provides the minimal auto-ACK so the
 /// benchmark can progress to tohost_exit normally.
-///
+/// </para>
+/// <para>
 /// Exit-code writes ((code&lt;&lt;1)|1, always odd) are passed through without ACK so
 /// callers can detect completion by reading tohost after the run.
+/// </para>
 /// </summary>
 public sealed class HtifMemory(IMemory inner, ulong tohostAddr) : IMemory {
     public ulong Read(ulong address, int bytes) => inner.Read(address, bytes);

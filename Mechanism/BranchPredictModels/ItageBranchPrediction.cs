@@ -3,18 +3,20 @@ namespace Mechanism.BranchPredictModels;
 /// <summary>
 /// ITTAGE: Indirect Target predictor using Tagged tables with Geometric History lengths
 /// (Michaud 2011, refined by Seznec).
-///
+/// <para>
 /// Applies the TAGE philosophy to indirect-branch target prediction. N tagged tables
 /// at geometrically increasing history lengths each store a full predicted target
 /// address. The longest-matching history entry wins; on a target misprediction a new
 /// entry is allocated in the next eligible longer-history table. If no table slot is
 /// free, usefulness counters are decayed to open one on the next miss.
-///
+/// </para>
+/// <para>
 /// Direction is predicted from a bimodal base (2-bit saturating counters). Real
 /// deployments overlay ITTAGE on top of a direction predictor; here the bimodal is
 /// bundled so this class satisfies IBranchPredictor standalone. ITTAGE's primary
 /// advantage is distinguishing different targets for the same PC based on execution
 /// history (e.g. virtual dispatch, computed gotos).
+/// </para>
 /// </summary>
 public sealed class IttagePredictor : IBranchPredictor {
     private const int NumTables = 5;
@@ -30,6 +32,9 @@ public sealed class IttagePredictor : IBranchPredictor {
     private readonly Dictionary<ulong, ulong> _btb = new();
     private ulong _ghr;
 
+    /// <summary>
+    /// Constructs an ITTAGE predictor.
+    /// </summary>
     public IttagePredictor() {
         _base = new byte[1 << IttagePredictor.BaseIndexBits];
         Array.Fill(_base, (byte)1); // weakly not-taken
@@ -41,12 +46,14 @@ public sealed class IttagePredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
+    /// <inheritdoc />
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         bool dir = _base[BaseIdx(pc)] >= 2;
         ulong target = knownTarget.HasValue ? knownTarget.Value : PredictTarget(pc);
         return new BranchPrediction(dir, target);
     }
 
+    /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         // Capture state before any writes.
         int provider = FindProvider(pc);
@@ -137,9 +144,10 @@ public sealed class IttagePredictor : IBranchPredictor {
     }
 
     private static void Sat2(ref byte c, bool taken) {
-        if (taken && c < 3)
-            c++;
-        else if (!taken && c > 0) c--;
+        switch (taken) {
+            case true when c < 3:  c++; break;
+            case false when c > 0: c--; break;
+        }
     }
 
     // ── Entry struct ──────────────────────────────────────────────────────────

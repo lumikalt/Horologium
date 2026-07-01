@@ -2,16 +2,18 @@ namespace Orrery.Cache;
 
 /// <summary>
 /// Tracks LR/SC reservations across multiple harts sharing one physical memory.
-///
+/// <para>
 /// Each hart registers a reservation on LR; the reservation is consumed (or
 /// cleared) on SC.  Any write from any hart that overlaps the 4-byte-aligned
 /// word covering a reservation cancels it — matching the RISC-V requirement
 /// that an SC.W must fail if another hart has written to the reservation set
 /// between the paired LR.W and SC.W.
-///
+/// </para>
+/// <para>
 /// Reservation granularity is one naturally-aligned 4-byte word (the minimum
 /// the spec requires for RV32A/RV64A).  Wider writes (e.g. SD, vector stores)
 /// still invalidate any reservation whose granule they overlap.
+/// </para>
 /// </summary>
 public sealed class ReservationTable {
     // hart-id → reserved physical address (4-byte-aligned granule base)

@@ -10,20 +10,23 @@ namespace Tests.RiscV32;
 
 /// <summary>
 /// Runs the riscv-tests benchmark suite under all three pipeline configurations.
-///
+/// <para>
 /// Benchmarks use HTIF exit: tohost_exit(code) writes (code&lt;&lt;1)|1 to the
 /// 'tohost' symbol and then spins forever (infinite self-loop).  The simulator's
 /// existing halt detection catches the self-loop; the test then reads the
 /// 32-bit low word of 'tohost' from memory.
-///
+/// </para>
+/// <para>
 /// Exit code 0  → tohost low word == 1  → PASS
 /// Exit code N≠0 → tohost low word == (N&lt;&lt;1)|1 → FAIL
 /// tohost == 0   → simulation timed out before halting
-///
+/// </para>
+/// <para>
 /// Benchmarks also print performance counters via HTIF printstr (one char per
 /// HTIF write to tohost), polling fromhost (tohost+8) for acknowledgement.
-/// HtifMemory provides the minimal auto-ACK so printstr returns instead of
+/// HtifMemory provides the minimal auto-ACK, so printstr returns instead of
 /// spinning forever, allowing the benchmark to reach tohost_exit normally.
+/// </para>
 /// </summary>
 public class BenchmarkTests(ITestOutputHelper output) {
     private static readonly string BenchmarksDir =
@@ -108,7 +111,7 @@ public class BenchmarkTests(ITestOutputHelper output) {
 
         foreach (object[] row in AllBenchmarks()) {
             var name = (string)row[0];
-            (FlatMemory mem, IMemory htifMem, ulong entry, ulong _) = Load(name);
+            (FlatMemory _, IMemory htifMem, ulong entry, ulong _) = Load(name);
             var train = new OooeTrain(new Rv32Mechanism(), htifMem, entry);
             RevolutionResult result = train.Run(20_000_000);
 

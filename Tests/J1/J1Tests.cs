@@ -20,7 +20,7 @@ public class J1Tests {
     }
 
     private static void W(FlatMemory m, int wordAddr, int value) =>
-        m.Write((ulong)(wordAddr * 2), (ulong)(ushort)value, 2);
+        m.Write((ulong)(wordAddr * 2), (ushort)value, 2);
 
     private static int ReadW(FlatMemory m, int wordAddr) =>
         (int)(m.Read((ulong)(wordAddr * 2), 2) & 0xFFFF);
@@ -56,26 +56,26 @@ public class J1Tests {
 
     // ── Common Forth words ────────────────────────────────────────────────────
 
-    private static int NOP() => AluOp(0x0);
-    private static int DUP() => AluOp(0x0, tToN: true, dDelta: +1);
-    private static int DROP() => AluOp(0x1, dDelta: -1);
-    private static int SWAP() => AluOp(0x1, tToN: true);
-    private static int OVER() => AluOp(0x1, tToN: true, dDelta: +1);
-    private static int ADD() => AluOp(0x2, dDelta: -1);
-    private static int AND() => AluOp(0x3, dDelta: -1);
-    private static int OR() => AluOp(0x4, dDelta: -1);
-    private static int XOR() => AluOp(0x5, dDelta: -1);
-    private static int INVERT() => AluOp(0x6);
-    private static int EQ() => AluOp(0x7, dDelta: -1);
-    private static int LT() => AluOp(0x8, dDelta: -1);
-    private static int ULT() => AluOp(0xF, dDelta: -1);
-    private static int DEC() => AluOp(0xA);
-    private static int FETCH() => AluOp(0xC);
-    private static int STORE() => AluOp(nToMem: true, dDelta: -1);
-    private static int TOR() => AluOp(tToR: true, dDelta: -1, rDelta: +1);
-    private static int RFROM() => AluOp(0xB, dDelta: +1, rDelta: -1);
-    private static int RGET() => AluOp(0xB, tToN: true, dDelta: +1);
-    private static int EXIT() => AluOp(returnFromR: true, rDelta: -1);
+    private static int Nop() => AluOp();
+    private static int Dup() => AluOp(tToN: true, dDelta: +1);
+    private static int Drop() => AluOp(0x1, dDelta: -1);
+    private static int Swap() => AluOp(0x1, tToN: true);
+    private static int Over() => AluOp(0x1, tToN: true, dDelta: +1);
+    private static int Add() => AluOp(0x2, dDelta: -1);
+    private static int And() => AluOp(0x3, dDelta: -1);
+    private static int Or() => AluOp(0x4, dDelta: -1);
+    private static int Xor() => AluOp(0x5, dDelta: -1);
+    private static int Invert() => AluOp(0x6);
+    private static int Eq() => AluOp(0x7, dDelta: -1);
+    private static int Lt() => AluOp(0x8, dDelta: -1);
+    private static int Ult() => AluOp(0xF, dDelta: -1);
+    private static int Dec() => AluOp(0xA);
+    private static int Fetch() => AluOp(0xC);
+    private static int Store() => AluOp(nToMem: true, dDelta: -1);
+    private static int Tor() => AluOp(tToR: true, dDelta: -1, rDelta: +1);
+    private static int Rfrom() => AluOp(0xB, dDelta: +1, rDelta: -1);
+    private static int Rget() => AluOp(0xB, tToN: true, dDelta: +1);
+    private static int Exit() => AluOp(returnFromR: true, rDelta: -1);
 
     // ── Literal ───────────────────────────────────────────────────────────────
 
@@ -145,7 +145,7 @@ public class J1Tests {
         W(m, 0, Lit(7));
         W(m, 1, Lit(3));
         W(m, 2, CondJump(10));
-        W(m, 3, NOP());
+        W(m, 3, Nop());
         t.Run(4);
         Assert.Equal(7, s.T);
     }
@@ -157,7 +157,7 @@ public class J1Tests {
         // Call at word 0, return word addr = (0/2)+1 = 1.
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Call(3));
-        W(m, 3, NOP());
+        W(m, 3, Nop());
         t.Run(2);
         Assert.Equal(1, s.R);
     }
@@ -170,7 +170,7 @@ public class J1Tests {
         W(m, 0, Lit(99));
         W(m, 1, Call(4));
         W(m, 2, Lit(42));
-        W(m, 4, EXIT());
+        W(m, 4, Exit());
         t.Run(4); // lit99, call4, EXIT, lit42
         Assert.Equal(42, s.T);
     }
@@ -181,7 +181,7 @@ public class J1Tests {
     public void Dup_CopiesTtoN() {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(5));
-        W(m, 1, DUP());
+        W(m, 1, Dup());
         t.Run(2);
         Assert.Equal(5, s.T);
         Assert.Equal(5, s.N);
@@ -192,7 +192,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(1));
         W(m, 1, Lit(2));
-        W(m, 2, DROP());
+        W(m, 2, Drop());
         t.Run(3);
         Assert.Equal(1, s.T);
     }
@@ -202,7 +202,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(10));
         W(m, 1, Lit(20));
-        W(m, 2, SWAP());
+        W(m, 2, Swap());
         t.Run(3);
         Assert.Equal(10, s.T);
         Assert.Equal(20, s.N);
@@ -214,7 +214,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(3));
         W(m, 1, Lit(7));
-        W(m, 2, OVER());
+        W(m, 2, Over());
         t.Run(3);
         Assert.Equal(3, s.T);
         Assert.Equal(7, s.N);
@@ -227,7 +227,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(10));
         W(m, 1, Lit(32));
-        W(m, 2, ADD());
+        W(m, 2, Add());
         t.Run(3);
         Assert.Equal(42, s.T);
     }
@@ -237,7 +237,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(0x7FFF));
         W(m, 1, Lit(1));
-        W(m, 2, ADD());
+        W(m, 2, Add());
         t.Run(3);
         Assert.Equal(0x8000, s.T);
     }
@@ -246,7 +246,7 @@ public class J1Tests {
     public void Dec_SubtractsOne() {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(5));
-        W(m, 1, DEC());
+        W(m, 1, Dec());
         t.Run(2);
         Assert.Equal(4, s.T);
     }
@@ -258,7 +258,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(0x0F0F));
         W(m, 1, Lit(0x00FF));
-        W(m, 2, AND());
+        W(m, 2, And());
         t.Run(3);
         Assert.Equal(0x000F, s.T);
     }
@@ -268,7 +268,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(0x0F00));
         W(m, 1, Lit(0x000F));
-        W(m, 2, OR());
+        W(m, 2, Or());
         t.Run(3);
         Assert.Equal(0x0F0F, s.T);
     }
@@ -278,7 +278,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(0x00FF));
         W(m, 1, Lit(0x0F0F));
-        W(m, 2, XOR());
+        W(m, 2, Xor());
         t.Run(3);
         Assert.Equal(0x0FF0, s.T);
     }
@@ -287,7 +287,7 @@ public class J1Tests {
     public void Invert_FlipsAllBits() {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(0));
-        W(m, 1, INVERT());
+        W(m, 1, Invert());
         t.Run(2);
         Assert.Equal(0xFFFF, s.T);
     }
@@ -299,7 +299,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(7));
         W(m, 1, Lit(7));
-        W(m, 2, EQ());
+        W(m, 2, Eq());
         t.Run(3);
         Assert.Equal(0xFFFF, s.T);
     }
@@ -309,7 +309,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(7));
         W(m, 1, Lit(8));
-        W(m, 2, EQ());
+        W(m, 2, Eq());
         t.Run(3);
         Assert.Equal(0, s.T);
     }
@@ -320,7 +320,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(2));
         W(m, 1, Lit(5));
-        W(m, 2, LT());
+        W(m, 2, Lt());
         t.Run(3);
         Assert.Equal(0xFFFF, s.T);
     }
@@ -330,7 +330,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(5));
         W(m, 1, Lit(2));
-        W(m, 2, LT());
+        W(m, 2, Lt());
         t.Run(3);
         Assert.Equal(0, s.T);
     }
@@ -340,7 +340,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(0x0001));
         W(m, 1, Lit(0x7FFF));
-        W(m, 2, ULT());
+        W(m, 2, Ult());
         t.Run(3);
         Assert.Equal(0xFFFF, s.T);
     }
@@ -352,7 +352,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, J1Tests.DataWord, 0xABCD);
         W(m, 0, Lit(J1Tests.DataWord));
-        W(m, 1, FETCH());
+        W(m, 1, Fetch());
         t.Run(2);
         Assert.Equal(0xABCD, s.T);
     }
@@ -362,7 +362,7 @@ public class J1Tests {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(0x1234));
         W(m, 1, Lit(J1Tests.DataWord));
-        W(m, 2, STORE());
+        W(m, 2, Store());
         t.Run(3);
         Assert.Equal(0x1234, ReadW(m, J1Tests.DataWord));
     }
@@ -373,7 +373,7 @@ public class J1Tests {
     public void TOR_MovesValueToReturnStack() {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(42));
-        W(m, 1, TOR());
+        W(m, 1, Tor());
         t.Run(2);
         Assert.Equal(42, s.R);
     }
@@ -382,8 +382,8 @@ public class J1Tests {
     public void RFROM_MovesFromReturnStackToT() {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(99));
-        W(m, 1, TOR());
-        W(m, 2, RFROM());
+        W(m, 1, Tor());
+        W(m, 2, Rfrom());
         t.Run(3);
         Assert.Equal(99, s.T);
     }
@@ -392,8 +392,8 @@ public class J1Tests {
     public void RGET_CopiesReturnStackToT() {
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(55));
-        W(m, 1, TOR());
-        W(m, 2, RGET());
+        W(m, 1, Tor());
+        W(m, 2, Rget());
         t.Run(3);
         Assert.Equal(55, s.T);
         Assert.Equal(55, s.R); // R still holds value
@@ -413,11 +413,11 @@ public class J1Tests {
         // Tick count: 1 (lit) + 5*(dup+condjump+dec+jump) + (dup+condjump) + 1(nop) = 24
         (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
         W(m, 0, Lit(5));
-        W(m, 1, DUP());
+        W(m, 1, Dup());
         W(m, 2, CondJump(5));
-        W(m, 3, DEC());
+        W(m, 3, Dec());
         W(m, 4, Jump(1));
-        W(m, 5, NOP());
+        W(m, 5, Nop());
         t.Run(24);
         Assert.Equal(0, s.T);
     }

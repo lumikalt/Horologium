@@ -2,13 +2,15 @@ namespace Mechanism;
 
 /// <summary>
 /// Cracks a macro-instruction into one or more micro-operations (Impulses).
-///
+/// <para>
 /// Complex instructions (e.g. load-modify-store, push/pop, string ops)
 /// are normalised here into simpler Impulses that the backend pipeline
 /// can schedule uniformly.
-///
+/// </para>
+/// <para>
 /// Simple instructions crack into exactly one Impulse.
 /// The cracker is optional — Trains that do not use µops never call it.
+/// </para>
 /// </summary>
 public interface IImpulseCracker {
     /// <summary>
@@ -20,12 +22,15 @@ public interface IImpulseCracker {
 
 /// <summary>
 /// A micro-operation — the atomic unit of work in the backend pipeline.
-///
+/// <para>
 /// An Impulse carries enough information for the backend to:
-///   - Rename its register operands
-///   - Assign it to an execution unit
-///   - Track it in the reorder buffer
-///   - Commit its result in program order
+/// <list type="bullet">
+///   <item><description>Rename its register operands</description></item>
+///   <item><description>Assign it to an execution unit</description></item>
+///   <item><description>Track it in the reorder buffer</description></item>
+///   <item><description>Commit its result in program order</description></item>
+/// </list>
+/// </para>
 /// </summary>
 public readonly record struct Impulse() {
     /// <summary>The macro-instruction this µop belongs to.</summary>

@@ -10,11 +10,12 @@ namespace Tests.RiscV32;
 /// <summary>
 /// Multi-hart LR/SC correctness: reservation cancellation when another hart
 /// stores to the same granule between a hart's paired LR.W and SC.W.
-///
+/// <para>
 /// Encoded instructions (RV32A):
 ///   lr.w  x1, (x2)       = 0x100120AF
 ///   sc.w  x1, x3, (x2)   = 0x183120AF
 ///   sw    x3, 0(x2)       = 0x00312023
+/// </para>
 /// </summary>
 public class MultiHartAtomicsTests {
     private const uint LrW = 0x100120AF; // lr.w  x1, (x2)

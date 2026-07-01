@@ -2,16 +2,18 @@ namespace Mechanism.BranchPredictModels;
 
 /// <summary>
 /// L-TAGE: TAGE branch predictor with a loop predictor overlay.
-///
+/// <para>
 /// TAGE uses a bimodal base and N tagged tables with geometrically increasing
 /// history lengths, each entry holding a partial tag, a 3-bit saturating
 /// prediction counter, and a 2-bit usefulness counter. Longest-matching-history
 /// wins. On misprediction an entry is allocated in the shortest longer-history
 /// table with u=0; if none is available, usefulness bits are decayed.
-///
+/// </para>
+/// <para>
 /// The loop predictor tracks branches with a stable trip count. Once a branch
 /// has exited a loop the same number of times on LoopConfThreshold consecutive
 /// invocations, it takes over from TAGE and predicts taken/not-taken exactly.
+/// </para>
 /// </summary>
 public class LTagePredictor : IBranchPredictor {
     // ── TAGE parameters ───────────────────────────────────────────────────────
@@ -33,10 +35,16 @@ public class LTagePredictor : IBranchPredictor {
     private readonly byte[] _base;        // 2-bit counters (taken ≥ 2)
     private readonly TageEntry[][] _tage; // [NumTables][1 << TableIndexBits]
     private readonly LoopEntry[] _loop;   // [1 << LoopIndexBits]
+    /// <summary>
+    /// Global history register.
+    /// </summary>
     protected ulong Ghr;                  // global history, LSB = most recent
 
     private readonly Dictionary<ulong, ulong> _btb = new();
 
+    /// <summary>
+    /// Constructs an L-TAGE predictor.
+    /// </summary>
     public LTagePredictor() {
         _base = new byte[1 << LTagePredictor.BaseIndexBits];
         Array.Fill(_base, (byte)1); // weakly not-taken
@@ -52,8 +60,9 @@ public class LTagePredictor : IBranchPredictor {
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
 
+    /// <inheritdoc />
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
-        TageLookup(pc, out int provider, out _, out bool tagePred, out _);
+        TageLookup(pc, out int provider, out bool tagePred, out _);
         bool pred = ResolvePrediction(pc, provider, tagePred);
 
         ref LoopEntry le = ref _loop[LoopIdx(pc)];
@@ -66,21 +75,30 @@ public class LTagePredictor : IBranchPredictor {
         return new BranchPrediction(pred, target);
     }
 
+    /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
 
-        TageLookup(pc, out int provider, out int altProvider, out bool provPred, out bool altPred);
+        TageLookup(pc, out int provider, out bool provPred, out bool altPred);
         int preScore = TageScore(pc, provider);
         bool preLoopConfident = _loop[LoopIdx(pc)].Tag == (ushort)LoopTag(pc) && _loop[LoopIdx(pc)].Confident;
-        UpdateTage(pc, taken, provider, altProvider, provPred, altPred);
+        UpdateTage(pc, taken, provider, provPred, altPred);
         UpdateLoop(pc, taken);
-        OnAfterUpdate(pc, taken, provider, provPred, preScore, preLoopConfident);
+        OnAfterUpdate(pc, taken, provPred, preScore, preLoopConfident);
 
         Ghr = ((Ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
     }
 
     // ── Extension points for subclasses ──────────────────────────────────────
 
+    /// <summary>
+    /// Returns the score of the prediction for the given PC.
+    /// </summary>
+    /// <param name="pc">Program counter.</param>
+    /// <param name="provider">
+    /// Index of the provider table, or -1 if the PC is in the base table.
+    /// </param>
+    /// <returns></returns>
     protected int TageScore(ulong pc, int provider) {
         if (provider >= 0) {
             byte c = _tage[provider][TageIdx(pc, provider)].Ctr;
@@ -91,12 +109,38 @@ public class LTagePredictor : IBranchPredictor {
         return b * 2 - 3; // 0..3 → -3..+3
     }
 
+    /// <summary>
+    /// Returns the prediction for the given PC.
+    /// </summary>
+    /// <param name="pc">
+    /// Program counter.
+    /// </param>
+    /// <param name="provider">
+    /// Index of the provider table, or -1 if the PC is in the base table.
+    /// </param>
+    /// <param name="tagePred">
+    /// TAGE prediction, or false if the PC is in the base table.
+    /// </param>
+    /// <returns></returns>
     protected virtual bool ResolvePrediction(ulong pc, int provider, bool tagePred) => tagePred;
 
+    /// <summary>
+    /// Called after a branch update.
+    /// </summary>
+    /// <param name="pc">Program counter.</param>
+    /// <param name="taken">Branch was taken.</param>
+    /// <param name="provPred">
+    /// TAGE prediction, or false if the PC is in the base table.
+    /// </param>
+    /// <param name="preScore">
+    /// Score of the prediction before the update.
+    /// </param>
+    /// <param name="loopWasConfident">
+    /// True if the loop predictor was confident before the update.
+    /// </param>
     protected virtual void OnAfterUpdate(
         ulong pc,
         bool taken,
-        int provider,
         bool provPred,
         int preScore,
         bool loopWasConfident
@@ -108,20 +152,17 @@ public class LTagePredictor : IBranchPredictor {
     private void TageLookup(
         ulong pc,
         out int provider,
-        out int altProvider,
         out bool provPred,
         out bool altPred
     ) {
         bool basePred = _base[BaseIdx(pc)] >= 2;
         provider = -1;
-        altProvider = -1;
         provPred = basePred;
         altPred = basePred;
 
         for (var t = 0; t < LTagePredictor.NumTables; t++) {
             ref TageEntry e = ref _tage[t][TageIdx(pc, t)];
             if (!e.Valid || e.Tag != (ushort)TageTag(pc, t)) continue;
-            altProvider = provider;
             altPred = provPred;
             provider = t;
             provPred = e.Ctr >= 4;
@@ -132,7 +173,6 @@ public class LTagePredictor : IBranchPredictor {
         ulong pc,
         bool taken,
         int provider,
-        int altProvider,
         bool provPred,
         bool altPred
     ) {
@@ -214,7 +254,7 @@ public class LTagePredictor : IBranchPredictor {
 
     // ── Index / tag helpers ───────────────────────────────────────────────────
 
-    private int BaseIdx(ulong pc) =>
+    private static int BaseIdx(ulong pc) =>
         (int)((pc >> 2) & ((1u << LTagePredictor.BaseIndexBits) - 1));
 
     private int TageIdx(ulong pc, int t) {
@@ -230,11 +270,11 @@ public class LTagePredictor : IBranchPredictor {
         return ((int)(pc >> 2) ^ f1 ^ (f2 << 1)) & ((1 << LTagePredictor.TagWidth) - 1);
     }
 
-    private int LoopIdx(ulong pc) =>
+    private static int LoopIdx(ulong pc) =>
         (int)((pc >> 2) & ((1u << LTagePredictor.LoopIndexBits) - 1));
 
     // Mix high PC bits into low bits to separate tag from index.
-    private int LoopTag(ulong pc) {
+    private static int LoopTag(ulong pc) {
         ulong x = pc >> 2;
         return (int)((x ^ (x >> LTagePredictor.LoopIndexBits)) & ((1u << LTagePredictor.LoopTagWidth) - 1));
     }
@@ -252,15 +292,17 @@ public class LTagePredictor : IBranchPredictor {
     // ── Saturating counter helpers ────────────────────────────────────────────
 
     private static void Sat2(ref byte c, bool taken) {
-        if (taken && c < 3)
-            c++;
-        else if (!taken && c > 0) c--;
+        switch (taken) {
+            case true when c < 3:  c++; break;
+            case false when c > 0: c--; break;
+        }
     }
 
     private static void Sat3(ref byte c, bool taken) {
-        if (taken && c < 7)
-            c++;
-        else if (!taken && c > 0) c--;
+        switch (taken) {
+            case true when c < 7:  c++; break;
+            case false when c > 0: c--; break;
+        }
     }
 
     // ── Entry structs ─────────────────────────────────────────────────────────

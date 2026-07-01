@@ -1,6 +1,5 @@
 using Mechanism;
 using Orrery.Cache;
-using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
 using RiscV32;
@@ -12,7 +11,7 @@ namespace Tests.RiscV32;
 /// <summary>
 /// Regression coverage for the out-of-order memory-level-parallelism (MLP) load model
 /// and the store-side write-buffer MLP model.
-///
+/// <para>
 /// Load-side MLP: the OoO pipeline gives each missed load its own in-flight latency
 /// countdown so independent misses overlap (instead of freezing the clock lump-sum). The
 /// danger is that a load now sits in flight for many cycles before it broadcasts its value,
@@ -20,24 +19,28 @@ namespace Tests.RiscV32;
 /// and commit while the load is still in flight. Load disambiguation state is therefore
 /// registered at EXECUTE time (not at CDB-broadcast time) so the in-flight load stays
 /// visible to CheckLoadViolations for its whole life.
-///
+/// </para>
+/// <para>
 /// An earlier MLP attempt (reverted commit cb91a56) registered at broadcast time and
 /// shipped green against the whole suite + Spike co-sim, because none of those exercise
 /// load-miss + store-to-same-address + an L1 cache together. memcpy is store-heavy and
 /// copies a buffer it then verifies; on an L1 (so loads actually miss) the broken model
 /// read a stale value, jumped through a corrupted return address, and livelocked.
-///
+/// </para>
+/// <para>
 /// Store-side MLP: committed stores write through the cache immediately (write-through /
 /// no-write-allocate), but their write-miss penalty is absorbed into a bounded write buffer
 /// rather than lump-summed against the pipeline clock. Subsequent instructions keep
 /// executing while the write bus drains in the background. The write buffer is enabled by
 /// passing writeBufferCapacity > 0 to OooeTrain; the default (0) restores the lump-sum path.
-///
+/// </para>
+/// <para>
 /// MSHR capacity: limits the number of simultaneously outstanding load-miss countdowns in
 /// _inFlight. When all slots are occupied, loads and atomics are held in the IQ until a
 /// slot frees. This models finite miss-status-holding registers and is the mechanism that
 /// prevents unbounded load-level parallelism in real hardware.
-///
+/// </para>
+/// <para>
 /// The ground-truth correctness signal is the benchmark's own HTIF exit verdict: memcpy
 /// checks the copied buffer and writes PASS (tohost low word == 1) or a FAIL code. This
 /// test runs memcpy on an 8-wide OoO with a 16 KB L1 and asserts that PASS — which catches
@@ -45,6 +48,7 @@ namespace Tests.RiscV32;
 /// (tohost carries a FAIL code). It is verified to fail on the broken model. A no-cache run
 /// is included as a reference: the race cannot arise there (loads never miss), so it isolates
 /// the cache path as the variable.
+/// </para>
 /// </summary>
 public class OoOMemoryParallelismTests {
     // memcpy at the "big_core" calibration point (8-wide, ROB 128) — the config the broken
@@ -64,7 +68,7 @@ public class OoOMemoryParallelismTests {
         IMemory runMem = workload.WrapMemory(mem);
         ulong tohost = workload.HtifTohostAddress!.Value;
 
-        CacheHardwareConfig? l1 = withL1 ? new CacheHardwareConfig(16384, 4, 64, 10) : null;
+        CacheHardwareConfig? l1 = withL1 ? new CacheHardwareConfig(16384, 4, 64) : null;
         var cfg = new TrainConfig("ooo", ICache: l1, DCache: l1);
         MemoryConfig iMem = cfg.ToIMemoryConfig();
         // The HTIF tohost/fromhost registers must bypass the cache (HtifMemory ACKs below it).
@@ -125,7 +129,7 @@ public class OoOMemoryParallelismTests {
     [Fact]
     public void OoO_Memcpy_WriteBuffer_ReducesCycles_AndSelfChecksPass() {
         // Baseline: write buffer disabled → store-commit write misses charged lump-sum.
-        (ulong baseTohost, _, long baseCycles, long baseAbsorbed, _) = RunMemcpy(true, 0);
+        (ulong baseTohost, _, long baseCycles, long baseAbsorbed, _) = RunMemcpy(true);
 
         // Write buffer enabled with 16 slots (enough to cover burst commit width of 8).
         (ulong wbTohost, _, long wbCycles, long wbAbsorbed, _) = RunMemcpy(true, 16);
@@ -147,12 +151,13 @@ public class OoOMemoryParallelismTests {
     /// <summary>
     /// MSHR capacity cap: when the cap is set to 1, only one load miss can be outstanding
     /// at a time. Subsequent loads are held in the IQ until the slot frees.
-    ///
+    /// <para>
     /// Correctness: the benchmark must still PASS (the gate is a timing-only resource
     /// constraint — loads still execute and produce correct values). Performance: the
     /// constrained run accumulates mshr_stalls > 0 (backpressure was exercised) and takes
     /// at least as many cycles as the unlimited run (serialising misses can only hurt or be
     /// neutral vs. overlapping them).
+    /// </para>
     /// </summary>
     [Fact]
     public void OoO_Memcpy_MshrCap_ExercisesBackpressure_AndSelfChecksPass() {
@@ -183,10 +188,11 @@ public class OoOMemoryParallelismTests {
     /// HTIF MMIO registers. The uncacheable guard in MemoryLayers.TryPrefetch prevents
     /// a prefetch landing on the tohost/fromhost line from re-caching stale ACK values,
     /// which would re-introduce the stale-fromhost livelock fixed earlier.
-    ///
+    /// <para>
     /// The test runs memcpy with a next-line prefetcher, asserts HTIF PASS (correctness)
     /// and dcache_prefetches > 0 (prefetcher actually fired). It is the MMIO-safety
     /// counterpart to the base L1 test above.
+    /// </para>
     /// </summary>
     [Fact]
     public void OoO_Memcpy_NextLinePrefetcher_SelfChecksPass_AndPrefetchesFired() {
@@ -198,7 +204,7 @@ public class OoOMemoryParallelismTests {
         IMemory runMem = workload.WrapMemory(mem);
         ulong tohost = workload.HtifTohostAddress!.Value;
 
-        var l1 = new CacheHardwareConfig(16384, 4, 64, 10);
+        var l1 = new CacheHardwareConfig(16384, 4, 64);
         var cfg = new TrainConfig("ooo", ICache: l1, DCache: l1, DPrefetcher: "next_line");
         MemoryConfig iMem = cfg.ToIMemoryConfig();
         MemoryConfig dMem = cfg.ToDMemoryConfig() with { UncacheableBase = tohost, UncacheableSize = 16, };

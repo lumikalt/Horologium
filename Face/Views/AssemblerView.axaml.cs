@@ -1,11 +1,11 @@
 using System.ComponentModel;
-using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Face.Controls;
 using Face.ViewModels;
 using ScottPlot;
@@ -117,7 +117,7 @@ public partial class AssemblerView : UserControl {
         _debounce?.Dispose();
         _debounce = new Timer(
             _ =>
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                Dispatcher.UIThread.Post(() => {
                         if (_vm.AssembleCommand.CanExecute(null)) _vm.AssembleCommand.Execute(null);
                     }
                 ),

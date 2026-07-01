@@ -6,13 +6,15 @@ namespace F18A.Memory;
 /// <summary>
 /// Per-node memory for an F18A node: 512 word-addressed slots (9-bit address),
 /// stored as 4-byte-aligned uint32 values in a flat byte array.
-///
+/// <para>
 /// Word 0–63:    RAM (read/write).
 /// Word 64–127:  ROM (read-only; initialised from program bytes).
 /// Word 256–511: Port address range — reads/writes are routed through the arbor bus.
-///
+/// </para>
+/// <para>
 /// All addresses are byte addresses in Horologium (byte = word_address × 4).
 /// The underlying capacity is 512 words = 2048 bytes.
+/// </para>
 /// </summary>
 public sealed class F18ANodeMemory : IMemory {
     private const int WordCount = 512;
@@ -49,12 +51,13 @@ public sealed class F18ANodeMemory : IMemory {
 
     public void Write(ulong address, ulong value, int bytes) {
         var wordAddr = (uint)(address / 4);
-        if (wordAddr >= F18ANodeMemory.PortBase && ArborBus is not null) {
-            ArborBus.TryWrite(wordAddr, (uint)value & 0x3FFFFu);
-            return;
+        switch (wordAddr) {
+            case >= F18ANodeMemory.PortBase when ArborBus is not null:
+                ArborBus.TryWrite(wordAddr, (uint)value & 0x3FFFFu);
+                return;
+            case < F18ANodeMemory.RamWords: _words[wordAddr] = (uint)value & 0x3FFFFu; break;
         }
 
-        if (wordAddr < F18ANodeMemory.RamWords) _words[wordAddr] = (uint)value & 0x3FFFFu;
         // writes to ROM range (64–127) are silently ignored
     }
 

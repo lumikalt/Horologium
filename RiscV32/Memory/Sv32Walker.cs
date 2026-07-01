@@ -1,5 +1,4 @@
 using Mechanism;
-using RiscV32.Registers;
 
 namespace RiscV32.Memory;
 

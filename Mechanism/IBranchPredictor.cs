@@ -2,10 +2,11 @@ namespace Mechanism;
 
 /// <summary>
 /// A branch predictor — pluggable policy for speculative fetch.
-///
+/// <para>
 /// The predictor is queried at Fetch time and updated at Commit time.
 /// It has no access to architectural state — it operates purely on
 /// PC values and observed outcomes.
+/// </para>
 /// </summary>
 public interface IBranchPredictor {
     /// <summary>

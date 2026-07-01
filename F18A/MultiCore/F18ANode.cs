@@ -7,10 +7,11 @@ namespace F18A.MultiCore;
 /// <summary>
 /// One F18A processing node with its own RAM+ROM, arch state, and four directional arbors.
 /// Stepped by <see cref="F18AGrid"/> which coordinates arbor rendezvous across nodes.
-///
+/// <para>
 /// Constraint: at most one @b / !b port-op per instruction word, and no memory
 /// stores before a blocking arbor op in the same word.  Programs that violate this
 /// may observe non-deterministic behaviour on blocked-arbor retries.
+/// </para>
 /// </summary>
 public sealed class F18ANode {
     // Port word-addresses visible via @b / !b when B is set to these values.
@@ -61,14 +62,17 @@ public sealed class F18ANode {
     private bool CanProceed(F18AInstruction insn) {
         byte[] slots = [insn.Slot0, insn.Slot1, insn.Slot2, insn.Slot3,];
         foreach (byte op in slots) {
-            if (op is F18AOp.FetchB) {
-                uint wordAddr = State.B;
-                if (wordAddr >= F18ANodeMemory.PortBase) return Memory.IsPortReady(wordAddr, true);
-            }
-
-            if (op is F18AOp.StoreB) {
-                uint wordAddr = State.B;
-                if (wordAddr >= F18ANodeMemory.PortBase) return Memory.IsPortReady(wordAddr, false);
+            switch (op) {
+                case F18AOp.FetchB: {
+                    uint wordAddr = State.B;
+                    if (wordAddr >= F18ANodeMemory.PortBase) return Memory.IsPortReady(wordAddr, true);
+                    break;
+                }
+                case F18AOp.StoreB: {
+                    uint wordAddr = State.B;
+                    if (wordAddr >= F18ANodeMemory.PortBase) return Memory.IsPortReady(wordAddr, false);
+                    break;
+                }
             }
 
             // Stop scanning if we hit any control-flow op (later slots won't execute)

@@ -10,7 +10,7 @@ namespace Tests.RiscV32;
 /// Lock-step co-simulation tests against Spike — the project's correctness
 /// contract for the ISA datapath (see the "Co-simulation contract" section of
 /// the README).
-///
+/// <para>
 /// These tests require the <c>spike</c> simulator and the <c>dtc</c> device-tree
 /// compiler. The Nix dev-shell provides both; outside the shell run
 /// <c>direnv reload</c> first. When the toolchain is absent the tests
@@ -18,13 +18,15 @@ namespace Tests.RiscV32;
 /// unless <c>HOROLOGIUM_REQUIRE_COSIM</c> is set, in which case a missing
 /// toolchain is a hard failure so a CI job that enforces the contract cannot
 /// silently pass with the checks skipped.
-///
+/// </para>
+/// <para>
 /// Each test runs one of the three trains against an ELF with Spike attached
 /// as a live <see cref="ICommitObserver"/>; a <see cref="CoSimDivergenceException"/>
 /// is thrown at the first commit that disagrees with Spike. <c>test.elf</c> is
 /// the simple RV32I golden path; <c>rich.elf</c> (RV32IM) adds multiply/divide,
 /// an insertion sort, and heavy data-dependent branching to exercise the
 /// multi-cycle functional units, store-to-load forwarding, and flush paths.
+/// </para>
 /// </summary>
 public class SpikeCoSimTests {
     /// <summary>Set to 1/true to turn a missing Spike toolchain into a hard failure.</summary>

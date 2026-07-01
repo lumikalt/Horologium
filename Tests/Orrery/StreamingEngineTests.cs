@@ -31,16 +31,16 @@ public class StreamingEngineTests {
     [Fact]
     public void Configure_ActivatesStream() {
         var eng = new StreamingEngine();
-        FlatMemory mem = MakeMemory(1, 2, 3);
+        MakeMemory(1, 2, 3);
 
         eng.Configure(0, UnitStride(0, 4, 3));
         Assert.True(eng.IsActive(0));
-        Assert.False(eng.HasElement(0)); // Step not yet called
+        Assert.False(eng.HasElement(0)); // Step isn't yet called
     }
 
     [Fact]
     public void Step_FillsBuffer_WithCorrectElement() {
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         FlatMemory mem = MakeMemory(10, 20, 30);
 
         eng.Configure(0, UnitStride(0, 4, 3));
@@ -52,7 +52,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Consume_ReturnsAndAdvances() {
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         FlatMemory mem = MakeMemory(10, 20, 30);
 
         eng.Configure(0, UnitStride(0, 4, 3));
@@ -68,7 +68,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Peek_DoesNotConsumeElement() {
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         FlatMemory mem = MakeMemory(42);
 
         eng.Configure(0, UnitStride(0, 4, 1));
@@ -116,7 +116,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void IsExhausted_TrueAfterAllConsumed() {
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         FlatMemory mem = MakeMemory(1, 2);
 
         eng.Configure(0, UnitStride(0, 4, 2));
@@ -154,7 +154,7 @@ public class StreamingEngineTests {
         mem.Load(8, BitConverter.GetBytes(30u));
         mem.Load(12, BitConverter.GetBytes(40u));
 
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         eng.Configure(0, new StreamDescriptor(0, 4, 2, 8)); // stride=8
         eng.Step(mem);
         eng.Step(mem);
@@ -172,7 +172,7 @@ public class StreamingEngineTests {
         mem.Load(8, BitConverter.GetBytes(3u));
         mem.Load(12, BitConverter.GetBytes(4u));
 
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         eng.Configure(0, new StreamDescriptor(12, 4, 3, -4)); // start=12, stride=-4
         eng.Step(mem);
         eng.Step(mem);
@@ -190,7 +190,7 @@ public class StreamingEngineTests {
         var mem = new FlatMemory(16);
         mem.Load(0, [0xAB, 0xCD, 0xEF,]);
 
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         eng.Configure(0, new StreamDescriptor(0, 1, 3, 1));
         eng.Step(mem);
         eng.Step(mem);
@@ -209,7 +209,7 @@ public class StreamingEngineTests {
         mem.Load(0, BitConverter.GetBytes(100u));
         mem.Load(4, BitConverter.GetBytes(200u));
 
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         eng.Configure(0, new StreamDescriptor(0, 4, 1, 4));
         eng.Configure(1, new StreamDescriptor(4, 4, 1, 4));
 
@@ -225,7 +225,7 @@ public class StreamingEngineTests {
         for (var i = 0; i < StreamingEngine.MaxStreams; i++)
             mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
 
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         for (var i = 0; i < StreamingEngine.MaxStreams; i++)
             eng.Configure(i, new StreamDescriptor((ulong)(i * 4), 4, 1, 4));
 
@@ -238,7 +238,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Deactivate_StopsPrefetchAndClearsBuffer() {
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         FlatMemory mem = MakeMemory(1, 2, 3);
 
         eng.Configure(0, UnitStride(0, 4, 3));
@@ -256,7 +256,7 @@ public class StreamingEngineTests {
 
     [Fact]
     public void Deactivate_ThenReconfigure_StartsClean() {
-        var eng = new StreamingEngine(4);
+        var eng = new StreamingEngine();
         FlatMemory mem = MakeMemory(10, 20);
 
         eng.Configure(0, UnitStride(0, 4, 2));

@@ -2,9 +2,10 @@ namespace Mechanism;
 
 /// <summary>
 /// Decodes raw instruction bytes into an ITooth.
-///
+/// <para>
 /// The decoder is stateless — the same bytes at the same PC always
 /// produce the same instruction. All ISA-specific decode logic lives here.
+/// </para>
 /// </summary>
 public interface IDecoder {
     /// <summary>
@@ -16,6 +17,14 @@ public interface IDecoder {
     /// </exception>
     ITooth Decode(ulong pc, IMemory memory);
 
+    /// <summary>
+    /// Decodes the instruction at <paramref name="pc"/> from <paramref name="raw"/>.
+    /// </summary>
+    /// <param name="pc">Program counter.</param>
+    /// <param name="raw">
+    /// Raw instruction bytes.
+    /// </param>
+    /// <returns></returns>
     ITooth Decode(ulong pc, uint raw);
 
     /// <summary>
@@ -37,8 +46,10 @@ public interface IDecoder {
 /// Thrown when bytes at a given PC do not form a legal instruction.
 /// The pipeline converts this into a trap via ITrapController.
 /// </summary>
-public sealed class IllegalInstructionException(ulong pc, uint encoding, string message)
+public sealed class IllegalInstructionException(uint encoding, string message)
     : Exception(message) {
-    public ulong Pc { get; } = pc;
+    /// <summary>
+    /// The raw encoding of the illegal instruction.
+    /// </summary>
     public uint Encoding { get; } = encoding;
 }

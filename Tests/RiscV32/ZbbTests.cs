@@ -2,6 +2,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
@@ -21,14 +23,6 @@ public class ZbbTests {
     private static uint ITypeAlu(int imm12, int rs1, int funct3, int rd) =>
         (uint)(((imm12 & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | ((funct3 & 0x7) << 12)
              | ((rd & 0x1F) << 7) | 0x13u);
-
-    // ADDI rd, rs1, imm
-    private static uint Addi(int rd, int rs1, int imm) =>
-        ITypeAlu(imm & 0xFFF, rs1, 0, rd);
-
-    // LUI rd, imm (U-type)
-    private static uint Lui(int rd, int imm) =>
-        (uint)(((imm & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37u);
 
     // EBREAK
     private static uint EBreak() => 0x00100073u;
@@ -69,20 +63,6 @@ public class ZbbTests {
 
     // ── Test runner ──────────────────────────────────────────────────────────
 
-    // Run a two-instruction program: [setup, target, EBREAK].
-    // Returns the value in register 1 (x1) after the target instruction.
-    private static uint RunWith(uint setup1, uint setup2, uint target) {
-        const ulong codeBase = 0x1000u;
-        var mem = new FlatMemory(0x4000);
-        uint[] words = [setup1, setup2, target, EBreak(),];
-        for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
-
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, codeBase);
-        train.Run(100);
-
-        return (uint)mem.Read(0u, 0); // unused — read rd from register via hack below
-    }
-
     // Simpler runner: load x1 and x2 with given 32-bit values, run one instruction,
     // read back rd (encoded as x3) from memory via a SW at the end.
     private static uint RunInstr(uint x1Val, uint x2Val, uint instr) {
@@ -101,10 +81,10 @@ public class ZbbTests {
         //   <instr>              — uses x1,x2 → writes x3
         //   sw  x3, 0x100(x0)   — opcode=0x23, funct3=2
         //   ebreak
-        var lw1 = (uint)((0x200 << 20) | (0 << 15) | (2 << 12) | (1 << 7) | 0x03u);
-        var lw2 = (uint)((0x204 << 20) | (0 << 15) | (2 << 12) | (2 << 7) | 0x03u);
-        var sw3 = (uint)((((0x100 >> 5) & 0x7F) << 25) | (3 << 20) | (0 << 15)
-                       | (2 << 12) | ((0x100 & 0x1F) << 7) | 0x23u);
+        const uint lw1 = (0x200 << 20) | (0 << 15) | (2 << 12) | (1 << 7) | 0x03u;
+        const uint lw2 = (0x204 << 20) | (0 << 15) | (2 << 12) | (2 << 7) | 0x03u;
+        const uint sw3 = (((0x100 >> 5) & 0x7F) << 25) | (3 << 20) | (0 << 15)
+                       | (2 << 12) | ((0x100 & 0x1F) << 7) | 0x23u;
 
         uint[] words = [lw1, lw2, instr, sw3, EBreak(),];
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));

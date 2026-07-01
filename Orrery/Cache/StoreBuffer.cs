@@ -6,13 +6,15 @@ namespace Orrery.Cache;
 /// <summary>
 /// A store buffer that defers writes to backing memory and forwards recent
 /// stores to loads at the same address.
-///
+/// <para>
 /// Entries are tagged with the tick they were written. DrainEligible() (called
 /// at Phase.Collection) commits entries from previous ticks to backing storage,
 /// giving loads in the same tick a forwarding window of exactly one cycle.
-///
+/// </para>
+/// <para>
 /// Partial-overlap reads (e.g., a byte load from a word-store address) force
 /// an immediate DrainAll so backing memory is consistent.
+/// </para>
 /// </summary>
 public sealed class StoreBuffer : IMemory {
     private readonly record struct Entry(ulong Address, ulong Value, int Bytes, long Tick);

@@ -415,7 +415,7 @@ public class ExperimentTests {
             new TrainConfig(
                 pipeline,
                 Predictor: BranchPredictorConfig.NBit(),
-                DCache: new CacheHardwareConfig(16384, 4, 64, 10)
+                DCache: new CacheHardwareConfig(16384, 4, 64)
             )
         );
         const long maxTicks = 400_000;

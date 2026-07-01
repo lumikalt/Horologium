@@ -2,6 +2,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
@@ -20,11 +22,11 @@ public class ZihpmTests {
 
     // CSRRS rd, csr, x0 — read CSR into rd (rs1=x0 → no write side-effect)
     private static uint CsrRead(int rd, uint csr) =>
-        (uint)(((csr & 0xFFF) << 20) | (0 << 15) | (2 << 12) | ((rd & 0x1F) << 7) | 0x73u);
+        ((csr & 0xFFF) << 20) | (0 << 15) | (2 << 12) | (uint)((rd & 0x1F) << 7) | 0x73u;
 
     // CSRRW x0, csr, rs1 — write rs1 to CSR (rd=x0 → discard old value)
     private static uint CsrWrite(int rs1, uint csr) =>
-        (uint)(((csr & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | (1 << 12) | (0 << 7) | 0x73u);
+        ((csr & 0xFFF) << 20) | (uint)((rs1 & 0x1F) << 15) | (1 << 12) | (0 << 7) | 0x73u;
 
     // SW rs2, imm(rs1)
     private static uint Sw(int rs1, int rs2, int imm) =>
@@ -37,7 +39,7 @@ public class ZihpmTests {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    // Run setup instructions then read a CSR into x1, store to OutBase, return the value.
+    // Run setup instructions, then read a CSR into x1, store to OutBase, return the value.
     private static uint ReadCsr(uint[] setup, uint csr) {
         var mem = new FlatMemory(0x4000);
         uint[] prog = [..setup, CsrRead(1, csr), Sw(0, 1, (int)ZihpmTests.OutBase), EBreak(),];

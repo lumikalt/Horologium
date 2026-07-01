@@ -160,11 +160,13 @@ public sealed class MesiCache : IMemory {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return false;
-        if (_state[set][way] == MesiState.Modified) {
-            WriteBackBlock(set, way);
-            _state[set][way] = MesiState.Shared;
+        switch (_state[set][way]) {
+            case MesiState.Modified:
+                WriteBackBlock(set, way);
+                _state[set][way] = MesiState.Shared;
+                break;
+            case MesiState.Exclusive: _state[set][way] = MesiState.Shared; break;
         }
-        else if (_state[set][way] == MesiState.Exclusive) { _state[set][way] = MesiState.Shared; }
 
         return true;
     }
@@ -230,10 +232,15 @@ public sealed class MesiCache : IMemory {
 
         if (way >= 0) {
             Hits++;
-            if (_state[set][way] == MesiState.Shared)
-                _bus.BusReadInvalidate(this, lineBase); // S→M: snoop all peers + cancel reservations
-            else if (_state[set][way] == MesiState.Exclusive)
-                _bus.BusSilentUpgrade(lineBase); // E→M: no snoop needed, but cancel reservations
+            switch (_state[set][way]) {
+                case MesiState.Shared:
+                    _bus.BusReadInvalidate(this, lineBase); // S→M: snoop all peers + cancel reservations
+                    break;
+                case MesiState.Exclusive:
+                    _bus.BusSilentUpgrade(lineBase); // E→M: no snoop needed, but cancel reservations
+                    break;
+            }
+
             _state[set][way] = MesiState.Modified;
             TouchLru(set, way);
             WriteBytes(_blocks[set][way], offset, value, bytes);

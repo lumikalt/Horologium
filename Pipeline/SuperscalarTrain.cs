@@ -15,11 +15,12 @@ namespace Pipeline;
 /// Superscalar in-order Train: issues up to <c>issueWidth</c> instructions per
 /// cycle, executing them sequentially so intra-group RAW dependencies resolve
 /// naturally without any hazard detection logic.
-///
+/// <para>
 /// There is no speculation across branches — the issue group stops at any
 /// branch or jump, paying a "group-cutoff" penalty instead of a flush penalty.
 /// This makes it straightforward to compare against <see cref="OooeTrain"/>:
 /// same issue width, same branch predictor absence, purely in-order semantics.
+/// </para>
 /// </summary>
 public sealed class SuperscalarTrain : ISteppableTrain {
     private readonly Train _train;
@@ -68,11 +69,12 @@ public sealed class SuperscalarTrain : ISteppableTrain {
 /// <summary>
 /// The superscalar core Gear. Each tick it issues up to <c>issueWidth</c>
 /// instructions in program order.
-///
+/// <para>
 /// Stalls are counted as cycles where the group ran shorter than the issue
 /// width (due to a branch, halt, or memory fault cutting the group short).
 /// Cache miss penalties are added as extra cycles after each issue group.
 /// branch_misses is always zero because there is no speculative fetch.
+/// </para>
 /// </summary>
 internal sealed class SuperscalarCore(
     string name,

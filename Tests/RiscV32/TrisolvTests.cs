@@ -2,21 +2,26 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
 /// PolyBench trisolv: solve L·x = b where L is lower-triangular.
-///
+/// <para>
 /// Algorithm:
 ///   for i in 0..N-1:
 ///     x[i] = (b[i] - sum(L[i][j]*x[j] for j in 0..i-1)) / L[i][i]
-///
+/// </para>
+/// <para>
 /// UVE mapping:
 ///   Inner loop: u3 += u1[j] * u2[j]   (MAC; u1=L row, u2=x prefix)
 ///   Final:      u6 = b[i] - u3;  x[i] = u6 / L[i][i]
-///
+/// </para>
+/// <para>
 /// Tests that UVE store-stream writes to x[] are visible to subsequent load-stream
 /// prefetches (both use DLayers.Accessor, so writes in row i are seen in row i+1).
+/// </para>
 /// </summary>
 public class TrisolvTests {
     // ── Encode helpers ────────────────────────────────────────────────────────
@@ -78,12 +83,12 @@ public class TrisolvTests {
 
     // ── Reference solution ────────────────────────────────────────────────────
 
-    private static float[] ReferenceSolve(int n, float[] L, float[] b) {
+    private static float[] ReferenceSolve(int n, float[] l, float[] b) {
         var x = new float[n];
         for (var i = 0; i < n; i++) {
             var sum = 0f;
-            for (var j = 0; j < i; j++) sum += L[i * n + j] * x[j];
-            x[i] = (b[i] - sum) / L[i * n + i];
+            for (var j = 0; j < i; j++) sum += l[i * n + j] * x[j];
+            x[i] = (b[i] - sum) / l[i * n + i];
         }
 
         return x;

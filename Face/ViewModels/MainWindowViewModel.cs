@@ -59,7 +59,7 @@ public partial class MainWindowViewModel : ObservableObject {
 
     [ObservableProperty] public partial string? SelectedMetric { get; set; } = null;
 
-    [ObservableProperty] public partial bool HasResults { get; set; } = false;
+    [ObservableProperty] private partial bool HasResults { get; set; } = false;
 
     [ObservableProperty] public partial decimal TraceMaxTicks { get; set; } = 2_000;
 
@@ -128,7 +128,8 @@ public partial class MainWindowViewModel : ObservableObject {
         SelectedPreset = WorkloadPresets[0];
     }
 
-    partial void OnSelectedMetricChanged(string? value) {
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnSelectedMetricChanged(string? _) {
         if (HasResults) ResultsUpdated?.Invoke();
     }
 
@@ -265,36 +266,23 @@ public partial class MainWindowViewModel : ObservableObject {
     }
 
     private static WaterfallData BuildWaterfall(PEventLog plog) {
-        static int Priority(PEventKind k) => k switch {
-            PEventKind.Flush      => 6,
-            PEventKind.Retire     => 5,
-            PEventKind.Execute    => 4,
-            PEventKind.Issue      => 3,
-            PEventKind.Dispatch   => 2,
-            PEventKind.Decode     => 1,
-            PEventKind.Fetch      => 0,
-            PEventKind.FetchStall => -1, // never wins in instruction rows
-            _                     => 0,
-        };
-
         // Compute cycle-level maps first; SpecPc per row is derived from these.
         // instrId=0 is the sentinel used by FetchStall events — excluded from instruction rows.
-        var fetchPcPerCycle = (IReadOnlyDictionary<long, ulong>)plog.Events
-                                                                    .Where(e => e.Kind == PEventKind.Fetch
-                                                                            || e.Kind == PEventKind.FetchStall
-                                                                     )
-                                                                    .GroupBy(e => e.Cycle)
-                                                                    .ToDictionary(g => g.Key, g => g.Min(e => e.Pc));
+        Dictionary<long, ulong> fetchPcPerCycle = plog.Events
+                                                      .Where(e => e.Kind is PEventKind.Fetch or PEventKind.FetchStall
+                                                       )
+                                                      .GroupBy(e => e.Cycle)
+                                                      .ToDictionary(g => g.Key, g => g.Min(e => e.Pc));
 
-        var flushCycles = (IReadOnlySet<long>)plog.Events
-                                                  .Where(e => e.Kind == PEventKind.Flush)
+        IReadOnlySet<long> flushCycles = plog.Events
+                                             .Where(e => e.Kind == PEventKind.Flush)
+                                             .Select(e => e.Cycle)
+                                             .ToHashSet();
+
+        IReadOnlySet<long> fetchStallCycles = plog.Events
+                                                  .Where(e => e.Kind == PEventKind.FetchStall)
                                                   .Select(e => e.Cycle)
                                                   .ToHashSet();
-
-        var fetchStallCycles = (IReadOnlySet<long>)plog.Events
-                                                       .Where(e => e.Kind == PEventKind.FetchStall)
-                                                       .Select(e => e.Cycle)
-                                                       .ToHashSet();
 
         List<IGrouping<ulong, PEvent>> groups = plog.Events
                                                     .Where(e => e.InstrId != 0)
@@ -327,6 +315,18 @@ public partial class MainWindowViewModel : ObservableObject {
         ulong basePc = rows.Min(r => Math.Min(r.Pc, r.SpecPc));
 
         return new WaterfallData(rows, minCy, maxCy, fetchPcPerCycle, flushCycles, fetchStallCycles, basePc);
+
+        static int Priority(PEventKind k) => k switch {
+            PEventKind.Flush      => 6,
+            PEventKind.Retire     => 5,
+            PEventKind.Execute    => 4,
+            PEventKind.Issue      => 3,
+            PEventKind.Dispatch   => 2,
+            PEventKind.Decode     => 1,
+            PEventKind.Fetch      => 0,
+            PEventKind.FetchStall => -1, // never wins in instruction rows
+            _                     => 0,
+        };
     }
 
     public void SetWorkloadPath(string path) {
