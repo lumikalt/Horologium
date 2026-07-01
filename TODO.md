@@ -213,7 +213,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
   - [x] `MultiHartPipeline`: ISA-agnostic coordinator (`Pipeline/`) that steps N `ISteppableTrain` instances round-robin per cycle; `ISteppableTrain` interface in `Orrery/Train/` with `BeginStepping()`, `StepCycle()`, `IsIdle`, `FinishStepping()`; all five train types implement it. Tested with all five train types including FiveStageTrain MESI coherence.
   - [x] `SmtTrain`: barrel-processor SMT train (`Pipeline/`) with N per-hart contexts sharing an `issueWidth`-wide issue window; round-robin slot distribution with per-cycle starting-hart rotation; per-hart `IMechanism[]` + `IMemory[]` constructor; `StateOf(hartId)`, `HartCount`; implements `ISteppableTrain`.
   - [x] LR/SC atomics across pipeline trains: `MultiHartPipeline` with `SingleCycleTrain` per hart, `MesiBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` — reservation cancelled by cross-hart store via BusReadInvalidate; SC.W returns 1 (failure) and register reads the failed result.
-  - [ ] OoO MESI coherence via `MultiHartPipeline`: `OooeTrain` per hart, store commits to cache at ROB-head — timing harder than single-Gear trains; requires a test that accounts for the multi-stage commit delay.
+  - [x] OoO MESI coherence via `MultiHartPipeline`: `OooeTrain` per hart; store commits to cache0 at ROB-head (cycle ~9); nop-padded H1 program delays the load to cycle ~13; BusRead snoop transitions cache0 M→S and cache1 installs S. Note: OooeTrain's PRF starts zeroed — register pre-init via `ArchState.IntegerRegisters.Write` is ineffective; all values must be computed in-program.
 
 ## Orrery
 

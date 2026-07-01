@@ -195,6 +195,8 @@ RevolutionResult[] results = new MultiHartPipeline(train0, train1).Run(maxTicks:
 
 `Run` returns one `RevolutionResult` per hart. Combine with `MesiBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` for LR/SC atomics between pipeline trains.
 
+**OoO timing note:** `OooeTrain`'s physical register file starts zeroed; `ArchState.IntegerRegisters.Write()` updates the architectural register file but not the PRF, so register values pre-set before `Run()` are invisible to the pipeline. For OoO MESI coherence tests or any test that requires non-zero initial register values, compute those values inside the program (e.g. `lui`+`addi` sequences). Also, OoO stores commit to the cache at ROB-head (several cycles after fetch), so a cross-hart load must be issued late enough to see the committed store — pad H1 with nops in the decode stream before the load's source-register computation.
+
 ### SmtTrain (Pipeline/)
 
 `SmtTrain` is a barrel-processor SMT train: N independent hart contexts share a single issue window of width `issueWidth`. Each tick the coordinator distributes the available slots round-robin across active harts, rotating the starting hart every cycle for long-run fairness. This interleaves hart instructions at issue-slot granularity rather than the whole-tick round-robin of `MultiHartPipeline`.

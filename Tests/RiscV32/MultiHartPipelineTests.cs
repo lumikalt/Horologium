@@ -205,6 +205,49 @@ public class MultiHartPipelineTests {
         Assert.Equal(99UL, train1.ArchState.IntegerRegisters.Read(1));
     }
 
+    [Fact]
+    public void OoOHarts_MesiCoherence_StoreCommitsThenLoadSeesCoherentValue() {
+        // OooeTrain's PRF starts zeroed — ArchState.IntegerRegisters.Write does not seed the
+        // PRF, so all values must be computed within the programs (like addi x1,x0,42 above).
+        //
+        // H0 at 0x00: lui+addi build x1=0xCAFE; addi builds x2=0x200; sw x1,0(x2); ebreak
+        //   → sw commits 0xCAFE to 0x200 via cache0 (→ M) at OoO cycle ~9; halts cycle ~9.
+        //
+        // H1 at 0x40: 15 nops fill the decode queue before addi x4,x0,0x200 and lw arrive,
+        //   delaying lw to OoO cycle ~13, safely past H0's ~cycle-9 commit.
+        //   lw misses cold cache1 → BusRead snoop: cache0 M→writeback+S, cache1 installs S.
+        //
+        // Nop count chosen so lw executes ~4 cycles after H0's commit; revisit if the OoO
+        // pipeline timing changes (e.g. wider issue or different IQ partitioning).
+
+        const uint luiX1  = 0x0000D0B7; // lui  x1, 0xD          → x1 = 0x0000D000
+        const uint addiX1 = 0xAFE08093; // addi x1, x1, -1282    → x1 = 0x0000CAFE
+        const uint addiX2 = 0x20000113; // addi x2, x0, 0x200    → x2 = 0x200
+        const uint swX1   = 0x00112023; // sw   x1, 0(x2)
+        const uint nop    = 0x00000013; // addi x0, x0, 0         (timing pad — delays lw dispatch)
+        const uint addiX4 = 0x20000213; // addi x4, x0, 0x200    → x4 = 0x200
+        const uint lwX3   = 0x00022183; // lw   x3, 0(x4)
+
+        var flat = new FlatMemory(0x1000);
+        flat.Load(0x00, ToBytes(luiX1, addiX1, addiX2, swX1, Ebreak));
+        flat.Load(0x40, ToBytes(
+            nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop,
+            addiX4, lwX3, Ebreak));
+
+        var bus    = new MesiBus(flat);
+        var cache0 = new MesiCache(bus, 256, 2, 64);
+        var cache1 = new MesiCache(bus, 256, 2, 64);
+
+        var train0 = new OooeTrain(new Rv32Mechanism(), cache0);
+        var train1 = new OooeTrain(new Rv32Mechanism(), cache1, 0x40);
+
+        new MultiHartPipeline(train0, train1).Run(1_000);
+
+        Assert.Equal(0xCAFEUL, train1.ArchState.IntegerRegisters.Read(3));
+        Assert.Equal(MesiState.Shared, cache0.StateOf(0x200));
+        Assert.Equal(MesiState.Shared, cache1.StateOf(0x200));
+    }
+
     // ── LR/SC atomics across pipeline trains ──────────────────────────────────
 
     [Fact]
