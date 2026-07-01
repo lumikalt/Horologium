@@ -294,4 +294,80 @@ public class MultiHartPipelineTests {
         Assert.Equal(0UL, train0.ArchState.IntegerRegisters.Read(1)); // lr.w result
         Assert.Equal(1UL, train0.ArchState.IntegerRegisters.Read(4)); // sc.w failure flag
     }
+
+    // ── RunConcurrent (two-phase parallel) ───────────────────────────────────
+
+    [Fact]
+    public void RunConcurrent_TwoIndependentHarts_BitIdenticalToSequentialRun() {
+        // Builds the same two-hart independent program twice: once driven by Run()
+        // (MesiBus directly) and once by RunConcurrent (DeferredBus).  Asserts that
+        // both modes produce identical final register values — the bit-identical claim.
+        const uint addi42 = 0x02A00093;
+        const uint addi99 = 0x06300093;
+
+        static (SingleCycleTrain t0, SingleCycleTrain t1) BuildSeq() {
+            var flat = new FlatMemory(0x100);
+            flat.Load(0x00, ToBytes(addi42, MultiHartPipelineTests.Ebreak));
+            flat.Load(0x40, ToBytes(addi99, MultiHartPipelineTests.Ebreak));
+            var bus = new MesiBus(flat);
+            var t0 = new SingleCycleTrain(new Rv32Mechanism(), new MesiCache(bus, 256, 2, 64));
+            var t1 = new SingleCycleTrain(new Rv32Mechanism(), new MesiCache(bus, 256, 2, 64), 0x40);
+            new MultiHartPipeline(t0, t1).Run(1_000);
+            return (t0, t1);
+        }
+
+        (SingleCycleTrain seq0, SingleCycleTrain seq1) = BuildSeq();
+
+        var flat2 = new FlatMemory(0x100);
+        flat2.Load(0x00, ToBytes(addi42, MultiHartPipelineTests.Ebreak));
+        flat2.Load(0x40, ToBytes(addi99, MultiHartPipelineTests.Ebreak));
+        var realBus = new MesiBus(flat2);
+        var def0 = new DeferredBus(realBus);
+        var def1 = new DeferredBus(realBus);
+        var con0 = new SingleCycleTrain(new Rv32Mechanism(), new MesiCache(def0, 256, 2, 64));
+        var con1 = new SingleCycleTrain(new Rv32Mechanism(), new MesiCache(def1, 256, 2, 64), 0x40);
+        new MultiHartPipeline(con0, con1).RunConcurrent([def0, def1,], 1_000);
+
+        Assert.Equal(seq0.ArchState.IntegerRegisters.Read(1), con0.ArchState.IntegerRegisters.Read(1));
+        Assert.Equal(seq1.ArchState.IntegerRegisters.Read(1), con1.ArchState.IntegerRegisters.Read(1));
+    }
+
+    [Fact]
+    public void RunConcurrent_WellSeparatedOoO_ProducerConsumerSeesCoherentValue() {
+        // Same program structure as OoOHarts_MesiCoherence_StoreCommitsThenLoadSeesCoherentValue
+        // but run via RunConcurrent with DeferredBus.
+        // H0's store commits at outer tick ~9; H1's load fires at outer tick ~13 —
+        // well-separated (4+ ticks apart) so no same-tick cross-hart conflict occurs.
+        const uint luiX1 = 0x0000D0B7;  // lui  x1, 0xD
+        const uint addiX1 = 0xAFE08093; // addi x1, x1, -1282  → x1 = 0xCAFE
+        const uint addiX2 = 0x20000113; // addi x2, x0, 0x200
+        const uint swX1 = 0x00112023;   // sw   x1, 0(x2)
+        const uint nop = 0x00000013;
+        const uint addiX4 = 0x20000213; // addi x4, x0, 0x200
+        const uint lwX3 = 0x00022183;   // lw   x3, 0(x4)
+
+        var flat = new FlatMemory(0x1000);
+        flat.Load(0x00, ToBytes(luiX1, addiX1, addiX2, swX1, MultiHartPipelineTests.Ebreak));
+        flat.Load(
+            0x40, ToBytes(
+                nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop, nop,
+                addiX4, lwX3, MultiHartPipelineTests.Ebreak
+            )
+        );
+
+        var realBus = new MesiBus(flat);
+        var def0 = new DeferredBus(realBus);
+        var def1 = new DeferredBus(realBus);
+        var cache0 = new MesiCache(def0, 256, 2, 64);
+        var cache1 = new MesiCache(def1, 256, 2, 64);
+
+        var train0 = new OooeTrain(new Rv32Mechanism(), cache0);
+        var train1 = new OooeTrain(new Rv32Mechanism(), cache1, 0x40);
+
+        new MultiHartPipeline(train0, train1).RunConcurrent([def0, def1,], 1_000);
+
+        Assert.Equal(0xCAFEUL, train1.ArchState.IntegerRegisters.Read(3));
+        Assert.Equal(MesiState.Shared, cache0.StateOf(0x200));
+        Assert.Equal(MesiState.Shared, cache1.StateOf(0x200));
+    }
 }

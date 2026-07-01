@@ -184,6 +184,22 @@ public sealed class MesiCache : IMemory {
     // ── DeferredBus phase-2 hooks ────────────────────────────────────────────
 
     /// <summary>
+    /// Writes all Modified lines directly to backing memory without evicting them or
+    /// updating coherence state.  Called by <c>DeferredBus.Drain()</c> after draining
+    /// the op queue so that backing is authoritative at the start of the next tick's
+    /// phase-1, allowing phase-1 fills to read correct data even when this cache holds
+    /// lines in M state.
+    /// </summary>
+    internal void FlushToBacking() {
+        for (var s = 0; s < _tags.Length; s++)
+        for (var w = 0; w < _ways; w++) {
+            if (_state[s][w] != MesiState.Modified || !_tags[s][w].HasValue) continue;
+            ulong lineBase = ReconstructLineBase(s, _tags[s][w]!.Value);
+            _bus.Backing.Load(lineBase, _blocks[s][w]);
+        }
+    }
+
+    /// <summary>
     /// Corrects E→S after a phase-2 <see cref="IBus.BusRead"/> reveals that a peer
     /// held the line. No-op for M (a same-tick intra-hart write must not be downgraded).
     /// Called only by <c>DeferredBus.Drain()</c>.

@@ -23,6 +23,7 @@ namespace Orrery.Cache;
 public sealed class DeferredBus : IBus {
     private readonly MesiBus _real;
     private readonly List<BusOp> _queue = new();
+    private readonly List<MesiCache> _caches = new();
 
     public IMemory Backing => _real.Backing;
 
@@ -31,7 +32,10 @@ public sealed class DeferredBus : IBus {
         _real = real;
     }
 
-    public void Register(MesiCache cache) => _real.Register(cache);
+    public void Register(MesiCache cache) {
+        _real.Register(cache);
+        _caches.Add(cache);
+    }
 
     /// <summary>Queues a read-miss snoop. Returns <c>false</c>; phase 2 corrects E→S if needed.</summary>
     public bool BusRead(MesiCache requester, ulong lineBase) {
@@ -73,6 +77,10 @@ public sealed class DeferredBus : IBus {
                 case BusOpKind.Load:           _real.BusLoad(op.LineBase); break;
                 case BusOpKind.Writeback:      _real.Writeback(op.LineBase, op.Block!); break;
             }
+
+        // Write all M-state lines directly to backing so the next tick's phase-1
+        // fills see current data without waiting for a snoop-triggered writeback.
+        foreach (MesiCache cache in _caches) cache.FlushToBacking();
     }
 
     /// <summary>Clears the pending op queue. Call after <see cref="Drain"/> each tick.</summary>
