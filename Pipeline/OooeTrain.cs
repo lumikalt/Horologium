@@ -791,6 +791,14 @@ internal sealed class OoOPipelineCore : Gear {
                     // Head-gating ensures VRF writes are applied in program order.
                     case ToothClass.Vector when rs.RobIndex != _rob.HeadIndex:
                         continue;
+                    // SC.W serialization: the reservation check (TryConsume) must see a
+                    // coherent view of the ReservationTable — all older intra-hart stores
+                    // must have committed (so their MesiCache writes, which cancel cross-hart
+                    // reservations via BusReadInvalidate, have already fired).  Head-gating
+                    // guarantees this without needing a commit-time re-check.
+                    case ToothClass.Atomic when rs.Instruction?.IsStoreConditional == true
+                                             && rs.RobIndex != _rob.HeadIndex:
+                        continue;
                     // UVE serialization: stream state is not renamed; head-gating preserves order.
                     // Additionally stall until every load-stream source has a buffered element.
                     case ToothClass.Uve: {

@@ -25,7 +25,7 @@ public sealed record ExecuteResult {
     /// The trap raised by this instruction, or null if execution was clean.
     /// The pipeline passes this to ITrapController at commit.
     /// </summary>
-    public TrapInfo? Trap { get; init; }
+    public TrapInfo? Trap { get; private init; }
 
     /// <summary>True if this result carries a trap.</summary>
     public bool HasTrap => Trap is not null;

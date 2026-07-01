@@ -149,7 +149,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
 
 - [x] Parallelize config sweep in `Experiment.Run`.
 - [ ] Parallelize multi-workload sweeps.
-- [ ] Multi-hart concurrency (distinct from run-level parallelism).
+- [x] Multi-hart concurrency (distinct from run-level parallelism).
 
 ## Mechanism
 
@@ -214,7 +214,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
   - [x] `SmtTrain`: barrel-processor SMT train (`Pipeline/`) with N per-hart contexts sharing an `issueWidth`-wide issue window; round-robin slot distribution with per-cycle starting-hart rotation; per-hart `IMechanism[]` + `IMemory[]` constructor; `StateOf(hartId)`, `HartCount`; implements `ISteppableTrain`.
   - [x] LR/SC atomics across pipeline trains: `MultiHartPipeline` with `SingleCycleTrain` per hart, `MesiBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` — reservation cancelled by cross-hart store via BusReadInvalidate; SC.W returns 1 (failure) and register reads the failed result.
   - [x] OoO MESI coherence via `MultiHartPipeline`: `OooeTrain` per hart; store commits to cache0 at ROB-head (cycle ~9); nop-padded H1 program delays the load to cycle ~13; BusRead snoop transitions cache0 M→S and cache1 installs S. Note: OooeTrain's PRF starts zeroed — register pre-init via `ArchState.IntegerRegisters.Write` is ineffective; all values must be computed in-program.
-  - [ ] OoO LR/SC atomics across pipeline trains: `OooeTrain` per hart, store-queue commit drives SC failure — timing harder than single-cycle because reservation is only cancelled when the store commits (not at execute), so SC must dispatch late enough that H0's commit has fired.
+  - [x] OoO LR/SC atomics across pipeline trains: `OooeTrain` per hart + `SingleCycleTrain` cross-hart; `ITooth.IsStoreConditional` DIM head-gates SC.W at ROB head (so all intra-hart stores have committed before TryConsume fires); two tests: ScFails (H1 SW cancels reservation at outer tick 7, SC.W TryConsume at tick 8 sees no reservation → x4=1) and ScSucceeds (no cross-hart store → x4=0).
   - [ ] Directory-based coherence: replace snooping `MesiBus` with a directory controller (`DirectoryBus`); MOESI or MESIF states; point-to-point invalidation rather than broadcast; scalable to many caches.
   - [ ] TSO fence modeling: `fence` instruction (`FENCE.I` already decodes; add `FENCE` with predecessor/successor fields); `OooeTrain` drains store buffer to cache before issuing post-fence loads; `MultiHartPipeline` tests to verify TSO ordering guarantees.
   - [x] Multi-hart concurrency — two-phase tick (`RunConcurrent`): run each hart's `StepCycle()` in parallel threads per tick, preserving bit-identical results vs. sequential `Run()` for well-synchronized programs (defined as: no hart reads a cache line in the same outer tick that another hart writes it — guaranteed by correct use of LR/SC or TSO fences). Same-tick cross-hart write-then-read is a data race whose outcome is undefined in concurrent mode. Six implementation parts:

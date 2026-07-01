@@ -87,6 +87,15 @@ public interface ITooth {
     /// False for all other instructions, including MUL/MULH/MULHSU/MULHU.
     /// </summary>
     bool IsDiv => false;
+
+    /// <summary>
+    /// True for store-conditional instructions (SC.W / SC.D).  The pipeline
+    /// head-serializes these: SC may only issue when it is the oldest instruction
+    /// in the ROB, so the reservation check in the executor sees a coherent view
+    /// of the <c>ReservationTable</c> — all older intra-hart stores have committed
+    /// and any cross-hart cancellation from an earlier outer tick is already visible.
+    /// </summary>
+    bool IsStoreConditional => false;
 }
 
 /// <summary>

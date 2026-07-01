@@ -295,6 +295,76 @@ public class MultiHartPipelineTests {
         Assert.Equal(1UL, train0.ArchState.IntegerRegisters.Read(4)); // sc.w failure flag
     }
 
+    // ── OoO LR/SC atomics across pipeline trains ──────────────────────────────
+
+    [Fact]
+    public void OooPipelinedHart_LrScAtomic_ScFailsWhenRemoteStoreIntervenes() {
+        // H0 (OooeTrain) at 0x00:
+        //   li x2, 0x200         — address
+        //   lr.w x1, (x2)        — reservation set at outer tick 6 (H0 StepExecute); x1 = 0
+        //   sc.w x4, x1, (x2)   — rs2=x1 creates data-dep on lr.w; head-gated; executes at tick 8
+        //   ebreak
+        // H1 (SingleCycleTrain) at 0x80:
+        //   li x1, 0x200 / li x5, 0x99 / nop×4 / sw x5,0(x1) / ebreak
+        //
+        // Timeline (outer ticks, H0 runs before H1 each tick):
+        //   T=6  H0: lr.w executes → reservation[H0]=0x200; LoadStoreLatency=1 so result
+        //            is in _cdbBuffer immediately (countdown 1-1=0).
+        //   T=7  H0: Complete broadcasts lr.w result (x1=0), commits lr.w, issues sc.w.
+        //        H1: sw x5,0(x1) → BusReadInvalidate → reservation CANCELLED.
+        //   T=8  H0: StepExecute: sc.w → TryConsume(0, 0x200) → false → x4=1 (fail). ✓
+        const uint liX2 = 0x20000113;    // addi x2, x0, 0x200
+        const uint lrW = 0x100120AF;     // lr.w x1, (x2)
+        const uint scW4Dep = 0x1811222F; // sc.w x4, x1, (x2)  — rs2=x1 (data dep on lr.w)
+        const uint liX1H1 = 0x20000093;  // addi x1, x0, 0x200
+        const uint liX5 = 0x09900293;    // addi x5, x0, 0x99
+        const uint swX5X1 = 0x0050A023;  // sw x5, 0(x1)
+        const uint nop = 0x00000013;
+
+        var flat = new FlatMemory(0x1000);
+        flat.Load(0x00, ToBytes(liX2, lrW, scW4Dep, MultiHartPipelineTests.Ebreak));
+        flat.Load(0x80, ToBytes(liX1H1, liX5, nop, nop, nop, nop, swX5X1, MultiHartPipelineTests.Ebreak));
+
+        var table = new ReservationTable();
+        var bus = new MesiBus(flat, table);
+        var cache0 = new MesiCache(bus, 256, 2, 64);
+        var cache1 = new MesiCache(bus, 256, 2, 64);
+
+        var train0 = new OooeTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
+        var train1 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 1), cache1, 0x80);
+
+        new MultiHartPipeline(train0, train1).Run(5_000);
+
+        Assert.Equal(0UL, train0.ArchState.IntegerRegisters.Read(1)); // lr.w loaded 0
+        Assert.Equal(1UL, train0.ArchState.IntegerRegisters.Read(4)); // sc.w failed
+    }
+
+    [Fact]
+    public void OooPipelinedHart_LrScAtomic_ScSucceedsWithNoRemoteStore() {
+        // Same H0 OooeTrain LR/SC pair; H1 halts immediately without storing.
+        // Reservation is never cancelled → SC.W succeeds (x4 = 0).
+        const uint liX2 = 0x20000113;    // addi x2, x0, 0x200
+        const uint lrW = 0x100120AF;     // lr.w x1, (x2)
+        const uint scW4Dep = 0x1811222F; // sc.w x4, x1, (x2)
+
+        var flat = new FlatMemory(0x1000);
+        flat.Load(0x00, ToBytes(liX2, lrW, scW4Dep, MultiHartPipelineTests.Ebreak));
+        flat.Load(0x80, ToBytes(MultiHartPipelineTests.Ebreak));
+
+        var table = new ReservationTable();
+        var bus = new MesiBus(flat, table);
+        var cache0 = new MesiCache(bus, 256, 2, 64);
+        var cache1 = new MesiCache(bus, 256, 2, 64);
+
+        var train0 = new OooeTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
+        var train1 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 1), cache1, 0x80);
+
+        new MultiHartPipeline(train0, train1).Run(5_000);
+
+        Assert.Equal(0UL, train0.ArchState.IntegerRegisters.Read(1)); // lr.w loaded 0
+        Assert.Equal(0UL, train0.ArchState.IntegerRegisters.Read(4)); // sc.w succeeded
+    }
+
     // ── RunConcurrent (two-phase parallel) ───────────────────────────────────
 
     [Fact]

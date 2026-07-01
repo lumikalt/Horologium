@@ -22,8 +22,8 @@ namespace Orrery.Cache;
 /// </summary>
 public sealed class DeferredBus : IBus {
     private readonly MesiBus _real;
-    private readonly List<BusOp> _queue = new();
-    private readonly List<MesiCache> _caches = new();
+    private readonly List<BusOp> _queue = [];
+    private readonly List<MesiCache> _caches = [];
 
     public IMemory Backing => _real.Backing;
 
