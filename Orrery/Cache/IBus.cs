@@ -40,4 +40,18 @@ public interface IBus {
 
     /// <summary>Writes a dirty cache block to backing memory.</summary>
     void Writeback(ulong lineBase, ReadOnlySpan<byte> block);
+
+    /// <summary>
+    /// Called when a cache <em>voluntarily</em> evicts or invalidates a line — i.e. not
+    /// in response to a snoop.  Allows directory-based buses to maintain precise per-line
+    /// sharer sets so future bus transactions are targeted rather than broadcast.
+    /// <para>
+    /// Called from: cache eviction (<c>EvictWay</c>), CBO-initiated local invalidation
+    /// (<c>LocalInvalidate</c> — cbo.flush / cbo.inval). <b>Not</b> called from snoop
+    /// handlers (<c>SnoopRead</c>, <c>SnoopInvalidate</c>) — the directory bus already
+    /// updates its state when it issues those snoops.
+    /// </para>
+    /// No-op on snooping buses (<see cref="MesiBus"/>, <see cref="DeferredBus"/>).
+    /// </summary>
+    void Evicted(MesiCache source, ulong lineBase) { }
 }

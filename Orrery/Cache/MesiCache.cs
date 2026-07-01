@@ -135,7 +135,9 @@ public sealed class MesiCache : IMemory {
     private int EvictWay(int set) {
         int way = LruWay(set);
         if (_tags[set][way].HasValue) {
+            ulong lineBase = ReconstructLineBase(set, _tags[set][way]!.Value);
             if (_state[set][way] == MesiState.Modified) WriteBackBlock(set, way);
+            _bus.Evicted(this, lineBase);
             Evictions++;
         }
 
@@ -151,6 +153,7 @@ public sealed class MesiCache : IMemory {
         if (_state[set][way] == MesiState.Modified) WriteBackBlock(set, way);
         _state[set][way] = MesiState.Invalid;
         _tags[set][way] = null;
+        _bus.Evicted(this, lineBase);
     }
 
     // ── IMemory cache-maintenance (cbo.inval / cbo.clean / cbo.flush) ───────
