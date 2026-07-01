@@ -348,4 +348,100 @@ public class MesiCacheTests {
         // Next read should see the new data.
         Assert.Equal(0xFFUL, c0.Read(0x00, 1));
     }
+
+    // ── CBO cache-maintenance operations ────────────────────────────────────
+
+    [Fact]
+    public void FlushLine_ModifiedLine_WritesBackAndInvalidates() {
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        MesiCache cache = MakeCache(bus);
+
+        cache.Write(0x00, 0xBEEF, 4); // line → M
+        Assert.Equal(MesiState.Modified, cache.StateOf(0x00));
+
+        cache.FlushLine(0x00);
+
+        Assert.Equal(MesiState.Invalid, cache.StateOf(0x00));
+        Assert.Equal(0xBEEFUL, backing.Read(0x00, 4)); // written back to backing
+    }
+
+    [Fact]
+    public void FlushLine_InvalidLine_IsNoop() {
+        (MesiBus bus, _) = MakeBus();
+        MesiCache cache = MakeCache(bus);
+        // No prior access — line is Invalid.
+        cache.FlushLine(0x00); // should not throw
+        Assert.Equal(MesiState.Invalid, cache.StateOf(0x00));
+    }
+
+    [Fact]
+    public void CleanLine_ModifiedLine_WritesBackAndKeepsExclusive() {
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        MesiCache cache = MakeCache(bus);
+
+        cache.Write(0x00, 0xCAFE, 4); // line → M
+        cache.CleanLine(0x00);
+
+        Assert.Equal(MesiState.Exclusive, cache.StateOf(0x00)); // still cached, now clean
+        Assert.Equal(0xCAFEUL, backing.Read(0x00, 4));          // data in backing
+        Assert.Equal(0xCAFEUL, cache.Read(0x00, 4));            // still readable from cache
+    }
+
+    [Fact]
+    public void CleanLine_SharedLine_IsNoop() {
+        (MesiBus bus, _) = MakeBus();
+        MesiCache c0 = MakeCache(bus);
+        MesiCache c1 = MakeCache(bus);
+
+        _ = c0.Read(0x00, 4); // E
+        _ = c1.Read(0x00, 4); // c0→S, c1→S
+
+        c0.CleanLine(0x00); // S is already clean; no state change
+        Assert.Equal(MesiState.Shared, c0.StateOf(0x00));
+    }
+
+    [Fact]
+    public void InvalidateLine_ModifiedLine_WritesBackAndInvalidates() {
+        // Conservative: cbo.inval writes back dirty data before invalidating.
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        MesiCache cache = MakeCache(bus);
+
+        cache.Write(0x00, 0xDEAD, 4);
+        cache.InvalidateLine(0x00);
+
+        Assert.Equal(MesiState.Invalid, cache.StateOf(0x00));
+        Assert.Equal(0xDEADUL, backing.Read(0x00, 4));
+    }
+
+    [Fact]
+    public void FlushLine_MidBlockAddress_FlushesContainingBlock() {
+        // CBO operates on the block containing the address, not just the word.
+        (MesiBus bus, FlatMemory backing) = MakeBus();
+        MesiCache cache = MakeCache(bus);
+
+        cache.Write(0x04, 0x42, 4); // write at offset 4 within the 0x00 block
+        cache.FlushLine(0x08);      // address in the same block
+
+        Assert.Equal(MesiState.Invalid, cache.StateOf(0x00));
+        Assert.Equal(0x42UL, backing.Read(0x04, 4));
+    }
+
+    [Fact]
+    public void CboFlush_MultiHart_MakesWriteVisibleToRemoteRead() {
+        // H0 writes to cache0 (M state). H0 calls cbo.flush: data written to backing,
+        // line invalidated. H1 then reads via cache1: gets the flushed data from backing.
+        (MesiBus bus, _) = MakeBus();
+        MesiCache cache0 = MakeCache(bus);
+        MesiCache cache1 = MakeCache(bus);
+
+        cache0.Write(0x00, 0xF00D, 4); // cache0 line → M
+        Assert.Equal(MesiState.Modified, cache0.StateOf(0x00));
+
+        cache0.FlushLine(0x00); // cbo.flush: writeback + invalidate
+
+        Assert.Equal(MesiState.Invalid, cache0.StateOf(0x00));
+        // cache1 BusRead sees authoritative data from backing
+        Assert.Equal(0xF00DUL, cache1.Read(0x00, 4));
+        Assert.Equal(MesiState.Exclusive, cache1.StateOf(0x00));
+    }
 }

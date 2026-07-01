@@ -19,4 +19,25 @@ public interface IMemory {
     /// Used to initialise memory with a program image before a Revolution.
     /// </summary>
     void Load(ulong address, ReadOnlySpan<byte> data);
+
+    /// <summary>
+    /// Invalidates the cache block containing <paramref name="address"/>, writing it
+    /// back to backing first if it is dirty (conservative interpretation of cbo.inval).
+    /// No-op on non-cache implementations.
+    /// </summary>
+    void InvalidateLine(ulong address) { }
+
+    /// <summary>
+    /// Writes back the cache block containing <paramref name="address"/> if it is dirty,
+    /// leaving it valid in the cache (cbo.clean).
+    /// No-op on non-cache implementations.
+    /// </summary>
+    void CleanLine(ulong address) { }
+
+    /// <summary>
+    /// Writes back the cache block containing <paramref name="address"/> if it is dirty,
+    /// then invalidates it (cbo.flush).
+    /// No-op on non-cache implementations.
+    /// </summary>
+    void FlushLine(ulong address) { }
 }

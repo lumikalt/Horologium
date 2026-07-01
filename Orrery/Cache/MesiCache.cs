@@ -153,6 +153,21 @@ public sealed class MesiCache : IMemory {
         _tags[set][way] = null;
     }
 
+    // ── IMemory cache-maintenance (cbo.inval / cbo.clean / cbo.flush) ───────
+
+    public void InvalidateLine(ulong address) => LocalInvalidate(LineBase(address));
+
+    public void CleanLine(ulong address) {
+        ulong lineBase = LineBase(address);
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0 || _state[set][way] != MesiState.Modified) return;
+        WriteBackBlock(set, way);
+        _state[set][way] = MesiState.Exclusive; // clean and still owned exclusively
+    }
+
+    public void FlushLine(ulong address) => LocalInvalidate(LineBase(address));
+
     // ── Snooping (invoked by MesiBus on behalf of remote caches) ────────────
 
     /// <summary>Another cache is doing a read. M→writeback+S, E→S. Returns true if we held the line.</summary>

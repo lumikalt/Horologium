@@ -34,7 +34,7 @@
 - [ ] D extension (RV32D): double-precision FP registers and arithmetic.
 - [ ] Zfh / Zfhmin: half-precision FP.
 - [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file.
-- [x] Zicbom / Zicboz / Zicbop: cache management operations.
+- [x] Zicbom / Zicboz / Zicbop: cache management operations. cbo.inval/clean/flush now trigger real MesiCache operations via `IMemory.InvalidateLine/CleanLine/FlushLine` (default no-ops on non-cache implementations); cbo.flush makes dirty data visible to remote harts via writeback+invalidate.
 - [x] Zawrs: wrs.nto and wrs.sto.
 - [x] Zimop: mop.r.N and mop.rr.N.
 - [ ] Zcmop: compressed may-be-operations.

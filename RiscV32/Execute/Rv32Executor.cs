@@ -180,10 +180,10 @@ public class Rv32Executor : IExecutor {
             RvWrsSto => ExecuteResult.Clean,
 
             // ── Zicbom / Zicboz extensions ────────────────────────────────────
-            RvCboInval         => ExecuteResult.Clean, // NOP — no coherence model
-            RvCboClean         => ExecuteResult.Clean,
-            RvCboFlush         => ExecuteResult.Clean,
-            RvCboZero(var rs1) => CboZero(memory, state, pc, regs.Read(rs1)),
+            RvCboInval(var rs1) => CboMaintain(memory, state, pc, regs.Read(rs1), static (m, a) => m.InvalidateLine(a)),
+            RvCboClean(var rs1) => CboMaintain(memory, state, pc, regs.Read(rs1), static (m, a) => m.CleanLine(a)),
+            RvCboFlush(var rs1) => CboMaintain(memory, state, pc, regs.Read(rs1), static (m, a) => m.FlushLine(a)),
+            RvCboZero(var rs1)  => CboZero(memory, state, pc, regs.Read(rs1)),
 
             // ── Zimop extension (always return 0) ─────────────────────────────
             RvMopR _  => Reg(0),
@@ -701,6 +701,19 @@ public class Rv32Executor : IExecutor {
         if (HtifTohostAddress is { } t && addr == t && bytes == 4 && (value & 1) == 1)
             return new ExecuteResult { RequestHalt = true, };
 
+        return ExecuteResult.Clean;
+    }
+
+    private ExecuteResult CboMaintain(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        ulong rs1Val,
+        Action<IMemory, ulong> op
+    ) {
+        (ulong paddr, int fault) = Translate(memory, state, rs1Val, false, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, rs1Val, pc));
+        op(memory, paddr);
         return ExecuteResult.Clean;
     }
 

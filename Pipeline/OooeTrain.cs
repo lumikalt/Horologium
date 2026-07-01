@@ -166,6 +166,10 @@ internal sealed class OoOPipelineCore : Gear {
 
         public void Load(ulong address, ReadOnlySpan<byte> data) => backing.Load(address, data);
 
+        public void InvalidateLine(ulong address) => backing.InvalidateLine(address);
+        public void CleanLine(ulong address) => backing.CleanLine(address);
+        public void FlushLine(ulong address) => backing.FlushLine(address);
+
         public void Write(ulong address, ulong value, int bytes) {
             HasWrite = true;
             WriteAddress = address;
