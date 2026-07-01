@@ -125,6 +125,33 @@ var kernel  = new MultiHartKernel(guarded,
 
 `ReservationTable` tracks per-hart LR/SC reservations. Each hart registers a reservation on `LR.W`; any write from any hart to the same 4-byte-aligned granule cancels all overlapping reservations so a subsequent `SC.W` fails correctly. `ReservationAwareMemory` is a thin `IMemory` wrapper whose `Write()` calls `table.InvalidateAt()` before the actual write, ensuring cancellation fires on every store. Single-hart setups leave `ReservationTable` null and use the existing private `_reservation` field unchanged — no API or behaviour change for existing code.
 
+### MESI cache coherence (Orrery/Cache)
+
+`MesiCache` is an N-way set-associative write-back cache that participates in a snooping MESI coherence protocol. Unlike `SetAssociativeCache` (write-through, no-write-allocate), `MesiCache` is write-back and write-allocate: writes stay in the cache as Modified lines until eviction or a snoop, not every write goes to backing memory.
+
+`MesiBus` coordinates snooping between all registered `MesiCache` instances sharing a physical address space. Two bus transactions cover the full protocol:
+
+- **BusRead** (read miss): each peer with an M-state copy writes back to backing and downgrades to S; E-state copies downgrade to S. If any peer held the line the requester installs it as S; otherwise as E.
+- **BusReadInvalidate** (write miss or S→M upgrade): all peers with M, E, or S copies transition to I (M owners write back first). The requester installs the line as M.
+
+Silent E→M upgrade (write hit on an Exclusive line) requires no bus transaction — the cache takes M without notifying peers. Full state-machine coverage: M↔S↔E↔I transitions, eviction writebacks, and cross-cache write coherence.
+
+```csharp
+var backing = new FlatMemory(0x10000);
+var bus     = new MesiBus(backing);
+var cache0  = new MesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
+var cache1  = new MesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
+
+// cache0 reads 0x00 → Exclusive
+// cache1 reads 0x00 → BusRead: cache0 E→S, cache1 installs S
+// cache1 writes 0x00 → BusReadInvalidate: cache0→I, cache1→M
+// cache0 reads 0x00 → BusRead: cache1 M→writeback+S, cache0 installs S, sees cache1's value
+```
+
+`StateOf(address)` returns the current MESI state of the line covering an address (for test assertions). `Flush()` writes all Modified lines to backing without evicting them — useful for inspecting backing memory from tests. `ConsumePendingStalls()` returns accumulated miss-penalty cycles for pipeline integration.
+
+`MesiCache` and `MesiBus` are ISA-agnostic (`Orrery.Cache`). Wiring them into `MultiHartKernel` (per-hart private caches in place of shared physical memory) is a separate pending step.
+
 ### Per-instruction lifecycle events (Orrery/Observation)
 
 `PEventLog` captures structured per-instruction lifecycle events — Fetch, Decode, Dispatch, Issue, Execute, Retire, Flush — tagged with an instruction ID, PC, and cycle number. A cycle-level `FetchStall` sentinel (instrId=0) marks cycles where the OoO fetch unit is blocked (faulted PC). Pass a `PEventLog` instance to `FiveStageTrain` or `OooeTrain` to enable recording (null = zero overhead). Query methods include `ForInstruction(id)`, `OfKind(kind)`, and `InCycleRange(from, to)` for post-hoc filtering and phase analysis. Every instruction is assigned a monotonically increasing `InstrId` at fetch time, unique across the full simulation run, so lifecycle phases can be correlated even for wrong-path instructions that are later flushed.
