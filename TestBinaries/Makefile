@@ -267,11 +267,29 @@ $(foreach b,$(BMARKS),$(eval $(call bmark_template,$(b))))
 
 BMARKS_ELFS = $(patsubst %, benchmarks/%.elf, $(BMARKS))
 
+# ── Torture tests (RV32 random sequences for Spike co-simulation) ─────────────
+#
+# Pre-generated .S files live in torture/.  Regenerate from scratch with:
+#   python3 gen_torture.py 20 torture/ --seed 42
+# then rebuild ELFs with:
+#   make torture
+#
+# The generator and compiled ELFs are both committed; the ELFs can be rebuilt
+# from the .S files alone using only the riscv32-none-elf-gcc toolchain.
+
+CFLAGS_TORTURE = -march=rv32imafc -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+TORTURE_SRCS = $(wildcard torture/*.S)
+TORTURE_ELFS = $(patsubst torture/%.S, torture/%.elf, $(TORTURE_SRCS))
+
+torture/%.elf: torture/%.S env/riscv_test.h env/link.ld
+	$(CC) $(CFLAGS_TORTURE) $(INCLUDES) $(LDFLAGS) $< -o $@
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
-.PHONY: all isa-tests custom-elfs benchmarks clean
+.PHONY: all isa-tests custom-elfs benchmarks torture clean
 
-all: test.elf rich.elf htif.elf zcmop.elf custom-elfs isa-tests benchmarks
+all: test.elf rich.elf htif.elf zcmop.elf custom-elfs isa-tests benchmarks torture
 
 custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
 
@@ -282,6 +300,8 @@ isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS) $(RV32SI_ELFS) \
 
 benchmarks: $(BMARKS_ELFS)
 
+torture: $(TORTURE_ELFS)
+
 clean:
 	rm -f test.elf rich.elf htif.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
-	rm -f isa/*.elf benchmarks/*.elf
+	rm -f isa/*.elf benchmarks/*.elf torture/*.elf

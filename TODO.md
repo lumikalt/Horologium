@@ -195,6 +195,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
   - [x] First-class HTIF tohost terminator and self-loop halt.
   - [x] Auto-skip when toolchain is absent; `HOROLOGIUM_REQUIRE_COSIM=1` enforcement switch.
   - [x] Broaden to official riscv-tests conformance ELFs (rv32ui/um/ua/uc/uf).
+  - [x] RV32 torture tests: 20 random RV32IMAF sequences (gen_torture.py, seed 42) co-simmed against Spike on all three trains (`TortureCoSimTests`).
   - [ ] Watchdog on `ReadLine` to fail cleanly on over-run instead of hanging.
   - [ ] CI workflow with `HOROLOGIUM_REQUIRE_COSIM=1`.
 - [ ] gem5 timing co-simulation.

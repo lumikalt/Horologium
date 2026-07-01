@@ -363,9 +363,13 @@ internal sealed class PipelineCore : Gear {
 
         if (stall) _stallsCounter.Increment();
 
-        // If a halt is about to retire through WB this tick, squash EX so
-        // instructions speculatively fetched past the halt cannot execute.
-        if (memWbLast is { IsValid: true, IsHalt: true, }) _ex.Squash = true;
+        // Kill instructions speculatively fetched past a halt:
+        //   - when halt is in MEM→WB: squash EX now (prevents the very-next
+        //     instruction from reaching MEM and attempting a memory access).
+        //   - when halt is in WB: squash EX again (kills the instruction that
+        //     entered ID while the halt was in MEM, one cycle later).
+        if (exMemLast is { IsValid: true, Result: { IsHalt: true } }
+         || memWbLast is { IsValid: true, IsHalt: true, }) _ex.Squash = true;
 
         // Trap redirect from WB (computed last cycle).
         if (_wb.TrapRedirect.HasValue) {

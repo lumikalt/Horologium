@@ -78,6 +78,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <LinkBase>benchmarks</LinkBase>
         </None>
+        <None Include="..\TestBinaries\torture\*.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <LinkBase>torture</LinkBase>
+        </None>
     </ItemGroup>
 
 </Project>
