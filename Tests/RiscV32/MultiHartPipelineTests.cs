@@ -204,4 +204,48 @@ public class MultiHartPipelineTests {
         Assert.Equal(42UL, train0.ArchState.IntegerRegisters.Read(1));
         Assert.Equal(99UL, train1.ArchState.IntegerRegisters.Read(1));
     }
+
+    // ── LR/SC atomics across pipeline trains ──────────────────────────────────
+
+    [Fact]
+    public void PipelinedHarts_LrScAtomic_ScFailsWhenRemoteStoreIntervenes() {
+        // H0 at 0x00: lr.w x1, (x2)      — loads 0 from 0x200, sets reservation
+        //             sc.w x4, x3, (x2)  — H1 stored between LR and SC → x4 = 1 (fail)
+        //             ebreak
+        // H1 at 0x40: sw x5, 0(x6)       — stores 0xDEAD to 0x200 via cache1;
+        //                                   BusReadInvalidate cancels H0's reservation
+        //             ebreak
+        //
+        // Round-robin ordering:
+        //   outer tick 1: H0 = lr.w  (reservation set)
+        //                 H1 = sw    (BusReadInvalidate → reservation cancelled)
+        //   outer tick 2: H0 = sc.w  (no reservation → x4 = 1)
+
+        const uint lrW = 0x100120AF;  // lr.w  x1,    (x2)
+        const uint scW4 = 0x1831222F; // sc.w  x4, x3, (x2)
+        const uint swH1 = 0x00532023; // sw    x5, 0(x6)
+
+        var flat = new FlatMemory(0x1000);
+        flat.Load(0x00, ToBytes(lrW, scW4, MultiHartPipelineTests.Ebreak));
+        flat.Load(0x40, ToBytes(swH1, MultiHartPipelineTests.Ebreak));
+
+        var table = new ReservationTable();
+        var bus = new MesiBus(flat, table);
+        var cache0 = new MesiCache(bus, 256, 2, 64);
+        var cache1 = new MesiCache(bus, 256, 2, 64);
+
+        var train0 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
+        var train1 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 1), cache1, 0x40);
+
+        train0.ArchState.IntegerRegisters.Write(2, 0x200);  // lr.w / sc.w address
+        train0.ArchState.IntegerRegisters.Write(3, 0xBEEF); // would-be SC store value (never written)
+        train1.ArchState.IntegerRegisters.Write(5, 0xDEAD); // sw store value
+        train1.ArchState.IntegerRegisters.Write(6, 0x200);  // sw address
+
+        new MultiHartPipeline(train0, train1).Run(1_000);
+
+        // LR read the initial zero; SC failed because H1 stored in between
+        Assert.Equal(0UL, train0.ArchState.IntegerRegisters.Read(1)); // lr.w result
+        Assert.Equal(1UL, train0.ArchState.IntegerRegisters.Read(4)); // sc.w failure flag
+    }
 }

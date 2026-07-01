@@ -203,15 +203,17 @@ See the "Olympia execution model: structural comparison" section for source-leve
 ## Multicore
 
 - [x] F18A: 144-node GA144 grid with RendezvousArbor channels — first multi-core ISA in the engine. Each node runs SingleCycleTrain; `F18AGrid.Step()` coordinates synchronous rendezvous. Canonical opcode encoding (0x00–0x1F), `-if` (MinusIf), `+*` (MulStep), correct `if`-on-zero semantics.
-- [ ] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.
+- [x] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.
   - [x] LR/SC memory safeguard: `ReservationTable` + `ReservationAwareMemory` wrapper; `Rv32Executor` routes LR.W/SC.W through a shared table when `ReservationTable` is set; any write to the shared backing invalidates overlapping reservations so SC fails correctly after a cross-hart store.
   - [x] `MultiHartKernel`: direct-drive round-robin scheduler for N RISC-V harts against shared physical memory (`RiscV32/MultiCore/`). `Step()` / `Run()`, per-hart `IArchState`, halt detection (EBREAK, HTIF tohost, self-loop). `Rv32Mechanism` accepts `reservationTable` + `hartId` constructor params.
   - [x] MESI cache coherence: `MesiCache` (write-back, write-allocate, LRU) + `MesiBus` (snooping); full state-transition coverage — E→M silent upgrade, S→M via BusReadInvalidate, M→writeback on snoop, eviction writeback; `StateOf()` / `Flush()` inspection hooks; 15 tests in `Tests/Orrery/MesiCacheTests.cs`.
   - [x] Wire `MesiCache` / `MesiBus` into `MultiHartKernel` (per-hart `IMemory[]` overload).
   - [x] LR/SC over MESI: `MesiBus(backing, table:)` calls `table.InvalidateAt(lineBase, blockSize)` inside `BusReadInvalidate`, covering write-miss and S→M upgrade paths without `ReservationAwareMemory`.
   - [x] LR/SC silent-upgrade gap: `MesiCache` now calls `_bus.BusSilentUpgrade(lineBase)` on E→M write hits; `MesiBus.BusSilentUpgrade` calls `_table?.InvalidateAt` so any remote reservation on the line is cancelled even though no snoop was issued.
-  - [x] `MultiHartPipeline`: ISA-agnostic coordinator (`Pipeline/`) that steps N `ISteppableTrain` instances round-robin per cycle; `ISteppableTrain` interface in `Orrery/Train/` with `BeginStepping()`, `StepCycle()`, `IsIdle`, `FinishStepping()`; all five train types implement it.
+  - [x] `MultiHartPipeline`: ISA-agnostic coordinator (`Pipeline/`) that steps N `ISteppableTrain` instances round-robin per cycle; `ISteppableTrain` interface in `Orrery/Train/` with `BeginStepping()`, `StepCycle()`, `IsIdle`, `FinishStepping()`; all five train types implement it. Tested with all five train types including FiveStageTrain MESI coherence.
   - [x] `SmtTrain`: barrel-processor SMT train (`Pipeline/`) with N per-hart contexts sharing an `issueWidth`-wide issue window; round-robin slot distribution with per-cycle starting-hart rotation; per-hart `IMechanism[]` + `IMemory[]` constructor; `StateOf(hartId)`, `HartCount`; implements `ISteppableTrain`.
+  - [x] LR/SC atomics across pipeline trains: `MultiHartPipeline` with `SingleCycleTrain` per hart, `MesiBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` — reservation cancelled by cross-hart store via BusReadInvalidate; SC.W returns 1 (failure) and register reads the failed result.
+  - [ ] OoO MESI coherence via `MultiHartPipeline`: `OooeTrain` per hart, store commits to cache at ROB-head — timing harder than single-Gear trains; requires a test that accounts for the multi-stage commit delay.
 
 ## Orrery
 

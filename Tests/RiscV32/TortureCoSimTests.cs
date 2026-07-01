@@ -66,22 +66,22 @@ public class TortureCoSimTests {
         RequireSpikeOrSkip();
 
         string elfPath = ElfPath(elfName);
-        var workload   = new Rv32ElfWorkload(elfPath);
-        var mem        = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        var workload = new Rv32ElfWorkload(elfPath);
+        var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
 
         using var cosim = new SpikeCoSimReference(
             elfPath,
             workload.BaseAddress,
             workload.MemorySize,
-            isa: "rv32imafc"
+            "rv32imafc"
         );
 
         switch (factory(new Rv32Mechanism(), mem, workload.EntryPoint, cosim)) {
             case SingleCycleTrain t: t.Run(); break;
-            case FiveStageTrain   t: t.Run(); break;
-            case OooeTrain        t: t.Run(); break;
-            default: throw new InvalidOperationException("unknown train");
+            case FiveStageTrain t:   t.Run(); break;
+            case OooeTrain t:        t.Run(); break;
+            default:                 throw new InvalidOperationException("unknown train");
         }
     }
 

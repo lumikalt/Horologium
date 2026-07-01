@@ -368,8 +368,9 @@ internal sealed class PipelineCore : Gear {
         //     instruction from reaching MEM and attempting a memory access).
         //   - when halt is in WB: squash EX again (kills the instruction that
         //     entered ID while the halt was in MEM, one cycle later).
-        if (exMemLast is { IsValid: true, Result: { IsHalt: true } }
-         || memWbLast is { IsValid: true, IsHalt: true, }) _ex.Squash = true;
+        if (exMemLast is { IsValid: true, Result: { IsHalt: true, }, }
+         || memWbLast is { IsValid: true, IsHalt: true, })
+            _ex.Squash = true;
 
         // Trap redirect from WB (computed last cycle).
         if (_wb.TrapRedirect.HasValue) {
