@@ -206,7 +206,8 @@ See the "Olympia execution model: structural comparison" section for source-leve
   - [x] LR/SC memory safeguard: `ReservationTable` + `ReservationAwareMemory` wrapper; `Rv32Executor` routes LR.W/SC.W through a shared table when `ReservationTable` is set; any write to the shared backing invalidates overlapping reservations so SC fails correctly after a cross-hart store.
   - [x] `MultiHartKernel`: direct-drive round-robin scheduler for N RISC-V harts against shared physical memory (`RiscV32/MultiCore/`). `Step()` / `Run()`, per-hart `IArchState`, halt detection (EBREAK, HTIF tohost, self-loop). `Rv32Mechanism` accepts `reservationTable` + `hartId` constructor params.
   - [x] MESI cache coherence: `MesiCache` (write-back, write-allocate, LRU) + `MesiBus` (snooping); full state-transition coverage — E→M silent upgrade, S→M via BusReadInvalidate, M→writeback on snoop, eviction writeback; `StateOf()` / `Flush()` inspection hooks; 15 tests in `Tests/Orrery/MesiCacheTests.cs`.
-  - [ ] Wire `MesiCache` / `MesiBus` into `MultiHartKernel` (per-hart `IMemory[]` overload).
+  - [x] Wire `MesiCache` / `MesiBus` into `MultiHartKernel` (per-hart `IMemory[]` overload).
+  - [ ] LR/SC over MESI: coherence-driven SC failure without `ReservationAwareMemory`. Write-back caches do not flush on every store, so the current `ReservationTable` / `ReservationAwareMemory` path is incompatible with per-hart caches. Needs a hook from `MesiBus.BusReadInvalidate` (or cache snoop) into the reservation table so that a cross-hart store that invalidates the reserved line causes SC to fail correctly.
 
 ## Orrery
 

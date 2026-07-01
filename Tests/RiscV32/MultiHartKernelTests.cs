@@ -176,6 +176,53 @@ public class MultiHartKernelTests {
         Assert.Equal(0xCAFEUL, flat.Read(0x200, 4));                   // hart 0's write committed
     }
 
+    // ── Per-hart MESI cache coherence ─────────────────────────────────────────
+
+    [Fact]
+    public void PerHartMesiCaches_WriteByHart0_ReadByHart1_SeesCoherentValue() {
+        // Hart 0 at 0x00: sw x1, 0(x2)   →  stores 0xCAFE to address 0x200 via cache0 (→ M)
+        //                 ebreak
+        // Hart 1 at 0x40: lw x3, 0(x4)   →  loads from 0x200 via cache1 (BusRead snoops cache0)
+        //                 ebreak
+        //
+        // Round-robin tick 1: H0 sw → cache0 line 0x200 is Modified;
+        //                     H1 lw → BusRead: cache0 M→writeback+S, cache1 installs S, reads 0xCAFE.
+        // After run: both caches hold the line in Shared state.
+        //
+        // sw x1, 0(x2) = 0x00112023   lw x3, 0(x4) = 0x00022183
+
+        const uint SwX1 = 0x00112023;
+        const uint LwX3 = 0x00022183;
+
+        var flat = new FlatMemory(0x1000);
+        flat.Load(0x00, ToBytes(SwX1, MultiHartKernelTests.Ebreak));
+        flat.Load(0x40, ToBytes(LwX3, MultiHartKernelTests.Ebreak));
+
+        var bus    = new MesiBus(flat);
+        var cache0 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+        var cache1 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+
+        var mech0  = new Rv32Mechanism();
+        var mech1  = new Rv32Mechanism();
+        var kernel = new MultiHartKernel([cache0, cache1], mech0, mech1);
+
+        kernel.SetEntryPoint(0, 0x00);
+        kernel.SetEntryPoint(1, 0x40);
+
+        kernel.StateOf(0).IntegerRegisters.Write(1, 0xCAFE); // value to store
+        kernel.StateOf(0).IntegerRegisters.Write(2, 0x200);  // store address
+        kernel.StateOf(1).IntegerRegisters.Write(4, 0x200);  // load address
+
+        kernel.Run(100);
+
+        // Coherence: hart 1 must see the value hart 0 wrote
+        Assert.Equal(0xCAFEUL, kernel.StateOf(1).IntegerRegisters.Read(3));
+
+        // Both caches downgraded to Shared after the BusRead snoop
+        Assert.Equal(MesiState.Shared, cache0.StateOf(0x200));
+        Assert.Equal(MesiState.Shared, cache1.StateOf(0x200));
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
 
     private static byte[] ToBytes(params uint[] words) {

@@ -111,7 +111,9 @@ ISA conformance tests (`TestBinaries/isa/`) are also linked at `0x80000000`. `Fl
 
 ### Multi-hart kernel (RiscV32/MultiCore)
 
-`MultiHartKernel` drives N RISC-V harts round-robin against a shared physical memory. Each call to `Step()` advances every non-halted hart by one instruction and returns the number still active; `Run(maxTicks)` loops until all harts halt or the tick limit is reached. Each hart has its own `IArchState` (created by `Rv32Mechanism.CreateArchState()`); the shared `IMemory` is supplied by the caller. Halt detection covers EBREAK (`result.IsHalt`), HTIF tohost (`result.RequestHalt`), and the infinite-self-loop idiom (`PC == pc && class == Branch`). The kernel operates in physical address space (no fetch translation), making it suited for bare-metal multi-hart workloads.
+`MultiHartKernel` drives N RISC-V harts round-robin against a shared physical memory. Each call to `Step()` advances every non-halted hart by one instruction and returns the number still active; `Run(maxTicks)` loops until all harts halt or the tick limit is reached. Each hart has its own `IArchState` (created by `Rv32Mechanism.CreateArchState()`). Halt detection covers EBREAK (`result.IsHalt`), HTIF tohost (`result.RequestHalt`), and the infinite-self-loop idiom (`PC == pc && class == Branch`). The kernel operates in physical address space (no fetch translation), making it suited for bare-metal multi-hart workloads.
+
+Two constructors are available: `MultiHartKernel(IMemory sharedMemory, …)` gives every hart the same `IMemory` (simplest path, used with `ReservationAwareMemory` for LR/SC); `MultiHartKernel(IMemory[] perHartMemory, …)` gives each hart its own cache (e.g. a `MesiCache` backed by a shared `MesiBus`) — both instruction fetch and data access route through the per-hart memory.
 
 `Rv32Mechanism` now accepts optional `reservationTable` and `hartId` constructor parameters, forwarded to `Rv32Executor` for LR/SC routing. Typical setup:
 
@@ -150,7 +152,19 @@ var cache1  = new MesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 6
 
 `StateOf(address)` returns the current MESI state of the line covering an address (for test assertions). `Flush()` writes all Modified lines to backing without evicting them — useful for inspecting backing memory from tests. `ConsumePendingStalls()` returns accumulated miss-penalty cycles for pipeline integration.
 
-`MesiCache` and `MesiBus` are ISA-agnostic (`Orrery.Cache`). Wiring them into `MultiHartKernel` (per-hart private caches in place of shared physical memory) is a separate pending step.
+`MesiCache` and `MesiBus` are ISA-agnostic (`Orrery.Cache`). Use the `MultiHartKernel(IMemory[] perHartMemory, …)` overload to give each hart its own cache:
+
+```csharp
+var flat   = new FlatMemory(0x10000);
+var bus    = new MesiBus(flat);
+var cache0 = new MesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
+var cache1 = new MesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
+
+var kernel = new MultiHartKernel([cache0, cache1],
+    new Rv32Mechanism(), new Rv32Mechanism());
+```
+
+Instruction fetch and data access both route through the per-hart cache (unified I/D model). LR/SC-over-MESI (coherence-driven SC failure without `ReservationAwareMemory`) is a separate pending step: write-back caches do not flush to backing on every store, so `ReservationAwareMemory` would miss cross-hart invalidations; keep `ReservationAwareMemory` in the single-shared-memory path for now.
 
 ### Per-instruction lifecycle events (Orrery/Observation)
 

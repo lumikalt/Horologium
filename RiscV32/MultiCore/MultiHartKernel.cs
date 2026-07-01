@@ -18,7 +18,7 @@ namespace RiscV32.MultiCore;
 public sealed class MultiHartKernel {
     private readonly Rv32Mechanism[] _mechanisms;
     private readonly IArchState[] _states;
-    private readonly IMemory _sharedMemory;
+    private readonly IMemory[] _hartMemory;
     private readonly bool[] _halted;
 
     public long Ticks { get; private set; }
@@ -31,10 +31,30 @@ public sealed class MultiHartKernel {
         ArgumentNullException.ThrowIfNull(sharedMemory);
         if (mechanisms.Length == 0) throw new ArgumentException("At least one mechanism required.", nameof(mechanisms));
 
-        _sharedMemory = sharedMemory;
         _mechanisms = mechanisms;
         _states = new IArchState[mechanisms.Length];
         _halted = new bool[mechanisms.Length];
+        _hartMemory = new IMemory[mechanisms.Length];
+        Array.Fill(_hartMemory, sharedMemory);
+
+        for (var i = 0; i < mechanisms.Length; i++) _states[i] = mechanisms[i].CreateArchState();
+    }
+
+    /// <summary>
+    /// Per-hart memory overload: each hart fetches and accesses its own <see cref="IMemory"/>
+    /// (e.g. a <see cref="Orrery.Cache.MesiCache"/> backed by a shared <see cref="Orrery.Cache.MesiBus"/>).
+    /// <paramref name="perHartMemory"/> must have the same length as <paramref name="mechanisms"/>.
+    /// </summary>
+    public MultiHartKernel(IMemory[] perHartMemory, params Rv32Mechanism[] mechanisms) {
+        ArgumentNullException.ThrowIfNull(perHartMemory);
+        if (mechanisms.Length == 0) throw new ArgumentException("At least one mechanism required.", nameof(mechanisms));
+        if (perHartMemory.Length != mechanisms.Length)
+            throw new ArgumentException("perHartMemory.Length must equal mechanisms.Length.", nameof(perHartMemory));
+
+        _mechanisms = mechanisms;
+        _states = new IArchState[mechanisms.Length];
+        _halted = new bool[mechanisms.Length];
+        _hartMemory = perHartMemory;
 
         for (var i = 0; i < mechanisms.Length; i++) _states[i] = mechanisms[i].CreateArchState();
     }
@@ -66,10 +86,11 @@ public sealed class MultiHartKernel {
     private void StepHart(int hartId) {
         Rv32Mechanism mech = _mechanisms[hartId];
         IArchState state = _states[hartId];
+        IMemory memory = _hartMemory[hartId];
         ulong pc = state.Pc;
 
         ITooth instr;
-        try { instr = mech.Decoder.Decode(pc, _sharedMemory); }
+        try { instr = mech.Decoder.Decode(pc, memory); }
         catch (IllegalInstructionException ex) {
             state.Pc = mech.TrapController.RaiseTrap(
                 new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), state
@@ -77,7 +98,7 @@ public sealed class MultiHartKernel {
             return;
         }
 
-        ExecuteResult result = mech.Executor.Execute(instr, state, _sharedMemory);
+        ExecuteResult result = mech.Executor.Execute(instr, state, memory);
 
         if (result.IsHalt) {
             _halted[hartId] = true;
