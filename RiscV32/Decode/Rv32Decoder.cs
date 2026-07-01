@@ -1115,8 +1115,7 @@ public class Rv32Decoder : IDecoder {
         }
 
         // sub == 0x3: CA-type arithmetic
-        if ((c & 0x1000) != 0)
-            throw new IllegalInstructionException(c, "C.SUB/XOR/OR/AND with c[12]=1 is reserved");
+        if ((c & 0x1000) != 0) throw new IllegalInstructionException(c, "C.SUB/XOR/OR/AND with c[12]=1 is reserved");
         int rs2P = ((c >> 2) & 0x7) + 8;
         return ((c >> 5) & 0x3) switch {
             0x0 => C(pc, c, rs1P, [rs1P, rs2P,], ToothClass.IntegerAlu, new RvSub(rs1P, rs1P, rs2P)),

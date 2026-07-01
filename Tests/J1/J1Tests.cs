@@ -359,7 +359,7 @@ public class J1Tests {
 
     [Fact]
     public void Store_WritesToMemory() {
-        (SingleCycleTrain t, J1ArchState s, FlatMemory m) = Make();
+        (SingleCycleTrain t, J1ArchState _, FlatMemory m) = Make();
         W(m, 0, Lit(0x1234));
         W(m, 1, Lit(J1Tests.DataWord));
         W(m, 2, Store());

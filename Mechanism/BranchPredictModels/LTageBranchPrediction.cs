@@ -35,10 +35,11 @@ public class LTagePredictor : IBranchPredictor {
     private readonly byte[] _base;        // 2-bit counters (taken ≥ 2)
     private readonly TageEntry[][] _tage; // [NumTables][1 << TableIndexBits]
     private readonly LoopEntry[] _loop;   // [1 << LoopIndexBits]
+
     /// <summary>
     /// Global history register.
     /// </summary>
-    protected ulong Ghr;                  // global history, LSB = most recent
+    protected ulong Ghr; // global history, LSB = most recent
 
     private readonly Dictionary<ulong, ulong> _btb = new();
 
