@@ -10,16 +10,29 @@ namespace Orrery.Cache;
 /// </summary>
 public sealed class MesiBus {
     private readonly IMemory _backing;
+    private readonly ReservationTable? _table;
     private readonly List<MesiCache> _caches = new();
+    private int _blockSize; // set from first registered cache
 
     public IMemory Backing => _backing;
 
-    public MesiBus(IMemory backing) {
+    /// <param name="backing">Shared physical memory behind all caches on this bus.</param>
+    /// <param name="table">
+    /// Optional reservation table for LR/SC coherence.
+    /// When set, <see cref="BusReadInvalidate"/> cancels any reservation whose granule
+    /// falls within the invalidated line — covering the common write-miss and S→M upgrade
+    /// paths without requiring <see cref="ReservationAwareMemory"/> in the memory stack.
+    /// </param>
+    public MesiBus(IMemory backing, ReservationTable? table = null) {
         ArgumentNullException.ThrowIfNull(backing);
         _backing = backing;
+        _table = table;
     }
 
-    internal void Register(MesiCache cache) => _caches.Add(cache);
+    internal void Register(MesiCache cache) {
+        if (_caches.Count == 0) _blockSize = cache.BlockBytes;
+        _caches.Add(cache);
+    }
 
     /// <summary>
     /// Snoops all caches except <paramref name="requester"/> for a read miss.
@@ -38,12 +51,15 @@ public sealed class MesiBus {
     /// <summary>
     /// Snoops all caches except <paramref name="requester"/> for a write (upgrade to M).
     /// M-state holders write back then transition to I; E/S-state holders transition to I.
+    /// If a <see cref="ReservationTable"/> was supplied at construction, any LR/SC reservation
+    /// whose 4-byte granule falls within the invalidated cache line is also cancelled here.
     /// </summary>
     internal void BusReadInvalidate(MesiCache requester, ulong lineBase) {
         foreach (var c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
             c.SnoopInvalidate(lineBase);
         }
+        _table?.InvalidateAt(lineBase, _blockSize);
     }
 
     /// <summary>

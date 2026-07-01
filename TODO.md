@@ -207,7 +207,8 @@ See the "Olympia execution model: structural comparison" section for source-leve
   - [x] `MultiHartKernel`: direct-drive round-robin scheduler for N RISC-V harts against shared physical memory (`RiscV32/MultiCore/`). `Step()` / `Run()`, per-hart `IArchState`, halt detection (EBREAK, HTIF tohost, self-loop). `Rv32Mechanism` accepts `reservationTable` + `hartId` constructor params.
   - [x] MESI cache coherence: `MesiCache` (write-back, write-allocate, LRU) + `MesiBus` (snooping); full state-transition coverage — E→M silent upgrade, S→M via BusReadInvalidate, M→writeback on snoop, eviction writeback; `StateOf()` / `Flush()` inspection hooks; 15 tests in `Tests/Orrery/MesiCacheTests.cs`.
   - [x] Wire `MesiCache` / `MesiBus` into `MultiHartKernel` (per-hart `IMemory[]` overload).
-  - [ ] LR/SC over MESI: coherence-driven SC failure without `ReservationAwareMemory`. Write-back caches do not flush on every store, so the current `ReservationTable` / `ReservationAwareMemory` path is incompatible with per-hart caches. Needs a hook from `MesiBus.BusReadInvalidate` (or cache snoop) into the reservation table so that a cross-hart store that invalidates the reserved line causes SC to fail correctly.
+  - [x] LR/SC over MESI: `MesiBus(backing, table:)` calls `table.InvalidateAt(lineBase, blockSize)` inside `BusReadInvalidate`, covering write-miss and S→M upgrade paths without `ReservationAwareMemory`.
+  - [ ] LR/SC silent-upgrade gap: an E→M write hit issues no bus transaction, so a reservation on a line another hart holds in Exclusive is not cancelled. Fix: hook `MesiBus` into `MesiCache`'s silent E→M path (new `BusSilentUpgrade` call or reserve-table check at write-hit time).
 
 ## Orrery
 

@@ -152,19 +152,21 @@ var cache1  = new MesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 6
 
 `StateOf(address)` returns the current MESI state of the line covering an address (for test assertions). `Flush()` writes all Modified lines to backing without evicting them — useful for inspecting backing memory from tests. `ConsumePendingStalls()` returns accumulated miss-penalty cycles for pipeline integration.
 
-`MesiCache` and `MesiBus` are ISA-agnostic (`Orrery.Cache`). Use the `MultiHartKernel(IMemory[] perHartMemory, …)` overload to give each hart its own cache:
+`MesiCache` and `MesiBus` are ISA-agnostic (`Orrery.Cache`). Use the `MultiHartKernel(IMemory[] perHartMemory, …)` overload to give each hart its own cache. Pass the `ReservationTable` to `MesiBus` so that LR/SC reservations are cancelled on every `BusReadInvalidate` (write miss or S→M upgrade):
 
 ```csharp
 var flat   = new FlatMemory(0x10000);
-var bus    = new MesiBus(flat);
+var table  = new ReservationTable();
+var bus    = new MesiBus(flat, table: table);
 var cache0 = new MesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
 var cache1 = new MesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
 
 var kernel = new MultiHartKernel([cache0, cache1],
-    new Rv32Mechanism(), new Rv32Mechanism());
+    new Rv32Mechanism(reservationTable: table, hartId: 0),
+    new Rv32Mechanism(reservationTable: table, hartId: 1));
 ```
 
-Instruction fetch and data access both route through the per-hart cache (unified I/D model). LR/SC-over-MESI (coherence-driven SC failure without `ReservationAwareMemory`) is a separate pending step: write-back caches do not flush to backing on every store, so `ReservationAwareMemory` would miss cross-hart invalidations; keep `ReservationAwareMemory` in the single-shared-memory path for now.
+Instruction fetch and data access both route through the per-hart cache (unified I/D model). `ReservationAwareMemory` is not required in this stack — the bus invalidates the reservation table directly when another hart's write triggers a `BusReadInvalidate`. The one remaining gap: an E→M silent upgrade (write hit on an Exclusive line) issues no bus transaction and therefore cannot cancel reservations; this covers the common write-miss path but not capacity-eviction-then-silent-upgrade sequences.
 
 ### Per-instruction lifecycle events (Orrery/Observation)
 

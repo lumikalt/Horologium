@@ -176,6 +176,93 @@ public class MultiHartKernelTests {
         Assert.Equal(0xCAFEUL, flat.Read(0x200, 4));                   // hart 0's write committed
     }
 
+    // ── LR/SC over per-hart MESI caches ──────────────────────────────────────
+
+    [Fact]
+    public void MesiCaches_InterleavedWrite_CausesScToFail() {
+        // Same scenario as CrossHart_InterleavedWrite_CausesScToFail but using per-hart
+        // MesiCaches instead of a flat ReservationAwareMemory.
+        //
+        // Hart 0 at 0x00: lr.w x1,(x2)  →  sc.w x4,x3,(x2)  →  ebreak
+        // Hart 1 at 0x40: sw x5, 0(x6)  →  ebreak
+        //
+        // Tick 1: H0 lr.w → reserve 0x200; H1 sw 0x200 → BusReadInvalidate → reservation cancelled.
+        // Tick 2: H0 sc.w → TryConsume fails → x4=1 (SC failure).
+
+        const uint LrW  = 0x100120AF;
+        const uint ScWX4 = 0x1831222F;
+        const uint SwX5  = 0x00532023;
+
+        var flat  = new FlatMemory(0x1000);
+        flat.Load(0x00, ToBytes(LrW, ScWX4, MultiHartKernelTests.Ebreak));
+        flat.Load(0x40, ToBytes(SwX5, MultiHartKernelTests.Ebreak));
+        flat.Write(0x200, 0xBEEF, 4);
+
+        var table  = new ReservationTable();
+        var bus    = new MesiBus(flat, table: table);
+        var cache0 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+        var cache1 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+
+        var mech0  = new Rv32Mechanism(reservationTable: table, hartId: 0);
+        var mech1  = new Rv32Mechanism(reservationTable: table, hartId: 1);
+        var kernel = new MultiHartKernel([cache0, cache1], mech0, mech1);
+
+        kernel.SetEntryPoint(0, 0x00);
+        kernel.SetEntryPoint(1, 0x40);
+
+        kernel.StateOf(0).IntegerRegisters.Write(2, 0x200); // LR/SC address
+        kernel.StateOf(0).IntegerRegisters.Write(3, 0xCAFE); // desired SC value
+        kernel.StateOf(1).IntegerRegisters.Write(5, 0xDEAD); // SW value
+        kernel.StateOf(1).IntegerRegisters.Write(6, 0x200);  // SW address (same line)
+
+        kernel.Run(100);
+
+        // SC must fail: hart 1's store invalidated the reservation via BusReadInvalidate
+        Assert.Equal(1UL, kernel.StateOf(0).IntegerRegisters.Read(4)); // 1 = SC failure
+        // Hart 1's write stands
+        cache1.Flush();
+        Assert.Equal(0xDEADUL, flat.Read(0x200, 4));
+    }
+
+    [Fact]
+    public void MesiCaches_NoInterleavingWrite_ScSucceeds() {
+        // Hart 1 writes to a different cache line → BusReadInvalidate targets a different
+        // lineBase → reservation at 0x200 is not cancelled → SC succeeds.
+
+        const uint LrW   = 0x100120AF;
+        const uint ScWX4 = 0x1831222F;
+        const uint SwX5  = 0x00532023;
+
+        var flat = new FlatMemory(0x1000);
+        flat.Load(0x00, ToBytes(LrW, ScWX4, MultiHartKernelTests.Ebreak));
+        flat.Load(0x40, ToBytes(SwX5, MultiHartKernelTests.Ebreak));
+        flat.Write(0x200, 0xBEEF, 4);
+        flat.Write(0x300, 0, 4); // different 64-byte line (0x2C0..0x2FF vs 0x200..0x23F)
+
+        var table  = new ReservationTable();
+        var bus    = new MesiBus(flat, table: table);
+        var cache0 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+        var cache1 = new MesiCache(bus, capacityBytes: 256, ways: 2, blockSizeBytes: 64);
+
+        var mech0  = new Rv32Mechanism(reservationTable: table, hartId: 0);
+        var mech1  = new Rv32Mechanism(reservationTable: table, hartId: 1);
+        var kernel = new MultiHartKernel([cache0, cache1], mech0, mech1);
+
+        kernel.SetEntryPoint(0, 0x00);
+        kernel.SetEntryPoint(1, 0x40);
+
+        kernel.StateOf(0).IntegerRegisters.Write(2, 0x200);
+        kernel.StateOf(0).IntegerRegisters.Write(3, 0xCAFE);
+        kernel.StateOf(1).IntegerRegisters.Write(5, 0xDEAD);
+        kernel.StateOf(1).IntegerRegisters.Write(6, 0x300); // different line
+
+        kernel.Run(100);
+
+        Assert.Equal(0UL, kernel.StateOf(0).IntegerRegisters.Read(4)); // 0 = SC success
+        cache0.Flush();
+        Assert.Equal(0xCAFEUL, flat.Read(0x200, 4));
+    }
+
     // ── Per-hart MESI cache coherence ─────────────────────────────────────────
 
     [Fact]
