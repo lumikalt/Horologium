@@ -8,7 +8,7 @@ namespace Pipeline;
 /// analogous to <c>MultiHartKernel</c> but for full pipeline trains.
 /// <para>
 /// Each hart owns its own <see cref="ISteppableTrain"/> instance (and typically its
-/// own <c>MesiCache</c> backed by a shared <c>MesiBus</c>). The coordinator advances
+/// own <c>MoesiCache</c> backed by a shared <c>MoesiBus</c>). The coordinator advances
 /// harts one tick at a time in hart-0 → hart-1 → … → hart-(N-1) order within each
 /// logical cycle, so cross-hart coherence effects are interleaved at instruction
 /// granularity just like <c>MultiHartKernel</c>.
@@ -79,7 +79,7 @@ public sealed class MultiHartPipeline {
     /// </summary>
     /// <param name="buses">
     /// One <see cref="DeferredBus"/> per hart, in hart-index order.
-    /// Each hart's <see cref="MesiCache"/> must have been constructed with the corresponding
+    /// Each hart's <see cref="MoesiCache"/> must have been constructed with the corresponding
     /// <see cref="DeferredBus"/> as its <c>IBus</c> argument.
     /// </param>
     /// <param name="maxTicks">Max ticks to run for.</param>

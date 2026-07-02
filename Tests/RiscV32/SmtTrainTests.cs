@@ -89,7 +89,7 @@ public class SmtTrainTests {
     }
 
     [Fact]
-    public void PerHartMesiCaches_WriteByHart0_ReadByHart1_SeesCoherentValue() {
+    public void PerHartMoesiCaches_WriteByHart0_ReadByHart1_SeesCoherentValue() {
         // Hart 0 at 0x00: sw x1, 0(x2)  →  writes 0xCAFE to 0x200 via cache0 (→ M)
         //                 ebreak
         // Hart 1 at 0x40: lw x3, 0(x4)  →  reads from 0x200 via cache1
@@ -108,9 +108,9 @@ public class SmtTrainTests {
         flat.Load(0x00, ToBytes(swX1, SmtTrainTests.Ebreak));
         flat.Load(0x40, ToBytes(lwX3, SmtTrainTests.Ebreak));
 
-        var bus = new MesiBus(flat);
-        var cache0 = new MesiCache(bus, 256, 2, 64);
-        var cache1 = new MesiCache(bus, 256, 2, 64);
+        var bus = new MoesiBus(flat);
+        var cache0 = new MoesiCache(bus, 256, 2, 64);
+        var cache1 = new MoesiCache(bus, 256, 2, 64);
 
         var smt = new SmtTrain(
             [new Rv32Mechanism(), new Rv32Mechanism(),],
@@ -126,8 +126,8 @@ public class SmtTrainTests {
 
         Assert.Equal(0xCAFEUL, smt.StateOf(1).IntegerRegisters.Read(3));
 
-        Assert.Equal(MesiState.Shared, cache0.StateOf(0x200));
-        Assert.Equal(MesiState.Shared, cache1.StateOf(0x200));
+        Assert.Equal(MoesiState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESI)
+        Assert.Equal(MoesiState.Shared, cache1.StateOf(0x200));
     }
 
     [Fact]

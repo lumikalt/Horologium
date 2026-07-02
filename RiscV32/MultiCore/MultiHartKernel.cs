@@ -44,7 +44,7 @@ public sealed class MultiHartKernel {
 
     /// <summary>
     /// Per-hart memory overload: each hart fetches and accesses its own <see cref="IMemory"/>
-    /// (e.g. a <see cref="Orrery.Cache.MesiCache"/> backed by a shared <see cref="Orrery.Cache.MesiBus"/>).
+    /// (e.g. a <see cref="Orrery.Cache.MoesiCache"/> backed by a shared <see cref="Orrery.Cache.MoesiBus"/>).
     /// <paramref name="perHartMemory"/> must have the same length as <paramref name="mechanisms"/>.
     /// </summary>
     public MultiHartKernel(IMemory[] perHartMemory, params Rv32Mechanism[] mechanisms) {

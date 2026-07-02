@@ -3,28 +3,39 @@ using Mechanism;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Cache coherence bus protocol. Implemented by <see cref="MesiBus"/> and
+/// Cache coherence bus protocol. Implemented by <see cref="MoesiBus"/> and
 /// (in two-phase concurrent mode) by <see cref="DeferredBus"/>.
 /// </summary>
 public interface IBus {
     /// <summary>Shared physical memory behind all caches on this bus.</summary>
     IMemory Backing { get; }
 
-    /// <summary>Registers a cache with this bus. Called from <see cref="MesiCache"/> constructors.</summary>
-    void Register(MesiCache cache);
+    /// <summary>Registers a cache with this bus. Called from <see cref="MoesiCache"/> constructors.</summary>
+    void Register(MoesiCache cache);
 
     /// <summary>
     /// Snoops all caches except <paramref name="requester"/> for a read miss.
-    /// Returns true if any peer held the line (requester should install as S, not E).
+    /// A peer holding the line in M, O, or E supplies the block cache-to-cache into
+    /// <paramref name="dest"/> (M/O holders keep the dirty line as Owned — backing is
+    /// not written). Returns whether the requester should install S vs E and whether
+    /// <paramref name="dest"/> was filled.
     /// </summary>
-    bool BusRead(MesiCache requester, ulong lineBase);
+    BusReadResponse BusRead(MoesiCache requester, ulong lineBase, Span<byte> dest);
+
+    /// <summary>
+    /// Forces any dirty (M/O) holder of the line to write its block to backing memory,
+    /// without changing coherence state or the directory. Used before reading backing
+    /// directly (block-boundary-crossing accesses), where cache-to-cache supply does
+    /// not apply and backing must be current.
+    /// </summary>
+    void BusSyncToBacking(ulong lineBase);
 
     /// <summary>
     /// Snoops all caches except <paramref name="requester"/> for a write (upgrade to M).
-    /// M-state holders write back; E/S-state holders transition to I.
+    /// Dirty (M/O) holders write back; all holders transition to I.
     /// Also cancels any LR/SC reservation whose granule falls within the line.
     /// </summary>
-    void BusReadInvalidate(MesiCache requester, ulong lineBase);
+    void BusReadInvalidate(MoesiCache requester, ulong lineBase);
 
     /// <summary>
     /// Called when a cache silently upgrades an Exclusive line to Modified without
@@ -51,7 +62,7 @@ public interface IBus {
     /// handlers (<c>SnoopRead</c>, <c>SnoopInvalidate</c>) — the directory bus already
     /// updates its state when it issues those snoops.
     /// </para>
-    /// No-op on snooping buses (<see cref="MesiBus"/>, <see cref="DeferredBus"/>).
+    /// No-op on snooping buses (<see cref="MoesiBus"/>, <see cref="DeferredBus"/>).
     /// </summary>
-    void Evicted(MesiCache source, ulong lineBase) { }
+    void Evicted(MoesiCache source, ulong lineBase) { }
 }

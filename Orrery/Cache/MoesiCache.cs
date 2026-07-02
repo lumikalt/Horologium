@@ -4,12 +4,16 @@ using Mechanism;
 namespace Orrery.Cache;
 
 /// <summary>
-/// N-way set-associative write-back cache implementing the MESI coherence protocol.
-/// Must be registered with a shared <see cref="MesiBus"/> that connects it to other caches
+/// N-way set-associative write-back cache implementing the MOESI coherence protocol
+/// with cache-to-cache supply: a read miss snooping a peer that holds the line in
+/// M, O, or E receives the block directly from that peer instead of backing memory,
+/// and a dirty supplier keeps writeback responsibility in the Owned state rather than
+/// writing back to backing.
+/// Must be registered with a shared <see cref="MoesiBus"/> that connects it to other caches
 /// sharing the same physical address space.
 /// Policy: write-back, write-allocate, LRU replacement.
 /// </summary>
-public sealed class MesiCache : IMemory {
+public sealed class MoesiCache : IMemory {
     private readonly IBus _bus;
     private readonly int _ways;
     private readonly int _blockSize;
@@ -21,21 +25,36 @@ public sealed class MesiCache : IMemory {
     private readonly ulong?[][] _tags;
     private readonly byte[][][] _blocks;
     private readonly int[][] _lruAge;
-    private readonly MesiState[][] _state;
+    private readonly MoesiState[][] _state;
 
     private long _pendingStalls;
 
     public int MissLatency { get; }
+
+    /// <summary>Stall cycles charged when a read miss is filled cache-to-cache by a peer
+    /// instead of from backing memory. Defaults to <see cref="MissLatency"/>.</summary>
+    public int PeerSupplyLatency { get; }
+
     public long Hits { get; private set; }
     public long Misses { get; private set; }
     public long Evictions { get; private set; }
     public long Writebacks { get; private set; }
 
+    /// <summary>Read misses that were filled cache-to-cache by a peer (MOESI supply).</summary>
+    public long PeerSupplies { get; private set; }
+
     public int Sets => _tags.Length;
     public int Ways => _ways;
     public int BlockBytes => _blockSize;
 
-    public MesiCache(IBus bus, int capacityBytes, int ways, int blockSizeBytes, int missLatency = 0) {
+    public MoesiCache(
+        IBus bus,
+        int capacityBytes,
+        int ways,
+        int blockSizeBytes,
+        int missLatency = 0,
+        int peerSupplyLatency = -1
+    ) {
         ArgumentNullException.ThrowIfNull(bus);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -51,6 +70,7 @@ public sealed class MesiCache : IMemory {
         int sets = capacityBytes / (ways * blockSizeBytes);
         if (sets < 1) throw new ArgumentException("Cache configuration produces 0 sets.");
         MissLatency = missLatency;
+        PeerSupplyLatency = peerSupplyLatency < 0 ? missLatency : peerSupplyLatency;
 
         _offsetBits = BitOperations.Log2((uint)blockSizeBytes);
         _indexBits = BitOperations.Log2((uint)sets);
@@ -60,13 +80,13 @@ public sealed class MesiCache : IMemory {
         _tags = new ulong?[sets][];
         _blocks = new byte[sets][][];
         _lruAge = new int[sets][];
-        _state = new MesiState[sets][];
+        _state = new MoesiState[sets][];
 
         for (var s = 0; s < sets; s++) {
             _tags[s] = new ulong?[_ways];
             _blocks[s] = new byte[_ways][];
             _lruAge[s] = new int[_ways];
-            _state[s] = new MesiState[_ways]; // all Invalid
+            _state[s] = new MoesiState[_ways]; // all Invalid
             for (var w = 0; w < _ways; w++) {
                 _blocks[s][w] = new byte[_blockSize];
                 _lruAge[s][w] = w;
@@ -117,6 +137,9 @@ public sealed class MesiCache : IMemory {
     private ulong ReconstructLineBase(int set, ulong tag) =>
         (tag << (_offsetBits + _indexBits)) | ((ulong)set << _offsetBits);
 
+    /// <summary>M and O both hold data newer than backing memory.</summary>
+    private static bool IsDirty(MoesiState s) => s is MoesiState.Modified or MoesiState.Owned;
+
     // ── Block fill / writeback ───────────────────────────────────────────────
 
     private void FillFromBacking(int set, int way, ulong lineBase) {
@@ -136,13 +159,13 @@ public sealed class MesiCache : IMemory {
         int way = LruWay(set);
         if (_tags[set][way].HasValue) {
             ulong lineBase = ReconstructLineBase(set, _tags[set][way]!.Value);
-            if (_state[set][way] == MesiState.Modified) WriteBackBlock(set, way);
+            if (IsDirty(_state[set][way])) WriteBackBlock(set, way);
             _bus.Evicted(this, lineBase);
             Evictions++;
         }
 
         _tags[set][way] = null;
-        _state[set][way] = MesiState.Invalid;
+        _state[set][way] = MoesiState.Invalid;
         return way;
     }
 
@@ -150,8 +173,8 @@ public sealed class MesiCache : IMemory {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return;
-        if (_state[set][way] == MesiState.Modified) WriteBackBlock(set, way);
-        _state[set][way] = MesiState.Invalid;
+        if (IsDirty(_state[set][way])) WriteBackBlock(set, way);
+        _state[set][way] = MoesiState.Invalid;
         _tags[set][way] = null;
         _bus.Evicted(this, lineBase);
     }
@@ -164,54 +187,78 @@ public sealed class MesiCache : IMemory {
         ulong lineBase = LineBase(address);
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        if (way < 0 || _state[set][way] != MesiState.Modified) return;
+        if (way < 0 || !IsDirty(_state[set][way])) return;
         WriteBackBlock(set, way);
-        _state[set][way] = MesiState.Exclusive; // clean and still owned exclusively
+        // M: clean and still held exclusively. O: peers hold S copies, ownership
+        // returns to memory — the line is now an ordinary Shared copy.
+        _state[set][way] = _state[set][way] == MoesiState.Modified
+            ? MoesiState.Exclusive
+            : MoesiState.Shared;
     }
 
     public void FlushLine(ulong address) => LocalInvalidate(LineBase(address));
 
-    // ── Snooping (invoked by MesiBus on behalf of remote caches) ────────────
+    // ── Snooping (invoked by MoesiBus on behalf of remote caches) ────────────
 
-    /// <summary>Another cache is doing a read. M→writeback+S, E→S. Returns true if we held the line.</summary>
-    internal bool SnoopRead(ulong lineBase) {
+    /// <summary>
+    /// Another cache is doing a read. M→O (supply, no writeback), O→O (supply),
+    /// E→S (supply clean), S→S (no supply). A supplier copies its block into
+    /// <paramref name="dest"/> so the requester fills cache-to-cache instead of
+    /// from backing memory.
+    /// </summary>
+    internal SnoopResult SnoopRead(ulong lineBase, Span<byte> dest) {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        if (way < 0) return false;
+        if (way < 0) return SnoopResult.Miss;
         switch (_state[set][way]) {
-            case MesiState.Modified:
-                WriteBackBlock(set, way);
-                _state[set][way] = MesiState.Shared;
-                break;
-            case MesiState.Exclusive: _state[set][way] = MesiState.Shared; break;
+            case MoesiState.Modified:
+            case MoesiState.Owned:
+                _blocks[set][way].CopyTo(dest);
+                _state[set][way] = MoesiState.Owned;
+                return SnoopResult.SuppliedOwned;
+            case MoesiState.Exclusive:
+                _blocks[set][way].CopyTo(dest);
+                _state[set][way] = MoesiState.Shared;
+                return SnoopResult.Supplied;
+            default: return SnoopResult.Shared;
         }
-
-        return true;
     }
 
-    /// <summary>Another cache wants exclusive access. M→writeback+I, E/S→I.</summary>
+    /// <summary>Another cache wants exclusive access. M/O→writeback+I, E/S→I.</summary>
     internal void SnoopInvalidate(ulong lineBase) {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return;
-        if (_state[set][way] == MesiState.Modified) WriteBackBlock(set, way);
-        _state[set][way] = MesiState.Invalid;
+        if (IsDirty(_state[set][way])) WriteBackBlock(set, way);
+        _state[set][way] = MoesiState.Invalid;
         _tags[set][way] = null;
+    }
+
+    /// <summary>
+    /// Writes a dirty (M/O) line to backing without changing state. Used by
+    /// <see cref="IBus.BusSyncToBacking"/> so that block-boundary-crossing accesses
+    /// reading backing directly observe current data.
+    /// </summary>
+    internal void SnoopWriteback(ulong lineBase) {
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0 || !IsDirty(_state[set][way])) return;
+        WriteBackBlock(set, way);
     }
 
     // ── DeferredBus phase-2 hooks ────────────────────────────────────────────
 
     /// <summary>
-    /// Writes all Modified lines directly to backing memory without evicting them or
+    /// Writes all dirty (M/O) lines directly to backing memory without evicting them or
     /// updating coherence state.  Called by <c>DeferredBus.Drain()</c> after draining
     /// the op queue so that backing is authoritative at the start of the next tick's
     /// phase-1, allowing phase-1 fills to read correct data even when this cache holds
-    /// lines in M state.
+    /// dirty lines.
     /// </summary>
     internal void FlushToBacking() {
         for (var s = 0; s < _tags.Length; s++)
         for (var w = 0; w < _ways; w++) {
-            if (_state[s][w] != MesiState.Modified || !_tags[s][w].HasValue) continue;
+            if (!IsDirty(_state[s][w]) || !_tags[s][w].HasValue) continue;
             ulong lineBase = ReconstructLineBase(s, _tags[s][w]!.Value);
             _bus.Backing.Load(lineBase, _blocks[s][w]);
         }
@@ -227,12 +274,12 @@ public sealed class MesiCache : IMemory {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return;
-        if (_state[set][way] == MesiState.Exclusive) _state[set][way] = MesiState.Shared;
+        if (_state[set][way] == MoesiState.Exclusive) _state[set][way] = MoesiState.Shared;
     }
 
     /// <summary>
     /// Re-reads the cache line from backing after a cross-hart writeback has updated
-    /// backing memory during phase 2.  Skips M-state lines to avoid clobbering
+    /// backing memory during phase 2.  Skips dirty (M/O) lines to avoid clobbering
     /// intra-hart writes from the same phase-1 tick.
     /// Called only by <c>DeferredBus.Drain()</c>.
     /// </summary>
@@ -240,8 +287,22 @@ public sealed class MesiCache : IMemory {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return;
-        if (_state[set][way] == MesiState.Modified) return;
+        if (IsDirty(_state[set][way])) return;
         FillFromBacking(set, way, lineBase);
+    }
+
+    /// <summary>
+    /// Overwrites the cache line with a block supplied cache-to-cache during phase 2
+    /// (the peer held it M/O and did not write back to backing).  Skips dirty (M/O)
+    /// lines to avoid clobbering intra-hart writes from the same phase-1 tick.
+    /// Called only by <c>DeferredBus.Drain()</c>.
+    /// </summary>
+    internal void RefillFromSupply(ulong lineBase, ReadOnlySpan<byte> block) {
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
+        if (IsDirty(_state[set][way])) return;
+        block.CopyTo(_blocks[set][way]);
     }
 
     // ── IMemory ──────────────────────────────────────────────────────────────
@@ -249,9 +310,10 @@ public sealed class MesiCache : IMemory {
     public ulong Read(ulong address, int bytes) {
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + bytes > _blockSize) {
-            // Cross-boundary: force M→writeback in any holder, then read backing directly.
+            // Cross-boundary: force dirty holders (including this cache) to write back,
+            // then read backing directly. States and the directory are left untouched.
             ulong end = address + (ulong)bytes;
-            for (ulong a = LineBase(address); a < end; a += (ulong)_blockSize) _bus.BusRead(this, a);
+            for (ulong a = LineBase(address); a < end; a += (ulong)_blockSize) _bus.BusSyncToBacking(a);
             return _bus.Backing.Read(address, bytes);
         }
 
@@ -264,13 +326,22 @@ public sealed class MesiCache : IMemory {
         }
 
         Misses++;
-        _pendingStalls += MissLatency;
         ulong lineBase = LineBase(address);
-        bool shared = _bus.BusRead(this, lineBase);
         int victimWay = EvictWay(set);
-        FillFromBacking(set, victimWay, lineBase);
+        BusReadResponse response = _bus.BusRead(this, lineBase, _blocks[set][victimWay]);
+        if (response == BusReadResponse.SharedSupplied) {
+            PeerSupplies++;
+            _pendingStalls += PeerSupplyLatency;
+        }
+        else {
+            FillFromBacking(set, victimWay, lineBase);
+            _pendingStalls += MissLatency;
+        }
+
         _tags[set][victimWay] = tag;
-        _state[set][victimWay] = shared ? MesiState.Shared : MesiState.Exclusive;
+        _state[set][victimWay] = response == BusReadResponse.NoSharers
+            ? MoesiState.Exclusive
+            : MoesiState.Shared;
         TouchLru(set, victimWay);
         return ReadBytes(_blocks[set][victimWay], offset, bytes);
     }
@@ -296,15 +367,16 @@ public sealed class MesiCache : IMemory {
         if (way >= 0) {
             Hits++;
             switch (_state[set][way]) {
-                case MesiState.Shared:
-                    _bus.BusReadInvalidate(this, lineBase); // S→M: snoop all peers + cancel reservations
+                case MoesiState.Shared:
+                case MoesiState.Owned:
+                    _bus.BusReadInvalidate(this, lineBase); // S/O→M: snoop all peers + cancel reservations
                     break;
-                case MesiState.Exclusive:
+                case MoesiState.Exclusive:
                     _bus.BusSilentUpgrade(lineBase); // E→M: no snoop needed, but cancel reservations
                     break;
             }
 
-            _state[set][way] = MesiState.Modified;
+            _state[set][way] = MoesiState.Modified;
             TouchLru(set, way);
             WriteBytes(_blocks[set][way], offset, value, bytes);
         }
@@ -316,7 +388,7 @@ public sealed class MesiCache : IMemory {
             int victimWay = EvictWay(set);
             FillFromBacking(set, victimWay, lineBase);
             _tags[set][victimWay] = tag;
-            _state[set][victimWay] = MesiState.Modified;
+            _state[set][victimWay] = MoesiState.Modified;
             TouchLru(set, victimWay);
             WriteBytes(_blocks[set][victimWay], offset, value, bytes);
         }
@@ -343,22 +415,22 @@ public sealed class MesiCache : IMemory {
 
     // ── Inspection ───────────────────────────────────────────────────────────
 
-    /// <summary>Returns the MESI state of the cache line covering <paramref name="address"/>.</summary>
-    public MesiState StateOf(ulong address) {
+    /// <summary>Returns the MOESI state of the cache line covering <paramref name="address"/>.</summary>
+    public MoesiState StateOf(ulong address) {
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        return way >= 0 ? _state[set][way] : MesiState.Invalid;
+        return way >= 0 ? _state[set][way] : MoesiState.Invalid;
     }
 
     /// <summary>
-    /// Writes all Modified lines back to backing without evicting them.
+    /// Writes all dirty (M/O) lines back to backing without evicting them.
     /// Use for testing or teardown to make backing memory consistent with the cache.
     /// </summary>
     public void Flush() {
         int sets = _tags.Length;
         for (var s = 0; s < sets; s++)
         for (var w = 0; w < _ways; w++)
-            if (_state[s][w] == MesiState.Modified)
+            if (IsDirty(_state[s][w]))
                 WriteBackBlock(s, w);
     }
 }

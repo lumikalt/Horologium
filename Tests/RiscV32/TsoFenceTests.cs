@@ -94,15 +94,15 @@ public class TsoFenceTests {
         Assert.Equal(freeCycles, rrCycles);
     }
 
-    // ── Multi-hart: message-passing litmus (MP) over MESI ─────────────────────
+    // ── Multi-hart: message-passing litmus (MP) over MOESI ─────────────────────
 
     /// <summary>
-    /// Classic MP litmus on two OoO harts with per-hart MESI caches:
+    /// Classic MP litmus on two OoO harts with per-hart MOESI caches:
     ///   H0: data = 0xCAFE ; fence ; flag = 1
     ///   H1: spin until flag != 0 ; fence ; read data
     /// TSO guarantees H1 sees data = 0xCAFE once it observes flag = 1. Exercises the
     /// fence end-to-end in the OoO issue path (head-serialization + load gating)
-    /// under cross-hart MESI invalidation of the spun-on flag line.
+    /// under cross-hart MOESI invalidation of the spun-on flag line.
     /// </summary>
     [Fact]
     public void OoOHarts_MessagePassingLitmus_FencedDataIsVisibleWhenFlagIs() {
@@ -133,9 +133,9 @@ public class TsoFenceTests {
             0x80, ToBytes(addiX6, addiX4, lwFlag, beqSpin, TsoFenceTests.FenceFull, lwData, TsoFenceTests.Ebreak)
         );
 
-        var bus = new MesiBus(flat);
-        var cache0 = new MesiCache(bus, 1024, 2, 64);
-        var cache1 = new MesiCache(bus, 1024, 2, 64);
+        var bus = new MoesiBus(flat);
+        var cache0 = new MoesiCache(bus, 1024, 2, 64);
+        var cache1 = new MoesiCache(bus, 1024, 2, 64);
 
         var train0 = new OooeTrain(new Rv32Mechanism(), cache0);
         var train1 = new OooeTrain(new Rv32Mechanism(), cache1, 0x80);

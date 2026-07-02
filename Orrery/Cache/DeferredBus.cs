@@ -5,15 +5,16 @@ namespace Orrery.Cache;
 /// <summary>
 /// A bus façade used during the parallel phase-1 of two-phase concurrent multi-hart
 /// simulation.  Bus operations are queued rather than executed immediately; <see cref="Drain"/>
-/// replays them in issue order against the wrapped <see cref="MesiBus"/> during the
+/// replays them in issue order against the wrapped <see cref="MoesiBus"/> during the
 /// serial phase-2 (hart-0 → hart-N), then <see cref="Clear"/> resets the queue for the
 /// next tick.
 /// <para>
-/// <see cref="BusRead"/> returns <c>false</c> so the requesting <see cref="MesiCache"/>
-/// installs the line as Exclusive.  <see cref="Drain"/> then calls
-/// <see cref="MesiCache.UpdateCoherenceState"/> (E→S correction) and
-/// <see cref="MesiCache.RefillFromBacking"/> (re-read after a cross-hart writeback) to
-/// match the state that sequential execution would have produced.
+/// <see cref="BusRead"/> returns <see cref="BusReadResponse.NoSharers"/> so the requesting
+/// <see cref="MoesiCache"/> installs the line as Exclusive from backing.  <see cref="Drain"/>
+/// then calls <see cref="MoesiCache.UpdateCoherenceState"/> (E→S correction) and refreshes
+/// the requester's line — from the peer's cache-to-cache supply when a dirty owner
+/// responded, otherwise from backing — to match the state that sequential execution
+/// would have produced.
 /// </para>
 /// <para>
 /// Bit-identical to sequential <see cref="MultiHartPipeline.Run"/> for well-synchronized
@@ -21,29 +22,34 @@ namespace Orrery.Cache;
 /// </para>
 /// </summary>
 public sealed class DeferredBus : IBus {
-    private readonly MesiBus _real;
+    private readonly MoesiBus _real;
     private readonly List<BusOp> _queue = [];
-    private readonly List<MesiCache> _caches = [];
+    private readonly List<MoesiCache> _caches = [];
+    private byte[] _scratch = []; // reusable block buffer for phase-2 cache-to-cache fills
 
     public IMemory Backing => _real.Backing;
 
-    public DeferredBus(MesiBus real) {
+    public DeferredBus(MoesiBus real) {
         ArgumentNullException.ThrowIfNull(real);
         _real = real;
     }
 
-    public void Register(MesiCache cache) {
+    public void Register(MoesiCache cache) {
         _real.Register(cache);
         _caches.Add(cache);
     }
 
-    /// <summary>Queues a read-miss snoop. Returns <c>false</c>; phase 2 corrects E→S if needed.</summary>
-    public bool BusRead(MesiCache requester, ulong lineBase) {
+    /// <summary>Queues a read-miss snoop. Returns <see cref="BusReadResponse.NoSharers"/>
+    /// (no cache-to-cache supply in phase 1); phase 2 corrects state and data.</summary>
+    public BusReadResponse BusRead(MoesiCache requester, ulong lineBase, Span<byte> dest) {
         _queue.Add(new BusOp(BusOpKind.Read, requester, lineBase));
-        return false;
+        return BusReadResponse.NoSharers;
     }
 
-    public void BusReadInvalidate(MesiCache requester, ulong lineBase) =>
+    public void BusSyncToBacking(ulong lineBase) =>
+        _queue.Add(new BusOp(BusOpKind.SyncToBacking, null, lineBase));
+
+    public void BusReadInvalidate(MoesiCache requester, ulong lineBase) =>
         _queue.Add(new BusOp(BusOpKind.ReadInvalidate, requester, lineBase));
 
     public void BusSilentUpgrade(ulong lineBase) =>
@@ -68,19 +74,26 @@ public sealed class DeferredBus : IBus {
         foreach (BusOp op in _queue)
             switch (op.Kind) {
                 case BusOpKind.Read:
-                    bool shared = _real.BusRead(op.Requester!, op.LineBase);
-                    op.Requester!.UpdateCoherenceState(op.LineBase, shared);
-                    op.Requester!.RefillFromBacking(op.LineBase);
+                    int blockBytes = op.Requester!.BlockBytes;
+                    if (_scratch.Length < blockBytes) _scratch = new byte[blockBytes];
+                    Span<byte> block = _scratch.AsSpan(0, blockBytes);
+                    BusReadResponse response = _real.BusRead(op.Requester!, op.LineBase, block);
+                    op.Requester!.UpdateCoherenceState(op.LineBase, response != BusReadResponse.NoSharers);
+                    if (response == BusReadResponse.SharedSupplied)
+                        op.Requester!.RefillFromSupply(op.LineBase, block);
+                    else
+                        op.Requester!.RefillFromBacking(op.LineBase);
                     break;
                 case BusOpKind.ReadInvalidate: _real.BusReadInvalidate(op.Requester!, op.LineBase); break;
                 case BusOpKind.SilentUpgrade:  _real.BusSilentUpgrade(op.LineBase); break;
                 case BusOpKind.Load:           _real.BusLoad(op.LineBase); break;
                 case BusOpKind.Writeback:      _real.Writeback(op.LineBase, op.Block!); break;
+                case BusOpKind.SyncToBacking:  _real.BusSyncToBacking(op.LineBase); break;
             }
 
-        // Write all M-state lines directly to backing so the next tick's phase-1
+        // Write all dirty (M/O) lines directly to backing so the next tick's phase-1
         // fills see current data without waiting for a snoop-triggered writeback.
-        foreach (MesiCache cache in _caches) cache.FlushToBacking();
+        foreach (MoesiCache cache in _caches) cache.FlushToBacking();
     }
 
     /// <summary>Clears the pending op queue. Call after <see cref="Drain"/> each tick.</summary>
@@ -94,16 +107,17 @@ public sealed class DeferredBus : IBus {
         SilentUpgrade,
         Load,
         Writeback,
+        SyncToBacking,
     }
 
     private readonly struct BusOp(
         BusOpKind kind,
-        MesiCache? requester,
+        MoesiCache? requester,
         ulong lineBase,
         byte[]? block = null
     ) {
         public readonly BusOpKind Kind = kind;
-        public readonly MesiCache? Requester = requester;
+        public readonly MoesiCache? Requester = requester;
         public readonly ulong LineBase = lineBase;
         public readonly byte[]? Block = block;
     }
