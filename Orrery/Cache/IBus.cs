@@ -3,24 +3,25 @@ using Mechanism;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Cache coherence bus protocol. Implemented by <see cref="MoesiBus"/> and
+/// Cache coherence bus protocol. Implemented by <see cref="MoesifBus"/> and
 /// (in two-phase concurrent mode) by <see cref="DeferredBus"/>.
 /// </summary>
 public interface IBus {
     /// <summary>Shared physical memory behind all caches on this bus.</summary>
     IMemory Backing { get; }
 
-    /// <summary>Registers a cache with this bus. Called from <see cref="MoesiCache"/> constructors.</summary>
-    void Register(MoesiCache cache);
+    /// <summary>Registers a cache with this bus. Called from <see cref="MoesifCache"/> constructors.</summary>
+    void Register(MoesifCache cache);
 
     /// <summary>
     /// Snoops all caches except <paramref name="requester"/> for a read miss.
-    /// A peer holding the line in M, O, or E supplies the block cache-to-cache into
-    /// <paramref name="dest"/> (M/O holders keep the dirty line as Owned — backing is
-    /// not written). Returns whether the requester should install S vs E and whether
+    /// A peer holding the line in M, O, E, or F supplies the block cache-to-cache into
+    /// <paramref name="dest"/>: M/O holders keep the dirty line as Owned (backing is not
+    /// written), E/F holders drop to S and the Forward role passes to the requester.
+    /// The response tells the requester which state to install (E, F, or S) and whether
     /// <paramref name="dest"/> was filled.
     /// </summary>
-    BusReadResponse BusRead(MoesiCache requester, ulong lineBase, Span<byte> dest);
+    BusReadResponse BusRead(MoesifCache requester, ulong lineBase, Span<byte> dest);
 
     /// <summary>
     /// Forces any dirty (M/O) holder of the line to write its block to backing memory,
@@ -36,18 +37,18 @@ public interface IBus {
     /// transition to I. Also cancels any LR/SC reservation whose granule falls within
     /// the line. For write misses use <see cref="BusReadForOwnership"/> instead.
     /// </summary>
-    void BusReadInvalidate(MoesiCache requester, ulong lineBase);
+    void BusReadInvalidate(MoesifCache requester, ulong lineBase);
 
     /// <summary>
     /// Read-for-ownership (write miss): snoops all caches except <paramref name="requester"/>.
-    /// All holders transition to I; an M/O/E holder forwards the block into
+    /// All holders transition to I; an M/O/E/F holder forwards the block into
     /// <paramref name="dest"/> instead of writing back — the requester installs the line
     /// as Modified, so its copy becomes authoritative. Also cancels any LR/SC reservation
     /// on the line. Returns true if <paramref name="dest"/> was filled; false means no
     /// holder could supply and the requester must fill from backing (which is then
     /// guaranteed current for this line, since stale backing implies an M/O holder).
     /// </summary>
-    bool BusReadForOwnership(MoesiCache requester, ulong lineBase, Span<byte> dest);
+    bool BusReadForOwnership(MoesifCache requester, ulong lineBase, Span<byte> dest);
 
     /// <summary>
     /// Called when a cache silently upgrades an Exclusive line to Modified without
@@ -74,7 +75,7 @@ public interface IBus {
     /// handlers (<c>SnoopRead</c>, <c>SnoopInvalidate</c>) — the directory bus already
     /// updates its state when it issues those snoops.
     /// </para>
-    /// No-op on snooping buses (<see cref="MoesiBus"/>, <see cref="DeferredBus"/>).
+    /// No-op on snooping buses (<see cref="MoesifBus"/>, <see cref="DeferredBus"/>).
     /// </summary>
-    void Evicted(MoesiCache source, ulong lineBase) { }
+    void Evicted(MoesifCache source, ulong lineBase) { }
 }

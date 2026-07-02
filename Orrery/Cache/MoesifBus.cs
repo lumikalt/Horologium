@@ -3,15 +3,15 @@ using Mechanism;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Snooping coherence bus for the MOESI protocol.
-/// All <see cref="MoesiCache"/> instances sharing a physical address space register here.
+/// Snooping coherence bus for the MOESIF protocol.
+/// All <see cref="MoesifCache"/> instances sharing a physical address space register here.
 /// Bus transactions are synchronous — suited for direct-drive multi-hart simulation where
 /// no actual parallelism exists between caches within a single kernel step.
 /// </summary>
-public sealed class MoesiBus : IBus {
+public sealed class MoesifBus : IBus {
     private readonly IMemory _backing;
     private readonly ReservationTable? _table;
-    private readonly List<MoesiCache> _caches = new();
+    private readonly List<MoesifCache> _caches = new();
     private int _blockSize; // set from first registered cache
 
     public IMemory Backing => _backing;
@@ -23,13 +23,13 @@ public sealed class MoesiBus : IBus {
     /// falls within the invalidated line — covering the common write-miss and S→M upgrade
     /// paths without requiring <see cref="ReservationAwareMemory"/> in the memory stack.
     /// </param>
-    public MoesiBus(IMemory backing, ReservationTable? table = null) {
+    public MoesifBus(IMemory backing, ReservationTable? table = null) {
         ArgumentNullException.ThrowIfNull(backing);
         _backing = backing;
         _table = table;
     }
 
-    public void Register(MoesiCache cache) {
+    public void Register(MoesifCache cache) {
         if (_caches.Count == 0) _blockSize = cache.BlockBytes;
         _caches.Add(cache);
     }
@@ -37,28 +37,33 @@ public sealed class MoesiBus : IBus {
     /// <summary>
     /// Snoops all caches except <paramref name="requester"/> for a read miss.
     /// A peer holding M/O supplies the block into <paramref name="dest"/> and keeps it as
-    /// Owned (no writeback to backing); an E holder supplies and downgrades to S. At most
-    /// one such peer exists per line. S holders do not supply.
+    /// Owned (no writeback to backing); an E or F holder supplies and downgrades to S,
+    /// passing the Forward role to the requester. At most one such peer exists per line.
+    /// Plain S holders do not supply — if only they hold the line, backing is clean and
+    /// the requester fills from it, becoming the new forwarder.
     /// </summary>
-    public BusReadResponse BusRead(MoesiCache requester, ulong lineBase, Span<byte> dest) {
+    public BusReadResponse BusRead(MoesifCache requester, ulong lineBase, Span<byte> dest) {
         var anyHeld = false;
-        var supplied = false;
-        foreach (MoesiCache c in _caches) {
+        var suppliedClean = false;
+        var suppliedDirty = false;
+        foreach (MoesifCache c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
             SnoopResult result = c.SnoopRead(lineBase, dest);
             anyHeld |= result != SnoopResult.Miss;
-            supplied |= result is SnoopResult.Supplied or SnoopResult.SuppliedOwned;
+            suppliedClean |= result == SnoopResult.Supplied;
+            suppliedDirty |= result == SnoopResult.SuppliedOwned;
         }
 
-        return supplied ? BusReadResponse.SharedSupplied
-            : anyHeld   ? BusReadResponse.Shared
-                          : BusReadResponse.NoSharers;
+        return suppliedDirty ? BusReadResponse.SuppliedDirty
+            : suppliedClean  ? BusReadResponse.SuppliedClean
+            : anyHeld        ? BusReadResponse.Shared
+                               : BusReadResponse.NoSharers;
     }
 
     /// <summary>Forces any dirty (M/O) holder — including the requester — to write the
     /// line back to backing, with no coherence state change.</summary>
     public void BusSyncToBacking(ulong lineBase) {
-        foreach (MoesiCache c in _caches) c.SnoopWriteback(lineBase);
+        foreach (MoesifCache c in _caches) c.SnoopWriteback(lineBase);
     }
 
     /// <summary>
@@ -67,8 +72,8 @@ public sealed class MoesiBus : IBus {
     /// If a <see cref="ReservationTable"/> was supplied at construction, any LR/SC reservation
     /// whose 4-byte granule falls within the invalidated cache line is also cancelled here.
     /// </summary>
-    public void BusReadInvalidate(MoesiCache requester, ulong lineBase) {
-        foreach (MoesiCache c in _caches) {
+    public void BusReadInvalidate(MoesifCache requester, ulong lineBase) {
+        foreach (MoesifCache c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
             c.SnoopInvalidate(lineBase);
         }
@@ -81,9 +86,9 @@ public sealed class MoesiBus : IBus {
     /// the block into <paramref name="dest"/> instead of writing back to backing. At most
     /// one such peer exists per line. Returns true if <paramref name="dest"/> was filled.
     /// </summary>
-    public bool BusReadForOwnership(MoesiCache requester, ulong lineBase, Span<byte> dest) {
+    public bool BusReadForOwnership(MoesifCache requester, ulong lineBase, Span<byte> dest) {
         var supplied = false;
-        foreach (MoesiCache c in _caches) {
+        foreach (MoesifCache c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
             supplied |= c.SnoopInvalidateForward(lineBase, dest);
         }
@@ -98,7 +103,7 @@ public sealed class MoesiBus : IBus {
     /// bypassing the coherence path.
     /// </summary>
     public void BusLoad(ulong lineBase) {
-        foreach (MoesiCache c in _caches) c.SnoopInvalidate(lineBase);
+        foreach (MoesifCache c in _caches) c.SnoopInvalidate(lineBase);
     }
 
     /// <summary>

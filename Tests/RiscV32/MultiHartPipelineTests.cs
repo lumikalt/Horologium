@@ -7,7 +7,7 @@ namespace Tests.RiscV32;
 
 /// <summary>
 /// Integration tests for <see cref="MultiHartPipeline"/>: two independent trains
-/// stepped round-robin, and coherent read via shared MoesiBus.
+/// stepped round-robin, and coherent read via shared MoesifBus.
 /// <para>
 /// Encoded instructions:
 ///   addi x1, x0, 42  = 0x02A00093
@@ -17,7 +17,7 @@ namespace Tests.RiscV32;
 ///   ebreak            = 0x00100073
 /// </para>
 /// <para>
-/// MOESI timing guarantee: MultiHartPipeline steps H0 before H1 in every outer tick.
+/// MOESIF timing guarantee: MultiHartPipeline steps H0 before H1 in every outer tick.
 /// For single-Gear trains (SingleCycle, Superscalar) the write and read both happen
 /// in the same outer tick — H0 first. For the five-stage pipeline both trains reach
 /// EX at the same outer tick (tick 3) and H0's EX fires before H1's, so H0's store
@@ -69,10 +69,10 @@ public class MultiHartPipelineTests {
         Assert.Equal(3, new MultiHartPipeline(t0, t1, t2).HartCount);
     }
 
-    // ── Per-hart MOESI cache coherence ─────────────────────────────────────────
+    // ── Per-hart MOESIF cache coherence ─────────────────────────────────────────
 
     [Fact]
-    public void PerHartMoesiCaches_WriteByHart0_ReadByHart1_SeesCoherentValue() {
+    public void PerHartMoesifCaches_WriteByHart0_ReadByHart1_SeesCoherentValue() {
         // Hart 0 at 0x00: sw x1, 0(x2)  →  writes 0xCAFE to 0x200 via cache0 (→ M)
         //                 ebreak
         // Hart 1 at 0x40: lw x3, 0(x4)  →  reads from 0x200 via cache1
@@ -89,9 +89,9 @@ public class MultiHartPipelineTests {
         flat.Load(0x00, ToBytes(swX1, MultiHartPipelineTests.Ebreak));
         flat.Load(0x40, ToBytes(lwX3, MultiHartPipelineTests.Ebreak));
 
-        var bus = new MoesiBus(flat);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var train0 = new SingleCycleTrain(new Rv32Mechanism(), cache0);
         var train1 = new SingleCycleTrain(new Rv32Mechanism(), cache1, 0x40);
@@ -105,8 +105,8 @@ public class MultiHartPipelineTests {
         Assert.Equal(0xCAFEUL, train1.ArchState.IntegerRegisters.Read(3));
 
         // Writer supplies cache-to-cache and keeps the line as Owned; reader installs Shared
-        Assert.Equal(MoesiState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESI)
-        Assert.Equal(MoesiState.Shared, cache1.StateOf(0x200));
+        Assert.Equal(MoesifState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESIF)
+        Assert.Equal(MoesifState.Shared, cache1.StateOf(0x200));
     }
 
     // ── FiveStageTrain ────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ public class MultiHartPipelineTests {
     }
 
     [Fact]
-    public void FiveStageHarts_MoesiCoherence_WriteByHart0_ReadByHart1_SeesCoherentValue() {
+    public void FiveStageHarts_MoesifCoherence_WriteByHart0_ReadByHart1_SeesCoherentValue() {
         // H0 (0x00): sw x1, 0(x2) then ebreak  — writes 0xCAFE to 0x200 via cache0
         // H1 (0x40): lw x3, 0(x4) then ebreak  — reads  0x200 via cache1
         //
@@ -145,9 +145,9 @@ public class MultiHartPipelineTests {
         flat.Load(0x00, ToBytes(swX1, MultiHartPipelineTests.Ebreak));
         flat.Load(0x40, ToBytes(lwX3, MultiHartPipelineTests.Ebreak));
 
-        var bus = new MoesiBus(flat);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var train0 = new FiveStageTrain(new Rv32Mechanism(), cache0);
         var train1 = new FiveStageTrain(new Rv32Mechanism(), cache1, 0x40);
@@ -159,8 +159,8 @@ public class MultiHartPipelineTests {
         new MultiHartPipeline(train0, train1).Run(1_000);
 
         Assert.Equal(0xCAFEUL, train1.ArchState.IntegerRegisters.Read(3));
-        Assert.Equal(MoesiState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESI)
-        Assert.Equal(MoesiState.Shared, cache1.StateOf(0x200));
+        Assert.Equal(MoesifState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESIF)
+        Assert.Equal(MoesifState.Shared, cache1.StateOf(0x200));
     }
 
     // ── SuperscalarTrain ──────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ public class MultiHartPipelineTests {
     }
 
     [Fact]
-    public void OoOHarts_MoesiCoherence_StoreCommitsThenLoadSeesCoherentValue() {
+    public void OoOHarts_MoesifCoherence_StoreCommitsThenLoadSeesCoherentValue() {
         // OooeTrain's PRF starts zeroed — ArchState.IntegerRegisters.Write does not seed the
         // PRF, so all values must be computed within the programs (like addi x1,x0,42 above).
         //
@@ -237,9 +237,9 @@ public class MultiHartPipelineTests {
             )
         );
 
-        var bus = new MoesiBus(flat);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var train0 = new OooeTrain(new Rv32Mechanism(), cache0);
         var train1 = new OooeTrain(new Rv32Mechanism(), cache1, 0x40);
@@ -247,8 +247,8 @@ public class MultiHartPipelineTests {
         new MultiHartPipeline(train0, train1).Run(1_000);
 
         Assert.Equal(0xCAFEUL, train1.ArchState.IntegerRegisters.Read(3));
-        Assert.Equal(MoesiState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESI)
-        Assert.Equal(MoesiState.Shared, cache1.StateOf(0x200));
+        Assert.Equal(MoesifState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESIF)
+        Assert.Equal(MoesifState.Shared, cache1.StateOf(0x200));
     }
 
     // ── LR/SC atomics across pipeline trains ──────────────────────────────────
@@ -276,9 +276,9 @@ public class MultiHartPipelineTests {
         flat.Load(0x40, ToBytes(swH1, MultiHartPipelineTests.Ebreak));
 
         var table = new ReservationTable();
-        var bus = new MoesiBus(flat, table);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat, table);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var train0 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
         var train1 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 1), cache1, 0x40);
@@ -326,9 +326,9 @@ public class MultiHartPipelineTests {
         flat.Load(0x80, ToBytes(liX1H1, liX5, nop, nop, nop, nop, swX5X1, MultiHartPipelineTests.Ebreak));
 
         var table = new ReservationTable();
-        var bus = new MoesiBus(flat, table);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat, table);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var train0 = new OooeTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
         var train1 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 1), cache1, 0x80);
@@ -352,9 +352,9 @@ public class MultiHartPipelineTests {
         flat.Load(0x80, ToBytes(MultiHartPipelineTests.Ebreak));
 
         var table = new ReservationTable();
-        var bus = new MoesiBus(flat, table);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat, table);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var train0 = new OooeTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
         var train1 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 1), cache1, 0x80);
@@ -370,7 +370,7 @@ public class MultiHartPipelineTests {
     [Fact]
     public void RunConcurrent_TwoIndependentHarts_BitIdenticalToSequentialRun() {
         // Builds the same two-hart independent program twice: once driven by Run()
-        // (MoesiBus directly) and once by RunConcurrent (DeferredBus).  Asserts that
+        // (MoesifBus directly) and once by RunConcurrent (DeferredBus).  Asserts that
         // both modes produce identical final register values — the bit-identical claim.
         const uint addi42 = 0x02A00093;
         const uint addi99 = 0x06300093;
@@ -379,9 +379,9 @@ public class MultiHartPipelineTests {
             var flat = new FlatMemory(0x100);
             flat.Load(0x00, ToBytes(addi42, MultiHartPipelineTests.Ebreak));
             flat.Load(0x40, ToBytes(addi99, MultiHartPipelineTests.Ebreak));
-            var bus = new MoesiBus(flat);
-            var t0 = new SingleCycleTrain(new Rv32Mechanism(), new MoesiCache(bus, 256, 2, 64));
-            var t1 = new SingleCycleTrain(new Rv32Mechanism(), new MoesiCache(bus, 256, 2, 64), 0x40);
+            var bus = new MoesifBus(flat);
+            var t0 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(bus, 256, 2, 64));
+            var t1 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(bus, 256, 2, 64), 0x40);
             new MultiHartPipeline(t0, t1).Run(1_000);
             return (t0, t1);
         }
@@ -391,11 +391,11 @@ public class MultiHartPipelineTests {
         var flat2 = new FlatMemory(0x100);
         flat2.Load(0x00, ToBytes(addi42, MultiHartPipelineTests.Ebreak));
         flat2.Load(0x40, ToBytes(addi99, MultiHartPipelineTests.Ebreak));
-        var realBus = new MoesiBus(flat2);
+        var realBus = new MoesifBus(flat2);
         var def0 = new DeferredBus(realBus);
         var def1 = new DeferredBus(realBus);
-        var con0 = new SingleCycleTrain(new Rv32Mechanism(), new MoesiCache(def0, 256, 2, 64));
-        var con1 = new SingleCycleTrain(new Rv32Mechanism(), new MoesiCache(def1, 256, 2, 64), 0x40);
+        var con0 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(def0, 256, 2, 64));
+        var con1 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(def1, 256, 2, 64), 0x40);
         new MultiHartPipeline(con0, con1).RunConcurrent([def0, def1,], 1_000);
 
         Assert.Equal(seq0.ArchState.IntegerRegisters.Read(1), con0.ArchState.IntegerRegisters.Read(1));
@@ -404,7 +404,7 @@ public class MultiHartPipelineTests {
 
     [Fact]
     public void RunConcurrent_WellSeparatedOoO_ProducerConsumerSeesCoherentValue() {
-        // Same program structure as OoOHarts_MoesiCoherence_StoreCommitsThenLoadSeesCoherentValue
+        // Same program structure as OoOHarts_MoesifCoherence_StoreCommitsThenLoadSeesCoherentValue
         // but run via RunConcurrent with DeferredBus.
         // H0's store commits at outer tick ~9; H1's load fires at outer tick ~13 —
         // well-separated (4+ ticks apart) so no same-tick cross-hart conflict occurs.
@@ -425,11 +425,11 @@ public class MultiHartPipelineTests {
             )
         );
 
-        var realBus = new MoesiBus(flat);
+        var realBus = new MoesifBus(flat);
         var def0 = new DeferredBus(realBus);
         var def1 = new DeferredBus(realBus);
-        var cache0 = new MoesiCache(def0, 256, 2, 64);
-        var cache1 = new MoesiCache(def1, 256, 2, 64);
+        var cache0 = new MoesifCache(def0, 256, 2, 64);
+        var cache1 = new MoesifCache(def1, 256, 2, 64);
 
         var train0 = new OooeTrain(new Rv32Mechanism(), cache0);
         var train1 = new OooeTrain(new Rv32Mechanism(), cache1, 0x40);
@@ -437,7 +437,7 @@ public class MultiHartPipelineTests {
         new MultiHartPipeline(train0, train1).RunConcurrent([def0, def1,], 1_000);
 
         Assert.Equal(0xCAFEUL, train1.ArchState.IntegerRegisters.Read(3));
-        Assert.Equal(MoesiState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESI)
-        Assert.Equal(MoesiState.Shared, cache1.StateOf(0x200));
+        Assert.Equal(MoesifState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESIF)
+        Assert.Equal(MoesifState.Shared, cache1.StateOf(0x200));
     }
 }

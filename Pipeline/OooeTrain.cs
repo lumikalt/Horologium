@@ -827,7 +827,7 @@ internal sealed class OoOPipelineCore : Gear {
                         continue;
                     // SC.W serialization: the reservation check (TryConsume) must see a
                     // coherent view of the ReservationTable — all older intra-hart stores
-                    // must have committed (so their MoesiCache writes, which cancel cross-hart
+                    // must have committed (so their MoesifCache writes, which cancel cross-hart
                     // reservations via BusReadInvalidate, have already fired).  Head-gating
                     // guarantees this without needing a commit-time re-check.
                     case ToothClass.Atomic when rs.Instruction?.IsStoreConditional == true

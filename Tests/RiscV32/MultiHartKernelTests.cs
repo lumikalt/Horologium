@@ -166,12 +166,12 @@ public class MultiHartKernelTests {
         Assert.Equal(0xCAFEUL, flat.Read(0x200, 4));                   // hart 0's write committed
     }
 
-    // ── LR/SC over per-hart MOESI caches ──────────────────────────────────────
+    // ── LR/SC over per-hart MOESIF caches ──────────────────────────────────────
 
     [Fact]
-    public void MoesiCaches_InterleavedWrite_CausesScToFail() {
+    public void MoesifCaches_InterleavedWrite_CausesScToFail() {
         // Same scenario as CrossHart_InterleavedWrite_CausesScToFail but using per-hart
-        // MoesiCaches instead of a flat ReservationAwareMemory.
+        // MoesifCaches instead of a flat ReservationAwareMemory.
         //
         // Hart 0 at 0x00: lr.w x1,(x2)  →  sc.w x4,x3,(x2)  →  ebreak
         // Hart 1 at 0x40: sw x5, 0(x6)  →  ebreak
@@ -189,9 +189,9 @@ public class MultiHartKernelTests {
         flat.Write(0x200, 0xBEEF, 4);
 
         var table = new ReservationTable();
-        var bus = new MoesiBus(flat, table);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat, table);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var mech0 = new Rv32Mechanism(reservationTable: table, hartId: 0);
         var mech1 = new Rv32Mechanism(reservationTable: table, hartId: 1);
@@ -215,7 +215,7 @@ public class MultiHartKernelTests {
     }
 
     [Fact]
-    public void MoesiCaches_NoInterleavingWrite_ScSucceeds() {
+    public void MoesifCaches_NoInterleavingWrite_ScSucceeds() {
         // Hart 1 writes to a different cache line → BusReadInvalidate targets a different
         // lineBase → reservation at 0x200 is not canceled → SC succeeds.
 
@@ -230,9 +230,9 @@ public class MultiHartKernelTests {
         flat.Write(0x300, 0, 4); // different 64-byte line (0x2C0..0x2FF vs 0x200..0x23F)
 
         var table = new ReservationTable();
-        var bus = new MoesiBus(flat, table);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat, table);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var mech0 = new Rv32Mechanism(reservationTable: table, hartId: 0);
         var mech1 = new Rv32Mechanism(reservationTable: table, hartId: 1);
@@ -253,10 +253,10 @@ public class MultiHartKernelTests {
         Assert.Equal(0xCAFEUL, flat.Read(0x200, 4));
     }
 
-    // ── Per-hart MOESI cache coherence ─────────────────────────────────────────
+    // ── Per-hart MOESIF cache coherence ─────────────────────────────────────────
 
     [Fact]
-    public void PerHartMoesiCaches_WriteByHart0_ReadByHart1_SeesCoherentValue() {
+    public void PerHartMoesifCaches_WriteByHart0_ReadByHart1_SeesCoherentValue() {
         // Hart 0 at 0x00: sw x1, 0(x2)   →  stores 0xCAFE to address 0x200 via cache0 (→ M)
         //                 ebreak
         // Hart 1 at 0x40: lw x3, 0(x4)   →  loads from 0x200 via cache1 (BusRead snoops cache0)
@@ -275,9 +275,9 @@ public class MultiHartKernelTests {
         flat.Load(0x00, ToBytes(swX1, MultiHartKernelTests.Ebreak));
         flat.Load(0x40, ToBytes(lwX3, MultiHartKernelTests.Ebreak));
 
-        var bus = new MoesiBus(flat);
-        var cache0 = new MoesiCache(bus, 256, 2, 64);
-        var cache1 = new MoesiCache(bus, 256, 2, 64);
+        var bus = new MoesifBus(flat);
+        var cache0 = new MoesifCache(bus, 256, 2, 64);
+        var cache1 = new MoesifCache(bus, 256, 2, 64);
 
         var mech0 = new Rv32Mechanism();
         var mech1 = new Rv32Mechanism();
@@ -296,8 +296,8 @@ public class MultiHartKernelTests {
         Assert.Equal(0xCAFEUL, kernel.StateOf(1).IntegerRegisters.Read(3));
 
         // Writer supplies cache-to-cache and keeps the line as Owned; reader installs Shared
-        Assert.Equal(MoesiState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESI)
-        Assert.Equal(MoesiState.Shared, cache1.StateOf(0x200));
+        Assert.Equal(MoesifState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESIF)
+        Assert.Equal(MoesifState.Shared, cache1.StateOf(0x200));
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────

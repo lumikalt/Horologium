@@ -113,7 +113,7 @@ ISA conformance tests (`TestBinaries/isa/`) are also linked at `0x80000000`. `Fl
 
 `MultiHartKernel` drives N RISC-V harts round-robin against a shared physical memory. Each call to `Step()` advances every non-halted hart by one instruction and returns the number still active; `Run(maxTicks)` loops until all harts halt or the tick limit is reached. Each hart has its own `IArchState` (created by `Rv32Mechanism.CreateArchState()`). Halt detection covers EBREAK (`result.IsHalt`), HTIF tohost (`result.RequestHalt`), and the infinite-self-loop idiom (`PC == pc && class == Branch`). The kernel operates in physical address space (no fetch translation), making it suited for bare-metal multi-hart workloads.
 
-Two constructors are available: `MultiHartKernel(IMemory sharedMemory, …)` gives every hart the same `IMemory` (simplest path, used with `ReservationAwareMemory` for LR/SC); `MultiHartKernel(IMemory[] perHartMemory, …)` gives each hart its own cache (e.g. a `MoesiCache` backed by a shared `MoesiBus`) — both instruction fetch and data access route through the per-hart memory.
+Two constructors are available: `MultiHartKernel(IMemory sharedMemory, …)` gives every hart the same `IMemory` (simplest path, used with `ReservationAwareMemory` for LR/SC); `MultiHartKernel(IMemory[] perHartMemory, …)` gives each hart its own cache (e.g. a `MoesifCache` backed by a shared `MoesifBus`) — both instruction fetch and data access route through the per-hart memory.
 
 `Rv32Mechanism` now accepts optional `reservationTable` and `hartId` constructor parameters, forwarded to `Rv32Executor` for LR/SC routing. Typical setup:
 
@@ -127,43 +127,43 @@ var kernel  = new MultiHartKernel(guarded,
 
 `ReservationTable` tracks per-hart LR/SC reservations. Each hart registers a reservation on `LR.W`; any write from any hart to the same 4-byte-aligned granule cancels all overlapping reservations so a subsequent `SC.W` fails correctly. `ReservationAwareMemory` is a thin `IMemory` wrapper whose `Write()` calls `table.InvalidateAt()` before the actual write, ensuring cancellation fires on every store. Single-hart setups leave `ReservationTable` null and use the existing private `_reservation` field unchanged — no API or behaviour change for existing code.
 
-### MOESI cache coherence (Orrery/Cache)
+### MOESIF cache coherence (Orrery/Cache)
 
-`MoesiCache` is an N-way set-associative write-back cache that participates in a MOESI coherence protocol with cache-to-cache supply. Unlike `SetAssociativeCache` (write-through, no-write-allocate), `MoesiCache` is write-back and write-allocate: writes stay in the cache as Modified lines until eviction or a snoop, not every write goes to backing memory.
+`MoesifCache` is an N-way set-associative write-back cache that participates in a MOESIF coherence protocol with cache-to-cache supply. Unlike `SetAssociativeCache` (write-through, no-write-allocate), `MoesifCache` is write-back and write-allocate: writes stay in the cache as Modified lines until eviction or a snoop, not every write goes to backing memory.
 
-`MoesiBus` coordinates snooping between all registered `MoesiCache` instances sharing a physical address space. Three bus transactions cover the full protocol:
+`MoesifBus` coordinates snooping between all registered `MoesifCache` instances sharing a physical address space. Three bus transactions cover the full protocol:
 
-- **BusRead** (read miss): a peer holding the line in M, O, or E supplies the block directly to the requester (cache-to-cache) instead of the requester filling from backing. A dirty supplier (M/O) keeps the line as **Owned** — no writeback to backing occurs; the owner retains writeback responsibility until eviction or invalidation. A clean E supplier downgrades to S. If any peer held the line the requester installs it as S; otherwise it fills from backing as E.
-- **BusReadForOwnership** (write miss): all peers transition to I, and an M/O/E holder forwards the block to the requester along with the invalidation — no writeback; the requester installs the line as M, making its copy authoritative. Only if no M/O/E holder exists does the requester fill from backing (which is guaranteed current in that case).
-- **BusReadInvalidate** (S/O→M upgrade, block-boundary-crossing writes): all peers transition to I; dirty M/O holders write back first. No data transfer — the upgrading requester already holds the bytes.
+- **BusRead** (read miss): a peer holding the line in M, O, E, or F supplies the block directly to the requester (cache-to-cache) instead of the requester filling from backing. A dirty supplier (M/O) keeps the line as **Owned** — no writeback to backing occurs; the owner retains writeback responsibility until eviction or invalidation, and later readers install plain S. A clean supplier (E/F) downgrades to S and the requester installs **Forward**: exactly one sharer of a clean line holds F and keeps answering later read misses cache-to-cache, so memory stays silent; the F role migrates to the most recent requester on each supply (Intel MESIF semantics). If only plain S peers hold the line (the forwarder was evicted), the requester fills from backing — guaranteed clean in that case — and becomes the new forwarder. With no peers at all it fills from backing as E.
+- **BusReadForOwnership** (write miss): all peers transition to I, and an M/O/E/F holder forwards the block to the requester along with the invalidation — no writeback; the requester installs the line as M, making its copy authoritative. Only if no such holder exists does the requester fill from backing (which is guaranteed current in that case).
+- **BusReadInvalidate** (S/O/F→M upgrade, block-boundary-crossing writes): all peers transition to I; dirty M/O holders write back first. No data transfer — the upgrading requester already holds the bytes.
 
 Silent E→M upgrade (write hit on an Exclusive line) requires no bus transaction — the cache takes M without notifying peers. While a line is Owned, backing memory is stale; every path that removes the Owned copy (eviction, snoop-invalidate, `cbo` maintenance, `Flush()`) writes it back. Accesses that straddle a block boundary read backing directly after a **BusSyncToBacking** transaction forces dirty holders — including the requesting cache itself — to write back.
 
 ```csharp
 var backing = new FlatMemory(0x10000);
-var bus     = new MoesiBus(backing);
-var cache0  = new MoesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
-var cache1  = new MoesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
+var bus     = new MoesifBus(backing);
+var cache0  = new MoesifCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
+var cache1  = new MoesifCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
 
 // cache0 reads 0x00  → Exclusive
-// cache1 reads 0x00  → BusRead: cache0 E→S supplies the block, cache1 installs S
-// cache1 writes 0x00 → BusReadInvalidate: cache0→I, cache1→M
+// cache1 reads 0x00  → BusRead: cache0 E→S supplies the block, cache1 installs Forward
+// cache1 writes 0x00 → BusReadInvalidate (F→M): cache0→I, cache1→M
 // cache0 reads 0x00  → BusRead: cache1 M→O supplies cache-to-cache (no writeback),
 //                      cache0 installs S and sees cache1's value; backing stays stale
 ```
 
-`StateOf(address)` returns the current MOESI state of the line covering an address (for test assertions). `Flush()` writes all dirty (M/O) lines to backing without evicting them — useful for inspecting backing memory from tests. `ConsumePendingStalls()` returns accumulated miss-penalty cycles for pipeline integration; a fill supplied cache-to-cache is charged `PeerSupplyLatency` (constructor parameter, defaults to `MissLatency`) instead of the full miss penalty, and `PeerSupplies` counts such fills.
+`StateOf(address)` returns the current MOESIF state of the line covering an address (for test assertions). `Flush()` writes all dirty (M/O) lines to backing without evicting them — useful for inspecting backing memory from tests. `ConsumePendingStalls()` returns accumulated miss-penalty cycles for pipeline integration; a fill supplied cache-to-cache is charged `PeerSupplyLatency` (constructor parameter, defaults to `MissLatency`) instead of the full miss penalty, and `PeerSupplies` counts such fills.
 
-`DirectoryBus` is a drop-in `IBus` alternative to the snooping `MoesiBus` for sequential multi-hart simulation: it keeps a precise per-line directory (owner + sharer set, maintained via eviction notifications) so invalidations snoop only actual holders and shared read misses need no probe at all. Cache-to-cache supply is directed: the directory contacts the single M/O/E owner. It cannot be wrapped by `DeferredBus` (two-phase concurrent mode), which is hardcoded to `MoesiBus`.
+`DirectoryBus` is a drop-in `IBus` alternative to the snooping `MoesifBus` for sequential multi-hart simulation: it keeps a precise per-line directory (designated responder + sharer set, maintained via eviction notifications) so invalidations snoop only actual holders and forwarder-less shared read misses need no probe at all. Cache-to-cache supply is directed: the directory contacts the single M/O/E/F responder. It cannot be wrapped by `DeferredBus` (two-phase concurrent mode), which is hardcoded to `MoesifBus`.
 
-`MoesiCache` and `MoesiBus` are ISA-agnostic (`Orrery.Cache`). Use the `MultiHartKernel(IMemory[] perHartMemory, …)` overload to give each hart its own cache. Pass the `ReservationTable` to `MoesiBus` so that LR/SC reservations are cancelled on every `BusReadForOwnership` (write miss) and `BusReadInvalidate` (S/O→M upgrade):
+`MoesifCache` and `MoesifBus` are ISA-agnostic (`Orrery.Cache`). Use the `MultiHartKernel(IMemory[] perHartMemory, …)` overload to give each hart its own cache. Pass the `ReservationTable` to `MoesifBus` so that LR/SC reservations are cancelled on every `BusReadForOwnership` (write miss) and `BusReadInvalidate` (S/O/F→M upgrade):
 
 ```csharp
 var flat   = new FlatMemory(0x10000);
 var table  = new ReservationTable();
-var bus    = new MoesiBus(flat, table: table);
-var cache0 = new MoesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
-var cache1 = new MoesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
+var bus    = new MoesifBus(flat, table: table);
+var cache0 = new MoesifCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
+var cache1 = new MoesifCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 64);
 
 var kernel = new MultiHartKernel([cache0, cache1],
     new Rv32Mechanism(reservationTable: table, hartId: 0),
@@ -176,20 +176,20 @@ Instruction fetch and data access both route through the per-hart cache (unified
 | Path | Bus transaction | Reservation cancellation |
 |------|----------------|--------------------------|
 | Write miss (write-allocate) | `BusReadForOwnership` | `table.InvalidateAt` in `BusReadForOwnership` |
-| S/O→M upgrade (write hit on Shared/Owned) | `BusReadInvalidate` | `table.InvalidateAt` in `BusReadInvalidate` |
+| S/O/F→M upgrade (write hit on Shared/Owned/Forward) | `BusReadInvalidate` | `table.InvalidateAt` in `BusReadInvalidate` |
 | E→M upgrade (write hit on Exclusive) | none (silent) | `table.InvalidateAt` in `BusSilentUpgrade` |
 
 ### MultiHartPipeline (Pipeline/)
 
-`MultiHartPipeline` coordinates N full pipeline trains (`ISteppableTrain`) in round-robin cycle-interleaved order — the pipeline-train analogue of `MultiHartKernel`. Each hart owns its own train instance (and typically its own `MoesiCache`); the coordinator advances every non-halted train by one tick per logical cycle.
+`MultiHartPipeline` coordinates N full pipeline trains (`ISteppableTrain`) in round-robin cycle-interleaved order — the pipeline-train analogue of `MultiHartKernel`. Each hart owns its own train instance (and typically its own `MoesifCache`); the coordinator advances every non-halted train by one tick per logical cycle.
 
 `ISteppableTrain` (`Orrery/Train/`) is a minimal interface: `BeginStepping()`, `StepCycle() → bool`, `IsIdle`, `FinishStepping() → RevolutionResult`. All five train types implement it: `SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`, `SmtTrain`.
 
 ```csharp
 var flat   = new FlatMemory(0x10000);
-var bus    = new MoesiBus(flat);
-var cache0 = new MoesiCache(bus, 4096, 2, 64);
-var cache1 = new MoesiCache(bus, 4096, 2, 64);
+var bus    = new MoesifBus(flat);
+var cache0 = new MoesifCache(bus, 4096, 2, 64);
+var cache1 = new MoesifCache(bus, 4096, 2, 64);
 
 var train0 = new SingleCycleTrain(new Rv32Mechanism(), cache0, entryPoint: 0x00);
 var train1 = new SingleCycleTrain(new Rv32Mechanism(), cache1, entryPoint: 0x40);
@@ -197,21 +197,21 @@ var train1 = new SingleCycleTrain(new Rv32Mechanism(), cache1, entryPoint: 0x40)
 RevolutionResult[] results = new MultiHartPipeline(train0, train1).Run(maxTicks: 100_000);
 ```
 
-`Run` returns one `RevolutionResult` per hart. Combine with `MoesiBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` for LR/SC atomics between pipeline trains.
+`Run` returns one `RevolutionResult` per hart. Combine with `MoesifBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` for LR/SC atomics between pipeline trains.
 
-**OoO timing note:** `OooeTrain`'s physical register file starts zeroed; `ArchState.IntegerRegisters.Write()` updates the architectural register file but not the PRF, so register values pre-set before `Run()` are invisible to the pipeline. For OoO MOESI coherence tests or any test that requires non-zero initial register values, compute those values inside the program (e.g. `lui`+`addi` sequences). Also, OoO stores commit to the cache at ROB-head (several cycles after fetch), so a cross-hart load must be issued late enough to see the committed store — pad H1 with nops in the decode stream before the load's source-register computation.
+**OoO timing note:** `OooeTrain`'s physical register file starts zeroed; `ArchState.IntegerRegisters.Write()` updates the architectural register file but not the PRF, so register values pre-set before `Run()` are invisible to the pipeline. For OoO MOESIF coherence tests or any test that requires non-zero initial register values, compute those values inside the program (e.g. `lui`+`addi` sequences). Also, OoO stores commit to the cache at ROB-head (several cycles after fetch), so a cross-hart load must be issued late enough to see the committed store — pad H1 with nops in the decode stream before the load's source-register computation.
 
 ### SmtTrain (Pipeline/)
 
 `SmtTrain` is a barrel-processor SMT train: N independent hart contexts share a single issue window of width `issueWidth`. Each tick the coordinator distributes the available slots round-robin across active harts, rotating the starting hart every cycle for long-run fairness. This interleaves hart instructions at issue-slot granularity rather than the whole-tick round-robin of `MultiHartPipeline`.
 
-Each hart has its own `IArchState` and `MemoryLayers` (typically backed by per-hart `MoesiCache` instances sharing a `MoesiBus`). All harts share the same `Escapement` and advance in lock-step. A hart that hits a branch, halt, trap, or MRET is blocked for the rest of the current cycle's issue window; the remaining slots go to other harts. When all harts have halted the Gear stops scheduling itself.
+Each hart has its own `IArchState` and `MemoryLayers` (typically backed by per-hart `MoesifCache` instances sharing a `MoesifBus`). All harts share the same `Escapement` and advance in lock-step. A hart that hits a branch, halt, trap, or MRET is blocked for the rest of the current cycle's issue window; the remaining slots go to other harts. When all harts have halted the Gear stops scheduling itself.
 
 ```csharp
 var flat   = new FlatMemory(0x10000);
-var bus    = new MoesiBus(flat);
-var cache0 = new MoesiCache(bus, 4096, 2, 64);
-var cache1 = new MoesiCache(bus, 4096, 2, 64);
+var bus    = new MoesifBus(flat);
+var cache0 = new MoesifCache(bus, 4096, 2, 64);
+var cache1 = new MoesifCache(bus, 4096, 2, 64);
 
 var smt = new SmtTrain(
     new IMechanism[] { new Rv32Mechanism(), new Rv32Mechanism() },

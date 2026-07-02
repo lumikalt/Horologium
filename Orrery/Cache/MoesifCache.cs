@@ -4,16 +4,18 @@ using Mechanism;
 namespace Orrery.Cache;
 
 /// <summary>
-/// N-way set-associative write-back cache implementing the MOESI coherence protocol
+/// N-way set-associative write-back cache implementing the MOESIF coherence protocol
 /// with cache-to-cache supply: a read miss snooping a peer that holds the line in
-/// M, O, or E receives the block directly from that peer instead of backing memory,
-/// and a dirty supplier keeps writeback responsibility in the Owned state rather than
-/// writing back to backing.
-/// Must be registered with a shared <see cref="MoesiBus"/> that connects it to other caches
+/// M, O, E, or F receives the block directly from that peer instead of backing memory.
+/// A dirty supplier keeps writeback responsibility in the Owned state rather than
+/// writing back to backing; a clean supply passes the Forward role to the requester,
+/// so exactly one sharer of a clean line keeps answering later misses while memory
+/// stays silent.
+/// Must be registered with a shared <see cref="MoesifBus"/> that connects it to other caches
 /// sharing the same physical address space.
 /// Policy: write-back, write-allocate, LRU replacement.
 /// </summary>
-public sealed class MoesiCache : IMemory {
+public sealed class MoesifCache : IMemory {
     private readonly IBus _bus;
     private readonly int _ways;
     private readonly int _blockSize;
@@ -25,7 +27,7 @@ public sealed class MoesiCache : IMemory {
     private readonly ulong?[][] _tags;
     private readonly byte[][][] _blocks;
     private readonly int[][] _lruAge;
-    private readonly MoesiState[][] _state;
+    private readonly MoesifState[][] _state;
 
     private long _pendingStalls;
 
@@ -41,14 +43,14 @@ public sealed class MoesiCache : IMemory {
     public long Writebacks { get; private set; }
 
     /// <summary>Read and write misses that were filled cache-to-cache by a peer
-    /// (MOESI supply on reads, read-for-ownership forwarding on writes).</summary>
+    /// (MOESIF supply on reads, read-for-ownership forwarding on writes).</summary>
     public long PeerSupplies { get; private set; }
 
     public int Sets => _tags.Length;
     public int Ways => _ways;
     public int BlockBytes => _blockSize;
 
-    public MoesiCache(
+    public MoesifCache(
         IBus bus,
         int capacityBytes,
         int ways,
@@ -81,13 +83,13 @@ public sealed class MoesiCache : IMemory {
         _tags = new ulong?[sets][];
         _blocks = new byte[sets][][];
         _lruAge = new int[sets][];
-        _state = new MoesiState[sets][];
+        _state = new MoesifState[sets][];
 
         for (var s = 0; s < sets; s++) {
             _tags[s] = new ulong?[_ways];
             _blocks[s] = new byte[_ways][];
             _lruAge[s] = new int[_ways];
-            _state[s] = new MoesiState[_ways]; // all Invalid
+            _state[s] = new MoesifState[_ways]; // all Invalid
             for (var w = 0; w < _ways; w++) {
                 _blocks[s][w] = new byte[_blockSize];
                 _lruAge[s][w] = w;
@@ -139,7 +141,7 @@ public sealed class MoesiCache : IMemory {
         (tag << (_offsetBits + _indexBits)) | ((ulong)set << _offsetBits);
 
     /// <summary>M and O both hold data newer than backing memory.</summary>
-    private static bool IsDirty(MoesiState s) => s is MoesiState.Modified or MoesiState.Owned;
+    private static bool IsDirty(MoesifState s) => s is MoesifState.Modified or MoesifState.Owned;
 
     // ── Block fill / writeback ───────────────────────────────────────────────
 
@@ -166,7 +168,7 @@ public sealed class MoesiCache : IMemory {
         }
 
         _tags[set][way] = null;
-        _state[set][way] = MoesiState.Invalid;
+        _state[set][way] = MoesifState.Invalid;
         return way;
     }
 
@@ -175,7 +177,7 @@ public sealed class MoesiCache : IMemory {
         int way = FindWay(set, tag);
         if (way < 0) return;
         if (IsDirty(_state[set][way])) WriteBackBlock(set, way);
-        _state[set][way] = MoesiState.Invalid;
+        _state[set][way] = MoesifState.Invalid;
         _tags[set][way] = null;
         _bus.Evicted(this, lineBase);
     }
@@ -192,63 +194,64 @@ public sealed class MoesiCache : IMemory {
         WriteBackBlock(set, way);
         // M: clean and still held exclusively. O: peers hold S copies, ownership
         // returns to memory — the line is now an ordinary Shared copy.
-        _state[set][way] = _state[set][way] == MoesiState.Modified
-            ? MoesiState.Exclusive
-            : MoesiState.Shared;
+        _state[set][way] = _state[set][way] == MoesifState.Modified
+            ? MoesifState.Exclusive
+            : MoesifState.Shared;
     }
 
     public void FlushLine(ulong address) => LocalInvalidate(LineBase(address));
 
-    // ── Snooping (invoked by MoesiBus on behalf of remote caches) ────────────
+    // ── Snooping (invoked by MoesifBus on behalf of remote caches) ────────────
 
     /// <summary>
     /// Another cache is doing a read. M→O (supply, no writeback), O→O (supply),
-    /// E→S (supply clean), S→S (no supply). A supplier copies its block into
-    /// <paramref name="dest"/> so the requester fills cache-to-cache instead of
-    /// from backing memory.
+    /// E→S and F→S (supply clean; the requester takes over the Forward role),
+    /// S→S (no supply). A supplier copies its block into <paramref name="dest"/>
+    /// so the requester fills cache-to-cache instead of from backing memory.
     /// </summary>
     internal SnoopResult SnoopRead(ulong lineBase, Span<byte> dest) {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return SnoopResult.Miss;
         switch (_state[set][way]) {
-            case MoesiState.Modified:
-            case MoesiState.Owned:
+            case MoesifState.Modified:
+            case MoesifState.Owned:
                 _blocks[set][way].CopyTo(dest);
-                _state[set][way] = MoesiState.Owned;
+                _state[set][way] = MoesifState.Owned;
                 return SnoopResult.SuppliedOwned;
-            case MoesiState.Exclusive:
+            case MoesifState.Exclusive:
+            case MoesifState.Forward:
                 _blocks[set][way].CopyTo(dest);
-                _state[set][way] = MoesiState.Shared;
+                _state[set][way] = MoesifState.Shared;
                 return SnoopResult.Supplied;
             default: return SnoopResult.Shared;
         }
     }
 
-    /// <summary>Another cache wants exclusive access. M/O→writeback+I, E/S→I.</summary>
+    /// <summary>Another cache wants exclusive access. M/O→writeback+I, E/S/F→I.</summary>
     internal void SnoopInvalidate(ulong lineBase) {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return;
         if (IsDirty(_state[set][way])) WriteBackBlock(set, way);
-        _state[set][way] = MoesiState.Invalid;
+        _state[set][way] = MoesifState.Invalid;
         _tags[set][way] = null;
     }
 
     /// <summary>
     /// Another cache wants exclusive access and will install the line as Modified
-    /// (read-for-ownership). M/O/E holders forward the block into <paramref name="dest"/>
+    /// (read-for-ownership). M/O/E/F holders forward the block into <paramref name="dest"/>
     /// and invalidate <em>without</em> writing back — the requester's M copy becomes
-    /// authoritative. S holders just invalidate (memory or the owner supplies).
+    /// authoritative. S holders just invalidate (memory or the responder supplies).
     /// Returns true if <paramref name="dest"/> was filled.
     /// </summary>
     internal bool SnoopInvalidateForward(ulong lineBase, Span<byte> dest) {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return false;
-        bool supply = _state[set][way] != MoesiState.Shared;
+        bool supply = _state[set][way] != MoesifState.Shared;
         if (supply) _blocks[set][way].CopyTo(dest);
-        _state[set][way] = MoesiState.Invalid;
+        _state[set][way] = MoesifState.Invalid;
         _tags[set][way] = null;
         return supply;
     }
@@ -284,16 +287,22 @@ public sealed class MoesiCache : IMemory {
     }
 
     /// <summary>
-    /// Corrects E→S after a phase-2 <see cref="IBus.BusRead"/> reveals that a peer
-    /// held the line. No-op for M (a same-tick intra-hart write must not be downgraded).
+    /// Corrects the phase-1 Exclusive install after the phase-2 <see cref="IBus.BusRead"/>
+    /// replay reveals that peers held the line: E (or S, when an earlier replayed op
+    /// already snooped this line down) becomes F for clean responses and S for a dirty
+    /// supply — the same state sequential execution would have installed. No-op for M/O
+    /// (a same-tick intra-hart write must not be downgraded) and for invalidated lines.
     /// Called only by <c>DeferredBus.Drain()</c>.
     /// </summary>
-    internal void UpdateCoherenceState(ulong lineBase, bool shared) {
-        if (!shared) return;
+    internal void UpdateCoherenceState(ulong lineBase, BusReadResponse response) {
+        if (response == BusReadResponse.NoSharers) return;
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
         if (way < 0) return;
-        if (_state[set][way] == MoesiState.Exclusive) _state[set][way] = MoesiState.Shared;
+        if (_state[set][way] is not (MoesifState.Exclusive or MoesifState.Shared or MoesifState.Forward)) return;
+        _state[set][way] = response == BusReadResponse.SuppliedDirty
+            ? MoesifState.Shared
+            : MoesifState.Forward;
     }
 
     /// <summary>
@@ -348,7 +357,7 @@ public sealed class MoesiCache : IMemory {
         ulong lineBase = LineBase(address);
         int victimWay = EvictWay(set);
         BusReadResponse response = _bus.BusRead(this, lineBase, _blocks[set][victimWay]);
-        if (response == BusReadResponse.SharedSupplied) {
+        if (response is BusReadResponse.SuppliedClean or BusReadResponse.SuppliedDirty) {
             PeerSupplies++;
             _pendingStalls += PeerSupplyLatency;
         }
@@ -358,9 +367,15 @@ public sealed class MoesiCache : IMemory {
         }
 
         _tags[set][victimWay] = tag;
-        _state[set][victimWay] = response == BusReadResponse.NoSharers
-            ? MoesiState.Exclusive
-            : MoesiState.Shared;
+        _state[set][victimWay] = response switch {
+            BusReadResponse.NoSharers => MoesifState.Exclusive,
+            // Dirty line: the O owner keeps forwarding duty; we are a plain sharer.
+            BusReadResponse.SuppliedDirty => MoesifState.Shared,
+            // Clean line: the requester becomes the designated forwarder — either the
+            // F role migrated from the E/F supplier, or memory supplied because no
+            // forwarder existed and the newest sharer takes the role.
+            _ => MoesifState.Forward,
+        };
         TouchLru(set, victimWay);
         return ReadBytes(_blocks[set][victimWay], offset, bytes);
     }
@@ -386,16 +401,17 @@ public sealed class MoesiCache : IMemory {
         if (way >= 0) {
             Hits++;
             switch (_state[set][way]) {
-                case MoesiState.Shared:
-                case MoesiState.Owned:
-                    _bus.BusReadInvalidate(this, lineBase); // S/O→M: snoop all peers + cancel reservations
+                case MoesifState.Shared:
+                case MoesifState.Owned:
+                case MoesifState.Forward:
+                    _bus.BusReadInvalidate(this, lineBase); // S/O/F→M: snoop all peers + cancel reservations
                     break;
-                case MoesiState.Exclusive:
+                case MoesifState.Exclusive:
                     _bus.BusSilentUpgrade(lineBase); // E→M: no snoop needed, but cancel reservations
                     break;
             }
 
-            _state[set][way] = MoesiState.Modified;
+            _state[set][way] = MoesifState.Modified;
             TouchLru(set, way);
             WriteBytes(_blocks[set][way], offset, value, bytes);
         }
@@ -414,7 +430,7 @@ public sealed class MoesiCache : IMemory {
             }
 
             _tags[set][victimWay] = tag;
-            _state[set][victimWay] = MoesiState.Modified;
+            _state[set][victimWay] = MoesifState.Modified;
             TouchLru(set, victimWay);
             WriteBytes(_blocks[set][victimWay], offset, value, bytes);
         }
@@ -441,11 +457,11 @@ public sealed class MoesiCache : IMemory {
 
     // ── Inspection ───────────────────────────────────────────────────────────
 
-    /// <summary>Returns the MOESI state of the cache line covering <paramref name="address"/>.</summary>
-    public MoesiState StateOf(ulong address) {
+    /// <summary>Returns the MOESIF state of the cache line covering <paramref name="address"/>.</summary>
+    public MoesifState StateOf(ulong address) {
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        return way >= 0 ? _state[set][way] : MoesiState.Invalid;
+        return way >= 0 ? _state[set][way] : MoesifState.Invalid;
     }
 
     /// <summary>

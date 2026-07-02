@@ -19,7 +19,7 @@ namespace Pipeline;
 /// <para>
 /// All harts share the same Escapement and therefore advance in lock-step.
 /// Each hart has its own <see cref="IArchState"/> and <see cref="MemoryLayers"/>
-/// (typically backed by per-hart caches sharing a <c>MoesiBus</c>), making MOESI
+/// (typically backed by per-hart caches sharing a <c>MoesifBus</c>), making MOESIF
 /// coherence effects observable at instruction granularity.
 /// </para>
 /// <para>
