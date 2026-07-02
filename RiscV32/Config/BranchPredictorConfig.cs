@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 using Mechanism;
 using Mechanism.BranchPredictModels;
+using Pipeline;
+using RiscV32.Memory;
 
 namespace RiscV32.Config;
 
@@ -20,8 +22,15 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(IttageConfig), "ittage")]
 [JsonDerivedType(typeof(BatageConfig), "batage")]
 [JsonDerivedType(typeof(OracleConfig), "oracle")]
+[JsonDerivedType(typeof(TrueOracleConfig), "true_oracle")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
+
+    /// <summary>
+    /// Builds a predictor with access to a functional pre-pass. Configs that need a workload
+    /// trace (e.g. <see cref="TrueOracleConfig"/>) override this; all others delegate to Build().
+    /// </summary>
+    public virtual IBranchPredictor Build(IMechanism mechanism, IWorkload workload) => Build();
 
     public static BranchPredictorConfig AlwaysNotTaken() => new AlwaysNotTakenConfig();
     public static BranchPredictorConfig AlwaysTaken() => new AlwaysTakenConfig();
@@ -55,6 +64,7 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig Ittage() => new IttageConfig();
     public static BranchPredictorConfig Batage() => new BatageConfig();
     public static BranchPredictorConfig Oracle() => new OracleConfig();
+    public static BranchPredictorConfig TrueOracle() => new TrueOracleConfig();
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -120,4 +130,19 @@ public sealed record BatageConfig : BranchPredictorConfig {
 
 public sealed record OracleConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() => new OraclePredictor();
+}
+
+public sealed record TrueOracleConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() =>
+        throw new InvalidOperationException(
+            "TrueOracleConfig requires a functional pre-pass. Call Build(mechanism, workload) instead.");
+
+    public override IBranchPredictor Build(IMechanism mechanism, IWorkload workload) {
+        var preMemory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(preMemory);
+        var recorder = new BranchTraceRecorder(mechanism.Decoder);
+        new SingleCycleTrain(mechanism, workload.WrapMemory(preMemory), workload.EntryPoint,
+            commitObserver: recorder).Run(long.MaxValue);
+        return new TrueOraclePredictor(recorder.Trace);
+    }
 }

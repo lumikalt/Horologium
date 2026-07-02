@@ -1,3 +1,4 @@
+using Mechanism.BranchPredictModels;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
@@ -672,5 +673,42 @@ public class OoOPipelineTests {
         Assert.True(issues.ContainsKey(0), "lw at PC=0 must have an Issue event");
         Assert.True(issues.ContainsKey(4), "lr.w at PC=4 must have an Issue event");
         Assert.NotEqual(issues[0].Cycle, issues[4].Cycle);
+    }
+
+    [Fact]
+    public void OoO_TrueOraclePredictor_ZeroBranchMisses_WithCallReturn() {
+        // Program: main calls a subroutine that loops 5 times, then returns.
+        // Exercises JAL (call), conditional BLT (loop), and JALR (return).
+        // Verifies both that TrueOraclePredictor achieves 0 mispredicts on OoO
+        // and that return-instruction trace-index alignment holds.
+        uint[] program = [
+            0x010000EF, // addr  0: jal  x1, 16        -- call subroutine; x1 = return addr 4
+            0x00100073, // addr  4: ebreak              -- end of main (reached after return)
+            0x00000013, // addr  8: nop                 -- padding
+            0x00000013, // addr 12: nop                 -- padding
+            0x00000113, // addr 16: addi x2, x0, 0     -- x2 = 0
+            0x00500193, // addr 20: addi x3, x0, 5     -- x3 = 5
+            0x00110113, // addr 24: addi x2, x2, 1     -- loop body
+            0xFE314EE3, // addr 28: blt  x2, x3, -4    -- if x2 < 5, jump to addr 24
+            0x00008067, // addr 32: jalr x0, x1, 0     -- return
+        ];
+
+        // Pre-pass: collect the dynamic branch trace
+        var preMem = new FlatMemory(4096);
+        Load(preMem, program);
+        var mechanism = new Rv32Mechanism();
+        var recorder = new BranchTraceRecorder(mechanism.Decoder);
+        new SingleCycleTrain(mechanism, preMem, commitObserver: recorder).Run();
+
+        // Main pass: replay the oracle trace on OoO
+        var mem = new FlatMemory(4096);
+        Load(mem, program);
+        var oracle = new TrueOraclePredictor(recorder.Trace);
+        var train = new OooeTrain(mechanism, mem, predictor: oracle);
+        RevolutionResult result = train.Run();
+
+        DialBoardSnapshot? snap = result.Find("ooo.pipeline");
+        Assert.NotNull(snap);
+        Assert.Equal(0L, snap.Counters["branch_misses"]);
     }
 }

@@ -655,4 +655,31 @@ public class FiveStagePipelineTests {
         // mepc stays 0 (no interrupt taken).
         Assert.Equal(0uL, ReadCsr(train, CsrFile.Mepc));
     }
+
+    [Fact]
+    public void Pipeline_TrueOraclePredictor_ZeroBranchMisses() {
+        uint[] program = [
+            0x00000093, // addi x1, x0, 0
+            0x00A00113, // addi x2, x0, 10
+            0x00108093, // addi x1, x1, 1
+            0xFE20CEE3, // blt  x1, x2, -4  (loops 9 times, then falls through)
+            0x00100073, // ebreak
+        ];
+
+        // Pre-pass: collect the dynamic branch trace via functional simulation
+        var preMem = new FlatMemory(4096);
+        Load(preMem, program);
+        var mechanism = new Rv32Mechanism();
+        var recorder = new BranchTraceRecorder(mechanism.Decoder);
+        new SingleCycleTrain(mechanism, preMem, commitObserver: recorder).Run();
+
+        // Main pass: replay the oracle trace — every prediction must be correct
+        (FiveStageTrain train, FlatMemory mem) = Make(predictor: new TrueOraclePredictor(recorder.Trace));
+        Load(mem, program);
+        RevolutionResult result = train.Run();
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.Equal(0L, snap.Counters["branch_misses"]);
+    }
 }

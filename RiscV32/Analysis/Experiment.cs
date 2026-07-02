@@ -80,7 +80,7 @@ public static class Experiment {
                         config.RobCapacity,
                         config.IqCapacity,
                         config.ExtraPhysRegs,
-                        config.Predictor?.Build(),
+                        config.Predictor?.Build(mechanism, workload),
                         config.ToIMemoryConfig(),
                         dCfg,
                         config.FuLatency,
@@ -92,7 +92,7 @@ public static class Experiment {
                         mechanism, runMemory,
                         workload.EntryPoint,
                         config.ForwardingEnabled,
-                        config.Predictor?.Build(),
+                        config.Predictor?.Build(mechanism, workload),
                         config.ToIMemoryConfig(),
                         dCfg,
                         config.StoreBufferCapacity
@@ -127,7 +127,7 @@ public static class Experiment {
                 new OooeTrain(
                     mechanism, runMemory, workload.EntryPoint,
                     cfg.IssueWidth, cfg.RobCapacity, cfg.IqCapacity, cfg.ExtraPhysRegs,
-                    cfg.Predictor?.Build(),
+                    cfg.Predictor?.Build(mechanism, workload),
                     cfg.ToIMemoryConfig(), dCfg,
                     cfg.FuLatency, plog,
                     writeBufferCapacity: cfg.StoreBufferCapacity,
@@ -139,7 +139,7 @@ public static class Experiment {
                 new FiveStageTrain(
                     mechanism, runMemory, workload.EntryPoint,
                     cfg.ForwardingEnabled,
-                    cfg.Predictor?.Build(),
+                    cfg.Predictor?.Build(mechanism, workload),
                     cfg.ToIMemoryConfig(), dCfg,
                     cfg.StoreBufferCapacity, plog
                 ).Run(maxTicks);

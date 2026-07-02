@@ -7,10 +7,10 @@ namespace Mechanism.BranchPredictModels;
 /// frequently alternate direction (e.g., sorting comparisons), mispredicts on every
 /// direction change — potentially worse than a 2-bit counter, which has inertia.
 /// <para>
-/// This is NOT a true oracle predictor. A true oracle requires either two-pass
-/// pre-simulation (record all outcomes in order, replay in the next run) or a
-/// flush-aware interface to undo speculative predictions. Use ITTAGE/BATAGE for
-/// a near-optimal realistic predictor on volatile-branch workloads.
+/// This is NOT a true oracle predictor — it misses on first encounters and on
+/// direction changes. For a true oracle that achieves zero mispredictions, use
+/// <see cref="TrueOraclePredictor"/> (configured via <c>TrueOracleConfig</c>),
+/// which runs a functional pre-pass to collect the complete branch trace.
 /// </para>
 /// </summary>
 public sealed class OraclePredictor : IBranchPredictor {

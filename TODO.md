@@ -139,7 +139,7 @@ Currently all caches use LRU. Pluggable replacement policies, then:
   stalls. — Chrysos & Emer, ISCA 1998
 - [ ] Register renaming: explicit rename stage with a register alias table (RAT) and free list, replacing implicit PRF
   indexing.
-- [ ] True oracle branch predictor: two-pass simulation (pre-run to collect outcomes, replay with perfect prediction)
+- [x] True oracle branch predictor: two-pass simulation (pre-run to collect outcomes, replay with perfect prediction)
   for IPC upper-bound measurement.
 
 ### µops
