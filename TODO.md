@@ -7,7 +7,8 @@
 - [ ] L2 and L3 caches.
 - [x] Assembler to simulate RISC-V in-place.
 - [x] Compile from C to disassembly and simulate that.
-- [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS subprocess.
+- [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS
+  subprocess.
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline waterfall.
 - [x] Light mode.
@@ -22,10 +23,10 @@
 ## RISC-V
 
 - [x] 64-bit support.
-    - [ ] ELF64 loader for running RV64 binaries.
-    - [ ] Sv39 page-table walker for RV64 virtual memory.
-    - [ ] RV64 M extension.
-    - [ ] RV64 F/D extension.
+  - [ ] ELF64 loader for running RV64 binaries.
+  - [ ] Sv39 page-table walker for RV64 virtual memory.
+  - [ ] RV64 M extension.
+  - [ ] RV64 F/D extension.
 - [ ] 128-bit support.
 - [x] Enable or disable specific extensions.
 
@@ -71,15 +72,24 @@
 - [x] Olympia JSON instruction-trace output; flake packaging; calibration study.
 - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
 - [ ] STF (Simulation Trace Format) binary output.
-- [ ] SimPoint phase analysis: basic-block vector (BBV) profiling + k-means clustering for representative sampling. — Sherwood et al., ASPLOS 2002
-- [ ] ChampSim trace import: run CBP/CRC competition branch predictor and cache replacement plug-ins against Horologium workloads.
-- [ ] Intel PT (Processor Trace) binary format import: decode hardware-captured execution traces into the elastic replay path.
-- [ ] RISC-V-PAPI integration: cross-validate Horologium's Zicntr/Zihpm counter output against hardware readings collected via the INESC-ID RISC-V PAPI backend on a real core (CVA6 or SiFive). https://github.com/hpc-ulisboa/RISC-V-PAPI
-- [ ] Paraver trace export: emit Extrae-format traces so carm-paraver can overlay roofline plots on a per-timestep execution view. https://github.com/champ-hub/carm-paraver
+- [ ] SimPoint phase analysis: basic-block vector (BBV) profiling + k-means clustering for representative sampling. —
+  Sherwood et al., ASPLOS 2002
+- [ ] ChampSim trace import: run CBP/CRC competition branch predictor and cache replacement plug-ins against Horologium
+  workloads.
+- [ ] Intel PT (Processor Trace) binary format import: decode hardware-captured execution traces into the elastic replay
+  path.
+- [ ] RISC-V-PAPI integration: cross-validate Horologium's Zicntr/Zihpm counter output against hardware readings
+  collected via the INESC-ID RISC-V PAPI backend on a real core (CVA6 or
+  SiFive). https://github.com/hpc-ulisboa/RISC-V-PAPI
+- [ ] Paraver trace export: emit Extrae-format traces so carm-paraver can overlay roofline plots on a per-timestep
+  execution view. https://github.com/champ-hub/carm-paraver
 - [ ] DRAM timing model: integrate Ramulator2 or DRAMSim3 behind `IMemory` so off-chip latency reflects DDR4/5 timing.
 - [ ] Power and area estimation: emit gem5-compatible stat dumps consumable by McPAT. — Li et al., MICRO 2009
-- [ ] Cache-Aware Roofline Model (CARM) output: compute per-cache-level bandwidth and arithmetic-intensity ceilings from simulation statistics and render a roofline plot. — Ilic, Pratas & Sousa, IEEE CAL 2013; Williams, Waterman & Patterson, CACM 2009 (base Roofline)
-- [ ] Mansard Roofline extension: split each cache-level roof into a read roof and a write roof for more accurate mixed-access characterization. — Marques, Ilic & Sousa, ACM TOMPECS 2021
+- [ ] Cache-Aware Roofline Model (CARM) output: compute per-cache-level bandwidth and arithmetic-intensity ceilings from
+  simulation statistics and render a roofline plot. — Ilic, Pratas & Sousa, IEEE CAL 2013; Williams, Waterman &
+  Patterson, CACM 2009 (base Roofline)
+- [ ] Mansard Roofline extension: split each cache-level roof into a read roof and a write roof for more accurate
+  mixed-access characterization. — Marques, Ilic & Sousa, ACM TOMPECS 2021
 
 ## Performance
 
@@ -88,7 +98,8 @@
 - [ ] Memoization of instructions, results, and branches.
 - [ ] O(1) executor dispatch (jump table or virtual dispatch on op kind).
 - [ ] Structural stage-model rework for in-order trains: struct latches, fewer interface hops.
-- [ ] Value prediction: predict ALU/load results to break dependence chains; commit only if prediction correct. — Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, MICRO 2014 (VTAGE/EOLE)
+- [ ] Value prediction: predict ALU/load results to break dependence chains; commit only if prediction correct. —
+  Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, MICRO 2014 (VTAGE/EOLE)
 
 ### Parallelism
 
@@ -124,17 +135,22 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [x] Memory order violation detection and squash.
 - [x] Separate load queue and store queue for speculative memory disambiguation.
 - [x] Streaming Engine for UVE wired into OooeTrain.
-- [ ] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary stalls. — Chrysos & Emer, ISCA 1998
-- [ ] Register renaming: explicit rename stage with a register alias table (RAT) and free list, replacing implicit PRF indexing.
-- [ ] True oracle branch predictor: two-pass simulation (pre-run to collect outcomes, replay with perfect prediction) for IPC upper-bound measurement.
+- [ ] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary
+  stalls. — Chrysos & Emer, ISCA 1998
+- [ ] Register renaming: explicit rename stage with a register alias table (RAT) and free list, replacing implicit PRF
+  indexing.
+- [ ] True oracle branch predictor: two-pass simulation (pre-run to collect outcomes, replay with perfect prediction)
+  for IPC upper-bound measurement.
 
 ### µops
 
-- [ ] µop cache (decoded instruction cache / loop buffer): cache decoded µop bundles so the front-end skips re-decode on repeated loops.
+- [ ] µop cache (decoded instruction cache / loop buffer): cache decoded µop bundles so the front-end skips re-decode on
+  repeated loops.
 - [ ] Macro-fusion: fuse compare+branch pairs into a single issue-slot µop (as in Intel Sandy Bridge onward).
 - [ ] Micro-fusion: fuse load+ALU or store-address+store-data into a single dispatch slot.
 - [ ] Loop stream detector: detect short loops and replay µops from a small buffer, bypassing fetch and decode.
-- [ ] µop decomposition for complex instructions: atomics, vector ops, and CSR accesses emit multi-µop sequences through the Tooth interface.
+- [ ] µop decomposition for complex instructions: atomics, vector ops, and CSR accesses emit multi-µop sequences through
+  the Tooth interface.
 
 ### Branch Prediction
 
@@ -154,7 +170,8 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 
 ## GPU
 
-- [ ] SIMT execution model: warp scheduling, thread divergence, and stack-based reconvergence (PDOM). — Fung et al., MICRO 2007
+- [ ] SIMT execution model: warp scheduling, thread divergence, and stack-based reconvergence (PDOM). — Fung et al.,
+  MICRO 2007
 - [ ] Warp occupancy and resource partitioning: warps, registers, and shared memory per streaming multiprocessor.
 - [ ] GPU register file banking: per-warp interleaved allocation to hide RAW latency via warp switching.
 - [ ] GPU memory hierarchy: per-SM L1 / shared memory scratchpad, unified L2, global memory.
@@ -164,8 +181,10 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [ ] GPGPU-Sim integration for co-simulation and workload comparison. — Bakhoda et al., ISPASS 2009
 - [ ] Accel-Sim: trace-driven GPU microarchitecture simulation framework. — Khairy et al., ISCA 2020
 - [ ] MGPUSim: multi-GPU simulation (AMD GCN architecture). — Sun et al., ISCA 2019
-- [ ] GPU performance model from PTX: static LSTM-based prediction of execution time, power, and energy under DVFS from PTX instruction sequences; see gpuPTXModel (INESC-ID). https://github.com/hpc-ulisboa/gpuPTXModel
-- [ ] GPU power modeling: data-driven power model for GPU kernels; see gpupowermodel (INESC-ID). https://github.com/hpc-ulisboa/gpupowermodel
+- [ ] GPU performance model from PTX: static LSTM-based prediction of execution time, power, and energy under DVFS from
+  PTX instruction sequences; see gpuPTXModel (INESC-ID). https://github.com/hpc-ulisboa/gpuPTXModel
+- [ ] GPU power modeling: data-driven power model for GPU kernels; see gpupowermodel (
+  INESC-ID). https://github.com/hpc-ulisboa/gpupowermodel
 
 ## Co-simulation
 
@@ -173,15 +192,20 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [ ] Watchdog on `ReadLine` to fail cleanly on over-run instead of hanging.
 - [ ] CI workflow with `HOROLOGIUM_REQUIRE_COSIM=1`.
 - [ ] gem5 timing co-simulation.
-- [ ] QEMU lock-step co-simulation: use QEMU as a fast functional oracle for full-system workloads, hand off to Horologium for timing.
-- [ ] dromajo co-simulation: WD's RISC-V checkpoint-based reference model; supports importing architectural state mid-program.
+- [ ] QEMU lock-step co-simulation: use QEMU as a fast functional oracle for full-system workloads, hand off to
+  Horologium for timing.
+- [ ] dromajo co-simulation: WD's RISC-V checkpoint-based reference model; supports importing architectural state
+  mid-program.
 - [ ] whisper co-simulation: Intel's RISC-V ISS with fine-grained CSR and trap comparison hooks.
 - [ ] SAIL RISC-V integration: use the formal ISA model as the instruction-semantics oracle instead of Spike.
 - [ ] riscv-formal: SymbiYosys-based bounded model checking of ISA-compliance properties against the decoder/executor.
 - [ ] FireSim: FPGA-accelerated cycle-exact simulation for large-scale multicore validation against RTL.
 - [ ] Snipersim co-comparison: interval-simulation IPC model as a lightweight cross-check. — Carlson et al., ISCA 2011
-- [ ] UVE-patched Spike co-simulation: use the INESC-ID/HPCAS Spike fork (Baptista MSc 2023) as a functional oracle for UVE streaming instructions, the same way scalar Spike is used today. https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
-- [ ] UVE gem5 model cross-check: compare Horologium's UVE timing (issue latency, stream-engine fill cycles) against the gem5 UVE branch from hpc-ulisboa. https://github.com/hpc-ulisboa/UVE
+- [ ] UVE-patched Spike co-simulation: use the INESC-ID/HPCAS Spike fork (Baptista MSc 2023) as a functional oracle for
+  UVE streaming instructions, the same way scalar Spike is used
+  today. https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
+- [ ] UVE gem5 model cross-check: compare Horologium's UVE timing (issue latency, stream-engine fill cycles) against the
+  gem5 UVE branch from hpc-ulisboa. https://github.com/hpc-ulisboa/UVE
 
 ## Multicore
 
@@ -195,18 +219,26 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [x] `MultiHartPipeline`: ISA-agnostic coordinator for N `ISteppableTrain` instances.
 - [x] `SmtTrain`: barrel-processor SMT with N per-hart contexts sharing an issue window.
 - [x] `RunConcurrent`: two-phase parallel tick with `DeferredBus` for well-synchronized programs.
-- [ ] AMBA CHI (Coherent Hub Interface): point-to-point request/response/snoop channels as an alternative to the snooping bus; needed for large core counts where broadcast is impractical.
+- [ ] AMBA CHI (Coherent Hub Interface): point-to-point request/response/snoop channels as an alternative to the
+  snooping bus; needed for large core counts where broadcast is impractical.
 - [ ] NUMA topology: model non-uniform memory access latency across banks or NUMA nodes.
-- [ ] Memory-side cache (HBM-style): a large, flat last-level cache sitting between the coherence fabric and off-chip DRAM.
-- [ ] Network-on-chip (NoC) model: mesh or torus with wormhole routing and virtual channels, replacing the broadcast bus. — BookSim2 (Jiang et al., ISPASS 2013); Garnet (gem5)
-- [ ] Persistent memory (CXL / PMDK): model CXL.mem-attached byte-addressable storage with ordering and persistence semantics.
-- [ ] Near-Data Processing (NDP): attach compute units at the cache or DRAM level and model their interaction with the coherence fabric; see NDPmulator (INESC-ID, gem5-based) as a reference design. https://github.com/hpc-ulisboa/NDPmulator
+- [ ] Memory-side cache (HBM-style): a large, flat last-level cache sitting between the coherence fabric and off-chip
+  DRAM.
+- [ ] Network-on-chip (NoC) model: mesh or torus with wormhole routing and virtual channels, replacing the broadcast
+  bus. — BookSim2 (Jiang et al., ISPASS 2013); Garnet (gem5)
+- [ ] Persistent memory (CXL / PMDK): model CXL.mem-attached byte-addressable storage with ordering and persistence
+  semantics.
+- [ ] Near-Data Processing (NDP): attach compute units at the cache or DRAM level and model their interaction with the
+  coherence fabric; see NDPmulator (INESC-ID, gem5-based) as a reference
+  design. https://github.com/hpc-ulisboa/NDPmulator
 
 ## Orrery
 
 - [ ] Generic definition for a parser.
-- [ ] Clock domain crossing: model multiple frequency domains (e.g., core at 3 GHz, uncore/LLC at 1.5 GHz) with synchronization FIFOs.
-- [ ] Interrupt controller model (PLIC/APLIC): route external and inter-processor interrupts to the correct hart and privilege level.
+- [ ] Clock domain crossing: model multiple frequency domains (e.g., core at 3 GHz, uncore/LLC at 1.5 GHz) with
+  synchronization FIFOs.
+- [ ] Interrupt controller model (PLIC/APLIC): route external and inter-processor interrupts to the correct hart and
+  privilege level.
 
 ## Tools
 
@@ -214,55 +246,93 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 
 ### Simulators and trace frameworks
 
-- **ChampSim** — trace-based µarch simulator; the baseline infrastructure for CBP and CRC (cache replacement) competitions. Useful for validating Horologium's branch predictor and cache replacement implementations against competition submissions. https://github.com/ChampSim/ChampSim
-- **Snipersim** — interval-simulation model driven by a Pin front-end; fast parallel simulation for many-core studies. https://snipersim.org
-- **ZSim** — fast x86 simulation with interval timing and detailed cache/coherence models. — Sanchez & Kozyrakis, ISCA 2013. https://github.com/s5z/zsim
-- **DynamoRIO** / **Intel PIN** — dynamic binary instrumentation for generating instruction and memory access traces that feed Horologium's replay path.
-- **Simpoint** — program phase analysis: generates representative samples via BBV clustering to avoid full-program simulation. https://cseweb.ucsd.edu/~calder/simpoint/
-- **gem5-SST bridge** — couple gem5's detailed memory model to SST's network/system simulation for heterogeneous platform studies.
+- **ChampSim** — trace-based µarch simulator; the baseline infrastructure for CBP and CRC (cache replacement)
+  competitions. Useful for validating Horologium's branch predictor and cache replacement implementations against
+  competition submissions. https://github.com/ChampSim/ChampSim
+- **Snipersim** — interval-simulation model driven by a Pin front-end; fast parallel simulation for many-core
+  studies. https://snipersim.org
+- **ZSim** — fast x86 simulation with interval timing and detailed cache/coherence models. — Sanchez & Kozyrakis, ISCA
+  2013. https://github.com/s5z/zsim
+- **DynamoRIO** / **Intel PIN** — dynamic binary instrumentation for generating instruction and memory access traces
+  that feed Horologium's replay path.
+- **Simpoint** — program phase analysis: generates representative samples via BBV clustering to avoid full-program
+  simulation. https://cseweb.ucsd.edu/~calder/simpoint/
+- **gem5-SST bridge** — couple gem5's detailed memory model to SST's network/system simulation for heterogeneous
+  platform studies.
 
 ### Memory and DRAM
 
-- **Ramulator2** — flexible, validated DRAM timing model (DDR4/5, LPDDR5, HBM2/3); drop-in backend behind `IMemory`. https://github.com/CMU-SAFARI/ramulator2
+- **Ramulator2** — flexible, validated DRAM timing model (DDR4/5, LPDDR5, HBM2/3); drop-in backend behind
+  `IMemory`. https://github.com/CMU-SAFARI/ramulator2
 - **DRAMSim3** — cycle-accurate DRAM timing with bandwidth and power traces. https://github.com/umd-memsys/DRAMsim3
 - **NVMain2** — NVM timing model for PCM, ReRAM, 3D XPoint; useful for persistent memory studies.
 - **CACTI** — cache area, access time, and power estimation given capacity, associativity, and technology node.
 
 ### Power and energy
 
-- **McPAT** — processor power, area, and timing estimation from architectural event counts; consumes gem5-format statistics. https://github.com/HewlettPackard/mcpat
-- **CARM Tool** (CHAMP Hub / INESC-ID) — cross-platform Cache-Aware Roofline Model benchmarking suite; measures peak FLOP/s and per-level bandwidth ceilings on real Intel/AMD/ARM/RISC-V hardware, providing the empirical baseline against which Horologium's roofline output can be validated. Supports RVV. https://champ-hub.github.io/projects/The_CARM_Tool/
+- **McPAT** — processor power, area, and timing estimation from architectural event counts; consumes gem5-format
+  statistics. https://github.com/HewlettPackard/mcpat
+- **CARM Tool** (CHAMP Hub / INESC-ID) — cross-platform Cache-Aware Roofline Model benchmarking suite; measures peak
+  FLOP/s and per-level bandwidth ceilings on real Intel/AMD/ARM/RISC-V hardware, providing the empirical baseline
+  against which Horologium's roofline output can be validated. Supports
+  RVV. https://champ-hub.github.io/projects/The_CARM_Tool/
 
 ### INESC-ID / HPCAS
 
-- **UVE gem5 model** — gem5 branch with full UVE streaming-engine implementation; primary timing reference for Horologium's UVE execution model. https://github.com/hpc-ulisboa/UVE
-- **UVE2 spec** — C reference implementation of the UVE 2 extension (predicates, scatter/gather, widening/narrowing); the authoritative source for the UVE 2 TODO item. https://github.com/hpc-ulisboa/UVE2
-- **Spike UVE patch** — INESC-ID's Spike fork adding UVE decode and functional execution; the co-simulation oracle for UVE instructions (Baptista MSc 2023). https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
-- **RISC-V-PAPI** — PAPI hardware-counter backend for RISC-V; use to cross-validate Horologium's Zicntr/Zihpm dial values against measurements on real cores (CVA6, SiFive). https://github.com/hpc-ulisboa/RISC-V-PAPI
-- **NDPmulator** — gem5-based Near-Data Processing simulation framework; reference design for NDP compute units attached at cache or DRAM level. https://github.com/hpc-ulisboa/NDPmulator
-- **MIDAS** — CGRA mapping infrastructure: takes C kernels, emits dataflow graphs and PE schedules for synchronous streaming arrays; relevant for understanding how UVE streams map to hardware. https://github.com/hpc-ulisboa/MIDAS
-- **carm-paraver** — overlays CARM roofline plots on Paraver execution traces (BSC's trace analysis format), enabling per-timestep performance/bandwidth visualization. https://github.com/champ-hub/carm-paraver
-- **gpuPTXModel** — LSTM-based static GPU performance model from PTX instruction sequences; predicts execution time, power, and energy under DVFS. https://github.com/hpc-ulisboa/gpuPTXModel
-- **gpupowermodel** — data-driven GPU power model for kernel-level energy characterization. https://github.com/hpc-ulisboa/gpupowermodel
+- **UVE gem5 model** — gem5 branch with full UVE streaming-engine implementation; primary timing reference for
+  Horologium's UVE execution model. https://github.com/hpc-ulisboa/UVE
+- **UVE2 spec** — C reference implementation of the UVE 2 extension (predicates, scatter/gather, widening/narrowing);
+  the authoritative source for the UVE 2 TODO item. https://github.com/hpc-ulisboa/UVE2
+- **Spike UVE patch** — INESC-ID's Spike fork adding UVE decode and functional execution; the co-simulation oracle for
+  UVE instructions (Baptista MSc 2023). https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
+- **RISC-V-PAPI** — PAPI hardware-counter backend for RISC-V; use to cross-validate Horologium's Zicntr/Zihpm dial
+  values against measurements on real cores (CVA6, SiFive). https://github.com/hpc-ulisboa/RISC-V-PAPI
+- **NDPmulator** — gem5-based Near-Data Processing simulation framework; reference design for NDP compute units attached
+  at cache or DRAM level. https://github.com/hpc-ulisboa/NDPmulator
+- **MIDAS** — CGRA mapping infrastructure: takes C kernels, emits dataflow graphs and PE schedules for synchronous
+  streaming arrays; relevant for understanding how UVE streams map to hardware. https://github.com/hpc-ulisboa/MIDAS
+- **carm-paraver** — overlays CARM roofline plots on Paraver execution traces (BSC's trace analysis format), enabling
+  per-timestep performance/bandwidth visualization. https://github.com/champ-hub/carm-paraver
+- **gpuPTXModel** — LSTM-based static GPU performance model from PTX instruction sequences; predicts execution time,
+  power, and energy under DVFS. https://github.com/hpc-ulisboa/gpuPTXModel
+- **gpupowermodel** — data-driven GPU power model for kernel-level energy
+  characterization. https://github.com/hpc-ulisboa/gpupowermodel
 
 ### Formal and RTL verification
 
-- **SAIL RISC-V** — the authoritative formal ISA model; generates test vectors and can serve as an instruction-semantics oracle. https://github.com/riscv/sail-riscv
-- **riscv-formal** — SymbiYosys-based bounded model checking for ISA compliance properties against a decoder/executor; useful for formal correctness proofs. https://github.com/SymbioticEDA/riscv-formal
-- **Verilator** — RTL→C++ cycle-accurate simulation; enables co-simulation against synthesizable RISC-V core RTL (e.g., CVA6, BOOM, Ibex).
+- **SAIL RISC-V** — the authoritative formal ISA model; generates test vectors and can serve as an instruction-semantics
+  oracle. https://github.com/riscv/sail-riscv
+- **riscv-formal** — SymbiYosys-based bounded model checking for ISA compliance properties against a decoder/executor;
+  useful for formal correctness proofs. https://github.com/SymbioticEDA/riscv-formal
+- **Verilator** — RTL→C++ cycle-accurate simulation; enables co-simulation against synthesizable RISC-V core RTL (e.g.,
+  CVA6, BOOM, Ibex).
 
 ## Other ISAs
 
-| status | Architecture     | Paradigm to test                       | Difficulty   |
-|--------|------------------|----------------------------------------|--------------|
-| - [x]  | ~~SUBLEQ~~       | OISC, no opcode field                  | 1 (Trivial)  |
-| 2      | ~~PDP-8~~        | Accumulator, 12b, minimal opcodes      | 2 (Easy)     |
-| 3        | ~~J1 Forth~~     | Stack machine, packed opcodes          | 2 (Easy)     |
-| 4        | ~~TTA/MOVE~~     | Triggered side-effect execution        | 3 (Medium)   |
-| 5        | ~~GA144 F18A~~   | Async, multi-core, packed 5-op words   | 3 (Medium)   |
-| 6        | MIL-STD-1750A    | Committee designed, spec driven        | 3 (Medium)   |
-| 7        | Burroughs B5000  | Tagged stack-machine, segmented memory | 4 (Hard)     |
-| 8        | Symbolica/CADR   | Full tagged LISP machine               | 4 (Hard)     |
-| 9        | IA-64/Itanium    | VLIW with templates and predication    | 4 (Hard)     |
-| 10       | Mill Belt        | Belt-machine, no register file         | 5 (Research) |
-| 11       | TRIPS/WaveScalar | True dataflow, no PC                   | 5 (Research) |
+| Architecture       | Paradigm to test                                                                       | Level |
+|--------------------|----------------------------------------------------------------------------------------|-------|
+| ~~SUBLEQ~~         | OISC, no opcode field                                                                  | 1     |
+| ~~PDP-8~~          | Accumulator, 12b, minimal opcodes                                                      | 2     |
+| ~~J1 Forth~~       | Stack machine, packed opcodes                                                          | 2     |
+| LGP-30             | Drum memory, bit-serial arithmetic, rotational latency scheduling                      | 2     |
+| ~~TTA/MOVE~~       | Triggered side-effect execution                                                        | 3     |
+| ~~GA144 F18A~~     | Async, multi-core, packed 5-op words                                                   | 3     |
+| MIL-STD-1750A      | Committee designed, spec driven                                                        | 3     |
+| IBM 650            | Instructions contain their successor's drum address (optimum programming)              | 3     |
+| IBM 1401           | Variable-length decimal fields delimited by word marks, character-addressable          | 3     |
+| EE KDF9            | Dual hardware stacks ("nesting stores"), zero-address arithmetic                       | 3     |
+| Setun              | Balanced ternary (trits: -1, 0, +1), no binary anywhere                                | 3     |
+| Parallax Propeller | 8 symmetric cogs, deterministic hub-cycle slots, no interrupts, wait-based I/O         | 3     |
+| HP Saturn          | 4-bit bus, 64-bit registers addressed by nibble fields, BCD-centric                    | 3     |
+| Burroughs B5000    | Tagged stack-machine, segmented memory                                                 | 4     |
+| Symbolica/CADR     | Full tagged LISP machine                                                               | 4     |
+| IA-64/Itanium      | VLIW with templates and predication                                                    | 4     |
+| CDC 6600           | 60-bit ones' complement (two zeros!), scoreboard, plus 10 barrel-threaded PPUs         | 4     |
+| Transputer T800    | CSP channels in hardware, on-chip process scheduler, workspace-relative addressing     | 4     |
+| Tera MTA           | 128-way barrel multithreading, full/empty bits on every memory word, no cache          | 4     |
+| Mill Belt          | Belt-machine, no register file                                                         | 5     |
+| TRIPS/WaveScalar   | True dataflow, no PC                                                                   | 5     |
+| Intel iAPX 432     | Bit-aligned variable-length instructions (6–321 bits), capability objects, hardware GC | 5     |
+| Burroughs B1700    | Bit-addressable memory, reconfigurable microarchitecture                               | 5     |
+| Pendulum (PISA)    | Fully reversible ISA — every instruction must be invertible, no destructive writes     | 4     |
+| Rekursiv           | Object-oriented down to the microcode, persistent objects instead of memory            | 5     |
