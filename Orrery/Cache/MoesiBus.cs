@@ -77,6 +77,22 @@ public sealed class MoesiBus : IBus {
     }
 
     /// <summary>
+    /// Read-for-ownership (write miss): all peers invalidate; an M/O/E holder forwards
+    /// the block into <paramref name="dest"/> instead of writing back to backing. At most
+    /// one such peer exists per line. Returns true if <paramref name="dest"/> was filled.
+    /// </summary>
+    public bool BusReadForOwnership(MoesiCache requester, ulong lineBase, Span<byte> dest) {
+        var supplied = false;
+        foreach (MoesiCache c in _caches) {
+            if (ReferenceEquals(c, requester)) continue;
+            supplied |= c.SnoopInvalidateForward(lineBase, dest);
+        }
+
+        _table?.InvalidateAt(lineBase, _blockSize);
+        return supplied;
+    }
+
+    /// <summary>
     /// Invalidates the given line in ALL registered caches, including the caller's.
     /// Used when data is written directly to backing memory via <see cref="IMemory.Load"/>,
     /// bypassing the coherence path.

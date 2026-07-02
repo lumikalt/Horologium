@@ -126,6 +126,34 @@ public class DirectoryBusTests {
     }
 
     [Fact]
+    public void WriteMiss_OwnedLine_OwnerForwards_SharersInvalidated() {
+        // RFO through the directory: the O owner forwards the block (no writeback),
+        // S sharers are invalidated, and the entry resets to Exclusive(requester).
+        (DirectoryBus bus, FlatMemory backing) = MakeDirBus();
+        MoesiCache c0 = StdCache(bus);
+        MoesiCache c1 = StdCache(bus);
+        MoesiCache c2 = StdCache(bus);
+
+        c0.Write(0x04, 0xABCD, 4); // c0: M
+        _ = c1.Read(0x00, 4);      // c0: O; dir: Owned(c0, {c1})
+        c2.Write(0x00, 0xEEEE, 4); // write miss: c0 forwards+I, c1 invalidated
+
+        Assert.Equal(MoesiState.Invalid, c0.StateOf(0x00));
+        Assert.Equal(MoesiState.Invalid, c1.StateOf(0x00));
+        Assert.Equal(MoesiState.Modified, c2.StateOf(0x00));
+        Assert.Equal(0, c0.Writebacks);
+        Assert.Equal(1, c2.PeerSupplies);
+        Assert.Equal(0UL, backing.Read(0x04, 4)); // never written back...
+        Assert.Equal(0xABCDUL, c2.Read(0x04, 4)); // ...travelled with the forward
+        Assert.Equal(0xEEEEUL, c2.Read(0x00, 4));
+
+        // Directory reset: a later read must contact c2, the sole new owner.
+        ulong v = c0.Read(0x04, 4);
+        Assert.Equal(0xABCDUL, v);
+        Assert.Equal(1, c0.PeerSupplies); // supplied by c2 (M→O)
+    }
+
+    [Fact]
     public void OwnedOwner_Evicts_SharersRemain_NextReadFillsFromBacking() {
         // Owner eviction writes back, so backing is clean; the directory collapses the
         // entry to its S sharers and a later reader joins them without any probe.

@@ -18,7 +18,10 @@ namespace Orrery.Cache;
 /// </para>
 /// <para>
 /// Bit-identical to sequential <see cref="MultiHartPipeline.Run"/> for well-synchronized
-/// programs (no same-tick cross-hart write-then-read on the same cache line).
+/// programs (no same-tick cross-hart write-then-read on the same cache line), provided
+/// <see cref="MoesiCache.PeerSupplyLatency"/> equals <see cref="MoesiCache.MissLatency"/>
+/// (the default) — phase-1 misses always charge the full miss latency because
+/// cache-to-cache supply is only discovered during the phase-2 replay.
 /// </para>
 /// </summary>
 public sealed class DeferredBus : IBus {
@@ -51,6 +54,15 @@ public sealed class DeferredBus : IBus {
 
     public void BusReadInvalidate(MoesiCache requester, ulong lineBase) =>
         _queue.Add(new BusOp(BusOpKind.ReadInvalidate, requester, lineBase));
+
+    /// <summary>Queues an RFO snoop. Returns false (no forwarding in phase 1 — the
+    /// requester fills from backing, authoritative at tick start); phase 2 replays the
+    /// invalidation and discards the forwarded block, since the requester's phase-1
+    /// write already made its Modified copy authoritative.</summary>
+    public bool BusReadForOwnership(MoesiCache requester, ulong lineBase, Span<byte> dest) {
+        _queue.Add(new BusOp(BusOpKind.ReadForOwnership, requester, lineBase));
+        return false;
+    }
 
     public void BusSilentUpgrade(ulong lineBase) =>
         _queue.Add(new BusOp(BusOpKind.SilentUpgrade, null, lineBase));
@@ -85,10 +97,15 @@ public sealed class DeferredBus : IBus {
                         op.Requester!.RefillFromBacking(op.LineBase);
                     break;
                 case BusOpKind.ReadInvalidate: _real.BusReadInvalidate(op.Requester!, op.LineBase); break;
-                case BusOpKind.SilentUpgrade:  _real.BusSilentUpgrade(op.LineBase); break;
-                case BusOpKind.Load:           _real.BusLoad(op.LineBase); break;
-                case BusOpKind.Writeback:      _real.Writeback(op.LineBase, op.Block!); break;
-                case BusOpKind.SyncToBacking:  _real.BusSyncToBacking(op.LineBase); break;
+                case BusOpKind.ReadForOwnership:
+                    int rfoBytes = op.Requester!.BlockBytes;
+                    if (_scratch.Length < rfoBytes) _scratch = new byte[rfoBytes];
+                    _real.BusReadForOwnership(op.Requester!, op.LineBase, _scratch.AsSpan(0, rfoBytes));
+                    break;
+                case BusOpKind.SilentUpgrade: _real.BusSilentUpgrade(op.LineBase); break;
+                case BusOpKind.Load:          _real.BusLoad(op.LineBase); break;
+                case BusOpKind.Writeback:     _real.Writeback(op.LineBase, op.Block!); break;
+                case BusOpKind.SyncToBacking: _real.BusSyncToBacking(op.LineBase); break;
             }
 
         // Write all dirty (M/O) lines directly to backing so the next tick's phase-1
@@ -104,6 +121,7 @@ public sealed class DeferredBus : IBus {
     private enum BusOpKind {
         Read,
         ReadInvalidate,
+        ReadForOwnership,
         SilentUpgrade,
         Load,
         Writeback,

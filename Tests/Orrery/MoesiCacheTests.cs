@@ -598,4 +598,115 @@ public class MoesiCacheTests {
         _ = c1.Read(0x00, 4); // supplied cache-to-cache by c0
         Assert.Equal(3, c1.ConsumePendingStalls());
     }
+
+    // ── Read-for-ownership: cache-to-cache supply on write misses ────────────
+
+    [Fact]
+    public void WriteMiss_ModifiedPeer_ForwardsBlock_NoWriteback() {
+        (MoesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MoesiCacheTests.Block]);
+        MoesiCache c0 = MakeCache(bus);
+        MoesiCache c1 = MakeCache(bus);
+
+        c0.Write(0x00, 0x1111, 4); // c0: M
+        c0.Write(0x04, 0x2222, 4); // second word in the same M line
+        c1.Write(0x00, 0x3333, 4); // write miss: c0 forwards the block and invalidates
+
+        Assert.Equal(MoesiState.Invalid, c0.StateOf(0x00));
+        Assert.Equal(MoesiState.Modified, c1.StateOf(0x00));
+        Assert.Equal(0, c0.Writebacks); // forwarded, not written back
+        Assert.Equal(1, c1.PeerSupplies);
+        Assert.Equal(0UL, backing.Read(0x04, 4)); // backing never saw c0's data...
+        Assert.Equal(0x2222UL, c1.Read(0x04, 4)); // ...but c1's line carries it
+        Assert.Equal(0x3333UL, c1.Read(0x00, 4));
+    }
+
+    [Fact]
+    public void WriteMiss_OwnedPeerWithSharer_OwnerForwards_SharerInvalidated() {
+        (MoesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MoesiCacheTests.Block]);
+        MoesiCache c0 = MakeCache(bus);
+        MoesiCache c1 = MakeCache(bus);
+        MoesiCache c2 = MakeCache(bus);
+
+        c0.Write(0x04, 0xAAAA, 4); // c0: M
+        _ = c1.Read(0x00, 4);      // c0: O, c1: S
+        c2.Write(0x00, 0xCCCC, 4); // write miss: c0 (O) forwards+I, c1 (S) invalidated
+
+        Assert.Equal(MoesiState.Invalid, c0.StateOf(0x00));
+        Assert.Equal(MoesiState.Invalid, c1.StateOf(0x00));
+        Assert.Equal(MoesiState.Modified, c2.StateOf(0x00));
+        Assert.Equal(0, c0.Writebacks);
+        Assert.Equal(1, c2.PeerSupplies);
+        Assert.Equal(0xAAAAUL, c2.Read(0x04, 4)); // the O owner's dirty word travelled with the forward
+    }
+
+    [Fact]
+    public void WriteMiss_ExclusivePeer_ForwardsClean() {
+        (MoesiBus bus, FlatMemory backing) = MakeBus();
+        var payload = new byte[MoesiCacheTests.Block];
+        payload[8] = 0x5A;
+        backing.Load(0x00, payload);
+        MoesiCache c0 = MakeCache(bus);
+        MoesiCache c1 = MakeCache(bus);
+
+        _ = c0.Read(0x00, 4);      // c0: E
+        c1.Write(0x00, 0x7777, 4); // write miss: c0 forwards clean block, → I
+
+        Assert.Equal(MoesiState.Invalid, c0.StateOf(0x00));
+        Assert.Equal(MoesiState.Modified, c1.StateOf(0x00));
+        Assert.Equal(1, c1.PeerSupplies);
+        Assert.Equal(0x5AUL, c1.Read(0x08, 1)); // untouched byte came through the forward
+    }
+
+    [Fact]
+    public void WriteMiss_SharedPeersOnly_FillsFromBacking() {
+        (MoesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MoesiCacheTests.Block]);
+        MoesiCache c0 = MakeCache(bus);
+        MoesiCache c1 = MakeCache(bus);
+        MoesiCache c2 = MakeCache(bus);
+
+        _ = c0.Read(0x00, 4);      // c0: E
+        _ = c1.Read(0x00, 4);      // c0: S, c1: S — memory clean, no owner
+        c2.Write(0x00, 0x9999, 4); // write miss: S holders don't forward
+
+        Assert.Equal(MoesiState.Invalid, c0.StateOf(0x00));
+        Assert.Equal(MoesiState.Invalid, c1.StateOf(0x00));
+        Assert.Equal(MoesiState.Modified, c2.StateOf(0x00));
+        Assert.Equal(0, c2.PeerSupplies); // filled from (clean) backing
+    }
+
+    [Fact]
+    public void WriteMissForward_ChargesPeerSupplyLatency() {
+        (MoesiBus bus, FlatMemory backing) = MakeBus();
+        backing.Load(0x00, new byte[MoesiCacheTests.Block]);
+        var c0 = new MoesiCache(bus, MoesiCacheTests.Capacity, MoesiCacheTests.Ways, MoesiCacheTests.Block, 10, 3);
+        var c1 = new MoesiCache(bus, MoesiCacheTests.Capacity, MoesiCacheTests.Ways, MoesiCacheTests.Block, 10, 3);
+
+        c0.Write(0x00, 1, 4); // miss, no supplier → full miss latency
+        Assert.Equal(10, c0.ConsumePendingStalls());
+
+        c1.Write(0x00, 2, 4); // miss, forwarded by c0 → peer-supply latency
+        Assert.Equal(3, c1.ConsumePendingStalls());
+    }
+
+    [Fact]
+    public void WriteMissForward_CancelsReservation() {
+        // The RFO transaction must cancel LR/SC reservations just like BusReadInvalidate.
+        var backing = new FlatMemory(0x1000);
+        var table = new ReservationTable();
+        var bus = new MoesiBus(backing, table);
+        MoesiCache cache0 = MakeCache(bus);
+        MoesiCache cache1 = MakeCache(bus);
+
+        _ = cache0.Read(0x00, 4); // cache0: E (will forward on the RFO)
+        table.Set(0, 0x00);       // hart 0 reserves within the line
+        Assert.Equal(1, table.ActiveCount);
+
+        cache1.Write(0x00, 42, 4); // write miss → BusReadForOwnership
+
+        Assert.Equal(1, cache1.PeerSupplies);
+        Assert.Equal(0, table.ActiveCount); // reservation cancelled by the RFO
+    }
 }

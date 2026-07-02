@@ -31,11 +31,23 @@ public interface IBus {
     void BusSyncToBacking(ulong lineBase);
 
     /// <summary>
-    /// Snoops all caches except <paramref name="requester"/> for a write (upgrade to M).
-    /// Dirty (M/O) holders write back; all holders transition to I.
-    /// Also cancels any LR/SC reservation whose granule falls within the line.
+    /// Snoops all caches except <paramref name="requester"/> for an S/O→M upgrade or a
+    /// block-boundary-crossing write. Dirty (M/O) holders write back; all holders
+    /// transition to I. Also cancels any LR/SC reservation whose granule falls within
+    /// the line. For write misses use <see cref="BusReadForOwnership"/> instead.
     /// </summary>
     void BusReadInvalidate(MoesiCache requester, ulong lineBase);
+
+    /// <summary>
+    /// Read-for-ownership (write miss): snoops all caches except <paramref name="requester"/>.
+    /// All holders transition to I; an M/O/E holder forwards the block into
+    /// <paramref name="dest"/> instead of writing back — the requester installs the line
+    /// as Modified, so its copy becomes authoritative. Also cancels any LR/SC reservation
+    /// on the line. Returns true if <paramref name="dest"/> was filled; false means no
+    /// holder could supply and the requester must fill from backing (which is then
+    /// guaranteed current for this line, since stale backing implies an M/O holder).
+    /// </summary>
+    bool BusReadForOwnership(MoesiCache requester, ulong lineBase, Span<byte> dest);
 
     /// <summary>
     /// Called when a cache silently upgrades an Exclusive line to Modified without

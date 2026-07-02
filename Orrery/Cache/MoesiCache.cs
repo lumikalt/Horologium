@@ -40,7 +40,8 @@ public sealed class MoesiCache : IMemory {
     public long Evictions { get; private set; }
     public long Writebacks { get; private set; }
 
-    /// <summary>Read misses that were filled cache-to-cache by a peer (MOESI supply).</summary>
+    /// <summary>Read and write misses that were filled cache-to-cache by a peer
+    /// (MOESI supply on reads, read-for-ownership forwarding on writes).</summary>
     public long PeerSupplies { get; private set; }
 
     public int Sets => _tags.Length;
@@ -235,6 +236,24 @@ public sealed class MoesiCache : IMemory {
     }
 
     /// <summary>
+    /// Another cache wants exclusive access and will install the line as Modified
+    /// (read-for-ownership). M/O/E holders forward the block into <paramref name="dest"/>
+    /// and invalidate <em>without</em> writing back — the requester's M copy becomes
+    /// authoritative. S holders just invalidate (memory or the owner supplies).
+    /// Returns true if <paramref name="dest"/> was filled.
+    /// </summary>
+    internal bool SnoopInvalidateForward(ulong lineBase, Span<byte> dest) {
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return false;
+        bool supply = _state[set][way] != MoesiState.Shared;
+        if (supply) _blocks[set][way].CopyTo(dest);
+        _state[set][way] = MoesiState.Invalid;
+        _tags[set][way] = null;
+        return supply;
+    }
+
+    /// <summary>
     /// Writes a dirty (M/O) line to backing without changing state. Used by
     /// <see cref="IBus.BusSyncToBacking"/> so that block-boundary-crossing accesses
     /// reading backing directly observe current data.
@@ -381,12 +400,19 @@ public sealed class MoesiCache : IMemory {
             WriteBytes(_blocks[set][way], offset, value, bytes);
         }
         else {
-            // Write-allocate: fetch line, install as M, write into it.
+            // Write-allocate: RFO — an M/O/E holder forwards the block with the
+            // invalidation; otherwise fetch from backing. Install as M, write into it.
             Misses++;
-            _pendingStalls += MissLatency;
-            _bus.BusReadInvalidate(this, lineBase);
             int victimWay = EvictWay(set);
-            FillFromBacking(set, victimWay, lineBase);
+            if (_bus.BusReadForOwnership(this, lineBase, _blocks[set][victimWay])) {
+                PeerSupplies++;
+                _pendingStalls += PeerSupplyLatency;
+            }
+            else {
+                FillFromBacking(set, victimWay, lineBase);
+                _pendingStalls += MissLatency;
+            }
+
             _tags[set][victimWay] = tag;
             _state[set][victimWay] = MoesiState.Modified;
             TouchLru(set, victimWay);

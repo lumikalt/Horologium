@@ -117,6 +117,23 @@ public sealed class DirectoryBus : IBus {
         _table?.InvalidateAt(lineBase, _blockSize);
     }
 
+    public bool BusReadForOwnership(MoesiCache requester, ulong lineBase, Span<byte> dest) {
+        var supplied = false;
+        if (_dir.TryGetValue(lineBase, out (MoesiCache? Owner, HashSet<MoesiCache>? Sharers) entry)) {
+            // Only the owner (M/O/E) can forward; plain S sharers just invalidate.
+            if (entry.Owner is { } owner && !ReferenceEquals(owner, requester))
+                supplied = owner.SnoopInvalidateForward(lineBase, dest);
+            if (entry.Sharers is { } sharers)
+                foreach (MoesiCache c in sharers)
+                    if (!ReferenceEquals(c, requester))
+                        c.SnoopInvalidate(lineBase);
+        }
+
+        _dir[lineBase] = (requester, null);
+        _table?.InvalidateAt(lineBase, _blockSize);
+        return supplied;
+    }
+
     public void BusSilentUpgrade(ulong lineBase) =>
         _table?.InvalidateAt(lineBase, _blockSize);
 

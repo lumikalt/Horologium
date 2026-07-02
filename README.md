@@ -131,10 +131,11 @@ var kernel  = new MultiHartKernel(guarded,
 
 `MoesiCache` is an N-way set-associative write-back cache that participates in a MOESI coherence protocol with cache-to-cache supply. Unlike `SetAssociativeCache` (write-through, no-write-allocate), `MoesiCache` is write-back and write-allocate: writes stay in the cache as Modified lines until eviction or a snoop, not every write goes to backing memory.
 
-`MoesiBus` coordinates snooping between all registered `MoesiCache` instances sharing a physical address space. Two bus transactions cover the full protocol:
+`MoesiBus` coordinates snooping between all registered `MoesiCache` instances sharing a physical address space. Three bus transactions cover the full protocol:
 
 - **BusRead** (read miss): a peer holding the line in M, O, or E supplies the block directly to the requester (cache-to-cache) instead of the requester filling from backing. A dirty supplier (M/O) keeps the line as **Owned** — no writeback to backing occurs; the owner retains writeback responsibility until eviction or invalidation. A clean E supplier downgrades to S. If any peer held the line the requester installs it as S; otherwise it fills from backing as E.
-- **BusReadInvalidate** (write miss or S/O→M upgrade): all peers transition to I (dirty M/O holders write back first). The requester installs the line as M.
+- **BusReadForOwnership** (write miss): all peers transition to I, and an M/O/E holder forwards the block to the requester along with the invalidation — no writeback; the requester installs the line as M, making its copy authoritative. Only if no M/O/E holder exists does the requester fill from backing (which is guaranteed current in that case).
+- **BusReadInvalidate** (S/O→M upgrade, block-boundary-crossing writes): all peers transition to I; dirty M/O holders write back first. No data transfer — the upgrading requester already holds the bytes.
 
 Silent E→M upgrade (write hit on an Exclusive line) requires no bus transaction — the cache takes M without notifying peers. While a line is Owned, backing memory is stale; every path that removes the Owned copy (eviction, snoop-invalidate, `cbo` maintenance, `Flush()`) writes it back. Accesses that straddle a block boundary read backing directly after a **BusSyncToBacking** transaction forces dirty holders — including the requesting cache itself — to write back.
 
@@ -155,7 +156,7 @@ var cache1  = new MoesiCache(bus, capacityBytes: 4096, ways: 2, blockSizeBytes: 
 
 `DirectoryBus` is a drop-in `IBus` alternative to the snooping `MoesiBus` for sequential multi-hart simulation: it keeps a precise per-line directory (owner + sharer set, maintained via eviction notifications) so invalidations snoop only actual holders and shared read misses need no probe at all. Cache-to-cache supply is directed: the directory contacts the single M/O/E owner. It cannot be wrapped by `DeferredBus` (two-phase concurrent mode), which is hardcoded to `MoesiBus`.
 
-`MoesiCache` and `MoesiBus` are ISA-agnostic (`Orrery.Cache`). Use the `MultiHartKernel(IMemory[] perHartMemory, …)` overload to give each hart its own cache. Pass the `ReservationTable` to `MoesiBus` so that LR/SC reservations are cancelled on every `BusReadInvalidate` (write miss or S→M upgrade):
+`MoesiCache` and `MoesiBus` are ISA-agnostic (`Orrery.Cache`). Use the `MultiHartKernel(IMemory[] perHartMemory, …)` overload to give each hart its own cache. Pass the `ReservationTable` to `MoesiBus` so that LR/SC reservations are cancelled on every `BusReadForOwnership` (write miss) and `BusReadInvalidate` (S/O→M upgrade):
 
 ```csharp
 var flat   = new FlatMemory(0x10000);
@@ -174,8 +175,8 @@ Instruction fetch and data access both route through the per-hart cache (unified
 
 | Path | Bus transaction | Reservation cancellation |
 |------|----------------|--------------------------|
-| Write miss (write-allocate) | `BusReadInvalidate` | `table.InvalidateAt` in `BusReadInvalidate` |
-| S→M upgrade (write hit on Shared) | `BusReadInvalidate` | same |
+| Write miss (write-allocate) | `BusReadForOwnership` | `table.InvalidateAt` in `BusReadForOwnership` |
+| S/O→M upgrade (write hit on Shared/Owned) | `BusReadInvalidate` | `table.InvalidateAt` in `BusReadInvalidate` |
 | E→M upgrade (write hit on Exclusive) | none (silent) | `table.InvalidateAt` in `BusSilentUpgrade` |
 
 ### MultiHartPipeline (Pipeline/)
