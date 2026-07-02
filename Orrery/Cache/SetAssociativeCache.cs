@@ -26,11 +26,18 @@ public sealed class SetAssociativeCache : IMemory {
 
     private long _pendingStalls;
 
+    // Realistic prefetch latency: lines installed by Prefetch() that have not yet
+    // "arrived". A demand hit on one of these pays the remaining countdown instead
+    // of zero. Empty (and never touched) when PrefetchLatency = 0.
+    private readonly List<(ulong LineBase, int Remaining)> _inFlightPrefetches = [];
+
     public int MissLatency { get; }
+    public int PrefetchLatency { get; }
     public long Hits { get; private set; }
     public long Misses { get; private set; }
     public long Evictions { get; private set; }
     public long Prefetches { get; private set; }
+    public long LatePrefetchHits { get; private set; }
     public ulong? LastAccessAddress { get; private set; }
     public bool LastAccessWasHit { get; private set; }
 
@@ -39,17 +46,23 @@ public sealed class SetAssociativeCache : IMemory {
     /// <param name="ways">Associativity. Must be a power of 2.</param>
     /// <param name="blockSizeBytes">Cache line size in bytes. Must be a power of 2.</param>
     /// <param name="missLatency">Extra cycles charged per miss.</param>
+    /// <param name="prefetchLatency">Cycles until a prefetched line is usable
+    /// (0 = instant/free, the idealized model). While in flight, a demand hit on the
+    /// line pays the remaining countdown; the caller must call <see cref="TickPrefetch"/>
+    /// once per cycle to advance the countdowns.</param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
         int ways,
         int blockSizeBytes,
-        int missLatency
+        int missLatency,
+        int prefetchLatency = 0
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(blockSizeBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(missLatency);
+        ArgumentOutOfRangeException.ThrowIfNegative(prefetchLatency);
         if (!BitOperations.IsPow2(capacityBytes) ||
             !BitOperations.IsPow2(ways) ||
             !BitOperations.IsPow2(blockSizeBytes))
@@ -60,6 +73,7 @@ public sealed class SetAssociativeCache : IMemory {
         _blockSize = blockSizeBytes;
         int sets = capacityBytes / (ways * blockSizeBytes);
         MissLatency = missLatency;
+        PrefetchLatency = prefetchLatency;
 
         _offsetBits = BitOperations.Log2((uint)blockSizeBytes);
         _indexBits = BitOperations.Log2((uint)sets);
@@ -124,7 +138,11 @@ public sealed class SetAssociativeCache : IMemory {
         ulong lineBase = address & ~(ulong)_offsetMask;
         for (var i = 0; i < _blockSize; i++) _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
         Decompose(address, out _, out ulong tag);
-        if (_tags[set][way].HasValue) Evictions++;
+        if (_tags[set][way] is { } oldTag) {
+            Evictions++;
+            DropInFlightPrefetch((oldTag << (_offsetBits + _indexBits)) | ((ulong)set << _offsetBits));
+        }
+
         _tags[set][way] = tag;
         TouchLru(set, way);
     }
@@ -153,6 +171,7 @@ public sealed class SetAssociativeCache : IMemory {
             LastAccessWasHit = true;
             Hits++;
             TouchLru(set, way);
+            ChargeInFlightPrefetch(address);
             return ReadBytes(_blocks[set][way], offset, bytes);
         }
 
@@ -175,8 +194,10 @@ public sealed class SetAssociativeCache : IMemory {
             for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
                 Decompose(a, out int s, out ulong t);
                 for (var w = 0; w < _ways; w++)
-                    if (_tags[s][w] == t)
+                    if (_tags[s][w] == t) {
                         _tags[s][w] = null;
+                        DropInFlightPrefetch(a);
+                    }
             }
 
             return;
@@ -189,6 +210,7 @@ public sealed class SetAssociativeCache : IMemory {
             LastAccessWasHit = true;
             Hits++;
             TouchLru(set, way);
+            ChargeInFlightPrefetch(address);
             WriteBytes(_blocks[set][way], offset, value, bytes);
         }
         else {
@@ -206,8 +228,10 @@ public sealed class SetAssociativeCache : IMemory {
         for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
             Decompose(a, out int set, out ulong tag);
             for (var w = 0; w < _ways; w++)
-                if (_tags[set][w] == tag)
+                if (_tags[set][w] == tag) {
                     _tags[set][w] = null;
+                    DropInFlightPrefetch(a);
+                }
         }
     }
 
@@ -215,9 +239,11 @@ public sealed class SetAssociativeCache : IMemory {
 
     /// <summary>
     /// Installs the cache line covering <paramref name="address"/> without charging any stall
-    /// penalty. No-ops if the line is already present. Used by prefetchers to warm the cache
-    /// ahead of demand accesses; callers are responsible for ensuring the address is not in
-    /// an uncacheable MMIO region.
+    /// penalty at install time. No-ops if the line is already present. Used by prefetchers to
+    /// warm the cache ahead of demand accesses; callers are responsible for ensuring the
+    /// address is not in an uncacheable MMIO region. With <see cref="PrefetchLatency"/> &gt; 0
+    /// the line is marked in flight for that many cycles; a demand hit arriving earlier pays
+    /// the remaining countdown (see <see cref="TickPrefetch"/>).
     /// </summary>
     public void Prefetch(ulong address) {
         var offset = (int)(address & (ulong)_offsetMask);
@@ -228,9 +254,53 @@ public sealed class SetAssociativeCache : IMemory {
         try {
             FillBlock(set, evict, address);
             Prefetches++;
+            if (PrefetchLatency > 0)
+                _inFlightPrefetches.Add((address & ~(ulong)_offsetMask, PrefetchLatency));
         }
         catch {
             // Prefetch address is outside the backing memory's valid range; drop silently.
+        }
+    }
+
+    /// <summary>Number of prefetched lines still in flight (counts against MSHR capacity).</summary>
+    public int InFlightPrefetchCount => _inFlightPrefetches.Count;
+
+    /// <summary>
+    /// Advances all in-flight prefetch countdowns by one cycle. Must be called once per
+    /// simulated cycle when <see cref="PrefetchLatency"/> &gt; 0; a no-op otherwise.
+    /// </summary>
+    public void TickPrefetch() {
+        for (int i = _inFlightPrefetches.Count - 1; i >= 0; i--) {
+            (ulong lineBase, int remaining) = _inFlightPrefetches[i];
+            if (remaining <= 1) _inFlightPrefetches.RemoveAt(i);
+            else _inFlightPrefetches[i] = (lineBase, remaining - 1);
+        }
+    }
+
+    /// <summary>
+    /// Demand access hit a line whose prefetch is still in flight: pay the remaining
+    /// countdown (the fill has not arrived yet) and retire the in-flight entry.
+    /// </summary>
+    private void ChargeInFlightPrefetch(ulong address) {
+        if (_inFlightPrefetches.Count == 0) return;
+        ulong lineBase = address & ~(ulong)_offsetMask;
+        for (var i = 0; i < _inFlightPrefetches.Count; i++) {
+            if (_inFlightPrefetches[i].LineBase != lineBase) continue;
+            _pendingStalls += _inFlightPrefetches[i].Remaining;
+            LatePrefetchHits++;
+            _inFlightPrefetches.RemoveAt(i);
+            return;
+        }
+    }
+
+    /// <summary>Forgets the in-flight prefetch for an evicted or invalidated line, keeping
+    /// the invariant that every in-flight entry refers to a resident line.</summary>
+    private void DropInFlightPrefetch(ulong lineBase) {
+        if (_inFlightPrefetches.Count == 0) return;
+        for (var i = 0; i < _inFlightPrefetches.Count; i++) {
+            if (_inFlightPrefetches[i].LineBase != lineBase) continue;
+            _inFlightPrefetches.RemoveAt(i);
+            return;
         }
     }
 

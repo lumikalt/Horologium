@@ -236,6 +236,11 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly int _mshrCapacity;
     private int _mshrUsed; // MSHR slots currently occupied
 
+    // In-flight prefetches also hold miss-tracking slots. A demand hit on an in-flight
+    // line retires the prefetch entry and transfers its remaining latency (and MSHR slot)
+    // to the load itself, so the two counts never overlap.
+    private int InFlightPrefetches => _realisticPrefetch ? DLayers.Cache!.InFlightPrefetchCount : 0;
+
     // Cross-tick latches
     private readonly Queue<FetchedInstr> _decodeQueue = new();
     private readonly List<IssuedInstr> _execBuffer = [];
@@ -268,6 +273,7 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
     private Counter? _dcachePrefetchesCounter;
+    private Counter? _dcacheLatePrefetchHitsCounter;
     private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
     private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
@@ -278,7 +284,11 @@ internal sealed class OoOPipelineCore : Gear {
     // Delta tracking for hit/miss/prefetch counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
-    private long _lastDPrefetches;
+    private long _lastDPrefetches, _lastDLatePrefetchHits;
+
+    // True when a D-prefetcher is configured with PrefetchLatency > 0: prefetched lines
+    // arrive after a countdown instead of instantly (realistic prefetch latency model).
+    private readonly bool _realisticPrefetch;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
     public IArchState State { get; }
@@ -315,6 +325,7 @@ internal sealed class OoOPipelineCore : Gear {
         _fuConfig = fuConfig;
         ILayers = MemoryLayers.Build(memory, iMemConfig);
         DLayers = MemoryLayers.Build(memory, dMemConfig);
+        _realisticPrefetch = DLayers is { Prefetcher: not null, Cache.PrefetchLatency: > 0 };
         _capMem = new CapturingMemory(DLayers.Accessor);
         _issueWidth = issueWidth;
         _maxDecodeDepth = issueWidth * 4;
@@ -400,8 +411,14 @@ internal sealed class OoOPipelineCore : Gear {
         if (DLayers.Cache is not null) {
             _dcacheHitsCounter = Dials.AddCounter("dcache_hits", "L1 D-cache hits");
             _dcacheMissesCounter = Dials.AddCounter("dcache_misses", "L1 D-cache misses");
-            if (DLayers.Prefetcher is not null)
+            if (DLayers.Prefetcher is not null) {
                 _dcachePrefetchesCounter = Dials.AddCounter("dcache_prefetches", "L1 D-cache prefetch fills");
+                if (_realisticPrefetch)
+                    _dcacheLatePrefetchHitsCounter = Dials.AddCounter(
+                        "dcache_late_prefetch_hits",
+                        "Demand hits on lines whose prefetch was still in flight (paid the remaining countdown)"
+                    );
+            }
         }
 
         if (DLayers.L2Cache is not null) {
@@ -458,6 +475,10 @@ internal sealed class OoOPipelineCore : Gear {
         // Tick down write-buffer miss countdowns. Runs every cycle (including halt/flush cycles)
         // because the write buffer holds committed architectural state, not speculative state.
         StepWriteBuffer();
+
+        // Tick down in-flight prefetch countdowns. Like the write buffer, prefetched lines
+        // are non-speculative cache state, so they keep arriving through halt/flush cycles.
+        if (_realisticPrefetch) DLayers.Cache!.TickPrefetch();
 
         if (_halted || _flushPending) {
             if (_flushPending) StepFlush();
@@ -717,10 +738,13 @@ internal sealed class OoOPipelineCore : Gear {
 
             // D-cache prefetch: fire before draining stalls so the prefetch sees the cache
             // state left by this access. Fires only for demand loads (not store-forwarded).
+            // The predictor is always trained; the fill itself is dropped when every MSHR
+            // slot is busy (prefetches share the miss-tracking slots with demand loads).
             if (result.HasLoadAccess && !result.LoadWasForwarded && DLayers.Prefetcher is not null) {
                 bool wasHit = DLayers.Cache?.LastAccessWasHit ?? true;
                 ulong? pAddr = DLayers.Prefetcher.OnAccess(issued.Pc, result.LoadAddr, wasHit);
-                if (pAddr.HasValue) DLayers.TryPrefetch(pAddr.Value);
+                if (pAddr.HasValue && (_mshrCapacity == 0 || _mshrUsed + InFlightPrefetches < _mshrCapacity))
+                    DLayers.TryPrefetch(pAddr.Value);
             }
 
             int countdown = _fuConfig.LatencyFor(issued.Instr) - 1 + _fuConfig.BypassLatency;
@@ -781,10 +805,11 @@ internal sealed class OoOPipelineCore : Gear {
                 }
 
                 switch (cls) {
-                    // MSHR capacity: if all miss-tracking slots are occupied, this load/atomic
-                    // cannot start yet — it stays in the IQ and retries next cycle.
+                    // MSHR capacity: if all miss-tracking slots are occupied (by demand loads
+                    // or in-flight prefetches), this load/atomic cannot start yet — it stays
+                    // in the IQ and retries next cycle.
                     case ToothClass.Load or ToothClass.Atomic
-                        when _mshrCapacity > 0 && _mshrUsed >= _mshrCapacity:
+                        when _mshrCapacity > 0 && _mshrUsed + InFlightPrefetches >= _mshrCapacity:
                         _mshrStallsCounter?.Increment();
                         continue;
                     // CSR serialization: a System instruction may only issue when it is
@@ -1373,6 +1398,10 @@ internal sealed class OoOPipelineCore : Gear {
         if (_dcachePrefetchesCounter is not null && DLayers.Cache is not null) {
             _dcachePrefetchesCounter.IncrementBy(DLayers.Cache.Prefetches - _lastDPrefetches);
             _lastDPrefetches = DLayers.Cache.Prefetches;
+            if (_dcacheLatePrefetchHitsCounter is not null) {
+                _dcacheLatePrefetchHitsCounter.IncrementBy(DLayers.Cache.LatePrefetchHits - _lastDLatePrefetchHits);
+                _lastDLatePrefetchHits = DLayers.Cache.LatePrefetchHits;
+            }
         }
 
         UpdateCacheStat(

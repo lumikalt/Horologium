@@ -133,9 +133,14 @@ See the "Olympia execution model: structural comparison" section for source-leve
   D-cache (`getAckFromROB_()` bypasses cache at retirement), so init_permutation's
   writes don't warm Olympia's L1 and the replay model cannot be isolated via
   trace-replay. pchase +Matched: 0.61/0.67/0.77 vs Olympia 0.48/0.71/0.52.
-- [ ] **Realistic prefetch latency** — idealized free prefetcher (+PF column) adds
-  ≤2% because load-side MLP already hides miss latency. A prefetch-with-countdown
-  model (demand hit pays remaining countdown) would test the true prefetch benefit.
+- [x] **Realistic prefetch latency** — `MemoryConfig.PrefetchLatency` (JSON
+  `d_prefetch_latency`, default 0 = free): prefetched lines are in flight for N cycles
+  (`SetAssociativeCache.TickPrefetch`, driven per-cycle by `OooeTrain`); a demand hit
+  pays the remaining countdown via `_pendingStalls` (composes with load-side MLP);
+  in-flight prefetches occupy MSHR slots; `dcache_late_prefetch_hits` counter.
+  Measured (stride PF, latency 10, +Matched): vvadd keeps ~60% of its ≤2.7% idealized
+  gain; all other workloads unchanged; pchase unaffected (RPT never predicts a random
+  pointer chase). Prefetching confirmed as a non-lever for remaining Olympia gaps.
 
 ## Performance
 

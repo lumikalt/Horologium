@@ -616,6 +616,62 @@ The prefetcher infrastructure (next-line, stride RPT, `MemoryLayers.TryPrefetch`
 MMIO guard, `dcache_prefetches` counter, `TrainConfig.DPrefetcher` JSON field) is in
 place and wired. The calibration script now includes the +PF column.
 
+### Realistic prefetch latency (follow-up, done)
+
+The countdown model predicted in point 3 above was implemented and measured.
+`MemoryConfig.PrefetchLatency` (JSON `d_prefetch_latency`, default 0 = the idealized
+free model) makes each prefetched line *in flight* for that many cycles after install:
+`SetAssociativeCache` keeps a per-line countdown table, ticked once per pipeline cycle
+(`TickPrefetch()`, driven from `RunCycle` next to the write-buffer tick). A demand
+access that hits a line whose prefetch is still in flight pays the **remaining**
+countdown — charged through `_pendingStalls`, so it flows into the load's own in-flight
+latency exactly like a partial miss and composes with load-side MLP and the MSHR cap
+(in-flight prefetches also occupy MSHR slots). Evicted or invalidated lines forget
+their countdown. A `dcache_late_prefetch_hits` counter records how often demand caught
+a prefetch in flight.
+
+Stride prefetcher on the +Matched config, prefetch latency 10 (= the L1 miss penalty):
+
+| workload | base IPC (w2/3/8) | +PF free (w2/3/8) | +PF 10-cycle (w2/3/8) | late hits (w2/3/8) |
+|----------|-------------------|-------------------|-----------------------|--------------------|
+| rich     | 1.038/1.157/1.195 | 1.038/1.158/1.196 | 1.038/1.158/1.196     | 0/0/0    |
+| vvadd    | 0.766/0.897/0.998 | 0.775/0.921/1.019 | 0.774/0.911/1.011     | 52/46/58 |
+| multiply | 1.371/1.464/1.585 | 1.371/1.465/1.585 | 1.371/1.465/1.585     | 9/5/8    |
+| median   | 0.566/0.589/0.607 | 0.565/0.593/0.611 | 0.565/0.592/0.610     | 37/36/24 |
+| towers   | 0.522/0.530/0.536 | 0.522/0.530/0.536 | 0.522/0.530/0.536     | 0/0/0    |
+| qsort    | 0.693/0.754/0.762 | 0.694/0.755/0.763 | 0.694/0.755/0.763     | 264/219/180 |
+| rsort    | 1.204/1.321/1.399 | 1.211/1.323/1.403 | 1.210/1.323/1.403     | 171/126/67  |
+| memcpy   | 0.613/0.750/1.103 | 0.616/0.760/1.108 | 0.614/0.758/1.112     | 634/497/446 |
+| gcd      | 0.260/0.267/0.269 | 0.260/0.267/0.269 | 0.260/0.267/0.269     | 1/0/0    |
+| treesum  | 0.692/0.801/0.774 | 0.693/0.805/0.779 | 0.693/0.805/0.779     | 39/42/26 |
+| pchase   | 0.609/0.673/0.769 | 0.609/0.673/0.769 | 0.609/0.673/0.769     | 0/0/0    |
+
+Three findings, all confirming the idealized-ceiling hypothesis:
+
+1. **The only workload with a visible idealized gain keeps roughly 60% of it.** vvadd
+   (streaming, stride-predictable) gained +1.2/+2.7/+2.1% from the free prefetcher at
+   w2/w3/w8; with the 10-cycle latency the gain shrinks to +1.0/+1.6/+1.3%. Everywhere
+   else the free gain was already within noise, and the realistic model changes nothing.
+
+2. **Late hits are common but absorbed by MLP.** memcpy demand accesses caught a
+   prefetch in flight 446–634 times per run, qsort/rsort 67–264 times — yet IPC moves
+   by ≤0.4% (memcpy w8 even lands 0.4% *above* the free model: paying remainders
+   perturbs miss/commit alignment at noise level). The remainder a late demand pays is
+   just another non-blocking load countdown, and the OoO window hides it the same way
+   it hides the full miss.
+
+3. **When prediction fails, latency is irrelevant.** pchase (random pointer chase)
+   drew 885 stride prefetches against 49,465 misses at w2 and zero late hits — the RPT
+   never locks onto a Fisher-Yates permutation walk, so free vs. 10-cycle is identical
+   by construction.
+
+Conclusion: prefetching — free or realistic — is not a lever for the remaining
+Horologium-vs-Olympia IPC gaps on this suite. The realistic model is kept (default-off)
+as infrastructure for future large-working-set workloads where prefetch timeliness
+matters. Regression coverage: cache-level countdown tests in `Tests/Orrery/CacheTests.cs`
+and an end-to-end memcpy run in `Tests/RiscV32/OoOMemoryParallelismTests.cs` asserting
+HTIF PASS, `late hits > 0`, and cycles(realistic) ≥ cycles(free).
+
 ## Load-side memory-level parallelism (done)
 
 The lump-sum stall model (charge every cache-miss penalty to the global clock,
@@ -932,10 +988,9 @@ first.
   Olympia uses `retire_queue_depth=30` for all widths; Horologium used 32/48/128.
   Corrected in +Matched to `rob_capacity=30`. See §Phase 10.
 
-- **Realistic prefetch latency.** The idealized prefetcher (+PF column) shows that a
-  free prefetcher adds nothing when MLP is active. A realistic model would issue the
-  prefetch with a countdown (like `_inFlight` for loads) and service a demand hit
-  that arrives while the prefetch is pending by paying the remaining countdown rather
-  than zero. This would interact with MSHR capacity and would only improve IPC when
-  the prefetch arrives before the demand miss — a narrower benefit window than the
-  idealized model suggests.
+- **Realistic prefetch latency — done.** Implemented as `MemoryConfig.PrefetchLatency`
+  (JSON `d_prefetch_latency`): prefetched lines are in flight for N cycles and a demand
+  hit pays the remaining countdown; in-flight prefetches occupy MSHR slots. Measured on
+  the +Matched config with a 10-cycle latency: vvadd keeps ~60% of its (already ≤2.7%)
+  idealized gain; every other workload is unchanged. Prefetching is confirmed to be a
+  non-lever for the remaining gaps. See §"Realistic prefetch latency (follow-up, done)".

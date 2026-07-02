@@ -27,9 +27,12 @@ public enum PrefetcherKind {
 /// backing below the cache) are otherwise masked by stale cached lines, hanging the run.</param>
 /// <param name="UncacheableSize">Size of the uncacheable MMIO region in bytes (0 = disabled).</param>
 /// <param name="Prefetcher">Prefetch strategy for this memory port. Ignored when no L1 cache
-/// is configured. Prefetches are free (no stall penalty) and respect the uncacheable region.</param>
+/// is configured. Prefetches respect the uncacheable region.</param>
 /// <param name="PrefetcherTableSize">RPT table entries for <see cref="PrefetcherKind.Stride"/>;
 /// must be a power of 2. Ignored for other prefetcher kinds.</param>
+/// <param name="PrefetchLatency">Cycles until a prefetched line is usable (0 = instant/free,
+/// the idealized model). A demand hit on a line whose prefetch is still in flight pays the
+/// remaining countdown instead of zero, and in-flight prefetches count against MSHR capacity.</param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,
@@ -49,7 +52,8 @@ public sealed record MemoryConfig(
     ulong UncacheableBase = 0,
     ulong UncacheableSize = 0,
     PrefetcherKind Prefetcher = PrefetcherKind.None,
-    int PrefetcherTableSize = 64
+    int PrefetcherTableSize = 64,
+    int PrefetchLatency = 0
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -95,7 +99,8 @@ public sealed record MemoryLayers(
 
         if (cfg.CacheCapacityBytes > 0) {
             l1 = new SetAssociativeCache(
-                current, cfg.CacheCapacityBytes, cfg.CacheWays, cfg.CacheBlockBytes, cfg.CacheMissLatency
+                current, cfg.CacheCapacityBytes, cfg.CacheWays, cfg.CacheBlockBytes, cfg.CacheMissLatency,
+                cfg.Prefetcher != PrefetcherKind.None ? cfg.PrefetchLatency : 0
             );
             current = l1;
         }
@@ -129,10 +134,12 @@ public sealed record MemoryLayers(
         (Tlb?.ConsumePendingStalls() ?? 0);
 
     /// <summary>
-    /// Prefetches the L1 line covering <paramref name="address"/> without any stall penalty.
-    /// Guards against the uncacheable MMIO region: any prefetch that would land on (or overlap)
-    /// an uncacheable line is silently dropped, preventing re-caching of HTIF registers.
-    /// No-ops when no prefetcher is configured or no L1 is present.
+    /// Prefetches the L1 line covering <paramref name="address"/> without any stall penalty
+    /// at install time (with <see cref="MemoryConfig.PrefetchLatency"/> &gt; 0 the line is in
+    /// flight and a demand hit pays the remaining countdown). Guards against the uncacheable
+    /// MMIO region: any prefetch that would land on (or overlap) an uncacheable line is
+    /// silently dropped, preventing re-caching of HTIF registers. No-ops when no prefetcher
+    /// is configured or no L1 is present.
     /// </summary>
     public void TryPrefetch(ulong address) {
         if (Cache is null || Prefetcher is null) return;

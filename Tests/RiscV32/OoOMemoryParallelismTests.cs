@@ -226,4 +226,71 @@ public class OoOMemoryParallelismTests {
             "next-line prefetcher did not fire any prefetches"
         );
     }
+
+    /// <summary>
+    /// Realistic prefetch latency: with DPrefetchLatency > 0 a prefetched line is in
+    /// flight for that many cycles, and a demand access arriving earlier pays the
+    /// remaining countdown instead of zero (the idealized free model).
+    /// <para>
+    /// Correctness: the timing model must not change architectural results — HTIF PASS
+    /// on both runs. Timing: memcpy streams sequentially, so next-line prefetches are
+    /// demanded within a few cycles of being issued; with a 10-cycle prefetch latency
+    /// the run must record late-prefetch hits and take at least as many cycles as the
+    /// free-prefetch run (paying a remainder can only hurt or be neutral).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void OoO_Memcpy_RealisticPrefetchLatency_SelfChecksPass_AndPaysRemainder() {
+        (ulong tohostLow, long cycles, long prefetches, long lateHits) Run(int prefetchLatency) {
+            var workload = new Rv32ElfWorkload(
+                Path.Combine(AppContext.BaseDirectory, "benchmarks", "memcpy.elf"), 4 * 1024 * 1024
+            );
+            var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+            workload.Load(mem);
+            IMemory runMem = workload.WrapMemory(mem);
+            ulong tohost = workload.HtifTohostAddress!.Value;
+
+            var l1 = new CacheHardwareConfig(16384, 4, 64);
+            var cfg = new TrainConfig(
+                "ooo", ICache: l1, DCache: l1,
+                DPrefetcher: "next_line", DPrefetchLatency: prefetchLatency
+            );
+            MemoryConfig iMem = cfg.ToIMemoryConfig();
+            MemoryConfig dMem = cfg.ToDMemoryConfig() with { UncacheableBase = tohost, UncacheableSize = 16, };
+
+            var train = new OooeTrain(
+                new Rv32Mechanism(workload.HtifTohostAddress), runMem, workload.EntryPoint,
+                8, 128, 64,
+                predictor: BranchPredictorConfig.NBit().Build(),
+                iMemConfig: iMem, dMemConfig: dMem
+            );
+
+            RevolutionResult r = train.Run(OoOMemoryParallelismTests.MaxTicks);
+            IReadOnlyDictionary<string, long> counters = r.Find("ooo.pipeline")!.Counters;
+            return (
+                mem.Read(tohost, 4),
+                counters["cycles"],
+                counters.GetValueOrDefault("dcache_prefetches"),
+                counters.GetValueOrDefault("dcache_late_prefetch_hits")
+            );
+        }
+
+        (ulong freeTohost, long freeCycles, long freePrefetches, long freeLateHits) = Run(0);
+        (ulong realTohost, long realCycles, long realPrefetches, long realLateHits) = Run(10);
+
+        AssertHtifPass(freeTohost, freeCycles, "memcpy OoO + free prefetcher");
+        AssertHtifPass(realTohost, realCycles, "memcpy OoO + 10-cycle prefetch latency");
+
+        Assert.True(freePrefetches > 0 && realPrefetches > 0, "prefetcher did not fire in both runs");
+
+        // The free model never registers the counter; the realistic model must have been
+        // caught in flight at least once on a sequential stream.
+        Assert.Equal(0L, freeLateHits);
+        Assert.True(realLateHits > 0, "no demand access ever caught a prefetch in flight");
+
+        Assert.True(
+            realCycles >= freeCycles,
+            $"realistic prefetch latency reduced cycles: real={realCycles} < free={freeCycles}"
+        );
+    }
 }

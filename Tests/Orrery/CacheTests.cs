@@ -209,4 +209,145 @@ public class CacheTests {
                                              new SetAssociativeCache(mem, 100, 4, 16, 5)
         );
     }
+
+    // ── Realistic prefetch latency ────────────────────────────────────────────
+    // With prefetchLatency > 0, a prefetched line is in flight for that many
+    // TickPrefetch() calls; a demand hit arriving earlier pays the remainder.
+
+    private static SetAssociativeCache MakeWithPrefetchLatency(IMemory backing, int latency) =>
+        new(backing, 64, 4, 16, missLatency: 10, prefetchLatency: latency);
+
+    [Fact]
+    public void Prefetch_ZeroLatency_DemandHitIsFree() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeFullyAssoc(mem);
+
+        cache.Prefetch(0);
+        cache.Read(0, 1);
+
+        Assert.Equal(1, cache.Hits);
+        Assert.Equal(0, cache.InFlightPrefetchCount);
+        Assert.Equal(0, cache.ConsumePendingStalls());
+    }
+
+    [Fact]
+    public void Prefetch_WithLatency_ImmediateDemandHitPaysFullLatency() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeWithPrefetchLatency(mem, 10);
+
+        cache.Prefetch(0);
+        Assert.Equal(1, cache.InFlightPrefetchCount);
+
+        cache.Read(0, 1); // same cycle: fill has not started arriving
+
+        Assert.Equal(1, cache.Hits); // still counted as a hit (line is resident)
+        Assert.Equal(1, cache.LatePrefetchHits);
+        Assert.Equal(10, cache.ConsumePendingStalls());
+        Assert.Equal(0, cache.InFlightPrefetchCount); // demand access claimed the fill
+    }
+
+    [Fact]
+    public void Prefetch_WithLatency_DemandHitPaysRemainingCountdown() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeWithPrefetchLatency(mem, 10);
+
+        cache.Prefetch(0);
+        for (var i = 0; i < 4; i++) cache.TickPrefetch();
+
+        cache.Read(0, 1);
+
+        Assert.Equal(1, cache.LatePrefetchHits);
+        Assert.Equal(6, cache.ConsumePendingStalls());
+    }
+
+    [Fact]
+    public void Prefetch_WithLatency_ArrivedLineIsFree() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeWithPrefetchLatency(mem, 10);
+
+        cache.Prefetch(0);
+        for (var i = 0; i < 10; i++) cache.TickPrefetch();
+
+        Assert.Equal(0, cache.InFlightPrefetchCount);
+        cache.Read(0, 1);
+
+        Assert.Equal(1, cache.Hits);
+        Assert.Equal(0, cache.LatePrefetchHits);
+        Assert.Equal(0, cache.ConsumePendingStalls());
+    }
+
+    [Fact]
+    public void Prefetch_WithLatency_SecondHitAfterClaimIsFree() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeWithPrefetchLatency(mem, 10);
+
+        cache.Prefetch(0);
+        cache.Read(0, 1); // pays 10, claims the fill
+        cache.ConsumePendingStalls();
+
+        cache.Read(4, 1); // same line, fill already claimed
+
+        Assert.Equal(2, cache.Hits);
+        Assert.Equal(1, cache.LatePrefetchHits);
+        Assert.Equal(0, cache.ConsumePendingStalls());
+    }
+
+    [Fact]
+    public void Prefetch_WithLatency_WriteHitAlsoPaysRemaining() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeWithPrefetchLatency(mem, 10);
+
+        cache.Prefetch(0);
+        for (var i = 0; i < 3; i++) cache.TickPrefetch();
+
+        cache.Write(0, 0xAB, 1);
+
+        Assert.Equal(1, cache.LatePrefetchHits);
+        Assert.Equal(7, cache.ConsumePendingStalls());
+    }
+
+    [Fact]
+    public void Prefetch_WithLatency_EvictedInFlightLineIsForgotten() {
+        // 1-way (direct-mapped): 64/(1*16) = 4 sets; addresses 0 and 64 share set 0.
+        var mem = new FlatMemory(256);
+        var cache = new SetAssociativeCache(mem, 64, 1, 16, missLatency: 10, prefetchLatency: 10);
+
+        cache.Prefetch(0);
+        Assert.Equal(1, cache.InFlightPrefetchCount);
+
+        cache.Read(64, 1); // demand miss on the same set evicts the in-flight line
+        cache.ConsumePendingStalls();
+        Assert.Equal(0, cache.InFlightPrefetchCount);
+
+        cache.Read(0, 1); // back to line 0: a plain full miss, not a late-prefetch hit
+
+        Assert.Equal(0, cache.LatePrefetchHits);
+        Assert.Equal(2, cache.Misses);
+        Assert.Equal(10, cache.ConsumePendingStalls());
+    }
+
+    [Fact]
+    public void Prefetch_WithLatency_InvalidatedInFlightLineIsForgotten() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeWithPrefetchLatency(mem, 10);
+
+        cache.Prefetch(0);
+        cache.Load(0, [1, 2, 3, 4,]); // Load() invalidates overlapping lines
+
+        Assert.Equal(0, cache.InFlightPrefetchCount);
+    }
+
+    [Fact]
+    public void Prefetch_WithLatency_AlreadyResidentLineDoesNotRearm() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeWithPrefetchLatency(mem, 10);
+
+        cache.Prefetch(0);
+        for (var i = 0; i < 8; i++) cache.TickPrefetch();
+
+        cache.Prefetch(0); // line resident, countdown must not reset
+
+        cache.Read(0, 1);
+        Assert.Equal(2, cache.ConsumePendingStalls()); // 10 - 8, not 10
+    }
 }
