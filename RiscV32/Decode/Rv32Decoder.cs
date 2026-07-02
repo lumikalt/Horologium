@@ -496,7 +496,13 @@ public class Rv32Decoder : IDecoder {
 
     private static RvInstruction DecodeMiscMem(ulong pc, uint raw, int rs1, uint funct3) {
         switch (funct3) {
-            case 0x0: return new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFence());
+            case 0x0: {
+                uint fm = (raw >> 28) & 0xF;
+                uint pred = (raw >> 24) & 0xF;
+                uint succ = (raw >> 20) & 0xF;
+                return new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFence(pred, succ, fm));
+            }
+            case 0x1: return new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvFenceI());
             case 0x2: {
                 uint op = (raw >> 20) & 0x1F; // bits[24:20] select cbo operation
                 IReadOnlyList<int> src = [rs1,];

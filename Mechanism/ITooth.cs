@@ -96,6 +96,19 @@ public interface ITooth {
     /// and any cross-hart cancellation from an earlier outer tick is already visible.
     /// </summary>
     bool IsStoreConditional => false;
+
+    /// <summary>
+    /// True for memory-ordering fences that order older stores before younger loads
+    /// (e.g. RISC-V <c>FENCE</c> with W in the predecessor set and R in the successor
+    /// set). Under TSO, store→load is the only reordering the out-of-order train
+    /// performs (committed store write-miss penalties drain asynchronously through the
+    /// write buffer while younger loads issue), so this is the only fence flavour with
+    /// an observable pipeline effect: the OoO train issues it only at the ROB head once
+    /// the write buffer has fully drained, and younger loads may not issue while it is
+    /// pending. Fences without W→R ordering — and all non-fence instructions — return
+    /// false and execute as timing no-ops.
+    /// </summary>
+    bool IsStoreLoadFence => false;
 }
 
 /// <summary>

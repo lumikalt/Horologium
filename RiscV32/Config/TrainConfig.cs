@@ -57,7 +57,7 @@ public sealed record TrainConfig(
     int MshrCapacity = 0,              // 0 = unlimited outstanding misses
     string? DPrefetcher = null,        // null | "next_line" | "stride"
     int DPrefetcherTableSize = 64,
-    int DPrefetchLatency = 0           // cycles until a prefetched line is usable; 0 = free/instant
+    int DPrefetchLatency = 0 // cycles until a prefetched line is usable; 0 = free/instant
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,

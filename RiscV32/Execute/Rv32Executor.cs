@@ -173,7 +173,10 @@ public class Rv32Executor : IExecutor {
 
             RvWfi => WfiResult(state),
 
-            RvFence => ExecuteResult.Clean, // NOP in single-core simulation
+            // Architecturally a NOP: ordering is a timing concern, enforced by the
+            // pipeline via ITooth.IsStoreLoadFence (OoO write-buffer drain + load gate).
+            RvFence  => ExecuteResult.Clean,
+            RvFenceI => ExecuteResult.Clean, // I-cache invalidation not modeled
 
             // ── Zawrs extension (single-core: NOP) ────────────────────────────
             RvWrsNto => ExecuteResult.Clean,

@@ -2,6 +2,11 @@ namespace RiscV32.Decode;
 
 public static class RvDisassembler {
     private static string Xi(int r) => $"x{r & 31}";
+
+    // FENCE ordering-set mask → "iorw" letters (bit 3 = I, 2 = O, 1 = R, 0 = W).
+    private static string IoRw(uint mask) =>
+        $"{((mask & 8) != 0 ? "i" : "")}{((mask & 4) != 0 ? "o" : "")}{((mask & 2) != 0 ? "r" : "")}{((mask & 1) != 0 ? "w" : "")}";
+
     private static string Xf(int r) => $"f{(r - 32) & 31}";
     private static string Tgt(ulong pc, int imm) => $"0x{(ulong)((long)pc + imm):X}";
 
@@ -60,7 +65,8 @@ public static class RvDisassembler {
         // System
         RvEcall     => "ecall",
         RvEbreak    => "ebreak",
-        RvFence     => "fence",
+        RvFence op  => op.Fm == 0x8 ? "fence.tso" : $"fence {IoRw(op.Pred)},{IoRw(op.Succ)}",
+        RvFenceI    => "fence.i",
         RvMret      => "mret",
         RvSret      => "sret",
         RvWfi       => "wfi",

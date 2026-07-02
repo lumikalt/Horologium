@@ -325,7 +325,7 @@ internal sealed class OoOPipelineCore : Gear {
         _fuConfig = fuConfig;
         ILayers = MemoryLayers.Build(memory, iMemConfig);
         DLayers = MemoryLayers.Build(memory, dMemConfig);
-        _realisticPrefetch = DLayers is { Prefetcher: not null, Cache.PrefetchLatency: > 0 };
+        _realisticPrefetch = DLayers is { Prefetcher: not null, Cache.PrefetchLatency: > 0, };
         _capMem = new CapturingMemory(DLayers.Accessor);
         _issueWidth = issueWidth;
         _maxDecodeDepth = issueWidth * 4;
@@ -794,6 +794,11 @@ internal sealed class OoOPipelineCore : Gear {
                     // Scalar store-to-load ordering is maintained through forwarding and, when
                     // necessary, memory-order violation detection and squash at the ROB head.
                     case ToothClass.Load when HasPrecedingVectorStore(rs.RobIndex): continue;
+                    // TSO fence: a load may not issue while an older store→load fence is
+                    // still in the ROB — the fence itself only issues (and then retires)
+                    // once the write buffer has drained, so this gate delays post-fence
+                    // loads until every pre-fence store's write-bus penalty has expired.
+                    case ToothClass.Load when HasPrecedingStoreLoadFence(rs.RobIndex): continue;
                     // Conservative load ordering (FuLatencyConfig.ConservativeLoads): a load
                     // may not issue while any older SQ entry still has an unresolved address.
                     // Models Olympia's allow_speculative_load_exec = false.
@@ -827,6 +832,14 @@ internal sealed class OoOPipelineCore : Gear {
                     // guarantees this without needing a commit-time re-check.
                     case ToothClass.Atomic when rs.Instruction?.IsStoreConditional == true
                                              && rs.RobIndex != _rob.HeadIndex:
+                        continue;
+                    // TSO fence serialization: a store→load fence issues only at the ROB
+                    // head (all older stores committed) and once the write buffer has fully
+                    // drained, so every pre-fence store's write-bus penalty has expired
+                    // before the fence completes and post-fence loads unblock. Fences
+                    // without W→R ordering are timing no-ops and issue unrestricted.
+                    case ToothClass.Fence when rs.Instruction?.IsStoreLoadFence == true
+                                            && (rs.RobIndex != _rob.HeadIndex || _wbOccupied > 0):
                         continue;
                     // UVE serialization: stream state is not renamed; head-gating preserves order.
                     // Additionally stall until every load-stream source has a buffered element.
@@ -873,6 +886,22 @@ internal sealed class OoOPipelineCore : Gear {
             ITooth? instr = entry.Instruction;
             if (instr is { Class: ToothClass.Vector, VectorDestinationRegister: < 0, DestinationRegister: < 0, })
                 return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True if any instruction older than <paramref name="loadRobIndex"/> is a
+    /// store→load fence still in the ROB. Younger loads must wait until the fence
+    /// retires; combined with the fence's own issue gate (ROB head + write buffer
+    /// drained) this gives TSO fence semantics: no post-fence load issues before
+    /// every pre-fence store's write-bus penalty has expired.
+    /// </summary>
+    private bool HasPrecedingStoreLoadFence(int loadRobIndex) {
+        foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
+            if (idx == loadRobIndex) return false;
+            if (entry.Instruction?.IsStoreLoadFence == true) return true;
         }
 
         return false;

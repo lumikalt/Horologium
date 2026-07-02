@@ -224,6 +224,44 @@ public class DecoderTests {
         Assert.Equal(ToothClass.Fence, i.Class);
     }
 
+    [Fact]
+    public void Decode_Fence_PredSuccFields() {
+        // fence iorw,iorw  →  0x0FF0000F (pred=0b1111, succ=0b1111, fm=0)
+        var full = (RvFence)D(0x0FF0000F).Payload!;
+        Assert.Equal(0xFu, full.Pred);
+        Assert.Equal(0xFu, full.Succ);
+        Assert.Equal(0u, full.Fm);
+
+        // fence w,r  →  0x0120000F (pred=W=0b0001, succ=R=0b0010)
+        var wr = (RvFence)D(0x0120000F).Payload!;
+        Assert.Equal(0x1u, wr.Pred);
+        Assert.Equal(0x2u, wr.Succ);
+
+        // fence.tso  →  0x8330000F (fm=8, pred=rw, succ=rw)
+        var tso = (RvFence)D(0x8330000F).Payload!;
+        Assert.Equal(0x8u, tso.Fm);
+    }
+
+    [Fact]
+    public void Decode_Fence_IsStoreLoadFence() {
+        // Orders older stores before younger loads only when pred contains W and succ contains R.
+        Assert.True(D(0x0FF0000F).IsStoreLoadFence);  // fence iorw,iorw
+        Assert.True(D(0x0120000F).IsStoreLoadFence);  // fence w,r
+        Assert.True(D(0x8330000F).IsStoreLoadFence);  // fence.tso
+        Assert.False(D(0x0220000F).IsStoreLoadFence); // fence r,r   (no W in pred)
+        Assert.False(D(0x0110000F).IsStoreLoadFence); // fence w,w   (no R in succ)
+        Assert.False(D(0x0000000F).IsStoreLoadFence); // fence 0,0
+    }
+
+    [Fact]
+    public void Decode_FenceI() {
+        // fence.i  →  0x0000100F (Zifencei)
+        ITooth i = D(0x0000100F);
+        Assert.IsType<RvFenceI>(i.Payload);
+        Assert.Equal(ToothClass.Fence, i.Class);
+        Assert.False(i.IsStoreLoadFence);
+    }
+
     // ── Source/destination register fields ────────────────────────────────────
 
     [Fact]

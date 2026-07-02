@@ -74,6 +74,10 @@
   - [x] Write buffer (WB∝w) + MSHR cap + D-cache write port + prefetcher (Phase 3).
   - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
 - [ ] STF (Simulation Trace Format) binary output.
+- [ ] gcd benchmark fails its HTIF self-check (tohost FAIL code) on all three trains
+  (`BenchmarkTests` gcd rows). Pre-existing — fails at commit 06b0ece, before the
+  prefetch-latency and TSO-fence work; the calibration sweep reads only IPC, so it
+  slipped through. Rebuild `TestBinaries/benchmarks/gcd.elf` or fix its verify data.
 
 ### Calibration research: open structural gaps
 
@@ -222,7 +226,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
   - [x] OoO LR/SC atomics across pipeline trains: `OooeTrain` per hart + `SingleCycleTrain` cross-hart; `ITooth.IsStoreConditional` DIM head-gates SC.W at ROB head (so all intra-hart stores have committed before TryConsume fires); two tests: ScFails (H1 SW cancels reservation at outer tick 7, SC.W TryConsume at tick 8 sees no reservation → x4=1) and ScSucceeds (no cross-hart store → x4=0).
   - [x] Directory-based coherence (`DirectoryBus`): point-to-point invalidation via per-line sharer directory; `IBus.Evicted` DIM keeps sharer sets precise (called from `EvictWay` and voluntary `LocalInvalidate`; NOT from snoop handlers); drop-in for `MesiBus` in sequential `Run()`; 10 tests in `Tests/Orrery/DirectoryBusTests.cs`.
   - [ ] MOESI/MESIF cache-to-cache supply: owner forwards dirty line directly to requester without a backing round-trip; requires new `MesiCache` states beyond MESI.
-  - [ ] TSO fence modeling: `fence` instruction (`FENCE.I` already decodes; add `FENCE` with predecessor/successor fields); `OooeTrain` drains store buffer to cache before issuing post-fence loads; `MultiHartPipeline` tests to verify TSO ordering guarantees.
+  - [x] TSO fence modeling: `RvFence(Pred, Succ, Fm)` decodes the ordering sets (and `fence.i`/Zifencei now decodes as a NOP instead of throwing); `ITooth.IsStoreLoadFence` marks fences with W in pred and R in succ (incl. FENCE.TSO) — the only flavour with an observable effect under TSO, since store→load is the only reordering the OoO train performs (write buffer). `OooeTrain`: such a fence issues only at the ROB head with the write buffer fully drained; younger loads are gated while it is in the ROB (`HasPrecedingStoreLoadFence`). Other fence flavours and all in-order trains are timing no-ops. Tests (`TsoFenceTests`): WB-drain delays post-fence load; `fence r,r` is cycle-identical to nop; MP litmus on two OoO harts over MESI.
   - [x] Multi-hart concurrency — two-phase tick (`RunConcurrent`): run each hart's `StepCycle()` in parallel threads per tick, preserving bit-identical results vs. sequential `Run()` for well-synchronized programs (defined as: no hart reads a cache line in the same outer tick that another hart writes it — guaranteed by correct use of LR/SC or TSO fences). Same-tick cross-hart write-then-read is a data race whose outcome is undefined in concurrent mode. Six implementation parts:
     - [x] **Part A — `IBus` interface** (`Orrery/Cache/IBus.cs`): extract `Backing`, `Register`, `BusRead`, `BusReadInvalidate`, `BusSilentUpgrade`, `BusLoad`, `Writeback`; `MesiBus` implements `IBus` (bus-protocol methods `internal` → `public`); `MesiCache` constructor takes `IBus` instead of `MesiBus`. No behavior change; all existing tests pass.
     - [x] **Part B — `MesiCache` phase-2 hooks**: `internal UpdateCoherenceState(ulong lineBase, bool shared)` — corrects E→S when phase-2 BusRead reveals a peer held the line (no-op for M, so a same-tick write is never downgraded); `internal RefillFromBacking(ulong lineBase)` — re-reads backing into a non-M line after a cross-hart writeback lands in phase 2 (skips M so intra-hart writes are never clobbered). Both called only by `DeferredBus.Drain()`.

@@ -66,6 +66,12 @@ public sealed class RvInstruction(
     public bool IsDiv { get; } = payload is RvDiv or RvDivu or RvRem or RvRemu;
     public bool IsStoreConditional { get; } = payload is RvScW;
 
+    // W (bit 0) in the predecessor set and R (bit 1) in the successor set: the fence
+    // orders older stores before younger loads — the only ordering TSO doesn't already
+    // guarantee. Covers FENCE.TSO (pred=RW, succ=RW) too.
+    public bool IsStoreLoadFence { get; } =
+        payload is RvFence f && (f.Pred & 0x1) != 0 && (f.Succ & 0x2) != 0;
+
     public IReadOnlyList<int> VectorSourceRegisters { get; } = payload switch {
         RvVIntAluVv op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         RvVIntAluVx op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
@@ -193,7 +199,17 @@ public record RvSret : RvOp;
 
 public record RvWfi : RvOp;
 
-public record RvFence : RvOp;
+/// <summary>
+/// FENCE with its ordering sets. <paramref name="Pred"/>/<paramref name="Succ"/> are the
+/// 4-bit predecessor/successor masks (bit 3 = I, 2 = O, 1 = R, 0 = W); <paramref name="Fm"/>
+/// is the fence mode (0 = normal, 8 = FENCE.TSO). Architecturally a no-op in the executor;
+/// the pipeline enforces the timing ordering via <c>ITooth.IsStoreLoadFence</c>.
+/// </summary>
+public record RvFence(uint Pred, uint Succ, uint Fm) : RvOp;
+
+/// <summary>FENCE.I (Zifencei): instruction-stream synchronization. Executes as a no-op —
+/// I-cache invalidation on self-modifying code is not modeled.</summary>
+public record RvFenceI : RvOp;
 
 // ── M extension (multiply / divide) ──────────────────────────────────────────
 public record RvMul(int Rd, int Rs1, int Rs2) : RvOp;

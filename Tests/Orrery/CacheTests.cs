@@ -215,7 +215,7 @@ public class CacheTests {
     // TickPrefetch() calls; a demand hit arriving earlier pays the remainder.
 
     private static SetAssociativeCache MakeWithPrefetchLatency(IMemory backing, int latency) =>
-        new(backing, 64, 4, 16, missLatency: 10, prefetchLatency: latency);
+        new(backing, 64, 4, 16, 10, latency);
 
     [Fact]
     public void Prefetch_ZeroLatency_DemandHitIsFree() {
@@ -310,7 +310,7 @@ public class CacheTests {
     public void Prefetch_WithLatency_EvictedInFlightLineIsForgotten() {
         // 1-way (direct-mapped): 64/(1*16) = 4 sets; addresses 0 and 64 share set 0.
         var mem = new FlatMemory(256);
-        var cache = new SetAssociativeCache(mem, 64, 1, 16, missLatency: 10, prefetchLatency: 10);
+        var cache = new SetAssociativeCache(mem, 64, 1, 16, 10, 10);
 
         cache.Prefetch(0);
         Assert.Equal(1, cache.InFlightPrefetchCount);

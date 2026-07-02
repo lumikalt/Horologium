@@ -254,8 +254,7 @@ public sealed class SetAssociativeCache : IMemory {
         try {
             FillBlock(set, evict, address);
             Prefetches++;
-            if (PrefetchLatency > 0)
-                _inFlightPrefetches.Add((address & ~(ulong)_offsetMask, PrefetchLatency));
+            if (PrefetchLatency > 0) _inFlightPrefetches.Add((address & ~(ulong)_offsetMask, PrefetchLatency));
         }
         catch {
             // Prefetch address is outside the backing memory's valid range; drop silently.
@@ -272,8 +271,10 @@ public sealed class SetAssociativeCache : IMemory {
     public void TickPrefetch() {
         for (int i = _inFlightPrefetches.Count - 1; i >= 0; i--) {
             (ulong lineBase, int remaining) = _inFlightPrefetches[i];
-            if (remaining <= 1) _inFlightPrefetches.RemoveAt(i);
-            else _inFlightPrefetches[i] = (lineBase, remaining - 1);
+            if (remaining <= 1)
+                _inFlightPrefetches.RemoveAt(i);
+            else
+                _inFlightPrefetches[i] = (lineBase, remaining - 1);
         }
     }
 
