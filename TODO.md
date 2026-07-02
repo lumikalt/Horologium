@@ -6,12 +6,14 @@
 - [x] Pipeline stage viewer in Assembler tab.
 - [ ] L2 and L3 caches.
 - [x] Assembler to simulate RISC-V in-place.
-- [ ] Compile from C to disassembly and simulate that.
+- [x] Compile from C to disassembly and simulate that.
 - [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS subprocess.
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline waterfall.
 - [x] Light mode.
 - [ ] Work with other ISAs, not just RISC-V.
+- [ ] Waveform/signal viewer: plot pipeline signals (IPC, cache hit rate, branch mispredictions) over simulation time.
+- [ ] Power/energy estimation display alongside performance (McPAT-style: dynamic + leakage per unit).
 
 ## CHIP8
 
@@ -20,21 +22,22 @@
 ## RISC-V
 
 - [x] 64-bit support.
-  - [ ] ELF64 loader for running RV64 binaries.
-  - [ ] Sv39 page-table walker for RV64 virtual memory.
-  - [ ] RV64 M extension.
-  - [ ] RV64 F/D extension.
+    - [ ] ELF64 loader for running RV64 binaries.
+    - [ ] Sv39 page-table walker for RV64 virtual memory.
+    - [ ] RV64 M extension.
+    - [ ] RV64 F/D extension.
 - [ ] 128-bit support.
 - [x] Enable or disable specific extensions.
 
 ### Extensions
 
-- [ ] Continue extending the V extension: strided/indexed loads-stores, reduction ops, widening/narrowing integer ops, integer multiply/divide, FP vector ops, slide and gather/scatter.
+- [ ] Continue extending the V extension: strided/indexed loads-stores, reduction ops, widening/narrowing integer ops,
+  integer multiply/divide, FP vector ops, slide and gather/scatter.
 - [x] Zba, Zbb, Zbs, Zicond, Zbc.
 - [ ] D extension (RV32D): double-precision FP registers and arithmetic.
 - [ ] Zfh / Zfhmin: half-precision FP.
 - [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file.
-- [x] Zicbom / Zicboz / Zicbop: cache management operations. cbo.inval/clean/flush now trigger real MoesifCache operations via `IMemory.InvalidateLine/CleanLine/FlushLine` (default no-ops on non-cache implementations); cbo.flush makes dirty data visible to remote harts via writeback+invalidate.
+- [x] Zicbom / Zicboz / Zicbop: cache management operations.
 - [x] Zawrs: wrs.nto and wrs.sto.
 - [x] Zimop: mop.r.N and mop.rr.N.
 - [ ] Zcmop: compressed may-be-operations.
@@ -65,92 +68,18 @@
 - [ ] Region-of-interest simulation: fast-forward outside named ELF symbol ranges.
 - [ ] Simulation state checkpoint/restore.
 - [ ] Elastic trace recording + replay.
-- [x] Olympia JSON instruction-trace output.
-  - [x] Package Olympia in the Nix flake.
-  - [x] Cross-model comparison harness and calibration study.
-  - [x] Unblock benchmark breadth via raw-opcode trace path.
-  - [x] Fix HTIF MMIO caching bug.
-  - [x] Phase-2b matched study with working L1.
-  - [x] Write buffer (WB∝w) + MSHR cap + D-cache write port + prefetcher (Phase 3).
-  - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
+- [x] Olympia JSON instruction-trace output; flake packaging; calibration study.
+- [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
 - [ ] STF (Simulation Trace Format) binary output.
-- [x] gcd benchmark fails its HTIF self-check (exit code 50) on all three trains —
-  root cause was a bug in `gcd_main.c` itself, not the simulator: the intended
-  `% 1000000007` reduction (promised by its own comment) was missing, so fib(47)
-  overflowed int32 at i=46, went negative, and truncated-division `%` made `gcd()`
-  return −1, tripping the `g <= 0` verify. Spike failed the old ELF with the identical
-  exit code, confirming Horologium executed it faithfully. Fixed the source, added
-  gcd/treesum/pchase to the riscv-tests benchmarks Makefile (`make XLEN=32
-  RISCV_PREFIX=riscv32-none-elf-`), rebuilt gcd.elf (Spike-verified PASS). gcd IPC
-  moves ~+4% (+Matched 0.260/0.267/0.269 → 0.273/0.279/0.281); DIV-bound character
-  and Phase 12 conclusions unchanged — see the dated note in docs/olympia-calibration.md.
-
-### Calibration research: open structural gaps
-
-The following are research directions that explain remaining IPC divergences between
-Horologium and Olympia (see docs/olympia-calibration.md for per-row evidence).
-Each requires measurement (oracle predictor run, profiling) before implementation.
-See the "Olympia execution model: structural comparison" section for source-level details.
-
-- [x] **Load hit latency** — Olympia's LSU pipeline is 4 cycles deep (addr_calc →
-  MMU → cache_lookup → cache_read → complete) while Horologium treats a cache-hit load
-  as 1 cycle. Largest single driver of Horologium's inflated IPC on load-heavy
-  workloads (vvadd, memcpy). Add `LoadHitLatency` to `FuLatencyConfig` (default 4)
-  and charge it before the miss penalty countdown to equalize.
-- [x] **D-cache size mismatch** — Olympia medium=32KB, big=64KB vs Horologium always
-  16KB in calibration. Run Horologium with 32/64KB for medium/big-core comparisons
-  to equalize miss rates before attributing IPC gaps to other causes.
-- [x] **Integer DIV latency** — added `DivLatency` parameter to `FuLatencyConfig`
-  (0 = inherit from `MulDivLatency`, backward-compatible); `bool IsDiv` on `ITooth`,
-  overridden in `RvInstruction` for RvDiv/RvDivu/RvRem/RvRemu; +Matched sets
-  `div_latency=23`. Added gcd and treesum benchmarks. gcd w2 matches Olympia within 0.5%.
-- [x] **Branch misprediction cost** — ITTAGE sweep (vs 2-bit): qsort gains 6–10% IPC
-  (14.7% fewer misses), still 23% below Olympia at w8; median/towers unaffected (<1.5%).
-  Gap is trace-replay structural advantage, not predictor quality. Oracle predictor added
-  (`OracleConfig` / `OraclePredictor`) but is last-value (not true oracle) — works for
-  stable branches, degrades on volatile ones. True two-pass oracle deferred.
-- [x] **Result-bypass / forwarding latency** — `BypassLatency=1` added to
-  `FuLatencyConfig`; applied in `OooeTrain.StepExecute`; compute-bound workloads
-  (rich, multiply/small) moved toward Olympia. Default 0 (backward-compatible).
-- [x] **FU reservation-station depth** — per-class IQ partitioning implemented
-  (5 classes × 8 slots = 40 total; matches Olympia's `scheduler_size=8`). Most
-  workloads dropped 5–15% IPC. IQ depth confirmed non-bottleneck (iq8→iq64 = +3.8%
-  for multiply). Gap is FU execution-port bound: `IntAluCount=3` for the w8 +Matched
-  config brings no-cache multiply IPC to 2.067 vs Olympia 2.034.
-- [x] **Memory-bus bandwidth cap** — investigated; write-bus bandwidth was not the lever.
-  No-cache data proves it (rsort 1.67 vs Olympia 0.99 with zero cache). Root cause:
-  load speculation inflates rsort IPC; `ConservativeLoads` flag added to `FuLatencyConfig`
-  and benchmarked. Adding it to +Matched overshoots (0.58 vs 0.99) due to trace-replay
-  asymmetry — Olympia's "conservative loads" is nearly a no-op in trace replay (addresses
-  pre-known from trace). Gap is a trace-replay structural difference, not a missing bandwidth model.
-- [x] **ROB head pressure from long-latency misses** — investigated. ROB capacity sweep
-  (ROB=32/128/512) showed ROB does NOT fill from cache-miss head pressure (ROB=512 =
-  ROB=128). Real cause: Olympia uses 30-slot ROB at all widths; +Matched updated to
-  rob_capacity=30. Mechanism: smaller ROB limits wrong-path speculation window, reducing
-  flush overhead per misprediction. towers w8 +25%, vvadd w8 now within 0.8% of Olympia.
-- [x] **Return Address Stack in OooeTrain** — RAS existed in `FetchStage` (used by
-  FiveStage) but was never wired into `OooeTrain.StepFetch`. Added 16-entry RAS with
-  `hint.IsCall` push / `hint.IsReturn` pop. Effect on current benchmarks: +0–2%
-  (marginal) because BTB already predicted return targets correctly for per-call-site
-  entries. Correctness: OoO and FiveStage fetch now behave identically on call/return.
-- [x] **Load replay model** — investigated. Olympia invalidates missed loads and
-  re-issues after replay_issue_delay=3 cycles (7+ extra cycles vs Horologium's countdown).
-  Measured: all current benchmarks have 15–19 cold misses and 0 replays in Olympia.
-  Working sets fit in 16 KB L1. No implementation effect. Needs a large-working-set
-  benchmark (>16 KB data) to be relevant.
-- [x] **pchase benchmark** — 64 KB pointer-chase (Fisher-Yates permutation, N=16384)
-  added to expose the replay model gap. Key finding: Olympia stores never access the
-  D-cache (`getAckFromROB_()` bypasses cache at retirement), so init_permutation's
-  writes don't warm Olympia's L1 and the replay model cannot be isolated via
-  trace-replay. pchase +Matched: 0.61/0.67/0.77 vs Olympia 0.48/0.71/0.52.
-- [x] **Realistic prefetch latency** — `MemoryConfig.PrefetchLatency` (JSON
-  `d_prefetch_latency`, default 0 = free): prefetched lines are in flight for N cycles
-  (`SetAssociativeCache.TickPrefetch`, driven per-cycle by `OooeTrain`); a demand hit
-  pays the remaining countdown via `_pendingStalls` (composes with load-side MLP);
-  in-flight prefetches occupy MSHR slots; `dcache_late_prefetch_hits` counter.
-  Measured (stride PF, latency 10, +Matched): vvadd keeps ~60% of its ≤2.7% idealized
-  gain; all other workloads unchanged; pchase unaffected (RPT never predicts a random
-  pointer chase). Prefetching confirmed as a non-lever for remaining Olympia gaps.
+- [ ] SimPoint phase analysis: basic-block vector (BBV) profiling + k-means clustering for representative sampling. — Sherwood et al., ASPLOS 2002
+- [ ] ChampSim trace import: run CBP/CRC competition branch predictor and cache replacement plug-ins against Horologium workloads.
+- [ ] Intel PT (Processor Trace) binary format import: decode hardware-captured execution traces into the elastic replay path.
+- [ ] RISC-V-PAPI integration: cross-validate Horologium's Zicntr/Zihpm counter output against hardware readings collected via the INESC-ID RISC-V PAPI backend on a real core (CVA6 or SiFive). https://github.com/hpc-ulisboa/RISC-V-PAPI
+- [ ] Paraver trace export: emit Extrae-format traces so carm-paraver can overlay roofline plots on a per-timestep execution view. https://github.com/champ-hub/carm-paraver
+- [ ] DRAM timing model: integrate Ramulator2 or DRAMSim3 behind `IMemory` so off-chip latency reflects DDR4/5 timing.
+- [ ] Power and area estimation: emit gem5-compatible stat dumps consumable by McPAT. — Li et al., MICRO 2009
+- [ ] Cache-Aware Roofline Model (CARM) output: compute per-cache-level bandwidth and arithmetic-intensity ceilings from simulation statistics and render a roofline plot. — Ilic, Pratas & Sousa, IEEE CAL 2013; Williams, Waterman & Patterson, CACM 2009 (base Roofline)
+- [ ] Mansard Roofline extension: split each cache-level roof into a read roof and a write roof for more accurate mixed-access characterization. — Marques, Ilic & Sousa, ACM TOMPECS 2021
 
 ## Performance
 
@@ -159,6 +88,7 @@ See the "Olympia execution model: structural comparison" section for source-leve
 - [ ] Memoization of instructions, results, and branches.
 - [ ] O(1) executor dispatch (jump table or virtual dispatch on op kind).
 - [ ] Structural stage-model rework for in-order trains: struct latches, fewer interface hops.
+- [ ] Value prediction: predict ALU/load results to break dependence chains; commit only if prediction correct. — Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, MICRO 2014 (VTAGE/EOLE)
 
 ### Parallelism
 
@@ -169,90 +99,164 @@ See the "Olympia execution model: structural comparison" section for source-leve
 ## Mechanism
 
 - [ ] Generic interfaces for external devices (basic UART/MMIO).
-- [x] Cache pre-fetching: next-line and stride (RPT) prefetchers; `MemoryConfig.Prefetcher`, `TrainConfig.DPrefetcher` JSON field, MMIO guard in `MemoryLayers.TryPrefetch`.
-- [ ] Cache pre-fetching: stream prefetcher.
+- [x] Cache pre-fetching: next-line and stride (RPT) prefetchers.
+- [ ] Cache pre-fetching: stream prefetcher (stream buffers for sequential access). — Jouppi, ISCA 1990
+- [ ] Cache pre-fetching: spatial memory streaming (SMS) for irregular access patterns. — Somogyi et al., ISCA 2006
+- [ ] Cache pre-fetching: IP-based spatial prefetching (IPCP). — Singh et al., ISCA 2020
+- [ ] Cache pre-fetching: local-delta prefetcher (Berti). — Bakhshalipour et al., MICRO 2022
+- [ ] Cache pre-fetching: RL-driven prefetcher selection (Pythia). — Bera et al., MICRO 2021
 - [x] Non-blocking cache with MSHR.
-  - [x] Load-side MLP: independent misses overlap via per-load latency countdown.
-  - [x] Store-side: model write buffer / bounded store buffer.
-  - [x] One D-cache write port per cycle (store-commit was multi-ported).
-  - [x] One D-cache read port per cycle: covered by FuLatencyConfig.LoadStoreCount=1 (at most one Load/Store/Atomic issues per cycle, so at most one load reads D-cache per cycle).
-  - [x] MSHR capacity cap: configurable limit on simultaneous outstanding load-miss countdowns.
+- [ ] Victim cache: small fully-associative buffer to absorb conflict misses. — Jouppi, ISCA 1990
 - [ ] Make `ToothClass` a tag instead of an enum?
+
+### Cache Replacement
+
+Currently all caches use LRU. Pluggable replacement policies, then:
+
+- [ ] RRIP (Re-Reference Interval Prediction): bimodal and dynamic RRIP variants. — Jaleel et al., ISCA 2010
+- [ ] SHIP (Signature-based Hit Predictor for caching). — Wu et al., MICRO 2011
+- [ ] Hawkeye: OPTgen-based Belady-inspired replacement. — Jain & Lin, ISCA 2016
+- [ ] Cache replacement competition (CRC) plug-in interface: match ChampSim's policy API so research policies drop in.
 
 ### Out-of-Order Execution
 
 - [x] Functional-unit classes with configurable count and per-class latency.
 - [x] Memory order violation detection and squash.
 - [x] Separate load queue and store queue for speculative memory disambiguation.
-- [x] Fix: fetch decode-fault wedging the fetcher.
-- [x] Fix: Load/Store/Atomic sharing one FU budget incorrectly.
-- [x] Fix: atomic write-half disambiguation and commit.
 - [x] Streaming Engine for UVE wired into OooeTrain.
+- [ ] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary stalls. — Chrysos & Emer, ISCA 1998
+- [ ] Register renaming: explicit rename stage with a register alias table (RAT) and free list, replacing implicit PRF indexing.
+- [ ] True oracle branch predictor: two-pass simulation (pre-run to collect outcomes, replay with perfect prediction) for IPC upper-bound measurement.
+
+### µops
+
+- [ ] µop cache (decoded instruction cache / loop buffer): cache decoded µop bundles so the front-end skips re-decode on repeated loops.
+- [ ] Macro-fusion: fuse compare+branch pairs into a single issue-slot µop (as in Intel Sandy Bridge onward).
+- [ ] Micro-fusion: fuse load+ALU or store-address+store-data into a single dispatch slot.
+- [ ] Loop stream detector: detect short loops and replay µops from a small buffer, bypassing fetch and decode.
+- [ ] µop decomposition for complex instructions: atomics, vector ops, and CSR accesses emit multi-µop sequences through the Tooth interface.
 
 ### Branch Prediction
 
-- [x] Hashed Perceptron / Path-based Perceptron.
-- [x] ITTAGE.
-- [x] BATAGE.
+- [x] Hashed Perceptron. — Jiménez & Lin, HPCA 2001
+- [x] Path-based Perceptron. — Jiménez, MICRO 2003
+- [x] ITTAGE (tagged geometric history; indirect targets). — Seznec & Michaud, JILP 2006 (TAGE base); Seznec, CBP-4 2011
+- [x] BATAGE. — Seznec, CBP 2016
+- [ ] IMLI: inter-iteration loop branch predictor (counts loop iterations in hardware). — Jiménez, IEEE CAL 2018
 - [ ] LLBP: https://ieeexplore.ieee.org/abstract/document/11408567/
 - [ ] VLA-TAGE: https://ieeexplore.ieee.org/document/11417886
-- [ ] Branch pre-computation: https://hps.ece.utexas.edu/pub/TEA.pdf
+- [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
 - [ ] CBP-2025 front runner: correlate on register values rather than history.
-- [ ] BranchNet: CNN predictor.
-- [ ] Multiperspective Perceptron.
+- [ ] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020
+- [ ] Multiperspective Perceptron. — Tarjan & Skadron, IEEE Trans. Computers 2005
 - [ ] Bullseye/SDM as H2P helpers.
+- [ ] Indirect branch predictor: VTAGE/iBMETA variant for computed jumps and virtual dispatch.
+
+## GPU
+
+- [ ] SIMT execution model: warp scheduling, thread divergence, and stack-based reconvergence (PDOM). — Fung et al., MICRO 2007
+- [ ] Warp occupancy and resource partitioning: warps, registers, and shared memory per streaming multiprocessor.
+- [ ] GPU register file banking: per-warp interleaved allocation to hide RAW latency via warp switching.
+- [ ] GPU memory hierarchy: per-SM L1 / shared memory scratchpad, unified L2, global memory.
+- [ ] Memory coalescing: merge warp-wide 32-thread loads/stores into minimal cache-line-sized transactions.
+- [ ] Thread block scheduler: distribute thread blocks across SMs subject to occupancy constraints.
+- [ ] PTX / SASS instruction set (NVIDIA) or SPIR-V (vendor-agnostic) as a new ISA plugin.
+- [ ] GPGPU-Sim integration for co-simulation and workload comparison. — Bakhoda et al., ISPASS 2009
+- [ ] Accel-Sim: trace-driven GPU microarchitecture simulation framework. — Khairy et al., ISCA 2020
+- [ ] MGPUSim: multi-GPU simulation (AMD GCN architecture). — Sun et al., ISCA 2019
+- [ ] GPU performance model from PTX: static LSTM-based prediction of execution time, power, and energy under DVFS from PTX instruction sequences; see gpuPTXModel (INESC-ID). https://github.com/hpc-ulisboa/gpuPTXModel
+- [ ] GPU power modeling: data-driven power model for GPU kernels; see gpupowermodel (INESC-ID). https://github.com/hpc-ulisboa/gpupowermodel
 
 ## Co-simulation
 
-- [x] Spike online lock-step co-simulation.
-  - [x] Extend to FiveStageTrain and OooeTrain.
-  - [x] HTIF tohost co-sim fixture.
-  - [x] First-class HTIF tohost terminator and self-loop halt.
-  - [x] Auto-skip when toolchain is absent; `HOROLOGIUM_REQUIRE_COSIM=1` enforcement switch.
-  - [x] Broaden to official riscv-tests conformance ELFs (rv32ui/um/ua/uc/uf).
-  - [x] RV32 torture tests: 20 random RV32IMAF sequences (gen_torture.py, seed 42) co-simmed against Spike on all three trains (`TortureCoSimTests`).
-  - [ ] Watchdog on `ReadLine` to fail cleanly on over-run instead of hanging.
-  - [ ] CI workflow with `HOROLOGIUM_REQUIRE_COSIM=1`.
+- [x] Spike online lock-step co-simulation (SingleCycle, FiveStage, OoOE; HTIF tohost; riscv-tests; torture tests).
+- [ ] Watchdog on `ReadLine` to fail cleanly on over-run instead of hanging.
+- [ ] CI workflow with `HOROLOGIUM_REQUIRE_COSIM=1`.
 - [ ] gem5 timing co-simulation.
+- [ ] QEMU lock-step co-simulation: use QEMU as a fast functional oracle for full-system workloads, hand off to Horologium for timing.
+- [ ] dromajo co-simulation: WD's RISC-V checkpoint-based reference model; supports importing architectural state mid-program.
+- [ ] whisper co-simulation: Intel's RISC-V ISS with fine-grained CSR and trap comparison hooks.
+- [ ] SAIL RISC-V integration: use the formal ISA model as the instruction-semantics oracle instead of Spike.
+- [ ] riscv-formal: SymbiYosys-based bounded model checking of ISA-compliance properties against the decoder/executor.
+- [ ] FireSim: FPGA-accelerated cycle-exact simulation for large-scale multicore validation against RTL.
+- [ ] Snipersim co-comparison: interval-simulation IPC model as a lightweight cross-check. — Carlson et al., ISCA 2011
+- [ ] UVE-patched Spike co-simulation: use the INESC-ID/HPCAS Spike fork (Baptista MSc 2023) as a functional oracle for UVE streaming instructions, the same way scalar Spike is used today. https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
+- [ ] UVE gem5 model cross-check: compare Horologium's UVE timing (issue latency, stream-engine fill cycles) against the gem5 UVE branch from hpc-ulisboa. https://github.com/hpc-ulisboa/UVE
 
 ## Multicore
 
-- [x] F18A: 144-node GA144 grid with RendezvousArbor channels — first multi-core ISA in the engine. Each node runs SingleCycleTrain; `F18AGrid.Step()` coordinates synchronous rendezvous. Canonical opcode encoding (0x00–0x1F), `-if` (MinusIf), `+*` (MulStep), correct `if`-on-zero semantics.
+- [x] F18A: 144-node GA144 grid with RendezvousArbor channels.
 - [x] Multi-hart simulation: multiple OoOE trains sharing a memory hierarchy.
-  - [x] LR/SC memory safeguard: `ReservationTable` + `ReservationAwareMemory` wrapper; `Rv32Executor` routes LR.W/SC.W through a shared table when `ReservationTable` is set; any write to the shared backing invalidates overlapping reservations so SC fails correctly after a cross-hart store.
-  - [x] `MultiHartKernel`: direct-drive round-robin scheduler for N RISC-V harts against shared physical memory (`RiscV32/MultiCore/`). `Step()` / `Run()`, per-hart `IArchState`, halt detection (EBREAK, HTIF tohost, self-loop). `Rv32Mechanism` accepts `reservationTable` + `hartId` constructor params.
-  - [x] MESI cache coherence: `MoesifCache` (write-back, write-allocate, LRU) + `MoesifBus` (snooping); full state-transition coverage — E→M silent upgrade, S→M via BusReadInvalidate, M→writeback on snoop, eviction writeback; `StateOf()` / `Flush()` inspection hooks; 15 tests in `Tests/Orrery/MoesifCacheTests.cs`.
-  - [x] Wire `MoesifCache` / `MoesifBus` into `MultiHartKernel` (per-hart `IMemory[]` overload).
-  - [x] LR/SC over MESI: `MoesifBus(backing, table:)` calls `table.InvalidateAt(lineBase, blockSize)` inside `BusReadInvalidate`, covering write-miss and S→M upgrade paths without `ReservationAwareMemory`.
-  - [x] LR/SC silent-upgrade gap: `MoesifCache` now calls `_bus.BusSilentUpgrade(lineBase)` on E→M write hits; `MoesifBus.BusSilentUpgrade` calls `_table?.InvalidateAt` so any remote reservation on the line is cancelled even though no snoop was issued.
-  - [x] `MultiHartPipeline`: ISA-agnostic coordinator (`Pipeline/`) that steps N `ISteppableTrain` instances round-robin per cycle; `ISteppableTrain` interface in `Orrery/Train/` with `BeginStepping()`, `StepCycle()`, `IsIdle`, `FinishStepping()`; all five train types implement it. Tested with all five train types including FiveStageTrain MESI coherence.
-  - [x] `SmtTrain`: barrel-processor SMT train (`Pipeline/`) with N per-hart contexts sharing an `issueWidth`-wide issue window; round-robin slot distribution with per-cycle starting-hart rotation; per-hart `IMechanism[]` + `IMemory[]` constructor; `StateOf(hartId)`, `HartCount`; implements `ISteppableTrain`.
-  - [x] LR/SC atomics across pipeline trains: `MultiHartPipeline` with `SingleCycleTrain` per hart, `MoesifBus(flat, table:)` + `Rv32Mechanism(reservationTable:, hartId:)` — reservation cancelled by cross-hart store via BusReadInvalidate; SC.W returns 1 (failure) and register reads the failed result.
-  - [x] OoO MESI coherence via `MultiHartPipeline`: `OooeTrain` per hart; store commits to cache0 at ROB-head (cycle ~9); nop-padded H1 program delays the load to cycle ~13; BusRead snoop transitions cache0 M→S and cache1 installs S. Note: OooeTrain's PRF starts zeroed — register pre-init via `ArchState.IntegerRegisters.Write` is ineffective; all values must be computed in-program.
-  - [x] OoO LR/SC atomics across pipeline trains: `OooeTrain` per hart + `SingleCycleTrain` cross-hart; `ITooth.IsStoreConditional` DIM head-gates SC.W at ROB head (so all intra-hart stores have committed before TryConsume fires); two tests: ScFails (H1 SW cancels reservation at outer tick 7, SC.W TryConsume at tick 8 sees no reservation → x4=1) and ScSucceeds (no cross-hart store → x4=0).
-  - [x] Directory-based coherence (`DirectoryBus`): point-to-point invalidation via per-line sharer directory; `IBus.Evicted` DIM keeps sharer sets precise (called from `EvictWay` and voluntary `LocalInvalidate`; NOT from snoop handlers); drop-in for `MoesifBus` in sequential `Run()`; 10 tests in `Tests/Orrery/DirectoryBusTests.cs`.
-  - [x] MOESI cache-to-cache supply: added the Owned state — a read miss is filled directly by the M/O/E holder (`SnoopRead` copies the block into the requester's way); a dirty supplier keeps writeback responsibility as O instead of writing back, so backing stays stale until eviction/invalidation/cbo. New `IBus.BusSyncToBacking` forces dirty holders (including the requester itself — fixes a pre-existing staleness bug) to write back before block-boundary-crossing accesses read backing directly. `DirectoryBus` gained the combined owner+sharers entry form for O lines; `DeferredBus.Drain` replays supplies via `RefillFromSupply`. Timing: supplied fills charge `PeerSupplyLatency` (default = `MissLatency`), counted in `PeerSupplies`. All `Mesi*` types renamed `Moesif*`.
-  - [x] Cache-to-cache supply on write misses (RFO): new `IBus.BusReadForOwnership` — an M/O/E holder forwards the block into the requester's way as it invalidates (`SnoopInvalidateForward`, no writeback; the requester's new M copy is authoritative), S holders just invalidate. Write-miss reservation cancellation moved from `BusReadInvalidate` to the RFO. `BusReadInvalidate` (writeback semantics) remains for S/O→M upgrades and block-boundary-crossing writes, where backing must be current. Forwarded fills charge `PeerSupplyLatency` and count in `PeerSupplies`. `DeferredBus` replays the RFO in phase 2 and discards the forwarded data (phase-1 M copy is authoritative); cycle-identity with sequential `Run` now explicitly requires `PeerSupplyLatency == MissLatency` (the default).
-  - [x] MESIF Forward state: added `MoesifState.Forward` — the protocol is now full MOESIF (all `Moesi*` types renamed `Moesif*`). Exactly one sharer of a clean line holds F and supplies read misses cache-to-cache (E/F suppliers drop to S); the F role migrates to the most recent requester per Intel MESIF, including when memory supplies a forwarder-less shared line. F is clean: eviction/invalidation drop it without writeback, and F→M write hits go through `BusReadInvalidate` like S/O. `BusReadResponse` split into `NoSharers`/`Shared`/`SuppliedClean`/`SuppliedDirty` so requesters install E/F/F/S respectively; `DirectoryBus`'s Owner slot generalized to "designated responder" (M/E/O/F); `DeferredBus` phase-2 correction (`UpdateCoherenceState`) now also promotes S→F so same-tick cross-hart read-read converges to the sequential F placement. F holders forward on RFO write misses too.
-  - [x] TSO fence modeling: `RvFence(Pred, Succ, Fm)` decodes the ordering sets (and `fence.i`/Zifencei now decodes as a NOP instead of throwing); `ITooth.IsStoreLoadFence` marks fences with W in pred and R in succ (incl. FENCE.TSO) — the only flavour with an observable effect under TSO, since store→load is the only reordering the OoO train performs (write buffer). `OooeTrain`: such a fence issues only at the ROB head with the write buffer fully drained; younger loads are gated while it is in the ROB (`HasPrecedingStoreLoadFence`). Other fence flavours and all in-order trains are timing no-ops. Tests (`TsoFenceTests`): WB-drain delays post-fence load; `fence r,r` is cycle-identical to nop; MP litmus on two OoO harts over MESI.
-  - [x] Multi-hart concurrency — two-phase tick (`RunConcurrent`): run each hart's `StepCycle()` in parallel threads per tick, preserving bit-identical results vs. sequential `Run()` for well-synchronized programs (defined as: no hart reads a cache line in the same outer tick that another hart writes it — guaranteed by correct use of LR/SC or TSO fences). Same-tick cross-hart write-then-read is a data race whose outcome is undefined in concurrent mode. Six implementation parts:
-    - [x] **Part A — `IBus` interface** (`Orrery/Cache/IBus.cs`): extract `Backing`, `Register`, `BusRead`, `BusReadInvalidate`, `BusSilentUpgrade`, `BusLoad`, `Writeback`; `MoesifBus` implements `IBus` (bus-protocol methods `internal` → `public`); `MoesifCache` constructor takes `IBus` instead of `MoesifBus`. No behavior change; all existing tests pass.
-    - [x] **Part B — `MoesifCache` phase-2 hooks**: `internal UpdateCoherenceState(ulong lineBase, bool shared)` — corrects E→S when phase-2 BusRead reveals a peer held the line (no-op for M, so a same-tick write is never downgraded); `internal RefillFromBacking(ulong lineBase)` — re-reads backing into a non-M line after a cross-hart writeback lands in phase 2 (skips M so intra-hart writes are never clobbered). Both called only by `DeferredBus.Drain()`.
-    - [x] **Part C — `DeferredBus`** (`Orrery/Cache/DeferredBus.cs`): wraps a `MoesifBus`; `BusRead/BusReadInvalidate/BusSilentUpgrade/BusLoad` queue their ops and return immediately (no snoop, no stall); `Writeback` queues op + copies block bytes; `Register` and `Backing` delegate to the real bus; `Drain()` replays the queue in issue order against the real `MoesifBus`, calling `UpdateCoherenceState` and `RefillFromBacking` after each `BusRead`; `Clear()` resets the queue. No `AdditionalMissLatency` — `BusRead` returns `false` (well-synchronized programs have no M-state peer at that tick, so backing is authoritative and the E install is correct), keeping cycle counts identical to sequential.
-    - [x] **Part D — `MultiHartPipeline.RunConcurrent(DeferredBus[], long maxTicks)`**: phase 1 uses `Parallel.For` over all non-halted harts, calling `StepCycle()` per thread; halt flags written per-index (no sharing), `anyActive` updated via `Interlocked.Exchange`; phase 2 serially drains then clears each `DeferredBus[i]` in H0→HN order. Halt/exit logic identical to `Run()`. Sequential `Run()` is unchanged and remains the default.
-    - [x] **Part E — Tests** (`Tests/RiscV32/MultiHartPipelineTests.cs`): (1) two independent `SingleCycleTrain` harts via `RunConcurrent` — assert same register values as `Run()` (bit-identical check across both modes); (2) well-separated OoO producer-consumer (`OooeTrain`, same 15-nop structure as existing `OoOHarts_MesiCoherence_*`) via `RunConcurrent` — assert `x3 == 0xCAFE` and both caches Shared.
-    - [x] **Part F — XML doc on `RunConcurrent`**: state the bit-identical contract, define "well-synchronized," and name `Run()` as the correctness reference for programs that require same-tick cross-hart write-then-read ordering.
+- [x] MOESIF cache coherence: MOESI + MESIF Forward state; snooping bus and directory bus.
+- [x] Cache-to-cache supply on read and write misses (RFO forwarding).
+- [x] TSO fence modeling: store→load FENCE drains the write buffer.
+- [x] LR/SC memory safeguard across pipeline trains and cache buses.
+- [x] `MultiHartKernel`: round-robin scheduler for N RISC-V harts against shared memory.
+- [x] `MultiHartPipeline`: ISA-agnostic coordinator for N `ISteppableTrain` instances.
+- [x] `SmtTrain`: barrel-processor SMT with N per-hart contexts sharing an issue window.
+- [x] `RunConcurrent`: two-phase parallel tick with `DeferredBus` for well-synchronized programs.
+- [ ] AMBA CHI (Coherent Hub Interface): point-to-point request/response/snoop channels as an alternative to the snooping bus; needed for large core counts where broadcast is impractical.
+- [ ] NUMA topology: model non-uniform memory access latency across banks or NUMA nodes.
+- [ ] Memory-side cache (HBM-style): a large, flat last-level cache sitting between the coherence fabric and off-chip DRAM.
+- [ ] Network-on-chip (NoC) model: mesh or torus with wormhole routing and virtual channels, replacing the broadcast bus. — BookSim2 (Jiang et al., ISPASS 2013); Garnet (gem5)
+- [ ] Persistent memory (CXL / PMDK): model CXL.mem-attached byte-addressable storage with ordering and persistence semantics.
+- [ ] Near-Data Processing (NDP): attach compute units at the cache or DRAM level and model their interaction with the coherence fabric; see NDPmulator (INESC-ID, gem5-based) as a reference design. https://github.com/hpc-ulisboa/NDPmulator
 
 ## Orrery
 
 - [ ] Generic definition for a parser.
+- [ ] Clock domain crossing: model multiple frequency domains (e.g., core at 3 GHz, uncore/LLC at 1.5 GHz) with synchronization FIFOs.
+- [ ] Interrupt controller model (PLIC/APLIC): route external and inter-processor interrupts to the correct hart and privilege level.
+
+## Tools
+
+External tools worth evaluating for integration, co-sim, or methodology comparison.
+
+### Simulators and trace frameworks
+
+- **ChampSim** — trace-based µarch simulator; the baseline infrastructure for CBP and CRC (cache replacement) competitions. Useful for validating Horologium's branch predictor and cache replacement implementations against competition submissions. https://github.com/ChampSim/ChampSim
+- **Snipersim** — interval-simulation model driven by a Pin front-end; fast parallel simulation for many-core studies. https://snipersim.org
+- **ZSim** — fast x86 simulation with interval timing and detailed cache/coherence models. — Sanchez & Kozyrakis, ISCA 2013. https://github.com/s5z/zsim
+- **DynamoRIO** / **Intel PIN** — dynamic binary instrumentation for generating instruction and memory access traces that feed Horologium's replay path.
+- **Simpoint** — program phase analysis: generates representative samples via BBV clustering to avoid full-program simulation. https://cseweb.ucsd.edu/~calder/simpoint/
+- **gem5-SST bridge** — couple gem5's detailed memory model to SST's network/system simulation for heterogeneous platform studies.
+
+### Memory and DRAM
+
+- **Ramulator2** — flexible, validated DRAM timing model (DDR4/5, LPDDR5, HBM2/3); drop-in backend behind `IMemory`. https://github.com/CMU-SAFARI/ramulator2
+- **DRAMSim3** — cycle-accurate DRAM timing with bandwidth and power traces. https://github.com/umd-memsys/DRAMsim3
+- **NVMain2** — NVM timing model for PCM, ReRAM, 3D XPoint; useful for persistent memory studies.
+- **CACTI** — cache area, access time, and power estimation given capacity, associativity, and technology node.
+
+### Power and energy
+
+- **McPAT** — processor power, area, and timing estimation from architectural event counts; consumes gem5-format statistics. https://github.com/HewlettPackard/mcpat
+- **CARM Tool** (CHAMP Hub / INESC-ID) — cross-platform Cache-Aware Roofline Model benchmarking suite; measures peak FLOP/s and per-level bandwidth ceilings on real Intel/AMD/ARM/RISC-V hardware, providing the empirical baseline against which Horologium's roofline output can be validated. Supports RVV. https://champ-hub.github.io/projects/The_CARM_Tool/
+
+### INESC-ID / HPCAS
+
+- **UVE gem5 model** — gem5 branch with full UVE streaming-engine implementation; primary timing reference for Horologium's UVE execution model. https://github.com/hpc-ulisboa/UVE
+- **UVE2 spec** — C reference implementation of the UVE 2 extension (predicates, scatter/gather, widening/narrowing); the authoritative source for the UVE 2 TODO item. https://github.com/hpc-ulisboa/UVE2
+- **Spike UVE patch** — INESC-ID's Spike fork adding UVE decode and functional execution; the co-simulation oracle for UVE instructions (Baptista MSc 2023). https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
+- **RISC-V-PAPI** — PAPI hardware-counter backend for RISC-V; use to cross-validate Horologium's Zicntr/Zihpm dial values against measurements on real cores (CVA6, SiFive). https://github.com/hpc-ulisboa/RISC-V-PAPI
+- **NDPmulator** — gem5-based Near-Data Processing simulation framework; reference design for NDP compute units attached at cache or DRAM level. https://github.com/hpc-ulisboa/NDPmulator
+- **MIDAS** — CGRA mapping infrastructure: takes C kernels, emits dataflow graphs and PE schedules for synchronous streaming arrays; relevant for understanding how UVE streams map to hardware. https://github.com/hpc-ulisboa/MIDAS
+- **carm-paraver** — overlays CARM roofline plots on Paraver execution traces (BSC's trace analysis format), enabling per-timestep performance/bandwidth visualization. https://github.com/champ-hub/carm-paraver
+- **gpuPTXModel** — LSTM-based static GPU performance model from PTX instruction sequences; predicts execution time, power, and energy under DVFS. https://github.com/hpc-ulisboa/gpuPTXModel
+- **gpupowermodel** — data-driven GPU power model for kernel-level energy characterization. https://github.com/hpc-ulisboa/gpupowermodel
+
+### Formal and RTL verification
+
+- **SAIL RISC-V** — the authoritative formal ISA model; generates test vectors and can serve as an instruction-semantics oracle. https://github.com/riscv/sail-riscv
+- **riscv-formal** — SymbiYosys-based bounded model checking for ISA compliance properties against a decoder/executor; useful for formal correctness proofs. https://github.com/SymbioticEDA/riscv-formal
+- **Verilator** — RTL→C++ cycle-accurate simulation; enables co-simulation against synthesizable RISC-V core RTL (e.g., CVA6, BOOM, Ibex).
 
 ## Other ISAs
 
-| Priority | Architecture     | Paradigm to test                       | Difficulty   |
-|----------|------------------|----------------------------------------|--------------|
-| 1        | ~~SUBLEQ~~       | OISC, no opcode field                  | 1 (Trivial)  |
-| 2        | ~~PDP-8~~        | Accumulator, 12b, minimal opcodes      | 2 (Easy)     |
+| status | Architecture     | Paradigm to test                       | Difficulty   |
+|--------|------------------|----------------------------------------|--------------|
+| - [x]  | ~~SUBLEQ~~       | OISC, no opcode field                  | 1 (Trivial)  |
+| 2      | ~~PDP-8~~        | Accumulator, 12b, minimal opcodes      | 2 (Easy)     |
 | 3        | ~~J1 Forth~~     | Stack machine, packed opcodes          | 2 (Easy)     |
 | 4        | ~~TTA/MOVE~~     | Triggered side-effect execution        | 3 (Medium)   |
 | 5        | ~~GA144 F18A~~   | Async, multi-core, packed 5-op words   | 3 (Medium)   |
