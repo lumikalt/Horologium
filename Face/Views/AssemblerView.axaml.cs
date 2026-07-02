@@ -6,6 +6,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using AvaloniaEdit.Highlighting;
 using Face.Controls;
 using Face.ViewModels;
 using ScottPlot;
@@ -40,8 +41,13 @@ public partial class AssemblerView : UserControl {
     private bool IsDark =>
         Application.Current?.ActualThemeVariant != ThemeVariant.Light;
 
+    private IHighlightingDefinition ActiveHighlighting =>
+        _vm?.IsCMode == true ? CHighlighting.GetDefinition(IsDark) : RvHighlighting.GetDefinition(IsDark);
+
+    private string ActiveSource => _vm?.IsCMode == true ? _vm.CSourceCode : _vm?.SourceCode ?? "";
+
     private void OnThemeVariantChanged(object? sender, EventArgs e) {
-        Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(IsDark);
+        Editor.SyntaxHighlighting = ActiveHighlighting;
         ApplyCacheChartStyle();
         _cacheChartView?.Refresh();
     }
@@ -54,13 +60,19 @@ public partial class AssemblerView : UserControl {
 
         _vm = DataContext as AssemblerViewModel;
         if (_vm == null) return;
-        Editor.Text = _vm.SourceCode;
-        Editor.SyntaxHighlighting = RvHighlighting.GetDefinition(IsDark);
+        Editor.Text = ActiveSource;
+        Editor.SyntaxHighlighting = ActiveHighlighting;
         _vm.PropertyChanged += OnVmPropertyChanged;
         _vm.CacheUpdated += OnCacheUpdated;
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e) {
+        if (e.PropertyName == nameof(AssemblerViewModel.IsCMode)) {
+            Editor.Text = ActiveSource;
+            Editor.SyntaxHighlighting = ActiveHighlighting;
+            return;
+        }
+
         if (e.PropertyName != nameof(AssemblerViewModel.CurrentSourceLine)) return;
         int line = _vm?.CurrentSourceLine ?? 0;
         _lineHighlighter.Line = line;
@@ -113,7 +125,10 @@ public partial class AssemblerView : UserControl {
 
     private void OnEditorTextChanged(object? sender, EventArgs e) {
         if (_vm == null) return;
-        _vm.SourceCode = Editor.Text;
+        if (_vm.IsCMode)
+            _vm.CSourceCode = Editor.Text;
+        else
+            _vm.SourceCode = Editor.Text;
         _debounce?.Dispose();
         _debounce = new Timer(
             _ =>

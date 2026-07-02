@@ -23,10 +23,19 @@ public partial class AssemblerViewModel : ObservableObject {
     [GeneratedRegex(@"^[^ \t]+horologium_asm\.s:", RegexOptions.Multiline)]
     private static partial Regex AsmErrPrefix { get; }
 
+    [GeneratedRegex(@"^[^ \t]*horologium_src\.c:", RegexOptions.Multiline)]
+    private static partial Regex CErrPrefix { get; }
+
     [GeneratedRegex(
         @"^\s*(\d+)\s+([0-9a-fA-F]+)\s+[0-9a-fA-F]", RegexOptions.Multiline
     )]
     private static partial Regex ListingLineRx { get; }
+
+    [GeneratedRegex(@"^(?<path>[^\s].*):(?<line>\d+)(?:\s+\(discriminator \d+\))?$")]
+    private static partial Regex ObjdumpSrcLineRx { get; }
+
+    [GeneratedRegex(@"^\s+(?<addr>[0-9a-fA-F]+):\s")]
+    private static partial Regex ObjdumpInsnRx { get; }
 
     private readonly Rv32Decoder _decoder = new();
     private readonly Rv32Executor _executor = new();
@@ -70,6 +79,27 @@ public partial class AssemblerViewModel : ObservableObject {
             call factorial
             ebreak
         """;
+
+    [ObservableProperty]
+    public partial string CSourceCode { get; set; } =
+        """
+        int factorial(int n) {
+            int result = 1;
+            while (n > 0) {
+                result *= n;
+                n = n - 1;
+            }
+            return result;
+        }
+
+        int main(void) {
+            return factorial(5);
+        }
+        """;
+
+    [ObservableProperty] public partial bool IsCMode { get; set; }
+
+    [ObservableProperty] public partial string OptLevel { get; set; } = "-O1";
 
     [ObservableProperty] public partial string AssembleError { get; set; } = "";
 
@@ -118,6 +148,7 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial int CacheOffsetBits { get; set; }
 
     public static IReadOnlyList<string> PipelineModeLabels { get; } = ["Single Cycle", "5-Stage", "OoO",];
+    public static IReadOnlyList<string> OptLevelOptions { get; } = ["-O0", "-O1", "-O2", "-Os",];
     public static IReadOnlyList<int> CacheCapacityKbOptions { get; } = [1, 2, 4, 8, 16, 32,];
     public static IReadOnlyList<int> CacheWaysOptions { get; } = [1, 2, 4, 8,];
     public static IReadOnlyList<int> CacheBlockBytesOptions { get; } = [8, 16, 32, 64,];
@@ -214,6 +245,11 @@ public partial class AssemblerViewModel : ObservableObject {
         }
 
         OnPropertyChanged(nameof(IsPipelineMode));
+    }
+
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnOptLevelChanged(string _) {
+        if (IsCMode && Instructions.Count > 0 && !IsAssembling) AssembleCommand.Execute(null);
     }
 
     // ReSharper disable once PartialMethodParameterNameMismatch
@@ -338,7 +374,7 @@ public partial class AssemblerViewModel : ObservableObject {
         HasError = false;
         AssembleError = "";
         IsAssembling = true;
-        StatusText = "Assembling…";
+        StatusText = IsCMode ? "Compiling…" : "Assembling…";
 
         try {
             if (OperatingSystem.IsBrowser()) {
@@ -356,76 +392,10 @@ public partial class AssemblerViewModel : ObservableObject {
                 return;
             }
 
-            string tmpDir = Path.GetTempPath();
-            string asmFile = Path.Combine(tmpDir, "horologium_asm.s");
-            string objFile = Path.Combine(tmpDir, "horologium_asm.o");
-            string elfFile = Path.Combine(tmpDir, "horologium_asm.elf");
-            string binFile = Path.Combine(tmpDir, "horologium_asm.bin");
-            string lstFile = Path.Combine(tmpDir, "horologium_asm.lst");
-
-            try {
-                await File.WriteAllTextAsync(asmFile, SourceCode);
-
-                (int asExit, _, string asErr) = await RunProcess(
-                    prefix + "as",
-                    $"-march={GasArchString} -mabi={GasAbi} -mno-relax -al=\"{lstFile}\" -o \"{objFile}\" \"{asmFile}\""
-                );
-                if (asExit != 0) {
-                    HasError = true;
-                    AssembleError = string.IsNullOrWhiteSpace(asErr)
-                        ? $"Assembler exited {asExit}"
-                        : AsmErrPrefix.Replace(asErr, "").Trim();
-                    StatusText = "Assembly failed.";
-                    return;
-                }
-
-                (int ldExit, _, string ldErr) = await RunProcess(
-                    prefix + "ld",
-                    $"-Ttext=0x0 --no-relax -o \"{elfFile}\" \"{objFile}\""
-                );
-                if (ldExit != 0) {
-                    HasError = true;
-                    AssembleError = string.IsNullOrWhiteSpace(ldErr)
-                        ? $"Linker exited {ldExit}"
-                        : ldErr.Trim();
-                    StatusText = "Linking failed.";
-                    return;
-                }
-
-                (int cpExit, _, string cpErr) = await RunProcess(
-                    prefix + "objcopy",
-                    $"-O binary -j .text \"{elfFile}\" \"{binFile}\""
-                );
-                if (cpExit != 0) {
-                    HasError = true;
-                    AssembleError = string.IsNullOrWhiteSpace(cpErr)
-                        ? $"objcopy exited {cpExit}"
-                        : cpErr.Trim();
-                    StatusText = "Binary extraction failed.";
-                    return;
-                }
-
-                byte[] elfBytes = await File.ReadAllBytesAsync(elfFile);
-                byte[] binary = await File.ReadAllBytesAsync(binFile);
-                if (binary.Length == 0) {
-                    HasError = true;
-                    AssembleError = "Empty binary — no .text section produced.";
-                    StatusText = "Assembly produced no code.";
-                    return;
-                }
-
-                string lstContent = File.Exists(lstFile) ? await File.ReadAllTextAsync(lstFile) : "";
-                _pcToLine = ParseListing(lstContent);
-                _elfBytes = elfBytes;
-                LoadBinary(binary);
-            }
-            finally {
-                TryDelete(asmFile);
-                TryDelete(objFile);
-                TryDelete(elfFile);
-                TryDelete(binFile);
-                TryDelete(lstFile);
-            }
+            if (IsCMode)
+                await CompileC(prefix);
+            else
+                await AssembleAsm(prefix);
         }
         catch (Exception ex) {
             HasError = true;
@@ -433,6 +403,180 @@ public partial class AssemblerViewModel : ObservableObject {
             StatusText = "Error.";
         }
         finally { IsAssembling = false; }
+    }
+
+    private async Task AssembleAsm(string prefix) {
+        string tmpDir = Path.GetTempPath();
+        string asmFile = Path.Combine(tmpDir, "horologium_asm.s");
+        string objFile = Path.Combine(tmpDir, "horologium_asm.o");
+        string elfFile = Path.Combine(tmpDir, "horologium_asm.elf");
+        string binFile = Path.Combine(tmpDir, "horologium_asm.bin");
+        string lstFile = Path.Combine(tmpDir, "horologium_asm.lst");
+
+        try {
+            await File.WriteAllTextAsync(asmFile, SourceCode);
+
+            (int asExit, _, string asErr) = await RunProcess(
+                prefix + "as",
+                $"-march={GasArchString} -mabi={GasAbi} -mno-relax -al=\"{lstFile}\" -o \"{objFile}\" \"{asmFile}\""
+            );
+            if (asExit != 0) {
+                HasError = true;
+                AssembleError = string.IsNullOrWhiteSpace(asErr)
+                    ? $"Assembler exited {asExit}"
+                    : AsmErrPrefix.Replace(asErr, "").Trim();
+                StatusText = "Assembly failed.";
+                return;
+            }
+
+            (int ldExit, _, string ldErr) = await RunProcess(
+                prefix + "ld",
+                $"-Ttext=0x0 --no-relax -o \"{elfFile}\" \"{objFile}\""
+            );
+            if (ldExit != 0) {
+                HasError = true;
+                AssembleError = string.IsNullOrWhiteSpace(ldErr)
+                    ? $"Linker exited {ldExit}"
+                    : ldErr.Trim();
+                StatusText = "Linking failed.";
+                return;
+            }
+
+            byte[]? binary = await ExtractBinary(prefix, elfFile, binFile);
+            if (binary == null) return;
+
+            string lstContent = File.Exists(lstFile) ? await File.ReadAllTextAsync(lstFile) : "";
+            _pcToLine = ParseListing(lstContent);
+            LoadBinary(binary);
+        }
+        finally {
+            TryDelete(asmFile);
+            TryDelete(objFile);
+            TryDelete(elfFile);
+            TryDelete(binFile);
+            TryDelete(lstFile);
+        }
+    }
+
+    // Startup stub for C mode: place the stack at the top of the 1 MiB FlatMemory,
+    // run main, then halt. Linked first so _start sits at PC 0.
+    private const string CStartStub =
+        """
+            .text
+            .globl _start
+        _start:
+            li   sp, 0x100000
+            call main
+            ebreak
+        """;
+
+    private async Task CompileC(string prefix) {
+        string tmpDir = Path.GetTempPath();
+        string srcFile = Path.Combine(tmpDir, "horologium_src.c");
+        string srcObj = Path.Combine(tmpDir, "horologium_src.o");
+        string startFile = Path.Combine(tmpDir, "horologium_start.s");
+        string startObj = Path.Combine(tmpDir, "horologium_start.o");
+        string elfFile = Path.Combine(tmpDir, "horologium_src.elf");
+        string binFile = Path.Combine(tmpDir, "horologium_src.bin");
+
+        try {
+            await File.WriteAllTextAsync(srcFile, CSourceCode);
+            await File.WriteAllTextAsync(startFile, CStartStub);
+
+            // -fno-reorder-functions: at -O2/-Os gcc otherwise moves main into
+            // .text.startup, which the default linker script places before the
+            // stub's .text — dislodging _start from PC 0.
+            (int ccExit, _, string ccErr) = await RunProcess(
+                prefix + "gcc",
+                $"-march={GasArchString} -mabi={GasAbi} {OptLevel} -fno-reorder-functions "
+                + $"-g -ffreestanding -nostdlib -mno-relax -c \"{srcFile}\" -o \"{srcObj}\""
+            );
+            if (ccExit != 0) {
+                HasError = true;
+                AssembleError = string.IsNullOrWhiteSpace(ccErr)
+                    ? $"Compiler exited {ccExit}"
+                    : CErrPrefix.Replace(ccErr, "").Trim();
+                StatusText = "Compilation failed.";
+                return;
+            }
+
+            (int asExit, _, string asErr) = await RunProcess(
+                prefix + "as",
+                $"-march={GasArchString} -mabi={GasAbi} -mno-relax -o \"{startObj}\" \"{startFile}\""
+            );
+            if (asExit != 0) {
+                HasError = true;
+                AssembleError = string.IsNullOrWhiteSpace(asErr) ? $"Assembler exited {asExit}" : asErr.Trim();
+                StatusText = "Startup stub assembly failed.";
+                return;
+            }
+
+            (int ldExit, _, string ldErr) = await RunProcess(
+                prefix + "ld",
+                $"-Ttext=0x0 --no-relax -e _start -o \"{elfFile}\" \"{startObj}\" \"{srcObj}\""
+            );
+            if (ldExit != 0) {
+                HasError = true;
+                AssembleError = string.IsNullOrWhiteSpace(ldErr)
+                    ? $"Linker exited {ldExit}"
+                    : ldErr.Trim();
+                StatusText = "Linking failed.";
+                return;
+            }
+
+            byte[]? binary = await ExtractBinary(prefix, elfFile, binFile);
+            if (binary == null) return;
+
+            // The trains always start at PC 0, so the stub must be first in .text.
+            uint entry = BitConverter.ToUInt32(_elfBytes!, 0x18);
+            if (entry != 0) {
+                HasError = true;
+                AssembleError = $"_start linked at 0x{entry:X}, not 0 — the simulator starts at PC 0.";
+                StatusText = "Bad entry point.";
+                return;
+            }
+
+            (int odExit, string odOut, _) = await RunProcess(prefix + "objdump", $"-d -l \"{elfFile}\"");
+            _pcToLine = odExit == 0 ? ParseObjdump(odOut) : [];
+            LoadBinary(binary);
+        }
+        finally {
+            TryDelete(srcFile);
+            TryDelete(srcObj);
+            TryDelete(startFile);
+            TryDelete(startObj);
+            TryDelete(elfFile);
+            TryDelete(binFile);
+        }
+    }
+
+    /// Runs objcopy to extract .text, reads the ELF + flat binary, and stores the ELF
+    /// for memory loading. Returns null (with error state set) on failure.
+    private async Task<byte[]?> ExtractBinary(string prefix, string elfFile, string binFile) {
+        (int cpExit, _, string cpErr) = await RunProcess(
+            prefix + "objcopy",
+            $"-O binary -j .text \"{elfFile}\" \"{binFile}\""
+        );
+        if (cpExit != 0) {
+            HasError = true;
+            AssembleError = string.IsNullOrWhiteSpace(cpErr)
+                ? $"objcopy exited {cpExit}"
+                : cpErr.Trim();
+            StatusText = "Binary extraction failed.";
+            return null;
+        }
+
+        byte[] elfBytes = await File.ReadAllBytesAsync(elfFile);
+        byte[] binary = await File.ReadAllBytesAsync(binFile);
+        if (binary.Length == 0) {
+            HasError = true;
+            AssembleError = "Empty binary — no .text section produced.";
+            StatusText = "Assembly produced no code.";
+            return null;
+        }
+
+        _elfBytes = elfBytes;
+        return binary;
     }
 
     [RelayCommand]
@@ -447,7 +591,7 @@ public partial class AssemblerViewModel : ObservableObject {
     [RelayCommand]
     private async Task Run() {
         if (!CanStep) return;
-        await _runCts?.CancelAsync()!;
+        if (_runCts != null) await _runCts.CancelAsync();
         _runCts = new CancellationTokenSource();
         CancellationToken token = _runCts.Token;
 
@@ -788,6 +932,31 @@ public partial class AssemblerViewModel : ObservableObject {
         foreach (Match m in ListingLineRx.Matches(text))
             if (ulong.TryParse(m.Groups[2].Value, NumberStyles.HexNumber, null, out ulong addr))
                 map.TryAdd(addr, int.Parse(m.Groups[1].Value));
+        return map;
+    }
+
+    /// Parses `objdump -d -l` output: a `path:NN` marker line applies to the
+    /// instruction addresses that follow it, until the next marker.
+    private static Dictionary<ulong, int> ParseObjdump(string text) {
+        var map = new Dictionary<ulong, int>();
+        var currentLine = 0;
+        foreach (string rawLine in text.Split('\n')) {
+            string line = rawLine.TrimEnd();
+            Match src = ObjdumpSrcLineRx.Match(line);
+            if (src.Success) {
+                currentLine = src.Groups["path"].Value.EndsWith("horologium_src.c")
+                    ? int.Parse(src.Groups["line"].Value)
+                    : 0;
+                continue;
+            }
+
+            if (currentLine == 0) continue;
+            Match insn = ObjdumpInsnRx.Match(line);
+            if (insn.Success
+                && ulong.TryParse(insn.Groups["addr"].Value, NumberStyles.HexNumber, null, out ulong addr))
+                map.TryAdd(addr, currentLine);
+        }
+
         return map;
     }
 
