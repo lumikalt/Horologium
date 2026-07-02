@@ -74,10 +74,16 @@
   - [x] Write buffer (WB∝w) + MSHR cap + D-cache write port + prefetcher (Phase 3).
   - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
 - [ ] STF (Simulation Trace Format) binary output.
-- [ ] gcd benchmark fails its HTIF self-check (tohost FAIL code) on all three trains
-  (`BenchmarkTests` gcd rows). Pre-existing — fails at commit 06b0ece, before the
-  prefetch-latency and TSO-fence work; the calibration sweep reads only IPC, so it
-  slipped through. Rebuild `TestBinaries/benchmarks/gcd.elf` or fix its verify data.
+- [x] gcd benchmark fails its HTIF self-check (exit code 50) on all three trains —
+  root cause was a bug in `gcd_main.c` itself, not the simulator: the intended
+  `% 1000000007` reduction (promised by its own comment) was missing, so fib(47)
+  overflowed int32 at i=46, went negative, and truncated-division `%` made `gcd()`
+  return −1, tripping the `g <= 0` verify. Spike failed the old ELF with the identical
+  exit code, confirming Horologium executed it faithfully. Fixed the source, added
+  gcd/treesum/pchase to the riscv-tests benchmarks Makefile (`make XLEN=32
+  RISCV_PREFIX=riscv32-none-elf-`), rebuilt gcd.elf (Spike-verified PASS). gcd IPC
+  moves ~+4% (+Matched 0.260/0.267/0.269 → 0.273/0.279/0.281); DIV-bound character
+  and Phase 12 conclusions unchanged — see the dated note in docs/olympia-calibration.md.
 
 ### Calibration research: open structural gaps
 

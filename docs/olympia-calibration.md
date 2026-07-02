@@ -385,6 +385,18 @@ Fibonacci-spaced input pairs. Every loop iteration executes `b = a % b` — a si
 instruction on the 23-cycle DIV path. This makes the benchmark almost entirely DIV-bound
 and directly stress-tests the MulDivLatency mismatch.
 
+> **Note (2026-07-02): gcd source bug fixed and ELF rebuilt.** The original
+> `gcd_main.c` omitted the `% 1000000007` reduction its own comment promised: fib(47)
+> overflows int32 at i=46, `g_a` goes negative, and C's truncated-division `%` lets
+> `gcd()` return −1 — tripping the `g <= 0` self-check (exit code 50, first failure at
+> i=49). Spike fails the old binary identically, confirming every Horologium train
+> executed it faithfully; it slipped through because the calibration sweep reads only
+> IPC, never the HTIF PASS verdict (`BenchmarkTests` caught it). The timed region ran
+> to completion either way, so gcd IPC rows in earlier phases were measured with the
+> overflowing values: after the fix, +Matched IPC moves 0.260/0.267/0.269 →
+> 0.273/0.279/0.281 (w2/3/8, ~+4%); the benchmark remains DIV-bound and the Phase 12
+> conclusions stand. Olympia-side gcd rows were not re-run.
+
 **treesum** (`TestBinaries/riscv-tests/benchmarks/treesum/treesum_main.c`): binary tree
 sum on a depth-9 pool-allocated tree (511 internal nodes). The `tree_sum` function has
 **two** recursive call sites (left child, right child), so its `ret` instruction must
@@ -642,9 +654,13 @@ Stride prefetcher on the +Matched config, prefetch latency 10 (= the L1 miss pen
 | qsort    | 0.693/0.754/0.762 | 0.694/0.755/0.763 | 0.694/0.755/0.763     | 264/219/180 |
 | rsort    | 1.204/1.321/1.399 | 1.211/1.323/1.403 | 1.210/1.323/1.403     | 171/126/67  |
 | memcpy   | 0.613/0.750/1.103 | 0.616/0.760/1.108 | 0.614/0.758/1.112     | 634/497/446 |
-| gcd      | 0.260/0.267/0.269 | 0.260/0.267/0.269 | 0.260/0.267/0.269     | 1/0/0    |
+| gcd      | 0.273/0.279/0.281 | 0.273/0.279/0.281 | 0.273/0.279/0.281     | 0/0/0    |
 | treesum  | 0.692/0.801/0.774 | 0.693/0.805/0.779 | 0.693/0.805/0.779     | 39/42/26 |
 | pchase   | 0.609/0.673/0.769 | 0.609/0.673/0.769 | 0.609/0.673/0.769     | 0/0/0    |
+
+(The gcd row was re-measured 2026-07-02 with the rebuilt, self-check-passing gcd.elf —
+see the note under §"New benchmarks". All other rows predate that rebuild and are
+unaffected.)
 
 Three findings, all confirming the idealized-ceiling hypothesis:
 
