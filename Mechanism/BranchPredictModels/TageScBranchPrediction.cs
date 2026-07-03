@@ -12,7 +12,7 @@ namespace Mechanism.BranchPredictModels;
 /// override and is applied after SC.
 /// </para>
 /// </summary>
-public sealed class TageScLPredictor : LTagePredictor {
+public class TageScLPredictor : LTagePredictor {
     private static readonly int[] ScHistLengths = [0, 8, 16, 24,];
     private const int ScTableSize = 128;
     private const int ScThreshold = 10;

@@ -159,7 +159,7 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [x] ITTAGE (tagged geometric history; indirect targets). — Seznec & Michaud, JILP 2006 (TAGE base); Seznec, CBP-4 2011
 - [x] BATAGE. — Seznec, CBP 2016
 - [x] IMLI: inter-iteration loop branch predictor (counts loop iterations in hardware). — Jiménez, IEEE CAL 2018
-- [ ] LLBP: https://ieeexplore.ieee.org/abstract/document/11408567/
+- [x] LLBP: The Last-Level Branch Predictor — Schall et al., MICRO 2024. Context-addressed backing store on top of TAGE-SC-L, keyed by a Rolling Context Register (RCR) that hashes recent taken-branch PCs. https://ieeexplore.ieee.org/abstract/document/11408567/
 - [ ] VLA-TAGE: https://ieeexplore.ieee.org/document/11417886
 - [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
 - [ ] CBP-2025 front runner: correlate on register values rather than history.
