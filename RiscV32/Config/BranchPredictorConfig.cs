@@ -25,6 +25,7 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(TrueOracleConfig), "true_oracle")]
 [JsonDerivedType(typeof(ImliConfig), "imli")]
 [JsonDerivedType(typeof(LlbpConfig), "llbp")]
+[JsonDerivedType(typeof(LlbpXConfig), "llbp_x")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
@@ -69,6 +70,7 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig TrueOracle() => new TrueOracleConfig();
     public static BranchPredictorConfig Imli(int phtSize = 65536, int btbSize = 1024) => new ImliConfig(phtSize, btbSize);
     public static BranchPredictorConfig Llbp() => new LlbpConfig();
+    public static BranchPredictorConfig LlbpX() => new LlbpXConfig();
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -142,6 +144,10 @@ public sealed record ImliConfig(int PhtSize = 65536, int BtbSize = 1024) : Branc
 
 public sealed record LlbpConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() => new LlbpPredictor();
+}
+
+public sealed record LlbpXConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new LlbpXPredictor();
 }
 
 public sealed record TrueOracleConfig : BranchPredictorConfig {

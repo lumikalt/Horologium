@@ -16,25 +16,34 @@ namespace Mechanism.BranchPredictModels;
 /// the original paper's taxonomy).
 /// </para>
 /// </summary>
-public sealed class LlbpPredictor : TageScLPredictor {
-    private readonly RollingContextReg _rcr = new();
-    private readonly LlbpStorage _storage = new();
+public class LlbpPredictor : TageScLPredictor {
+    private protected readonly RollingContextReg _rcr = new();
+    private protected readonly LlbpStorage _storage = new();
 
-    private bool _llbpIsProvider;
-    private int  _llbpHistIdx = -1;
-    private int  _llbpPatternKey;
-    private uint _llbpCtxKey;
-    private int  _lastProvider = -1;
+    protected bool _llbpIsProvider;
+    protected int  _llbpHistIdx = -1;
+    protected int  _llbpPatternKey;
+    protected uint _llbpCtxKey;
+    protected int  _lastProvider = -1;
 
     /// <summary>Number of times LLBP overrode TAGE's direction.</summary>
-    public int LlbpOverrides { get; private set; }
+    public int LlbpOverrides { get; protected set; }
 
     protected override bool ResolvePrediction(ulong pc, int provider, bool tagePred) {
         _lastProvider = provider;
         _llbpIsProvider = false;
         _llbpHistIdx = -1;
-        _llbpCtxKey = _rcr.ContextId;
 
+        if (TryLlbpPredict(pc, provider, out bool llbpPred)) {
+            _llbpIsProvider = true;
+            LlbpOverrides++;
+            return base.ResolvePrediction(pc, provider, llbpPred);
+        }
+        return base.ResolvePrediction(pc, provider, tagePred);
+    }
+
+    protected virtual bool TryLlbpPredict(ulong pc, int provider, out bool pred) {
+        _llbpCtxKey = _rcr.ContextId;
         PatternMap? pm = _storage.Get(_llbpCtxKey);
         if (pm != null) {
             for (int t = NumTables - 1; t >= 0; t--) {
@@ -42,54 +51,62 @@ public sealed class LlbpPredictor : TageScLPredictor {
                 if (!pm.TryGet(key, out sbyte ctr)) continue;
                 _llbpHistIdx = t;
                 _llbpPatternKey = key;
-                if (t >= provider) {
-                    _llbpIsProvider = true;
-                    LlbpOverrides++;
-                    return base.ResolvePrediction(pc, provider, ctr >= 0);
-                }
+                if (t >= provider) { pred = ctr >= 0; return true; }
                 break;
             }
         }
-        return base.ResolvePrediction(pc, provider, tagePred);
+        pred = false;
+        return false;
     }
 
     protected override void OnAfterUpdate(ulong pc, bool taken, bool provPred, int preScore, bool loopWasConfident) {
         base.OnAfterUpdate(pc, taken, provPred, preScore, loopWasConfident);
+        TrainLlbp(pc, taken, provPred);
+        if (taken) _rcr.Update(pc);
+    }
 
+    protected virtual void TrainLlbp(ulong pc, bool taken, bool provPred) {
         if (_llbpIsProvider && _llbpHistIdx >= 0) {
             _storage.GetOrCreate(_llbpCtxKey).SatUpdate(_llbpPatternKey, taken);
-        }
-        else if (provPred != taken) {
+        } else if (provPred != taken) {
             int allocTable = _lastProvider + 1;
             if ((uint)allocTable < (uint)NumTables)
                 _storage.GetOrCreate(_llbpCtxKey).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
         }
-
-        if (taken) _rcr.Update(pc);
     }
 
-    private int PatternKey(ulong pc, int t) => (TageTag(pc, t) << 2) | t;
+    protected int PatternKey(ulong pc, int t) => (TageTag(pc, t) << 2) | t;
 }
 
 internal sealed class RollingContextReg {
     private const int MaxWindow = 120;
-    private const int W = 8;
-    private const int D = 8;
-    private const int S = 2;
-    private const int CtWidth = 14;
+    private const int W         = 8;
+    private const int WShallow  = 2;
+    private const int WDeep     = 64;
+    private const int D         = 8;
+    private const int S         = 2;
+    private const int CtWidth   = 14;
 
     private readonly ulong[] _window = new ulong[MaxWindow];
     private int _head;
     private int _count;
     private uint _ccid;
+    private uint _cidShallow;
+    private uint _cidDeep;
 
-    public uint ContextId => _ccid;
+    public uint ContextId  => _ccid;
+    public uint CidShallow => _cidShallow;
+    public uint CidDeep    => _cidDeep;
 
     public void Update(ulong pc) {
         _window[_head] = pc;
         _head = (_head + 1) % MaxWindow;
         if (_count < MaxWindow) _count++;
-        if (_count == MaxWindow) _ccid = CalcHash(W, D);
+        if (_count == MaxWindow) {
+            _ccid      = CalcHash(W,        D);
+            _cidShallow = CalcHash(WShallow, D);
+            _cidDeep   = CalcHash(WDeep,    D);
+        }
     }
 
     private uint CalcHash(int n, int start) {
@@ -107,12 +124,17 @@ internal sealed class RollingContextReg {
 }
 
 internal sealed class PatternMap {
-    private const int Cap = 16;
+    private const int Cap    = 16;
     private const int CtrMin = -4;
-    private const int CtrMax = 3;
+    private const int CtrMax =  3;
 
     private readonly (int Key, sbyte Ctr, bool Valid)[] _e = new (int, sbyte, bool)[Cap];
     private int _clock;
+
+    public bool IsFull() {
+        for (int i = 0; i < Cap; i++) if (!_e[i].Valid) return false;
+        return true;
+    }
 
     public bool TryGet(int key, out sbyte ctr) {
         for (int i = 0; i < Cap; i++) {

@@ -9,12 +9,15 @@
 - [x] Compile from C to disassembly and simulate that.
 - [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS
   subprocess.
+  - Also a C compiler...
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline waterfall.
 - [x] Light mode.
 - [ ] Work with other ISAs, not just RISC-V.
 - [ ] Waveform/signal viewer: plot pipeline signals (IPC, cache hit rate, branch mispredictions) over simulation time.
 - [ ] Power/energy estimation display alongside performance (McPAT-style: dynamic + leakage per unit).
+- [ ] Vector operation visualization.
+  - Gotta think of how this should be done.
 
 ## CHIP8
 
@@ -160,6 +163,7 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [x] BATAGE. — Seznec, CBP 2016
 - [x] IMLI: inter-iteration loop branch predictor (counts loop iterations in hardware). — Jiménez, IEEE CAL 2018
 - [x] LLBP: The Last-Level Branch Predictor — Schall et al., MICRO 2024. Context-addressed backing store on top of TAGE-SC-L, keyed by a Rolling Context Register (RCR) that hashes recent taken-branch PCs. https://ieeexplore.ieee.org/abstract/document/11408567/
+- [x] LLBP-X: The Last-Level Branch Predictor Revisited — Schall et al., HPCA 2026. Extends LLBP with dynamic context-depth adaptation via a Context Tracking Table (CTT): shallow W=2 contexts promote to deep W=64 when their pattern set fills and history-length trends long; short/long history ranges are kept in separate storage partitions. `LlbpXPredictor : LlbpPredictor`. https://ieeexplore.ieee.org/document/11408567
 - [ ] VLA-TAGE: https://ieeexplore.ieee.org/document/11417886
 - [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
 - [ ] CBP-2025 front runner: correlate on register values rather than history.
@@ -330,9 +334,9 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 | CDC 6600           | 60-bit ones' complement (two zeros!), scoreboard, plus 10 barrel-threaded PPUs         | 4     |
 | Transputer T800    | CSP channels in hardware, on-chip process scheduler, workspace-relative addressing     | 4     |
 | Tera MTA           | 128-way barrel multithreading, full/empty bits on every memory word, no cache          | 4     |
+| Pendulum (PISA)    | Fully reversible ISA — every instruction must be invertible, no destructive writes     | 4     |
 | Mill Belt          | Belt-machine, no register file                                                         | 5     |
 | TRIPS/WaveScalar   | True dataflow, no PC                                                                   | 5     |
 | Intel iAPX 432     | Bit-aligned variable-length instructions (6–321 bits), capability objects, hardware GC | 5     |
 | Burroughs B1700    | Bit-addressable memory, reconfigurable microarchitecture                               | 5     |
-| Pendulum (PISA)    | Fully reversible ISA — every instruction must be invertible, no destructive writes     | 4     |
 | Rekursiv           | Object-oriented down to the microcode, persistent objects instead of memory            | 5     |
