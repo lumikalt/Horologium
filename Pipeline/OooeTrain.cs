@@ -1307,6 +1307,15 @@ internal sealed class OoOPipelineCore : Gear {
             _ => default((ulong, bool)),
         };
 
+        // Notify vector-aware predictor of vector instruction or taken backward branch.
+        if (_predictor is IVectorAwareBranchPredictor vbp) {
+            if (isVec)
+                vbp.NotifyVectorInstruction(issued.Pc);
+            else if (issued.Instr.Class == ToothClass.ConditionalBranch
+                     && resolvedNextPc.HasValue && resolvedNextPc.Value < issued.Pc)
+                vbp.NotifyLoopBranchExecute(issued.Pc, resolvedNextPc.Value, issued.Src1, issued.Src2);
+        }
+
         // For loads: try to forward from an older executed store to the same address.
         // If a forwarding match is found, override the (potentially stale) memory read.
         (ulong Value, bool HasValue) regValue = er.RegisterResult;

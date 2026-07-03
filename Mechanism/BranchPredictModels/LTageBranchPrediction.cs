@@ -77,7 +77,7 @@ public class LTagePredictor : IBranchPredictor {
     }
 
     /// <inheritdoc />
-    public void Update(ulong pc, bool taken, ulong actualTarget) {
+    public virtual void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
 
         TageLookup(pc, out int provider, out bool provPred, out bool altPred);
@@ -257,6 +257,9 @@ public class LTagePredictor : IBranchPredictor {
 
     private static int BaseIdx(ulong pc) =>
         (int)((pc >> 2) & ((1u << LTagePredictor.BaseIndexBits) - 1));
+
+    /// <summary>Returns the bimodal (T0) prediction for <paramref name="pc"/>.</summary>
+    protected bool BimodalPrediction(ulong pc) => _base[BaseIdx(pc)] >= 2;
 
     private int TageIdx(ulong pc, int t) {
         int folded = FoldHist(LTagePredictor.HistLengths[t], LTagePredictor.TableIndexBits);

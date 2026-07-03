@@ -57,7 +57,8 @@ public sealed record ExMemLatch {
     public ITooth? Instruction { get; init; }
     public ExecuteResult? Result { get; init; }
     public int DestinationRegister { get; init; } = -1;
-    public ulong Rs2Value { get; init; } // for stores
+    public ulong Rs1Value { get; init; } // first source (for loop-branch LM wiring)
+    public ulong Rs2Value { get; init; } // second source / store data
     public ulong PredictedNextPc { get; init; }
 }
 

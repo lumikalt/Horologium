@@ -347,6 +347,13 @@ internal sealed class PipelineCore : Gear {
                 : exMemLast.Pc + (ulong)(exMemLast.Instruction?.SizeBytes ?? 4);
             _predictor.Update(exMemLast.Pc, taken, actualNext);
 
+            // Notify vector-aware predictor of taken backward branch execution.
+            if (taken
+                && exMemLast.Instruction?.Class == ToothClass.ConditionalBranch
+                && actualNext < exMemLast.Pc
+                && _predictor is IVectorAwareBranchPredictor vbpL)
+                vbpL.NotifyLoopBranchExecute(exMemLast.Pc, actualNext, exMemLast.Rs1Value, exMemLast.Rs2Value);
+
             if (actualNext != exMemLast.PredictedNextPc) {
                 flush = true;
                 _if.FlushTarget = actualNext;
@@ -355,6 +362,11 @@ internal sealed class PipelineCore : Gear {
                 _missesCounter.Increment();
             }
         }
+
+        // Notify vector-aware predictor of vector instruction execution.
+        if (exMemLast is { IsValid: true, Instruction.Class: ToothClass.Vector, }
+            && _predictor is IVectorAwareBranchPredictor vbpV)
+            vbpV.NotifyVectorInstruction(exMemLast.Pc);
 
         _if.Stall = stall;
         _id.Stall = stall;

@@ -29,6 +29,27 @@ public interface IBranchPredictor {
 }
 
 /// <summary>
+/// Optional extension for predictors that benefit from knowing which
+/// instructions are vector operations and which branches are loop back-edges.
+/// The pipeline checks for this interface and calls it when available.
+/// </summary>
+public interface IVectorAwareBranchPredictor : IBranchPredictor {
+    /// <summary>
+    /// Called at execute time for every vector instruction.
+    /// <paramref name="pc"/> is the instruction address.
+    /// </summary>
+    void NotifyVectorInstruction(ulong pc);
+
+    /// <summary>
+    /// Called at execute time for every taken backward conditional branch
+    /// (a loop back-edge). Provides the branch PC, the taken target
+    /// (= loop head), and the two comparison-register values so the
+    /// Loop Monitor can estimate remaining iterations.
+    /// </summary>
+    void NotifyLoopBranchExecute(ulong branchPc, ulong loopTarget, ulong rs1, ulong rs2);
+}
+
+/// <summary>
 /// The prediction made for a branch instruction.
 /// </summary>
 public readonly record struct BranchPrediction(

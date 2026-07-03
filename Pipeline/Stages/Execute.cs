@@ -113,6 +113,7 @@ public sealed class ExecuteStage : Gear {
             Instruction = instr,
             Result = result,
             DestinationRegister = latch.DestinationRegister,
+            Rs1Value = rs1,
             Rs2Value = rs2,
             PredictedNextPc = latch.PredictedNextPc,
         };
