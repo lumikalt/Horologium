@@ -1,0 +1,70 @@
+namespace Mechanism.BranchPredictModels;
+
+/// <summary>
+/// IMLI (Inter-Mediated Loop Iteration) branch predictor — Jiménez, IEEE CAL 2018.
+/// <para>
+/// Maintains a single shared loop-iteration counter (<c>_imli</c>) driven by
+/// backward conditional branches: a taken backward branch increments the counter
+/// (loop is iterating); a not-taken backward branch resets it to zero (loop exit).
+/// All branch predictions use this counter as an additional index dimension via
+/// <c>PHT[hash(pc, _imli)]</c>, allowing the predictor to make iteration-specific
+/// predictions for any branch whose outcome correlates with the innermost loop's
+/// iteration count — including body branches, not just the loop-closing branch.
+/// </para>
+/// <para>
+/// The "backward" classification for not-taken branches is cached from the first
+/// time the branch was seen taken (at which point the static target is available).
+/// Unconditional backward jumps (JAL) increment the counter like any other taken
+/// backward branch and are not explicitly excluded; they rarely form loops in
+/// compiler-generated code.
+/// </para>
+/// </summary>
+public sealed class ImliPredictor : IBranchPredictor {
+    private readonly int _phtMask;
+    private readonly int _btbMask;
+    private readonly byte[] _pht;
+    private readonly ulong[] _btb;
+    private readonly HashSet<ulong> _backwardBranches;
+    private int _imli;
+
+    public ImliPredictor(int phtSize = 65536, int btbSize = 1024) {
+        _phtMask = phtSize - 1;
+        _btbMask = btbSize - 1;
+        _pht = new byte[phtSize];
+        _btb = new ulong[btbSize];
+        _backwardBranches = new HashSet<ulong>();
+        Array.Fill(_pht, (byte)1); // weakly not-taken
+    }
+
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
+        // Cache backward-branch classification when static target is available at fetch
+        if (knownTarget.HasValue && knownTarget.Value < pc)
+            _backwardBranches.Add(pc);
+        int phtIdx = PhtIndex(pc);
+        bool taken = _pht[phtIdx] >= 2;
+        return new BranchPrediction(taken, taken ? _btb[BtbIndex(pc)] : pc + 4);
+    }
+
+    public void Update(ulong pc, bool taken, ulong actualTarget) {
+        int phtIdx = PhtIndex(pc);
+        if (taken) _btb[BtbIndex(pc)] = actualTarget;
+        switch (taken) {
+            case true when _pht[phtIdx] < 3: _pht[phtIdx]++; break;
+            case false when _pht[phtIdx] > 0: _pht[phtIdx]--; break;
+        }
+
+        // IMLI counter: taken backward → iterating; not-taken backward → loop exit
+        if (taken && actualTarget < pc) {
+            _backwardBranches.Add(pc);
+            _imli++;
+        } else if (!taken && _backwardBranches.Contains(pc)) {
+            _imli = 0;
+        }
+    }
+
+    private int PhtIndex(ulong pc) =>
+        (int)(((pc >> 2) ^ (uint)_imli) & (uint)_phtMask);
+
+    private int BtbIndex(ulong pc) =>
+        (int)((pc >> 2) & (uint)_btbMask);
+}

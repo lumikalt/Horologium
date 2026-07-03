@@ -158,7 +158,7 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [x] Path-based Perceptron. — Jiménez, MICRO 2003
 - [x] ITTAGE (tagged geometric history; indirect targets). — Seznec & Michaud, JILP 2006 (TAGE base); Seznec, CBP-4 2011
 - [x] BATAGE. — Seznec, CBP 2016
-- [ ] IMLI: inter-iteration loop branch predictor (counts loop iterations in hardware). — Jiménez, IEEE CAL 2018
+- [x] IMLI: inter-iteration loop branch predictor (counts loop iterations in hardware). — Jiménez, IEEE CAL 2018
 - [ ] LLBP: https://ieeexplore.ieee.org/abstract/document/11408567/
 - [ ] VLA-TAGE: https://ieeexplore.ieee.org/document/11417886
 - [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
