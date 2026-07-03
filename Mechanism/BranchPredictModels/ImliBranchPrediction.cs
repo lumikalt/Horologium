@@ -38,8 +38,7 @@ public sealed class ImliPredictor : IBranchPredictor {
 
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         // Cache backward-branch classification when static target is available at fetch
-        if (knownTarget.HasValue && knownTarget.Value < pc)
-            _backwardBranches.Add(pc);
+        if (knownTarget.HasValue && knownTarget.Value < pc) _backwardBranches.Add(pc);
         int phtIdx = PhtIndex(pc);
         bool taken = _pht[phtIdx] >= 2;
         return new BranchPrediction(taken, taken ? _btb[BtbIndex(pc)] : pc + 4);
@@ -49,7 +48,7 @@ public sealed class ImliPredictor : IBranchPredictor {
         int phtIdx = PhtIndex(pc);
         if (taken) _btb[BtbIndex(pc)] = actualTarget;
         switch (taken) {
-            case true when _pht[phtIdx] < 3: _pht[phtIdx]++; break;
+            case true when _pht[phtIdx] < 3:  _pht[phtIdx]++; break;
             case false when _pht[phtIdx] > 0: _pht[phtIdx]--; break;
         }
 
@@ -57,9 +56,8 @@ public sealed class ImliPredictor : IBranchPredictor {
         if (taken && actualTarget < pc) {
             _backwardBranches.Add(pc);
             _imli++;
-        } else if (!taken && _backwardBranches.Contains(pc)) {
-            _imli = 0;
         }
+        else if (!taken && _backwardBranches.Contains(pc)) { _imli = 0; }
     }
 
     private int PhtIndex(ulong pc) =>

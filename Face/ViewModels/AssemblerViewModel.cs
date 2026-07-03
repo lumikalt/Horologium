@@ -481,7 +481,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
         try {
             await File.WriteAllTextAsync(srcFile, CSourceCode);
-            await File.WriteAllTextAsync(startFile, CStartStub);
+            await File.WriteAllTextAsync(startFile, AssemblerViewModel.CStartStub);
 
             // -fno-reorder-functions: at -O2/-Os gcc otherwise moves main into
             // .text.startup, which the default linker script places before the
@@ -489,7 +489,7 @@ public partial class AssemblerViewModel : ObservableObject {
             (int ccExit, _, string ccErr) = await RunProcess(
                 prefix + "gcc",
                 $"-march={GasArchString} -mabi={GasAbi} {OptLevel} -fno-reorder-functions "
-                + $"-g -ffreestanding -nostdlib -mno-relax -c \"{srcFile}\" -o \"{srcObj}\""
+              + $"-g -ffreestanding -nostdlib -mno-relax -c \"{srcFile}\" -o \"{srcObj}\""
             );
             if (ccExit != 0) {
                 HasError = true;
@@ -528,7 +528,7 @@ public partial class AssemblerViewModel : ObservableObject {
             if (binary == null) return;
 
             // The trains always start at PC 0, so the stub must be first in .text.
-            uint entry = BitConverter.ToUInt32(_elfBytes!, 0x18);
+            var entry = BitConverter.ToUInt32(_elfBytes!, 0x18);
             if (entry != 0) {
                 HasError = true;
                 AssembleError = $"_start linked at 0x{entry:X}, not 0 — the simulator starts at PC 0.";
@@ -953,7 +953,7 @@ public partial class AssemblerViewModel : ObservableObject {
             if (currentLine == 0) continue;
             Match insn = ObjdumpInsnRx.Match(line);
             if (insn.Success
-                && ulong.TryParse(insn.Groups["addr"].Value, NumberStyles.HexNumber, null, out ulong addr))
+             && ulong.TryParse(insn.Groups["addr"].Value, NumberStyles.HexNumber, null, out ulong addr))
                 map.TryAdd(addr, currentLine);
         }
 

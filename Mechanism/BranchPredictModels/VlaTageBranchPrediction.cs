@@ -26,11 +26,11 @@ namespace Mechanism.BranchPredictModels;
 /// </para>
 /// </summary>
 public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredictor {
-    private const int VltSize           = 8;
-    private const int MinIterThreshold  = 32;
+    private const int VltSize = 8;
+    private const int MinIterThreshold = 32;
     private const int LoopTermThreshold = 5;
 
-    private readonly VltEntry[] _vlt = new VltEntry[VltSize];
+    private readonly VltEntry[] _vlt = new VltEntry[VlaTagePredictor.VltSize];
 
     /// <summary>
     /// Number of predictions made under the PEN gating signal
@@ -42,11 +42,10 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
 
     /// <inheritdoc />
     public void NotifyVectorInstruction(ulong pc) {
-        for (int i = 0; i < VltSize; i++) {
+        for (var i = 0; i < VlaTagePredictor.VltSize; i++) {
             ref VltEntry e = ref _vlt[i];
             // Mark only if we know the loop bounds; Target=0 means not yet resolved.
-            if (e.IsValid && e.Target > 0 && e.Target <= pc && pc <= e.Pc)
-                e.IsVectorLoop = true;
+            if (e.IsValid && e.Target > 0 && e.Target <= pc && pc <= e.Pc) e.IsVectorLoop = true;
         }
     }
 
@@ -83,10 +82,10 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
         bool rs2Changed = rs2 != e.PrevRs2;
 
         if (rs1Changed ^ rs2Changed) {
-            long cur  = rs1Changed ? (long)rs1 : (long)rs2;
+            long cur = rs1Changed ? (long)rs1 : (long)rs2;
             long prev = rs1Changed ? (long)e.PrevRs1 : (long)e.PrevRs2;
-            long bnd  = rs1Changed ? (long)rs2 : (long)rs1;
-            long inc  = cur - prev;
+            long bnd = rs1Changed ? (long)rs2 : (long)rs1;
+            long inc = cur - prev;
             if (inc != 0) {
                 long rem = (bnd - cur) / inc;
                 e.EstimatedRemaining = rem >= 0 ? rem : -1L;
@@ -100,13 +99,13 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
 
         // PEN latch: hysteresis between MinIterThreshold and LoopTermThreshold.
         if (!e.PenLatch
-            && e.IsVectorLoop
-            && e.EstimatedRemaining >= MinIterThreshold)
+         && e.IsVectorLoop
+         && e.EstimatedRemaining >= VlaTagePredictor.MinIterThreshold)
             e.PenLatch = true;
 
         if (e.PenLatch
-            && e.EstimatedRemaining >= 0
-            && e.EstimatedRemaining <= LoopTermThreshold)
+         && e.EstimatedRemaining >= 0
+         && e.EstimatedRemaining <= VlaTagePredictor.LoopTermThreshold)
             e.PenLatch = false;
     }
 
@@ -117,6 +116,7 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
             GatedPredictions++;
             return BimodalPrediction(pc);
         }
+
         return base.ResolvePrediction(pc, provider, tagePred);
     }
 
@@ -138,40 +138,43 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
         if (taken && actualTarget < pc) {
             int slot = FindOrAllocate(pc);
             ref VltEntry e = ref _vlt[slot];
-            if (!e.IsValid) {
-                e = new VltEntry { Pc = pc, Target = actualTarget, IsValid = true };
-            } else {
+            if (!e.IsValid)
+                e = new VltEntry { Pc = pc, Target = actualTarget, IsValid = true, };
+            else
                 e.Target = actualTarget;
-            }
-        } else if (!taken) {
+        }
+        else if (!taken) {
             int slot = FindSlot(pc);
             if (slot >= 0) _vlt[slot] = new VltEntry(); // invalidate entire entry
         }
     }
 
     private int FindSlot(ulong pc) {
-        for (int i = 0; i < VltSize; i++)
-            if (_vlt[i].IsValid && _vlt[i].Pc == pc) return i;
+        for (var i = 0; i < VlaTagePredictor.VltSize; i++)
+            if (_vlt[i].IsValid && _vlt[i].Pc == pc)
+                return i;
         return -1;
     }
 
     private int FindOrAllocate(ulong pc) {
-        for (int i = 0; i < VltSize; i++)
-            if (_vlt[i].IsValid && _vlt[i].Pc == pc) return i;
-        for (int i = 0; i < VltSize; i++)
-            if (!_vlt[i].IsValid) return i;
-        return (int)(pc >> 2) % VltSize; // evict via PC hash
+        for (var i = 0; i < VlaTagePredictor.VltSize; i++)
+            if (_vlt[i].IsValid && _vlt[i].Pc == pc)
+                return i;
+        for (var i = 0; i < VlaTagePredictor.VltSize; i++)
+            if (!_vlt[i].IsValid)
+                return i;
+        return (int)(pc >> 2) % VlaTagePredictor.VltSize; // evict via PC hash
     }
 }
 
 internal struct VltEntry {
     public ulong Pc;
-    public ulong Target;          // loop head address
-    public ulong PrevRs1;         // rs1 from previous LM call
+    public ulong Target;  // loop head address
+    public ulong PrevRs1; // rs1 from previous LM call
     public ulong PrevRs2;
-    public long  EstimatedRemaining; // -1 = unknown
-    public bool  IsValid;
-    public bool  IsVectorLoop;    // body contains at least one vector instruction
-    public bool  PenLatch;        // current PEN output for this back-edge
-    public bool  HaveFirst;       // first register sample captured
+    public long EstimatedRemaining; // -1 = unknown
+    public bool IsValid;
+    public bool IsVectorLoop; // body contains at least one vector instruction
+    public bool PenLatch;     // current PEN output for this back-edge
+    public bool HaveFirst;    // first register sample captured
 }

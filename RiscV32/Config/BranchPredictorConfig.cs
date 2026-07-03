@@ -69,7 +69,10 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig Batage() => new BatageConfig();
     public static BranchPredictorConfig Oracle() => new OracleConfig();
     public static BranchPredictorConfig TrueOracle() => new TrueOracleConfig();
-    public static BranchPredictorConfig Imli(int phtSize = 65536, int btbSize = 1024) => new ImliConfig(phtSize, btbSize);
+
+    public static BranchPredictorConfig Imli(int phtSize = 65536, int btbSize = 1024) =>
+        new ImliConfig(phtSize, btbSize);
+
     public static BranchPredictorConfig Llbp() => new LlbpConfig();
     public static BranchPredictorConfig LlbpX() => new LlbpXConfig();
     public static BranchPredictorConfig VlaTage() => new VlaTageConfig();
@@ -159,14 +162,17 @@ public sealed record VlaTageConfig : BranchPredictorConfig {
 public sealed record TrueOracleConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() =>
         throw new InvalidOperationException(
-            "TrueOracleConfig requires a functional pre-pass. Call Build(mechanism, workload) instead.");
+            "TrueOracleConfig requires a functional pre-pass. Call Build(mechanism, workload) instead."
+        );
 
     public override IBranchPredictor Build(IMechanism mechanism, IWorkload workload) {
         var preMemory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(preMemory);
         var recorder = new BranchTraceRecorder(mechanism.Decoder);
-        new SingleCycleTrain(mechanism, workload.WrapMemory(preMemory), workload.EntryPoint,
-            commitObserver: recorder).Run(long.MaxValue);
+        new SingleCycleTrain(
+            mechanism, workload.WrapMemory(preMemory), workload.EntryPoint,
+            commitObserver: recorder
+        ).Run(long.MaxValue);
         return new TrueOraclePredictor(recorder.Trace);
     }
 }

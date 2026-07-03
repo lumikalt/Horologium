@@ -60,7 +60,8 @@
 - [ ] Smnpm / Ssnpm: pointer masking.
 - [x] Supervisor and user-privileged execution (trap delegation, Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation through Sv32Walker.
-- [x] UVE (Unlimited Vector Extension) — 1D and multi-dimensional streams.
+- [-] UVE (Unlimited Vector Extension) — 1D and multi-dimensional streams.
+  - [ ] Confirm what's missing. Indirect memory access optimization?
 - [ ] UVE 2 (ISCA 2024): predicates, scatter/gather, widening/narrowing.
 - [ ] `ss.cfg.vec` effect: vector-width element delivery from load streams.
 - [ ] SUM: honor `sstatus.SUM` so S-mode can access user pages.
@@ -162,9 +163,16 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [x] ITTAGE (tagged geometric history; indirect targets). — Seznec & Michaud, JILP 2006 (TAGE base); Seznec, CBP-4 2011
 - [x] BATAGE. — Seznec, CBP 2016
 - [x] IMLI: inter-iteration loop branch predictor (counts loop iterations in hardware). — Jiménez, IEEE CAL 2018
-- [x] LLBP: The Last-Level Branch Predictor — Schall et al., MICRO 2024. Context-addressed backing store on top of TAGE-SC-L, keyed by a Rolling Context Register (RCR) that hashes recent taken-branch PCs. https://ieeexplore.ieee.org/abstract/document/11408567/
-- [x] LLBP-X: The Last-Level Branch Predictor Revisited — Schall et al., HPCA 2026. Extends LLBP with dynamic context-depth adaptation via a Context Tracking Table (CTT): shallow W=2 contexts promote to deep W=64 when their pattern set fills and history-length trends long; short/long history ranges are kept in separate storage partitions. `LlbpXPredictor : LlbpPredictor`. https://ieeexplore.ieee.org/document/11408567
-- [x] VLA-TAGE: Vector-Loop-Aware TAGE — Zhang et al., IEEE CAL 2026. Power-gating extension of TAGE-SC-L: gates T1–T3 + SC when the innermost loop is vector-intensive with ≥32 estimated remaining iterations; Loop Monitor estimates from comparison-register operand values; PEN deasserts 5 iterations early. https://ieeexplore.ieee.org/document/11417886
+- [x] LLBP: The Last-Level Branch Predictor — Schall et al., MICRO 2024. Context-addressed backing store on top of
+  TAGE-SC-L, keyed by a Rolling Context Register (RCR) that hashes recent taken-branch
+  PCs. https://ieeexplore.ieee.org/abstract/document/11408567/
+- [x] LLBP-X: The Last-Level Branch Predictor Revisited — Schall et al., HPCA 2026. Extends LLBP with dynamic
+  context-depth adaptation via a Context Tracking Table (CTT): shallow W=2 contexts promote to deep W=64 when their
+  pattern set fills and history-length trends long; short/long history ranges are kept in separate storage partitions.
+  `LlbpXPredictor : LlbpPredictor`. https://ieeexplore.ieee.org/document/11408567
+- [x] VLA-TAGE: Vector-Loop-Aware TAGE — Zhang et al., IEEE CAL 2026. Power-gating extension of TAGE-SC-L: gates T1–T3 +
+  SC when the innermost loop is vector-intensive with ≥32 estimated remaining iterations; Loop Monitor estimates from
+  comparison-register operand values; PEN deasserts 5 iterations early. https://ieeexplore.ieee.org/document/11417886
 - [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
 - [ ] CBP-2025 front runner: correlate on register values rather than history.
 - [ ] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020

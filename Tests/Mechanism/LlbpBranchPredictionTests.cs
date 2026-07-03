@@ -1,3 +1,4 @@
+using Mechanism;
 using Mechanism.BranchPredictModels;
 
 namespace Tests.Mechanism;
@@ -6,7 +7,7 @@ public class LlbpBranchPredictionTests {
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
         var p = new LlbpPredictor();
-        var pred = p.Predict(0x1000);
+        BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
     }
@@ -16,7 +17,7 @@ public class LlbpBranchPredictionTests {
         var p = new LlbpPredictor();
         ulong pc = 0x1000;
         for (var i = 0; i < 8; i++) p.Update(pc, true, 0x2000);
-        var pred = p.Predict(pc);
+        BranchPrediction pred = p.Predict(pc);
         Assert.True(pred.PredictedTaken);
         Assert.Equal(0x2000UL, pred.PredictedTarget);
     }
@@ -38,10 +39,10 @@ public class LlbpBranchPredictionTests {
         ulong pc = 0x1000;
         // Warm RCR to full window with a taken branch at a distinct PC.
         ulong warmPc = 0x8000;
-        for (int i = 0; i < 120; i++) p.Update(warmPc, true, warmPc + 4);
+        for (var i = 0; i < 120; i++) p.Update(warmPc, true, warmPc + 4);
 
         // Now let TAGE train on pc.
-        for (int i = 0; i < 16; i++) p.Update(pc, true, 0x2000);
+        for (var i = 0; i < 16; i++) p.Update(pc, true, 0x2000);
 
         int before = p.LlbpOverrides;
         p.Predict(pc);

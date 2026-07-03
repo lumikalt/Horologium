@@ -42,14 +42,14 @@ public class ImliBranchPredictionTests {
         // PHT[hash(bodyPc, 2)] which encodes "taken". A plain 2-bit predictor
         // cannot learn this; IMLI can.
         var p = new ImliPredictor();
-        const ulong lcbPc = 0x2000;     // loop-closing backward branch
+        const ulong lcbPc = 0x2000; // loop-closing backward branch
         const ulong lcbTarget = 0x1000;
-        const ulong bodyPc = 0x1800;    // body branch (forward, taken only at iter=2)
+        const ulong bodyPc = 0x1800; // body branch (forward, taken only at iter=2)
         const ulong bodyTarget = 0x1900;
         const int tripCount = 5;
 
         // Training pass — one complete loop execution
-        for (int iter = 0; iter < tripCount; iter++) {
+        for (var iter = 0; iter < tripCount; iter++) {
             bool bodyTaken = iter == 2;
             p.Update(bodyPc, bodyTaken, bodyTaken ? bodyTarget : bodyPc + 4);
             bool lastIter = iter == tripCount - 1;
@@ -58,8 +58,8 @@ public class ImliBranchPredictionTests {
         }
 
         // Second pass — should have zero body-branch mispredictions
-        int misses = 0;
-        for (int iter = 0; iter < tripCount; iter++) {
+        var misses = 0;
+        for (var iter = 0; iter < tripCount; iter++) {
             BranchPrediction pred = p.Predict(bodyPc);
             bool bodyTaken = iter == 2;
             if (pred.PredictedTaken != bodyTaken) misses++;
@@ -68,6 +68,7 @@ public class ImliBranchPredictionTests {
             bool lcbTaken = !lastIter;
             p.Update(lcbPc, lcbTaken, lcbTaken ? lcbTarget : lcbPc + 4);
         }
+
         Assert.Equal(0, misses);
     }
 
@@ -80,12 +81,12 @@ public class ImliBranchPredictionTests {
         const ulong lcbTarget = 0x1000;
 
         // Run one 3-iteration loop (3 taken, then 1 not-taken = exit)
-        for (int i = 0; i < 3; i++) p.Update(lcbPc, true, lcbTarget);
+        for (var i = 0; i < 3; i++) p.Update(lcbPc, true, lcbTarget);
         p.Update(lcbPc, false, lcbPc + 4); // exit → _imli reset to 0
 
         // Prediction for another branch now uses _imli=0, same as loop start
         ulong probePc = 0x1500;
-        for (int i = 0; i < 4; i++) p.Update(probePc, true, 0x1600);
+        for (var i = 0; i < 4; i++) p.Update(probePc, true, 0x1600);
         Assert.True(p.Predict(probePc).PredictedTaken);
     }
 

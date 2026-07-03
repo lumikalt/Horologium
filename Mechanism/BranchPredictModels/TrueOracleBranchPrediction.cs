@@ -34,8 +34,7 @@ public sealed class TrueOraclePredictor(IReadOnlyList<BranchOutcome> trace) : IB
     private int _nextIdx;
 
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
-        if (_nextIdx >= trace.Count)
-            return BranchPrediction.NotTaken(pc + 4);
+        if (_nextIdx >= trace.Count) return BranchPrediction.NotTaken(pc + 4);
         BranchOutcome outcome = trace[_nextIdx++];
         return outcome.Taken
             ? BranchPrediction.Taken(outcome.Target)

@@ -1312,7 +1312,7 @@ internal sealed class OoOPipelineCore : Gear {
             if (isVec)
                 vbp.NotifyVectorInstruction(issued.Pc);
             else if (issued.Instr.Class == ToothClass.ConditionalBranch
-                     && resolvedNextPc.HasValue && resolvedNextPc.Value < issued.Pc)
+                  && resolvedNextPc.HasValue && resolvedNextPc.Value < issued.Pc)
                 vbp.NotifyLoopBranchExecute(issued.Pc, resolvedNextPc.Value, issued.Src1, issued.Src2);
         }
 

@@ -21,10 +21,10 @@ public class LlbpPredictor : TageScLPredictor {
     private protected readonly LlbpStorage _storage = new();
 
     protected bool _llbpIsProvider;
-    protected int  _llbpHistIdx = -1;
-    protected int  _llbpPatternKey;
+    protected int _llbpHistIdx = -1;
+    protected int _llbpPatternKey;
     protected uint _llbpCtxKey;
-    protected int  _lastProvider = -1;
+    protected int _lastProvider = -1;
 
     /// <summary>Number of times LLBP overrode TAGE's direction.</summary>
     public int LlbpOverrides { get; protected set; }
@@ -39,22 +39,27 @@ public class LlbpPredictor : TageScLPredictor {
             LlbpOverrides++;
             return base.ResolvePrediction(pc, provider, llbpPred);
         }
+
         return base.ResolvePrediction(pc, provider, tagePred);
     }
 
     protected virtual bool TryLlbpPredict(ulong pc, int provider, out bool pred) {
         _llbpCtxKey = _rcr.ContextId;
         PatternMap? pm = _storage.Get(_llbpCtxKey);
-        if (pm != null) {
-            for (int t = NumTables - 1; t >= 0; t--) {
+        if (pm != null)
+            for (int t = LTagePredictor.NumTables - 1; t >= 0; t--) {
                 int key = PatternKey(pc, t);
                 if (!pm.TryGet(key, out sbyte ctr)) continue;
                 _llbpHistIdx = t;
                 _llbpPatternKey = key;
-                if (t >= provider) { pred = ctr >= 0; return true; }
+                if (t >= provider) {
+                    pred = ctr >= 0;
+                    return true;
+                }
+
                 break;
             }
-        }
+
         pred = false;
         return false;
     }
@@ -68,9 +73,10 @@ public class LlbpPredictor : TageScLPredictor {
     protected virtual void TrainLlbp(ulong pc, bool taken, bool provPred) {
         if (_llbpIsProvider && _llbpHistIdx >= 0) {
             _storage.GetOrCreate(_llbpCtxKey).SatUpdate(_llbpPatternKey, taken);
-        } else if (provPred != taken) {
+        }
+        else if (provPred != taken) {
             int allocTable = _lastProvider + 1;
-            if ((uint)allocTable < (uint)NumTables)
+            if ((uint)allocTable < (uint)LTagePredictor.NumTables)
                 _storage.GetOrCreate(_llbpCtxKey).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
         }
     }
@@ -80,105 +86,119 @@ public class LlbpPredictor : TageScLPredictor {
 
 internal sealed class RollingContextReg {
     private const int MaxWindow = 120;
-    private const int W         = 8;
-    private const int WShallow  = 2;
-    private const int WDeep     = 64;
-    private const int D         = 8;
-    private const int S         = 2;
-    private const int CtWidth   = 14;
+    private const int W = 8;
+    private const int WShallow = 2;
+    private const int WDeep = 64;
+    private const int D = 8;
+    private const int S = 2;
+    private const int CtWidth = 14;
 
-    private readonly ulong[] _window = new ulong[MaxWindow];
+    private readonly ulong[] _window = new ulong[RollingContextReg.MaxWindow];
     private int _head;
     private int _count;
     private uint _ccid;
     private uint _cidShallow;
     private uint _cidDeep;
 
-    public uint ContextId  => _ccid;
+    public uint ContextId => _ccid;
     public uint CidShallow => _cidShallow;
-    public uint CidDeep    => _cidDeep;
+    public uint CidDeep => _cidDeep;
 
     public void Update(ulong pc) {
         _window[_head] = pc;
-        _head = (_head + 1) % MaxWindow;
-        if (_count < MaxWindow) _count++;
-        if (_count == MaxWindow) {
-            _ccid      = CalcHash(W,        D);
-            _cidShallow = CalcHash(WShallow, D);
-            _cidDeep   = CalcHash(WDeep,    D);
+        _head = (_head + 1) % RollingContextReg.MaxWindow;
+        if (_count < RollingContextReg.MaxWindow) _count++;
+        if (_count == RollingContextReg.MaxWindow) {
+            _ccid = CalcHash(RollingContextReg.W, RollingContextReg.D);
+            _cidShallow = CalcHash(RollingContextReg.WShallow, RollingContextReg.D);
+            _cidDeep = CalcHash(RollingContextReg.WDeep, RollingContextReg.D);
         }
     }
 
     private uint CalcHash(int n, int start) {
-        const uint mask = (1u << CtWidth) - 1;
+        const uint mask = (1u << RollingContextReg.CtWidth) - 1;
         uint hash = 0;
-        int sh = 0;
-        int collected = 0;
+        var sh = 0;
+        var collected = 0;
         for (int i = start; i < _count && collected < n; i++, collected++) {
-            int idx = (_head - 1 - i + MaxWindow) % MaxWindow;
+            int idx = (_head - 1 - i + RollingContextReg.MaxWindow) % RollingContextReg.MaxWindow;
             hash ^= (uint)(_window[idx] << sh);
-            sh = (sh + S) % CtWidth;
+            sh = (sh + RollingContextReg.S) % RollingContextReg.CtWidth;
         }
+
         return hash & mask;
     }
 }
 
 internal sealed class PatternMap {
-    private const int Cap    = 16;
+    private const int Cap = 16;
     private const int CtrMin = -4;
-    private const int CtrMax =  3;
+    private const int CtrMax = 3;
 
-    private readonly (int Key, sbyte Ctr, bool Valid)[] _e = new (int, sbyte, bool)[Cap];
+    private readonly (int Key, sbyte Ctr, bool Valid)[] _e = new (int, sbyte, bool)[PatternMap.Cap];
     private int _clock;
 
     public bool IsFull() {
-        for (int i = 0; i < Cap; i++) if (!_e[i].Valid) return false;
+        for (var i = 0; i < PatternMap.Cap; i++)
+            if (!_e[i].Valid)
+                return false;
         return true;
     }
 
     public bool TryGet(int key, out sbyte ctr) {
-        for (int i = 0; i < Cap; i++) {
-            if (_e[i].Valid && _e[i].Key == key) { ctr = _e[i].Ctr; return true; }
-        }
+        for (var i = 0; i < PatternMap.Cap; i++)
+            if (_e[i].Valid && _e[i].Key == key) {
+                ctr = _e[i].Ctr;
+                return true;
+            }
+
         ctr = 0;
         return false;
     }
 
     public void SatUpdate(int key, bool taken) {
-        for (int i = 0; i < Cap; i++) {
+        for (var i = 0; i < PatternMap.Cap; i++) {
             if (!_e[i].Valid || _e[i].Key != key) continue;
-            sbyte c = taken ? (sbyte)Math.Min(_e[i].Ctr + 1, CtrMax)
-                            : (sbyte)Math.Max(_e[i].Ctr - 1, CtrMin);
+            sbyte c = taken
+                ? (sbyte)Math.Min(_e[i].Ctr + 1, PatternMap.CtrMax)
+                : (sbyte)Math.Max(_e[i].Ctr - 1, PatternMap.CtrMin);
             _e[i] = (_e[i].Key, c, true);
             return;
         }
     }
 
     public void AllocateIfAbsent(int key, bool taken) {
-        for (int i = 0; i < Cap; i++) {
-            if (_e[i].Valid && _e[i].Key == key) return;
-        }
+        for (var i = 0; i < PatternMap.Cap; i++)
+            if (_e[i].Valid && _e[i].Key == key)
+                return;
         int slot = -1;
-        for (int i = 0; i < Cap; i++) {
-            if (!_e[i].Valid) { slot = i; break; }
+        for (var i = 0; i < PatternMap.Cap; i++)
+            if (!_e[i].Valid) {
+                slot = i;
+                break;
+            }
+
+        if (slot < 0) {
+            slot = _clock;
+            _clock = (_clock + 1) % PatternMap.Cap;
         }
-        if (slot < 0) { slot = _clock; _clock = (_clock + 1) % Cap; }
+
         _e[slot] = (key, taken ? (sbyte)0 : (sbyte)-1, true);
     }
 }
 
 internal sealed class LlbpStorage {
     private const int Capacity = 14336;
-    private readonly Dictionary<uint, PatternMap> _map = new(Capacity + 1);
-    private readonly Queue<uint> _order = new(Capacity + 1);
+    private readonly Dictionary<uint, PatternMap> _map = new(LlbpStorage.Capacity + 1);
+    private readonly Queue<uint> _order = new(LlbpStorage.Capacity + 1);
 
     public PatternMap? Get(uint key) => _map.TryGetValue(key, out PatternMap? pm) ? pm : null;
 
     public PatternMap GetOrCreate(uint key) {
         if (_map.TryGetValue(key, out PatternMap? pm)) return pm;
-        if (_map.Count >= Capacity) {
+        if (_map.Count >= LlbpStorage.Capacity)
             while (_order.TryDequeue(out uint old) && !_map.Remove(old)) { }
-        }
+
         pm = new PatternMap();
         _map[key] = pm;
         _order.Enqueue(key);
