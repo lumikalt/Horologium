@@ -428,10 +428,58 @@ public class Rv32Executor : IExecutor {
                 ExecuteVle(state, memory, vd, rs1, sew, masked),
             RvVlm (var vd, var rs1) =>
                 ExecuteVlm(state, memory, vd, rs1),
+            RvVlsegVv (var numFields, var vd, var rs1, var sew, var masked) =>
+                ExecuteVlseg(state, memory, numFields, vd, rs1, sew, masked),
+            RvVlseVv (var vd, var rs1, var rs2, var sew, var masked) =>
+                ExecuteVlse(state, memory, vd, rs1, rs2, sew, masked),
+            RvVlxeiVv (var vd, var rs1, var vs2, var idxSew, var masked, _) =>
+                ExecuteVlxei(state, memory, vd, rs1, vs2, idxSew, masked),
             RvVseVv (var vs3, var rs1, var sew, var masked) =>
                 ExecuteVse(state, memory, vs3, rs1, sew, masked),
             RvVsm (var vs3, var rs1) =>
                 ExecuteVsm(state, memory, vs3, rs1),
+            RvVssegVv (var numFields, var vs3, var rs1, var sew, var masked) =>
+                ExecuteVsseg(state, memory, numFields, vs3, rs1, sew, masked),
+            RvVlrV (var numRegs, var vd, var rs1) =>
+                ExecuteVlr(state, memory, numRegs, vd, rs1),
+            RvVsrV (var numRegs, var vs3, var rs1) =>
+                ExecuteVsr(state, memory, numRegs, vs3, rs1),
+            RvVsseVv (var vs3, var rs1, var rs2, var sew, var masked) =>
+                ExecuteVsse(state, memory, vs3, rs1, rs2, sew, masked),
+            RvVsxeiVv (var vs3, var rs1, var vs2, var idxSew, var masked, _) =>
+                ExecuteVsxei(state, memory, vs3, rs1, vs2, idxSew, masked),
+
+            RvVWideVv (var op2, var vd, var vs2, var vs1, var masked, var vs2Wide) =>
+                ExecuteVWide(state, op2, vd, vs2, masked, vs2Wide, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVWideVx (var op2, var vd, var vs2, var rs1, var masked, var vs2Wide) =>
+                ExecuteVWide(state, op2, vd, vs2, masked, vs2Wide, (_, _) => regs.Read(rs1)),
+            RvVWMacVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVWMac(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVWMacVx (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVWMac(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+
+            RvVNarrVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVNarr(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVNarrVx (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVNarr(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+            RvVNarrVi (var op2, var vd, var vs2, var imm, var masked) =>
+                ExecuteVNarr(state, op2, vd, vs2, masked, (_, _) => (ulong)(uint)imm),
+
+            RvVSlideVx (var dir, var is1, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVSlide(state, dir, is1, vd, vs2, masked, regs.Read(rs1)),
+            RvVFpSlide1Vf (var dir, var vd, var vs2, var fpRs1, var masked) =>
+                ExecuteVSlide(state, dir, true, vd, vs2, masked, regs.Read(fpRs1)),
+            RvVSlideVi (var dir, var vd, var vs2, var imm, var masked) =>
+                ExecuteVSlide(state, dir, false, vd, vs2, masked, (ulong)(uint)imm),
+
+            RvVRgatherVv (var vd, var vs2, var vs1, var masked) =>
+                ExecuteVRgather(state, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVRgatherEi16Vv (var vd, var vs2, var vs1, var masked) =>
+                ExecuteVRgatherEi16(state, vd, vs2, vs1, masked),
+            RvVRgatherVx (var vd, var vs2, var rs1, var masked) =>
+                ExecuteVRgather(state, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+            RvVRgatherVi (var vd, var vs2, var imm, var masked) =>
+                ExecuteVRgather(state, vd, vs2, masked, (_, _) => (ulong)(uint)imm),
 
             RvVIntAluVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVIntAlu(
@@ -466,6 +514,128 @@ public class Rv32Executor : IExecutor {
                 ),
 
             RvVMvXs (var rd, var vs2) => ExecuteVMvXs(state, rd, vs2),
+            RvVMvSx (var vd, var rs1) => ExecuteVMvSx(state, vd, regs.Read(rs1)),
+
+            RvVIntMacVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVIntMac(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVIntMacVx (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVIntMac(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+
+            RvVMergeVv (var vd, var vs2, var vs1) =>
+                ExecuteVMerge(state, vd, vs2, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVMergeVx (var vd, var vs2, var rs1) =>
+                ExecuteVMerge(state, vd, vs2, (_, _) => regs.Read(rs1)),
+            RvVMergeVi (var vd, var vs2, var imm) =>
+                ExecuteVMerge(state, vd, vs2, (_, _) => (ulong)imm),
+            RvVFpMergeVf (var vd, var vs2, var fpRs1) =>
+                ExecuteVMerge(state, vd, vs2, (_, _) => regs.Read(fpRs1)),
+
+            RvVMaskLogMm (var op2, var vd, var vs2, var vs1) =>
+                ExecuteVMaskLog(state, op2, vd, vs2, vs1),
+            RvVcpop (var rd, var vs2, var masked) =>
+                ExecuteVcpop(state, rd, vs2, masked),
+            RvVfirst (var rd, var vs2, var masked) =>
+                ExecuteVfirst(state, rd, vs2, masked),
+            RvVMaskUnary (var op2, var vd, var vs2, var masked) =>
+                ExecuteVMaskUnary(state, op2, vd, vs2, masked),
+            RvVCompress (var vd, var vs2, var vs1) =>
+                ExecuteVCompress(state, vd, vs2, vs1),
+            RvVMvNr (var n, var vd, var vs2) =>
+                ExecuteVMvNr(state, n, vd, vs2),
+
+            RvVMulVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVMul(
+                    state, op2, vd, vs2, masked,
+                    (i, ew) => VReadElem(state, vs1, i, ew)
+                ),
+            RvVMulVx (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVMul(
+                    state, op2, vd, vs2, masked,
+                    (_, _) => regs.Read(rs1)
+                ),
+
+            RvVRedVs (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVRed(state, op2, vd, vs2, vs1, masked),
+            RvVWideRedVs (var signed, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVWideRed(state, signed, vd, vs2, vs1, masked),
+
+            // ── FP vector ops (V 1.0 OPFVV/OPFVF) ────────────────────────────
+            RvVFpBinVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVFpBin(state, op2, vd, vs2, masked, i => VFpElem(state, vs1, i)),
+            RvVFpBinVf (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVFpBin(state, op2, vd, vs2, masked, _ => FBits(regs, rs1)),
+
+            RvVFpFmaVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVFpFma(state, op2, vd, vs2, masked, i => VFpElem(state, vs1, i)),
+            RvVFpFmaVf (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVFpFma(state, op2, vd, vs2, masked, _ => FBits(regs, rs1)),
+
+            RvVMFpCmpVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVFpCmp(state, op2, vd, vs2, masked, i => VFpElem(state, vs1, i)),
+            RvVMFpCmpVf (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVFpCmp(state, op2, vd, vs2, masked, _ => FBits(regs, rs1)),
+
+            RvVFpSqrt (var vd, var vs2, var masked) =>
+                ExecuteVFpUnary(state, vd, vs2, masked, a => (float)Math.Sqrt(a)),
+            RvVFpClass (var vd, var vs2, var masked) =>
+                ExecuteVFpClassOp(state, vd, vs2, masked),
+            RvVFpCvt (var op2, var vd, var vs2, var masked) =>
+                ExecuteVFpCvt(state, op2, vd, vs2, masked),
+
+            RvVFpMvFs (var rd, var vs2) => ExecuteVFpMvFs(state, regs, rd, vs2),
+            RvVFpMvSf (var vd, var rs1) => ExecuteVFpMvSf(state, regs, vd, rs1),
+            RvVFpMvVf (var vd, var rs1, var masked) =>
+                ExecuteVFpMvVf(state, vd, FBits(regs, rs1), masked),
+            RvVFpRedVs (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVFpRed(state, op2, vd, vs2, vs1, masked),
+
+            RvVSatIntVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVSatInt(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVSatIntVx (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVSatInt(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+            RvVSatIntVi (var op2, var vd, var vs2, var imm, var masked) =>
+                ExecuteVSatInt(state, op2, vd, vs2, masked, (_, _) => (ulong)imm),
+
+            RvVNClipVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVNClip(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVNClipVx (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVNClip(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+            RvVNClipVi (var op2, var vd, var vs2, var imm, var masked) =>
+                ExecuteVNClip(state, op2, vd, vs2, masked, (_, _) => (ulong)(uint)imm),
+
+            // ── V widening FP arithmetic / MAC / converts ──────────────────────
+            RvVFpWArithVv (var op2, var vd, var vs2, var vs1, var vs2Wide, var masked) =>
+                ExecuteVFpWArith(state, op2, vd, vs2, vs2Wide, masked, i => VFpElem(state, vs1, i)),
+            RvVFpWArithVf (var op2, var vd, var vs2, var rs1, var vs2Wide, var masked) =>
+                ExecuteVFpWArith(state, op2, vd, vs2, vs2Wide, masked, _ => FBits(regs, rs1)),
+            RvVFpWMacVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVFpWMac(state, op2, vd, vs2, masked, i => VFpElem(state, vs1, i)),
+            RvVFpWMacVf (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVFpWMac(state, op2, vd, vs2, masked, _ => FBits(regs, rs1)),
+            RvVFpWCvt (var op2, var vd, var vs2, var masked) =>
+                ExecuteVFpWCvt(state, op2, vd, vs2, masked),
+            RvVFpNCvt (var op2, var vd, var vs2, var masked) =>
+                ExecuteVFpNCvt(state, op2, vd, vs2, masked),
+
+            // ── V extension new ops ───────────────────────────────────────────
+            RvVleFF (var vd, var rs1, var sew, var masked) =>
+                ExecuteVle(state, memory, vd, rs1, sew, masked),
+            RvVExt (var signed, var factor, var vd, var vs2, var masked) =>
+                ExecuteVExt(state, signed, factor, vd, vs2, masked),
+            RvVAvgVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVAvg(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVAvgVx (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVAvg(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+            RvVFpWideRedVs (var ordered, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVFpWideRed(state, ordered, vd, vs2, vs1, masked),
+            RvVlssegVv (var numFields, var vd, var rs1, var rs2, var sew, var masked) =>
+                ExecuteVlsseg(state, memory, numFields, vd, rs1, rs2, sew, masked),
+            RvVsssegVv (var numFields, var vs3, var rs1, var rs2, var sew, var masked) =>
+                ExecuteVssseg(state, memory, numFields, vs3, rs1, rs2, sew, masked),
+            RvVlxsegVv (var numFields, var vd, var rs1, var vs2, var idxSew, var masked, _) =>
+                ExecuteVlxseg(state, memory, numFields, vd, rs1, vs2, idxSew, masked),
+            RvVsxsegVv (var numFields, var vs3, var rs1, var vs2, var idxSew, var masked, _) =>
+                ExecuteVsxseg(state, memory, numFields, vs3, rs1, vs2, idxSew, masked),
 
             // ── UVE extension ─────────────────────────────────────────────────
             RvUveSsLdW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
@@ -1041,6 +1211,7 @@ public class Rv32Executor : IExecutor {
         return ewBytes switch {
             1 => data[off],
             2 => (ulong)(data[off] | (data[off + 1] << 8)),
+            8 => BitConverter.ToUInt64(data, off),
             _ => (ulong)(data[off] | (data[off + 1] << 8) | (data[off + 2] << 16) | (data[off + 3] << 24)),
         };
     }
@@ -1184,6 +1355,809 @@ public class Rv32Executor : IExecutor {
         return ExecuteResult.Clean;
     }
 
+    private static ExecuteResult ExecuteVlr(IArchState state, IMemory memory, int numRegs, int vd, int rs1) {
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        return new ExecuteResult {
+            SideEffect = s => {
+                var rv = (Rv32ArchState)s;
+                for (var r = 0; r < numRegs; r++) {
+                    var buf = new byte[VectorRegisterFile.VLenB];
+                    for (var b = 0; b < VectorRegisterFile.VLenB; b++)
+                        buf[b] = (byte)memory.Read(baseAddr + (ulong)(r * VectorRegisterFile.VLenB + b), 1);
+                    rv.VectorRegisters.Write(vd + r, buf);
+                }
+            },
+        };
+    }
+
+    private static ExecuteResult ExecuteVsr(IArchState state, IMemory memory, int numRegs, int vs3, int rs1) {
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        for (var r = 0; r < numRegs; r++) {
+            byte[] data = vregs.Read(vs3 + r);
+            for (var b = 0; b < VectorRegisterFile.VLenB; b++)
+                memory.Write(baseAddr + (ulong)(r * VectorRegisterFile.VLenB + b), data[b], 1);
+        }
+
+        return ExecuteResult.Clean;
+    }
+
+    private static ExecuteResult ExecuteVlseg(
+        IArchState state,
+        IMemory memory,
+        int numFields,
+        int vd,
+        int rs1,
+        int sew,
+        bool masked
+    ) {
+        (uint vl, _) = VGetVlEw(state);
+        int ewBytes = sew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+
+        var results = new byte[numFields][];
+        for (var f = 0; f < numFields; f++) results[f] = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            for (var f = 0; f < numFields; f++) {
+                ulong addr = baseAddr + (ulong)((i * numFields + f) * ewBytes);
+                WriteVElement(results[f], i, ewBytes, memory.Read(addr, ewBytes));
+            }
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                for (var f = 0; f < numFields; f++) VState(s).VectorRegisters.Write(vd + f, results[f]);
+            },
+        };
+    }
+
+    private static ExecuteResult ExecuteVsseg(
+        IArchState state,
+        IMemory memory,
+        int numFields,
+        int vs3,
+        int rs1,
+        int sew,
+        bool masked
+    ) {
+        (uint vl, _) = VGetVlEw(state);
+        int ewBytes = sew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+
+        var srcs = new byte[numFields][];
+        for (var f = 0; f < numFields; f++) srcs[f] = VState(state).VectorRegisters.Read(vs3 + f);
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            for (var f = 0; f < numFields; f++) {
+                ulong addr = baseAddr + (ulong)((i * numFields + f) * ewBytes);
+                memory.Write(addr, ReadVElement(srcs[f], i, ewBytes), ewBytes);
+            }
+        }
+
+        return ExecuteResult.Clean;
+    }
+
+    private static ExecuteResult ExecuteVlse(
+        IArchState state,
+        IMemory memory,
+        int vd,
+        int rs1,
+        int rs2,
+        int sew,
+        bool masked
+    ) {
+        (uint vl, _) = VGetVlEw(state);
+        int ewBytes = sew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        long stride = (int)(uint)state.IntegerRegisters.Read(rs2); // sign-extend 32→64
+        var result = new byte[VectorRegisterFile.VLenB];
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            var addr = (ulong)((long)baseAddr + stride * i);
+            WriteVElement(result, i, ewBytes, memory.Read(addr, ewBytes));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVsse(
+        IArchState state,
+        IMemory memory,
+        int vs3,
+        int rs1,
+        int rs2,
+        int sew,
+        bool masked
+    ) {
+        (uint vl, _) = VGetVlEw(state);
+        int ewBytes = sew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        long stride = (int)(uint)state.IntegerRegisters.Read(rs2); // sign-extend 32→64
+        byte[] data = VState(state).VectorRegisters.Read(vs3);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            var addr = (ulong)((long)baseAddr + stride * i);
+            memory.Write(addr, ReadVElement(data, i, ewBytes), ewBytes);
+        }
+
+        return ExecuteResult.Clean;
+    }
+
+    private static ExecuteResult ExecuteVlxei(
+        IArchState state,
+        IMemory memory,
+        int vd,
+        int rs1,
+        int vs2,
+        int indexSew,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        int idxBytes = indexSew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        byte[] idxData = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong offset = ReadVElement(idxData, i, idxBytes);
+            WriteVElement(result, i, ewBytes, memory.Read(baseAddr + offset, ewBytes));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVsxei(
+        IArchState state,
+        IMemory memory,
+        int vs3,
+        int rs1,
+        int vs2,
+        int indexSew,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        int idxBytes = indexSew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        byte[] idxData = VState(state).VectorRegisters.Read(vs2);
+        byte[] data = VState(state).VectorRegisters.Read(vs3);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong offset = ReadVElement(idxData, i, idxBytes);
+            memory.Write(baseAddr + offset, ReadVElement(data, i, ewBytes), ewBytes);
+        }
+
+        return ExecuteResult.Clean;
+    }
+
+    private static ExecuteResult ExecuteVWide(
+        IArchState state,
+        VWideOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        bool vs2IsWide,
+        Func<int, int, ulong> getSource
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        int outEwBytes = ewBytes * 2;
+        int effectiveVl = Math.Min((int)vl, VectorRegisterFile.VLenB / outEwBytes);
+        int vs2EwBytes = vs2IsWide ? outEwBytes : ewBytes;
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < effectiveVl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, vs2EwBytes);
+            ulong b = getSource(i, ewBytes);
+            WriteVElement(result, i, outEwBytes, ApplyVWideOp(op, a, b, ewBytes, vs2IsWide));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ulong ApplyVWideOp(VWideOp op, ulong a, ulong b, int ewBytes, bool vs2IsWide) {
+        long SX(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
+        };
+
+        long SX2(ulong v) => (ewBytes * 2) switch {
+            2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
+        };
+
+        ulong ZX(ulong v) => ewBytes switch {
+            1 => (byte)v, 2 => (ushort)v, 4 => (uint)v, _ => v,
+        };
+
+        return op switch {
+            VWideOp.AddU  => (vs2IsWide ? a : ZX(a)) + ZX(b),
+            VWideOp.Add   => (ulong)((vs2IsWide ? SX2(a) : SX(a)) + SX(b)),
+            VWideOp.SubU  => (vs2IsWide ? a : ZX(a)) - ZX(b),
+            VWideOp.Sub   => (ulong)((vs2IsWide ? SX2(a) : SX(a)) - SX(b)),
+            VWideOp.MulU  => ZX(a) * ZX(b),
+            VWideOp.MulSU => (ulong)(SX(a) * (long)ZX(b)),
+            VWideOp.Mul   => (ulong)(SX(a) * SX(b)),
+            _             => throw new InvalidOperationException($"Unknown VWideOp {op}"),
+        };
+    }
+
+    // vwmacc/vwmaccu/vwmaccsu/vwmaccus: vd[i] (2×SEW) += product of two SEW operands.
+    private static ExecuteResult ExecuteVWMac(
+        IArchState state,
+        VWMacOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        int outEwBytes = ewBytes * 2;
+        int effectiveVl = Math.Min((int)vl, VectorRegisterFile.VLenB / outEwBytes);
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        byte[] vs2Data = vregs.Read(vs2);
+        byte[] vdData = vregs.Read(vd);
+        byte[] mask = vregs.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+        Array.Copy(vdData, result, vdData.Length);
+
+        long SX(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
+        };
+
+        ulong ZX(ulong v) => ewBytes switch {
+            1 => (byte)v, 2 => (ushort)v, 4 => (uint)v, _ => v,
+        };
+
+        for (var i = 0; i < effectiveVl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, ewBytes);
+            ulong b = getB(i, ewBytes);
+            ulong acc = ReadVElement(result, i, outEwBytes);
+            ulong product = op switch {
+                VWMacOp.Maccu  => ZX(a) * ZX(b),
+                VWMacOp.Macc   => (ulong)(SX(a) * SX(b)),
+                VWMacOp.Maccsu => (ulong)(SX(a) * (long)ZX(b)),
+                VWMacOp.Maccus => (ulong)((long)ZX(a) * SX(b)),
+                _              => 0UL,
+            };
+            WriteVElement(result, i, outEwBytes, acc + product);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVNarr(
+        IArchState state,
+        VNarrOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getShift
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state); // output element width
+        int srcEwBytes = ewBytes * 2;             // vs2 source element width (2*SEW)
+        int effectiveVl = Math.Min((int)vl, VectorRegisterFile.VLenB / srcEwBytes);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+        int shamtMask = srcEwBytes * 8 - 1; // log2(2*SEW) bits
+
+        for (var i = 0; i < effectiveVl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong src = ReadVElement(vs2Data, i, srcEwBytes);
+            var shamt = (int)(getShift(i, ewBytes) & (ulong)shamtMask);
+            ulong res = op == VNarrOp.Sra
+                ? (ulong)(srcEwBytes switch {
+                    2 => (short)(ushort)src >> shamt,
+                    4 => (int)(uint)src >> shamt,
+                    _ => (long)src >> shamt,
+                })
+                : src >> shamt;
+            WriteVElement(result, i, ewBytes, res);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // ── V new ops ─────────────────────────────────────────────────────────────
+
+    // vzext/vsext: zero/sign extend each element from SEW/factor bits to SEW bits.
+    private static ExecuteResult ExecuteVExt(IArchState state, bool signed, int factor, int vd, int vs2, bool masked) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        int srcBytes = ewBytes / factor;
+        if (srcBytes < 1) throw new InvalidOperationException("VExt: factor exceeds SEW");
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong raw = ReadVElement(vs2Data, i, srcBytes);
+            ulong val = signed
+                ? srcBytes switch {
+                    1 => (ulong)(long)(sbyte)(byte)raw,
+                    2 => (ulong)(long)(short)(ushort)raw,
+                    _ => (ulong)(long)(int)(uint)raw,
+                }
+                : raw;
+            ulong mask = ewBytes == 8 ? ulong.MaxValue : (1UL << (ewBytes * 8)) - 1;
+            WriteVElement(result, i, ewBytes, val & mask);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // vaaddu/vaadd/vasubu/vasub: fixed-point averaging with vxrm rounding.
+    private static ExecuteResult ExecuteVAvg(
+        IArchState state,
+        VAvgOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        uint vxrm = VState(state).CsrFile.DirectRead(CsrFile.Vxrm) & 3;
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+        ulong uMax = ewBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, 4 => 0xFFFFFFFFUL, _ => ulong.MaxValue, };
+
+        long SX(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
+        };
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, ewBytes);
+            ulong b = getB(i, ewBytes);
+            ulong sum;
+            ulong shifted;
+            switch (op) {
+                case VAvgOp.Addu:
+                    sum = (a & uMax) + (b & uMax);
+                    shifted = sum >> 1;
+                    WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
+                    break;
+                case VAvgOp.Add: {
+                    long ssum = SX(a) + SX(b);
+                    sum = (ulong)ssum;
+                    shifted = (ulong)(ssum >> 1);
+                    WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
+                    break;
+                }
+                case VAvgOp.Subu:
+                    sum = (a & uMax) - (b & uMax);
+                    shifted = sum >> 1;
+                    WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
+                    break;
+                default: {
+                    // Sub (signed)
+                    long sdiff = SX(a) - SX(b);
+                    sum = (ulong)sdiff;
+                    shifted = (ulong)(sdiff >> 1);
+                    WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
+                    break;
+                }
+            }
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // vfwredusum.vs / vfwredosum.vs: f32 elements summed into f64 accumulator in vd[0].
+    private static ExecuteResult ExecuteVFpWideRed(
+        IArchState state,
+        bool ordered,
+        int vd,
+        int vs2,
+        int vs1,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("vfwred: only SEW=32 supported");
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        byte[] vs2Data = vregs.Read(vs2);
+        byte[] vs1Data = vregs.Read(vs1);
+        byte[] maskData = vregs.Read(0);
+        double acc = BitConverter.Int64BitsToDouble((long)ReadVElement(vs1Data, 0, 8));
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            acc += (double)BitConverter.Int32BitsToSingle((int)ReadVElement(vs2Data, i, 4));
+        }
+
+        var result = new byte[VectorRegisterFile.VLenB];
+        WriteVElement(result, 0, 8, (ulong)BitConverter.DoubleToInt64Bits(acc));
+        return VectorWrite(vd, result);
+    }
+
+    // vlsseg: strided segment load — element i field f at base + stride*i + f*ewBytes.
+    private static ExecuteResult ExecuteVlsseg(
+        IArchState state,
+        IMemory memory,
+        int numFields,
+        int vd,
+        int rs1,
+        int rs2,
+        int sew,
+        bool masked
+    ) {
+        (uint vl, _) = VGetVlEw(state);
+        int ewBytes = sew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        long stride = (int)(uint)state.IntegerRegisters.Read(rs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var results = new byte[numFields][];
+        for (var f = 0; f < numFields; f++) results[f] = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            for (var f = 0; f < numFields; f++) {
+                ulong addr = (ulong)((long)baseAddr + stride * i) + (ulong)(f * ewBytes);
+                WriteVElement(results[f], i, ewBytes, memory.Read(addr, ewBytes));
+            }
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                for (var f = 0; f < numFields; f++) VState(s).VectorRegisters.Write(vd + f, results[f]);
+            },
+        };
+    }
+
+    // vsseg (strided): element i field f at base + stride*i + f*ewBytes.
+    private static ExecuteResult ExecuteVssseg(
+        IArchState state,
+        IMemory memory,
+        int numFields,
+        int vs3,
+        int rs1,
+        int rs2,
+        int sew,
+        bool masked
+    ) {
+        (uint vl, _) = VGetVlEw(state);
+        int ewBytes = sew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        long stride = (int)(uint)state.IntegerRegisters.Read(rs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var srcs = new byte[numFields][];
+        for (var f = 0; f < numFields; f++) srcs[f] = VState(state).VectorRegisters.Read(vs3 + f);
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            for (var f = 0; f < numFields; f++) {
+                ulong addr = (ulong)((long)baseAddr + stride * i) + (ulong)(f * ewBytes);
+                memory.Write(addr, ReadVElement(srcs[f], i, ewBytes), ewBytes);
+            }
+        }
+
+        return ExecuteResult.Clean;
+    }
+
+    // vlxseg: indexed segment load — element i field f at base + index[i] + f*dataSew/8.
+    private static ExecuteResult ExecuteVlxseg(
+        IArchState state,
+        IMemory memory,
+        int numFields,
+        int vd,
+        int rs1,
+        int vs2,
+        int indexSew,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        int idxBytes = indexSew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        byte[] idxData = VState(state).VectorRegisters.Read(vs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var results = new byte[numFields][];
+        for (var f = 0; f < numFields; f++) results[f] = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong offset = ReadVElement(idxData, i, idxBytes);
+            for (var f = 0; f < numFields; f++) {
+                ulong addr = baseAddr + offset + (ulong)(f * ewBytes);
+                WriteVElement(results[f], i, ewBytes, memory.Read(addr, ewBytes));
+            }
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                for (var f = 0; f < numFields; f++) VState(s).VectorRegisters.Write(vd + f, results[f]);
+            },
+        };
+    }
+
+    // vsxseg: indexed segment store — element i field f at base + index[i] + f*dataSew/8.
+    private static ExecuteResult ExecuteVsxseg(
+        IArchState state,
+        IMemory memory,
+        int numFields,
+        int vs3,
+        int rs1,
+        int vs2,
+        int indexSew,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        int idxBytes = indexSew / 8;
+        ulong baseAddr = state.IntegerRegisters.Read(rs1);
+        byte[] idxData = VState(state).VectorRegisters.Read(vs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var srcs = new byte[numFields][];
+        for (var f = 0; f < numFields; f++) srcs[f] = VState(state).VectorRegisters.Read(vs3 + f);
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong offset = ReadVElement(idxData, i, idxBytes);
+            for (var f = 0; f < numFields; f++) {
+                ulong addr = baseAddr + offset + (ulong)(f * ewBytes);
+                memory.Write(addr, ReadVElement(srcs[f], i, ewBytes), ewBytes);
+            }
+        }
+
+        return ExecuteResult.Clean;
+    }
+
+    // ── Saturating integer helpers (vxrm rounding modes) ─────────────────────
+
+    // Round bit for a right-shift of shiftAmt bits on value, given already-shifted result.
+    private static ulong ComputeRoundBit(ulong value, int shiftAmt, ulong shifted, uint vxrm) {
+        switch (vxrm) {
+            case 0: // rnu: round-nearest-up (add guard bit)
+                return (value >> (shiftAmt - 1)) & 1;
+            case 1: {
+                // rne: round-nearest-even (round to even if exactly halfway)
+                ulong g = (value >> (shiftAmt - 1)) & 1;
+                ulong sticky = shiftAmt >= 2 ? value & ((1UL << (shiftAmt - 1)) - 1) : 0;
+                return g & ((sticky != 0 ? 1UL : 0) | (shifted & 1));
+            }
+            case 2: // rdn: round-down (truncate)
+                return 0;
+            default: {
+                // rod: round-to-odd (force result LSB = 1 if any truncated bits are nonzero)
+                ulong lost = shiftAmt < 64 ? value & ((1UL << shiftAmt) - 1) : value != 0 ? 1UL : 0;
+                return ~shifted & 1 & (lost != 0 ? 1UL : 0);
+            }
+        }
+    }
+
+    private static ulong VRoundShiftU(ulong value, int shiftAmt, uint vxrm) {
+        if (shiftAmt == 0) return value;
+        ulong shifted = value >> shiftAmt;
+        return shifted + ComputeRoundBit(value, shiftAmt, shifted, vxrm);
+    }
+
+    // Arithmetic rounded shift; value is sign-extended from ewBytes before shifting.
+    private static ulong VRoundShiftS(ulong value, int shiftAmt, uint vxrm, int ewBytes) {
+        long svalue = ewBytes switch {
+            1 => (sbyte)(byte)value,
+            2 => (short)(ushort)value,
+            4 => (int)(uint)value,
+            _ => (long)value,
+        };
+        if (shiftAmt == 0) return (ulong)svalue;
+        var uvalue = (ulong)svalue;
+        var shifted = (ulong)(svalue >> shiftAmt);
+        return shifted + ComputeRoundBit(uvalue, shiftAmt, shifted, vxrm);
+    }
+
+    private static ExecuteResult ExecuteVSatInt(
+        IArchState state,
+        VSatIntOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        uint vxrm = VState(state).CsrFile.DirectRead(CsrFile.Vxrm) & 3;
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+        int sew = ewBytes * 8;
+        int shiftMask = sew - 1;
+        ulong uMax = ewBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, 4 => 0xFFFFFFFFUL, _ => ulong.MaxValue, };
+        long sMin = ewBytes switch { 1 => sbyte.MinValue, 2 => short.MinValue, 4 => int.MinValue, _ => long.MinValue, };
+        long sMax = ewBytes switch { 1 => sbyte.MaxValue, 2 => short.MaxValue, 4 => int.MaxValue, _ => long.MaxValue, };
+
+        long SX(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
+        };
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, ewBytes);
+            ulong b = getB(i, ewBytes);
+            ulong elem;
+            switch (op) {
+                case VSatIntOp.Sadd: elem = (ulong)Math.Clamp(SX(a) + SX(b), sMin, sMax); break;
+                case VSatIntOp.Saddu: {
+                    ulong sum = (a & uMax) + (b & uMax);
+                    elem = sum > uMax ? uMax : sum;
+                    break;
+                }
+                case VSatIntOp.Ssub: elem = (ulong)Math.Clamp(SX(a) - SX(b), sMin, sMax); break;
+                case VSatIntOp.Ssubu: {
+                    ulong ua = a & uMax, ub = b & uMax;
+                    elem = ua >= ub ? ua - ub : 0;
+                    break;
+                }
+                case VSatIntOp.Smul: {
+                    // 2*SEW product, round right by (SEW-1), saturate
+                    long sa = SX(a), sb = SX(b);
+                    long product = sa * sb;
+                    int shift = sew - 1;
+                    ulong rounded = VRoundShiftS((ulong)product, shift, vxrm, ewBytes * 2);
+                    elem = (ulong)Math.Clamp((long)rounded, sMin, sMax);
+                    break;
+                }
+                case VSatIntOp.Ssrl: {
+                    var shamt = (int)(b & (ulong)shiftMask);
+                    elem = VRoundShiftU(a & uMax, shamt, vxrm) & uMax;
+                    break;
+                }
+                case VSatIntOp.Ssra: {
+                    var shamt = (int)(b & (ulong)shiftMask);
+                    elem = VRoundShiftS(a, shamt, vxrm, ewBytes) & uMax;
+                    break;
+                }
+                default: elem = 0; break;
+            }
+
+            WriteVElement(result, i, ewBytes, elem);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVNClip(
+        IArchState state,
+        VNClipOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state); // output SEW
+        int inEwBytes = ewBytes * 2;              // input is 2*SEW
+        uint vxrm = VState(state).CsrFile.DirectRead(CsrFile.Vxrm) & 3;
+        int effectiveVl = Math.Min((int)vl, VectorRegisterFile.VLenB / inEwBytes);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+        int shiftMask = inEwBytes * 8 - 1; // log2(2*SEW) bits
+        ulong uMax = ewBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, 4 => 0xFFFFFFFFUL, _ => ulong.MaxValue, };
+        long sMin = ewBytes switch { 1 => sbyte.MinValue, 2 => short.MinValue, 4 => int.MinValue, _ => long.MinValue, };
+        long sMax = ewBytes switch { 1 => sbyte.MaxValue, 2 => short.MaxValue, 4 => int.MaxValue, _ => long.MaxValue, };
+        for (var i = 0; i < effectiveVl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, inEwBytes);
+            ulong b = getB(i, ewBytes);
+            var shamt = (int)(b & (ulong)shiftMask);
+            ulong elem;
+            if (op == VNClipOp.Clipu) {
+                ulong shifted = VRoundShiftU(a, shamt, vxrm);
+                elem = Math.Min(shifted, uMax);
+            }
+            else {
+                ulong shifted = VRoundShiftS(a, shamt, vxrm, inEwBytes);
+                elem = (ulong)Math.Clamp((long)shifted, sMin, sMax);
+            }
+
+            WriteVElement(result, i, ewBytes, elem);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // offsetOrVal interpretation:
+    //   is1=false → unsigned offset count (elements to shift by)
+    //   is1=true  → scalar value to insert at the slide boundary (position 0 for Up, vl-1 for Down)
+    private static ExecuteResult ExecuteVSlide(
+        IArchState state,
+        VSlideDir dir,
+        bool is1,
+        int vd,
+        int vs2,
+        bool masked,
+        ulong offsetOrVal
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        byte[] src = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        // Start with current vd content so unaffected elements are preserved (TU semantics).
+        var result = (byte[])VState(state).VectorRegisters.Read(vd).Clone();
+
+        if (dir == VSlideDir.Up) {
+            ulong offset = is1 ? 1UL : offsetOrVal;
+            for (var i = (int)offset; i < (int)vl; i++) {
+                if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+                ulong val = i == 0 && is1
+                    ? offsetOrVal // insert scalar at vd[0]
+                    : ReadVElement(src, i - (int)offset, ewBytes);
+                WriteVElement(result, i, ewBytes, val);
+            }
+
+            // vslide1up: also write scalar at position 0
+            if (is1 && vl > 0 && (!masked || ((mask[0] >> 0) & 1) != 0)) WriteVElement(result, 0, ewBytes, offsetOrVal);
+        }
+        else {
+            ulong offset = is1 ? 1UL : offsetOrVal;
+            for (var i = 0; i < (int)vl; i++) {
+                if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+                ulong srcIdx = (ulong)i + offset;
+                ulong val = is1 && i == (int)vl - 1
+                    ? offsetOrVal // insert scalar at last position
+                    : srcIdx < vl
+                        ? ReadVElement(src, (int)srcIdx, ewBytes)
+                        : 0;
+                WriteVElement(result, i, ewBytes, val);
+            }
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVRgatherEi16(
+        IArchState state,
+        int vd,
+        int vs2,
+        int vs1,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        byte[] src = VState(state).VectorRegisters.Read(vs2);
+        byte[] idxData = VState(state).VectorRegisters.Read(vs1);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong index = ReadVElement(idxData, i, 2); // always u16 regardless of SEW
+            WriteVElement(result, i, ewBytes, index < vl ? ReadVElement(src, (int)index, ewBytes) : 0);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVRgather(
+        IArchState state,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getIndex
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        byte[] src = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong index = getIndex(i, ewBytes);
+            WriteVElement(result, i, ewBytes, index < vl ? ReadVElement(src, (int)index, ewBytes) : 0);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
     private static ExecuteResult ExecuteVIntAlu(
         IArchState state,
         VIntOp op,
@@ -1205,6 +2179,145 @@ public class Rv32Executor : IExecutor {
         }
 
         return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVMaskLog(IArchState state, VMaskLogOp op, int vd, int vs2, int vs1) {
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        byte[] a = vregs.Read(vs2);
+        byte[] b = vregs.Read(vs1);
+        var result = new byte[VectorRegisterFile.VLenB];
+        for (var i = 0; i < VectorRegisterFile.VLenB; i++)
+            result[i] = op switch {
+                VMaskLogOp.Andn => (byte)(a[i] & ~b[i]),
+                VMaskLogOp.And  => (byte)(a[i] & b[i]),
+                VMaskLogOp.Or   => (byte)(a[i] | b[i]),
+                VMaskLogOp.Xor  => (byte)(a[i] ^ b[i]),
+                VMaskLogOp.Orn  => (byte)(a[i] | ~b[i]),
+                VMaskLogOp.Nand => (byte)~(a[i] & b[i]),
+                VMaskLogOp.Nor  => (byte)~(a[i] | b[i]),
+                VMaskLogOp.Xnor => (byte)~(a[i] ^ b[i]),
+                _               => 0,
+            };
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVcpop(IArchState state, int rd, int vs2, bool masked) {
+        (uint vl, _) = VGetVlEw(state);
+        byte[] src = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = masked ? VState(state).VectorRegisters.Read(0) : [];
+        ulong count = 0;
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            if (((src[i >> 3] >> (i & 7)) & 1) != 0) count++;
+        }
+
+        return ExecuteResult.WithResult(count);
+    }
+
+    private static ExecuteResult ExecuteVfirst(IArchState state, int rd, int vs2, bool masked) {
+        (uint vl, _) = VGetVlEw(state);
+        byte[] src = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = masked ? VState(state).VectorRegisters.Read(0) : [];
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            if (((src[i >> 3] >> (i & 7)) & 1) != 0) return ExecuteResult.WithResult((ulong)(uint)i);
+        }
+
+        return ExecuteResult.WithResult(ulong.MaxValue); // -1 sign-extended to XLEN
+    }
+
+    private static ExecuteResult ExecuteVMaskUnary(
+        IArchState state,
+        VMaskUnaryOp op,
+        int vd,
+        int vs2,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        byte[] maskReg = masked ? vregs.Read(0) : [];
+        byte[] vdOld = vregs.Read(vd);
+        var result = new byte[VectorRegisterFile.VLenB];
+        Array.Copy(vdOld, result, VectorRegisterFile.VLenB);
+
+        if (op is VMaskUnaryOp.Msbf or VMaskUnaryOp.Msof or VMaskUnaryOp.Msif) {
+            byte[] src2 = vregs.Read(vs2);
+            int firstSet = -1;
+            for (var i = 0; i < (int)vl; i++)
+                if (((src2[i >> 3] >> (i & 7)) & 1) != 0) {
+                    firstSet = i;
+                    break;
+                }
+
+            for (var i = 0; i < (int)vl; i++) {
+                if (masked && ((maskReg[i >> 3] >> (i & 7)) & 1) == 0) continue;
+                bool val = op switch {
+                    VMaskUnaryOp.Msbf => firstSet < 0 || i < firstSet,
+                    VMaskUnaryOp.Msof => i == firstSet,
+                    _                 => firstSet < 0 || i <= firstSet, // Msif
+                };
+                if (val)
+                    result[i >> 3] |= (byte)(1 << (i & 7));
+                else
+                    result[i >> 3] &= (byte)~(1 << (i & 7));
+            }
+
+            return VectorWrite(vd, result);
+        }
+
+        if (op == VMaskUnaryOp.Iota) {
+            byte[] src2 = vregs.Read(vs2);
+            ulong prefix = 0;
+            for (var i = 0; i < (int)vl; i++) {
+                bool isSet = ((src2[i >> 3] >> (i & 7)) & 1) != 0;
+                if (masked && ((maskReg[i >> 3] >> (i & 7)) & 1) == 0) {
+                    if (isSet) prefix++;
+                    continue;
+                }
+
+                WriteVElement(result, i, ewBytes, prefix);
+                if (isSet) prefix++;
+            }
+
+            return VectorWrite(vd, result);
+        }
+
+        // VMaskUnaryOp.Id: write element index i into each active vd[i]
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskReg[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            WriteVElement(result, i, ewBytes, (ulong)(uint)i);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVCompress(IArchState state, int vd, int vs2, int vs1) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        byte[] srcData = vregs.Read(vs2);
+        byte[] maskReg = vregs.Read(vs1); // vs1 is the explicit mask register (not v0)
+        byte[] vdOld = vregs.Read(vd);
+        var result = new byte[VectorRegisterFile.VLenB];
+        Array.Copy(vdOld, result, VectorRegisterFile.VLenB); // tail elements undisturbed
+        var destIdx = 0;
+        for (var i = 0; i < (int)vl; i++) {
+            if (((maskReg[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            WriteVElement(result, destIdx, ewBytes, ReadVElement(srcData, i, ewBytes));
+            destIdx++;
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVMvNr(IArchState state, int numRegs, int vd, int vs2) {
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        var snapshots = new byte[numRegs][];
+        for (var i = 0; i < numRegs; i++) snapshots[i] = vregs.Read(vs2 + i);
+        return new ExecuteResult {
+            SideEffect = s => {
+                for (var i = 0; i < numRegs; i++) ((Rv32ArchState)s).VectorRegisters.Write(vd + i, snapshots[i]);
+            },
+        };
     }
 
     private static ExecuteResult ExecuteVMaskCmp(
@@ -1235,12 +2348,25 @@ public class Rv32Executor : IExecutor {
         ulong mask = (1UL << bits) - 1;
         int shiftMask = bits - 1;
         ulong r = op switch {
-            VIntOp.Add => a + b,
-            VIntOp.Sub => a - b,
-            VIntOp.And => a & b,
-            VIntOp.Or  => a | b,
-            VIntOp.Xor => a ^ b,
-            VIntOp.Mov => b, // vmv.v.v/x/i: broadcast second operand (vs1 or scalar or imm)
+            VIntOp.Add  => a + b,
+            VIntOp.Sub  => a - b,
+            VIntOp.Rsub => b - a, // vrsub: scalar/imm (b) minus vector element (a)
+            VIntOp.And  => a & b,
+            VIntOp.Or   => a | b,
+            VIntOp.Xor  => a ^ b,
+            VIntOp.Mov  => b, // vmv.v.v/x/i: broadcast second operand (vs1 or scalar or imm)
+            VIntOp.Minu => a < b ? a : b,
+            VIntOp.Maxu => a > b ? a : b,
+            VIntOp.Min => ewBytes switch {
+                1 => (sbyte)(byte)a < (sbyte)(byte)b ? a : b,
+                2 => (short)(ushort)a < (short)(ushort)b ? a : b,
+                _ => (int)(uint)a < (int)(uint)b ? a : b,
+            },
+            VIntOp.Max => ewBytes switch {
+                1 => (sbyte)(byte)a > (sbyte)(byte)b ? a : b,
+                2 => (short)(ushort)a > (short)(ushort)b ? a : b,
+                _ => (int)(uint)a > (int)(uint)b ? a : b,
+            },
             VIntOp.Sll => a << (int)(b & (uint)shiftMask),
             VIntOp.Srl => (a & mask) >> (int)(b & (uint)shiftMask),
             VIntOp.Sra => ewBytes switch {
@@ -1272,6 +2398,197 @@ public class Rv32Executor : IExecutor {
             _ => false,
         };
 
+    private static ExecuteResult ExecuteVMul(
+        IArchState state,
+        VMulOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getSource
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, ewBytes);
+            ulong b = getSource(i, ewBytes);
+            WriteVElement(result, i, ewBytes, ApplyVMulOp(op, a, b, ewBytes));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ulong ApplyVMulOp(VMulOp op, ulong a, ulong b, int ewBytes) {
+        ulong mask = (1UL << (ewBytes * 8)) - 1;
+        ulong r = op switch {
+            VMulOp.Mul => a * b,
+            VMulOp.MulH => ewBytes switch {
+                1 => (ulong)(byte)((short)((sbyte)(byte)a * (sbyte)(byte)b) >> 8),
+                2 => (ulong)(ushort)((int)((short)(ushort)a * (short)(ushort)b) >> 16),
+                _ => (ulong)(uint)(((long)(int)(uint)a * (long)(int)(uint)b) >> 32),
+            },
+            VMulOp.MulHu => ewBytes switch {
+                1 => (ulong)(byte)((ushort)((byte)a * (byte)b) >> 8),
+                2 => (ulong)(ushort)((uint)((ushort)a * (ushort)b) >> 16),
+                _ => (ulong)(uint)(((ulong)(uint)a * (ulong)(uint)b) >> 32),
+            },
+            // vs2 signed × vs1/rs1 unsigned, high half
+            VMulOp.MulHsu => ewBytes switch {
+                1 => (ulong)(byte)((short)((sbyte)(byte)a * (byte)b) >> 8),
+                2 => (ulong)(ushort)((int)((short)(ushort)a * (ushort)b) >> 16),
+                _ => (ulong)(uint)(((long)(int)(uint)a * (long)(uint)b) >> 32),
+            },
+            VMulOp.Div => VDivSigned(a, b, ewBytes),
+            VMulOp.Divu => ewBytes switch {
+                1 => (byte)b == 0 ? 0xFFUL : (ulong)((byte)a / (byte)b),
+                2 => (ushort)b == 0 ? 0xFFFFUL : (ulong)((ushort)a / (ushort)b),
+                _ => (uint)b == 0 ? 0xFFFFFFFFUL : (ulong)((uint)a / (uint)b),
+            },
+            VMulOp.Rem => VRemSigned(a, b, ewBytes),
+            VMulOp.Remu => ewBytes switch {
+                1 => (byte)b == 0 ? a & 0xFFUL : (ulong)((byte)a % (byte)b),
+                2 => (ushort)b == 0 ? a & 0xFFFFUL : (ulong)((ushort)a % (ushort)b),
+                _ => (uint)b == 0 ? a & 0xFFFFFFFFUL : (ulong)((uint)a % (uint)b),
+            },
+            _ => 0,
+        };
+        return r & mask;
+    }
+
+    private static ulong VDivSigned(ulong a, ulong b, int ewBytes) {
+        switch (ewBytes) {
+            case 1: {
+                var sa = (sbyte)(byte)a;
+                var sb = (sbyte)(byte)b;
+                if (sb == 0) return 0xFFUL;
+                if (sa == sbyte.MinValue && sb == -1) return unchecked((byte)sbyte.MinValue);
+                return (ulong)(byte)(sa / sb);
+            }
+            case 2: {
+                var sa = (short)(ushort)a;
+                var sb = (short)(ushort)b;
+                if (sb == 0) return 0xFFFFUL;
+                if (sa == short.MinValue && sb == -1) return unchecked((ushort)short.MinValue);
+                return (ulong)(ushort)(sa / sb);
+            }
+            default: {
+                var sa = (int)(uint)a;
+                var sb = (int)(uint)b;
+                if (sb == 0) return 0xFFFFFFFFUL;
+                if (sa == int.MinValue && sb == -1) return unchecked((uint)int.MinValue);
+                return (ulong)(uint)(sa / sb);
+            }
+        }
+    }
+
+    private static ulong VRemSigned(ulong a, ulong b, int ewBytes) {
+        switch (ewBytes) {
+            case 1: {
+                var sa = (sbyte)(byte)a;
+                var sb = (sbyte)(byte)b;
+                if (sb == 0) return a & 0xFFUL;
+                if (sa == sbyte.MinValue && sb == -1) return 0;
+                return (ulong)(byte)(sa % sb);
+            }
+            case 2: {
+                var sa = (short)(ushort)a;
+                var sb = (short)(ushort)b;
+                if (sb == 0) return a & 0xFFFFUL;
+                if (sa == short.MinValue && sb == -1) return 0;
+                return (ulong)(ushort)(sa % sb);
+            }
+            default: {
+                var sa = (int)(uint)a;
+                var sb = (int)(uint)b;
+                if (sb == 0) return a & 0xFFFFFFFFUL;
+                if (sa == int.MinValue && sb == -1) return 0;
+                return (ulong)(uint)(sa % sb);
+            }
+        }
+    }
+
+    private static ExecuteResult ExecuteVRed(
+        IArchState state,
+        VRedOp op,
+        int vd,
+        int vs2,
+        int vs1,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] vs1Data = VState(state).VectorRegisters.Read(vs1);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        ulong acc = ReadVElement(vs1Data, 0, ewBytes); // seed from vs1[0]
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            acc = ApplyVRedOp(op, acc, ReadVElement(vs2Data, i, ewBytes), ewBytes);
+        }
+
+        // Write result to element 0 of vd; all other elements are undefined (left zero).
+        var result = new byte[VectorRegisterFile.VLenB];
+        WriteVElement(result, 0, ewBytes, acc);
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVWideRed(
+        IArchState state,
+        bool signed,
+        int vd,
+        int vs2,
+        int vs1,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        int wBytes = ewBytes * 2;
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] vs1Data = VState(state).VectorRegisters.Read(vs1);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        ulong acc = ReadVElement(vs1Data, 0, wBytes); // seed from vs1[0] at 2×SEW
+
+        long SX(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, _ => (int)(uint)v,
+        };
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong elem = ReadVElement(vs2Data, i, ewBytes);
+            acc += signed ? (ulong)SX(elem) : elem;
+        }
+
+        var result = new byte[VectorRegisterFile.VLenB];
+        WriteVElement(result, 0, wBytes, acc);
+        return VectorWrite(vd, result);
+    }
+
+    private static ulong ApplyVRedOp(VRedOp op, ulong acc, ulong elem, int ewBytes) {
+        ulong mask = (1UL << (ewBytes * 8)) - 1;
+        ulong r = op switch {
+            VRedOp.Sum  => acc + elem,
+            VRedOp.And  => acc & elem,
+            VRedOp.Or   => acc | elem,
+            VRedOp.Xor  => acc ^ elem,
+            VRedOp.Minu => (acc & mask) < (elem & mask) ? acc : elem,
+            VRedOp.Maxu => (acc & mask) > (elem & mask) ? acc : elem,
+            VRedOp.Min => ewBytes switch {
+                1 => (sbyte)(byte)acc < (sbyte)(byte)elem ? acc : elem,
+                2 => (short)(ushort)acc < (short)(ushort)elem ? acc : elem,
+                _ => (int)(uint)acc < (int)(uint)elem ? acc : elem,
+            },
+            VRedOp.Max => ewBytes switch {
+                1 => (sbyte)(byte)acc > (sbyte)(byte)elem ? acc : elem,
+                2 => (short)(ushort)acc > (short)(ushort)elem ? acc : elem,
+                _ => (int)(uint)acc > (int)(uint)elem ? acc : elem,
+            },
+            _ => acc,
+        };
+        return r & mask;
+    }
+
     // vmv.x.s rd, vs2 — read element 0 of vs2 into integer rd (sign-extended to XLEN).
     private static ExecuteResult ExecuteVMvXs(IArchState state, int rd, int vs2) {
         (uint vl, int ewBytes) = VGetVlEw(state);
@@ -1283,6 +2600,73 @@ public class Rv32Executor : IExecutor {
             _ => elem,
         };
         return ExecuteResult.WithResult(result);
+    }
+
+    // vmacc/vnmsac: vd[i] = vd[i] ± vs2[i]*vs1[i]; vd is both source and destination.
+    private static ExecuteResult ExecuteVIntMac(
+        IArchState state,
+        VIntMacOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] vdData = VState(state).VectorRegisters.Read(vd);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+        Array.Copy(vdData, result, vdData.Length);
+
+        ulong elemMask = (1UL << (ewBytes * 8)) - 1;
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, ewBytes);
+            ulong b = getB(i, ewBytes);
+            ulong acc = ReadVElement(vdData, i, ewBytes);
+            ulong r = op switch {
+                VIntMacOp.Macc  => acc + a * b,
+                VIntMacOp.Nmsac => acc - a * b,
+                VIntMacOp.Madd  => a + acc * b,
+                VIntMacOp.Nmsub => a - acc * b,
+                _               => acc,
+            };
+            WriteVElement(result, i, ewBytes, r & elemMask);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // vmv.s.x: write integer register value into element 0 of vector register vd.
+    private static ExecuteResult ExecuteVMvSx(IArchState state, int vd, ulong rs1Val) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (vl == 0) return ExecuteResult.Clean;
+        byte[] current = VState(state).VectorRegisters.Read(vd);
+        var result = new byte[VectorRegisterFile.VLenB];
+        Array.Copy(current, result, current.Length);
+        WriteVElement(result, 0, ewBytes, rs1Val);
+        return VectorWrite(vd, result);
+    }
+
+    // vmerge: for each active element, mask=1 → active source, mask=0 → vs2[i].
+    private static ExecuteResult ExecuteVMerge(
+        IArchState state,
+        int vd,
+        int vs2,
+        Func<int, int, ulong> getActiveSrc
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            bool bit = ((mask[i >> 3] >> (i & 7)) & 1) == 1;
+            ulong src = bit ? getActiveSrc(i, ewBytes) : ReadVElement(vs2Data, i, ewBytes);
+            WriteVElement(result, i, ewBytes, src);
+        }
+
+        return VectorWrite(vd, result);
     }
 
     // ── UVE extension helpers ─────────────────────────────────────────────────
@@ -1489,5 +2873,443 @@ public class Rv32Executor : IExecutor {
         return taken
             ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)imm, }
             : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
+    }
+
+    // ── FP vector helpers ─────────────────────────────────────────────────────
+
+    // Read element i of a vector register as a float32 (bit-exact).
+    private static float VFpElem(IArchState state, int vreg, int i) {
+        byte[] data = VState(state).VectorRegisters.Read(vreg);
+        var bits = (uint)(data[i * 4] | (data[i * 4 + 1] << 8) | (data[i * 4 + 2] << 16) | (data[i * 4 + 3] << 24));
+        return BitConverter.Int32BitsToSingle((int)bits);
+    }
+
+    private static void WriteVFpElem(byte[] data, int i, float value) {
+        uint bits = float.IsNaN(value) ? Rv32Executor.RvCanonicalNaN : (uint)BitConverter.SingleToInt32Bits(value);
+        int off = i * 4;
+        data[off] = (byte)bits;
+        data[off + 1] = (byte)(bits >> 8);
+        data[off + 2] = (byte)(bits >> 16);
+        data[off + 3] = (byte)(bits >> 24);
+    }
+
+    private static float ApplyVFpBin(VFpBinOp op, float a, float b) => op switch {
+        VFpBinOp.Add => a + b,
+        VFpBinOp.Sub => a - b,
+        VFpBinOp.Mul => a * b,
+        VFpBinOp.Div => a / b,
+        VFpBinOp.Min => FMin(a, b),
+        VFpBinOp.Max => FMax(a, b),
+        VFpBinOp.Sgnj => BitConverter.Int32BitsToSingle(
+            (BitConverter.SingleToInt32Bits(a) & 0x7FFFFFFF)
+          | (BitConverter.SingleToInt32Bits(b) & unchecked((int)0x80000000))
+        ),
+        VFpBinOp.Sgnjn => BitConverter.Int32BitsToSingle(
+            (BitConverter.SingleToInt32Bits(a) & 0x7FFFFFFF)
+          | (~BitConverter.SingleToInt32Bits(b) & unchecked((int)0x80000000))
+        ),
+        VFpBinOp.Sgnjx => BitConverter.Int32BitsToSingle(
+            (BitConverter.SingleToInt32Bits(a) & 0x7FFFFFFF) |
+            ((BitConverter.SingleToInt32Bits(a) ^ BitConverter.SingleToInt32Bits(b)) & unchecked((int)0x80000000))
+        ),
+        _ => float.NaN,
+    };
+
+    private static ExecuteResult ExecuteVFpBin(
+        IArchState state,
+        VFpBinOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, float> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("VFP: only SEW=32 supported");
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            float a = BitConverter.Int32BitsToSingle((int)ReadVElement(vs2Data, i, 4));
+            float b = getB(i);
+            WriteVFpElem(result, i, ApplyVFpBin(op, a, b));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // FMA semantics for each op variant.
+    private static float ApplyVFpFma(VFpFmaOp op, float vdElem, float a, float b) => op switch {
+        // vfmacc:  vd = vd + a*b       vfmadd:  vd = vd*a + b
+        VFpFmaOp.Macc  => vdElem + a * b,
+        VFpFmaOp.Nmacc => -vdElem - a * b,
+        VFpFmaOp.Msac  => vdElem - a * b,
+        VFpFmaOp.Nmsac => -vdElem + a * b,
+        VFpFmaOp.Madd  => vdElem * a + b,
+        VFpFmaOp.Nmadd => -(vdElem * a) - b,
+        VFpFmaOp.Msub  => vdElem * a - b,
+        VFpFmaOp.Nmsub => -(vdElem * a) + b,
+        _              => float.NaN,
+    };
+
+    private static ExecuteResult ExecuteVFpFma(
+        IArchState state,
+        VFpFmaOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, float> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("VFP: only SEW=32 supported");
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] vdData = VState(state).VectorRegisters.Read(vd);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            float acc = BitConverter.Int32BitsToSingle((int)ReadVElement(vdData, i, 4));
+            float a = BitConverter.Int32BitsToSingle((int)ReadVElement(vs2Data, i, 4));
+            float b = getB(i);
+            WriteVFpElem(result, i, ApplyVFpFma(op, acc, a, b));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static bool ApplyVFpCmp(VFpCmpOp op, float a, float b) => op switch {
+        VFpCmpOp.Eq => !float.IsNaN(a) && !float.IsNaN(b) && a == b,
+        VFpCmpOp.Le => !float.IsNaN(a) && !float.IsNaN(b) && a <= b,
+        VFpCmpOp.Lt => !float.IsNaN(a) && !float.IsNaN(b) && a < b,
+        VFpCmpOp.Ne => float.IsNaN(a) || float.IsNaN(b) || a != b,
+        VFpCmpOp.Gt => !float.IsNaN(a) && !float.IsNaN(b) && a > b,
+        VFpCmpOp.Ge => !float.IsNaN(a) && !float.IsNaN(b) && a >= b,
+        _           => false,
+    };
+
+    // FP compare: result is 1 mask bit per element packed in vd.
+    private static ExecuteResult ExecuteVFpCmp(
+        IArchState state,
+        VFpCmpOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, float> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("VFP: only SEW=32 supported");
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            float a = BitConverter.Int32BitsToSingle((int)ReadVElement(vs2Data, i, 4));
+            float b = getB(i);
+            if (ApplyVFpCmp(op, a, b)) result[i >> 3] |= (byte)(1 << (i & 7));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVFpUnary(
+        IArchState state,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<float, float> f
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("VFP: only SEW=32 supported");
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            float a = BitConverter.Int32BitsToSingle((int)ReadVElement(vs2Data, i, 4));
+            WriteVFpElem(result, i, f(a));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // vfclass.v: classify each element, write the 10-bit mask as a float-width integer.
+    private static ExecuteResult ExecuteVFpClassOp(IArchState state, int vd, int vs2, bool masked) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("VFP: only SEW=32 supported");
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            var bits = (uint)ReadVElement(vs2Data, i, 4);
+            WriteVElement(result, i, 4, FClass(bits));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVFpCvt(IArchState state, VFpCvtOp op, int vd, int vs2, bool masked) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("VFP: only SEW=32 supported");
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            var src = (uint)ReadVElement(vs2Data, i, 4);
+            ulong val = op switch {
+                VFpCvtOp.XuFromF    => FcvtWuS(BitConverter.Int32BitsToSingle((int)src)),
+                VFpCvtOp.XFromF     => FcvtWs(BitConverter.Int32BitsToSingle((int)src)),
+                VFpCvtOp.FFromXu    => (uint)BitConverter.SingleToInt32Bits((float)(uint)src),
+                VFpCvtOp.FFromX     => (uint)BitConverter.SingleToInt32Bits((float)(int)src),
+                VFpCvtOp.RtzXuFromF => FcvtWuS(BitConverter.Int32BitsToSingle((int)src)),
+                VFpCvtOp.RtzXFromF  => FcvtWs(BitConverter.Int32BitsToSingle((int)src)),
+                _                   => 0,
+            };
+            WriteVElement(result, i, 4, val);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // vfmv.f.s: scalar float rd ← vs2[0]
+    private static ExecuteResult ExecuteVFpMvFs(IArchState state, IRegisterFile regs, int rd, int vs2) {
+        byte[] data = VState(state).VectorRegisters.Read(vs2);
+        var elem0 = (uint)ReadVElement(data, 0, 4);
+        return ExecuteResult.WithResult(elem0);
+    }
+
+    // vfmv.s.f: vd[0] ← scalar float rs1; other elements undisturbed
+    private static ExecuteResult ExecuteVFpMvSf(IArchState state, IRegisterFile regs, int vd, int rs1) {
+        float scalar = FBits(regs, rs1);
+        var current = (byte[])VState(state).VectorRegisters.Read(vd).Clone();
+        WriteVFpElem(current, 0, scalar);
+        return VectorWrite(vd, current);
+    }
+
+    // vfmv.v.f: broadcast scalar float to all active elements
+    private static ExecuteResult ExecuteVFpMvVf(IArchState state, int vd, float scalar, bool masked) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("VFP: only SEW=32 supported");
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            WriteVFpElem(result, i, scalar);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // vfredusum/vfredosum/vfredmin/vfredmax: reduce vs2 into scalar vd[0]; vs1[0] seeds the accumulator.
+    private static ExecuteResult ExecuteVFpRed(
+        IArchState state,
+        VFpRedOp op,
+        int vd,
+        int vs2,
+        int vs1,
+        bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("VFP: only SEW=32 supported");
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        byte[] vs2Data = vregs.Read(vs2);
+        byte[] vs1Data = vregs.Read(vs1);
+        byte[] mask = vregs.Read(0);
+        float acc = BitConverter.Int32BitsToSingle((int)ReadVElement(vs1Data, 0, 4));
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            float elem = BitConverter.Int32BitsToSingle((int)ReadVElement(vs2Data, i, 4));
+            acc = op switch {
+                VFpRedOp.Usum or VFpRedOp.Osum => acc + elem,
+                VFpRedOp.Min                   => FMin(acc, elem),
+                VFpRedOp.Max                   => FMax(acc, elem),
+                _                              => acc,
+            };
+        }
+
+        var result = new byte[VectorRegisterFile.VLenB];
+        WriteVFpElem(result, 0, acc);
+        return VectorWrite(vd, result);
+    }
+
+    // ── V widening FP helpers ─────────────────────────────────────────────────
+
+    private const ulong RvCanonicalNaN64 = 0x7FF8_0000_0000_0000UL;
+
+    private static void WriteVFpElemD(byte[] data, int i, double value) {
+        ulong bits = double.IsNaN(value) ? Rv32Executor.RvCanonicalNaN64 : (ulong)BitConverter.DoubleToInt64Bits(value);
+        WriteVElement(data, i, 8, bits);
+    }
+
+    // f32 → u64 saturating (NaN or negative → 0; overflow → MaxValue)
+    private static ulong VFcvtXuFromF32(float f) {
+        if (float.IsNaN(f) || f < 0f) return 0;
+        if (f >= 1.8446744073709552E+19f) return ulong.MaxValue;
+        return (ulong)f;
+    }
+
+    // f32 → i64 saturating
+    private static ulong VFcvtXFromF32(float f) {
+        if (float.IsNaN(f) || f >= 9.2233720368547758E+18f) return (ulong)long.MaxValue;
+        if (f < -9.2233720368547758E+18f) return unchecked((ulong)long.MinValue);
+        return (ulong)(long)f;
+    }
+
+    // f64 → u32 saturating
+    private static ulong VFcvtXuFromF64(double d) {
+        if (double.IsNaN(d) || d < 0.0) return 0;
+        if (d >= 4294967296.0) return uint.MaxValue;
+        return (uint)d;
+    }
+
+    // f64 → i32 saturating
+    private static ulong VFcvtXFromF64(double d) {
+        if (double.IsNaN(d) || d >= 2147483648.0) return (uint)int.MaxValue;
+        if (d < -2147483648.0) return unchecked((uint)int.MinValue);
+        return (uint)(int)d;
+    }
+
+    // vfncvt.rod.f.f.w: f64 → f32, round-to-odd (if inexact, force mantissa LSB=1)
+    private static float VFcvtRodF32FromF64(double d) {
+        if (double.IsNaN(d)) return BitConverter.Int32BitsToSingle(unchecked((int)0x7FC00000));
+        var f = (float)d;
+        if (float.IsInfinity(f) || (double)f == d) return f;
+        return BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(f) | 1);
+    }
+
+    private static ExecuteResult ExecuteVFpWArith(
+        IArchState state,
+        VFpWideArithOp op,
+        int vd,
+        int vs2,
+        bool vs2Wide,
+        bool masked,
+        Func<int, float> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("vfwArith: only SEW=32 supported");
+        int effectiveVl = Math.Min((int)vl, VectorRegisterFile.VLenB / 8);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < effectiveVl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            double a = vs2Wide
+                ? BitConverter.Int64BitsToDouble((long)ReadVElement(vs2Data, i, 8))
+                : (double)BitConverter.Int32BitsToSingle((int)ReadVElement(vs2Data, i, 4));
+            var b = (double)getB(i);
+            double res = op switch {
+                VFpWideArithOp.Add => a + b,
+                VFpWideArithOp.Sub => a - b,
+                VFpWideArithOp.Mul => a * b,
+                _                  => double.NaN,
+            };
+            WriteVFpElemD(result, i, res);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVFpWMac(
+        IArchState state,
+        VFpWMacOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, float> getB
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("vfwMac: only SEW=32 supported");
+        int effectiveVl = Math.Min((int)vl, VectorRegisterFile.VLenB / 8);
+        VectorRegisterFile vregs = VState(state).VectorRegisters;
+        byte[] vs2Data = vregs.Read(vs2);
+        byte[] vdData = vregs.Read(vd);
+        byte[] mask = vregs.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+        Array.Copy(vdData, result, vdData.Length);
+
+        for (var i = 0; i < effectiveVl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            double acc = BitConverter.Int64BitsToDouble((long)ReadVElement(result, i, 8));
+            var a = (double)BitConverter.Int32BitsToSingle((int)ReadVElement(vs2Data, i, 4));
+            var b = (double)getB(i);
+            double res = op switch {
+                VFpWMacOp.Macc  => acc + a * b,
+                VFpWMacOp.Nmacc => -acc - a * b,
+                VFpWMacOp.Msac  => a * b - acc,
+                VFpWMacOp.Nmsac => acc - a * b,
+                _               => double.NaN,
+            };
+            WriteVFpElemD(result, i, res);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVFpWCvt(IArchState state, VFpWCvtOp op, int vd, int vs2, bool masked) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("vfwcvt: only SEW=32 supported");
+        int effectiveVl = Math.Min((int)vl, VectorRegisterFile.VLenB / 8);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < effectiveVl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            var src = (uint)ReadVElement(vs2Data, i, 4);
+            float srcF = BitConverter.Int32BitsToSingle((int)src);
+            ulong val = op switch {
+                VFpWCvtOp.XuFromF    => VFcvtXuFromF32(srcF),
+                VFpWCvtOp.XFromF     => VFcvtXFromF32(srcF),
+                VFpWCvtOp.FFromXu    => (ulong)BitConverter.DoubleToInt64Bits((double)src),
+                VFpWCvtOp.FFromX     => (ulong)BitConverter.DoubleToInt64Bits((double)(int)src),
+                VFpWCvtOp.FFromF     => (ulong)BitConverter.DoubleToInt64Bits((double)srcF),
+                VFpWCvtOp.RtzXuFromF => VFcvtXuFromF32(srcF),
+                VFpWCvtOp.RtzXFromF  => VFcvtXFromF32(srcF),
+                _                    => 0,
+            };
+            WriteVElement(result, i, 8, val);
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ExecuteResult ExecuteVFpNCvt(IArchState state, VFpNCvtOp op, int vd, int vs2, bool masked) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 4) throw new NotImplementedException("vfncvt: only SEW=32 (output) supported");
+        int effectiveVl = Math.Min((int)vl, VectorRegisterFile.VLenB / 8);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < effectiveVl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong raw64 = ReadVElement(vs2Data, i, 8);
+            double srcD = BitConverter.Int64BitsToDouble((long)raw64);
+            ulong val = op switch {
+                VFpNCvtOp.XuFromF    => VFcvtXuFromF64(srcD),
+                VFpNCvtOp.XFromF     => VFcvtXFromF64(srcD),
+                VFpNCvtOp.FFromXu    => (uint)BitConverter.SingleToInt32Bits((float)(ulong)raw64),
+                VFpNCvtOp.FFromX     => (uint)BitConverter.SingleToInt32Bits((float)(long)raw64),
+                VFpNCvtOp.FFromF     => (uint)BitConverter.SingleToInt32Bits((float)srcD),
+                VFpNCvtOp.RodFFromF  => (uint)BitConverter.SingleToInt32Bits(VFcvtRodF32FromF64(srcD)),
+                VFpNCvtOp.RtzXuFromF => VFcvtXuFromF64(srcD),
+                VFpNCvtOp.RtzXFromF  => VFcvtXFromF64(srcD),
+                _                    => 0,
+            };
+            WriteVElement(result, i, 4, val);
+        }
+
+        return VectorWrite(vd, result);
     }
 }
