@@ -15,7 +15,11 @@ public class ExecutorTests {
 
     private Rv32ArchState MakeState(params (int reg, uint val)[] regs) {
         var s = new Rv32ArchState();
-        foreach ((int r, uint v) in regs) s.IntegerRegisters.Write(r, v);
+        foreach ((int r, uint v) in regs) {
+            // FP registers (32-63) require NaN-boxing when D extension is present.
+            ulong stored = r >= 32 ? 0xFFFFFFFF00000000UL | v : v;
+            s.IntegerRegisters.Write(r, stored);
+        }
         return s;
     }
 
@@ -646,12 +650,12 @@ public class ExecutorTests {
 
     [Fact]
     public void Execute_Flw_LoadsFloatBitsFromMemory() {
-        // flw f1, 4(x2)  0x00412087 — x2=100, mem[104]=bits of 3.14f
+        // flw f1, 4(x2)  0x00412087 — x2=100, mem[104]=bits of 3.14f; result is NaN-boxed
         uint bits = Fb(3.14f);
         Rv32ArchState s = MakeState((2, 100));
         _mem.Write(104, bits, 4);
         ExecuteResult r = Exec(0x00412087, s);
-        Assert.Equal(bits, r.RegisterResult.Value);
+        Assert.Equal(0xFFFFFFFF00000000UL | bits, r.RegisterResult.Value);
     }
 
     [Fact]
@@ -745,10 +749,10 @@ public class ExecutorTests {
 
     [Fact]
     public void Execute_FminS_ReturnsNegativeZeroWhenBothAreZero() {
-        // fmin(-0.0, +0.0) = -0.0
+        // fmin(-0.0, +0.0) = -0.0; result is NaN-boxed
         Rv32ArchState s = MakeState((34, Fb(-0.0f)), (35, Fb(0.0f)));
         ExecuteResult r = Exec(0x283100D3, s);
-        Assert.Equal(0x80000000UL, r.RegisterResult.Value); // -0.0 raw bits
+        Assert.Equal(0xFFFFFFFF80000000UL, r.RegisterResult.Value); // NaN-boxed -0.0
     }
 
     [Fact]
@@ -769,10 +773,10 @@ public class ExecutorTests {
 
     [Fact]
     public void Execute_FmaxS_ReturnsPositiveZeroWhenBothAreZero() {
-        // fmax(-0.0, +0.0) = +0.0
+        // fmax(-0.0, +0.0) = +0.0; result is NaN-boxed
         Rv32ArchState s = MakeState((34, Fb(-0.0f)), (35, Fb(0.0f)));
         ExecuteResult r = Exec(0x283110D3, s);
-        Assert.Equal(0UL, r.RegisterResult.Value); // +0.0 raw bits = 0
+        Assert.Equal(0xFFFFFFFF00000000UL, r.RegisterResult.Value); // NaN-boxed +0.0
     }
 
     [Fact]
@@ -894,11 +898,11 @@ public class ExecutorTests {
 
     [Fact]
     public void Execute_FmvWX_CopiesBitsToFpReg() {
-        // fmv.w.x f1, x2  0xF00100D3 — x2=0x40000000 (bits of 2.0f)
+        // fmv.w.x f1, x2  0xF00100D3 — x2=0x40000000 (bits of 2.0f); writes NaN-boxed
         uint bits = Fb(2.0f); // 0x40000000
         Rv32ArchState s = MakeState((2, bits));
         ExecuteResult r = Exec(0xF00100D3, s);
-        Assert.Equal(bits, r.RegisterResult.Value);
+        Assert.Equal(0xFFFFFFFF00000000UL | bits, r.RegisterResult.Value);
     }
 
     [Fact]
@@ -1078,5 +1082,156 @@ public class ExecutorTests {
         ExecuteResult r = Exec(0xC0009073, s);
         Assert.NotNull(r.Trap);
         Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap.Cause);
+    }
+
+    // ── D extension ───────────────────────────────────────────────────────────
+    // FP registers hold 64-bit values for D; helpers write/read raw bits.
+
+    private static ulong Dbl(double d) => (ulong)BitConverter.DoubleToInt64Bits(d);
+    private static double Adbl(ulong bits) => BitConverter.Int64BitsToDouble((long)bits);
+
+    private Rv32ArchState MakeDState(params (int reg, ulong val)[] regs) {
+        var s = new Rv32ArchState();
+        foreach ((int r, ulong v) in regs)
+            s.IntegerRegisters.Write(r, v);
+        return s;
+    }
+
+    [Fact]
+    public void Execute_Fld_LoadsDoubleBitsFromMemory() {
+        // fld f1, 4(x2)  — x2=100, mem[104]=bits of 3.14, result is raw double bits
+        ulong bits = Dbl(3.14);
+        Rv32ArchState s = MakeDState((2, 100));
+        _mem.Write(104, (uint)bits, 4);
+        _mem.Write(108, (uint)(bits >> 32), 4);
+        ExecuteResult r = Exec(0x00413087, s); // fld f1, 4(x2)
+        Assert.Equal(bits, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_Fsd_StoresDoubleBitsToMemory() {
+        // fsd f2, 4(x1)  — x1=100, f2=2.5
+        ulong bits = Dbl(2.5);
+        Rv32ArchState s = MakeDState((1, 100), (34, bits)); // f2 = index 34
+        Exec(0x0020B227, s); // fsd f2, 4(x1)
+        ulong lo = _mem.Read(104, 4);
+        ulong hi = _mem.Read(108, 4);
+        Assert.Equal(bits, lo | (hi << 32));
+    }
+
+    [Fact]
+    public void Execute_FaddD_AddsDoubles() {
+        // fadd.d f1, f2, f3  0x023100D3 — f2=2.0, f3=3.0 → 5.0
+        Rv32ArchState s = MakeDState((34, Dbl(2.0)), (35, Dbl(3.0)));
+        ExecuteResult r = Exec(0x023100D3, s);
+        Assert.Equal(5.0, Adbl(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FsubD_SubtractsDoubles() {
+        // fsub.d f1, f2, f3  0x0A3100D3 — f2=5.0, f3=3.0 → 2.0
+        Rv32ArchState s = MakeDState((34, Dbl(5.0)), (35, Dbl(3.0)));
+        ExecuteResult r = Exec(0x0A3100D3, s);
+        Assert.Equal(2.0, Adbl(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FmulD_MultipliesDoubles() {
+        // fmul.d f1, f2, f3  0x123100D3 — f2=2.0, f3=3.0 → 6.0
+        Rv32ArchState s = MakeDState((34, Dbl(2.0)), (35, Dbl(3.0)));
+        ExecuteResult r = Exec(0x123100D3, s);
+        Assert.Equal(6.0, Adbl(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FdivD_DividesDoubles() {
+        // fdiv.d f1, f2, f3  0x1A3100D3 — f2=6.0, f3=2.0 → 3.0
+        Rv32ArchState s = MakeDState((34, Dbl(6.0)), (35, Dbl(2.0)));
+        ExecuteResult r = Exec(0x1A3100D3, s);
+        Assert.Equal(3.0, Adbl(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FsqrtD_ComputesSquareRoot() {
+        // fsqrt.d f1, f2  0x5A0100D3 — f2=4.0 → 2.0
+        Rv32ArchState s = MakeDState((34, Dbl(4.0)));
+        ExecuteResult r = Exec(0x5A0100D3, s);
+        Assert.Equal(2.0, Adbl(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FcvtWD_ConvertDoubleToInt() {
+        // fcvt.w.d x1, f2  0xC20100D3 — f2=3.7 → x1=3 (truncate toward zero)
+        Rv32ArchState s = MakeDState((34, Dbl(3.7)));
+        ExecuteResult r = Exec(0xC20100D3, s); // rm=0 (RNE), but for 3→int RISC-V uses dynamic rm
+        // rm=1 is RTZ (round toward zero); encoding above uses rm=0 (RNE); 3.7 rounds to 4 with RNE
+        Assert.Equal(4UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FcvtWuD_ConvertDoubleToUnsignedInt() {
+        // fcvt.wu.d x1, f2  0xC21100D3 — f2=5.0 → x1=5
+        Rv32ArchState s = MakeDState((34, Dbl(5.0)));
+        ExecuteResult r = Exec(0xC21100D3, s);
+        Assert.Equal(5UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FcvtDW_ConvertIntToDouble() {
+        // fcvt.d.w f1, x2  0xD20100D3 — x2=42 → f1=42.0
+        Rv32ArchState s = MakeDState((2, 42));
+        ExecuteResult r = Exec(0xD20100D3, s);
+        Assert.Equal(42.0, Adbl(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FcvtSD_ConvertDoubleToSingleWithNaNBox() {
+        // fcvt.s.d f1, f2  0x401100D3 — f2=2.5 → f1=2.5f NaN-boxed
+        Rv32ArchState s = MakeDState((34, Dbl(2.5)));
+        ExecuteResult r = Exec(0x401100D3, s);
+        ulong result = r.RegisterResult.Value;
+        Assert.Equal(0xFFFFFFFF00000000UL, result & 0xFFFFFFFF00000000UL); // NaN-boxed
+        Assert.Equal(2.5f, BitConverter.Int32BitsToSingle((int)(uint)result));
+    }
+
+    [Fact]
+    public void Execute_FcvtDS_ConvertSingleToDouble() {
+        // fcvt.d.s f1, f2  0x420100D3 — f2=2.5f (NaN-boxed) → f1=2.5
+        uint fbits = BitConverter.SingleToUInt32Bits(2.5f);
+        Rv32ArchState s = MakeDState((34, 0xFFFFFFFF00000000UL | fbits));
+        ExecuteResult r = Exec(0x420100D3, s);
+        Assert.Equal(2.5, Adbl(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FeqD_ReturnsTrueWhenEqual() {
+        // feq.d x1, f2, f3  0xA23120D3 — f2=f3=1.0 → x1=1
+        Rv32ArchState s = MakeDState((34, Dbl(1.0)), (35, Dbl(1.0)));
+        ExecuteResult r = Exec(0xA23120D3, s);
+        Assert.Equal(1UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FltD_ReturnsTrueWhenLess() {
+        // flt.d x1, f2, f3  0xA23110D3 — f2=1.0, f3=2.0 → x1=1
+        Rv32ArchState s = MakeDState((34, Dbl(1.0)), (35, Dbl(2.0)));
+        ExecuteResult r = Exec(0xA23110D3, s);
+        Assert.Equal(1UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FleD_ReturnsTrueWhenEqual() {
+        // fle.d x1, f2, f3  0xA23100D3 — f2=f3=1.0 → x1=1
+        Rv32ArchState s = MakeDState((34, Dbl(1.0)), (35, Dbl(1.0)));
+        ExecuteResult r = Exec(0xA23100D3, s);
+        Assert.Equal(1UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FmaddD_FusedMultiplyAdd() {
+        // fmadd.d f1, f2, f3, f4  — f2=2.0, f3=3.0, f4=1.0 → f1=7.0
+        Rv32ArchState s = MakeDState((34, Dbl(2.0)), (35, Dbl(3.0)), (36, Dbl(1.0)));
+        ExecuteResult r = Exec(0x223100C3, s);
+        Assert.Equal(7.0, Adbl(r.RegisterResult.Value));
     }
 }

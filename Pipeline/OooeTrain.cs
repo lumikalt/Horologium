@@ -1332,6 +1332,8 @@ internal sealed class OoOPipelineCore : Gear {
                     if ((fwd & signBit) != 0) fwd |= ~((1UL << (signExtBytes * 8)) - 1);
                 }
 
+                if (issued.Instr.NanBoxLoadResult)
+                    fwd = 0xFFFFFFFF00000000UL | (fwd & 0xFFFFFFFF);
                 regValue = (fwd, true);
                 loadForwarded = true;
             }

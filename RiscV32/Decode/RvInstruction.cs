@@ -128,6 +128,7 @@ public sealed class RvInstruction(
         _    => 0,
     };
 
+    public bool NanBoxLoadResult { get; } = payload is RvFlw;
     public bool IsDiv { get; } = payload is RvDiv or RvDivu or RvRem or RvRemu;
     public bool IsStoreConditional { get; } = payload is RvScW;
 
@@ -510,6 +511,61 @@ public record RvFmsubS(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
 public record RvFnmsubS(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
 
 public record RvFnmaddS(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+// ── D extension ───────────────────────────────────────────────────────────────
+// Register indices: 0-31 = int, 32-63 = fp (64-bit NaN-boxed when .S)
+
+public record RvFld(int Rd, int Rs1, int Imm) : RvOp; // Rd=fp64, Rs1=int
+
+public record RvFsd(int Rs1, int Rs2, int Imm) : RvOp; // Rs1=int base, Rs2=fp64 data
+
+public record RvFaddD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsubD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFmulD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFdivD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsqrtD(int Rd, int Rs1) : RvOp;
+
+public record RvFsgnjD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsgnjnD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsgnjxD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFminD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFmaxD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFeqD(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFltD(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFleD(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFclassD(int Rd, int Rs1) : RvOp; // Rd=int result
+
+public record RvFcvtWD(int Rd, int Rs1, int Rm) : RvOp; // double→signed int32
+
+public record RvFcvtWuD(int Rd, int Rs1, int Rm) : RvOp; // double→unsigned int32
+
+public record RvFcvtDW(int Rd, int Rs1, int Rm) : RvOp; // signed int32→double
+
+public record RvFcvtDWu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int32→double
+
+public record RvFcvtSD(int Rd, int Rs1, int Rm) : RvOp; // double→single (narrowing)
+
+public record RvFcvtDS(int Rd, int Rs1, int Rm) : RvOp; // single→double (widening)
+
+public record RvFmaddD(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFmsubD(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFnmsubD(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFnmaddD(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
 
 // ── A extension (atomics) ─────────────────────────────────────────────────────
 public record RvLrW(int Rd, int Rs1) : RvOp;

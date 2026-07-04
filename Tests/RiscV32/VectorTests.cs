@@ -716,10 +716,10 @@ public class VectorTests {
         Exec(raw, s).SideEffect!(s);
 
         byte[] r = s.VectorRegisters.Read(1);
-        Assert.Equal(0xAAu, (uint)r[0]);
-        Assert.Equal(0xBBu, (uint)r[1]);
-        Assert.Equal(0xCCu, (uint)r[2]);
-        Assert.Equal(0xDDu, (uint)r[3]);
+        Assert.Equal(0xAAu, r[0]);
+        Assert.Equal(0xBBu, r[1]);
+        Assert.Equal(0xCCu, r[2]);
+        Assert.Equal(0xDDu, r[3]);
     }
 
     // ── Integer multiply/divide tests ────────────────────────────────────────
@@ -1740,7 +1740,7 @@ public class VectorTests {
 
     // Write float bits to a unified-register-file float register (index = 32 + fpr).
     private static void SetFReg(Rv32ArchState s, int fpr, float value) =>
-        s.IntegerRegisters.Write(32 + fpr, (uint)BitConverter.SingleToInt32Bits(value));
+        s.IntegerRegisters.Write(32 + fpr, 0xFFFFFFFF00000000UL | (uint)BitConverter.SingleToInt32Bits(value));
 
     // Read element i of a vector register as a float32.
     private static float FElemF(byte[] v, int i) =>
@@ -2764,10 +2764,10 @@ public class VectorTests {
         ExecuteResult r = Exec(raw, s);
         r.SideEffect!(s);
         byte[] v1 = s.VectorRegisters.Read(1);
-        Assert.Equal((ushort)unchecked((ushort)-2), BitConverter.ToUInt16(v1, 0));  // 0 + (-1)*2
-        Assert.Equal((ushort)6, BitConverter.ToUInt16(v1, 2));                      // 0 + 2*3
-        Assert.Equal((ushort)unchecked((ushort)-12), BitConverter.ToUInt16(v1, 4)); // 0 + (-3)*4
-        Assert.Equal((ushort)20, BitConverter.ToUInt16(v1, 6));                     // 0 + 4*5
+        Assert.Equal(unchecked((ushort)-2), BitConverter.ToUInt16(v1, 0));  // 0 + (-1)*2
+        Assert.Equal((ushort)6, BitConverter.ToUInt16(v1, 2));              // 0 + 2*3
+        Assert.Equal(unchecked((ushort)-12), BitConverter.ToUInt16(v1, 4)); // 0 + (-3)*4
+        Assert.Equal((ushort)20, BitConverter.ToUInt16(v1, 6));             // 0 + 4*5
     }
 
     [Fact]
@@ -2776,9 +2776,9 @@ public class VectorTests {
         ConfigVl4E8(s);
         // vwmaccus: vd[i] += unsigned(vs2[i]) * signed(rs1)
         SetVReg16(s, 1, [100, 100, 100, 100,]);
-        SetVReg8(s, 2, [5, 10, 15, 20,]);                         // unsigned sources
-        s.IntegerRegisters.Write(10, unchecked((ulong)(long)-3)); // rs1 = a0 = -3
-        uint raw = VopMvx(0x3E, 1, 2, 10);                        // vwmaccus.vx v1, a0, v2
+        SetVReg8(s, 2, [5, 10, 15, 20,]);                   // unsigned sources
+        s.IntegerRegisters.Write(10, unchecked((ulong)-3)); // rs1 = a0 = -3
+        uint raw = VopMvx(0x3E, 1, 2, 10);                  // vwmaccus.vx v1, a0, v2
         ExecuteResult r = Exec(raw, s);
         r.SideEffect!(s);
         byte[] v1 = s.VectorRegisters.Read(1);
@@ -3214,14 +3214,14 @@ public class VectorTests {
         Exec(raw, s).SideEffect!(s);
         byte[] v2 = s.VectorRegisters.Read(2);
         Assert.Equal(1.5, DElemF(v2, 0), 10);
-        Assert.Equal((double)-3.14f, DElemF(v2, 1), 10);
+        Assert.Equal(-3.14f, DElemF(v2, 1), 10);
     }
 
     [Fact]
     public void Execute_VfwcvtFFromX_I32ToF64() {
         Rv32ArchState s = MakeState();
         ConfigVl4E32(s);
-        SetVReg(s, 4, [unchecked((uint)-42), (uint)1000, 0u, 0u,]);
+        SetVReg(s, 4, [unchecked((uint)-42), 1000, 0u, 0u,]);
         uint raw = VopFvUnary(0x12, 2, 4, 11); // vfwcvt.f.x.v v2, v4
         Exec(raw, s).SideEffect!(s);
         byte[] v2 = s.VectorRegisters.Read(2);

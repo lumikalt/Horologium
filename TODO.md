@@ -37,7 +37,7 @@
 
 - [x] V extension: V1.0 fully implemented (VLEN=128; all integer, FP, mask, permute, reduction, segment, and memory ops).
 - [x] Zba, Zbb, Zbs, Zicond, Zbc.
-- [ ] D extension (RV32D): double-precision FP registers and arithmetic.
+- [x] D extension (RV32D): 64-bit FP registers, NaN-boxing for F values, FLD/FSD, all D arithmetic/FMA/conversion/comparison ops.
 - [ ] Zfh / Zfhmin: half-precision FP.
 - [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file.
 - [x] Zicbom / Zicboz / Zicbop: cache management operations.

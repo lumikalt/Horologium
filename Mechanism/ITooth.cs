@@ -81,6 +81,15 @@ public interface ITooth {
     int LoadSignExtendBytes => 0;
 
     /// <summary>
+    /// True when the load result must be IEEE 754 NaN-boxed before writing to the
+    /// destination register (i.e. the upper 32 bits must be set to 0xFFFFFFFF).
+    /// Used by the OoO pipeline to re-apply NaN-boxing when a store-forwarded value
+    /// replaces the executor's result (which was already boxed before forwarding stripped it).
+    /// Only FLW sets this; all other loads and non-load instructions return false.
+    /// </summary>
+    bool NanBoxLoadResult => false;
+
+    /// <summary>
     /// True for integer divide and remainder instructions (DIV/DIVU/REM/REMU and
     /// their variants). Used by the pipeline to apply a separate <c>DivLatency</c>
     /// when modelling the higher-latency division unit independently from multiply.
