@@ -107,12 +107,21 @@
 ### Parallelism
 
 - [x] Parallelize config sweep in `Experiment.Run`.
-- [ ] Parallelize multi-workload sweeps.
+- [x] Parallelize multi-workload sweeps.
 - [x] Multi-hart concurrency (distinct from run-level parallelism).
 
 ## Mechanism
 
-- [ ] Generic interfaces for external devices (basic UART/MMIO).
+- [x] Generic interfaces for external devices: SiFive UART0 MMIO peripheral (TX/RX) and address-routing peripheral bus.
+- [x] ns16550a UART: QEMU virt console UART at 0x10000000 (TX/RX, LSR THRE/TEMT, scratch register).
+- [x] CLINT MMIO device: mtime/mtimecmp/msip registers at 0x02000000; MTIP/MSIP delivery via RvTrapController. — RISC-V Privileged Spec §3.1.10
+- [x] PMP CSRs (pmpcfg0-3, pmpaddr0-15), mstatush, menvcfg, senvcfg — stubbed; accepts writes, no enforcement.
+- [x] PLIC MMIO device: interrupt routing, per-context claim/complete cycle, level-triggered pending. — RISC-V PLIC Spec v1.0
+- [ ] VirtIO block device: virtqueue descriptor table, used/avail rings; back with a host file for rootfs. — VirtIO 1.2 Spec §5.2
+- [x] Device Tree Blob (DTB): hand-written virt.dts compiled to virt.dtb and embedded in RiscV32 assembly; exposes via VirtDtb.Bytes.
+- [x] Raw-binary workload loader: RawBinaryWorkload loads a flat binary at a base address; embeds DTB at a configurable address; caller sets a0=hartid, a1=DtbAddress before Run().
+- [x] OpenSBI bring-up (milestone 1): boot OpenSBI generic platform (rv32, fw_jump) to banner on SingleCycleTrain — fw_jump.bin built with nix build .#opensbi-rv32.
+- [ ] Linux kernel bring-up (milestone 2): boot RV32 Linux Image (from Buildroot qemu_riscv32_virt or equivalent) after OpenSBI banner milestone. — Requires PLIC + VirtIO or initramfs + RV32 Linux toolchain.
 - [x] Cache pre-fetching: next-line and stride (RPT) prefetchers.
 - [ ] Cache pre-fetching: stream prefetcher (stream buffers for sequential access). — Jouppi, ISCA 1990
 - [ ] Cache pre-fetching: spatial memory streaming (SMS) for irregular access patterns. — Somogyi et al., ISCA 2006
@@ -248,8 +257,9 @@ Currently all caches use LRU. Pluggable replacement policies, then:
 - [ ] Generic definition for a parser.
 - [ ] Clock domain crossing: model multiple frequency domains (e.g., core at 3 GHz, uncore/LLC at 1.5 GHz) with
   synchronization FIFOs.
-- [ ] Interrupt controller model (PLIC/APLIC): route external and inter-processor interrupts to the correct hart and
+- [x] Interrupt controller model (PLIC): route external and inter-processor interrupts to the correct hart and
   privilege level.
+- [ ] APLIC (Advanced Interrupt Architecture PLC): MSI delivery, domain model, direct and MSI modes. — RISC-V AIA Spec
 
 ## Tools
 

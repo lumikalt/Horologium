@@ -36,6 +36,7 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Sstatus = 0x100;
     public const uint Sie = 0x104;
     public const uint Stvec = 0x105;
+    public const uint Scounteren = 0x106;
 
     // Supervisor Trap Handling
     public const uint Sscratch = 0x140;
@@ -59,6 +60,23 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Mcause = 0x342;
     public const uint Mtval = 0x343;
     public const uint Mip = 0x344;
+
+    // Machine Environment Configuration (Smstateen / OpenSBI — accept writes, no effect)
+    public const uint Menvcfg  = 0x30A;
+    public const uint Menvcfgh = 0x31A;
+    public const uint Senvcfg  = 0x10A;
+
+    // RV32 upper mstatus half (mstatush — M-mode bit-endianness control; writable, ignored)
+    public const uint Mstatush = 0x310;
+
+    // Physical Memory Protection (Smepmp / OpenSBI — writable, no enforcement in simulation)
+    // pmpcfg0-3: 0x3A0–0x3A3  (4 configuration registers, each packing 4 PMP entries for RV32)
+    // pmpaddr0-15: 0x3B0–0x3BF
+    public const uint Pmpcfg0   = 0x3A0;
+    public const uint Pmpcfg1   = 0x3A1;
+    public const uint Pmpcfg2   = 0x3A2;
+    public const uint Pmpcfg3   = 0x3A3;
+    public const uint Pmpaddr0  = 0x3B0;
 
     // Machine Counters (Zicntr)
     public const uint Mcycle = 0xB00;
@@ -126,6 +144,7 @@ public sealed class CsrFile : ISystemRegisters {
         Seed(CsrFile.Sstatus, 0);
         Seed(CsrFile.Sie, 0);
         Seed(CsrFile.Stvec, 0);
+        Seed(CsrFile.Scounteren, 0);
         Seed(CsrFile.Sscratch, 0);
         Seed(CsrFile.Sepc, 0);
         Seed(CsrFile.Scause, 0);
@@ -133,7 +152,7 @@ public sealed class CsrFile : ISystemRegisters {
         Seed(CsrFile.Sip, 0);
 
         Seed(CsrFile.Mstatus, 0);
-        Seed(CsrFile.Misa, 0x40000100); // RV32I: MXL=01, I extension bit set
+        Seed(CsrFile.Misa, 0x40141105); // RV32IMACSU: MXL=01, I/M/A/C/S/U extension bits
         Seed(CsrFile.Medeleg, 0);
         Seed(CsrFile.Mideleg, 0);
         Seed(CsrFile.Mie, 0);
@@ -155,6 +174,14 @@ public sealed class CsrFile : ISystemRegisters {
             Seed(0xB80 + n, 0); // mhpmcounterNh
             Seed(0x320 + n, 0); // mhpmeventN
         }
+
+        // Privileged extension stubs (OpenSBI/Linux writes these; no enforcement in simulation)
+        Seed(CsrFile.Menvcfg,  0);
+        Seed(CsrFile.Menvcfgh, 0);
+        Seed(CsrFile.Senvcfg,  0);
+        Seed(CsrFile.Mstatush, 0);
+        for (uint i = 0; i < 4; i++) Seed(CsrFile.Pmpcfg0 + i, 0);
+        for (uint i = 0; i < 16; i++) Seed(CsrFile.Pmpaddr0 + i, 0);
 
         // Read-only machine information
         Seed(CsrFile.Mvendorid, 0);
@@ -235,7 +262,7 @@ public sealed class CsrFile : ISystemRegisters {
         for (var i = 0; i < CsrFile.CsrSpace; i++)
             if (_present[i])
                 _csrs[i] = 0;
-        Seed(CsrFile.Misa, 0x40000100);
+        Seed(CsrFile.Misa, 0x40141105); // RV32IMACSU: MXL=01, I/M/A/C/S/U extension bits
         Seed(CsrFile.Vlenb, VectorRegisterFile.VLenB);
     }
 

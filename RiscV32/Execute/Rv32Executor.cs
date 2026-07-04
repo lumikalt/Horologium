@@ -161,7 +161,12 @@ public class Rv32Executor : IExecutor {
                 new TrapInfo(EcallCause(state.PrivilegeLevel), 0, pc)
             ),
 
-            RvEbreak => new ExecuteResult { IsHalt = true, },
+            // If a trap handler is installed (mtvec != 0), generate a real breakpoint exception
+            // so OpenSBI's semihosting probe (and similar) can recover via their mtvec handler.
+            // If mtvec == 0, halt — matches Spike's non-interactive behavior for bare-metal tests.
+            RvEbreak => state.SystemRegisters is CsrFile ebreakCsrs && ebreakCsrs.DirectRead(CsrFile.Mtvec) != 0
+                ? ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.Breakpoint, pc, pc))
+                : new ExecuteResult { IsHalt = true },
 
             RvMret => state.PrivilegeLevel == RvPrivilege.Machine
                 ? new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Machine, }
