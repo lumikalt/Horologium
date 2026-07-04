@@ -109,6 +109,15 @@ Seven bare-metal RISC-V benchmarks compiled from the riscv-tests suite: `median`
 
 ISA conformance tests (`TestBinaries/isa/`) are also linked at `0x80000000`. `FlatMemory` accepts an optional `baseAddress` constructor parameter so the backing byte array starts at the first PT_LOAD segment (e.g. `0x80000000`) rather than at address 0, avoiding a 2 GB allocation. `Rv32ElfWorkload.BaseAddress` exposes this value; `IWorkload.BaseAddress` defaults to 0 for zero-based images.
 
+### Full-system booting (RiscV32/Memory, Orrery/Devices)
+
+Two full-system boot milestones are verified by tests in `Tests/RiscV32/`:
+
+- **OpenSBI v1.8** (`SingleCycle_OpenSBI_PrintsBanner`): `fw_jump.bin` (generic platform, RV32) boots on a `SingleCycleTrain` and prints its version banner on the ns16550a UART. Built via `nix build .#opensbi-rv32`.
+- **Linux 6.12 RV32 NOMMU** (`SingleCycle_Linux_PrintsBanner`): a `nommu_virt_defconfig + 32-bit.config + M-mode` kernel loads at `0x80000000` (PAGE_OFFSET) and prints `Linux version …` via earlycon on the UART within 10 M instructions. No OpenSBI — the kernel runs entirely in M-mode, so it is launched directly. Built via `nix build .#linux-rv32`.
+
+The peripheral bus is a `PeripheralBus` routing three devices: a `ClintDevice` (MTIP/MSIP at 0x02000000), a `PlicDevice` (external interrupt routing at 0x0C000000), and an `Ns16550aUart` (ns16550a console at 0x10000000; TX writes flush immediately to a `TextWriter`). `VirtDtb.Bytes` is a hand-crafted device tree blob (`RiscV32/Memory/virt.dts`) declaring 128 MiB RAM, all three devices, and one `virtio_mmio` block device slot.
+
 ### Multi-hart kernel (RiscV32/MultiCore)
 
 `MultiHartKernel` drives N RISC-V harts round-robin against a shared physical memory. Each call to `Step()` advances every non-halted hart by one instruction and returns the number still active; `Run(maxTicks)` loops until all harts halt or the tick limit is reached. Each hart has its own `IArchState` (created by `Rv32Mechanism.CreateArchState()`). Halt detection covers EBREAK (`result.IsHalt`), HTIF tohost (`result.RequestHalt`), and the infinite-self-loop idiom (`PC == pc && class == Branch`). The kernel operates in physical address space (no fetch translation), making it suited for bare-metal multi-hart workloads.

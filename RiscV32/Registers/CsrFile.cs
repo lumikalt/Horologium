@@ -62,9 +62,9 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Mip = 0x344;
 
     // Machine Environment Configuration (Smstateen / OpenSBI — accept writes, no effect)
-    public const uint Menvcfg  = 0x30A;
+    public const uint Menvcfg = 0x30A;
     public const uint Menvcfgh = 0x31A;
-    public const uint Senvcfg  = 0x10A;
+    public const uint Senvcfg = 0x10A;
 
     // RV32 upper mstatus half (mstatush — M-mode bit-endianness control; writable, ignored)
     public const uint Mstatush = 0x310;
@@ -72,11 +72,11 @@ public sealed class CsrFile : ISystemRegisters {
     // Physical Memory Protection (Smepmp / OpenSBI — writable, no enforcement in simulation)
     // pmpcfg0-3: 0x3A0–0x3A3  (4 configuration registers, each packing 4 PMP entries for RV32)
     // pmpaddr0-15: 0x3B0–0x3BF
-    public const uint Pmpcfg0   = 0x3A0;
-    public const uint Pmpcfg1   = 0x3A1;
-    public const uint Pmpcfg2   = 0x3A2;
-    public const uint Pmpcfg3   = 0x3A3;
-    public const uint Pmpaddr0  = 0x3B0;
+    public const uint Pmpcfg0 = 0x3A0;
+    public const uint Pmpcfg1 = 0x3A1;
+    public const uint Pmpcfg2 = 0x3A2;
+    public const uint Pmpcfg3 = 0x3A3;
+    public const uint Pmpaddr0 = 0x3B0;
 
     // Machine Counters (Zicntr)
     public const uint Mcycle = 0xB00;
@@ -176,9 +176,9 @@ public sealed class CsrFile : ISystemRegisters {
         }
 
         // Privileged extension stubs (OpenSBI/Linux writes these; no enforcement in simulation)
-        Seed(CsrFile.Menvcfg,  0);
+        Seed(CsrFile.Menvcfg, 0);
         Seed(CsrFile.Menvcfgh, 0);
-        Seed(CsrFile.Senvcfg,  0);
+        Seed(CsrFile.Senvcfg, 0);
         Seed(CsrFile.Mstatush, 0);
         for (uint i = 0; i < 4; i++) Seed(CsrFile.Pmpcfg0 + i, 0);
         for (uint i = 0; i < 16; i++) Seed(CsrFile.Pmpaddr0 + i, 0);

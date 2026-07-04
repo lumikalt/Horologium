@@ -213,6 +213,29 @@
             </Grid>
         </TabItem>
 
+        <!-- ── Console tab — UART output ────────────────────────────────────── -->
+        <TabItem Header="Console">
+            <Grid RowDefinitions="Auto,*">
+                <TextBlock Grid.Row="0"
+                           Text="UART output — write to 0x10013000 (SiFive UART0 txdata)"
+                           Margin="10,8,10,4"
+                           FontSize="11"
+                           Opacity="0.5" />
+                <TextBox Grid.Row="1"
+                         x:Name="ConsoleBox"
+                         Text="{Binding ConsoleOutput}"
+                         IsReadOnly="True"
+                         AcceptsReturn="True"
+                         FontFamily="{StaticResource MonoFont}"
+                         FontSize="13"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="10,4"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            </Grid>
+        </TabItem>
+
         <!-- ── Cache tab — hit-rate chart + cache contents grid ─────────────── -->
         <TabItem Header="Cache">
             <Grid RowDefinitions="Auto,Auto,Auto,*">

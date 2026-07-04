@@ -47,63 +47,125 @@ public static class Experiment {
         long warmupTicks = 0,
         long snapshotInterval = 0
     ) {
-        long resolvedInterval = snapshotInterval == -1
-            ? Math.Max(10, workload.CodeSize / 200)
-            : snapshotInterval;
-
+        long resolvedInterval = ResolveInterval(snapshotInterval, workload);
         List<NamedConfig> configs = configurations.ToList();
         var records = new RunRecord[configs.Count];
 
         Parallel.For(
-            0, configs.Count, i => {
-                IMechanism mechanism = mechanismFactory();
-                NamedConfig named = configs[i];
-                TrainConfig config = named.Config;
-                var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
-                workload.Load(memory);
-                IMemory runMemory = workload.WrapMemory(memory);
-                MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
-
-                RevolutionResult result = config.Pipeline switch {
-                    "superscalar" => new SuperscalarTrain(
-                        mechanism, runMemory,
-                        workload.EntryPoint,
-                        config.IssueWidth,
-                        config.ToIMemoryConfig(),
-                        dCfg
-                    ).Run(maxTicks, warmupTicks, resolvedInterval),
-
-                    "ooo" => new OooeTrain(
-                        mechanism, runMemory,
-                        workload.EntryPoint,
-                        config.IssueWidth,
-                        config.RobCapacity,
-                        config.IqCapacity,
-                        config.ExtraPhysRegs,
-                        config.Predictor?.Build(mechanism, workload),
-                        config.ToIMemoryConfig(),
-                        dCfg,
-                        config.FuLatency,
-                        writeBufferCapacity: config.StoreBufferCapacity,
-                        mshrCapacity: config.MshrCapacity
-                    ).Run(maxTicks, warmupTicks, resolvedInterval),
-
-                    _ => new FiveStageTrain(
-                        mechanism, runMemory,
-                        workload.EntryPoint,
-                        config.ForwardingEnabled,
-                        config.Predictor?.Build(mechanism, workload),
-                        config.ToIMemoryConfig(),
-                        dCfg,
-                        config.StoreBufferCapacity
-                    ).Run(maxTicks, warmupTicks, resolvedInterval),
-                };
-
-                records[i] = new RunRecord(named.Name, config, result);
-            }
+            0, configs.Count, i =>
+                records[i] = RunOne(workload, mechanismFactory(), configs[i], maxTicks, warmupTicks, resolvedInterval)
         );
 
         return new ExperimentResult(records.ToList());
+    }
+
+    /// <summary>
+    /// Runs every combination of workload × configuration in parallel and returns one
+    /// <see cref="ExperimentResult"/> per workload, preserving the input order.
+    /// </summary>
+    /// <param name="workloads">
+    /// The labelled workloads to simulate. Each label is used as a display name in output.
+    /// </param>
+    /// <param name="configurations">
+    /// The hardware configurations shared across all workloads.
+    /// </param>
+    /// <param name="mechanismFactory">
+    /// Called once per (workload, config) pair. Receives the workload so callers can pass
+    /// a workload-specific HTIF tohost address to the mechanism constructor.
+    /// </param>
+    /// <param name="maxTicks">Maximum ticks per (workload, config) run.</param>
+    /// <param name="warmupTicks">Ticks before measurement starts.</param>
+    /// <param name="snapshotInterval">
+    /// Ticks between time-series snapshots (-1 = auto per workload, 0 = off).
+    /// </param>
+    public static IReadOnlyList<(string Label, ExperimentResult Result)> RunMany(
+        IEnumerable<(string Label, IWorkload Workload)> workloads,
+        IEnumerable<NamedConfig> configurations,
+        Func<IWorkload, IMechanism> mechanismFactory,
+        long maxTicks = 1_000_000,
+        long warmupTicks = 0,
+        long snapshotInterval = 0
+    ) {
+        List<(string Label, IWorkload Workload)> wl = workloads.ToList();
+        List<NamedConfig> configs = configurations.ToList();
+        int c = configs.Count;
+        var records = new RunRecord[wl.Count * c];
+
+        Parallel.For(
+            0, wl.Count * c, idx => {
+                int wi = idx / c;
+                int ci = idx % c;
+                IWorkload workload = wl[wi].Workload;
+                long resolvedInterval = ResolveInterval(snapshotInterval, workload);
+                records[idx] = RunOne(
+                    workload, mechanismFactory(workload), configs[ci], maxTicks, warmupTicks, resolvedInterval
+                );
+            }
+        );
+
+        var results = new (string Label, ExperimentResult Result)[wl.Count];
+        for (var wi = 0; wi < wl.Count; wi++) {
+            var wlRecords = new RunRecord[c];
+            for (var ci = 0; ci < c; ci++) wlRecords[ci] = records[wi * c + ci];
+            results[wi] = (wl[wi].Label, new ExperimentResult(wlRecords));
+        }
+
+        return results;
+    }
+
+    private static long ResolveInterval(long snapshotInterval, IWorkload workload) =>
+        snapshotInterval == -1 ? Math.Max(10, workload.CodeSize / 200) : snapshotInterval;
+
+    private static RunRecord RunOne(
+        IWorkload workload,
+        IMechanism mechanism,
+        NamedConfig named,
+        long maxTicks,
+        long warmupTicks,
+        long snapshotInterval
+    ) {
+        TrainConfig config = named.Config;
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+        IMemory runMemory = workload.WrapMemory(memory);
+        MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
+
+        RevolutionResult result = config.Pipeline switch {
+            "superscalar" => new SuperscalarTrain(
+                mechanism, runMemory,
+                workload.EntryPoint,
+                config.IssueWidth,
+                config.ToIMemoryConfig(),
+                dCfg
+            ).Run(maxTicks, warmupTicks, snapshotInterval),
+
+            "ooo" => new OooeTrain(
+                mechanism, runMemory,
+                workload.EntryPoint,
+                config.IssueWidth,
+                config.RobCapacity,
+                config.IqCapacity,
+                config.ExtraPhysRegs,
+                config.Predictor?.Build(mechanism, workload),
+                config.ToIMemoryConfig(),
+                dCfg,
+                config.FuLatency,
+                writeBufferCapacity: config.StoreBufferCapacity,
+                mshrCapacity: config.MshrCapacity
+            ).Run(maxTicks, warmupTicks, snapshotInterval),
+
+            _ => new FiveStageTrain(
+                mechanism, runMemory,
+                workload.EntryPoint,
+                config.ForwardingEnabled,
+                config.Predictor?.Build(mechanism, workload),
+                config.ToIMemoryConfig(),
+                dCfg,
+                config.StoreBufferCapacity
+            ).Run(maxTicks, warmupTicks, snapshotInterval),
+        };
+
+        return new RunRecord(named.Name, config, result);
     }
 
     /// <summary>
@@ -149,13 +211,12 @@ public static class Experiment {
         return plog;
     }
 
-    // The HTIF tohost/fromhost registers are memory-mapped I/O and must bypass the
-    // cache: HtifMemory's auto-ACK writes fromhost to the backing below the cache,
-    // so a cached copy goes stale and the printstr poll loop spins forever. They
-    // are two adjacent 8-byte registers (tohost at the symbol, fromhost at +8).
+    // Memory-mapped I/O must bypass caches: device side effects (e.g. HtifMemory's
+    // fromhost auto-ACK, or a UART device's TX/RX state) are invisible to the cache,
+    // so a cached copy goes stale and poll loops spin forever.
     private static MemoryConfig WithMmio(MemoryConfig dCfg, IWorkload workload) =>
-        workload.HtifTohostAddress is { } tohost
-            ? dCfg with { UncacheableBase = tohost, UncacheableSize = 16, }
+        workload.MmioRegion is { } r
+            ? dCfg with { UncacheableBase = r.Base, UncacheableSize = r.Size, }
             : dCfg;
 
     /// <summary>

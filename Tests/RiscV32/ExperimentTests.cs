@@ -396,6 +396,50 @@ public class ExperimentTests {
         Assert.Equal(20, workload.CodeSize);
     }
 
+    // ── RunMany: multi-workload parallel sweeps ───────────────────────────────
+
+    [Fact]
+    public void RunMany_ProducesOneResultPerWorkload() {
+        byte[] program = MakeCountdownProgram();
+        (string, IWorkload)[] workloads = [
+            ("alpha", new ByteArrayWorkload(program)),
+            ("beta", new ByteArrayWorkload(program)),
+        ];
+        NamedConfig[] configs = [
+            new("ant", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
+            new("two_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit())),
+        ];
+
+        IReadOnlyList<(string Label, ExperimentResult Result)> results =
+            Experiment.RunMany(workloads, configs, _ => new Rv32Mechanism());
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("alpha", results[0].Label);
+        Assert.Equal("beta", results[1].Label);
+        foreach ((string _, ExperimentResult result) in results) {
+            Assert.Equal(2, result.Runs.Count);
+            Assert.Equal("ant", result.Runs[0].Name);
+            Assert.Equal("two_bit", result.Runs[1].Name);
+            foreach (RunRecord run in result.Runs)
+                Assert.True(run.Result.Find("five_stage.pipeline")!.Counters["retired"] > 0);
+        }
+    }
+
+    [Fact]
+    public void RunMany_MatchesIndependentRunCalls() {
+        byte[] program = MakeCountdownProgram();
+        var workload = new ByteArrayWorkload(program);
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
+
+        ExperimentResult single = Experiment.Run(workload, configs, () => new Rv32Mechanism());
+        IReadOnlyList<(string Label, ExperimentResult Result)> multi =
+            Experiment.RunMany([("w", workload),], configs, _ => new Rv32Mechanism());
+
+        long singleRetired = single.Runs[0].Result.Find("five_stage.pipeline")!.Counters["retired"];
+        long multiRetired = multi[0].Result.Runs[0].Result.Find("five_stage.pipeline")!.Counters["retired"];
+        Assert.Equal(singleRetired, multiRetired);
+    }
+
     // ── MMIO must bypass the cache (regression) ───────────────────────────────
 
     [Theory]

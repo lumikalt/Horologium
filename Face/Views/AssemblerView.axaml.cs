@@ -20,6 +20,7 @@ public partial class AssemblerView : UserControl {
     private Timer? _debounce;
     private readonly CurrentLineHighlighter _lineHighlighter = new();
     private AvaPlot? _cacheChartView;
+    private TextBox? _consoleBox;
 
     public AssemblerView() {
         InitializeComponent();
@@ -33,6 +34,7 @@ public partial class AssemblerView : UserControl {
 
     private void OnLoaded(object? sender, RoutedEventArgs e) {
         _cacheChartView = this.FindControl<AvaPlot>("CacheChartView");
+        _consoleBox = this.FindControl<TextBox>("ConsoleBox");
         ApplyCacheChartStyle();
         if (this.FindControl<TabControl>("MainTabControl") is { } tc)
             tc.SelectionChanged += (_, _) => RefreshCacheChart();
@@ -70,6 +72,11 @@ public partial class AssemblerView : UserControl {
         if (e.PropertyName == nameof(AssemblerViewModel.IsCMode)) {
             Editor.Text = ActiveSource;
             Editor.SyntaxHighlighting = ActiveHighlighting;
+            return;
+        }
+
+        if (e.PropertyName == nameof(AssemblerViewModel.ConsoleOutput) && _consoleBox is { } box) {
+            Dispatcher.UIThread.Post(() => box.CaretIndex = box.Text?.Length ?? 0);
             return;
         }
 

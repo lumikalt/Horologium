@@ -6,7 +6,7 @@ using RiscV32.Memory;
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
-string? elfPath = null;
+List<string> elfPaths = [];
 string? sweepPath = null;
 long warmupTicks = 0;
 long maxTicks = 1_000_000;
@@ -30,7 +30,7 @@ for (var i = 0; i < args.Length; i++)
             PrintUsage();
             return;
         default:
-            if (!args[i].StartsWith("--") && elfPath is null) { elfPath = args[i]; }
+            if (!args[i].StartsWith("--")) { elfPaths.Add(args[i]); }
             else {
                 Console.Error.WriteLine($"Unknown argument: {args[i]}");
                 PrintUsage();
@@ -40,14 +40,13 @@ for (var i = 0; i < args.Length; i++)
             break;
     }
 
-// ── Workload ──────────────────────────────────────────────────────────────────
+// ── Workload(s) ───────────────────────────────────────────────────────────────
 
-IWorkload workload;
-string workloadLabel;
+List<(string Label, IWorkload Workload)> workloads;
 
-if (elfPath is not null) {
-    workload = new Rv32ElfWorkload(elfPath, memorySizeBytes ?? 4 * 1024 * 1024);
-    workloadLabel = Path.GetFileName(elfPath);
+if (elfPaths.Count > 0) {
+    int memSize = memorySizeBytes ?? 4 * 1024 * 1024;
+    workloads = elfPaths.Select(p => (Path.GetFileName(p), (IWorkload)new Rv32ElfWorkload(p, memSize))).ToList();
 }
 else {
     // Built-in demo: 100-iteration countdown loop
@@ -65,16 +64,21 @@ else {
         bytes[i * 4 + 3] = (byte)(words[i] >> 24);
     }
 
-    workload = new ByteArrayWorkload(bytes);
-    workloadLabel = "built-in countdown loop (100 iterations)";
+    workloads = [("built-in countdown loop (100 iterations)", new ByteArrayWorkload(bytes)),];
 }
 
 // ── Olympia JSON trace output ─────────────────────────────────────────────────
 
 if (traceJsonPath is not null) {
+    if (workloads.Count > 1) {
+        Console.Error.WriteLine("--trace-json supports only a single workload.");
+        return;
+    }
+
+    IWorkload traceWorkload = workloads[0].Workload;
     using var sw = new StreamWriter(traceJsonPath);
     int written = Experiment.WriteOlympiaTrace(
-        workload, new Rv32Mechanism(workload.HtifTohostAddress), sw, maxTicks
+        traceWorkload, new Rv32Mechanism(traceWorkload.HtifTohostAddress), sw, maxTicks
     );
     Console.Error.WriteLine($"Wrote {written} instructions to {traceJsonPath}");
     return;
@@ -88,22 +92,48 @@ IReadOnlyList<NamedConfig> configs = sweepPath is not null
 
 // ── Run ───────────────────────────────────────────────────────────────────────
 
-Console.Error.WriteLine($"Workload : {workloadLabel}");
+Console.Error.WriteLine($"Workloads: {workloads.Count} ({string.Join(", ", workloads.Select(w => w.Label))})");
 Console.Error.WriteLine($"Configs  : {configs.Count} ({sweepPath ?? "default predictor sweep"})");
 if (warmupTicks > 0) Console.Error.WriteLine($"Warmup   : {warmupTicks:N0} ticks");
 Console.Error.WriteLine($"Max ticks: {maxTicks:N0}");
 Console.Error.WriteLine();
 
-ExperimentResult result = Experiment.Run(
-    workload, configs, () => new Rv32Mechanism(workload.HtifTohostAddress), maxTicks, warmupTicks, snapshotInterval
-);
+if (workloads.Count == 1) {
+    IWorkload workload = workloads[0].Workload;
+    ExperimentResult result = Experiment.Run(
+        workload, configs, () => new Rv32Mechanism(workload.HtifTohostAddress),
+        maxTicks, warmupTicks, snapshotInterval
+    );
 
-// ── Output ────────────────────────────────────────────────────────────────────
+    if (format is "md" or "both") Console.WriteLine(result.ToMarkdownTable());
+    switch (format) {
+        case "csv" or "both": Console.WriteLine(result.ToCsv()); break;
+        case "ts-csv":        Console.WriteLine(result.ToTimeSeriesCsv()); break;
+    }
+}
+else {
+    IReadOnlyList<(string Label, ExperimentResult Result)> results = Experiment.RunMany(
+        workloads, configs, w => new Rv32Mechanism(w.HtifTohostAddress),
+        maxTicks, warmupTicks, snapshotInterval
+    );
 
-if (format is "md" or "both") Console.WriteLine(result.ToMarkdownTable());
-switch (format) {
-    case "csv" or "both": Console.WriteLine(result.ToCsv()); break;
-    case "ts-csv":        Console.WriteLine(result.ToTimeSeriesCsv()); break;
+    foreach ((string label, ExperimentResult result) in results) {
+        if (format is "md" or "both") {
+            Console.WriteLine($"## {label}");
+            Console.WriteLine(result.ToMarkdownTable());
+        }
+
+        switch (format) {
+            case "csv" or "both":
+                Console.WriteLine($"## {label}");
+                Console.WriteLine(result.ToCsv());
+                break;
+            case "ts-csv":
+                Console.WriteLine($"## {label}");
+                Console.WriteLine(result.ToTimeSeriesCsv());
+                break;
+        }
+    }
 }
 
 return;
@@ -131,9 +161,10 @@ static IReadOnlyList<NamedConfig> DefaultSweep() => [
 static void PrintUsage() {
     Console.WriteLine(
         """
-        Usage: runner [elf-path] [options]
+        Usage: runner [elf-path ...] [options]
 
-          elf-path              ELF32 RISC-V binary to simulate (default: built-in demo)
+          elf-path              One or more ELF32 RISC-V binaries to simulate in parallel.
+                                Omit to run the built-in 100-iteration countdown loop.
 
         Options:
           --sweep <path>        JSON file with named hardware configurations to compare.
@@ -147,6 +178,7 @@ static void PrintUsage() {
                                         time-series data (requires --snapshot-interval).
           --trace-json <path>   Emit an Olympia-compatible JSON instruction trace
                                 (functional single-cycle run) to <path> and exit.
+                                Single workload only.
           --help                        Show this message.
 
         Sweep file format (JSON array):

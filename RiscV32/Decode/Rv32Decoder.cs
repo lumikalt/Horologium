@@ -446,8 +446,10 @@ public class Rv32Decoder : IDecoder {
         uint zimm = (word >> 15) & 0x1F;
 
         switch (funct3) {
-            // ECALL / EBREAK / SRET / MRET / WFI / Zawrs
+            // ECALL / EBREAK / SRET / MRET / WFI / Zawrs / SFENCE.VMA
             case 0x0:
+                // SFENCE.VMA: funct7 = 0001001 (0x09) — TLB flush, no-op in NOMMU simulation
+                if (word >> 25 == 0x09) return new RvInstruction(pc, raw, -1, [], ToothClass.Fence, new RvSfenceVma());
                 return (word >> 20) switch {
                     0x000 => new RvInstruction(pc, raw, -1, [], ToothClass.System, new RvEcall()),
                     0x001 => new RvInstruction(pc, raw, -1, [], ToothClass.Halt, new RvEbreak()),

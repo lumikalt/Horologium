@@ -117,11 +117,12 @@
 - [x] CLINT MMIO device: mtime/mtimecmp/msip registers at 0x02000000; MTIP/MSIP delivery via RvTrapController. — RISC-V Privileged Spec §3.1.10
 - [x] PMP CSRs (pmpcfg0-3, pmpaddr0-15), mstatush, menvcfg, senvcfg — stubbed; accepts writes, no enforcement.
 - [x] PLIC MMIO device: interrupt routing, per-context claim/complete cycle, level-triggered pending. — RISC-V PLIC Spec v1.0
-- [ ] VirtIO block device: virtqueue descriptor table, used/avail rings; back with a host file for rootfs. — VirtIO 1.2 Spec §5.2
+- [x] VirtIO block device: virtqueue descriptor table, used/avail rings; back with a host file for rootfs. — VirtIO 1.2 Spec §5.2
+- [x] VirtIO DTS node + DTB regen: virtio_mmio node in virt.dts at 0x10001000, PLIC interrupt #1, recompiled VirtDtb.Bytes.
 - [x] Device Tree Blob (DTB): hand-written virt.dts compiled to virt.dtb and embedded in RiscV32 assembly; exposes via VirtDtb.Bytes.
 - [x] Raw-binary workload loader: RawBinaryWorkload loads a flat binary at a base address; embeds DTB at a configurable address; caller sets a0=hartid, a1=DtbAddress before Run().
 - [x] OpenSBI bring-up (milestone 1): boot OpenSBI generic platform (rv32, fw_jump) to banner on SingleCycleTrain — fw_jump.bin built with nix build .#opensbi-rv32.
-- [ ] Linux kernel bring-up (milestone 2): boot RV32 Linux Image (from Buildroot qemu_riscv32_virt or equivalent) after OpenSBI banner milestone. — Requires PLIC + VirtIO or initramfs + RV32 Linux toolchain.
+- [x] Linux kernel bring-up (milestone 2): boot Linux 6.12 RV32 NOMMU (nommu_virt_defconfig + M-mode) directly on SingleCycleTrain; "Linux version" banner verified on ns16550a UART — nix build .#linux-rv32.
 - [x] Cache pre-fetching: next-line and stride (RPT) prefetchers.
 - [ ] Cache pre-fetching: stream prefetcher (stream buffers for sequential access). — Jouppi, ISCA 1990
 - [ ] Cache pre-fetching: spatial memory streaming (SMS) for irregular access patterns. — Somogyi et al., ISCA 2006

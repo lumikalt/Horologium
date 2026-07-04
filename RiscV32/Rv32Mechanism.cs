@@ -1,5 +1,6 @@
 using Mechanism;
 using Orrery.Cache;
+using Orrery.Devices;
 using RiscV32.Decode;
 using RiscV32.Execute;
 using RiscV32.Memory;
@@ -23,29 +24,42 @@ public sealed class Rv32Mechanism : IMechanism {
     /// <param name="reservationTable">
     /// Shared LR/SC reservation tracker for multi-hart simulation.
     /// When non-null, LR.W and SC.W route through this table instead of the
-    /// single-hart private reservation. Pass the same instance to all harts
+    /// real single-hart private reservation. Pass the same instance to all harts
     /// that share a memory bus.
     /// </param>
     /// <param name="hartId">
     /// The hart identifier used as the key in <paramref name="reservationTable"/>.
     /// Ignored when <paramref name="reservationTable"/> is null.
     /// </param>
+    /// <param name="clint">
+    /// CLINT device to attach to this hart's trap controller. When provided,
+    /// mtime advances and MTIP/MSIP are refreshed on every interrupt poll.
+    /// </param>
+    /// <param name="plic">
+    /// PLIC device to attach to this hart's trap controller. When provided,
+    /// MEIP/SEIP in mip reflect external interrupt state from the PLIC each poll.
+    /// </param>
     public Rv32Mechanism(
         ulong? htifTohost = null,
         ReservationTable? reservationTable = null,
-        int hartId = 0
-    ) =>
+        int hartId = 0,
+        ClintDevice? clint = null,
+        PlicDevice? plic = null
+    ) {
         Executor = new Rv32Executor {
             HtifTohostAddress = htifTohost,
             ReservationTable = reservationTable,
             HartId = hartId,
+            Clint = clint,
         };
+        TrapController = new RvTrapController(clint, plic);
+    }
 
     public string Name => "RV32I";
     public IDecoder Decoder { get; } = new Rv32Decoder();
     public IExecutor Executor { get; }
-    public IImpulseCracker? UopCracker => null; // added in Phase 7
-    public ITrapController TrapController { get; } = new RvTrapController();
+    public IImpulseCracker? UopCracker => null;
+    public ITrapController TrapController { get; }
 
     public IArchState CreateArchState() => new Rv32ArchState();
 

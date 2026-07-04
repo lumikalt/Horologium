@@ -42,4 +42,13 @@ public interface IWorkload {
     /// that follows. Null for workloads that do not use HTIF (the common case).
     /// </summary>
     ulong? HtifTohostAddress => null;
+
+    /// <summary>
+    /// The MMIO address region that must bypass all caches, or <c>null</c> when not applicable.
+    /// The default covers the HTIF tohost/fromhost registers (16 bytes) when
+    /// <see cref="HtifTohostAddress"/> is non-null. Override to expose other memory-mapped
+    /// peripherals such as a UART device.
+    /// </summary>
+    (ulong Base, ulong Size)? MmioRegion =>
+        HtifTohostAddress is { } a ? (a, 16) : null;
 }

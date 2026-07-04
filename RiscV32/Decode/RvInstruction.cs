@@ -436,6 +436,9 @@ public record RvFence(uint Pred, uint Succ, uint Fm) : RvOp;
 /// I-cache invalidation on self-modifying code is not modeled.</summary>
 public record RvFenceI : RvOp;
 
+/// <summary>SFENCE.VMA: TLB shootdown. No-op in our NOMMU simulation.</summary>
+public record RvSfenceVma : RvOp;
+
 // ── M extension (multiply / divide) ──────────────────────────────────────────
 public record RvMul(int Rd, int Rs1, int Rs2) : RvOp;
 

@@ -1,6 +1,7 @@
 using System.Numerics;
 using Mechanism;
 using Orrery.Cache;
+using Orrery.Devices;
 using RiscV32.Decode;
 using RiscV32.Memory;
 using RiscV32.Registers;
@@ -22,6 +23,9 @@ public class Rv32Executor : IExecutor {
     /// terminates at the exit write. Null disables the check.
     /// </summary>
     public ulong? HtifTohostAddress { get; init; }
+
+    /// <summary>CLINT for WFI fast-forward: skips mtime to mtimecmp so the timer fires in one tick.</summary>
+    public ClintDevice? Clint { get; init; }
 
     /// <summary>
     /// Shared reservation table for multi-hart LR/SC.  When set, LR.W registers
@@ -166,7 +170,7 @@ public class Rv32Executor : IExecutor {
             // If mtvec == 0, halt — matches Spike's non-interactive behavior for bare-metal tests.
             RvEbreak => state.SystemRegisters is CsrFile ebreakCsrs && ebreakCsrs.DirectRead(CsrFile.Mtvec) != 0
                 ? ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.Breakpoint, pc, pc))
-                : new ExecuteResult { IsHalt = true },
+                : new ExecuteResult { IsHalt = true, },
 
             RvMret => state.PrivilegeLevel == RvPrivilege.Machine
                 ? new ExecuteResult { IsReturnFromTrap = true, ReturnPrivilege = RvPrivilege.Machine, }
@@ -180,8 +184,9 @@ public class Rv32Executor : IExecutor {
 
             // Architecturally a NOP: ordering is a timing concern, enforced by the
             // pipeline via ITooth.IsStoreLoadFence (OoO write-buffer drain + load gate).
-            RvFence  => ExecuteResult.Clean,
-            RvFenceI => ExecuteResult.Clean, // I-cache invalidation not modeled
+            RvFence     => ExecuteResult.Clean,
+            RvFenceI    => ExecuteResult.Clean, // I-cache invalidation not modeled
+            RvSfenceVma => ExecuteResult.Clean, // TLB flush — no-op in NOMMU simulation
 
             // ── Zawrs extension (single-core: NOP) ────────────────────────────
             RvWrsNto => ExecuteResult.Clean,
@@ -697,11 +702,22 @@ public class Rv32Executor : IExecutor {
         _ => RvTrapCause.EnvironmentCallFromM,
     };
 
-    private static ExecuteResult WfiResult(IArchState state) {
+    private ExecuteResult WfiResult(IArchState state) {
         if (state.SystemRegisters is CsrFile csrs) {
-            uint pendingAndEnabled = csrs.DirectRead(CsrFile.Sip)
-                                   & csrs.DirectRead(CsrFile.Sie);
-            if (pendingAndEnabled != 0) return ExecuteResult.Clean; // interrupt pending → wake immediately
+            if (state.PrivilegeLevel == RvPrivilege.Machine) {
+                // M-mode WFI: fast-forward CLINT to the next timer event so the timer fires
+                // in one tick instead of burning millions of ticks in the idle loop.
+                uint mip = csrs.DirectRead(CsrFile.Mip) & csrs.DirectRead(CsrFile.Mie);
+                if (mip != 0) return ExecuteResult.Clean; // interrupt already pending
+                Clint?.SkipToTimer();
+                return Clint?.TimerPending() == true
+                    ? ExecuteResult.Clean // timer now set; PeekInterrupt will catch it
+                    : new ExecuteResult { IsHalt = true, };
+            }
+
+            // S/U-mode WFI: halt unless an S-mode interrupt is already pending.
+            uint sip = csrs.DirectRead(CsrFile.Sip) & csrs.DirectRead(CsrFile.Sie);
+            if (sip != 0) return ExecuteResult.Clean;
         }
 
         return new ExecuteResult { IsHalt = true, };

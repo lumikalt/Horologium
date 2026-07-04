@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Devices;
 using RiscV32.Registers;
 using RiscV32.State;
 
@@ -9,7 +10,7 @@ namespace RiscV32.Trap;
 /// Implements the trap entry and return sequences from the RISC-V
 /// Privileged Specification, Section 3.1.
 /// </summary>
-public sealed class RvTrapController : ITrapController {
+public sealed class RvTrapController(ClintDevice? clint = null, PlicDevice? plic = null) : ITrapController {
     // Priority order per RISC-V spec §3.1.9: MEI > MSI > MTI > SEI > SSI > STI
     private static readonly int[] InterruptPriority = [11, 3, 7, 9, 1, 5,];
 
@@ -69,6 +70,33 @@ public sealed class RvTrapController : ITrapController {
     public TrapInfo? PeekInterrupt(IArchState state) {
         var rv = (Rv32ArchState)state;
         CsrFile csrs = rv.CsrFile;
+        if (clint is not null || plic is not null) {
+            clint?.Advance();
+            uint mip = csrs.DirectRead(CsrFile.Mip);
+            if (clint is not null) {
+                if (clint.TimerPending())
+                    mip |= 1u << 7;
+                else
+                    mip &= ~(1u << 7);
+                if (clint.SoftwarePending())
+                    mip |= 1u << 3;
+                else
+                    mip &= ~(1u << 3);
+            }
+
+            if (plic is not null) {
+                if (plic.ExternalPending(0))
+                    mip |= 1u << 11;
+                else
+                    mip &= ~(1u << 11);
+                if (plic.ExternalPending(1))
+                    mip |= 1u << 9;
+                else
+                    mip &= ~(1u << 9);
+            }
+
+            csrs.DirectWrite(CsrFile.Mip, mip);
+        }
 
         uint pending = csrs.DirectRead(CsrFile.Mip) & csrs.DirectRead(CsrFile.Mie);
         if (pending == 0) return null;

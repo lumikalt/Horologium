@@ -609,9 +609,11 @@ public class FiveStagePipelineTests {
         var train = new FiveStageTrain(new Rv32Mechanism(), mem);
         const uint nop = 0x00000013u; // addi x0, x0, 0
         const uint ebreak = 0x00100073u;
+        const uint jalSelf = 0x0000006Fu; // jal x0, 0 — halt via self-jump backstop
         Load(mem, nop, nop, nop, nop, nop, ebreak);
-        // Write EBREAK to handler address using unchecked byte truncation.
-        mem.Load(0x100, BitConverter.GetBytes(ebreak));
+        // Handler uses a self-jump so the backstop halts cleanly regardless of mtvec.
+        // (ebreak with mtvec≠0 now generates a Breakpoint exception, not a halt.)
+        mem.Load(0x100, BitConverter.GetBytes(jalSelf));
         return train;
     }
 

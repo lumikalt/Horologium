@@ -42,9 +42,12 @@
         { pkgs }:
         let
           t = olympiaToolchain pkgs;
+          opensbi-rv32 = pkgs.callPackage ./nix/opensbi-rv32.nix { };
+          linux-rv32   = pkgs.callPackage ./nix/linux-rv32.nix { };
         in
         {
           inherit (t) softfloat sparta olympia;
+          inherit opensbi-rv32 linux-rv32;
           default = t.olympia;
         }
       );
@@ -53,6 +56,8 @@
         { pkgs }:
         let
           olympia = (olympiaToolchain pkgs).olympia;
+          opensbi-rv32 = pkgs.callPackage ./nix/opensbi-rv32.nix { };
+          linux-rv32   = pkgs.callPackage ./nix/linux-rv32.nix { };
 
           extra-path = with pkgs; [
             dotnetCorePackages.sdk_11_0-bin
@@ -74,6 +79,17 @@
             #   dotnet run --project Runner -- <elf> --trace-json trace.json
             #   olympia trace.json
             olympia
+
+            # OpenSBI RV32 generic firmware (`fw_jump.bin` on PATH via share/opensbi/).
+            # Boot test: load fw_jump.bin with RawBinaryWorkload, pass VirtDtb.Bytes,
+            # plant ebreak at 0x80200000, and check the UART captured "OpenSBI".
+            # Built by: nix build .#opensbi-rv32
+            opensbi-rv32
+
+            # Linux 6.12 RV32 NOMMU kernel (`Image` on PATH via share/linux/).
+            # Linux boot test: load fw_jump.bin + Image, check UART for "Linux version".
+            # Built by: nix build .#linux-rv32
+            linux-rv32
           ];
 
           extra-lib = with pkgs; [

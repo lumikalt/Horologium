@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using Face.Models;
 using Mechanism;
 using Orrery.Cache;
+using Orrery.Devices;
 using Orrery.Observation;
 using Pipeline;
 using RiscV32;
@@ -39,7 +40,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     private readonly Rv32Decoder _decoder = new();
     private readonly Rv32Executor _executor = new();
-    private FlatMemory? _memory;
+    private IMemory? _memory;
     private Rv32ArchState? _archState;
     private byte[]? _binaryData;
     private byte[]? _elfBytes;
@@ -47,6 +48,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private int _stepCount;
     private Dictionary<ulong, int> _pcToLine = [];
     private CancellationTokenSource? _runCts;
+    private StringWriter? _uartSw;
 
     // Pipeline stepping
     private readonly PEventLog _pEventLog = new();
@@ -61,8 +63,10 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty]
     public partial string SourceCode { get; set; } =
         """
+        # Stores to 0x10013000 (SiFive UART0 txdata) appear in the Console tab.
         j _start
 
+        # factorial(n): n in a0, returns n! in a0
         factorial:
             li   t0, 1
         loop:
@@ -76,24 +80,51 @@ public partial class AssemblerViewModel : ObservableObject {
 
         _start:
             li   a0, 5
-            call factorial
+            call factorial          # a0 = 5! = 120
+            lui  t0, 0x10013        # t0 = UART0 txdata (0x10013000)
+            li   t1, '5'
+            sw   t1, 0(t0)
+            li   t1, '!'
+            sw   t1, 0(t0)
+            li   t1, ' '
+            sw   t1, 0(t0)
+            li   t1, '='
+            sw   t1, 0(t0)
+            li   t1, ' '
+            sw   t1, 0(t0)
+            li   t1, '1'
+            sw   t1, 0(t0)
+            li   t1, '2'
+            sw   t1, 0(t0)
+            li   t1, '0'
+            sw   t1, 0(t0)
+            li   t1, 10
+            sw   t1, 0(t0)          # '\n'
             ebreak
         """;
 
     [ObservableProperty]
     public partial string CSourceCode { get; set; } =
         """
-        int factorial(int n) {
-            int result = 1;
-            while (n > 0) {
-                result *= n;
-                n = n - 1;
-            }
-            return result;
+        /* SiFive UART0 txdata — each store sends one byte to the Console tab. */
+        #define UART_TXDATA (*(volatile unsigned int *)0x10013000)
+
+        static void uart_putchar(char c)        { UART_TXDATA = (unsigned char)c; }
+        static void uart_puts(const char *s)    { while (*s) uart_putchar(*s++); }
+        static void uart_putdec(unsigned int n) { if (n >= 10) uart_putdec(n / 10); uart_putchar('0' + n % 10); }
+
+        static int factorial(int n) {
+            int r = 1;
+            while (n > 0) r *= n--;
+            return r;
         }
 
         int main(void) {
-            return factorial(5);
+            int result = factorial(5);
+            uart_puts("5! = ");
+            uart_putdec((unsigned int)result);
+            uart_putchar('\n');
+            return result;
         }
         """;
 
@@ -106,6 +137,8 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial bool HasError { get; set; }
 
     [ObservableProperty] public partial string StatusText { get; set; } = "Enter assembly and click Assemble.";
+
+    [ObservableProperty] public partial string ConsoleOutput { get; set; } = "";
 
     [ObservableProperty] private partial bool CanStep { get; set; }
 
@@ -287,6 +320,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private void BackSingleCycle() {
         int target = _stepCount - 1;
         if (target < 0) return;
+        ConsoleOutput = "";
         _memory = BuildFreshMemory();
         _archState = new Rv32ArchState();
         _stepCount = 0;
@@ -298,6 +332,7 @@ public partial class AssemblerViewModel : ObservableObject {
         CanStep = Instructions.Count > 0;
         RefreshAllRegisters();
         UpdateStages();
+        FlushUartOutput();
         StatusText = _stepCount == 0
             ? $"PC=0x{_archState.Pc:X}"
             : $"Step {_stepCount}: PC=0x{_archState.Pc:X}";
@@ -307,6 +342,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private void BackPipeline() {
         long targetCycle = _currentCycle - 1;
         if (targetCycle < 0) return;
+        ConsoleOutput = "";
         SetupPipeline();
         for (long i = 0; i < targetCycle; i++) {
             bool running;
@@ -328,6 +364,7 @@ public partial class AssemblerViewModel : ObservableObject {
         UpdateStages();
         RefreshAllRegisters();
         RefreshCacheDisplay();
+        FlushUartOutput();
         CacheUpdated?.Invoke();
         StatusText = _currentCycle == 0 ? "Reset. Cycle 0." : $"Cycle {_currentCycle}";
         BackCommand.NotifyCanExecuteChanged();
@@ -361,12 +398,18 @@ public partial class AssemblerViewModel : ObservableObject {
         catch { return false; }
     }
 
-    private FlatMemory BuildFreshMemory() {
-        var mem = new FlatMemory(1 << 20);
+    private IMemory BuildFreshMemory() {
+        var flat = new FlatMemory(1 << 20);
         if (_elfBytes != null)
-            Rv32ElfLoader.Load(mem, _elfBytes);
-        else if (_binaryData != null) mem.Load(0, _binaryData);
-        return mem;
+            Rv32ElfLoader.Load(flat, _elfBytes);
+        else if (_binaryData != null) flat.Load(0, _binaryData);
+        _uartSw = new StringWriter();
+        return new PeripheralBus(flat, [(new UartDevice(_uartSw), UartDevice.DefaultBase, UartDevice.RegionSize),]);
+    }
+
+    private void FlushUartOutput() {
+        string text = _uartSw?.GetStringBuilder().ToString() ?? "";
+        if (ConsoleOutput != text) ConsoleOutput = text;
     }
 
     [RelayCommand]
@@ -627,6 +670,8 @@ public partial class AssemblerViewModel : ObservableObject {
     [RelayCommand]
     private void Reset() {
         _runCts?.Cancel();
+        ConsoleOutput = "";
+        if (CurrentMode == PipelineMode.SingleCycle && _binaryData != null) _memory = BuildFreshMemory();
         if (CurrentMode == PipelineMode.SingleCycle) {
             _archState?.Reset();
             _stepCount = 0;
@@ -647,6 +692,8 @@ public partial class AssemblerViewModel : ObservableObject {
                 break;
             default: throw new ArgumentOutOfRangeException();
         }
+
+        FlushUartOutput();
     }
 
     private void StepSingleCycle() {
@@ -758,6 +805,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     private void LoadBinary(byte[] binary) {
         _binaryData = binary;
+        ConsoleOutput = "";
         _memory = BuildFreshMemory();
         _binarySize = binary.Length;
         _archState = new Rv32ArchState();
@@ -834,10 +882,12 @@ public partial class AssemblerViewModel : ObservableObject {
         MemoryConfig dCfg = BuildCacheConfig(
             DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency
         );
+        if (dCfg.CacheCapacityBytes > 0)
+            dCfg = dCfg with { UncacheableBase = UartDevice.DefaultBase, UncacheableSize = UartDevice.RegionSize, };
 
         switch (CurrentMode) {
             case PipelineMode.FiveStage when _binaryData != null: {
-                FlatMemory mem = BuildFreshMemory();
+                IMemory mem = BuildFreshMemory();
                 _fiveStageTrain = new FiveStageTrain(
                     new Rv32Mechanism(), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
@@ -846,7 +896,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 break;
             }
             case PipelineMode.OoO when _binaryData != null: {
-                FlatMemory mem = BuildFreshMemory();
+                IMemory mem = BuildFreshMemory();
                 _oooeTrain = new OooeTrain(
                     new Rv32Mechanism(), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog

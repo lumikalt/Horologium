@@ -67,6 +67,7 @@ public static class RvDisassembler {
         RvEbreak    => "ebreak",
         RvFence op  => op.Fm == 0x8 ? "fence.tso" : $"fence {IoRw(op.Pred)},{IoRw(op.Succ)}",
         RvFenceI    => "fence.i",
+        RvSfenceVma => "sfence.vma",
         RvMret      => "mret",
         RvSret      => "sret",
         RvWfi       => "wfi",
