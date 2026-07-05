@@ -1,0 +1,25 @@
+namespace Orrery.Cache;
+
+public interface IReplacementPolicy {
+    /// <summary>Called on a demand hit to update the block's re-reference prediction.</summary>
+    void RecordHit(int set, int way);
+
+    /// <summary>
+    /// Selects the way to evict. May update internal state (e.g. increment all RRPVs in the
+    /// set for RRIP). Always returns a valid way in [0, ways).
+    /// </summary>
+    int ChooseVictim(int set);
+
+    /// <summary>
+    /// Called after a new line has been filled into <paramref name="way"/>. Sets the initial
+    /// re-reference prediction for the block (e.g. LRU age = MRU; RRIP RRPV = long or distant).
+    /// For DRRIP, also updates the PSEL counter when the set is an SDM.
+    /// </summary>
+    void RecordInstall(int set, int way);
+
+    /// <summary>
+    /// Returns the per-way metadata for inspection (LRU age or RRPV). Used by
+    /// <see cref="SetAssociativeCache.GetSnapshot"/> to populate <c>CacheLine.LruAge</c>.
+    /// </summary>
+    int GetMetadata(int set, int way);
+}

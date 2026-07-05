@@ -136,6 +136,10 @@ var kernel  = new MultiHartKernel(guarded,
 
 `ReservationTable` tracks per-hart LR/SC reservations. Each hart registers a reservation on `LR.W`; any write from any hart to the same 4-byte-aligned granule cancels all overlapping reservations so a subsequent `SC.W` fails correctly. `ReservationAwareMemory` is a thin `IMemory` wrapper whose `Write()` calls `table.InvalidateAt()` before the actual write, ensuring cancellation fires on every store. Single-hart setups leave `ReservationTable` null and use the existing private `_reservation` field unchanged — no API or behaviour change for existing code.
 
+### Cache replacement policies (Orrery/Cache)
+
+`SetAssociativeCache` supports a pluggable replacement policy via `IReplacementPolicy` and the `ReplacementPolicyKind` enum: **LRU** (default), **SRRIP-HP** (scan-resistant; inserts at RRPV 2^M−2, promotes hits to 0), **BRRIP-HP** (thrash-resistant; inserts at distant RRPV 2^M−1 with probability 1−ε, long with probability ε=1/32), and **DRRIP-HP** (scan- and thrash-resistant; uses Set Dueling — 32-set SDMs, 10-bit PSEL — to dynamically choose between SRRIP and BRRIP per set). — Jaleel et al., ISCA 2010. The `ReplacementPolicy` field on `MemoryConfig` (and `CacheReplacementPolicy` string on `TrainConfig`) selects the policy for all cache levels.
+
 ### MOESIF cache coherence (Orrery/Cache)
 
 `MoesifCache` is an N-way set-associative write-back cache that participates in a MOESIF coherence protocol with cache-to-cache supply. Unlike `SetAssociativeCache` (write-through, no-write-allocate), `MoesifCache` is write-back and write-allocate: writes stay in the cache as Modified lines until eviction or a snoop, not every write goes to backing memory.

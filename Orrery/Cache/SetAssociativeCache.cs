@@ -19,10 +19,10 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly int _offsetBits;
     private readonly int _indexBits;
     private readonly IMemory _backing;
+    private readonly IReplacementPolicy _policy;
 
     private readonly ulong?[][] _tags;   // [set][way]: null = invalid
     private readonly byte[][][] _blocks; // [set][way][offset]
-    private readonly int[][] _lruAge;    // [set][way]: 0 = MRU, higher = older
 
     private long _pendingStalls;
 
@@ -50,13 +50,15 @@ public sealed class SetAssociativeCache : IMemory {
     /// (0 = instant/free, the idealized model). While in flight, a demand hit on the
     /// line pays the remaining countdown; the caller must call <see cref="TickPrefetch"/>
     /// once per cycle to advance the countdowns.</param>
+    /// <param name="replacementPolicy">Cache replacement policy. Defaults to LRU.</param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
         int ways,
         int blockSizeBytes,
         int missLatency,
-        int prefetchLatency = 0
+        int prefetchLatency = 0,
+        ReplacementPolicyKind replacementPolicy = ReplacementPolicyKind.Lru
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -82,17 +84,20 @@ public sealed class SetAssociativeCache : IMemory {
 
         _tags = new ulong?[sets][];
         _blocks = new byte[sets][][];
-        _lruAge = new int[sets][];
 
         for (var s = 0; s < sets; s++) {
             _tags[s] = new ulong?[_ways];
             _blocks[s] = new byte[_ways][];
-            _lruAge[s] = new int[_ways];
-            for (var w = 0; w < _ways; w++) {
+            for (var w = 0; w < _ways; w++)
                 _blocks[s][w] = new byte[_blockSize];
-                _lruAge[s][w] = w; // way 0 starts as MRU
-            }
         }
+
+        _policy = replacementPolicy switch {
+            ReplacementPolicyKind.Srrip => new SrripPolicy(sets, ways),
+            ReplacementPolicyKind.Brrip => new BrripPolicy(sets, ways),
+            ReplacementPolicyKind.Drrip => new DrripPolicy(sets, ways),
+            _                           => new LruPolicy(sets, ways),
+        };
     }
 
     /// <summary>Returns and clears the accumulated miss-penalty cycle count.</summary>
@@ -116,22 +121,6 @@ public sealed class SetAssociativeCache : IMemory {
         return -1;
     }
 
-    private int LruWay(int set) {
-        var oldest = 0;
-        for (var w = 1; w < _ways; w++)
-            if (_lruAge[set][w] > _lruAge[set][oldest])
-                oldest = w;
-        return oldest;
-    }
-
-    private void TouchLru(int set, int way) {
-        int age = _lruAge[set][way];
-        for (var w = 0; w < _ways; w++)
-            if (_lruAge[set][w] < age)
-                _lruAge[set][w]++;
-        _lruAge[set][way] = 0;
-    }
-
     // ── Block fill / byte access ─────────────────────────────────────────────
 
     private void FillBlock(int set, int way, ulong address) {
@@ -144,7 +133,7 @@ public sealed class SetAssociativeCache : IMemory {
         }
 
         _tags[set][way] = tag;
-        TouchLru(set, way);
+        _policy.RecordInstall(set, way);
     }
 
     private static ulong ReadBytes(byte[] block, int offset, int bytes) {
@@ -170,7 +159,7 @@ public sealed class SetAssociativeCache : IMemory {
         if (way >= 0) {
             LastAccessWasHit = true;
             Hits++;
-            TouchLru(set, way);
+            _policy.RecordHit(set, way);
             ChargeInFlightPrefetch(address);
             return ReadBytes(_blocks[set][way], offset, bytes);
         }
@@ -178,7 +167,7 @@ public sealed class SetAssociativeCache : IMemory {
         LastAccessWasHit = false;
         Misses++;
         _pendingStalls += MissLatency;
-        int evict = LruWay(set);
+        int evict = _policy.ChooseVictim(set);
         FillBlock(set, evict, address);
         return ReadBytes(_blocks[set][evict], offset, bytes);
     }
@@ -209,7 +198,7 @@ public sealed class SetAssociativeCache : IMemory {
         if (way >= 0) {
             LastAccessWasHit = true;
             Hits++;
-            TouchLru(set, way);
+            _policy.RecordHit(set, way);
             ChargeInFlightPrefetch(address);
             WriteBytes(_blocks[set][way], offset, value, bytes);
         }
@@ -250,7 +239,7 @@ public sealed class SetAssociativeCache : IMemory {
         if (offset + 1 > _blockSize) return;
         Decompose(address, out int set, out ulong tag);
         if (FindWay(set, tag) >= 0) return; // already present
-        int evict = LruWay(set);
+        int evict = _policy.ChooseVictim(set);
         try {
             FillBlock(set, evict, address);
             Prefetches++;
@@ -323,7 +312,7 @@ public sealed class SetAssociativeCache : IMemory {
             ulong tag = _tags[s][w] ?? 0;
             var blockCopy = new byte[_blockSize];
             Buffer.BlockCopy(_blocks[s][w], 0, blockCopy, 0, _blockSize);
-            lines[idx++] = new CacheLine(s, w, valid, tag, _lruAge[s][w], blockCopy);
+            lines[idx++] = new CacheLine(s, w, valid, tag, _policy.GetMetadata(s, w), blockCopy);
         }
 
         return lines;

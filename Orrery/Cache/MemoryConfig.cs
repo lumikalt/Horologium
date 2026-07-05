@@ -6,6 +6,10 @@ public enum PrefetcherKind {
     None, NextLine, Stride,
 }
 
+public enum ReplacementPolicyKind {
+    Lru, Srrip, Brrip, Drrip,
+}
+
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
 /// <param name="CacheWays">Associativity. Ignored when CacheCapacityBytes = 0.</param>
 /// <param name="CacheBlockBytes">Cache line size. Ignored when CacheCapacityBytes = 0.</param>
@@ -33,6 +37,9 @@ public enum PrefetcherKind {
 /// <param name="PrefetchLatency">Cycles until a prefetched line is usable (0 = instant/free,
 /// the idealized model). A demand hit on a line whose prefetch is still in flight pays the
 /// remaining countdown instead of zero, and in-flight prefetches count against MSHR capacity.</param>
+/// <param name="ReplacementPolicy">Cache replacement policy applied to every cache level.
+/// Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling.
+/// — Jaleel et al., ISCA 2010.</param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,
@@ -53,7 +60,8 @@ public sealed record MemoryConfig(
     ulong UncacheableSize = 0,
     PrefetcherKind Prefetcher = PrefetcherKind.None,
     int PrefetcherTableSize = 64,
-    int PrefetchLatency = 0
+    int PrefetchLatency = 0,
+    ReplacementPolicyKind ReplacementPolicy = ReplacementPolicyKind.Lru
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -85,14 +93,16 @@ public sealed record MemoryLayers(
 
         if (cfg.L3CapacityBytes > 0) {
             l3 = new SetAssociativeCache(
-                current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency
+                current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
+                0, cfg.ReplacementPolicy
             );
             current = l3;
         }
 
         if (cfg.L2CapacityBytes > 0) {
             l2 = new SetAssociativeCache(
-                current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency
+                current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
+                0, cfg.ReplacementPolicy
             );
             current = l2;
         }
@@ -100,7 +110,8 @@ public sealed record MemoryLayers(
         if (cfg.CacheCapacityBytes > 0) {
             l1 = new SetAssociativeCache(
                 current, cfg.CacheCapacityBytes, cfg.CacheWays, cfg.CacheBlockBytes, cfg.CacheMissLatency,
-                cfg.Prefetcher != PrefetcherKind.None ? cfg.PrefetchLatency : 0
+                cfg.Prefetcher != PrefetcherKind.None ? cfg.PrefetchLatency : 0,
+                cfg.ReplacementPolicy
             );
             current = l1;
         }

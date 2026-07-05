@@ -57,7 +57,8 @@ public sealed record TrainConfig(
     int MshrCapacity = 0,              // 0 = unlimited outstanding misses
     string? DPrefetcher = null,        // null | "next_line" | "stride"
     int DPrefetcherTableSize = 64,
-    int DPrefetchLatency = 0 // cycles until a prefetched line is usable; 0 = free/instant
+    int DPrefetchLatency = 0, // cycles until a prefetched line is usable; 0 = free/instant
+    string? CacheReplacementPolicy = null // null/"lru" | "srrip" | "brrip" | "drrip"
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,
@@ -65,7 +66,8 @@ public sealed record TrainConfig(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public MemoryConfig ToIMemoryConfig() => ToMemoryConfig(ICache, L2Cache, L3Cache, ITlb);
+    public MemoryConfig ToIMemoryConfig() =>
+        ToMemoryConfig(ICache, L2Cache, L3Cache, ITlb) with { ReplacementPolicy = ParseReplacementPolicy() };
 
     public MemoryConfig ToDMemoryConfig() {
         MemoryConfig mc = ToMemoryConfig(DCache, L2Cache, L3Cache, DTlb);
@@ -78,8 +80,17 @@ public sealed record TrainConfig(
             Prefetcher = kind,
             PrefetcherTableSize = DPrefetcherTableSize,
             PrefetchLatency = DPrefetchLatency,
+            ReplacementPolicy = ParseReplacementPolicy(),
         };
     }
+
+    private ReplacementPolicyKind ParseReplacementPolicy() =>
+        CacheReplacementPolicy?.ToLowerInvariant() switch {
+            "srrip" => ReplacementPolicyKind.Srrip,
+            "brrip" => ReplacementPolicyKind.Brrip,
+            "drrip" => ReplacementPolicyKind.Drrip,
+            _       => ReplacementPolicyKind.Lru,
+        };
 
     public string ToJson() => JsonSerializer.Serialize(this, TrainConfig.JsonOptions);
 

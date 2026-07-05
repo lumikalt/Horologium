@@ -135,9 +135,9 @@
 
 ### Cache Replacement
 
-Currently all caches use LRU. Pluggable replacement policies, then:
+Pluggable replacement policies via `IReplacementPolicy`; `SetAssociativeCache` accepts `ReplacementPolicyKind`. Implemented:
 
-- [ ] RRIP (Re-Reference Interval Prediction): bimodal and dynamic RRIP variants. — Jaleel et al., ISCA 2010
+- [x] RRIP (Re-Reference Interval Prediction): SRRIP-HP, BRRIP-HP, DRRIP-HP with Set Dueling (32-set SDMs, 10-bit PSEL, ε=1/32). — Jaleel et al., ISCA 2010
 - [ ] SHIP (Signature-based Hit Predictor for caching). — Wu et al., MICRO 2011
 - [ ] Hawkeye: OPTgen-based Belady-inspired replacement. — Jain & Lin, ISCA 2016
 - [ ] Cache replacement competition (CRC) plug-in interface: match ChampSim's policy API so research policies drop in.
