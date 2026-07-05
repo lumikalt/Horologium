@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Spec;
 
 namespace Orrery.Cache;
 
@@ -154,6 +155,69 @@ public sealed record MemoryLayers(
             : null;
 
         return new MemoryLayers(current, l1, l2, l3, tlb, prefetcher, cfg.UncacheableBase, cfg.UncacheableSize);
+    }
+
+    /// <summary>
+    /// Build a layer stack from a <see cref="CachePathSpec"/> and optional shared levels list.
+    /// Levels are stacked from outermost (farthest from CPU) to innermost; each level uses its
+    /// own replacement policy. The first three caches in the resulting stack are surfaced as the
+    /// named <see cref="Cache"/>, <see cref="L2Cache"/>, and <see cref="L3Cache"/> stat fields
+    /// (innermost first); deeper levels are accessible only through the <see cref="Accessor"/> chain.
+    /// </summary>
+    public static MemoryLayers Build(
+        IMemory backing,
+        CachePathSpec path,
+        IReadOnlyList<CacheLevelSpec>? sharedLevels = null,
+        ulong uncacheableBase = 0,
+        ulong uncacheableSize = 0
+    ) {
+        IReadOnlyList<CacheLevelSpec> privLevels = path.Levels ?? [];
+        IReadOnlyList<CacheLevelSpec> sharedList = sharedLevels ?? [];
+
+        // Build from outermost to innermost so each layer wraps the one below it.
+        // Order: shared levels (outermost first) → private levels (outermost-private first).
+        IMemory current = backing;
+        var allCaches = new List<SetAssociativeCache>();
+        var allSpecs  = new List<CacheLevelSpec>();
+
+        for (int i = sharedList.Count - 1; i >= 0; i--) {
+            CacheLevelSpec s = sharedList[i];
+            int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
+            var cache = new SetAssociativeCache(current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy);
+            allCaches.Insert(0, cache);
+            allSpecs.Insert(0, s);
+            current = cache;
+        }
+
+        for (int i = privLevels.Count - 1; i >= 0; i--) {
+            CacheLevelSpec s = privLevels[i];
+            int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
+            var cache = new SetAssociativeCache(current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy);
+            allCaches.Insert(0, cache);
+            allSpecs.Insert(0, s);
+            current = cache;
+        }
+
+        if (uncacheableSize > 0 && allCaches.Count > 0)
+            current = new UncacheableMemory(current, backing, uncacheableBase, uncacheableSize);
+
+        // MemoryLayers.Prefetcher corresponds to allCaches[0] (the innermost cache = Cache).
+        // TryPrefetch targets Cache, so only the innermost level's strategy is activated by the pipeline.
+        IPrefetcher? prefetcher = null;
+        if (allSpecs.Count > 0 && allSpecs[0] is { Prefetcher: not PrefetcherKind.None } s0) {
+            prefetcher = s0.Prefetcher switch {
+                PrefetcherKind.NextLine => new NextLinePrefetcher(s0.BlockBytes),
+                PrefetcherKind.Stride   => new StridePrefetcher(s0.PrefetcherTableSize),
+                _                       => null,
+            };
+        }
+
+        // Map the first three caches to the named MemoryLayers stat fields (innermost first).
+        SetAssociativeCache? c0 = allCaches.Count > 0 ? allCaches[0] : null;
+        SetAssociativeCache? c1 = allCaches.Count > 1 ? allCaches[1] : null;
+        SetAssociativeCache? c2 = allCaches.Count > 2 ? allCaches[2] : null;
+
+        return new MemoryLayers(current, c0, c1, c2, null, prefetcher, uncacheableBase, uncacheableSize);
     }
 
     /// <summary>Drains and sums pending stall cycles from all cache and TLB levels.</summary>
