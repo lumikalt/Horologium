@@ -256,6 +256,7 @@ internal sealed class SmtCore(
             }
         }
 
+        ctx.DLayers.Accessor.SetRequestPc(pc);
         ExecuteResult result = ctx.Mechanism.Executor.Execute(instr, ctx.ArchState, ctx.DLayers.Accessor);
         _retiredCounter.Increment();
 

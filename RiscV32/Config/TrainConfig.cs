@@ -58,7 +58,7 @@ public sealed record TrainConfig(
     string? DPrefetcher = null,        // null | "next_line" | "stride"
     int DPrefetcherTableSize = 64,
     int DPrefetchLatency = 0, // cycles until a prefetched line is usable; 0 = free/instant
-    string? CacheReplacementPolicy = null // null/"lru" | "srrip" | "brrip" | "drrip" | "ship"
+    string? CacheReplacementPolicy = null // null/"lru" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc"
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,
@@ -86,11 +86,12 @@ public sealed record TrainConfig(
 
     private ReplacementPolicyKind ParseReplacementPolicy() =>
         CacheReplacementPolicy?.ToLowerInvariant() switch {
-            "srrip" => ReplacementPolicyKind.Srrip,
-            "brrip" => ReplacementPolicyKind.Brrip,
-            "drrip" => ReplacementPolicyKind.Drrip,
-            "ship"  => ReplacementPolicyKind.Ship,
-            _       => ReplacementPolicyKind.Lru,
+            "srrip"   => ReplacementPolicyKind.Srrip,
+            "brrip"   => ReplacementPolicyKind.Brrip,
+            "drrip"   => ReplacementPolicyKind.Drrip,
+            "ship"    => ReplacementPolicyKind.Ship,
+            "ship_pc" => ReplacementPolicyKind.ShipPc,
+            _         => ReplacementPolicyKind.Lru,
         };
 
     public string ToJson() => JsonSerializer.Serialize(this, TrainConfig.JsonOptions);

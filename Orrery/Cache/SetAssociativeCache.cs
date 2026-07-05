@@ -25,6 +25,8 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly byte[][][] _blocks; // [set][way][offset]
 
     private long _pendingStalls;
+    private ulong _lastRequestPc;
+    private readonly bool _usePcSignature;
 
     // Realistic prefetch latency: lines installed by Prefetch() that have not yet
     // "arrived". A demand hit on one of these pays the remaining countdown instead
@@ -93,12 +95,14 @@ public sealed class SetAssociativeCache : IMemory {
         }
 
         _policy = replacementPolicy switch {
-            ReplacementPolicyKind.Srrip => new SrripPolicy(sets, ways),
-            ReplacementPolicyKind.Brrip => new BrripPolicy(sets, ways),
-            ReplacementPolicyKind.Drrip => new DrripPolicy(sets, ways),
-            ReplacementPolicyKind.Ship  => new ShipPolicy(sets, ways),
-            _                           => new LruPolicy(sets, ways),
+            ReplacementPolicyKind.Srrip  => new SrripPolicy(sets, ways),
+            ReplacementPolicyKind.Brrip  => new BrripPolicy(sets, ways),
+            ReplacementPolicyKind.Drrip  => new DrripPolicy(sets, ways),
+            ReplacementPolicyKind.Ship   => new ShipPolicy(sets, ways),
+            ReplacementPolicyKind.ShipPc => new ShipPolicy(sets, ways),
+            _                            => new LruPolicy(sets, ways),
         };
+        _usePcSignature = replacementPolicy == ReplacementPolicyKind.ShipPc;
     }
 
     /// <summary>Returns and clears the accumulated miss-penalty cycle count.</summary>
@@ -149,6 +153,11 @@ public sealed class SetAssociativeCache : IMemory {
 
     // ── IMemory ──────────────────────────────────────────────────────────────
 
+    public void SetRequestPc(ulong pc) {
+        _lastRequestPc = pc;
+        _backing.SetRequestPc(pc);
+    }
+
     public ulong Read(ulong address, int bytes) {
         // Access crossing a block boundary bypasses the cache.
         var offset = (int)(address & (ulong)_offsetMask);
@@ -169,7 +178,7 @@ public sealed class SetAssociativeCache : IMemory {
         Misses++;
         _pendingStalls += MissLatency;
         int evict = _policy.ChooseVictim(set);
-        _policy.SetPendingSignature(address >> _offsetBits);
+        _policy.SetPendingSignature(_usePcSignature ? _lastRequestPc : address >> _offsetBits);
         FillBlock(set, evict, address);
         return ReadBytes(_blocks[set][evict], offset, bytes);
     }

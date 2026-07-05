@@ -40,4 +40,12 @@ public interface IMemory {
     /// No-op on non-cache implementations.
     /// </summary>
     void FlushLine(ulong address) { }
+
+    /// <summary>
+    /// Notifies the memory subsystem of the PC of the instruction about to issue
+    /// a memory request.  Used by SHiP-PC to index the SHCT by load PC rather than
+    /// by memory address.  Must be called before the corresponding Read/Write.
+    /// No-op on implementations that do not use PC-based signatures.
+    /// </summary>
+    void SetRequestPc(ulong pc) { }
 }

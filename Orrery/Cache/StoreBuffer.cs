@@ -79,6 +79,8 @@ public sealed class StoreBuffer : IMemory {
     // Bulk load bypasses the buffer and goes directly to backing (initialization path).
     public void Load(ulong address, ReadOnlySpan<byte> data) => _backing.Load(address, data);
 
+    public void SetRequestPc(ulong pc) => _backing.SetRequestPc(pc);
+
     public void DrainAll() {
         while (_count > 0) {
             ref readonly Entry e = ref _ring[_head];

@@ -74,6 +74,7 @@ public sealed class Tlb : IMemory {
 
     public ulong Read(ulong address, int bytes) => _physical.Read(Translate(address), bytes);
     public void Write(ulong address, ulong value, int bytes) => _physical.Write(Translate(address), value, bytes);
+    public void SetRequestPc(ulong pc) => _physical.SetRequestPc(pc);
 
     public void Load(ulong address, ReadOnlySpan<byte> data) {
         // Invalidate TLB entries whose pages overlap the loaded region.

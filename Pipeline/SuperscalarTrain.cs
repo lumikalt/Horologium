@@ -235,6 +235,7 @@ internal sealed class SuperscalarCore(
             }
 
             // Execute (through D-cache accessor)
+            DLayers.Accessor.SetRequestPc(pc);
             ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, DLayers.Accessor);
             issued++;
             _retiredCounter.Increment();

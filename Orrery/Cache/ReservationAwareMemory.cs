@@ -28,4 +28,6 @@ public sealed class ReservationAwareMemory(IMemory backing, ReservationTable tab
     /// </summary>
     public void Load(ulong address, ReadOnlySpan<byte> data) =>
         backing.Load(address, data);
+
+    public void SetRequestPc(ulong pc) => backing.SetRequestPc(pc);
 }

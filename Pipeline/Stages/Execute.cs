@@ -100,6 +100,7 @@ public sealed class ExecuteStage : Gear {
         if (s1 >= 0) regs.Write(s1, rs2);
         if (s2 >= 0) regs.Write(s2, rs3);
 
+        _memory.SetRequestPc(latch.Pc);
         ExecuteResult result = _executor.Execute(instr, _state, _memory);
 
         if (s0 >= 0) regs.Write(s0, save0);

@@ -472,4 +472,44 @@ public class CacheReplacementTests {
         Assert.NotNull(aLine);
         Assert.Equal(2, aLine.LruAge); // warm SHCT → RRPV = 2 (long)
     }
+
+    [Fact]
+    public void ShipPc_CrossAddressWarmBucket_InsertedAtLongRrpv() {
+        // SHiP-PC indexes SHCT by load PC, not by address block number.
+        // Two loads with the same PC but different addresses share the same SHCT bucket.
+        // Warming the bucket through addr_A (miss + hit, PC=pcX) must cause addr_B
+        // (different address, hence different SHiP-Mem signature, but same PC=pcX)
+        // to install at RRPV=2 on its first miss — not RRPV=3 as SHiP-Mem would give.
+        //
+        // Geometry: 4-way, 4-set, 32-byte blocks (512 B total).
+        //   offsetBits=5, indexBits=2.
+        //   addr_A=0x000 → set 0, SHiP-Mem sig=0.
+        //   addr_B=0x0A0 → set 1, SHiP-Mem sig=5 (cold bucket under SHiP-Mem).
+        //   Both use PC=0x1000 → same SHiP-PC SHCT bucket.
+        const ulong addrA = 0x000;
+        const ulong addrB = 0x0A0;
+        const ulong pc    = 0x1000;
+
+        var mem = new FlatMemory(512);
+        foreach (ulong a in new[] { addrA, addrB }) mem.Load(a, [0xAA]);
+
+        var cache = new SetAssociativeCache(mem, 512, 4, 32, 10, 0, ReplacementPolicyKind.ShipPc);
+
+        // Warm SHCT[pc & 0x3FFF] via miss+hit on addr_A.
+        cache.SetRequestPc(pc); cache.Read(addrA, 1); // cold miss → RRPV=3, SHCT[pc&mask]=0
+        cache.SetRequestPc(pc); cache.Read(addrA, 1); // hit → RRPV=0, SHCT[pc&mask]=1
+        cache.ConsumePendingStalls();
+
+        // Miss addr_B with the same PC. SHCT[pc&mask]=1 > 0 → install at RRPV=2.
+        // Under SHiP-Mem the signature would be addr_B>>5=5 (cold bucket → RRPV=3).
+        cache.SetRequestPc(pc); cache.Read(addrB, 1);
+        cache.ConsumePendingStalls();
+
+        // addr_B: set=(0x0A0>>5)&3=1, tag=0x0A0>>7=1. Verify RRPV=2 (warm PC bucket).
+        CacheLine[] snap = cache.GetSnapshot();
+        CacheLine? bLine = null;
+        foreach (var l in snap) { if (l.Valid && l.Set == 1 && l.Tag == 1) { bLine = l; break; } }
+        Assert.NotNull(bLine);
+        Assert.Equal(2, bLine.LruAge); // RRPV=2 proves SHCT was indexed by PC, not address
+    }
 }

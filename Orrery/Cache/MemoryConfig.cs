@@ -7,7 +7,7 @@ public enum PrefetcherKind {
 }
 
 public enum ReplacementPolicyKind {
-    Lru, Srrip, Brrip, Drrip, Ship,
+    Lru, Srrip, Brrip, Drrip, Ship, ShipPc,
 }
 
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
@@ -39,8 +39,10 @@ public enum ReplacementPolicyKind {
 /// remaining countdown instead of zero, and in-flight prefetches count against MSHR capacity.</param>
 /// <param name="ReplacementPolicy">Cache replacement policy applied to every cache level.
 /// Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling
-/// (Jaleel et al., ISCA 2010). SHiP (SHiP-Mem variant) uses per-signature reuse history
-/// to predict insertion RRPV (Wu et al., MICRO 2011).</param>
+/// (Jaleel et al., ISCA 2010). SHiP uses per-signature reuse history to predict insertion
+/// RRPV: SHiP-Mem (Ship) indexes the SHCT by upper address bits; SHiP-PC (ShipPc) indexes
+/// by load PC, requiring <see cref="IMemory.SetRequestPc"/> to be called before each access
+/// (Wu et al., MICRO 2011).</param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,

@@ -29,4 +29,6 @@ public sealed class UncacheableMemory(IMemory cached, IMemory backing, ulong bas
 
     // Program-image loading goes straight to the backing (pre-run initialisation).
     public void Load(ulong address, ReadOnlySpan<byte> data) => backing.Load(address, data);
+
+    public void SetRequestPc(ulong pc) => cached.SetRequestPc(pc);
 }

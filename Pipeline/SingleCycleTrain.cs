@@ -227,6 +227,7 @@ internal sealed class SingleCycleCore(
         }
 
         // Execute (through D-cache accessor)
+        DLayers.Accessor.SetRequestPc(pc);
         ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, DLayers.Accessor);
 
         // EBREAK halts the simulation without consuming a cycle or retiring.
