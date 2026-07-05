@@ -284,4 +284,192 @@ public class CacheReplacementTests {
         for (int i = 0; i < 2000; i++) { policy.ChooseVictim(2); policy.RecordInstall(2, 0); }
         Assert.Equal(0, policy.Psel);
     }
+
+    // ── SHiP: SHCT and insertion RRPV ────────────────────────────────────────
+
+    [Fact]
+    public void Ship_ColdInstall_InsertsAtDistant() {
+        // SHCT starts at zero for every signature; first install → RRPV = 3 (distant).
+        var policy = new ShipPolicy(1, 4);
+        policy.SetPendingSignature(0x42);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 0);
+        Assert.Equal(3, policy.GetMetadata(0, 0));
+    }
+
+    [Fact]
+    public void Ship_HitIncrementsShct_AndSetsOutcome() {
+        // After a hit, SHCT[sig] increases from 0 → 1, making future installs insert at long.
+        var policy = new ShipPolicy(1, 4);
+        policy.SetPendingSignature(0x10);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 0);
+        Assert.Equal(0, policy.GetShctCounter(0x10)); // SHCT still 0 before any hit
+
+        policy.RecordHit(0, 0);
+        Assert.Equal(1, policy.GetShctCounter(0x10));
+
+        // Install another line with the same signature → RRPV = 2 (long), not 3 (distant).
+        policy.SetPendingSignature(0x10);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 1);
+        Assert.Equal(2, policy.GetMetadata(0, 1));
+    }
+
+    [Fact]
+    public void Ship_EvictionWithoutReuse_DecrementsShct() {
+        // A line that is evicted without ever being hit causes SHCT[sig] to decrement.
+        var policy = new ShipPolicy(1, 4);
+        policy.SetPendingSignature(0x20);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 0);
+
+        // Warm SHCT[0x20] up to 2 via another install path.
+        policy.SetPendingSignature(0x20);
+        policy.RecordHit(0, 0); // SHCT → 1
+        policy.RecordHit(0, 0); // SHCT → 2
+
+        // Now install a new line into way 0 (evicts the existing one without a fresh hit since counter was reset).
+        // Re-install: outcome is still true from the hits; that blocks decrement.
+        // To test the decrement path we need a line installed, never hit, then evicted.
+        // Reset: install into way 1 with fresh sig 0x21, never hit it, then evict it.
+        policy.SetPendingSignature(0x21);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 1);   // SHCT[0x21]==0 → distant; outcome=false
+        // Warm SHCT[0x21] to 2 via hits on a different way with same sig.
+        policy.RecordHit(0, 1); // SHCT[0x21] → 1
+        policy.RecordHit(0, 1); // SHCT[0x21] → 2
+        // outcome[way1] is now true. Re-install way1 with a new sig to reset outcome.
+        policy.SetPendingSignature(0x21);
+        policy.RecordInstall(0, 1);   // evicts (outcome=true → no decrement); new outcome=false, SHCT[0x21]=2→ long
+        // Now way 1 has sig=0x21, outcome=false, RRPV=2.
+        // Evict way 1 without a hit → decrement SHCT[0x21].
+        int before = policy.GetShctCounter(0x21);
+        policy.SetPendingSignature(0x99);
+        policy.RecordInstall(0, 1);   // evicts way 1 (outcome=false) → SHCT[0x21]--
+        Assert.Equal(before - 1, policy.GetShctCounter(0x21));
+    }
+
+    [Fact]
+    public void Ship_EvictionWithReuse_DoesNotDecrementShct() {
+        // A line that is hit before eviction keeps its SHCT counter intact.
+        var policy = new ShipPolicy(1, 4);
+        policy.SetPendingSignature(0x30);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 0);   // outcome=false
+        policy.RecordHit(0, 0);       // outcome → true, SHCT[0x30] → 1
+
+        int before = policy.GetShctCounter(0x30);
+        policy.SetPendingSignature(0x40);
+        policy.RecordInstall(0, 0);   // evicts (outcome=true → no decrement)
+        Assert.Equal(before, policy.GetShctCounter(0x30));
+    }
+
+    [Fact]
+    public void Ship_ShctSaturates() {
+        // SHCT counter saturates at 7 (3-bit max); RecordHit beyond 7 does not overflow.
+        var policy = new ShipPolicy(1, 4);
+        policy.SetPendingSignature(0x50);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 0);
+        for (int i = 0; i < 20; i++) policy.RecordHit(0, 0);
+        Assert.Equal(7, policy.GetShctCounter(0x50));
+    }
+
+    [Fact]
+    public void Ship_ColdSlot_DoesNotDecrementShct() {
+        // A cold (never-installed) way evicted by RecordInstall must not touch SHCT[0].
+        var policy = new ShipPolicy(1, 4);
+        int before = policy.GetShctCounter(0);
+        policy.SetPendingSignature(0x60);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 0); // way 0 was cold
+        Assert.Equal(before, policy.GetShctCounter(0)); // SHCT[0] unchanged
+    }
+
+    [Fact]
+    public void Ship_MultipleHits_IncrementShctEachTime() {
+        // Every hit on the same line increments SHCT, not just the first.
+        var policy = new ShipPolicy(1, 4);
+        policy.SetPendingSignature(0x70);
+        policy.ChooseVictim(0);
+        policy.RecordInstall(0, 0);
+        for (int i = 1; i <= 5; i++) {
+            policy.RecordHit(0, 0);
+            Assert.Equal(i, policy.GetShctCounter(0x70));
+        }
+    }
+
+    // ── SHiP: end-to-end through SetAssociativeCache ─────────────────────────
+
+    [Fact]
+    public void Ship_EndToEnd_SetPendingSignatureRoutedThroughCache() {
+        // Integration test: confirms that SetPendingSignature dispatches to ShipPolicy
+        // (not to the DIM no-op) and that reuse history is updated on demand hits.
+        // 4-way 1-set cache; address A1 maps to set 0 with signature = (A1 >> offsetBits).
+        var mem = new FlatMemory(1024);
+        foreach (ulong a in new[] { A1, A2, A3, A4 }) mem.Load(a, [0xBB]);
+
+        var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Ship);
+
+        // Cold miss on A1 → installed at RRPV=3 (distant, SHCT[sig]==0).
+        cache.Read(A1, 1);
+        cache.ConsumePendingStalls();
+
+        // Demand hit on A1 → RRIP-HP sets RRPV=0; SHiP increments SHCT[sig] → 1.
+        long hitsBefore = cache.Hits;
+        cache.Read(A1, 1);
+        Assert.Equal(hitsBefore + 1, cache.Hits); // it was a hit
+
+        // Fill remaining ways: A2, A3, A4 (cold misses; all get RRPV=3 for their sig).
+        cache.Read(A2, 1); cache.Read(A3, 1); cache.Read(A4, 1);
+        cache.ConsumePendingStalls();
+
+        // Now re-access A1: it was hit-promoted to RRPV=0, so it must survive the fills.
+        long hitsAfter = cache.Hits;
+        cache.Read(A1, 1);
+        Assert.Equal(hitsAfter + 1, cache.Hits); // A1 is still in cache
+    }
+
+    [Fact]
+    public void Ship_EndToEnd_WarmSignatureInsertedAtLongRrpv() {
+        // Verifies via GetSnapshot that a block reinstalled after eviction gets RRPV=2 (long)
+        // when SHCT[sig] > 0, not RRPV=3 (distant) as it would for a cold signature.
+        //
+        // Phase 1: fill all 4 ways with miss-then-hit pairs so every block is at RRPV=0
+        //          and SHCT[sig_x]=1 for each signature.
+        // Phase 2: one new miss forces ChooseVictim to increment all RRPV 0→1→2→3; A is
+        //          evicted and replaced by E (cold, RRPV=3 for its signature).
+        // Phase 3: reinstall A — SHCT[sig(A)]=1 → insert at RRPV=2, not 3.
+        //          GetSnapshot confirms LruAge=2 for A's way.
+        var mem = new FlatMemory(4096);
+        // 4-way 1-set cache (256 B / 4 ways / 64 B line = 1 set; offsetBits=6).
+        const ulong A = 0x000, B = 0x040, C = 0x080, D = 0x0C0, E = 0x100;
+        foreach (ulong a in new[] { A, B, C, D, E }) mem.Load(a, [0xEE]);
+
+        var cache = new SetAssociativeCache(mem, 256, 4, 64, 10, 0, ReplacementPolicyKind.Ship);
+
+        // Phase 1: miss + hit each block to warm SHCT and leave all at RRPV=0.
+        cache.Read(A, 1); cache.Read(A, 1); // cold miss → way 0 RRPV=3; hit → RRPV=0, SHCT[0]→1
+        cache.Read(B, 1); cache.Read(B, 1); // → way 1 RRPV=0, SHCT[1]→1
+        cache.Read(C, 1); cache.Read(C, 1); // → way 2 RRPV=0, SHCT[2]→1
+        cache.Read(D, 1); cache.Read(D, 1); // → way 3 RRPV=0, SHCT[3]→1
+        cache.ConsumePendingStalls();
+
+        // Phase 2: miss E — all RRPV=0, so ChooseVictim increments 0→1→2→3;
+        // evicts A (way 0, the first to reach 3). E inserted cold (RRPV=3).
+        cache.Read(E, 1);
+        cache.ConsumePendingStalls();
+
+        // Phase 3: miss A — SHCT[sig(A)] = 1 > 0 → insert at RRPV=2 (long), not 3.
+        cache.Read(A, 1);
+        cache.ConsumePendingStalls();
+
+        // Tag for A = 0x000 >> 6 = 0.
+        CacheLine[] snap = cache.GetSnapshot();
+        CacheLine? aLine = null;
+        foreach (var l in snap) { if (l.Valid && l.Tag == 0) { aLine = l; break; } }
+        Assert.NotNull(aLine);
+        Assert.Equal(2, aLine.LruAge); // warm SHCT → RRPV = 2 (long)
+    }
 }

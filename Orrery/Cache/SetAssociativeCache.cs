@@ -96,6 +96,7 @@ public sealed class SetAssociativeCache : IMemory {
             ReplacementPolicyKind.Srrip => new SrripPolicy(sets, ways),
             ReplacementPolicyKind.Brrip => new BrripPolicy(sets, ways),
             ReplacementPolicyKind.Drrip => new DrripPolicy(sets, ways),
+            ReplacementPolicyKind.Ship  => new ShipPolicy(sets, ways),
             _                           => new LruPolicy(sets, ways),
         };
     }
@@ -168,6 +169,7 @@ public sealed class SetAssociativeCache : IMemory {
         Misses++;
         _pendingStalls += MissLatency;
         int evict = _policy.ChooseVictim(set);
+        _policy.SetPendingSignature(address >> _offsetBits);
         FillBlock(set, evict, address);
         return ReadBytes(_blocks[set][evict], offset, bytes);
     }
@@ -240,6 +242,7 @@ public sealed class SetAssociativeCache : IMemory {
         Decompose(address, out int set, out ulong tag);
         if (FindWay(set, tag) >= 0) return; // already present
         int evict = _policy.ChooseVictim(set);
+        _policy.SetPendingSignature(address >> _offsetBits);
         try {
             FillBlock(set, evict, address);
             Prefetches++;

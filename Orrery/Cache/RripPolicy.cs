@@ -28,7 +28,10 @@ public abstract class RripPolicyBase : IReplacementPolicy {
     }
 
     // RRIP-HP: a hit predicts near-immediate re-reference.
-    public void RecordHit(int set, int way) => _rrpv[set][way] = 0;
+    public virtual void RecordHit(int set, int way) => _rrpv[set][way] = 0;
+
+    /// <summary>No-op for all RRIP variants; overridden by SHiP.</summary>
+    public virtual void SetPendingSignature(ulong signature) { }
 
     public int ChooseVictim(int set) {
         while (true) {

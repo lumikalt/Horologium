@@ -22,4 +22,11 @@ public interface IReplacementPolicy {
     /// <see cref="SetAssociativeCache.GetSnapshot"/> to populate <c>CacheLine.LruAge</c>.
     /// </summary>
     int GetMetadata(int set, int way);
+
+    /// <summary>
+    /// Supplies the access signature for the next <see cref="RecordInstall"/> call.
+    /// Called by <see cref="SetAssociativeCache"/> with <c>address &gt;&gt; offsetBits</c> before
+    /// each block fill. The default is a no-op; only SHiP-style policies act on it.
+    /// </summary>
+    void SetPendingSignature(ulong signature) { }
 }
