@@ -512,4 +512,92 @@ public class CacheReplacementTests {
         Assert.NotNull(bLine);
         Assert.Equal(2, bLine.LruAge); // RRPV=2 proves SHCT was indexed by PC, not address
     }
+
+    // ── FIFO ──────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Fifo_EvictsInInstallOrder() {
+        // First four misses each get a fresh way; the fifth must evict way 0 (first installed).
+        var policy = new FifoPolicy(1, 4);
+        for (int w = 0; w < 4; w++) {
+            Assert.Equal(w, policy.ChooseVictim(0)); // gets the next empty way in order
+            policy.RecordInstall(0, w);
+        }
+        Assert.Equal(0, policy.ChooseVictim(0)); // pointer wrapped back to way 0
+    }
+
+    [Fact]
+    public void Fifo_HitDoesNotChangeEvictionOrder() {
+        // FIFO ignores hits. After filling all 4 ways and hitting way 0 many times,
+        // way 0 is still the next victim (unlike LRU, which would protect it).
+        var policy = new FifoPolicy(1, 4);
+        for (int w = 0; w < 4; w++) { policy.ChooseVictim(0); policy.RecordInstall(0, w); }
+        for (int i = 0; i < 10; i++) policy.RecordHit(0, 0);
+        Assert.Equal(0, policy.ChooseVictim(0)); // way 0 still next, hits are irrelevant
+    }
+
+    [Fact]
+    public void Fifo_CyclesCorrectlyAfterEvictions() {
+        // After filling all 4 ways, the eviction order cycles 0→1→2→3→0→…
+        var policy = new FifoPolicy(1, 4);
+        for (int w = 0; w < 4; w++) { policy.ChooseVictim(0); policy.RecordInstall(0, w); }
+        for (int w = 0; w < 8; w++) {
+            Assert.Equal(w % 4, policy.ChooseVictim(0));
+            policy.RecordInstall(0, w % 4);
+        }
+    }
+
+    [Fact]
+    public void Fifo_EndToEnd_HitDoesNotPreventEviction() {
+        // Integration: fill 4-way 1-set FIFO cache, repeatedly hit A1, then miss A5.
+        // FIFO must evict A1 (first installed); LRU would have evicted A2 instead.
+        const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30, A5 = 0x40;
+        var mem = new FlatMemory(256);
+        foreach (ulong a in new[] { A1, A2, A3, A4, A5 }) mem.Load(a, [0xBB]);
+
+        var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Fifo);
+        cache.Read(A1, 1); cache.Read(A2, 1); cache.Read(A3, 1); cache.Read(A4, 1);
+        cache.ConsumePendingStalls();
+
+        for (int i = 0; i < 5; i++) cache.Read(A1, 1); // promote A1 in LRU terms; FIFO ignores
+
+        cache.Read(A5, 1); // evicts A1 (first installed)
+        cache.ConsumePendingStalls();
+
+        // A2 must still be present (only A1 was evicted, FIFO didn't touch A2 yet).
+        long hitsA2 = cache.Hits;
+        cache.Read(A2, 1);
+        Assert.Equal(hitsA2 + 1, cache.Hits);
+
+        // A1 must be gone: FIFO evicted it despite the repeated hits.
+        long missesBefore = cache.Misses;
+        cache.Read(A1, 1);
+        Assert.Equal(missesBefore + 1, cache.Misses);
+    }
+
+    // ── Random ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Random_ChooseVictim_AlwaysReturnsValidWay() {
+        var policy = new RandomPolicy(1, 4);
+        for (int i = 0; i < 200; i++)
+            Assert.InRange(policy.ChooseVictim(0), 0, 3);
+    }
+
+    [Fact]
+    public void Random_WithFixedSeed_CoversAllWays() {
+        // With seed 0 and 4 ways, 100 calls should cover all four values.
+        var policy = new RandomPolicy(1, 4, seed: 0);
+        var seen = new System.Collections.Generic.HashSet<int>();
+        for (int i = 0; i < 100; i++) seen.Add(policy.ChooseVictim(0));
+        Assert.Equal(4, seen.Count);
+    }
+
+    [Fact]
+    public void Random_HitAndInstall_AreNoops() {
+        var policy = new RandomPolicy(1, 4);
+        policy.RecordHit(0, 2);
+        policy.RecordInstall(0, 2);
+        Assert.Equal(0, policy.GetMetadata(0, 2));
+    }
 }

@@ -137,6 +137,8 @@
 
 Pluggable replacement policies via `IReplacementPolicy`; `SetAssociativeCache` accepts `ReplacementPolicyKind`. Implemented:
 
+- [x] Random: random victim selection; baseline with no recency tracking.
+- [x] FIFO: circular pointer replacement; evicts oldest-installed block, ignores hits.
 - [x] RRIP (Re-Reference Interval Prediction): SRRIP-HP, BRRIP-HP, DRRIP-HP with Set Dueling (32-set SDMs, 10-bit PSEL, ε=1/32). — Jaleel et al., ISCA 2010
 - [x] SHiP (Signature-based Hit Predictor): SHiP-Mem variant; SHCT 16K × 3-bit saturating counters layered on SRRIP-HP. — Wu et al., MICRO 2011
 - [x] SHiP-PC: SHiP variant using load PC as signature; requires threading PC through the cache access path. — Wu et al., MICRO 2011

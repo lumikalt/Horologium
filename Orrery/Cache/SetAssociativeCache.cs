@@ -100,6 +100,8 @@ public sealed class SetAssociativeCache : IMemory {
             ReplacementPolicyKind.Drrip  => new DrripPolicy(sets, ways),
             ReplacementPolicyKind.Ship   => new ShipPolicy(sets, ways),
             ReplacementPolicyKind.ShipPc => new ShipPolicy(sets, ways),
+            ReplacementPolicyKind.Random => new RandomPolicy(sets, ways),
+            ReplacementPolicyKind.Fifo   => new FifoPolicy(sets, ways),
             _                            => new LruPolicy(sets, ways),
         };
         _usePcSignature = replacementPolicy == ReplacementPolicyKind.ShipPc;
