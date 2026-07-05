@@ -19,6 +19,9 @@
 - [ ] Vector operation visualization.
   - Gotta think of how this should be done.
 - [ ] Cache management policy selection.
+- [ ] gem5-style architecture configurator: UI surface for the scripting host and pipeline builder — edit `.csx` scripts
+  in-app and hot-reload the resulting pipeline, cache hierarchy, branch predictor, and FU configuration without
+  restarting.
 
 ## CHIP8
 
@@ -36,9 +39,11 @@
 
 ### Extensions
 
-- [x] V extension: V1.0 fully implemented (VLEN=128; all integer, FP, mask, permute, reduction, segment, and memory ops).
+- [x] V extension: V1.0 fully implemented (VLEN=128; all integer, FP, mask, permute, reduction, segment, and memory
+  ops).
 - [x] Zba, Zbb, Zbs, Zicond, Zbc.
-- [x] D extension (RV32D): 64-bit FP registers, NaN-boxing for F values, FLD/FSD, all D arithmetic/FMA/conversion/comparison ops.
+- [x] D extension (RV32D): 64-bit FP registers, NaN-boxing for F values, FLD/FSD, all D
+  arithmetic/FMA/conversion/comparison ops.
 - [ ] Zfh / Zfhmin: half-precision FP.
 - [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file.
 - [x] Zicbom / Zicboz / Zicbop: cache management operations.
@@ -115,15 +120,23 @@
 
 - [x] Generic interfaces for external devices: SiFive UART0 MMIO peripheral (TX/RX) and address-routing peripheral bus.
 - [x] ns16550a UART: QEMU virt console UART at 0x10000000 (TX/RX, LSR THRE/TEMT, scratch register).
-- [x] CLINT MMIO device: mtime/mtimecmp/msip registers at 0x02000000; MTIP/MSIP delivery via RvTrapController. — RISC-V Privileged Spec §3.1.10
+- [x] CLINT MMIO device: mtime/mtimecmp/msip registers at 0x02000000; MTIP/MSIP delivery via RvTrapController. — RISC-V
+  Privileged Spec §3.1.10
 - [x] PMP CSRs (pmpcfg0-3, pmpaddr0-15), mstatush, menvcfg, senvcfg — stubbed; accepts writes, no enforcement.
-- [x] PLIC MMIO device: interrupt routing, per-context claim/complete cycle, level-triggered pending. — RISC-V PLIC Spec v1.0
-- [x] VirtIO block device: virtqueue descriptor table, used/avail rings; back with a host file for rootfs. — VirtIO 1.2 Spec §5.2
-- [x] VirtIO DTS node + DTB regen: virtio_mmio node in virt.dts at 0x10001000, PLIC interrupt #1, recompiled VirtDtb.Bytes.
-- [x] Device Tree Blob (DTB): hand-written virt.dts compiled to virt.dtb and embedded in RiscV32 assembly; exposes via VirtDtb.Bytes.
-- [x] Raw-binary workload loader: RawBinaryWorkload loads a flat binary at a base address; embeds DTB at a configurable address; caller sets a0=hartid, a1=DtbAddress before Run().
-- [x] OpenSBI bring-up (milestone 1): boot OpenSBI generic platform (rv32, fw_jump) to banner on SingleCycleTrain — fw_jump.bin built with nix build .#opensbi-rv32.
-- [x] Linux kernel bring-up (milestone 2): boot Linux 6.12 RV32 NOMMU (nommu_virt_defconfig + M-mode) directly on SingleCycleTrain; "Linux version" banner verified on ns16550a UART — nix build .#linux-rv32.
+- [x] PLIC MMIO device: interrupt routing, per-context claim/complete cycle, level-triggered pending. — RISC-V PLIC Spec
+  v1.0
+- [x] VirtIO block device: virtqueue descriptor table, used/avail rings; back with a host file for rootfs. — VirtIO 1.2
+  Spec §5.2
+- [x] VirtIO DTS node + DTB regen: virtio_mmio node in virt.dts at 0x10001000, PLIC interrupt #1, recompiled
+  VirtDtb.Bytes.
+- [x] Device Tree Blob (DTB): hand-written virt.dts compiled to virt.dtb and embedded in RiscV32 assembly; exposes via
+  VirtDtb.Bytes.
+- [x] Raw-binary workload loader: RawBinaryWorkload loads a flat binary at a base address; embeds DTB at a configurable
+  address; caller sets a0=hartid, a1=DtbAddress before Run().
+- [x] OpenSBI bring-up (milestone 1): boot OpenSBI generic platform (rv32, fw_jump) to banner on SingleCycleTrain —
+  fw_jump.bin built with nix build .#opensbi-rv32.
+- [x] Linux kernel bring-up (milestone 2): boot Linux 6.12 RV32 NOMMU (nommu_virt_defconfig + M-mode) directly on
+  SingleCycleTrain; "Linux version" banner verified on ns16550a UART — nix build .#linux-rv32.
 - [x] Cache pre-fetching: next-line and stride (RPT) prefetchers.
 - [ ] Cache pre-fetching: stream prefetcher (stream buffers for sequential access). — Jouppi, ISCA 1990
 - [ ] Cache pre-fetching: spatial memory streaming (SMS) for irregular access patterns. — Somogyi et al., ISCA 2006
@@ -136,23 +149,39 @@
 
 ### Cache Replacement
 
-Pluggable replacement policies via `IReplacementPolicy`; `SetAssociativeCache` accepts `ReplacementPolicyKind`. Implemented:
+Pluggable replacement policies via `IReplacementPolicy`; `SetAssociativeCache` accepts `ReplacementPolicyKind`.
+Implemented:
 
 - [x] Random: random victim selection; baseline with no recency tracking.
 - [x] FIFO: circular pointer replacement; evicts oldest-installed block, ignores hits.
-- [x] MRU (Most-Recently-Used): evicts the most recently hit block; new installs placed at LRU position; scan-resistant complement to LRU.
-- [x] CLOCK (Second-Chance): one reference bit per way, circular hand; referenced ways get a second chance (bit cleared, hand advances); unreferenced way at hand is evicted. OS-style LRU approximation.
-- [x] RRIP (Re-Reference Interval Prediction): SRRIP-HP, BRRIP-HP, DRRIP-HP with Set Dueling (32-set SDMs, 10-bit PSEL, ε=1/32). — Jaleel et al., ISCA 2010
-- [x] SHiP (Signature-based Hit Predictor): SHiP-Mem variant; SHCT 16K × 3-bit saturating counters layered on SRRIP-HP. — Wu et al., MICRO 2011
-- [x] SHiP-PC: SHiP variant using load PC as signature; requires threading PC through the cache access path. — Wu et al., MICRO 2011
-- [x] Tree-PLRU (Pseudo-LRU): binary tree of bits per set; exact LRU for 2-way, hardware-friendly approximation for wider associativity (Intel P6 and later).
-- [x] Hawkeye: OPTgen-based Belady-inspired replacement; PC-indexed 3-bit saturating-counter predictor; cache-friendly lines insert at RRPV=0, cache-averse at RRPV=7; SRRIP-style victim selection. — Jain & Lin, ISCA 2016
-- [ ] LFU (Least Frequently Used): frequency-based eviction; evicts the line with the lowest access count; straightforward baseline for frequency-aware policies.
-- [ ] TinyLFU: compact approximate-frequency sketch (Count-Min or counting Bloom filter) gated by a doorkeeper; frequency admission filter for SLRU-style main cache. — Einziger et al., IEEE Trans. Computers 2017
-- [ ] ARC (Adaptive Replacement Cache): two LRU lists (T1 recency, T2 frequency) with a ghost-entry feedback loop that self-tunes the split point p. — Megiddo & Modha, FAST 2003
-- [ ] Hyperbolic caching (HyperbolicPolicy): each line assigned a priority = hits / age; evict the line with the lowest priority at miss time; pure frequency × time trade-off with no parameters. — Blankstein et al., USENIX ATC 2017
-- [ ] LECAR (Least Expected Cost under Adaptive Replacement): hybrid of LFU and LRU using a two-armed bandit (exponential-weight update) to dynamically pick between the two policies based on measured regret. — Vietri et al., HotStorage 2018
-- [ ] LRB (Learning-based Replacement beyond Belady): per-line feature vector (reuse distance, frequency, access pattern) fed to a lightweight learned predictor trained with gradient boosting to approximate Belady's offline optimal policy. — Song & Elber, ASPLOS 2020; Shi et al., ASPLOS 2019 (variant)
+- [x] MRU (Most-Recently-Used): evicts the most recently hit block; new installs placed at LRU position; scan-resistant
+  complement to LRU.
+- [x] CLOCK (Second-Chance): one reference bit per way, circular hand; referenced ways get a second chance (bit cleared,
+  hand advances); unreferenced way at hand is evicted. OS-style LRU approximation.
+- [x] RRIP (Re-Reference Interval Prediction): SRRIP-HP, BRRIP-HP, DRRIP-HP with Set Dueling (32-set SDMs, 10-bit PSEL,
+  ε=1/32). — Jaleel et al., ISCA 2010
+- [x] SHiP (Signature-based Hit Predictor): SHiP-Mem variant; SHCT 16K × 3-bit saturating counters layered on
+  SRRIP-HP. — Wu et al., MICRO 2011
+- [x] SHiP-PC: SHiP variant using load PC as signature; requires threading PC through the cache access path. — Wu et
+  al., MICRO 2011
+- [x] Tree-PLRU (Pseudo-LRU): binary tree of bits per set; exact LRU for 2-way, hardware-friendly approximation for
+  wider associativity (Intel P6 and later).
+- [x] Hawkeye: OPTgen-based Belady-inspired replacement; PC-indexed 3-bit saturating-counter predictor; cache-friendly
+  lines insert at RRPV=0, cache-averse at RRPV=7; SRRIP-style victim selection. — Jain & Lin, ISCA 2016
+- [ ] LFU (Least Frequently Used): frequency-based eviction; evicts the line with the lowest access count;
+  straightforward baseline for frequency-aware policies.
+- [ ] TinyLFU: compact approximate-frequency sketch (Count-Min or counting Bloom filter) gated by a doorkeeper;
+  frequency admission filter for SLRU-style main cache. — Einziger et al., IEEE Trans. Computers 2017
+- [ ] ARC (Adaptive Replacement Cache): two LRU lists (T1 recency, T2 frequency) with a ghost-entry feedback loop that
+  self-tunes the split point p. — Megiddo & Modha, FAST 2003
+- [ ] Hyperbolic caching (HyperbolicPolicy): each line assigned a priority = hits / age; evict the line with the lowest
+  priority at miss time; pure frequency × time trade-off with no parameters. — Blankstein et al., USENIX ATC 2017
+- [ ] LECAR (Least Expected Cost under Adaptive Replacement): hybrid of LFU and LRU using a two-armed bandit (
+  exponential-weight update) to dynamically pick between the two policies based on measured regret. — Vietri et al.,
+  HotStorage 2018
+- [ ] LRB (Learning-based Replacement beyond Belady): per-line feature vector (reuse distance, frequency, access
+  pattern) fed to a lightweight learned predictor trained with gradient boosting to approximate Belady's offline optimal
+  policy. — Song & Elber, ASPLOS 2020; Shi et al., ASPLOS 2019 (variant)
 - [ ] Cache replacement competition (CRC) plug-in interface: match ChampSim's policy API so research policies drop in.
 
 ### Out-of-Order Execution
@@ -268,8 +297,24 @@ Pluggable replacement policies via `IReplacementPolicy`; `SetAssociativeCache` a
 
 ## Orrery
 
-- [ ] Roslyn C# scripting host: embed `Microsoft.CodeAnalysis.CSharp.Scripting` so `.csx` files can instantiate and configure trains, caches, and predictors directly against the live assemblies — no wrapper layer needed.
-- [ ] gem5-style architecture builder: a composable builder API covering pipeline stage topology, cache hierarchy shape (private vs shared, number of levels), replacement policy, prefetcher, branch predictor type and parameters, FU counts and latencies, and multicore interconnect — the structural wiring that goes beyond `TrainConfig`'s flat parameter record; the scripting host is the primary consumer.
+- [ ] Roslyn C# scripting host: embed `Microsoft.CodeAnalysis.CSharp.Scripting` so `.csx` files can instantiate and
+  configure trains, caches, and predictors directly against the live assemblies — no wrapper layer needed.
+  - [ ] Maybe also F#?
+- [ ] gem5-style architecture builder: a composable builder API covering pipeline topology, cache hierarchy, branch
+  predictor, FU counts and latencies, and multicore interconnect — the structural wiring that goes beyond `TrainConfig`'
+  s flat parameter record; the Roslyn scripting host is the primary consumer.
+  - Phase 1 — Cache hierarchy shape: structural description of the full cache stack — per-level capacity, associativity,
+    block size, and access latency; private-vs-shared topology across levels; replacement policy and prefetcher choice
+    per I/D path.
+  - Phase 2 — Pipeline topology: structural description of a single pipeline — train variant (single-cycle through OoO),
+    forwarding, store buffer depth, issue width, reorder buffer and issue queue depth, physical register count,
+    functional unit class counts and latencies, branch predictor kind and parameters.
+  - Phase 3 — Multicore topology: structural description of N-hart configurations — per-hart private caches, shared
+    last-level cache descriptor, and coherence bus topology (snooping vs directory).
+  - Phase 4 — Machine assembly layer: a component that consumes the full structural description (all three layers above)
+    and produces a runnable simulation — replaces ad-hoc wiring currently scattered in ISA-specific construction code.
+  - Phase 5 — Scripting surface: wire the assembly layer to the Roslyn host so `.csx` files drive machine construction
+    from first principles; the UI configurator (line 22 above) hot-reloads on script change.
 - [ ] Generic definition for a parser.
 - [ ] Clock domain crossing: model multiple frequency domains (e.g., core at 3 GHz, uncore/LLC at 1.5 GHz) with
   synchronization FIFOs.
