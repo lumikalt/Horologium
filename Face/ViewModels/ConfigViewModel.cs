@@ -59,6 +59,8 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int DCacheMissLatency { get; set; } = 10;
 
+    [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
+
     [ObservableProperty] public partial int StoreBufferCapacity { get; set; } = 0;
 
     [ObservableProperty] public partial int IssueWidth { get; set; } = 2;
@@ -98,6 +100,9 @@ public partial class ConfigViewModel : ObservableObject {
         OnPropertyChanged(nameof(HasHashedPerceptronParams));
         OnPropertyChanged(nameof(HasTournamentParams));
     }
+
+    public static string[] CacheReplacementPolicyOptions { get; } =
+        ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
 
     public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo",];
 
@@ -158,7 +163,8 @@ public partial class ConfigViewModel : ObservableObject {
                 IssueWidth: IssueWidth,
                 RobCapacity: RobCapacity,
                 IqCapacity: IqCapacity,
-                ExtraPhysRegs: ExtraPhysRegs
+                ExtraPhysRegs: ExtraPhysRegs,
+                CacheReplacementPolicy: CacheReplacementPolicy == "lru" ? null : CacheReplacementPolicy
             )
         );
     }
@@ -192,6 +198,7 @@ public partial class ConfigViewModel : ObservableObject {
             ExtraPhysRegs = nc.Config.ExtraPhysRegs,
             ICacheEnabled = nc.Config.ICache is not null,
             DCacheEnabled = nc.Config.DCache is not null,
+            CacheReplacementPolicy = nc.Config.CacheReplacementPolicy ?? "lru",
         };
 
         switch (nc.Config.Predictor) {

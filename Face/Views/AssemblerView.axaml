@@ -321,7 +321,9 @@
 
                     <!-- Cache contents DataGrid -->
                     <DataGrid Grid.Column="1"
+                              x:Name="CacheDataGrid"
                               ItemsSource="{Binding CacheRows}"
+                              Tag="{Binding CacheMetadataLabel}"
                               IsReadOnly="True"
                               CanUserSortColumns="False"
                               CanUserResizeColumns="True"
@@ -353,11 +355,14 @@
                                                 Width="Auto"
                                                 MinWidth="40"
                                                 IsReadOnly="True" />
-                            <DataGridTextColumn Header="LRU"
-                                                Binding="{Binding Lru}"
+                            <DataGridTextColumn Binding="{Binding Lru}"
                                                 Width="Auto"
                                                 MinWidth="50"
-                                                IsReadOnly="True" />
+                                                IsReadOnly="True">
+                                <DataGridTextColumn.Header>
+                                    <TextBlock Text="{Binding #CacheDataGrid.Tag}" />
+                                </DataGridTextColumn.Header>
+                            </DataGridTextColumn>
                             <DataGridTextColumn Header="Tag"
                                                 Binding="{Binding Tag}"
                                                 Width="Auto"

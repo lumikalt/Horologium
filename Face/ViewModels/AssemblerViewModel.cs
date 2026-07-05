@@ -167,6 +167,7 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial int DCacheWays { get; set; } = 4;
     [ObservableProperty] public partial int DCacheBlockBytes { get; set; } = 32;
     [ObservableProperty] public partial int DCacheMissLatency { get; set; } = 10;
+    [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
     // ── Cache display state ───────────────────────────────────────────────────
     [ObservableProperty] public partial int SelectedCacheTab { get; set; }
@@ -185,6 +186,16 @@ public partial class AssemblerViewModel : ObservableObject {
     public static IReadOnlyList<int> CacheCapacityKbOptions { get; } = [1, 2, 4, 8, 16, 32,];
     public static IReadOnlyList<int> CacheWaysOptions { get; } = [1, 2, 4, 8,];
     public static IReadOnlyList<int> CacheBlockBytesOptions { get; } = [8, 16, 32, 64,];
+
+    public static IReadOnlyList<string> CacheReplacementPolicyOptions { get; } =
+        ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
+
+    public string CacheMetadataLabel => CacheReplacementPolicy switch {
+        "srrip" or "brrip" or "drrip" or "ship" or "ship_pc" or "hawkeye" => "RRPV",
+        "clock"                                                           => "Ref",
+        "random"                                                          => "-",
+        _                                                                 => "Age",
+    };
 
     public ObservableCollection<AssemblyRow> Instructions { get; } = [];
     public ObservableCollection<RegEntry> IntRegisters { get; } = [];
@@ -290,6 +301,12 @@ public partial class AssemblerViewModel : ObservableObject {
 
     // ReSharper disable once PartialMethodParameterNameMismatch
     partial void OnDCacheEnabledChanged(bool _) => ApplyCacheConfigChange();
+
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnCacheReplacementPolicyChanged(string _) {
+        OnPropertyChanged(nameof(CacheMetadataLabel));
+        ApplyCacheConfigChange();
+    }
 
     // ReSharper disable once PartialMethodParameterNameMismatch
     partial void OnSelectedCacheTabChanged(int _) {
@@ -638,7 +655,7 @@ public partial class AssemblerViewModel : ObservableObject {
         _runCts = new CancellationTokenSource();
         CancellationToken token = _runCts.Token;
 
-        const int maxSteps = 10_000;
+        const int maxSteps = 1_000_000;
         var delay = (int)MsPerCycle;
 
         for (var i = 0; i < maxSteps && CanStep && !token.IsCancellationRequested; i++) {
@@ -852,20 +869,35 @@ public partial class AssemblerViewModel : ObservableObject {
         StatusText = $"Assembled: {Instructions.Count} instructions, {binary.Length} bytes.";
     }
 
+    private static ReplacementPolicyKind ParseReplacementPolicy(string? s) =>
+        s?.ToLowerInvariant() switch {
+            "srrip"   => ReplacementPolicyKind.Srrip,
+            "brrip"   => ReplacementPolicyKind.Brrip,
+            "drrip"   => ReplacementPolicyKind.Drrip,
+            "ship"    => ReplacementPolicyKind.Ship,
+            "ship_pc" => ReplacementPolicyKind.ShipPc,
+            "random"  => ReplacementPolicyKind.Random,
+            "fifo"    => ReplacementPolicyKind.Fifo,
+            "plru"    => ReplacementPolicyKind.Plru,
+            "mru"     => ReplacementPolicyKind.Mru,
+            "clock"   => ReplacementPolicyKind.Clock,
+            "hawkeye" => ReplacementPolicyKind.Hawkeye,
+            _         => ReplacementPolicyKind.Lru,
+        };
+
     private static MemoryConfig BuildCacheConfig(
         bool enabled,
         int capacityKb,
         int ways,
         int blockBytes,
-        int missLatency
+        int missLatency,
+        ReplacementPolicyKind policy = ReplacementPolicyKind.Lru
     ) =>
         enabled
-            ? new MemoryConfig(
-                capacityKb * 1024,
-                ways,
-                blockBytes,
-                missLatency
-            )
+            ? new MemoryConfig(capacityKb * 1024, ways, blockBytes, missLatency)
+                with {
+                    ReplacementPolicy = policy,
+                }
             : MemoryConfig.None;
 
     private void SetupPipeline() {
@@ -876,11 +908,12 @@ public partial class AssemblerViewModel : ObservableObject {
         _iCacheHitHistory.Clear();
         _dCacheHitHistory.Clear();
 
+        ReplacementPolicyKind policy = ParseReplacementPolicy(CacheReplacementPolicy);
         MemoryConfig iCfg = BuildCacheConfig(
-            ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency
+            ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency, policy
         );
         MemoryConfig dCfg = BuildCacheConfig(
-            DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency
+            DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency, policy
         );
         if (dCfg.CacheCapacityBytes > 0)
             dCfg = dCfg with { UncacheableBase = UartDevice.DefaultBase, UncacheableSize = UartDevice.RegionSize, };

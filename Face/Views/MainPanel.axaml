@@ -167,6 +167,16 @@
                         </Grid>
                     </StackPanel>
 
+                    <!-- five_stage: cache replacement policy -->
+                    <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                          IsVisible="{Binding IsFiveStage}">
+                        <TextBlock Grid.Column="0" Text="Cache policy" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{x:Static vm:ConfigViewModel.CacheReplacementPolicyOptions}"
+                                  SelectedItem="{Binding CacheReplacementPolicy}"
+                                  HorizontalAlignment="Stretch" />
+                    </Grid>
+
                     <!-- five_stage: store buffer -->
                     <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
                           IsVisible="{Binding IsFiveStage}">
@@ -603,6 +613,16 @@
                                                VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
                                 </Grid>
                             </StackPanel>
+
+                            <!-- Replacement policy (applies to all enabled cache levels) -->
+                            <Grid ColumnDefinitions="60,*" ColumnSpacing="4">
+                                <TextBlock Grid.Column="0" Text="Policy"
+                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{Binding Assembler.CacheReplacementPolicyOptions}"
+                                          SelectedItem="{Binding Assembler.CacheReplacementPolicy}"
+                                          HorizontalAlignment="Stretch" />
+                            </Grid>
 
                             <TextBlock Text="Toggle applies immediately. Geometry takes effect on Reset."
                                        FontSize="10" Opacity="0.4" Margin="0,2,0,0" TextWrapping="Wrap" />
