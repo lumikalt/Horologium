@@ -7,7 +7,7 @@ public enum PrefetcherKind {
 }
 
 public enum ReplacementPolicyKind {
-    Lru, Srrip, Brrip, Drrip, Ship, ShipPc, Random, Fifo,
+    Lru, Srrip, Brrip, Drrip, Ship, ShipPc, Random, Fifo, Plru,
 }
 
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
@@ -42,7 +42,9 @@ public enum ReplacementPolicyKind {
 /// (Jaleel et al., ISCA 2010). SHiP uses per-signature reuse history to predict insertion
 /// RRPV: SHiP-Mem (Ship) indexes the SHCT by upper address bits; SHiP-PC (ShipPc) indexes
 /// by load PC, requiring <see cref="IMemory.SetRequestPc"/> to be called before each access
-/// (Wu et al., MICRO 2011).</param>
+/// (Wu et al., MICRO 2011). Tree-PLRU (Plru) is a hardware-friendly approximation using
+/// a binary tree of bits per set; exact LRU for 2-way, approximation for wider associativity
+/// (as used in Intel P6 and later designs).</param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,

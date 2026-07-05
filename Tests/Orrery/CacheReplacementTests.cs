@@ -575,6 +575,80 @@ public class CacheReplacementTests {
         Assert.Equal(missesBefore + 1, cache.Misses);
     }
 
+    // ── Tree-PLRU ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Plru_FreshCache_EvictsWay0() {
+        // All bits start false → root points left → victim is always way 0 before any installs.
+        var policy = new PlruPolicy(1, 4);
+        Assert.Equal(0, policy.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void Plru_FillOrderIsNonSequential() {
+        // 4-way Tree-PLRU: the fill order driven by ChooseVictim is 0, 2, 1, 3
+        // (not sequential) because each install flips tree bits toward the other subtree.
+        var policy = new PlruPolicy(1, 4);
+        int[] expected = [0, 2, 1, 3];
+        for (int i = 0; i < 4; i++) {
+            Assert.Equal(expected[i], policy.ChooseVictim(0));
+            policy.RecordInstall(0, expected[i]);
+        }
+        // After filling all 4, tree resets to the same initial state → way 0 again.
+        Assert.Equal(0, policy.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void Plru_AfterAccessingWay0_EvictsFromRightSubtree() {
+        // Fill all 4 ways, then hit way 0. The bits now point away from way 0's subtree,
+        // so the victim must be way 2 (sibling leaf in the right subtree, not way 0).
+        var policy = new PlruPolicy(1, 4);
+        int[] fillOrder = [0, 2, 1, 3];
+        foreach (int w in fillOrder) { policy.ChooseVictim(0); policy.RecordInstall(0, w); }
+        policy.RecordHit(0, 0); // promote way 0
+        Assert.Equal(2, policy.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void Plru_TwoWay_IsExactLru() {
+        // 2-way PLRU is exact LRU: after accessing way 0, way 1 is the victim and vice-versa.
+        var policy = new PlruPolicy(1, 2);
+        policy.RecordInstall(0, 0);
+        Assert.Equal(1, policy.ChooseVictim(0)); // way 1 is LRU
+
+        policy.RecordInstall(0, 1);
+        Assert.Equal(0, policy.ChooseVictim(0)); // way 0 is now LRU
+
+        policy.RecordHit(0, 0); // access way 0 again
+        Assert.Equal(1, policy.ChooseVictim(0)); // way 1 back to LRU
+    }
+
+    [Fact]
+    public void Plru_EndToEnd_MruProtectedOnMiss() {
+        // Integration: 4-way 1-set PLRU cache. Fill A1–A4, repeatedly hit A1, then miss A5.
+        // Tree-PLRU must protect A1 (recently accessed); A2 or A3 gets evicted instead.
+        // Unlike FIFO which evicts A1 despite hits.
+        const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30, A5 = 0x40;
+        var mem = new FlatMemory(256);
+        foreach (ulong a in new[] { A1, A2, A3, A4, A5 }) mem.Load(a, [0xCC]);
+
+        var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Plru);
+        cache.Read(A1, 1); cache.Read(A2, 1); cache.Read(A3, 1); cache.Read(A4, 1);
+        cache.ConsumePendingStalls();
+
+        // Repeatedly hit A1 so PLRU considers it recently used.
+        for (int i = 0; i < 5; i++) cache.Read(A1, 1);
+
+        cache.Read(A5, 1); // forces an eviction — must NOT evict A1
+        cache.ConsumePendingStalls();
+
+        // A1 must still be present (PLRU protects it due to recent access).
+        // Check A1 hit BEFORE reading any other block to avoid reinstall side-effects.
+        long hitsA1 = cache.Hits;
+        cache.Read(A1, 1);
+        Assert.Equal(hitsA1 + 1, cache.Hits);
+    }
+
     // ── Random ────────────────────────────────────────────────────────────────
 
     [Fact]
