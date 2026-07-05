@@ -311,8 +311,10 @@ Implemented:
     functional unit class counts and latencies, branch predictor kind and parameters.
   - [x] SmtTrain spec variant: extend PipelineSpec hierarchy with an SmtSpec that handles the N-hart, multi-mechanism
     Build() signature; requires a different contract than the current single-hart Build(IMechanism, IMemory, …).
-  - Phase 3 — Multicore topology: structural description of N-hart configurations — per-hart private caches, shared
+  - [x] Phase 3 — Multicore topology: structural description of N-hart configurations — per-hart private caches, shared
     last-level cache descriptor, and coherence bus topology (snooping vs directory).
+    - [x] Expose `RunConcurrent` from `MulticoreHandle`: two-phase parallel tick backed by `DeferredBus` for
+      well-synchronized workloads; wrap `MultiHartPipeline.RunConcurrent(DeferredBus[])` behind the handle's API.
   - Phase 4 — Machine assembly layer: a component that consumes the full structural description (all three layers above)
     and produces a runnable simulation — replaces ad-hoc wiring currently scattered in ISA-specific construction code.
   - Phase 5 — Scripting surface: wire the assembly layer to the Roslyn host so `.csx` files drive machine construction
