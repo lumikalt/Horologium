@@ -10,15 +10,14 @@ namespace Orrery.Cache;
 /// </summary>
 public sealed class ClockPolicy : IReplacementPolicy {
     private readonly int _ways;
-    private readonly bool[][] _ref;  // reference bits per [set][way]
-    private readonly int[] _hand;    // per-set clock hand
+    private readonly bool[][] _ref; // reference bits per [set][way]
+    private readonly int[] _hand;   // per-set clock hand
 
     public ClockPolicy(int sets, int ways) {
         _ways = ways;
         _ref = new bool[sets][];
         _hand = new int[sets];
-        for (var s = 0; s < sets; s++)
-            _ref[s] = new bool[ways]; // all start unreferenced
+        for (var s = 0; s < sets; s++) _ref[s] = new bool[ways]; // all start unreferenced
     }
 
     public void RecordHit(int set, int way) => _ref[set][way] = true;
@@ -38,6 +37,7 @@ public sealed class ClockPolicy : IReplacementPolicy {
             bits[_hand[set]] = false;
             _hand[set] = (_hand[set] + 1) % _ways;
         }
+
         return _hand[set];
     }
 

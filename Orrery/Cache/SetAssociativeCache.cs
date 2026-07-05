@@ -27,6 +27,7 @@ public sealed class SetAssociativeCache : IMemory {
     private long _pendingStalls;
     private ulong _lastRequestPc;
     private readonly bool _usePcSignature;
+    private readonly bool _requirePcOnHit; // Hawkeye needs OPTgen fed on every hit
 
     // Realistic prefetch latency: lines installed by Prefetch() that have not yet
     // "arrived". A demand hit on one of these pays the remaining countdown instead
@@ -90,24 +91,25 @@ public sealed class SetAssociativeCache : IMemory {
         for (var s = 0; s < sets; s++) {
             _tags[s] = new ulong?[_ways];
             _blocks[s] = new byte[_ways][];
-            for (var w = 0; w < _ways; w++)
-                _blocks[s][w] = new byte[_blockSize];
+            for (var w = 0; w < _ways; w++) _blocks[s][w] = new byte[_blockSize];
         }
 
         _policy = replacementPolicy switch {
-            ReplacementPolicyKind.Srrip  => new SrripPolicy(sets, ways),
-            ReplacementPolicyKind.Brrip  => new BrripPolicy(sets, ways),
-            ReplacementPolicyKind.Drrip  => new DrripPolicy(sets, ways),
-            ReplacementPolicyKind.Ship   => new ShipPolicy(sets, ways),
-            ReplacementPolicyKind.ShipPc => new ShipPolicy(sets, ways),
-            ReplacementPolicyKind.Random => new RandomPolicy(sets, ways),
-            ReplacementPolicyKind.Fifo   => new FifoPolicy(sets, ways),
-            ReplacementPolicyKind.Plru   => new PlruPolicy(sets, ways),
-            ReplacementPolicyKind.Mru    => new MruPolicy(sets, ways),
-            ReplacementPolicyKind.Clock  => new ClockPolicy(sets, ways),
-            _                            => new LruPolicy(sets, ways),
+            ReplacementPolicyKind.Srrip   => new SrripPolicy(sets, ways),
+            ReplacementPolicyKind.Brrip   => new BrripPolicy(sets, ways),
+            ReplacementPolicyKind.Drrip   => new DrripPolicy(sets, ways),
+            ReplacementPolicyKind.Ship    => new ShipPolicy(sets, ways),
+            ReplacementPolicyKind.ShipPc  => new ShipPolicy(sets, ways),
+            ReplacementPolicyKind.Random  => new RandomPolicy(sets, ways),
+            ReplacementPolicyKind.Fifo    => new FifoPolicy(sets, ways),
+            ReplacementPolicyKind.Plru    => new PlruPolicy(sets, ways),
+            ReplacementPolicyKind.Mru     => new MruPolicy(sets, ways),
+            ReplacementPolicyKind.Clock   => new ClockPolicy(sets, ways),
+            ReplacementPolicyKind.Hawkeye => new HawkeyePolicy(sets, ways),
+            _                             => new LruPolicy(sets, ways),
         };
         _usePcSignature = replacementPolicy == ReplacementPolicyKind.ShipPc;
+        _requirePcOnHit = replacementPolicy == ReplacementPolicyKind.Hawkeye;
     }
 
     /// <summary>Returns and clears the accumulated miss-penalty cycle count.</summary>
@@ -143,6 +145,7 @@ public sealed class SetAssociativeCache : IMemory {
         }
 
         _tags[set][way] = tag;
+        _policy.SetPendingAddress(tag, _lastRequestPc);
         _policy.RecordInstall(set, way);
     }
 
@@ -174,6 +177,7 @@ public sealed class SetAssociativeCache : IMemory {
         if (way >= 0) {
             LastAccessWasHit = true;
             Hits++;
+            if (_requirePcOnHit) _policy.RecordHitPc(set, way, tag, _lastRequestPc);
             _policy.RecordHit(set, way);
             ChargeInFlightPrefetch(address);
             return ReadBytes(_blocks[set][way], offset, bytes);
@@ -214,6 +218,7 @@ public sealed class SetAssociativeCache : IMemory {
         if (way >= 0) {
             LastAccessWasHit = true;
             Hits++;
+            if (_requirePcOnHit) _policy.RecordHitPc(set, way, tag, _lastRequestPc);
             _policy.RecordHit(set, way);
             ChargeInFlightPrefetch(address);
             WriteBytes(_blocks[set][way], offset, value, bytes);

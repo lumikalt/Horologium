@@ -373,7 +373,7 @@ public class Rv32Executor : IExecutor {
                 ExecuteResult.WithResult(
                     0xFFFFFFFF00000000UL |
                     (((uint)regs.Read(rs1) & 0x7FFFFFFFu) |
-                    (((uint)regs.Read(rs1) ^ (uint)regs.Read(rs2)) & 0x80000000u))
+                     (((uint)regs.Read(rs1) ^ (uint)regs.Read(rs2)) & 0x80000000u))
                 ),
 
             RvFminS(_, var rs1, var rs2) => FpMinMax(regs, rs1, rs2, true),
@@ -415,21 +415,27 @@ public class Rv32Executor : IExecutor {
             RvFsqrtD(_, var rs1)          => DpSqrt(DBits(regs, rs1)),
 
             RvFsgnjD (_, var rs1, var rs2) =>
-                FloatRegD(BitConverter.Int64BitsToDouble(
-                    (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
-                           ((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2)) & 0x8000000000000000UL))
-                ), 0),
+                FloatRegD(
+                    BitConverter.Int64BitsToDouble(
+                        (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
+                               ((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2)) & 0x8000000000000000UL))
+                    ), 0
+                ),
             RvFsgnjnD(_, var rs1, var rs2) =>
-                FloatRegD(BitConverter.Int64BitsToDouble(
-                    (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
-                           (~(ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2)) & 0x8000000000000000UL))
-                ), 0),
+                FloatRegD(
+                    BitConverter.Int64BitsToDouble(
+                        (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
+                               (~(ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2)) & 0x8000000000000000UL))
+                    ), 0
+                ),
             RvFsgnjxD(_, var rs1, var rs2) =>
-                FloatRegD(BitConverter.Int64BitsToDouble(
-                    (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
-                           (((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) ^
-                             (ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2))) & 0x8000000000000000UL))
-                ), 0),
+                FloatRegD(
+                    BitConverter.Int64BitsToDouble(
+                        (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
+                               (((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) ^
+                                 (ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2))) & 0x8000000000000000UL))
+                    ), 0
+                ),
 
             RvFminD(_, var rs1, var rs2) => DpMinMax(regs, rs1, rs2, true),
             RvFmaxD(_, var rs1, var rs2) => DpMinMax(regs, rs1, rs2, false),
@@ -1012,7 +1018,7 @@ public class Rv32Executor : IExecutor {
     // NaN-boxing (§11.3): upper 32 bits must be all 1s; otherwise canonical NaN.
     private static float FBits(IRegisterFile regs, int rs) {
         ulong raw = regs.Read(rs);
-        return (raw >> 32) == 0xFFFFFFFFu
+        return raw >> 32 == 0xFFFFFFFFu
             ? BitConverter.Int32BitsToSingle((int)(uint)raw)
             : BitConverter.Int32BitsToSingle((int)Rv32Executor.RvCanonicalNaN);
     }
@@ -1296,8 +1302,8 @@ public class Rv32Executor : IExecutor {
 
     // Detect flags for D-precision binary op. NX/UF are best-effort (no 128-bit ref).
     private static uint DpArithFlags(double a, double b, double r, int op) {
-        ulong rawA = (ulong)BitConverter.DoubleToInt64Bits(a);
-        ulong rawB = (ulong)BitConverter.DoubleToInt64Bits(b);
+        var rawA = (ulong)BitConverter.DoubleToInt64Bits(a);
+        var rawB = (ulong)BitConverter.DoubleToInt64Bits(b);
         bool aNaN = double.IsNaN(a), bNaN = double.IsNaN(b);
         uint flags = 0;
         if (IsDSNan(rawA) || IsDSNan(rawB) || (double.IsNaN(r) && !aNaN && !bNaN)) flags |= 0x10;
@@ -1308,16 +1314,18 @@ public class Rv32Executor : IExecutor {
     }
 
     private static uint DpFmaFlags(double a, double b, double c, double r) {
-        ulong rawA = (ulong)BitConverter.DoubleToInt64Bits(a);
-        ulong rawB = (ulong)BitConverter.DoubleToInt64Bits(b);
-        ulong rawC = (ulong)BitConverter.DoubleToInt64Bits(c);
+        var rawA = (ulong)BitConverter.DoubleToInt64Bits(a);
+        var rawB = (ulong)BitConverter.DoubleToInt64Bits(b);
+        var rawC = (ulong)BitConverter.DoubleToInt64Bits(c);
         bool aNaN = double.IsNaN(a), bNaN = double.IsNaN(b), cNaN = double.IsNaN(c);
         uint flags = 0;
         if (IsDSNan(rawA) || IsDSNan(rawB) || IsDSNan(rawC) ||
-            (double.IsNaN(r) && !aNaN && !bNaN && !cNaN)) flags |= 0x10;
+            (double.IsNaN(r) && !aNaN && !bNaN && !cNaN))
+            flags |= 0x10;
         if (double.IsNaN(r)) return flags;
         if (double.IsInfinity(r) &&
-            !double.IsInfinity(a) && !double.IsInfinity(b) && !double.IsInfinity(c)) flags |= 0x04;
+            !double.IsInfinity(a) && !double.IsInfinity(b) && !double.IsInfinity(c))
+            flags |= 0x04;
         return flags;
     }
 
@@ -1357,7 +1365,7 @@ public class Rv32Executor : IExecutor {
         bool nvFlt = double.IsNaN(a) || double.IsNaN(b);
         bool nvFeq = IsDSNan(raw1) || IsDSNan(raw2);
         uint flags = op switch { 0 => nvFeq ? 0x10u : 0u, _ => nvFlt ? 0x10u : 0u, };
-        ulong cmp = op switch { 0 => a == b ? 1UL : 0UL, 1 => a < b ? 1UL : 0UL, _ => a <= b ? 1UL : 0UL, };
+        ulong cmp = op switch { 0  => a == b ? 1UL : 0UL, 1 => a < b ? 1UL : 0UL, _ => a <= b ? 1UL : 0UL, };
         return flags != 0
             ? new ExecuteResult { RegisterResult = (cmp, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), }
             : ExecuteResult.WithResult(cmp);
@@ -1365,14 +1373,14 @@ public class Rv32Executor : IExecutor {
 
     // FCLASS.D encoding (10-bit result, same bit semantics as FCLASS.S).
     private static ulong DClass(ulong bits) {
-        bool sign = (bits >> 63) != 0;
-        uint exp = (uint)((bits >> 52) & 0x7FF);
+        bool sign = bits >> 63 != 0;
+        var exp = (uint)((bits >> 52) & 0x7FF);
         ulong frac = bits & 0x000FFFFFFFFFFFFFUL;
         return exp switch {
             0x7FF when frac == 0 => sign ? 1UL << 0 : 1UL << 7,
-            0x7FF                => (frac >> 51) != 0 ? 1UL << 9 : 1UL << 8,
-            0 => frac == 0 ? (sign ? 1UL << 3 : 1UL << 4)
-                           : (sign ? 1UL << 2 : 1UL << 5),
+            0x7FF                => frac >> 51 != 0 ? 1UL << 9 : 1UL << 8,
+            0 => frac == 0 ? sign ? 1UL << 3 : 1UL << 4
+                : sign     ? 1UL << 2 : 1UL << 5,
             _ => sign ? 1UL << 1 : 1UL << 6,
         };
     }
@@ -1417,10 +1425,12 @@ public class Rv32Executor : IExecutor {
         // C# always rounds to nearest-even; other rounding modes are best-effort.
         var r = (float)d;
         uint flags = 0;
-        ulong rawD = (ulong)BitConverter.DoubleToInt64Bits(d);
-        if (IsDSNan(rawD)) flags |= 0x10;
-        else if (!double.IsNaN(d) && float.IsInfinity(r) && !double.IsInfinity(d)) flags |= 0x04; // OF
-        else if (!double.IsNaN(d) && !double.IsInfinity(d) && (double)r != d) flags |= 0x01;       // NX
+        var rawD = (ulong)BitConverter.DoubleToInt64Bits(d);
+        if (IsDSNan(rawD))
+            flags |= 0x10;
+        else if (!double.IsNaN(d) && float.IsInfinity(r) && !double.IsInfinity(d))
+            flags |= 0x04;                                                                   // OF
+        else if (!double.IsNaN(d) && !double.IsInfinity(d) && (double)r != d) flags |= 0x01; // NX
         return FloatRegF(r, flags);
     }
 
@@ -2705,7 +2715,7 @@ public class Rv32Executor : IExecutor {
             VMulOp.Mul => a * b,
             VMulOp.MulH => ewBytes switch {
                 1 => (byte)((short)((sbyte)(byte)a * (sbyte)(byte)b) >> 8),
-                2 => (ushort)((short)(ushort)a * (short)(ushort)b >> 16),
+                2 => (ushort)(((short)(ushort)a * (short)(ushort)b) >> 16),
                 _ => (ulong)(uint)(((int)(uint)a * (long)(int)(uint)b) >> 32),
             },
             VMulOp.MulHu => ewBytes switch {
@@ -2716,7 +2726,7 @@ public class Rv32Executor : IExecutor {
             // vs2 signed × vs1/rs1 unsigned, high half
             VMulOp.MulHsu => ewBytes switch {
                 1 => (byte)((short)((sbyte)(byte)a * (byte)b) >> 8),
-                2 => (ushort)((short)(ushort)a * (ushort)b >> 16),
+                2 => (ushort)(((short)(ushort)a * (ushort)b) >> 16),
                 _ => (ulong)(uint)(((int)(uint)a * (uint)b) >> 32),
             },
             VMulOp.Div => VDivSigned(a, b, ewBytes),

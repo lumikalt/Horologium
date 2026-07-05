@@ -24,14 +24,14 @@ public sealed class ShipPolicy : RripPolicyBase {
     private const int MaxCounter = 7;   // 3-bit saturating counter
 
     private readonly byte[] _shct;
-    private readonly int[]  _signature; // [set*ways+way]; -1 = slot not yet installed (cold)
-    private readonly bool[] _outcome;   // [set*ways+way]
+    private readonly int[] _signature; // [set*ways+way]; -1 = slot not yet installed (cold)
+    private readonly bool[] _outcome;  // [set*ways+way]
     private int _pendingSignature;
 
     public ShipPolicy(int sets, int ways, int m = 2) : base(sets, ways, m) {
-        _shct      = new byte[ShctSize];
+        _shct = new byte[ShipPolicy.ShctSize];
         _signature = new int[sets * ways];
-        _outcome   = new bool[sets * ways];
+        _outcome = new bool[sets * ways];
         Array.Fill(_signature, -1); // sentinel: cold slot
     }
 
@@ -40,14 +40,14 @@ public sealed class ShipPolicy : RripPolicyBase {
     /// each fill. The lower 14 bits form the SHCT index (SHiP-Mem variant).
     /// </summary>
     public override void SetPendingSignature(ulong signature) =>
-        _pendingSignature = (int)(signature & (ShctSize - 1));
+        _pendingSignature = (int)(signature & (ShipPolicy.ShctSize - 1));
 
     public override void RecordHit(int set, int way) {
         base.RecordHit(set, way); // RRIP-HP: RRPV → 0
         int idx = set * _ways + way;
         _outcome[idx] = true;
         int sig = _signature[idx];
-        if (sig >= 0 && _shct[sig] < MaxCounter) _shct[sig]++;
+        if (sig >= 0 && _shct[sig] < ShipPolicy.MaxCounter) _shct[sig]++;
     }
 
     public override void RecordInstall(int set, int way) {
@@ -55,13 +55,12 @@ public sealed class ShipPolicy : RripPolicyBase {
 
         // Eviction step: penalise the outgoing line's signature if it was never reused.
         int oldSig = _signature[idx];
-        if (oldSig >= 0 && !_outcome[idx] && _shct[oldSig] > 0)
-            _shct[oldSig]--;
+        if (oldSig >= 0 && !_outcome[idx] && _shct[oldSig] > 0) _shct[oldSig]--;
 
         // Install the new line.
         _signature[idx] = _pendingSignature;
-        _outcome[idx]   = false;
-        _rrpv[set][way] = (_shct[_pendingSignature] == 0) ? _maxRrpv : _insertionRrpv;
+        _outcome[idx] = false;
+        _rrpv[set][way] = _shct[_pendingSignature] == 0 ? _maxRrpv : _insertionRrpv;
     }
 
     /// <summary>Exposes the raw SHCT counter for a given signature index (testing/inspection).</summary>

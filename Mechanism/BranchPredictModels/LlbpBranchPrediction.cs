@@ -76,7 +76,7 @@ public class LlbpPredictor : TageScLPredictor {
         }
         else if (provPred != taken) {
             int allocTable = _lastProvider + 1;
-            if ((uint)allocTable < (uint)LTagePredictor.NumTables)
+            if ((uint)allocTable < LTagePredictor.NumTables)
                 _storage.GetOrCreate(_llbpCtxKey).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
         }
     }

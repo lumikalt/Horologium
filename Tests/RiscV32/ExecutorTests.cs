@@ -20,6 +20,7 @@ public class ExecutorTests {
             ulong stored = r >= 32 ? 0xFFFFFFFF00000000UL | v : v;
             s.IntegerRegisters.Write(r, stored);
         }
+
         return s;
     }
 
@@ -1092,8 +1093,7 @@ public class ExecutorTests {
 
     private Rv32ArchState MakeDState(params (int reg, ulong val)[] regs) {
         var s = new Rv32ArchState();
-        foreach ((int r, ulong v) in regs)
-            s.IntegerRegisters.Write(r, v);
+        foreach ((int r, ulong v) in regs) s.IntegerRegisters.Write(r, v);
         return s;
     }
 
@@ -1113,7 +1113,7 @@ public class ExecutorTests {
         // fsd f2, 4(x1)  — x1=100, f2=2.5
         ulong bits = Dbl(2.5);
         Rv32ArchState s = MakeDState((1, 100), (34, bits)); // f2 = index 34
-        Exec(0x0020B227, s); // fsd f2, 4(x1)
+        Exec(0x0020B227, s);                                // fsd f2, 4(x1)
         ulong lo = _mem.Read(104, 4);
         ulong hi = _mem.Read(108, 4);
         Assert.Equal(bits, lo | (hi << 32));

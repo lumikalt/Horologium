@@ -7,7 +7,18 @@ public enum PrefetcherKind {
 }
 
 public enum ReplacementPolicyKind {
-    Lru, Srrip, Brrip, Drrip, Ship, ShipPc, Random, Fifo, Plru, Mru, Clock,
+    Lru,
+    Srrip,
+    Brrip,
+    Drrip,
+    Ship,
+    ShipPc,
+    Random,
+    Fifo,
+    Plru,
+    Mru,
+    Clock,
+    Hawkeye,
 }
 
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
@@ -44,7 +55,10 @@ public enum ReplacementPolicyKind {
 /// by load PC, requiring <see cref="IMemory.SetRequestPc"/> to be called before each access
 /// (Wu et al., MICRO 2011). Tree-PLRU (Plru) is a hardware-friendly approximation using
 /// a binary tree of bits per set; exact LRU for 2-way, approximation for wider associativity
-/// (as used in Intel P6 and later designs).</param>
+/// (as used in Intel P6 and later designs). Hawkeye uses OPTgen to reconstruct Belady's
+/// optimal decisions for the observed PC/address stream and trains a PC-indexed 3-bit
+/// saturating-counter predictor; cache-friendly lines insert at RRPV=0, cache-averse at
+/// RRPV=7 (Jain &amp; Lin, ISCA 2016).</param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,

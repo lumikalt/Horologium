@@ -168,8 +168,8 @@ public class VirtioBlockDeviceTests {
 
         // Verify first 4 bytes of data buffer
         ulong actual = ram.Read(VirtioBlockDeviceTests.DataBase, 4);
-        ulong expected = (ulong)diskData[0] | ((ulong)diskData[1] << 8)
-                                            | ((ulong)diskData[2] << 16) | ((ulong)diskData[3] << 24);
+        ulong expected = diskData[0] | ((ulong)diskData[1] << 8)
+                                     | ((ulong)diskData[2] << 16) | ((ulong)diskData[3] << 24);
         Assert.Equal(expected, actual);
     }
 

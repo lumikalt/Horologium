@@ -114,7 +114,7 @@ public sealed class PlicDevice : IMemory {
         // Source priority: 0x000000..0x000FFC
         if (offset < 0x001000) {
             var src = (int)(offset >> 2);
-            return (uint)(src < PlicDevice.MaxSources ? _priority[src] : 0);
+            return src < PlicDevice.MaxSources ? _priority[src] : 0;
         }
 
         // Pending bits: 0x001000..0x00107C (read-only)
@@ -127,7 +127,7 @@ public sealed class PlicDevice : IMemory {
         if (offset < 0x200000) {
             var ctx = (int)((offset - 0x002000) / 0x80);
             var word = (int)(((offset - 0x002000) % 0x80) >> 2);
-            if ((uint)ctx < (uint)_numContexts && (uint)word < (uint)PlicDevice.WordCount) return _enable[ctx][word];
+            if ((uint)ctx < (uint)_numContexts && (uint)word < PlicDevice.WordCount) return _enable[ctx][word];
             return 0;
         }
 
@@ -161,8 +161,7 @@ public sealed class PlicDevice : IMemory {
         if (offset < 0x200000) {
             var ctx = (int)((offset - 0x002000) / 0x80);
             var word = (int)(((offset - 0x002000) % 0x80) >> 2);
-            if ((uint)ctx < (uint)_numContexts && (uint)word < (uint)PlicDevice.WordCount)
-                _enable[ctx][word] = (uint)value;
+            if ((uint)ctx < (uint)_numContexts && (uint)word < PlicDevice.WordCount) _enable[ctx][word] = (uint)value;
             return;
         }
 

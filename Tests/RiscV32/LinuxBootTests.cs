@@ -106,7 +106,7 @@ public class LinuxBootTests(ITestOutputHelper testOutputHelper) {
         train.ArchState.IntegerRegisters.Write(10, 0);
         train.ArchState.IntegerRegisters.Write(11, LinuxBootTests.DtbAddr);
 
-        train.Run(1_000_000_000);
+        train.Run(1_000_000);
         var uartOut = ((StringWriter)uart.Output).ToString();
         testOutputHelper.WriteLine(
             $"[LinuxBoot] uart={uartOut.Length} bytes  pc=0x{train.ArchState.Pc:X8}"

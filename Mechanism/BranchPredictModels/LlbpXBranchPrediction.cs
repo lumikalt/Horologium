@@ -28,8 +28,9 @@ public sealed class LlbpXPredictor : LlbpPredictor {
     private bool _usedDeep;
 
     /// <summary>Number of predictions made using a deep (W=64) context.</summary>
-    public int DeepContextPredictions { get; private set; }
+    private int DeepContextPredictions { get; set; }
 
+    /// <inheritdoc />
     protected override bool TryLlbpPredict(ulong pc, int provider, out bool pred) {
         uint cid2 = _rcr.CidShallow;
         _usedDeep = _ctt.IsDeep(cid2);
@@ -57,6 +58,7 @@ public sealed class LlbpXPredictor : LlbpPredictor {
         return false;
     }
 
+    /// <inheritdoc />
     protected override void TrainLlbp(ulong pc, bool taken, bool provPred) {
         uint cid2 = _rcr.CidShallow;
 
@@ -68,7 +70,7 @@ public sealed class LlbpXPredictor : LlbpPredictor {
         }
         else if (provPred != taken) {
             int allocTable = _lastProvider + 1;
-            if ((uint)allocTable < (uint)LTagePredictor.NumTables) {
+            if ((uint)allocTable < LTagePredictor.NumTables) {
                 bool isLong = allocTable >= LlbpXPredictor.DeepTableThreshold;
                 _ctt.NotifyAllocation(cid2, isLong);
                 // Route into the depth-appropriate storage directly, independent of

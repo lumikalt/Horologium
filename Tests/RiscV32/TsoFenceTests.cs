@@ -51,7 +51,7 @@ public class TsoFenceTests {
         var train = new OooeTrain(
             new Rv32Mechanism(), mem,
             dMemConfig: new MemoryConfig(
-                16384, 4, 64, 10
+                16384, 4, 64
             ),
             writeBufferCapacity: 4
         );

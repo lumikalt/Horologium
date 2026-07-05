@@ -1,8 +1,6 @@
-using Mechanism;
-using Orrery.Cache;
+using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
-using Pipeline;
 
 namespace Tests.RiscV32;
 
@@ -13,7 +11,7 @@ public class RawBinaryWorkloadTests {
 
     [Fact]
     public void EntryPoint_DefaultsToBaseAddress() {
-        var w = new RawBinaryWorkload([1, 2, 3,], RawBinaryWorkloadTests.RamBase);
+        var w = new RawBinaryWorkload([1, 2, 3,]);
         Assert.Equal(RawBinaryWorkloadTests.RamBase, w.EntryPoint);
     }
 
@@ -27,20 +25,20 @@ public class RawBinaryWorkloadTests {
 
     [Fact]
     public void BaseAddress_IsPreserved() {
-        var w = new RawBinaryWorkload([0xAA,], RawBinaryWorkloadTests.RamBase);
+        var w = new RawBinaryWorkload([0xAA,]);
         Assert.Equal(RawBinaryWorkloadTests.RamBase, w.BaseAddress);
     }
 
     [Fact]
     public void DtbAddress_ZeroWhenNoDtb() {
-        var w = new RawBinaryWorkload([0x00,], RawBinaryWorkloadTests.RamBase);
+        var w = new RawBinaryWorkload([0x00,]);
         Assert.Equal(0UL, w.DtbAddress);
     }
 
     [Fact]
     public void DtbAddress_AlignedBeyondBinary() {
         // binary = 100 bytes; aligned = round(0x80000064 up to 4KB) + 4KB guard
-        var w = new RawBinaryWorkload(new byte[100], RawBinaryWorkloadTests.RamBase, dtb: new byte[16]);
+        var w = new RawBinaryWorkload(new byte[100], dtb: new byte[16]);
         Assert.True(w.DtbAddress > RawBinaryWorkloadTests.RamBase + 100);
         Assert.Equal(0UL, w.DtbAddress & 0xFFFUL); // 4 KiB aligned
     }
@@ -48,7 +46,7 @@ public class RawBinaryWorkloadTests {
     [Fact]
     public void DtbAddress_CustomOverride() {
         var w = new RawBinaryWorkload(
-            [0x00,], RawBinaryWorkloadTests.RamBase, dtb: new byte[16],
+            [0x00,], dtb: new byte[16],
             dtbAddress: RawBinaryWorkloadTests.RamBase + 0x10000
         );
         Assert.Equal(RawBinaryWorkloadTests.RamBase + 0x10000, w.DtbAddress);
@@ -56,14 +54,14 @@ public class RawBinaryWorkloadTests {
 
     [Fact]
     public void MemorySize_AtLeastBinary() {
-        var w = new RawBinaryWorkload(new byte[4096], RawBinaryWorkloadTests.RamBase);
+        var w = new RawBinaryWorkload(new byte[4096]);
         Assert.True(w.MemorySize >= 4096);
     }
 
     [Fact]
     public void MemorySize_CoversNoBinaryAndDtb() {
         var dtb = new byte[128];
-        var w = new RawBinaryWorkload(new byte[4096], RawBinaryWorkloadTests.RamBase, dtb: dtb);
+        var w = new RawBinaryWorkload(new byte[4096], dtb: dtb);
         // DtbAddress + 128 must be within [BaseAddress, BaseAddress + MemorySize)
         Assert.True(w.DtbAddress + (ulong)dtb.Length <= RawBinaryWorkloadTests.RamBase + (ulong)w.MemorySize);
     }
@@ -71,7 +69,7 @@ public class RawBinaryWorkloadTests {
     [Fact]
     public void Load_WritesBinaryAtBaseAddress() {
         byte[] binary = [0x11, 0x22, 0x33, 0x44,];
-        var w = new RawBinaryWorkload(binary, RawBinaryWorkloadTests.RamBase);
+        var w = new RawBinaryWorkload(binary);
         var mem = new FlatMemory(w.MemorySize, RawBinaryWorkloadTests.RamBase);
         w.Load(mem);
         Assert.Equal(0x44332211UL, mem.Read(RawBinaryWorkloadTests.RamBase, 4));
@@ -82,7 +80,7 @@ public class RawBinaryWorkloadTests {
         byte[] binary = [0xAA, 0xBB,];
         byte[] dtb = [0xD0, 0x0D, 0xFE, 0xED,]; // FDT magic
         var w = new RawBinaryWorkload(
-            binary, RawBinaryWorkloadTests.RamBase, dtb: dtb, dtbAddress: RawBinaryWorkloadTests.RamBase + 0x10000
+            binary, dtb: dtb, dtbAddress: RawBinaryWorkloadTests.RamBase + 0x10000
         );
         var mem = new FlatMemory(w.MemorySize, RawBinaryWorkloadTests.RamBase);
         w.Load(mem);
@@ -122,7 +120,7 @@ public class RawBinaryWorkloadTests {
 
         ulong dtbAddr = RawBinaryWorkloadTests.RamBase + 0x10000;
         var workload = new RawBinaryWorkload(
-            prog, RawBinaryWorkloadTests.RamBase, dtb: VirtDtb.Bytes, dtbAddress: dtbAddr
+            prog, dtb: VirtDtb.Bytes, dtbAddress: dtbAddr
         );
         var mem = new FlatMemory(workload.MemorySize, RawBinaryWorkloadTests.RamBase);
         workload.Load(mem);

@@ -14,17 +14,16 @@ public sealed class MruPolicy : IReplacementPolicy {
     public MruPolicy(int sets, int ways) {
         _ways = ways;
         _age = new int[sets][];
-        for (int s = 0; s < sets; s++) {
+        for (var s = 0; s < sets; s++) {
             _age[s] = new int[ways];
-            for (int w = 0; w < ways; w++)
-                _age[s][w] = w;
+            for (var w = 0; w < ways; w++) _age[s][w] = w;
         }
     }
 
     // Promote to MRU position (age 0 = next eviction candidate).
     public void RecordHit(int set, int way) {
         int age = _age[set][way];
-        for (int w = 0; w < _ways; w++)
+        for (var w = 0; w < _ways; w++)
             if (_age[set][w] < age)
                 _age[set][w]++;
         _age[set][way] = 0;
@@ -33,7 +32,7 @@ public sealed class MruPolicy : IReplacementPolicy {
     // Place at LRU position (age ways-1) so the new line isn't immediately evicted.
     public void RecordInstall(int set, int way) {
         int age = _age[set][way];
-        for (int w = 0; w < _ways; w++)
+        for (var w = 0; w < _ways; w++)
             if (_age[set][w] > age)
                 _age[set][w]--;
         _age[set][way] = _ways - 1;
@@ -41,8 +40,8 @@ public sealed class MruPolicy : IReplacementPolicy {
 
     // Evict the most-recently-used way (age 0).
     public int ChooseVictim(int set) {
-        int mru = 0;
-        for (int w = 1; w < _ways; w++)
+        var mru = 0;
+        for (var w = 1; w < _ways; w++)
             if (_age[set][w] < _age[set][mru])
                 mru = w;
         return mru;

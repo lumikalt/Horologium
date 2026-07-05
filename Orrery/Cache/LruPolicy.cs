@@ -12,24 +12,23 @@ public sealed class LruPolicy : IReplacementPolicy {
     public LruPolicy(int sets, int ways) {
         _ways = ways;
         _age = new int[sets][];
-        for (int s = 0; s < sets; s++) {
+        for (var s = 0; s < sets; s++) {
             _age[s] = new int[ways];
-            for (int w = 0; w < ways; w++)
-                _age[s][w] = w;
+            for (var w = 0; w < ways; w++) _age[s][w] = w;
         }
     }
 
     public void RecordHit(int set, int way) {
         int age = _age[set][way];
-        for (int w = 0; w < _ways; w++)
+        for (var w = 0; w < _ways; w++)
             if (_age[set][w] < age)
                 _age[set][w]++;
         _age[set][way] = 0;
     }
 
     public int ChooseVictim(int set) {
-        int oldest = 0;
-        for (int w = 1; w < _ways; w++)
+        var oldest = 0;
+        for (var w = 1; w < _ways; w++)
             if (_age[set][w] > _age[set][oldest])
                 oldest = w;
         return oldest;

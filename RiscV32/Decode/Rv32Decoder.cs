@@ -617,6 +617,7 @@ public class Rv32Decoder : IDecoder {
                 new RvFlw(rd + 32, rs1, imm)
             );
         }
+
         if (funct3 == 3) {
             int imm = SignExtend12((int)(word >> 20));
             return new RvInstruction(
@@ -647,6 +648,7 @@ public class Rv32Decoder : IDecoder {
                 new RvFsw(rs1, rs2 + 32, imm)
             );
         }
+
         if (funct3 == 3) {
             int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
             return new RvInstruction(
@@ -654,6 +656,7 @@ public class Rv32Decoder : IDecoder {
                 new RvFsd(rs1, rs2 + 32, imm)
             );
         }
+
         // Vector store (funct3=0/5/6/7)
         return DecodeVStore(pc, raw, rd, rs1, rs2, funct3, word);
     }
@@ -1681,15 +1684,15 @@ public class Rv32Decoder : IDecoder {
     ) {
         uint fmt = (raw >> 25) & 0x3;
         RvOp op = (opcode, fmt) switch {
-            (0x43, 0) => new RvFmaddS (rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
-            (0x47, 0) => new RvFmsubS (rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            (0x43, 0) => new RvFmaddS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            (0x47, 0) => new RvFmsubS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             (0x4B, 0) => new RvFnmsubS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             (0x4F, 0) => new RvFnmaddS(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
-            (0x43, 1) => new RvFmaddD (rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
-            (0x47, 1) => new RvFmsubD (rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            (0x43, 1) => new RvFmaddD(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            (0x47, 1) => new RvFmsubD(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             (0x4B, 1) => new RvFnmsubD(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             (0x4F, 1) => new RvFnmaddD(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
-            _ => throw new IllegalInstructionException(raw, $"FMA: unsupported fmt={fmt} opcode=0x{opcode:X}"),
+            _         => throw new IllegalInstructionException(raw, $"FMA: unsupported fmt={fmt} opcode=0x{opcode:X}"),
         };
         return new RvInstruction(
             pc, raw, rd + 32,

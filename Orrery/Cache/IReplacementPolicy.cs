@@ -29,4 +29,18 @@ public interface IReplacementPolicy {
     /// each block fill. The default is a no-op; only SHiP-style policies act on it.
     /// </summary>
     void SetPendingSignature(ulong signature) { }
+
+    /// <summary>
+    /// Supplies the cache-line tag of the line about to be installed, and the PC of the
+    /// demand access that caused the fill. Called by <see cref="SetAssociativeCache"/> just
+    /// before <see cref="RecordInstall"/>. The default is a no-op; only Hawkeye uses it.
+    /// </summary>
+    void SetPendingAddress(ulong lineTag, ulong pc) { }
+
+    /// <summary>
+    /// Called on a demand hit before <see cref="RecordHit"/> to supply the PC of the
+    /// access and the tag of the resident line. Used by Hawkeye to feed OPTgen on hits.
+    /// The default is a no-op.
+    /// </summary>
+    void RecordHitPc(int set, int way, ulong lineTag, ulong pc) { }
 }

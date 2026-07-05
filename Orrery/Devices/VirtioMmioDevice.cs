@@ -237,7 +237,7 @@ public sealed class VirtioMmioDevice : IMemory {
             uint bytesWritten = ProcessRequest(headIdx);
 
             // Append to used ring and advance its index.
-            ulong elemAddr = _queueUsedAddr + 4 + (ulong)(usedIdx % _queueNum * 8);
+            ulong elemAddr = _queueUsedAddr + 4 + usedIdx % _queueNum * 8;
             _guestRam.Write(elemAddr, headIdx, 4);          // id
             _guestRam.Write(elemAddr + 4, bytesWritten, 4); // len
             usedIdx++;

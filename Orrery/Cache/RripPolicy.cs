@@ -12,18 +12,17 @@ namespace Orrery.Cache;
 public abstract class RripPolicyBase : IReplacementPolicy {
     protected readonly int[][] _rrpv;
     protected readonly int _ways;
-    protected readonly int _maxRrpv;        // 2^M − 1  (= 3 for M=2)
-    protected readonly int _insertionRrpv;  // 2^M − 2  (= 2 for M=2, "long re-reference")
+    protected readonly int _maxRrpv;       // 2^M − 1  (= 3 for M=2)
+    protected readonly int _insertionRrpv; // 2^M − 2  (= 2 for M=2, "long re-reference")
 
     protected RripPolicyBase(int sets, int ways, int m = 2) {
         _ways = ways;
         _maxRrpv = (1 << m) - 1;
         _insertionRrpv = _maxRrpv - 1;
         _rrpv = new int[sets][];
-        for (int s = 0; s < sets; s++) {
+        for (var s = 0; s < sets; s++) {
             _rrpv[s] = new int[ways];
-            for (int w = 0; w < ways; w++)
-                _rrpv[s][w] = _maxRrpv; // invalid ways treated as distant
+            for (var w = 0; w < ways; w++) _rrpv[s][w] = _maxRrpv; // invalid ways treated as distant
         }
     }
 
@@ -35,12 +34,11 @@ public abstract class RripPolicyBase : IReplacementPolicy {
 
     public int ChooseVictim(int set) {
         while (true) {
-            for (int w = 0; w < _ways; w++)
+            for (var w = 0; w < _ways; w++)
                 if (_rrpv[set][w] == _maxRrpv)
                     return w;
             // No distant entry: age all RRPVs by one, then retry.
-            for (int w = 0; w < _ways; w++)
-                _rrpv[set][w]++;
+            for (var w = 0; w < _ways; w++) _rrpv[set][w]++;
         }
     }
 
@@ -77,8 +75,9 @@ public sealed class BrripPolicy : RripPolicyBase {
         if (_counter >= _denominator) {
             _counter = 0;
             _rrpv[set][way] = _insertionRrpv; // long (1/denominator probability)
-        } else {
-            _rrpv[set][way] = _maxRrpv;       // distant (most inserts)
+        }
+        else {
+            _rrpv[set][way] = _maxRrpv; // distant (most inserts)
         }
     }
 }
@@ -94,18 +93,18 @@ public sealed class DrripPolicy : RripPolicyBase {
     private readonly int _sdmSets;       // SDM sets per policy (sets [0, sdmSets) = SDM_SRRIP)
     private readonly int _pselMax;       // 2^pselBits − 1  (= 1023 for 10-bit)
     private readonly int _pselThreshold; // pselMax/2 + 1   (= 512 for 10-bit)
-    private readonly int _denominator;  // BRRIP bimodal denominator
-    private int _psel;                  // policy selection counter
-    private int _bimodalCounter;        // BRRIP insertion counter
+    private readonly int _denominator;   // BRRIP bimodal denominator
+    private int _psel;                   // policy selection counter
+    private int _bimodalCounter;         // BRRIP insertion counter
 
     public DrripPolicy(int sets, int ways, int m = 2, int sdmSets = 32, int pselBits = 10, int bimodalDenominator = 32)
         : base(sets, ways, m) {
         // Guard: keep SDM size sane for small caches.
-        _sdmSets     = Math.Max(1, Math.Min(sdmSets, sets / 4));
-        _pselMax     = (1 << pselBits) - 1;
+        _sdmSets = Math.Max(1, Math.Min(sdmSets, sets / 4));
+        _pselMax = (1 << pselBits) - 1;
         _pselThreshold = _pselMax / 2 + 1; // 512 for 10-bit
         _denominator = bimodalDenominator;
-        _psel        = _pselThreshold - 1; // start with SRRIP winning
+        _psel = _pselThreshold - 1; // start with SRRIP winning
     }
 
     /// <summary>Current PSEL value (0..pselMax). &lt; threshold → SRRIP wins; ≥ threshold → BRRIP wins.</summary>
@@ -120,25 +119,27 @@ public sealed class DrripPolicy : RripPolicyBase {
             // SRRIP SDM missed → SRRIP loses a point → increment PSEL (votes for BRRIP).
             if (_psel < _pselMax) _psel++;
             useSrrip = true;
-        } else if (IsSdmBrrip(set)) {
+        }
+        else if (IsSdmBrrip(set)) {
             // BRRIP SDM missed → BRRIP loses a point → decrement PSEL (votes for SRRIP).
             if (_psel > 0) _psel--;
             useSrrip = false;
-        } else {
+        }
+        else {
             // Follower: use whichever policy is winning.
             useSrrip = _psel < _pselThreshold;
         }
 
-        if (useSrrip) {
-            _rrpv[set][way] = _insertionRrpv;
-        } else {
+        if (useSrrip) { _rrpv[set][way] = _insertionRrpv; }
+        else {
             // BRRIP: distant most of the time, long every 1/denominator inserts.
             _bimodalCounter++;
             if (_bimodalCounter >= _denominator) {
                 _bimodalCounter = 0;
                 _rrpv[set][way] = _insertionRrpv; // long
-            } else {
-                _rrpv[set][way] = _maxRrpv;       // distant
+            }
+            else {
+                _rrpv[set][way] = _maxRrpv; // distant
             }
         }
     }

@@ -9,7 +9,7 @@
 - [x] Compile from C to disassembly and simulate that.
 - [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS
   subprocess.
-  - Also a C compiler...
+  - Also a C compiler…
 - [ ] Cache and virtual addressing visualization.
 - [x] Execution visualization: Argos-style pipeline waterfall.
 - [x] Light mode.
@@ -18,6 +18,7 @@
 - [ ] Power/energy estimation display alongside performance (McPAT-style: dynamic + leakage per unit).
 - [ ] Vector operation visualization.
   - Gotta think of how this should be done.
+- [ ] Cache management policy selection.
 
 ## CHIP8
 
@@ -145,7 +146,13 @@ Pluggable replacement policies via `IReplacementPolicy`; `SetAssociativeCache` a
 - [x] SHiP (Signature-based Hit Predictor): SHiP-Mem variant; SHCT 16K × 3-bit saturating counters layered on SRRIP-HP. — Wu et al., MICRO 2011
 - [x] SHiP-PC: SHiP variant using load PC as signature; requires threading PC through the cache access path. — Wu et al., MICRO 2011
 - [x] Tree-PLRU (Pseudo-LRU): binary tree of bits per set; exact LRU for 2-way, hardware-friendly approximation for wider associativity (Intel P6 and later).
-- [ ] Hawkeye: OPTgen-based Belady-inspired replacement. — Jain & Lin, ISCA 2016
+- [x] Hawkeye: OPTgen-based Belady-inspired replacement; PC-indexed 3-bit saturating-counter predictor; cache-friendly lines insert at RRPV=0, cache-averse at RRPV=7; SRRIP-style victim selection. — Jain & Lin, ISCA 2016
+- [ ] LFU (Least Frequently Used): frequency-based eviction; evicts the line with the lowest access count; straightforward baseline for frequency-aware policies.
+- [ ] TinyLFU: compact approximate-frequency sketch (Count-Min or counting Bloom filter) gated by a doorkeeper; frequency admission filter for SLRU-style main cache. — Einziger et al., IEEE Trans. Computers 2017
+- [ ] ARC (Adaptive Replacement Cache): two LRU lists (T1 recency, T2 frequency) with a ghost-entry feedback loop that self-tunes the split point p. — Megiddo & Modha, FAST 2003
+- [ ] Hyperbolic caching (HyperbolicPolicy): each line assigned a priority = hits / age; evict the line with the lowest priority at miss time; pure frequency × time trade-off with no parameters. — Blankstein et al., USENIX ATC 2017
+- [ ] LECAR (Least Expected Cost under Adaptive Replacement): hybrid of LFU and LRU using a two-armed bandit (exponential-weight update) to dynamically pick between the two policies based on measured regret. — Vietri et al., HotStorage 2018
+- [ ] LRB (Learning-based Replacement beyond Belady): per-line feature vector (reuse distance, frequency, access pattern) fed to a lightweight learned predictor trained with gradient boosting to approximate Belady's offline optimal policy. — Song & Elber, ASPLOS 2020; Shi et al., ASPLOS 2019 (variant)
 - [ ] Cache replacement competition (CRC) plug-in interface: match ChampSim's policy API so research policies drop in.
 
 ### Out-of-Order Execution
@@ -261,6 +268,8 @@ Pluggable replacement policies via `IReplacementPolicy`; `SetAssociativeCache` a
 
 ## Orrery
 
+- [ ] Roslyn C# scripting host: embed `Microsoft.CodeAnalysis.CSharp.Scripting` so `.csx` files can instantiate and configure trains, caches, and predictors directly against the live assemblies — no wrapper layer needed.
+- [ ] gem5-style architecture builder: a composable builder API covering pipeline stage topology, cache hierarchy shape (private vs shared, number of levels), replacement policy, prefetcher, branch predictor type and parameters, FU counts and latencies, and multicore interconnect — the structural wiring that goes beyond `TrainConfig`'s flat parameter record; the scripting host is the primary consumer.
 - [ ] Generic definition for a parser.
 - [ ] Clock domain crossing: model multiple frequency domains (e.g., core at 3 GHz, uncore/LLC at 1.5 GHz) with
   synchronization FIFOs.

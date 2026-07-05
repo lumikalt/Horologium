@@ -21,8 +21,7 @@ public sealed class PlruPolicy : IReplacementPolicy {
         _ways = ways;
         _depth = BitOperations.Log2((uint)ways);
         _bits = new bool[sets][];
-        for (var s = 0; s < sets; s++)
-            _bits[s] = new bool[ways - 1];
+        for (var s = 0; s < sets; s++) _bits[s] = new bool[ways - 1];
     }
 
     public void RecordHit(int set, int way) => Update(_bits[set], way);
@@ -38,14 +37,15 @@ public sealed class PlruPolicy : IReplacementPolicy {
             if (v == way) return rank;
             Update(copy, v);
         }
+
         return 0;
     }
 
     // On every access, walk root→leaf and set each node's bit to point AWAY from
     // the subtree that contains `way`, so the other subtree becomes the candidate.
     private void Update(bool[] bits, int way) {
-        int node = 0;
-        for (int d = 0; d < _depth; d++) {
+        var node = 0;
+        for (var d = 0; d < _depth; d++) {
             int goRight = (way >> (_depth - 1 - d)) & 1;
             bits[node] = goRight == 0; // true → right is next candidate (point right)
             node = 2 * node + 1 + goRight;
@@ -55,11 +55,12 @@ public sealed class PlruPolicy : IReplacementPolicy {
     // Walk root→leaf following each node's bit to find the replacement candidate.
     private int GetVictim(bool[] bits) {
         int node = 0, victim = 0;
-        for (int d = 0; d < _depth; d++) {
+        for (var d = 0; d < _depth; d++) {
             int goRight = bits[node] ? 1 : 0;
             victim = (victim << 1) | goRight;
             node = 2 * node + 1 + goRight;
         }
+
         return victim;
     }
 }

@@ -134,8 +134,8 @@ public class VlaTageBranchPredictionTests {
 
         int tslMisses = 0, vlatMisses = 0;
         for (var iter = 0; iter < 500; iter++) {
-            if (tsl.Predict(branch).PredictedTaken != true) tslMisses++;
-            if (vlat.Predict(branch).PredictedTaken != true) vlatMisses++;
+            if (!tsl.Predict(branch).PredictedTaken) tslMisses++;
+            if (!vlat.Predict(branch).PredictedTaken) vlatMisses++;
 
             vlat.NotifyVectorInstruction(vecInst);
             vlat.NotifyLoopBranchExecute(branch, head, (ulong)(iter % 200), 200);

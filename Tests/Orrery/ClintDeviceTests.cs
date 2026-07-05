@@ -48,8 +48,8 @@ public class ClintDeviceTests {
         ClintDevice clint = Make();
         ulong lo = clint.Read(ClintDevice.DefaultBase + 0x4000, 4);
         ulong hi = clint.Read(ClintDevice.DefaultBase + 0x4004, 4);
-        Assert.Equal((ulong)uint.MaxValue, lo);
-        Assert.Equal((ulong)uint.MaxValue, hi);
+        Assert.Equal(uint.MaxValue, lo);
+        Assert.Equal(uint.MaxValue, hi);
     }
 
     [Fact]
