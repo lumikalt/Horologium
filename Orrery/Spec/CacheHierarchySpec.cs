@@ -27,19 +27,25 @@ public sealed record CacheHierarchySpec(
         CachePathSpec iPath,
         CachePathSpec dPath,
         IReadOnlyList<CacheLevelSpec>? sharedLevels = null
-    ) => new(new Dictionary<string, CachePathSpec> { [I] = iPath, [D] = dPath }, sharedLevels);
+    ) => new(
+        new Dictionary<string, CachePathSpec> { [CacheHierarchySpec.I] = iPath, [CacheHierarchySpec.D] = dPath, },
+        sharedLevels
+    );
 
     /// <summary>Unified L1: both I and D paths use the same cache spec (same geometry, separate instance per call to Build).</summary>
     public static CacheHierarchySpec Unified(
         CachePathSpec path,
         IReadOnlyList<CacheLevelSpec>? sharedLevels = null
-    ) => new(new Dictionary<string, CachePathSpec> { [I] = path, [D] = path }, sharedLevels);
+    ) => new(
+        new Dictionary<string, CachePathSpec> { [CacheHierarchySpec.I] = path, [CacheHierarchySpec.D] = path, },
+        sharedLevels
+    );
 
     public static CacheHierarchySpec WithPath(
         string name,
         CachePathSpec path,
         IReadOnlyList<CacheLevelSpec>? sharedLevels = null
-    ) => new(new Dictionary<string, CachePathSpec> { [name] = path }, sharedLevels);
+    ) => new(new Dictionary<string, CachePathSpec> { [name] = path, }, sharedLevels);
 
     // ── Build ─────────────────────────────────────────────────────────────────
 
@@ -49,8 +55,8 @@ public sealed record CacheHierarchySpec(
     }
 
     public MemoryLayers BuildILayers(IMemory backing, ulong uncacheableBase = 0, ulong uncacheableSize = 0)
-        => Build(backing, I, uncacheableBase, uncacheableSize);
+        => Build(backing, CacheHierarchySpec.I, uncacheableBase, uncacheableSize);
 
     public MemoryLayers BuildDLayers(IMemory backing, ulong uncacheableBase = 0, ulong uncacheableSize = 0)
-        => Build(backing, D, uncacheableBase, uncacheableSize);
+        => Build(backing, CacheHierarchySpec.D, uncacheableBase, uncacheableSize);
 }

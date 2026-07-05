@@ -114,7 +114,7 @@ public class CacheHierarchySpecTests {
         // A level spec with NextLine prefetcher should result in MemoryLayers.Prefetcher != null.
         FlatMemory backing = MakeBacking();
         var l1 = new CacheLevelSpec(256, 4, 16, 8, Prefetcher: PrefetcherKind.NextLine, PrefetchLatency: 0);
-        MemoryLayers layers = MemoryLayers.Build(backing, new CachePathSpec([l1]));
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]));
 
         Assert.NotNull(layers.Prefetcher);
     }
@@ -125,7 +125,7 @@ public class CacheHierarchySpecTests {
         // With PrefetchLatency = 0 the line arrives immediately; reading B is a hit.
         var backing = new FlatMemory(256);
         var l1 = new CacheLevelSpec(256, 4, 16, 8, Prefetcher: PrefetcherKind.NextLine, PrefetchLatency: 0);
-        MemoryLayers layers = MemoryLayers.Build(backing, new CachePathSpec([l1]));
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]));
 
         // Miss on address 0 (line 0–15); drain that miss stall, then prefetch next line.
         layers.Accessor.Read(0, 1);
@@ -146,9 +146,9 @@ public class CacheHierarchySpecTests {
         // If the prefetcher is on L2 (shared) but not L1 (innermost), MemoryLayers.Prefetcher
         // is null — TryPrefetch targets Cache (L1), so an L2-only strategy is not activated.
         FlatMemory backing = MakeBacking();
-        var l1 = new CacheLevelSpec(64, 2, 16, 5);  // no prefetcher
+        var l1 = new CacheLevelSpec(64, 2, 16, 5); // no prefetcher
         var l2 = new CacheLevelSpec(512, 4, 16, 20, Prefetcher: PrefetcherKind.NextLine);
-        MemoryLayers layers = MemoryLayers.Build(backing, new CachePathSpec([l1]), [l2]);
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]), [l2,]);
 
         Assert.Null(layers.Prefetcher);
     }
@@ -158,7 +158,7 @@ public class CacheHierarchySpecTests {
         // A non-zero PrefetchLatency means the prefetched line is in-flight (not yet usable).
         var backing = new FlatMemory(256);
         var l1 = new CacheLevelSpec(256, 4, 16, 8, Prefetcher: PrefetcherKind.NextLine, PrefetchLatency: 5);
-        MemoryLayers layers = MemoryLayers.Build(backing, new CachePathSpec([l1]));
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]));
 
         ulong? target = layers.Prefetcher!.OnAccess(0, 0, false);
         layers.TryPrefetch(target!.Value);
@@ -227,7 +227,7 @@ public class CacheHierarchySpecTests {
     [Fact]
     public void HierarchySpec_SplitIPaths_IndependentLatencies() {
         FlatMemory backing = MakeBacking();
-        var spec = CacheHierarchySpec.SplitId(
+        CacheHierarchySpec spec = CacheHierarchySpec.SplitId(
             new CachePathSpec([new CacheLevelSpec(256, 4, 16, 6),]),
             new CachePathSpec([new CacheLevelSpec(256, 4, 16, 10),])
         );
@@ -245,10 +245,10 @@ public class CacheHierarchySpecTests {
     [Fact]
     public void HierarchySpec_SharedLevels_BothPathsGetSharedLevel() {
         FlatMemory backing = MakeBacking();
-        var spec = CacheHierarchySpec.SplitId(
+        CacheHierarchySpec spec = CacheHierarchySpec.SplitId(
             new CachePathSpec([new CacheLevelSpec(64, 2, 16, 4),]),
             new CachePathSpec([new CacheLevelSpec(64, 2, 16, 4),]),
-            sharedLevels: [new CacheLevelSpec(1024, 8, 16, 20),]
+            [new CacheLevelSpec(1024, 8, 16, 20),]
         );
 
         MemoryLayers iLayers = spec.BuildILayers(backing);
@@ -268,10 +268,10 @@ public class CacheHierarchySpecTests {
     [Fact]
     public void HierarchySpec_ThreeLevelShared_AllSurfaced() {
         FlatMemory backing = MakeBacking();
-        var spec = CacheHierarchySpec.WithPath(
+        CacheHierarchySpec spec = CacheHierarchySpec.WithPath(
             CacheHierarchySpec.D,
             new CachePathSpec([new CacheLevelSpec(64, 2, 16, 4),]),
-            sharedLevels: [
+            [
                 new CacheLevelSpec(512, 4, 16, 10),
                 new CacheLevelSpec(4096, 8, 16, 30),
             ]
@@ -293,8 +293,8 @@ public class CacheHierarchySpecTests {
         // Unified factory: I and D paths share the same CachePathSpec.
         // Each Build call still produces a separate SetAssociativeCache instance.
         FlatMemory backing = MakeBacking();
-        var shared = new CachePathSpec([new CacheLevelSpec(256, 4, 16, 5)]);
-        var spec = CacheHierarchySpec.Unified(shared);
+        var shared = new CachePathSpec([new CacheLevelSpec(256, 4, 16, 5),]);
+        CacheHierarchySpec spec = CacheHierarchySpec.Unified(shared);
 
         MemoryLayers iLayers = spec.BuildILayers(backing);
         MemoryLayers dLayers = spec.BuildDLayers(backing);
@@ -311,12 +311,12 @@ public class CacheHierarchySpecTests {
     public void HierarchySpec_CustomPath_BuiltByName() {
         // A third path (e.g. "vector") can be added alongside I and D.
         FlatMemory backing = MakeBacking();
-        var vectorPath = new CachePathSpec([new CacheLevelSpec(128, 4, 16, 3)]);
+        var vectorPath = new CachePathSpec([new CacheLevelSpec(128, 4, 16, 3),]);
         var spec = new CacheHierarchySpec(
-            Paths: new Dictionary<string, CachePathSpec> {
-                [CacheHierarchySpec.I]  = new CachePathSpec([new CacheLevelSpec(256, 4, 16, 8)]),
-                [CacheHierarchySpec.D]  = new CachePathSpec([new CacheLevelSpec(256, 4, 16, 8)]),
-                ["vector"]              = vectorPath,
+            new Dictionary<string, CachePathSpec> {
+                [CacheHierarchySpec.I] = new([new CacheLevelSpec(256, 4, 16, 8),]),
+                [CacheHierarchySpec.D] = new([new CacheLevelSpec(256, 4, 16, 8),]),
+                ["vector"] = vectorPath,
             }
         );
 
@@ -329,9 +329,9 @@ public class CacheHierarchySpecTests {
     public void HierarchySpec_MissingPath_ReturnsNoCacheLayers() {
         // Requesting a path name not in Paths falls back to CachePathSpec.Empty (no caches).
         FlatMemory backing = MakeBacking();
-        var spec = CacheHierarchySpec.SplitId(
-            new CachePathSpec([new CacheLevelSpec(256, 4, 16, 8)]),
-            new CachePathSpec([new CacheLevelSpec(256, 4, 16, 8)])
+        CacheHierarchySpec spec = CacheHierarchySpec.SplitId(
+            new CachePathSpec([new CacheLevelSpec(256, 4, 16, 8),]),
+            new CachePathSpec([new CacheLevelSpec(256, 4, 16, 8),])
         );
 
         MemoryLayers layers = spec.Build(backing, "vector"); // not registered

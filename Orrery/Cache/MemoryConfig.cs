@@ -178,12 +178,14 @@ public sealed record MemoryLayers(
         // Order: shared levels (outermost first) → private levels (outermost-private first).
         IMemory current = backing;
         var allCaches = new List<SetAssociativeCache>();
-        var allSpecs  = new List<CacheLevelSpec>();
+        var allSpecs = new List<CacheLevelSpec>();
 
         for (int i = sharedList.Count - 1; i >= 0; i--) {
             CacheLevelSpec s = sharedList[i];
             int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
-            var cache = new SetAssociativeCache(current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy);
+            var cache = new SetAssociativeCache(
+                current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy
+            );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
             current = cache;
@@ -192,7 +194,9 @@ public sealed record MemoryLayers(
         for (int i = privLevels.Count - 1; i >= 0; i--) {
             CacheLevelSpec s = privLevels[i];
             int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
-            var cache = new SetAssociativeCache(current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy);
+            var cache = new SetAssociativeCache(
+                current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy
+            );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
             current = cache;
@@ -204,13 +208,12 @@ public sealed record MemoryLayers(
         // MemoryLayers.Prefetcher corresponds to allCaches[0] (the innermost cache = Cache).
         // TryPrefetch targets Cache, so only the innermost level's strategy is activated by the pipeline.
         IPrefetcher? prefetcher = null;
-        if (allSpecs.Count > 0 && allSpecs[0] is { Prefetcher: not PrefetcherKind.None } s0) {
+        if (allSpecs.Count > 0 && allSpecs[0] is { Prefetcher: not PrefetcherKind.None, } s0)
             prefetcher = s0.Prefetcher switch {
                 PrefetcherKind.NextLine => new NextLinePrefetcher(s0.BlockBytes),
                 PrefetcherKind.Stride   => new StridePrefetcher(s0.PrefetcherTableSize),
                 _                       => null,
             };
-        }
 
         // Map the first three caches to the named MemoryLayers stat fields (innermost first).
         SetAssociativeCache? c0 = allCaches.Count > 0 ? allCaches[0] : null;

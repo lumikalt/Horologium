@@ -303,12 +303,14 @@ Implemented:
 - [ ] gem5-style architecture builder: a composable builder API covering pipeline topology, cache hierarchy, branch
   predictor, FU counts and latencies, and multicore interconnect — the structural wiring that goes beyond `TrainConfig`'
   s flat parameter record; the Roslyn scripting host is the primary consumer.
-  - Phase 1 — Cache hierarchy shape: structural description of the full cache stack — per-level capacity, associativity,
+  - [x] Phase 1 — Cache hierarchy shape: structural description of the full cache stack — per-level capacity, associativity,
     block size, and access latency; private-vs-shared topology across levels; replacement policy and prefetcher choice
     per I/D path.
-  - Phase 2 — Pipeline topology: structural description of a single pipeline — train variant (single-cycle through OoO),
+  - [x] Phase 2 — Pipeline topology: structural description of a single pipeline — train variant (single-cycle through OoO),
     forwarding, store buffer depth, issue width, reorder buffer and issue queue depth, physical register count,
     functional unit class counts and latencies, branch predictor kind and parameters.
+  - [x] SmtTrain spec variant: extend PipelineSpec hierarchy with an SmtSpec that handles the N-hart, multi-mechanism
+    Build() signature; requires a different contract than the current single-hart Build(IMechanism, IMemory, …).
   - Phase 3 — Multicore topology: structural description of N-hart configurations — per-hart private caches, shared
     last-level cache descriptor, and coherence bus topology (snooping vs directory).
   - Phase 4 — Machine assembly layer: a component that consumes the full structural description (all three layers above)
