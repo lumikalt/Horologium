@@ -575,6 +575,72 @@ public class CacheReplacementTests {
         Assert.Equal(missesBefore + 1, cache.Misses);
     }
 
+    // ── MRU ───────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Mru_FillOrder_Sequential() {
+        // Install puts new lines at LRU (oldest) position, so ChooseVictim cycles through
+        // ways in sequential order during initial fill — same as LRU cold start.
+        var policy = new MruPolicy(1, 4);
+        for (int w = 0; w < 4; w++) {
+            Assert.Equal(w, policy.ChooseVictim(0));
+            policy.RecordInstall(0, w);
+        }
+    }
+
+    [Fact]
+    public void Mru_HitPromotion_MakesWayNextVictim() {
+        // After filling all ways, hitting way 2 promotes it to age 0 (MRU = next victim).
+        // This is the inverse of LRU, where a hit protects the way.
+        var policy = new MruPolicy(1, 4);
+        for (int w = 0; w < 4; w++) { policy.ChooseVictim(0); policy.RecordInstall(0, w); }
+
+        policy.RecordHit(0, 2);
+        Assert.Equal(2, policy.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void Mru_InverseOfLru_HittingLruCandidateMakesItVictim() {
+        // Under LRU, hitting way 3 (the LRU candidate) protects it; way 2 becomes LRU.
+        // Under MRU, hitting way 3 makes it the next victim regardless of prior install order.
+        var policy = new MruPolicy(1, 4);
+        for (int w = 0; w < 4; w++) { policy.ChooseVictim(0); policy.RecordInstall(0, w); }
+        // Before any hit, way 0 is at age 0 (victim from cold-fill order).
+        // Hit way 3 → way 3 promoted to age 0 → way 3 is now the victim.
+        policy.RecordHit(0, 3);
+        Assert.Equal(3, policy.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void Mru_EndToEnd_HitLineEvictedBeforeUnhitLine() {
+        // Integration: 4-way 1-set MRU cache. Fill A1–A4, hit A4, miss A5.
+        // MRU must evict A4 (most recently hit); LRU would have protected A4 and evicted A1.
+        const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30, A5 = 0x40;
+        var mem = new FlatMemory(256);
+        foreach (ulong a in new[] { A1, A2, A3, A4, A5 }) mem.Load(a, [0xDD]);
+
+        var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Mru);
+        cache.Read(A1, 1); cache.Read(A2, 1); cache.Read(A3, 1); cache.Read(A4, 1);
+        cache.ConsumePendingStalls();
+
+        // Hit A4 to make it the MRU (next eviction candidate).
+        cache.Read(A4, 1);
+
+        cache.Read(A5, 1); // forces an eviction — must evict A4 (most recently hit)
+        cache.ConsumePendingStalls();
+
+        // A3 must still be present (it was never hit after fill, so it survived).
+        // Check BEFORE reading A4 to avoid reinstall side-effects.
+        long hitsA3 = cache.Hits;
+        cache.Read(A3, 1);
+        Assert.Equal(hitsA3 + 1, cache.Hits);
+
+        // A4 must be gone — MRU evicted the most recently hit line.
+        long missesA4 = cache.Misses;
+        cache.Read(A4, 1);
+        Assert.Equal(missesA4 + 1, cache.Misses);
+    }
+
     // ── Tree-PLRU ─────────────────────────────────────────────────────────────
 
     [Fact]
