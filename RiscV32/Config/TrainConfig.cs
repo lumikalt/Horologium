@@ -58,7 +58,7 @@ public sealed record TrainConfig(
     string? DPrefetcher = null,        // null | "next_line" | "stride"
     int DPrefetcherTableSize = 64,
     int DPrefetchLatency = 0, // cycles until a prefetched line is usable; 0 = free/instant
-    string? CacheReplacementPolicy = null // null/"lru" | "mru" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc" | "random" | "fifo" | "plru"
+    string? CacheReplacementPolicy = null // null/"lru" | "mru" | "clock" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc" | "random" | "fifo" | "plru"
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,
@@ -95,6 +95,7 @@ public sealed record TrainConfig(
             "fifo"    => ReplacementPolicyKind.Fifo,
             "plru"    => ReplacementPolicyKind.Plru,
             "mru"     => ReplacementPolicyKind.Mru,
+            "clock"   => ReplacementPolicyKind.Clock,
             _         => ReplacementPolicyKind.Lru,
         };
 

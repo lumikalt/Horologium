@@ -575,6 +575,100 @@ public class CacheReplacementTests {
         Assert.Equal(missesBefore + 1, cache.Misses);
     }
 
+    // ── CLOCK ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Clock_FreshCache_FillsSequentially() {
+        // All reference bits start at 0; hand starts at 0.
+        // ChooseVictim returns way 0 without scanning, then RecordInstall advances hand to 1.
+        var policy = new ClockPolicy(1, 4);
+        for (int w = 0; w < 4; w++) {
+            Assert.Equal(w, policy.ChooseVictim(0));
+            policy.RecordInstall(0, w);
+        }
+    }
+
+    [Fact]
+    public void Clock_SecondChance_ReferencedWaySkipped() {
+        // Set up a known state: bits=[1,0,1,0], hand=0.
+        // ChooseVictim must skip way 0 (bit=1, clear it), then return way 1 (bit=0).
+        var policy = new ClockPolicy(1, 4);
+        policy.RecordInstall(0, 0); // bit[0]=1, hand=1
+        policy.RecordInstall(0, 2); // bit[2]=1, hand=3
+        // bit=[1,0,1,0], hand=3
+
+        // Advance hand to 0 by finding the victim at 3 (bit=0), then installing.
+        Assert.Equal(3, policy.ChooseVictim(0)); // hand=3, bit=0 → returns 3
+        policy.RecordInstall(0, 3); // bit[3]=1, hand=0
+
+        // Now bits=[1,0,1,1], hand=0.
+        // ChooseVictim: bit[0]=1→clear→hand=1; bit[1]=0 → return 1.
+        Assert.Equal(1, policy.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void Clock_AllReferenced_SweepsAllAndEvictsHandWay() {
+        // When every way has bit=1, one full sweep clears them all;
+        // the way at the original hand position (0) is returned.
+        var policy = new ClockPolicy(1, 4);
+        for (int w = 0; w < 4; w++) { policy.ChooseVictim(0); policy.RecordInstall(0, w); }
+        // All bits=1, hand=0 (wrap-around after install(3)).
+        Assert.Equal(0, policy.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void Clock_HitSetsReferenceBit() {
+        // After filling 4 ways (all bits=1, hand=0), one sweep clears all and evicts way 0.
+        // Then hit way 2 → bit[2]=1. Next victim skips way 2 and takes way 1 instead.
+        var policy = new ClockPolicy(1, 4);
+        for (int w = 0; w < 4; w++) { policy.ChooseVictim(0); policy.RecordInstall(0, w); }
+
+        // First eviction: sweep clears all bits, evicts way 0.
+        Assert.Equal(0, policy.ChooseVictim(0));
+        policy.RecordInstall(0, 0); // bit[0]=1, hand=1; bits=[1,0,0,0]
+
+        policy.RecordHit(0, 2); // bits=[1,0,1,0], hand=1
+
+        // ChooseVictim from hand=1: bit[1]=0 → return 1 (way 2 was skipped because bit=1).
+        Assert.Equal(1, policy.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void Clock_EndToEnd_RecentlyHitLineSurvivesEviction() {
+        // Integration: after filling A1–A4, the first miss (A5) sweeps all bits and evicts A1.
+        // Then hitting A3 sets its reference bit. The next miss (A6) must evict A2 (bit=0),
+        // not A3 (bit=1, gets a second chance).
+        const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30, A5 = 0x40, A6 = 0x50;
+        var mem = new FlatMemory(512);
+        foreach (ulong a in new[] { A1, A2, A3, A4, A5, A6 }) mem.Load(a, [0xEE]);
+
+        var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Clock);
+        cache.Read(A1, 1); cache.Read(A2, 1); cache.Read(A3, 1); cache.Read(A4, 1);
+        cache.ConsumePendingStalls();
+
+        // Miss A5 — sweeps all bits (second chance), evicts A1 (way 0). Bits: [1,0,0,0], hand=1.
+        cache.Read(A5, 1);
+        cache.ConsumePendingStalls();
+
+        // Hit A3 — sets A3's reference bit to 1. Bits: [1,0,1,0], hand=1.
+        cache.Read(A3, 1);
+
+        // Miss A6 — hand=1, bit[A2]=0 → A2 evicted (A3 survives via second chance).
+        cache.Read(A6, 1);
+        cache.ConsumePendingStalls();
+
+        // A3 must still be in cache (second chance protected it).
+        // Check BEFORE reading A2 to avoid reinstall side-effects.
+        long hitsA3 = cache.Hits;
+        cache.Read(A3, 1);
+        Assert.Equal(hitsA3 + 1, cache.Hits);
+
+        // A2 was evicted (bit was 0 when hand passed it).
+        long missesA2 = cache.Misses;
+        cache.Read(A2, 1);
+        Assert.Equal(missesA2 + 1, cache.Misses);
+    }
+
     // ── MRU ───────────────────────────────────────────────────────────────────
 
     [Fact]

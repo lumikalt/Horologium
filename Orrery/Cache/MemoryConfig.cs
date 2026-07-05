@@ -7,7 +7,7 @@ public enum PrefetcherKind {
 }
 
 public enum ReplacementPolicyKind {
-    Lru, Srrip, Brrip, Drrip, Ship, ShipPc, Random, Fifo, Plru, Mru,
+    Lru, Srrip, Brrip, Drrip, Ship, ShipPc, Random, Fifo, Plru, Mru, Clock,
 }
 
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
