@@ -3,6 +3,7 @@ using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+using Script;
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -13,10 +14,14 @@ long maxTicks = 1_000_000;
 long snapshotInterval = 0;    // 0 = off, -1 = auto, >0 = explicit ticks
 var format = "md";            // md | csv | both | ts-csv
 int? memorySizeBytes = null;  // null → default to 4 MB for ELF workloads
-string? traceJsonPath = null; // --trace-json <path>: emit an Olympia JSON trace and exit
+string? traceJsonPath = null;      // --trace-json <path>: emit an Olympia JSON trace and exit
+string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
+string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
+string? checkpointLoadPath = null; // --checkpoint-load <path>: restore arch checkpoint before run
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
+        case "--script":    scriptPath = args[++i]; break;
         case "--sweep":     sweepPath = args[++i]; break;
         case "--warmup":    warmupTicks = long.Parse(args[++i]); break;
         case "--max-ticks": maxTicks = long.Parse(args[++i]); break;
@@ -25,7 +30,9 @@ for (var i = 0; i < args.Length; i++)
             snapshotInterval = args[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(args[++i]);
             break;
         case "--format":     format = args[++i]; break;
-        case "--trace-json": traceJsonPath = args[++i]; break;
+        case "--trace-json":       traceJsonPath = args[++i]; break;
+        case "--checkpoint-save":  checkpointSavePath = args[++i]; break;
+        case "--checkpoint-load":  checkpointLoadPath = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -82,6 +89,80 @@ if (traceJsonPath is not null) {
     );
     Console.Error.WriteLine($"Wrote {written} instructions to {traceJsonPath}");
     return;
+}
+
+// ── Script mode ──────────────────────────────────────────────────────────────
+
+if (scriptPath is not null) {
+    if (workloads.Count > 1) {
+        Console.Error.WriteLine("--script supports only a single workload.");
+        return;
+    }
+
+    Pipeline.Spec.MachineSpec spec;
+    try {
+        Console.Error.WriteLine($"Evaluating {scriptPath} …");
+        spec = await ScriptHost.EvaluateFileAsync(scriptPath);
+    } catch (Exception ex) {
+        Console.Error.WriteLine($"Script error: {ex.Message}");
+        return;
+    }
+
+    FlatMemory scriptMem;
+    ulong scriptEntryPoint;
+    (ulong Base, ulong Size)? scriptMmio;
+
+    if (checkpointLoadPath is not null) {
+        // Restore memory geometry and arch state from checkpoint; workload just provides pipeline.
+        ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(checkpointLoadPath);
+        Console.Error.WriteLine(
+            $"Loaded checkpoint — tick={chk.Tick:N0} pc=0x{chk.Pc:X} mem={chk.MemorySizeBytes:N0} bytes"
+        );
+        scriptMem = new FlatMemory(chk.MemorySizeBytes, chk.MemoryBaseAddress);
+        scriptEntryPoint = chk.Pc;
+        scriptMmio = null;
+
+        Pipeline.Spec.MachineHandle handle = spec.Build(scriptMem, scriptEntryPoint, scriptMmio);
+        chk.RestoreInto(handle.ArchState!, scriptMem);
+
+        Orrery.Train.RevolutionResult result = handle.Run(maxTicks, warmupTicks);
+        Console.Error.WriteLine($"Done — {result.TotalTicks:N0} ticks");
+        PrintLayerStats(handle);
+
+        if (checkpointSavePath is not null) {
+            ArchitecturalCheckpoint.Save(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
+            Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
+        }
+    } else {
+        IWorkload scriptWorkload = workloads[0].Workload;
+        scriptMem = new FlatMemory(scriptWorkload.MemorySize, scriptWorkload.BaseAddress);
+        scriptWorkload.Load(scriptMem);
+        IMemory scriptBacking = scriptWorkload.WrapMemory(scriptMem);
+        scriptEntryPoint = scriptWorkload.EntryPoint;
+        scriptMmio = scriptWorkload.MmioRegion;
+
+        Pipeline.Spec.MachineHandle handle = spec.Build(scriptBacking, scriptEntryPoint, scriptMmio);
+        Orrery.Train.RevolutionResult result = handle.Run(maxTicks, warmupTicks);
+        Console.Error.WriteLine($"Done — {result.TotalTicks:N0} ticks");
+        PrintLayerStats(handle);
+
+        if (checkpointSavePath is not null) {
+            ArchitecturalCheckpoint.Save(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
+            Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
+        }
+    }
+
+    return;
+
+    static void PrintLayerStats(Pipeline.Spec.MachineHandle h) {
+        if (h.Layers is not { } layers) return;
+        if (layers.Cache is { } l1)
+            Console.Error.WriteLine($"  L1  — misses: {l1.Misses:N0}  hits: {l1.Hits:N0}");
+        if (layers.L2Cache is { } l2)
+            Console.Error.WriteLine($"  L2  — misses: {l2.Misses:N0}  hits: {l2.Hits:N0}");
+        if (layers.Tlb is { } tlb)
+            Console.Error.WriteLine($"  TLB — misses: {tlb.Misses:N0}  hits: {tlb.Hits:N0}");
+    }
 }
 
 // ── Hardware configurations ───────────────────────────────────────────────────
@@ -179,6 +260,17 @@ static void PrintUsage() {
           --trace-json <path>   Emit an Olympia-compatible JSON instruction trace
                                 (functional single-cycle run) to <path> and exit.
                                 Single workload only.
+          --script <path>       Evaluate a .csx/.fsx file returning a MachineSpec and run
+                                the selected workload on it. All Spec types and RiscV32
+                                are pre-imported; no #r or using needed.
+                                Single workload only.
+          --checkpoint-save <path>  After run completes, save an architectural checkpoint
+                                    (PC, registers, CSRs, VRF, memory) to <path>.
+                                    Requires --script. Combine with --checkpoint-load for
+                                    fast-forward → detailed handoffs.
+          --checkpoint-load <path>  Before run, restore state from a checkpoint saved by
+                                    --checkpoint-save. Ignores the workload's memory and
+                                    entry point; uses the checkpoint's. Requires --script.
           --help                        Show this message.
 
         Sweep file format (JSON array):

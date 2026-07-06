@@ -50,14 +50,54 @@ public sealed class OooeTrain : ISteppableTrain {
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
+        var iLayers = MemoryLayers.Build(memory, iMemConfig ?? MemoryConfig.None);
+        var dLayers = MemoryLayers.Build(memory, dMemConfig ?? MemoryConfig.None);
         _core = _train.AddGear(
             new OoOPipelineCore(
                 "pipeline", _train.Root, esc,
-                mechanism, memory, entryPoint,
+                mechanism, iLayers, dLayers, entryPoint,
                 issueWidth, robCapacity, iqCapacity, extraPhysRegs,
                 predictor ?? new AlwaysNotTakenPredictor(),
-                iMemConfig ?? MemoryConfig.None,
-                dMemConfig ?? MemoryConfig.None,
+                fuLatency ?? FuLatencyConfig.Default,
+                pEventLog,
+                streamPrefetchDepth,
+                commitObserver,
+                lqCapacity,
+                sqCapacity,
+                writeBufferCapacity,
+                mshrCapacity
+            )
+        );
+        _train.Build();
+    }
+
+    internal OooeTrain(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint,
+        int issueWidth = 2,
+        int robCapacity = 32,
+        int iqCapacity = 8,
+        int extraPhysRegs = 32,
+        IBranchPredictor? predictor = null,
+        FuLatencyConfig? fuLatency = null,
+        PEventLog? pEventLog = null,
+        int streamPrefetchDepth = 4,
+        ICommitObserver? commitObserver = null,
+        int lqCapacity = 0,
+        int sqCapacity = 0,
+        int writeBufferCapacity = 0,
+        int mshrCapacity = 0
+    ) {
+        var esc = new Escapement();
+        _train = new Train("ooo", esc);
+        _core = _train.AddGear(
+            new OoOPipelineCore(
+                "pipeline", _train.Root, esc,
+                mechanism, iLayers, dLayers, entryPoint,
+                issueWidth, robCapacity, iqCapacity, extraPhysRegs,
+                predictor ?? new AlwaysNotTakenPredictor(),
                 fuLatency ?? FuLatencyConfig.Default,
                 pEventLog,
                 streamPrefetchDepth,
@@ -299,15 +339,14 @@ internal sealed class OoOPipelineCore : Gear {
         SimNode parent,
         Escapement esc,
         IMechanism mechanism,
-        IMemory memory,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
         ulong entryPoint,
         int issueWidth,
         int robCapacity,
         int iqCapacity,
         int extraPhysRegs,
         IBranchPredictor predictor,
-        MemoryConfig iMemConfig,
-        MemoryConfig dMemConfig,
         FuLatencyConfig fuConfig,
         PEventLog? pEventLog = null,
         int streamPrefetchDepth = 4,
@@ -324,8 +363,8 @@ internal sealed class OoOPipelineCore : Gear {
         _trapController = mechanism.TrapController;
         _predictor = predictor;
         _fuConfig = fuConfig;
-        ILayers = MemoryLayers.Build(memory, iMemConfig);
-        DLayers = MemoryLayers.Build(memory, dMemConfig);
+        ILayers = iLayers;
+        DLayers = dLayers;
         _realisticPrefetch = DLayers is { Prefetcher: not null, Cache.PrefetchLatency: > 0, };
         _capMem = new CapturingMemory(DLayers.Accessor);
         _issueWidth = issueWidth;

@@ -45,12 +45,25 @@ public sealed class SuperscalarTrain : ISteppableTrain {
     ) {
         var esc = new Escapement();
         _train = new Train("superscalar", esc);
+        var iLayers = MemoryLayers.Build(memory, iMemConfig ?? MemoryConfig.None);
+        var dLayers = MemoryLayers.Build(memory, dMemConfig ?? MemoryConfig.None);
         _core = _train.AddGear(
-            new SuperscalarCore(
-                "pipeline", _train.Root, esc, mechanism, memory, entryPoint, issueWidth,
-                iMemConfig ?? MemoryConfig.None,
-                dMemConfig ?? MemoryConfig.None
-            )
+            new SuperscalarCore("pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth)
+        );
+        _train.Build();
+    }
+
+    internal SuperscalarTrain(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint,
+        int issueWidth = 2
+    ) {
+        var esc = new Escapement();
+        _train = new Train("superscalar", esc);
+        _core = _train.AddGear(
+            new SuperscalarCore("pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth)
         );
         _train.Build();
     }
@@ -81,14 +94,13 @@ internal sealed class SuperscalarCore(
     SimNode parent,
     Escapement esc,
     IMechanism mechanism,
-    IMemory memory,
+    MemoryLayers iLayers,
+    MemoryLayers dLayers,
     ulong entryPoint,
-    int issueWidth,
-    MemoryConfig iMemConfig,
-    MemoryConfig dMemConfig
+    int issueWidth
 ) : Gear(name, parent, esc) {
-    public MemoryLayers ILayers { get; } = MemoryLayers.Build(memory, iMemConfig);
-    public MemoryLayers DLayers { get; } = MemoryLayers.Build(memory, dMemConfig);
+    public MemoryLayers ILayers { get; } = iLayers;
+    public MemoryLayers DLayers { get; } = dLayers;
 
     private Counter _cyclesCounter = null!;
     private Counter _retiredCounter = null!;

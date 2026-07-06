@@ -21,6 +21,13 @@ public abstract record PipelineSpec {
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null
     );
+
+    public virtual ISteppableTrain Build(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint = 0
+    ) => throw new NotSupportedException($"{GetType().Name} does not support pre-built MemoryLayers.");
 }
 
 /// <summary>Single-cycle fetch-decode-execute-writeback; no pipeline, no hazards.</summary>
@@ -34,6 +41,13 @@ public sealed record SingleCycleSpec(
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null
     ) => new SingleCycleTrain(mechanism, backing, entryPoint, iMemConfig, dMemConfig, CommitObserver);
+
+    public override ISteppableTrain Build(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint = 0
+    ) => new SingleCycleTrain(mechanism, iLayers, dLayers, entryPoint, CommitObserver);
 }
 
 /// <summary>Classic five-stage in-order pipeline with optional forwarding and store buffer.</summary>
@@ -60,6 +74,20 @@ public sealed record FiveStageSpec(
         PEventLog,
         CommitObserver
     );
+
+    public override ISteppableTrain Build(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint = 0
+    ) => new FiveStageTrain(
+        mechanism, iLayers, dLayers, entryPoint,
+        ForwardingEnabled,
+        BranchPredictorFactory?.Invoke(),
+        StoreBufferCapacity,
+        PEventLog,
+        CommitObserver
+    );
 }
 
 /// <summary>Superscalar in-order: issues up to <see cref="IssueWidth"/> instructions per cycle.</summary>
@@ -73,6 +101,13 @@ public sealed record SuperscalarSpec(
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null
     ) => new SuperscalarTrain(mechanism, backing, entryPoint, IssueWidth, iMemConfig, dMemConfig);
+
+    public override ISteppableTrain Build(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint = 0
+    ) => new SuperscalarTrain(mechanism, iLayers, dLayers, entryPoint, IssueWidth);
 }
 
 /// <summary>
@@ -128,6 +163,22 @@ public sealed record OutOfOrderSpec(
         IssueWidth, RobCapacity, IqCapacity, ExtraPhysRegs,
         BranchPredictorFactory?.Invoke(),
         iMemConfig, dMemConfig,
+        FuLatency,
+        PEventLog,
+        StreamPrefetchDepth,
+        CommitObserver,
+        LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity
+    );
+
+    public override ISteppableTrain Build(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint = 0
+    ) => new OooeTrain(
+        mechanism, iLayers, dLayers, entryPoint,
+        IssueWidth, RobCapacity, IqCapacity, ExtraPhysRegs,
+        BranchPredictorFactory?.Invoke(),
         FuLatency,
         PEventLog,
         StreamPrefetchDepth,

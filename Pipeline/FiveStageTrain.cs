@@ -39,13 +39,37 @@ public sealed class FiveStageTrain : ISteppableTrain {
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
+        var iLayers = MemoryLayers.Build(memory, iMemConfig ?? MemoryConfig.None);
+        var dLayers = MemoryLayers.Build(memory, dMemConfig ?? MemoryConfig.None);
         _core = _train.AddGear(
             new PipelineCore(
                 "pipeline", _train.Root, esc,
-                mechanism, memory, entryPoint, forwardingEnabled,
+                mechanism, memory, iLayers, dLayers, entryPoint, forwardingEnabled,
                 predictor ?? new AlwaysNotTakenPredictor(),
-                iMemConfig ?? MemoryConfig.None,
-                dMemConfig ?? MemoryConfig.None,
+                storeBufferCapacity, pEventLog, commitObserver
+            )
+        );
+        _train.Build();
+    }
+
+    internal FiveStageTrain(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint,
+        bool forwardingEnabled = true,
+        IBranchPredictor? predictor = null,
+        int storeBufferCapacity = 0,
+        PEventLog? pEventLog = null,
+        ICommitObserver? commitObserver = null
+    ) {
+        var esc = new Escapement();
+        _train = new Train("five_stage", esc);
+        _core = _train.AddGear(
+            new PipelineCore(
+                "pipeline", _train.Root, esc,
+                mechanism, iLayers.Accessor, iLayers, dLayers, entryPoint, forwardingEnabled,
+                predictor ?? new AlwaysNotTakenPredictor(),
                 storeBufferCapacity, pEventLog, commitObserver
             )
         );
@@ -137,12 +161,12 @@ internal sealed class PipelineCore : Gear {
         SimNode parent,
         Escapement esc,
         IMechanism mechanism,
-        IMemory memory,
+        IMemory fetchTranslatorMemory,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
         ulong entryPoint,
         bool forwardingEnabled,
         IBranchPredictor predictor,
-        MemoryConfig iMemConfig,
-        MemoryConfig dMemConfig,
         int storeBufferCapacity = 0,
         PEventLog? pEventLog = null,
         ICommitObserver? commitObserver = null
@@ -155,8 +179,8 @@ internal sealed class PipelineCore : Gear {
         State = mechanism.CreateArchState();
         State.Pc = entryPoint;
 
-        ILayers = MemoryLayers.Build(memory, iMemConfig);
-        DLayers = MemoryLayers.Build(memory, dMemConfig);
+        ILayers = iLayers;
+        DLayers = dLayers;
 
         IMemory dAccessor = DLayers.Accessor;
         if (storeBufferCapacity > 0) {
@@ -167,7 +191,7 @@ internal sealed class PipelineCore : Gear {
         // Create stages — IF uses instruction memory, EX/MEM use data memory.
         _if = new FetchStage(
             "if", parent, esc, ILayers.Accessor, predictor, _decoder,
-            fetchTranslator: mechanism.CreateFetchTranslator(State, memory)
+            fetchTranslator: mechanism.CreateFetchTranslator(State, fetchTranslatorMemory)
         );
         _id = new DecodeStage("id", parent, esc, mechanism.Decoder, State);
         _ex = new ExecuteStage(

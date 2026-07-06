@@ -202,6 +202,13 @@ public sealed record MemoryLayers(
             current = cache;
         }
 
+        // TLB wraps the innermost cache; UncacheableMemory wraps TLB (matching MemoryConfig build order).
+        Tlb? tlb = null;
+        if (path.Tlb is { } tlbSpec) {
+            tlb = new Tlb(current, tlbSpec.Entries, tlbSpec.PageBytes, tlbSpec.MissLatency);
+            current = tlb;
+        }
+
         if (uncacheableSize > 0 && allCaches.Count > 0)
             current = new UncacheableMemory(current, backing, uncacheableBase, uncacheableSize);
 
@@ -220,7 +227,7 @@ public sealed record MemoryLayers(
         SetAssociativeCache? c1 = allCaches.Count > 1 ? allCaches[1] : null;
         SetAssociativeCache? c2 = allCaches.Count > 2 ? allCaches[2] : null;
 
-        return new MemoryLayers(current, c0, c1, c2, null, prefetcher, uncacheableBase, uncacheableSize);
+        return new MemoryLayers(current, c0, c1, c2, tlb, prefetcher, uncacheableBase, uncacheableSize);
     }
 
     /// <summary>Drains and sums pending stall cycles from all cache and TLB levels.</summary>

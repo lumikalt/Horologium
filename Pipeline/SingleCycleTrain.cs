@@ -36,13 +36,25 @@ public sealed class SingleCycleTrain : ISteppableTrain {
     ) {
         var esc = new Escapement();
         _train = new Train("single_cycle", esc);
+        var iLayers = MemoryLayers.Build(memory, iMemConfig ?? MemoryConfig.None);
+        var dLayers = MemoryLayers.Build(memory, dMemConfig ?? MemoryConfig.None);
         _core = _train.AddGear(
-            new SingleCycleCore(
-                "core", _train.Root, esc, mechanism, memory, entryPoint,
-                iMemConfig ?? MemoryConfig.None,
-                dMemConfig ?? MemoryConfig.None,
-                commitObserver
-            )
+            new SingleCycleCore("core", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, commitObserver)
+        );
+        _train.Build();
+    }
+
+    internal SingleCycleTrain(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint,
+        ICommitObserver? commitObserver = null
+    ) {
+        var esc = new Escapement();
+        _train = new Train("single_cycle", esc);
+        _core = _train.AddGear(
+            new SingleCycleCore("core", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, commitObserver)
         );
         _train.Build();
     }
@@ -69,15 +81,14 @@ internal sealed class SingleCycleCore(
     SimNode parent,
     Escapement esc,
     IMechanism mechanism,
-    IMemory memory,
+    MemoryLayers iLayers,
+    MemoryLayers dLayers,
     ulong entryPoint,
-    MemoryConfig iMemConfig,
-    MemoryConfig dMemConfig,
     ICommitObserver? commitObserver = null
 )
     : Gear(name, parent, esc) {
-    public MemoryLayers ILayers { get; } = MemoryLayers.Build(memory, iMemConfig);
-    public MemoryLayers DLayers { get; } = MemoryLayers.Build(memory, dMemConfig);
+    public MemoryLayers ILayers { get; } = iLayers;
+    public MemoryLayers DLayers { get; } = dLayers;
 
     private Counter _cyclesCounter = null!;
     private Counter _retiredCounter = null!;
