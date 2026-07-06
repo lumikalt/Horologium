@@ -1,4 +1,5 @@
 using Mechanism;
+using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
@@ -18,6 +19,14 @@ string? traceJsonPath = null;      // --trace-json <path>: emit an Olympia JSON 
 string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
 string? checkpointLoadPath = null; // --checkpoint-load <path>: restore arch checkpoint before run
+string? roiStartSymbol = null;     // --roi-start <symbol>: fast-forward to this ELF symbol, then measure
+string? roiEndSymbol = null;       // --roi-end <symbol>: stop measuring when PC reaches this symbol
+string? elasticRecordPath = null;  // --elastic-record <path>: record DDG trace and exit
+string? elasticReplayPath = null;  // --elastic-replay <path>: replay DDG trace and print IPC
+string? elasticToGem5In  = null;   // --elastic-to-gem5 <in> <out>: translate HELF → gem5 inst_dep_record proto
+string? elasticToGem5Out = null;
+string? fetchToGem5In    = null;   // --fetch-to-gem5 <in> <out>: translate HELF → gem5 packet (fetch) proto
+string? fetchToGem5Out   = null;
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -33,6 +42,12 @@ for (var i = 0; i < args.Length; i++)
         case "--trace-json":       traceJsonPath = args[++i]; break;
         case "--checkpoint-save":  checkpointSavePath = args[++i]; break;
         case "--checkpoint-load":  checkpointLoadPath = args[++i]; break;
+        case "--roi-start":        roiStartSymbol     = args[++i]; break;
+        case "--roi-end":          roiEndSymbol       = args[++i]; break;
+        case "--elastic-record":   elasticRecordPath  = args[++i]; break;
+        case "--elastic-replay":   elasticReplayPath  = args[++i]; break;
+        case "--elastic-to-gem5":  elasticToGem5In = args[++i]; elasticToGem5Out = args[++i]; break;
+        case "--fetch-to-gem5":    fetchToGem5In   = args[++i]; fetchToGem5Out   = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -46,6 +61,38 @@ for (var i = 0; i < args.Length; i++)
 
             break;
     }
+
+// ── Elastic trace → gem5 Protobuf translation (standalone) ───────────────────
+
+if (elasticToGem5In is not null) {
+    using var inFs  = new FileStream(elasticToGem5In,  FileMode.Open,   FileAccess.Read);
+    using var outFs = new FileStream(elasticToGem5Out!, FileMode.Create, FileAccess.Write);
+    long converted = RiscV32.Trace.Gem5ElasticTraceConverter.Convert(inFs, outFs);
+    Console.Error.WriteLine($"Converted {converted:N0} records: {elasticToGem5In} → {elasticToGem5Out}");
+    return;
+}
+
+if (fetchToGem5In is not null) {
+    using var inFs  = new FileStream(fetchToGem5In,  FileMode.Open,   FileAccess.Read);
+    using var outFs = new FileStream(fetchToGem5Out!, FileMode.Create, FileAccess.Write);
+    long converted = RiscV32.Trace.Gem5FetchTraceConverter.Convert(inFs, outFs);
+    Console.Error.WriteLine($"Converted {converted:N0} fetch records: {fetchToGem5In} → {fetchToGem5Out}");
+    return;
+}
+
+// ── Elastic trace replay (standalone — no workload needed) ───────────────────
+
+if (elasticReplayPath is not null) {
+    using var fs = new FileStream(elasticReplayPath, FileMode.Open, FileAccess.Read);
+    using var reader = new RiscV32.Trace.ElasticTraceReader(fs);
+    RiscV32.Trace.ReplayResult replayResult = RiscV32.Trace.ElasticTraceReplayer.Replay(reader.ReadAll());
+    Console.Error.WriteLine(
+        $"Elastic replay: {replayResult.InstructionCount:N0} instructions, " +
+        $"{replayResult.TotalCycles:N0} cycles (critical path), " +
+        $"IPC upper bound = {replayResult.Ipc:F3}"
+    );
+    return;
+}
 
 // ── Workload(s) ───────────────────────────────────────────────────────────────
 
@@ -91,6 +138,22 @@ if (traceJsonPath is not null) {
     return;
 }
 
+// ── Elastic DDG trace recording ───────────────────────────────────────────────
+
+if (elasticRecordPath is not null) {
+    if (workloads.Count > 1) {
+        Console.Error.WriteLine("--elastic-record supports only a single workload.");
+        return;
+    }
+    IWorkload elasticWorkload = workloads[0].Workload;
+    using var fs = new FileStream(elasticRecordPath, FileMode.Create, FileAccess.Write);
+    int written = Experiment.WriteElasticTrace(
+        elasticWorkload, new Rv32Mechanism(elasticWorkload.HtifTohostAddress), fs, maxTicks
+    );
+    Console.Error.WriteLine($"Recorded {written:N0} instructions to {elasticRecordPath}");
+    return;
+}
+
 // ── Script mode ──────────────────────────────────────────────────────────────
 
 if (scriptPath is not null) {
@@ -99,7 +162,7 @@ if (scriptPath is not null) {
         return;
     }
 
-    Pipeline.Spec.MachineSpec spec;
+    MachineSpec spec;
     try {
         Console.Error.WriteLine($"Evaluating {scriptPath} …");
         spec = await ScriptHost.EvaluateFileAsync(scriptPath);
@@ -108,21 +171,107 @@ if (scriptPath is not null) {
         return;
     }
 
-    FlatMemory scriptMem;
-    ulong scriptEntryPoint;
-    (ulong Base, ulong Size)? scriptMmio;
+    if (roiStartSymbol is not null) {
+        // ── Region-of-Interest mode ──────────────────────────────────────────
+        // Phase 1: fast-forward with SingleCycleTrain until ArchState.Pc == roiStartPc.
+        // Phase 2: rebuild with the script's pipeline, restore state, run to roiEnd or maxTicks.
 
-    if (checkpointLoadPath is not null) {
-        // Restore memory geometry and arch state from checkpoint; workload just provides pipeline.
+        if (workloads[0].Workload is not Rv32ElfWorkload elfWorkload) {
+            Console.Error.WriteLine("--roi-start requires an ELF workload.");
+            return;
+        }
+
+        ulong roiStartPc;
+        try { roiStartPc = elfWorkload.FindSymbol(roiStartSymbol); }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"Symbol '{roiStartSymbol}' not found: {ex.Message}");
+            return;
+        }
+
+        ulong? roiEndPc = null;
+        if (roiEndSymbol is not null) {
+            try { roiEndPc = elfWorkload.FindSymbol(roiEndSymbol); }
+            catch (Exception ex) {
+                Console.Error.WriteLine($"Symbol '{roiEndSymbol}' not found: {ex.Message}");
+                return;
+            }
+        }
+
+        var flatMem = new FlatMemory(elfWorkload.MemorySize, elfWorkload.BaseAddress);
+        elfWorkload.Load(flatMem);
+        IWorkload elfAsWorkload = elfWorkload;
+        IMemory backing = elfWorkload.WrapMemory(flatMem);
+        ulong entryPoint = elfWorkload.EntryPoint;
+        (ulong Base, ulong Size)? mmio = elfAsWorkload.MmioRegion;
+
+        // Phase 1 — fast-forward
+        Console.Error.WriteLine($"Fast-forwarding to {roiStartSymbol} (0x{roiStartPc:X}) …");
+        MachineSpec ffSpec = spec with { Pipeline = new SingleCycleSpec(), Cache = null };
+        MachineHandle ffHandle = ffSpec.Build(backing, entryPoint, mmio);
+
+        ffHandle.Train.BeginStepping();
+        long ffTicks = 0;
+        bool roiReached = ffHandle.Train.ArchState!.Pc == roiStartPc; // true if entry == roi start
+        while (!roiReached && ffHandle.Train.StepCycle()) {
+            ffTicks++;
+            roiReached = ffHandle.Train.ArchState!.Pc == roiStartPc;
+        }
+        ffHandle.Train.FinishStepping();
+
+        if (!roiReached) {
+            Console.Error.WriteLine(
+                $"Symbol '{roiStartSymbol}' (0x{roiStartPc:X}) was never reached after {ffTicks:N0} ticks."
+            );
+            return;
+        }
+        Console.Error.WriteLine($"Fast-forward done — {ffTicks:N0} ticks");
+
+        // Capture arch state at ROI start via in-memory checkpoint
+        using var chkStream = new MemoryStream();
+        ArchitecturalCheckpoint.Save(chkStream, ffHandle.Train.ArchState!, flatMem, (ulong)ffTicks);
+        chkStream.Position = 0;
+        ArchitecturalCheckpoint roiChk = ArchitecturalCheckpoint.Load(chkStream);
+
+        // Phase 2 — detailed simulation
+        Console.Error.WriteLine($"Starting detailed simulation from {roiStartSymbol} …");
+        MachineHandle detHandle = spec.Build(backing, roiStartPc, mmio);
+        roiChk.RestoreInto(detHandle.Train.ArchState!, flatMem);
+
+        long roiTicks;
+        if (roiEndPc is { } endPc) {
+            detHandle.Train.BeginStepping();
+            roiTicks = 0;
+            bool endReached = false;
+            while (roiTicks < maxTicks && detHandle.Train.StepCycle()) {
+                roiTicks++;
+                if (detHandle.Train.ArchState!.Pc == endPc) { endReached = true; break; }
+            }
+            detHandle.Train.FinishStepping();
+            Console.Error.WriteLine(endReached
+                ? $"ROI done — {roiTicks:N0} ticks (reached {roiEndSymbol})"
+                : $"ROI done — {roiTicks:N0} ticks (maxTicks reached; {roiEndSymbol} not seen)");
+        } else {
+            Orrery.Train.RevolutionResult roiResult = detHandle.Run(maxTicks, warmupTicks);
+            roiTicks = roiResult.TotalTicks;
+            Console.Error.WriteLine($"ROI done — {roiTicks:N0} ticks");
+        }
+        PrintLayerStats(detHandle);
+
+        if (checkpointSavePath is not null) {
+            ArchitecturalCheckpoint.Save(
+                checkpointSavePath, detHandle.Train.ArchState!, flatMem, (ulong)(ffTicks + roiTicks)
+            );
+            Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
+        }
+    } else if (checkpointLoadPath is not null) {
+        // ── Checkpoint-load mode ─────────────────────────────────────────────
         ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(checkpointLoadPath);
         Console.Error.WriteLine(
             $"Loaded checkpoint — tick={chk.Tick:N0} pc=0x{chk.Pc:X} mem={chk.MemorySizeBytes:N0} bytes"
         );
-        scriptMem = new FlatMemory(chk.MemorySizeBytes, chk.MemoryBaseAddress);
-        scriptEntryPoint = chk.Pc;
-        scriptMmio = null;
+        var scriptMem = new FlatMemory(chk.MemorySizeBytes, chk.MemoryBaseAddress);
 
-        Pipeline.Spec.MachineHandle handle = spec.Build(scriptMem, scriptEntryPoint, scriptMmio);
+        MachineHandle handle = spec.Build(scriptMem, chk.Pc, null);
         chk.RestoreInto(handle.ArchState!, scriptMem);
 
         Orrery.Train.RevolutionResult result = handle.Run(maxTicks, warmupTicks);
@@ -134,14 +283,13 @@ if (scriptPath is not null) {
             Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
         }
     } else {
+        // ── Normal script mode ───────────────────────────────────────────────
         IWorkload scriptWorkload = workloads[0].Workload;
-        scriptMem = new FlatMemory(scriptWorkload.MemorySize, scriptWorkload.BaseAddress);
+        var scriptMem = new FlatMemory(scriptWorkload.MemorySize, scriptWorkload.BaseAddress);
         scriptWorkload.Load(scriptMem);
         IMemory scriptBacking = scriptWorkload.WrapMemory(scriptMem);
-        scriptEntryPoint = scriptWorkload.EntryPoint;
-        scriptMmio = scriptWorkload.MmioRegion;
 
-        Pipeline.Spec.MachineHandle handle = spec.Build(scriptBacking, scriptEntryPoint, scriptMmio);
+        MachineHandle handle = spec.Build(scriptBacking, scriptWorkload.EntryPoint, scriptWorkload.MmioRegion);
         Orrery.Train.RevolutionResult result = handle.Run(maxTicks, warmupTicks);
         Console.Error.WriteLine($"Done — {result.TotalTicks:N0} ticks");
         PrintLayerStats(handle);
@@ -154,7 +302,7 @@ if (scriptPath is not null) {
 
     return;
 
-    static void PrintLayerStats(Pipeline.Spec.MachineHandle h) {
+    static void PrintLayerStats(MachineHandle h) {
         if (h.Layers is not { } layers) return;
         if (layers.Cache is { } l1)
             Console.Error.WriteLine($"  L1  — misses: {l1.Misses:N0}  hits: {l1.Hits:N0}");
@@ -271,6 +419,26 @@ static void PrintUsage() {
           --checkpoint-load <path>  Before run, restore state from a checkpoint saved by
                                     --checkpoint-save. Ignores the workload's memory and
                                     entry point; uses the checkpoint's. Requires --script.
+          --roi-start <symbol>      Fast-forward functionally (single-cycle) until the named
+                                    ELF symbol is reached, then run the script's pipeline for
+                                    detailed timing from that point. Requires --script + ELF.
+          --roi-end <symbol>        Stop the detailed phase when ArchState.Pc reaches this
+                                    ELF symbol. If omitted, runs until --max-ticks.
+                                    Requires --roi-start.
+          --elastic-record <path>   Record a Horologium elastic DDG trace (HELF binary) by
+                                    running the workload on a single-cycle functional model.
+                                    Captures per-instruction register and memory RAW edges.
+                                    Single workload only.
+          --elastic-replay <path>   Replay a HELF trace and print the dataflow critical-path
+                                    cycle count and IPC upper bound (infinite issue width,
+                                    no structural hazards). No workload needed.
+          --elastic-to-gem5 <in> <out>  Translate a HELF trace to a gem5 inst_dep_record.proto
+                                        binary stream (LE magic + varint32 length per message,
+                                        InstDepRecordHeader + InstDepRecord messages). No workload needed.
+          --fetch-to-gem5 <in> <out>    Translate a HELF trace to a gem5 packet.proto fetch-trace
+                                        binary stream (PacketHeader + Packet messages). This is the
+                                        instTraceFile companion to --elastic-to-gem5's dataTraceFile.
+                                        No workload needed.
           --help                        Show this message.
 
         Sweep file format (JSON array):

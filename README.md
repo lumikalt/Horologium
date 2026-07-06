@@ -275,7 +275,20 @@ let cache = CacheHierarchySpec.Unified(CachePathSpec([| l1 |]))
 MachineSpec(pipeline, (fun () -> Rv32Mechanism()), cache)
 ```
 
-The Runner exposes this as `--script <file.csx|fsx>`. Combine with `--checkpoint-save` and `--checkpoint-load` for fast-forward→detailed pipeline handoffs:
+The Runner exposes this as `--script <file.csx|fsx>`. Two handoff patterns are supported:
+
+**Symbol-based region-of-interest (ROI)** — name ELF symbols to bracket the measurement window. The Runner fast-forwards functionally (single-cycle) until the start symbol's PC is committed, then restores state into the script's pipeline and runs the detailed model until the end symbol or `--max-ticks`:
+
+```bash
+dotnet run --project Runner -- prog.elf \
+  --script scripts/ooo.fsx \
+  --roi-start roi_begin --roi-end roi_end \
+  --max-ticks 5000000
+```
+
+`--roi-start` requires an ELF workload with a matching symbol. `--roi-end` is optional; omit to run until `--max-ticks`. The fast-forward phase uses `SingleCycleSpec` regardless of what the script specifies; the script's pipeline is used only for the detailed ROI phase.
+
+**Manual checkpoint handoff** — save and restore state across separate Runner invocations with `--checkpoint-save` and `--checkpoint-load`:
 
 ```bash
 # 1. Fast-forward 100 M instructions on a single-cycle model, save state.
@@ -287,7 +300,7 @@ dotnet run --project Runner -- prog.elf \
   --script scripts/ooo.fsx --checkpoint-load fast.chk --max-ticks 10000000
 ```
 
-**`ArchitecturalCheckpoint`** (`Mechanism/ArchitecturalCheckpoint.cs`) is the serialization layer. `Save(path, state, memory, tick)` writes PC, privilege level, integer/FP registers, memory, and an ISA-specific blob (CSRs, VRF, UVE scalar state via `IArchState.WriteState`) to a binary file. `Load(path)` deserialises without touching live state; `chk.RestoreInto(state, memory)` applies it. `FlatMemory` implements the `ISnapshotableMemory` interface (`BaseAddress`, `SizeBytes`, `CopyTo`, `LoadFrom`) required by the checkpoint API. `ISteppableTrain.ArchState` (default `null`) exposes the committed hart state after or during a run; `MachineHandle.ArchState` forwards it.
+**`ArchitecturalCheckpoint`** (`Mechanism/ArchitecturalCheckpoint.cs`) is the serialization layer. `Save(path, state, memory, tick)` writes PC, privilege level, integer/FP registers, memory, and an ISA-specific blob (CSRs, VRF, UVE scalar state via `IArchState.WriteState`) to a binary file. `Load(path)` deserialises without touching live state; `chk.RestoreInto(state, memory)` applies it. `FlatMemory` implements the `ISnapshotableMemory` interface (`BaseAddress`, `SizeBytes`, `CopyTo`, `LoadFrom`) required by the checkpoint API. `ISteppableTrain.ArchState` (default `null`) exposes the committed hart state after or during a run; `MachineHandle.ArchState` forwards it. ROI uses an in-memory checkpoint internally (no file I/O); both `--checkpoint-save` and the ROI path can be combined to persist the post-ROI state.
 
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
@@ -299,6 +312,40 @@ Olympia (and its Sparta framework) are packaged by the flake from source — `ni
 dotnet run --project Runner -- TestBinaries/rich.elf --trace-json trace.json
 nix run .#olympia -- trace.json --report-all report.txt   # IPC / cycles / retired in report.txt
 ```
+
+### Elastic DDG trace (HELF format, RiscV32/Trace)
+
+`Experiment.WriteElasticTrace(workload, mechanism, output)` records a **dynamic dependence graph** (DDG) trace in the Horologium-native `HELF` binary format. Each committed instruction becomes one record containing its sequence number, PC, raw encoding, instruction type (COMP/LOAD/STORE), estimated computation latency (`compDelay` from `FuLatencyConfig.Default`), effective address and access size (loads/stores), register RAW producer seqnos (`robDeps`), and memory RAW producer seqnos (`addrDeps`).
+
+Register dependences track the unified 0–63 namespace (0–31 = integer, 32–63 = FP) and vector registers v0–v31 separately. Memory dependences map effective address → most-recent store seqno. `TracingMemory` supplies the effective address; the vAddr gate is class-based (not `HasAccess`) to avoid conflating instruction-fetch addresses with data addresses.
+
+```bash
+# Record a DDG trace
+dotnet run --project Runner -- prog.elf --elastic-record prog.helf
+
+# Replay the critical-path dataflow DAG and print IPC upper bound
+dotnet run --project Runner -- --elastic-replay prog.helf
+# → Elastic replay: 1234567 instructions, 890123 cycles (critical path), IPC upper bound = 1.386
+```
+
+`ElasticTraceReplayer.Replay(records)` computes the critical-path length: for each instruction, `completionTime = max(completionTime[dep] for dep in robDeps ∪ addrDeps) + compDelay`. The result is a **dataflow IPC upper bound** — infinite issue width, no structural hazards; real-hardware IPC will be lower.
+
+**gem5 Protobuf translators** convert HELF to the two trace files gem5 TraceCPU requires. Fields and framing are verified against `gem5/src/proto/inst_dep_record.proto`, `packet.proto`, and `protoio.cc`:
+
+```bash
+# Convert HELF → gem5 inst_dep_record.proto stream (dataTraceFile)
+dotnet run --project Runner -- --elastic-to-gem5 prog.helf prog.gem5data
+
+# Convert HELF → gem5 packet.proto fetch-trace stream (instTraceFile)
+dotnet run --project Runner -- --fetch-to-gem5 prog.helf prog.gem5fetch
+
+# Replay via gem5 TraceCPU (gem5 must be on PATH; see nix build .#gem5)
+gem5 gem5-scripts/trace_cpu_riscv.py \
+    --data-trace-file prog.gem5data \
+    --inst-trace-file prog.gem5fetch
+```
+
+`Gem5ElasticTraceConverter` produces the `dataTraceFile`: LE magic `0x356d6567` + varint32-length-prefixed `InstDepRecordHeader` then one `InstDepRecord` per committed instruction. `Gem5FetchTraceConverter` produces the `instTraceFile`: same framing, `PacketHeader` + one `Packet` per instruction (cmd=ReadReq, addr=PC, size=4, flags=INST\_FETCH). The fetch trace is an approximation: one 4-byte read per committed instruction, not the wrong-path cache-line fetches a real O3 CPU would generate.
 
 ## Co-simulation contract
 

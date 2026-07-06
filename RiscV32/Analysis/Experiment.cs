@@ -240,4 +240,24 @@ public static class Experiment {
         new SingleCycleTrain(mechanism, tracing, workload.EntryPoint, commitObserver: writer).Run(maxTicks);
         return writer.Count;
     }
+
+    /// <summary>
+    /// Records a Horologium elastic DDG trace (HELF binary format) by running
+    /// <paramref name="workload"/> once on a <c>SingleCycleTrain</c> and observing
+    /// each committed instruction.
+    /// </summary>
+    public static int WriteElasticTrace(
+        IWorkload workload,
+        IMechanism mechanism,
+        Stream output,
+        long maxTicks = 10_000_000
+    ) {
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+        var tracing = new TracingMemory(workload.WrapMemory(memory));
+
+        using var writer = new ElasticTraceWriter(mechanism.Decoder, tracing, output);
+        new SingleCycleTrain(mechanism, tracing, workload.EntryPoint, commitObserver: writer).Run(maxTicks);
+        return writer.Count;
+    }
 }

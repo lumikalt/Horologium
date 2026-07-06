@@ -75,7 +75,9 @@
 ### Analysis
 
 - [x] Per-instruction lifecycle events (PEvents).
-- [ ] Region-of-interest simulation: fast-forward outside named ELF symbol ranges.
+- [x] Region-of-interest simulation: fast-forward outside named ELF symbol ranges. `--roi-start`/`--roi-end` in
+  Runner; fast-forward with SingleCycleTrain until target symbol PC, checkpoint, rebuild with script pipeline, run to
+  end symbol or `--max-ticks`.
 - [x] Simulation state checkpoint/restore: Option A — architectural-state-only checkpoint (PC, privilege,
   integer/FP registers, CSRs, VRF, UVE scalars, memory). `ArchitecturalCheckpoint.Save/Load/RestoreInto`;
   `--checkpoint-save`/`--checkpoint-load` in Runner; enables fast-forward→detailed pipeline handoffs.
@@ -83,7 +85,17 @@
   Gear's internal state (ROB, LSQ, issue queues, pipeline latches, cache/TLB line arrays, branch predictor
   tables) so simulation can be suspended and resumed with microarchitectural fidelity — mirrors gem5's
   `serialize`/`unserialize` Checkpoint interface. Requires each `Gear` to implement a serialization contract.
-- [ ] Elastic trace recording + replay.
+- [x] Elastic trace recording + replay: Horologium-native HELF binary DDG format; register and memory RAW
+  dependence capture; critical-path dataflow replay (IPC upper bound); `--elastic-record`/`--elastic-replay` in
+  Runner.
+- [x] gem5 elastic trace converter: `Gem5ElasticTraceConverter` translating HELF → `inst_dep_record.proto` binary
+  stream (LE magic + varint32 length per message, `InstDepRecordHeader` + `InstDepRecord` messages); `--elastic-to-gem5`
+  in Runner. Field mapping verified against gem5 source; `decode_inst_dep_trace.py` parses output correctly.
+- [x] gem5 fetch trace converter: `Gem5FetchTraceConverter` translating HELF → `packet.proto` binary stream
+  (LE magic + varint32, `PacketHeader` + `Packet` messages; one 4-byte `ReadReq` per committed instruction);
+  `--fetch-to-gem5` in Runner. Produces the `instTraceFile` companion to `dataTraceFile` for gem5 TraceCPU.
+- [x] gem5 nix flake derivation: `nix/gem5.nix` — RISCV build with `HAVE_PROTOBUF=y`, SCons + protobuf + zlib +
+  m4; `nix build .#gem5` or available as `gem5` in `nix develop`. `gem5-scripts/trace_cpu_riscv.py` replay config.
 - [x] Olympia JSON instruction-trace output; flake packaging; calibration study.
 - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
 - [ ] STF (Simulation Trace Format) binary output.

@@ -44,10 +44,11 @@
           t = olympiaToolchain pkgs;
           opensbi-rv32 = pkgs.callPackage ./nix/opensbi-rv32.nix { };
           linux-rv32   = pkgs.callPackage ./nix/linux-rv32.nix { };
+          gem5         = pkgs.callPackage ./nix/gem5.nix { };
         in
         {
           inherit (t) softfloat sparta olympia;
-          inherit opensbi-rv32 linux-rv32;
+          inherit opensbi-rv32 linux-rv32 gem5;
           default = t.olympia;
         }
       );
@@ -58,6 +59,7 @@
           olympia = (olympiaToolchain pkgs).olympia;
           opensbi-rv32 = pkgs.callPackage ./nix/opensbi-rv32.nix { };
           linux-rv32   = pkgs.callPackage ./nix/linux-rv32.nix { };
+          gem5         = pkgs.callPackage ./nix/gem5.nix { };
 
           extra-path = with pkgs; [
             dotnetCorePackages.sdk_11_0-bin
@@ -90,6 +92,15 @@
             # Linux boot test: load fw_jump.bin + Image, check UART for "Linux version".
             # Built by: nix build .#linux-rv32
             linux-rv32
+
+            # gem5 RISCV with TraceCPU + protobuf (`gem5` on PATH).
+            # Validate elastic-trace round-trips end-to-end:
+            #   dotnet run --project Runner -- <elf> --elastic-record out.helf
+            #   dotnet run --project Runner -- --elastic-to-gem5 out.helf out.gem5data
+            #   dotnet run --project Runner -- --fetch-to-gem5   out.helf out.gem5fetch
+            #   gem5 gem5-scripts/trace_cpu_riscv.py ...
+            # Built by: nix build .#gem5
+            gem5
           ];
 
           extra-lib = with pkgs; [
