@@ -98,7 +98,7 @@
   m4; `nix build .#gem5` or available as `gem5` in `nix develop`. `gem5-scripts/trace_cpu_riscv.py` replay config.
 - [x] Olympia JSON instruction-trace output; flake packaging; calibration study.
 - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
-- [ ] STF (Simulation Trace Format) binary output.
+- [x] STF (Simulation Trace Format) binary output.
 - [ ] SimPoint phase analysis: basic-block vector (BBV) profiling + k-means clustering for representative sampling. —
   Sherwood et al., ASPLOS 2002
 - [ ] ChampSim trace import: run CBP/CRC competition branch predictor and cache replacement plug-ins against Horologium

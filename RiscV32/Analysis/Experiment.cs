@@ -260,4 +260,23 @@ public static class Experiment {
         new SingleCycleTrain(mechanism, tracing, workload.EntryPoint, commitObserver: writer).Run(maxTicks);
         return writer.Count;
     }
+
+    /// <summary>
+    /// Records an STF binary trace by running <paramref name="workload"/> once on a
+    /// <c>SingleCycleTrain</c> and observing each committed instruction.
+    /// </summary>
+    public static int WriteStfTrace(
+        IWorkload workload,
+        IMechanism mechanism,
+        Stream output,
+        long maxTicks = 10_000_000
+    ) {
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+        var tracing = new TracingMemory(workload.WrapMemory(memory));
+
+        using var writer = new StfTraceWriter(mechanism.Decoder, tracing, output, workload.EntryPoint);
+        new SingleCycleTrain(mechanism, tracing, workload.EntryPoint, commitObserver: writer).Run(maxTicks);
+        return writer.Count;
+    }
 }

@@ -347,6 +347,20 @@ gem5 gem5-scripts/trace_cpu_riscv.py \
 
 `Gem5ElasticTraceConverter` produces the `dataTraceFile`: LE magic `0x356d6567` + varint32-length-prefixed `InstDepRecordHeader` then one `InstDepRecord` per committed instruction. `Gem5FetchTraceConverter` produces the `instTraceFile`: same framing, `PacketHeader` + one `Packet` per instruction (cmd=ReadReq, addr=PC, size=4, flags=INST\_FETCH). The fetch trace is an approximation: one 4-byte read per committed instruction, not the wrong-path cache-line fetches a real O3 CPU would generate.
 
+### STF binary trace (Sparcians stf\_lib format, RiscV32/Trace)
+
+`Experiment.WriteStfTrace(workload, mechanism, output)` records a **Simulation Trace Format** binary trace. STF is the native trace format of [Olympia](https://github.com/riscv-software-src/riscv-perf-model) and the [Sparcians stf\_lib](https://github.com/sparcians/stf_lib). Unlike the JSON Olympia trace, the STF output includes **operand values** for integer and floating-point registers (feature flag `STF_CONTAIN_OPERAND_VALUE`), memory access addresses and data, and taken-branch targets.
+
+```bash
+# Record an STF trace
+dotnet run --project Runner -- prog.elf --stf-record prog.stf
+
+# Replay through Olympia (stf_lib-based tools: stf_dump, stf_check, etc.)
+# nix run .#olympia -- --input-file prog.stf ...
+```
+
+Format details: version 1.5, ISA=RISCV, IEM=RV32. Per-instruction record group (in ascending descriptor order): `STF_INST_PC_TARGET` (taken branches only) → `STF_INST_REG` source records → `STF_INST_REG` dest record → `STF_INST_MEM_ACCESS` + `STF_INST_MEM_CONTENT` (loads/stores/atomics) → `STF_INST_OPCODE32/16` (instruction boundary). FP registers are tracked via the unified integer+FP register file (indices 32–63 = f0–f31). Vector register records are omitted since VRF values are not accessible through `IArchState`. Generator: `STF_GEN_RESERVED` (0).
+
 ## Co-simulation contract
 
 Spike is the reference of record for ISA correctness. The contract: **every change to the decoder, executor, register/CSR/trap state, or any train's commit path must keep `SpikeCoSimTests` green.** Those tests run all three trains (`SingleCycleTrain`, `FiveStageTrain`, `OooeTrain`) against `test.elf`, `rich.elf`, and `htif.elf`, comparing every committed instruction's PC, encoding, and integer register writes to Spike commit-for-commit (see *Spike lock-step co-simulation* above). A green run means the simulated datapath agrees with a real RISC-V reference instruction-by-instruction — the strongest correctness signal in the project.

@@ -27,6 +27,7 @@ string? elasticToGem5In  = null;   // --elastic-to-gem5 <in> <out>: translate HE
 string? elasticToGem5Out = null;
 string? fetchToGem5In    = null;   // --fetch-to-gem5 <in> <out>: translate HELF → gem5 packet (fetch) proto
 string? fetchToGem5Out   = null;
+string? stfRecordPath    = null;   // --stf-record <path>: record STF binary trace and exit
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -48,6 +49,7 @@ for (var i = 0; i < args.Length; i++)
         case "--elastic-replay":   elasticReplayPath  = args[++i]; break;
         case "--elastic-to-gem5":  elasticToGem5In = args[++i]; elasticToGem5Out = args[++i]; break;
         case "--fetch-to-gem5":    fetchToGem5In   = args[++i]; fetchToGem5Out   = args[++i]; break;
+        case "--stf-record":       stfRecordPath   = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -151,6 +153,22 @@ if (elasticRecordPath is not null) {
         elasticWorkload, new Rv32Mechanism(elasticWorkload.HtifTohostAddress), fs, maxTicks
     );
     Console.Error.WriteLine($"Recorded {written:N0} instructions to {elasticRecordPath}");
+    return;
+}
+
+// ── STF binary trace recording ────────────────────────────────────────────────
+
+if (stfRecordPath is not null) {
+    if (workloads.Count > 1) {
+        Console.Error.WriteLine("--stf-record supports only a single workload.");
+        return;
+    }
+    IWorkload stfWorkload = workloads[0].Workload;
+    using var fs = new FileStream(stfRecordPath, FileMode.Create, FileAccess.Write);
+    int written = Experiment.WriteStfTrace(
+        stfWorkload, new Rv32Mechanism(stfWorkload.HtifTohostAddress), fs, maxTicks
+    );
+    Console.Error.WriteLine($"Recorded {written:N0} instructions to {stfRecordPath}");
     return;
 }
 
@@ -439,6 +457,12 @@ static void PrintUsage() {
                                         binary stream (PacketHeader + Packet messages). This is the
                                         instTraceFile companion to --elastic-to-gem5's dataTraceFile.
                                         No workload needed.
+          --stf-record <path>           Record an STF binary trace (Sparcians stf_lib format,
+                                        version 1.5) by running the workload on a single-cycle
+                                        functional model. Includes operand values (integer and FP
+                                        registers), memory addresses and data, and taken-branch
+                                        targets. Replay with Olympia or any stf_lib-based tool.
+                                        Single workload only.
           --help                        Show this message.
 
         Sweep file format (JSON array):

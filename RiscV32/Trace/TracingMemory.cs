@@ -26,6 +26,9 @@ public sealed class TracingMemory(IMemory inner) : IMemory {
     /// <summary>True if the most recent access was a write.</summary>
     public bool IsWrite { get; private set; }
 
+    /// <summary>Data value of the most recent access (value read for loads, value written for stores).</summary>
+    public ulong Value { get; private set; }
+
     public void Reset() => HasAccess = false;
 
     public ulong Read(ulong address, int bytes) {
@@ -33,7 +36,8 @@ public sealed class TracingMemory(IMemory inner) : IMemory {
         Address = address;
         Bytes = bytes;
         IsWrite = false;
-        return inner.Read(address, bytes);
+        Value = inner.Read(address, bytes);
+        return Value;
     }
 
     public void Write(ulong address, ulong value, int bytes) {
@@ -41,6 +45,7 @@ public sealed class TracingMemory(IMemory inner) : IMemory {
         Address = address;
         Bytes = bytes;
         IsWrite = true;
+        Value = value;
         inner.Write(address, value, bytes);
     }
 
