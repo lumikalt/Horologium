@@ -47,6 +47,10 @@ stdenv.mkDerivation rec {
     zlib
   ];
 
+  postPatch = ''
+    patchShebangs build_tools/kconfig_base.py ext/Kconfiglib/defconfig.py util/cpt_upgrader.py
+  '';
+
   buildPhase = ''
     runHook preBuild
     # protobuf 34+ depends on abseil transitively; nix's strict linker rejects
