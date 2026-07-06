@@ -244,8 +244,10 @@ public sealed class WaterfallControl : Control {
 
         // ── Stage bars ────────────────────────────────────────────────────────
         for (int r = rFirst; r <= rLast; r++) {
-            WaterfallRow row  = data.Rows[r];
-            double       rowY = HeaderH + r * RowH;
+            WaterfallRow row     = data.Rows[r];
+            double       rowY   = HeaderH + r * RowH;
+            bool         flushed = row.Spans.Count > 0 && row.Spans[^1].Stage == PEventKind.Flush;
+            using var    _ = flushed ? ctx.PushOpacity(0.38) : default(IDisposable?);
             foreach (PSpan span in row.Spans) {
                 if (!KindStyle.TryGetValue(span.Stage, out var style)) continue;
 
