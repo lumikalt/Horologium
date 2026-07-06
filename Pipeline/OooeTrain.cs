@@ -1222,6 +1222,7 @@ internal sealed class OoOPipelineCore : Gear {
             ulong instrId = _nextInstrId++;
             _decodeQueue.Enqueue(new FetchedInstr(_fetchPc, decoded, predictedNext, instrId));
             PEventLog?.Record(instrId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
+            PEventLog?.RecordDisasm(instrId, _decoder.Disassemble(_fetchPc, decoded.RawEncoding));
             _fetchPc = predictedNext;
             fetched++;
         }

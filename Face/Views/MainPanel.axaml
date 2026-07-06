@@ -743,9 +743,42 @@
                         <ScrollViewer Grid.Row="1"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto">
-                            <controls:WaterfallControl Data="{Binding CurrentWaterfall}"
-                                                       IsDark="{Binding IsDarkTheme}" />
+                            <controls:WaterfallControl x:Name="WaterfallCtrl"
+                                                       Data="{Binding CurrentWaterfall}"
+                                                       IsDark="{Binding IsDarkTheme}"
+                                                       RowSelected="OnWaterfallRowSelected" />
                         </ScrollViewer>
+
+                        <!-- Instruction detail popup (click a row to open, click again or elsewhere to dismiss) -->
+                        <Popup x:Name="InstrPopup"
+                               Grid.Row="1"
+                               IsLightDismissEnabled="True"
+                               Closed="OnInstrPopupClosed">
+                            <Border Background="#252535"
+                                    BorderBrush="#5A5A80"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="14,10"
+                                    MinWidth="260"
+                                    MaxWidth="480">
+                                <StackPanel Spacing="4">
+                                    <TextBlock x:Name="PopupPcLine"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11"
+                                               Foreground="#A0C8FF"
+                                               FontWeight="Bold" />
+                                    <TextBlock x:Name="PopupDisasmLine"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="13"
+                                               Foreground="#E0E0F0"
+                                               Margin="0,0,0,4" />
+                                    <TextBlock x:Name="PopupStages"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               FontSize="11"
+                                               Foreground="#A0B0C8" />
+                                </StackPanel>
+                            </Border>
+                        </Popup>
                     </Grid>
                 </TabItem>
 

@@ -40,6 +40,12 @@ public interface IDecoder {
     /// Used by the fetch stage for branch classification and RAS management.
     /// </summary>
     FetchHint GetFetchHint(ulong pc, uint firstWord);
+
+    /// <summary>
+    /// Returns a human-readable disassembly string for the instruction.
+    /// ISAs that do not override this return a hex fallback.
+    /// </summary>
+    virtual string Disassemble(ulong pc, uint raw) => $"0x{raw:X8}";
 }
 
 /// <summary>

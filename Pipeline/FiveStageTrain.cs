@@ -460,6 +460,7 @@ internal sealed class PipelineCore : Gear {
             if (ifSent is { IsValid: true, InstrId: not 0, } && ifSent.InstrId != _lastFetchedInstrId) {
                 _lastFetchedInstrId = ifSent.InstrId;
                 _plog.Record(ifSent.InstrId, ifSent.Pc, _cyclesCounter.Value, PEventKind.Fetch);
+                _plog.RecordDisasm(ifSent.InstrId, _decoder.Disassemble(ifSent.Pc, ifSent.RawEncoding));
             }
         }
 

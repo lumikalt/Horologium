@@ -269,8 +269,7 @@ public partial class MainWindowViewModel : ObservableObject {
         // Compute cycle-level maps first; SpecPc per row is derived from these.
         // instrId=0 is the sentinel used by FetchStall events — excluded from instruction rows.
         Dictionary<long, ulong> fetchPcPerCycle = plog.Events
-                                                      .Where(e => e.Kind is PEventKind.Fetch or PEventKind.FetchStall
-                                                       )
+                                                      .Where(e => e.Kind is PEventKind.Fetch or PEventKind.FetchStall)
                                                       .GroupBy(e => e.Cycle)
                                                       .ToDictionary(g => g.Key, g => g.Min(e => e.Pc));
 
@@ -291,27 +290,49 @@ public partial class MainWindowViewModel : ObservableObject {
                                                     .Take(500)
                                                     .ToList();
 
+        // Global max cycle needed to cap the last span of every instruction.
+        long globalMaxCy = plog.Events.Count > 0 ? plog.Events.Max(e => e.Cycle) : 0;
+
         List<WaterfallRow> rows = groups.Select(g => {
                 PEvent? fetchEv = g.Where(e => e.Kind == PEventKind.Fetch)
                                    .Select(e => (PEvent?)e)
                                    .FirstOrDefault();
-                ulong pc = fetchEv?.Pc ?? g.First().Pc;
-                // SpecPc is the fetch-window start for the cycle this instruction was fetched:
-                // the lowest PC fetched that cycle, showing which batch it belonged to.
-                ulong specPc = fetchEv is { } fe && fetchPcPerCycle.TryGetValue(fe.Cycle, out ulong fpc)
-                    ? fpc
-                    : pc;
-                var events = new Dictionary<long, PEventKind>();
+                ulong pc       = fetchEv?.Pc ?? g.First().Pc;
+                ulong specPc   = fetchEv is { } fe && fetchPcPerCycle.TryGetValue(fe.Cycle, out ulong fpc)
+                    ? fpc : pc;
+                string disasm  = plog.Disassembly.TryGetValue(g.Key, out string? d) ? d : $"0x{pc:X}";
+
+                // Collapse multiple events at the same cycle (Flush wins, then by priority).
+                var byKey = new Dictionary<long, PEventKind>();
                 foreach (PEvent ev in g)
-                    if (!events.TryGetValue(ev.Cycle, out PEventKind existing)
+                    if (!byKey.TryGetValue(ev.Cycle, out PEventKind existing)
                      || Priority(ev.Kind) > Priority(existing))
-                        events[ev.Cycle] = ev.Kind;
-                return new WaterfallRow(g.Key, pc, specPc, events);
+                        byKey[ev.Cycle] = ev.Kind;
+
+                // Build ordered spans. Flush terminates the instruction — drop anything after it.
+                List<(long Cycle, PEventKind Kind)> ordered = byKey
+                    .OrderBy(kv => kv.Key)
+                    .Select(kv => (kv.Key, kv.Value))
+                    .ToList();
+                int flushIdx = ordered.FindIndex(t => t.Kind == PEventKind.Flush);
+                if (flushIdx >= 0) ordered = ordered[..(flushIdx + 1)];
+
+                var spans = new List<PSpan>(ordered.Count);
+                for (int i = 0; i < ordered.Count; i++) {
+                    long start = ordered[i].Cycle;
+                    long end   = i + 1 < ordered.Count ? ordered[i + 1].Cycle : globalMaxCy + 1;
+                    spans.Add(new PSpan(ordered[i].Kind, start, end));
+                }
+
+                return new WaterfallRow(g.Key, pc, specPc, disasm, spans);
             }
         ).ToList();
 
-        long minCy = rows.SelectMany(r => r.Events.Keys).Min();
-        long maxCy = rows.SelectMany(r => r.Events.Keys).Max();
+        if (rows.Count == 0)
+            return new WaterfallData(rows, 0, 0, fetchPcPerCycle, flushCycles, fetchStallCycles, 0);
+
+        long minCy   = rows.SelectMany(r => r.Spans).Min(s => s.Start);
+        long maxCy   = rows.SelectMany(r => r.Spans).Max(s => s.End - 1);
         ulong basePc = rows.Min(r => Math.Min(r.Pc, r.SpecPc));
 
         return new WaterfallData(rows, minCy, maxCy, fetchPcPerCycle, flushCycles, fetchStallCycles, basePc);
@@ -324,7 +345,7 @@ public partial class MainWindowViewModel : ObservableObject {
             PEventKind.Dispatch   => 2,
             PEventKind.Decode     => 1,
             PEventKind.Fetch      => 0,
-            PEventKind.FetchStall => -1, // never wins in instruction rows
+            PEventKind.FetchStall => -1,
             _                     => 0,
         };
     }

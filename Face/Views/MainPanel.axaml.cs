@@ -4,7 +4,9 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Face.Controls;
+using Face.Models;
 using Face.ViewModels;
+using Orrery.Observation;
 using ScottPlot;
 using ScottPlot.Avalonia;
 using ScottPlot.Plottables;
@@ -30,6 +32,40 @@ public partial class MainPanel : UserControl {
             }
 
             ApplyChartStyle();
+        };
+    }
+
+    private void OnWaterfallRowSelected(object? sender, WaterfallRowSelectedEventArgs e) {
+        PopulatePopup(e.Row);
+        InstrPopup.IsOpen = true;
+    }
+
+    private void OnInstrPopupClosed(object? sender, EventArgs e) {
+        WaterfallCtrl.SelectedRow = null;
+    }
+
+    private void PopulatePopup(WaterfallRow row) {
+        PopupPcLine.Text     = $"PC: 0x{row.Pc:X}";
+        PopupDisasmLine.Text = row.Disassembly;
+
+        var sb = new System.Text.StringBuilder();
+        foreach (PSpan s in row.Spans.Where(s => s.Stage != PEventKind.FetchStall)) {
+            string name  = StageName(s.Stage);
+            string dur   = $"{s.Duration} cycle{(s.Duration == 1 ? "" : "s")}";
+            string range = $"[{s.Start}–{s.End - 1}]";
+            sb.AppendLine($"{name,-10}  {dur,-12}  {range}");
+        }
+        PopupStages.Text = sb.ToString().TrimEnd();
+
+        static string StageName(PEventKind k) => k switch {
+            PEventKind.Fetch    => "Fetch",
+            PEventKind.Decode   => "Decode",
+            PEventKind.Dispatch => "Dispatch",
+            PEventKind.Issue    => "Issue",
+            PEventKind.Execute  => "Execute",
+            PEventKind.Retire   => "Commit",
+            PEventKind.Flush    => "Flush (squashed)",
+            _                   => k.ToString(),
         };
     }
 

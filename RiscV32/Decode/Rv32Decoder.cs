@@ -112,6 +112,14 @@ public class Rv32Decoder : IDecoder {
         ? cached
         : Cache(pc, raw, DecodeRaw(pc, raw));
 
+    public string Disassemble(ulong pc, uint raw) {
+        try {
+            ITooth tooth = Decode(pc, raw);
+            return RvDisassembler.Disassemble(((RvInstruction)tooth).Payload, pc);
+        }
+        catch { return $"0x{raw:X8}"; }
+    }
+
     private ITooth Cache(ulong pc, uint raw, ITooth tooth) {
         _cache[(pc, raw)] = tooth;
         return tooth;
