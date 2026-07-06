@@ -76,7 +76,13 @@
 
 - [x] Per-instruction lifecycle events (PEvents).
 - [ ] Region-of-interest simulation: fast-forward outside named ELF symbol ranges.
-- [ ] Simulation state checkpoint/restore.
+- [x] Simulation state checkpoint/restore: Option A — architectural-state-only checkpoint (PC, privilege,
+  integer/FP registers, CSRs, VRF, UVE scalars, memory). `ArchitecturalCheckpoint.Save/Load/RestoreInto`;
+  `--checkpoint-save`/`--checkpoint-load` in Runner; enables fast-forward→detailed pipeline handoffs.
+- [ ] Simulation state checkpoint/restore: Option B — full microarchitectural checkpoint: serialize every
+  Gear's internal state (ROB, LSQ, issue queues, pipeline latches, cache/TLB line arrays, branch predictor
+  tables) so simulation can be suspended and resumed with microarchitectural fidelity — mirrors gem5's
+  `serialize`/`unserialize` Checkpoint interface. Requires each `Gear` to implement a serialization contract.
 - [ ] Elastic trace recording + replay.
 - [x] Olympia JSON instruction-trace output; flake packaging; calibration study.
 - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
@@ -297,9 +303,9 @@ Implemented:
 
 ## Orrery
 
-- [ ] Roslyn C# scripting host: embed `Microsoft.CodeAnalysis.CSharp.Scripting` so `.csx` files can instantiate and
+- [x] Roslyn C# scripting host: embed `Microsoft.CodeAnalysis.CSharp.Scripting` so `.csx` files can instantiate and
   configure trains, caches, and predictors directly against the live assemblies — no wrapper layer needed.
-  - [ ] Maybe also F#?
+  - [x] Maybe also F#?
 - [ ] gem5-style architecture builder: a composable builder API covering pipeline topology, cache hierarchy, branch
   predictor, FU counts and latencies, and multicore interconnect — the structural wiring that goes beyond `TrainConfig`'
   s flat parameter record; the Roslyn scripting host is the primary consumer.
@@ -315,10 +321,19 @@ Implemented:
     last-level cache descriptor, and coherence bus topology (snooping vs directory).
     - [x] Expose `RunConcurrent` from `MulticoreHandle`: two-phase parallel tick backed by `DeferredBus` for
       well-synchronized workloads; wrap `MultiHartPipeline.RunConcurrent(DeferredBus[])` behind the handle's API.
-  - Phase 4 — Machine assembly layer: a component that consumes the full structural description (all three layers above)
-    and produces a runnable simulation — replaces ad-hoc wiring currently scattered in ISA-specific construction code.
-  - Phase 5 — Scripting surface: wire the assembly layer to the Roslyn host so `.csx` files drive machine construction
-    from first principles; the UI configurator (line 22 above) hot-reloads on script change.
+  - [x] Phase 4 — Machine assembly layer: `MachineSpec` + `MachineHandle` — single-hart analog of `MulticoreSpec`;
+    builds the full `CacheHierarchySpec` stack externally (unified I/D, per-level policy, arbitrary depth) and passes
+    the accessor top as backing; exposes `MemoryLayers` for cache statistics; `ISteppableTrain` now declares `Run(maxTicks,
+    warmupTicks, snapshotInterval)` as a formal contract.
+    - [x] Split I/D support: teach `*Core` gears to accept pre-built I and D `MemoryLayers` so `MachineSpec` can pass
+      separate I and D cache chains; requires new overload on each train constructor and `PipelineSpec.Build()`.
+    - [x] TLB support in `MachineSpec`: `CacheHierarchySpec` has no TLB concept; TLB must come from a separate spec
+      field or `MemoryConfig` integration.
+  - [x] Phase 5 — Scripting surface (headless): `Script` project wraps `Microsoft.CodeAnalysis.CSharp.Scripting`;
+    `ScriptHost.EvaluateFileAsync(path)` evaluates a `.csx` returning a `MachineSpec`; `runner --script <file.csx>`
+    runs the workload against it; `scripts/example.csx` ships as a worked sample.
+    - [ ] Phase 5 — Scripting surface (UI): Face configurator tab — AvaloniaEdit code editor, hot-reload on file change
+      via `FileSystemWatcher`, workload selector, and live cache/TLB stat display.
 - [ ] Generic definition for a parser.
 - [ ] Clock domain crossing: model multiple frequency domains (e.g., core at 3 GHz, uncore/LLC at 1.5 GHz) with
   synchronization FIFOs.

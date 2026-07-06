@@ -13,15 +13,21 @@ namespace RiscV32.Memory;
 /// All public addresses are virtual; the implementation subtracts the base
 /// before indexing into the array.
 /// </summary>
-public sealed class FlatMemory : IMemory {
+public sealed class FlatMemory : ISnapshotableMemory {
     private readonly byte[] _data;
     private readonly ulong _base;
+
+    public ulong BaseAddress => _base;
+    public int SizeBytes => _data.Length;
 
     public FlatMemory(int sizeBytes, ulong baseAddress = 0) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sizeBytes);
         _data = new byte[sizeBytes];
         _base = baseAddress;
     }
+
+    public void CopyTo(Span<byte> dest) => _data.AsSpan().CopyTo(dest);
+    public void LoadFrom(ReadOnlySpan<byte> data) => data.CopyTo(_data);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int Offset(ulong address) => (int)(address - _base);

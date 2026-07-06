@@ -89,4 +89,56 @@ public class Rv32ArchState : IArchState {
         CsrFile.DirectWrite(CsrFile.Minstret, newLo);
         if (newLo == 0) CsrFile.DirectWrite(CsrFile.Minstreth, CsrFile.DirectRead(CsrFile.Minstreth) + 1);
     }
+
+    /// <summary>
+    /// Saves all present CSRs (via DirectRead), VRF (32 × 16 bytes), and UVE scalar state.
+    /// UVE store-stream cursors and pending config are transient mid-stream state and are not saved.
+    /// </summary>
+    public void WriteState(System.IO.BinaryWriter w) {
+        // CSRs: write count then (address, value) pairs for all present entries.
+        int count = 0;
+        for (uint a = 0; a < 4096; a++) if (CsrFile.Exists(a)) count++;
+        w.Write(count);
+        for (uint a = 0; a < 4096; a++) {
+            if (!CsrFile.Exists(a)) continue;
+            w.Write(a);
+            w.Write(CsrFile.DirectRead(a));
+        }
+
+        // Vector register file: 32 registers × 16 bytes each.
+        for (var i = 0; i < VectorRegisterFile.Count; i++) {
+            byte[] vr = VectorRegisters.Read(i);
+            w.Write(vr);
+        }
+
+        // UVE scalar state (scalars, kinds, stream-done, dim-done flags).
+        for (var i = 0; i < UveState.Count; i++) {
+            w.Write(UveState.Scalars[i]);
+            w.Write((byte)UveState.RegKind[i]);
+            w.Write(UveState.StreamDone[i]);
+            for (var d = 0; d < UveState.MaxDims; d++) w.Write(UveState.DimDone[i, d]);
+        }
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState"/>.</summary>
+    public void ReadState(System.IO.BinaryReader r) {
+        int count = r.ReadInt32();
+        for (var i = 0; i < count; i++) {
+            uint addr = r.ReadUInt32();
+            uint value = r.ReadUInt32();
+            CsrFile.DirectWrite(addr, value);
+        }
+
+        for (var i = 0; i < VectorRegisterFile.Count; i++) {
+            byte[] vr = r.ReadBytes(VectorRegisterFile.VLenB);
+            VectorRegisters.Write(i, vr);
+        }
+
+        for (var i = 0; i < UveState.Count; i++) {
+            UveState.Scalars[i] = r.ReadSingle();
+            UveState.RegKind[i] = (UveRegKind)r.ReadByte();
+            UveState.StreamDone[i] = r.ReadBoolean();
+            for (var d = 0; d < UveState.MaxDims; d++) UveState.DimDone[i, d] = r.ReadBoolean();
+        }
+    }
 }

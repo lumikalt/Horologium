@@ -52,6 +52,19 @@ public interface IArchState {
     /// override this to increment it. Default: no-op.
     /// </summary>
     void OnRetire() { }
+
+    /// <summary>
+    /// Writes ISA-specific architectural state (CSRs, VRF, UVE, etc.) to <paramref name="writer"/>.
+    /// Called by <see cref="ArchitecturalCheckpoint.Save"/>. Default: no-op.
+    /// </summary>
+    void WriteState(BinaryWriter writer) { }
+
+    /// <summary>
+    /// Restores ISA-specific architectural state from <paramref name="reader"/>.
+    /// Called by <see cref="ArchitecturalCheckpoint.RestoreInto"/>. Default: no-op.
+    /// Must read exactly the bytes written by <see cref="WriteState"/>.
+    /// </summary>
+    void ReadState(BinaryReader reader) { }
 }
 
 /// <summary>

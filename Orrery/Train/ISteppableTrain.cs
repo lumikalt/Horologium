@@ -1,3 +1,5 @@
+using Mechanism;
+
 namespace Orrery.Train;
 
 /// <summary>
@@ -16,4 +18,17 @@ public interface ISteppableTrain {
 
     /// <summary>Finalizes the run and returns accumulated statistics.</summary>
     RevolutionResult FinishStepping();
+
+    /// <summary>
+    /// Runs the train for up to <paramref name="maxTicks"/> ticks.
+    /// <paramref name="warmupTicks"/> ticks run before measurement begins (counters reset at that point).
+    /// <paramref name="snapshotInterval"/> controls periodic time-series capture (0 = disabled).
+    /// </summary>
+    RevolutionResult Run(long maxTicks = long.MaxValue, long warmupTicks = 0, long snapshotInterval = 0);
+
+    /// <summary>
+    /// The single-hart architectural state, or null for multi-hart trains.
+    /// Valid after <see cref="BeginStepping"/> or <see cref="Run"/>; reflects the committed state.
+    /// </summary>
+    IArchState? ArchState => null;
 }

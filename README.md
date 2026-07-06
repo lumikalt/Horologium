@@ -20,7 +20,8 @@ A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The sim
 | **Move** | TTA/MOVE (Transport Triggered Architecture, Corporaal 1995) 16-bit machine. Fixed 32-bit instruction format `[dst|src|imm]`. Computation is a side effect of transport: writing to a trigger port (`alu.in2`, `mem.load`, `mem.store`, `br.target`) fires the FU. Register file r0–r7; ALU FU (16 operations: ADD/SUB/AND/OR/XOR/NOT/SHL/SHR/SRA/EQ/LT/ULT/NEG/INC/DEC/COPY); memory FU (16-bit word loads and stores); branch FU (conditional redirect). `SingleCycleTrain` only — FU state is not exposed as register hazards. |
 | **F18A** | GreenArrays GA144 F18A (2010) 18-bit stack computer. 29 opcodes packed four-per-word (5+5+5+3 bits) using the canonical GA144 encoding (0x00–0x1F). Includes `-if` (MinusIf 0x07: branch when T≥0) and `+*` (MulStep 0x10: shift-and-add multiply step). Data stack (T/S/8-deep) and return stack (8-deep); A and B address registers; 9-bit word-addressed PC (P). Canonical `if` semantics: branch when T==0 (false). Per-node memory: 64-word RAM, 64-word ROM, 256-word port space. Inter-node communication via synchronous `RendezvousArbor` channels (transfer completes only when both sides participate in the same tick). `F18AGrid` coordinates a rows×cols array of nodes; each node runs `SingleCycleTrain`; `F18AGrid.Step()` pre-checks `WillBlock` before driving decode→execute→commit. First multi-core ISA in the engine. |
 | **Face** | Avalonia desktop UI. Opens with an **ISA launcher** so the user picks RISC-V or CHIP-8 before entering the appropriate view. The RISC-V side includes a workload preset picker, a **PEvents tab** with a scrollable Argos-style pipeline waterfall (rows = instructions, columns = cycles, cells = stage abbreviation F/DC/D/IS/EX/RT/FL), a **SpecPC** gutter column showing the fetch-window start address, flush/misprediction cycles highlighted red, fetch-stall cycles dimmed, and an **Assembler tab** with a three-pane RISC-V assembly editor (editor + decoded listing + register file). The Assembler tab has a sidebar **language toggle (RISC-V ASM / C)**: in C mode the source is compiled with `riscv32-none-elf-gcc` (selectable `-O` level) against a tiny `_start` stub, the resulting `.text` is disassembled into the listing, and single-cycle stepping highlights the current C source line via `objdump -dl` line info. The CHIP-8 side renders the 64×32 pixel framebuffer at 10× scale with a 60 fps game loop, keyboard input (QWERTY layout mapped to the CHIP-8 hex keypad), and ROM load/start/pause/reset controls. |
-| **Runner** | Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. |
+| **Runner** | Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. Accepts `--script <file.csx>` to evaluate a C# script that returns a `MachineSpec` and run the workload against it. |
+| **Script** | C# and F# scripting host. `ScriptHost.EvaluateFileAsync(path)` compiles and runs a `.csx` (Roslyn) or `.fsx` (F# Interactive) file returning a `MachineSpec`, with all Spec/Cache/RiscV32 namespaces pre-imported and assemblies pre-referenced — no `#r` or `using`/`open` needed in the script. |
 | **Tests** | xUnit tests, organized by project (`Tests/Orrery`, `Tests/RiscV32`, `Tests/RiscV64`, `Tests/Chip8`, `Tests/Subleq`, `Tests/Pdp8`, `Tests/J1`, `Tests/Move`, `Tests/F18A`, `Tests/Mechanism`). |
 
 ## Commands
@@ -261,6 +262,32 @@ Because the five-stage and out-of-order trains previously spun HTIF binaries to 
 ### Hardware comparison (RiscV/Analysis)
 
 `Experiment.Run(workload, configs, mechanism)` runs the same workload under multiple `NamedConfig` entries (each a named `TrainConfig` describing forwarding, predictor, cache, TLB, and store-buffer parameters), returns an `ExperimentResult`, and supports warmup ticks and periodic time-series snapshots. Results can be formatted as a Markdown table, summary CSV, or time-series CSV for graphing. `NamedConfig` sweep files are plain JSON arrays, readable by the Runner's `--sweep` flag.
+
+### Architecture scripting and checkpointing (Script/)
+
+`ScriptHost.EvaluateFileAsync(path)` compiles and evaluates a `.csx` (Roslyn C#) or `.fsx` (F# Interactive) script file whose last expression is a `MachineSpec`. All `Pipeline.Spec`, `Orrery.Spec`, `Orrery.Cache`, and `RiscV32` namespaces are pre-imported — no `#r` directives or `using`/`open` statements needed. The result can be passed directly to `MachineSpec.Build()`:
+
+```csharp
+// example.fsx
+let pipeline = FiveStageSpec(ForwardingEnabled = true)
+let l1 = CacheLevelSpec(4096, 4, 64, 10)
+let cache = CacheHierarchySpec.Unified(CachePathSpec([| l1 |]))
+MachineSpec(pipeline, (fun () -> Rv32Mechanism()), cache)
+```
+
+The Runner exposes this as `--script <file.csx|fsx>`. Combine with `--checkpoint-save` and `--checkpoint-load` for fast-forward→detailed pipeline handoffs:
+
+```bash
+# 1. Fast-forward 100 M instructions on a single-cycle model, save state.
+dotnet run --project Runner -- prog.elf \
+  --script scripts/single_cycle.fsx --max-ticks 100000000 --checkpoint-save fast.chk
+
+# 2. Resume from the checkpoint on a detailed OoO model.
+dotnet run --project Runner -- prog.elf \
+  --script scripts/ooo.fsx --checkpoint-load fast.chk --max-ticks 10000000
+```
+
+**`ArchitecturalCheckpoint`** (`Mechanism/ArchitecturalCheckpoint.cs`) is the serialization layer. `Save(path, state, memory, tick)` writes PC, privilege level, integer/FP registers, memory, and an ISA-specific blob (CSRs, VRF, UVE scalar state via `IArchState.WriteState`) to a binary file. `Load(path)` deserialises without touching live state; `chk.RestoreInto(state, memory)` applies it. `FlatMemory` implements the `ISnapshotableMemory` interface (`BaseAddress`, `SizeBytes`, `CopyTo`, `LoadFrom`) required by the checkpoint API. `ISteppableTrain.ArchState` (default `null`) exposes the committed hart state after or during a run; `MachineHandle.ArchState` forwards it.
 
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
