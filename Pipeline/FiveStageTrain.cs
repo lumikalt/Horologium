@@ -433,6 +433,15 @@ internal sealed class PipelineCore : Gear {
                     break;
                 case false when idExLast is { IsValid: true, InstrId: not 0, }:
                     _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Execute);
+                    if (idExLast.Instruction is { } execInstr && execInstr.SourceRegisters.Count > 0) {
+                        int cnt = execInstr.SourceRegisters.Count;
+                        var vals = new ulong[cnt];
+                        for (int i = 0; i < cnt; i++) {
+                            int r = execInstr.SourceRegisters[i];
+                            vals[i] = r >= 0 ? State.IntegerRegisters.Read(r) : 0;
+                        }
+                        _plog.RecordSourceValues(idExLast.InstrId, execInstr.SourceRegisters, vals);
+                    }
                     break;
             }
         }
@@ -443,8 +452,12 @@ internal sealed class PipelineCore : Gear {
         _wb.Inject(memWbLast);
         _wb.Cycle();
         if (_plog is not null && memWbLast is { IsValid: true, InstrId: not 0, } &&
-            (_wb.RetiredCount > preRetire || _wb.Halted))
+            (_wb.RetiredCount > preRetire || _wb.Halted)) {
             _plog.Record(memWbLast.InstrId, memWbLast.Pc, _cyclesCounter.Value, PEventKind.Retire);
+            if (memWbLast.Instruction is { DestinationRegister: > 0 } retireInstr)
+                _plog.RecordDestValue(memWbLast.InstrId, retireInstr.DestinationRegister,
+                                      State.IntegerRegisters.Read(retireInstr.DestinationRegister));
+        }
 
         _id.Inject(ifIdLast);
         _id.Cycle();

@@ -320,11 +320,13 @@ public partial class MainWindowViewModel : ObservableObject {
                 var spans = new List<PSpan>(ordered.Count);
                 for (int i = 0; i < ordered.Count; i++) {
                     long start = ordered[i].Cycle;
-                    long end   = i + 1 < ordered.Count ? ordered[i + 1].Cycle : globalMaxCy + 1;
+                    long end   = i + 1 < ordered.Count ? ordered[i + 1].Cycle : start + 1;
                     spans.Add(new PSpan(ordered[i].Kind, start, end));
                 }
 
-                return new WaterfallRow(g.Key, pc, specPc, disasm, spans);
+                plog.TryGetSourceValues(g.Key, out IReadOnlyList<int> srcRegs, out IReadOnlyList<ulong> srcVals);
+                plog.TryGetDestValue(g.Key, out int destReg, out ulong destVal);
+                return new WaterfallRow(g.Key, pc, specPc, disasm, spans, srcRegs, srcVals, destReg, destVal);
             }
         ).ToList();
 

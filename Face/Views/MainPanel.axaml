@@ -742,19 +742,19 @@
                         </Border>
                         <ScrollViewer Grid.Row="1"
                                       HorizontalScrollBarVisibility="Auto"
-                                      VerticalScrollBarVisibility="Auto">
+                                      VerticalScrollBarVisibility="Auto"
+                                      PointerMoved="OnWaterfallPointerMoved"
+                                      PointerExited="OnWaterfallPointerExited">
                             <controls:WaterfallControl x:Name="WaterfallCtrl"
                                                        Data="{Binding CurrentWaterfall}"
-                                                       IsDark="{Binding IsDarkTheme}"
-                                                       RowSelected="OnWaterfallRowSelected" />
+                                                       IsDark="{Binding IsDarkTheme}" />
                         </ScrollViewer>
 
-                        <!-- Instruction detail popup (click a row to open, click again or elsewhere to dismiss) -->
-                        <Popup x:Name="InstrPopup"
-                               Grid.Row="1"
-                               IsLightDismissEnabled="True"
-                               Closed="OnInstrPopupClosed">
-                            <Border Background="#252535"
+                        <!-- Hover info card — Canvas is non-hit-testable so scroll passes through -->
+                        <Canvas x:Name="InstrOverlay" Grid.Row="1" IsHitTestVisible="False">
+                            <Border x:Name="InstrCard"
+                                    IsVisible="False"
+                                    Background="#EE252535"
                                     BorderBrush="#5A5A80"
                                     BorderThickness="1"
                                     CornerRadius="6"
@@ -778,7 +778,7 @@
                                                Foreground="#A0B0C8" />
                                 </StackPanel>
                             </Border>
-                        </Popup>
+                        </Canvas>
                     </Grid>
                 </TabItem>
 

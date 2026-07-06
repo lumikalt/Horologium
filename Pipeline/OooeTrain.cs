@@ -906,6 +906,16 @@ internal sealed class OoOPipelineCore : Gear {
                     )
                 );
                 PEventLog?.Record(issuedInstrId, rs.Pc, _cyclesCounter.Value, PEventKind.Issue);
+                if (PEventLog is not null && rs.Instruction is { } issuedInstr) {
+                    IReadOnlyList<int> srcRegs = issuedInstr.SourceRegisters;
+                    if (srcRegs.Count > 0) {
+                        var srcVals = new ulong[srcRegs.Count];
+                        if (srcRegs.Count > 0) srcVals[0] = rs.Src1Value;
+                        if (srcRegs.Count > 1) srcVals[1] = rs.Src2Value;
+                        if (srcRegs.Count > 2) srcVals[2] = rs.Src3Value;
+                        PEventLog.RecordSourceValues(issuedInstrId, srcRegs, srcVals);
+                    }
+                }
                 iq.Free(slot);
                 classIssued[fuSlot]++;
                 issued++;
@@ -1409,6 +1419,7 @@ internal sealed class OoOPipelineCore : Gear {
         ulong val = _prf.Read(head.PhysDestination);
         State.IntegerRegisters.Write(head.ArchDestination, val);
         if (head.PrevPhysDestination >= 0) _rat.FreePhysical(head.PrevPhysDestination);
+        PEventLog?.RecordDestValue(head.InstrId, head.ArchDestination, val);
     }
 
     private void SetFlush(ulong target) {

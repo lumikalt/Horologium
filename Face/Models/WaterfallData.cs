@@ -12,7 +12,11 @@ public record WaterfallRow(
     ulong Pc,
     ulong SpecPc,
     string Disassembly,
-    IReadOnlyList<PSpan> Spans
+    IReadOnlyList<PSpan> Spans,
+    IReadOnlyList<int> SrcRegs,
+    IReadOnlyList<ulong> SrcVals,
+    int DestReg,
+    ulong DestVal
 );
 
 public record WaterfallData(
