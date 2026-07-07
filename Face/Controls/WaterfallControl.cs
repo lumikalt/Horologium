@@ -246,37 +246,47 @@ public sealed class WaterfallControl : Control {
         bool showText = ShowText;
         double barPad = showText ? BarPad : Math.Min(BarPad, _rowH / 5);
         for (int r = rFirst; r <= rLast; r++) {
-            WaterfallRow row     = data.Rows[r];
-            double       rowY   = HeaderH + r * _rowH;
-            bool         flushed = row.Spans.Count > 0 && row.Spans[^1].Stage == PEventKind.Flush;
-            using var    _ = flushed ? ctx.PushOpacity(0.38) : default(IDisposable?);
-            foreach (PSpan span in row.Spans) {
-                if (!KindStyle.TryGetValue(span.Stage, out var style)) continue;
+            WaterfallRow row   = data.Rows[r];
+            double       rowY  = HeaderH + r * _rowH;
+            bool flushed = row.Spans.Count > 0 && row.Spans[^1].Stage == PEventKind.Flush;
 
-                long spanCStart = span.Start - minCy;
-                long spanCEnd   = span.End   - minCy; // exclusive
-                if (spanCEnd <= cFirst || spanCStart > cLast) continue;
+            if (flushed) { using var dim = ctx.PushOpacity(0.38); DrawSpans(); }
+            else          { DrawSpans(); }
 
-                double barX  = gutterW + spanCStart * _cellW;
-                double barW  = (spanCEnd - spanCStart) * _cellW;
-                double barXc = Math.Max(barX, gutterW + cFirst * _cellW); // clip to viewport
-                double barWc = barX + barW - barXc;
-                if (barWc <= 0) continue;
+            void DrawSpans() {
+                foreach (PSpan span in row.Spans) {
+                    if (!KindStyle.TryGetValue(span.Stage, out var style)) continue;
 
-                ctx.DrawRectangle(
-                    style.Bg, null,
-                    new Rect(barXc + barPad, rowY + barPad, barWc - barPad * 2, _rowH - barPad * 2),
-                    3, 3);
+                    long spanCStart = span.Start - minCy;
+                    long spanCEnd   = span.End   - minCy; // exclusive
+                    if (spanCEnd <= cFirst || spanCStart > cLast) continue;
 
-                // Label — only if text is enabled, bar is wide enough, and starts within view.
-                if (showText) {
-                    double labelX = Math.Max(barX + BarPad + 3, barXc + BarPad + 3);
-                    double avail  = barX + barW - BarPad - labelX;
-                    if (avail > 8) {
-                        string abbr = style.Label;
-                        string full = span.Duration > 1 ? $"{abbr} {span.Duration}" : abbr;
-                        string lbl  = avail >= MeasureFtWidth(full, 9.5) ? full : abbr;
-                        DrawFt(ctx, lbl, Brushes.White, 9.5, new Point(labelX, rowY + BarPad + 3));
+                    double barX  = gutterW + spanCStart * _cellW;
+                    double barW  = (spanCEnd - spanCStart) * _cellW;
+                    double barXc = Math.Max(barX, gutterW + cFirst * _cellW); // clip to viewport
+                    double barWc = barX + barW - barXc;
+                    if (barWc <= 0) continue;
+
+                    double barH   = _rowH - barPad * 2;
+                    double radius = Math.Min(3.0, barH / 3.0);
+                    ctx.DrawRectangle(
+                        style.Bg, null,
+                        new Rect(barXc + barPad, rowY + barPad, barWc - barPad * 2, barH),
+                        radius, radius);
+
+                    // Label — only if text is enabled and the bar's starting cell is visible.
+                    // avail is capped to one cell so the number never bleeds into the next cell.
+                    if (showText && barXc <= barX + BarPad) {
+                        double labelX    = barX + BarPad + 3;
+                        double cellAvail = _cellW - 2 * BarPad - 3;
+                        if (cellAvail > 6) {
+                            string abbr = style.Label;
+                            string full = span.Duration > 1 ? $"{abbr} {span.Duration}" : abbr;
+                            string lbl  = cellAvail >= MeasureFtWidth(full, 9.5) ? full :
+                                          cellAvail >= MeasureFtWidth(abbr, 9.5) ? abbr : "";
+                            if (lbl.Length > 0)
+                                DrawFt(ctx, lbl, Brushes.White, 9.5, new Point(labelX, rowY + BarPad + 3));
+                        }
                     }
                 }
             }
@@ -317,23 +327,29 @@ public sealed class WaterfallControl : Control {
             for (int r = rFirst; r <= rLast; r++) {
                 WaterfallRow row  = data.Rows[r];
                 double       rowY = HeaderH + r * _rowH;
+                bool flushed = row.Spans.Count > 0 && row.Spans[^1].Stage == PEventKind.Flush;
                 ctx.DrawRectangle(r % 2 == 0 ? rowBg0 : rowBg1, null, new Rect(sx, rowY, gutterW, _rowH));
                 if (SelectedRow is { } sel && data.Rows[r] == sel)
                     ctx.DrawRectangle(selRowBg, null, new Rect(sx, rowY, gutterW, _rowH));
 
-                DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 4));
+                if (flushed) { using var dim = ctx.PushOpacity(0.38); DrawGutterText(); }
+                else          { DrawGutterText(); }
 
-                var    pcStr = $"{row.Pc - basePc:X}";
-                double pcX   = sx + _instrIdColW + 4;
-                DrawFt(ctx, pcStr, labelFg, 10, new Point(pcX, rowY + 4));
-                if (row.SpecPc != row.Pc) {
-                    double slashX = pcX + MeasureFtWidth(pcStr, 10);
-                    DrawFt(ctx, $"/{row.SpecPc - basePc:X}", specPcFg, 10, new Point(slashX, rowY + 4));
+                void DrawGutterText() {
+                    DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 4));
+
+                    var    pcStr = $"{row.Pc - basePc:X}";
+                    double pcX   = sx + _instrIdColW + 4;
+                    DrawFt(ctx, pcStr, labelFg, 10, new Point(pcX, rowY + 4));
+                    if (row.SpecPc != row.Pc) {
+                        double slashX = pcX + MeasureFtWidth(pcStr, 10);
+                        DrawFt(ctx, $"/{row.SpecPc - basePc:X}", specPcFg, 10, new Point(slashX, rowY + 4));
+                    }
+
+                    // Disassembly — clipped to column width.
+                    using (ctx.PushClip(new Rect(sx + disasmX, rowY, _disasmColW, _rowH)))
+                        DrawFt(ctx, row.Disassembly, disasmFg, 10, new Point(sx + disasmX + 4, rowY + 4));
                 }
-
-                // Disassembly — clipped to column width.
-                using (ctx.PushClip(new Rect(sx + disasmX, rowY, _disasmColW, _rowH)))
-                    DrawFt(ctx, row.Disassembly, disasmFg, 10, new Point(sx + disasmX + 4, rowY + 4));
             }
             ctx.DrawLine(gridPen, new Point(sx + gutterW, sy), new Point(sx + gutterW, sy + vh));
 

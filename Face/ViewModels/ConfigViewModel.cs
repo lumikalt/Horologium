@@ -39,6 +39,10 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int TournamentGlobalHistoryBits { get; set; } = 12;
 
+    [ObservableProperty] public partial int ImliPhtSize { get; set; } = 65536;
+
+    [ObservableProperty] public partial int ImliBtbSize { get; set; } = 1024;
+
     [ObservableProperty] public partial bool ICacheEnabled { get; set; } = false;
 
     [ObservableProperty] public partial int ICacheCapacityKb { get; set; } = 32;
@@ -75,6 +79,7 @@ public partial class ConfigViewModel : ObservableObject {
     public bool IsFiveStage => Pipeline == "five_stage";
     public bool IsOoo => Pipeline == "ooo";
     public bool IsWidePipeline => Pipeline is "superscalar" or "ooo";
+    public bool HasPredictorConfig => Pipeline is "five_stage" or "ooo";
     public bool HasNBitParams => PredictorType == "n_bit";
     public bool HasGshareParams => PredictorType is "gshare" or "gselect";
     public bool HasGselectParams => PredictorType == "gselect";
@@ -82,12 +87,14 @@ public partial class ConfigViewModel : ObservableObject {
     public bool HasPerceptronParams => PredictorType == "perceptron";
     public bool HasHashedPerceptronParams => PredictorType == "hashed_perceptron";
     public bool HasTournamentParams => PredictorType == "tournament";
+    public bool HasImliParams => PredictorType == "imli";
 
     // ReSharper disable once PartialMethodParameterNameMismatch
     partial void OnPipelineChanged(string _) {
         OnPropertyChanged(nameof(IsFiveStage));
         OnPropertyChanged(nameof(IsOoo));
         OnPropertyChanged(nameof(IsWidePipeline));
+        OnPropertyChanged(nameof(HasPredictorConfig));
     }
 
     // ReSharper disable once PartialMethodParameterNameMismatch
@@ -99,6 +106,7 @@ public partial class ConfigViewModel : ObservableObject {
         OnPropertyChanged(nameof(HasPerceptronParams));
         OnPropertyChanged(nameof(HasHashedPerceptronParams));
         OnPropertyChanged(nameof(HasTournamentParams));
+        OnPropertyChanged(nameof(HasImliParams));
     }
 
     public static string[] CacheReplacementPolicyOptions { get; } =
@@ -122,6 +130,11 @@ public partial class ConfigViewModel : ObservableObject {
         "tage_sc_l",
         "ittage",
         "batage",
+        "imli",
+        "llbp",
+        "llbp_x",
+        "vla_tage",
+        "true_oracle",
     ];
 
     public NamedConfig ToNamedConfig() {
@@ -139,10 +152,15 @@ public partial class ConfigViewModel : ObservableObject {
             "tournament" => BranchPredictorConfig.Tournament(
                 TournamentLocalHistoryBits, TournamentLocalTableSize, TournamentGlobalHistoryBits
             ),
-            "tage_sc_l" => BranchPredictorConfig.TageScL(),
-            "ittage"    => BranchPredictorConfig.Ittage(),
-            "batage"    => BranchPredictorConfig.Batage(),
-            _           => null,
+            "tage_sc_l"   => BranchPredictorConfig.TageScL(),
+            "ittage"      => BranchPredictorConfig.Ittage(),
+            "batage"      => BranchPredictorConfig.Batage(),
+            "imli"        => BranchPredictorConfig.Imli(ImliPhtSize, ImliBtbSize),
+            "llbp"        => BranchPredictorConfig.Llbp(),
+            "llbp_x"      => BranchPredictorConfig.LlbpX(),
+            "vla_tage"    => BranchPredictorConfig.VlaTage(),
+            "true_oracle" => BranchPredictorConfig.TrueOracle(),
+            _             => null,
         };
 
         CacheHardwareConfig? iCache = ICacheEnabled
@@ -189,6 +207,11 @@ public partial class ConfigViewModel : ObservableObject {
                 TageScLConfig                   => "tage_sc_l",
                 IttageConfig                    => "ittage",
                 BatageConfig                    => "batage",
+                ImliConfig                      => "imli",
+                LlbpConfig                      => "llbp",
+                LlbpXConfig                     => "llbp_x",
+                VlaTageConfig                   => "vla_tage",
+                TrueOracleConfig                => "true_oracle",
                 _                               => "none",
             },
             StoreBufferCapacity = nc.Config.StoreBufferCapacity,
@@ -225,6 +248,10 @@ public partial class ConfigViewModel : ObservableObject {
                 vm.TournamentLocalHistoryBits = tour.LocalHistoryBits;
                 vm.TournamentLocalTableSize = tour.LocalTableSize;
                 vm.TournamentGlobalHistoryBits = tour.GlobalHistoryBits;
+                break;
+            case ImliConfig imli:
+                vm.ImliPhtSize = imli.PhtSize;
+                vm.ImliBtbSize = imli.BtbSize;
                 break;
         }
 

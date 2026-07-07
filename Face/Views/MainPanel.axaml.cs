@@ -48,14 +48,14 @@ public partial class MainPanel : UserControl {
     private void OnGlobalKeyDown(object? sender, KeyEventArgs e) {
         if (Vm?.IsPEventsTab != true || WaterfallCtrl.Data is null) return;
         // Don't intercept when a text entry control is focused.
-        if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        if (TopLevel.GetTopLevel(this)?.FocusManager.GetFocusedElement()
                 is TextBox or NumericUpDown) return;
         switch (e.Key) {
             case Key.OemPlus or Key.Add:
                 WaterfallCtrl.ZoomIn();  e.Handled = true; break;
             case Key.OemMinus or Key.Subtract:
                 WaterfallCtrl.ZoomOut(); e.Handled = true; break;
-            case Key.OemQuestion or Key.Divide or Key.Oem2:
+            case Key.OemQuestion or Key.Divide:
                 WaterfallCtrl.ZoomReset(); e.Handled = true; break;
         }
     }
@@ -106,14 +106,14 @@ public partial class MainPanel : UserControl {
         var sb = new System.Text.StringBuilder();
         foreach (PSpan s in row.Spans.Where(s => s.Stage != PEventKind.FetchStall)) {
             string name  = StageName(s.Stage);
-            string dur   = $"{s.Duration} cycle{(s.Duration == 1 ? "" : "s")}";
-            string range = $"[{s.Start}–{s.End - 1}]";
+            var dur   = $"{s.Duration} cycle{(s.Duration == 1 ? "" : "s")}";
+            var range = $"[{s.Start}–{s.End - 1}]";
             sb.AppendLine($"{name,-10}  {dur,-12}  {range}");
         }
 
-        if (row.SrcRegs is { Count: > 0 }) {
+        if (row.SrcRegs is { Count: > 0, }) {
             sb.AppendLine();
-            for (int i = 0; i < row.SrcRegs.Count; i++) {
+            for (var i = 0; i < row.SrcRegs.Count; i++) {
                 int r = row.SrcRegs[i];
                 if (r < 0) continue;
                 sb.AppendLine($"  {AbiName(r),-4} = 0x{row.SrcVals[i]:X8}");
@@ -125,6 +125,7 @@ public partial class MainPanel : UserControl {
         }
 
         PopupStages.Text = sb.ToString().TrimEnd();
+        return;
 
         static string StageName(PEventKind k) => k switch {
             PEventKind.Fetch    => "Fetch",
@@ -133,7 +134,7 @@ public partial class MainPanel : UserControl {
             PEventKind.Issue    => "Issue",
             PEventKind.Execute  => "Execute",
             PEventKind.Retire   => "Commit",
-            PEventKind.Flush    => "Flush (squashed)",
+            PEventKind.Flush    => "Flush",
             _                   => k.ToString(),
         };
 

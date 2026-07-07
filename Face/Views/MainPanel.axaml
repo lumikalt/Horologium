@@ -37,7 +37,7 @@
                               IsVisible="{Binding IsFiveStage}" />
 
                     <!-- Predictor (five_stage + ooo) -->
-                    <StackPanel IsVisible="{Binding !IsWidePipeline}" Spacing="6">
+                    <StackPanel IsVisible="{Binding HasPredictorConfig}" Spacing="6">
                         <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
                             <TextBlock Grid.Column="0" Text="Branch predictor" VerticalAlignment="Center" />
                             <ComboBox Grid.Column="1"
@@ -123,10 +123,22 @@
                             <NumericUpDown Grid.Column="1" Value="{Binding TournamentGlobalHistoryBits}"
                                            Minimum="1" Maximum="32" Increment="1" />
                         </Grid>
+                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                              IsVisible="{Binding HasImliParams}">
+                            <TextBlock Grid.Column="0" Text="PHT size" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Column="1" Value="{Binding ImliPhtSize}"
+                                           Minimum="64" Maximum="524288" Increment="1024" />
+                        </Grid>
+                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                              IsVisible="{Binding HasImliParams}">
+                            <TextBlock Grid.Column="0" Text="BTB size" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Column="1" Value="{Binding ImliBtbSize}"
+                                           Minimum="64" Maximum="65536" Increment="256" />
+                        </Grid>
                     </StackPanel>
 
-                    <!-- five_stage: I-cache -->
-                    <StackPanel IsVisible="{Binding IsFiveStage}" Spacing="6">
+                    <!-- five_stage + ooo: I-cache -->
+                    <StackPanel IsVisible="{Binding HasPredictorConfig}" Spacing="6">
                         <CheckBox IsChecked="{Binding ICacheEnabled}" Content="I-cache" />
                         <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
                               IsVisible="{Binding ICacheEnabled}"
@@ -146,8 +158,8 @@
                         </Grid>
                     </StackPanel>
 
-                    <!-- five_stage: D-cache -->
-                    <StackPanel IsVisible="{Binding IsFiveStage}" Spacing="6">
+                    <!-- five_stage + ooo: D-cache -->
+                    <StackPanel IsVisible="{Binding HasPredictorConfig}" Spacing="6">
                         <CheckBox IsChecked="{Binding DCacheEnabled}" Content="D-cache" />
                         <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
                               IsVisible="{Binding DCacheEnabled}"
@@ -167,9 +179,9 @@
                         </Grid>
                     </StackPanel>
 
-                    <!-- five_stage: cache replacement policy -->
+                    <!-- five_stage + ooo: cache replacement policy -->
                     <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                          IsVisible="{Binding IsFiveStage}">
+                          IsVisible="{Binding HasPredictorConfig}">
                         <TextBlock Grid.Column="0" Text="Cache policy" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1"
                                   ItemsSource="{x:Static vm:ConfigViewModel.CacheReplacementPolicyOptions}"
@@ -177,7 +189,7 @@
                                   HorizontalAlignment="Stretch" />
                     </Grid>
 
-                    <!-- five_stage: store buffer -->
+                    <!-- five_stage: store buffer (not exposed for ooo — handled internally) -->
                     <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
                           IsVisible="{Binding IsFiveStage}">
                         <TextBlock Grid.Column="0" Text="Store buffer" VerticalAlignment="Center" />
