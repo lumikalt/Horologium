@@ -29,15 +29,15 @@ public class CheckpointTests {
 
     [Fact]
     public void SingleCycle_SaveRestore_PcAndRegsMatch() {
-        FlatMemory mem1 = MakeMem(SimpleProgram);
-        var handle1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
+        FlatMemory mem1 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
         handle1.Run(1_000);
 
         using var ms = new MemoryStream();
         ArchitecturalCheckpoint.Save(ms, handle1.ArchState!, mem1, 100UL);
 
-        FlatMemory mem2 = MakeMem(SimpleProgram);
-        var handle2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
+        FlatMemory mem2 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
         ms.Position = 0;
         ArchitecturalCheckpoint.Load(ms).RestoreInto(handle2.ArchState!, mem2);
 
@@ -49,15 +49,15 @@ public class CheckpointTests {
 
     [Fact]
     public void FiveStage_SaveRestore_PcAndRegsMatch() {
-        FlatMemory mem1 = MakeMem(SimpleProgram);
-        var handle1 = new MachineSpec(new FiveStageSpec(), () => new Rv32Mechanism()).Build(mem1);
+        FlatMemory mem1 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle1 = new MachineSpec(new FiveStageSpec(), () => new Rv32Mechanism()).Build(mem1);
         handle1.Run(10_000);
 
         using var ms = new MemoryStream();
         ArchitecturalCheckpoint.Save(ms, handle1.ArchState!, mem1, 0UL);
 
-        FlatMemory mem2 = MakeMem(SimpleProgram);
-        var handle2 = new MachineSpec(new FiveStageSpec(), () => new Rv32Mechanism()).Build(mem2);
+        FlatMemory mem2 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle2 = new MachineSpec(new FiveStageSpec(), () => new Rv32Mechanism()).Build(mem2);
         ms.Position = 0;
         ArchitecturalCheckpoint.Load(ms).RestoreInto(handle2.ArchState!, mem2);
 
@@ -69,15 +69,15 @@ public class CheckpointTests {
 
     [Fact]
     public void OutOfOrder_SaveRestore_PcAndRegsMatch() {
-        FlatMemory mem1 = MakeMem(SimpleProgram);
-        var handle1 = new MachineSpec(new OutOfOrderSpec(), () => new Rv32Mechanism()).Build(mem1);
+        FlatMemory mem1 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle1 = new MachineSpec(new OutOfOrderSpec(), () => new Rv32Mechanism()).Build(mem1);
         handle1.Run(10_000);
 
         using var ms = new MemoryStream();
         ArchitecturalCheckpoint.Save(ms, handle1.ArchState!, mem1, 0UL);
 
-        FlatMemory mem2 = MakeMem(SimpleProgram);
-        var handle2 = new MachineSpec(new OutOfOrderSpec(), () => new Rv32Mechanism()).Build(mem2);
+        FlatMemory mem2 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle2 = new MachineSpec(new OutOfOrderSpec(), () => new Rv32Mechanism()).Build(mem2);
         ms.Position = 0;
         ArchitecturalCheckpoint.Load(ms).RestoreInto(handle2.ArchState!, mem2);
 
@@ -91,25 +91,25 @@ public class CheckpointTests {
 
     [Fact]
     public void CsrState_SurvivesRoundTrip() {
-        FlatMemory mem1 = MakeMem(SimpleProgram);
-        var handle1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
+        FlatMemory mem1 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
         handle1.Run(1_000);
         IArchState s1 = handle1.ArchState!;
 
         // Read a few CSRs from the live state.
-        ulong mcycle  = s1.SystemRegisters.Read(0xB00, s1.PrivilegeLevel); // mcycle
+        ulong mcycle = s1.SystemRegisters.Read(0xB00, s1.PrivilegeLevel);  // mcycle
         ulong mstatus = s1.SystemRegisters.Read(0x300, s1.PrivilegeLevel); // mstatus
 
         using var ms = new MemoryStream();
         ArchitecturalCheckpoint.Save(ms, s1, mem1, 0UL);
 
-        FlatMemory mem2 = MakeMem(SimpleProgram);
-        var handle2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
+        FlatMemory mem2 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
         ms.Position = 0;
         ArchitecturalCheckpoint.Load(ms).RestoreInto(handle2.ArchState!, mem2);
 
         IArchState s2 = handle2.ArchState!;
-        Assert.Equal(mcycle,  s2.SystemRegisters.Read(0xB00, s2.PrivilegeLevel));
+        Assert.Equal(mcycle, s2.SystemRegisters.Read(0xB00, s2.PrivilegeLevel));
         Assert.Equal(mstatus, s2.SystemRegisters.Read(0x300, s2.PrivilegeLevel));
     }
 
@@ -120,7 +120,7 @@ public class CheckpointTests {
         // Program: addi x1, x0, 42  →  sw x1, 256(x0)  →  ebreak
         byte[] prog = Encode(0x02a00093u, 0x10102023u, 0x00100073u);
         FlatMemory mem1 = MakeMem(prog);
-        var handle1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
+        MachineHandle handle1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
         handle1.Run(1_000);
 
         // mem1[256] should now contain 42 (written by sw).
@@ -130,7 +130,7 @@ public class CheckpointTests {
         ArchitecturalCheckpoint.Save(ms, handle1.ArchState!, mem1, 0UL);
 
         var mem2 = new FlatMemory(mem1.SizeBytes, mem1.BaseAddress);
-        var handle2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
+        MachineHandle handle2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
         ms.Position = 0;
         ArchitecturalCheckpoint.Load(ms).RestoreInto(handle2.ArchState!, mem2);
 
@@ -142,8 +142,8 @@ public class CheckpointTests {
 
     [Fact]
     public void FileSaveLoad_PcMatches() {
-        FlatMemory mem = MakeMem(SimpleProgram);
-        var handle = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem);
+        FlatMemory mem = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem);
         handle.Run(1_000);
 
         string path = Path.GetTempFileName();
@@ -152,9 +152,8 @@ public class CheckpointTests {
             ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(path);
             Assert.Equal(handle.ArchState!.Pc, chk.Pc);
             Assert.Equal(99UL, chk.Tick);
-        } finally {
-            File.Delete(path);
         }
+        finally { File.Delete(path); }
     }
 
     // ── Cross-pipeline checkpoint handoff ────────────────────────────────────
@@ -174,14 +173,14 @@ public class CheckpointTests {
 
         // Fast-forward with single-cycle, save.
         FlatMemory mem1 = MakeMem(prog);
-        var h1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
+        MachineHandle h1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
         h1.Run(1_000);
         using var ms = new MemoryStream();
         ArchitecturalCheckpoint.Save(ms, h1.ArchState!, mem1, 0UL);
 
         // Detailed run with OoO from the checkpoint.
-        FlatMemory mem2 = new FlatMemory(mem1.SizeBytes, mem1.BaseAddress);
-        var h2 = new MachineSpec(new OutOfOrderSpec(), () => new Rv32Mechanism()).Build(mem2);
+        var mem2 = new FlatMemory(mem1.SizeBytes, mem1.BaseAddress);
+        MachineHandle h2 = new MachineSpec(new OutOfOrderSpec(), () => new Rv32Mechanism()).Build(mem2);
         ms.Position = 0;
         ArchitecturalCheckpoint.Load(ms).RestoreInto(h2.ArchState!, mem2);
 
@@ -193,14 +192,14 @@ public class CheckpointTests {
 
     [Fact]
     public void Load_InvalidMagic_Throws() {
-        using var ms = new MemoryStream([0x01, 0x02, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]);
+        using var ms = new MemoryStream([0x01, 0x02, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00,]);
         Assert.Throws<CheckpointException>(() => ArchitecturalCheckpoint.Load(ms));
     }
 
     [Fact]
     public void RestoreInto_WrongMemorySize_Throws() {
-        FlatMemory mem1 = MakeMem(SimpleProgram);
-        var h1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
+        FlatMemory mem1 = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle h1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
         h1.Run(1_000);
 
         using var ms = new MemoryStream();
@@ -208,9 +207,9 @@ public class CheckpointTests {
 
         // mem2 has a different size — should throw.
         var mem2 = new FlatMemory(0x2000);
-        var h2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
+        MachineHandle h2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
         ms.Position = 0;
-        var chk = ArchitecturalCheckpoint.Load(ms);
+        ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(ms);
         Assert.Throws<CheckpointException>(() => chk.RestoreInto(h2.ArchState!, mem2));
     }
 }

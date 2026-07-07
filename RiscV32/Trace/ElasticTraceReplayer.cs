@@ -30,14 +30,16 @@ public static class ElasticTraceReplayer {
     public static ReplayResult Replay(IEnumerable<ElasticTraceRecord> records) {
         var completion = new Dictionary<ulong, ulong>();
         ulong criticalPath = 0;
-        long  count        = 0;
+        long count = 0;
 
         foreach (ElasticTraceRecord rec in records) {
             ulong readyAt = 0;
             foreach (ulong dep in rec.RobDeps)
-                if (completion.TryGetValue(dep, out ulong t) && t > readyAt) readyAt = t;
+                if (completion.TryGetValue(dep, out ulong t) && t > readyAt)
+                    readyAt = t;
             foreach (ulong dep in rec.AddrDeps)
-                if (completion.TryGetValue(dep, out ulong t) && t > readyAt) readyAt = t;
+                if (completion.TryGetValue(dep, out ulong t) && t > readyAt)
+                    readyAt = t;
 
             ulong done = readyAt + rec.CompDelay;
             completion[rec.SeqNo] = done;

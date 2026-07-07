@@ -32,13 +32,17 @@ public class RoiTests {
 
     private static (FlatMemory Mem, MachineHandle Handle) Make(PipelineSpec pipeline, ulong entryPoint = 0) {
         var mem = new FlatMemory(0x1000);
-        mem.Load(0, Program);
-        var handle = new MachineSpec(pipeline, () => new Rv32Mechanism()).Build(mem, entryPoint);
+        mem.Load(0, RoiTests.Program);
+        MachineHandle handle = new MachineSpec(pipeline, () => new Rv32Mechanism()).Build(mem, entryPoint);
         return (mem, handle);
     }
 
     // Drives the fast-forward step loop and returns (ticks, reached).
-    private static (long Ticks, bool Reached) FastForwardTo(MachineHandle handle, ulong targetPc, long limit = 100_000) {
+    private static (long Ticks, bool Reached) FastForwardTo(
+        MachineHandle handle,
+        ulong targetPc,
+        long limit = 100_000
+    ) {
         handle.Train.BeginStepping();
         long ticks = 0;
         bool reached = handle.Train.ArchState!.Pc == targetPc;
@@ -46,6 +50,7 @@ public class RoiTests {
             ticks++;
             reached = handle.Train.ArchState!.Pc == targetPc;
         }
+
         handle.Train.FinishStepping();
         return (ticks, reached);
     }
@@ -65,7 +70,7 @@ public class RoiTests {
         (long ticks, bool reached) = FastForwardTo(ffHandle, roiStart);
 
         Assert.True(reached, "Fast-forward should have reached roiStartPc");
-        Assert.Equal(2L, ticks);   // executed: addi x1 (→Pc=4), addi x2 (→Pc=8)
+        Assert.Equal(2L, ticks); // executed: addi x1 (→Pc=4), addi x2 (→Pc=8)
         Assert.Equal(roiStart, ffHandle.Train.ArchState!.Pc);
     }
 
@@ -73,7 +78,7 @@ public class RoiTests {
     public void FastForward_EntryEqualsRoi_ZeroSteps() {
         // When entry point IS the ROI start, no fast-forward steps occur.
         ulong roiStart = 0x00;
-        (FlatMemory mem, MachineHandle ffHandle) = Make(new SingleCycleSpec(), entryPoint: 0x00);
+        (FlatMemory mem, MachineHandle ffHandle) = Make(new SingleCycleSpec(), 0x00);
         (long ticks, bool reached) = FastForwardTo(ffHandle, roiStart);
 
         Assert.True(reached);
@@ -96,13 +101,12 @@ public class RoiTests {
 
         ArchitecturalCheckpoint chk = Checkpoint(ffHandle, ffMem, (ulong)ffTicks);
 
-        (FlatMemory detMem, MachineHandle detHandle) = Make(new SingleCycleSpec(), entryPoint: roiStart);
+        (FlatMemory detMem, MachineHandle detHandle) = Make(new SingleCycleSpec(), roiStart);
         chk.RestoreInto(detHandle.ArchState!, detMem);
         detHandle.Run(10_000);
 
         IRegisterFile detRegs = detHandle.ArchState!.IntegerRegisters;
-        for (var i = 1; i <= 4; i++)
-            Assert.Equal(refRegs.Read(i), detRegs.Read(i));
+        for (var i = 1; i <= 4; i++) Assert.Equal(refRegs.Read(i), detRegs.Read(i));
     }
 
     [Fact]
@@ -120,20 +124,19 @@ public class RoiTests {
 
         ArchitecturalCheckpoint chk = Checkpoint(ffHandle, ffMem, (ulong)ffTicks);
 
-        (FlatMemory detMem, MachineHandle detHandle) = Make(new OutOfOrderSpec(), entryPoint: roiStart);
+        (FlatMemory detMem, MachineHandle detHandle) = Make(new OutOfOrderSpec(), roiStart);
         chk.RestoreInto(detHandle.ArchState!, detMem);
         detHandle.Run(10_000);
 
         IRegisterFile detRegs = detHandle.ArchState!.IntegerRegisters;
-        for (var i = 1; i <= 4; i++)
-            Assert.Equal(refRegs.Read(i), detRegs.Read(i));
+        for (var i = 1; i <= 4; i++) Assert.Equal(refRegs.Read(i), detRegs.Read(i));
     }
 
     [Fact]
     public void RoiEnd_StopsBeforeEndSymbol() {
         // Layout: 0x00 addi x1,1 | 0x04 addi x2,2 (roiStart) | 0x08 addi x3,3 (roiEnd) | 0x0C addi x4,4
         ulong roiStart = 0x04;
-        ulong roiEnd   = 0x08;
+        ulong roiEnd = 0x08;
 
         // Fast-forward to roiStart
         (FlatMemory ffMem, MachineHandle ffHandle) = Make(new SingleCycleSpec());
@@ -143,20 +146,24 @@ public class RoiTests {
         ArchitecturalCheckpoint chk = Checkpoint(ffHandle, ffMem, (ulong)ffTicks);
 
         // Detailed phase — stop when Pc hits roiEnd
-        (FlatMemory detMem, MachineHandle detHandle) = Make(new SingleCycleSpec(), entryPoint: roiStart);
+        (FlatMemory detMem, MachineHandle detHandle) = Make(new SingleCycleSpec(), roiStart);
         chk.RestoreInto(detHandle.ArchState!, detMem);
 
         detHandle.Train.BeginStepping();
         long roiTicks = 0;
-        bool endReached = false;
+        var endReached = false;
         while (roiTicks < 100_000 && detHandle.Train.StepCycle()) {
             roiTicks++;
-            if (detHandle.Train.ArchState!.Pc == roiEnd) { endReached = true; break; }
+            if (detHandle.Train.ArchState!.Pc == roiEnd) {
+                endReached = true;
+                break;
+            }
         }
+
         detHandle.Train.FinishStepping();
 
         Assert.True(endReached);
-        Assert.Equal(1L, roiTicks);  // only addi x2 executed
+        Assert.Equal(1L, roiTicks); // only addi x2 executed
         IRegisterFile regs = detHandle.Train.ArchState!.IntegerRegisters;
         Assert.Equal(1UL, regs.Read(1)); // from fast-forward, restored
         Assert.Equal(2UL, regs.Read(2)); // executed in ROI

@@ -46,13 +46,27 @@ public sealed class PEventLog {
     public IReadOnlyDictionary<ulong, string> Disassembly => _disasm;
 
     public bool TryGetSourceValues(ulong instrId, out IReadOnlyList<int> regIdxs, out IReadOnlyList<ulong> values) {
-        if (_srcVals.TryGetValue(instrId, out var v)) { regIdxs = v.RegIdxs; values = v.Values; return true; }
-        regIdxs = []; values = []; return false;
+        if (_srcVals.TryGetValue(instrId, out (IReadOnlyList<int> RegIdxs, IReadOnlyList<ulong> Values) v)) {
+            regIdxs = v.RegIdxs;
+            values = v.Values;
+            return true;
+        }
+
+        regIdxs = [];
+        values = [];
+        return false;
     }
 
     public bool TryGetDestValue(ulong instrId, out int regIdx, out ulong value) {
-        if (_destVals.TryGetValue(instrId, out var v)) { regIdx = v.RegIdx; value = v.Value; return true; }
-        regIdx = -1; value = 0; return false;
+        if (_destVals.TryGetValue(instrId, out (int RegIdx, ulong Value) v)) {
+            regIdx = v.RegIdx;
+            value = v.Value;
+            return true;
+        }
+
+        regIdx = -1;
+        value = 0;
+        return false;
     }
 
     public IEnumerable<PEvent> ForInstruction(ulong instrId) =>
@@ -64,5 +78,10 @@ public sealed class PEventLog {
     public IEnumerable<PEvent> InCycleRange(long from, long to) =>
         _events.Where(e => e.Cycle >= from && e.Cycle <= to);
 
-    public void Reset() { _events.Clear(); _disasm.Clear(); _srcVals.Clear(); _destVals.Clear(); }
+    public void Reset() {
+        _events.Clear();
+        _disasm.Clear();
+        _srcVals.Clear();
+        _destVals.Clear();
+    }
 }

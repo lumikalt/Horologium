@@ -13,56 +13,56 @@ namespace Face.Controls;
 
 public sealed class WaterfallControl : Control {
     private const double DefaultCellW = 24;
-    private const double MinCellW     = 8;
-    private const double MaxCellW     = 96;
-    private const double DefaultRowH  = 22;
+    private const double MinCellW = 8;
+    private const double MaxCellW = 96;
+    private const double DefaultRowH = 22;
     private const double TextThreshold = 14; // below this cellW, hide all text
-    private double _cellW = DefaultCellW;
-    private double _rowH  = DefaultRowH;
-    private bool ShowText => _cellW >= TextThreshold;
+    private double _cellW = WaterfallControl.DefaultCellW;
+    private double _rowH = WaterfallControl.DefaultRowH;
+    private bool ShowText => _cellW >= WaterfallControl.TextThreshold;
     private const double HeaderH = 26;
-    private const double BarPad  = 2;   // inset on each edge of a bar
-    private const int    MaxRows = 500;
-    private const int    MaxCols = 800;
-    private const double ColPad  = 12;
+    private const double BarPad = 2; // inset on each edge of a bar
+    private const int MaxRows = 500;
+    private const int MaxCols = 800;
+    private const double ColPad = 12;
 
     private static readonly Typeface Mono = new("JetBrainsMono Nerd Font Mono, DejaVu Sans Mono, FreeMono");
 
     // ── Dark theme ─────────────────────────────────────────────────────────────
-    private static readonly IBrush DarkHeaderBg   = new SolidColorBrush(Color.Parse("#2A2A3E"));
-    private static readonly IBrush DarkRowBg0     = new SolidColorBrush(Color.Parse("#1C1C28"));
-    private static readonly IBrush DarkRowBg1     = new SolidColorBrush(Color.Parse("#22222F"));
-    private static readonly IBrush DarkLabelFg    = new SolidColorBrush(Color.Parse("#B0B0C8"));
-    private static readonly IBrush DarkHeaderFg   = new SolidColorBrush(Color.Parse("#E0E0F0"));
-    private static readonly IBrush DarkSpecPcFg   = new SolidColorBrush(Color.Parse("#8AAEC8"));
+    private static readonly IBrush DarkHeaderBg = new SolidColorBrush(Color.Parse("#2A2A3E"));
+    private static readonly IBrush DarkRowBg0 = new SolidColorBrush(Color.Parse("#1C1C28"));
+    private static readonly IBrush DarkRowBg1 = new SolidColorBrush(Color.Parse("#22222F"));
+    private static readonly IBrush DarkLabelFg = new SolidColorBrush(Color.Parse("#B0B0C8"));
+    private static readonly IBrush DarkHeaderFg = new SolidColorBrush(Color.Parse("#E0E0F0"));
+    private static readonly IBrush DarkSpecPcFg = new SolidColorBrush(Color.Parse("#8AAEC8"));
     private static readonly IBrush DarkStallHdrFg = new SolidColorBrush(Color.Parse("#606878"));
-    private static readonly IBrush DarkDisasmFg   = new SolidColorBrush(Color.Parse("#C8C8E8"));
-    private static readonly IBrush DarkSelRow     = new SolidColorBrush(Color.FromArgb(60, 100, 140, 255));
-    private static readonly IPen   DarkGridPen    = new Pen(new SolidColorBrush(Color.Parse("#3A3A52")), 0.5);
+    private static readonly IBrush DarkDisasmFg = new SolidColorBrush(Color.Parse("#C8C8E8"));
+    private static readonly IBrush DarkSelRow = new SolidColorBrush(Color.FromArgb(60, 100, 140, 255));
+    private static readonly IPen DarkGridPen = new Pen(new SolidColorBrush(Color.Parse("#3A3A52")), 0.5);
 
     // ── Light theme ────────────────────────────────────────────────────────────
-    private static readonly IBrush LightHeaderBg   = new SolidColorBrush(Color.Parse("#D8D8E8"));
-    private static readonly IBrush LightRowBg0     = new SolidColorBrush(Color.Parse("#F5F5FC"));
-    private static readonly IBrush LightRowBg1     = new SolidColorBrush(Color.Parse("#EDEDF8"));
-    private static readonly IBrush LightLabelFg    = new SolidColorBrush(Color.Parse("#404060"));
-    private static readonly IBrush LightHeaderFg   = new SolidColorBrush(Color.Parse("#1A1A30"));
-    private static readonly IBrush LightSpecPcFg   = new SolidColorBrush(Color.Parse("#3A6080"));
+    private static readonly IBrush LightHeaderBg = new SolidColorBrush(Color.Parse("#D8D8E8"));
+    private static readonly IBrush LightRowBg0 = new SolidColorBrush(Color.Parse("#F5F5FC"));
+    private static readonly IBrush LightRowBg1 = new SolidColorBrush(Color.Parse("#EDEDF8"));
+    private static readonly IBrush LightLabelFg = new SolidColorBrush(Color.Parse("#404060"));
+    private static readonly IBrush LightHeaderFg = new SolidColorBrush(Color.Parse("#1A1A30"));
+    private static readonly IBrush LightSpecPcFg = new SolidColorBrush(Color.Parse("#3A6080"));
     private static readonly IBrush LightStallHdrFg = new SolidColorBrush(Color.Parse("#888898"));
-    private static readonly IBrush LightDisasmFg   = new SolidColorBrush(Color.Parse("#303050"));
-    private static readonly IBrush LightSelRow     = new SolidColorBrush(Color.FromArgb(50, 60, 100, 220));
-    private static readonly IPen   LightGridPen    = new Pen(new SolidColorBrush(Color.Parse("#C0C0D4")), 0.5);
+    private static readonly IBrush LightDisasmFg = new SolidColorBrush(Color.Parse("#303050"));
+    private static readonly IBrush LightSelRow = new SolidColorBrush(Color.FromArgb(50, 60, 100, 220));
+    private static readonly IPen LightGridPen = new Pen(new SolidColorBrush(Color.Parse("#C0C0D4")), 0.5);
 
-    private static readonly IBrush FlushHdrBg  = new SolidColorBrush(Color.Parse("#6B2020"));
+    private static readonly IBrush FlushHdrBg = new SolidColorBrush(Color.Parse("#6B2020"));
     private static readonly IBrush FlushColTint = new SolidColorBrush(Color.FromArgb(45, 200, 60, 60));
 
     private static readonly Dictionary<PEventKind, (IBrush Bg, string Label)> KindStyle = new() {
-        [PEventKind.Fetch]    = (new SolidColorBrush(Color.Parse("#4A7EC7")), "F"),
-        [PEventKind.Decode]   = (new SolidColorBrush(Color.Parse("#1A9490")), "Dc"),
+        [PEventKind.Fetch] = (new SolidColorBrush(Color.Parse("#4A7EC7")), "F"),
+        [PEventKind.Decode] = (new SolidColorBrush(Color.Parse("#1A9490")), "Dc"),
         [PEventKind.Dispatch] = (new SolidColorBrush(Color.Parse("#2EA5A0")), "Ds"),
-        [PEventKind.Issue]    = (new SolidColorBrush(Color.Parse("#8A6BD4")), "Is"),
-        [PEventKind.Execute]  = (new SolidColorBrush(Color.Parse("#C87A2A")), "Ex"),
-        [PEventKind.Retire]   = (new SolidColorBrush(Color.Parse("#4AB04A")), "Cm"),
-        [PEventKind.Flush]    = (new SolidColorBrush(Color.Parse("#C45050")), "Fl"),
+        [PEventKind.Issue] = (new SolidColorBrush(Color.Parse("#8A6BD4")), "Is"),
+        [PEventKind.Execute] = (new SolidColorBrush(Color.Parse("#C87A2A")), "Ex"),
+        [PEventKind.Retire] = (new SolidColorBrush(Color.Parse("#4AB04A")), "Cm"),
+        [PEventKind.Flush] = (new SolidColorBrush(Color.Parse("#C45050")), "Fl"),
     };
 
     private static readonly Dictionary<(string, double, IBrush), FormattedText> FtCache = new();
@@ -78,55 +78,53 @@ public sealed class WaterfallControl : Control {
         AvaloniaProperty.Register<WaterfallControl, WaterfallRow?>(nameof(SelectedRow));
 
     public WaterfallData? Data {
-        get => GetValue(DataProperty);
-        set => SetValue(DataProperty, value);
+        get => GetValue(WaterfallControl.DataProperty);
+        set => SetValue(WaterfallControl.DataProperty, value);
     }
 
     public bool IsDark {
-        get => GetValue(IsDarkProperty);
-        set => SetValue(IsDarkProperty, value);
+        get => GetValue(WaterfallControl.IsDarkProperty);
+        set => SetValue(WaterfallControl.IsDarkProperty, value);
     }
 
     public WaterfallRow? SelectedRow {
-        get => GetValue(SelectedRowProperty);
-        set => SetValue(SelectedRowProperty, value);
+        get => GetValue(WaterfallControl.SelectedRowProperty);
+        set => SetValue(WaterfallControl.SelectedRowProperty, value);
     }
 
     // Gutter column widths — computed in MeasureOverride. Collapsed when text is hidden.
     private double _instrIdColW = 48;
-    private double _pcColW      = 80;
-    private double _disasmColW  = 160;
+    private double _pcColW = 80;
+    private double _disasmColW = 160;
     private double GutterW => ShowText ? _instrIdColW + _pcColW + _disasmColW : 0;
 
     static WaterfallControl() {
-        DataProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => {
-            c.InvalidateMeasure();
-            c.InvalidateVisual();
-        });
-        IsDarkProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => c.InvalidateVisual());
-        SelectedRowProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => c.InvalidateVisual());
+        WaterfallControl.DataProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => {
+                c.InvalidateMeasure();
+                c.InvalidateVisual();
+            }
+        );
+        WaterfallControl.IsDarkProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => c.InvalidateVisual());
+        WaterfallControl.SelectedRowProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => c.InvalidateVisual());
     }
 
-    public WaterfallControl() {
-        Focusable = false;
-    }
+    public WaterfallControl() => Focusable = false;
 
     protected override Size MeasureOverride(Size availableSize) {
         WaterfallData? data = Data;
-        if (data is null || data.Rows.Count == 0)
-            return new Size(200, HeaderH + _rowH);
+        if (data is null || data.Rows.Count == 0) return new Size(200, WaterfallControl.HeaderH + _rowH);
         ComputeColumnWidths(data);
-        int  rows = Math.Min(data.Rows.Count, MaxRows);
-        long cols = Math.Min(data.MaxCycle - data.MinCycle + 2, MaxCols);
-        return new Size(GutterW + cols * _cellW, HeaderH + rows * _rowH);
+        int rows = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
+        long cols = Math.Min(data.MaxCycle - data.MinCycle + 2, WaterfallControl.MaxCols);
+        return new Size(GutterW + cols * _cellW, WaterfallControl.HeaderH + rows * _rowH);
     }
 
     private void ComputeColumnWidths(WaterfallData data) {
-        string widestId  = "ID";
+        var widestId = "ID";
         double widestPcW = MeasureFtWidth("PC", 10.5);
         double widestDsW = MeasureFtWidth("Instruction", 10.5);
-        ulong  basePc    = data.BasePc;
-        int    limit     = Math.Min(data.Rows.Count, MaxRows);
+        ulong basePc = data.BasePc;
+        int limit = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
 
         for (var i = 0; i < limit; i++) {
             WaterfallRow row = data.Rows[i];
@@ -141,28 +139,31 @@ public sealed class WaterfallControl : Control {
             if (dsW > widestDsW) widestDsW = dsW;
         }
 
-        _instrIdColW = MeasureFtWidth(widestId, widestId == "ID" ? 10.5 : 10) + ColPad;
-        _pcColW      = widestPcW + ColPad;
-        _disasmColW  = Math.Min(widestDsW + ColPad, 280); // cap at 280 px
+        _instrIdColW = MeasureFtWidth(widestId, widestId == "ID" ? 10.5 : 10) + WaterfallControl.ColPad;
+        _pcColW = widestPcW + WaterfallControl.ColPad;
+        _disasmColW = Math.Min(widestDsW + WaterfallControl.ColPad, 280); // cap at 280 px
     }
 
     private static double MeasureFtWidth(string text, double size) {
-        (string, double, IBrush) key = (text, size, DarkLabelFg);
-        if (!FtCache.TryGetValue(key, out FormattedText? ft)) {
-            ft = new FormattedText(text, CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight, Mono, size, DarkLabelFg);
-            FtCache[key] = ft;
+        (string, double, IBrush) key = (text, size, WaterfallControl.DarkLabelFg);
+        if (!WaterfallControl.FtCache.TryGetValue(key, out FormattedText? ft)) {
+            ft = new FormattedText(
+                text, CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight, WaterfallControl.Mono, size, WaterfallControl.DarkLabelFg
+            );
+            WaterfallControl.FtCache[key] = ft;
         }
+
         return ft.Width;
     }
 
-    public void ZoomIn()    => SetCellW(_cellW * 1.25);
-    public void ZoomOut()   => SetCellW(_cellW / 1.25);
-    public void ZoomReset() => SetCellW(DefaultCellW);
+    public void ZoomIn() => SetCellW(_cellW * 1.25);
+    public void ZoomOut() => SetCellW(_cellW / 1.25);
+    public void ZoomReset() => SetCellW(WaterfallControl.DefaultCellW);
 
     private void SetCellW(double newW) {
-        _cellW = Math.Clamp(newW, MinCellW, MaxCellW);
-        _rowH  = DefaultRowH * _cellW / DefaultCellW;
+        _cellW = Math.Clamp(newW, WaterfallControl.MinCellW, WaterfallControl.MaxCellW);
+        _rowH = WaterfallControl.DefaultRowH * _cellW / WaterfallControl.DefaultCellW;
         InvalidateMeasure();
         InvalidateVisual();
     }
@@ -170,9 +171,9 @@ public sealed class WaterfallControl : Control {
     // ── Input ─────────────────────────────────────────────────────────────────
     public WaterfallRow? GetRowAt(Point localPt) {
         WaterfallData? data = Data;
-        if (data is null || localPt.Y < HeaderH) return null;
-        int r = (int)((localPt.Y - HeaderH) / _rowH);
-        if (r < 0 || r >= Math.Min(data.Rows.Count, MaxRows)) return null;
+        if (data is null || localPt.Y < WaterfallControl.HeaderH) return null;
+        var r = (int)((localPt.Y - WaterfallControl.HeaderH) / _rowH);
+        if (r < 0 || r >= Math.Min(data.Rows.Count, WaterfallControl.MaxRows)) return null;
         return data.Rows[r];
     }
 
@@ -194,98 +195,105 @@ public sealed class WaterfallControl : Control {
     }
 
     private void RenderCore(DrawingContext ctx, WaterfallData data) {
-        bool   dark      = IsDark;
-        IBrush headerBg  = dark ? DarkHeaderBg   : LightHeaderBg;
-        IBrush rowBg0    = dark ? DarkRowBg0     : LightRowBg0;
-        IBrush rowBg1    = dark ? DarkRowBg1     : LightRowBg1;
-        IBrush labelFg   = dark ? DarkLabelFg    : LightLabelFg;
-        IBrush headerFg  = dark ? DarkHeaderFg   : LightHeaderFg;
-        IBrush specPcFg  = dark ? DarkSpecPcFg   : LightSpecPcFg;
-        IBrush stallHdrFg= dark ? DarkStallHdrFg : LightStallHdrFg;
-        IBrush disasmFg  = dark ? DarkDisasmFg   : LightDisasmFg;
-        IBrush selRowBg  = dark ? DarkSelRow      : LightSelRow;
-        IPen   gridPen   = dark ? DarkGridPen     : LightGridPen;
+        bool dark = IsDark;
+        IBrush headerBg = dark ? WaterfallControl.DarkHeaderBg : WaterfallControl.LightHeaderBg;
+        IBrush rowBg0 = dark ? WaterfallControl.DarkRowBg0 : WaterfallControl.LightRowBg0;
+        IBrush rowBg1 = dark ? WaterfallControl.DarkRowBg1 : WaterfallControl.LightRowBg1;
+        IBrush labelFg = dark ? WaterfallControl.DarkLabelFg : WaterfallControl.LightLabelFg;
+        IBrush headerFg = dark ? WaterfallControl.DarkHeaderFg : WaterfallControl.LightHeaderFg;
+        IBrush specPcFg = dark ? WaterfallControl.DarkSpecPcFg : WaterfallControl.LightSpecPcFg;
+        IBrush stallHdrFg = dark ? WaterfallControl.DarkStallHdrFg : WaterfallControl.LightStallHdrFg;
+        IBrush disasmFg = dark ? WaterfallControl.DarkDisasmFg : WaterfallControl.LightDisasmFg;
+        IBrush selRowBg = dark ? WaterfallControl.DarkSelRow : WaterfallControl.LightSelRow;
+        IPen gridPen = dark ? WaterfallControl.DarkGridPen : WaterfallControl.LightGridPen;
 
-        double gutterW  = GutterW;
-        int    numRows  = Math.Min(data.Rows.Count, MaxRows);
-        long   numCols  = Math.Min(data.MaxCycle - data.MinCycle + 2, MaxCols);
-        double totalW   = gutterW + numCols * _cellW;
-        double totalH   = HeaderH + numRows * _rowH;
-        long   minCy    = data.MinCycle;
+        double gutterW = GutterW;
+        int numRows = Math.Min(data.Rows.Count, WaterfallControl.MaxRows);
+        long numCols = Math.Min(data.MaxCycle - data.MinCycle + 2, WaterfallControl.MaxCols);
+        double totalW = gutterW + numCols * _cellW;
+        double totalH = WaterfallControl.HeaderH + numRows * _rowH;
+        long minCy = data.MinCycle;
 
         ScrollViewer? sv = this.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
         double sx = sv?.Offset.X ?? 0;
         double sy = sv?.Offset.Y ?? 0;
-        double vw = sv?.Viewport.Width  ?? totalW;
+        double vw = sv?.Viewport.Width ?? totalW;
         double vh = sv?.Viewport.Height ?? totalH;
 
-        int  rFirst = Math.Max(0, (int)((sy - HeaderH) / _rowH));
-        int  rLast  = Math.Min(numRows - 1, (int)((sy + vh - HeaderH) / _rowH) + 1);
+        int rFirst = Math.Max(0, (int)((sy - WaterfallControl.HeaderH) / _rowH));
+        int rLast = Math.Min(numRows - 1, (int)((sy + vh - WaterfallControl.HeaderH) / _rowH) + 1);
         long cFirst = Math.Max(0L, (long)((sx - gutterW) / _cellW) - 1);
-        long cLast  = Math.Min(numCols - 1, (long)((sx + vw - gutterW) / _cellW) + 1);
+        long cLast = Math.Min(numCols - 1, (long)((sx + vw - gutterW) / _cellW) + 1);
 
         // ── Row backgrounds ────────────────────────────────────────────────────
         for (int r = rFirst; r <= rLast; r++) {
-            double rowY = HeaderH + r * _rowH;
-            IBrush bg   = r % 2 == 0 ? rowBg0 : rowBg1;
+            double rowY = WaterfallControl.HeaderH + r * _rowH;
+            IBrush bg = r % 2 == 0 ? rowBg0 : rowBg1;
             ctx.DrawRectangle(bg, null, new Rect(0, rowY, totalW, _rowH));
             if (SelectedRow is { } sel && data.Rows[r] == sel)
                 ctx.DrawRectangle(selRowBg, null, new Rect(0, rowY, totalW, _rowH));
         }
 
         // ── Flush column tint ──────────────────────────────────────────────────
-        double colTintTop = HeaderH + rFirst * _rowH;
-        double colTintH   = (rLast - rFirst + 1) * _rowH;
+        double colTintTop = WaterfallControl.HeaderH + rFirst * _rowH;
+        double colTintH = (rLast - rFirst + 1) * _rowH;
         for (long c = cFirst; c <= cLast; c++)
             if (data.FlushCycles.Contains(minCy + c)) {
                 double cx = gutterW + c * _cellW;
-                ctx.DrawRectangle(FlushColTint, null, new Rect(cx, colTintTop, _cellW, colTintH));
+                ctx.DrawRectangle(WaterfallControl.FlushColTint, null, new Rect(cx, colTintTop, _cellW, colTintH));
             }
 
         // ── Stage bars ────────────────────────────────────────────────────────
         bool showText = ShowText;
-        double barPad = showText ? BarPad : Math.Min(BarPad, _rowH / 5);
+        double barPad = showText ? WaterfallControl.BarPad : Math.Min(WaterfallControl.BarPad, _rowH / 5);
         for (int r = rFirst; r <= rLast; r++) {
-            WaterfallRow row   = data.Rows[r];
-            double       rowY  = HeaderH + r * _rowH;
+            WaterfallRow row = data.Rows[r];
+            double rowY = WaterfallControl.HeaderH + r * _rowH;
             bool flushed = row.Spans.Count > 0 && row.Spans[^1].Stage == PEventKind.Flush;
 
-            if (flushed) { using var dim = ctx.PushOpacity(0.38); DrawSpans(); }
-            else          { DrawSpans(); }
+            if (flushed) {
+                using DrawingContext.PushedState dim = ctx.PushOpacity(0.38);
+                DrawSpans();
+            }
+            else { DrawSpans(); }
 
             void DrawSpans() {
                 foreach (PSpan span in row.Spans) {
-                    if (!KindStyle.TryGetValue(span.Stage, out var style)) continue;
+                    if (!WaterfallControl.KindStyle.TryGetValue(span.Stage, out (IBrush Bg, string Label) style))
+                        continue;
 
                     long spanCStart = span.Start - minCy;
-                    long spanCEnd   = span.End   - minCy; // exclusive
+                    long spanCEnd = span.End - minCy; // exclusive
                     if (spanCEnd <= cFirst || spanCStart > cLast) continue;
 
-                    double barX  = gutterW + spanCStart * _cellW;
-                    double barW  = (spanCEnd - spanCStart) * _cellW;
+                    double barX = gutterW + spanCStart * _cellW;
+                    double barW = (spanCEnd - spanCStart) * _cellW;
                     double barXc = Math.Max(barX, gutterW + cFirst * _cellW); // clip to viewport
                     double barWc = barX + barW - barXc;
                     if (barWc <= 0) continue;
 
-                    double barH   = _rowH - barPad * 2;
+                    double barH = _rowH - barPad * 2;
                     double radius = Math.Min(3.0, barH / 3.0);
                     ctx.DrawRectangle(
                         style.Bg, null,
                         new Rect(barXc + barPad, rowY + barPad, barWc - barPad * 2, barH),
-                        radius, radius);
+                        radius, radius
+                    );
 
                     // Label — only if text is enabled and the bar's starting cell is visible.
                     // avail is capped to one cell so the number never bleeds into the next cell.
-                    if (showText && barXc <= barX + BarPad) {
-                        double labelX    = barX + BarPad + 3;
-                        double cellAvail = _cellW - 2 * BarPad - 3;
+                    if (showText && barXc <= barX + WaterfallControl.BarPad) {
+                        double labelX = barX + WaterfallControl.BarPad + 3;
+                        double cellAvail = _cellW - 2 * WaterfallControl.BarPad - 3;
                         if (cellAvail > 6) {
                             string abbr = style.Label;
                             string full = span.Duration > 1 ? $"{abbr} {span.Duration}" : abbr;
-                            string lbl  = cellAvail >= MeasureFtWidth(full, 9.5) ? full :
-                                          cellAvail >= MeasureFtWidth(abbr, 9.5) ? abbr : "";
+                            string lbl = cellAvail >= MeasureFtWidth(full, 9.5) ? full :
+                                cellAvail >= MeasureFtWidth(abbr, 9.5)          ? abbr : "";
                             if (lbl.Length > 0)
-                                DrawFt(ctx, lbl, Brushes.White, 9.5, new Point(labelX, rowY + BarPad + 3));
+                                DrawFt(
+                                    ctx, lbl, Brushes.White, 9.5, new Point(labelX, rowY + WaterfallControl.BarPad + 3)
+                                );
                         }
                     }
                 }
@@ -294,9 +302,10 @@ public sealed class WaterfallControl : Control {
 
         // ── Grid lines ────────────────────────────────────────────────────────
         for (int r = rFirst + 1; r <= rLast + 1; r++) {
-            double y = HeaderH + r * _rowH;
+            double y = WaterfallControl.HeaderH + r * _rowH;
             ctx.DrawLine(gridPen, new Point(gutterW, y), new Point(totalW, y));
         }
+
         if (cLast - cFirst <= 200)
             for (long c = cFirst; c <= cLast + 1; c++) {
                 double x = gutterW + c * _cellW;
@@ -304,42 +313,50 @@ public sealed class WaterfallControl : Control {
             }
 
         // ── Sticky header ─────────────────────────────────────────────────────
-        ctx.DrawRectangle(headerBg, null, new Rect(sx, sy, vw, HeaderH));
+        ctx.DrawRectangle(headerBg, null, new Rect(sx, sy, vw, WaterfallControl.HeaderH));
         for (long c = cFirst; c <= cLast; c++) {
-            long   cycle = minCy + c;
-            double cx    = gutterW + c * _cellW;
+            long cycle = minCy + c;
+            double cx = gutterW + c * _cellW;
             if (cx + _cellW <= sx + gutterW) continue;
             bool isFlush = data.FlushCycles.Contains(cycle);
             bool isStall = data.FetchStallCycles.Contains(cycle);
             if (isFlush)
-                ctx.DrawRectangle(FlushHdrBg, null, new Rect(cx, sy, _cellW, HeaderH));
+                ctx.DrawRectangle(
+                    WaterfallControl.FlushHdrBg, null, new Rect(cx, sy, _cellW, WaterfallControl.HeaderH)
+                );
             if (showText) {
                 IBrush cycleFg = isFlush ? Brushes.White : isStall ? stallHdrFg : headerFg;
                 DrawFt(ctx, $"C{cycle}", cycleFg, 8.5, new Point(cx + 2, sy + 7));
             }
         }
-        ctx.DrawLine(gridPen, new Point(sx, sy + HeaderH), new Point(sx + vw, sy + HeaderH));
+
+        ctx.DrawLine(
+            gridPen, new Point(sx, sy + WaterfallControl.HeaderH), new Point(sx + vw, sy + WaterfallControl.HeaderH)
+        );
 
         // ── Sticky gutter (hidden when text is suppressed) ────────────────────
         if (showText) {
-            ulong  basePc  = data.BasePc;
+            ulong basePc = data.BasePc;
             double disasmX = _instrIdColW + _pcColW;
             for (int r = rFirst; r <= rLast; r++) {
-                WaterfallRow row  = data.Rows[r];
-                double       rowY = HeaderH + r * _rowH;
+                WaterfallRow row = data.Rows[r];
+                double rowY = WaterfallControl.HeaderH + r * _rowH;
                 bool flushed = row.Spans.Count > 0 && row.Spans[^1].Stage == PEventKind.Flush;
                 ctx.DrawRectangle(r % 2 == 0 ? rowBg0 : rowBg1, null, new Rect(sx, rowY, gutterW, _rowH));
                 if (SelectedRow is { } sel && data.Rows[r] == sel)
                     ctx.DrawRectangle(selRowBg, null, new Rect(sx, rowY, gutterW, _rowH));
 
-                if (flushed) { using var dim = ctx.PushOpacity(0.38); DrawGutterText(); }
-                else          { DrawGutterText(); }
+                if (flushed) {
+                    using DrawingContext.PushedState dim = ctx.PushOpacity(0.38);
+                    DrawGutterText();
+                }
+                else { DrawGutterText(); }
 
                 void DrawGutterText() {
                     DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 4));
 
-                    var    pcStr = $"{row.Pc - basePc:X}";
-                    double pcX   = sx + _instrIdColW + 4;
+                    var pcStr = $"{row.Pc - basePc:X}";
+                    double pcX = sx + _instrIdColW + 4;
                     DrawFt(ctx, pcStr, labelFg, 10, new Point(pcX, rowY + 4));
                     if (row.SpecPc != row.Pc) {
                         double slashX = pcX + MeasureFtWidth(pcStr, 10);
@@ -347,45 +364,55 @@ public sealed class WaterfallControl : Control {
                     }
 
                     // Disassembly — clipped to column width.
-                    using (ctx.PushClip(new Rect(sx + disasmX, rowY, _disasmColW, _rowH)))
+                    using (ctx.PushClip(new Rect(sx + disasmX, rowY, _disasmColW, _rowH))) {
                         DrawFt(ctx, row.Disassembly, disasmFg, 10, new Point(sx + disasmX + 4, rowY + 4));
+                    }
                 }
             }
+
             ctx.DrawLine(gridPen, new Point(sx + gutterW, sy), new Point(sx + gutterW, sy + vh));
 
             // ── Sticky corner ─────────────────────────────────────────────────
-            ctx.DrawRectangle(headerBg, null, new Rect(sx, sy, gutterW, HeaderH));
-            DrawFt(ctx, "ID",          headerFg, 10.5, new Point(sx + 4, sy + 6));
-            DrawFt(ctx, "PC",          headerFg, 10.5, new Point(sx + _instrIdColW + 6, sy + 6));
+            ctx.DrawRectangle(headerBg, null, new Rect(sx, sy, gutterW, WaterfallControl.HeaderH));
+            DrawFt(ctx, "ID", headerFg, 10.5, new Point(sx + 4, sy + 6));
+            DrawFt(ctx, "PC", headerFg, 10.5, new Point(sx + _instrIdColW + 6, sy + 6));
             DrawFt(ctx, "Instruction", headerFg, 10.5, new Point(sx + disasmX + 4, sy + 6));
-            ctx.DrawLine(gridPen, new Point(sx + _instrIdColW, sy), new Point(sx + _instrIdColW, sy + HeaderH));
-            ctx.DrawLine(gridPen, new Point(sx + disasmX, sy),      new Point(sx + disasmX, sy + HeaderH));
-            ctx.DrawLine(gridPen, new Point(sx + gutterW, sy),      new Point(sx + gutterW, sy + HeaderH));
-            ctx.DrawLine(gridPen, new Point(sx, sy + HeaderH),      new Point(sx + gutterW, sy + HeaderH));
+            ctx.DrawLine(
+                gridPen, new Point(sx + _instrIdColW, sy), new Point(sx + _instrIdColW, sy + WaterfallControl.HeaderH)
+            );
+            ctx.DrawLine(gridPen, new Point(sx + disasmX, sy), new Point(sx + disasmX, sy + WaterfallControl.HeaderH));
+            ctx.DrawLine(gridPen, new Point(sx + gutterW, sy), new Point(sx + gutterW, sy + WaterfallControl.HeaderH));
+            ctx.DrawLine(
+                gridPen, new Point(sx, sy + WaterfallControl.HeaderH),
+                new Point(sx + gutterW, sy + WaterfallControl.HeaderH)
+            );
         }
     }
 
     // ── Headless PNG export ────────────────────────────────────────────────────
     public static void RenderToFile(WaterfallData data, bool isDark, string path) {
-        var ctrl = new WaterfallControl { Data = data, IsDark = isDark };
+        var ctrl = new WaterfallControl { Data = data, IsDark = isDark, };
         ctrl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         ctrl.Arrange(new Rect(ctrl.DesiredSize));
         Size sz = ctrl.DesiredSize;
         using var bitmap = new RenderTargetBitmap(
             new PixelSize((int)Math.Ceiling(sz.Width), (int)Math.Ceiling(sz.Height)),
-            new Vector(96, 96));
+            new Vector(96, 96)
+        );
         bitmap.Render(ctrl);
         bitmap.Save(path);
     }
 
     private static void DrawFt(DrawingContext ctx, string text, IBrush fg, double size, Point origin) {
         (string text, double size, IBrush fg) key = (text, size, fg);
-        if (!FtCache.TryGetValue(key, out FormattedText? ft)) {
-            ft = new FormattedText(text, CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight, Mono, size, fg);
-            FtCache[key] = ft;
+        if (!WaterfallControl.FtCache.TryGetValue(key, out FormattedText? ft)) {
+            ft = new FormattedText(
+                text, CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight, WaterfallControl.Mono, size, fg
+            );
+            WaterfallControl.FtCache[key] = ft;
         }
+
         ctx.DrawText(ft, origin);
     }
 }
-

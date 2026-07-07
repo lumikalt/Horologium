@@ -49,7 +49,7 @@ public sealed class MachineHandle {
     /// The hart's committed architectural state. Null for multi-hart trains.
     /// Use with <see cref="Mechanism.ArchitecturalCheckpoint"/> to save and restore state.
     /// </summary>
-    public Mechanism.IArchState? ArchState => _train.ArchState;
+    public IArchState? ArchState => _train.ArchState;
 
     /// <summary>Runs the train for up to <paramref name="maxTicks"/> ticks.</summary>
     public RevolutionResult Run(long maxTicks = long.MaxValue, long warmupTicks = 0, long snapshotInterval = 0)
@@ -98,8 +98,8 @@ public sealed record MachineSpec(
             ulong mmioSize = mmioRegion?.Size ?? 0;
 
             bool splitId = cache.Paths is { } paths &&
-                           paths.TryGetValue(CacheHierarchySpec.I, out var iPath) &&
-                           paths.TryGetValue(CacheHierarchySpec.D, out var dPath) &&
+                           paths.TryGetValue(CacheHierarchySpec.I, out CachePathSpec? iPath) &&
+                           paths.TryGetValue(CacheHierarchySpec.D, out CachePathSpec? dPath) &&
                            !ReferenceEquals(iPath, dPath);
 
             if (splitId) {
@@ -107,7 +107,8 @@ public sealed record MachineSpec(
                 MemoryLayers dLayers = cache.BuildDLayers(backing, mmioBase, mmioSize);
                 ISteppableTrain train = Pipeline.Build(mechanism, iLayers, dLayers, entryPoint);
                 return new MachineHandle(train, iLayers, dLayers);
-            } else {
+            }
+            else {
                 MemoryLayers layers = cache.BuildDLayers(backing, mmioBase, mmioSize);
                 ISteppableTrain train = Pipeline.Build(mechanism, layers.Accessor, entryPoint);
                 return new MachineHandle(train, layers);

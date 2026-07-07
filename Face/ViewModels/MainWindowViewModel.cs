@@ -297,10 +297,11 @@ public partial class MainWindowViewModel : ObservableObject {
                 PEvent? fetchEv = g.Where(e => e.Kind == PEventKind.Fetch)
                                    .Select(e => (PEvent?)e)
                                    .FirstOrDefault();
-                ulong pc       = fetchEv?.Pc ?? g.First().Pc;
-                ulong specPc   = fetchEv is { } fe && fetchPcPerCycle.TryGetValue(fe.Cycle, out ulong fpc)
-                    ? fpc : pc;
-                string disasm  = plog.Disassembly.TryGetValue(g.Key, out string? d) ? d : $"0x{pc:X}";
+                ulong pc = fetchEv?.Pc ?? g.First().Pc;
+                ulong specPc = fetchEv is { } fe && fetchPcPerCycle.TryGetValue(fe.Cycle, out ulong fpc)
+                    ? fpc
+                    : pc;
+                string disasm = plog.Disassembly.TryGetValue(g.Key, out string? d) ? d : $"0x{pc:X}";
 
                 // Collapse multiple events at the same cycle (Flush wins, then by priority).
                 var byKey = new Dictionary<long, PEventKind>();
@@ -311,16 +312,16 @@ public partial class MainWindowViewModel : ObservableObject {
 
                 // Build ordered spans. Flush terminates the instruction — drop anything after it.
                 List<(long Cycle, PEventKind Kind)> ordered = byKey
-                    .OrderBy(kv => kv.Key)
-                    .Select(kv => (kv.Key, kv.Value))
-                    .ToList();
+                                                             .OrderBy(kv => kv.Key)
+                                                             .Select(kv => (kv.Key, kv.Value))
+                                                             .ToList();
                 int flushIdx = ordered.FindIndex(t => t.Kind == PEventKind.Flush);
                 if (flushIdx >= 0) ordered = ordered[..(flushIdx + 1)];
 
                 var spans = new List<PSpan>(ordered.Count);
-                for (int i = 0; i < ordered.Count; i++) {
+                for (var i = 0; i < ordered.Count; i++) {
                     long start = ordered[i].Cycle;
-                    long end   = i + 1 < ordered.Count ? ordered[i + 1].Cycle : start + 1;
+                    long end = i + 1 < ordered.Count ? ordered[i + 1].Cycle : start + 1;
                     spans.Add(new PSpan(ordered[i].Kind, start, end));
                 }
 
@@ -330,11 +331,10 @@ public partial class MainWindowViewModel : ObservableObject {
             }
         ).ToList();
 
-        if (rows.Count == 0)
-            return new WaterfallData(rows, 0, 0, fetchPcPerCycle, flushCycles, fetchStallCycles, 0);
+        if (rows.Count == 0) return new WaterfallData(rows, 0, 0, fetchPcPerCycle, flushCycles, fetchStallCycles, 0);
 
-        long minCy   = rows.SelectMany(r => r.Spans).Min(s => s.Start);
-        long maxCy   = rows.SelectMany(r => r.Spans).Max(s => s.End - 1);
+        long minCy = rows.SelectMany(r => r.Spans).Min(s => s.Start);
+        long maxCy = rows.SelectMany(r => r.Spans).Max(s => s.End - 1);
         ulong basePc = rows.Min(r => Math.Min(r.Pc, r.SpecPc));
 
         return new WaterfallData(rows, minCy, maxCy, fetchPcPerCycle, flushCycles, fetchStallCycles, basePc);

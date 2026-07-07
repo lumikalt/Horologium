@@ -16,20 +16,21 @@ namespace Script;
 /// </summary>
 public static class ScriptHost {
     private static readonly ScriptOptions CSharpOptions = ScriptOptions.Default
-        .AddReferences(
-            typeof(IMemory).Assembly,             // Mechanism
-            typeof(MachineSpec).Assembly,         // Pipeline
-            typeof(Rv32Mechanism).Assembly,       // RiscV32
-            typeof(SetAssociativeCache).Assembly  // Orrery (includes Orrery.Spec)
-        )
-        .AddImports(
-            "System",
-            "Mechanism",
-            "Pipeline.Spec",
-            "Orrery.Spec",
-            "Orrery.Cache",
-            "RiscV32"
-        );
+                                                                       .AddReferences(
+                                                                            typeof(IMemory).Assembly,       // Mechanism
+                                                                            typeof(MachineSpec).Assembly,   // Pipeline
+                                                                            typeof(Rv32Mechanism).Assembly, // RiscV32
+                                                                            typeof(SetAssociativeCache)
+                                                                               .Assembly // Orrery (includes Orrery.Spec)
+                                                                        )
+                                                                       .AddImports(
+                                                                            "System",
+                                                                            "Mechanism",
+                                                                            "Pipeline.Spec",
+                                                                            "Orrery.Spec",
+                                                                            "Orrery.Cache",
+                                                                            "RiscV32"
+                                                                        );
 
     /// <summary>
     /// Evaluates <paramref name="scriptPath"/> (.csx or .fsx) and returns the resulting <see cref="MachineSpec"/>.
@@ -48,7 +49,7 @@ public static class ScriptHost {
         string source,
         CancellationToken ct = default
     ) {
-        object? raw = await CSharpScript.EvaluateAsync(source, CSharpOptions, cancellationToken: ct);
+        object? raw = await CSharpScript.EvaluateAsync(source, ScriptHost.CSharpOptions, cancellationToken: ct);
         if (raw is not MachineSpec spec)
             throw new ScriptException(
                 $"Script must return a MachineSpec, got {raw?.GetType().Name ?? "null"}."

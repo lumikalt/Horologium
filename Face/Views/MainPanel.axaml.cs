@@ -39,8 +39,10 @@ public partial class MainPanel : UserControl {
             // Attach a tunneling key handler at TopLevel so zoom works regardless of which
             // child control holds focus.
             TopLevel.GetTopLevel(this)
-                    ?.AddHandler(InputElement.KeyDownEvent, OnGlobalKeyDown,
-                                 RoutingStrategies.Tunnel);
+                   ?.AddHandler(
+                         InputElement.KeyDownEvent, OnGlobalKeyDown,
+                         RoutingStrategies.Tunnel
+                     );
         };
     }
 
@@ -49,14 +51,21 @@ public partial class MainPanel : UserControl {
         if (Vm?.IsPEventsTab != true || WaterfallCtrl.Data is null) return;
         // Don't intercept when a text entry control is focused.
         if (TopLevel.GetTopLevel(this)?.FocusManager.GetFocusedElement()
-                is TextBox or NumericUpDown) return;
+            is TextBox or NumericUpDown)
+            return;
         switch (e.Key) {
             case Key.OemPlus or Key.Add:
-                WaterfallCtrl.ZoomIn();  e.Handled = true; break;
+                WaterfallCtrl.ZoomIn();
+                e.Handled = true;
+                break;
             case Key.OemMinus or Key.Subtract:
-                WaterfallCtrl.ZoomOut(); e.Handled = true; break;
+                WaterfallCtrl.ZoomOut();
+                e.Handled = true;
+                break;
             case Key.OemQuestion or Key.Divide:
-                WaterfallCtrl.ZoomReset(); e.Handled = true; break;
+                WaterfallCtrl.ZoomReset();
+                e.Handled = true;
+                break;
         }
     }
 
@@ -93,20 +102,20 @@ public partial class MainPanel : UserControl {
         double canvasH = InstrOverlay.Bounds.Height;
 
         double left = Math.Clamp(cursorInCanvas.X + offsetX, 0, Math.Max(0, canvasW - cardW));
-        double top  = Math.Clamp(cursorInCanvas.Y + offsetY, 0, Math.Max(0, canvasH - cardH));
+        double top = Math.Clamp(cursorInCanvas.Y + offsetY, 0, Math.Max(0, canvasH - cardH));
 
         Canvas.SetLeft(InstrCard, left);
-        Canvas.SetTop(InstrCard,  top);
+        Canvas.SetTop(InstrCard, top);
     }
 
     private void PopulateCard(WaterfallRow row) {
-        PopupPcLine.Text     = $"PC: 0x{row.Pc:X}";
+        PopupPcLine.Text = $"PC: 0x{row.Pc:X}";
         PopupDisasmLine.Text = row.Disassembly;
 
         var sb = new System.Text.StringBuilder();
         foreach (PSpan s in row.Spans.Where(s => s.Stage != PEventKind.FetchStall)) {
-            string name  = StageName(s.Stage);
-            var dur   = $"{s.Duration} cycle{(s.Duration == 1 ? "" : "s")}";
+            string name = StageName(s.Stage);
+            var dur = $"{s.Duration} cycle{(s.Duration == 1 ? "" : "s")}";
             var range = $"[{s.Start}–{s.End - 1}]";
             sb.AppendLine($"{name,-10}  {dur,-12}  {range}");
         }
@@ -119,8 +128,9 @@ public partial class MainPanel : UserControl {
                 sb.AppendLine($"  {AbiName(r),-4} = 0x{row.SrcVals[i]:X8}");
             }
         }
+
         if (row.DestReg > 0) {
-            if (row.SrcRegs is not { Count: > 0 }) sb.AppendLine();
+            if (row.SrcRegs is not { Count: > 0, }) sb.AppendLine();
             sb.AppendLine($"  {AbiName(row.DestReg),-4} ← 0x{row.DestVal:X8}");
         }
 
@@ -139,14 +149,14 @@ public partial class MainPanel : UserControl {
         };
 
         static string AbiName(int r) => r switch {
-            0  => "zero", 1  => "ra",  2  => "sp",  3  => "gp",
-            4  => "tp",   5  => "t0",  6  => "t1",  7  => "t2",
-            8  => "s0",   9  => "s1",  10 => "a0",  11 => "a1",
-            12 => "a2",  13 => "a3",  14 => "a4",  15 => "a5",
-            16 => "a6",  17 => "a7",  18 => "s2",  19 => "s3",
-            20 => "s4",  21 => "s5",  22 => "s6",  23 => "s7",
-            24 => "s8",  25 => "s9",  26 => "s10", 27 => "s11",
-            28 => "t3",  29 => "t4",  30 => "t5",  31 => "t6",
+            0  => "zero", 1 => "ra", 2  => "sp", 3   => "gp",
+            4  => "tp", 5   => "t0", 6  => "t1", 7   => "t2",
+            8  => "s0", 9   => "s1", 10 => "a0", 11  => "a1",
+            12 => "a2", 13  => "a3", 14 => "a4", 15  => "a5",
+            16 => "a6", 17  => "a7", 18 => "s2", 19  => "s3",
+            20 => "s4", 21  => "s5", 22 => "s6", 23  => "s7",
+            24 => "s8", 25  => "s9", 26 => "s10", 27 => "s11",
+            28 => "t3", 29  => "t4", 30 => "t5", 31  => "t6",
             _  => $"x{r}",
         };
     }

@@ -31,10 +31,10 @@ namespace RiscV32.Trace;
 /// </para>
 /// </summary>
 public static class Gem5FetchTraceConverter {
-    private const uint MagicNumber   = 0x356d6567;
+    private const uint MagicNumber = 0x356d6567;
     private const uint MemCmdReadReq = 1;
     private const uint InstFetchFlag = 0x100; // Request::INST_FETCH
-    private const uint FetchBytes    = 4;     // RV32 fixed-width
+    private const uint FetchBytes = 4;        // RV32 fixed-width
 
     /// <summary>
     /// Converts a HELF stream to a gem5 packet-proto fetch-trace stream.
@@ -46,19 +46,25 @@ public static class Gem5FetchTraceConverter {
     /// TraceCPU only needs a monotonic sequence; exact spacing does not affect
     /// execution timing (driven by the elastic data trace).
     /// </param>
-    public static long Convert(Stream input, Stream output,
-                               ulong tickFreq = 0, ulong ticksPerInstr = 500) {
+    public static long Convert(
+        Stream input,
+        Stream output,
+        ulong tickFreq = 0,
+        ulong ticksPerInstr = 500
+    ) {
         using var reader = new ElasticTraceReader(input);
         ulong freq = tickFreq > 0 ? tickFreq
-                   : (reader.TickFreq > 0 ? reader.TickFreq : 1_000_000_000);
+            : reader.TickFreq > 0 ? reader.TickFreq : 1_000_000_000;
 
-        WriteLittleEndian32(output, MagicNumber);
+        WriteLittleEndian32(output, Gem5FetchTraceConverter.MagicNumber);
 
         // PacketHeader: obj_id (field 1), tick_freq (field 3)
-        WriteMessage(output, w => {
-            WriteTaggedString(w, 1, "gem5.fetch_trace");
-            WriteTaggedVarint(w, 3, freq);
-        });
+        WriteMessage(
+            output, w => {
+                WriteTaggedString(w, 1, "gem5.fetch_trace");
+                WriteTaggedVarint(w, 3, freq);
+            }
+        );
 
         long count = 0;
         ulong tick = ticksPerInstr;
@@ -68,24 +74,25 @@ public static class Gem5FetchTraceConverter {
             tick += ticksPerInstr;
             count++;
         }
+
         return count;
     }
 
     private static void WriteFetchPacket(BinaryWriter w, ElasticTraceRecord rec, ulong tick) {
-        WriteTaggedVarint(w, 1, tick);          // tick
-        WriteTaggedVarint(w, 2, MemCmdReadReq); // cmd = ReadReq
-        WriteTaggedVarint(w, 3, rec.Pc);        // addr = PC (no V→P)
-        WriteTaggedVarint(w, 4, FetchBytes);    // size = 4
-        WriteTaggedVarint(w, 5, InstFetchFlag); // flags = INST_FETCH
+        WriteTaggedVarint(w, 1, tick);                                  // tick
+        WriteTaggedVarint(w, 2, Gem5FetchTraceConverter.MemCmdReadReq); // cmd = ReadReq
+        WriteTaggedVarint(w, 3, rec.Pc);                                // addr = PC (no V→P)
+        WriteTaggedVarint(w, 4, Gem5FetchTraceConverter.FetchBytes);    // size = 4
+        WriteTaggedVarint(w, 5, Gem5FetchTraceConverter.InstFetchFlag); // flags = INST_FETCH
         // field 6 (pkt_id): omitted
-        WriteTaggedVarint(w, 7, rec.Pc);        // pc = same as addr
+        WriteTaggedVarint(w, 7, rec.Pc); // pc = same as addr
     }
 
     // ── gem5 framing ─────────────────────────────────────────────────────────
 
     private static void WriteLittleEndian32(Stream s, uint value) {
         Span<byte> buf = stackalloc byte[4];
-        buf[0] = (byte)(value);
+        buf[0] = (byte)value;
         buf[1] = (byte)(value >> 8);
         buf[2] = (byte)(value >> 16);
         buf[3] = (byte)(value >> 24);
@@ -94,8 +101,8 @@ public static class Gem5FetchTraceConverter {
 
     private static void WriteMessage(Stream output, Action<BinaryWriter> body) {
         using var msgBuf = new MemoryStream();
-        using (var msgWriter = new BinaryWriter(msgBuf, System.Text.Encoding.UTF8, leaveOpen: true))
-            body(msgWriter);
+        using (var msgWriter = new BinaryWriter(msgBuf, System.Text.Encoding.UTF8, true)) { body(msgWriter); }
+
         byte[] bytes = msgBuf.ToArray();
         WriteVarintToStream(output, (ulong)bytes.Length);
         output.Write(bytes);
@@ -103,11 +110,12 @@ public static class Gem5FetchTraceConverter {
 
     private static void WriteVarintToStream(Stream s, ulong value) {
         Span<byte> buf = stackalloc byte[10];
-        int len = 0;
+        var len = 0;
         while (value > 0x7F) {
             buf[len++] = (byte)(value | 0x80);
             value >>= 7;
         }
+
         buf[len++] = (byte)value;
         s.Write(buf[..len]);
     }
@@ -131,6 +139,7 @@ public static class Gem5FetchTraceConverter {
             w.Write((byte)(value | 0x80));
             value >>= 7;
         }
+
         w.Write((byte)value);
     }
 }

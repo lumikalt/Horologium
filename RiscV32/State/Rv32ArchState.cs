@@ -94,10 +94,12 @@ public class Rv32ArchState : IArchState {
     /// Saves all present CSRs (via DirectRead), VRF (32 × 16 bytes), and UVE scalar state.
     /// UVE store-stream cursors and pending config are transient mid-stream state and are not saved.
     /// </summary>
-    public void WriteState(System.IO.BinaryWriter w) {
+    public void WriteState(BinaryWriter w) {
         // CSRs: write count then (address, value) pairs for all present entries.
-        int count = 0;
-        for (uint a = 0; a < 4096; a++) if (CsrFile.Exists(a)) count++;
+        var count = 0;
+        for (uint a = 0; a < 4096; a++)
+            if (CsrFile.Exists(a))
+                count++;
         w.Write(count);
         for (uint a = 0; a < 4096; a++) {
             if (!CsrFile.Exists(a)) continue;
@@ -121,7 +123,7 @@ public class Rv32ArchState : IArchState {
     }
 
     /// <summary>Restores state written by <see cref="WriteState"/>.</summary>
-    public void ReadState(System.IO.BinaryReader r) {
+    public void ReadState(BinaryReader r) {
         int count = r.ReadInt32();
         for (var i = 0; i < count; i++) {
             uint addr = r.ReadUInt32();

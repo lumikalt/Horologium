@@ -916,6 +916,7 @@ internal sealed class OoOPipelineCore : Gear {
                         PEventLog.RecordSourceValues(issuedInstrId, srcRegs, srcVals);
                     }
                 }
+
                 iq.Free(slot);
                 classIssued[fuSlot]++;
                 issued++;

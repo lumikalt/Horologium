@@ -26,8 +26,10 @@ public class StfTraceTests {
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
         using var ms = new MemoryStream();
-        using (var writer = new StfTraceWriter(mech.Decoder, tracing, ms, entryPoint))
+        using (var writer = new StfTraceWriter(mech.Decoder, tracing, ms, entryPoint)) {
             new SingleCycleTrain(mech, tracing, entryPoint, commitObserver: writer).Run(100_000);
+        }
+
         return ms.ToArray();
     }
 
@@ -38,24 +40,27 @@ public class StfTraceTests {
         while (br.BaseStream.Position < br.BaseStream.Length) {
             byte desc = br.ReadByte();
             byte[] payload = desc switch {
-                0x01 => br.ReadBytes(3),            // IDENTIFIER: 'S','T','F'
-                0x02 => br.ReadBytes(8),            // VERSION: uint32+uint32
-                0x04 => br.ReadBytes(4),            // ISA: uint32
-                0x05 => br.ReadBytes(2),            // INST_IEM: uint16
-                0x06 => ReadTraceInfo(br),          // TRACE_INFO: variable length
-                0x07 => br.ReadBytes(8),            // TRACE_INFO_FEATURE: uint64
-                0x09 => br.ReadBytes(8),            // FORCE_PC: uint64
-                0x13 => [],                         // END_HEADER: no payload
-                0x1F => br.ReadBytes(8),            // INST_PC_TARGET: uint64
-                0x28 => br.ReadBytes(11),           // INST_REG: uint16+uint8+uint64
-                0x3C => br.ReadBytes(13),           // INST_MEM_ACCESS: uint64+uint16+uint16+uint8
-                0x3D => br.ReadBytes(8),            // INST_MEM_CONTENT: uint64
-                0xF0 => br.ReadBytes(4),            // INST_OPCODE32: uint32
-                0xF1 => br.ReadBytes(2),            // INST_OPCODE16: uint16
-                _    => throw new InvalidDataException($"Unknown STF descriptor 0x{desc:X2} at offset {br.BaseStream.Position - 1}")
+                0x01 => br.ReadBytes(3),   // IDENTIFIER: 'S','T','F'
+                0x02 => br.ReadBytes(8),   // VERSION: uint32+uint32
+                0x04 => br.ReadBytes(4),   // ISA: uint32
+                0x05 => br.ReadBytes(2),   // INST_IEM: uint16
+                0x06 => ReadTraceInfo(br), // TRACE_INFO: variable length
+                0x07 => br.ReadBytes(8),   // TRACE_INFO_FEATURE: uint64
+                0x09 => br.ReadBytes(8),   // FORCE_PC: uint64
+                0x13 => [],                // END_HEADER: no payload
+                0x1F => br.ReadBytes(8),   // INST_PC_TARGET: uint64
+                0x28 => br.ReadBytes(11),  // INST_REG: uint16+uint8+uint64
+                0x3C => br.ReadBytes(13),  // INST_MEM_ACCESS: uint64+uint16+uint16+uint8
+                0x3D => br.ReadBytes(8),   // INST_MEM_CONTENT: uint64
+                0xF0 => br.ReadBytes(4),   // INST_OPCODE32: uint32
+                0xF1 => br.ReadBytes(2),   // INST_OPCODE16: uint16
+                _ => throw new InvalidDataException(
+                    $"Unknown STF descriptor 0x{desc:X2} at offset {br.BaseStream.Position - 1}"
+                ),
             };
             records.Add((desc, payload));
         }
+
         return records;
     }
 
@@ -67,12 +72,12 @@ public class StfTraceTests {
         data.Add((byte)(len & 0xFF));
         data.Add((byte)(len >> 8));
         if (len > 0) data.AddRange(br.ReadBytes(len));
-        return [.. data];
+        return [.. data,];
     }
 
     // Read a uint64 LE from a payload byte array.
     private static ulong ReadU64(byte[] b, int offset = 0) => BitConverter.ToUInt64(b, offset);
-    private static uint  ReadU32(byte[] b, int offset = 0) => BitConverter.ToUInt32(b, offset);
+    private static uint ReadU32(byte[] b, int offset = 0) => BitConverter.ToUInt32(b, offset);
     private static ushort ReadU16(byte[] b, int offset = 0) => BitConverter.ToUInt16(b, offset);
 
     // ── Header ────────────────────────────────────────────────────────────────
@@ -80,16 +85,16 @@ public class StfTraceTests {
     [Fact]
     public void Header_Identifier_Is_STF() {
         byte[] stf = RunProgram(Encode(0x00100073u)); // ebreak
-        var records = ParseStf(stf);
-        var id = records.First(r => r.Desc == 0x01);
-        Assert.Equal(new byte[] { (byte)'S', (byte)'T', (byte)'F' }, id.Payload);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
+        (byte Desc, byte[] Payload) id = records.First(r => r.Desc == 0x01);
+        Assert.Equal(new byte[] { (byte)'S', (byte)'T', (byte)'F', }, id.Payload);
     }
 
     [Fact]
     public void Header_Version_Is_1_5() {
         byte[] stf = RunProgram(Encode(0x00100073u));
-        var records = ParseStf(stf);
-        var ver = records.First(r => r.Desc == 0x02);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
+        (byte Desc, byte[] Payload) ver = records.First(r => r.Desc == 0x02);
         Assert.Equal(1u, ReadU32(ver.Payload, 0)); // major
         Assert.Equal(5u, ReadU32(ver.Payload, 4)); // minor
     }
@@ -97,42 +102,42 @@ public class StfTraceTests {
     [Fact]
     public void Header_ISA_Is_RISCV() {
         byte[] stf = RunProgram(Encode(0x00100073u));
-        var records = ParseStf(stf);
-        var isa = records.First(r => r.Desc == 0x04);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
+        (byte Desc, byte[] Payload) isa = records.First(r => r.Desc == 0x04);
         Assert.Equal(1u, ReadU32(isa.Payload)); // RISCV=1
     }
 
     [Fact]
     public void Header_IEM_Is_RV32() {
         byte[] stf = RunProgram(Encode(0x00100073u));
-        var records = ParseStf(stf);
-        var iem = records.First(r => r.Desc == 0x05);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
+        (byte Desc, byte[] Payload) iem = records.First(r => r.Desc == 0x05);
         Assert.Equal((ushort)1, ReadU16(iem.Payload)); // RV32=1
     }
 
     [Fact]
     public void Header_TraceInfoFeature_Contains_OperandValue() {
         byte[] stf = RunProgram(Encode(0x00100073u));
-        var records = ParseStf(stf);
-        var feat = records.First(r => r.Desc == 0x07);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
+        (byte Desc, byte[] Payload) feat = records.First(r => r.Desc == 0x07);
         ulong features = ReadU64(feat.Payload);
         Assert.True((features & 0x04UL) != 0, "STF_CONTAIN_OPERAND_VALUE (0x04) must be set");
     }
 
     [Fact]
     public void Header_ForcePC_Matches_EntryPoint() {
-        byte[] stf = RunProgram(Encode(0x00100073u), entryPoint: 0x1000);
-        var records = ParseStf(stf);
-        var fpc = records.First(r => r.Desc == 0x09);
+        byte[] stf = RunProgram(Encode(0x00100073u), 0x1000);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
+        (byte Desc, byte[] Payload) fpc = records.First(r => r.Desc == 0x09);
         Assert.Equal(0x1000UL, ReadU64(fpc.Payload));
     }
 
     [Fact]
     public void Header_Ends_With_EndHeader() {
         byte[] stf = RunProgram(Encode(0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         // END_HEADER (0x13) must appear exactly once, after all other header records.
-        var endIdx = records.FindIndex(r => r.Desc == 0x13);
+        int endIdx = records.FindIndex(r => r.Desc == 0x13);
         Assert.True(endIdx >= 0, "END_HEADER (0x13) not found");
         // Instruction records follow after it.
         // All header records (0x01..0x13) must precede END_HEADER.
@@ -148,8 +153,8 @@ public class StfTraceTests {
         //  addi x2, x0, 2    0x00200113
         //  ebreak             0x00100073
         byte[] stf = RunProgram(Encode(0x00100093u, 0x00200113u, 0x00100073u));
-        var records = ParseStf(stf);
-        var opcodes = records.Where(r => r.Desc == 0xF0).ToList();
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> opcodes = records.Where(r => r.Desc == 0xF0).ToList();
         Assert.Equal(2, opcodes.Count); // ebreak never commits
         Assert.Equal(0x00100093u, ReadU32(opcodes[0].Payload));
         Assert.Equal(0x00200113u, ReadU32(opcodes[1].Payload));
@@ -167,6 +172,7 @@ public class StfTraceTests {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
             count = writer.Count;
         }
+
         Assert.Equal(2, count); // addi x1 + addi x2; ebreak is halt
     }
 
@@ -177,22 +183,22 @@ public class StfTraceTests {
         // addi x1, x0, 5 → x1 = 5 after commit
         // Encoding: imm=5, rs1=0, rd=1, funct3=0, opcode=0x13 → 0x00500093
         byte[] stf = RunProgram(Encode(0x00500093u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
 
         // Find instruction records (after END_HEADER)
         int endIdx = records.FindIndex(r => r.Desc == 0x13);
-        var instrRecords = records.Skip(endIdx + 1).ToList();
+        List<(byte Desc, byte[] Payload)> instrRecords = records.Skip(endIdx + 1).ToList();
 
-        var regRecords = instrRecords.Where(r => r.Desc == 0x28).ToList();
+        List<(byte Desc, byte[] Payload)> regRecords = instrRecords.Where(r => r.Desc == 0x28).ToList();
         // addi x0-source is skipped; only dest x1 is emitted
         Assert.Single(regRecords);
 
-        var destReg = regRecords[0];
-        ushort packed   = ReadU16(destReg.Payload, 0);
-        byte   metadata = destReg.Payload[2];
-        ulong  value    = ReadU64(destReg.Payload, 3);
+        (byte Desc, byte[] Payload) destReg = regRecords[0];
+        ushort packed = ReadU16(destReg.Payload, 0);
+        byte metadata = destReg.Payload[2];
+        ulong value = ReadU64(destReg.Payload, 3);
 
-        Assert.Equal(1, packed);    // x1
+        Assert.Equal(1, packed); // x1
         // metadata: (DEST<<4 | INTEGER) = (3<<4 | 1) = 0x31
         Assert.Equal(0x31, metadata);
         Assert.Equal(5UL, value);
@@ -206,25 +212,25 @@ public class StfTraceTests {
         //   = (1<<20)|(1<<15)|(3<<7)|0x33 = 0x00100000|0x00008000|0x00000180|0x33 = 0x001081B3
         // ebreak
         byte[] stf = RunProgram(Encode(0x00300093u, 0x001081B3u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         int endIdx = records.FindIndex(r => r.Desc == 0x13);
-        var instrRecords = records.Skip(endIdx + 1).ToList();
+        List<(byte Desc, byte[] Payload)> instrRecords = records.Skip(endIdx + 1).ToList();
 
         // Second instruction's records: between first OPCODE32 and second OPCODE32
         int op1 = instrRecords.FindIndex(r => r.Desc == 0xF0);
         int op2 = instrRecords.FindIndex(op1 + 1, r => r.Desc == 0xF0);
-        var secondInstrRecords = instrRecords.Skip(op1 + 1).Take(op2 - op1 - 1).ToList();
+        List<(byte Desc, byte[] Payload)> secondInstrRecords = instrRecords.Skip(op1 + 1).Take(op2 - op1 - 1).ToList();
 
-        var regRecords = secondInstrRecords.Where(r => r.Desc == 0x28).ToList();
+        List<(byte Desc, byte[] Payload)> regRecords = secondInstrRecords.Where(r => r.Desc == 0x28).ToList();
         // add x3, x1, x1: source x1 (appears twice as rs1 and rs2) + dest x3
         // SourceRegisters = [1, 1], DestinationRegister = 3
         // Both source records emitted (even if duplicated), plus one dest
         Assert.True(regRecords.Count >= 2, $"Expected at least 2 REG records, got {regRecords.Count}");
 
         // At least one source record (operand_type=SOURCE, upper nibble=2)
-        Assert.Contains(regRecords, r => (r.Payload[2] >> 4) == 2); // SOURCE
+        Assert.Contains(regRecords, r => r.Payload[2] >> 4 == 2); // SOURCE
         // Dest record (operand_type=DEST, upper nibble=3)
-        var destRecs = regRecords.Where(r => (r.Payload[2] >> 4) == 3).ToList();
+        List<(byte Desc, byte[] Payload)> destRecs = regRecords.Where(r => r.Payload[2] >> 4 == 3).ToList();
         Assert.Single(destRecs);
         Assert.Equal(3, ReadU16(destRecs[0].Payload, 0)); // x3
     }
@@ -233,15 +239,15 @@ public class StfTraceTests {
     public void X0_Source_Is_Skipped() {
         // addi x1, x0, 1 — x0 is source but must be skipped
         byte[] stf = RunProgram(Encode(0x00100093u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         int endIdx = records.FindIndex(r => r.Desc == 0x13);
-        var instrRecords = records.Skip(endIdx + 1).ToList();
+        List<(byte Desc, byte[] Payload)> instrRecords = records.Skip(endIdx + 1).ToList();
         int op1 = instrRecords.FindIndex(r => r.Desc == 0xF0);
-        var firstInstrRegs = instrRecords.Take(op1).Where(r => r.Desc == 0x28).ToList();
+        List<(byte Desc, byte[] Payload)> firstInstrRegs = instrRecords.Take(op1).Where(r => r.Desc == 0x28).ToList();
 
         // No source records (x0 skipped); only dest x1
         Assert.All(firstInstrRegs, r => Assert.Equal(3, r.Payload[2] >> 4)); // all DEST
-        var srcRecs = firstInstrRegs.Where(r => (r.Payload[2] >> 4) == 2).ToList();
+        List<(byte Desc, byte[] Payload)> srcRecs = firstInstrRegs.Where(r => r.Payload[2] >> 4 == 2).ToList();
         Assert.Empty(srcRecs);
     }
 
@@ -251,7 +257,7 @@ public class StfTraceTests {
     public void Sequential_Instructions_Emit_No_PC_Target() {
         // addi x1, x0, 1 → addi x2, x0, 2 → ebreak (no branches)
         byte[] stf = RunProgram(Encode(0x00100093u, 0x00200113u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         Assert.DoesNotContain(records, r => r.Desc == 0x1F);
     }
 
@@ -263,12 +269,12 @@ public class StfTraceTests {
         // addi x2, x0, 2   — executed (at pc=8)
         // ebreak            — halt (at pc=12)
         byte[] stf = RunProgram(Encode(0x00000463u, 0x00100093u, 0x00200113u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
 
         // Find PC_TARGET records among instruction records
         int endIdx = records.FindIndex(r => r.Desc == 0x13);
-        var instrRecords = records.Skip(endIdx + 1).ToList();
-        var pcTargets = instrRecords.Where(r => r.Desc == 0x1F).ToList();
+        List<(byte Desc, byte[] Payload)> instrRecords = records.Skip(endIdx + 1).ToList();
+        List<(byte Desc, byte[] Payload)> pcTargets = instrRecords.Where(r => r.Desc == 0x1F).ToList();
 
         Assert.Single(pcTargets); // exactly one taken branch
         ulong target = ReadU64(pcTargets[0].Payload);
@@ -279,9 +285,9 @@ public class StfTraceTests {
     public void PC_Target_Precedes_Opcode_For_Its_Instruction() {
         // beq x0, x0, +8 → PC_TARGET must come before OPCODE32 in the same instruction group
         byte[] stf = RunProgram(Encode(0x00000463u, 0x00100093u, 0x00200113u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         int endIdx = records.FindIndex(r => r.Desc == 0x13);
-        var instrRecords = records.Skip(endIdx + 1).ToList();
+        List<(byte Desc, byte[] Payload)> instrRecords = records.Skip(endIdx + 1).ToList();
 
         int pcTargetIdx = instrRecords.FindIndex(r => r.Desc == 0x1F);
         int firstOpcodeIdx = instrRecords.FindIndex(r => r.Desc == 0xF0);
@@ -297,21 +303,21 @@ public class StfTraceTests {
         // sw x1, 0(x2)      (0x00112023) — store word x1 to [x2+0]
         // ebreak             (0x00100073)
         byte[] stf = RunProgram(Encode(0x10000113u, 0x02A00093u, 0x00112023u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         int endIdx = records.FindIndex(r => r.Desc == 0x13);
-        var instrRecords = records.Skip(endIdx + 1).ToList();
+        List<(byte Desc, byte[] Payload)> instrRecords = records.Skip(endIdx + 1).ToList();
 
-        var memAccess  = instrRecords.Where(r => r.Desc == 0x3C).ToList();
-        var memContent = instrRecords.Where(r => r.Desc == 0x3D).ToList();
+        List<(byte Desc, byte[] Payload)> memAccess = instrRecords.Where(r => r.Desc == 0x3C).ToList();
+        List<(byte Desc, byte[] Payload)> memContent = instrRecords.Where(r => r.Desc == 0x3D).ToList();
 
         Assert.Single(memAccess);
         Assert.Single(memContent);
 
         // MEM_ACCESS: address=256, size=4, attr=0, type=WRITE(2)
-        ulong addr  = ReadU64(memAccess[0].Payload, 0);
+        ulong addr = ReadU64(memAccess[0].Payload, 0);
         ushort size = ReadU16(memAccess[0].Payload, 8);
         ushort attr = ReadU16(memAccess[0].Payload, 10);
-        byte type   = memAccess[0].Payload[12];
+        byte type = memAccess[0].Payload[12];
         Assert.Equal(256UL, addr);
         Assert.Equal((ushort)4, size);
         Assert.Equal((ushort)0, attr);
@@ -330,11 +336,11 @@ public class StfTraceTests {
         // lw   x3, 0(x2)    (0x00012183) — load from addr 256
         // ebreak             (0x00100073)
         byte[] stf = RunProgram(Encode(0x10000113u, 0x06300093u, 0x00112023u, 0x00012183u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         int endIdx = records.FindIndex(r => r.Desc == 0x13);
-        var instrRecords = records.Skip(endIdx + 1).ToList();
+        List<(byte Desc, byte[] Payload)> instrRecords = records.Skip(endIdx + 1).ToList();
 
-        var memAccesses = instrRecords.Where(r => r.Desc == 0x3C).ToList();
+        List<(byte Desc, byte[] Payload)> memAccesses = instrRecords.Where(r => r.Desc == 0x3C).ToList();
         // Two mem accesses: one store + one load
         Assert.Equal(2, memAccesses.Count);
 
@@ -346,7 +352,7 @@ public class StfTraceTests {
         Assert.Equal(256UL, ReadU64(memAccesses[1].Payload, 0));
 
         // Load data matches stored value (99)
-        var memContents = instrRecords.Where(r => r.Desc == 0x3D).ToList();
+        List<(byte Desc, byte[] Payload)> memContents = instrRecords.Where(r => r.Desc == 0x3D).ToList();
         Assert.Equal(2, memContents.Count);
         Assert.Equal(99UL, ReadU64(memContents[1].Payload));
     }
@@ -354,14 +360,15 @@ public class StfTraceTests {
     [Fact]
     public void MemContent_Immediately_Follows_MemAccess() {
         byte[] stf = RunProgram(Encode(0x10000113u, 0x02A00093u, 0x00112023u, 0x00100073u));
-        var records = ParseStf(stf);
+        List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         int endIdx = records.FindIndex(r => r.Desc == 0x13);
-        var instrRecords = records.Skip(endIdx + 1).ToList();
+        List<(byte Desc, byte[] Payload)> instrRecords = records.Skip(endIdx + 1).ToList();
 
-        int accessIdx  = instrRecords.FindIndex(r => r.Desc == 0x3C);
+        int accessIdx = instrRecords.FindIndex(r => r.Desc == 0x3C);
         int contentIdx = instrRecords.FindIndex(r => r.Desc == 0x3D);
-        Assert.True(accessIdx >= 0 && contentIdx == accessIdx + 1,
-            "MEM_CONTENT must immediately follow MEM_ACCESS");
+        Assert.True(
+            accessIdx >= 0 && contentIdx == accessIdx + 1,
+            "MEM_CONTENT must immediately follow MEM_ACCESS"
+        );
     }
 }
-

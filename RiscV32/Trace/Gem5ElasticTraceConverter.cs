@@ -42,9 +42,9 @@ public static class Gem5ElasticTraceConverter {
     private const uint MagicNumber = 0x356d6567;
 
     // gem5 RecordType enum values (from inst_dep_record.proto)
-    private const uint Gem5Load  = 1;
+    private const uint Gem5Load = 1;
     private const uint Gem5Store = 2;
-    private const uint Gem5Comp  = 3;
+    private const uint Gem5Comp = 3;
 
     /// <summary>
     /// Converts a HELF stream to a gem5 inst_dep_record proto stream.
@@ -57,22 +57,25 @@ public static class Gem5ElasticTraceConverter {
     /// </param>
     public static long Convert(Stream input, Stream output, ulong tickFreq = 0) {
         using var reader = new ElasticTraceReader(input);
-        ulong freq = tickFreq > 0 ? tickFreq : (reader.TickFreq > 0 ? reader.TickFreq : 1_000_000_000);
+        ulong freq = tickFreq > 0 ? tickFreq : reader.TickFreq > 0 ? reader.TickFreq : 1_000_000_000;
 
         // gem5 ProtoOutputStream writes a 4-byte LE magic number before any messages.
-        WriteLittleEndian32(output, MagicNumber);
+        WriteLittleEndian32(output, Gem5ElasticTraceConverter.MagicNumber);
 
         // InstDepRecordHeader: obj_id (field 1), tick_freq (field 3)
-        WriteMessage(output, w => {
-            WriteTaggedString(w, 1, "gem5.elastic_data_trace");
-            WriteTaggedVarint(w, 3, freq);
-        });
+        WriteMessage(
+            output, w => {
+                WriteTaggedString(w, 1, "gem5.elastic_data_trace");
+                WriteTaggedVarint(w, 3, freq);
+            }
+        );
 
         long count = 0;
         foreach (ElasticTraceRecord rec in reader.ReadAll()) {
             WriteMessage(output, w => WriteInstDepRecord(w, rec));
             count++;
         }
+
         return count;
     }
 
@@ -84,9 +87,9 @@ public static class Gem5ElasticTraceConverter {
 
         // field 2: type (enum)
         uint gem5Type = rec.Type switch {
-            ElasticTraceType.Load  => Gem5Load,
-            ElasticTraceType.Store => Gem5Store,
-            _                      => Gem5Comp,
+            ElasticTraceType.Load  => Gem5ElasticTraceConverter.Gem5Load,
+            ElasticTraceType.Store => Gem5ElasticTraceConverter.Gem5Store,
+            _                      => Gem5ElasticTraceConverter.Gem5Comp,
         };
         WriteTaggedVarint(w, 2, gem5Type);
 
@@ -117,7 +120,7 @@ public static class Gem5ElasticTraceConverter {
 
     private static void WriteLittleEndian32(Stream s, uint value) {
         Span<byte> buf = stackalloc byte[4];
-        buf[0] = (byte)(value);
+        buf[0] = (byte)value;
         buf[1] = (byte)(value >> 8);
         buf[2] = (byte)(value >> 16);
         buf[3] = (byte)(value >> 24);
@@ -126,8 +129,7 @@ public static class Gem5ElasticTraceConverter {
 
     private static void WriteMessage(Stream output, Action<BinaryWriter> body) {
         using var msgBuf = new MemoryStream();
-        using (var msgWriter = new BinaryWriter(msgBuf, System.Text.Encoding.UTF8, leaveOpen: true))
-            body(msgWriter);
+        using (var msgWriter = new BinaryWriter(msgBuf, System.Text.Encoding.UTF8, true)) { body(msgWriter); }
 
         byte[] bytes = msgBuf.ToArray();
         // Varint32 length prefix (as in gem5 CodedOutputStream::WriteVarint32)
@@ -137,11 +139,12 @@ public static class Gem5ElasticTraceConverter {
 
     private static void WriteVarintToStream(Stream s, ulong value) {
         Span<byte> buf = stackalloc byte[10];
-        int len = 0;
+        var len = 0;
         while (value > 0x7F) {
             buf[len++] = (byte)(value | 0x80);
             value >>= 7;
         }
+
         buf[len++] = (byte)value;
         s.Write(buf[..len]);
     }
@@ -166,6 +169,7 @@ public static class Gem5ElasticTraceConverter {
             w.Write((byte)(value | 0x80));
             value >>= 7;
         }
+
         w.Write((byte)value);
     }
 }

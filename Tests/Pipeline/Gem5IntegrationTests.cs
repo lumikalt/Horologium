@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
@@ -16,11 +17,12 @@ public class Gem5IntegrationTests {
         FindOnPath("gem5") is not null;
 
     private static string? FindOnPath(string exe) {
-        var pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (var dir in pathVar.Split(Path.PathSeparator)) {
-            var full = Path.Combine(dir, exe);
+        string pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (string dir in pathVar.Split(Path.PathSeparator)) {
+            string full = Path.Combine(dir, exe);
             if (File.Exists(full)) return full;
         }
+
         return null;
     }
 
@@ -46,45 +48,50 @@ public class Gem5IntegrationTests {
 
     private static (string dataFile, string fetchFile) GenerateTraces(string tmpDir) {
         var mem = new FlatMemory(0x1000);
-        mem.Load(0, SmallProgram);
+        mem.Load(0, Gem5IntegrationTests.SmallProgram);
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
 
-        string helfPath  = Path.Combine(tmpDir, "test.helf");
-        string dataPath  = Path.Combine(tmpDir, "test.gem5data");
+        string helfPath = Path.Combine(tmpDir, "test.helf");
+        string dataPath = Path.Combine(tmpDir, "test.gem5data");
         string fetchPath = Path.Combine(tmpDir, "test.gem5fetch");
 
         using (var helfStream = new FileStream(helfPath, FileMode.Create))
-        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helfStream))
+        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helfStream)) {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100);
+        }
 
-        using (var inFs  = new FileStream(helfPath,  FileMode.Open))
-        using (var outFs = new FileStream(dataPath,  FileMode.Create))
+        using (var inFs = new FileStream(helfPath, FileMode.Open))
+        using (var outFs = new FileStream(dataPath, FileMode.Create)) {
             Gem5ElasticTraceConverter.Convert(inFs, outFs);
+        }
 
-        using (var inFs  = new FileStream(helfPath,  FileMode.Open))
-        using (var outFs = new FileStream(fetchPath, FileMode.Create))
-            Gem5FetchTraceConverter.Convert(inFs, outFs);
+        using (var inFs = new FileStream(helfPath, FileMode.Open))
+        using (var outFs = new FileStream(fetchPath, FileMode.Create)) { Gem5FetchTraceConverter.Convert(inFs, outFs); }
 
         return (dataPath, fetchPath);
     }
 
     private static (int exitCode, string stdout, string stderr) RunGem5(
-        string dataFile, string fetchFile) {
-        string script = Path.GetFullPath(ScriptPath);
-        var psi = new System.Diagnostics.ProcessStartInfo("gem5", [
-            script,
-            "--data-trace-file", dataFile,
-            "--inst-trace-file", fetchFile,
-        ]) {
+        string dataFile,
+        string fetchFile
+    ) {
+        string script = Path.GetFullPath(Gem5IntegrationTests.ScriptPath);
+        var psi = new System.Diagnostics.ProcessStartInfo(
+            "gem5", [
+                script,
+                "--data-trace-file", dataFile,
+                "--inst-trace-file", fetchFile,
+            ]
+        ) {
             RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            UseShellExecute        = false,
+            RedirectStandardError = true,
+            UseShellExecute = false,
         };
-        using var proc = System.Diagnostics.Process.Start(psi)!;
+        using Process proc = System.Diagnostics.Process.Start(psi)!;
         string stdout = proc.StandardOutput.ReadToEnd();
         string stderr = proc.StandardError.ReadToEnd();
-        proc.WaitForExit(timeout: TimeSpan.FromMinutes(3));
+        proc.WaitForExit(TimeSpan.FromMinutes(3));
         return (proc.ExitCode, stdout, stderr);
     }
 
@@ -92,23 +99,26 @@ public class Gem5IntegrationTests {
 
     [SkippableFact]
     public void Gem5TraceCPU_CompletesWithoutError() {
-        Skip.IfNot(Gem5Available, "gem5 not available; set HOROLOGIUM_GEM5_COSIM=1 to force");
-        Skip.IfNot(File.Exists(Path.GetFullPath(ScriptPath)), "gem5-scripts/trace_cpu_riscv.py not found");
+        Skip.IfNot(Gem5IntegrationTests.Gem5Available, "gem5 not available; set HOROLOGIUM_GEM5_COSIM=1 to force");
+        Skip.IfNot(
+            File.Exists(Path.GetFullPath(Gem5IntegrationTests.ScriptPath)), "gem5-scripts/trace_cpu_riscv.py not found"
+        );
 
         string tmpDir = Path.Combine(Path.GetTempPath(), "horologium_gem5_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(tmpDir);
         try {
-            var (dataFile, fetchFile) = GenerateTraces(tmpDir);
-            var (exitCode, stdout, stderr) = RunGem5(dataFile, fetchFile);
+            (string dataFile, string fetchFile) = GenerateTraces(tmpDir);
+            (int exitCode, string stdout, string stderr) = RunGem5(dataFile, fetchFile);
 
             // gem5 exits 0 on normal completion
-            Assert.True(exitCode == 0,
-                $"gem5 exited with code {exitCode}.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}");
+            Assert.True(
+                exitCode == 0,
+                $"gem5 exited with code {exitCode}.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+            );
 
             // Our script prints this line on successful replay
             Assert.Contains("Exiting @", stdout + stderr);
-        } finally {
-            Directory.Delete(tmpDir, recursive: true);
         }
+        finally { Directory.Delete(tmpDir, true); }
     }
 }

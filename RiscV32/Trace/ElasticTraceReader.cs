@@ -12,7 +12,7 @@ public sealed class ElasticTraceReader : IDisposable {
     public ulong TickFreq { get; }
 
     public ElasticTraceReader(Stream input) {
-        _in = new BinaryReader(input, System.Text.Encoding.UTF8, leaveOpen: true);
+        _in = new BinaryReader(input, System.Text.Encoding.UTF8, true);
 
         uint magic = _in.ReadUInt32();
         if (magic != ElasticTraceWriter.Magic)
@@ -32,22 +32,24 @@ public sealed class ElasticTraceReader : IDisposable {
     /// </summary>
     public IEnumerable<ElasticTraceRecord> ReadAll() {
         while (_in.BaseStream.Position < _in.BaseStream.Length) {
-            ulong seqno       = _in.ReadUInt64();
-            ulong pc          = _in.ReadUInt64();
-            uint  rawEncoding = _in.ReadUInt32();
-            var   type        = (ElasticTraceType)_in.ReadByte();
-            uint  compDelay   = _in.ReadUInt32();
-            ulong vAddr       = _in.ReadUInt64();
-            int   accessSize  = _in.ReadByte();
-            int   robCount    = _in.ReadByte();
-            int   addrCount   = _in.ReadByte();
+            ulong seqno = _in.ReadUInt64();
+            ulong pc = _in.ReadUInt64();
+            uint rawEncoding = _in.ReadUInt32();
+            var type = (ElasticTraceType)_in.ReadByte();
+            uint compDelay = _in.ReadUInt32();
+            ulong vAddr = _in.ReadUInt64();
+            int accessSize = _in.ReadByte();
+            int robCount = _in.ReadByte();
+            int addrCount = _in.ReadByte();
 
-            var robDeps  = new ulong[robCount];
-            for (int i = 0; i < robCount;  i++) robDeps[i]  = _in.ReadUInt64();
+            var robDeps = new ulong[robCount];
+            for (var i = 0; i < robCount; i++) robDeps[i] = _in.ReadUInt64();
             var addrDeps = new ulong[addrCount];
-            for (int i = 0; i < addrCount; i++) addrDeps[i] = _in.ReadUInt64();
+            for (var i = 0; i < addrCount; i++) addrDeps[i] = _in.ReadUInt64();
 
-            yield return new ElasticTraceRecord(seqno, pc, rawEncoding, type, compDelay, vAddr, accessSize, robDeps, addrDeps);
+            yield return new ElasticTraceRecord(
+                seqno, pc, rawEncoding, type, compDelay, vAddr, accessSize, robDeps, addrDeps
+            );
         }
     }
 

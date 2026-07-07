@@ -5,6 +5,8 @@ using Orrery.Spec;
 using Pipeline.Spec;
 using RiscV32;
 using System.Text;
+using FSharp.Compiler.Diagnostics;
+using Microsoft.FSharp.Core;
 
 namespace Script;
 
@@ -45,16 +47,17 @@ internal static class FSharpScriptHost {
     ) => Task.Run(() => EvaluateCore(source, scriptName, ct), ct);
 
     private static MachineSpec EvaluateCore(string source, string scriptName, CancellationToken ct) {
-        var session = CreateSession();
+        FsiEvaluationSession session = CreateSession();
 
         // Pre-open namespaces so the script doesn't need 'open' directives.
-        foreach (string ns in PreOpenedNamespaces) {
-            var (openChoice, _) = session.EvalInteractionNonThrowing($"open {ns}", null);
-            if (openChoice.IsChoice2Of2)
-                throw Fail($"Failed to open {ns}: {UnwrapError(openChoice)}");
+        foreach (string ns in FSharpScriptHost.PreOpenedNamespaces) {
+            (FSharpChoice<FSharpOption<FsiValue>?, Exception> openChoice, _)
+                = session.EvalInteractionNonThrowing($"open {ns}", null);
+            if (openChoice.IsChoice2Of2) throw Fail($"Failed to open {ns}: {UnwrapError(openChoice)}");
         }
 
-        var (scriptChoice, diags) = session.EvalInteractionNonThrowing(source, null);
+        (FSharpChoice<FSharpOption<FsiValue>?, Exception> scriptChoice, FSharpDiagnostic[] diags)
+            = session.EvalInteractionNonThrowing(source, null);
         if (scriptChoice.IsChoice2Of2) {
             string diagText = string.Join("\n", diags.Select(d => d.ToString()));
             throw Fail(
@@ -64,13 +67,15 @@ internal static class FSharpScriptHost {
         }
 
         // 'it' is bound to the last bare expression (not a let binding) in the script.
-        var (itChoice, _) = session.EvalExpressionNonThrowing("it", scriptName);
-        if (itChoice.IsChoice2Of2)
-            throw Fail($"Could not read 'it': {UnwrapError(itChoice)}");
+        (FSharpChoice<FSharpOption<FsiValue>?, Exception> itChoice, _)
+            = session.EvalExpressionNonThrowing("it", scriptName);
+        if (itChoice.IsChoice2Of2) throw Fail($"Could not read 'it': {UnwrapError(itChoice)}");
 
-        var opt = UnwrapChoice1(itChoice);
+        FSharpOption<FsiValue>? opt = UnwrapChoice1(itChoice);
         if (opt is null)
-            throw Fail("Script must return a MachineSpec as its last expression (no value was produced — 'it' is None).");
+            throw Fail(
+                "Script must return a MachineSpec as its last expression (no value was produced — 'it' is None)."
+            );
 
         object raw = opt.Value.ReflectionValue;
         if (raw is not MachineSpec spec)
@@ -80,19 +85,19 @@ internal static class FSharpScriptHost {
     }
 
     private static FsiEvaluationSession CreateSession() {
-        var config = FsiEvaluationSession.GetDefaultConfiguration();
+        FsiEvaluationSessionHostConfig config = FsiEvaluationSession.GetDefaultConfiguration();
         string[] fsiArgs = [
             "fsi.exe",
             "--noninteractive",
             "--nologo",
             "--gui-",
-            ..AssemblyPaths.Select(p => $"--reference:{p}"),
+            ..FSharpScriptHost.AssemblyPaths.Select(p => $"--reference:{p}"),
         ];
         return FsiEvaluationSession.Create(
             config, fsiArgs,
             new StringReader(""),
-            new StringWriter(),   // stdout: discard (bind to sbOut if debugging needed)
-            new StringWriter(),   // stderr: discard
+            new StringWriter(), // stdout: discard (bind to sbOut if debugging needed)
+            new StringWriter(), // stderr: discard
             null, null
         );
     }

@@ -12,9 +12,9 @@ List<string> elfPaths = [];
 string? sweepPath = null;
 long warmupTicks = 0;
 long maxTicks = 1_000_000;
-long snapshotInterval = 0;    // 0 = off, -1 = auto, >0 = explicit ticks
-var format = "md";            // md | csv | both | ts-csv
-int? memorySizeBytes = null;  // null → default to 4 MB for ELF workloads
+long snapshotInterval = 0;         // 0 = off, -1 = auto, >0 = explicit ticks
+var format = "md";                 // md | csv | both | ts-csv
+int? memorySizeBytes = null;       // null → default to 4 MB for ELF workloads
 string? traceJsonPath = null;      // --trace-json <path>: emit an Olympia JSON trace and exit
 string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
@@ -23,11 +23,11 @@ string? roiStartSymbol = null;     // --roi-start <symbol>: fast-forward to this
 string? roiEndSymbol = null;       // --roi-end <symbol>: stop measuring when PC reaches this symbol
 string? elasticRecordPath = null;  // --elastic-record <path>: record DDG trace and exit
 string? elasticReplayPath = null;  // --elastic-replay <path>: replay DDG trace and print IPC
-string? elasticToGem5In  = null;   // --elastic-to-gem5 <in> <out>: translate HELF → gem5 inst_dep_record proto
+string? elasticToGem5In = null;    // --elastic-to-gem5 <in> <out>: translate HELF → gem5 inst_dep_record proto
 string? elasticToGem5Out = null;
-string? fetchToGem5In    = null;   // --fetch-to-gem5 <in> <out>: translate HELF → gem5 packet (fetch) proto
-string? fetchToGem5Out   = null;
-string? stfRecordPath    = null;   // --stf-record <path>: record STF binary trace and exit
+string? fetchToGem5In = null; // --fetch-to-gem5 <in> <out>: translate HELF → gem5 packet (fetch) proto
+string? fetchToGem5Out = null;
+string? stfRecordPath = null; // --stf-record <path>: record STF binary trace and exit
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -39,17 +39,23 @@ for (var i = 0; i < args.Length; i++)
         case "--snapshot-interval":
             snapshotInterval = args[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(args[++i]);
             break;
-        case "--format":     format = args[++i]; break;
-        case "--trace-json":       traceJsonPath = args[++i]; break;
-        case "--checkpoint-save":  checkpointSavePath = args[++i]; break;
-        case "--checkpoint-load":  checkpointLoadPath = args[++i]; break;
-        case "--roi-start":        roiStartSymbol     = args[++i]; break;
-        case "--roi-end":          roiEndSymbol       = args[++i]; break;
-        case "--elastic-record":   elasticRecordPath  = args[++i]; break;
-        case "--elastic-replay":   elasticReplayPath  = args[++i]; break;
-        case "--elastic-to-gem5":  elasticToGem5In = args[++i]; elasticToGem5Out = args[++i]; break;
-        case "--fetch-to-gem5":    fetchToGem5In   = args[++i]; fetchToGem5Out   = args[++i]; break;
-        case "--stf-record":       stfRecordPath   = args[++i]; break;
+        case "--format":          format = args[++i]; break;
+        case "--trace-json":      traceJsonPath = args[++i]; break;
+        case "--checkpoint-save": checkpointSavePath = args[++i]; break;
+        case "--checkpoint-load": checkpointLoadPath = args[++i]; break;
+        case "--roi-start":       roiStartSymbol = args[++i]; break;
+        case "--roi-end":         roiEndSymbol = args[++i]; break;
+        case "--elastic-record":  elasticRecordPath = args[++i]; break;
+        case "--elastic-replay":  elasticReplayPath = args[++i]; break;
+        case "--elastic-to-gem5":
+            elasticToGem5In = args[++i];
+            elasticToGem5Out = args[++i];
+            break;
+        case "--fetch-to-gem5":
+            fetchToGem5In = args[++i];
+            fetchToGem5Out = args[++i];
+            break;
+        case "--stf-record": stfRecordPath = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -67,7 +73,7 @@ for (var i = 0; i < args.Length; i++)
 // ── Elastic trace → gem5 Protobuf translation (standalone) ───────────────────
 
 if (elasticToGem5In is not null) {
-    using var inFs  = new FileStream(elasticToGem5In,  FileMode.Open,   FileAccess.Read);
+    using var inFs = new FileStream(elasticToGem5In, FileMode.Open, FileAccess.Read);
     using var outFs = new FileStream(elasticToGem5Out!, FileMode.Create, FileAccess.Write);
     long converted = RiscV32.Trace.Gem5ElasticTraceConverter.Convert(inFs, outFs);
     Console.Error.WriteLine($"Converted {converted:N0} records: {elasticToGem5In} → {elasticToGem5Out}");
@@ -75,7 +81,7 @@ if (elasticToGem5In is not null) {
 }
 
 if (fetchToGem5In is not null) {
-    using var inFs  = new FileStream(fetchToGem5In,  FileMode.Open,   FileAccess.Read);
+    using var inFs = new FileStream(fetchToGem5In, FileMode.Open, FileAccess.Read);
     using var outFs = new FileStream(fetchToGem5Out!, FileMode.Create, FileAccess.Write);
     long converted = RiscV32.Trace.Gem5FetchTraceConverter.Convert(inFs, outFs);
     Console.Error.WriteLine($"Converted {converted:N0} fetch records: {fetchToGem5In} → {fetchToGem5Out}");
@@ -147,6 +153,7 @@ if (elasticRecordPath is not null) {
         Console.Error.WriteLine("--elastic-record supports only a single workload.");
         return;
     }
+
     IWorkload elasticWorkload = workloads[0].Workload;
     using var fs = new FileStream(elasticRecordPath, FileMode.Create, FileAccess.Write);
     int written = Experiment.WriteElasticTrace(
@@ -163,6 +170,7 @@ if (stfRecordPath is not null) {
         Console.Error.WriteLine("--stf-record supports only a single workload.");
         return;
     }
+
     IWorkload stfWorkload = workloads[0].Workload;
     using var fs = new FileStream(stfRecordPath, FileMode.Create, FileAccess.Write);
     int written = Experiment.WriteStfTrace(
@@ -184,7 +192,8 @@ if (scriptPath is not null) {
     try {
         Console.Error.WriteLine($"Evaluating {scriptPath} …");
         spec = await ScriptHost.EvaluateFileAsync(scriptPath);
-    } catch (Exception ex) {
+    }
+    catch (Exception ex) {
         Console.Error.WriteLine($"Script error: {ex.Message}");
         return;
     }
@@ -207,13 +216,12 @@ if (scriptPath is not null) {
         }
 
         ulong? roiEndPc = null;
-        if (roiEndSymbol is not null) {
+        if (roiEndSymbol is not null)
             try { roiEndPc = elfWorkload.FindSymbol(roiEndSymbol); }
             catch (Exception ex) {
                 Console.Error.WriteLine($"Symbol '{roiEndSymbol}' not found: {ex.Message}");
                 return;
             }
-        }
 
         var flatMem = new FlatMemory(elfWorkload.MemorySize, elfWorkload.BaseAddress);
         elfWorkload.Load(flatMem);
@@ -224,7 +232,7 @@ if (scriptPath is not null) {
 
         // Phase 1 — fast-forward
         Console.Error.WriteLine($"Fast-forwarding to {roiStartSymbol} (0x{roiStartPc:X}) …");
-        MachineSpec ffSpec = spec with { Pipeline = new SingleCycleSpec(), Cache = null };
+        MachineSpec ffSpec = spec with { Pipeline = new SingleCycleSpec(), Cache = null, };
         MachineHandle ffHandle = ffSpec.Build(backing, entryPoint, mmio);
 
         ffHandle.Train.BeginStepping();
@@ -234,6 +242,7 @@ if (scriptPath is not null) {
             ffTicks++;
             roiReached = ffHandle.Train.ArchState!.Pc == roiStartPc;
         }
+
         ffHandle.Train.FinishStepping();
 
         if (!roiReached) {
@@ -242,6 +251,7 @@ if (scriptPath is not null) {
             );
             return;
         }
+
         Console.Error.WriteLine($"Fast-forward done — {ffTicks:N0} ticks");
 
         // Capture arch state at ROI start via in-memory checkpoint
@@ -259,20 +269,28 @@ if (scriptPath is not null) {
         if (roiEndPc is { } endPc) {
             detHandle.Train.BeginStepping();
             roiTicks = 0;
-            bool endReached = false;
+            var endReached = false;
             while (roiTicks < maxTicks && detHandle.Train.StepCycle()) {
                 roiTicks++;
-                if (detHandle.Train.ArchState!.Pc == endPc) { endReached = true; break; }
+                if (detHandle.Train.ArchState!.Pc == endPc) {
+                    endReached = true;
+                    break;
+                }
             }
+
             detHandle.Train.FinishStepping();
-            Console.Error.WriteLine(endReached
-                ? $"ROI done — {roiTicks:N0} ticks (reached {roiEndSymbol})"
-                : $"ROI done — {roiTicks:N0} ticks (maxTicks reached; {roiEndSymbol} not seen)");
-        } else {
+            Console.Error.WriteLine(
+                endReached
+                    ? $"ROI done — {roiTicks:N0} ticks (reached {roiEndSymbol})"
+                    : $"ROI done — {roiTicks:N0} ticks (maxTicks reached; {roiEndSymbol} not seen)"
+            );
+        }
+        else {
             Orrery.Train.RevolutionResult roiResult = detHandle.Run(maxTicks, warmupTicks);
             roiTicks = roiResult.TotalTicks;
             Console.Error.WriteLine($"ROI done — {roiTicks:N0} ticks");
         }
+
         PrintLayerStats(detHandle);
 
         if (checkpointSavePath is not null) {
@@ -281,7 +299,8 @@ if (scriptPath is not null) {
             );
             Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
         }
-    } else if (checkpointLoadPath is not null) {
+    }
+    else if (checkpointLoadPath is not null) {
         // ── Checkpoint-load mode ─────────────────────────────────────────────
         ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(checkpointLoadPath);
         Console.Error.WriteLine(
@@ -300,7 +319,8 @@ if (scriptPath is not null) {
             ArchitecturalCheckpoint.Save(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
             Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
         }
-    } else {
+    }
+    else {
         // ── Normal script mode ───────────────────────────────────────────────
         IWorkload scriptWorkload = workloads[0].Workload;
         var scriptMem = new FlatMemory(scriptWorkload.MemorySize, scriptWorkload.BaseAddress);
@@ -322,12 +342,9 @@ if (scriptPath is not null) {
 
     static void PrintLayerStats(MachineHandle h) {
         if (h.Layers is not { } layers) return;
-        if (layers.Cache is { } l1)
-            Console.Error.WriteLine($"  L1  — misses: {l1.Misses:N0}  hits: {l1.Hits:N0}");
-        if (layers.L2Cache is { } l2)
-            Console.Error.WriteLine($"  L2  — misses: {l2.Misses:N0}  hits: {l2.Hits:N0}");
-        if (layers.Tlb is { } tlb)
-            Console.Error.WriteLine($"  TLB — misses: {tlb.Misses:N0}  hits: {tlb.Hits:N0}");
+        if (layers.Cache is { } l1) Console.Error.WriteLine($"  L1  — misses: {l1.Misses:N0}  hits: {l1.Hits:N0}");
+        if (layers.L2Cache is { } l2) Console.Error.WriteLine($"  L2  — misses: {l2.Misses:N0}  hits: {l2.Hits:N0}");
+        if (layers.Tlb is { } tlb) Console.Error.WriteLine($"  TLB — misses: {tlb.Misses:N0}  hits: {tlb.Hits:N0}");
     }
 }
 

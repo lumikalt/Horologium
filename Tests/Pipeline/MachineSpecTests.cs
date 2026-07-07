@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Cache;
 using Orrery.Spec;
 using Pipeline.Spec;
 using RiscV32;
@@ -61,7 +62,7 @@ public class MachineSpecTests {
     public void WithCache_LayersIsNotNull() {
         var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
         MachineHandle handle = new MachineSpec(
-            new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec]))
+            new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(new FlatMemory(0x1000));
         Assert.NotNull(handle.Layers);
         Assert.NotNull(handle.Layers.Cache);
@@ -74,7 +75,7 @@ public class MachineSpecTests {
         var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
-            new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec]))
+            new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(mem);
         handle.Run(1_000);
         Assert.True(handle.Layers!.Cache!.Misses > 0);
@@ -87,7 +88,7 @@ public class MachineSpecTests {
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
-            CacheHierarchySpec.Unified(new CachePathSpec([l1Spec]), [l2Spec])
+            CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]), [l2Spec,])
         ).Build(mem);
         handle.Run(1_000);
         Assert.NotNull(handle.Layers!.L2Cache);
@@ -101,7 +102,7 @@ public class MachineSpecTests {
         var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
-            new FiveStageSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec]))
+            new FiveStageSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(mem);
         handle.Run(10_000);
         Assert.Equal(42uL, mem.Read(256, 4));
@@ -113,7 +114,7 @@ public class MachineSpecTests {
         var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
-            new OutOfOrderSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec]))
+            new OutOfOrderSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(mem);
         handle.Run(50_000);
         Assert.True(handle.Layers!.Cache!.Misses > 0);
@@ -125,7 +126,7 @@ public class MachineSpecTests {
     public void MmioRegion_PropagatesUncacheableBoundsToLayerStack() {
         var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
         MachineHandle handle = new MachineSpec(
-            new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec]))
+            new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(new FlatMemory(0x1000), mmioRegion: (Base: 0x800, Size: 0x100));
         Assert.Equal(0x800uL, handle.Layers!.UncacheableBase);
         Assert.Equal(0x100uL, handle.Layers.UncacheableSize);
@@ -137,7 +138,7 @@ public class MachineSpecTests {
     public void Unified_IAndDLayersAreSameInstance() {
         var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
         MachineHandle handle = new MachineSpec(
-            new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec]))
+            new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(new FlatMemory(0x1000));
         Assert.NotNull(handle.ILayers);
         Assert.NotNull(handle.DLayers);
@@ -150,7 +151,7 @@ public class MachineSpecTests {
         var dSpec = new CacheLevelSpec(8192, 4, 64, 10);
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
-            CacheHierarchySpec.SplitId(new CachePathSpec([iSpec]), new CachePathSpec([dSpec]))
+            CacheHierarchySpec.SplitId(new CachePathSpec([iSpec,]), new CachePathSpec([dSpec,]))
         ).Build(new FlatMemory(0x1000));
         Assert.NotNull(handle.ILayers);
         Assert.NotNull(handle.DLayers);
@@ -164,7 +165,7 @@ public class MachineSpecTests {
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
-            CacheHierarchySpec.SplitId(new CachePathSpec([iSpec]), new CachePathSpec([dSpec]))
+            CacheHierarchySpec.SplitId(new CachePathSpec([iSpec,]), new CachePathSpec([dSpec,]))
         ).Build(mem);
         handle.Run(1_000);
         Assert.Equal(42uL, mem.Read(256, 4));
@@ -179,7 +180,7 @@ public class MachineSpecTests {
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new FiveStageSpec(), Rv32(),
-            CacheHierarchySpec.SplitId(new CachePathSpec([iSpec]), new CachePathSpec([dSpec]))
+            CacheHierarchySpec.SplitId(new CachePathSpec([iSpec,]), new CachePathSpec([dSpec,]))
         ).Build(mem);
         handle.Run(10_000);
         Assert.Equal(42uL, mem.Read(256, 4));
@@ -194,7 +195,7 @@ public class MachineSpecTests {
         var tlbSpec = new TlbSpec(64);
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
-            CacheHierarchySpec.Unified(new CachePathSpec([l1Spec], tlbSpec))
+            CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,], tlbSpec))
         ).Build(new FlatMemory(0x1000));
         Assert.NotNull(handle.Layers!.Tlb);
     }
@@ -206,11 +207,11 @@ public class MachineSpecTests {
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
-            CacheHierarchySpec.Unified(new CachePathSpec([l1Spec], tlbSpec))
+            CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,], tlbSpec))
         ).Build(mem);
         handle.Run(1_000);
         Assert.Equal(42uL, mem.Read(256, 4));
-        var tlb = handle.Layers!.Tlb!;
+        Tlb tlb = handle.Layers!.Tlb!;
         Assert.True(tlb.Hits + tlb.Misses > 0);
     }
 
@@ -221,8 +222,8 @@ public class MachineSpecTests {
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
             CacheHierarchySpec.SplitId(
-                new CachePathSpec([l1Spec], tlbSpec),
-                new CachePathSpec([l1Spec], tlbSpec)
+                new CachePathSpec([l1Spec,], tlbSpec),
+                new CachePathSpec([l1Spec,], tlbSpec)
             )
         ).Build(new FlatMemory(0x1000));
         Assert.NotNull(handle.ILayers!.Tlb);

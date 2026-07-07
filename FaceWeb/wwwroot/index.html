@@ -22,23 +22,23 @@
 <body>
 <div id="out"></div>
 <script>
-// dotnet.runtime.js only forwards ~10 runtime_idx-wrapped functions to WebAssembly.instantiate,
-// discarding the other ~460 emscripten imports (GL, __assert_fail, syscalls, etc.) that
-// dotnet.native.js builds in wasmImports. dotnet.native.js exposes window._wasmImports so we
-// can merge the missing entries here before instantiation.
-const _origWasmInstantiate = WebAssembly.instantiate;
-WebAssembly.instantiate = function(source, importObject, ...rest) {
-    if (importObject && (importObject.env || importObject.a)) {
-        const env = importObject.env || importObject.a;
-        const full = window._wasmImports;
-        if (full) {
-            for (const k of Object.keys(full)) {
-                if (!(k in env)) env[k] = full[k];
+    // dotnet.runtime.js only forwards ~10 runtime_idx-wrapped functions to WebAssembly.instantiate,
+    // discarding the other ~460 emscripten imports (GL, __assert_fail, syscalls, etc.) that
+    // dotnet.native.js builds in wasmImports. dotnet.native.js exposes window._wasmImports so we
+    // can merge the missing entries here before instantiation.
+    const _origWasmInstantiate = WebAssembly.instantiate;
+    WebAssembly.instantiate = function (source, importObject, ...rest) {
+        if (importObject && (importObject.env || importObject.a)) {
+            const env = importObject.env || importObject.a;
+            const full = window._wasmImports;
+            if (full) {
+                for (const k of Object.keys(full)) {
+                    if (!(k in env)) env[k] = full[k];
+                }
             }
         }
-    }
-    return _origWasmInstantiate.call(WebAssembly, source, importObject, ...rest);
-};
+        return _origWasmInstantiate.call(WebAssembly, source, importObject, ...rest);
+    };
 </script>
 <script type="module" src="./FaceWeb.js"></script>
 </body>

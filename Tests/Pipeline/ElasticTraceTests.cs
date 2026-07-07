@@ -34,25 +34,28 @@ public class ElasticTraceTests {
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
         using var ms = new MemoryStream();
-        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, ms))
+        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, ms)) {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+        }
+
         ms.Position = 0;
         using var reader = new ElasticTraceReader(ms);
-        return [.. reader.ReadAll()];
+        return [.. reader.ReadAll(),];
     }
 
     // ── Writer / Reader ───────────────────────────────────────────────────────
 
     [Fact]
     public void Header_Magic_And_Version_Survive_RoundTrip() {
-        var program = Encode(0x00100073u); // just ebreak — commits nothing
+        byte[] program = Encode(0x00100073u); // just ebreak — commits nothing
         var mem = new FlatMemory(0x100);
         mem.Load(0, program);
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
         using var ms = new MemoryStream();
-        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, ms))
+        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, ms)) {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100);
+        }
 
         ms.Position = 0;
         // Magic is the first 4 bytes
@@ -67,9 +70,12 @@ public class ElasticTraceTests {
         ElasticTraceRecord[] recs = Record(program);
 
         Assert.Equal(3, recs.Length);
-        Assert.Equal(0UL, recs[0].SeqNo); Assert.Equal(0UL, recs[0].Pc);
-        Assert.Equal(1UL, recs[1].SeqNo); Assert.Equal(4UL, recs[1].Pc);
-        Assert.Equal(2UL, recs[2].SeqNo); Assert.Equal(8UL, recs[2].Pc);
+        Assert.Equal(0UL, recs[0].SeqNo);
+        Assert.Equal(0UL, recs[0].Pc);
+        Assert.Equal(1UL, recs[1].SeqNo);
+        Assert.Equal(4UL, recs[1].Pc);
+        Assert.Equal(2UL, recs[2].SeqNo);
+        Assert.Equal(8UL, recs[2].Pc);
     }
 
     [Fact]
@@ -87,8 +93,8 @@ public class ElasticTraceTests {
         ElasticTraceRecord[] recs = Record(program);
 
         IReadOnlyList<ulong> deps = recs[2].RobDeps; // add x3
-        Assert.Contains(0UL, deps); // depends on addi x1 (seqno 0)
-        Assert.Contains(1UL, deps); // depends on addi x2 (seqno 1)
+        Assert.Contains(0UL, deps);                  // depends on addi x1 (seqno 0)
+        Assert.Contains(1UL, deps);                  // depends on addi x2 (seqno 1)
     }
 
     [Fact]
@@ -113,7 +119,7 @@ public class ElasticTraceTests {
         ElasticTraceRecord lw = recs[3];
 
         Assert.Equal(ElasticTraceType.Store, sw.Type);
-        Assert.Equal(ElasticTraceType.Load,  lw.Type);
+        Assert.Equal(ElasticTraceType.Load, lw.Type);
         Assert.Equal(0x100UL, sw.VAddr);
         Assert.Equal(0x100UL, lw.VAddr);
 
@@ -157,7 +163,7 @@ public class ElasticTraceTests {
 
         ElasticTraceRecord lw = recs[4];
         Assert.Equal(ElasticTraceType.Load, lw.Type);
-        Assert.Contains(3UL, lw.AddrDeps);     // most recent store
+        Assert.Contains(3UL, lw.AddrDeps);       // most recent store
         Assert.DoesNotContain(2UL, lw.AddrDeps); // older store displaced
     }
 
@@ -168,13 +174,13 @@ public class ElasticTraceTests {
         // A → B (dep on A) → C (dep on B); delay=1 each → critical path = 3
         var records = new ElasticTraceRecord[] {
             new(0, 0, 0, ElasticTraceType.Comp, 1, 0, 0, [], []),
-            new(1, 4, 0, ElasticTraceType.Comp, 1, 0, 0, [0], []),
-            new(2, 8, 0, ElasticTraceType.Comp, 1, 0, 0, [1], []),
+            new(1, 4, 0, ElasticTraceType.Comp, 1, 0, 0, [0,], []),
+            new(2, 8, 0, ElasticTraceType.Comp, 1, 0, 0, [1,], []),
         };
         ReplayResult result = ElasticTraceReplayer.Replay(records);
 
         Assert.Equal(3UL, result.TotalCycles);
-        Assert.Equal(3L,  result.InstructionCount);
+        Assert.Equal(3L, result.InstructionCount);
     }
 
     [Fact]
@@ -195,9 +201,9 @@ public class ElasticTraceTests {
         // A (delay=3) and B (delay=1) both feed C (delay=1)
         // critical path: max(3,1) + 1 = 4
         var records = new ElasticTraceRecord[] {
-            new(0, 0x00, 0, ElasticTraceType.Comp, 3, 0, 0, [],    []),
-            new(1, 0x04, 0, ElasticTraceType.Comp, 1, 0, 0, [],    []),
-            new(2, 0x08, 0, ElasticTraceType.Comp, 1, 0, 0, [0,1], []),
+            new(0, 0x00, 0, ElasticTraceType.Comp, 3, 0, 0, [], []),
+            new(1, 0x04, 0, ElasticTraceType.Comp, 1, 0, 0, [], []),
+            new(2, 0x08, 0, ElasticTraceType.Comp, 1, 0, 0, [0, 1,], []),
         };
         ReplayResult result = ElasticTraceReplayer.Replay(records);
 
@@ -209,8 +215,8 @@ public class ElasticTraceTests {
         // store (delay=1, seqno=0) → load (delay=1, seqno=1 with addrDep on 0)
         // critical path = 2
         var records = new ElasticTraceRecord[] {
-            new(0, 0x00, 0, ElasticTraceType.Store, 1, 0x100, 4, [],  []),
-            new(1, 0x04, 0, ElasticTraceType.Load,  1, 0x100, 4, [],  [0]),
+            new(0, 0x00, 0, ElasticTraceType.Store, 1, 0x100, 4, [], []),
+            new(1, 0x04, 0, ElasticTraceType.Load, 1, 0x100, 4, [], [0,]),
         };
         ReplayResult result = ElasticTraceReplayer.Replay(records);
 
@@ -237,30 +243,31 @@ public class ElasticTraceTests {
         mem.Load(0, program);
         var tracing2 = new TracingMemory(mem);
         var mech2 = new Rv32Mechanism();
-        using (var writer = new ElasticTraceWriter(mech2.Decoder, tracing2, ms))
+        using (var writer = new ElasticTraceWriter(mech2.Decoder, tracing2, ms)) {
             new SingleCycleTrain(mech2, tracing2, 0, commitObserver: writer).Run(100_000);
+        }
 
         ms.Position = 0;
         using var reader = new ElasticTraceReader(ms);
-        ElasticTraceRecord[] reloaded = [.. reader.ReadAll()];
+        ElasticTraceRecord[] reloaded = [.. reader.ReadAll(),];
 
         Assert.Equal(original.Length, reloaded.Length);
-        for (int i = 0; i < original.Length; i++) {
-            Assert.Equal(original[i].SeqNo,       reloaded[i].SeqNo);
-            Assert.Equal(original[i].Pc,          reloaded[i].Pc);
+        for (var i = 0; i < original.Length; i++) {
+            Assert.Equal(original[i].SeqNo, reloaded[i].SeqNo);
+            Assert.Equal(original[i].Pc, reloaded[i].Pc);
             Assert.Equal(original[i].RawEncoding, reloaded[i].RawEncoding);
-            Assert.Equal(original[i].Type,        reloaded[i].Type);
-            Assert.Equal(original[i].CompDelay,   reloaded[i].CompDelay);
-            Assert.Equal(original[i].VAddr,       reloaded[i].VAddr);
-            Assert.Equal(original[i].AccessSize,  reloaded[i].AccessSize);
-            Assert.Equal(original[i].RobDeps,     reloaded[i].RobDeps);
-            Assert.Equal(original[i].AddrDeps,    reloaded[i].AddrDeps);
+            Assert.Equal(original[i].Type, reloaded[i].Type);
+            Assert.Equal(original[i].CompDelay, reloaded[i].CompDelay);
+            Assert.Equal(original[i].VAddr, reloaded[i].VAddr);
+            Assert.Equal(original[i].AccessSize, reloaded[i].AccessSize);
+            Assert.Equal(original[i].RobDeps, reloaded[i].RobDeps);
+            Assert.Equal(original[i].AddrDeps, reloaded[i].AddrDeps);
         }
     }
 
     [Fact]
     public void Reader_BadMagic_ThrowsInvalidDataException() {
-        using var ms = new MemoryStream([0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x00, 0x00, 0x00]);
+        using var ms = new MemoryStream([0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x00, 0x00, 0x00,]);
         Assert.Throws<InvalidDataException>(() => new ElasticTraceReader(ms));
     }
 
@@ -269,19 +276,22 @@ public class ElasticTraceTests {
     // Reads one gem5-framed message: varint32 length + bytes.
     // (gem5 ProtoOutputStream::write uses CodedOutputStream::WriteVarint32)
     private static byte[] ReadGem5Message(BinaryReader r) {
-        ulong len = 0; int shift = 0;
+        ulong len = 0;
+        var shift = 0;
         while (true) {
             byte b = r.ReadByte();
             len |= (ulong)(b & 0x7F) << shift;
             if ((b & 0x80) == 0) break;
             shift += 7;
         }
+
         return r.ReadBytes((int)len);
     }
 
     // Reads a protobuf varint from a byte span at position i (updates i).
     private static ulong ReadVarint(byte[] buf, ref int i) {
-        ulong v = 0; int shift = 0;
+        ulong v = 0;
+        var shift = 0;
         while (true) {
             byte b = buf[i++];
             v |= (ulong)(b & 0x7F) << shift;
@@ -297,11 +307,13 @@ public class ElasticTraceTests {
         ElasticTraceRecord[] recs = Record(program);
 
         using var helf = new MemoryStream();
-        var mem = new FlatMemory(0x1000); mem.Load(0, program);
+        var mem = new FlatMemory(0x1000);
+        mem.Load(0, program);
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
-        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf))
+        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+        }
 
         helf.Position = 0;
         using var gem5Out = new MemoryStream();
@@ -323,12 +335,12 @@ public class ElasticTraceTests {
         Assert.Equal(0x0A, header[0]);
 
         // Three InstDepRecord messages follow
-        for (int i = 0; i < 3; i++) {
+        for (var i = 0; i < 3; i++) {
             byte[] rec = ReadGem5Message(br);
             Assert.NotEmpty(rec);
             // First field = seq_num, tag = (1 << 3) | 0 = 0x08
             Assert.Equal(0x08, rec[0]);
-            int pos = 1;
+            var pos = 1;
             ulong seqno = ReadVarint(rec, ref pos);
             Assert.Equal((ulong)i, seqno);
         }
@@ -344,11 +356,13 @@ public class ElasticTraceTests {
         ElasticTraceRecord[] recs = Record(program);
 
         using var helf = new MemoryStream();
-        var mem = new FlatMemory(0x1000); mem.Load(0, program);
+        var mem = new FlatMemory(0x1000);
+        mem.Load(0, program);
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
-        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf))
+        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+        }
 
         helf.Position = 0;
         using var gem5Out = new MemoryStream();
@@ -356,15 +370,15 @@ public class ElasticTraceTests {
 
         gem5Out.Position = 0;
         var br = new BinaryReader(gem5Out);
-        br.ReadUInt32(); // skip LE magic 0x356d6567
+        br.ReadUInt32();     // skip LE magic 0x356d6567
         ReadGem5Message(br); // skip InstDepRecordHeader
 
         byte[] rec = ReadGem5Message(br); // the addi x1 record
         // Parse: seq_num (field 1), then type (field 2)
-        int pos = 0;
+        var pos = 0;
         ulong tag1 = ReadVarint(rec, ref pos); // should be 0x08 (field 1, varint)
         Assert.Equal(0x08UL, tag1);
-        ReadVarint(rec, ref pos); // seqno value
+        ReadVarint(rec, ref pos);              // seqno value
         ulong tag2 = ReadVarint(rec, ref pos); // should be 0x10 (field 2, varint)
         Assert.Equal(0x10UL, tag2);
         ulong typeVal = ReadVarint(rec, ref pos);
@@ -378,11 +392,13 @@ public class ElasticTraceTests {
         byte[] program = Encode(0x00100093u, 0x00200113u, 0x002080B3u, 0x00100073u);
 
         using var helf = new MemoryStream();
-        var mem = new FlatMemory(0x1000); mem.Load(0, program);
+        var mem = new FlatMemory(0x1000);
+        mem.Load(0, program);
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
-        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf))
+        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+        }
 
         helf.Position = 0;
         using var fetchOut = new MemoryStream();
@@ -402,7 +418,7 @@ public class ElasticTraceTests {
         Assert.Equal(0x0A, header[0]);
 
         // Three Packet messages follow, one per instruction
-        for (int i = 0; i < 3; i++) {
+        for (var i = 0; i < 3; i++) {
             byte[] pkt = ReadGem5Message(br);
             Assert.NotEmpty(pkt);
             // First field is tick (field 1, wire type 0): tag = 0x08
@@ -417,11 +433,13 @@ public class ElasticTraceTests {
         byte[] program = Encode(0x00100093u, 0x00200113u, 0x002080B3u, 0x00100073u);
 
         using var helf = new MemoryStream();
-        var mem = new FlatMemory(0x1000); mem.Load(0, program);
+        var mem = new FlatMemory(0x1000);
+        mem.Load(0, program);
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
-        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf))
+        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+        }
 
         helf.Position = 0;
         using var fetchOut = new MemoryStream();
@@ -429,13 +447,13 @@ public class ElasticTraceTests {
 
         fetchOut.Position = 0;
         var br = new BinaryReader(fetchOut);
-        br.ReadUInt32();       // skip magic
-        ReadGem5Message(br);  // skip PacketHeader
+        br.ReadUInt32();     // skip magic
+        ReadGem5Message(br); // skip PacketHeader
 
         ulong lastTick = 0;
         while (fetchOut.Position < fetchOut.Length) {
             byte[] pkt = ReadGem5Message(br);
-            int pos = 0;
+            var pos = 0;
             ReadVarint(pkt, ref pos); // tag (0x08)
             ulong tick = ReadVarint(pkt, ref pos);
             Assert.True(tick > lastTick, $"ticks must be strictly increasing; got {tick} after {lastTick}");
@@ -449,11 +467,13 @@ public class ElasticTraceTests {
         byte[] program = Encode(0x00100093u, 0x00200113u, 0x00100073u);
 
         using var helf = new MemoryStream();
-        var mem = new FlatMemory(0x1000); mem.Load(0, program);
+        var mem = new FlatMemory(0x1000);
+        mem.Load(0, program);
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
-        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf))
+        using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
             new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+        }
 
         helf.Position = 0;
         using var fetchOut = new MemoryStream();
@@ -461,23 +481,29 @@ public class ElasticTraceTests {
 
         fetchOut.Position = 0;
         var br = new BinaryReader(fetchOut);
-        br.ReadUInt32();       // skip magic
-        ReadGem5Message(br);  // skip PacketHeader
+        br.ReadUInt32();     // skip magic
+        ReadGem5Message(br); // skip PacketHeader
 
         // First packet: tick=field1, cmd=field2, addr=field3
         byte[] pkt0 = ReadGem5Message(br);
-        int pos = 0;
-        ReadVarint(pkt0, ref pos); ulong tick0  = ReadVarint(pkt0, ref pos); // field 1 tag + value
-        ReadVarint(pkt0, ref pos); ulong cmd    = ReadVarint(pkt0, ref pos); // field 2 tag + value
-        ReadVarint(pkt0, ref pos); ulong addr   = ReadVarint(pkt0, ref pos); // field 3 tag + value
-        Assert.Equal(1UL, cmd);    // MemCmd::ReadReq = 1
-        Assert.Equal(0UL, addr);   // PC of first instruction
+        var pos = 0;
+        ReadVarint(pkt0, ref pos);
+        ulong tick0 = ReadVarint(pkt0, ref pos); // field 1 tag + value
+        ReadVarint(pkt0, ref pos);
+        ulong cmd = ReadVarint(pkt0, ref pos); // field 2 tag + value
+        ReadVarint(pkt0, ref pos);
+        ulong addr = ReadVarint(pkt0, ref pos); // field 3 tag + value
+        Assert.Equal(1UL, cmd);                 // MemCmd::ReadReq = 1
+        Assert.Equal(0UL, addr);                // PC of first instruction
 
         byte[] pkt1 = ReadGem5Message(br);
         pos = 0;
-        ReadVarint(pkt1, ref pos); ReadVarint(pkt1, ref pos); // tick
-        ReadVarint(pkt1, ref pos); ReadVarint(pkt1, ref pos); // cmd
-        ReadVarint(pkt1, ref pos); ulong addr1 = ReadVarint(pkt1, ref pos);
-        Assert.Equal(4UL, addr1);  // PC of second instruction
+        ReadVarint(pkt1, ref pos);
+        ReadVarint(pkt1, ref pos); // tick
+        ReadVarint(pkt1, ref pos);
+        ReadVarint(pkt1, ref pos); // cmd
+        ReadVarint(pkt1, ref pos);
+        ulong addr1 = ReadVarint(pkt1, ref pos);
+        Assert.Equal(4UL, addr1); // PC of second instruction
     }
 }
