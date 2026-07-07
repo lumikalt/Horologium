@@ -13,7 +13,9 @@ public sealed record CacheHardwareConfig(
     int CapacityBytes,
     int Ways = 4,
     int BlockBytes = 32,
-    int MissLatency = 10
+    int MissLatency = 10,
+    int TagLatency = 0,
+    int DataLatency = 0
 );
 
 /// <summary>
@@ -128,6 +130,12 @@ public sealed record TrainConfig(
             l3?.MissLatency ?? 50,
             tlb?.Entries ?? 0,
             tlb?.PageBytes ?? 4096,
-            tlb?.MissLatency ?? 20
+            tlb?.MissLatency ?? 20,
+            CacheTagLatency: l1?.TagLatency ?? 0,
+            CacheDataLatency: l1?.DataLatency ?? 0,
+            L2TagLatency: l2?.TagLatency ?? 0,
+            L2DataLatency: l2?.DataLatency ?? 0,
+            L3TagLatency: l3?.TagLatency ?? 0,
+            L3DataLatency: l3?.DataLatency ?? 0
         );
 }

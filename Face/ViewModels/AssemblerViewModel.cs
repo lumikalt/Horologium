@@ -162,11 +162,15 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial int ICacheWays { get; set; } = 4;
     [ObservableProperty] public partial int ICacheBlockBytes { get; set; } = 32;
     [ObservableProperty] public partial int ICacheMissLatency { get; set; } = 10;
+    [ObservableProperty] public partial int ICacheTagLatency { get; set; } = 0;
+    [ObservableProperty] public partial int ICacheDataLatency { get; set; } = 0;
     [ObservableProperty] public partial bool DCacheEnabled { get; set; }
     [ObservableProperty] public partial int DCacheCapacityKb { get; set; } = 4;
     [ObservableProperty] public partial int DCacheWays { get; set; } = 4;
     [ObservableProperty] public partial int DCacheBlockBytes { get; set; } = 32;
     [ObservableProperty] public partial int DCacheMissLatency { get; set; } = 10;
+    [ObservableProperty] public partial int DCacheTagLatency { get; set; } = 0;
+    [ObservableProperty] public partial int DCacheDataLatency { get; set; } = 0;
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
     // ── Cache display state ───────────────────────────────────────────────────
@@ -891,12 +895,16 @@ public partial class AssemblerViewModel : ObservableObject {
         int ways,
         int blockBytes,
         int missLatency,
-        ReplacementPolicyKind policy = ReplacementPolicyKind.Lru
+        ReplacementPolicyKind policy = ReplacementPolicyKind.Lru,
+        int tagLatency = 0,
+        int dataLatency = 0
     ) =>
         enabled
             ? new MemoryConfig(capacityKb * 1024, ways, blockBytes, missLatency)
                 with {
                     ReplacementPolicy = policy,
+                    CacheTagLatency = tagLatency,
+                    CacheDataLatency = dataLatency,
                 }
             : MemoryConfig.None;
 
@@ -910,10 +918,12 @@ public partial class AssemblerViewModel : ObservableObject {
 
         ReplacementPolicyKind policy = ParseReplacementPolicy(CacheReplacementPolicy);
         MemoryConfig iCfg = BuildCacheConfig(
-            ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency, policy
+            ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency, policy,
+            ICacheTagLatency, ICacheDataLatency
         );
         MemoryConfig dCfg = BuildCacheConfig(
-            DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency, policy
+            DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency, policy,
+            DCacheTagLatency, DCacheDataLatency
         );
         if (dCfg.CacheCapacityBytes > 0)
             dCfg = dCfg with { UncacheableBase = UartDevice.DefaultBase, UncacheableSize = UartDevice.RegionSize, };

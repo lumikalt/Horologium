@@ -53,6 +53,10 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int ICacheMissLatency { get; set; } = 10;
 
+    [ObservableProperty] public partial int ICacheTagLatency { get; set; } = 0;
+
+    [ObservableProperty] public partial int ICacheDataLatency { get; set; } = 0;
+
     [ObservableProperty] public partial bool DCacheEnabled { get; set; } = false;
 
     [ObservableProperty] public partial int DCacheCapacityKb { get; set; } = 32;
@@ -62,6 +66,10 @@ public partial class ConfigViewModel : ObservableObject {
     [ObservableProperty] public partial int DCacheBlockBytes { get; set; } = 32;
 
     [ObservableProperty] public partial int DCacheMissLatency { get; set; } = 10;
+
+    [ObservableProperty] public partial int DCacheTagLatency { get; set; } = 0;
+
+    [ObservableProperty] public partial int DCacheDataLatency { get; set; } = 0;
 
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
@@ -164,10 +172,12 @@ public partial class ConfigViewModel : ObservableObject {
         };
 
         CacheHardwareConfig? iCache = ICacheEnabled
-            ? new CacheHardwareConfig(ICacheCapacityKb * 1024, ICacheWays, ICacheBlockBytes, ICacheMissLatency)
+            ? new CacheHardwareConfig(ICacheCapacityKb * 1024, ICacheWays, ICacheBlockBytes, ICacheMissLatency,
+                ICacheTagLatency, ICacheDataLatency)
             : null;
         CacheHardwareConfig? dCache = DCacheEnabled
-            ? new CacheHardwareConfig(DCacheCapacityKb * 1024, DCacheWays, DCacheBlockBytes, DCacheMissLatency)
+            ? new CacheHardwareConfig(DCacheCapacityKb * 1024, DCacheWays, DCacheBlockBytes, DCacheMissLatency,
+                DCacheTagLatency, DCacheDataLatency)
             : null;
 
         return new NamedConfig(
@@ -260,6 +270,8 @@ public partial class ConfigViewModel : ObservableObject {
             vm.ICacheWays = ic.Ways;
             vm.ICacheBlockBytes = ic.BlockBytes;
             vm.ICacheMissLatency = ic.MissLatency;
+            vm.ICacheTagLatency = ic.TagLatency;
+            vm.ICacheDataLatency = ic.DataLatency;
         }
 
         if (nc.Config.DCache is { } dc) {
@@ -267,6 +279,8 @@ public partial class ConfigViewModel : ObservableObject {
             vm.DCacheWays = dc.Ways;
             vm.DCacheBlockBytes = dc.BlockBytes;
             vm.DCacheMissLatency = dc.MissLatency;
+            vm.DCacheTagLatency = dc.TagLatency;
+            vm.DCacheDataLatency = dc.DataLatency;
         }
 
         return vm;
