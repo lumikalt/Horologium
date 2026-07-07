@@ -350,4 +350,247 @@ public class CacheTests {
         cache.Read(0, 1);
         Assert.Equal(2, cache.ConsumePendingStalls()); // 10 - 8, not 10
     }
+
+    // ── Write-back / write-allocate policies ──────────────────────────────────
+
+    [Fact]
+    public void WriteBack_StoreHit_BackingUnchanged_LineDirty() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, [0xAA,]);
+        var cache = new SetAssociativeCache(
+            mem, 64, 4, 16, 10,
+            writePolicy: WritePolicyKind.WriteBack
+        );
+        cache.Read(0, 1); // warm the cache
+        cache.ConsumePendingStalls();
+
+        cache.Write(0, 0xBB, 1);
+
+        // Backing unchanged — write stayed in cache.
+        Assert.Equal(0xAAUL, mem.Read(0, 1));
+        // Cache line is dirty.
+        CacheLine? line = cache.GetSnapshot().FirstOrDefault(l => l.Valid);
+        Assert.NotNull(line);
+        Assert.True(line.Dirty);
+        Assert.Equal(0, cache.DirtyEvictions); // no eviction yet
+    }
+
+    [Fact]
+    public void WriteBack_DirtyEviction_FlushesToBacking() {
+        // Direct-mapped (1-way), 16-byte block, 4 sets → addresses 0 and 64 share set 0.
+        var mem = new FlatMemory(256);
+        var cache = new SetAssociativeCache(
+            mem, 64, 1, 16, 10,
+            writePolicy: WritePolicyKind.WriteBack,
+            writeMissPolicy: WriteMissPolicyKind.WriteAllocate
+        );
+
+        // Write-allocate write miss at address 0: installs line then writes 0xBB.
+        cache.Write(0, 0xBB, 1);
+        cache.ConsumePendingStalls();
+        Assert.Equal(0UL, mem.Read(0, 1)); // backing still 0 (write stayed in cache)
+
+        // Read address 64 (same set, same 1 way) → evicts dirty line for address 0.
+        cache.Read(64, 1);
+
+        Assert.Equal(0xBBUL, mem.Read(0, 1)); // dirty eviction flushed 0xBB to backing
+        Assert.Equal(1, cache.DirtyEvictions);
+    }
+
+    [Fact]
+    public void WriteAllocate_WriteMiss_InstallsLine() {
+        var mem = new FlatMemory(256);
+        var cache = new SetAssociativeCache(
+            mem, 64, 4, 16, 10,
+            writeMissPolicy: WriteMissPolicyKind.WriteAllocate
+        );
+
+        cache.Write(0, 0xBB, 1);
+
+        Assert.Contains(cache.GetSnapshot(), l => l.Valid);
+        Assert.Equal(1, cache.Misses);
+    }
+
+    [Fact]
+    public void WriteBack_NoWriteAllocate_WriteMiss_HitsBacking_NoInstall() {
+        var mem = new FlatMemory(256);
+        var cache = new SetAssociativeCache(
+            mem, 64, 4, 16, 10,
+            writePolicy: WritePolicyKind.WriteBack,
+            writeMissPolicy: WriteMissPolicyKind.NoWriteAllocate
+        );
+
+        cache.Write(0, 0xBB, 1);
+
+        // Write-back + no-write-allocate write miss → write directly to backing, no install.
+        Assert.Equal(0xBBUL, mem.Read(0, 1));
+        Assert.DoesNotContain(cache.GetSnapshot(), l => l.Valid);
+        Assert.Equal(1, cache.Misses);
+    }
+
+    // ── Write-back buffer ─────────────────────────────────────────────────────
+
+    private static SetAssociativeCache MakeWbCache(IMemory backing, int wbCapacity = 4) =>
+        new(backing, 64, 4, 16, 10,
+            writePolicy: WritePolicyKind.WriteBack,
+            writeMissPolicy: WriteMissPolicyKind.WriteAllocate,
+            wbCapacity: wbCapacity);
+
+    [Fact]
+    public void WbBuffer_DirtyEviction_NoStall_BackingStillStale() {
+        // A dirty eviction with buffer room charges 0 stall and does NOT yet update backing.
+        var mem = new FlatMemory(256);
+        mem.Load(0, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,]);
+        // Line at address 128 occupies the same set (1-set cache → all tags fight for the single set).
+        for (int i = 0; i < 16; i++) mem.Load(128 + (ulong)i, [(byte)(0x80 + i),]);
+
+        SetAssociativeCache cache = MakeWbCache(mem);
+
+        // Install and dirty line 0.
+        cache.Write(0, 0xAA, 1); // WA miss → fill + dirty
+        cache.ConsumePendingStalls();
+
+        // Force eviction of line 0 by filling all 4 ways with different-tag lines.
+        // Capacity=64, ways=4, block=16 → 1 set → 4 ways. Addresses 0,16,32,48,64 each map to set 0
+        // with different tags; installing 4 more displaces way holding line 0.
+        for (ulong addr = 16; addr <= 64; addr += 16)
+            cache.Read(addr, 1);
+
+        // Line 0 should be in WB buffer: no stall beyond miss latency, but backing still old.
+        Assert.Equal(1UL, mem.Read(0, 1)); // NOT 0xAA yet
+        Assert.Equal(1, cache.DirtyEvictions);
+        Assert.Equal(1, cache.WbOccupancy);
+    }
+
+    [Fact]
+    public void WbBuffer_TickDrains_BackingUpdated() {
+        var mem = new FlatMemory(256);
+        for (int i = 0; i < 16; i++) mem.Load((ulong)i, [0x00,]);
+
+        SetAssociativeCache cache = MakeWbCache(mem);
+        cache.Write(0, 0xCC, 1); // WA fill + dirty
+        cache.ConsumePendingStalls();
+        // Evict by filling 4 other lines.
+        for (ulong addr = 16; addr <= 64; addr += 16) cache.Read(addr, 1);
+        Assert.Equal(1, cache.WbOccupancy);
+
+        cache.TickWb(); // one drain
+
+        Assert.Equal(0xCCUL, mem.Read(0, 1)); // now committed to backing
+        Assert.Equal(0, cache.WbOccupancy);
+        Assert.Equal(1, cache.WbDrains);
+    }
+
+    [Fact]
+    public void WbBuffer_ReadMissForwards_NoBacking() {
+        // A demand read that misses in cache but hits the WB buffer should get the dirty value
+        // without going to backing, and the line should re-enter cache as dirty.
+        var mem = new FlatMemory(256);
+        for (int i = 0; i < 16; i++) mem.Load((ulong)i, [0x00,]);
+
+        SetAssociativeCache cache = MakeWbCache(mem);
+        cache.Write(0, 0xDD, 1); // install + dirty
+        cache.ConsumePendingStalls();
+        // Evict line 0 to WB buffer.
+        for (ulong addr = 16; addr <= 64; addr += 16) cache.Read(addr, 1);
+        Assert.Equal(1, cache.WbOccupancy);
+
+        // Re-read address 0: should forward from WB buffer, NOT return 0x00 from backing.
+        cache.ConsumePendingStalls();
+        ulong val = cache.Read(0, 1);
+        Assert.Equal(0xDDUL, val);
+        Assert.Equal(0, cache.WbOccupancy); // consumed from buffer
+        // Reinstalled line should be dirty (data hasn't hit backing yet).
+        Assert.Contains(cache.GetSnapshot(), l => l.Valid && l.Dirty);
+    }
+
+    [Fact]
+    public void WbBuffer_Full_SyncDrainAndStall() {
+        // With a buffer of 1 entry: first dirty eviction goes to buffer (no stall),
+        // second dirty eviction overflows → sync drain of first, MissLatency stall charged.
+        var mem = new FlatMemory(512);
+        SetAssociativeCache cache = new(mem, 64, 4, 16, 10,
+            writePolicy: WritePolicyKind.WriteBack,
+            writeMissPolicy: WriteMissPolicyKind.WriteAllocate,
+            wbCapacity: 1);
+
+        // Dirty line 0.
+        cache.Write(0, 0x11, 1);
+        cache.ConsumePendingStalls();
+        // Evict it → goes to buffer (1 free slot, no stall).
+        for (ulong a = 16; a <= 64; a += 16) cache.Read(a, 1);
+        cache.ConsumePendingStalls();
+        Assert.Equal(1, cache.WbOccupancy);
+
+        // Dirty line 80 (different tag, same set → force another eviction).
+        cache.Write(80, 0x22, 1);
+        cache.ConsumePendingStalls();
+        // Evict line 80 → buffer full → sync drain of slot 0, MissLatency stall charged.
+        for (ulong a = 96; a <= 160; a += 16) cache.Read(a, 1);
+        long stalls = cache.ConsumePendingStalls();
+
+        Assert.True(stalls >= 10); // at least one MissLatency charged for sync drain
+        Assert.Equal(0x11UL, mem.Read(0, 1)); // first eviction reached backing
+    }
+
+    [Fact]
+    public void WbBuffer_CrossBoundaryStore_NotClobberedByDrain() {
+        // Cross-boundary write over a WB buffer entry must drain the entry first;
+        // otherwise the async drain would later overwrite the store's bytes.
+        var mem = new FlatMemory(256);
+        // Prime backing so bytes 15..16 have known values.
+        mem.Load(0, Enumerable.Range(0, 32).Select(i => (byte)i).ToArray());
+
+        SetAssociativeCache cache = new(mem, 64, 4, 16, 10,
+            writePolicy: WritePolicyKind.WriteBack,
+            writeMissPolicy: WriteMissPolicyKind.WriteAllocate,
+            wbCapacity: 4);
+
+        // Install and dirty the line covering bytes 0..15.
+        cache.Write(0, 0xAABBCCDDUL, 4);
+        cache.ConsumePendingStalls();
+        // Evict it into the WB buffer.
+        for (ulong a = 16; a <= 64; a += 16) cache.Read(a, 1);
+        Assert.Equal(1, cache.WbOccupancy);
+
+        // Cross-boundary store spanning bytes 15..16 (straddles the line boundary).
+        cache.Write(15, 0xFFEE, 2);
+
+        // WB buffer must have been drained synchronously before the backing write.
+        Assert.Equal(0, cache.WbOccupancy);
+        // Backing byte 15 = 0xFF (low byte of 0xFFEE, little-endian).
+        Assert.Equal(0xFFUL, mem.Read(15, 1));
+        // Backing byte 16 = 0xEE.
+        Assert.Equal(0xEEUL, mem.Read(16, 1));
+    }
+
+    [Fact]
+    public void WbBuffer_NwaMiss_DrainsThenWritesBacking() {
+        // WB+NWA: after a dirty line is evicted into the WB buffer, a subsequent NWA write miss
+        // targeting the same line must drain the buffer entry first so a deferred drain does not
+        // later overwrite the new store's bytes.
+        var mem = new FlatMemory(256);
+        mem.Load(0, Enumerable.Repeat((byte)0x11, 16).ToArray());
+
+        SetAssociativeCache cache = new(mem, 64, 4, 16, 10,
+            writePolicy: WritePolicyKind.WriteBack,
+            writeMissPolicy: WriteMissPolicyKind.NoWriteAllocate,
+            wbCapacity: 4);
+
+        // Read to install line 0, then write-hit to dirty byte 0 = 0xAA.
+        cache.Read(0, 1);
+        cache.Write(0, 0xAA, 1);
+        cache.ConsumePendingStalls();
+
+        // Evict line 0 into the WB buffer (fill all 4 ways with different tags).
+        for (ulong a = 16; a <= 64; a += 16) cache.Read(a, 1);
+        Assert.Equal(1, cache.WbOccupancy);
+        Assert.Equal(0x11UL, mem.Read(0, 1)); // backing still stale
+
+        // NWA write miss to line 0: must drain the WB entry first, then write 0xBB to backing.
+        cache.Write(0, 0xBB, 1);
+
+        Assert.Equal(0xBBUL, mem.Read(0, 1)); // new value wins, not 0xAA from stale WB data
+        Assert.Equal(0, cache.WbOccupancy);   // WB entry was consumed during NWA miss
+    }
 }

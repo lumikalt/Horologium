@@ -22,6 +22,7 @@
 - [ ] Vector operation visualization.
   - Gotta think of how this should be done.
 - [ ] Cache management policy selection.
+- More cache settings like Ripes.
 - [ ] gem5-style architecture configurator: UI surface for the scripting host and pipeline builder — edit `.csx` scripts
   in-app and hot-reload the resulting pipeline, cache hierarchy, branch predictor, and FU configuration without
   restarting.
@@ -165,14 +166,33 @@
 - [ ] Cache pre-fetching: local-delta prefetcher (Berti). — Bakhshalipour et al., MICRO 2022
 - [ ] Cache pre-fetching: RL-driven prefetcher selection (Pythia). — Bera et al., MICRO 2021
 - [x] Non-blocking cache with MSHR.
-- [ ] Per-level cache access latency: tag-lookup and data-access cycles charged separately on every access,
-  matching gem5's `tag_latency`/`data_latency`/`response_latency` decomposition (hit cost =
-  `max(tag, data)` in parallel mode; miss charges tag-only at this level plus the fill return path).
-  OoO load result timing driven by which level hits rather than a static load-unit latency knob;
-  FiveStage D-cache hit latency surfaces as a per-load pipeline stall; I-cache hit latency requires
-  a multi-cycle fetch stage.
 - [ ] Victim cache: small fully-associative buffer to absorb conflict misses. — Jouppi, ISCA 1990
 - [ ] Make `ToothClass` a tag instead of an enum?
+
+### Cache Model Realism
+
+- [ ] Write-back buffer (eviction buffer): dirty victims drain to the next level asynchronously from a small
+  (4–8 entry) buffer instead of charging the full miss latency synchronously at eviction; stall only when the buffer
+  is full or a demand miss targets a line still queued in it. Write-through counterpart: a coalescing write buffer so
+  stores don't pay backing latency individually.
+- [ ] Cache-level MSHRs with hit-under-miss: move outstanding-miss tracking from the pipeline into each cache level;
+  a secondary miss to a line already in flight merges into the existing MSHR entry instead of paying a second full
+  miss, and the cache continues serving hits while misses are outstanding. Makes L2/L3 non-blocking too. — Kroft,
+  ISCA 1981
+- [ ] Sequential tag/data access mode: gem5's third timing knob alongside tag/data latency — hit latency
+  = tag + data (probe tags first, then read only the matching way) instead of max(tag, data); typical for large
+  lower-level caches.
+- [ ] Inclusion policy per level pair: inclusive (Intel-style — lower-level eviction back-invalidates the line in
+  upper levels), exclusive (AMD-style — lower levels act as victim caches for the level above), or NINE
+  (non-inclusive non-exclusive, the current behavior).
+- [ ] Critical-word-first / early restart: a miss fill returns the demanded word first so the load resumes after the
+  leading edge while the rest of the line streams in; matters when block size is large relative to miss latency.
+- [ ] Banked caches and port limits: N banks with conflict stalls on same-bank concurrent accesses; configurable
+  read/write port counts (the OoO train currently has unlimited D-cache bandwidth).
+- [ ] Per-sector dirty/valid bits: sectored lines so writebacks transfer only dirty sectors and fills can be partial;
+  bandwidth refinement over whole-line granularity.
+- [ ] Zicbom write-back semantics: wire cbo.clean/cbo.flush/cbo.inval into dirty-line state now that write-back
+  caches track it (clean = writeback and keep, flush = writeback and invalidate, inval = discard without writeback).
 
 ### Cache Replacement
 
@@ -332,10 +352,12 @@ Implemented:
 - [ ] gem5-style architecture builder: a composable builder API covering pipeline topology, cache hierarchy, branch
   predictor, FU counts and latencies, and multicore interconnect — the structural wiring that goes beyond `TrainConfig`'
   s flat parameter record; the Roslyn scripting host is the primary consumer.
-  - [x] Phase 1 — Cache hierarchy shape: structural description of the full cache stack — per-level capacity, associativity,
+  - [x] Phase 1 — Cache hierarchy shape: structural description of the full cache stack — per-level capacity,
+    associativity,
     block size, and access latency; private-vs-shared topology across levels; replacement policy and prefetcher choice
     per I/D path.
-  - [x] Phase 2 — Pipeline topology: structural description of a single pipeline — train variant (single-cycle through OoO),
+  - [x] Phase 2 — Pipeline topology: structural description of a single pipeline — train variant (single-cycle through
+    OoO),
     forwarding, store buffer depth, issue width, reorder buffer and issue queue depth, physical register count,
     functional unit class counts and latencies, branch predictor kind and parameters.
   - [x] SmtTrain spec variant: extend PipelineSpec hierarchy with an SmtSpec that handles the N-hart, multi-mechanism
@@ -441,7 +463,7 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 | LGP-30             | Drum memory, bit-serial arithmetic, rotational latency scheduling                      | 2     |
 | Nintendo CIC (SM5) | 4-bit copy-protection MCU; minimal accumulator, external ROM, hardware handshake loop  | 1     |
 | MN101              | Panasonic 8-bit MCU; conventional accumulator with bit-manipulation and multiply ops   | 2     |
-| RL78               | Renesas 16-bit Harvard MCU; CISC addressing modes and bit-addressable I/O registers   | 2     |
+| RL78               | Renesas 16-bit Harvard MCU; CISC addressing modes and bit-addressable I/O registers    | 2     |
 | ~~TTA/MOVE~~       | Triggered side-effect execution                                                        | 3     |
 | ~~GA144 F18A~~     | Async, multi-core, packed 5-op words                                                   | 3     |
 | MIL-STD-1750A      | Committee designed, spec driven                                                        | 3     |
@@ -451,11 +473,11 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 | Setun              | Balanced ternary (trits: -1, 0, +1), no binary anywhere                                | 3     |
 | Parallax Propeller | 8 symmetric cogs, deterministic hub-cycle slots, no interrupts, wait-based I/O         | 3     |
 | HP Saturn          | 4-bit bus, 64-bit registers addressed by nibble fields, BCD-centric                    | 3     |
-| TeakLite/XpertTeak | DSi/3DS coprocessor DSP; dual-MAC pipeline, zero-overhead loops, circular addr regs   | 3     |
-| SuperFX (GSU)      | Argonaut/Nintendo SNES coprocessor; cached RISC with dedicated PLOT pixel-write op    | 3     |
-| µ'nSP              | SunPlus 16-bit MCU (V.Smile, toys); segmented addressing, compact 16-bit encoding     | 3     |
-| MAXQ               | Maxim/Dallas move-only stack machine; all computation as moves through a Transfer Map | 3     |
-| VS_DSP4            | SunPlus/embedded DSP; multiply-accumulate with saturation, bit-reversed addressing    | 3     |
+| TeakLite/XpertTeak | DSi/3DS coprocessor DSP; dual-MAC pipeline, zero-overhead loops, circular addr regs    | 3     |
+| SuperFX (GSU)      | Argonaut/Nintendo SNES coprocessor; cached RISC with dedicated PLOT pixel-write op     | 3     |
+| µ'nSP              | SunPlus 16-bit MCU (V.Smile, toys); segmented addressing, compact 16-bit encoding      | 3     |
+| MAXQ               | Maxim/Dallas move-only stack machine; all computation as moves through a Transfer Map  | 3     |
+| VS_DSP4            | SunPlus/embedded DSP; multiply-accumulate with saturation, bit-reversed addressing     | 3     |
 | OpenRISC 1000      | Open-source RISC; multiple implementations with known spec divergences                 | 3     |
 | Burroughs B5000    | Tagged stack-machine, segmented memory                                                 | 4     |
 | Symbolica/CADR     | Full tagged LISP machine                                                               | 4     |
@@ -464,7 +486,7 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 | Transputer T800    | CSP channels in hardware, on-chip process scheduler, workspace-relative addressing     | 4     |
 | Tera MTA           | 128-way barrel multithreading, full/empty bits on every memory word, no cache          | 4     |
 | Pendulum (PISA)    | Fully reversible ISA — every instruction must be invertible, no destructive writes     | 4     |
-| FR-V               | Fujitsu VLIW; 1–8 issue slots per bundle, no hardware interlocks, all hazards visible | 4     |
+| FR-V               | Fujitsu VLIW; 1–8 issue slots per bundle, no hardware interlocks, all hazards visible  | 4     |
 | Mill Belt          | Belt-machine, no register file                                                         | 5     |
 | TRIPS/WaveScalar   | True dataflow, no PC                                                                   | 5     |
 | Intel iAPX 432     | Bit-aligned variable-length instructions (6–321 bits), capability objects, hardware GC | 5     |

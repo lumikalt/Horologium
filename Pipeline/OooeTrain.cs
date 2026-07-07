@@ -519,6 +519,8 @@ internal sealed class OoOPipelineCore : Gear {
         // Tick down in-flight prefetch countdowns. Like the write buffer, prefetched lines
         // are non-speculative cache state, so they keep arriving through halt/flush cycles.
         if (_realisticPrefetch) DLayers.Cache!.TickPrefetch();
+        // Drain one write-back buffer entry per cycle (asynchronous background drain).
+        if (_anyCache) { ILayers.TickWb(); DLayers.TickWb(); }
 
         if (_halted || _flushPending) {
             if (_flushPending) StepFlush();

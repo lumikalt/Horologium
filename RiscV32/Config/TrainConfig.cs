@@ -15,7 +15,10 @@ public sealed record CacheHardwareConfig(
     int BlockBytes = 32,
     int MissLatency = 10,
     int TagLatency = 0,
-    int DataLatency = 0
+    int DataLatency = 0,
+    WritePolicyKind WritePolicy = WritePolicyKind.WriteThrough,
+    WriteMissPolicyKind WriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
+    int WbCapacity = 0
 );
 
 /// <summary>
@@ -136,6 +139,15 @@ public sealed record TrainConfig(
             L2TagLatency: l2?.TagLatency ?? 0,
             L2DataLatency: l2?.DataLatency ?? 0,
             L3TagLatency: l3?.TagLatency ?? 0,
-            L3DataLatency: l3?.DataLatency ?? 0
+            L3DataLatency: l3?.DataLatency ?? 0,
+            CacheWritePolicy: l1?.WritePolicy ?? WritePolicyKind.WriteThrough,
+            CacheWriteMissPolicy: l1?.WriteMissPolicy ?? WriteMissPolicyKind.NoWriteAllocate,
+            L2WritePolicy: l2?.WritePolicy ?? WritePolicyKind.WriteThrough,
+            L2WriteMissPolicy: l2?.WriteMissPolicy ?? WriteMissPolicyKind.NoWriteAllocate,
+            L3WritePolicy: l3?.WritePolicy ?? WritePolicyKind.WriteThrough,
+            L3WriteMissPolicy: l3?.WriteMissPolicy ?? WriteMissPolicyKind.NoWriteAllocate,
+            CacheWbCapacity: l1?.WbCapacity ?? 0,
+            L2WbCapacity: l2?.WbCapacity ?? 0,
+            L3WbCapacity: l3?.WbCapacity ?? 0
         );
 }

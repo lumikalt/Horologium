@@ -22,6 +22,9 @@ public enum ReplacementPolicyKind {
     Hawkeye,
 }
 
+public enum WritePolicyKind { WriteThrough, WriteBack }
+public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate }
+
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
 /// <param name="CacheWays">Associativity. Ignored when CacheCapacityBytes = 0.</param>
 /// <param name="CacheBlockBytes">Cache line size. Ignored when CacheCapacityBytes = 0.</param>
@@ -56,6 +59,17 @@ public enum ReplacementPolicyKind {
 /// <param name="L2DataLatency">L2 data-array read cycles.</param>
 /// <param name="L3TagLatency">L3 tag-array lookup cycles.</param>
 /// <param name="L3DataLatency">L3 data-array read cycles.</param>
+/// <param name="CacheWritePolicy">L1 write-hit policy: WriteThrough (store goes to backing immediately) or
+/// WriteBack (store stays in cache until eviction; requires dirty tracking).</param>
+/// <param name="CacheWriteMissPolicy">L1 write-miss policy: NoWriteAllocate (write directly to backing, no line install)
+/// or WriteAllocate (install line then write into it). Write-allocate + WriteBack is the typical pairing.</param>
+/// <param name="L2WritePolicy">L2 write-hit policy (same semantics as L1).</param>
+/// <param name="L2WriteMissPolicy">L2 write-miss policy.</param>
+/// <param name="L3WritePolicy">L3 write-hit policy.</param>
+/// <param name="L3WriteMissPolicy">L3 write-miss policy.</param>
+/// <param name="CacheWbCapacity">L1 write-back buffer capacity in lines (0 = disabled).</param>
+/// <param name="L2WbCapacity">L2 write-back buffer capacity in lines (0 = disabled).</param>
+/// <param name="L3WbCapacity">L3 write-back buffer capacity in lines (0 = disabled).</param>
 /// <param name="ReplacementPolicy">Cache replacement policy applied to every cache level.
 /// Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling
 /// (Jaleel et al., ISCA 2010). SHiP uses per-signature reuse history to predict insertion
@@ -94,7 +108,16 @@ public sealed record MemoryConfig(
     int L2TagLatency = 0,
     int L2DataLatency = 0,
     int L3TagLatency = 0,
-    int L3DataLatency = 0
+    int L3DataLatency = 0,
+    WritePolicyKind CacheWritePolicy = WritePolicyKind.WriteThrough,
+    WriteMissPolicyKind CacheWriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
+    WritePolicyKind L2WritePolicy = WritePolicyKind.WriteThrough,
+    WriteMissPolicyKind L2WriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
+    WritePolicyKind L3WritePolicy = WritePolicyKind.WriteThrough,
+    WriteMissPolicyKind L3WriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
+    int CacheWbCapacity = 0,
+    int L2WbCapacity = 0,
+    int L3WbCapacity = 0
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -127,7 +150,8 @@ public sealed record MemoryLayers(
         if (cfg.L3CapacityBytes > 0) {
             l3 = new SetAssociativeCache(
                 current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
-                0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency
+                0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency,
+                cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity
             );
             current = l3;
         }
@@ -135,7 +159,8 @@ public sealed record MemoryLayers(
         if (cfg.L2CapacityBytes > 0) {
             l2 = new SetAssociativeCache(
                 current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
-                0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency
+                0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency,
+                cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity
             );
             current = l2;
         }
@@ -144,7 +169,8 @@ public sealed record MemoryLayers(
             l1 = new SetAssociativeCache(
                 current, cfg.CacheCapacityBytes, cfg.CacheWays, cfg.CacheBlockBytes, cfg.CacheMissLatency,
                 cfg.Prefetcher != PrefetcherKind.None ? cfg.PrefetchLatency : 0,
-                cfg.ReplacementPolicy, cfg.CacheTagLatency, cfg.CacheDataLatency
+                cfg.ReplacementPolicy, cfg.CacheTagLatency, cfg.CacheDataLatency,
+                cfg.CacheWritePolicy, cfg.CacheWriteMissPolicy, cfg.CacheWbCapacity
             );
             current = l1;
         }
@@ -198,7 +224,7 @@ public sealed record MemoryLayers(
             int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
-                s.TagLatency, s.DataLatency
+                s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -210,7 +236,7 @@ public sealed record MemoryLayers(
             int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
-                s.TagLatency, s.DataLatency
+                s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -251,6 +277,13 @@ public sealed record MemoryLayers(
         (L2Cache?.ConsumePendingStalls() ?? 0) +
         (L3Cache?.ConsumePendingStalls() ?? 0) +
         (Tlb?.ConsumePendingStalls() ?? 0);
+
+    /// <summary>Advances write-back buffer drain by one entry across all cache levels.</summary>
+    public void TickWb() {
+        Cache?.TickWb();
+        L2Cache?.TickWb();
+        L3Cache?.TickWb();
+    }
 
     /// <summary>
     /// Prefetches the L1 line covering <paramref name="address"/> without any stall penalty

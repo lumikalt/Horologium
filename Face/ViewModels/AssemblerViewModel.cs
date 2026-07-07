@@ -164,6 +164,9 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial int ICacheMissLatency { get; set; } = 10;
     [ObservableProperty] public partial int ICacheTagLatency { get; set; } = 0;
     [ObservableProperty] public partial int ICacheDataLatency { get; set; } = 0;
+    [ObservableProperty] public partial string ICacheWritePolicy { get; set; } = "write_through";
+    [ObservableProperty] public partial string ICacheWriteMissPolicy { get; set; } = "no_write_allocate";
+    [ObservableProperty] public partial int ICacheWbCapacity { get; set; } = 0;
     [ObservableProperty] public partial bool DCacheEnabled { get; set; }
     [ObservableProperty] public partial int DCacheCapacityKb { get; set; } = 4;
     [ObservableProperty] public partial int DCacheWays { get; set; } = 4;
@@ -171,6 +174,9 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial int DCacheMissLatency { get; set; } = 10;
     [ObservableProperty] public partial int DCacheTagLatency { get; set; } = 0;
     [ObservableProperty] public partial int DCacheDataLatency { get; set; } = 0;
+    [ObservableProperty] public partial string DCacheWritePolicy { get; set; } = "write_through";
+    [ObservableProperty] public partial string DCacheWriteMissPolicy { get; set; } = "no_write_allocate";
+    [ObservableProperty] public partial int DCacheWbCapacity { get; set; } = 0;
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
     // ── Cache display state ───────────────────────────────────────────────────
@@ -193,6 +199,9 @@ public partial class AssemblerViewModel : ObservableObject {
 
     public static IReadOnlyList<string> CacheReplacementPolicyOptions { get; } =
         ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
+
+    public static IReadOnlyList<string> WritePolicyOptions { get; } = ["write_through", "write_back",];
+    public static IReadOnlyList<string> WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
 
     public string CacheMetadataLabel => CacheReplacementPolicy switch {
         "srrip" or "brrip" or "drrip" or "ship" or "ship_pc" or "hawkeye" => "RRPV",
@@ -889,6 +898,12 @@ public partial class AssemblerViewModel : ObservableObject {
             _         => ReplacementPolicyKind.Lru,
         };
 
+    private static WritePolicyKind ParseWritePolicy(string s) =>
+        s == "write_back" ? WritePolicyKind.WriteBack : WritePolicyKind.WriteThrough;
+
+    private static WriteMissPolicyKind ParseWriteMissPolicy(string s) =>
+        s == "write_allocate" ? WriteMissPolicyKind.WriteAllocate : WriteMissPolicyKind.NoWriteAllocate;
+
     private static MemoryConfig BuildCacheConfig(
         bool enabled,
         int capacityKb,
@@ -897,7 +912,10 @@ public partial class AssemblerViewModel : ObservableObject {
         int missLatency,
         ReplacementPolicyKind policy = ReplacementPolicyKind.Lru,
         int tagLatency = 0,
-        int dataLatency = 0
+        int dataLatency = 0,
+        WritePolicyKind writePolicy = WritePolicyKind.WriteThrough,
+        WriteMissPolicyKind writeMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
+        int wbCapacity = 0
     ) =>
         enabled
             ? new MemoryConfig(capacityKb * 1024, ways, blockBytes, missLatency)
@@ -905,6 +923,9 @@ public partial class AssemblerViewModel : ObservableObject {
                     ReplacementPolicy = policy,
                     CacheTagLatency = tagLatency,
                     CacheDataLatency = dataLatency,
+                    CacheWritePolicy = writePolicy,
+                    CacheWriteMissPolicy = writeMissPolicy,
+                    CacheWbCapacity = wbCapacity,
                 }
             : MemoryConfig.None;
 
@@ -919,11 +940,15 @@ public partial class AssemblerViewModel : ObservableObject {
         ReplacementPolicyKind policy = ParseReplacementPolicy(CacheReplacementPolicy);
         MemoryConfig iCfg = BuildCacheConfig(
             ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency, policy,
-            ICacheTagLatency, ICacheDataLatency
+            ICacheTagLatency, ICacheDataLatency,
+            ParseWritePolicy(ICacheWritePolicy), ParseWriteMissPolicy(ICacheWriteMissPolicy),
+            ICacheWbCapacity
         );
         MemoryConfig dCfg = BuildCacheConfig(
             DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency, policy,
-            DCacheTagLatency, DCacheDataLatency
+            DCacheTagLatency, DCacheDataLatency,
+            ParseWritePolicy(DCacheWritePolicy), ParseWriteMissPolicy(DCacheWriteMissPolicy),
+            DCacheWbCapacity
         );
         if (dCfg.CacheCapacityBytes > 0)
             dCfg = dCfg with { UncacheableBase = UartDevice.DefaultBase, UncacheableSize = UartDevice.RegionSize, };

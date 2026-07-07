@@ -294,7 +294,11 @@ internal sealed class PipelineCore : Gear {
     // written this cycle is visible to Decode's reads in the same cycle.
     private void RunCycle() {
         // Collect pending stalls from memory hierarchy (generated last cycle's stage execution).
-        if (_anyCache) _missStallBudget += CollectMemoryStalls();
+        if (_anyCache) {
+            _missStallBudget += CollectMemoryStalls();
+            ILayers.TickWb();
+            DLayers.TickWb();
+        }
 
         // Reflect retirements produced by last cycle's Writeback.
         long newRetired = _wb.RetiredCount;

@@ -18,7 +18,10 @@ public sealed record CacheLevelSpec(
     int PrefetcherTableSize = 64,
     int PrefetchLatency = 0,
     int TagLatency = 0,
-    int DataLatency = 0
+    int DataLatency = 0,
+    WritePolicyKind WritePolicy = WritePolicyKind.WriteThrough,
+    WriteMissPolicyKind WriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
+    int WbCapacity = 0
 ) {
     public int HitLatency => Math.Max(TagLatency, DataLatency);
 }

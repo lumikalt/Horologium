@@ -355,6 +355,11 @@
                                                 Width="Auto"
                                                 MinWidth="40"
                                                 IsReadOnly="True" />
+                            <DataGridTextColumn Header="D"
+                                                Binding="{Binding Dirty}"
+                                                Width="Auto"
+                                                MinWidth="32"
+                                                IsReadOnly="True" />
                             <DataGridTextColumn Binding="{Binding Lru}"
                                                 Width="Auto"
                                                 MinWidth="50"

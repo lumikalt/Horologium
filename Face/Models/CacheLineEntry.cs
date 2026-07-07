@@ -6,6 +6,7 @@ public sealed class CacheLineEntry {
     public string Set { get; }
     public string Way { get; }
     public string Valid { get; }
+    public string Dirty { get; }
     public string Tag { get; }
     public string Lru { get; }
     public string Bytes { get; }
@@ -15,6 +16,7 @@ public sealed class CacheLineEntry {
         Set = line.Set.ToString();
         Way = line.Way.ToString();
         Valid = line.Valid ? "●" : "○";
+        Dirty = line.Valid && line.Dirty ? "●" : "";
         Tag = line.Valid ? $"0x{line.Tag:X}" : "-";
         Lru = line.Valid ? line.LruAge.ToString() : "-";
         IsLastAccessed = isLastAccessed;

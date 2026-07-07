@@ -3,11 +3,11 @@ using Mechanism;
 
 namespace Orrery.Cache;
 
-public sealed record CacheLine(int Set, int Way, bool Valid, ulong Tag, int LruAge, byte[] Block);
+public sealed record CacheLine(int Set, int Way, bool Valid, ulong Tag, int LruAge, byte[] Block, bool Dirty = false);
 
 /// <summary>
 /// N-way set-associative cache implementing IMemory.
-/// Policy: write-through, no-write-allocate, LRU replacement.
+/// Write policy and write-miss policy are configurable; default is write-through + no-write-allocate.
 /// Cache miss does not block — it records a penalty in PendingStalls
 /// that the caller drains to inject idle cycles into the pipeline.
 /// </summary>
@@ -20,9 +20,19 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly int _indexBits;
     private readonly IMemory _backing;
     private readonly IReplacementPolicy _policy;
+    private readonly WritePolicyKind _writePolicy;
+    private readonly WriteMissPolicyKind _writeMissPolicy;
 
     private readonly ulong?[][] _tags;   // [set][way]: null = invalid
     private readonly byte[][][] _blocks; // [set][way][offset]
+    private readonly bool[][]? _dirty;   // non-null only in WriteBack mode
+
+    // Write-back buffer: holds dirty-victim lines waiting to drain to backing.
+    // null when wbCapacity == 0 (disabled); always null in write-through mode.
+    private struct WbEntry { public ulong LineBase; public byte[]? Data; }
+    private readonly WbEntry[]? _wbBuffer;
+    private readonly int _wbCapacity;
+    private int _wbCount;
 
     private long _pendingStalls;
     private ulong _lastRequestPc;
@@ -39,9 +49,15 @@ public sealed class SetAssociativeCache : IMemory {
     public int HitLatency => Math.Max(TagLatency, DataLatency);
     public int MissLatency { get; }
     public int PrefetchLatency { get; }
+    public WritePolicyKind WritePolicy => _writePolicy;
+    public WriteMissPolicyKind WriteMissPolicy => _writeMissPolicy;
     public long Hits { get; private set; }
     public long Misses { get; private set; }
     public long Evictions { get; private set; }
+    public long DirtyEvictions { get; private set; }
+    public long WbDrains { get; private set; }
+    public int WbCapacity => _wbCapacity;
+    public int WbOccupancy => _wbCount;
     public long Prefetches { get; private set; }
     public long LatePrefetchHits { get; private set; }
     public ulong? LastAccessAddress { get; private set; }
@@ -61,6 +77,15 @@ public sealed class SetAssociativeCache : IMemory {
     /// to compute hit latency; does not affect <see cref="_pendingStalls"/>).</param>
     /// <param name="dataLatency">Cycles to read the data array (informational — hit latency is
     /// <c>max(tagLatency, dataLatency)</c>, matching gem5's parallel-access mode).</param>
+    /// <param name="writePolicy">Write-hit policy: <see cref="WritePolicyKind.WriteThrough"/> stores
+    /// immediately propagate to backing; <see cref="WritePolicyKind.WriteBack"/> keeps stores in the
+    /// cache and flushes dirty lines to backing only on eviction.</param>
+    /// <param name="writeMissPolicy">Write-miss policy: <see cref="WriteMissPolicyKind.NoWriteAllocate"/>
+    /// writes directly to backing without installing a line; <see cref="WriteMissPolicyKind.WriteAllocate"/>
+    /// installs the line (paying <paramref name="missLatency"/>) then writes into it.</param>
+    /// <param name="wbCapacity">Write-back buffer capacity in lines (0 = disabled). Only active in
+    /// write-back mode. Dirty evicted lines go into the buffer and drain asynchronously (one line per
+    /// <see cref="TickWb"/> call); a stall is charged only when the buffer is full.</param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
@@ -70,7 +95,10 @@ public sealed class SetAssociativeCache : IMemory {
         int prefetchLatency = 0,
         ReplacementPolicyKind replacementPolicy = ReplacementPolicyKind.Lru,
         int tagLatency = 0,
-        int dataLatency = 0
+        int dataLatency = 0,
+        WritePolicyKind writePolicy = WritePolicyKind.WriteThrough,
+        WriteMissPolicyKind writeMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
+        int wbCapacity = 0
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -92,6 +120,9 @@ public sealed class SetAssociativeCache : IMemory {
         DataLatency = dataLatency;
         MissLatency = missLatency;
         PrefetchLatency = prefetchLatency;
+        _writePolicy = writePolicy;
+        _writeMissPolicy = writeMissPolicy;
+        _wbCapacity = writePolicy == WritePolicyKind.WriteBack ? Math.Max(0, wbCapacity) : 0;
 
         _offsetBits = BitOperations.Log2((uint)blockSizeBytes);
         _indexBits = BitOperations.Log2((uint)sets);
@@ -100,10 +131,13 @@ public sealed class SetAssociativeCache : IMemory {
 
         _tags = new ulong?[sets][];
         _blocks = new byte[sets][][];
+        _dirty = writePolicy == WritePolicyKind.WriteBack ? new bool[sets][] : null;
+        _wbBuffer = _wbCapacity > 0 ? new WbEntry[_wbCapacity] : null;
 
         for (var s = 0; s < sets; s++) {
             _tags[s] = new ulong?[_ways];
             _blocks[s] = new byte[_ways][];
+            if (_dirty != null) _dirty[s] = new bool[_ways];
             for (var w = 0; w < _ways; w++) _blocks[s][w] = new byte[_blockSize];
         }
 
@@ -148,9 +182,42 @@ public sealed class SetAssociativeCache : IMemory {
 
     // ── Block fill / byte access ─────────────────────────────────────────────
 
-    private void FillBlock(int set, int way, ulong address) {
+    // Flushes a dirty line to backing storage or into the write-back buffer.
+    // chargeStall: add MissLatency to _pendingStalls (demand paths; prefetch passes false).
+    // deferToBuffer: enqueue into the WB buffer instead of writing backing synchronously.
+    //   Only FillBlock passes true; cross-boundary, NWA-miss, and Load pass false.
+    private void FlushDirtyLine(int set, int way, ulong tag, bool chargeStall, bool deferToBuffer = false) {
+        if (_dirty == null || !_dirty[set][way]) return;
+        ulong lineBase = (tag << (_offsetBits + _indexBits)) | ((ulong)set << _offsetBits);
+
+        if (deferToBuffer && _wbBuffer != null) {
+            // Buffer full: synchronous drain of oldest entry, charge stall for the wait.
+            if (_wbCount >= _wbCapacity) {
+                DrainWbOldestSync();
+                if (chargeStall) _pendingStalls += MissLatency;
+            }
+            var data = new byte[_blockSize];
+            Buffer.BlockCopy(_blocks[set][way], 0, data, 0, _blockSize);
+            _wbBuffer[FindFreeWbSlot()] = new WbEntry { LineBase = lineBase, Data = data };
+            _wbCount++;
+        } else {
+            for (int i = 0; i < _blockSize; i++) _backing.Write(lineBase + (ulong)i, _blocks[set][way][i], 1);
+            if (chargeStall) _pendingStalls += MissLatency;
+        }
+
+        _dirty[set][way] = false;
+        DirtyEvictions++;
+    }
+
+    private void FillBlock(int set, int way, ulong address, bool chargeWritebackStall = true) {
+        if (_tags[set][way] is { } existingTag)
+            FlushDirtyLine(set, way, existingTag, chargeWritebackStall, deferToBuffer: true);
+
         ulong lineBase = address & ~(ulong)_offsetMask;
-        for (var i = 0; i < _blockSize; i++) _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
+        bool fromWb = _wbBuffer != null && TryForwardFromWbBuffer(lineBase, _blocks[set][way]);
+        if (!fromWb)
+            for (var i = 0; i < _blockSize; i++) _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
+
         Decompose(address, out _, out ulong tag);
         if (_tags[set][way] is { } oldTag) {
             Evictions++;
@@ -158,8 +225,78 @@ public sealed class SetAssociativeCache : IMemory {
         }
 
         _tags[set][way] = tag;
+        // A line forwarded from the WB buffer was dirty and hasn't reached backing yet.
+        if (_dirty != null) _dirty[set][way] = fromWb;
         _policy.SetPendingAddress(tag, _lastRequestPc);
         _policy.RecordInstall(set, way);
+    }
+
+    // ── Write-back buffer helpers ────────────────────────────────────────────
+
+    // Forwards the line at lineBase from the WB buffer into dest, consuming the slot.
+    private bool TryForwardFromWbBuffer(ulong lineBase, byte[] dest) {
+        for (int i = 0; i < _wbCapacity; i++) {
+            if (_wbBuffer![i].Data != null && _wbBuffer[i].LineBase == lineBase) {
+                Buffer.BlockCopy(_wbBuffer[i].Data!, 0, dest, 0, _blockSize);
+                _wbBuffer[i] = default;
+                _wbCount--;
+                WbDrains++;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Drains the WB buffer entry for lineBase synchronously to backing (without stall charge).
+    // Used before NWA backing writes and cross-boundary stores to prevent later drain from
+    // overwriting the newly written data.
+    private void DrainWbEntryForAddress(ulong lineBase) {
+        for (int i = 0; i < _wbCapacity; i++) {
+            if (_wbBuffer![i].Data == null || _wbBuffer[i].LineBase != lineBase) continue;
+            for (int j = 0; j < _blockSize; j++) _backing.Write(lineBase + (ulong)j, _wbBuffer[i].Data![j], 1);
+            _wbBuffer[i] = default;
+            _wbCount--;
+            WbDrains++;
+            return;
+        }
+    }
+
+    // Discards a WB buffer entry without writing to backing (used by Load, which overwrites backing).
+    private void DiscardWbEntryForAddress(ulong lineBase) {
+        for (int i = 0; i < _wbCapacity; i++) {
+            if (_wbBuffer![i].Data == null || _wbBuffer[i].LineBase != lineBase) continue;
+            _wbBuffer[i] = default;
+            _wbCount--;
+            return;
+        }
+    }
+
+    // Drains the oldest occupied WB buffer slot to backing without charging a stall.
+    private void DrainWbOldestSync() {
+        for (int i = 0; i < _wbCapacity; i++) {
+            if (_wbBuffer![i].Data == null) continue;
+            ulong lb = _wbBuffer[i].LineBase;
+            for (int j = 0; j < _blockSize; j++) _backing.Write(lb + (ulong)j, _wbBuffer[i].Data![j], 1);
+            _wbBuffer[i] = default;
+            _wbCount--;
+            WbDrains++;
+            return;
+        }
+    }
+
+    private int FindFreeWbSlot() {
+        for (int i = 0; i < _wbCapacity; i++)
+            if (_wbBuffer![i].Data == null) return i;
+        throw new InvalidOperationException("WB buffer unexpectedly full.");
+    }
+
+    /// <summary>
+    /// Drains one write-back buffer entry to backing per call. Must be called once per
+    /// simulated cycle; a no-op when the buffer is empty or disabled.
+    /// </summary>
+    public void TickWb() {
+        if (_wbBuffer == null || _wbCount == 0) return;
+        DrainWbOldestSync();
     }
 
     private static ulong ReadBytes(byte[] block, int offset, int bytes) {
@@ -206,13 +343,26 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     public void Write(ulong address, ulong value, int bytes) {
-        _backing.Write(address, value, bytes); // write-through
+        if (_writePolicy == WritePolicyKind.WriteThrough)
+            _backing.Write(address, value, bytes);
 
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + bytes > _blockSize) {
-            // Cross-boundary write: invalidate every line the write touches so
-            // future reads don't return stale data.
+            // Cross-boundary write bypasses the cache entirely.
+            // For write-back: flush dirty overlapping lines AND any WB buffer entries first
+            // (both synchronously, without defer — a deferred drain after the backing write
+            // would overwrite the store's bytes), then write to backing, then invalidate.
             ulong end = address + (ulong)bytes;
+            if (_writePolicy == WritePolicyKind.WriteBack) {
+                for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
+                    if (_wbBuffer != null) DrainWbEntryForAddress(a);
+                    Decompose(a, out int s, out ulong t);
+                    for (var w = 0; w < _ways; w++)
+                        if (_tags[s][w] == t)
+                            FlushDirtyLine(s, w, t, chargeStall: true); // deferToBuffer=false
+                }
+                _backing.Write(address, value, bytes);
+            }
             for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
                 Decompose(a, out int s, out ulong t);
                 for (var w = 0; w < _ways; w++)
@@ -221,7 +371,6 @@ public sealed class SetAssociativeCache : IMemory {
                         DropInFlightPrefetch(a);
                     }
             }
-
             return;
         }
 
@@ -235,23 +384,43 @@ public sealed class SetAssociativeCache : IMemory {
             _policy.RecordHit(set, way);
             ChargeInFlightPrefetch(address);
             WriteBytes(_blocks[set][way], offset, value, bytes);
+            if (_dirty != null) _dirty[set][way] = true; // write-back: mark dirty on hit
         }
         else {
             LastAccessWasHit = false;
             Misses++;
-            _pendingStalls += MissLatency;
-            // No-write-allocate: don't install the line.
+            if (_writeMissPolicy == WriteMissPolicyKind.WriteAllocate) {
+                _pendingStalls += MissLatency;
+                int evict = _policy.ChooseVictim(set);
+                _policy.SetPendingSignature(_usePcSignature ? _lastRequestPc : address >> _offsetBits);
+                FillBlock(set, evict, address); // flushes any dirty victim
+                WriteBytes(_blocks[set][evict], offset, value, bytes);
+                if (_dirty != null) _dirty[set][evict] = true;
+            }
+            else {
+                // No-write-allocate: write to backing (if not already done) and skip line install.
+                // If the WB buffer holds dirty data for this line, drain it first — otherwise the
+                // deferred drain would later overwrite the bytes we're about to write to backing.
+                if (_writePolicy == WritePolicyKind.WriteBack) {
+                    if (_wbBuffer != null) DrainWbEntryForAddress(address & ~(ulong)_offsetMask);
+                    _backing.Write(address, value, bytes);
+                }
+                _pendingStalls += MissLatency;
+            }
         }
     }
 
     public void Load(ulong address, ReadOnlySpan<byte> data) {
         _backing.Load(address, data);
-        // Invalidate cache lines that overlap the loaded region.
+        // Invalidate cache lines and WB buffer entries that overlap the loaded region.
+        // Dirty data is discarded: Load overwrites backing, making any pending dirty data stale.
         ulong end = address + (ulong)data.Length;
         for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
+            if (_wbBuffer != null) DiscardWbEntryForAddress(a);
             Decompose(a, out int set, out ulong tag);
             for (var w = 0; w < _ways; w++)
                 if (_tags[set][w] == tag) {
+                    if (_dirty != null) _dirty[set][w] = false;
                     _tags[set][w] = null;
                     DropInFlightPrefetch(a);
                 }
@@ -276,7 +445,7 @@ public sealed class SetAssociativeCache : IMemory {
         int evict = _policy.ChooseVictim(set);
         _policy.SetPendingSignature(address >> _offsetBits);
         try {
-            FillBlock(set, evict, address);
+            FillBlock(set, evict, address, chargeWritebackStall: false);
             Prefetches++;
             if (PrefetchLatency > 0) _inFlightPrefetches.Add((address & ~(ulong)_offsetMask, PrefetchLatency));
         }
@@ -347,7 +516,8 @@ public sealed class SetAssociativeCache : IMemory {
             ulong tag = _tags[s][w] ?? 0;
             var blockCopy = new byte[_blockSize];
             Buffer.BlockCopy(_blocks[s][w], 0, blockCopy, 0, _blockSize);
-            lines[idx++] = new CacheLine(s, w, valid, tag, _policy.GetMetadata(s, w), blockCopy);
+            bool dirty = _dirty != null && _dirty[s][w];
+            lines[idx++] = new CacheLine(s, w, valid, tag, _policy.GetMetadata(s, w), blockCopy, dirty);
         }
 
         return lines;
