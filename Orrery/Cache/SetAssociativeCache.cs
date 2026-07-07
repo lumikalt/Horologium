@@ -34,6 +34,9 @@ public sealed class SetAssociativeCache : IMemory {
     // of zero. Empty (and never touched) when PrefetchLatency = 0.
     private readonly List<(ulong LineBase, int Remaining)> _inFlightPrefetches = [];
 
+    public int TagLatency { get; }
+    public int DataLatency { get; }
+    public int HitLatency => Math.Max(TagLatency, DataLatency);
     public int MissLatency { get; }
     public int PrefetchLatency { get; }
     public long Hits { get; private set; }
@@ -54,6 +57,10 @@ public sealed class SetAssociativeCache : IMemory {
     /// line pays the remaining countdown; the caller must call <see cref="TickPrefetch"/>
     /// once per cycle to advance the countdowns.</param>
     /// <param name="replacementPolicy">Cache replacement policy. Defaults to LRU.</param>
+    /// <param name="tagLatency">Cycles to look up the tag array (informational — used by pipelines
+    /// to compute hit latency; does not affect <see cref="_pendingStalls"/>).</param>
+    /// <param name="dataLatency">Cycles to read the data array (informational — hit latency is
+    /// <c>max(tagLatency, dataLatency)</c>, matching gem5's parallel-access mode).</param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
@@ -61,13 +68,17 @@ public sealed class SetAssociativeCache : IMemory {
         int blockSizeBytes,
         int missLatency,
         int prefetchLatency = 0,
-        ReplacementPolicyKind replacementPolicy = ReplacementPolicyKind.Lru
+        ReplacementPolicyKind replacementPolicy = ReplacementPolicyKind.Lru,
+        int tagLatency = 0,
+        int dataLatency = 0
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(blockSizeBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(missLatency);
         ArgumentOutOfRangeException.ThrowIfNegative(prefetchLatency);
+        ArgumentOutOfRangeException.ThrowIfNegative(tagLatency);
+        ArgumentOutOfRangeException.ThrowIfNegative(dataLatency);
         if (!BitOperations.IsPow2(capacityBytes) ||
             !BitOperations.IsPow2(ways) ||
             !BitOperations.IsPow2(blockSizeBytes))
@@ -77,6 +88,8 @@ public sealed class SetAssociativeCache : IMemory {
         _ways = ways;
         _blockSize = blockSizeBytes;
         int sets = capacityBytes / (ways * blockSizeBytes);
+        TagLatency = tagLatency;
+        DataLatency = dataLatency;
         MissLatency = missLatency;
         PrefetchLatency = prefetchLatency;
 

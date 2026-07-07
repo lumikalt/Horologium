@@ -49,6 +49,13 @@ public enum ReplacementPolicyKind {
 /// <param name="PrefetchLatency">Cycles until a prefetched line is usable (0 = instant/free,
 /// the idealized model). A demand hit on a line whose prefetch is still in flight pays the
 /// remaining countdown instead of zero, and in-flight prefetches count against MSHR capacity.</param>
+/// <param name="CacheTagLatency">L1 tag-array lookup cycles. Hit latency = max(CacheTagLatency, CacheDataLatency);
+/// the OoO pipeline sources load result timing from this rather than FuLatencyConfig.LoadHitLatency when non-zero.</param>
+/// <param name="CacheDataLatency">L1 data-array read cycles (parallel with tag in the default gem5 mode).</param>
+/// <param name="L2TagLatency">L2 tag-array lookup cycles.</param>
+/// <param name="L2DataLatency">L2 data-array read cycles.</param>
+/// <param name="L3TagLatency">L3 tag-array lookup cycles.</param>
+/// <param name="L3DataLatency">L3 data-array read cycles.</param>
 /// <param name="ReplacementPolicy">Cache replacement policy applied to every cache level.
 /// Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling
 /// (Jaleel et al., ISCA 2010). SHiP uses per-signature reuse history to predict insertion
@@ -81,7 +88,13 @@ public sealed record MemoryConfig(
     PrefetcherKind Prefetcher = PrefetcherKind.None,
     int PrefetcherTableSize = 64,
     int PrefetchLatency = 0,
-    ReplacementPolicyKind ReplacementPolicy = ReplacementPolicyKind.Lru
+    ReplacementPolicyKind ReplacementPolicy = ReplacementPolicyKind.Lru,
+    int CacheTagLatency = 0,
+    int CacheDataLatency = 0,
+    int L2TagLatency = 0,
+    int L2DataLatency = 0,
+    int L3TagLatency = 0,
+    int L3DataLatency = 0
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -114,7 +127,7 @@ public sealed record MemoryLayers(
         if (cfg.L3CapacityBytes > 0) {
             l3 = new SetAssociativeCache(
                 current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
-                0, cfg.ReplacementPolicy
+                0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency
             );
             current = l3;
         }
@@ -122,7 +135,7 @@ public sealed record MemoryLayers(
         if (cfg.L2CapacityBytes > 0) {
             l2 = new SetAssociativeCache(
                 current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
-                0, cfg.ReplacementPolicy
+                0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency
             );
             current = l2;
         }
@@ -131,7 +144,7 @@ public sealed record MemoryLayers(
             l1 = new SetAssociativeCache(
                 current, cfg.CacheCapacityBytes, cfg.CacheWays, cfg.CacheBlockBytes, cfg.CacheMissLatency,
                 cfg.Prefetcher != PrefetcherKind.None ? cfg.PrefetchLatency : 0,
-                cfg.ReplacementPolicy
+                cfg.ReplacementPolicy, cfg.CacheTagLatency, cfg.CacheDataLatency
             );
             current = l1;
         }
@@ -184,7 +197,8 @@ public sealed record MemoryLayers(
             CacheLevelSpec s = sharedList[i];
             int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
             var cache = new SetAssociativeCache(
-                current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy
+                current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
+                s.TagLatency, s.DataLatency
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -195,7 +209,8 @@ public sealed record MemoryLayers(
             CacheLevelSpec s = privLevels[i];
             int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
             var cache = new SetAssociativeCache(
-                current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy
+                current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
+                s.TagLatency, s.DataLatency
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);

@@ -104,7 +104,8 @@ public sealed record MulticoreSpec(
             ? new SetAssociativeCache(
                 backing,
                 llcSpec.CapacityBytes, llcSpec.Ways, llcSpec.BlockBytes,
-                llcSpec.MissLatency, 0, llcSpec.ReplacementPolicy
+                llcSpec.MissLatency, 0, llcSpec.ReplacementPolicy,
+                llcSpec.TagLatency, llcSpec.DataLatency
             )
             : null;
         IMemory busBacking = llc ?? backing;
@@ -156,7 +157,8 @@ public sealed record MulticoreSpec(
                         CacheLevelSpec lvl = allLevels[j];
                         current = new SetAssociativeCache(
                             current, lvl.CapacityBytes, lvl.Ways, lvl.BlockBytes,
-                            lvl.MissLatency, 0, lvl.ReplacementPolicy
+                            lvl.MissLatency, 0, lvl.ReplacementPolicy,
+                            lvl.TagLatency, lvl.DataLatency
                         );
                     }
 

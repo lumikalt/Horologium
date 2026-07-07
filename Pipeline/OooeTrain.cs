@@ -787,7 +787,12 @@ internal sealed class OoOPipelineCore : Gear {
                     DLayers.TryPrefetch(pAddr.Value);
             }
 
-            int countdown = _fuConfig.LatencyFor(issued.Instr) - 1 + _fuConfig.BypassLatency;
+            int fuLatency = _fuConfig.LatencyFor(issued.Instr);
+            if (issued.Instr.Class == ToothClass.Load) {
+                int cacheHit = DLayers.Cache?.HitLatency ?? 0;
+                if (cacheHit > 0) fuLatency = cacheHit;
+            }
+            int countdown = fuLatency - 1 + _fuConfig.BypassLatency;
 
             // Memory-level parallelism: a load/atomic that missed (its cache access just
             // accrued a stall) carries the miss penalty in its own latency countdown, so it

@@ -16,5 +16,9 @@ public sealed record CacheLevelSpec(
     int SharedAcross = 1,
     PrefetcherKind Prefetcher = PrefetcherKind.None,
     int PrefetcherTableSize = 64,
-    int PrefetchLatency = 0
-);
+    int PrefetchLatency = 0,
+    int TagLatency = 0,
+    int DataLatency = 0
+) {
+    public int HitLatency => Math.Max(TagLatency, DataLatency);
+}

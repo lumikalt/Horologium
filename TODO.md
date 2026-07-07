@@ -165,6 +165,12 @@
 - [ ] Cache pre-fetching: local-delta prefetcher (Berti). — Bakhshalipour et al., MICRO 2022
 - [ ] Cache pre-fetching: RL-driven prefetcher selection (Pythia). — Bera et al., MICRO 2021
 - [x] Non-blocking cache with MSHR.
+- [ ] Per-level cache access latency: tag-lookup and data-access cycles charged separately on every access,
+  matching gem5's `tag_latency`/`data_latency`/`response_latency` decomposition (hit cost =
+  `max(tag, data)` in parallel mode; miss charges tag-only at this level plus the fill return path).
+  OoO load result timing driven by which level hits rather than a static load-unit latency knob;
+  FiveStage D-cache hit latency surfaces as a per-load pipeline stall; I-cache hit latency requires
+  a multi-cycle fetch stage.
 - [ ] Victim cache: small fully-associative buffer to absorb conflict misses. — Jouppi, ISCA 1990
 - [ ] Make `ToothClass` a tag instead of an enum?
 
@@ -433,6 +439,9 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 | ~~PDP-8~~          | Accumulator, 12b, minimal opcodes                                                      | 2     |
 | ~~J1 Forth~~       | Stack machine, packed opcodes                                                          | 2     |
 | LGP-30             | Drum memory, bit-serial arithmetic, rotational latency scheduling                      | 2     |
+| Nintendo CIC (SM5) | 4-bit copy-protection MCU; minimal accumulator, external ROM, hardware handshake loop  | 1     |
+| MN101              | Panasonic 8-bit MCU; conventional accumulator with bit-manipulation and multiply ops   | 2     |
+| RL78               | Renesas 16-bit Harvard MCU; CISC addressing modes and bit-addressable I/O registers   | 2     |
 | ~~TTA/MOVE~~       | Triggered side-effect execution                                                        | 3     |
 | ~~GA144 F18A~~     | Async, multi-core, packed 5-op words                                                   | 3     |
 | MIL-STD-1750A      | Committee designed, spec driven                                                        | 3     |
@@ -442,6 +451,12 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 | Setun              | Balanced ternary (trits: -1, 0, +1), no binary anywhere                                | 3     |
 | Parallax Propeller | 8 symmetric cogs, deterministic hub-cycle slots, no interrupts, wait-based I/O         | 3     |
 | HP Saturn          | 4-bit bus, 64-bit registers addressed by nibble fields, BCD-centric                    | 3     |
+| TeakLite/XpertTeak | DSi/3DS coprocessor DSP; dual-MAC pipeline, zero-overhead loops, circular addr regs   | 3     |
+| SuperFX (GSU)      | Argonaut/Nintendo SNES coprocessor; cached RISC with dedicated PLOT pixel-write op    | 3     |
+| µ'nSP              | SunPlus 16-bit MCU (V.Smile, toys); segmented addressing, compact 16-bit encoding     | 3     |
+| MAXQ               | Maxim/Dallas move-only stack machine; all computation as moves through a Transfer Map | 3     |
+| VS_DSP4            | SunPlus/embedded DSP; multiply-accumulate with saturation, bit-reversed addressing    | 3     |
+| OpenRISC 1000      | Open-source RISC; multiple implementations with known spec divergences                 | 3     |
 | Burroughs B5000    | Tagged stack-machine, segmented memory                                                 | 4     |
 | Symbolica/CADR     | Full tagged LISP machine                                                               | 4     |
 | IA-64/Itanium      | VLIW with templates and predication                                                    | 4     |
@@ -449,6 +464,7 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 | Transputer T800    | CSP channels in hardware, on-chip process scheduler, workspace-relative addressing     | 4     |
 | Tera MTA           | 128-way barrel multithreading, full/empty bits on every memory word, no cache          | 4     |
 | Pendulum (PISA)    | Fully reversible ISA — every instruction must be invertible, no destructive writes     | 4     |
+| FR-V               | Fujitsu VLIW; 1–8 issue slots per bundle, no hardware interlocks, all hazards visible | 4     |
 | Mill Belt          | Belt-machine, no register file                                                         | 5     |
 | TRIPS/WaveScalar   | True dataflow, no PC                                                                   | 5     |
 | Intel iAPX 432     | Bit-aligned variable-length instructions (6–321 bits), capability objects, hardware GC | 5     |
