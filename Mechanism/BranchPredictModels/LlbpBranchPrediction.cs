@@ -17,8 +17,8 @@ namespace Mechanism.BranchPredictModels;
 /// </para>
 /// </summary>
 public class LlbpPredictor : TageScLPredictor {
-    private protected readonly RollingContextReg _rcr = new();
-    private protected readonly LlbpStorage _storage = new();
+    private protected readonly RollingContextReg Rcr = new();
+    private protected readonly LlbpStorage Storage = new();
 
     protected bool _llbpIsProvider;
     protected int _llbpHistIdx = -1;
@@ -27,7 +27,7 @@ public class LlbpPredictor : TageScLPredictor {
     protected int _lastProvider = -1;
 
     /// <summary>Number of times LLBP overrode TAGE's direction.</summary>
-    public int LlbpOverrides { get; protected set; }
+    public int LlbpOverrides { get; private set; }
 
     protected override bool ResolvePrediction(ulong pc, int provider, bool tagePred) {
         _lastProvider = provider;
@@ -44,8 +44,8 @@ public class LlbpPredictor : TageScLPredictor {
     }
 
     protected virtual bool TryLlbpPredict(ulong pc, int provider, out bool pred) {
-        _llbpCtxKey = _rcr.ContextId;
-        PatternMap? pm = _storage.Get(_llbpCtxKey);
+        _llbpCtxKey = Rcr.ContextId;
+        PatternMap? pm = Storage.Get(_llbpCtxKey);
         if (pm != null)
             for (int t = LTagePredictor.NumTables - 1; t >= 0; t--) {
                 int key = PatternKey(pc, t);
@@ -67,17 +67,17 @@ public class LlbpPredictor : TageScLPredictor {
     protected override void OnAfterUpdate(ulong pc, bool taken, bool provPred, int preScore, bool loopWasConfident) {
         base.OnAfterUpdate(pc, taken, provPred, preScore, loopWasConfident);
         TrainLlbp(pc, taken, provPred);
-        if (taken) _rcr.Update(pc);
+        if (taken) Rcr.Update(pc);
     }
 
     protected virtual void TrainLlbp(ulong pc, bool taken, bool provPred) {
         if (_llbpIsProvider && _llbpHistIdx >= 0) {
-            _storage.GetOrCreate(_llbpCtxKey).SatUpdate(_llbpPatternKey, taken);
+            Storage.GetOrCreate(_llbpCtxKey).SatUpdate(_llbpPatternKey, taken);
         }
         else if (provPred != taken) {
             int allocTable = _lastProvider + 1;
             if ((uint)allocTable < LTagePredictor.NumTables)
-                _storage.GetOrCreate(_llbpCtxKey).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
+                Storage.GetOrCreate(_llbpCtxKey).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
         }
     }
 

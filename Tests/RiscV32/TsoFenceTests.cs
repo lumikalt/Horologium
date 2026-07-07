@@ -21,7 +21,7 @@ namespace Tests.RiscV32;
 public class TsoFenceTests {
     private const uint Ebreak = 0x00100073;
     private const uint Nop = 0x00000013;
-    private const uint FenceWR = 0x0120000F;   // fence w,r
+    private const uint FenceWr = 0x0120000F;   // fence w,r
     private const uint FenceFull = 0x0FF0000F; // fence iorw,iorw
 
     private static byte[] ToBytes(params uint[] words) {
@@ -63,7 +63,7 @@ public class TsoFenceTests {
 
     [Fact]
     public void OoO_StoreLoadFence_DelaysPostFenceLoad_UntilWriteBufferDrains() {
-        (long fencedCycles, ulong fencedX3, ulong fencedStore) = RunStoreFenceLoad(TsoFenceTests.FenceWR);
+        (long fencedCycles, ulong fencedX3, ulong fencedStore) = RunStoreFenceLoad(TsoFenceTests.FenceWr);
         (long freeCycles, ulong freeX3, ulong freeStore) = RunStoreFenceLoad(TsoFenceTests.Nop);
 
         // Architectural results are identical — the fence is timing-only.
@@ -87,8 +87,8 @@ public class TsoFenceTests {
     /// </summary>
     [Fact]
     public void OoO_NonStoreLoadFence_IsTimingNoOp() {
-        const uint fenceRR = 0x0220000F; // fence r,r
-        (long rrCycles, _, _) = RunStoreFenceLoad(fenceRR);
+        const uint fenceRr = 0x0220000F; // fence r,r
+        (long rrCycles, _, _) = RunStoreFenceLoad(fenceRr);
         (long freeCycles, _, _) = RunStoreFenceLoad(TsoFenceTests.Nop);
 
         Assert.Equal(freeCycles, rrCycles);

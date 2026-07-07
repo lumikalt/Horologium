@@ -61,8 +61,8 @@ public sealed class RvInstruction(
         RvVFpBinVf op       => op.Vd,
         RvVFpFmaVv op       => op.Vd,
         RvVFpFmaVf op       => op.Vd,
-        RvVMFpCmpVv op      => op.Vd,
-        RvVMFpCmpVf op      => op.Vd,
+        RvVmFpCmpVv op      => op.Vd,
+        RvVmFpCmpVf op      => op.Vd,
         RvVFpSqrt op        => op.Vd,
         RvVFpClass op       => op.Vd,
         RvVFpCvt op         => op.Vd,
@@ -80,14 +80,14 @@ public sealed class RvInstruction(
         RvVMaskUnary op     => op.Vd,
         RvVCompress op      => op.Vd,
         RvVMvNr op          => op.Vd,
-        RvVWMacVv op        => op.Vd,
-        RvVWMacVx op        => op.Vd,
+        RvVwMacVv op        => op.Vd,
+        RvVwMacVx op        => op.Vd,
         RvVSatIntVv op      => op.Vd,
         RvVSatIntVx op      => op.Vd,
         RvVSatIntVi op      => op.Vd,
-        RvVNClipVv op       => op.Vd,
-        RvVNClipVx op       => op.Vd,
-        RvVNClipVi op       => op.Vd,
+        RvVnClipVv op       => op.Vd,
+        RvVnClipVx op       => op.Vd,
+        RvVnClipVi op       => op.Vd,
         RvVFpWArithVv op    => op.Vd,
         RvVFpWArithVf op    => op.Vd,
         RvVFpWMacVv op      => op.Vd,
@@ -95,7 +95,7 @@ public sealed class RvInstruction(
         RvVFpWCvt op        => op.Vd,
         RvVFpNCvt op        => op.Vd,
         RvVlrV op           => op.Vd,
-        RvVleFF op          => op.Vd,
+        RvVleFf op          => op.Vd,
         RvVExt op           => op.Vd,
         RvVAvgVv op         => op.Vd,
         RvVAvgVx op         => op.Vd,
@@ -152,7 +152,7 @@ public sealed class RvInstruction(
         RvVseVv op      => op.Masked ? [op.Vs3, 0,] : [op.Vs3,],
         RvVsm op        => [op.Vs3,],
         RvVlsegVv op    => op.Masked ? [0,] : [],
-        RvVleFF op      => op.Masked ? [0,] : [],
+        RvVleFf op      => op.Masked ? [0,] : [],
         RvVlssegVv op   => op.Masked ? [0,] : [],
         RvVlxsegVv op   => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVssegVv op => op.NumFields switch {
@@ -246,8 +246,8 @@ public sealed class RvInstruction(
         RvVFpBinVf op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVFpFmaVv op  => op.Masked ? [op.Vd, op.Vs2, op.Vs1, 0,] : [op.Vd, op.Vs2, op.Vs1,],
         RvVFpFmaVf op  => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
-        RvVMFpCmpVv op => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
-        RvVMFpCmpVf op => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVmFpCmpVv op => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
+        RvVmFpCmpVf op => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVFpSqrt op   => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVFpClass op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVFpCvt op    => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
@@ -274,14 +274,14 @@ public sealed class RvInstruction(
                 : [op.Vs2,],
         RvVCompress op => [op.Vs2, op.Vs1,], // vs1 is explicit mask, always vm=1
         // vd is the 2×SEW accumulator — it must be in VectorSourceRegisters so hazard checks fire
-        RvVWMacVv op     => op.Masked ? [op.Vd, op.Vs2, op.Vs1, 0,] : [op.Vd, op.Vs2, op.Vs1,],
-        RvVWMacVx op     => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
+        RvVwMacVv op     => op.Masked ? [op.Vd, op.Vs2, op.Vs1, 0,] : [op.Vd, op.Vs2, op.Vs1,],
+        RvVwMacVx op     => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
         RvVSatIntVv op   => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         RvVSatIntVx op   => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVSatIntVi op   => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
-        RvVNClipVv op    => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
-        RvVNClipVx op    => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
-        RvVNClipVi op    => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVnClipVv op    => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
+        RvVnClipVx op    => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVnClipVi op    => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVFpWArithVv op => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         RvVFpWArithVf op => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         // vd is 2×SEW accumulator — must be in VectorSourceRegisters so hazard checks fire
@@ -547,17 +547,17 @@ public record RvFleD(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
 
 public record RvFclassD(int Rd, int Rs1) : RvOp; // Rd=int result
 
-public record RvFcvtWD(int Rd, int Rs1, int Rm) : RvOp; // double→signed int32
+public record RvFcvtWd(int Rd, int Rs1, int Rm) : RvOp; // double→signed int32
 
 public record RvFcvtWuD(int Rd, int Rs1, int Rm) : RvOp; // double→unsigned int32
 
-public record RvFcvtDW(int Rd, int Rs1, int Rm) : RvOp; // signed int32→double
+public record RvFcvtDw(int Rd, int Rs1, int Rm) : RvOp; // signed int32→double
 
 public record RvFcvtDWu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int32→double
 
-public record RvFcvtSD(int Rd, int Rs1, int Rm) : RvOp; // double→single (narrowing)
+public record RvFcvtSd(int Rd, int Rs1, int Rm) : RvOp; // double→single (narrowing)
 
-public record RvFcvtDS(int Rd, int Rs1, int Rm) : RvOp; // single→double (widening)
+public record RvFcvtDs(int Rd, int Rs1, int Rm) : RvOp; // single→double (widening)
 
 public record RvFmaddD(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
 
@@ -812,7 +812,7 @@ public enum VWideOp {
     SubU,
     Sub,
     MulU,
-    MulSU,
+    MulSu,
     Mul,
 }
 
@@ -854,7 +854,7 @@ public record RvVlrV(int NumRegs, int Vd, int Rs1) : RvOp;
 public record RvVsrV(int NumRegs, int Vs3, int Rs1) : RvOp;
 
 // vle{SEW}ff.v: fault-only-first load — like vle but trims vl on fault; modeled as regular vle.
-public record RvVleFF(int Vd, int Rs1, int Sew, bool Masked) : RvOp;
+public record RvVleFf(int Vd, int Rs1, int Sew, bool Masked) : RvOp;
 
 // vzext.vfN / vsext.vfN: zero/sign-extend each element from SEW/Factor bits to SEW bits.
 // Factor=2 → vf2, Factor=4 → vf4, Factor=8 → vf8.
@@ -891,16 +891,16 @@ public record RvVsxsegVv(int NumFields, int Vs3, int Rs1, int Vs2, int IndexSew,
 
 // Widening integer multiply-accumulate — OPMVV (funct3=2) / OPMVX (funct3=6).
 // vd is the 2×SEW accumulator (both source and destination).
-public enum VWMacOp {
+public enum VwMacOp {
     Macc,   // vwmacc:   vd += signed(vs2) * signed(vs1/rs1)
     Maccu,  // vwmaccu:  vd += unsigned(vs2) * unsigned(vs1/rs1)
     Maccsu, // vwmaccsu: vd += signed(vs2) * unsigned(vs1/rs1)
     Maccus, // vwmaccus: vd += unsigned(vs2) * signed(rs1)  (VX only)
 }
 
-public record RvVWMacVv(VWMacOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
+public record RvVwMacVv(VwMacOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
 
-public record RvVWMacVx(VWMacOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
+public record RvVwMacVx(VwMacOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
 
 // Mask comparisons (result: 1 bit per element packed in vd)
 public record RvVMaskCmpVv(VMaskCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
@@ -970,9 +970,9 @@ public enum VFpCmpOp {
 }
 
 // FP compare: result is a mask register (1 bit per element).
-public record RvVMFpCmpVv(VFpCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
+public record RvVmFpCmpVv(VFpCmpOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
 
-public record RvVMFpCmpVf(VFpCmpOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
+public record RvVmFpCmpVf(VFpCmpOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
 
 // vfmv.f.s rd, vs2: scalar float rd ← vs2[0]. Rd is unified FRF index (float reg + 32).
 public record RvVFpMvFs(int Rd, int Vs2) : RvOp;
@@ -1013,16 +1013,16 @@ public record RvVSatIntVi(VSatIntOp Op, int Vd, int Vs2, int Imm, bool Masked) :
 
 // ── V narrowing saturating clip (vnclipu/vnclip) ─────────────────────────────
 // Input is 2×SEW wide; shift+round; saturate to SEW-wide output.
-public enum VNClipOp {
+public enum VnClipOp {
     Clipu, // vnclipu: unsigned narrowing clip
     Clip,  // vnclip:  signed narrowing clip
 }
 
-public record RvVNClipVv(VNClipOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
+public record RvVnClipVv(VnClipOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
 
-public record RvVNClipVx(VNClipOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
+public record RvVnClipVx(VnClipOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;
 
-public record RvVNClipVi(VNClipOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
+public record RvVnClipVi(VnClipOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
 
 // ── V widening FP arithmetic (vfwadd/vfwsub VV/VF, vfwadd/vfwsub WV/WF, vfwmul VV/VF) ──
 public enum VFpWideArithOp {

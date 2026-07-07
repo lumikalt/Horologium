@@ -4,6 +4,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 namespace Tests.RiscV32;
 
 /// <summary>
@@ -23,8 +25,6 @@ public class ClintInterruptTests {
     // CLINT register addresses
     private const ulong ClintBase = ClintDevice.DefaultBase;
     private const ulong Mtimecmp0Lo = ClintInterruptTests.ClintBase + 0x4000;
-    private const ulong Mtimecmp0Hi = ClintInterruptTests.ClintBase + 0x4004;
-    private const ulong Mtime0Lo = ClintInterruptTests.ClintBase + 0xBFF8;
 
     // RAM addresses (byte offsets from Base)
     private const uint TrapVecOff = 0x00; // 4 instructions for trap handler
@@ -35,9 +35,6 @@ public class ClintInterruptTests {
         // Assemble into a uint[] at word index = byteOffset / 4
         var words = new uint[ClintInterruptTests.MemSize / 4];
 
-        // Helper: write an instruction at a byte offset from Base
-        void W(uint offset, uint instr) => words[offset / 4] = instr;
-
         // ── Trap handler at Base+TrapVecOff ──────────────────────────────────
         // The handler:
         //   la   t0, flag
@@ -45,18 +42,14 @@ public class ClintInterruptTests {
         //   sw   t1, 0(t0)   ← set flag
         //   mret
 
-        uint flagAddr = ClintInterruptTests.Base + ClintInterruptTests.FlagOff;
-        uint flagAddrHi = flagAddr >> 12;
-        var flagAddrLo = (int)(flagAddr & 0xFFF);
-        if ((flagAddrLo & 0x800) != 0) {
-            flagAddrHi++;
-            flagAddrLo -= 0x1000;
-        }
+        const uint flagAddr = ClintInterruptTests.Base + ClintInterruptTests.FlagOff;
+        const uint flagAddrHi = flagAddr >> 12;
+        const int flagAddrLo = (int)(flagAddr & 0xFFF);
 
         // lui t0, flagAddr[31:12]
         W(ClintInterruptTests.TrapVecOff + 0, (flagAddrHi << 12) | (5u << 7) | 0x37u);
         // addi t0, t0, flagAddr[11:0]  (sign-extended)
-        W(ClintInterruptTests.TrapVecOff + 4, (uint)((flagAddrLo << 20) | (5u << 15) | (0u << 12) | (5u << 7) | 0x13u));
+        W(ClintInterruptTests.TrapVecOff + 4, (flagAddrLo << 20) | (5u << 15) | (0u << 12) | (5u << 7) | 0x13u);
         // li   t1, 1   →   addi t1, x0, 1
         W(ClintInterruptTests.TrapVecOff + 8, (1u << 20) | (0u << 15) | (0u << 12) | (6u << 7) | 0x13u);
         // sw   t1, 0(t0)
@@ -66,18 +59,14 @@ public class ClintInterruptTests {
 
         // ── Main program at Base+MainOff ──────────────────────────────────────
         // Set mtvec = Base + TrapVecOff
-        uint tvecVal = ClintInterruptTests.Base + ClintInterruptTests.TrapVecOff;
-        uint tvecHi = tvecVal >> 12;
-        var tvecLo = (int)(tvecVal & 0xFFF);
-        if ((tvecLo & 0x800) != 0) {
-            tvecHi++;
-            tvecLo -= 0x1000;
-        }
+        const uint tvecVal = ClintInterruptTests.Base + ClintInterruptTests.TrapVecOff;
+        const uint tvecHi = tvecVal >> 12;
+        const int tvecLo = (int)(tvecVal & 0xFFF);
 
         // lui  t0, tvecVal[31:12]
         W(ClintInterruptTests.MainOff + 0, (tvecHi << 12) | (5u << 7) | 0x37u);
         // addi t0, t0, tvecVal[11:0]
-        W(ClintInterruptTests.MainOff + 4, (uint)((tvecLo << 20) | (5u << 15) | (0u << 12) | (5u << 7) | 0x13u));
+        W(ClintInterruptTests.MainOff + 4, (tvecLo << 20) | (5u << 15) | (0u << 12) | (5u << 7) | 0x13u);
         // csrw mtvec, t0   →   csrrw x0, 0x305, t0
         W(ClintInterruptTests.MainOff + 8, (0x305u << 20) | (5u << 15) | (1u << 12) | (0u << 7) | 0x73u);
 
@@ -88,18 +77,14 @@ public class ClintInterruptTests {
         //
         // Rather than a complicated sequence, write a fixed mtimecmp_lo = 1000
         // (mtime starts at 0, TicksPerInstruction = 1, so it fires after 1000 ticks)
-        ulong mcmpBase = ClintInterruptTests.Mtimecmp0Lo;
-        var mcmpHi = (uint)(mcmpBase >> 12);
-        var mcmpLoOff = (int)(mcmpBase & 0xFFF);
-        if ((mcmpLoOff & 0x800) != 0) {
-            mcmpHi++;
-            mcmpLoOff -= 0x1000;
-        }
+        const ulong mcmpBase = ClintInterruptTests.Mtimecmp0Lo;
+        const uint mcmpHi = (uint)(mcmpBase >> 12);
+        const int mcmpLoOff = (int)(mcmpBase & 0xFFF);
 
         // lui  t0, clintMtimecmpBase
         W(ClintInterruptTests.MainOff + 12, (mcmpHi << 12) | (5u << 7) | 0x37u);
         // addi t0, t0, offset_lo  (address of mtimecmp[0]_lo)
-        W(ClintInterruptTests.MainOff + 16, (uint)((mcmpLoOff << 20) | (5u << 15) | (0u << 12) | (5u << 7) | 0x13u));
+        W(ClintInterruptTests.MainOff + 16, (mcmpLoOff << 20) | (5u << 15) | (0u << 12) | (5u << 7) | 0x13u);
         // li   t1, 500  →  addi t1, x0, 500
         W(ClintInterruptTests.MainOff + 20, (500u << 20) | (0u << 15) | (0u << 12) | (6u << 7) | 0x13u);
         // sw   t1, 0(t0)   ← write mtimecmp[0]_lo = 500
@@ -119,16 +104,12 @@ public class ClintInterruptTests {
 
         // Spin-wait loop: read flag at flagAddr; branch-back if zero; break when nonzero
         // la   t0, flagAddr
-        uint faHi = flagAddr >> 12;
-        var faLo = (int)(flagAddr & 0xFFF);
-        if ((faLo & 0x800) != 0) {
-            faHi++;
-            faLo -= 0x1000;
-        }
+        const uint faHi = flagAddr >> 12;
+        const int faLo = (int)(flagAddr & 0xFFF);
 
         W(ClintInterruptTests.MainOff + 48, (faHi << 12) | (5u << 7) | 0x37u); // lui  t0, flagAddr_hi
         W(
-            ClintInterruptTests.MainOff + 52, (uint)((faLo << 20) | (5u << 15) | (0u << 12) | (5u << 7) | 0x13u)
+            ClintInterruptTests.MainOff + 52, (faLo << 20) | (5u << 15) | (0u << 12) | (5u << 7) | 0x13u
         ); // addi t0, t0, flagAddr_lo
         // Loop: lw t1, 0(t0)
         W(ClintInterruptTests.MainOff + 56, (0u << 20) | (5u << 15) | (2u << 12) | (6u << 7) | 0x03u); // lw   t1, 0(t0)
@@ -142,6 +123,9 @@ public class ClintInterruptTests {
         var bytes = new byte[words.Length * 4];
         Buffer.BlockCopy(words, 0, bytes, 0, bytes.Length);
         return bytes;
+
+        // Helper: write an instruction at a byte offset from Base
+        void W(uint offset, uint instr) => words[offset / 4] = instr;
     }
 
     [Fact]

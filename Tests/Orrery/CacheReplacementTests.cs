@@ -21,13 +21,9 @@ public class CacheReplacementTests {
     private static SetAssociativeCache MakeSrrip1Set(IMemory backing) =>
         new(backing, 64, 4, 16, 10, 0, ReplacementPolicyKind.Srrip);
 
-    // 4-way, 2-set SRRIP cache.
-    private static SetAssociativeCache MakeSrrip2Set(IMemory backing) =>
-        new(backing, 128, 4, 16, 10, 0, ReplacementPolicyKind.Srrip);
-
     // Addresses that all map to set 0 (stride = 2*sets*blockSize = 32 for 1-set cache).
     private const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30;
-    private const ulong B1 = 0x40, B2 = 0x50, B3 = 0x60, B4 = 0x70;
+    private const ulong B1 = 0x40, B2 = 0x50, B3 = 0x60;
 
     // ── SRRIP: insertion RRPV ────────────────────────────────────────────────
 
@@ -180,9 +176,10 @@ public class CacheReplacementTests {
             policy.ChooseVictim(0);
             policy.RecordInstall(0, w);
             int rrpv = policy.GetMetadata(0, w);
-            if (rrpv == 2)
-                longCount++;
-            else if (rrpv == 3) distantCount++;
+            switch (rrpv) {
+                case 2: longCount++; break;
+                case 3: distantCount++; break;
+            }
         }
 
         Assert.Equal(1, longCount);
@@ -194,8 +191,8 @@ public class CacheReplacementTests {
     [Fact]
     public void Drrip_SrripSdmMiss_IncrementsPsel() {
         // Misses in SDM_SRRIP sets should increment PSEL.
-        var sets = 16;
-        var policy = new DrripPolicy(sets, 4, 2, 2, 10);
+        const int sets = 16;
+        var policy = new DrripPolicy(sets, 4, 2, 2);
         int initial = policy.Psel;
 
         // Set 0 is SDM_SRRIP. Force a victim then record installs.
@@ -210,8 +207,8 @@ public class CacheReplacementTests {
     [Fact]
     public void Drrip_BrripSdmMiss_DecrementsPsel() {
         // Misses in SDM_BRRIP sets should decrement PSEL.
-        var sets = 16;
-        var policy = new DrripPolicy(sets, 4, 2, 2, 10);
+        const int sets = 16;
+        var policy = new DrripPolicy(sets, 4, 2, 2);
         int initial = policy.Psel;
 
         // Set 2 is SDM_BRRIP (sdmSets=2, so SDM_BRRIP = sets [2, 4)).
@@ -228,8 +225,8 @@ public class CacheReplacementTests {
         // When PSEL ≥ threshold (512 for 10-bit), follower sets use BRRIP insertion
         // (mostly distant = RRPV 3, occasional long = RRPV 2).
         // Drive PSEL above threshold via SDM_SRRIP misses, then check follower inserts.
-        var sets = 16;
-        var policy = new DrripPolicy(sets, 4, 2, 2, 10, 32);
+        const int sets = 16;
+        var policy = new DrripPolicy(sets, 4, 2, 2);
 
         // Need 512 - initial + 1 SRRIP SDM misses to exceed the threshold.
         // initial = 511 (pselThreshold - 1 = 511).
@@ -246,8 +243,10 @@ public class CacheReplacementTests {
             policy.ChooseVictim(4);
             policy.RecordInstall(4, 0);
             int rrpv = policy.GetMetadata(4, 0);
-            if (rrpv == 2) longCount++;
-            if (rrpv == 3) distantCount++;
+            switch (rrpv) {
+                case 2: longCount++; break;
+                case 3: distantCount++; break;
+            }
         }
 
         Assert.Equal(1, longCount);
@@ -257,8 +256,8 @@ public class CacheReplacementTests {
     [Fact]
     public void Drrip_FollowerUsesSrripWhenPselLow() {
         // When PSEL < threshold, follower sets use SRRIP insertion (always RRPV 2).
-        var sets = 16;
-        var policy = new DrripPolicy(sets, 4, 2, 2, 10);
+        const int sets = 16;
+        var policy = new DrripPolicy(sets, 4, 2, 2);
         // Initial PSEL = 511 < 512 → SRRIP wins.
         Assert.True(policy.Psel < 512);
 
@@ -277,8 +276,8 @@ public class CacheReplacementTests {
         // After enough SRRIP SDM misses PSEL exceeds the threshold, switching followers to BRRIP.
         // Verify through the policy directly: thrash the SDM_SRRIP set, then confirm that a
         // follower set uses BRRIP insertion (bimodal pattern: mostly distant, 1/32 long).
-        var sets = 16;
-        var policy = new DrripPolicy(sets, 4, 2, 2, 10, 32);
+        const int sets = 16;
+        var policy = new DrripPolicy(sets, 4, 2, 2);
 
         // Need 1 miss on SDM_SRRIP set to push PSEL from 511 → 512.
         policy.ChooseVictim(0);
@@ -292,10 +291,10 @@ public class CacheReplacementTests {
         for (var i = 0; i < 33; i++) {
             int victim = policy.ChooseVictim(4);
             policy.RecordInstall(4, victim);
-            int rrpv = policy.GetMetadata(4, victim);
-            if (rrpv == 2)
-                longCount++;
-            else if (rrpv == 3) distantCount++;
+            switch (policy.GetMetadata(4, victim)) {
+                case 2: longCount++; break;
+                case 3: distantCount++; break;
+            }
         }
 
         Assert.Equal(1, longCount);
@@ -306,7 +305,7 @@ public class CacheReplacementTests {
 
     [Fact]
     public void Drrip_Psel_SaturatesAtBothEnds() {
-        var policy = new DrripPolicy(16, 4, 2, 2, 10);
+        var policy = new DrripPolicy(16, 4, 2, 2);
         // Drive PSEL to max via SDM_SRRIP misses.
         for (var i = 0; i < 2000; i++) {
             policy.ChooseVictim(0);
@@ -489,39 +488,34 @@ public class CacheReplacementTests {
         //          GetSnapshot confirms LruAge=2 for A's way.
         var mem = new FlatMemory(4096);
         // 4-way 1-set cache (256 B / 4 ways / 64 B line = 1 set; offsetBits=6).
-        const ulong A = 0x000, B = 0x040, C = 0x080, D = 0x0C0, E = 0x100;
-        foreach (ulong a in new[] { A, B, C, D, E, }) mem.Load(a, [0xEE,]);
+        const ulong a = 0x000, b = 0x040, c = 0x080, d = 0x0C0, e = 0x100;
+        foreach (ulong x in new[] { a, b, c, d, e, }) mem.Load(x, [0xEE,]);
 
         var cache = new SetAssociativeCache(mem, 256, 4, 64, 10, 0, ReplacementPolicyKind.Ship);
 
         // Phase 1: miss + hit each block to warm SHCT and leave all at RRPV=0.
-        cache.Read(A, 1);
-        cache.Read(A, 1); // cold miss → way 0 RRPV=3; hit → RRPV=0, SHCT[0]→1
-        cache.Read(B, 1);
-        cache.Read(B, 1); // → way 1 RRPV=0, SHCT[1]→1
-        cache.Read(C, 1);
-        cache.Read(C, 1); // → way 2 RRPV=0, SHCT[2]→1
-        cache.Read(D, 1);
-        cache.Read(D, 1); // → way 3 RRPV=0, SHCT[3]→1
+        cache.Read(a, 1);
+        cache.Read(a, 1); // cold miss → way 0 RRPV=3; hit → RRPV=0, SHCT[0]→1
+        cache.Read(b, 1);
+        cache.Read(b, 1); // → way 1 RRPV=0, SHCT[1]→1
+        cache.Read(c, 1);
+        cache.Read(c, 1); // → way 2 RRPV=0, SHCT[2]→1
+        cache.Read(d, 1);
+        cache.Read(d, 1); // → way 3 RRPV=0, SHCT[3]→1
         cache.ConsumePendingStalls();
 
         // Phase 2: miss E — all RRPV=0, so ChooseVictim increments 0→1→2→3;
         // evicts A (way 0, the first to reach 3). E inserted cold (RRPV=3).
-        cache.Read(E, 1);
+        cache.Read(e, 1);
         cache.ConsumePendingStalls();
 
         // Phase 3: miss A — SHCT[sig(A)] = 1 > 0 → insert at RRPV=2 (long), not 3.
-        cache.Read(A, 1);
+        cache.Read(a, 1);
         cache.ConsumePendingStalls();
 
         // Tag for A = 0x000 >> 6 = 0.
         CacheLine[] snap = cache.GetSnapshot();
-        CacheLine? aLine = null;
-        foreach (CacheLine l in snap)
-            if (l.Valid && l.Tag == 0) {
-                aLine = l;
-                break;
-            }
+        CacheLine? aLine = snap.FirstOrDefault(l => l is { Valid: true, Tag: 0, });
 
         Assert.NotNull(aLine);
         Assert.Equal(2, aLine.LruAge); // warm SHCT → RRPV = 2 (long)
@@ -564,12 +558,7 @@ public class CacheReplacementTests {
 
         // addr_B: set=(0x0A0>>5)&3=1, tag=0x0A0>>7=1. Verify RRPV=2 (warm PC bucket).
         CacheLine[] snap = cache.GetSnapshot();
-        CacheLine? bLine = null;
-        foreach (CacheLine l in snap)
-            if (l.Valid && l.Set == 1 && l.Tag == 1) {
-                bLine = l;
-                break;
-            }
+        CacheLine? bLine = snap.FirstOrDefault(l => l is { Valid: true, Set: 1, Tag: 1, });
 
         Assert.NotNull(bLine);
         Assert.Equal(2, bLine.LruAge); // RRPV=2 proves SHCT was indexed by PC, not address
@@ -622,30 +611,30 @@ public class CacheReplacementTests {
     public void Fifo_EndToEnd_HitDoesNotPreventEviction() {
         // Integration: fill 4-way 1-set FIFO cache, repeatedly hit A1, then miss A5.
         // FIFO must evict A1 (first installed); LRU would have evicted A2 instead.
-        const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30, A5 = 0x40;
+        const ulong a1 = 0x00, a2 = 0x10, a3 = 0x20, a4 = 0x30, a5 = 0x40;
         var mem = new FlatMemory(256);
-        foreach (ulong a in new[] { A1, A2, A3, A4, A5, }) mem.Load(a, [0xBB,]);
+        foreach (ulong a in new[] { a1, a2, a3, a4, a5, }) mem.Load(a, [0xBB,]);
 
         var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Fifo);
-        cache.Read(A1, 1);
-        cache.Read(A2, 1);
-        cache.Read(A3, 1);
-        cache.Read(A4, 1);
+        cache.Read(a1, 1);
+        cache.Read(a2, 1);
+        cache.Read(a3, 1);
+        cache.Read(a4, 1);
         cache.ConsumePendingStalls();
 
-        for (var i = 0; i < 5; i++) cache.Read(A1, 1); // promote A1 in LRU terms; FIFO ignores
+        for (var i = 0; i < 5; i++) cache.Read(a1, 1); // promote A1 in LRU terms; FIFO ignores
 
-        cache.Read(A5, 1); // evicts A1 (first installed)
+        cache.Read(a5, 1); // evicts A1 (first installed)
         cache.ConsumePendingStalls();
 
         // A2 must still be present (only A1 was evicted, FIFO didn't touch A2 yet).
         long hitsA2 = cache.Hits;
-        cache.Read(A2, 1);
+        cache.Read(a2, 1);
         Assert.Equal(hitsA2 + 1, cache.Hits);
 
         // A1 must be gone: FIFO evicted it despite the repeated hits.
         long missesBefore = cache.Misses;
-        cache.Read(A1, 1);
+        cache.Read(a1, 1);
         Assert.Equal(missesBefore + 1, cache.Misses);
     }
 
@@ -719,37 +708,37 @@ public class CacheReplacementTests {
         // Integration: after filling A1–A4, the first miss (A5) sweeps all bits and evicts A1.
         // Then hitting A3 sets its reference bit. The next miss (A6) must evict A2 (bit=0),
         // not A3 (bit=1, gets a second chance).
-        const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30, A5 = 0x40, A6 = 0x50;
+        const ulong a1 = 0x00, a2 = 0x10, a3 = 0x20, a4 = 0x30, a5 = 0x40, a6 = 0x50;
         var mem = new FlatMemory(512);
-        foreach (ulong a in new[] { A1, A2, A3, A4, A5, A6, }) mem.Load(a, [0xEE,]);
+        foreach (ulong a in new[] { a1, a2, a3, a4, a5, a6, }) mem.Load(a, [0xEE,]);
 
         var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Clock);
-        cache.Read(A1, 1);
-        cache.Read(A2, 1);
-        cache.Read(A3, 1);
-        cache.Read(A4, 1);
+        cache.Read(a1, 1);
+        cache.Read(a2, 1);
+        cache.Read(a3, 1);
+        cache.Read(a4, 1);
         cache.ConsumePendingStalls();
 
         // Miss A5 — sweeps all bits (second chance), evicts A1 (way 0). Bits: [1,0,0,0], hand=1.
-        cache.Read(A5, 1);
+        cache.Read(a5, 1);
         cache.ConsumePendingStalls();
 
         // Hit A3 — sets A3's reference bit to 1. Bits: [1,0,1,0], hand=1.
-        cache.Read(A3, 1);
+        cache.Read(a3, 1);
 
         // Miss A6 — hand=1, bit[A2]=0 → A2 evicted (A3 survives via second chance).
-        cache.Read(A6, 1);
+        cache.Read(a6, 1);
         cache.ConsumePendingStalls();
 
         // A3 must still be in cache (second chance protected it).
         // Check BEFORE reading A2 to avoid reinstall side-effects.
         long hitsA3 = cache.Hits;
-        cache.Read(A3, 1);
+        cache.Read(a3, 1);
         Assert.Equal(hitsA3 + 1, cache.Hits);
 
         // A2 was evicted (bit was 0 when hand passed it).
         long missesA2 = cache.Misses;
-        cache.Read(A2, 1);
+        cache.Read(a2, 1);
         Assert.Equal(missesA2 + 1, cache.Misses);
     }
 
@@ -800,32 +789,32 @@ public class CacheReplacementTests {
     public void Mru_EndToEnd_HitLineEvictedBeforeUnhitLine() {
         // Integration: 4-way 1-set MRU cache. Fill A1–A4, hit A4, miss A5.
         // MRU must evict A4 (most recently hit); LRU would have protected A4 and evicted A1.
-        const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30, A5 = 0x40;
+        const ulong a1 = 0x00, a2 = 0x10, a3 = 0x20, a4 = 0x30, a5 = 0x40;
         var mem = new FlatMemory(256);
-        foreach (ulong a in new[] { A1, A2, A3, A4, A5, }) mem.Load(a, [0xDD,]);
+        foreach (ulong a in new[] { a1, a2, a3, a4, a5, }) mem.Load(a, [0xDD,]);
 
         var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Mru);
-        cache.Read(A1, 1);
-        cache.Read(A2, 1);
-        cache.Read(A3, 1);
-        cache.Read(A4, 1);
+        cache.Read(a1, 1);
+        cache.Read(a2, 1);
+        cache.Read(a3, 1);
+        cache.Read(a4, 1);
         cache.ConsumePendingStalls();
 
         // Hit A4 to make it the MRU (next eviction candidate).
-        cache.Read(A4, 1);
+        cache.Read(a4, 1);
 
-        cache.Read(A5, 1); // forces an eviction — must evict A4 (most recently hit)
+        cache.Read(a5, 1); // forces an eviction — must evict A4 (most recently hit)
         cache.ConsumePendingStalls();
 
         // A3 must still be present (it was never hit after fill, so it survived).
         // Check BEFORE reading A4 to avoid reinstall side-effects.
         long hitsA3 = cache.Hits;
-        cache.Read(A3, 1);
+        cache.Read(a3, 1);
         Assert.Equal(hitsA3 + 1, cache.Hits);
 
         // A4 must be gone — MRU evicted the most recently hit line.
         long missesA4 = cache.Misses;
-        cache.Read(A4, 1);
+        cache.Read(a4, 1);
         Assert.Equal(missesA4 + 1, cache.Misses);
     }
 
@@ -887,27 +876,27 @@ public class CacheReplacementTests {
         // Integration: 4-way 1-set PLRU cache. Fill A1–A4, repeatedly hit A1, then miss A5.
         // Tree-PLRU must protect A1 (recently accessed); A2 or A3 gets evicted instead.
         // Unlike FIFO which evicts A1 despite hits.
-        const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30, A5 = 0x40;
+        const ulong a1 = 0x00, a2 = 0x10, a3 = 0x20, a4 = 0x30, a5 = 0x40;
         var mem = new FlatMemory(256);
-        foreach (ulong a in new[] { A1, A2, A3, A4, A5, }) mem.Load(a, [0xCC,]);
+        foreach (ulong a in new[] { a1, a2, a3, a4, a5, }) mem.Load(a, [0xCC,]);
 
         var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Plru);
-        cache.Read(A1, 1);
-        cache.Read(A2, 1);
-        cache.Read(A3, 1);
-        cache.Read(A4, 1);
+        cache.Read(a1, 1);
+        cache.Read(a2, 1);
+        cache.Read(a3, 1);
+        cache.Read(a4, 1);
         cache.ConsumePendingStalls();
 
         // Repeatedly hit A1 so PLRU considers it recently used.
-        for (var i = 0; i < 5; i++) cache.Read(A1, 1);
+        for (var i = 0; i < 5; i++) cache.Read(a1, 1);
 
-        cache.Read(A5, 1); // forces an eviction — must NOT evict A1
+        cache.Read(a5, 1); // forces an eviction — must NOT evict A1
         cache.ConsumePendingStalls();
 
         // A1 must still be present (PLRU protects it due to recent access).
         // Check A1 hit BEFORE reading any other block to avoid reinstall side-effects.
         long hitsA1 = cache.Hits;
-        cache.Read(A1, 1);
+        cache.Read(a1, 1);
         Assert.Equal(hitsA1 + 1, cache.Hits);
     }
 
@@ -922,7 +911,7 @@ public class CacheReplacementTests {
     [Fact]
     public void Random_WithFixedSeed_CoversAllWays() {
         // With seed 0 and 4 ways, 100 calls should cover all four values.
-        var policy = new RandomPolicy(1, 4, 0);
+        var policy = new RandomPolicy(1, 4);
         var seen = new HashSet<int>();
         for (var i = 0; i < 100; i++) seen.Add(policy.ChooseVictim(0));
         Assert.Equal(4, seen.Count);
@@ -969,20 +958,20 @@ public class CacheReplacementTests {
         var policy = new HawkeyePolicy(1, 4);
 
         // First install (cold miss) → counter 4→3, RRPV=7.
-        policy.SetPendingAddress(CacheReplacementTests.tagA, 1);
+        policy.SetPendingAddress(CacheReplacementTests.TagA, 1);
         policy.RecordInstall(0, 0);
 
         // Simulate 4 consecutive hits on the same line.
         // Each hit: OPTgen sees short interval with low occupancy → OPT-hit → counter++.
         // After 4 hits: counter = 3+4 = 7.
         for (var i = 0; i < 4; i++) {
-            policy.RecordHitPc(0, 0, CacheReplacementTests.tagA, 1);
+            policy.RecordHitPc(0, 0, CacheReplacementTests.TagA, 1);
             policy.RecordHit(0, 0);
         }
 
         // Now simulate eviction + reinstall with the same PC.
         // OPTgen should see the recent liveness → OPT-hit → counter stays ≥ 4 → friendly.
-        policy.SetPendingAddress(CacheReplacementTests.tagA, 1);
+        policy.SetPendingAddress(CacheReplacementTests.TagA, 1);
         policy.RecordInstall(0, 0);
         Assert.Equal(0, policy.GetMetadata(0, 0)); // cache-friendly → RRPV=0
     }
@@ -1027,37 +1016,37 @@ public class CacheReplacementTests {
         // End-to-end: 4-way, 1-set Hawkeye cache. With an untrained predictor every
         // cold miss inserts at RRPV=7, so ChooseVictim always picks way 0 until a
         // line proves itself cache-friendly. Verify: most-recently-installed line hits.
-        const ulong A = 0x00, B = 0x10, C = 0x20, D = 0x30;
+        const ulong a = 0x00, b = 0x10, c = 0x20, d = 0x30;
         var mem = new FlatMemory(256);
-        for (ulong a = 0; a < 256; a++) mem.Load(a, [0xCC,]);
+        for (ulong i = 0; i < 256; i++) mem.Load(i, [0xCC,]);
 
         var cache = new SetAssociativeCache(mem, 64, 4, 16, 10, 0, ReplacementPolicyKind.Hawkeye);
         cache.SetRequestPc(0x1000);
 
         // Four cold misses (way 0 reused each time with untrained predictor).
-        cache.Read(A, 1);
-        cache.Read(B, 1);
-        cache.Read(C, 1);
-        cache.Read(D, 1);
+        cache.Read(a, 1);
+        cache.Read(b, 1);
+        cache.Read(c, 1);
+        cache.Read(d, 1);
         Assert.Equal(4, cache.Misses);
 
         // The last installed line (D) is still in the cache; re-reading hits.
         long hitsBefore = cache.Hits;
-        cache.Read(D, 1);
+        cache.Read(d, 1);
         Assert.Equal(hitsBefore + 1, cache.Hits);
 
         // Train PC 0x1000 to be cache-friendly (drive predictor from 3 to ≥ 4).
         // RecordHitPc calls for D will each be OPT-hits (D is still resident).
-        for (var i = 0; i < 4; i++) cache.Read(D, 1); // 4 hits train the predictor up
+        for (var i = 0; i < 4; i++) cache.Read(d, 1); // 4 hits train the predictor up
 
         // After training, read A (evicts D's way). The next miss for PC 0x1000 should
         // produce a cache-friendly install (RRPV=0). The test just checks no throw and
         // miss count increments correctly.
         long missesNow = cache.Misses;
-        cache.Read(A, 1);
+        cache.Read(a, 1);
         Assert.Equal(missesNow + 1, cache.Misses);
     }
 
     // Tag constants reused by Hawkeye tests.
-    private const ulong tagA = 0x10UL;
+    private const ulong TagA = 0x10UL;
 }

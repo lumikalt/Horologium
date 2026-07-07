@@ -290,9 +290,6 @@ public partial class MainWindowViewModel : ObservableObject {
                                                     .Take(500)
                                                     .ToList();
 
-        // Global max cycle needed to cap the last span of every instruction.
-        long globalMaxCy = plog.Events.Count > 0 ? plog.Events.Max(e => e.Cycle) : 0;
-
         List<WaterfallRow> rows = groups.Select(g => {
                 PEvent? fetchEv = g.Where(e => e.Kind == PEventKind.Fetch)
                                    .Select(e => (PEvent?)e)

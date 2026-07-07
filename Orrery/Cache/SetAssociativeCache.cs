@@ -29,7 +29,11 @@ public sealed class SetAssociativeCache : IMemory {
 
     // Write-back buffer: holds dirty-victim lines waiting to drain to backing.
     // null when wbCapacity == 0 (disabled); always null in write-through mode.
-    private struct WbEntry { public ulong LineBase; public byte[]? Data; }
+    private struct WbEntry {
+        public ulong LineBase;
+        public byte[]? Data;
+    }
+
     private readonly WbEntry[]? _wbBuffer;
     private readonly int _wbCapacity;
     private int _wbCount;
@@ -196,12 +200,14 @@ public sealed class SetAssociativeCache : IMemory {
                 DrainWbOldestSync();
                 if (chargeStall) _pendingStalls += MissLatency;
             }
+
             var data = new byte[_blockSize];
             Buffer.BlockCopy(_blocks[set][way], 0, data, 0, _blockSize);
-            _wbBuffer[FindFreeWbSlot()] = new WbEntry { LineBase = lineBase, Data = data };
+            _wbBuffer[FindFreeWbSlot()] = new WbEntry { LineBase = lineBase, Data = data, };
             _wbCount++;
-        } else {
-            for (int i = 0; i < _blockSize; i++) _backing.Write(lineBase + (ulong)i, _blocks[set][way][i], 1);
+        }
+        else {
+            for (var i = 0; i < _blockSize; i++) _backing.Write(lineBase + (ulong)i, _blocks[set][way][i], 1);
             if (chargeStall) _pendingStalls += MissLatency;
         }
 
@@ -210,13 +216,13 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     private void FillBlock(int set, int way, ulong address, bool chargeWritebackStall = true) {
-        if (_tags[set][way] is { } existingTag)
-            FlushDirtyLine(set, way, existingTag, chargeWritebackStall, deferToBuffer: true);
+        if (_tags[set][way] is { } existingTag) FlushDirtyLine(set, way, existingTag, chargeWritebackStall, true);
 
         ulong lineBase = address & ~(ulong)_offsetMask;
         bool fromWb = _wbBuffer != null && TryForwardFromWbBuffer(lineBase, _blocks[set][way]);
         if (!fromWb)
-            for (var i = 0; i < _blockSize; i++) _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
+            for (var i = 0; i < _blockSize; i++)
+                _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
 
         Decompose(address, out _, out ulong tag);
         if (_tags[set][way] is { } oldTag) {
@@ -235,15 +241,15 @@ public sealed class SetAssociativeCache : IMemory {
 
     // Forwards the line at lineBase from the WB buffer into dest, consuming the slot.
     private bool TryForwardFromWbBuffer(ulong lineBase, byte[] dest) {
-        for (int i = 0; i < _wbCapacity; i++) {
+        for (var i = 0; i < _wbCapacity; i++)
             if (_wbBuffer![i].Data != null && _wbBuffer[i].LineBase == lineBase) {
                 Buffer.BlockCopy(_wbBuffer[i].Data!, 0, dest, 0, _blockSize);
-                _wbBuffer[i] = default;
+                _wbBuffer[i] = default(WbEntry);
                 _wbCount--;
                 WbDrains++;
                 return true;
             }
-        }
+
         return false;
     }
 
@@ -251,10 +257,10 @@ public sealed class SetAssociativeCache : IMemory {
     // Used before NWA backing writes and cross-boundary stores to prevent later drain from
     // overwriting the newly written data.
     private void DrainWbEntryForAddress(ulong lineBase) {
-        for (int i = 0; i < _wbCapacity; i++) {
+        for (var i = 0; i < _wbCapacity; i++) {
             if (_wbBuffer![i].Data == null || _wbBuffer[i].LineBase != lineBase) continue;
-            for (int j = 0; j < _blockSize; j++) _backing.Write(lineBase + (ulong)j, _wbBuffer[i].Data![j], 1);
-            _wbBuffer[i] = default;
+            for (var j = 0; j < _blockSize; j++) _backing.Write(lineBase + (ulong)j, _wbBuffer[i].Data![j], 1);
+            _wbBuffer[i] = default(WbEntry);
             _wbCount--;
             WbDrains++;
             return;
@@ -263,9 +269,9 @@ public sealed class SetAssociativeCache : IMemory {
 
     // Discards a WB buffer entry without writing to backing (used by Load, which overwrites backing).
     private void DiscardWbEntryForAddress(ulong lineBase) {
-        for (int i = 0; i < _wbCapacity; i++) {
+        for (var i = 0; i < _wbCapacity; i++) {
             if (_wbBuffer![i].Data == null || _wbBuffer[i].LineBase != lineBase) continue;
-            _wbBuffer[i] = default;
+            _wbBuffer[i] = default(WbEntry);
             _wbCount--;
             return;
         }
@@ -273,11 +279,11 @@ public sealed class SetAssociativeCache : IMemory {
 
     // Drains the oldest occupied WB buffer slot to backing without charging a stall.
     private void DrainWbOldestSync() {
-        for (int i = 0; i < _wbCapacity; i++) {
+        for (var i = 0; i < _wbCapacity; i++) {
             if (_wbBuffer![i].Data == null) continue;
             ulong lb = _wbBuffer[i].LineBase;
-            for (int j = 0; j < _blockSize; j++) _backing.Write(lb + (ulong)j, _wbBuffer[i].Data![j], 1);
-            _wbBuffer[i] = default;
+            for (var j = 0; j < _blockSize; j++) _backing.Write(lb + (ulong)j, _wbBuffer[i].Data![j], 1);
+            _wbBuffer[i] = default(WbEntry);
             _wbCount--;
             WbDrains++;
             return;
@@ -285,8 +291,9 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     private int FindFreeWbSlot() {
-        for (int i = 0; i < _wbCapacity; i++)
-            if (_wbBuffer![i].Data == null) return i;
+        for (var i = 0; i < _wbCapacity; i++)
+            if (_wbBuffer![i].Data == null)
+                return i;
         throw new InvalidOperationException("WB buffer unexpectedly full.");
     }
 
@@ -343,8 +350,7 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     public void Write(ulong address, ulong value, int bytes) {
-        if (_writePolicy == WritePolicyKind.WriteThrough)
-            _backing.Write(address, value, bytes);
+        if (_writePolicy == WritePolicyKind.WriteThrough) _backing.Write(address, value, bytes);
 
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + bytes > _blockSize) {
@@ -359,10 +365,12 @@ public sealed class SetAssociativeCache : IMemory {
                     Decompose(a, out int s, out ulong t);
                     for (var w = 0; w < _ways; w++)
                         if (_tags[s][w] == t)
-                            FlushDirtyLine(s, w, t, chargeStall: true); // deferToBuffer=false
+                            FlushDirtyLine(s, w, t, true); // deferToBuffer=false
                 }
+
                 _backing.Write(address, value, bytes);
             }
+
             for (ulong a = address & ~(ulong)_offsetMask; a < end; a += (ulong)_blockSize) {
                 Decompose(a, out int s, out ulong t);
                 for (var w = 0; w < _ways; w++)
@@ -371,6 +379,7 @@ public sealed class SetAssociativeCache : IMemory {
                         DropInFlightPrefetch(a);
                     }
             }
+
             return;
         }
 
@@ -405,6 +414,7 @@ public sealed class SetAssociativeCache : IMemory {
                     if (_wbBuffer != null) DrainWbEntryForAddress(address & ~(ulong)_offsetMask);
                     _backing.Write(address, value, bytes);
                 }
+
                 _pendingStalls += MissLatency;
             }
         }
@@ -445,7 +455,7 @@ public sealed class SetAssociativeCache : IMemory {
         int evict = _policy.ChooseVictim(set);
         _policy.SetPendingSignature(address >> _offsetBits);
         try {
-            FillBlock(set, evict, address, chargeWritebackStall: false);
+            FillBlock(set, evict, address, false);
             Prefetches++;
             if (PrefetchLatency > 0) _inFlightPrefetches.Add((address & ~(ulong)_offsetMask, PrefetchLatency));
         }

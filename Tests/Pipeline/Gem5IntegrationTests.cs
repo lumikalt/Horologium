@@ -58,7 +58,7 @@ public class Gem5IntegrationTests {
 
         using (var helfStream = new FileStream(helfPath, FileMode.Create))
         using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helfStream)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run(100);
         }
 
         using (var inFs = new FileStream(helfPath, FileMode.Open))
@@ -77,7 +77,7 @@ public class Gem5IntegrationTests {
         string fetchFile
     ) {
         string script = Path.GetFullPath(Gem5IntegrationTests.ScriptPath);
-        var psi = new System.Diagnostics.ProcessStartInfo(
+        var psi = new ProcessStartInfo(
             "gem5", [
                 script,
                 "--data-trace-file", dataFile,
@@ -88,7 +88,7 @@ public class Gem5IntegrationTests {
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        using Process proc = System.Diagnostics.Process.Start(psi)!;
+        using Process proc = Process.Start(psi)!;
         string stdout = proc.StandardOutput.ReadToEnd();
         string stderr = proc.StandardError.ReadToEnd();
         proc.WaitForExit(TimeSpan.FromMinutes(3));

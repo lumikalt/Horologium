@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace RiscV32.Trace;
 
 /// <summary>
@@ -129,7 +131,7 @@ public static class Gem5ElasticTraceConverter {
 
     private static void WriteMessage(Stream output, Action<BinaryWriter> body) {
         using var msgBuf = new MemoryStream();
-        using (var msgWriter = new BinaryWriter(msgBuf, System.Text.Encoding.UTF8, true)) { body(msgWriter); }
+        using (var msgWriter = new BinaryWriter(msgBuf, Encoding.UTF8, true)) { body(msgWriter); }
 
         byte[] bytes = msgBuf.ToArray();
         // Varint32 length prefix (as in gem5 CodedOutputStream::WriteVarint32)
@@ -158,7 +160,7 @@ public static class Gem5ElasticTraceConverter {
     }
 
     private static void WriteTaggedString(BinaryWriter w, int fieldNumber, string value) {
-        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value);
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
         WriteVarint(w, (ulong)((fieldNumber << 3) | 2)); // wire type 2 (length-delimited)
         WriteVarint(w, (ulong)bytes.Length);
         w.Write(bytes);

@@ -194,16 +194,20 @@ public partial class ConfigViewModel : ObservableObject {
         };
 
         CacheHardwareConfig? iCache = ICacheEnabled
-            ? new CacheHardwareConfig(ICacheCapacityKb * 1024, ICacheWays, ICacheBlockBytes, ICacheMissLatency,
+            ? new CacheHardwareConfig(
+                ICacheCapacityKb * 1024, ICacheWays, ICacheBlockBytes, ICacheMissLatency,
                 ICacheTagLatency, ICacheDataLatency,
                 ParseWritePolicy(ICacheWritePolicy), ParseWriteMissPolicy(ICacheWriteMissPolicy),
-                ICacheWbCapacity)
+                ICacheWbCapacity
+            )
             : null;
         CacheHardwareConfig? dCache = DCacheEnabled
-            ? new CacheHardwareConfig(DCacheCapacityKb * 1024, DCacheWays, DCacheBlockBytes, DCacheMissLatency,
+            ? new CacheHardwareConfig(
+                DCacheCapacityKb * 1024, DCacheWays, DCacheBlockBytes, DCacheMissLatency,
                 DCacheTagLatency, DCacheDataLatency,
                 ParseWritePolicy(DCacheWritePolicy), ParseWriteMissPolicy(DCacheWriteMissPolicy),
-                DCacheWbCapacity)
+                DCacheWbCapacity
+            )
             : null;
 
         return new NamedConfig(
@@ -299,7 +303,9 @@ public partial class ConfigViewModel : ObservableObject {
             vm.ICacheTagLatency = ic.TagLatency;
             vm.ICacheDataLatency = ic.DataLatency;
             vm.ICacheWritePolicy = ic.WritePolicy == WritePolicyKind.WriteBack ? "write_back" : "write_through";
-            vm.ICacheWriteMissPolicy = ic.WriteMissPolicy == WriteMissPolicyKind.WriteAllocate ? "write_allocate" : "no_write_allocate";
+            vm.ICacheWriteMissPolicy = ic.WriteMissPolicy == WriteMissPolicyKind.WriteAllocate
+                ? "write_allocate"
+                : "no_write_allocate";
             vm.ICacheWbCapacity = ic.WbCapacity;
         }
 
@@ -311,7 +317,9 @@ public partial class ConfigViewModel : ObservableObject {
             vm.DCacheTagLatency = dc.TagLatency;
             vm.DCacheDataLatency = dc.DataLatency;
             vm.DCacheWritePolicy = dc.WritePolicy == WritePolicyKind.WriteBack ? "write_back" : "write_through";
-            vm.DCacheWriteMissPolicy = dc.WriteMissPolicy == WriteMissPolicyKind.WriteAllocate ? "write_allocate" : "no_write_allocate";
+            vm.DCacheWriteMissPolicy = dc.WriteMissPolicy == WriteMissPolicyKind.WriteAllocate
+                ? "write_allocate"
+                : "no_write_allocate";
             vm.DCacheWbCapacity = dc.WbCapacity;
         }
 

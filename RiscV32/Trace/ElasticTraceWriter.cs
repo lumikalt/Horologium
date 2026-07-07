@@ -1,3 +1,4 @@
+using System.Text;
 using Mechanism;
 using Pipeline.Ooo;
 
@@ -46,7 +47,7 @@ public sealed class ElasticTraceWriter : ICommitObserver, IDisposable {
     public ElasticTraceWriter(IDecoder decoder, TracingMemory mem, Stream output) {
         _decoder = decoder;
         _mem = mem;
-        _out = new BinaryWriter(output, System.Text.Encoding.UTF8, true);
+        _out = new BinaryWriter(output, Encoding.UTF8, true);
         Array.Fill(_lastWriter, -1L);
         Array.Fill(_lastVecWriter, -1L);
         WriteHeader();

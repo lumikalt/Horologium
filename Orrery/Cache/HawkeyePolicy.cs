@@ -15,7 +15,6 @@ namespace Orrery.Cache;
 public sealed class HawkeyePolicy : IReplacementPolicy {
     // ── RRPV state ───────────────────────────────────────────────────────────
     private const int MaxRrpv = 7; // 3-bit RRPV (0–7)
-    private readonly int _sets;
     private readonly int _ways;
     private readonly int[][] _rrpv; // [set][way]
 
@@ -46,7 +45,6 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
     private ulong _pendingPc;
 
     public HawkeyePolicy(int sets, int ways) {
-        _sets = sets;
         _ways = ways;
         _optLen = 8 * ways;
 
@@ -79,7 +77,7 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
     /// (-1 = first access). Returns true if OPT would have been a hit (the cache had
     /// room to keep the line from prevAbsTime to now). Advances the time pointer.
     /// </summary>
-    private bool OPTgenAccess(int set, long prevAbsTime, out long now) {
+    private bool OpTgenAccess(int set, long prevAbsTime, out long now) {
         now = _absTime[set]++;
         int[] occ = _optOcc[set];
 
@@ -130,7 +128,7 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
 
     public void RecordHitPc(int set, int way, ulong lineTag, ulong pc) {
         long prevAbs = _absLineTime[set][way];
-        bool optHit = OPTgenAccess(set, prevAbs, out long now);
+        bool optHit = OpTgenAccess(set, prevAbs, out long now);
         _absLineTime[set][way] = now;
         _lineTag[set][way] = lineTag;
         Train(pc, optHit);
@@ -161,7 +159,7 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
                 break;
             }
 
-        bool optHit = OPTgenAccess(set, prevAbs, out long now);
+        bool optHit = OpTgenAccess(set, prevAbs, out long now);
         _absLineTime[set][way] = now;
         _lineTag[set][way] = newTag;
         Train(pc, optHit);

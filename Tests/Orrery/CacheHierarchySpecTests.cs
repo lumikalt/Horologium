@@ -1,4 +1,3 @@
-using Mechanism;
 using Orrery.Cache;
 using Orrery.Spec;
 using RiscV32.Memory;
@@ -93,7 +92,7 @@ public class CacheHierarchySpecTests {
     public void PerLevelPolicy_PrivateAndShared_UseSeparatePolicies() {
         FlatMemory backing = MakeBacking();
         var l1Spec = new CacheLevelSpec(64, 2, 16, 5, ReplacementPolicyKind.Fifo);
-        var l2Spec = new CacheLevelSpec(512, 4, 16, 20, ReplacementPolicyKind.Lru);
+        var l2Spec = new CacheLevelSpec(512, 4, 16, 20);
         var path = new CachePathSpec([l1Spec,]);
         var layers = MemoryLayers.Build(backing, path, [l2Spec,]);
 
@@ -229,7 +228,7 @@ public class CacheHierarchySpecTests {
         FlatMemory backing = MakeBacking();
         CacheHierarchySpec spec = CacheHierarchySpec.SplitId(
             new CachePathSpec([new CacheLevelSpec(256, 4, 16, 6),]),
-            new CachePathSpec([new CacheLevelSpec(256, 4, 16, 10),])
+            new CachePathSpec([new CacheLevelSpec(256, 4, 16),])
         );
 
         MemoryLayers iLayers = spec.BuildILayers(backing);
@@ -272,7 +271,7 @@ public class CacheHierarchySpecTests {
             CacheHierarchySpec.D,
             new CachePathSpec([new CacheLevelSpec(64, 2, 16, 4),]),
             [
-                new CacheLevelSpec(512, 4, 16, 10),
+                new CacheLevelSpec(512, 4, 16),
                 new CacheLevelSpec(4096, 8, 16, 30),
             ]
         );

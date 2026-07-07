@@ -1,3 +1,4 @@
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
@@ -112,7 +113,7 @@ public partial class MainPanel : UserControl {
         PopupPcLine.Text = $"PC: 0x{row.Pc:X}";
         PopupDisasmLine.Text = row.Disassembly;
 
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         foreach (PSpan s in row.Spans.Where(s => s.Stage != PEventKind.FetchStall)) {
             string name = StageName(s.Stage);
             var dur = $"{s.Duration} cycle{(s.Duration == 1 ? "" : "s")}";

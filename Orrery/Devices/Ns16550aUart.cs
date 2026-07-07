@@ -22,7 +22,7 @@ namespace Orrery.Devices;
 /// TX bytes flush immediately to <see cref="Output"/>.
 /// RX bytes are supplied via <see cref="Enqueue"/>; LSR.DR (bit 0) reflects queue depth.
 /// </summary>
-public sealed class Ns16550aUart(TextWriter output) : IMemory {
+public sealed class Ns16550AUart(TextWriter output) : IMemory {
     public const ulong DefaultBase = 0x10000000UL;
     public const ulong RegionSize = 0x100UL;
 
@@ -48,8 +48,8 @@ public sealed class Ns16550aUart(TextWriter output) : IMemory {
             0x02 => 0xC1u, // IIR: no interrupt pending (bit 0 = 1), FIFO enabled (bits 7:6 = 11)
             0x03 => _lcr,
             0x04 => _mcr,
-            0x05 => Ns16550aUart.LsrThre | Ns16550aUart.LsrTemt
-                                         | (_rx.Count > 0 ? Ns16550aUart.LsrDr : 0u), // LSR: always TX-ready
+            0x05 => Ns16550AUart.LsrThre | Ns16550AUart.LsrTemt
+                                         | (_rx.Count > 0 ? Ns16550AUart.LsrDr : 0u), // LSR: always TX-ready
             0x06 => 0u,                                                               // MSR: no modem signals
             0x07 => _scr,
             _    => 0u,

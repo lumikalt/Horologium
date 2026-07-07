@@ -446,13 +446,13 @@ public class Rv32Executor : IExecutor {
 
             RvFclassD(_, var rs1) => Reg(DClass(regs.Read(rs1))),
 
-            RvFcvtWD (_, var rs1, var rm) => FcvtWdResult(DBits(regs, rs1), rm, state),
+            RvFcvtWd (_, var rs1, var rm) => FcvtWdResult(DBits(regs, rs1), rm, state),
             RvFcvtWuD(_, var rs1, var rm) => FcvtWudResult(DBits(regs, rs1), rm, state),
-            RvFcvtDW (_, var rs1, _)      => DpIntToDouble((int)(uint)regs.Read(rs1)),
+            RvFcvtDw (_, var rs1, _)      => DpIntToDouble((int)(uint)regs.Read(rs1)),
             RvFcvtDWu(_, var rs1, _)      => DpIntToDouble((uint)regs.Read(rs1)),
 
-            RvFcvtSD(_, var rs1, var rm) => FpFcvtSD(DBits(regs, rs1), rm, state),
-            RvFcvtDS(_, var rs1, var rm) => FpFcvtDS(FBits(regs, rs1), rm, state),
+            RvFcvtSd(_, var rs1, var rm) => FpFcvtSd(DBits(regs, rs1), rm, state),
+            RvFcvtDs(_, var rs1, _)      => FpFcvtDs(FBits(regs, rs1)),
 
             RvFmaddD (_, var rs1, var rs2, var rs3) =>
                 DpFma(DBits(regs, rs1), DBits(regs, rs2), DBits(regs, rs3)),
@@ -526,9 +526,9 @@ public class Rv32Executor : IExecutor {
                 ExecuteVWide(state, op2, vd, vs2, masked, vs2Wide, (i, ew) => VReadElem(state, vs1, i, ew)),
             RvVWideVx (var op2, var vd, var vs2, var rs1, var masked, var vs2Wide) =>
                 ExecuteVWide(state, op2, vd, vs2, masked, vs2Wide, (_, _) => regs.Read(rs1)),
-            RvVWMacVv (var op2, var vd, var vs2, var vs1, var masked) =>
+            RvVwMacVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVWMac(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
-            RvVWMacVx (var op2, var vd, var vs2, var rs1, var masked) =>
+            RvVwMacVx (var op2, var vd, var vs2, var rs1, var masked) =>
                 ExecuteVWMac(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
 
             RvVNarrVv (var op2, var vd, var vs2, var vs1, var masked) =>
@@ -643,9 +643,9 @@ public class Rv32Executor : IExecutor {
             RvVFpFmaVf (var op2, var vd, var vs2, var rs1, var masked) =>
                 ExecuteVFpFma(state, op2, vd, vs2, masked, _ => FBits(regs, rs1)),
 
-            RvVMFpCmpVv (var op2, var vd, var vs2, var vs1, var masked) =>
+            RvVmFpCmpVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVFpCmp(state, op2, vd, vs2, masked, i => VFpElem(state, vs1, i)),
-            RvVMFpCmpVf (var op2, var vd, var vs2, var rs1, var masked) =>
+            RvVmFpCmpVf (var op2, var vd, var vs2, var rs1, var masked) =>
                 ExecuteVFpCmp(state, op2, vd, vs2, masked, _ => FBits(regs, rs1)),
 
             RvVFpSqrt (var vd, var vs2, var masked) =>
@@ -669,11 +669,11 @@ public class Rv32Executor : IExecutor {
             RvVSatIntVi (var op2, var vd, var vs2, var imm, var masked) =>
                 ExecuteVSatInt(state, op2, vd, vs2, masked, (_, _) => (ulong)imm),
 
-            RvVNClipVv (var op2, var vd, var vs2, var vs1, var masked) =>
+            RvVnClipVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVNClip(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
-            RvVNClipVx (var op2, var vd, var vs2, var rs1, var masked) =>
+            RvVnClipVx (var op2, var vd, var vs2, var rs1, var masked) =>
                 ExecuteVNClip(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
-            RvVNClipVi (var op2, var vd, var vs2, var imm, var masked) =>
+            RvVnClipVi (var op2, var vd, var vs2, var imm, var masked) =>
                 ExecuteVNClip(state, op2, vd, vs2, masked, (_, _) => (uint)imm),
 
             // ── V widening FP arithmetic / MAC / converts ──────────────────────
@@ -691,7 +691,7 @@ public class Rv32Executor : IExecutor {
                 ExecuteVFpNCvt(state, op2, vd, vs2, masked),
 
             // ── V extension new ops ───────────────────────────────────────────
-            RvVleFF (var vd, var rs1, var sew, var masked) =>
+            RvVleFf (var vd, var rs1, var sew, var masked) =>
                 ExecuteVle(state, memory, vd, rs1, sew, masked),
             RvVExt (var signed, var factor, var vd, var vs2, var masked) =>
                 ExecuteVExt(state, signed, factor, vd, vs2, masked),
@@ -1041,10 +1041,10 @@ public class Rv32Executor : IExecutor {
     }
 
     // Double result + OR flags into fflags via SideEffect.
-    private const ulong RvCanonicalNaND = 0x7FF8000000000000UL;
+    private const ulong RvCanonicalNaNd = 0x7FF8000000000000UL;
 
     private static ExecuteResult FloatRegD(double value, uint flags) {
-        ulong bits = double.IsNaN(value) ? Rv32Executor.RvCanonicalNaND : (ulong)BitConverter.DoubleToInt64Bits(value);
+        ulong bits = double.IsNaN(value) ? Rv32Executor.RvCanonicalNaNd : (ulong)BitConverter.DoubleToInt64Bits(value);
         if (flags == 0) return ExecuteResult.WithResult(bits);
         return new ExecuteResult
             { RegisterResult = (bits, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
@@ -1290,12 +1290,13 @@ public class Rv32Executor : IExecutor {
     private ExecuteResult LoadD(IMemory memory, IArchState state, ulong pc, ulong @base, int imm) {
         ulong vaddr = @base + (ulong)imm;
         (ulong addr, int fault) = Translate(memory, state, vaddr, false, false);
-        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
-        return ExecuteResult.WithResult(memory.Read(addr, 8));
+        return fault != 0
+            ? ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc))
+            : ExecuteResult.WithResult(memory.Read(addr, 8));
     }
 
     // sNaN detection for double (quiet bit = bit 51 is 0, mantissa != 0).
-    private static bool IsDSNan(ulong raw) =>
+    private static bool IsDsNan(ulong raw) =>
         (raw & 0x7FF0000000000000UL) == 0x7FF0000000000000UL &&
         (raw & 0x000FFFFFFFFFFFFFUL) != 0 &&
         (raw & 0x0008000000000000UL) == 0;
@@ -1306,7 +1307,7 @@ public class Rv32Executor : IExecutor {
         var rawB = (ulong)BitConverter.DoubleToInt64Bits(b);
         bool aNaN = double.IsNaN(a), bNaN = double.IsNaN(b);
         uint flags = 0;
-        if (IsDSNan(rawA) || IsDSNan(rawB) || (double.IsNaN(r) && !aNaN && !bNaN)) flags |= 0x10;
+        if (IsDsNan(rawA) || IsDsNan(rawB) || (double.IsNaN(r) && !aNaN && !bNaN)) flags |= 0x10;
         if (double.IsNaN(r)) return flags;
         if (op == 3 && b == 0.0 && !aNaN && !double.IsInfinity(a)) flags |= 0x08;
         if (double.IsInfinity(r) && !double.IsInfinity(a) && !double.IsInfinity(b)) flags |= 0x04;
@@ -1319,7 +1320,7 @@ public class Rv32Executor : IExecutor {
         var rawC = (ulong)BitConverter.DoubleToInt64Bits(c);
         bool aNaN = double.IsNaN(a), bNaN = double.IsNaN(b), cNaN = double.IsNaN(c);
         uint flags = 0;
-        if (IsDSNan(rawA) || IsDSNan(rawB) || IsDSNan(rawC) ||
+        if (IsDsNan(rawA) || IsDsNan(rawB) || IsDsNan(rawC) ||
             (double.IsNaN(r) && !aNaN && !bNaN && !cNaN))
             flags |= 0x10;
         if (double.IsNaN(r)) return flags;
@@ -1329,7 +1330,7 @@ public class Rv32Executor : IExecutor {
         return flags;
     }
 
-    private static uint DpSqrtFlags(double a, double r) {
+    private static uint DpSqrtFlags(double a) {
         if (!double.IsNaN(a) && a < 0.0) return 0x10; // NV: sqrt of negative
         return 0;
     }
@@ -1341,7 +1342,7 @@ public class Rv32Executor : IExecutor {
 
     private static ExecuteResult DpSqrt(double a) {
         double r = Math.Sqrt(a);
-        return FloatRegD(r, DpSqrtFlags(a, r));
+        return FloatRegD(r, DpSqrtFlags(a));
     }
 
     private static ExecuteResult DpFma(double a, double b, double c) {
@@ -1353,7 +1354,7 @@ public class Rv32Executor : IExecutor {
         ulong raw1 = regs.Read(rs1), raw2 = regs.Read(rs2);
         double a = BitConverter.Int64BitsToDouble((long)raw1);
         double b = BitConverter.Int64BitsToDouble((long)raw2);
-        uint flags = IsDSNan(raw1) || IsDSNan(raw2) ? 0x10u : 0u;
+        uint flags = IsDsNan(raw1) || IsDsNan(raw2) ? 0x10u : 0u;
         double result = isMin ? DMin(a, b) : DMax(a, b);
         return FloatRegD(result, flags);
     }
@@ -1363,7 +1364,7 @@ public class Rv32Executor : IExecutor {
         double a = BitConverter.Int64BitsToDouble((long)raw1);
         double b = BitConverter.Int64BitsToDouble((long)raw2);
         bool nvFlt = double.IsNaN(a) || double.IsNaN(b);
-        bool nvFeq = IsDSNan(raw1) || IsDSNan(raw2);
+        bool nvFeq = IsDsNan(raw1) || IsDsNan(raw2);
         uint flags = op switch { 0 => nvFeq ? 0x10u : 0u, _ => nvFlt ? 0x10u : 0u, };
         ulong cmp = op switch { 0  => a == b ? 1UL : 0UL, 1 => a < b ? 1UL : 0UL, _ => a <= b ? 1UL : 0UL, };
         return flags != 0
@@ -1397,8 +1398,11 @@ public class Rv32Executor : IExecutor {
         rm = ResolveRm(rm, state);
         if (double.IsNaN(d)) return IntRegF(0x7FFFFFFFu, 0x10u);
         double rounded = ApplyRmD(d, rm);
-        if (rounded >= 2147483648.0) return IntRegF(0x7FFFFFFFu, 0x10u);
-        if (rounded < -2147483648.0) return IntRegF(0x80000000u, 0x10u);
+        switch (rounded) {
+            case >= 2147483648.0: return IntRegF(0x7FFFFFFFu, 0x10u);
+            case < -2147483648.0: return IntRegF(0x80000000u, 0x10u);
+        }
+
         var result = (uint)(int)rounded;
         uint flags = d != (int)result ? 0x01u : 0u;
         return IntRegF(result, flags);
@@ -1408,8 +1412,11 @@ public class Rv32Executor : IExecutor {
         rm = ResolveRm(rm, state);
         if (double.IsNaN(d)) return IntRegF(0xFFFFFFFFu, 0x10u);
         double rounded = ApplyRmD(d, rm);
-        if (rounded >= 4294967296.0) return IntRegF(0xFFFFFFFFu, 0x10u);
-        if (rounded < 0.0) return IntRegF(0u, 0x10u);
+        switch (rounded) {
+            case >= 4294967296.0: return IntRegF(0xFFFFFFFFu, 0x10u);
+            case < 0.0:           return IntRegF(0u, 0x10u);
+        }
+
         var result = (uint)rounded;
         uint flags = d != result ? 0x01u : 0u;
         return IntRegF(result, flags);
@@ -1417,29 +1424,36 @@ public class Rv32Executor : IExecutor {
 
     // FCVT.D.W / FCVT.D.WU: integer → double (always exact for 32-bit integers).
     private static ExecuteResult DpIntToDouble(long intVal) =>
-        FloatRegD((double)intVal, 0);
+        FloatRegD(intVal, 0);
 
     // FCVT.S.D: narrow double → single (may set NX, OF).
-    private static ExecuteResult FpFcvtSD(double d, int rm, IArchState state) {
-        rm = ResolveRm(rm, state);
+    private static ExecuteResult FpFcvtSd(double d, int rm, IArchState state) {
+        ResolveRm(rm, state);
         // C# always rounds to nearest-even; other rounding modes are best-effort.
         var r = (float)d;
         uint flags = 0;
         var rawD = (ulong)BitConverter.DoubleToInt64Bits(d);
-        if (IsDSNan(rawD))
+        if (IsDsNan(rawD))
             flags |= 0x10;
-        else if (!double.IsNaN(d) && float.IsInfinity(r) && !double.IsInfinity(d))
-            flags |= 0x04;                                                                   // OF
-        else if (!double.IsNaN(d) && !double.IsInfinity(d) && (double)r != d) flags |= 0x01; // NX
+        else
+            switch (double.IsNaN(d)) {
+                case false when float.IsInfinity(r) && !double.IsInfinity(d):
+                    flags |= 0x04; // OF
+                    break;
+                case false when !double.IsInfinity(d) && r != d:
+                    flags |= 0x01; // NX
+                    break;
+            }
+
         return FloatRegF(r, flags);
     }
 
     // FCVT.D.S: widen single → double (exact; no flags except for sNaN input).
-    private static ExecuteResult FpFcvtDS(float f, int rm, IArchState state) {
+    private static ExecuteResult FpFcvtDs(float f) {
         uint rawF = BitConverter.SingleToUInt32Bits(f);
         uint flags = IsSNan(rawF) ? 0x10u : 0u;
         // Canonical NaN on sNaN input; otherwise exact widening.
-        double result = IsSNan(rawF) ? BitConverter.Int64BitsToDouble((long)Rv32Executor.RvCanonicalNaND) : f;
+        double result = IsSNan(rawF) ? BitConverter.Int64BitsToDouble((long)Rv32Executor.RvCanonicalNaNd) : f;
         return FloatRegD(result, flags);
     }
 
@@ -1876,7 +1890,7 @@ public class Rv32Executor : IExecutor {
             VWideOp.SubU  => (vs2IsWide ? a : ZX(a)) - ZX(b),
             VWideOp.Sub   => (ulong)((vs2IsWide ? SX2(a) : SX(a)) - SX(b)),
             VWideOp.MulU  => ZX(a) * ZX(b),
-            VWideOp.MulSU => (ulong)(SX(a) * (long)ZX(b)),
+            VWideOp.MulSu => (ulong)(SX(a) * (long)ZX(b)),
             VWideOp.Mul   => (ulong)(SX(a) * SX(b)),
             _             => throw new InvalidOperationException($"Unknown VWideOp {op}"),
         };
@@ -1885,7 +1899,7 @@ public class Rv32Executor : IExecutor {
     // vwmacc/vwmaccu/vwmaccsu/vwmaccus: vd[i] (2×SEW) += product of two SEW operands.
     private static ExecuteResult ExecuteVWMac(
         IArchState state,
-        VWMacOp op,
+        VwMacOp op,
         int vd,
         int vs2,
         bool masked,
@@ -1915,10 +1929,10 @@ public class Rv32Executor : IExecutor {
             ulong b = getB(i, ewBytes);
             ulong acc = ReadVElement(result, i, outEwBytes);
             ulong product = op switch {
-                VWMacOp.Maccu  => ZX(a) * ZX(b),
-                VWMacOp.Macc   => (ulong)(SX(a) * SX(b)),
-                VWMacOp.Maccsu => (ulong)(SX(a) * (long)ZX(b)),
-                VWMacOp.Maccus => (ulong)((long)ZX(a) * SX(b)),
+                VwMacOp.Maccu  => ZX(a) * ZX(b),
+                VwMacOp.Macc   => (ulong)(SX(a) * SX(b)),
+                VwMacOp.Maccsu => (ulong)(SX(a) * (long)ZX(b)),
+                VwMacOp.Maccus => (ulong)((long)ZX(a) * SX(b)),
                 _              => 0UL,
             };
             WriteVElement(result, i, outEwBytes, acc + product);
@@ -2317,7 +2331,7 @@ public class Rv32Executor : IExecutor {
 
     private static ExecuteResult ExecuteVNClip(
         IArchState state,
-        VNClipOp op,
+        VnClipOp op,
         int vd,
         int vs2,
         bool masked,
@@ -2340,7 +2354,7 @@ public class Rv32Executor : IExecutor {
             ulong b = getB(i, ewBytes);
             var shamt = (int)(b & (ulong)shiftMask);
             ulong elem;
-            if (op == VNClipOp.Clipu) {
+            if (op == VnClipOp.Clipu) {
                 ulong shifted = VRoundShiftU(a, shamt, vxrm);
                 elem = Math.Min(shifted, uMax);
             }

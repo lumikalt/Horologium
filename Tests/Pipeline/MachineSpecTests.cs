@@ -60,7 +60,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void WithCache_LayersIsNotNull() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(new FlatMemory(0x1000));
@@ -72,7 +72,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void WithL1_CacheSeesMissesOnColdRun() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
@@ -99,7 +99,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void FiveStage_WithL1_BuildsAndRuns() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new FiveStageSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
@@ -111,7 +111,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void OutOfOrder_WithL1_BuildsAndRuns() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new OutOfOrderSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
@@ -124,7 +124,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void MmioRegion_PropagatesUncacheableBoundsToLayerStack() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(new FlatMemory(0x1000), mmioRegion: (Base: 0x800, Size: 0x100));
@@ -136,7 +136,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void Unified_IAndDLayersAreSameInstance() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
         ).Build(new FlatMemory(0x1000));
@@ -147,8 +147,8 @@ public class MachineSpecTests {
 
     [Fact]
     public void SplitId_IAndDLayersAreSeparateInstances() {
-        var iSpec = new CacheLevelSpec(4096, 4, 64, 10);
-        var dSpec = new CacheLevelSpec(8192, 4, 64, 10);
+        var iSpec = new CacheLevelSpec(4096, 4, 64);
+        var dSpec = new CacheLevelSpec(8192, 4, 64);
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
             CacheHierarchySpec.SplitId(new CachePathSpec([iSpec,]), new CachePathSpec([dSpec,]))
@@ -160,8 +160,8 @@ public class MachineSpecTests {
 
     [Fact]
     public void SplitId_BothCachesSeeMissesOnColdRun() {
-        var iSpec = new CacheLevelSpec(4096, 4, 64, 10);
-        var dSpec = new CacheLevelSpec(4096, 4, 64, 10);
+        var iSpec = new CacheLevelSpec(4096, 4, 64);
+        var dSpec = new CacheLevelSpec(4096, 4, 64);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
@@ -175,8 +175,8 @@ public class MachineSpecTests {
 
     [Fact]
     public void SplitId_WithFiveStage_ProducesCorrectResult() {
-        var iSpec = new CacheLevelSpec(4096, 4, 64, 10);
-        var dSpec = new CacheLevelSpec(4096, 4, 64, 10);
+        var iSpec = new CacheLevelSpec(4096, 4, 64);
+        var dSpec = new CacheLevelSpec(4096, 4, 64);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
             new FiveStageSpec(), Rv32(),
@@ -191,7 +191,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void WithTlb_TlbIsExposed() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         var tlbSpec = new TlbSpec(64);
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),
@@ -202,7 +202,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void WithTlb_SeesAccessesOnRun() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         var tlbSpec = new TlbSpec(64);
         FlatMemory mem = LoadedMem();
         MachineHandle handle = new MachineSpec(
@@ -217,7 +217,7 @@ public class MachineSpecTests {
 
     [Fact]
     public void SplitId_WithTlb_ITlbAndDTlbAreDistinctInstances() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         var tlbSpec = new TlbSpec(64);
         MachineHandle handle = new MachineSpec(
             new SingleCycleSpec(), Rv32(),

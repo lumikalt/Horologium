@@ -55,7 +55,7 @@ public interface IArchState {
 
     /// <summary>
     /// Writes ISA-specific architectural state (CSRs, VRF, UVE, etc.) to <paramref name="writer"/>.
-    /// Called by <see cref="ArchitecturalCheckpoint.Save"/>. Default: no-op.
+    /// Called by <see cref="ArchitecturalCheckpoint.Save(Stream, IArchState, ISnapshotableMemory, ulong)"/>. Default: no-op.
     /// </summary>
     void WriteState(BinaryWriter writer) { }
 

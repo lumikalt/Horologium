@@ -44,14 +44,14 @@ public sealed class ShipPolicy : RripPolicyBase {
 
     public override void RecordHit(int set, int way) {
         base.RecordHit(set, way); // RRIP-HP: RRPV → 0
-        int idx = set * _ways + way;
+        int idx = set * Ways + way;
         _outcome[idx] = true;
         int sig = _signature[idx];
         if (sig >= 0 && _shct[sig] < ShipPolicy.MaxCounter) _shct[sig]++;
     }
 
     public override void RecordInstall(int set, int way) {
-        int idx = set * _ways + way;
+        int idx = set * Ways + way;
 
         // Eviction step: penalise the outgoing line's signature if it was never reused.
         int oldSig = _signature[idx];
@@ -60,7 +60,7 @@ public sealed class ShipPolicy : RripPolicyBase {
         // Install the new line.
         _signature[idx] = _pendingSignature;
         _outcome[idx] = false;
-        _rrpv[set][way] = _shct[_pendingSignature] == 0 ? _maxRrpv : _insertionRrpv;
+        Rrpv[set][way] = _shct[_pendingSignature] == 0 ? MaxRrpv : InsertionRrpv;
     }
 
     /// <summary>Exposes the raw SHCT counter for a given signature index (testing/inspection).</summary>

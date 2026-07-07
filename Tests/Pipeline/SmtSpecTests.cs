@@ -19,12 +19,12 @@ public class SmtSpecTests {
         return mem;
     }
 
-    private static RevolutionResult Run(ISteppableTrain train, long maxTicks = 10_000) {
+    private static void Run(ISteppableTrain train, long maxTicks = 10_000) {
         train.BeginStepping();
         long ticks = 0;
         while (ticks++ < maxTicks && train.StepCycle()) { }
 
-        return train.FinishStepping();
+        train.FinishStepping();
     }
 
     // ── Base contract (single-hart via PipelineSpec.Build) ─────────────────────

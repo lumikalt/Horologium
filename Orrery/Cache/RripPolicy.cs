@@ -10,41 +10,41 @@ namespace Orrery.Cache;
 ///   Prediction (RRIP)", ISCA 2010.
 /// </summary>
 public abstract class RripPolicyBase : IReplacementPolicy {
-    protected readonly int[][] _rrpv;
-    protected readonly int _ways;
-    protected readonly int _maxRrpv;       // 2^M − 1  (= 3 for M=2)
-    protected readonly int _insertionRrpv; // 2^M − 2  (= 2 for M=2, "long re-reference")
+    protected readonly int[][] Rrpv;
+    protected readonly int Ways;
+    protected readonly int MaxRrpv;       // 2^M − 1  (= 3 for M=2)
+    protected readonly int InsertionRrpv; // 2^M − 2  (= 2 for M=2, "long re-reference")
 
     protected RripPolicyBase(int sets, int ways, int m = 2) {
-        _ways = ways;
-        _maxRrpv = (1 << m) - 1;
-        _insertionRrpv = _maxRrpv - 1;
-        _rrpv = new int[sets][];
+        Ways = ways;
+        MaxRrpv = (1 << m) - 1;
+        InsertionRrpv = MaxRrpv - 1;
+        Rrpv = new int[sets][];
         for (var s = 0; s < sets; s++) {
-            _rrpv[s] = new int[ways];
-            for (var w = 0; w < ways; w++) _rrpv[s][w] = _maxRrpv; // invalid ways treated as distant
+            Rrpv[s] = new int[ways];
+            for (var w = 0; w < ways; w++) Rrpv[s][w] = MaxRrpv; // invalid ways treated as distant
         }
     }
 
     // RRIP-HP: a hit predicts near-immediate re-reference.
-    public virtual void RecordHit(int set, int way) => _rrpv[set][way] = 0;
+    public virtual void RecordHit(int set, int way) => Rrpv[set][way] = 0;
 
     /// <summary>No-op for all RRIP variants; overridden by SHiP.</summary>
     public virtual void SetPendingSignature(ulong signature) { }
 
     public int ChooseVictim(int set) {
         while (true) {
-            for (var w = 0; w < _ways; w++)
-                if (_rrpv[set][w] == _maxRrpv)
+            for (var w = 0; w < Ways; w++)
+                if (Rrpv[set][w] == MaxRrpv)
                     return w;
             // No distant entry: age all RRPVs by one, then retry.
-            for (var w = 0; w < _ways; w++) _rrpv[set][w]++;
+            for (var w = 0; w < Ways; w++) Rrpv[set][w]++;
         }
     }
 
     public abstract void RecordInstall(int set, int way);
 
-    public int GetMetadata(int set, int way) => _rrpv[set][way];
+    public int GetMetadata(int set, int way) => Rrpv[set][way];
 }
 
 /// <summary>
@@ -54,7 +54,7 @@ public abstract class RripPolicyBase : IReplacementPolicy {
 public sealed class SrripPolicy : RripPolicyBase {
     public SrripPolicy(int sets, int ways, int m = 2) : base(sets, ways, m) { }
 
-    public override void RecordInstall(int set, int way) => _rrpv[set][way] = _insertionRrpv;
+    public override void RecordInstall(int set, int way) => Rrpv[set][way] = InsertionRrpv;
 }
 
 /// <summary>
@@ -74,10 +74,10 @@ public sealed class BrripPolicy : RripPolicyBase {
         _counter++;
         if (_counter >= _denominator) {
             _counter = 0;
-            _rrpv[set][way] = _insertionRrpv; // long (1/denominator probability)
+            Rrpv[set][way] = InsertionRrpv; // long (1/denominator probability)
         }
         else {
-            _rrpv[set][way] = _maxRrpv; // distant (most inserts)
+            Rrpv[set][way] = MaxRrpv; // distant (most inserts)
         }
     }
 }
@@ -130,16 +130,16 @@ public sealed class DrripPolicy : RripPolicyBase {
             useSrrip = _psel < _pselThreshold;
         }
 
-        if (useSrrip) { _rrpv[set][way] = _insertionRrpv; }
+        if (useSrrip) { Rrpv[set][way] = InsertionRrpv; }
         else {
             // BRRIP: distant most of the time, long every 1/denominator inserts.
             _bimodalCounter++;
             if (_bimodalCounter >= _denominator) {
                 _bimodalCounter = 0;
-                _rrpv[set][way] = _insertionRrpv; // long
+                Rrpv[set][way] = InsertionRrpv; // long
             }
             else {
-                _rrpv[set][way] = _maxRrpv; // distant
+                Rrpv[set][way] = MaxRrpv; // distant
             }
         }
     }

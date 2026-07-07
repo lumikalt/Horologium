@@ -760,7 +760,7 @@ public class Rv32Decoder : IDecoder {
         if (lumop == 0x10)
             return new RvInstruction(
                 pc, raw, -1, [rs1,], ToothClass.Vector,
-                new RvVleFF(vd, rs1, sewU, masked)
+                new RvVleFf(vd, rs1, sewU, masked)
             );
 
         var nf = (int)((word >> 29) & 0x7);
@@ -786,48 +786,50 @@ public class Rv32Decoder : IDecoder {
         uint mop = (word >> 26) & 0x3;
         bool masked = ((word >> 25) & 1) == 0;
 
-        if (mop == 2) {
-            // Strided: rs2Field is the stride register
-            int sew = funct3 switch {
-                0 => 8,
-                5 => 16,
-                6 => 32,
-                _ => throw new IllegalInstructionException(
-                    raw, $"V strided store: unsupported funct3=0x{funct3:X}"
-                ),
-            };
-            var nfSS = (int)((word >> 29) & 0x7);
-            if (nfSS > 0)
+        switch (mop) {
+            case 2: {
+                // Strided: rs2Field is the stride register
+                int sew = funct3 switch {
+                    0 => 8,
+                    5 => 16,
+                    6 => 32,
+                    _ => throw new IllegalInstructionException(
+                        raw, $"V strided store: unsupported funct3=0x{funct3:X}"
+                    ),
+                };
+                var nfSs = (int)((word >> 29) & 0x7);
+                if (nfSs > 0)
+                    return new RvInstruction(
+                        pc, raw, -1, [rs1, rs2Field,], ToothClass.Vector,
+                        new RvVsssegVv(nfSs + 1, vs3, rs1, rs2Field, sew, masked)
+                    );
                 return new RvInstruction(
                     pc, raw, -1, [rs1, rs2Field,], ToothClass.Vector,
-                    new RvVsssegVv(nfSS + 1, vs3, rs1, rs2Field, sew, masked)
+                    new RvVsseVv(vs3, rs1, rs2Field, sew, masked)
                 );
-            return new RvInstruction(
-                pc, raw, -1, [rs1, rs2Field,], ToothClass.Vector,
-                new RvVsseVv(vs3, rs1, rs2Field, sew, masked)
-            );
-        }
-
-        if (mop == 1 || mop == 3) {
-            // Indexed: bits[24:20] = vs2 (index vector); rs2Field already holds that value
-            int indexSew = funct3 switch {
-                0 => 8,
-                5 => 16,
-                6 => 32,
-                _ => throw new IllegalInstructionException(
-                    raw, $"V indexed store: unsupported index width funct3=0x{funct3:X}"
-                ),
-            };
-            var nfSX = (int)((word >> 29) & 0x7);
-            if (nfSX > 0)
+            }
+            case 1:
+            case 3: {
+                // Indexed: bits[24:20] = vs2 (index vector); rs2Field already holds that value
+                int indexSew = funct3 switch {
+                    0 => 8,
+                    5 => 16,
+                    6 => 32,
+                    _ => throw new IllegalInstructionException(
+                        raw, $"V indexed store: unsupported index width funct3=0x{funct3:X}"
+                    ),
+                };
+                var nfSx = (int)((word >> 29) & 0x7);
+                if (nfSx > 0)
+                    return new RvInstruction(
+                        pc, raw, -1, [rs1,], ToothClass.Vector,
+                        new RvVsxsegVv(nfSx + 1, vs3, rs1, rs2Field, indexSew, masked, mop == 3)
+                    );
                 return new RvInstruction(
                     pc, raw, -1, [rs1,], ToothClass.Vector,
-                    new RvVsxsegVv(nfSX + 1, vs3, rs1, rs2Field, indexSew, masked, mop == 3)
+                    new RvVsxeiVv(vs3, rs1, rs2Field, indexSew, masked, mop == 3)
                 );
-            return new RvInstruction(
-                pc, raw, -1, [rs1,], ToothClass.Vector,
-                new RvVsxeiVv(vs3, rs1, rs2Field, indexSew, masked, mop == 3)
-            );
+            }
         }
 
         if (mop != 0)
@@ -976,13 +978,13 @@ public class Rv32Decoder : IDecoder {
                     0x32 => VWideOp.SubU, 0x33 => VWideOp.Sub,
                     0x34 => VWideOp.AddU, 0x35 => VWideOp.Add, // .wv: vs2 is 2*SEW
                     0x36 => VWideOp.SubU, 0x37 => VWideOp.Sub, // .wv: vs2 is 2*SEW
-                    0x38 => VWideOp.MulU, 0x3A => VWideOp.MulSU, 0x3B => VWideOp.Mul,
+                    0x38 => VWideOp.MulU, 0x3A => VWideOp.MulSu, 0x3B => VWideOp.Mul,
                     _    => null,
                 };
                 if (wideOpMvv.HasValue)
                     return new RvInstruction(
                         pc, raw, -1, [], ToothClass.Vector,
-                        new RvVWideVv(wideOpMvv.Value, vd, vs2, rs1, masked, funct6 >= 0x34 && funct6 <= 0x37)
+                        new RvVWideVv(wideOpMvv.Value, vd, vs2, rs1, masked, funct6 is >= 0x34 and <= 0x37)
                     );
                 VIntMacOp? macOp = funct6 switch {
                     0x29 => VIntMacOp.Madd,
@@ -1013,16 +1015,16 @@ public class Rv32Decoder : IDecoder {
                         new RvVMaskLogMm(logOp.Value, vd, vs2, rs1)
                     );
                 // Widening MAC: vwmaccu=0x3C, vwmacc=0x3D, vwmaccsu=0x3F (OPMVV; vwmaccus has no VV form)
-                VWMacOp? wMacOp = funct6 switch {
-                    0x3C => VWMacOp.Maccu,
-                    0x3D => VWMacOp.Macc,
-                    0x3F => VWMacOp.Maccsu,
+                VwMacOp? wMacOp = funct6 switch {
+                    0x3C => VwMacOp.Maccu,
+                    0x3D => VwMacOp.Macc,
+                    0x3F => VwMacOp.Maccsu,
                     _    => null,
                 };
                 if (wMacOp.HasValue)
                     return new RvInstruction(
                         pc, raw, -1, [], ToothClass.Vector,
-                        new RvVWMacVv(wMacOp.Value, vd, vs2, rs1, masked)
+                        new RvVwMacVv(wMacOp.Value, vd, vs2, rs1, masked)
                     );
                 throw new IllegalInstructionException(raw, $"V op: unsupported OPMVV funct6=0x{funct6:X2}");
             }
@@ -1063,13 +1065,13 @@ public class Rv32Decoder : IDecoder {
                     0x32 => VWideOp.SubU, 0x33 => VWideOp.Sub,
                     0x34 => VWideOp.AddU, 0x35 => VWideOp.Add, // .wx: vs2 is 2*SEW
                     0x36 => VWideOp.SubU, 0x37 => VWideOp.Sub,
-                    0x38 => VWideOp.MulU, 0x3A => VWideOp.MulSU, 0x3B => VWideOp.Mul,
+                    0x38 => VWideOp.MulU, 0x3A => VWideOp.MulSu, 0x3B => VWideOp.Mul,
                     _    => null,
                 };
                 if (wideOpMvx.HasValue)
                     return new RvInstruction(
                         pc, raw, -1, [rs1,], ToothClass.Vector,
-                        new RvVWideVx(wideOpMvx.Value, vd, vs2, rs1, masked, funct6 >= 0x34 && funct6 <= 0x37)
+                        new RvVWideVx(wideOpMvx.Value, vd, vs2, rs1, masked, funct6 is >= 0x34 and <= 0x37)
                     );
                 // vslide1up.vx (0x0E) / vslide1down.vx (0x0F)
                 if (funct6 == 0x0E || funct6 == 0x0F)
@@ -1093,17 +1095,17 @@ public class Rv32Decoder : IDecoder {
                         new RvVIntMacVx(macOpX.Value, vd, vs2, rs1, masked)
                     );
                 // Widening MAC VX: vwmaccu=0x3C, vwmacc=0x3D, vwmaccus=0x3E, vwmaccsu=0x3F
-                VWMacOp? wMacOpX = funct6 switch {
-                    0x3C => VWMacOp.Maccu,
-                    0x3D => VWMacOp.Macc,
-                    0x3E => VWMacOp.Maccus,
-                    0x3F => VWMacOp.Maccsu,
+                VwMacOp? wMacOpX = funct6 switch {
+                    0x3C => VwMacOp.Maccu,
+                    0x3D => VwMacOp.Macc,
+                    0x3E => VwMacOp.Maccus,
+                    0x3F => VwMacOp.Maccsu,
                     _    => null,
                 };
                 if (wMacOpX.HasValue)
                     return new RvInstruction(
                         pc, raw, -1, [rs1,], ToothClass.Vector,
-                        new RvVWMacVx(wMacOpX.Value, vd, vs2, rs1, masked)
+                        new RvVwMacVx(wMacOpX.Value, vd, vs2, rs1, masked)
                     );
                 throw new IllegalInstructionException(raw, $"V op: unsupported OPMVX funct6=0x{funct6:X2}");
             }
@@ -1254,11 +1256,11 @@ public class Rv32Decoder : IDecoder {
                 return isVf
                     ? new RvInstruction(
                         pc, raw, -1, [fpRs1,], ToothClass.Vector,
-                        new RvVMFpCmpVf(fpCmpOp.Value, vd, vs2, fpRs1, masked)
+                        new RvVmFpCmpVf(fpCmpOp.Value, vd, vs2, fpRs1, masked)
                     )
                     : new RvInstruction(
                         pc, raw, -1, [], ToothClass.Vector,
-                        new RvVMFpCmpVv(fpCmpOp.Value, vd, vs2, rs1, masked)
+                        new RvVmFpCmpVv(fpCmpOp.Value, vd, vs2, rs1, masked)
                     );
             }
 
@@ -1447,24 +1449,24 @@ public class Rv32Decoder : IDecoder {
         }
 
         // Narrowing saturating clip: 0x2E=vnclipu, 0x2F=vnclip
-        VNClipOp? clipOp = funct6 switch {
-            0x2E => VNClipOp.Clipu,
-            0x2F => VNClipOp.Clip,
+        VnClipOp? clipOp = funct6 switch {
+            0x2E => VnClipOp.Clipu,
+            0x2F => VnClipOp.Clip,
             _    => null,
         };
         if (clipOp.HasValue)
             return funct3 switch {
                 0 => new RvInstruction(
                     pc, raw, -1, [], ToothClass.Vector,
-                    new RvVNClipVv(clipOp.Value, vd, vs2, rs1, masked)
+                    new RvVnClipVv(clipOp.Value, vd, vs2, rs1, masked)
                 ),
                 3 => new RvInstruction(
                     pc, raw, -1, [], ToothClass.Vector,
-                    new RvVNClipVi(clipOp.Value, vd, vs2, SignExtend5(rs1), masked)
+                    new RvVnClipVi(clipOp.Value, vd, vs2, SignExtend5(rs1), masked)
                 ),
                 _ => new RvInstruction(
                     pc, raw, -1, [rs1,], ToothClass.Vector,
-                    new RvVNClipVx(clipOp.Value, vd, vs2, rs1, masked)
+                    new RvVnClipVx(clipOp.Value, vd, vs2, rs1, masked)
                 ),
             };
 
@@ -1648,11 +1650,11 @@ public class Rv32Decoder : IDecoder {
             },
             // FCVT.S.D (double→single): fmt=S(0), rs2=1(D)
             0x20 => rs2 == 1
-                ? FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtSD(rd + 32, rs1 + 32, (int)funct3))
+                ? FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtSd(rd + 32, rs1 + 32, (int)funct3))
                 : throw new IllegalInstructionException(raw, $"Unknown FCVT.S.? rs2={rs2}"),
             // FCVT.D.S (single→double): fmt=D(1), rs2=0(S)
             0x21 => rs2 == 0
-                ? FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtDS(rd + 32, rs1 + 32, (int)funct3))
+                ? FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtDs(rd + 32, rs1 + 32, (int)funct3))
                 : throw new IllegalInstructionException(raw, $"Unknown FCVT.D.? rs2={rs2}"),
             // Comparisons D: FP sources, integer result
             0x51 => funct3 switch {
@@ -1663,13 +1665,13 @@ public class Rv32Decoder : IDecoder {
             },
             // Conversions double→int
             0x61 => rs2 switch {
-                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWD(rd, rs1 + 32, (int)funct3)),
+                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWd(rd, rs1 + 32, (int)funct3)),
                 1 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWuD(rd, rs1 + 32, (int)funct3)),
                 _ => throw new IllegalInstructionException(raw, $"Unknown FCVT.W.D rs2={rs2}"),
             },
             // Conversions int→double
             0x69 => rs2 switch {
-                0 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtDW(rd + 32, rs1, (int)funct3)),
+                0 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtDw(rd + 32, rs1, (int)funct3)),
                 1 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtDWu(rd + 32, rs1, (int)funct3)),
                 _ => throw new IllegalInstructionException(raw, $"Unknown FCVT.D.W rs2={rs2}"),
             },
@@ -2038,9 +2040,8 @@ public class Rv32Decoder : IDecoder {
             case 0x5: {
                 // so.b.ndc.D urs, imm — branch while dim D of stream not complete (B-type)
                 // dim is encoded in rs2 field (0 = innermost; literal, not a register index)
-                int dim = rs2;
                 int imm = BranchImm(raw);
-                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNdc(rs1, dim, imm));
+                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNdc(rs1, rs2, imm));
             }
 
             default: throw new IllegalInstructionException(raw, $"Unknown UVE op funct3=0x{funct3:X}");
@@ -2061,7 +2062,7 @@ public class Rv32Decoder : IDecoder {
     protected static int SignExtend12(int value) =>
         (value & 0x800) != 0 ? value | unchecked((int)0xFFFFF000) : value & 0xFFF;
 
-    protected static int SignExtendN(int value, int bits) {
+    private static int SignExtendN(int value, int bits) {
         int shift = 32 - bits;
         return (value << shift) >> shift;
     }

@@ -7,6 +7,8 @@ using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV32.State;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 // VectorRegisters is public on Rv32ArchState; CsrFile constants are public statics.
 // CSR values are read via the public ISystemRegisters.Read() path.
 
@@ -77,11 +79,6 @@ public class VectorTests {
     // vsuxei{sew}.v vs3,(rs1),vs2  (mop=1, opcode=0x27)
     private static uint Vsuxei(int vs3, int rs1, int vs2, int funct3Width, bool masked = false) =>
         (uint)((1 << 26) | ((masked ? 0 : 1) << 25) | (vs2 << 20) | (rs1 << 15) |
-               (funct3Width << 12) | (vs3 << 7) | 0x27);
-
-    // vsoxei{sew}.v vs3,(rs1),vs2  (mop=3, opcode=0x27)
-    private static uint Vsoxei(int vs3, int rs1, int vs2, int funct3Width, bool masked = false) =>
-        (uint)((3 << 26) | ((masked ? 0 : 1) << 25) | (vs2 << 20) | (rs1 << 15) |
                (funct3Width << 12) | (vs3 << 7) | 0x27);
 
     // vlseg{nf}e{sew}.v vd,(rs1)  (unit-stride, mop=0, lumop=0, nf=numFields-1)
@@ -701,7 +698,7 @@ public class VectorTests {
         // Load 4 bytes with stride=2 (every other byte)
         Rv32ArchState s = MakeState();
         // vsetivli a0, 4, e8,m1,ta,ma — direct CSR update, no SideEffect needed
-        int vtypeiE8M1 = (1 << 7) | (1 << 6) | (0 << 3); // e8,m1,ta,ma
+        const int vtypeiE8M1 = (1 << 7) | (1 << 6) | (0 << 3); // e8,m1,ta,ma
         Exec(Vsetivli(10, 4, vtypeiE8M1), s);
 
         _mem.Write(0x300, 0xAA, 1);
@@ -1792,7 +1789,7 @@ public class VectorTests {
     [Fact]
     public void Decode_VmfeqVv_IsRvVMFpCmpVv() {
         uint raw = VopFvv(0x18, 1, 2, 3); // vmfeq.vv v1, v2, v3
-        var op = Assert.IsType<RvVMFpCmpVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
+        var op = Assert.IsType<RvVmFpCmpVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(VFpCmpOp.Eq, op.Op);
     }
 
@@ -2680,8 +2677,8 @@ public class VectorTests {
     [Fact]
     public void Decode_VwmaccVv_IsRvVWMacVv() {
         uint raw = VopMvv(0x3D, 1, 2, 3); // vwmacc.vv v1, v3, v2 (vd=1, vs2=2, vs1=3)
-        var op = Assert.IsType<RvVWMacVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
-        Assert.Equal(VWMacOp.Macc, op.Op);
+        var op = Assert.IsType<RvVwMacVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
+        Assert.Equal(VwMacOp.Macc, op.Op);
         Assert.Equal(1, op.Vd);
         Assert.Equal(2, op.Vs2);
         Assert.Equal(3, op.Vs1);
@@ -2691,22 +2688,22 @@ public class VectorTests {
     [Fact]
     public void Decode_VwmaccuVv_IsRvVWMacVv() {
         uint raw = VopMvv(0x3C, 1, 2, 3); // vwmaccu.vv
-        var op = Assert.IsType<RvVWMacVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
-        Assert.Equal(VWMacOp.Maccu, op.Op);
+        var op = Assert.IsType<RvVwMacVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
+        Assert.Equal(VwMacOp.Maccu, op.Op);
     }
 
     [Fact]
     public void Decode_VwmaccsuVv_IsRvVWMacVv() {
         uint raw = VopMvv(0x3F, 1, 2, 3); // vwmaccsu.vv
-        var op = Assert.IsType<RvVWMacVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
-        Assert.Equal(VWMacOp.Maccsu, op.Op);
+        var op = Assert.IsType<RvVwMacVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
+        Assert.Equal(VwMacOp.Maccsu, op.Op);
     }
 
     [Fact]
     public void Decode_VwmaccusVx_IsRvVWMacVx() {
         uint raw = VopMvx(0x3E, 1, 2, 10); // vwmaccus.vx v1, a0, v2
-        var op = Assert.IsType<RvVWMacVx>(((RvInstruction)_dec.Decode(0, raw)).Payload);
-        Assert.Equal(VWMacOp.Maccus, op.Op);
+        var op = Assert.IsType<RvVwMacVx>(((RvInstruction)_dec.Decode(0, raw)).Payload);
+        Assert.Equal(VwMacOp.Maccus, op.Op);
         Assert.Equal(1, op.Vd);
         Assert.Equal(2, op.Vs2);
         Assert.Equal(10, op.Rs1);
@@ -2846,15 +2843,15 @@ public class VectorTests {
     [Fact]
     public void Decode_VnclipuWv_IsRvVNClipVv() {
         uint raw = VopVv(0x2E, 1, 2, 3); // vnclipu.wv
-        var op = Assert.IsType<RvVNClipVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
-        Assert.Equal(VNClipOp.Clipu, op.Op);
+        var op = Assert.IsType<RvVnClipVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
+        Assert.Equal(VnClipOp.Clipu, op.Op);
     }
 
     [Fact]
     public void Decode_VnclipWi_IsRvVNClipVi() {
         uint raw = VopVi(0x2F, 1, 2, 2); // vnclip.wi v1, v2, 2
-        var op = Assert.IsType<RvVNClipVi>(((RvInstruction)_dec.Decode(0, raw)).Payload);
-        Assert.Equal(VNClipOp.Clip, op.Op);
+        var op = Assert.IsType<RvVnClipVi>(((RvInstruction)_dec.Decode(0, raw)).Payload);
+        Assert.Equal(VnClipOp.Clip, op.Op);
         Assert.Equal(2, op.Imm);
     }
 
@@ -3272,7 +3269,7 @@ public class VectorTests {
         // rod rounds it to the next odd mantissa instead.
         Rv32ArchState s = MakeState();
         ConfigVl4E32(s);
-        var exact = 1.0;                               // exact in f32 → no rounding
+        const double exact = 1.0;                      // exact in f32 → no rounding
         double inexact = 1.0 + Math.Pow(2, -24) * 0.5; // mid-point, rounds toward odd
         SetVRegD(s, 4, [exact, inexact,]);
         uint raw = VopFvUnary(0x12, 2, 4, 21); // vfncvt.rod.f.f.w v2, v4
@@ -3288,7 +3285,7 @@ public class VectorTests {
 
     [Fact]
     public void Decode_Vl1rV_IsRvVlrV() {
-        uint raw = 0x02850107; // vl1r.v v2, (a0)
+        const uint raw = 0x02850107; // vl1r.v v2, (a0)
         var op = Assert.IsType<RvVlrV>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(1, op.NumRegs);
         Assert.Equal(2, op.Vd);
@@ -3297,7 +3294,7 @@ public class VectorTests {
 
     [Fact]
     public void Decode_Vl4rV_IsRvVlrV_NumRegs4() {
-        uint raw = 0x62850207; // vl4r.v v4, (a0)
+        const uint raw = 0x62850207; // vl4r.v v4, (a0)
         var op = Assert.IsType<RvVlrV>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(4, op.NumRegs);
         Assert.Equal(4, op.Vd);
@@ -3305,7 +3302,7 @@ public class VectorTests {
 
     [Fact]
     public void Decode_Vs1rV_IsRvVsrV() {
-        uint raw = 0x02850127; // vs1r.v v2, (a0)
+        const uint raw = 0x02850127; // vs1r.v v2, (a0)
         var op = Assert.IsType<RvVsrV>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(1, op.NumRegs);
         Assert.Equal(2, op.Vs3);
@@ -3314,7 +3311,7 @@ public class VectorTests {
 
     [Fact]
     public void Decode_Vs2rV_IsRvVsrV_NumRegs2() {
-        uint raw = 0x22850127; // vs2r.v v2, (a0)
+        const uint raw = 0x22850127; // vs2r.v v2, (a0)
         var op = Assert.IsType<RvVsrV>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(2, op.NumRegs);
     }
@@ -3336,7 +3333,7 @@ public class VectorTests {
     public void Execute_Vl2rV_LoadsTwoRegisters() {
         Rv32ArchState s = MakeState();
         SetGpr(s, 10, 0x2000);
-        int total = 2 * VectorRegisterFile.VLenB;
+        const int total = 2 * VectorRegisterFile.VLenB;
         for (var b = 0; b < total; b++) _mem.Write(0x2000 + (ulong)b, (ulong)(b + 10), 1);
 
         Exec(0x22850107, s).SideEffect!(s); // vl2r.v v2, (a0)
@@ -3394,12 +3391,12 @@ public class VectorTests {
         s.VectorRegisters.Write(4, original);
 
         // vs1r.v v4, (a0) — store v4 to 0x5000
-        uint vs1r = 0x02850227; // vs1r.v v4, (a0): vd=vs3=4
-        Exec(vs1r, s);
+        const uint vs1R = 0x02850227; // vs1r.v v4, (a0): vd=vs3=4
+        Exec(vs1R, s);
 
         // vl1r.v v6, (a1) — load 0x5000 into v6
-        uint vl1r = 0x02858307; // vl1r.v v6, (a1=x11): vd=6, rs1=11
-        Exec(vl1r, s).SideEffect!(s);
+        const uint vl1R = 0x02858307; // vl1r.v v6, (a1=x11): vd=6, rs1=11
+        Exec(vl1R, s).SideEffect!(s);
 
         byte[] v6 = s.VectorRegisters.Read(6);
         Assert.Equal(original, v6);
@@ -3530,8 +3527,8 @@ public class VectorTests {
     [Fact]
     public void Decode_Vle32ff_IsRvVleFF() {
         // vle32ff.v v2, (a0): lumop=0x10, funct3=6(e32), mop=0
-        var raw = (uint)((0 << 29) | (1 << 25) | (0x10 << 20) | (10 << 15) | (6 << 12) | (2 << 7) | 0x07);
-        var op = Assert.IsType<RvVleFF>(((RvInstruction)_dec.Decode(0, raw)).Payload);
+        const uint raw = (0 << 29) | (1 << 25) | (0x10 << 20) | (10 << 15) | (6 << 12) | (2 << 7) | 0x07;
+        var op = Assert.IsType<RvVleFf>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(2, op.Vd);
         Assert.Equal(10, op.Rs1);
         Assert.Equal(32, op.Sew);
@@ -3547,7 +3544,7 @@ public class VectorTests {
         _mem.Write(0x1001, 0xBB, 1);
         _mem.Write(0x1002, 0xCC, 1);
         _mem.Write(0x1003, 0xDD, 1);
-        var raw = (uint)((1 << 25) | (0x10 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x07); // vle8ff.v v4,(a0)
+        const uint raw = (1 << 25) | (0x10 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x07; // vle8ff.v v4,(a0)
         Exec(raw, s).SideEffect!(s);
         byte[] v4 = s.VectorRegisters.Read(4);
         Assert.Equal(0xAA, v4[0]);
@@ -3760,7 +3757,7 @@ public class VectorTests {
     [Fact]
     public void Decode_Vlsseg2e32_IsRvVlssegVv() {
         // vlsseg2e32.v v2, (a0), a1: mop=2(bits[27:26]=10), nf=1(2 fields), funct3=6(e32), rs2=11
-        var raw = (uint)((1 << 29) | (2 << 26) | (1 << 25) | (11 << 20) | (10 << 15) | (6 << 12) | (2 << 7) | 0x07);
+        const uint raw = (1 << 29) | (2 << 26) | (1 << 25) | (11 << 20) | (10 << 15) | (6 << 12) | (2 << 7) | 0x07;
         var op = Assert.IsType<RvVlssegVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(2, op.NumFields);
         Assert.Equal(2, op.Vd);
@@ -3773,7 +3770,7 @@ public class VectorTests {
     [Fact]
     public void Decode_Vssseg2e32_IsRvVsssegVv() {
         // vssseg2e32.v v2, (a0), a1: mop=2(bits[27:26]=10), nf=1, funct3=6, rs2=11
-        var raw = (uint)((1 << 29) | (2 << 26) | (1 << 25) | (11 << 20) | (10 << 15) | (6 << 12) | (2 << 7) | 0x27);
+        const uint raw = (1 << 29) | (2 << 26) | (1 << 25) | (11 << 20) | (10 << 15) | (6 << 12) | (2 << 7) | 0x27;
         var op = Assert.IsType<RvVsssegVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(2, op.NumFields);
         Assert.Equal(2, op.Vs3);
@@ -3803,7 +3800,7 @@ public class VectorTests {
         _mem.Write(0x100D, 0x22, 1);
 
         // vlsseg2e8.v v4, (a0), a1: nf=1→2 fields, mop=2(bits[27:26]=10), funct3=0(e8), rs2=11
-        var raw = (uint)((1 << 29) | (2 << 26) | (1 << 25) | (11 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x07);
+        const uint raw = (1 << 29) | (2 << 26) | (1 << 25) | (11 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x07;
         Exec(raw, s).SideEffect!(s);
 
         byte[] v4 = s.VectorRegisters.Read(4);
@@ -3827,7 +3824,7 @@ public class VectorTests {
         SetVReg8(s, 4, [0xAA, 0xCC, 0xEE, 0x11,]); // field 0
         SetVReg8(s, 5, [0xBB, 0xDD, 0xFF, 0x22,]); // field 1
 
-        var raw = (uint)((1 << 29) | (2 << 26) | (1 << 25) | (11 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x27);
+        const uint raw = (1 << 29) | (2 << 26) | (1 << 25) | (11 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x27;
         Exec(raw, s);
 
         Assert.Equal(0xAAUL, _mem.Read(0x2000, 1));
@@ -3843,7 +3840,7 @@ public class VectorTests {
     [Fact]
     public void Decode_Vluxseg2ei8_IsRvVlxsegVv() {
         // vluxseg2ei8.v v2, (a0), v6: mop=1, nf=1(2 fields), funct3=0(e8-idx), rs2=vs2=6
-        var raw = (uint)((1 << 29) | (1 << 26) | (1 << 25) | (6 << 20) | (10 << 15) | (0 << 12) | (2 << 7) | 0x07);
+        const uint raw = (1 << 29) | (1 << 26) | (1 << 25) | (6 << 20) | (10 << 15) | (0 << 12) | (2 << 7) | 0x07;
         var op = Assert.IsType<RvVlxsegVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(2, op.NumFields);
         Assert.Equal(2, op.Vd);
@@ -3855,7 +3852,7 @@ public class VectorTests {
 
     [Fact]
     public void Decode_Vsoxseg2ei8_IsRvVsxsegVv_Ordered() {
-        var raw = (uint)((1 << 29) | (3 << 26) | (1 << 25) | (6 << 20) | (10 << 15) | (0 << 12) | (2 << 7) | 0x27);
+        const uint raw = (1 << 29) | (3 << 26) | (1 << 25) | (6 << 20) | (10 << 15) | (0 << 12) | (2 << 7) | 0x27;
         var op = Assert.IsType<RvVsxsegVv>(((RvInstruction)_dec.Decode(0, raw)).Payload);
         Assert.Equal(2, op.NumFields);
         Assert.True(op.Ordered);
@@ -3877,7 +3874,7 @@ public class VectorTests {
         _mem.Write(0x100C, 0xD0, 1);
         _mem.Write(0x100D, 0xD1, 1); // idx=0xC: f0,f1
 
-        var raw = (uint)((1 << 29) | (1 << 26) | (1 << 25) | (8 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x07);
+        const uint raw = (1 << 29) | (1 << 26) | (1 << 25) | (8 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x07;
         Exec(raw, s).SideEffect!(s);
 
         byte[] v4 = s.VectorRegisters.Read(4);
@@ -3901,7 +3898,7 @@ public class VectorTests {
         SetVReg8(s, 4, [0xA0, 0xB0, 0xC0, 0xD0,]); // field 0 data
         SetVReg8(s, 5, [0xA1, 0xB1, 0xC1, 0xD1,]); // field 1 data
 
-        var raw = (uint)((1 << 29) | (1 << 26) | (1 << 25) | (8 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x27);
+        const uint raw = (1 << 29) | (1 << 26) | (1 << 25) | (8 << 20) | (10 << 15) | (0 << 12) | (4 << 7) | 0x27;
         Exec(raw, s);
 
         Assert.Equal(0xA0UL, _mem.Read(0x2000, 1));

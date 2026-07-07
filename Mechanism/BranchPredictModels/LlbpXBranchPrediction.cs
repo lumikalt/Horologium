@@ -32,11 +32,11 @@ public sealed class LlbpXPredictor : LlbpPredictor {
 
     /// <inheritdoc />
     protected override bool TryLlbpPredict(ulong pc, int provider, out bool pred) {
-        uint cid2 = _rcr.CidShallow;
+        uint cid2 = Rcr.CidShallow;
         _usedDeep = _ctt.IsDeep(cid2);
-        _llbpCtxKey = _usedDeep ? _rcr.CidDeep : cid2;
+        _llbpCtxKey = _usedDeep ? Rcr.CidDeep : cid2;
 
-        PatternMap? pm = _storage.Get(_llbpCtxKey);
+        PatternMap? pm = Storage.Get(_llbpCtxKey);
         if (pm != null)
             for (int t = LTagePredictor.NumTables - 1; t >= 0; t--) {
                 bool tableIsLong = t >= LlbpXPredictor.DeepTableThreshold;
@@ -60,11 +60,11 @@ public sealed class LlbpXPredictor : LlbpPredictor {
 
     /// <inheritdoc />
     protected override void TrainLlbp(ulong pc, bool taken, bool provPred) {
-        uint cid2 = _rcr.CidShallow;
+        uint cid2 = Rcr.CidShallow;
 
         if (_llbpIsProvider && _llbpHistIdx >= 0) {
             // _llbpCtxKey was set by TryLlbpPredict during the preceding Predict call.
-            PatternMap pm = _storage.GetOrCreate(_llbpCtxKey);
+            PatternMap pm = Storage.GetOrCreate(_llbpCtxKey);
             pm.SatUpdate(_llbpPatternKey, taken);
             if (pm.IsFull()) _ctt.NotifyOverflow(cid2);
         }
@@ -75,8 +75,8 @@ public sealed class LlbpXPredictor : LlbpPredictor {
                 _ctt.NotifyAllocation(cid2, isLong);
                 // Route into the depth-appropriate storage directly, independent of
                 // the current _usedDeep flag (which reflects the last predict, not this update).
-                uint allocCtxKey = isLong ? _rcr.CidDeep : cid2;
-                PatternMap pm = _storage.GetOrCreate(allocCtxKey);
+                uint allocCtxKey = isLong ? Rcr.CidDeep : cid2;
+                PatternMap pm = Storage.GetOrCreate(allocCtxKey);
                 pm.AllocateIfAbsent(PatternKey(pc, allocTable), taken);
                 if (pm.IsFull()) _ctt.NotifyOverflow(cid2);
             }

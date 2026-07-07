@@ -176,7 +176,7 @@ public sealed class PlicDevice : IMemory {
                 return;
             }
 
-            if (ctxOffset == 4) Complete(ctx, (int)(uint)value);
+            if (ctxOffset == 4) Complete((int)(uint)value);
         }
     }
 
@@ -205,7 +205,7 @@ public sealed class PlicDevice : IMemory {
         return bestSrc;
     }
 
-    private void Complete(int contextId, int sourceId) {
+    private void Complete(int sourceId) {
         if ((uint)sourceId is 0 or >= PlicDevice.MaxSources) return;
         // Re-assert pending if the source is still level-high
         int word = sourceId >> 5, bit = sourceId & 31;

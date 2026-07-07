@@ -42,7 +42,7 @@ public class MulticoreSpecTests {
         FlatMemory mem = SharedMem();
         new MulticoreSpec(
             [
-                new HartSpec(new SingleCycleSpec(), Rv32(), 0x00),
+                new HartSpec(new SingleCycleSpec(), Rv32()),
                 new HartSpec(new SingleCycleSpec(), Rv32(), 0x40),
             ]
         ).Build(mem).Run(10_000);
@@ -89,7 +89,7 @@ public class MulticoreSpecTests {
 
     [Fact]
     public void PerHartL1_IsCreatedAndRegisteredOnBus() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
         MulticoreHandle handle = new MulticoreSpec(
             [
@@ -115,7 +115,7 @@ public class MulticoreSpecTests {
 
     [Fact]
     public void PerHartL1_SnoopingBus_CachesSeeMissesOnFirstAccess() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
         FlatMemory mem = SharedMem();
         MulticoreHandle handle = new MulticoreSpec(
@@ -132,7 +132,7 @@ public class MulticoreSpecTests {
 
     [Fact]
     public void PerHartL1_DirectoryBus_CachesSeeMissesOnFirstAccess() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
         FlatMemory mem = SharedMem();
         MulticoreHandle handle = new MulticoreSpec(
@@ -197,7 +197,7 @@ public class MulticoreSpecTests {
         FlatMemory mem = SharedMem();
         MulticoreHandle handle = new MulticoreSpec(
             [
-                new HartSpec(new SingleCycleSpec(), Rv32(), 0x00),
+                new HartSpec(new SingleCycleSpec(), Rv32()),
                 new HartSpec(new FiveStageSpec(), Rv32(), 0x40),
             ]
         ).Build(mem);
@@ -216,7 +216,7 @@ public class MulticoreSpecTests {
         // sw x2, 320(x0) = 0x14202023
         const uint h1SwBlock5 = 0x14202023; // sw x2, 320(x0)
 
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
         var mem = new FlatMemory(0x1000);
         mem.Load(
@@ -257,7 +257,7 @@ public class MulticoreSpecTests {
 
     [Fact]
     public void OutOfOrderHart_WithPerHartL1_Snooping_BuildsAndRuns() {
-        var l1Spec = new CacheLevelSpec(4096, 4, 64, 10);
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
         CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
         FlatMemory mem = SharedMem();
         MulticoreHandle handle = new MulticoreSpec(

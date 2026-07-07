@@ -520,7 +520,10 @@ internal sealed class OoOPipelineCore : Gear {
         // are non-speculative cache state, so they keep arriving through halt/flush cycles.
         if (_realisticPrefetch) DLayers.Cache!.TickPrefetch();
         // Drain one write-back buffer entry per cycle (asynchronous background drain).
-        if (_anyCache) { ILayers.TickWb(); DLayers.TickWb(); }
+        if (_anyCache) {
+            ILayers.TickWb();
+            DLayers.TickWb();
+        }
 
         if (_halted || _flushPending) {
             if (_flushPending) StepFlush();
@@ -794,6 +797,7 @@ internal sealed class OoOPipelineCore : Gear {
                 int cacheHit = DLayers.Cache?.HitLatency ?? 0;
                 if (cacheHit > 0) fuLatency = cacheHit;
             }
+
             int countdown = fuLatency - 1 + _fuConfig.BypassLatency;
 
             // Memory-level parallelism: a load/atomic that missed (its cache access just

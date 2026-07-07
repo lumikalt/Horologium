@@ -1,3 +1,4 @@
+using System.Text;
 using Mechanism;
 
 namespace RiscV32.Trace;
@@ -56,7 +57,7 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
     public StfTraceWriter(IDecoder decoder, TracingMemory mem, Stream output, ulong initialPc) {
         _decoder = decoder;
         _mem = mem;
-        _out = new BinaryWriter(output, System.Text.Encoding.UTF8, true);
+        _out = new BinaryWriter(output, Encoding.UTF8, true);
         WriteHeader(initialPc);
     }
 

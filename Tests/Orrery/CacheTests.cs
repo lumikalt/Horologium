@@ -431,10 +431,12 @@ public class CacheTests {
     // ── Write-back buffer ─────────────────────────────────────────────────────
 
     private static SetAssociativeCache MakeWbCache(IMemory backing, int wbCapacity = 4) =>
-        new(backing, 64, 4, 16, 10,
+        new(
+            backing, 64, 4, 16, 10,
             writePolicy: WritePolicyKind.WriteBack,
             writeMissPolicy: WriteMissPolicyKind.WriteAllocate,
-            wbCapacity: wbCapacity);
+            wbCapacity: wbCapacity
+        );
 
     [Fact]
     public void WbBuffer_DirtyEviction_NoStall_BackingStillStale() {
@@ -442,7 +444,7 @@ public class CacheTests {
         var mem = new FlatMemory(256);
         mem.Load(0, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,]);
         // Line at address 128 occupies the same set (1-set cache → all tags fight for the single set).
-        for (int i = 0; i < 16; i++) mem.Load(128 + (ulong)i, [(byte)(0x80 + i),]);
+        for (var i = 0; i < 16; i++) mem.Load(128 + (ulong)i, [(byte)(0x80 + i),]);
 
         SetAssociativeCache cache = MakeWbCache(mem);
 
@@ -453,8 +455,7 @@ public class CacheTests {
         // Force eviction of line 0 by filling all 4 ways with different-tag lines.
         // Capacity=64, ways=4, block=16 → 1 set → 4 ways. Addresses 0,16,32,48,64 each map to set 0
         // with different tags; installing 4 more displaces way holding line 0.
-        for (ulong addr = 16; addr <= 64; addr += 16)
-            cache.Read(addr, 1);
+        for (ulong addr = 16; addr <= 64; addr += 16) cache.Read(addr, 1);
 
         // Line 0 should be in WB buffer: no stall beyond miss latency, but backing still old.
         Assert.Equal(1UL, mem.Read(0, 1)); // NOT 0xAA yet
@@ -465,7 +466,7 @@ public class CacheTests {
     [Fact]
     public void WbBuffer_TickDrains_BackingUpdated() {
         var mem = new FlatMemory(256);
-        for (int i = 0; i < 16; i++) mem.Load((ulong)i, [0x00,]);
+        for (var i = 0; i < 16; i++) mem.Load((ulong)i, [0x00,]);
 
         SetAssociativeCache cache = MakeWbCache(mem);
         cache.Write(0, 0xCC, 1); // WA fill + dirty
@@ -486,7 +487,7 @@ public class CacheTests {
         // A demand read that misses in cache but hits the WB buffer should get the dirty value
         // without going to backing, and the line should re-enter cache as dirty.
         var mem = new FlatMemory(256);
-        for (int i = 0; i < 16; i++) mem.Load((ulong)i, [0x00,]);
+        for (var i = 0; i < 16; i++) mem.Load((ulong)i, [0x00,]);
 
         SetAssociativeCache cache = MakeWbCache(mem);
         cache.Write(0, 0xDD, 1); // install + dirty
@@ -509,10 +510,12 @@ public class CacheTests {
         // With a buffer of 1 entry: first dirty eviction goes to buffer (no stall),
         // second dirty eviction overflows → sync drain of first, MissLatency stall charged.
         var mem = new FlatMemory(512);
-        SetAssociativeCache cache = new(mem, 64, 4, 16, 10,
+        SetAssociativeCache cache = new(
+            mem, 64, 4, 16, 10,
             writePolicy: WritePolicyKind.WriteBack,
             writeMissPolicy: WriteMissPolicyKind.WriteAllocate,
-            wbCapacity: 1);
+            wbCapacity: 1
+        );
 
         // Dirty line 0.
         cache.Write(0, 0x11, 1);
@@ -529,7 +532,7 @@ public class CacheTests {
         for (ulong a = 96; a <= 160; a += 16) cache.Read(a, 1);
         long stalls = cache.ConsumePendingStalls();
 
-        Assert.True(stalls >= 10); // at least one MissLatency charged for sync drain
+        Assert.True(stalls >= 10);            // at least one MissLatency charged for sync drain
         Assert.Equal(0x11UL, mem.Read(0, 1)); // first eviction reached backing
     }
 
@@ -541,10 +544,12 @@ public class CacheTests {
         // Prime backing so bytes 15..16 have known values.
         mem.Load(0, Enumerable.Range(0, 32).Select(i => (byte)i).ToArray());
 
-        SetAssociativeCache cache = new(mem, 64, 4, 16, 10,
+        SetAssociativeCache cache = new(
+            mem, 64, 4, 16, 10,
             writePolicy: WritePolicyKind.WriteBack,
             writeMissPolicy: WriteMissPolicyKind.WriteAllocate,
-            wbCapacity: 4);
+            wbCapacity: 4
+        );
 
         // Install and dirty the line covering bytes 0..15.
         cache.Write(0, 0xAABBCCDDUL, 4);
@@ -572,10 +577,12 @@ public class CacheTests {
         var mem = new FlatMemory(256);
         mem.Load(0, Enumerable.Repeat((byte)0x11, 16).ToArray());
 
-        SetAssociativeCache cache = new(mem, 64, 4, 16, 10,
+        SetAssociativeCache cache = new(
+            mem, 64, 4, 16, 10,
             writePolicy: WritePolicyKind.WriteBack,
             writeMissPolicy: WriteMissPolicyKind.NoWriteAllocate,
-            wbCapacity: 4);
+            wbCapacity: 4
+        );
 
         // Read to install line 0, then write-hit to dirty byte 0 = 0xAA.
         cache.Read(0, 1);

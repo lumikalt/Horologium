@@ -1,4 +1,3 @@
-using Mechanism;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
@@ -27,7 +26,7 @@ public class StfTraceTests {
         var mech = new Rv32Mechanism();
         using var ms = new MemoryStream();
         using (var writer = new StfTraceWriter(mech.Decoder, tracing, ms, entryPoint)) {
-            new SingleCycleTrain(mech, tracing, entryPoint, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech, tracing, entryPoint, commitObserver: writer).Run();
         }
 
         return ms.ToArray();
@@ -87,7 +86,7 @@ public class StfTraceTests {
         byte[] stf = RunProgram(Encode(0x00100073u)); // ebreak
         List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         (byte Desc, byte[] Payload) id = records.First(r => r.Desc == 0x01);
-        Assert.Equal(new byte[] { (byte)'S', (byte)'T', (byte)'F', }, id.Payload);
+        Assert.Equal(new[] { (byte)'S', (byte)'T', (byte)'F', }, id.Payload);
     }
 
     [Fact]
@@ -95,7 +94,7 @@ public class StfTraceTests {
         byte[] stf = RunProgram(Encode(0x00100073u));
         List<(byte Desc, byte[] Payload)> records = ParseStf(stf);
         (byte Desc, byte[] Payload) ver = records.First(r => r.Desc == 0x02);
-        Assert.Equal(1u, ReadU32(ver.Payload, 0)); // major
+        Assert.Equal(1u, ReadU32(ver.Payload));    // major
         Assert.Equal(5u, ReadU32(ver.Payload, 4)); // minor
     }
 
@@ -169,7 +168,7 @@ public class StfTraceTests {
         using var ms = new MemoryStream();
         int count;
         using (var writer = new StfTraceWriter(mech.Decoder, tracing, ms, 0)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run();
             count = writer.Count;
         }
 
@@ -194,7 +193,7 @@ public class StfTraceTests {
         Assert.Single(regRecords);
 
         (byte Desc, byte[] Payload) destReg = regRecords[0];
-        ushort packed = ReadU16(destReg.Payload, 0);
+        ushort packed = ReadU16(destReg.Payload);
         byte metadata = destReg.Payload[2];
         ulong value = ReadU64(destReg.Payload, 3);
 
@@ -232,7 +231,7 @@ public class StfTraceTests {
         // Dest record (operand_type=DEST, upper nibble=3)
         List<(byte Desc, byte[] Payload)> destRecs = regRecords.Where(r => r.Payload[2] >> 4 == 3).ToList();
         Assert.Single(destRecs);
-        Assert.Equal(3, ReadU16(destRecs[0].Payload, 0)); // x3
+        Assert.Equal(3, ReadU16(destRecs[0].Payload)); // x3
     }
 
     [Fact]
@@ -314,7 +313,7 @@ public class StfTraceTests {
         Assert.Single(memContent);
 
         // MEM_ACCESS: address=256, size=4, attr=0, type=WRITE(2)
-        ulong addr = ReadU64(memAccess[0].Payload, 0);
+        ulong addr = ReadU64(memAccess[0].Payload);
         ushort size = ReadU16(memAccess[0].Payload, 8);
         ushort attr = ReadU16(memAccess[0].Payload, 10);
         byte type = memAccess[0].Payload[12];
@@ -349,7 +348,7 @@ public class StfTraceTests {
         Assert.Equal(1, memAccesses[1].Payload[12]); // READ
 
         // Load address matches store address
-        Assert.Equal(256UL, ReadU64(memAccesses[1].Payload, 0));
+        Assert.Equal(256UL, ReadU64(memAccesses[1].Payload));
 
         // Load data matches stored value (99)
         List<(byte Desc, byte[] Payload)> memContents = instrRecords.Where(r => r.Desc == 0x3D).ToList();

@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Mechanism;
 
 /// <summary>
@@ -60,7 +62,7 @@ public sealed class ArchitecturalCheckpoint {
 
     /// <summary>Saves the current architectural state to <paramref name="stream"/>.</summary>
     public static void Save(Stream stream, IArchState state, ISnapshotableMemory memory, ulong tick) {
-        using var w = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
+        using var w = new BinaryWriter(stream, Encoding.UTF8, true);
 
         w.Write(ArchitecturalCheckpoint.Magic);
         w.Write(ArchitecturalCheckpoint.Version);
@@ -83,7 +85,7 @@ public sealed class ArchitecturalCheckpoint {
 
         // ISA-specific blob (CSRs, VRF, UVE, etc.)
         using var msIsa = new MemoryStream();
-        using (var bwIsa = new BinaryWriter(msIsa, System.Text.Encoding.UTF8, true)) { state.WriteState(bwIsa); }
+        using (var bwIsa = new BinaryWriter(msIsa, Encoding.UTF8, true)) { state.WriteState(bwIsa); }
 
         byte[] isaBlob = msIsa.ToArray();
         w.Write(isaBlob.Length);
@@ -108,7 +110,7 @@ public sealed class ArchitecturalCheckpoint {
     public static ArchitecturalCheckpoint Load(Stream stream) => Load(stream, "<stream>");
 
     private static ArchitecturalCheckpoint Load(Stream stream, string source) {
-        using var r = new BinaryReader(stream, System.Text.Encoding.UTF8, true);
+        using var r = new BinaryReader(stream, Encoding.UTF8, true);
 
         uint magic = r.ReadUInt32();
         if (magic != ArchitecturalCheckpoint.Magic)

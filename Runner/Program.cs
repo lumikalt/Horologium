@@ -1,9 +1,11 @@
 using Mechanism;
+using Orrery.Train;
 using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+using RiscV32.Trace;
 using Script;
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
@@ -73,17 +75,17 @@ for (var i = 0; i < args.Length; i++)
 // ── Elastic trace → gem5 Protobuf translation (standalone) ───────────────────
 
 if (elasticToGem5In is not null) {
-    using var inFs = new FileStream(elasticToGem5In, FileMode.Open, FileAccess.Read);
-    using var outFs = new FileStream(elasticToGem5Out!, FileMode.Create, FileAccess.Write);
-    long converted = RiscV32.Trace.Gem5ElasticTraceConverter.Convert(inFs, outFs);
+    await using var inFs = new FileStream(elasticToGem5In, FileMode.Open, FileAccess.Read);
+    await using var outFs = new FileStream(elasticToGem5Out!, FileMode.Create, FileAccess.Write);
+    long converted = Gem5ElasticTraceConverter.Convert(inFs, outFs);
     Console.Error.WriteLine($"Converted {converted:N0} records: {elasticToGem5In} → {elasticToGem5Out}");
     return;
 }
 
 if (fetchToGem5In is not null) {
-    using var inFs = new FileStream(fetchToGem5In, FileMode.Open, FileAccess.Read);
-    using var outFs = new FileStream(fetchToGem5Out!, FileMode.Create, FileAccess.Write);
-    long converted = RiscV32.Trace.Gem5FetchTraceConverter.Convert(inFs, outFs);
+    await using var inFs = new FileStream(fetchToGem5In, FileMode.Open, FileAccess.Read);
+    await using var outFs = new FileStream(fetchToGem5Out!, FileMode.Create, FileAccess.Write);
+    long converted = Gem5FetchTraceConverter.Convert(inFs, outFs);
     Console.Error.WriteLine($"Converted {converted:N0} fetch records: {fetchToGem5In} → {fetchToGem5Out}");
     return;
 }
@@ -91,9 +93,9 @@ if (fetchToGem5In is not null) {
 // ── Elastic trace replay (standalone — no workload needed) ───────────────────
 
 if (elasticReplayPath is not null) {
-    using var fs = new FileStream(elasticReplayPath, FileMode.Open, FileAccess.Read);
-    using var reader = new RiscV32.Trace.ElasticTraceReader(fs);
-    RiscV32.Trace.ReplayResult replayResult = RiscV32.Trace.ElasticTraceReplayer.Replay(reader.ReadAll());
+    await using var fs = new FileStream(elasticReplayPath, FileMode.Open, FileAccess.Read);
+    using var reader = new ElasticTraceReader(fs);
+    ReplayResult replayResult = ElasticTraceReplayer.Replay(reader.ReadAll());
     Console.Error.WriteLine(
         $"Elastic replay: {replayResult.InstructionCount:N0} instructions, " +
         $"{replayResult.TotalCycles:N0} cycles (critical path), " +
@@ -138,7 +140,7 @@ if (traceJsonPath is not null) {
     }
 
     IWorkload traceWorkload = workloads[0].Workload;
-    using var sw = new StreamWriter(traceJsonPath);
+    await using var sw = new StreamWriter(traceJsonPath);
     int written = Experiment.WriteOlympiaTrace(
         traceWorkload, new Rv32Mechanism(traceWorkload.HtifTohostAddress), sw, maxTicks
     );
@@ -155,7 +157,7 @@ if (elasticRecordPath is not null) {
     }
 
     IWorkload elasticWorkload = workloads[0].Workload;
-    using var fs = new FileStream(elasticRecordPath, FileMode.Create, FileAccess.Write);
+    await using var fs = new FileStream(elasticRecordPath, FileMode.Create, FileAccess.Write);
     int written = Experiment.WriteElasticTrace(
         elasticWorkload, new Rv32Mechanism(elasticWorkload.HtifTohostAddress), fs, maxTicks
     );
@@ -172,7 +174,7 @@ if (stfRecordPath is not null) {
     }
 
     IWorkload stfWorkload = workloads[0].Workload;
-    using var fs = new FileStream(stfRecordPath, FileMode.Create, FileAccess.Write);
+    await using var fs = new FileStream(stfRecordPath, FileMode.Create, FileAccess.Write);
     int written = Experiment.WriteStfTrace(
         stfWorkload, new Rv32Mechanism(stfWorkload.HtifTohostAddress), fs, maxTicks
     );
@@ -286,7 +288,7 @@ if (scriptPath is not null) {
             );
         }
         else {
-            Orrery.Train.RevolutionResult roiResult = detHandle.Run(maxTicks, warmupTicks);
+            RevolutionResult roiResult = detHandle.Run(maxTicks, warmupTicks);
             roiTicks = roiResult.TotalTicks;
             Console.Error.WriteLine($"ROI done — {roiTicks:N0} ticks");
         }
@@ -308,10 +310,10 @@ if (scriptPath is not null) {
         );
         var scriptMem = new FlatMemory(chk.MemorySizeBytes, chk.MemoryBaseAddress);
 
-        MachineHandle handle = spec.Build(scriptMem, chk.Pc, null);
+        MachineHandle handle = spec.Build(scriptMem, chk.Pc);
         chk.RestoreInto(handle.ArchState!, scriptMem);
 
-        Orrery.Train.RevolutionResult result = handle.Run(maxTicks, warmupTicks);
+        RevolutionResult result = handle.Run(maxTicks, warmupTicks);
         Console.Error.WriteLine($"Done — {result.TotalTicks:N0} ticks");
         PrintLayerStats(handle);
 
@@ -328,7 +330,7 @@ if (scriptPath is not null) {
         IMemory scriptBacking = scriptWorkload.WrapMemory(scriptMem);
 
         MachineHandle handle = spec.Build(scriptBacking, scriptWorkload.EntryPoint, scriptWorkload.MmioRegion);
-        Orrery.Train.RevolutionResult result = handle.Run(maxTicks, warmupTicks);
+        RevolutionResult result = handle.Run(maxTicks, warmupTicks);
         Console.Error.WriteLine($"Done — {result.TotalTicks:N0} ticks");
         PrintLayerStats(handle);
 

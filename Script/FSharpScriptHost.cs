@@ -1,12 +1,10 @@
-using static FSharp.Compiler.Interactive.Shell;
+using FSharp.Compiler.Diagnostics;
 using Mechanism;
+using Microsoft.FSharp.Core;
 using Orrery.Cache;
-using Orrery.Spec;
 using Pipeline.Spec;
 using RiscV32;
-using System.Text;
-using FSharp.Compiler.Diagnostics;
-using Microsoft.FSharp.Core;
+using static FSharp.Compiler.Interactive.Shell;
 
 namespace Script;
 
@@ -44,9 +42,9 @@ internal static class FSharpScriptHost {
         string source,
         string scriptName = "<fsx>",
         CancellationToken ct = default
-    ) => Task.Run(() => EvaluateCore(source, scriptName, ct), ct);
+    ) => Task.Run(() => EvaluateCore(source, scriptName), ct);
 
-    private static MachineSpec EvaluateCore(string source, string scriptName, CancellationToken ct) {
+    private static MachineSpec EvaluateCore(string source, string scriptName) {
         FsiEvaluationSession session = CreateSession();
 
         // Pre-open namespaces so the script doesn't need 'open' directives.
@@ -77,11 +75,9 @@ internal static class FSharpScriptHost {
                 "Script must return a MachineSpec as its last expression (no value was produced — 'it' is None)."
             );
 
-        object raw = opt.Value.ReflectionValue;
-        if (raw is not MachineSpec spec)
-            throw Fail($"Script must return a MachineSpec, got {raw?.GetType().Name ?? "null"}.");
-
-        return spec;
+        object? raw = opt.Value.ReflectionValue;
+        return raw as MachineSpec
+            ?? throw Fail($"Script must return a MachineSpec, got {raw?.GetType().Name ?? "null"}.");
     }
 
     private static FsiEvaluationSession CreateSession() {
@@ -103,12 +99,12 @@ internal static class FSharpScriptHost {
     }
 
     // Unwrap Choice2Of2 (the error branch) as a string.
-    private static string UnwrapError<T>(Microsoft.FSharp.Core.FSharpChoice<T, Exception> choice) =>
-        ((Microsoft.FSharp.Core.FSharpChoice<T, Exception>.Choice2Of2)choice).Item.Message;
+    private static string UnwrapError<T>(FSharpChoice<T, Exception> choice) =>
+        ((FSharpChoice<T, Exception>.Choice2Of2)choice).Item.Message;
 
     // Unwrap Choice1Of2 (the success branch).
-    private static T UnwrapChoice1<T>(Microsoft.FSharp.Core.FSharpChoice<T, Exception> choice) =>
-        ((Microsoft.FSharp.Core.FSharpChoice<T, Exception>.Choice1Of2)choice).Item;
+    private static T UnwrapChoice1<T>(FSharpChoice<T, Exception> choice) =>
+        ((FSharpChoice<T, Exception>.Choice1Of2)choice).Item;
 
     private static ScriptException Fail(string msg) => new(msg);
 }

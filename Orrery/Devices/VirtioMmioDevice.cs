@@ -100,7 +100,6 @@ public sealed class VirtioMmioDevice : IMemory {
 
     // MMIO register state
     private uint _deviceFeatsSel;
-    private uint _queueSel;
     private uint _queueNum;
     private uint _queueReady;
     private ulong _queueDescAddr;
@@ -163,7 +162,6 @@ public sealed class VirtioMmioDevice : IMemory {
             VirtioMmioDevice.OffQueueReady      => _queueReady,
             VirtioMmioDevice.OffInterruptStatus => _interruptStatus,
             VirtioMmioDevice.OffStatus          => _status,
-            VirtioMmioDevice.OffConfigGen       => 0u,
             _                                   => 0u,
         };
     }
@@ -174,7 +172,7 @@ public sealed class VirtioMmioDevice : IMemory {
             case VirtioMmioDevice.OffDeviceFeatsSel: _deviceFeatsSel = (uint)value; break;
             case VirtioMmioDevice.OffDriverFeatures: break; // accepted as-is
             case VirtioMmioDevice.OffDriverFeatsSel: break;
-            case VirtioMmioDevice.OffQueueSel: _queueSel = (uint)value; break;
+            case VirtioMmioDevice.OffQueueSel: break;
             case VirtioMmioDevice.OffQueueNum: _queueNum = Math.Min((uint)value, VirtioMmioDevice.QueueMaxSize); break;
             case VirtioMmioDevice.OffQueueReady: _queueReady = (uint)value; break;
             case VirtioMmioDevice.OffQueueNotify: ProcessQueue(); break;
@@ -255,7 +253,7 @@ public sealed class VirtioMmioDevice : IMemory {
         // Header descriptor (device-readable, 16 bytes: type/reserved/sector)
         ulong hdrDescBase = _queueDescAddr + (ulong)(headIdx * 16);
         ulong hdrAddr = _guestRam.Read(hdrDescBase, 8);
-        var hdrFlags = (uint)_guestRam.Read(hdrDescBase + 12, 2);
+        _ = (uint)_guestRam.Read(hdrDescBase + 12, 2);
         var dataCur = (ushort)_guestRam.Read(hdrDescBase + 14, 2);
 
         var reqType = (uint)_guestRam.Read(hdrAddr, 4);

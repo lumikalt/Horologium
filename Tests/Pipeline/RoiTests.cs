@@ -65,8 +65,8 @@ public class RoiTests {
 
     [Fact]
     public void FastForward_StopsAtTargetPc() {
-        ulong roiStart = 0x08;
-        (FlatMemory mem, MachineHandle ffHandle) = Make(new SingleCycleSpec());
+        const ulong roiStart = 0x08;
+        (FlatMemory _, MachineHandle ffHandle) = Make(new SingleCycleSpec());
         (long ticks, bool reached) = FastForwardTo(ffHandle, roiStart);
 
         Assert.True(reached, "Fast-forward should have reached roiStartPc");
@@ -77,8 +77,8 @@ public class RoiTests {
     [Fact]
     public void FastForward_EntryEqualsRoi_ZeroSteps() {
         // When entry point IS the ROI start, no fast-forward steps occur.
-        ulong roiStart = 0x00;
-        (FlatMemory mem, MachineHandle ffHandle) = Make(new SingleCycleSpec(), 0x00);
+        const ulong roiStart = 0x00;
+        (FlatMemory _, MachineHandle ffHandle) = Make(new SingleCycleSpec());
         (long ticks, bool reached) = FastForwardTo(ffHandle, roiStart);
 
         Assert.True(reached);
@@ -89,12 +89,12 @@ public class RoiTests {
     [Fact]
     public void FastForwardThenDetailed_RegistersMatchStraightThrough() {
         // Straight-through run
-        (FlatMemory refMem, MachineHandle refHandle) = Make(new SingleCycleSpec());
+        (FlatMemory _, MachineHandle refHandle) = Make(new SingleCycleSpec());
         refHandle.Run(10_000);
         IRegisterFile refRegs = refHandle.ArchState!.IntegerRegisters;
 
         // ROI run: fast-forward 2 instructions with SingleCycle, then SingleCycle from 0x08
-        ulong roiStart = 0x08;
+        const ulong roiStart = 0x08;
         (FlatMemory ffMem, MachineHandle ffHandle) = Make(new SingleCycleSpec());
         (long ffTicks, bool reached) = FastForwardTo(ffHandle, roiStart);
         Assert.True(reached);
@@ -112,12 +112,12 @@ public class RoiTests {
     [Fact]
     public void FastForwardSingleCycle_ThenOoO_RegistersMatchStraightThrough() {
         // Straight-through with OoO
-        (FlatMemory refMem, MachineHandle refHandle) = Make(new OutOfOrderSpec());
+        (FlatMemory _, MachineHandle refHandle) = Make(new OutOfOrderSpec());
         refHandle.Run(10_000);
         IRegisterFile refRegs = refHandle.ArchState!.IntegerRegisters;
 
         // ROI: fast-forward with SingleCycle, then OoO from roiStart
-        ulong roiStart = 0x08;
+        const ulong roiStart = 0x08;
         (FlatMemory ffMem, MachineHandle ffHandle) = Make(new SingleCycleSpec());
         (long ffTicks, bool reached) = FastForwardTo(ffHandle, roiStart);
         Assert.True(reached);
@@ -135,8 +135,8 @@ public class RoiTests {
     [Fact]
     public void RoiEnd_StopsBeforeEndSymbol() {
         // Layout: 0x00 addi x1,1 | 0x04 addi x2,2 (roiStart) | 0x08 addi x3,3 (roiEnd) | 0x0C addi x4,4
-        ulong roiStart = 0x04;
-        ulong roiEnd = 0x08;
+        const ulong roiStart = 0x04;
+        const ulong roiEnd = 0x08;
 
         // Fast-forward to roiStart
         (FlatMemory ffMem, MachineHandle ffHandle) = Make(new SingleCycleSpec());
@@ -174,8 +174,8 @@ public class RoiTests {
     [Fact]
     public void FastForward_SymbolNotReached_ReturnsFalse() {
         // Use a target PC that's way beyond the program — train halts before reaching it.
-        ulong roiStart = 0xDEAD_BEEF;
-        (FlatMemory mem, MachineHandle ffHandle) = Make(new SingleCycleSpec());
+        const ulong roiStart = 0xDEAD_BEEF;
+        (FlatMemory _, MachineHandle ffHandle) = Make(new SingleCycleSpec());
         (_, bool reached) = FastForwardTo(ffHandle, roiStart);
 
         Assert.False(reached);

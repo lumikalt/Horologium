@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace RiscV32.Trace;
 
 /// <summary>
@@ -12,7 +14,7 @@ public sealed class ElasticTraceReader : IDisposable {
     public ulong TickFreq { get; }
 
     public ElasticTraceReader(Stream input) {
-        _in = new BinaryReader(input, System.Text.Encoding.UTF8, true);
+        _in = new BinaryReader(input, Encoding.UTF8, true);
 
         uint magic = _in.ReadUInt32();
         if (magic != ElasticTraceWriter.Magic)

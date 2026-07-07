@@ -2,7 +2,6 @@ using Mechanism;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using Orrery.Cache;
-using Orrery.Spec;
 using Pipeline.Spec;
 using RiscV32;
 

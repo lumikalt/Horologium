@@ -97,7 +97,7 @@ public class PipelineSpecTests {
             0x00100073, // ebreak
         ];
         long ticksWith = Run(
-            new FiveStageSpec(true)
+            new FiveStageSpec()
                .Build(new Rv32Mechanism(), MakeMemory(rawProgram))
         ).TotalTicks;
         long ticksWithout = Run(

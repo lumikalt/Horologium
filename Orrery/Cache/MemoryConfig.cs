@@ -22,8 +22,9 @@ public enum ReplacementPolicyKind {
     Hawkeye,
 }
 
-public enum WritePolicyKind { WriteThrough, WriteBack }
-public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate }
+public enum WritePolicyKind { WriteThrough, WriteBack, }
+
+public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate, }
 
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
 /// <param name="CacheWays">Associativity. Ignored when CacheCapacityBytes = 0.</param>

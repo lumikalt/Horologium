@@ -88,13 +88,13 @@ public class LinuxBootTests(ITestOutputHelper testOutputHelper) {
         // ── Peripherals ────────────────────────────────────────────────────
         var clint = new ClintDevice();
         var plic = new PlicDevice();
-        var uart = new Ns16550aUart(new StringWriter());
+        var uart = new Ns16550AUart(new StringWriter());
         IMemory bus = new PeripheralBus(
             mem,
             [
                 (clint, ClintDevice.DefaultBase, ClintDevice.RegionSize),
                 (plic, PlicDevice.DefaultBase, PlicDevice.RegionSize),
-                (uart, Ns16550aUart.DefaultBase, Ns16550aUart.RegionSize),
+                (uart, Ns16550AUart.DefaultBase, Ns16550AUart.RegionSize),
             ]
         );
 

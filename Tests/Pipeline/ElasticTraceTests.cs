@@ -1,6 +1,4 @@
-using Mechanism;
 using Pipeline;
-using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Memory;
 using RiscV32.Trace;
@@ -35,7 +33,7 @@ public class ElasticTraceTests {
         var mech = new Rv32Mechanism();
         using var ms = new MemoryStream();
         using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, ms)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run();
         }
 
         ms.Position = 0;
@@ -54,7 +52,7 @@ public class ElasticTraceTests {
         var mech = new Rv32Mechanism();
         using var ms = new MemoryStream();
         using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, ms)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run(100);
         }
 
         ms.Position = 0;
@@ -244,7 +242,7 @@ public class ElasticTraceTests {
         var tracing2 = new TracingMemory(mem);
         var mech2 = new Rv32Mechanism();
         using (var writer = new ElasticTraceWriter(mech2.Decoder, tracing2, ms)) {
-            new SingleCycleTrain(mech2, tracing2, 0, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech2, tracing2, commitObserver: writer).Run();
         }
 
         ms.Position = 0;
@@ -304,7 +302,7 @@ public class ElasticTraceTests {
     public void Gem5Converter_ProducesPacketHeader_ThenRecords() {
         // Record a tiny 3-instruction trace, convert, verify gem5 framing.
         byte[] program = Encode(0x00100093u, 0x00200113u, 0x002080B3u, 0x00100073u);
-        ElasticTraceRecord[] recs = Record(program);
+        Record(program);
 
         using var helf = new MemoryStream();
         var mem = new FlatMemory(0x1000);
@@ -312,7 +310,7 @@ public class ElasticTraceTests {
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
         using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run();
         }
 
         helf.Position = 0;
@@ -353,7 +351,7 @@ public class ElasticTraceTests {
     public void Gem5Converter_CompRecord_HasCorrectTypeField() {
         // A COMP record should have type=3 (gem5 COMP enum)
         byte[] program = Encode(0x00100093u, 0x00100073u); // addi x1; ebreak
-        ElasticTraceRecord[] recs = Record(program);
+        Record(program);
 
         using var helf = new MemoryStream();
         var mem = new FlatMemory(0x1000);
@@ -361,7 +359,7 @@ public class ElasticTraceTests {
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
         using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run();
         }
 
         helf.Position = 0;
@@ -397,7 +395,7 @@ public class ElasticTraceTests {
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
         using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run();
         }
 
         helf.Position = 0;
@@ -438,7 +436,7 @@ public class ElasticTraceTests {
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
         using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run();
         }
 
         helf.Position = 0;
@@ -472,7 +470,7 @@ public class ElasticTraceTests {
         var tracing = new TracingMemory(mem);
         var mech = new Rv32Mechanism();
         using (var writer = new ElasticTraceWriter(mech.Decoder, tracing, helf)) {
-            new SingleCycleTrain(mech, tracing, 0, commitObserver: writer).Run(100_000);
+            new SingleCycleTrain(mech, tracing, commitObserver: writer).Run();
         }
 
         helf.Position = 0;
@@ -488,7 +486,7 @@ public class ElasticTraceTests {
         byte[] pkt0 = ReadGem5Message(br);
         var pos = 0;
         ReadVarint(pkt0, ref pos);
-        ulong tick0 = ReadVarint(pkt0, ref pos); // field 1 tag + value
+        ReadVarint(pkt0, ref pos);
         ReadVarint(pkt0, ref pos);
         ulong cmd = ReadVarint(pkt0, ref pos); // field 2 tag + value
         ReadVarint(pkt0, ref pos);

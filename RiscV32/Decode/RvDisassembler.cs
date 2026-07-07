@@ -170,7 +170,7 @@ public static class RvDisassembler {
         RvVlseVv op   => $"vlse{op.Sew}.v v{op.Vd}, ({Xi(op.Rs1)}), {Xi(op.Rs2)}{MaskSuffix(op.Masked)}",
         RvVlxeiVv op =>
             $"{(op.Ordered ? "vlox" : "vlux")}ei{op.IndexSew}.v v{op.Vd}, ({Xi(op.Rs1)}), v{op.Vs2}{MaskSuffix(op.Masked)}",
-        RvVleFF op => $"vle{op.Sew}ff.v v{op.Vd}, ({Xi(op.Rs1)}){MaskSuffix(op.Masked)}",
+        RvVleFf op => $"vle{op.Sew}ff.v v{op.Vd}, ({Xi(op.Rs1)}){MaskSuffix(op.Masked)}",
         RvVlssegVv op =>
             $"vlsseg{op.NumFields}e{op.Sew}.v v{op.Vd}, ({Xi(op.Rs1)}), {Xi(op.Rs2)}{MaskSuffix(op.Masked)}",
         RvVlxsegVv op =>
@@ -217,8 +217,8 @@ public static class RvDisassembler {
         RvVMvSx op      => $"vmv.s.x v{op.Vd}, {Xi(op.Rs1)}",
         RvVIntMacVv op  => $"{VMacStr(op.Op)}.vv v{op.Vd}, v{op.Vs1}, v{op.Vs2}{MaskSuffix(op.Masked)}",
         RvVIntMacVx op  => $"{VMacStr(op.Op)}.vx v{op.Vd}, {Xi(op.Rs1)}, v{op.Vs2}{MaskSuffix(op.Masked)}",
-        RvVWMacVv op    => $"{VWMacStr(op.Op)}.vv v{op.Vd}, v{op.Vs1}, v{op.Vs2}{MaskSuffix(op.Masked)}",
-        RvVWMacVx op    => $"{VWMacStr(op.Op)}.vx v{op.Vd}, {Xi(op.Rs1)}, v{op.Vs2}{MaskSuffix(op.Masked)}",
+        RvVwMacVv op    => $"{VwMacStr(op.Op)}.vv v{op.Vd}, v{op.Vs1}, v{op.Vs2}{MaskSuffix(op.Masked)}",
+        RvVwMacVx op    => $"{VwMacStr(op.Op)}.vx v{op.Vd}, {Xi(op.Rs1)}, v{op.Vs2}{MaskSuffix(op.Masked)}",
         RvVMergeVv op   => $"vmerge.vvm v{op.Vd}, v{op.Vs2}, v{op.Vs1}, v0",
         RvVMergeVx op   => $"vmerge.vxm v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}, v0",
         RvVMergeVi op   => $"vmerge.vim v{op.Vd}, v{op.Vs2}, {op.Imm}, v0",
@@ -236,8 +236,8 @@ public static class RvDisassembler {
         RvVFpBinVf op  => $"{VFpBinStr(op.Op)}.vf v{op.Vd}, v{op.Vs2}, {Xf(op.Rs1)}{MaskSuffix(op.Masked)}",
         RvVFpFmaVv op  => $"{VFpFmaStr(op.Op)}.vv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
         RvVFpFmaVf op  => $"{VFpFmaStr(op.Op)}.vf v{op.Vd}, v{op.Vs2}, {Xf(op.Rs1)}{MaskSuffix(op.Masked)}",
-        RvVMFpCmpVv op => $"vmf{VFpCmpStr(op.Op)}.vv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
-        RvVMFpCmpVf op => $"vmf{VFpCmpStr(op.Op)}.vf v{op.Vd}, v{op.Vs2}, {Xf(op.Rs1)}{MaskSuffix(op.Masked)}",
+        RvVmFpCmpVv op => $"vmf{VFpCmpStr(op.Op)}.vv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
+        RvVmFpCmpVf op => $"vmf{VFpCmpStr(op.Op)}.vf v{op.Vd}, v{op.Vs2}, {Xf(op.Rs1)}{MaskSuffix(op.Masked)}",
         RvVFpSqrt op   => $"vfsqrt.v v{op.Vd}, v{op.Vs2}{MaskSuffix(op.Masked)}",
         RvVFpClass op  => $"vfclass.v v{op.Vd}, v{op.Vs2}{MaskSuffix(op.Masked)}",
         RvVFpCvt op    => $"{VFpCvtStr(op.Op)} v{op.Vd}, v{op.Vs2}{MaskSuffix(op.Masked)}",
@@ -257,9 +257,9 @@ public static class RvDisassembler {
         RvVSatIntVx op => $"{VSatIntStr(op.Op)}.vx v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
         RvVSatIntVi op => $"{VSatIntStr(op.Op)}.vi v{op.Vd}, v{op.Vs2}, {op.Imm}{MaskSuffix(op.Masked)}",
 
-        RvVNClipVv op => $"{VNClipStr(op.Op)}.wv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
-        RvVNClipVx op => $"{VNClipStr(op.Op)}.wx v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
-        RvVNClipVi op => $"{VNClipStr(op.Op)}.wi v{op.Vd}, v{op.Vs2}, {op.Imm}{MaskSuffix(op.Masked)}",
+        RvVnClipVv op => $"{VnClipStr(op.Op)}.wv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
+        RvVnClipVx op => $"{VnClipStr(op.Op)}.wx v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
+        RvVnClipVi op => $"{VnClipStr(op.Op)}.wi v{op.Vd}, v{op.Vs2}, {op.Imm}{MaskSuffix(op.Masked)}",
 
         RvVFpWArithVv op =>
             $"vfw{VFpWArithStr(op.Op)}.{(op.Vs2Wide ? "w" : "v")}v v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
@@ -294,9 +294,9 @@ public static class RvDisassembler {
         _               => "v?",
     };
 
-    private static string VWMacStr(VWMacOp op) => op switch {
-        VWMacOp.Macc   => "vwmacc", VWMacOp.Maccu    => "vwmaccu",
-        VWMacOp.Maccsu => "vwmaccsu", VWMacOp.Maccus => "vwmaccus",
+    private static string VwMacStr(VwMacOp op) => op switch {
+        VwMacOp.Macc   => "vwmacc", VwMacOp.Maccu    => "vwmaccu",
+        VwMacOp.Maccsu => "vwmaccsu", VwMacOp.Maccus => "vwmaccus",
         _              => "vwm?",
     };
 
@@ -319,7 +319,7 @@ public static class RvDisassembler {
     private static string VWideStr(VWideOp op) => op switch {
         VWideOp.AddU => "vwaddu", VWideOp.Add   => "vwadd",
         VWideOp.SubU => "vwsubu", VWideOp.Sub   => "vwsub",
-        VWideOp.MulU => "vwmulu", VWideOp.MulSU => "vwmulsu", VWideOp.Mul => "vwmul",
+        VWideOp.MulU => "vwmulu", VWideOp.MulSu => "vwmulsu", VWideOp.Mul => "vwmul",
         _            => "vw?",
     };
 
@@ -386,8 +386,8 @@ public static class RvDisassembler {
         _              => "vs?",
     };
 
-    private static string VNClipStr(VNClipOp op) => op switch {
-        VNClipOp.Clipu => "vnclipu", VNClipOp.Clip => "vnclip",
+    private static string VnClipStr(VnClipOp op) => op switch {
+        VnClipOp.Clipu => "vnclipu", VnClipOp.Clip => "vnclip",
         _              => "vnc?",
     };
 
