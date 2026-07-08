@@ -93,9 +93,10 @@ H/G ratio > 1 means Horologium has higher IPC than gem5.
 - `multiply` (0.80): integer multiply chains — likely gem5's default MultDiv
   latency is lower than Horologium's 3-cycle MulLatency for some paths, or
   gem5's O3CPU's FU pipeline has more throughput.
-- `gcd` (0.86): DIV-heavy (Euclidean). gem5's default IntMultDiv latency is 8
-  cycles vs Horologium's DivLatency=23. This explains why gem5 shows higher IPC
-  for gcd: gem5's DIV is 3× faster.
+- `gcd` (0.86): DIV-heavy (Euclidean). gem5's default IntDiv latency (DefaultFUPool)
+  is 20 cycles; the comparison script now passes `--div-lat 23` so both simulators
+  use 23-cycle division. The residual gap may come from throughput differences
+  (gem5 has 2× IntMultDiv units vs Horologium's single shared divider).
 
 **Horologium has higher IPC on memory-bound workloads (ratio > 1.0):**
 
@@ -113,9 +114,10 @@ computation, branch prediction, and basic cache behavior.
 
 ## Structural differences (not yet matched)
 
-1. **DIV latency gap**: gem5 uses IntMultDiv default (~8 cycles) vs Horologium
-   DivLatency=23. This makes gem5 faster on gcd. Set gem5's `IntMultDiv` FU
-   latency to 23 to match, or use `--div-lat 23` once that flag is added.
+1. **DIV latency**: Both simulators now use `--div-lat 23` (matched). gem5's
+   `DefaultFUPool` uses `IntDiv=20` by default; `o3cpu_riscv.py` accepts
+   `--div-lat N` to override. Residual gcd gap is now from FU count (gem5 has
+   2× IntMultDiv units) rather than latency.
 
 2. **Branch predictor quality**: TournamentBP > 2-bit BHT on recursive
    workloads (treesum, towers). Switching Horologium to ITTAGE (already
@@ -124,8 +126,8 @@ computation, branch prediction, and basic cache behavior.
    suggesting additional misprediction cost.
 
 3. **DRAM latency asymmetry**: gem5 SimpleMemory 30 ns vs Horologium HtifMemory
-   (essentially instant beyond L1 miss penalty of 10 cycles). Setting gem5
-   `SimpleMemory.latency = "10ns"` would eliminate this variable.
+   (essentially instant beyond L1 miss penalty of 10 cycles). Pass
+   `--mem-lat-ns 10ns` to the comparison script to eliminate this variable.
 
 4. **Bypass latency**: Horologium sets `BypassLatency=1` (matching Olympia);
    gem5 O3CPU has 0-cycle forwarding by default. Adding `--bypass-lat 0` to
@@ -145,6 +147,8 @@ make -C gem5-bmarks benchmarks
 # Run the comparison (gem5 + Horologium for all 10 benchmarks)
 bash scripts/gem5-compare.sh
 
-# Optional: compare at different widths
+# Optional: compare at different widths or eliminate DRAM latency asymmetry
 bash scripts/gem5-compare.sh --width 4 --rob 64
+bash scripts/gem5-compare.sh --mem-lat-ns 10ns    # match Horologium HtifMemory
+bash scripts/gem5-compare.sh --div-lat 20         # revert to gem5 DefaultFUPool IntDiv
 ```

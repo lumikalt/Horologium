@@ -34,6 +34,10 @@ from m5.objects import (
     L2XBar,
     Process,
     SEWorkload,
+    DefaultFUPool,
+    FUPool,
+    FUDesc,
+    OpDesc,
 )
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
@@ -75,7 +79,36 @@ parser.add_argument("--l1d-size",    default="16kB")
 parser.add_argument("--l2cache",     action="store_true")
 parser.add_argument("--l2-size",     default="256kB")
 
+# Functional unit latencies (default: gem5 DefaultFUPool values)
+parser.add_argument("--div-lat",     type=int, default=None,
+                    help="IntDiv latency in cycles (default: 20, gem5 DefaultFUPool). "
+                         "Set to 23 to match Horologium DivLatency=23.")
+parser.add_argument("--mem-lat-ns",  default=None,
+                    help="SimpleMemory latency (default: '30ns'). "
+                         "Set to '10ns' to match Horologium HtifMemory ~10-cycle miss.")
+
 args = parser.parse_args()
+
+# ── FU pool helper ────────────────────────────────────────────────────────────
+
+def make_fu_pool(div_lat=None):
+    """Return DefaultFUPool, optionally patching IntDiv latency."""
+    default = DefaultFUPool()
+    if div_lat is None:
+        return default
+    new_fu_list = []
+    for fu in default.FUList:
+        if any(str(op.opClass) == 'IntDiv' for op in fu.opList):
+            new_ops = [
+                OpDesc(opClass='IntDiv', opLat=div_lat, pipelined=False)
+                if str(op.opClass) == 'IntDiv'
+                else OpDesc(opClass=str(op.opClass), opLat=op.opLat, pipelined=op.pipelined)
+                for op in fu.opList
+            ]
+            new_fu_list.append(FUDesc(opList=new_ops, count=fu.count))
+        else:
+            new_fu_list.append(fu)
+    return FUPool(FUList=new_fu_list)
 
 # ── Cache classes (no gem5 stdlib dependency) ─────────────────────────────────
 
@@ -157,6 +190,9 @@ cpu.numPhysFloatRegs = args.phys_fp
 # Branch predictor: use gem5's default TournamentBP + SimpleBTB + RAS(16).
 # RAS size defaults to 16 entries in gem5 25.1, matching Horologium's RAS.
 
+# Functional units: DefaultFUPool with optional IntDiv latency override.
+cpu.fuPool = make_fu_pool(args.div_lat)
+
 # ── Workload (SE process) ─────────────────────────────────────────────────────
 
 process = Process()
@@ -199,7 +235,7 @@ else:
 system.mem_ctrl = SimpleMemory(
     range   = system.mem_ranges[0],
     port    = system.membus.mem_side_ports,
-    latency = "30ns",
+    latency = args.mem_lat_ns if args.mem_lat_ns else "30ns",
 )
 
 # ── Run ───────────────────────────────────────────────────────────────────────
@@ -207,6 +243,8 @@ system.mem_ctrl = SimpleMemory(
 root = Root(full_system=False, system=system)
 m5.instantiate()
 
-print(f"gem5 O3CPU SE mode: {args.cmd}  (width={args.width} ROB={args.rob} IQ={args.iq})")
+div_lat_str = str(args.div_lat) if args.div_lat else "20(default)"
+mem_lat_str = args.mem_lat_ns if args.mem_lat_ns else "30ns(default)"
+print(f"gem5 O3CPU SE mode: {args.cmd}  (width={args.width} ROB={args.rob} IQ={args.iq} DivLat={div_lat_str} MemLat={mem_lat_str})")
 exit_event = m5.simulate()
 print(f"Exit @ tick {m5.curTick()} because: {exit_event.getCause()}")
