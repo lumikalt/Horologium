@@ -132,11 +132,17 @@ Running `--bypass-lat 0` to match gem5's 0-cycle result forwarding:
 - **vvadd, multiply, gcd**: small gains (1–4%). Residual gaps are from FU count differences
   (gem5 has 2× IntMultDiv vs Horologium's single shared divider for gcd) and potential
   write-allocate cache miss patterns.
-- **treesum**: bypass=0 has zero effect (0.507 → 0.467, noise). The gap is purely
-  branch-prediction-driven — TournamentBP's per-PC local history tracks the alternating
-  null-checks in recursive tree traversal far better than LTage's global history.
-- **towers**: partial improvement (0.816 → 0.909) — recursive Hanoi has the same branch
-  pattern as treesum plus stack-depth effects.
+- **treesum**: bypass=0 *reduces* Horologium IPC by 8% (0.865 → 0.796, H/G 0.507 → 0.467)
+  — not zero effect. Branch mispredicts are unchanged (499 → 500), but D-cache misses
+  increase by 138 and dispatch stall cycles by 1 479, consistent with wrong-path execution
+  reaching deeper into the cache under faster forwarding. The ~2× H/G gap is primarily
+  **measurement asymmetry**: gem5 full-run commits 53 272 instructions (make_tree, startup,
+  PREALLOCATE traversal, kernel, teardown) while Horologium measures only the kernel interval
+  (11 539 instructions). See "treesum: predictor sweep" below.
+- **towers**: bypass=0 gains +11% (0.816 → 0.909). Recursive Hanoi is more compute-bound
+  than treesum, making bypass latency a larger factor. A predictor sweep finds the same
+  result as treesum: TournamentBP reduces Horologium IPC (0.708 vs LTage 0.751) due to
+  extra memory-order violations.
 - **pchase**: bypass=0 gains +18% (0.577 → 0.682). The kernel is cold-cache (the
   `PREALLOCATE` phase warms a *different* permutation than the one the kernel chases),
   so the workload is heavily DRAM-miss-bound regardless of bypass latency.
@@ -191,6 +197,51 @@ asymmetry: gem5's full-run number averages in startup and verification phases th
 a much smaller working set and run at much higher IPC; Horologium's kernel-only number
 isolates the cold, fully-thrashing streaming copy.
 
+**treesum: predictor sweep and measurement asymmetry:**
+
+The ~2× H/G gap (gem5 1.705 vs Horologium 0.865) is primarily **measurement asymmetry**.
+gem5 full-run commits 53 272 instructions spanning make_tree, startup, a full PREALLOCATE
+tree traversal, the kernel traversal, and teardown; Horologium measures only the kernel
+traversal (11 539 instructions). gem5 records 209 conditional mispredictions over 31 047
+cycles — the low mispredict count reflects that startup and PREALLOCATE phases dominate
+its cycle budget at high IPC, diluting branch overhead. A like-for-like comparison would
+require gem5 ROI instrumentation.
+
+Predictor sweep (Horologium kernel-only, bypass=1):
+
+| predictor        | IPC   | branch mispredicts         |
+|------------------|-------|----------------------------|
+| LTage            | 0.865 | 499                        |
+| TAGE-SC-L        | 0.865 | 499                        |
+| TournamentBP     | 0.742 | slightly fewer than LTage  |
+| always_not_taken | 0.431 | 1537                       |
+
+Key findings:
+
+- **TAGE-SC-L ≡ LTage for treesum**: the statistical corrector adds nothing. The
+  null-check `beqz a0` in tree_sum follows a tree-topology-driven sequence with no
+  learnable global-history pattern; both predictors make ~499 mispredictions.
+
+- **TournamentBP reduces IPC** (0.742 vs LTage 0.865) despite slightly fewer branch
+  mispredicts. TournamentBP's per-PC local history generates a different speculative
+  execution pattern, producing +155 extra memory-order violations (wrong-path loads
+  conflicting with correct-path stores). The additional pipeline flushes more than
+  offset the branch-prediction gain. The same effect appears in towers (0.708 vs 0.751).
+
+- **always_not_taken yields 1537 mispredictions** — ~3× the expected ~511 conditional
+  branches. The excess comes from a RAS interaction: when the recursive `jal` at
+  0x80000384 is predicted not-taken, wrong-path fetch from the fall-through address
+  reaches the `ret` epilogue at 0x800003b4 (11 instructions away, within ~6 fetch cycles)
+  before the mispredict is detected. That wrong-path ret pops the entry the jal just pushed,
+  leaving the RAS short by one for the actual return. This fires for all 512 recursive
+  calls, producing ~512 spurious ret mispredictions on top of the 512 jal mispredictions
+  and ~511 conditional mispredictions (256 taken beqz + 255 taken bnez ≈ 1537 total).
+
+- **bypass=0 hurts treesum** (0.865 → 0.796, −8%). Branch mispredicts are unchanged
+  (499 → 500), but D-cache misses increase by 138 and dispatch stall cycles by 1 479.
+  The extra cache pressure and stalls are consistent with wrong-path execution reaching
+  deeper into the memory hierarchy under faster forwarding.
+
 ## Structural differences
 
 1. **Bypass latency**: Horologium uses `bypass_latency=1` (matching Olympia);
@@ -198,8 +249,13 @@ isolates the cold, fully-thrashing streaming copy.
    with matched forwarding latency. **This is the dominant factor** for most
    compute-bound workloads.
 
-2. **Branch predictor quality**: TournamentBP > LTage on recursive workloads
-   (treesum, towers). The treesum gap (~2×) is primarily branch-prediction-driven.
+2. **Branch predictor quality**: Predictor differences do not explain the treesum H/G gap.
+   The ~2× gap is primarily measurement asymmetry (gem5 full-run vs Horologium kernel-only;
+   see "treesum: predictor sweep"). Using TournamentBP inside Horologium *reduces* IPC for
+   both treesum (0.742 vs LTage 0.865) and towers (0.708 vs 0.751), driven by additional
+   memory-order violations from TournamentBP's different speculative execution pattern. The
+   null-check `beqz` in tree_sum is nearly unpredictable: LTage (499 mispredicts) saves only
+   ~16 mispredictions vs always_taken (515), so predictor quality is not a lever here.
 
 3. **DIV latency**: Both simulators use `--div-lat 23` (matched). The residual gcd
    gap comes from FU count (gem5 has 2× IntMultDiv units vs Horologium's single
