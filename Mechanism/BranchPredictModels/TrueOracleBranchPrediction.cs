@@ -1,5 +1,6 @@
 namespace Mechanism.BranchPredictModels;
 
+/// <summary>A single branch outcome captured during a functional pre-pass.</summary>
 public readonly record struct BranchOutcome(ulong Pc, bool Taken, ulong Target);
 
 /// <summary>
@@ -10,8 +11,10 @@ public readonly record struct BranchOutcome(ulong Pc, bool Taken, ulong Target);
 public sealed class BranchTraceRecorder(IDecoder decoder) : ICommitObserver {
     private readonly List<BranchOutcome> _trace = [];
 
+    /// <summary>The ordered sequence of branch outcomes recorded so far.</summary>
     public IReadOnlyList<BranchOutcome> Trace => _trace;
 
+    /// <inheritdoc/>
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
         FetchHint hint = decoder.GetFetchHint(pc, rawEncoding);
         if (!hint.IsBranch) return;
@@ -33,6 +36,7 @@ public sealed class BranchTraceRecorder(IDecoder decoder) : ICommitObserver {
 public sealed class TrueOraclePredictor(IReadOnlyList<BranchOutcome> trace) : IBranchPredictor {
     private int _nextIdx;
 
+    /// <inheritdoc/>
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         if (_nextIdx >= trace.Count) return BranchPrediction.NotTaken(pc + 4);
         BranchOutcome outcome = trace[_nextIdx++];
@@ -41,5 +45,6 @@ public sealed class TrueOraclePredictor(IReadOnlyList<BranchOutcome> trace) : IB
             : BranchPrediction.NotTaken(outcome.Target);
     }
 
+    /// <inheritdoc/>
     public void Update(ulong pc, bool taken, ulong actualTarget) { }
 }

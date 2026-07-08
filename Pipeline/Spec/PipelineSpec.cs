@@ -169,7 +169,7 @@ public sealed record OutOfOrderSpec(
         StreamPrefetchDepth,
         CommitObserver,
         LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity,
-        flatIq: FlatIq
+        FlatIq
     );
 
     public override ISteppableTrain Build(
@@ -186,6 +186,6 @@ public sealed record OutOfOrderSpec(
         StreamPrefetchDepth,
         CommitObserver,
         LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity,
-        flatIq: FlatIq
+        FlatIq
     );
 }

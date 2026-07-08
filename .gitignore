@@ -7,3 +7,5 @@ TestResults/
 result
 result-*
 error-dump.dbg
+m5out/
+m5out-*/

@@ -28,7 +28,7 @@ public sealed class ClintDevice(int maxHarts = 1) : IMemory {
     private const ulong MtimeLo = 0xBFF8;
     private const ulong MtimeHi = 0xBFFC;
     private const ulong MtimecmpBase = 0x4000; // mtimecmp[h] at +0x4000 + h*8
-    private const ulong MsipBase = 0x0000;     // msip[h] at +h*4
+
 
     // How many mtime ticks advance per Advance() call (one call per instruction boundary).
     // With a DTB timebase-frequency of 1_000_000, each tick = 1 µs of simulated time.

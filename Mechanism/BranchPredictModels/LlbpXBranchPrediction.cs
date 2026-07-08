@@ -34,17 +34,17 @@ public sealed class LlbpXPredictor : LlbpPredictor {
     protected override bool TryLlbpPredict(ulong pc, int provider, out bool pred) {
         uint cid2 = Rcr.CidShallow;
         _usedDeep = _ctt.IsDeep(cid2);
-        _llbpCtxKey = _usedDeep ? Rcr.CidDeep : cid2;
+        LlbpCtxKey = _usedDeep ? Rcr.CidDeep : cid2;
 
-        PatternMap? pm = Storage.Get(_llbpCtxKey);
+        PatternMap? pm = Storage.Get(LlbpCtxKey);
         if (pm != null)
             for (int t = LTagePredictor.NumTables - 1; t >= 0; t--) {
                 bool tableIsLong = t >= LlbpXPredictor.DeepTableThreshold;
                 if (_usedDeep != tableIsLong) continue; // history-range restriction
                 int key = PatternKey(pc, t);
                 if (!pm.TryGet(key, out sbyte ctr)) continue;
-                _llbpHistIdx = t;
-                _llbpPatternKey = key;
+                LlbpHistIdx = t;
+                LlbpPatternKey = key;
                 if (t >= provider) {
                     if (_usedDeep) DeepContextPredictions++;
                     pred = ctr >= 0;
@@ -62,14 +62,14 @@ public sealed class LlbpXPredictor : LlbpPredictor {
     protected override void TrainLlbp(ulong pc, bool taken, bool provPred) {
         uint cid2 = Rcr.CidShallow;
 
-        if (_llbpIsProvider && _llbpHistIdx >= 0) {
-            // _llbpCtxKey was set by TryLlbpPredict during the preceding Predict call.
-            PatternMap pm = Storage.GetOrCreate(_llbpCtxKey);
-            pm.SatUpdate(_llbpPatternKey, taken);
+        if (LlbpIsProvider && LlbpHistIdx >= 0) {
+            // LlbpCtxKey was set by TryLlbpPredict during the preceding Predict call.
+            PatternMap pm = Storage.GetOrCreate(LlbpCtxKey);
+            pm.SatUpdate(LlbpPatternKey, taken);
             if (pm.IsFull()) _ctt.NotifyOverflow(cid2);
         }
         else if (provPred != taken) {
-            int allocTable = _lastProvider + 1;
+            int allocTable = LastProvider + 1;
             if ((uint)allocTable < LTagePredictor.NumTables) {
                 bool isLong = allocTable >= LlbpXPredictor.DeepTableThreshold;
                 _ctt.NotifyAllocation(cid2, isLong);

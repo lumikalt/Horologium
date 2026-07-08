@@ -66,15 +66,15 @@ public sealed record FuLatencyConfig(
     };
 
     public int CountFor(ToothClass cls) => cls switch {
-        ToothClass.IntegerAlu                                    => IntAluCount,
-        ToothClass.IntegerMulDiv                                 => MulDivCount,
-        ToothClass.Load or ToothClass.Atomic => LoadCount,
-        ToothClass.Store                      => StoreCount,
-        ToothClass.Branch or ToothClass.ConditionalBranch        => BranchCount,
-        ToothClass.FloatingPoint                                 => FloatCount,
-        ToothClass.FloatDivSqrt                                  => FloatDivSqrtCount,
-        ToothClass.Uve                                           => 1,
-        _                                                        => SystemCount,
+        ToothClass.IntegerAlu                             => IntAluCount,
+        ToothClass.IntegerMulDiv                          => MulDivCount,
+        ToothClass.Load or ToothClass.Atomic              => LoadCount,
+        ToothClass.Store                                  => StoreCount,
+        ToothClass.Branch or ToothClass.ConditionalBranch => BranchCount,
+        ToothClass.FloatingPoint                          => FloatCount,
+        ToothClass.FloatDivSqrt                           => FloatDivSqrtCount,
+        ToothClass.Uve                                    => 1,
+        _                                                 => SystemCount,
     };
 
     public int LatencyFor(ToothClass cls) => cls switch {

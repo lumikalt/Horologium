@@ -118,7 +118,7 @@ public sealed class OooeTrain : ISteppableTrain {
     public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
         _train.Run(maxTicks, warmupTicks, snapshotInterval);
 
-    public Orrery.Observation.DialBoardSnapshot SnapshotPipeline() => _core.Dials.Snapshot();
+    public DialBoardSnapshot SnapshotPipeline() => _core.Dials.Snapshot();
 
     public long CurrentTick => _train.CurrentTick;
     public bool IsIdle => _train.IsIdle;
@@ -163,7 +163,9 @@ internal sealed class OoOPipelineCore : Gear {
         int ArchDest,     // -1 if no architectural destination
         int PhysDest,     // -1 if no architectural destination
         int PrevPhysDest, // -1 if no architectural destination
-        int P1, int P2, int P3  // physical source tags captured from RAT, -1 if unused
+        int P1,
+        int P2,
+        int P3 // physical source tags captured from RAT, -1 if unused
     );
 
     private readonly record struct IssuedInstr(
@@ -264,13 +266,15 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly bool _flatIq;
     private readonly int _activeIqCount; // 1 when flat, IqCount when per-class
 
-    private int IqIndex(ToothClass cls) => _flatIq ? 0 : cls switch {
-        ToothClass.FloatingPoint or ToothClass.FloatDivSqrt      => 1,
-        ToothClass.Branch or ToothClass.ConditionalBranch        => 2,
-        ToothClass.Vector or ToothClass.Uve                      => 3,
-        ToothClass.Load or ToothClass.Store or ToothClass.Atomic => 4,
-        _                                                        => 0,
-    };
+    private int IqIndex(ToothClass cls) => _flatIq
+        ? 0
+        : cls switch {
+            ToothClass.FloatingPoint or ToothClass.FloatDivSqrt      => 1,
+            ToothClass.Branch or ToothClass.ConditionalBranch        => 2,
+            ToothClass.Vector or ToothClass.Uve                      => 3,
+            ToothClass.Load or ToothClass.Store or ToothClass.Atomic => 4,
+            _                                                        => 0,
+        };
 
     // OoOE structures
     private readonly PhysicalRegisterFile _prf;
@@ -397,7 +401,7 @@ internal sealed class OoOPipelineCore : Gear {
         _maxDecodeDepth = issueWidth * 4;
         _fetchPc = entryPoint;
         _flatIq = flatIq;
-        _activeIqCount = flatIq ? 1 : IqCount;
+        _activeIqCount = flatIq ? 1 : OoOPipelineCore.IqCount;
 
         State = mechanism.CreateArchState();
         State.Pc = entryPoint;
@@ -408,15 +412,17 @@ internal sealed class OoOPipelineCore : Gear {
         _prf = new PhysicalRegisterFile(physRegs);
         _rat = new RenameMap(archRegs, physRegs);
         _rob = new ReorderBuffer(robCapacity);
-        _iqs = new IssueQueue[IqCount];
+        _iqs = new IssueQueue[OoOPipelineCore.IqCount];
         if (flatIq) {
             // Flat mode: one unified IQ with IqCount× capacity; dummy 1-slot IQs for the rest
             // (they receive no instructions since IqIndex always returns 0).
-            _iqs[0] = new IssueQueue(IqCount * iqCapacity);
-            for (var i = 1; i < IqCount; i++) _iqs[i] = new IssueQueue(1);
-        } else {
-            for (var i = 0; i < IqCount; i++) _iqs[i] = new IssueQueue(iqCapacity);
+            _iqs[0] = new IssueQueue(OoOPipelineCore.IqCount * iqCapacity);
+            for (var i = 1; i < OoOPipelineCore.IqCount; i++) _iqs[i] = new IssueQueue(1);
         }
+        else {
+            for (var i = 0; i < OoOPipelineCore.IqCount; i++) _iqs[i] = new IssueQueue(iqCapacity);
+        }
+
         _lq = new LoadQueue(lqCapacity > 0 ? lqCapacity : robCapacity);
         _sq = new StoreQueue(sqCapacity > 0 ? sqCapacity : robCapacity);
         StreamingEngine = new StreamingEngine(streamPrefetchDepth);
@@ -1197,9 +1203,12 @@ internal sealed class OoOPipelineCore : Gear {
             // Pre-trap: pass through rename without RAT allocation.
             if (fi.PreTrap is not null) {
                 PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
-                _renameQueue.Enqueue(new RenameEntry(
-                    fi.Pc, fi.Decoded, fi.PredictedNextPc, fi.InstrId, fi.PreTrap,
-                    -1, -1, -1, -1, -1, -1));
+                _renameQueue.Enqueue(
+                    new RenameEntry(
+                        fi.Pc, fi.Decoded, fi.PredictedNextPc, fi.InstrId, fi.PreTrap,
+                        -1, -1, -1, -1, -1, -1
+                    )
+                );
                 _decodeQueue.Dequeue();
                 continue;
             }
@@ -1226,9 +1235,12 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
-            _renameQueue.Enqueue(new RenameEntry(
-                fi.Pc, instr, fi.PredictedNextPc, fi.InstrId, null,
-                destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3));
+            _renameQueue.Enqueue(
+                new RenameEntry(
+                    fi.Pc, instr, fi.PredictedNextPc, fi.InstrId, null,
+                    destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3
+                )
+            );
             _decodeQueue.Dequeue();
         }
     }

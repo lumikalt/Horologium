@@ -11,6 +11,8 @@ using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
 
+// ReSharper disable UnusedParameterInPartialMethod
+
 namespace Face.ViewModels;
 
 public record WorkloadPreset(string Label, string? ElfFileName, int MemoryBytes = 0);
@@ -80,7 +82,7 @@ public partial class MainWindowViewModel : ObservableObject {
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsLauncherPage), nameof(IsRiscVPage), nameof(IsChip8Page))]
-    public partial AppPage CurrentPage { get; set; } = AppPage.Launcher;
+    private partial AppPage CurrentPage { get; set; } = AppPage.Launcher;
 
     public bool IsLauncherPage => CurrentPage == AppPage.Launcher;
     public bool IsRiscVPage => CurrentPage == AppPage.RiscV;
@@ -129,7 +131,7 @@ public partial class MainWindowViewModel : ObservableObject {
     }
 
     // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnSelectedMetricChanged(string? _) {
+    partial void OnSelectedMetricChanged(string? value) {
         if (HasResults) ResultsUpdated?.Invoke();
     }
 

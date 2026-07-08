@@ -20,22 +20,32 @@ public class LlbpPredictor : TageScLPredictor {
     private protected readonly RollingContextReg Rcr = new();
     private protected readonly LlbpStorage Storage = new();
 
-    protected bool _llbpIsProvider;
-    protected int _llbpHistIdx = -1;
-    protected int _llbpPatternKey;
-    protected uint _llbpCtxKey;
-    protected int _lastProvider = -1;
+    /// <summary>True when LLBP (not TAGE) was the final prediction provider for the current branch.</summary>
+    protected bool LlbpIsProvider;
+
+    /// <summary>History-table index of the LLBP match, or -1 when LLBP had no entry.</summary>
+    protected int LlbpHistIdx = -1;
+
+    /// <summary>Pattern key used in the LLBP match, retained for training.</summary>
+    protected int LlbpPatternKey;
+
+    /// <summary>Context key used for the current LLBP lookup.</summary>
+    protected uint LlbpCtxKey;
+
+    /// <summary>TAGE provider index from the most recent prediction (-1 if unset).</summary>
+    protected int LastProvider = -1;
 
     /// <summary>Number of times LLBP overrode TAGE's direction.</summary>
     public int LlbpOverrides { get; private set; }
 
+    /// <inheritdoc/>
     protected override bool ResolvePrediction(ulong pc, int provider, bool tagePred) {
-        _lastProvider = provider;
-        _llbpIsProvider = false;
-        _llbpHistIdx = -1;
+        LastProvider = provider;
+        LlbpIsProvider = false;
+        LlbpHistIdx = -1;
 
         if (TryLlbpPredict(pc, provider, out bool llbpPred)) {
-            _llbpIsProvider = true;
+            LlbpIsProvider = true;
             LlbpOverrides++;
             return base.ResolvePrediction(pc, provider, llbpPred);
         }
@@ -43,15 +53,16 @@ public class LlbpPredictor : TageScLPredictor {
         return base.ResolvePrediction(pc, provider, tagePred);
     }
 
+    /// <summary>Searches the LLBP context store for a match at a history level ≥ <paramref name="provider"/>.</summary>
     protected virtual bool TryLlbpPredict(ulong pc, int provider, out bool pred) {
-        _llbpCtxKey = Rcr.ContextId;
-        PatternMap? pm = Storage.Get(_llbpCtxKey);
+        LlbpCtxKey = Rcr.ContextId;
+        PatternMap? pm = Storage.Get(LlbpCtxKey);
         if (pm != null)
             for (int t = LTagePredictor.NumTables - 1; t >= 0; t--) {
                 int key = PatternKey(pc, t);
                 if (!pm.TryGet(key, out sbyte ctr)) continue;
-                _llbpHistIdx = t;
-                _llbpPatternKey = key;
+                LlbpHistIdx = t;
+                LlbpPatternKey = key;
                 if (t >= provider) {
                     pred = ctr >= 0;
                     return true;
@@ -64,23 +75,24 @@ public class LlbpPredictor : TageScLPredictor {
         return false;
     }
 
+    /// <inheritdoc/>
     protected override void OnAfterUpdate(ulong pc, bool taken, bool provPred, int preScore, bool loopWasConfident) {
         base.OnAfterUpdate(pc, taken, provPred, preScore, loopWasConfident);
         TrainLlbp(pc, taken, provPred);
         if (taken) Rcr.Update(pc);
     }
 
+    /// <summary>Updates LLBP counters or allocates a new entry on misprediction.</summary>
     protected virtual void TrainLlbp(ulong pc, bool taken, bool provPred) {
-        if (_llbpIsProvider && _llbpHistIdx >= 0) {
-            Storage.GetOrCreate(_llbpCtxKey).SatUpdate(_llbpPatternKey, taken);
-        }
+        if (LlbpIsProvider && LlbpHistIdx >= 0) { Storage.GetOrCreate(LlbpCtxKey).SatUpdate(LlbpPatternKey, taken); }
         else if (provPred != taken) {
-            int allocTable = _lastProvider + 1;
+            int allocTable = LastProvider + 1;
             if ((uint)allocTable < LTagePredictor.NumTables)
-                Storage.GetOrCreate(_llbpCtxKey).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
+                Storage.GetOrCreate(LlbpCtxKey).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
         }
     }
 
+    /// <summary>Computes the LLBP pattern key for branch <paramref name="pc"/> at history-table index <paramref name="t"/>.</summary>
     protected int PatternKey(ulong pc, int t) => (TageTag(pc, t) << 2) | t;
 }
 

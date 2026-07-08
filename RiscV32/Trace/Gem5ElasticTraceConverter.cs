@@ -52,6 +52,8 @@ public static class Gem5ElasticTraceConverter {
     /// Converts a HELF stream to a gem5 inst_dep_record proto stream.
     /// Both streams are read/written sequentially; the caller owns both streams.
     /// </summary>
+    /// <param name="input">HELF elastic trace stream to read from.</param>
+    /// <param name="output">gem5 proto stream to write to.</param>
     /// <param name="tickFreq">
     /// Tick frequency written into the <c>InstDepRecordHeader</c>. Use the
     /// recorder's frequency if known, or 0 to use the HELF header value

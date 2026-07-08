@@ -17,10 +17,15 @@ namespace Mechanism.BranchPredictModels;
 /// </summary>
 public class LTagePredictor : IBranchPredictor {
     // ── TAGE parameters ───────────────────────────────────────────────────────
+    /// <summary>Number of tagged TAGE history tables (excluding the bimodal base).</summary>
     protected const int NumTables = 4;
+
     private const int TableIndexBits = 9; // 512 entries per tagged table
     private const int BaseIndexBits = 12; // 4096-entry bimodal base
-    protected const int TagWidth = 9;     // bits of partial tag per entry
+
+    /// <summary>Bit width of the partial tag stored in each TAGE entry.</summary>
+    protected const int TagWidth = 9; // bits of partial tag per entry
+
     private const int MaxHist = 34;
 
     // Geometrically increasing history lengths (~1.6×)
@@ -268,6 +273,7 @@ public class LTagePredictor : IBranchPredictor {
 
     // Two independent folds of different history lengths produce two tag halves,
     // reducing aliasing between branches that share the same PC index.
+    /// <summary>Computes the partial TAGE tag for branch <paramref name="pc"/> in table <paramref name="t"/>.</summary>
     protected int TageTag(ulong pc, int t) {
         int f1 = FoldHist(LTagePredictor.HistLengths[t], LTagePredictor.TagWidth);
         int f2 = FoldHist(LTagePredictor.HistLengths[t] - 1, LTagePredictor.TagWidth - 1);

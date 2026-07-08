@@ -7,9 +7,16 @@ namespace Mechanism;
 /// <see cref="IArchState.UveScalars"/>.
 /// </summary>
 public interface IUveScalars {
+    /// <summary>Returns the scalar accumulator value for stream <paramref name="uid"/>.</summary>
     float GetScalar(int uid);
+
+    /// <summary>Sets the scalar accumulator for stream <paramref name="uid"/> to <paramref name="value"/>.</summary>
     void SetScalar(int uid, float value);
+
+    /// <summary>Returns true when stream <paramref name="uid"/> is exhausted.</summary>
     bool GetStreamDone(int uid);
+
+    /// <summary>Sets the exhaustion flag for stream <paramref name="uid"/>.</summary>
     void SetStreamDone(int uid, bool done);
 
     /// <summary>
@@ -18,5 +25,6 @@ public interface IUveScalars {
     /// </summary>
     bool GetDimDone(int streamId, int dim);
 
+    /// <summary>Sets the dimension-done flag for dimension <paramref name="dim"/> of stream <paramref name="streamId"/>.</summary>
     void SetDimDone(int streamId, int dim, bool done);
 }

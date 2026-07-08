@@ -138,9 +138,9 @@ public static class Experiment {
             SetStatsObserver? setStatsObs = null;
             OooeTrain? trainRef = null;
             if (workload is Rv32ElfWorkload elfWorkload &&
-                elfWorkload.TryFindSymbol("setStats", out ulong setStatsPc)) {
+                elfWorkload.TryFindSymbol("setStats", out ulong setStatsPc))
+                // ReSharper disable once AccessToModifiedClosure
                 setStatsObs = new SetStatsObserver(setStatsPc, () => trainRef!.SnapshotPipeline());
-            }
 
             trainRef = new OooeTrain(
                 mechanism, runMemory,
@@ -161,8 +161,7 @@ public static class Experiment {
 
             result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
 
-            if (setStatsObs?.KernelDelta is { } kernelSnap)
-                result = result with { Snapshots = [kernelSnap] };
+            if (setStatsObs?.KernelDelta is { } kernelSnap) result = result with { Snapshots = [kernelSnap,], };
         }
         else {
             result = config.Pipeline switch {

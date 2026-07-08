@@ -10,5 +10,6 @@ namespace Mechanism;
 /// when this is called.
 /// </summary>
 public interface ICommitObserver {
+    /// <summary>Called for each instruction that successfully commits.</summary>
     void OnCommit(ulong pc, uint rawEncoding, IArchState state);
 }

@@ -19,7 +19,7 @@ namespace Orrery.Cache;
 ///
 /// <para>
 /// This bus is designed for sequential multi-hart simulation
-/// (<see cref="Orrery.MultiHartPipeline.Run"/>).  It cannot be wrapped by
+/// (<c>MultiHartPipeline.Run</c>).  It cannot be wrapped by
 /// <see cref="DeferredBus"/> (which is hardcoded to <see cref="MoesifBus"/>).
 /// </para>
 /// </summary>

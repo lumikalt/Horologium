@@ -55,14 +55,14 @@ public sealed class WaterfallControl : Control {
     private static readonly IBrush FlushColTint = new SolidColorBrush(Color.FromArgb(45, 200, 60, 60));
 
     private static readonly Dictionary<PEventKind, (IBrush Bg, string Label)> KindStyle = new() {
-        [PEventKind.Fetch]    = (new SolidColorBrush(Color.Parse("#4A7EC7")), "F"),
-        [PEventKind.Decode]   = (new SolidColorBrush(Color.Parse("#1A9490")), "Dc"),
-        [PEventKind.Rename]   = (new SolidColorBrush(Color.Parse("#1E8A86")), "Rn"),
+        [PEventKind.Fetch] = (new SolidColorBrush(Color.Parse("#4A7EC7")), "F"),
+        [PEventKind.Decode] = (new SolidColorBrush(Color.Parse("#1A9490")), "Dc"),
+        [PEventKind.Rename] = (new SolidColorBrush(Color.Parse("#1E8A86")), "Rn"),
         [PEventKind.Dispatch] = (new SolidColorBrush(Color.Parse("#2EA5A0")), "Ds"),
-        [PEventKind.Issue]    = (new SolidColorBrush(Color.Parse("#8A6BD4")), "Is"),
-        [PEventKind.Execute]  = (new SolidColorBrush(Color.Parse("#C87A2A")), "Ex"),
-        [PEventKind.Retire]   = (new SolidColorBrush(Color.Parse("#4AB04A")), "Cm"),
-        [PEventKind.Flush]    = (new SolidColorBrush(Color.Parse("#C45050")), "Fl"),
+        [PEventKind.Issue] = (new SolidColorBrush(Color.Parse("#8A6BD4")), "Is"),
+        [PEventKind.Execute] = (new SolidColorBrush(Color.Parse("#C87A2A")), "Ex"),
+        [PEventKind.Retire] = (new SolidColorBrush(Color.Parse("#4AB04A")), "Cm"),
+        [PEventKind.Flush] = (new SolidColorBrush(Color.Parse("#C45050")), "Fl"),
     };
 
     private static readonly Dictionary<(string, double, IBrush), FormattedText> FtCache = new();

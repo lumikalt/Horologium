@@ -27,15 +27,17 @@ public sealed class ImliPredictor : IBranchPredictor {
     private readonly HashSet<ulong> _backwardBranches;
     private int _imli;
 
+    /// <summary>Initializes an <see cref="ImliPredictor"/> with the given PHT and BTB sizes (must be powers of two).</summary>
     public ImliPredictor(int phtSize = 65536, int btbSize = 1024) {
         _phtMask = phtSize - 1;
         _btbMask = btbSize - 1;
         _pht = new byte[phtSize];
         _btb = new ulong[btbSize];
-        _backwardBranches = new HashSet<ulong>();
+        _backwardBranches = [];
         Array.Fill(_pht, (byte)1); // weakly not-taken
     }
 
+    /// <inheritdoc/>
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         // Cache backward-branch classification when static target is available at fetch
         if (knownTarget.HasValue && knownTarget.Value < pc) _backwardBranches.Add(pc);
@@ -44,6 +46,7 @@ public sealed class ImliPredictor : IBranchPredictor {
         return new BranchPrediction(taken, taken ? _btb[BtbIndex(pc)] : pc + 4);
     }
 
+    /// <inheritdoc/>
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         int phtIdx = PhtIndex(pc);
         if (taken) _btb[BtbIndex(pc)] = actualTarget;
@@ -52,12 +55,15 @@ public sealed class ImliPredictor : IBranchPredictor {
             case false when _pht[phtIdx] > 0: _pht[phtIdx]--; break;
         }
 
-        // IMLI counter: taken backward → iterating; not-taken backward → loop exit
-        if (taken && actualTarget < pc) {
-            _backwardBranches.Add(pc);
-            _imli++;
+        switch (taken) {
+            case true when
+                // IMLI counter: taken backward → iterating; not-taken backward → loop exit
+                actualTarget < pc:
+                _backwardBranches.Add(pc);
+                _imli++;
+                break;
+            case false when _backwardBranches.Contains(pc): _imli = 0; break;
         }
-        else if (!taken && _backwardBranches.Contains(pc)) { _imli = 0; }
     }
 
     private int PhtIndex(ulong pc) =>

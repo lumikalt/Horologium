@@ -1102,13 +1102,13 @@ public class ExecutorTests {
         // RvFetchTranslator always passes sum=false regardless of sstatus.SUM.
         (FlatMemory mem, uint satp) = BuildSv32Memory();
         uint execUserPte = (5u << 10) | 0b0101_1111u; // A|U|X|R|V
-        mem.Write(0x2008UL, execUserPte, 4); // L1 entry 2 → VA 0x2000 → PA 0x5000
+        mem.Write(0x2008UL, execUserPte, 4);          // L1 entry 2 → VA 0x2000 → PA 0x5000
         Rv32ArchState s = MakeState();
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
         s.SystemRegisters.Write(CsrFile.Sstatus, CsrFile.SstatusSum, RvPrivilege.Machine);
         s.PrivilegeLevel = RvPrivilege.Supervisor;
         var translator = new RvFetchTranslator(s, mem);
-        var (_, fault) = translator.Translate(0x00002000UL);
+        (_, int fault) = translator.Translate(0x00002000UL);
         Assert.Equal(RvTrapCause.InstructionPageFault, fault);
     }
 

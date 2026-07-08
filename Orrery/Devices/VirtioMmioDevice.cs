@@ -38,8 +38,8 @@ namespace Orrery.Devices;
 /// </para>
 /// <para>
 /// I/O is synchronous: on QueueNotify the device drains the entire available
-/// ring before returning control.  <paramref name="guestRam"/> must be the raw
-/// backing memory (e.g. <see cref="RiscV32.Memory.FlatMemory"/>), not the
+/// ring before returning control.  <c>guestRam</c> must be the raw
+/// backing memory (e.g. <c>FlatMemory</c>), not the
 /// <see cref="PeripheralBus"/>, so that <c>Load()</c> can be used for bulk
 /// DMA writes.
 /// </para>
@@ -81,7 +81,6 @@ public sealed class VirtioMmioDevice : IMemory {
     private const ulong OffQueueAvailHigh = 0x094;
     private const ulong OffQueueUsedLow = 0x0A0;
     private const ulong OffQueueUsedHigh = 0x0A4;
-    private const ulong OffConfigGen = 0x0FC;
     private const ulong OffConfig = 0x100;
 
     // Descriptor flags
@@ -116,7 +115,7 @@ public sealed class VirtioMmioDevice : IMemory {
     private readonly PlicDevice? _plic;
     private readonly int _sourceId;
 
-    /// <summary>True while <see cref="InterruptACK"/> has not cleared the used-buffer interrupt.</summary>
+    /// <summary>True while <c>InterruptACK</c> has not cleared the used-buffer interrupt.</summary>
     public bool InterruptPending => _interruptStatus != 0;
 
     /// <param name="disk">Host stream backing the virtual disk.</param>

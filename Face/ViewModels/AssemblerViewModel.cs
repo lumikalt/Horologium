@@ -18,6 +18,8 @@ using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.State;
 
+// ReSharper disable UnusedParameterInPartialMethod
+
 namespace Face.ViewModels;
 
 public partial class AssemblerViewModel : ObservableObject {
@@ -277,21 +279,17 @@ public partial class AssemblerViewModel : ObservableObject {
         for (var i = 0; i < 32; i++) FloatRegisters.Add(new RegEntry($"f{i}"));
     }
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnSelectedInstructionChanged(AssemblyRow? _) {
+    partial void OnSelectedInstructionChanged(AssemblyRow? value) {
         OnPropertyChanged(nameof(IsDecodeVisible));
         OnPropertyChanged(nameof(DecodeTitle));
         OnPropertyChanged(nameof(DecodeFields));
     }
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnIntRegFormatChanged(RegFormat _) => RefreshIntRegisters();
+    partial void OnIntRegFormatChanged(RegFormat value) => RefreshIntRegisters();
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnFloatRegFormatChanged(RegFormat _) => RefreshFloatRegisters();
+    partial void OnFloatRegFormatChanged(RegFormat value) => RefreshFloatRegisters();
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnPipelineModeLabelChanged(string _) {
+    partial void OnPipelineModeLabelChanged(string value) {
         _runCts?.Cancel();
         if (_binaryData != null) {
             SetupPipeline();
@@ -304,25 +302,20 @@ public partial class AssemblerViewModel : ObservableObject {
         OnPropertyChanged(nameof(IsPipelineMode));
     }
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnOptLevelChanged(string _) {
+    partial void OnOptLevelChanged(string value) {
         if (IsCMode && Instructions.Count > 0 && !IsAssembling) AssembleCommand.Execute(null);
     }
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnICacheEnabledChanged(bool _) => ApplyCacheConfigChange();
+    partial void OnICacheEnabledChanged(bool value) => ApplyCacheConfigChange();
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnDCacheEnabledChanged(bool _) => ApplyCacheConfigChange();
+    partial void OnDCacheEnabledChanged(bool value) => ApplyCacheConfigChange();
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnCacheReplacementPolicyChanged(string _) {
+    partial void OnCacheReplacementPolicyChanged(string value) {
         OnPropertyChanged(nameof(CacheMetadataLabel));
         ApplyCacheConfigChange();
     }
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnSelectedCacheTabChanged(int _) {
+    partial void OnSelectedCacheTabChanged(int value) {
         RefreshCacheDisplay();
         CacheUpdated?.Invoke();
     }
@@ -478,6 +471,7 @@ public partial class AssemblerViewModel : ObservableObject {
         finally { IsAssembling = false; }
     }
 
+    [UnsupportedOSPlatform("browser")]
     private async Task AssembleAsm(string prefix) {
         string tmpDir = Path.GetTempPath();
         string asmFile = Path.Combine(tmpDir, "horologium_asm.s");
@@ -543,6 +537,7 @@ public partial class AssemblerViewModel : ObservableObject {
             ebreak
         """;
 
+    [UnsupportedOSPlatform("browser")]
     private async Task CompileC(string prefix) {
         string tmpDir = Path.GetTempPath();
         string srcFile = Path.Combine(tmpDir, "horologium_src.c");
@@ -625,6 +620,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     /// Runs objcopy to extract .text, reads the ELF + flat binary, and stores the ELF
     /// for memory loading. Returns null (with error state set) on failure.
+    [UnsupportedOSPlatform("browser")]
     private async Task<byte[]?> ExtractBinary(string prefix, string elfFile, string binFile) {
         (int cpExit, _, string cpErr) = await RunProcess(
             prefix + "objcopy",

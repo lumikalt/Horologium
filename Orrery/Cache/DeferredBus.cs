@@ -17,7 +17,7 @@ namespace Orrery.Cache;
 /// state that sequential execution would have produced.
 /// </para>
 /// <para>
-/// Bit-identical to sequential <see cref="MultiHartPipeline.Run"/> for well-synchronized
+/// Bit-identical to sequential <c>MultiHartPipeline.Run</c> for well-synchronized
 /// programs (no same-tick cross-hart write-then-read on the same cache line), provided
 /// <see cref="MoesifCache.PeerSupplyLatency"/> equals <see cref="MoesifCache.MissLatency"/>
 /// (the default) — phase-1 misses always charge the full miss latency because

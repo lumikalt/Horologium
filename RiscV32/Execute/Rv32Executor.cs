@@ -527,9 +527,9 @@ public class Rv32Executor : IExecutor {
             RvVWideVx (var op2, var vd, var vs2, var rs1, var masked, var vs2Wide) =>
                 ExecuteVWide(state, op2, vd, vs2, masked, vs2Wide, (_, _) => regs.Read(rs1)),
             RvVwMacVv (var op2, var vd, var vs2, var vs1, var masked) =>
-                ExecuteVWMac(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+                ExecuteVwMac(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
             RvVwMacVx (var op2, var vd, var vs2, var rs1, var masked) =>
-                ExecuteVWMac(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+                ExecuteVwMac(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
 
             RvVNarrVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVNarr(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
@@ -605,10 +605,10 @@ public class Rv32Executor : IExecutor {
 
             RvVMaskLogMm (var op2, var vd, var vs2, var vs1) =>
                 ExecuteVMaskLog(state, op2, vd, vs2, vs1),
-            RvVcpop (var rd, var vs2, var masked) =>
-                ExecuteVcpop(state, rd, vs2, masked),
-            RvVfirst (var rd, var vs2, var masked) =>
-                ExecuteVfirst(state, rd, vs2, masked),
+            RvVcpop (_, var vs2, var masked) =>
+                ExecuteVcpop(state, vs2, masked),
+            RvVfirst (_, var vs2, var masked) =>
+                ExecuteVfirst(state, vs2, masked),
             RvVMaskUnary (var op2, var vd, var vs2, var masked) =>
                 ExecuteVMaskUnary(state, op2, vd, vs2, masked),
             RvVCompress (var vd, var vs2, var vs1) =>
@@ -655,7 +655,7 @@ public class Rv32Executor : IExecutor {
             RvVFpCvt (var op2, var vd, var vs2, var masked) =>
                 ExecuteVFpCvt(state, op2, vd, vs2, masked),
 
-            RvVFpMvFs (var rd, var vs2) => ExecuteVFpMvFs(state, regs, rd, vs2),
+            RvVFpMvFs (_, var vs2)      => ExecuteVFpMvFs(state, vs2),
             RvVFpMvSf (var vd, var rs1) => ExecuteVFpMvSf(state, regs, vd, rs1),
             RvVFpMvVf (var vd, var rs1, var masked) =>
                 ExecuteVFpMvVf(state, vd, FBits(regs, rs1), masked),
@@ -670,11 +670,11 @@ public class Rv32Executor : IExecutor {
                 ExecuteVSatInt(state, op2, vd, vs2, masked, (_, _) => (ulong)imm),
 
             RvVnClipVv (var op2, var vd, var vs2, var vs1, var masked) =>
-                ExecuteVNClip(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+                ExecuteVnClip(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
             RvVnClipVx (var op2, var vd, var vs2, var rs1, var masked) =>
-                ExecuteVNClip(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
+                ExecuteVnClip(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
             RvVnClipVi (var op2, var vd, var vs2, var imm, var masked) =>
-                ExecuteVNClip(state, op2, vd, vs2, masked, (_, _) => (uint)imm),
+                ExecuteVnClip(state, op2, vd, vs2, masked, (_, _) => (uint)imm),
 
             // ── V widening FP arithmetic / MAC / converts ──────────────────────
             RvVFpWArithVv (var op2, var vd, var vs2, var vs1, var vs2Wide, var masked) =>
@@ -699,8 +699,8 @@ public class Rv32Executor : IExecutor {
                 ExecuteVAvg(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
             RvVAvgVx (var op2, var vd, var vs2, var rs1, var masked) =>
                 ExecuteVAvg(state, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
-            RvVFpWideRedVs (var ordered, var vd, var vs2, var vs1, var masked) =>
-                ExecuteVFpWideRed(state, ordered, vd, vs2, vs1, masked),
+            RvVFpWideRedVs (_, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVFpWideRed(state, vd, vs2, vs1, masked),
             RvVlssegVv (var numFields, var vd, var rs1, var rs2, var sew, var masked) =>
                 ExecuteVlsseg(state, memory, numFields, vd, rs1, rs2, sew, masked),
             RvVsssegVv (var numFields, var vs3, var rs1, var rs2, var sew, var masked) =>
@@ -768,7 +768,7 @@ public class Rv32Executor : IExecutor {
     private ExecuteResult WfiResult(IArchState state) {
         if (state.SystemRegisters is CsrFile csrs) {
             if (state.PrivilegeLevel == RvPrivilege.Machine) {
-                // M-mode WFI: fast-forward CLINT to the next timer event so the timer fires
+                // M-mode WFI: fast-forward CLINT to the next timer event, so the timer fires
                 // in one tick instead of burning millions of ticks in the idle loop.
                 uint mip = csrs.DirectRead(CsrFile.Mip) & csrs.DirectRead(CsrFile.Mie);
                 if (mip != 0) return ExecuteResult.Clean; // interrupt already pending
@@ -852,7 +852,7 @@ public class Rv32Executor : IExecutor {
         (ulong paddr, int fault) = Translate(memory, state, vaddr, true, false);
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         bool success = ReservationTable?.TryConsume(HartId, paddr) ?? ConsumePrivateReservation(paddr);
-        if (!success) return Reg(1); // reservation absent or invalidated → fail
+        if (!success) return Reg(1); // reservation is absent or invalidated → fail
         memory.Write(paddr, regs.Read(rs2), 4);
         return Reg(0); // 0 = success
     }
@@ -1009,7 +1009,7 @@ public class Rv32Executor : IExecutor {
 
     // ── FP helpers ────────────────────────────────────────────────────────────
 
-    // Wrap an ExecuteResult (e.g. from Load) to NaN-box the 32-bit float value.
+    // Wrap an ExecuteResult (e.g., from Load) to NaN-box the 32-bit float value.
     private static ExecuteResult NanBoxF(ExecuteResult r) =>
         r.RegisterResult.HasValue
             ? ExecuteResult.WithResult(0xFFFFFFFF00000000UL | r.RegisterResult.Value)
@@ -1061,7 +1061,7 @@ public class Rv32Executor : IExecutor {
     // ── Float32 minimum normal magnitude (2^-126) ─────────────────────────────
     private const float MinNormalF = 1.1754944e-38f;
 
-    // Detect FP exception flags for a binary arithmetic op by comparing the float
+    // Detect FP exception flags for binary arithmetic op by comparing the float
     // result against double-precision arithmetic (which is exact for 24-bit mantissa ops).
     // op: 0=add, 1=sub, 2=mul, 3=div
     private static uint FpArithFlags(float a, float b, float r, int op) {
@@ -1873,32 +1873,32 @@ public class Rv32Executor : IExecutor {
     }
 
     private static ulong ApplyVWideOp(VWideOp op, ulong a, ulong b, int ewBytes, bool vs2IsWide) {
-        long SX(ulong v) => ewBytes switch {
+        return op switch {
+            VWideOp.AddU  => (vs2IsWide ? a : Zx(a)) + Zx(b),
+            VWideOp.Add   => (ulong)((vs2IsWide ? Sx2(a) : Sx(a)) + Sx(b)),
+            VWideOp.SubU  => (vs2IsWide ? a : Zx(a)) - Zx(b),
+            VWideOp.Sub   => (ulong)((vs2IsWide ? Sx2(a) : Sx(a)) - Sx(b)),
+            VWideOp.MulU  => Zx(a) * Zx(b),
+            VWideOp.MulSu => (ulong)(Sx(a) * (long)Zx(b)),
+            VWideOp.Mul   => (ulong)(Sx(a) * Sx(b)),
+            _             => throw new InvalidOperationException($"Unknown VWideOp {op}"),
+        };
+
+        long Sx(ulong v) => ewBytes switch {
             1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
         };
 
-        long SX2(ulong v) => (ewBytes * 2) switch {
+        long Sx2(ulong v) => (ewBytes * 2) switch {
             2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
         };
 
-        ulong ZX(ulong v) => ewBytes switch {
+        ulong Zx(ulong v) => ewBytes switch {
             1 => (byte)v, 2 => (ushort)v, 4 => (uint)v, _ => v,
-        };
-
-        return op switch {
-            VWideOp.AddU  => (vs2IsWide ? a : ZX(a)) + ZX(b),
-            VWideOp.Add   => (ulong)((vs2IsWide ? SX2(a) : SX(a)) + SX(b)),
-            VWideOp.SubU  => (vs2IsWide ? a : ZX(a)) - ZX(b),
-            VWideOp.Sub   => (ulong)((vs2IsWide ? SX2(a) : SX(a)) - SX(b)),
-            VWideOp.MulU  => ZX(a) * ZX(b),
-            VWideOp.MulSu => (ulong)(SX(a) * (long)ZX(b)),
-            VWideOp.Mul   => (ulong)(SX(a) * SX(b)),
-            _             => throw new InvalidOperationException($"Unknown VWideOp {op}"),
         };
     }
 
     // vwmacc/vwmaccu/vwmaccsu/vwmaccus: vd[i] (2×SEW) += product of two SEW operands.
-    private static ExecuteResult ExecuteVWMac(
+    private static ExecuteResult ExecuteVwMac(
         IArchState state,
         VwMacOp op,
         int vd,
@@ -1916,30 +1916,30 @@ public class Rv32Executor : IExecutor {
         var result = new byte[VectorRegisterFile.VLenB];
         Array.Copy(vdData, result, vdData.Length);
 
-        long SX(ulong v) => ewBytes switch {
-            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
-        };
-
-        ulong ZX(ulong v) => ewBytes switch {
-            1 => (byte)v, 2 => (ushort)v, 4 => (uint)v, _ => v,
-        };
-
         for (var i = 0; i < effectiveVl; i++) {
             if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
             ulong a = ReadVElement(vs2Data, i, ewBytes);
             ulong b = getB(i, ewBytes);
             ulong acc = ReadVElement(result, i, outEwBytes);
             ulong product = op switch {
-                VwMacOp.Maccu  => ZX(a) * ZX(b),
-                VwMacOp.Macc   => (ulong)(SX(a) * SX(b)),
-                VwMacOp.Maccsu => (ulong)(SX(a) * (long)ZX(b)),
-                VwMacOp.Maccus => (ulong)((long)ZX(a) * SX(b)),
+                VwMacOp.Maccu  => Zx(a) * Zx(b),
+                VwMacOp.Macc   => (ulong)(Sx(a) * Sx(b)),
+                VwMacOp.Maccsu => (ulong)(Sx(a) * (long)Zx(b)),
+                VwMacOp.Maccus => (ulong)((long)Zx(a) * Sx(b)),
                 _              => 0UL,
             };
             WriteVElement(result, i, outEwBytes, acc + product);
         }
 
         return VectorWrite(vd, result);
+
+        long Sx(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
+        };
+
+        ulong Zx(ulong v) => ewBytes switch {
+            1 => (byte)v, 2 => (ushort)v, 4 => (uint)v, _ => v,
+        };
     }
 
     private static ExecuteResult ExecuteVNarr(
@@ -2019,10 +2019,6 @@ public class Rv32Executor : IExecutor {
         var result = new byte[VectorRegisterFile.VLenB];
         ulong uMax = ewBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, 4 => 0xFFFFFFFFUL, _ => ulong.MaxValue, };
 
-        long SX(ulong v) => ewBytes switch {
-            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
-        };
-
         for (var i = 0; i < (int)vl; i++) {
             if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
             ulong a = ReadVElement(vs2Data, i, ewBytes);
@@ -2033,38 +2029,40 @@ public class Rv32Executor : IExecutor {
                 case VAvgOp.Addu:
                     sum = (a & uMax) + (b & uMax);
                     shifted = sum >> 1;
-                    WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
                     break;
                 case VAvgOp.Add: {
-                    long ssum = SX(a) + SX(b);
+                    long ssum = Sx(a) + Sx(b);
                     sum = (ulong)ssum;
                     shifted = (ulong)(ssum >> 1);
-                    WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
                     break;
                 }
                 case VAvgOp.Subu:
                     sum = (a & uMax) - (b & uMax);
                     shifted = sum >> 1;
-                    WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
                     break;
+                case VAvgOp.Sub:
                 default: {
                     // Sub (signed)
-                    long sdiff = SX(a) - SX(b);
+                    long sdiff = Sx(a) - Sx(b);
                     sum = (ulong)sdiff;
                     shifted = (ulong)(sdiff >> 1);
-                    WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
                     break;
                 }
             }
+
+            WriteVElement(result, i, ewBytes, (shifted + ComputeRoundBit(sum, 1, shifted, vxrm)) & uMax);
         }
 
         return VectorWrite(vd, result);
+
+        long Sx(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
+        };
     }
 
     // vfwredusum.vs / vfwredosum.vs: f32 elements summed into f64 accumulator in vd[0].
     private static ExecuteResult ExecuteVFpWideRed(
         IArchState state,
-        bool ordered,
         int vd,
         int vs2,
         int vs1,
@@ -2280,23 +2278,19 @@ public class Rv32Executor : IExecutor {
         long sMin = ewBytes switch { 1 => sbyte.MinValue, 2 => short.MinValue, 4 => int.MinValue, _ => long.MinValue, };
         long sMax = ewBytes switch { 1 => sbyte.MaxValue, 2 => short.MaxValue, 4 => int.MaxValue, _ => long.MaxValue, };
 
-        long SX(ulong v) => ewBytes switch {
-            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
-        };
-
         for (var i = 0; i < (int)vl; i++) {
             if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
             ulong a = ReadVElement(vs2Data, i, ewBytes);
             ulong b = getB(i, ewBytes);
             ulong elem;
             switch (op) {
-                case VSatIntOp.Sadd: elem = (ulong)Math.Clamp(SX(a) + SX(b), sMin, sMax); break;
+                case VSatIntOp.Sadd: elem = (ulong)Math.Clamp(Sx(a) + Sx(b), sMin, sMax); break;
                 case VSatIntOp.Saddu: {
                     ulong sum = (a & uMax) + (b & uMax);
                     elem = sum > uMax ? uMax : sum;
                     break;
                 }
-                case VSatIntOp.Ssub: elem = (ulong)Math.Clamp(SX(a) - SX(b), sMin, sMax); break;
+                case VSatIntOp.Ssub: elem = (ulong)Math.Clamp(Sx(a) - Sx(b), sMin, sMax); break;
                 case VSatIntOp.Ssubu: {
                     ulong ua = a & uMax, ub = b & uMax;
                     elem = ua >= ub ? ua - ub : 0;
@@ -2304,7 +2298,7 @@ public class Rv32Executor : IExecutor {
                 }
                 case VSatIntOp.Smul: {
                     // 2*SEW product, round right by (SEW-1), saturate
-                    long sa = SX(a), sb = SX(b);
+                    long sa = Sx(a), sb = Sx(b);
                     long product = sa * sb;
                     int shift = sew - 1;
                     ulong rounded = VRoundShiftS((ulong)product, shift, vxrm, ewBytes * 2);
@@ -2328,9 +2322,13 @@ public class Rv32Executor : IExecutor {
         }
 
         return VectorWrite(vd, result);
+
+        long Sx(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, 4 => (int)(uint)v, _ => (long)v,
+        };
     }
 
-    private static ExecuteResult ExecuteVNClip(
+    private static ExecuteResult ExecuteVnClip(
         IArchState state,
         VnClipOp op,
         int vd,
@@ -2504,7 +2502,7 @@ public class Rv32Executor : IExecutor {
         return VectorWrite(vd, result);
     }
 
-    private static ExecuteResult ExecuteVcpop(IArchState state, int rd, int vs2, bool masked) {
+    private static ExecuteResult ExecuteVcpop(IArchState state, int vs2, bool masked) {
         (uint vl, _) = VGetVlEw(state);
         byte[] src = VState(state).VectorRegisters.Read(vs2);
         byte[] mask = masked ? VState(state).VectorRegisters.Read(0) : [];
@@ -2517,7 +2515,7 @@ public class Rv32Executor : IExecutor {
         return ExecuteResult.WithResult(count);
     }
 
-    private static ExecuteResult ExecuteVfirst(IArchState state, int rd, int vs2, bool masked) {
+    private static ExecuteResult ExecuteVfirst(IArchState state, int vs2, bool masked) {
         (uint vl, _) = VGetVlEw(state);
         byte[] src = VState(state).VectorRegisters.Read(vs2);
         byte[] mask = masked ? VState(state).VectorRegisters.Read(0) : [];
@@ -2543,46 +2541,47 @@ public class Rv32Executor : IExecutor {
         var result = new byte[VectorRegisterFile.VLenB];
         Array.Copy(vdOld, result, VectorRegisterFile.VLenB);
 
-        if (op is VMaskUnaryOp.Msbf or VMaskUnaryOp.Msof or VMaskUnaryOp.Msif) {
-            byte[] src2 = vregs.Read(vs2);
-            int firstSet = -1;
-            for (var i = 0; i < (int)vl; i++)
-                if (((src2[i >> 3] >> (i & 7)) & 1) != 0) {
-                    firstSet = i;
-                    break;
+        switch (op) {
+            case VMaskUnaryOp.Msbf or VMaskUnaryOp.Msof or VMaskUnaryOp.Msif: {
+                byte[] src2 = vregs.Read(vs2);
+                int firstSet = -1;
+                for (var i = 0; i < (int)vl; i++)
+                    if (((src2[i >> 3] >> (i & 7)) & 1) != 0) {
+                        firstSet = i;
+                        break;
+                    }
+
+                for (var i = 0; i < (int)vl; i++) {
+                    if (masked && ((maskReg[i >> 3] >> (i & 7)) & 1) == 0) continue;
+                    bool val = op switch {
+                        VMaskUnaryOp.Msbf => firstSet < 0 || i < firstSet,
+                        VMaskUnaryOp.Msof => i == firstSet,
+                        _                 => firstSet < 0 || i <= firstSet, // Msif
+                    };
+                    if (val)
+                        result[i >> 3] |= (byte)(1 << (i & 7));
+                    else
+                        result[i >> 3] &= (byte)~(1 << (i & 7));
                 }
 
-            for (var i = 0; i < (int)vl; i++) {
-                if (masked && ((maskReg[i >> 3] >> (i & 7)) & 1) == 0) continue;
-                bool val = op switch {
-                    VMaskUnaryOp.Msbf => firstSet < 0 || i < firstSet,
-                    VMaskUnaryOp.Msof => i == firstSet,
-                    _                 => firstSet < 0 || i <= firstSet, // Msif
-                };
-                if (val)
-                    result[i >> 3] |= (byte)(1 << (i & 7));
-                else
-                    result[i >> 3] &= (byte)~(1 << (i & 7));
+                return VectorWrite(vd, result);
             }
+            case VMaskUnaryOp.Iota: {
+                byte[] src2 = vregs.Read(vs2);
+                ulong prefix = 0;
+                for (var i = 0; i < (int)vl; i++) {
+                    bool isSet = ((src2[i >> 3] >> (i & 7)) & 1) != 0;
+                    if (masked && ((maskReg[i >> 3] >> (i & 7)) & 1) == 0) {
+                        if (isSet) prefix++;
+                        continue;
+                    }
 
-            return VectorWrite(vd, result);
-        }
-
-        if (op == VMaskUnaryOp.Iota) {
-            byte[] src2 = vregs.Read(vs2);
-            ulong prefix = 0;
-            for (var i = 0; i < (int)vl; i++) {
-                bool isSet = ((src2[i >> 3] >> (i & 7)) & 1) != 0;
-                if (masked && ((maskReg[i >> 3] >> (i & 7)) & 1) == 0) {
+                    WriteVElement(result, i, ewBytes, prefix);
                     if (isSet) prefix++;
-                    continue;
                 }
 
-                WriteVElement(result, i, ewBytes, prefix);
-                if (isSet) prefix++;
+                return VectorWrite(vd, result);
             }
-
-            return VectorWrite(vd, result);
         }
 
         // VMaskUnaryOp.Id: write element index i into each active vd[i]
@@ -2853,19 +2852,19 @@ public class Rv32Executor : IExecutor {
         byte[] maskData = VState(state).VectorRegisters.Read(0);
         ulong acc = ReadVElement(vs1Data, 0, wBytes); // seed from vs1[0] at 2×SEW
 
-        long SX(ulong v) => ewBytes switch {
-            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, _ => (int)(uint)v,
-        };
-
         for (var i = 0; i < (int)vl; i++) {
             if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
             ulong elem = ReadVElement(vs2Data, i, ewBytes);
-            acc += signed ? (ulong)SX(elem) : elem;
+            acc += signed ? (ulong)Sx(elem) : elem;
         }
 
         var result = new byte[VectorRegisterFile.VLenB];
         WriteVElement(result, 0, wBytes, acc);
         return VectorWrite(vd, result);
+
+        long Sx(ulong v) => ewBytes switch {
+            1 => (sbyte)(byte)v, 2 => (short)(ushort)v, _ => (int)(uint)v,
+        };
     }
 
     private static ulong ApplyVRedOp(VRedOp op, ulong acc, ulong elem, int ewBytes) {
@@ -3382,7 +3381,7 @@ public class Rv32Executor : IExecutor {
     }
 
     // vfmv.f.s: scalar float rd ← vs2[0]
-    private static ExecuteResult ExecuteVFpMvFs(IArchState state, IRegisterFile regs, int rd, int vs2) {
+    private static ExecuteResult ExecuteVFpMvFs(IArchState state, int vs2) {
         byte[] data = VState(state).VectorRegisters.Read(vs2);
         var elem0 = (uint)ReadVElement(data, 0, 4);
         return ExecuteResult.WithResult(elem0);
@@ -3454,36 +3453,40 @@ public class Rv32Executor : IExecutor {
     }
 
     // f32 → u64 saturating (NaN or negative → 0; overflow → MaxValue)
-    private static ulong VFcvtXuFromF32(float f) {
-        if (float.IsNaN(f) || f < 0f) return 0;
-        if (f >= 1.8446744073709552E+19f) return ulong.MaxValue;
-        return (ulong)f;
-    }
+    private static ulong VFcvtXuFromF32(float f) =>
+        f switch {
+            float.NaN or < 0f          => 0,
+            >= 1.8446744073709552E+19f => ulong.MaxValue,
+            _                          => (ulong)f,
+        };
 
     // f32 → i64 saturating
-    private static ulong VFcvtXFromF32(float f) {
-        if (float.IsNaN(f) || f >= 9.2233720368547758E+18f) return long.MaxValue;
-        if (f < -9.2233720368547758E+18f) return unchecked((ulong)long.MinValue);
-        return (ulong)(long)f;
-    }
+    private static ulong VFcvtXFromF32(float f) =>
+        f switch {
+            float.NaN or >= 9.2233720368547758E+18f => long.MaxValue,
+            < -9.2233720368547758E+18f              => unchecked((ulong)long.MinValue),
+            _                                       => (ulong)(long)f,
+        };
 
     // f64 → u32 saturating
-    private static ulong VFcvtXuFromF64(double d) {
-        if (double.IsNaN(d) || d < 0.0) return 0;
-        if (d >= 4294967296.0) return uint.MaxValue;
-        return (uint)d;
-    }
+    private static ulong VFcvtXuFromF64(double d) =>
+        d switch {
+            double.NaN or < 0.0 => 0,
+            >= 4294967296.0     => uint.MaxValue,
+            _                   => (uint)d,
+        };
 
     // f64 → i32 saturating
-    private static ulong VFcvtXFromF64(double d) {
-        if (double.IsNaN(d) || d >= 2147483648.0) return int.MaxValue;
-        if (d < -2147483648.0) return unchecked((uint)int.MinValue);
-        return (uint)(int)d;
-    }
+    private static ulong VFcvtXFromF64(double d) =>
+        d switch {
+            double.NaN or >= 2147483648.0 => int.MaxValue,
+            < -2147483648.0               => unchecked((uint)int.MinValue),
+            _                             => (uint)(int)d,
+        };
 
     // vfncvt.rod.f.f.w: f64 → f32, round-to-odd (if inexact, force mantissa LSB=1)
     private static float VFcvtRodF32FromF64(double d) {
-        if (double.IsNaN(d)) return BitConverter.Int32BitsToSingle(unchecked(0x7FC00000));
+        if (double.IsNaN(d)) return BitConverter.Int32BitsToSingle(2143289344);
         var f = (float)d;
         if (float.IsInfinity(f) || f == d) return f;
         return BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(f) | 1);

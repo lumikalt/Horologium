@@ -3,6 +3,8 @@ using Orrery.Cache;
 using RiscV32.Analysis;
 using RiscV32.Config;
 
+// ReSharper disable UnusedParameterInPartialMethod
+
 namespace Face.ViewModels;
 
 public partial class ConfigViewModel : ObservableObject {
@@ -111,7 +113,7 @@ public partial class ConfigViewModel : ObservableObject {
     public bool HasImliParams => PredictorType == "imli";
 
     // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnPipelineChanged(string _) {
+    partial void OnPipelineChanged(string value) {
         OnPropertyChanged(nameof(IsFiveStage));
         OnPropertyChanged(nameof(IsOoo));
         OnPropertyChanged(nameof(IsWidePipeline));
@@ -119,7 +121,7 @@ public partial class ConfigViewModel : ObservableObject {
     }
 
     // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnPredictorTypeChanged(string _) {
+    partial void OnPredictorTypeChanged(string value) {
         OnPropertyChanged(nameof(HasNBitParams));
         OnPropertyChanged(nameof(HasGshareParams));
         OnPropertyChanged(nameof(HasGselectParams));

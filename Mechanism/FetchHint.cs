@@ -5,6 +5,7 @@ namespace Mechanism;
 /// before full decode, without embedding ISA opcode knowledge in the pipeline.
 /// </summary>
 public readonly record struct FetchHint {
+    /// <summary>Initializes a <see cref="FetchHint"/> with default values (4-byte, non-branch).</summary>
     public FetchHint() { }
 
     /// <summary>Size of the instruction in bytes.</summary>

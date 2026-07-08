@@ -6,7 +6,7 @@ namespace Orrery.Devices;
 /// Routes memory accesses to registered MMIO device address windows.
 /// Accesses that fall outside every registered window are forwarded to
 /// <paramref name="backing"/> (the main RAM or a wrapped-RAM chain such as
-/// <see cref="RiscV32.Memory.HtifMemory"/>). Load calls always go to the backing,
+/// <c>HtifMemory</c>). Load calls always go to the backing,
 /// since device registers are never part of the program image.
 /// </summary>
 public sealed class PeripheralBus(

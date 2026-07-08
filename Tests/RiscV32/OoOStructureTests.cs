@@ -684,7 +684,7 @@ public class FuLatencyConfigBudgetSlotTests {
 
     [Fact]
     public void Store_HasOwnSlot_IndependentFromLoad() {
-        int loadSlot  = FuLatencyConfig.BudgetSlot(ToothClass.Load);
+        int loadSlot = FuLatencyConfig.BudgetSlot(ToothClass.Load);
         int storeSlot = FuLatencyConfig.BudgetSlot(ToothClass.Store);
         Assert.NotEqual(loadSlot, storeSlot);
     }

@@ -62,7 +62,7 @@ internal static class Sv32Walker {
 
         // Check page permissions
         bool pteU = (pte & Sv32Walker.PteU) != 0;
-        if (umode && !pteU) return (0, fault); // U-mode accessing kernel page
+        if (umode && !pteU) return (0, fault);                    // U-mode accessing kernel page
         if (smode && pteU && (!sum || isExec)) return (0, fault); // S-mode/U-page: deny unless SUM=1 and data access
 
         if (isExec && (pte & Sv32Walker.PteX) == 0) return (0, fault);

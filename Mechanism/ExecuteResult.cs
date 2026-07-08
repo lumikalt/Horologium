@@ -90,15 +90,36 @@ public sealed record TrapInfo(
 
 /// <summary>ISA-agnostic trap cause codes. Numeric values match RISC-V mcause by convention.</summary>
 public static class TrapCause {
+    /// <summary>Instruction address not naturally aligned.</summary>
     public const int InstructionAddressMisaligned = 0;
+
+    /// <summary>Instruction fetch from a faulting physical address.</summary>
     public const int InstructionAccessFault = 1;
+
+    /// <summary>Unrecognised or privilege-violating instruction encoding.</summary>
     public const int IllegalInstruction = 2;
+
+    /// <summary>EBREAK or debugger breakpoint hit.</summary>
     public const int Breakpoint = 3;
+
+    /// <summary>Load address not naturally aligned.</summary>
     public const int LoadAddressMisaligned = 4;
+
+    /// <summary>Load from a faulting physical address.</summary>
     public const int LoadAccessFault = 5;
+
+    /// <summary>Store/AMO address not naturally aligned.</summary>
     public const int StoreAddressMisaligned = 6;
+
+    /// <summary>Store/AMO to a faulting physical address.</summary>
     public const int StoreAccessFault = 7;
+
+    /// <summary>Instruction fetch page fault (Sv32/Sv39 translation failure).</summary>
     public const int InstructionPageFault = 12;
+
+    /// <summary>Load page fault (Sv32/Sv39 translation failure).</summary>
     public const int LoadPageFault = 13;
+
+    /// <summary>Store/AMO page fault (Sv32/Sv39 translation failure).</summary>
     public const int StorePageFault = 15;
 }

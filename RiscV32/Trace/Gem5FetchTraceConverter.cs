@@ -21,7 +21,7 @@ namespace RiscV32.Trace;
 /// <para>
 /// <c>Packet</c> field mapping (one per committed instruction):
 /// <list type="table">
-///   <item><term>tick  (1, uint64)</term><description>monotonically increasing; spaced by <paramref name="ticksPerInstr"/></description></item>
+///   <item><term>tick  (1, uint64)</term><description>monotonically increasing; spaced by <c>ticksPerInstr</c></description></item>
 ///   <item><term>cmd   (2, uint32)</term><description>1 = MemCmd::ReadReq (instruction fetch)</description></item>
 ///   <item><term>addr  (3, uint64)</term><description>HELF pc (no V→P translation)</description></item>
 ///   <item><term>size  (4, uint32)</term><description>4 (RV32 fixed-width fetch)</description></item>
@@ -42,6 +42,9 @@ public static class Gem5FetchTraceConverter {
     /// Converts a HELF stream to a gem5 packet-proto fetch-trace stream.
     /// Both streams are read/written sequentially; the caller owns both.
     /// </summary>
+    /// <param name="input">HELF elastic trace stream to read from.</param>
+    /// <param name="output">gem5 proto stream to write to.</param>
+    /// <param name="tickFreq">Tick frequency for the proto header; 0 uses the HELF header value (falling back to 1 GHz).</param>
     /// <param name="ticksPerInstr">
     /// Tick delta between consecutive fetch packets. Defaults to 500 (≈ 500 ns
     /// at 1 GHz), which is conservative but keeps ticks strictly increasing.

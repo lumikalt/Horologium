@@ -111,6 +111,7 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
 
     // ── IBranchPredictor overrides ────────────────────────────────────────────
 
+    /// <inheritdoc/>
     protected override bool ResolvePrediction(ulong pc, int provider, bool tagePred) {
         if (IsPenActive(pc)) {
             GatedPredictions++;
@@ -120,6 +121,7 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
         return base.ResolvePrediction(pc, provider, tagePred);
     }
 
+    /// <inheritdoc/>
     public override void Update(ulong pc, bool taken, ulong actualTarget) {
         UpdateVlt(pc, taken, actualTarget);
         base.Update(pc, taken, actualTarget);
