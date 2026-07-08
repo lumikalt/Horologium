@@ -677,10 +677,16 @@ public class StoreQueueTests {
 /// FuLatencyConfig.BudgetSlot
 public class FuLatencyConfigBudgetSlotTests {
     [Fact]
-    public void MemoryClasses_ShareOneSlot() {
+    public void Atomic_SharesSlotWithLoad() {
         int loadSlot = FuLatencyConfig.BudgetSlot(ToothClass.Load);
-        Assert.Equal(loadSlot, FuLatencyConfig.BudgetSlot(ToothClass.Store));
         Assert.Equal(loadSlot, FuLatencyConfig.BudgetSlot(ToothClass.Atomic));
+    }
+
+    [Fact]
+    public void Store_HasOwnSlot_IndependentFromLoad() {
+        int loadSlot  = FuLatencyConfig.BudgetSlot(ToothClass.Load);
+        int storeSlot = FuLatencyConfig.BudgetSlot(ToothClass.Store);
+        Assert.NotEqual(loadSlot, storeSlot);
     }
 
     [Fact]

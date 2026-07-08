@@ -13,7 +13,10 @@ namespace Pipeline.Ooo;
 /// <b>LoadHitLatency</b> models the LSU pipeline depth on a cache hit (addr_calc →
 /// MMU → cache_lookup → cache_read → complete = 4 cycles in Olympia). The MLP
 /// miss-countdown adds the cache miss penalty on top of this base latency.
-/// <b>LoadStoreLatency</b> applies to stores and atomics only.
+/// <b>LoadCount</b> and <b>StoreCount</b> are independent issue ports: a load and a store
+/// may issue in the same cycle if both counters allow it (gem5 models this with separate
+/// MemRead and MemWrite FU pools). Atomics share the load port (they occupy the LSU
+/// read pipeline). <b>LoadStoreLatency</b> applies to stores and atomics only.
 /// <b>BypassLatency</b> models the result-bypass network delay: cycles added between
 /// a result broadcast and when a dependent instruction can issue. Real hardware
 /// typically adds 1 cycle on the bypass path; 0 = zero-cycle (ideal) forwarding.
@@ -32,7 +35,8 @@ public sealed record FuLatencyConfig(
     int MulDivCount = 1,
     int MulDivLatency = 3,
     int DivLatency = 0,
-    int LoadStoreCount = 1,
+    int LoadCount = 1,
+    int StoreCount = 1,
     int LoadStoreLatency = 1,
     int LoadHitLatency = 1,
     int BranchCount = 1,
@@ -50,20 +54,22 @@ public sealed record FuLatencyConfig(
 
     /// <summary>
     /// Maps a ToothClass to the issue-port counter slot used in StepIssue.
-    /// Classes that share a single FU pool (Load/Store/Atomic; Branch/ConditionalBranch)
+    /// Classes that share a single FU pool (Atomic shares Load port; ConditionalBranch shares Branch)
     /// must share the same slot so their combined issue count respects CountFor's limit.
+    /// Store has its own slot — it has an independent issue port (StoreCount) from loads.
     /// Must be kept in sync with the groupings in CountFor.
     /// </summary>
     public static int BudgetSlot(ToothClass cls) => cls switch {
-        ToothClass.Store or ToothClass.Atomic => (int)ToothClass.Load,
-        ToothClass.ConditionalBranch          => (int)ToothClass.Branch,
-        _                                     => (int)cls,
+        ToothClass.Atomic            => (int)ToothClass.Load,
+        ToothClass.ConditionalBranch => (int)ToothClass.Branch,
+        _                            => (int)cls,
     };
 
     public int CountFor(ToothClass cls) => cls switch {
         ToothClass.IntegerAlu                                    => IntAluCount,
         ToothClass.IntegerMulDiv                                 => MulDivCount,
-        ToothClass.Load or ToothClass.Store or ToothClass.Atomic => LoadStoreCount,
+        ToothClass.Load or ToothClass.Atomic => LoadCount,
+        ToothClass.Store                      => StoreCount,
         ToothClass.Branch or ToothClass.ConditionalBranch        => BranchCount,
         ToothClass.FloatingPoint                                 => FloatCount,
         ToothClass.FloatDivSqrt                                  => FloatDivSqrtCount,

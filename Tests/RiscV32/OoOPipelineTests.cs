@@ -568,10 +568,10 @@ public class OoOPipelineTests {
         Assert.Equal(77u, Reg(train, 4)); // load forwarded from AMO's captured write
     }
 
-    // ── Bug: Load/Store/Atomic share one FU budget but StepIssue counted per-class ──
-    // Before the fix, Load and Atomic each had their own counter slot in classIssued[],
-    // so with LoadStoreCount=1 a Load and an Atomic that were both ready could issue
-    // in the same cycle — exceeding the single modeled port.
+    // ── FU budget: Load/Atomic share one port; Store has its own port ──
+    // Load and Atomic share the Load budget slot (Atomic occupies the LSU read pipeline).
+    // Store has an independent slot so a load and a store may issue in the same cycle,
+    // mirroring gem5's separate MemRead/MemWrite FU pools.
 
     // ── Structural stall: small LQ/SQ capacity ─────────────────────────────────
     // With lqCapacity=1 or sqCapacity=1, the pipeline must stall at Dispatch when
@@ -648,15 +648,13 @@ public class OoOPipelineTests {
     }
 
     [Fact]
-    public void LoadAndAtomic_WithLoadStoreCount1_IssueInSeparateCycles() {
+    public void LoadAndAtomic_WithLoadCount1_IssueInSeparateCycles() {
         // lw  x1, 0(x0)   (PC=0) — Load, no deps
         // lr.w x2, (x0)   (PC=4) — Atomic, no deps
         // ebreak           (PC=8)
         //
-        // With issueWidth=2, both instructions are dispatched in the same cycle
-        // and are immediately ready. With LoadStoreCount=1 (the default), at most
-        // one memory-class instruction may issue per cycle. The bug allows both to
-        // issue the same cycle; the fix defers the second to the next cycle.
+        // Atomic shares the Load budget slot (both use the LSU read pipeline).
+        // With LoadCount=1, at most one Load-or-Atomic may issue per cycle.
         var log = new PEventLog();
         (OooeTrain train, FlatMemory mem) = Make(pEventLog: log);
         Load(
@@ -673,6 +671,32 @@ public class OoOPipelineTests {
         Assert.True(issues.ContainsKey(0), "lw at PC=0 must have an Issue event");
         Assert.True(issues.ContainsKey(4), "lr.w at PC=4 must have an Issue event");
         Assert.NotEqual(issues[0].Cycle, issues[4].Cycle);
+    }
+
+    [Fact]
+    public void LoadAndStore_WithSeparatePorts_IssueInSameCycle() {
+        // lw  x1, 0(x0)   (PC=0) — Load, no deps
+        // sw  x0, 4(x0)   (PC=4) — Store, no deps, no address/data dependency on lw
+        // ebreak           (PC=8)
+        //
+        // Load and Store have independent FU budget slots (LoadCount and StoreCount).
+        // With issueWidth=2 and no dependencies, both should issue in the same cycle.
+        var log = new PEventLog();
+        (OooeTrain train, FlatMemory mem) = Make(pEventLog: log);
+        Load(
+            mem,
+            0x00002083, // lw  x1, 0(x0)
+            0x00002223, // sw  x0, 4(x0)
+            0x00100073  // ebreak
+        );
+        train.Run();
+
+        Dictionary<ulong, PEvent> issues = log.Events
+                                              .Where(e => e.Kind == PEventKind.Issue)
+                                              .ToDictionary(e => e.Pc);
+        Assert.True(issues.ContainsKey(0), "lw at PC=0 must have an Issue event");
+        Assert.True(issues.ContainsKey(4), "sw at PC=4 must have an Issue event");
+        Assert.Equal(issues[0].Cycle, issues[4].Cycle);
     }
 
     [Fact]
