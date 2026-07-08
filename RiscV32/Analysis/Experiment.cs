@@ -130,16 +130,19 @@ public static class Experiment {
         IMemory runMemory = workload.WrapMemory(memory);
         MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
 
-        RevolutionResult result = config.Pipeline switch {
-            "superscalar" => new SuperscalarTrain(
-                mechanism, runMemory,
-                workload.EntryPoint,
-                config.IssueWidth,
-                config.ToIMemoryConfig(),
-                dCfg
-            ).Run(maxTicks, warmupTicks, snapshotInterval),
+        RevolutionResult result;
+        if (config.Pipeline == "ooo") {
+            // For HTIF benchmark workloads that have setStats(), attach an observer to
+            // measure kernel-only IPC (excluding startup and the sprintf teardown that
+            // inflates instruction count vs. the Linux-ABI gem5 binary).
+            SetStatsObserver? setStatsObs = null;
+            OooeTrain? trainRef = null;
+            if (workload is Rv32ElfWorkload elfWorkload &&
+                elfWorkload.TryFindSymbol("setStats", out ulong setStatsPc)) {
+                setStatsObs = new SetStatsObserver(setStatsPc, () => trainRef!.SnapshotPipeline());
+            }
 
-            "ooo" => new OooeTrain(
+            trainRef = new OooeTrain(
                 mechanism, runMemory,
                 workload.EntryPoint,
                 config.IssueWidth,
@@ -150,20 +153,37 @@ public static class Experiment {
                 config.ToIMemoryConfig(),
                 dCfg,
                 config.FuLatency,
+                commitObserver: setStatsObs,
                 writeBufferCapacity: config.StoreBufferCapacity,
                 mshrCapacity: config.MshrCapacity
-            ).Run(maxTicks, warmupTicks, snapshotInterval),
+            );
 
-            _ => new FiveStageTrain(
-                mechanism, runMemory,
-                workload.EntryPoint,
-                config.ForwardingEnabled,
-                config.Predictor?.Build(mechanism, workload),
-                config.ToIMemoryConfig(),
-                dCfg,
-                config.StoreBufferCapacity
-            ).Run(maxTicks, warmupTicks, snapshotInterval),
-        };
+            result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
+
+            if (setStatsObs?.KernelDelta is { } kernelSnap)
+                result = result with { Snapshots = [kernelSnap] };
+        }
+        else {
+            result = config.Pipeline switch {
+                "superscalar" => new SuperscalarTrain(
+                    mechanism, runMemory,
+                    workload.EntryPoint,
+                    config.IssueWidth,
+                    config.ToIMemoryConfig(),
+                    dCfg
+                ).Run(maxTicks, warmupTicks, snapshotInterval),
+
+                _ => new FiveStageTrain(
+                    mechanism, runMemory,
+                    workload.EntryPoint,
+                    config.ForwardingEnabled,
+                    config.Predictor?.Build(mechanism, workload),
+                    config.ToIMemoryConfig(),
+                    dCfg,
+                    config.StoreBufferCapacity
+                ).Run(maxTicks, warmupTicks, snapshotInterval),
+            };
+        }
 
         return new RunRecord(named.Name, config, result);
     }

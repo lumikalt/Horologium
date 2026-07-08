@@ -471,6 +471,9 @@ public class ExperimentTests {
         RevolutionResult r = result.Runs[0].Result;
         long retired = r.Find($"{pipeline}.pipeline")!.Counters["retired"];
         Assert.True(r.TotalTicks < maxTicks, $"{pipeline} hit maxTicks ({r.TotalTicks}) — MMIO not bypassing cache");
-        Assert.InRange(retired, 9_000L, 20_000L); // true length, not hundreds of thousands of poll iterations
+        // OOO: kernel-only count (setStats window); other pipelines: full-run count.
+        long retiredLo = pipeline == "ooo" ? 500L : 9_000L;
+        long retiredHi = pipeline == "ooo" ? 10_000L : 20_000L;
+        Assert.InRange(retired, retiredLo, retiredHi);
     }
 }

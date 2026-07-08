@@ -46,10 +46,13 @@ but with different startup and exit code:
 | teardown | `sprintf` + `printstr` (via HTIF) | none (setStats is no-op, so counters are 0) |
 
 The `Δinsts` column shows `(Horo_retired − gem5_committed) / gem5_committed`.
-Non-trivial deltas (+5–45%) are expected: the HTIF binary's `sprintf` teardown
-runs integer division many times (converting cycle/instret counters to decimal),
-while the Linux binary skips this entirely since `setStats` is a no-op.  
-The kernel instruction counts (the actual benchmark work) are identical.
+Horologium now reports **kernel-only** stats: `Experiment.RunOne` attaches a
+`SetStatsObserver` that snapshots the pipeline DialBoard at the first instruction
+of `setStats(1)` and `setStats(0)`, then subtracts to isolate the kernel interval.
+This eliminates the `sprintf` teardown overhead that previously inflated the HTIF
+binary's instruction count vs. the Linux binary's no-op `setStats`. Small deltas
+(±5%) are expected from startup overhead between the two call sites; large deltas
+now indicate genuine instruction-count divergence.
 
 ## Results
 

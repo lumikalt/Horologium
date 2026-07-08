@@ -114,6 +114,8 @@ public sealed class OooeTrain : ISteppableTrain {
     public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
         _train.Run(maxTicks, warmupTicks, snapshotInterval);
 
+    public Orrery.Observation.DialBoardSnapshot SnapshotPipeline() => _core.Dials.Snapshot();
+
     public long CurrentTick => _train.CurrentTick;
     public bool IsIdle => _train.IsIdle;
     public void BeginStepping() => _train.BeginStepping();

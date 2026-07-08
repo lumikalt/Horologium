@@ -124,7 +124,7 @@ public sealed record DialBoardSnapshot(
     /// kept from <c>this</c>. Used to extract measurement-phase stats
     /// from a run that included a warmup phase.
     /// </summary>
-    internal DialBoardSnapshot Subtract(DialBoardSnapshot baseline) =>
+    public DialBoardSnapshot Subtract(DialBoardSnapshot baseline) =>
         new(
             OwnerPath,
             Counters.ToDictionary(
