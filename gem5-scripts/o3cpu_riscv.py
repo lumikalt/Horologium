@@ -92,22 +92,25 @@ args = parser.parse_args()
 # ── FU pool helper ────────────────────────────────────────────────────────────
 
 def make_fu_pool(div_lat=None):
-    """Return DefaultFUPool, optionally patching IntDiv latency."""
+    """Return DefaultFUPool, optionally patching IntDiv latency.
+
+    gem5 SimObjects have exactly one parent.  Borrowing a FUDesc from
+    DefaultFUPool into a new FUPool makes it an 'orphan' and triggers a fatal
+    at instantiate() time.  We therefore rebuild every FUDesc from scratch so
+    the new FUPool owns all its children exclusively.
+    """
     default = DefaultFUPool()
     if div_lat is None:
         return default
     new_fu_list = []
     for fu in default.FUList:
-        if any(str(op.opClass) == 'IntDiv' for op in fu.opList):
-            new_ops = [
-                OpDesc(opClass='IntDiv', opLat=div_lat, pipelined=False)
-                if str(op.opClass) == 'IntDiv'
-                else OpDesc(opClass=str(op.opClass), opLat=op.opLat, pipelined=op.pipelined)
-                for op in fu.opList
-            ]
-            new_fu_list.append(FUDesc(opList=new_ops, count=fu.count))
-        else:
-            new_fu_list.append(fu)
+        new_ops = [
+            OpDesc(opClass='IntDiv', opLat=div_lat, pipelined=False)
+            if str(op.opClass) == 'IntDiv'
+            else OpDesc(opClass=str(op.opClass), opLat=op.opLat, pipelined=op.pipelined)
+            for op in fu.opList
+        ]
+        new_fu_list.append(FUDesc(opList=new_ops, count=fu.count))
     return FUPool(FUList=new_fu_list)
 
 # ── Cache classes (no gem5 stdlib dependency) ─────────────────────────────────
