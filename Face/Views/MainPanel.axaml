@@ -311,10 +311,10 @@
                                        Minimum="1" Maximum="16" />
                     </Grid>
 
-                    <!-- ooo: ROB / IQ / phys regs -->
+                    <!-- ooo: ROB / IQ / phys regs / flat IQ / MSHR -->
                     <StackPanel IsVisible="{Binding IsOoo}" Spacing="6">
                         <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
-                              RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
+                              RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="ROB capacity" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding RobCapacity}"
                                            Minimum="4" Maximum="512" />
@@ -324,7 +324,11 @@
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Extra phys regs" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding ExtraPhysRegs}"
                                            Minimum="0" Maximum="256" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="MSHR capacity" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding MshrCapacity}"
+                                           Minimum="0" Maximum="64" />
                         </Grid>
+                        <CheckBox Content="Flat IQ (unified issue queue)" IsChecked="{Binding FlatIq}" />
                     </StackPanel>
 
                 </StackPanel>
@@ -998,6 +1002,62 @@
 
                             <TextBlock Text="Toggle applies immediately. Geometry takes effect on Reset."
                                        FontSize="10" Opacity="0.4" Margin="0,2,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <!-- OoO structural parameters -->
+                        <StackPanel IsVisible="{Binding Assembler.IsOooMode}"
+                                    Margin="16,0,16,4" Spacing="4">
+                            <TextBlock Text="OOO PIPELINE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <Grid ColumnDefinitions="72,*,Auto" ColumnSpacing="4" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Issue W"
+                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                               Value="{Binding Assembler.OooIssueWidth}"
+                                               Minimum="1" Maximum="16" FormatString="N0"
+                                               HorizontalAlignment="Stretch" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="  "
+                                           VerticalAlignment="Center" FontSize="11" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="ROB"
+                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                               Value="{Binding Assembler.OooRobCapacity}"
+                                               Minimum="4" Maximum="512" FormatString="N0"
+                                               HorizontalAlignment="Stretch" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="  "
+                                           VerticalAlignment="Center" FontSize="11" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="IQ"
+                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                               Value="{Binding Assembler.OooIqCapacity}"
+                                               Minimum="4" Maximum="256" FormatString="N0"
+                                               HorizontalAlignment="Stretch" />
+                                <TextBlock Grid.Row="2" Grid.Column="2" Text="  "
+                                           VerticalAlignment="Center" FontSize="11" />
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Phys regs"
+                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                <NumericUpDown Grid.Row="3" Grid.Column="1"
+                                               Value="{Binding Assembler.OooExtraPhysRegs}"
+                                               Minimum="0" Maximum="256" FormatString="N0"
+                                               HorizontalAlignment="Stretch" />
+                                <TextBlock Grid.Row="3" Grid.Column="2" Text="  "
+                                           VerticalAlignment="Center" FontSize="11" />
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="MSHR"
+                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                <NumericUpDown Grid.Row="4" Grid.Column="1"
+                                               Value="{Binding Assembler.OooMshrCapacity}"
+                                               Minimum="0" Maximum="64" FormatString="N0"
+                                               HorizontalAlignment="Stretch" />
+                                <TextBlock Grid.Row="4" Grid.Column="2" Text="  "
+                                           VerticalAlignment="Center" FontSize="11" Opacity="0.5" />
+
+                                <CheckBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3"
+                                          Content="Flat IQ"
+                                          IsChecked="{Binding Assembler.OooFlatIq}" />
+                            </Grid>
                         </StackPanel>
 
                         <StackPanel Margin="16,12,16,12" Spacing="12">

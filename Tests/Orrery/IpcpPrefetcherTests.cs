@@ -1,5 +1,4 @@
 using Orrery.Cache;
-using Xunit;
 
 namespace Tests.Orrery;
 
@@ -19,7 +18,7 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void FirstAccess_NoIpEntry_NoPrefetch() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[8];
         Assert.Equal(0, Fire(p, 0x1000UL, 0x2000UL, buf));
     }
@@ -28,9 +27,9 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void Cs_ConstantStride_GainsConfidenceAndPrefetches() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[8];
-        ulong pc = 0x1000UL;
+        const ulong pc = 0x1000UL;
         // Confidence model: first observation SETS stride (conf stays 0); each subsequent
         // match increments. Conf reaches 2 on the 3rd stride observation = 4th access.
         Fire(p, pc, 0,   buf); // init entry
@@ -43,9 +42,9 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void Cs_Degree3_Issues3Prefetches() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[16];
-        ulong pc = 0x1000UL;
+        const ulong pc = 0x1000UL;
         // Warm up CS: 3 accesses to establish stride of 1 line (32 bytes)
         Fire(p, pc, 0,   buf);
         Fire(p, pc, 32,  buf); // conf=1
@@ -59,12 +58,12 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void Cs_PageCross_NoPrefetchBeyondPage() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[8];
-        ulong pc = 0x1000UL;
+        const ulong pc = 0x1000UL;
         // Line 126 and 127 are the last two lines of a 4096-byte page (128 lines × 32B).
-        ulong line126 = 126 * 32UL;
-        ulong line127 = 127 * 32UL;
+        const ulong line126 = 126 * 32UL;
+        const ulong line127 = 127 * 32UL;
         // Warm up: stride = 1 line
         Fire(p, pc, line126 - 32, buf); // line125
         Fire(p, pc, line126,      buf); // stride=1, conf=1
@@ -77,9 +76,9 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void Cs_StrideChange_ResetsConfidence() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[8];
-        ulong pc = 0x1000UL;
+        const ulong pc = 0x1000UL;
         // Establish stride=1 at conf=2
         Fire(p, pc, 0,  buf);
         Fire(p, pc, 32, buf);
@@ -95,9 +94,9 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void Cplx_AlternatingStrides_LearnedAndPrefetched() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[8];
-        ulong pc = 0x2000UL;
+        const ulong pc = 0x2000UL;
         // Pattern: stride +1, +3 lines (32B, 96B alternating). CS never fires (alternating stride).
         // The 7-bit signature stabilises into the cycle 43↔85 from access 9 onwards.
         // CSPT[43] is trained with stride=3 at accesses 9 and 11 → conf=1 after access 11.
@@ -112,17 +111,17 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void Gs_DenseRegion_TriggersPrefetch() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[16];
         // Region 0: lines 0..63 (each 32 bytes). Dense threshold = ceil(64×0.75) = 48.
         // Vary PC so no single IP builds CS confidence; use distinct PCs per access.
-        for (int i = 0; i < 48; i++) {
+        for (var i = 0; i < 48; i++) {
             Fire(p, (ulong)(0x3000 + i * 4), (ulong)(i * 32), buf);
         }
 
         // Re-use the last PC (which saw line 47 in dense region 0) and access line 48.
-        ulong seenPc = 0x3000UL + 47 * 4;
-        ulong addr48 = 48 * 32UL; // still in region 0 (< 2048)
+        const ulong seenPc = 0x3000UL + 47 * 4;
+        const ulong addr48 = 48 * 32UL; // still in region 0 (< 2048)
         int cnt = Fire(p, seenPc, addr48, buf);
         // Region 0 has been dense since the 48th access and is still dense. GS should fire.
         Assert.True(cnt > 0);
@@ -130,14 +129,14 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void Gs_Tentative_WhenEnteringNewRegionAfterDense() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[16];
-        ulong pc = 0x4000UL;
+        const ulong pc = 0x4000UL;
         // Fill region 0 to dense with a single PC, using stride = 1 line
         // (first access inits IP, subsequent ones advance CS confidence but also update RST).
         // Access lines 0..47 with the same PC.
         Fire(p, pc, 0, buf); // init
-        for (int i = 1; i < 48; i++) {
+        for (var i = 1; i < 48; i++) {
             Fire(p, pc, (ulong)(i * 32), buf);
         }
         // Region 0 is now dense. Last line accessed was 47 (addr 1504). ip.LastRegionDense = true.
@@ -148,12 +147,12 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void Gs_SparseRegion_NoGsPrefetch() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[8];
-        ulong pc = 0x5000UL;
+        const ulong pc = 0x5000UL;
         // Access only 10 distinct lines in region 0 (far below dense threshold of 48)
         Fire(p, pc, 0, buf); // init
-        for (int i = 1; i < 10; i++) {
+        for (var i = 1; i < 10; i++) {
             Fire(p, pc, (ulong)(i * 32), buf);
         }
         // Region is not dense. CS confidence = 2 at this point (stride=1 seen ≥2 times).
@@ -168,23 +167,23 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void NoCrossPagePrefetch_GsStopsAtBoundary() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[16];
         // Fill a region that straddles the page boundary to make it dense,
         // then access the last line on the page and verify GS stops.
         // Page 0: addresses 0..4095 (128 lines). Region 0: addresses 0..2047 (64 lines).
         // Region 1: addresses 2048..4095 (64 lines). The page boundary is at 4096.
         // Make region 1 dense (48 unique lines, all on page 0).
-        ulong pc = 0x6000UL;
+        const ulong pc = 0x6000UL;
         Fire(p, pc, 2048, buf); // init, lineInRegion=0 of region 1
-        for (int i = 1; i < 47; i++) {
+        for (var i = 1; i < 47; i++) {
             Fire(p, pc, 2048UL + (ulong)(i * 32), buf);
         }
         // 47 unique lines accessed (lineInRegion 0..46); dense needs 48.
         // Fire at 3552 (lineInRegion=47) is the 48th unique access → region 1 becomes dense.
         int cnt = Fire(p, pc, 3552, buf);
         Assert.True(cnt > 0);
-        for (int i = 0; i < cnt; i++) {
+        for (var i = 0; i < cnt; i++) {
             Assert.True(buf[i] < 4096UL, $"Prefetch {buf[i]} crossed page boundary");
         }
     }
@@ -193,9 +192,9 @@ public sealed class IpcpPrefetcherTests {
 
     [Fact]
     public void RrFilter_SuppressesDuplicatePrefetches() {
-        var p = Make();
+        IpcpPrefetcher p = Make();
         Span<ulong> buf = stackalloc ulong[8];
-        ulong pc = 0x7000UL;
+        const ulong pc = 0x7000UL;
         // Warm up CS to conf=2 (needs 4 accesses: init, set-stride, match×1, match×2).
         Fire(p, pc, 0,   buf); // init
         Fire(p, pc, 32,  buf); // CsStride=1 set, conf=0

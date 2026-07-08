@@ -1,5 +1,4 @@
 using Orrery.Cache;
-using Xunit;
 
 namespace Tests.Orrery;
 
@@ -45,12 +44,12 @@ public sealed class SmsPrefetcherTests {
     public void ManyAccesses_NoCrash() {
         var sms = new SmsPrefetcher();
         Span<ulong> buf = stackalloc ulong[32];
-        const int BlockBytes  = 32;
-        const int RegionBytes = 2048;
-        for (int i = 0; i < 5000; i++) {
-            ulong pc     = (ulong)(0x1000 + (i % 128) * 4);
-            ulong region = (ulong)((i % 200) * RegionBytes);
-            ulong offset = (ulong)((i % 64) * BlockBytes);
+        const int blockBytes = 32;
+        const int regionBytes = 2048;
+        for (var i = 0; i < 5000; i++) {
+            var pc = (ulong)(0x1000 + i % 128 * 4);
+            var region = (ulong)(i % 200 * regionBytes);
+            var offset = (ulong)(i % 64 * blockBytes);
             buf.Clear();
             int cnt = sms.OnAccess(pc, region + offset, wasHit: i % 4 == 0, buf);
             Assert.True(cnt >= 0 && cnt <= buf.Length);
@@ -67,55 +66,55 @@ public sealed class SmsPrefetcherTests {
         // {0,1,2} is written to the PHT.  A subsequent trigger on a fresh region
         // with the same PC should return prefetches for offsets 1 and 2.
 
-        const int BlockBytes  = 32;
-        const int RegionBytes = 2048;
-        const int AccumSize   = 64; // matches SmsPrefetcher.AccumSize
-        const ulong TriggerPc = 0x4000UL;
+        const int blockBytes = 32;
+        const int regionBytes = 2048;
+        const int accumSize = 64; // matches SmsPrefetcher.AccumSize
+        const ulong triggerPc = 0x4000UL;
 
-        var sms = new SmsPrefetcher(BlockBytes);
+        var sms = new SmsPrefetcher();
         var buf = new ulong[32];
 
-        for (int r = 0; r < AccumSize + 1; r++) {
-            ulong regionBase = (ulong)(r * RegionBytes);
+        for (var r = 0; r < accumSize + 1; r++) {
+            var regionBase = (ulong)(r * regionBytes);
             // Trigger (offset 0) → filter allocation + PHT lookup (empty at first)
-            sms.OnAccess(TriggerPc, regionBase,                       wasHit: false, buf);
+            sms.OnAccess(triggerPc, regionBase, wasHit: false, buf);
             // Offset 1 → promotes filter entry to accumulation table
-            sms.OnAccess(TriggerPc, regionBase + 1 * BlockBytes,      wasHit: false, buf);
+            sms.OnAccess(triggerPc, regionBase + 1 * blockBytes, wasHit: false, buf);
             // Offset 2 → sets third bit in accumulation pattern
-            sms.OnAccess(TriggerPc, regionBase + 2 * (ulong)BlockBytes, wasHit: false, buf);
+            sms.OnAccess(triggerPc, regionBase + 2 * (ulong)blockBytes, wasHit: false, buf);
         }
 
         // At this point the PHT has (TriggerPc, offset=0) → pattern {0,1,2}.
         // A trigger access to any new region should produce prefetches for offsets 1 and 2.
-        ulong newBase = (ulong)((AccumSize + 1) * RegionBytes);
+        const ulong newBase = (accumSize + 1) * regionBytes;
         Array.Clear(buf);
-        int count = sms.OnAccess(TriggerPc, newBase, wasHit: false, buf);
+        int count = sms.OnAccess(triggerPc, newBase, wasHit: false, buf);
 
         Assert.True(count >= 2, $"Expected ≥2 prefetches, got {count}");
-        Assert.Contains(newBase + 1 * (ulong)BlockBytes, buf[..count]);
-        Assert.Contains(newBase + 2 * (ulong)BlockBytes, buf[..count]);
+        Assert.Contains(newBase + 1 * (ulong)blockBytes, buf[..count]);
+        Assert.Contains(newBase + 2 * (ulong)blockBytes, buf[..count]);
     }
 
     [Fact]
     public void TriggerBlockNotPrefetched() {
         // The trigger block itself should not appear in the prefetch list.
-        const int BlockBytes  = 32;
-        const int RegionBytes = 2048;
-        const int AccumSize   = 64;
-        const ulong Pc = 0x2000UL;
+        const int blockBytes = 32;
+        const int regionBytes = 2048;
+        const int accumSize = 64;
+        const ulong pc = 0x2000UL;
 
-        var sms = new SmsPrefetcher(BlockBytes);
+        var sms = new SmsPrefetcher();
         var buf = new ulong[32];
 
-        for (int r = 0; r < AccumSize + 1; r++) {
-            ulong b = (ulong)(r * RegionBytes);
-            sms.OnAccess(Pc, b,                         wasHit: false, buf);
-            sms.OnAccess(Pc, b + 1 * (ulong)BlockBytes, wasHit: false, buf);
+        for (var r = 0; r < accumSize + 1; r++) {
+            var b = (ulong)(r * regionBytes);
+            sms.OnAccess(pc, b, wasHit: false, buf);
+            sms.OnAccess(pc, b + 1 * (ulong)blockBytes, wasHit: false, buf);
         }
 
-        ulong newBase = (ulong)((AccumSize + 1) * RegionBytes);
+        const ulong newBase = (accumSize + 1) * regionBytes;
         Array.Clear(buf);
-        int count = sms.OnAccess(Pc, newBase, wasHit: false, buf);
+        int count = sms.OnAccess(pc, newBase, wasHit: false, buf);
 
         Assert.True(count >= 1);
         // The trigger block (offset 0 = newBase) must not be in prefetch list

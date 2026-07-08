@@ -123,6 +123,10 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int ExtraPhysRegs { get; set; } = 32;
 
+    [ObservableProperty] public partial bool FlatIq { get; set; } = false;
+
+    [ObservableProperty] public partial int MshrCapacity { get; set; } = 0;
+
     public bool IsSingleCycle => Pipeline == "single_cycle";
     public bool IsFiveStage => Pipeline == "five_stage";
     public bool IsOoo => Pipeline == "ooo";
@@ -272,6 +276,8 @@ public partial class ConfigViewModel : ObservableObject {
                 RobCapacity: RobCapacity,
                 IqCapacity: IqCapacity,
                 ExtraPhysRegs: ExtraPhysRegs,
+                FlatIq: FlatIq,
+                MshrCapacity: MshrCapacity,
                 DPrefetcher: DPrefetcher == "none" ? null : DPrefetcher,
                 DPrefetcherTableSize: DPrefetcherTableSize,
                 DPrefetcherDepth: DPrefetcherDepth,
@@ -313,6 +319,8 @@ public partial class ConfigViewModel : ObservableObject {
             RobCapacity = nc.Config.RobCapacity,
             IqCapacity = nc.Config.IqCapacity,
             ExtraPhysRegs = nc.Config.ExtraPhysRegs,
+            FlatIq = nc.Config.FlatIq,
+            MshrCapacity = nc.Config.MshrCapacity,
             ICacheEnabled = nc.Config.ICache is not null,
             DCacheEnabled = nc.Config.DCache is not null,
             L2CacheEnabled = nc.Config.L2Cache is not null,

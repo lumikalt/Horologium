@@ -24,7 +24,7 @@ namespace Orrery.Cache;
 /// </summary>
 public sealed class PythiaPrefetcher : IPrefetcher {
     // ── Action space (Table 2, pruned from [−63, 63]) ─────────────────────────
-    private static readonly int[] Offsets = { -6, -3, -1, 0, 1, 3, 4, 5, 10, 11, 12, 16, 22, 23, 30, 32 };
+    private static readonly int[] Offsets = [-6, -3, -1, 0, 1, 3, 4, 5, 10, 11, 12, 16, 22, 23, 30, 32,];
     private const int NumActions       = 16;
     private const int NoPrefetchAction = 3; // Offsets[3] == 0
 
@@ -46,7 +46,7 @@ public sealed class PythiaPrefetcher : IPrefetcher {
     private const int Vaults   = 2;
     private const int Planes   = 3;
     private const int FEntries = 128;
-    private readonly float[,,,] _qvs = new float[Vaults, Planes, FEntries, NumActions];
+    private readonly float[,,,] _qvs = new float[PythiaPrefetcher.Vaults, PythiaPrefetcher.Planes, PythiaPrefetcher.FEntries, PythiaPrefetcher.NumActions];
     // Shift constants for tile coding (randomly fixed at design time — §4.2.1).
     private static readonly int[,] Shifts = { { 0, 3, 6 }, { 1, 4, 7 } };
 
@@ -64,7 +64,7 @@ public sealed class PythiaPrefetcher : IPrefetcher {
         public bool  Valid;
     }
 
-    private readonly EqEntry[] _eq = new EqEntry[EqSize];
+    private readonly EqEntry[] _eq = new EqEntry[PythiaPrefetcher.EqSize];
     private int _eqHead;   // index of oldest entry
     private int _eqTail;   // next-write slot
     private int _eqCount;
@@ -79,7 +79,7 @@ public sealed class PythiaPrefetcher : IPrefetcher {
 
     private const int IpSize     = 64;
     private const int IpIndexBits = 6;
-    private readonly IpState[] _ip = new IpState[IpSize];
+    private readonly IpState[] _ip = new IpState[PythiaPrefetcher.IpSize];
 
     // ── Geometry ──────────────────────────────────────────────────────────────
     private readonly int _blockBytes;
@@ -99,11 +99,11 @@ public sealed class PythiaPrefetcher : IPrefetcher {
         _pageShift  = BitOperations.Log2((uint)pageBytes);
 
         // Initialize Q(S,A) = 1/(1-γ), distributed evenly across planes (§4.1).
-        float initPerPlane = (1f / (1f - Gamma)) / Planes;
-        for (int v = 0; v < Vaults; v++)
-        for (int p = 0; p < Planes; p++)
-        for (int f = 0; f < FEntries; f++)
-        for (int a = 0; a < NumActions; a++)
+        const float initPerPlane = (1f / (1f - PythiaPrefetcher.Gamma)) / PythiaPrefetcher.Planes;
+        for (var v = 0; v < PythiaPrefetcher.Vaults; v++)
+        for (var p = 0; p < PythiaPrefetcher.Planes; p++)
+        for (var f = 0; f < PythiaPrefetcher.FEntries; f++)
+        for (var a = 0; a < PythiaPrefetcher.NumActions; a++)
             _qvs[v, p, f, a] = initPerPlane;
     }
 
@@ -113,24 +113,24 @@ public sealed class PythiaPrefetcher : IPrefetcher {
         ulong page     = address >> _pageShift;
 
         // ── 1. Search EQ for this demand address and assign reward (Algorithm 1 ❶) ─
-        for (int i = 0; i < _eqCount; i++) {
-            int slot = (_eqHead + i) & (EqSize - 1);
+        for (var i = 0; i < _eqCount; i++) {
+            int slot = (_eqHead + i) & (PythiaPrefetcher.EqSize - 1);
             ref EqEntry e = ref _eq[slot];
-            if (e.Valid && !e.HasReward && e.PrefetchAddr == lineBase) {
+            if (e is { Valid: true, HasReward: false, } && e.PrefetchAddr == lineBase) {
                 // wasHit proxies the filled bit: hit → prefetch installed before demand (RAT).
-                e.Reward    = wasHit ? Rat : Ral;
+                e.Reward    = wasHit ? PythiaPrefetcher.Rat : PythiaPrefetcher.Ral;
                 e.HasReward = true;
                 break;
             }
         }
 
         // ── 2. Compute delta from IP table (Algorithm 1 ❷) ───────────────────
-        int ipIdx = (int)((pc >> 2) & (IpSize - 1));
-        ulong ipTag = pc >> (IpIndexBits + 2);
+        var ipIdx = (int)((pc >> 2) & (PythiaPrefetcher.IpSize - 1));
+        ulong ipTag = pc >> (PythiaPrefetcher.IpIndexBits + 2);
         ref IpState ip = ref _ip[ipIdx];
 
-        int delta       = 0;
-        int prevHistory = 0;
+        var delta       = 0;
+        var prevHistory = 0;
         if (ip.Valid && ip.Tag == ipTag) {
             delta       = (int)((long)lineAddr - (long)ip.LastLineAddr);
             prevHistory = ip.DeltaHistory;
@@ -140,14 +140,14 @@ public sealed class PythiaPrefetcher : IPrefetcher {
         // Vault 0: PC+Delta — multiplicative hash of the load PC and current delta.
         uint f0 = (uint)(pc >> 2) * 2654435761u ^ (uint)(delta * 1013904223);
         // Vault 1: last-4 deltas — rolling hash of delta history.
-        uint f1 = (uint)prevHistory;
+        var f1 = (uint)prevHistory;
 
-        int v0p0 = (int)((f0 >> Shifts[0, 0]) & (FEntries - 1));
-        int v0p1 = (int)((f0 >> Shifts[0, 1]) & (FEntries - 1));
-        int v0p2 = (int)((f0 >> Shifts[0, 2]) & (FEntries - 1));
-        int v1p0 = (int)((f1 >> Shifts[1, 0]) & (FEntries - 1));
-        int v1p1 = (int)((f1 >> Shifts[1, 1]) & (FEntries - 1));
-        int v1p2 = (int)((f1 >> Shifts[1, 2]) & (FEntries - 1));
+        var v0P0 = (int)((f0 >> PythiaPrefetcher.Shifts[0, 0]) & (PythiaPrefetcher.FEntries - 1));
+        var v0P1 = (int)((f0 >> PythiaPrefetcher.Shifts[0, 1]) & (PythiaPrefetcher.FEntries - 1));
+        var v0P2 = (int)((f0 >> PythiaPrefetcher.Shifts[0, 2]) & (PythiaPrefetcher.FEntries - 1));
+        var v1P0 = (int)((f1 >> PythiaPrefetcher.Shifts[1, 0]) & (PythiaPrefetcher.FEntries - 1));
+        var v1P1 = (int)((f1 >> PythiaPrefetcher.Shifts[1, 1]) & (PythiaPrefetcher.FEntries - 1));
+        var v1P2 = (int)((f1 >> PythiaPrefetcher.Shifts[1, 2]) & (PythiaPrefetcher.FEntries - 1));
 
         // ── 4. Update IP state ────────────────────────────────────────────────
         ip.Valid        = true;
@@ -157,14 +157,14 @@ public sealed class PythiaPrefetcher : IPrefetcher {
 
         // ── 5. Select action via ε-greedy argmax Q(S, a) (Algorithm 1 ❸) ──────
         int action;
-        if ((XorShift32() & 0xFFFFu) < (uint)(Eps * 65536f)) {
-            action = (int)(XorShift32() % NumActions);
+        if ((XorShift32() & 0xFFFFu) < (uint)(PythiaPrefetcher.Eps * 65536f)) {
+            action = (int)(XorShift32() % PythiaPrefetcher.NumActions);
         } else {
             float bestQ = float.NegativeInfinity;
             action = 0;
-            for (int a = 0; a < NumActions; a++) {
-                float q0 = _qvs[0, 0, v0p0, a] + _qvs[0, 1, v0p1, a] + _qvs[0, 2, v0p2, a];
-                float q1 = _qvs[1, 0, v1p0, a] + _qvs[1, 1, v1p1, a] + _qvs[1, 2, v1p2, a];
+            for (var a = 0; a < PythiaPrefetcher.NumActions; a++) {
+                float q0 = _qvs[0, 0, v0P0, a] + _qvs[0, 1, v0P1, a] + _qvs[0, 2, v0P2, a];
+                float q1 = _qvs[1, 0, v1P0, a] + _qvs[1, 1, v1P1, a] + _qvs[1, 2, v1P2, a];
                 float q  = q0 > q1 ? q0 : q1;
                 if (q > bestQ) { bestQ = q; action = a; }
             }
@@ -173,15 +173,15 @@ public sealed class PythiaPrefetcher : IPrefetcher {
         // ── 6. Determine prefetch address and immediate reward (Algorithm 1 ❹) ─
         ulong prefetchAddr    = 0;
         float immediateReward = float.NaN; // NaN = no immediate reward; assigned via EQ residency
-        bool  issuedPrefetch  = false;
+        var  issuedPrefetch  = false;
 
-        if (action == NoPrefetchAction) {
-            immediateReward = RnpL;
+        if (action == PythiaPrefetcher.NoPrefetchAction) {
+            immediateReward = PythiaPrefetcher.RnpL;
         } else {
-            long  offset = (long)Offsets[action] * _blockBytes;
-            ulong pAddr  = (ulong)((long)lineBase + offset);
+            long  offset = (long)PythiaPrefetcher.Offsets[action] * _blockBytes;
+            var pAddr  = (ulong)((long)lineBase + offset);
             if ((pAddr >> _pageShift) != page) {
-                immediateReward = Rcl; // out-of-page prefetch (Algorithm 1 line 22)
+                immediateReward = PythiaPrefetcher.Rcl; // out-of-page prefetch (Algorithm 1 line 22)
             } else if (targets.Length > 0) {
                 prefetchAddr   = pAddr;
                 targets[0]     = pAddr;
@@ -191,30 +191,30 @@ public sealed class PythiaPrefetcher : IPrefetcher {
 
         // ── 7. Evict oldest EQ entry if queue is full ─────────────────────────
         EqEntry evicted    = default;
-        bool    hasEvicted = false;
-        if (_eqCount == EqSize) {
+        var    hasEvicted = false;
+        if (_eqCount == PythiaPrefetcher.EqSize) {
             evicted    = _eq[_eqHead];
             hasEvicted = true;
-            _eqHead    = (_eqHead + 1) & (EqSize - 1);
+            _eqHead    = (_eqHead + 1) & (PythiaPrefetcher.EqSize - 1);
             _eqCount--;
         }
 
         // ── 8. Insert new EQ entry (Algorithm 1 ❺) ───────────────────────────
         _eq[_eqTail] = new EqEntry {
-            V0P0 = v0p0, V0P1 = v0p1, V0P2 = v0p2,
-            V1P0 = v1p0, V1P1 = v1p1, V1P2 = v1p2,
+            V0P0 = v0P0, V0P1 = v0P1, V0P2 = v0P2,
+            V1P0 = v1P0, V1P1 = v1P1, V1P2 = v1P2,
             Action       = action,
             PrefetchAddr = prefetchAddr,
             Reward       = float.IsNaN(immediateReward) ? 0f : immediateReward,
             HasReward    = !float.IsNaN(immediateReward),
             Valid        = true,
         };
-        _eqTail  = (_eqTail + 1) & (EqSize - 1);
+        _eqTail  = (_eqTail + 1) & (PythiaPrefetcher.EqSize - 1);
         _eqCount++;
 
         // ── 9. SARSA update for evicted entry (Algorithm 1 ❻) ────────────────
         if (hasEvicted && evicted.Valid) {
-            float r = evicted.HasReward ? evicted.Reward : RinL;
+            float r = evicted.HasReward ? evicted.Reward : PythiaPrefetcher.RinL;
             // S2,A2 = EQ.head after eviction (Algorithm 1, line 28).
             SarsaUpdate(in evicted, r, in _eq[_eqHead]);
         }
@@ -223,33 +223,33 @@ public sealed class PythiaPrefetcher : IPrefetcher {
     }
 
     private void SarsaUpdate(in EqEntry e1, float r, in EqEntry e2) {
-        float q1v0 = _qvs[0, 0, e1.V0P0, e1.Action]
+        float q1V0 = _qvs[0, 0, e1.V0P0, e1.Action]
                    + _qvs[0, 1, e1.V0P1, e1.Action]
                    + _qvs[0, 2, e1.V0P2, e1.Action];
-        float q1v1 = _qvs[1, 0, e1.V1P0, e1.Action]
+        float q1V1 = _qvs[1, 0, e1.V1P0, e1.Action]
                    + _qvs[1, 1, e1.V1P1, e1.Action]
                    + _qvs[1, 2, e1.V1P2, e1.Action];
-        float q1 = q1v0 > q1v1 ? q1v0 : q1v1;
+        float q1 = q1V0 > q1V1 ? q1V0 : q1V1;
 
-        float q2v0 = _qvs[0, 0, e2.V0P0, e2.Action]
+        float q2V0 = _qvs[0, 0, e2.V0P0, e2.Action]
                    + _qvs[0, 1, e2.V0P1, e2.Action]
                    + _qvs[0, 2, e2.V0P2, e2.Action];
-        float q2v1 = _qvs[1, 0, e2.V1P0, e2.Action]
+        float q2V1 = _qvs[1, 0, e2.V1P0, e2.Action]
                    + _qvs[1, 1, e2.V1P1, e2.Action]
                    + _qvs[1, 2, e2.V1P2, e2.Action];
-        float q2 = q2v0 > q2v1 ? q2v0 : q2v1;
+        float q2 = q2V0 > q2V1 ? q2V0 : q2V1;
 
-        float tdError = r + Gamma * q2 - q1;
+        float tdError = r + PythiaPrefetcher.Gamma * q2 - q1;
 
         // Apply gradient to all planes of the winning vault (tile coding — §4.2.1).
-        if (q1v0 >= q1v1) {
-            _qvs[0, 0, e1.V0P0, e1.Action] += Alpha * tdError;
-            _qvs[0, 1, e1.V0P1, e1.Action] += Alpha * tdError;
-            _qvs[0, 2, e1.V0P2, e1.Action] += Alpha * tdError;
+        if (q1V0 >= q1V1) {
+            _qvs[0, 0, e1.V0P0, e1.Action] += PythiaPrefetcher.Alpha * tdError;
+            _qvs[0, 1, e1.V0P1, e1.Action] += PythiaPrefetcher.Alpha * tdError;
+            _qvs[0, 2, e1.V0P2, e1.Action] += PythiaPrefetcher.Alpha * tdError;
         } else {
-            _qvs[1, 0, e1.V1P0, e1.Action] += Alpha * tdError;
-            _qvs[1, 1, e1.V1P1, e1.Action] += Alpha * tdError;
-            _qvs[1, 2, e1.V1P2, e1.Action] += Alpha * tdError;
+            _qvs[1, 0, e1.V1P0, e1.Action] += PythiaPrefetcher.Alpha * tdError;
+            _qvs[1, 1, e1.V1P1, e1.Action] += PythiaPrefetcher.Alpha * tdError;
+            _qvs[1, 2, e1.V1P2, e1.Action] += PythiaPrefetcher.Alpha * tdError;
         }
     }
 

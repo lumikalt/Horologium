@@ -30,7 +30,7 @@ namespace Orrery.Cache;
 /// <para>
 /// With a 2 KB region and 32 B blocks there are exactly 64 blocks per region,
 /// fitting the spatial pattern in a <see cref="ulong"/> bitmask.
-/// <paramref name="blockBytes"/> must therefore be ≥ 32.
+/// <c>blockBytes</c> must therefore be ≥ 32.
 /// </para>
 /// </summary>
 public sealed class SmsPrefetcher : IPrefetcher {
@@ -52,7 +52,7 @@ public sealed class SmsPrefetcher : IPrefetcher {
         public int   Age;
         public bool  Valid;
     }
-    private readonly FilterEntry[] _filter = new FilterEntry[FilterSize];
+    private readonly FilterEntry[] _filter = new FilterEntry[SmsPrefetcher.FilterSize];
 
     // ── Accumulation Table: 64-entry FA FIFO ─────────────────────────────────
     private const int AccumSize = 64;
@@ -65,12 +65,12 @@ public sealed class SmsPrefetcher : IPrefetcher {
         public int   Age;
         public bool  Valid;
     }
-    private readonly AccumEntry[] _accum = new AccumEntry[AccumSize];
+    private readonly AccumEntry[] _accum = new AccumEntry[SmsPrefetcher.AccumSize];
 
     // ── Pattern History Table: 16 K entries, 16-way SA, LRU ──────────────────
     private const int PhtTotalEntries = 16384;
     private const int PhtWays         = 16;
-    private const int PhtSets         = PhtTotalEntries / PhtWays; // 1024
+    private const int PhtSets         = SmsPrefetcher.PhtTotalEntries / SmsPrefetcher.PhtWays; // 1024
 
     private struct PhtEntry {
         public ulong Tag;
@@ -78,7 +78,7 @@ public sealed class SmsPrefetcher : IPrefetcher {
         public int   LruAge;
         public bool  Valid;
     }
-    private readonly PhtEntry[,] _pht = new PhtEntry[PhtSets, PhtWays];
+    private readonly PhtEntry[,] _pht = new PhtEntry[SmsPrefetcher.PhtSets, SmsPrefetcher.PhtWays];
 
     // ── Monotone counters ─────────────────────────────────────────────────────
     private int _age;
@@ -87,14 +87,14 @@ public sealed class SmsPrefetcher : IPrefetcher {
     public SmsPrefetcher(int blockBytes = 32) {
         if (!BitOperations.IsPow2(blockBytes))
             throw new ArgumentException("blockBytes must be a power of 2.", nameof(blockBytes));
-        int blocksPerRegion = RegionBytes / blockBytes;
-        if (blocksPerRegion > MaxBlocksPerRegion)
+        int blocksPerRegion = SmsPrefetcher.RegionBytes / blockBytes;
+        if (blocksPerRegion > SmsPrefetcher.MaxBlocksPerRegion)
             throw new ArgumentException(
-                $"blockBytes must be ≥ {RegionBytes / MaxBlocksPerRegion} so the spatial pattern fits in a 64-bit mask.",
+                $"blockBytes must be ≥ {SmsPrefetcher.RegionBytes / SmsPrefetcher.MaxBlocksPerRegion} so the spatial pattern fits in a 64-bit mask.",
                 nameof(blockBytes));
         _blockBits       = BitOperations.Log2((uint)blockBytes);
         _blocksPerRegion = blocksPerRegion;
-        _regionMask      = ~((ulong)(RegionBytes - 1));
+        _regionMask      = ~((ulong)(SmsPrefetcher.RegionBytes - 1));
     }
 
     public int OnAccess(ulong pc, ulong address, bool wasHit, Span<ulong> targets) {
@@ -120,7 +120,7 @@ public sealed class SmsPrefetcher : IPrefetcher {
             // Second distinct block → promote to accumulation table
             ulong tPc  = _filter[filterIdx].TriggerPc;
             int   tOff = _filter[filterIdx].TriggerOffset;
-            _filter[filterIdx] = default;
+            _filter[filterIdx] = default(FilterEntry);
             AllocAccum(regionBase, tPc, tOff, (1UL << tOff) | (1UL << blockOffset));
             return 0;
         }
@@ -134,13 +134,13 @@ public sealed class SmsPrefetcher : IPrefetcher {
     // ── AGT search ────────────────────────────────────────────────────────────
 
     private int FindAccum(ulong regionBase) {
-        for (int i = 0; i < AccumSize; i++)
+        for (int i = 0; i < SmsPrefetcher.AccumSize; i++)
             if (_accum[i].Valid && _accum[i].RegionBase == regionBase) return i;
         return -1;
     }
 
     private int FindFilter(ulong regionBase) {
-        for (int i = 0; i < FilterSize; i++)
+        for (int i = 0; i < SmsPrefetcher.FilterSize; i++)
             if (_filter[i].Valid && _filter[i].RegionBase == regionBase) return i;
         return -1;
     }
@@ -150,7 +150,7 @@ public sealed class SmsPrefetcher : IPrefetcher {
     private void AllocFilter(ulong regionBase, ulong triggerPc, int triggerOffset) {
         int slot   = -1;
         int minAge = int.MaxValue;
-        for (int i = 0; i < FilterSize; i++) {
+        for (int i = 0; i < SmsPrefetcher.FilterSize; i++) {
             if (!_filter[i].Valid) { slot = i; break; }
             if (_filter[i].Age < minAge) { minAge = _filter[i].Age; slot = i; }
         }
@@ -168,7 +168,7 @@ public sealed class SmsPrefetcher : IPrefetcher {
     private void AllocAccum(ulong regionBase, ulong triggerPc, int triggerOffset, ulong initPattern) {
         int slot   = -1;
         int minAge = int.MaxValue;
-        for (int i = 0; i < AccumSize; i++) {
+        for (int i = 0; i < SmsPrefetcher.AccumSize; i++) {
             if (!_accum[i].Valid) { slot = i; break; }
             if (_accum[i].Age < minAge) { minAge = _accum[i].Age; slot = i; }
         }
@@ -187,14 +187,14 @@ public sealed class SmsPrefetcher : IPrefetcher {
     // ── PHT ───────────────────────────────────────────────────────────────────
 
     private static (int set, ulong tag) PhtIndex(ulong pc, int offset) {
-        ulong key = (pc >> 2) ^ ((ulong)(uint)offset * 2654435761UL);
-        return ((int)(key & (PhtSets - 1)), key >> 10);
+        ulong key = (pc >> 2) ^ ((uint)offset * 2654435761UL);
+        return ((int)(key & (SmsPrefetcher.PhtSets - 1)), key >> 10);
     }
 
     private void PhtWrite(ulong triggerPc, int triggerOffset, ulong pattern) {
         if (pattern == 0) return;
         (int set, ulong tag) = PhtIndex(triggerPc, triggerOffset);
-        for (int w = 0; w < PhtWays; w++) {
+        for (var w = 0; w < SmsPrefetcher.PhtWays; w++) {
             if (_pht[set, w].Valid && _pht[set, w].Tag == tag) {
                 _pht[set, w].Pattern = pattern;
                 _pht[set, w].LruAge  = ++_phtAge;
@@ -207,13 +207,13 @@ public sealed class SmsPrefetcher : IPrefetcher {
 
     private int PhtPredict(ulong pc, int triggerOffset, ulong regionBase, Span<ulong> targets) {
         (int set, ulong tag) = PhtIndex(pc, triggerOffset);
-        for (int w = 0; w < PhtWays; w++) {
+        for (var w = 0; w < SmsPrefetcher.PhtWays; w++) {
             if (!_pht[set, w].Valid || _pht[set, w].Tag != tag) continue;
             _pht[set, w].LruAge = ++_phtAge;
             ulong pattern    = _pht[set, w].Pattern & ~(1UL << triggerOffset);
             ulong blockBytes = 1UL << _blockBits;
-            int   count      = 0;
-            for (int b = 0; b < _blocksPerRegion && count < targets.Length; b++) {
+            var   count      = 0;
+            for (var b = 0; b < _blocksPerRegion && count < targets.Length; b++) {
                 if ((pattern >> b & 1) != 0)
                     targets[count++] = regionBase + (ulong)b * blockBytes;
             }
@@ -224,7 +224,7 @@ public sealed class SmsPrefetcher : IPrefetcher {
 
     private int FindPhtVictim(int set) {
         int victim = 0, minLru = int.MaxValue;
-        for (int w = 0; w < PhtWays; w++) {
+        for (var w = 0; w < SmsPrefetcher.PhtWays; w++) {
             if (!_pht[set, w].Valid) return w;
             if (_pht[set, w].LruAge < minLru) { minLru = _pht[set, w].LruAge; victim = w; }
         }

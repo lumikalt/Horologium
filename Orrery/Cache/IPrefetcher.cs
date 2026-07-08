@@ -2,7 +2,7 @@ namespace Orrery.Cache;
 
 /// <summary>
 /// Observes each D-cache access and writes zero or more addresses to prefetch into
-/// <paramref name="targets"/>. Implementations must be stateless except for their own
+/// <c>="targets"</c>. Implementations must be stateless except for their own
 /// prediction tables — the caller owns when and whether the suggested addresses are
 /// actually fetched.
 /// </summary>

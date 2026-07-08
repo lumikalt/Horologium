@@ -1,5 +1,4 @@
 using Orrery.Cache;
-using Xunit;
 
 namespace Tests.Orrery;
 
@@ -47,11 +46,11 @@ public sealed class PythiaPrefetcherTests {
         // an access at the very end of a page would trigger the guard.
         var p = new PythiaPrefetcher(blockBytes: 32, pageBytes: 4096);
         Span<ulong> buf = stackalloc ulong[1];
-        ulong pc = 0xABCDUL;
+        const ulong pc = 0xABCDUL;
 
         // Access lines near the end of page 0 (lines 120..127 = addrs 3840..4064).
-        for (int i = 0; i < 300; i++) {
-            ulong addr = (ulong)(120 * 32 + (i % 8) * 32); // cycles within lines 120..127
+        for (var i = 0; i < 300; i++) {
+            var addr = (ulong)(120 * 32 + (i % 8) * 32); // cycles within lines 120..127
             buf.Clear();
             int cnt = p.OnAccess(pc, addr, wasHit: false, buf);
             if (cnt > 0) {
@@ -69,9 +68,9 @@ public sealed class PythiaPrefetcherTests {
         // Stress test: 2000 accesses with varying PCs and addresses.
         var p = new PythiaPrefetcher();
         Span<ulong> buf = stackalloc ulong[1];
-        for (int i = 0; i < 2000; i++) {
-            ulong pc   = (ulong)(0x1000 + (i % 64) * 4);
-            ulong addr = (ulong)(0x2000 + (i % 256) * 32);
+        for (var i = 0; i < 2000; i++) {
+            var pc   = (ulong)(0x1000 + (i % 64) * 4);
+            var addr = (ulong)(0x2000 + (i % 256) * 32);
             buf.Clear();
             int cnt = p.OnAccess(pc, addr, wasHit: i % 3 == 0, buf);
             Assert.True(cnt is 0 or 1);
@@ -87,19 +86,19 @@ public sealed class PythiaPrefetcherTests {
         // wasHit=true whenever the cache would contain the installed prefetch.
         var p = new PythiaPrefetcher(blockBytes: 32, pageBytes: 1 << 20);
         Span<ulong> buf = stackalloc ulong[1];
-        ulong pc         = 0x1000UL;
+        const ulong pc = 0x1000UL;
         ulong addr       = 200 * 32UL;
-        const int TrackLen  = 40;
-        var prefetchLog     = new ulong[TrackLen];
-        int logHead         = 0;
-        int forwardCount    = 0;
-        const int Warmup    = 5000;
-        const int Check     = 200;
+        const int trackLen  = 40;
+        var prefetchLog     = new ulong[trackLen];
+        var logHead         = 0;
+        var forwardCount    = 0;
+        const int warmup    = 5000;
+        const int check     = 200;
 
-        for (int i = 0; i < Warmup + Check; i++) {
+        for (var i = 0; i < warmup + check; i++) {
             // wasHit = true when any tracked prefetch matches this demand
-            bool wasHit = false;
-            for (int j = 0; j < TrackLen; j++) {
+            var wasHit = false;
+            for (var j = 0; j < trackLen; j++) {
                 if (prefetchLog[j] != 0 && prefetchLog[j] == addr) { wasHit = true; break; }
             }
 
@@ -107,11 +106,11 @@ public sealed class PythiaPrefetcherTests {
             p.OnAccess(pc, addr, wasHit, buf);
 
             if (buf[0] != 0) {
-                prefetchLog[logHead % TrackLen] = buf[0];
+                prefetchLog[logHead % trackLen] = buf[0];
                 logHead++;
             }
 
-            if (i >= Warmup) {
+            if (i >= warmup) {
                 // "Forward" = prefetch is strictly ahead and within the 32-line action range
                 if (buf[0] > addr && buf[0] <= addr + 32 * 32)
                     forwardCount++;

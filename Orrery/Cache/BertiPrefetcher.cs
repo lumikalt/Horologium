@@ -53,9 +53,9 @@ public sealed class BertiPrefetcher : IPrefetcher {
     private const int MaxGoodDeltas = 12; // max L1DPref + L2Pref (incl. L2PrefRepl)
 
     private const byte SNoPref     = 0;
-    private const byte SL2PrefRepl = 1;
-    private const byte SL2Pref     = 2;
-    private const byte SL1DPref    = 3;
+    private const byte Sl2PrefRepl = 1;
+    private const byte Sl2Pref     = 2;
+    private const byte Sl1DPref    = 3;
 
     private struct DeltaSlot {
         public int  Delta;  // signed line-count offset
@@ -184,7 +184,7 @@ public sealed class BertiPrefetcher : IPrefetcher {
         byte vCov   = byte.MaxValue;
         for (int i = 0; i < MaxDeltas; i++) {
             byte s = _todDeltas[todIdx, i].Status;
-            if ((s == SL2PrefRepl || s == SNoPref) && _todDeltas[todIdx, i].Cov < vCov) {
+            if ((s == BertiPrefetcher.Sl2PrefRepl || s == SNoPref) && _todDeltas[todIdx, i].Cov < vCov) {
                 vCov   = _todDeltas[todIdx, i].Cov;
                 victim = i;
             }
@@ -201,10 +201,10 @@ public sealed class BertiPrefetcher : IPrefetcher {
         for (int i = 0; i < cnt; i++) {
             ref DeltaSlot d = ref _todDeltas[todIdx, i];
             if (d.Cov > 10) {          // > 65% of 16
-                d.Status = SL1DPref;
+                d.Status = BertiPrefetcher.Sl1DPref;
                 good++;
-            } else if (d.Cov > 5) {    // 35–65%
-                d.Status = d.Cov < 8 ? SL2PrefRepl : SL2Pref; // < 50% → repl candidate
+            } else if (d.Cov > 5) {                                                           // 35–65%
+                d.Status = d.Cov < 8 ? BertiPrefetcher.Sl2PrefRepl : BertiPrefetcher.Sl2Pref; // < 50% → repl candidate
                 good++;
             } else {
                 d.Status = SNoPref;
@@ -243,7 +243,7 @@ public sealed class BertiPrefetcher : IPrefetcher {
             ref DeltaSlot d = ref _todDeltas[todIdx, i];
             bool issue;
             if (meta.HasStatus) {
-                issue = d.Status == SL1DPref || d.Status == SL2Pref || d.Status == SL2PrefRepl;
+                issue = d.Status == BertiPrefetcher.Sl1DPref || d.Status == BertiPrefetcher.Sl2Pref || d.Status == BertiPrefetcher.Sl2PrefRepl;
             } else {
                 // Warmup: issue if ≥ 8 training events AND coverage > 80 % of counter.
                 issue = meta.Counter >= 8 && (d.Cov * 10 > meta.Counter * 8);

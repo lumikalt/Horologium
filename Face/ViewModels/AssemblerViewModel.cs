@@ -287,6 +287,16 @@ public partial class AssemblerViewModel : ObservableObject {
     public bool HasDCachePrefetcherDepth => DCachePrefetcher == "stream";
     public bool HasDCachePrefetcherParams => DCachePrefetcher != "none";
 
+    // ── OoO pipeline parameters ───────────────────────────────────────────────
+    [ObservableProperty] public partial int OooIssueWidth { get; set; } = 2;
+    [ObservableProperty] public partial int OooRobCapacity { get; set; } = 32;
+    [ObservableProperty] public partial int OooIqCapacity { get; set; } = 8;
+    [ObservableProperty] public partial int OooExtraPhysRegs { get; set; } = 32;
+    [ObservableProperty] public partial bool OooFlatIq { get; set; } = false;
+    [ObservableProperty] public partial int OooMshrCapacity { get; set; } = 0;
+
+    public bool IsOooMode => CurrentMode == PipelineMode.OoO;
+
     // ── Cache display state ───────────────────────────────────────────────────
     [ObservableProperty] public partial int SelectedCacheTab { get; set; }
     [ObservableProperty] public partial string CacheHits { get; set; } = "–";
@@ -412,7 +422,15 @@ public partial class AssemblerViewModel : ObservableObject {
         }
 
         OnPropertyChanged(nameof(IsPipelineMode));
+        OnPropertyChanged(nameof(IsOooMode));
     }
+
+    partial void OnOooIssueWidthChanged(int value) => ApplyCacheConfigChange();
+    partial void OnOooRobCapacityChanged(int value) => ApplyCacheConfigChange();
+    partial void OnOooIqCapacityChanged(int value) => ApplyCacheConfigChange();
+    partial void OnOooExtraPhysRegsChanged(int value) => ApplyCacheConfigChange();
+    partial void OnOooFlatIqChanged(bool value) => ApplyCacheConfigChange();
+    partial void OnOooMshrCapacityChanged(int value) => ApplyCacheConfigChange();
 
     partial void OnOptLevelChanged(string value) {
         if (IsCMode && Instructions.Count > 0 && !IsAssembling) AssembleCommand.Execute(null);
@@ -1072,8 +1090,8 @@ public partial class AssemblerViewModel : ObservableObject {
             DCacheWbCapacity
         );
         if (L2CacheEnabled) {
-            WritePolicyKind l2wp = ParseWritePolicy(L2CacheWritePolicy);
-            WriteMissPolicyKind l2wmp = ParseWriteMissPolicy(L2CacheWriteMissPolicy);
+            WritePolicyKind l2Wp = ParseWritePolicy(L2CacheWritePolicy);
+            WriteMissPolicyKind l2Wmp = ParseWriteMissPolicy(L2CacheWriteMissPolicy);
             iCfg = iCfg with {
                 L2CapacityBytes = L2CacheCapacityKb * 1024,
                 L2Ways = L2CacheWays,
@@ -1081,8 +1099,8 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2MissLatency = L2CacheMissLatency,
                 L2TagLatency = L2CacheTagLatency,
                 L2DataLatency = L2CacheDataLatency,
-                L2WritePolicy = l2wp,
-                L2WriteMissPolicy = l2wmp,
+                L2WritePolicy = l2Wp,
+                L2WriteMissPolicy = l2Wmp,
                 L2WbCapacity = L2CacheWbCapacity,
             };
             dCfg = dCfg with {
@@ -1092,8 +1110,8 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2MissLatency = L2CacheMissLatency,
                 L2TagLatency = L2CacheTagLatency,
                 L2DataLatency = L2CacheDataLatency,
-                L2WritePolicy = l2wp,
-                L2WriteMissPolicy = l2wmp,
+                L2WritePolicy = l2Wp,
+                L2WriteMissPolicy = l2Wmp,
                 L2WbCapacity = L2CacheWbCapacity,
             };
         }
@@ -1132,7 +1150,13 @@ public partial class AssemblerViewModel : ObservableObject {
                 IMemory mem = BuildFreshMemory();
                 _oooeTrain = new OooeTrain(
                     new Rv32Mechanism(), mem,
-                    iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
+                    iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog,
+                    issueWidth: OooIssueWidth,
+                    robCapacity: OooRobCapacity,
+                    iqCapacity: OooIqCapacity,
+                    extraPhysRegs: OooExtraPhysRegs,
+                    flatIq: OooFlatIq,
+                    mshrCapacity: OooMshrCapacity
                 );
                 _oooeTrain.BeginStepping();
                 break;

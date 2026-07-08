@@ -1,7 +1,6 @@
 using Orrery.Cache;
 using Orrery.Spec;
 using RiscV32.Memory;
-using Xunit;
 
 namespace Tests.Orrery;
 
@@ -174,7 +173,7 @@ public sealed class StreamPrefetcherTests {
         Span<ulong> buf = stackalloc ulong[8];
         int cnt = layers.Prefetcher!.OnAccess(0, 0, wasHit, buf);
         Assert.Equal(2, cnt);
-        for (int i = 0; i < cnt; i++) layers.TryPrefetch(buf[i]);
+        for (var i = 0; i < cnt; i++) layers.TryPrefetch(buf[i]);
 
         // Both prefetched lines should be cache hits
         layers.Accessor.Read(16, 1);

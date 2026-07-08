@@ -1,5 +1,4 @@
 using Orrery.Cache;
-using Xunit;
 
 namespace Tests.Orrery;
 
@@ -44,12 +43,12 @@ public sealed class BertiPrefetcherTests {
     public void ManyAccesses_NoCrash() {
         var p = new BertiPrefetcher();
         Span<ulong> buf = stackalloc ulong[4];
-        for (int i = 0; i < 2000; i++) {
-            ulong pc   = (ulong)(0x1000 + (i % 64) * 4);
-            ulong addr = (ulong)(0x2000 + (i % 256) * 32);
+        for (var i = 0; i < 2000; i++) {
+            var pc   = (ulong)(0x1000 + (i % 64) * 4);
+            var addr = (ulong)(0x2000 + (i % 256) * 32);
             buf.Clear();
             int cnt = p.OnAccess(pc, addr, wasHit: i % 3 == 0, buf);
-            Assert.True(cnt >= 0 && cnt <= 4);
+            Assert.True(cnt is >= 0 and <= 4);
         }
     }
 
@@ -64,37 +63,37 @@ public sealed class BertiPrefetcherTests {
         //
         // wasHit is approximated the same way as PythiaPrefetcherTests: a circular
         // log of the last 40 issued prefetches; wasHit=true when any entry matches.
-        const int Latency   = 10;
-        var p = new BertiPrefetcher(blockBytes: 32, latency: Latency);
+        const int latency   = 10;
+        var p = new BertiPrefetcher(blockBytes: 32, latency: latency);
         Span<ulong> buf = stackalloc ulong[4];
-        ulong pc   = 0x1000UL;
+        const ulong pc = 0x1000UL;
         ulong addr = 200 * 32UL;
 
-        const int TrackLen = 40;
-        var prefetchLog = new ulong[TrackLen];
-        int logHead     = 0;
+        const int trackLen = 40;
+        var prefetchLog = new ulong[trackLen];
+        var logHead     = 0;
 
-        int forwardCount = 0;
-        const int Warmup = 2000;
-        const int Check  = 200;
+        var forwardCount = 0;
+        const int warmup = 2000;
+        const int check  = 200;
 
-        for (int i = 0; i < Warmup + Check; i++) {
-            bool wasHit = false;
-            for (int j = 0; j < TrackLen; j++) {
+        for (var i = 0; i < warmup + check; i++) {
+            var wasHit = false;
+            for (var j = 0; j < trackLen; j++) {
                 if (prefetchLog[j] != 0 && prefetchLog[j] == addr) { wasHit = true; break; }
             }
 
             buf.Clear();
             p.OnAccess(pc, addr, wasHit, buf);
 
-            for (int k = 0; k < buf.Length; k++) {
-                if (buf[k] != 0) {
-                    prefetchLog[logHead % TrackLen] = buf[k];
+            foreach (ulong t in buf) {
+                if (t != 0) {
+                    prefetchLog[logHead % trackLen] = t;
                     logHead++;
                 }
             }
 
-            if (i >= Warmup) {
+            if (i >= warmup) {
                 // Forward = strictly ahead, within 20-line range
                 if (buf[0] > addr && buf[0] <= addr + 20 * 32)
                     forwardCount++;
@@ -104,6 +103,6 @@ public sealed class BertiPrefetcherTests {
         }
 
         Assert.True(forwardCount >= 150,
-            $"Convergence: expected ≥150 forward prefetches in last {Check}, got {forwardCount}");
+            $"Convergence: expected ≥150 forward prefetches in last {check}, got {forwardCount}");
     }
 }
