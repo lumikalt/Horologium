@@ -167,7 +167,8 @@
   SingleCycleTrain; "Linux version" banner verified on ns16550a UART — nix build .#linux-rv32.
 - [x] Cache pre-fetching: next-line and stride (RPT) prefetchers.
 - [x] Cache pre-fetching: stream prefetcher (stream buffers for sequential access). — Jouppi, ISCA 1990
-- [ ] Cache pre-fetching: spatial memory streaming (SMS) for irregular access patterns. — Somogyi et al., ISCA 2006
+- [x] Cache pre-fetching: spatial memory streaming (SMS) for irregular access patterns. — Somogyi et al., ISCA 2006
+- [ ] Cache pre-fetching: spatio-temporal memory streaming (STeMS) extending SMS with temporal miss-sequence recording. — Somogyi et al., ISCA 2009
 - [x] Cache pre-fetching: IP-based spatial prefetching (IPCP). — Pakalapati & Panda, ISCA 2020
 - [x] Cache pre-fetching: local-delta prefetcher (Berti). — Navarro-Torres et al., MICRO 2022
 - [x] Cache pre-fetching: RL-driven prefetcher selection (Pythia). — Bera et al., MICRO 2021

@@ -4,7 +4,7 @@ using Orrery.Spec;
 namespace Orrery.Cache;
 
 public enum PrefetcherKind {
-    None, NextLine, Stride, Stream, Ipcp, Pythia, Berti,
+    None, NextLine, Stride, Stream, Ipcp, Pythia, Berti, Sms,
 }
 
 public enum ReplacementPolicyKind {
@@ -198,6 +198,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Ipcp     => new IpcpPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Pythia   => new PythiaPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Berti    => new BertiPrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Sms      => new SmsPrefetcher(cfg.CacheBlockBytes),
                 _                       => null,
             }
             : null;
@@ -273,6 +274,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Ipcp     => new IpcpPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Pythia   => new PythiaPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Berti    => new BertiPrefetcher(s0.BlockBytes),
+                PrefetcherKind.Sms      => new SmsPrefetcher(s0.BlockBytes),
                 _                       => null,
             };
 
