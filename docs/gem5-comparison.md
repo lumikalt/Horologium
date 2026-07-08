@@ -56,23 +56,25 @@ now indicate genuine instruction-count divergence.
 
 ## Results
 
-Horologium `+Matched` (w2): ROB=30, IQ=5×8, L1 16KB, LoadHit=4, Bypass=1, DivLat=23, **ITTAGE** (kernel-only IPC).
+Horologium `+Matched` (w2): ROB=30, IQ=5×8, L1 16KB, LoadHit=4, Bypass=1, DivLat=23, **LTage** (kernel-only IPC).
 gem5 O3CPU SE: width=2, ROB=30, IQ=8, L1 16KB, TournamentBP, RAS=16.
 Run with: `bash scripts/gem5-compare.sh`
 
-> **Table below is stale** (2-bit BHT, full-run IPC). Re-run the script to refresh.
+Predictor evaluated: ITTAGE won on qsort (+7pp) and multiply (+7pp) via indirect-target prediction;
+LTage (TAGE with 34-bit history + loop) won on treesum/towers/median via global-history direction
+accuracy. LTage chosen as better overall; ITTAGE advantage on qsort (0.940 vs 0.971) is residual.
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
 |----------|----------|----------|-----------|--------|
-| median   | 0.608    | 0.553    | 0.910     | +27%   |
-| qsort    | 0.741    | 0.667    | 0.900     | +2%    |
-| rsort    | 1.088    | 1.206    | 1.108     | +1%    |
-| towers   | 0.781    | 0.516    | 0.661     | +41%   |
-| vvadd    | 0.864    | 0.802    | 0.929     | +45%   |
-| memcpy   | 0.559    | 0.619    | 1.108     | +10%   |
-| multiply | 1.735    | 1.381    | 0.796     | +6%    |
-| gcd      | 0.317    | 0.271    | 0.857     | +12%   |
-| treesum  | 1.330    | 0.671    | 0.505     | +6%    |
+| median   | 0.608    | 0.570    | 0.937     | +27%   |
+| qsort    | 0.741    | 0.696    | 0.940     | +2%    |
+| rsort    | 1.088    | 1.208    | 1.110     | +1%    |
+| towers   | 0.781    | 0.533    | 0.683     | +41%   |
+| vvadd    | 0.864    | 0.808    | 0.935     | +45%   |
+| memcpy   | 0.559    | 0.620    | 1.110     | +10%   |
+| multiply | 1.735    | 1.497    | 0.863     | +6%    |
+| gcd      | 0.317    | 0.278    | 0.878     | +12%   |
+| treesum  | 1.330    | 0.709    | 0.533     | +6%    |
 | pchase   | 0.420    | 0.566    | 1.348     | +1%    |
 
 H/G ratio > 1 means Horologium has higher IPC than gem5.
