@@ -6,7 +6,8 @@ namespace RiscV32.Memory;
 /// Sv32 two-level page table walker for RV32.
 /// Reference: RISC-V Privileged Specification §4.3.
 /// A/D bits are not set on access (fault-on-access model): A=0 or (store and D=0) raises a page fault.
-/// SUM (permit Supervisor access to User pages) is not implemented; S-mode always faults on U-pages.
+/// SUM (sstatus bit 18): when set, S-mode data accesses to U-pages are permitted; instruction fetches
+/// are never subject to SUM — S-mode can never execute from U-pages regardless.
 /// </summary>
 internal static class Sv32Walker {
     private const uint PageSize = 4096;
@@ -29,7 +30,8 @@ internal static class Sv32Walker {
         ulong vaddr,
         bool isWrite,
         bool isExec,
-        PrivilegeLevel privilege
+        PrivilegeLevel privilege,
+        bool sum = false
     ) {
         if (satp >> 31 == 0) return (vaddr, 0); // Bare mode — no translation
 
@@ -61,7 +63,7 @@ internal static class Sv32Walker {
         // Check page permissions
         bool pteU = (pte & Sv32Walker.PteU) != 0;
         if (umode && !pteU) return (0, fault); // U-mode accessing kernel page
-        if (smode && pteU) return (0, fault);  // S-mode accessing user page (no SUM)
+        if (smode && pteU && (!sum || isExec)) return (0, fault); // S-mode/U-page: deny unless SUM=1 and data access
 
         if (isExec && (pte & Sv32Walker.PteX) == 0) return (0, fault);
         if (isWrite && (pte & Sv32Walker.PteW) == 0) return (0, fault);

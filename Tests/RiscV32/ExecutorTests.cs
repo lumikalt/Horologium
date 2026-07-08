@@ -1066,6 +1066,53 @@ public class ExecutorTests {
     }
 
     [Fact]
+    public void Execute_Load_Sv32_UserPage_SMode_SumDisabled_RaisesLoadPageFault() {
+        // S-mode + U-page + SUM=0 (default): data load must fault (priv spec §4.3.1)
+        (FlatMemory mem, uint satp) = BuildSv32Memory();
+        mem.Write(0x2000UL, UserRwPte(3), 4); // L1 entry 0 → PA 0x3000
+        mem.Write(0x3000UL, 0xCAFEBABEu, 4);
+        Rv32ArchState s = MakeState((1, 0x00000000u));
+        s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
+        s.PrivilegeLevel = RvPrivilege.Supervisor; // SUM bit left clear
+        ITooth instr = _dec.Decode(0, 0x0000A183); // lw x3, 0(x1)
+        ExecuteResult r = _exe.Execute(instr, s, mem);
+        Assert.NotNull(r.Trap);
+        Assert.Equal(RvTrapCause.LoadPageFault, r.Trap.Cause);
+    }
+
+    [Fact]
+    public void Execute_Load_Sv32_UserPage_SMode_SumEnabled_Succeeds() {
+        // S-mode + U-page + SUM=1: data load must succeed (priv spec §4.3.1)
+        (FlatMemory mem, uint satp) = BuildSv32Memory();
+        mem.Write(0x2004UL, UserRwPte(4), 4); // L1 entry 1 → PA 0x4000
+        mem.Write(0x4000UL, 0xDEADC0DEu, 4);
+        Rv32ArchState s = MakeState((1, 0x00001000u));
+        s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
+        s.SystemRegisters.Write(CsrFile.Sstatus, CsrFile.SstatusSum, RvPrivilege.Machine);
+        s.PrivilegeLevel = RvPrivilege.Supervisor;
+        ITooth instr = _dec.Decode(0, 0x0000A183); // lw x3, 0(x1)
+        ExecuteResult r = _exe.Execute(instr, s, mem);
+        Assert.Null(r.Trap);
+        Assert.Equal(0xDEADC0DEUL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Fetch_Sv32_UserPage_SMode_SumEnabled_StillRaisesInstructionPageFault() {
+        // SUM never grants S-mode instruction-fetch access to U-pages (priv spec §4.3.1).
+        // RvFetchTranslator always passes sum=false regardless of sstatus.SUM.
+        (FlatMemory mem, uint satp) = BuildSv32Memory();
+        uint execUserPte = (5u << 10) | 0b0101_1111u; // A|U|X|R|V
+        mem.Write(0x2008UL, execUserPte, 4); // L1 entry 2 → VA 0x2000 → PA 0x5000
+        Rv32ArchState s = MakeState();
+        s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
+        s.SystemRegisters.Write(CsrFile.Sstatus, CsrFile.SstatusSum, RvPrivilege.Machine);
+        s.PrivilegeLevel = RvPrivilege.Supervisor;
+        var translator = new RvFetchTranslator(s, mem);
+        var (_, fault) = translator.Translate(0x00002000UL);
+        Assert.Equal(RvTrapCause.InstructionPageFault, fault);
+    }
+
+    [Fact]
     public void Execute_CsrRead_InsufficientPrivilege_RaisesIllegalInstruction() {
         // csrrs x10, mstatus, x0 (0x30002573) — U-mode cannot read M-mode CSR 0x300
         Rv32ArchState s = MakeState();

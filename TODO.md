@@ -73,7 +73,13 @@
   - [ ] Confirm what's missing. Indirect memory access optimization?
 - [ ] UVE 2 (ISCA 2024): predicates, scatter/gather, widening/narrowing.
 - [ ] `ss.cfg.vec` effect: vector-width element delivery from load streams.
-- [ ] SUM: honor `sstatus.SUM` so S-mode can access user pages.
+- [x] SUM: honor `sstatus.SUM` so S-mode can access user pages.
+- [ ] gem5 ROI instrumentation for treesum: wire `setStats(1)`/`setStats(0)` markers into the gem5 SE
+  simulation so gem5 measures the same kernel interval as Horologium's `SetStatsObserver` and the IPC
+  comparison is apples-to-apples.
+- [ ] treesum bypass=0 D-cache regression: measure wrong-path load counts to confirm that deeper
+  wrong-path execution under 0-cycle forwarding is the source of the +138 D-cache misses and +1 479
+  dispatch stall cycles observed when switching from bypass=1 to bypass=0.
 - [ ] Implement the rest of the extensions.
 
 ### Analysis

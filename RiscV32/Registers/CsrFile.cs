@@ -112,6 +112,7 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint MstatusMpie = 1u << 7;
     public const uint MstatusSpp = 1u << 8;
     public const uint MstatusMpp = 3u << 11; // 2-bit field at bits 12:11
+    public const uint MstatusSum = 1u << 18; // Supervisor User Memory access
 
     // sstatus-only aliases (same bit positions as in mstatus)
     public const uint SstatusUie = CsrFile.MstatusUie;
@@ -119,6 +120,7 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint SstatusUpie = CsrFile.MstatusUpie;
     public const uint SstatusSpie = CsrFile.MstatusSpie;
     public const uint SstatusSpp = CsrFile.MstatusSpp;
+    public const uint SstatusSum = CsrFile.MstatusSum;
 
     // CSR addresses are 12-bit, so a flat array (indexed by address) replaces a
     // Dictionary: DirectRead is called twice every cycle by PeekInterrupt, and

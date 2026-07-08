@@ -912,8 +912,9 @@ public class Rv32Executor : IExecutor {
         bool isExec
     ) {
         if (state.SystemRegisters is not CsrFile csrs) return (vaddr, 0);
+        bool sum = (csrs.DirectRead(CsrFile.Sstatus) & CsrFile.SstatusSum) != 0;
         return Sv32Walker.Translate(
-            memory, csrs.DirectRead(CsrFile.Satp), vaddr, isWrite, isExec, state.PrivilegeLevel
+            memory, csrs.DirectRead(CsrFile.Satp), vaddr, isWrite, isExec, state.PrivilegeLevel, sum
         );
     }
 

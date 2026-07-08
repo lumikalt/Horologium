@@ -11,7 +11,7 @@ public sealed class RvFetchTranslator(IArchState state, IMemory memory) : IFetch
         if (state.SystemRegisters is not CsrFile csrs) return (virtualPc, 0);
         return Sv32Walker.Translate(
             memory, csrs.DirectRead(CsrFile.Satp),
-            virtualPc, false, true, state.PrivilegeLevel
+            virtualPc, false, true, state.PrivilegeLevel, sum: false
         );
     }
 }
