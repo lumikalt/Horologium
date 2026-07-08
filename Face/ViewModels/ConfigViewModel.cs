@@ -108,6 +108,11 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
+    [ObservableProperty] public partial string DPrefetcher { get; set; } = "none";
+    [ObservableProperty] public partial int DPrefetcherTableSize { get; set; } = 64;
+    [ObservableProperty] public partial int DPrefetcherDepth { get; set; } = 8;
+    [ObservableProperty] public partial int DPrefetchLatency { get; set; } = 0;
+
     [ObservableProperty] public partial int StoreBufferCapacity { get; set; } = 0;
 
     [ObservableProperty] public partial int IssueWidth { get; set; } = 2;
@@ -132,12 +137,23 @@ public partial class ConfigViewModel : ObservableObject {
     public bool HasTournamentParams => PredictorType == "tournament";
     public bool HasImliParams => PredictorType == "imli";
 
+    public bool HasDPrefetcherTableSize => DPrefetcher is "stride" or "stream";
+    public bool HasDPrefetcherDepth => DPrefetcher == "stream";
+    public bool HasDPrefetcherParams => DPrefetcher != "none";
+
     // ReSharper disable once PartialMethodParameterNameMismatch
     partial void OnPipelineChanged(string value) {
         OnPropertyChanged(nameof(IsFiveStage));
         OnPropertyChanged(nameof(IsOoo));
         OnPropertyChanged(nameof(IsWidePipeline));
         OnPropertyChanged(nameof(HasPredictorConfig));
+    }
+
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnDPrefetcherChanged(string value) {
+        OnPropertyChanged(nameof(HasDPrefetcherTableSize));
+        OnPropertyChanged(nameof(HasDPrefetcherDepth));
+        OnPropertyChanged(nameof(HasDPrefetcherParams));
     }
 
     // ReSharper disable once PartialMethodParameterNameMismatch
@@ -154,6 +170,9 @@ public partial class ConfigViewModel : ObservableObject {
 
     public static string[] CacheReplacementPolicyOptions { get; } =
         ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
+
+    public static string[] DPrefetcherOptions { get; } =
+        ["none", "next_line", "stride", "stream", "ipcp", "berti", "pythia", "sms",];
 
     public static string[] WritePolicyOptions { get; } = ["write_through", "write_back",];
     public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
@@ -253,6 +272,10 @@ public partial class ConfigViewModel : ObservableObject {
                 RobCapacity: RobCapacity,
                 IqCapacity: IqCapacity,
                 ExtraPhysRegs: ExtraPhysRegs,
+                DPrefetcher: DPrefetcher == "none" ? null : DPrefetcher,
+                DPrefetcherTableSize: DPrefetcherTableSize,
+                DPrefetcherDepth: DPrefetcherDepth,
+                DPrefetchLatency: DPrefetchLatency,
                 CacheReplacementPolicy: CacheReplacementPolicy == "lru" ? null : CacheReplacementPolicy
             )
         );
@@ -294,6 +317,10 @@ public partial class ConfigViewModel : ObservableObject {
             DCacheEnabled = nc.Config.DCache is not null,
             L2CacheEnabled = nc.Config.L2Cache is not null,
             CacheReplacementPolicy = nc.Config.CacheReplacementPolicy ?? "lru",
+            DPrefetcher = nc.Config.DPrefetcher ?? "none",
+            DPrefetcherTableSize = nc.Config.DPrefetcherTableSize,
+            DPrefetcherDepth = nc.Config.DPrefetcherDepth,
+            DPrefetchLatency = nc.Config.DPrefetchLatency,
         };
 
         switch (nc.Config.Predictor) {

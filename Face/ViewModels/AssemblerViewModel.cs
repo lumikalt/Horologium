@@ -66,43 +66,131 @@ public partial class AssemblerViewModel : ObservableObject {
     public partial string SourceCode { get; set; } =
         """
         # Stores to 0x10013000 (SiFive UART0 txdata) appear in the Console tab.
-        j _start
+        # Fills a 64-word array, then sums it sequentially and with stride 4.
+        # Try different D-cache prefetchers in the sidebar to compare hit rates.
 
-        # factorial(n): n in a0, returns n! in a0
-        factorial:
-            li   t0, 1
-        loop:
-            blez a0, done
-            mul  t0, t0, a0
-            addi a0, a0, -1
-            j    loop
-        done:
-            mv   a0, t0
-            ret
+                .equ  UART, 0x10013000
+                .equ  N,    64
+                j     _start
+
+        # putchar(a0) -- write one byte to UART
+        putchar:
+                li    t0, UART
+                sw    a0, 0(t0)
+                ret
+
+        # puts(a0) -- print null-terminated string
+        puts:
+                addi  sp, sp, -8
+                sw    ra, 4(sp)
+                sw    s0, 0(sp)
+                mv    s0, a0
+        .puts_loop:
+                lbu   a0, 0(s0)
+                beqz  a0, .puts_ret
+                call  putchar
+                addi  s0, s0, 1
+                j     .puts_loop
+        .puts_ret:
+                lw    s0, 0(sp)
+                lw    ra, 4(sp)
+                addi  sp, sp, 8
+                ret
+
+        # putdec(a0) -- print unsigned decimal (digits buffered on stack)
+        putdec:
+                addi  sp, sp, -32
+                sw    ra, 28(sp)
+                sw    s0, 24(sp)
+                sw    s1, 20(sp)
+                mv    s0, sp              # digit buffer at sp+0
+                li    s1, 0              # digit count
+                li    t0, 10
+                bnez  a0, .pd_fill
+                li    a0, '0'
+                call  putchar
+                j     .pd_ret
+        .pd_fill:
+                beqz  a0, .pd_print
+                remu  t1, a0, t0
+                divu  a0, a0, t0
+                add   t2, s0, s1
+                addi  t1, t1, '0'
+                sb    t1, 0(t2)           # buf[count++] = LSB digit
+                addi  s1, s1, 1
+                j     .pd_fill
+        .pd_print:
+                addi  s1, s1, -1
+                bltz  s1, .pd_ret
+                add   t2, s0, s1
+                lbu   a0, 0(t2)
+                call  putchar
+                j     .pd_print
+        .pd_ret:
+                lw    s1, 20(sp)
+                lw    s0, 24(sp)
+                lw    ra, 28(sp)
+                addi  sp, sp, 32
+                ret
 
         _start:
-            li   a0, 5
-            call factorial          # a0 = 5! = 120
-            lui  t0, 0x10013        # t0 = UART0 txdata (0x10013000)
-            li   t1, '5'
-            sw   t1, 0(t0)
-            li   t1, '!'
-            sw   t1, 0(t0)
-            li   t1, ' '
-            sw   t1, 0(t0)
-            li   t1, '='
-            sw   t1, 0(t0)
-            li   t1, ' '
-            sw   t1, 0(t0)
-            li   t1, '1'
-            sw   t1, 0(t0)
-            li   t1, '2'
-            sw   t1, 0(t0)
-            li   t1, '0'
-            sw   t1, 0(t0)
-            li   t1, 10
-            sw   t1, 0(t0)          # '\n'
-            ebreak
+                li    sp, 0xFFF00
+
+                # Fill: arr[i] = i+1  for i in [0, N)
+                la    t0, arr
+                li    t1, 0
+        .fill:
+                addi  t2, t1, 1
+                sw    t2, 0(t0)
+                addi  t0, t0, 4
+                addi  t1, t1, 1
+                li    t3, N
+                blt   t1, t3, .fill
+
+                # Sequential sum: arr[0]+arr[1]+...+arr[63]  =>  2080
+                la    t0, arr
+                li    t1, 0
+                li    s0, 0
+        .seq:
+                lw    t2, 0(t0)
+                add   s0, s0, t2
+                addi  t0, t0, 4
+                addi  t1, t1, 1
+                li    t3, N
+                blt   t1, t3, .seq
+
+                # Strided sum: arr[0]+arr[4]+arr[8]+...+arr[60]  =>  496
+                la    t0, arr
+                li    t1, 0
+                li    s1, 0
+        .stride:
+                lw    t2, 0(t0)
+                add   s1, s1, t2
+                addi  t0, t0, 16         # skip 4 words at a time
+                addi  t1, t1, 1
+                li    t3, N/4
+                blt   t1, t3, .stride
+
+                la    a0, msg_seq
+                call  puts
+                mv    a0, s0
+                call  putdec
+                li    a0, '\n'
+                call  putchar
+
+                la    a0, msg_stride
+                call  puts
+                mv    a0, s1
+                call  putdec
+                li    a0, '\n'
+                call  putchar
+
+                ebreak
+
+                .section .data
+        msg_seq:    .asciz "seq:    "
+        msg_stride: .asciz "stride: "
+        arr:        .space N*4
         """;
 
     [ObservableProperty]
@@ -190,6 +278,14 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial string L2CacheWriteMissPolicy { get; set; } = "no_write_allocate";
     [ObservableProperty] public partial int L2CacheWbCapacity { get; set; } = 0;
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
+    [ObservableProperty] public partial string DCachePrefetcher { get; set; } = "none";
+    [ObservableProperty] public partial int DCachePrefetcherTableSize { get; set; } = 64;
+    [ObservableProperty] public partial int DCachePrefetcherDepth { get; set; } = 8;
+    [ObservableProperty] public partial int DCachePrefetchLatency { get; set; } = 0;
+
+    public bool HasDCachePrefetcherTableSize => DCachePrefetcher is "stride" or "stream";
+    public bool HasDCachePrefetcherDepth => DCachePrefetcher == "stream";
+    public bool HasDCachePrefetcherParams => DCachePrefetcher != "none";
 
     // ── Cache display state ───────────────────────────────────────────────────
     [ObservableProperty] public partial int SelectedCacheTab { get; set; }
@@ -214,6 +310,9 @@ public partial class AssemblerViewModel : ObservableObject {
 
     public static IReadOnlyList<string> CacheReplacementPolicyOptions { get; } =
         ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
+
+    public static IReadOnlyList<string> DPrefetcherOptions { get; } =
+        ["none", "next_line", "stride", "stream", "ipcp", "berti", "pythia", "sms",];
 
     public static IReadOnlyList<string> WritePolicyOptions { get; } = ["write_through", "write_back",];
     public static IReadOnlyList<string> WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
@@ -329,6 +428,17 @@ public partial class AssemblerViewModel : ObservableObject {
         OnPropertyChanged(nameof(CacheMetadataLabel));
         ApplyCacheConfigChange();
     }
+
+    partial void OnDCachePrefetcherChanged(string value) {
+        OnPropertyChanged(nameof(HasDCachePrefetcherTableSize));
+        OnPropertyChanged(nameof(HasDCachePrefetcherDepth));
+        OnPropertyChanged(nameof(HasDCachePrefetcherParams));
+        ApplyCacheConfigChange();
+    }
+
+    partial void OnDCachePrefetcherTableSizeChanged(int value) => ApplyCacheConfigChange();
+    partial void OnDCachePrefetcherDepthChanged(int value) => ApplyCacheConfigChange();
+    partial void OnDCachePrefetchLatencyChanged(int value) => ApplyCacheConfigChange();
 
     partial void OnSelectedCacheTabChanged(int value) {
         RefreshCacheDisplay();
@@ -987,6 +1097,24 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2WbCapacity = L2CacheWbCapacity,
             };
         }
+        PrefetcherKind prefKind = DCachePrefetcher switch {
+            "next_line" => PrefetcherKind.NextLine,
+            "stride"    => PrefetcherKind.Stride,
+            "stream"    => PrefetcherKind.Stream,
+            "ipcp"      => PrefetcherKind.Ipcp,
+            "pythia"    => PrefetcherKind.Pythia,
+            "berti"     => PrefetcherKind.Berti,
+            "sms"       => PrefetcherKind.Sms,
+            _           => PrefetcherKind.None,
+        };
+        if (prefKind != PrefetcherKind.None)
+            dCfg = dCfg with {
+                Prefetcher = prefKind,
+                PrefetcherTableSize = DCachePrefetcherTableSize,
+                PrefetcherDepth = DCachePrefetcherDepth,
+                PrefetchLatency = DCachePrefetchLatency,
+            };
+
         if (dCfg.CacheCapacityBytes > 0 || dCfg.L2CapacityBytes > 0)
             dCfg = dCfg with { UncacheableBase = UartDevice.DefaultBase, UncacheableSize = UartDevice.RegionSize, };
 

@@ -215,6 +215,34 @@
                             <NumericUpDown Grid.Row="8" Grid.Column="1" Value="{Binding DCacheWbCapacity}"
                                            Minimum="0" Maximum="32" />
                         </Grid>
+                        <StackPanel Margin="12,0,0,0" Spacing="4"
+                                    IsVisible="{Binding DCacheEnabled}">
+                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Text="Prefetcher" VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{x:Static vm:ConfigViewModel.DPrefetcherOptions}"
+                                          SelectedItem="{Binding DPrefetcher}"
+                                          HorizontalAlignment="Stretch" />
+                            </Grid>
+                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                  IsVisible="{Binding HasDPrefetcherTableSize}">
+                                <TextBlock Grid.Column="0" Text="Table size" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1" Value="{Binding DPrefetcherTableSize}"
+                                               Minimum="1" Maximum="1024" />
+                            </Grid>
+                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                  IsVisible="{Binding HasDPrefetcherDepth}">
+                                <TextBlock Grid.Column="0" Text="Depth (lines)" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1" Value="{Binding DPrefetcherDepth}"
+                                               Minimum="1" Maximum="64" />
+                            </Grid>
+                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                  IsVisible="{Binding HasDPrefetcherParams}">
+                                <TextBlock Grid.Column="0" Text="Prefetch lat." VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1" Value="{Binding DPrefetchLatency}"
+                                               Minimum="0" Maximum="100" />
+                            </Grid>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- five_stage + ooo: unified L2 cache -->
@@ -806,6 +834,52 @@
                                                    FormatString="N0"
                                                    HorizontalAlignment="Stretch" />
                                     <TextBlock Grid.Column="2" Text="ln"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Prefetch"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{x:Static vm:AssemblerViewModel.DPrefetcherOptions}"
+                                              SelectedItem="{Binding Assembler.DCachePrefetcher}"
+                                              HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
+                                      IsVisible="{Binding Assembler.HasDCachePrefetcherTableSize}">
+                                    <TextBlock Grid.Column="0" Text="Tbl sz"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding Assembler.DCachePrefetcherTableSize}"
+                                                   Minimum="1" Maximum="1024" Increment="1"
+                                                   FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
+                                      IsVisible="{Binding Assembler.HasDCachePrefetcherDepth}">
+                                    <TextBlock Grid.Column="0" Text="Depth"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding Assembler.DCachePrefetcherDepth}"
+                                                   Minimum="1" Maximum="64" Increment="1"
+                                                   FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="ln"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
+                                      IsVisible="{Binding Assembler.HasDCachePrefetcherParams}">
+                                    <TextBlock Grid.Column="0" Text="Pref lat"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding Assembler.DCachePrefetchLatency}"
+                                                   Minimum="0" Maximum="100" Increment="1"
+                                                   FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="cy"
                                                VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
                                 </Grid>
                             </StackPanel>
