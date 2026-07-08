@@ -130,12 +130,13 @@ public class CacheHierarchySpecTests {
         layers.Accessor.Read(0, 1);
         layers.ConsumeAllStalls();
 
-        ulong? prefetchTarget = layers.Prefetcher!.OnAccess(0, 0, false);
-        Assert.True(prefetchTarget.HasValue);
-        layers.TryPrefetch(prefetchTarget.Value);
+        Span<ulong> buf = stackalloc ulong[4];
+        int cnt = layers.Prefetcher!.OnAccess(0, 0, false, buf);
+        Assert.True(cnt > 0);
+        layers.TryPrefetch(buf[0]);
 
         // Reading the prefetched line should be a cache hit with no stall.
-        layers.Accessor.Read(prefetchTarget.Value, 1);
+        layers.Accessor.Read(buf[0], 1);
         Assert.Equal(1L, layers.Cache!.Hits);
         Assert.Equal(0, layers.ConsumeAllStalls());
     }
@@ -159,8 +160,10 @@ public class CacheHierarchySpecTests {
         var l1 = new CacheLevelSpec(256, 4, 16, 8, Prefetcher: PrefetcherKind.NextLine, PrefetchLatency: 5);
         var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]));
 
-        ulong? target = layers.Prefetcher!.OnAccess(0, 0, false);
-        layers.TryPrefetch(target!.Value);
+        Span<ulong> buf = stackalloc ulong[4];
+        int cnt = layers.Prefetcher!.OnAccess(0, 0, false, buf);
+        Assert.True(cnt > 0);
+        layers.TryPrefetch(buf[0]);
 
         // Line is in-flight; cache should record one in-flight prefetch.
         Assert.Equal(1, layers.Cache!.InFlightPrefetchCount);

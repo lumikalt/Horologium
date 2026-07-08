@@ -793,6 +793,7 @@ internal sealed class OoOPipelineCore : Gear {
         if (_anyCache) ChargeStallCycles(DLayers.ConsumeAllStalls());
 
         // Start executing newly issued instructions.
+        Span<ulong> prefBuf = stackalloc ulong[32];
         foreach (IssuedInstr issued in _execBuffer) {
             // Look up the LQ SeqNo before calling ExecuteOne so TryForwardFromStore
             // can use it for SQ ordering without any ROB index arithmetic.
@@ -831,9 +832,11 @@ internal sealed class OoOPipelineCore : Gear {
             // slot is busy (prefetches share the miss-tracking slots with demand loads).
             if (result.HasLoadAccess && !result.LoadWasForwarded && DLayers.Prefetcher is not null) {
                 bool wasHit = DLayers.Cache?.LastAccessWasHit ?? true;
-                ulong? pAddr = DLayers.Prefetcher.OnAccess(issued.Pc, result.LoadAddr, wasHit);
-                if (pAddr.HasValue && (_mshrCapacity == 0 || _mshrUsed + InFlightPrefetches < _mshrCapacity))
-                    DLayers.TryPrefetch(pAddr.Value);
+                int prefCount = DLayers.Prefetcher.OnAccess(issued.Pc, result.LoadAddr, wasHit, prefBuf);
+                for (int k = 0; k < prefCount; k++) {
+                    if (_mshrCapacity > 0 && _mshrUsed + InFlightPrefetches >= _mshrCapacity) break;
+                    DLayers.TryPrefetch(prefBuf[k]);
+                }
             }
 
             int fuLatency = _fuConfig.LatencyFor(issued.Instr);

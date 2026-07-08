@@ -4,7 +4,7 @@ using Orrery.Spec;
 namespace Orrery.Cache;
 
 public enum PrefetcherKind {
-    None, NextLine, Stride,
+    None, NextLine, Stride, Stream,
 }
 
 public enum ReplacementPolicyKind {
@@ -48,8 +48,11 @@ public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate, }
 /// <param name="UncacheableSize">Size of the uncacheable MMIO region in bytes (0 = disabled).</param>
 /// <param name="Prefetcher">Prefetch strategy for this memory port. Ignored when no L1 cache
 /// is configured. Prefetches respect the uncacheable region.</param>
-/// <param name="PrefetcherTableSize">RPT table entries for <see cref="PrefetcherKind.Stride"/>;
-/// must be a power of 2. Ignored for other prefetcher kinds.</param>
+/// <param name="PrefetcherTableSize">RPT table entries for <see cref="PrefetcherKind.Stride"/> and
+/// stream-buffer count for <see cref="PrefetcherKind.Stream"/>; must be a power of 2.
+/// Ignored for other prefetcher kinds.</param>
+/// <param name="PrefetcherDepth">Stream-buffer depth (lines prefetched ahead per stream) for
+/// <see cref="PrefetcherKind.Stream"/>. Ignored for other prefetcher kinds.</param>
 /// <param name="PrefetchLatency">Cycles until a prefetched line is usable (0 = instant/free,
 /// the idealized model). A demand hit on a line whose prefetch is still in flight pays the
 /// remaining countdown instead of zero, and in-flight prefetches count against MSHR capacity.</param>
@@ -102,6 +105,7 @@ public sealed record MemoryConfig(
     ulong UncacheableSize = 0,
     PrefetcherKind Prefetcher = PrefetcherKind.None,
     int PrefetcherTableSize = 64,
+    int PrefetcherDepth = 8,
     int PrefetchLatency = 0,
     ReplacementPolicyKind ReplacementPolicy = ReplacementPolicyKind.Lru,
     int CacheTagLatency = 0,
@@ -190,6 +194,7 @@ public sealed record MemoryLayers(
             ? cfg.Prefetcher switch {
                 PrefetcherKind.NextLine => new NextLinePrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Stride   => new StridePrefetcher(cfg.PrefetcherTableSize),
+                PrefetcherKind.Stream   => new StreamPrefetcher(cfg.PrefetcherTableSize, cfg.PrefetcherDepth, cfg.CacheBlockBytes),
                 _                       => null,
             }
             : null;
@@ -261,6 +266,7 @@ public sealed record MemoryLayers(
             prefetcher = s0.Prefetcher switch {
                 PrefetcherKind.NextLine => new NextLinePrefetcher(s0.BlockBytes),
                 PrefetcherKind.Stride   => new StridePrefetcher(s0.PrefetcherTableSize),
+                PrefetcherKind.Stream   => new StreamPrefetcher(s0.PrefetcherTableSize, s0.PrefetcherDepth, s0.BlockBytes),
                 _                       => null,
             };
 

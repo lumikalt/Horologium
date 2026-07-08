@@ -16,6 +16,7 @@ public sealed record CacheLevelSpec(
     int SharedAcross = 1,
     PrefetcherKind Prefetcher = PrefetcherKind.None,
     int PrefetcherTableSize = 64,
+    int PrefetcherDepth = 8,
     int PrefetchLatency = 0,
     int TagLatency = 0,
     int DataLatency = 0,

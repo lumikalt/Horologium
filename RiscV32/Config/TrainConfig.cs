@@ -61,8 +61,9 @@ public sealed record TrainConfig(
     int ExtraPhysRegs = 32,
     FuLatencyConfig? FuLatency = null, // null → FuLatencyConfig.Default (all 1-cycle except MulDiv=3)
     int MshrCapacity = 0,              // 0 = unlimited outstanding misses
-    string? DPrefetcher = null,        // null | "next_line" | "stride"
+    string? DPrefetcher = null,        // null | "next_line" | "stride" | "stream"
     int DPrefetcherTableSize = 64,
+    int DPrefetcherDepth = 8,         // stream buffer depth (lines ahead); ignored for other prefetchers
     int DPrefetchLatency = 0, // cycles until a prefetched line is usable; 0 = free/instant
     string? CacheReplacementPolicy
         = null // null/"lru" | "mru" | "clock" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc" | "random" | "fifo" | "plru" | "hawkeye"
@@ -81,11 +82,13 @@ public sealed record TrainConfig(
         PrefetcherKind kind = DPrefetcher?.ToLowerInvariant() switch {
             "next_line" => PrefetcherKind.NextLine,
             "stride"    => PrefetcherKind.Stride,
+            "stream"    => PrefetcherKind.Stream,
             _           => PrefetcherKind.None,
         };
         return mc with {
             Prefetcher = kind,
             PrefetcherTableSize = DPrefetcherTableSize,
+            PrefetcherDepth = DPrefetcherDepth,
             PrefetchLatency = DPrefetchLatency,
             ReplacementPolicy = ParseReplacementPolicy(),
         };

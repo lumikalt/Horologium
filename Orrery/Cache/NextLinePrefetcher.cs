@@ -9,8 +9,10 @@ public sealed class NextLinePrefetcher : IPrefetcher {
 
     public NextLinePrefetcher(int blockBytes) => _blockBytes = blockBytes;
 
-    public ulong? OnAccess(ulong pc, ulong address, bool wasHit) {
+    public int OnAccess(ulong pc, ulong address, bool wasHit, Span<ulong> targets) {
+        if (targets.IsEmpty) return 0;
         ulong lineBase = address & ~(ulong)(_blockBytes - 1);
-        return lineBase + (ulong)_blockBytes;
+        targets[0] = lineBase + (ulong)_blockBytes;
+        return 1;
     }
 }

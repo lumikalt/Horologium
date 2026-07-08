@@ -166,7 +166,7 @@
 - [x] Linux kernel bring-up (milestone 2): boot Linux 6.12 RV32 NOMMU (nommu_virt_defconfig + M-mode) directly on
   SingleCycleTrain; "Linux version" banner verified on ns16550a UART — nix build .#linux-rv32.
 - [x] Cache pre-fetching: next-line and stride (RPT) prefetchers.
-- [ ] Cache pre-fetching: stream prefetcher (stream buffers for sequential access). — Jouppi, ISCA 1990
+- [x] Cache pre-fetching: stream prefetcher (stream buffers for sequential access). — Jouppi, ISCA 1990
 - [ ] Cache pre-fetching: spatial memory streaming (SMS) for irregular access patterns. — Somogyi et al., ISCA 2006
 - [ ] Cache pre-fetching: IP-based spatial prefetching (IPCP). — Singh et al., ISCA 2020
 - [ ] Cache pre-fetching: local-delta prefetcher (Berti). — Bakhshalipour et al., MICRO 2022
