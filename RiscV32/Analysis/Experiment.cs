@@ -155,7 +155,8 @@ public static class Experiment {
                 config.FuLatency,
                 commitObserver: setStatsObs,
                 writeBufferCapacity: config.StoreBufferCapacity,
-                mshrCapacity: config.MshrCapacity
+                mshrCapacity: config.MshrCapacity,
+                flatIq: config.FlatIq
             );
 
             result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
@@ -213,7 +214,8 @@ public static class Experiment {
                     cfg.ToIMemoryConfig(), dCfg,
                     cfg.FuLatency, plog,
                     writeBufferCapacity: cfg.StoreBufferCapacity,
-                    mshrCapacity: cfg.MshrCapacity
+                    mshrCapacity: cfg.MshrCapacity,
+                    flatIq: cfg.FlatIq
                 ).Run(maxTicks);
                 break;
             case "superscalar": break;

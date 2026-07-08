@@ -12,6 +12,7 @@
 # Usage:
 #   bash scripts/gem5-compare.sh [--width N] [--rob N] [--iq N]
 #                                 [--div-lat N] [--bypass-lat N] [--mem-lat-ns STR]
+#                                 [--flat-iq]
 #
 # --div-lat N       IntDiv latency for both gem5 and Horologium (default: 23).
 #                   gem5 DefaultFUPool uses 20; Horologium default is 23.
@@ -19,6 +20,8 @@
 #                   gem5 O3CPU uses 0-cycle forwarding by default; pass 0 to match.
 # --mem-lat-ns STR  SimpleMemory latency for gem5 (default: "30ns").
 #                   Pass "10ns" to eliminate DRAM asymmetry with Horologium HtifMemory.
+# --flat-iq         Use Horologium's flat (unified) IQ mode: one 40-entry IQ for all
+#                   instruction classes, matching gem5's scheduling model.
 #
 # Prerequisites:
 #   gem5 on PATH  (nix build .#gem5 or nix develop)
@@ -28,7 +31,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-WIDTH=2; ROB=30; IQ=8; DIV_LAT=23; BYPASS_LAT=1; MEM_LAT_NS="30ns"
+WIDTH=2; ROB=30; IQ=8; DIV_LAT=23; BYPASS_LAT=1; MEM_LAT_NS="30ns"; FLAT_IQ=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --width)      WIDTH=$2;      shift 2 ;;
@@ -37,6 +40,7 @@ while [[ $# -gt 0 ]]; do
         --div-lat)    DIV_LAT=$2;    shift 2 ;;
         --bypass-lat) BYPASS_LAT=$2; shift 2 ;;
         --mem-lat-ns) MEM_LAT_NS=$2; shift 2 ;;
+        --flat-iq)    FLAT_IQ=true;  shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -51,6 +55,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 cat > "$TMP/sweep.json" <<JSON
 [{"name":"w${WIDTH}","config":{
   "pipeline":"ooo","issue_width":${WIDTH},"rob_capacity":${ROB},"iq_capacity":${IQ},
+  "flat_iq":${FLAT_IQ},
   "predictor":{"type":"l_tage"},
   "i_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
   "d_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
@@ -62,8 +67,10 @@ JSON
 dotnet build -c Release --no-restore -v quiet 2>/dev/null || true
 mkdir -p m5out-compare
 
-printf "\nHorologium vs gem5 O3CPU — w%d  ROB=%d  Horo-IQ=5×%d  gem5-IQ=%d  L1 16KB  LoadHit=4  Bypass=%d  DivLat=%d  MemLat=%s\n\n" \
-    "$WIDTH" "$ROB" "$IQ" "$GEM5_IQ" "$BYPASS_LAT" "$DIV_LAT" "$MEM_LAT_NS"
+IQ_MODE="per-class"
+[[ "$FLAT_IQ" == "true" ]] && IQ_MODE="flat"
+printf "\nHorologium vs gem5 O3CPU — w%d  ROB=%d  Horo-IQ=%s(%dx%d=%d)  gem5-IQ=%d  L1 16KB  LoadHit=4  Bypass=%d  DivLat=%d  MemLat=%s\n\n" \
+    "$WIDTH" "$ROB" "$IQ_MODE" 5 "$IQ" "$GEM5_IQ" "$GEM5_IQ" "$BYPASS_LAT" "$DIV_LAT" "$MEM_LAT_NS"
 printf "%-10s  %8s  %9s  %9s  %8s\n" benchmark "gem5 IPC" "Horo IPC" "H/G ratio" "Δinsts"
 printf "%-10s  %8s  %9s  %9s  %8s\n" ---------- -------- --------- --------- --------
 
@@ -109,8 +116,8 @@ done
 printf "\nNotes:\n"
 printf "  gem5 : RiscvO3CPU SE mode, TournamentBP+RAS(16), flat IQ(%d), L1 16KB split, %s DRAM, IntDiv=%d\n" \
     "$GEM5_IQ" "$MEM_LAT_NS" "$DIV_LAT"
-printf "  Horo : OooeTrain — per-class IQ(5×%d), RAS(16), LTage, HTIF binary (kernel-only IPC), Bypass=%d, DivLat=%d\n" \
-    "$IQ" "$BYPASS_LAT" "$DIV_LAT"
+printf "  Horo : OooeTrain — %s IQ(%s), RAS(16), LTage, HTIF binary (kernel-only IPC), Bypass=%d, DivLat=%d\n" \
+    "$IQ_MODE" "$([[ "$FLAT_IQ" == "true" ]] && echo "1×$GEM5_IQ" || echo "5×$IQ")" "$BYPASS_LAT" "$DIV_LAT"
 printf "  ratio: Horo IPC / gem5 IPC  (>1 = Horologium faster than gem5)\n"
 printf "  Δinsts: (Horo_retired − gem5_committed) / gem5_committed\n"
 printf "          A small delta is expected: different startup/exit code paths.\n"

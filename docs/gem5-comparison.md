@@ -64,7 +64,12 @@ Predictor evaluated: ITTAGE won on qsort (+7pp) and multiply (+7pp) via indirect
 LTage (TAGE with 34-bit history + loop) won on treesum/towers/median via global-history direction
 accuracy. LTage chosen as better overall; ITTAGE advantage on qsort is residual.
 
-Default run (`--mem-lat-ns 30ns`, gem5 SimpleMemory default):
+Key finding: `--bypass-lat 0` (matching gem5's 0-cycle forwarding) is the dominant factor. With matched
+bypass, qsort/rsort flip to Horologium leading; median/memcpy close to <1%. Treesum gap is unchanged —
+it is entirely branch-prediction-driven (TournamentBP per-PC local history vs LTage global history).
+`--flat-iq` has zero effect on any workload: IQ structure is not a factor at issueWidth=2.
+
+Default run (`--mem-lat-ns 30ns`, `--bypass-lat 1` matching Olympia calibration):
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
 |----------|----------|----------|-----------|--------|
@@ -79,7 +84,22 @@ Default run (`--mem-lat-ns 30ns`, gem5 SimpleMemory default):
 | treesum  | 1.705    | 0.709    | 0.416     | +6%    |
 | pchase   | 0.442    | 0.566    | 1.278     | +1%    |
 
-With `--mem-lat-ns 10ns` (eliminating DRAM asymmetry):
+With `--bypass-lat 0` (matching gem5's 0-cycle result forwarding):
+
+| workload | gem5 IPC | Horo IPC | H/G ratio | Δ from bypass=1 |
+|----------|----------|----------|-----------|-----------------|
+| median   | 0.682    | 0.675    | 0.989     | +18%            |
+| qsort    | 0.818    | 0.862    | **1.054** | +24%            |
+| rsort    | 1.292    | 1.389    | **1.075** | +15%            |
+| towers   | 0.921    | 0.583    | 0.633     | +9%             |
+| vvadd    | 1.108    | 0.885    | 0.799     | +9%             |
+| memcpy   | 0.667    | 0.658    | 0.987     | +6%             |
+| multiply | 1.786    | 1.568    | 0.878     | +5%             |
+| gcd      | 0.323    | 0.295    | 0.914     | +6%             |
+| treesum  | 1.705    | 0.711    | 0.417     | +0%             |
+| pchase   | 0.442    | 0.654    | **1.478** | +16%            |
+
+With `--mem-lat-ns 10ns` (eliminating DRAM asymmetry, bypass=1):
 
 | workload | gem5 IPC | Horo IPC | H/G ratio |
 |----------|----------|----------|-----------|
@@ -104,28 +124,31 @@ The pchase Horologium advantage (1.278 at 30 ns) collapses to 0.864 at 10 ns DRA
 confirming it was entirely DRAM-latency-driven. With equalized memory, gem5 leads
 everywhere.
 
-**Per-class IQ structure is the dominant remaining gap:**
+**IQ structure (per-class vs flat) explains zero IPC difference:**
 
-gem5's flat 40-entry IQ schedules any instruction into any slot; Horologium's 5
-per-class IQs of 8 entries each constrain scheduling within class boundaries.
-The per-class design eliminates head-of-line blocking between instruction *types*
-but limits cross-class scheduling freedom.
+Running Horologium with `--flat-iq` (a single unified 40-entry IQ matching gem5's
+scheduling model) produces identical IPC on every workload. The per-class IQ design
+is not the source of the gap. With `issueWidth=2` and in-order dispatch, both IQ
+modes issue the same two instructions per cycle — the 2-wide issue width saturates
+before IQ class boundaries can matter.
 
-- `treesum` (0.42/0.41): recursive traversal — branch mispredictions and IQ
-  constraints compound. gem5's TournamentBP (local 2048-entry + global 8192-entry)
-  is better than LTage for this pattern, and the flat IQ fills execution slots
-  more aggressively between mispredictions.
-- `towers` (0.58/0.53): recursive Hanoi — same pattern as treesum.
-- `vvadd` (0.73/0.58): store-intensive loop. gem5's flat IQ overlaps loads,
-  stores, and ALU freely; Horologium's store-class IQ saturates first and
-  stalls issue of other classes waiting on addresses.
-- `memcpy` (0.93/0.63): store-intensive; the DRAM difference was masking a
-  significant scheduling gap — at 10 ns this gap is fully exposed.
-- `median` (0.84/0.78), `qsort` (0.85/0.83), `multiply` (0.84/0.83): integer
-  compute; gem5's 6× IntAlu + 2× IntMultDiv FU pool with flat IQ keeps FUs
-  saturated more consistently than per-class dispatch.
-- `gcd` (0.86): DIV-heavy; both simulators use 23-cycle IntDiv but gem5 has
-  2× IntMultDiv units vs Horologium's single divider.
+**Bypass latency (1 cycle) is the dominant factor for most workloads:**
+
+Running `--bypass-lat 0` to match gem5's 0-cycle result forwarding reveals:
+
+- **median, memcpy**: gap closes to ~1% (0.989, 0.987). Bypass latency was the entire cause.
+- **qsort, rsort**: Horologium *leads* gem5 (1.054, 1.075). With matched bypass, LTage's
+  global-history prediction is better than TournamentBP on these sort kernels.
+- **pchase**: lead grows from 1.278 to 1.478 — deeper DRAM latency tolerance revealed.
+- **treesum**: bypass=0 has zero effect (0.416 → 0.417). The gap is purely
+  branch-prediction-driven — TournamentBP's per-PC local history tracks the
+  alternating null-checks in recursive tree traversal far better than LTage's
+  global history.
+- **towers**: partial improvement (0.579 → 0.633) — recursive Hanoi, same branch
+  pattern as treesum plus stack-depth effects.
+- **vvadd, multiply, gcd**: moderate improvement; residual gap from FU count
+  differences (gem5 has 2× IntMultDiv vs Horologium's single divider for gcd;
+  vvadd residual gap at 0.799 is under investigation).
 
 ## Structural differences
 
@@ -135,8 +158,7 @@ but limits cross-class scheduling freedom.
    IntMultDiv units vs Horologium's single shared divider).
 
 2. **Branch predictor quality**: TournamentBP > LTage on recursive workloads
-   (treesum, towers). The treesum gap is ~50%, larger than branch prediction
-   alone can explain — dispatch stalls (~33% of cycles) are also a factor.
+   (treesum, towers). The treesum gap (~2.4×) is primarily branch-prediction-driven.
 
 3. **DRAM latency asymmetry**: gem5 SimpleMemory 30 ns vs Horologium HtifMemory
    (~10-cycle miss penalty). Pass `--mem-lat-ns 10ns` to eliminate this
@@ -144,11 +166,14 @@ but limits cross-class scheduling freedom.
 
 4. **Bypass latency**: Horologium uses `bypass_latency=1` (matching Olympia);
    gem5 O3CPU uses 0-cycle forwarding. Pass `--bypass-lat 0` to run Horologium
-   with matched forwarding latency.
+   with matched forwarding latency. **This is the dominant factor**: with bypass=0,
+   median and memcpy close to <1% gap, and qsort/rsort flip to Horologium leading.
 
-5. **IQ structure**: The comparison script now passes `gem5-IQ = 5 × per-class IQ`
-   (default: 40) to match Horologium's total slot count across 5 classes. gem5
-   uses a single flat IQ; Horologium uses per-class queues (5 × 8 = 40 slots).
+5. **IQ structure**: gem5 uses a flat 40-entry IQ; Horologium uses per-class
+   queues (5 × 8 = 40 slots). Experiment confirms **zero IPC impact**: switching
+   Horologium to a flat unified IQ (`--flat-iq`) produces identical results on
+   all 10 workloads. With `issueWidth=2`, the global issue width saturates before
+   IQ class boundaries can affect scheduling.
 
 ## Reproduce
 
@@ -164,4 +189,5 @@ bash scripts/gem5-compare.sh --width 4 --rob 64        # wider pipeline
 bash scripts/gem5-compare.sh --mem-lat-ns 10ns          # match Horologium HtifMemory latency
 bash scripts/gem5-compare.sh --bypass-lat 0             # match gem5's 0-cycle forwarding
 bash scripts/gem5-compare.sh --div-lat 20               # revert gem5 IntDiv to DefaultFUPool default
+bash scripts/gem5-compare.sh --flat-iq                  # Horologium unified IQ: 1×40 flat, matching gem5
 ```

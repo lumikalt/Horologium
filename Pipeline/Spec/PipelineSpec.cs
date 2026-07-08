@@ -141,6 +141,7 @@ public sealed record OutOfOrderSpec(
     int IssueWidth = 2,
     int RobCapacity = 32,
     int IqCapacity = 8,
+    bool FlatIq = false,
     int ExtraPhysRegs = 32,
     int LqCapacity = 0,
     int SqCapacity = 0,
@@ -167,7 +168,8 @@ public sealed record OutOfOrderSpec(
         PEventLog,
         StreamPrefetchDepth,
         CommitObserver,
-        LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity
+        LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity,
+        flatIq: FlatIq
     );
 
     public override ISteppableTrain Build(
@@ -183,6 +185,7 @@ public sealed record OutOfOrderSpec(
         PEventLog,
         StreamPrefetchDepth,
         CommitObserver,
-        LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity
+        LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity,
+        flatIq: FlatIq
     );
 }

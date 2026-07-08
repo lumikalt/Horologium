@@ -57,6 +57,7 @@ public sealed record TrainConfig(
     int IssueWidth = 2,
     int RobCapacity = 32,
     int IqCapacity = 8, // per-class depth; 5 classes × 8 = 40 total slots
+    bool FlatIq = false, // true → one unified IQ with IqCount×IqCapacity slots (matches gem5 flat IQ)
     int ExtraPhysRegs = 32,
     FuLatencyConfig? FuLatency = null, // null → FuLatencyConfig.Default (all 1-cycle except MulDiv=3)
     int MshrCapacity = 0,              // 0 = unlimited outstanding misses

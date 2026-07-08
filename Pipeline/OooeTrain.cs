@@ -46,7 +46,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int lqCapacity = 0,
         int sqCapacity = 0,
         int writeBufferCapacity = 0,
-        int mshrCapacity = 0
+        int mshrCapacity = 0,
+        bool flatIq = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -65,7 +66,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 lqCapacity,
                 sqCapacity,
                 writeBufferCapacity,
-                mshrCapacity
+                mshrCapacity,
+                flatIq
             )
         );
         _train.Build();
@@ -88,7 +90,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int lqCapacity = 0,
         int sqCapacity = 0,
         int writeBufferCapacity = 0,
-        int mshrCapacity = 0
+        int mshrCapacity = 0,
+        bool flatIq = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -105,7 +108,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 lqCapacity,
                 sqCapacity,
                 writeBufferCapacity,
-                mshrCapacity
+                mshrCapacity,
+                flatIq
             )
         );
         _train.Build();
@@ -255,7 +259,12 @@ internal sealed class OoOPipelineCore : Gear {
     // IQ index 0=INT(Alu/MulDiv/Sys/Fence/Halt), 1=FP, 2=BR, 3=VEC(Vector/UVE), 4=LSU
     private const int IqCount = 5;
 
-    private static int IqIndex(ToothClass cls) => cls switch {
+    // In per-class mode each IQ has iqCapacity slots; in flat mode all instructions
+    // go to IQ[0] which has IqCount×iqCapacity slots so total capacity is the same.
+    private readonly bool _flatIq;
+    private readonly int _activeIqCount; // 1 when flat, IqCount when per-class
+
+    private int IqIndex(ToothClass cls) => _flatIq ? 0 : cls switch {
         ToothClass.FloatingPoint or ToothClass.FloatDivSqrt      => 1,
         ToothClass.Branch or ToothClass.ConditionalBranch        => 2,
         ToothClass.Vector or ToothClass.Uve                      => 3,
@@ -370,7 +379,8 @@ internal sealed class OoOPipelineCore : Gear {
         int lqCapacity = 0,
         int sqCapacity = 0,
         int writeBufferCapacity = 0,
-        int mshrCapacity = 0
+        int mshrCapacity = 0,
+        bool flatIq = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -386,6 +396,8 @@ internal sealed class OoOPipelineCore : Gear {
         _issueWidth = issueWidth;
         _maxDecodeDepth = issueWidth * 4;
         _fetchPc = entryPoint;
+        _flatIq = flatIq;
+        _activeIqCount = flatIq ? 1 : IqCount;
 
         State = mechanism.CreateArchState();
         State.Pc = entryPoint;
@@ -396,8 +408,15 @@ internal sealed class OoOPipelineCore : Gear {
         _prf = new PhysicalRegisterFile(physRegs);
         _rat = new RenameMap(archRegs, physRegs);
         _rob = new ReorderBuffer(robCapacity);
-        _iqs = new IssueQueue[OoOPipelineCore.IqCount];
-        for (var i = 0; i < OoOPipelineCore.IqCount; i++) _iqs[i] = new IssueQueue(iqCapacity);
+        _iqs = new IssueQueue[IqCount];
+        if (flatIq) {
+            // Flat mode: one unified IQ with IqCount× capacity; dummy 1-slot IQs for the rest
+            // (they receive no instructions since IqIndex always returns 0).
+            _iqs[0] = new IssueQueue(IqCount * iqCapacity);
+            for (var i = 1; i < IqCount; i++) _iqs[i] = new IssueQueue(1);
+        } else {
+            for (var i = 0; i < IqCount; i++) _iqs[i] = new IssueQueue(iqCapacity);
+        }
         _lq = new LoadQueue(lqCapacity > 0 ? lqCapacity : robCapacity);
         _sq = new StoreQueue(sqCapacity > 0 ? sqCapacity : robCapacity);
         StreamingEngine = new StreamingEngine(streamPrefetchDepth);
@@ -848,7 +867,7 @@ internal sealed class OoOPipelineCore : Gear {
         // class can be issued in a single cycle.
         Span<int> classIssued = stackalloc int[16]; // one slot per ToothClass value; sized for current + future growth
         var issued = 0;
-        for (var iqIdx = 0; iqIdx < OoOPipelineCore.IqCount && issued < _issueWidth; iqIdx++) {
+        for (var iqIdx = 0; iqIdx < _activeIqCount && issued < _issueWidth; iqIdx++) {
             IssueQueue iq = _iqs[iqIdx];
             for (var slot = 0; slot < iq.Capacity && issued < _issueWidth; slot++) {
                 RsEntry rs = iq.At(slot);
