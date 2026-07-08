@@ -179,6 +179,16 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial string DCacheWritePolicy { get; set; } = "write_through";
     [ObservableProperty] public partial string DCacheWriteMissPolicy { get; set; } = "no_write_allocate";
     [ObservableProperty] public partial int DCacheWbCapacity { get; set; } = 0;
+    [ObservableProperty] public partial bool L2CacheEnabled { get; set; }
+    [ObservableProperty] public partial int L2CacheCapacityKb { get; set; } = 256;
+    [ObservableProperty] public partial int L2CacheWays { get; set; } = 8;
+    [ObservableProperty] public partial int L2CacheBlockBytes { get; set; } = 64;
+    [ObservableProperty] public partial int L2CacheMissLatency { get; set; } = 20;
+    [ObservableProperty] public partial int L2CacheTagLatency { get; set; } = 0;
+    [ObservableProperty] public partial int L2CacheDataLatency { get; set; } = 0;
+    [ObservableProperty] public partial string L2CacheWritePolicy { get; set; } = "write_through";
+    [ObservableProperty] public partial string L2CacheWriteMissPolicy { get; set; } = "no_write_allocate";
+    [ObservableProperty] public partial int L2CacheWbCapacity { get; set; } = 0;
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
     // ── Cache display state ───────────────────────────────────────────────────
@@ -198,6 +208,9 @@ public partial class AssemblerViewModel : ObservableObject {
     public static IReadOnlyList<int> CacheCapacityKbOptions { get; } = [1, 2, 4, 8, 16, 32,];
     public static IReadOnlyList<int> CacheWaysOptions { get; } = [1, 2, 4, 8,];
     public static IReadOnlyList<int> CacheBlockBytesOptions { get; } = [8, 16, 32, 64,];
+    public static IReadOnlyList<int> L2CacheCapacityKbOptions { get; } = [64, 128, 256, 512, 1024, 4096,];
+    public static IReadOnlyList<int> L2CacheWaysOptions { get; } = [4, 8, 16,];
+    public static IReadOnlyList<int> L2CacheBlockBytesOptions { get; } = [32, 64, 128,];
 
     public static IReadOnlyList<string> CacheReplacementPolicyOptions { get; } =
         ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
@@ -309,6 +322,8 @@ public partial class AssemblerViewModel : ObservableObject {
     partial void OnICacheEnabledChanged(bool value) => ApplyCacheConfigChange();
 
     partial void OnDCacheEnabledChanged(bool value) => ApplyCacheConfigChange();
+
+    partial void OnL2CacheEnabledChanged(bool value) => ApplyCacheConfigChange();
 
     partial void OnCacheReplacementPolicyChanged(string value) {
         OnPropertyChanged(nameof(CacheMetadataLabel));
@@ -946,7 +961,33 @@ public partial class AssemblerViewModel : ObservableObject {
             ParseWritePolicy(DCacheWritePolicy), ParseWriteMissPolicy(DCacheWriteMissPolicy),
             DCacheWbCapacity
         );
-        if (dCfg.CacheCapacityBytes > 0)
+        if (L2CacheEnabled) {
+            WritePolicyKind l2wp = ParseWritePolicy(L2CacheWritePolicy);
+            WriteMissPolicyKind l2wmp = ParseWriteMissPolicy(L2CacheWriteMissPolicy);
+            iCfg = iCfg with {
+                L2CapacityBytes = L2CacheCapacityKb * 1024,
+                L2Ways = L2CacheWays,
+                L2BlockBytes = L2CacheBlockBytes,
+                L2MissLatency = L2CacheMissLatency,
+                L2TagLatency = L2CacheTagLatency,
+                L2DataLatency = L2CacheDataLatency,
+                L2WritePolicy = l2wp,
+                L2WriteMissPolicy = l2wmp,
+                L2WbCapacity = L2CacheWbCapacity,
+            };
+            dCfg = dCfg with {
+                L2CapacityBytes = L2CacheCapacityKb * 1024,
+                L2Ways = L2CacheWays,
+                L2BlockBytes = L2CacheBlockBytes,
+                L2MissLatency = L2CacheMissLatency,
+                L2TagLatency = L2CacheTagLatency,
+                L2DataLatency = L2CacheDataLatency,
+                L2WritePolicy = l2wp,
+                L2WriteMissPolicy = l2wmp,
+                L2WbCapacity = L2CacheWbCapacity,
+            };
+        }
+        if (dCfg.CacheCapacityBytes > 0 || dCfg.L2CapacityBytes > 0)
             dCfg = dCfg with { UncacheableBase = UartDevice.DefaultBase, UncacheableSize = UartDevice.RegionSize, };
 
         switch (CurrentMode) {

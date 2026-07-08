@@ -1,0 +1,48 @@
+[
+  {
+    "name": "inorder",
+    "config": { "pipeline": "five_stage" }
+  },
+  {
+    "name": "inorder_l1",
+    "config": {
+      "pipeline": "five_stage",
+      "i_cache": { "capacity_bytes": 32768, "ways": 4, "block_bytes": 32, "miss_latency": 10 },
+      "d_cache": { "capacity_bytes": 32768, "ways": 4, "block_bytes": 32, "miss_latency": 10 }
+    }
+  },
+  {
+    "name": "inorder_l1l2",
+    "config": {
+      "pipeline": "five_stage",
+      "i_cache": { "capacity_bytes": 32768, "ways": 4, "block_bytes": 32, "miss_latency": 10 },
+      "d_cache": { "capacity_bytes": 32768, "ways": 4, "block_bytes": 32, "miss_latency": 10 },
+      "l2_cache": { "capacity_bytes": 262144, "ways": 8, "block_bytes": 64, "miss_latency": 20 }
+    }
+  },
+  {
+    "name": "ooo",
+    "config": { "pipeline": "ooo", "issue_width": 4, "rob_capacity": 64 }
+  },
+  {
+    "name": "ooo_l1",
+    "config": {
+      "pipeline": "ooo",
+      "issue_width": 4,
+      "rob_capacity": 64,
+      "i_cache": { "capacity_bytes": 32768, "ways": 4, "block_bytes": 32, "miss_latency": 10 },
+      "d_cache": { "capacity_bytes": 32768, "ways": 4, "block_bytes": 32, "miss_latency": 10 }
+    }
+  },
+  {
+    "name": "ooo_l1l2",
+    "config": {
+      "pipeline": "ooo",
+      "issue_width": 4,
+      "rob_capacity": 64,
+      "i_cache": { "capacity_bytes": 32768, "ways": 4, "block_bytes": 32, "miss_latency": 10 },
+      "d_cache": { "capacity_bytes": 32768, "ways": 4, "block_bytes": 32, "miss_latency": 10 },
+      "l2_cache": { "capacity_bytes": 262144, "ways": 8, "block_bytes": 64, "miss_latency": 20 }
+    }
+  }
+]

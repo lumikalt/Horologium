@@ -86,6 +86,26 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int DCacheWbCapacity { get; set; } = 0;
 
+    [ObservableProperty] public partial bool L2CacheEnabled { get; set; } = false;
+
+    [ObservableProperty] public partial int L2CacheCapacityKb { get; set; } = 256;
+
+    [ObservableProperty] public partial int L2CacheWays { get; set; } = 8;
+
+    [ObservableProperty] public partial int L2CacheBlockBytes { get; set; } = 64;
+
+    [ObservableProperty] public partial int L2CacheMissLatency { get; set; } = 20;
+
+    [ObservableProperty] public partial int L2CacheTagLatency { get; set; } = 0;
+
+    [ObservableProperty] public partial int L2CacheDataLatency { get; set; } = 0;
+
+    [ObservableProperty] public partial string L2CacheWritePolicy { get; set; } = "write_through";
+
+    [ObservableProperty] public partial string L2CacheWriteMissPolicy { get; set; } = "no_write_allocate";
+
+    [ObservableProperty] public partial int L2CacheWbCapacity { get; set; } = 0;
+
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
     [ObservableProperty] public partial int StoreBufferCapacity { get; set; } = 0;
@@ -211,6 +231,14 @@ public partial class ConfigViewModel : ObservableObject {
                 DCacheWbCapacity
             )
             : null;
+        CacheHardwareConfig? l2Cache = L2CacheEnabled
+            ? new CacheHardwareConfig(
+                L2CacheCapacityKb * 1024, L2CacheWays, L2CacheBlockBytes, L2CacheMissLatency,
+                L2CacheTagLatency, L2CacheDataLatency,
+                ParseWritePolicy(L2CacheWritePolicy), ParseWriteMissPolicy(L2CacheWriteMissPolicy),
+                L2CacheWbCapacity
+            )
+            : null;
 
         return new NamedConfig(
             Name, new TrainConfig(
@@ -219,6 +247,7 @@ public partial class ConfigViewModel : ObservableObject {
                 predictor,
                 iCache,
                 dCache,
+                L2Cache: l2Cache,
                 StoreBufferCapacity: StoreBufferCapacity,
                 IssueWidth: IssueWidth,
                 RobCapacity: RobCapacity,
@@ -263,6 +292,7 @@ public partial class ConfigViewModel : ObservableObject {
             ExtraPhysRegs = nc.Config.ExtraPhysRegs,
             ICacheEnabled = nc.Config.ICache is not null,
             DCacheEnabled = nc.Config.DCache is not null,
+            L2CacheEnabled = nc.Config.L2Cache is not null,
             CacheReplacementPolicy = nc.Config.CacheReplacementPolicy ?? "lru",
         };
 
@@ -323,6 +353,20 @@ public partial class ConfigViewModel : ObservableObject {
                 ? "write_allocate"
                 : "no_write_allocate";
             vm.DCacheWbCapacity = dc.WbCapacity;
+        }
+
+        if (nc.Config.L2Cache is { } l2) {
+            vm.L2CacheCapacityKb = l2.CapacityBytes / 1024;
+            vm.L2CacheWays = l2.Ways;
+            vm.L2CacheBlockBytes = l2.BlockBytes;
+            vm.L2CacheMissLatency = l2.MissLatency;
+            vm.L2CacheTagLatency = l2.TagLatency;
+            vm.L2CacheDataLatency = l2.DataLatency;
+            vm.L2CacheWritePolicy = l2.WritePolicy == WritePolicyKind.WriteBack ? "write_back" : "write_through";
+            vm.L2CacheWriteMissPolicy = l2.WriteMissPolicy == WriteMissPolicyKind.WriteAllocate
+                ? "write_allocate"
+                : "no_write_allocate";
+            vm.L2CacheWbCapacity = l2.WbCapacity;
         }
 
         return vm;

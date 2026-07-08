@@ -140,7 +140,7 @@
                     <!-- five_stage + ooo: I-cache -->
                     <StackPanel IsVisible="{Binding HasPredictorConfig}" Spacing="6">
                         <CheckBox IsChecked="{Binding ICacheEnabled}" Content="I-cache" />
-                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8" Margin="12,0,0,0"
                               IsVisible="{Binding ICacheEnabled}"
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
@@ -180,7 +180,7 @@
                     <!-- five_stage + ooo: D-cache -->
                     <StackPanel IsVisible="{Binding HasPredictorConfig}" Spacing="6">
                         <CheckBox IsChecked="{Binding DCacheEnabled}" Content="D-cache" />
-                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8" Margin="12,0,0,0"
                               IsVisible="{Binding DCacheEnabled}"
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
@@ -214,6 +214,46 @@
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="WB buf (lines)" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="8" Grid.Column="1" Value="{Binding DCacheWbCapacity}"
                                            Minimum="0" Maximum="32" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- five_stage + ooo: unified L2 cache -->
+                    <StackPanel IsVisible="{Binding HasPredictorConfig}" Spacing="6">
+                        <CheckBox IsChecked="{Binding L2CacheEnabled}" Content="L2 cache (unified)" />
+                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8" Margin="12,0,0,0"
+                              IsVisible="{Binding L2CacheEnabled}"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding L2CacheCapacityKb}"
+                                           Minimum="1" Maximum="131072" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding L2CacheWays}"
+                                           Minimum="1" Maximum="32" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding L2CacheBlockBytes}"
+                                           Minimum="8" Maximum="256" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding L2CacheMissLatency}"
+                                           Minimum="1" Maximum="500" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Tag latency" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding L2CacheTagLatency}"
+                                           Minimum="0" Maximum="100" />
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Data latency" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding L2CacheDataLatency}"
+                                           Minimum="0" Maximum="100" />
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Wr.hit" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="6" Grid.Column="1"
+                                      ItemsSource="{x:Static vm:ConfigViewModel.WritePolicyOptions}"
+                                      SelectedItem="{Binding L2CacheWritePolicy}"
+                                      HorizontalAlignment="Stretch" />
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="Wr.miss" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="7" Grid.Column="1"
+                                      ItemsSource="{x:Static vm:ConfigViewModel.WriteMissPolicyOptions}"
+                                      SelectedItem="{Binding L2CacheWriteMissPolicy}"
+                                      HorizontalAlignment="Stretch" />
+                            <TextBlock Grid.Row="8" Grid.Column="0" Text="WB buf (lines)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="8" Grid.Column="1" Value="{Binding L2CacheWbCapacity}"
+                                           Minimum="0" Maximum="64" />
                         </Grid>
                     </StackPanel>
 
@@ -763,6 +803,106 @@
                                     <NumericUpDown Grid.Column="1"
                                                    Value="{Binding Assembler.DCacheWbCapacity}"
                                                    Minimum="0" Maximum="32" Increment="1"
+                                                   FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="ln"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                </Grid>
+                            </StackPanel>
+
+                            <!-- L2 Cache (unified) -->
+                            <CheckBox IsChecked="{Binding Assembler.L2CacheEnabled}"
+                                      Content="L2 Cache (unified)" />
+                            <StackPanel IsVisible="{Binding Assembler.L2CacheEnabled}" Spacing="4" Margin="12,0,0,0">
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Capacity"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding Assembler.L2CacheCapacityKbOptions}"
+                                              SelectedItem="{Binding Assembler.L2CacheCapacityKb}"
+                                              HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="KB"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Ways"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding Assembler.L2CacheWaysOptions}"
+                                              SelectedItem="{Binding Assembler.L2CacheWays}"
+                                              HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Block"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding Assembler.L2CacheBlockBytesOptions}"
+                                              SelectedItem="{Binding Assembler.L2CacheBlockBytes}"
+                                              HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="B"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Miss"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding Assembler.L2CacheMissLatency}"
+                                                   Minimum="1" Maximum="500" Increment="1"
+                                                   FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="cy"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Tag"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding Assembler.L2CacheTagLatency}"
+                                                   Minimum="0" Maximum="100" Increment="1"
+                                                   FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="cy"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Data"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding Assembler.L2CacheDataLatency}"
+                                                   Minimum="0" Maximum="100" Increment="1"
+                                                   FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="cy"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Wr.hit"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding Assembler.WritePolicyOptions}"
+                                              SelectedItem="{Binding Assembler.L2CacheWritePolicy}"
+                                              HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Wr.miss"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding Assembler.WriteMissPolicyOptions}"
+                                              SelectedItem="{Binding Assembler.L2CacheWriteMissPolicy}"
+                                              HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="WB buf"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding Assembler.L2CacheWbCapacity}"
+                                                   Minimum="0" Maximum="64" Increment="1"
                                                    FormatString="N0"
                                                    HorizontalAlignment="Stretch" />
                                     <TextBlock Grid.Column="2" Text="ln"

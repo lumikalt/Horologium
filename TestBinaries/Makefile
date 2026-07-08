@@ -302,6 +302,26 @@ benchmarks: $(BMARKS_ELFS)
 
 torture: $(TORTURE_ELFS)
 
+# ── Lab 2 benchmarks (HPC Architectures 2023-2024) ───────────────────────────
+#
+# Compiled with -O0 as required by the lab so the compiler does not merge or
+# reorder the chains we deliberately construct.  Uses the HTIF startup/exit
+# shim (htif_crt.s + htif.ld) so the runner halts cleanly via tohost.
+
+CFLAGS_LAB2 = -march=rv32im -mabi=ilp32 -nostdlib -nostartfiles -static -O0 -g
+
+LAB2_BENCHES = benchmax benchmin \
+               benchx_vanilla benchx_opt_inorder benchx_opt_ooo benchx_opt_blind
+
+LAB2_ELFS = $(patsubst %, lab2/%.elf, $(LAB2_BENCHES))
+
+lab2/%.elf: lab2/%.c htif_crt.s htif.ld
+	$(CC) $(CFLAGS_LAB2) -T htif.ld htif_crt.s $< -o $@
+
+lab2: $(LAB2_ELFS)
+
+.PHONY: lab2
+
 clean:
 	rm -f test.elf rich.elf htif.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
-	rm -f isa/*.elf benchmarks/*.elf torture/*.elf
+	rm -f isa/*.elf benchmarks/*.elf torture/*.elf lab2/*.elf
