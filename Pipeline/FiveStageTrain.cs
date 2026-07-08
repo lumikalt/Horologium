@@ -96,6 +96,7 @@ internal sealed class PipelineCore : Gear {
     private readonly ExecuteStage _ex;
     private readonly MemoryStage _mem;
     private readonly WritebackStage _wb;
+    private readonly LoadTracker _loadTracker;
 
     // Counters
     private Counter _cyclesCounter = null!;
@@ -182,9 +183,10 @@ internal sealed class PipelineCore : Gear {
         ILayers = iLayers;
         DLayers = dLayers;
 
-        IMemory dAccessor = DLayers.Accessor;
+        _loadTracker = new LoadTracker(DLayers.Accessor);
+        IMemory dAccessor = _loadTracker;
         if (storeBufferCapacity > 0) {
-            StoreBuffer = new StoreBuffer(dAccessor, esc, storeBufferCapacity);
+            StoreBuffer = new StoreBuffer(_loadTracker, esc, storeBufferCapacity);
             dAccessor = StoreBuffer;
         }
 
@@ -469,8 +471,16 @@ internal sealed class PipelineCore : Gear {
 
         _id.Inject(ifIdLast);
         _id.Cycle();
+        _loadTracker.Reset();
         _ex.Inject(idExLast);
         _ex.Cycle();
+        if (DLayers.Prefetcher is not null && _loadTracker.HasRead) {
+            Span<ulong> prefBuf = stackalloc ulong[32];
+            bool wasHit = DLayers.Cache?.LastAccessWasHit ?? true;
+            int prefCount = DLayers.Prefetcher.OnAccess(_loadTracker.RequestPc, _loadTracker.ReadAddress, wasHit, prefBuf);
+            for (int k = 0; k < prefCount; k++)
+                DLayers.TryPrefetch(prefBuf[k]);
+        }
         _mem.Inject(exMemLast);
         _mem.Cycle();
         _if.Cycle();
@@ -561,5 +571,28 @@ internal sealed class PipelineCore : Gear {
         int vd = producer.VectorDestinationRegister;
         if (vd < 0) return false;
         return consumer.VectorSourceRegisters.Contains(vd);
+    }
+
+    // Sits between DLayers.Accessor and the StoreBuffer so the prefetcher sees
+    // only demand loads that actually reach the cache (not store-forwarded reads).
+    private sealed class LoadTracker(IMemory backing) : IMemory {
+        public bool HasRead { get; private set; }
+        public ulong ReadAddress { get; private set; }
+        public ulong RequestPc { get; private set; }
+
+        public void Reset() => HasRead = false;
+
+        public ulong Read(ulong address, int bytes) {
+            HasRead = true;
+            ReadAddress = address;
+            return backing.Read(address, bytes);
+        }
+
+        public void Write(ulong address, ulong value, int bytes) => backing.Write(address, value, bytes);
+        public void Load(ulong address, ReadOnlySpan<byte> data) => backing.Load(address, data);
+        public void SetRequestPc(ulong pc) { RequestPc = pc; backing.SetRequestPc(pc); }
+        public void InvalidateLine(ulong address) => backing.InvalidateLine(address);
+        public void CleanLine(ulong address) => backing.CleanLine(address);
+        public void FlushLine(ulong address) => backing.FlushLine(address);
     }
 }
