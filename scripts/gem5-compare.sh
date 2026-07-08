@@ -89,7 +89,7 @@ for B in $BMARKS; do
     [[ -z "$GEM5_INSTS" ]] && GEM5_INSTS=""
 
     # ── Horologium run (single dotnet call) ───────────────────────────────────
-    HORO_ROW=$(dotnet run --project Runner --no-build -- \
+    HORO_ROW=$(dotnet run --project Runner --no-build -c Release -- \
         "TestBinaries/benchmarks/$B.elf" --sweep "$TMP/sweep.json" \
         --max-ticks 5000000 2>/dev/null \
         | grep "| w${WIDTH} |")
@@ -120,5 +120,6 @@ printf "  Horo : OooeTrain — %s IQ(%s), RAS(16), LTage, HTIF binary (kernel-on
     "$IQ_MODE" "$([[ "$FLAT_IQ" == "true" ]] && echo "1×$GEM5_IQ" || echo "5×$IQ")" "$BYPASS_LAT" "$DIV_LAT"
 printf "  ratio: Horo IPC / gem5 IPC  (>1 = Horologium faster than gem5)\n"
 printf "  Δinsts: (Horo_retired − gem5_committed) / gem5_committed\n"
-printf "          A small delta is expected: different startup/exit code paths.\n"
-printf "          A large delta suggests the programs are executing different kernels.\n"
+printf "          Horo measures kernel-only (setStats(1)→setStats(0)); gem5 measures full run\n"
+printf "          (setStats is a no-op in the Linux binary). A large negative delta is normal:\n"
+printf "          it reflects startup+exit in gem5's count, not a kernel divergence.\n"
