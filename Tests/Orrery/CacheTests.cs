@@ -563,10 +563,10 @@ public class CacheTests {
 
         // WB buffer must have been drained synchronously before the backing write.
         Assert.Equal(0, cache.WbOccupancy);
-        // Backing byte 15 = 0xFF (low byte of 0xFFEE, little-endian).
-        Assert.Equal(0xFFUL, mem.Read(15, 1));
-        // Backing byte 16 = 0xEE.
-        Assert.Equal(0xEEUL, mem.Read(16, 1));
+        // Backing byte 15 = 0xEE (low byte of 0xFFEE in little-endian).
+        Assert.Equal(0xEEUL, mem.Read(15, 1));
+        // Backing byte 16 = 0xFF (high byte).
+        Assert.Equal(0xFFUL, mem.Read(16, 1));
     }
 
     [Fact]
