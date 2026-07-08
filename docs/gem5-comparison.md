@@ -141,7 +141,7 @@ Running `--bypass-lat 0` to match gem5's 0-cycle result forwarding:
   `PREALLOCATE` phase warms a *different* permutation than the one the kernel chases),
   so the workload is heavily DRAM-miss-bound regardless of bypass latency.
 - **memcpy**: bypass=0 has near-zero effect (+2%, 0.481 → 0.491). The gap is not
-  bypass-driven; likely write-allocate cache behavior during the kernel copy.
+  bypass-driven; see "memcpy: PREALLOCATE elimination + total cache thrashing" below.
 
 **IQ structure (per-class vs flat) explains zero IPC difference:**
 
@@ -155,6 +155,41 @@ The pchase `PREALLOCATE` warms a first permutation, then `init_permutation()` re
 before the kernel. The kernel chases a second permutation that the I-cache never saw.
 This explains the low kernel IPC (0.255) and why reducing DRAM latency helps gem5 (its
 full-run includes the warm PREALLOCATE phase) but not Horologium's kernel-only measurement.
+
+**memcpy: PREALLOCATE elimination + total cache thrashing:**
+
+Two compounding factors explain the low kernel IPC (0.321) and the near-zero bypass gain.
+
+*1. GCC -O2 eliminates the PREALLOCATE warmup.* `memcpy_main.c` has:
+```c
+#if PREALLOCATE
+  memcpy(results_data, input_data, sizeof(int) * DATA_SIZE);  // eliminated
+#endif
+setStats(1);
+memcpy(results_data, input_data, sizeof(int) * DATA_SIZE);  // kernel
+```
+The PREALLOCATE copy and the kernel copy have identical source and destination; the output
+of the preallocate is unconditionally overwritten before any read. GCC -O2 recognises this
+as dead code and removes it entirely. Disassembly of the HTIF binary confirms: `main` calls
+`setStats(1)` at offset +0x38 with no load/store loop preceding it, so the kernel starts
+with a completely cold D-cache.
+
+*2. Total set-associative thrashing.* DATA_SIZE=4000 ints = 16 000 bytes = 250 cache lines
+(64 B blocks). The 16 KB 4-way D-cache has 64 sets. `input_data` sits in the `.data`
+section (0x80001CC8); `results_data` lives on the stack (0x8001D170 at run time). Both
+arrays span all 64 sets at roughly 4 lines/set each: combined, every set holds 7–8
+competing lines against only 4 ways. The result is total thrashing from the first access:
+Horologium counters show 4238 D-misses / 8021 accesses = **52.8% miss rate**,
+27 430 / 34 399 cycles = **79.7% stall fraction** in the kernel window.
+
+gem5's L1 D-cache is 8-way (32 sets), which changes the set mapping but not the outcome:
+with 250 lines/array the per-set occupancy rises to ~16 lines vs 8 ways, so gem5 also
+fully thrashes. gem5 stats confirm: 7495 misses / 16 022 accesses = **46.8% miss rate**
+(full-run; the denominator includes startup accesses that partially warm the cache before
+`setStats` would fire). The IPC gap (0.321 vs 0.667) is therefore primarily a measurement
+asymmetry: gem5's full-run number averages in startup and verification phases that access
+a much smaller working set and run at much higher IPC; Horologium's kernel-only number
+isolates the cold, fully-thrashing streaming copy.
 
 ## Structural differences
 
