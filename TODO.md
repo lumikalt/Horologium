@@ -170,7 +170,7 @@
 - [ ] Cache pre-fetching: spatial memory streaming (SMS) for irregular access patterns. — Somogyi et al., ISCA 2006
 - [x] Cache pre-fetching: IP-based spatial prefetching (IPCP). — Pakalapati & Panda, ISCA 2020
 - [ ] Cache pre-fetching: local-delta prefetcher (Berti). — Bakhshalipour et al., MICRO 2022
-- [ ] Cache pre-fetching: RL-driven prefetcher selection (Pythia). — Bera et al., MICRO 2021
+- [x] Cache pre-fetching: RL-driven prefetcher selection (Pythia). — Bera et al., MICRO 2021
 - [x] Non-blocking cache with MSHR.
 - [ ] Victim cache: small fully-associative buffer to absorb conflict misses. — Jouppi, ISCA 1990
 - [ ] Make `ToothClass` a tag instead of an enum?

@@ -1,0 +1,262 @@
+using System.Numerics;
+
+namespace Orrery.Cache;
+
+/// <summary>
+/// Pythia: RL-based prefetcher using online SARSA with a tile-coded Q-value store
+/// (Bera et al., MICRO 2021).
+/// <para>
+/// For every demand request Pythia extracts two program features (PC+Delta and a
+/// rolling hash of the last-4 deltas), looks up the Q-value store (QVStore) to
+/// select a prefetch offset action, and issues one prefetch.  Rewards are assigned
+/// eagerly when the prefetched address is later demanded (RAT / RAL, depending on
+/// whether the demand was a cache hit) or on EQ eviction when the prefetch was never
+/// demanded (RIN).  The SARSA update fires once per EQ eviction, updating the
+/// winning vault's tile planes for the evicted state-action pair.
+/// </para>
+/// <para>
+/// Bandwidth feedback is approximated with the low-BW reward variants throughout —
+/// the simulation has no direct DRAM-BW monitor.  The <see cref="IPrefetcher"/>
+/// interface has no fill callback, so <c>wasHit=true</c> is used as a proxy for
+/// "prefetch was installed before the demand" (RAT); <c>wasHit=false</c> with a
+/// matching EQ entry is treated as a late prefetch (RAL).
+/// </para>
+/// </summary>
+public sealed class PythiaPrefetcher : IPrefetcher {
+    // ── Action space (Table 2, pruned from [−63, 63]) ─────────────────────────
+    private static readonly int[] Offsets = { -6, -3, -1, 0, 1, 3, 4, 5, 10, 11, 12, 16, 22, 23, 30, 32 };
+    private const int NumActions       = 16;
+    private const int NoPrefetchAction = 3; // Offsets[3] == 0
+
+    // ── Hyperparameters (Table 2, Bera et al., MICRO 2021) ───────────────────
+    private const float Alpha = 0.0065f;
+    private const float Gamma = 0.556f;
+    private const float Eps   = 0.002f;
+
+    // ── Reward levels (Table 2; low-BW RIN/RNP used — no BW monitor) ─────────
+    private const float Rat  =  20f;
+    private const float Ral  =  12f;
+    private const float Rcl  = -12f;
+    private const float RinL =  -8f;
+    private const float RnpL =  -4f;
+
+    // ── QVStore: 2 vaults × 3 planes × 128 feature-entries × 16 actions ──────
+    // Q(phi_i, A)  = SUM of partial Q-values across all planes in vault i.
+    // Q(S, A)      = MAX over vaults of Q(phi_i, A).
+    private const int Vaults   = 2;
+    private const int Planes   = 3;
+    private const int FEntries = 128;
+    private readonly float[,,,] _qvs = new float[Vaults, Planes, FEntries, NumActions];
+    // Shift constants for tile coding (randomly fixed at design time — §4.2.1).
+    private static readonly int[,] Shifts = { { 0, 3, 6 }, { 1, 4, 7 } };
+
+    // ── EQ (Evaluation Queue): 256-entry FIFO ─────────────────────────────────
+    private const int EqSize = 256;
+
+    private struct EqEntry {
+        // Precomputed QVStore plane indices for the state at issue time.
+        public int V0P0, V0P1, V0P2; // vault 0, planes 0–2
+        public int V1P0, V1P1, V1P2; // vault 1, planes 0–2
+        public int   Action;
+        public ulong PrefetchAddr;   // byte-aligned line base address; 0 if none issued
+        public float Reward;
+        public bool  HasReward;
+        public bool  Valid;
+    }
+
+    private readonly EqEntry[] _eq = new EqEntry[EqSize];
+    private int _eqHead;   // index of oldest entry
+    private int _eqTail;   // next-write slot
+    private int _eqCount;
+
+    // ── Per-IP state for delta computation (64-entry direct-mapped) ───────────
+    private struct IpState {
+        public ulong Tag;
+        public ulong LastLineAddr;
+        public int   DeltaHistory;  // rolling hash of recent deltas (vault 1 input)
+        public bool  Valid;
+    }
+
+    private const int IpSize     = 64;
+    private const int IpIndexBits = 6;
+    private readonly IpState[] _ip = new IpState[IpSize];
+
+    // ── Geometry ──────────────────────────────────────────────────────────────
+    private readonly int _blockBytes;
+    private readonly int _lineShift;
+    private readonly int _pageShift;
+
+    // ── XOR-shift RNG for ε-greedy exploration ────────────────────────────────
+    private uint _rng = 0xDEADBEEFu;
+
+    public PythiaPrefetcher(int blockBytes = 32, int pageBytes = 4096) {
+        if (!BitOperations.IsPow2(blockBytes))
+            throw new ArgumentException("blockBytes must be a power of 2.", nameof(blockBytes));
+        if (!BitOperations.IsPow2(pageBytes))
+            throw new ArgumentException("pageBytes must be a power of 2.", nameof(pageBytes));
+        _blockBytes = blockBytes;
+        _lineShift  = BitOperations.Log2((uint)blockBytes);
+        _pageShift  = BitOperations.Log2((uint)pageBytes);
+
+        // Initialize Q(S,A) = 1/(1-γ), distributed evenly across planes (§4.1).
+        float initPerPlane = (1f / (1f - Gamma)) / Planes;
+        for (int v = 0; v < Vaults; v++)
+        for (int p = 0; p < Planes; p++)
+        for (int f = 0; f < FEntries; f++)
+        for (int a = 0; a < NumActions; a++)
+            _qvs[v, p, f, a] = initPerPlane;
+    }
+
+    public int OnAccess(ulong pc, ulong address, bool wasHit, Span<ulong> targets) {
+        ulong lineAddr = address >> _lineShift;
+        ulong lineBase = lineAddr << _lineShift;
+        ulong page     = address >> _pageShift;
+
+        // ── 1. Search EQ for this demand address and assign reward (Algorithm 1 ❶) ─
+        for (int i = 0; i < _eqCount; i++) {
+            int slot = (_eqHead + i) & (EqSize - 1);
+            ref EqEntry e = ref _eq[slot];
+            if (e.Valid && !e.HasReward && e.PrefetchAddr == lineBase) {
+                // wasHit proxies the filled bit: hit → prefetch installed before demand (RAT).
+                e.Reward    = wasHit ? Rat : Ral;
+                e.HasReward = true;
+                break;
+            }
+        }
+
+        // ── 2. Compute delta from IP table (Algorithm 1 ❷) ───────────────────
+        int ipIdx = (int)((pc >> 2) & (IpSize - 1));
+        ulong ipTag = pc >> (IpIndexBits + 2);
+        ref IpState ip = ref _ip[ipIdx];
+
+        int delta       = 0;
+        int prevHistory = 0;
+        if (ip.Valid && ip.Tag == ipTag) {
+            delta       = (int)((long)lineAddr - (long)ip.LastLineAddr);
+            prevHistory = ip.DeltaHistory;
+        }
+
+        // ── 3. Compute QVStore plane indices for current state ─────────────────
+        // Vault 0: PC+Delta — multiplicative hash of the load PC and current delta.
+        uint f0 = (uint)(pc >> 2) * 2654435761u ^ (uint)(delta * 1013904223);
+        // Vault 1: last-4 deltas — rolling hash of delta history.
+        uint f1 = (uint)prevHistory;
+
+        int v0p0 = (int)((f0 >> Shifts[0, 0]) & (FEntries - 1));
+        int v0p1 = (int)((f0 >> Shifts[0, 1]) & (FEntries - 1));
+        int v0p2 = (int)((f0 >> Shifts[0, 2]) & (FEntries - 1));
+        int v1p0 = (int)((f1 >> Shifts[1, 0]) & (FEntries - 1));
+        int v1p1 = (int)((f1 >> Shifts[1, 1]) & (FEntries - 1));
+        int v1p2 = (int)((f1 >> Shifts[1, 2]) & (FEntries - 1));
+
+        // ── 4. Update IP state ────────────────────────────────────────────────
+        ip.Valid        = true;
+        ip.Tag          = ipTag;
+        ip.LastLineAddr = lineAddr;
+        ip.DeltaHistory = (prevHistory << 3) ^ (delta & 0x1FF);
+
+        // ── 5. Select action via ε-greedy argmax Q(S, a) (Algorithm 1 ❸) ──────
+        int action;
+        if ((XorShift32() & 0xFFFFu) < (uint)(Eps * 65536f)) {
+            action = (int)(XorShift32() % NumActions);
+        } else {
+            float bestQ = float.NegativeInfinity;
+            action = 0;
+            for (int a = 0; a < NumActions; a++) {
+                float q0 = _qvs[0, 0, v0p0, a] + _qvs[0, 1, v0p1, a] + _qvs[0, 2, v0p2, a];
+                float q1 = _qvs[1, 0, v1p0, a] + _qvs[1, 1, v1p1, a] + _qvs[1, 2, v1p2, a];
+                float q  = q0 > q1 ? q0 : q1;
+                if (q > bestQ) { bestQ = q; action = a; }
+            }
+        }
+
+        // ── 6. Determine prefetch address and immediate reward (Algorithm 1 ❹) ─
+        ulong prefetchAddr    = 0;
+        float immediateReward = float.NaN; // NaN = no immediate reward; assigned via EQ residency
+        bool  issuedPrefetch  = false;
+
+        if (action == NoPrefetchAction) {
+            immediateReward = RnpL;
+        } else {
+            long  offset = (long)Offsets[action] * _blockBytes;
+            ulong pAddr  = (ulong)((long)lineBase + offset);
+            if ((pAddr >> _pageShift) != page) {
+                immediateReward = Rcl; // out-of-page prefetch (Algorithm 1 line 22)
+            } else if (targets.Length > 0) {
+                prefetchAddr   = pAddr;
+                targets[0]     = pAddr;
+                issuedPrefetch = true;
+            }
+        }
+
+        // ── 7. Evict oldest EQ entry if queue is full ─────────────────────────
+        EqEntry evicted    = default;
+        bool    hasEvicted = false;
+        if (_eqCount == EqSize) {
+            evicted    = _eq[_eqHead];
+            hasEvicted = true;
+            _eqHead    = (_eqHead + 1) & (EqSize - 1);
+            _eqCount--;
+        }
+
+        // ── 8. Insert new EQ entry (Algorithm 1 ❺) ───────────────────────────
+        _eq[_eqTail] = new EqEntry {
+            V0P0 = v0p0, V0P1 = v0p1, V0P2 = v0p2,
+            V1P0 = v1p0, V1P1 = v1p1, V1P2 = v1p2,
+            Action       = action,
+            PrefetchAddr = prefetchAddr,
+            Reward       = float.IsNaN(immediateReward) ? 0f : immediateReward,
+            HasReward    = !float.IsNaN(immediateReward),
+            Valid        = true,
+        };
+        _eqTail  = (_eqTail + 1) & (EqSize - 1);
+        _eqCount++;
+
+        // ── 9. SARSA update for evicted entry (Algorithm 1 ❻) ────────────────
+        if (hasEvicted && evicted.Valid) {
+            float r = evicted.HasReward ? evicted.Reward : RinL;
+            // S2,A2 = EQ.head after eviction (Algorithm 1, line 28).
+            SarsaUpdate(in evicted, r, in _eq[_eqHead]);
+        }
+
+        return issuedPrefetch ? 1 : 0;
+    }
+
+    private void SarsaUpdate(in EqEntry e1, float r, in EqEntry e2) {
+        float q1v0 = _qvs[0, 0, e1.V0P0, e1.Action]
+                   + _qvs[0, 1, e1.V0P1, e1.Action]
+                   + _qvs[0, 2, e1.V0P2, e1.Action];
+        float q1v1 = _qvs[1, 0, e1.V1P0, e1.Action]
+                   + _qvs[1, 1, e1.V1P1, e1.Action]
+                   + _qvs[1, 2, e1.V1P2, e1.Action];
+        float q1 = q1v0 > q1v1 ? q1v0 : q1v1;
+
+        float q2v0 = _qvs[0, 0, e2.V0P0, e2.Action]
+                   + _qvs[0, 1, e2.V0P1, e2.Action]
+                   + _qvs[0, 2, e2.V0P2, e2.Action];
+        float q2v1 = _qvs[1, 0, e2.V1P0, e2.Action]
+                   + _qvs[1, 1, e2.V1P1, e2.Action]
+                   + _qvs[1, 2, e2.V1P2, e2.Action];
+        float q2 = q2v0 > q2v1 ? q2v0 : q2v1;
+
+        float tdError = r + Gamma * q2 - q1;
+
+        // Apply gradient to all planes of the winning vault (tile coding — §4.2.1).
+        if (q1v0 >= q1v1) {
+            _qvs[0, 0, e1.V0P0, e1.Action] += Alpha * tdError;
+            _qvs[0, 1, e1.V0P1, e1.Action] += Alpha * tdError;
+            _qvs[0, 2, e1.V0P2, e1.Action] += Alpha * tdError;
+        } else {
+            _qvs[1, 0, e1.V1P0, e1.Action] += Alpha * tdError;
+            _qvs[1, 1, e1.V1P1, e1.Action] += Alpha * tdError;
+            _qvs[1, 2, e1.V1P2, e1.Action] += Alpha * tdError;
+        }
+    }
+
+    private uint XorShift32() {
+        _rng ^= _rng << 13;
+        _rng ^= _rng >> 17;
+        _rng ^= _rng << 5;
+        return _rng;
+    }
+}
