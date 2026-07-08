@@ -37,7 +37,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 cat > "$TMP/sweep.json" <<JSON
 [{"name":"w${WIDTH}","config":{
   "pipeline":"ooo","issue_width":${WIDTH},"rob_capacity":${ROB},"iq_capacity":${IQ},
-  "predictor":{"type":"n_bit","bits":2},
+  "predictor":{"type":"ittage"},
   "i_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
   "d_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
   "store_buffer_capacity":2,
@@ -93,7 +93,7 @@ done
 
 printf "\nNotes:\n"
 printf "  gem5 : RiscvO3CPU SE mode, TournamentBP+RAS(16), SimpleBTB(4096), L1 16KB split, 30ns DRAM\n"
-printf "  Horo : OooeTrain +Matched — per-class IQ(5×%d), RAS(16), 2-bit BHT, HTIF binary\n" "$IQ"
+printf "  Horo : OooeTrain +Matched — per-class IQ(5×%d), RAS(16), ITTAGE, HTIF binary (kernel-only IPC)\n" "$IQ"
 printf "  ratio: Horo IPC / gem5 IPC  (>1 = Horologium faster than gem5)\n"
 printf "  Δinsts: (Horo_retired − gem5_committed) / gem5_committed\n"
 printf "          A small delta is expected: different startup/exit code paths.\n"

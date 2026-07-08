@@ -56,9 +56,11 @@ now indicate genuine instruction-count divergence.
 
 ## Results
 
-Horologium `+Matched` (w2): ROB=30, IQ=5×8, L1 16KB, LoadHit=4, Bypass=1, DivLat=23.
+Horologium `+Matched` (w2): ROB=30, IQ=5×8, L1 16KB, LoadHit=4, Bypass=1, DivLat=23, **ITTAGE** (kernel-only IPC).
 gem5 O3CPU SE: width=2, ROB=30, IQ=8, L1 16KB, TournamentBP, RAS=16.
 Run with: `bash scripts/gem5-compare.sh`
+
+> **Table below is stale** (2-bit BHT, full-run IPC). Re-run the script to refresh.
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
 |----------|----------|----------|-----------|--------|
