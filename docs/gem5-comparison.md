@@ -23,7 +23,7 @@ register renaming, so the comparison is more direct.
 | RAS | 16 entries | 16 entries |
 | Load-hit latency | 4 cycles | 4 cycles (via D$ tag+data latency) |
 | Bypass (result forwarding) latency | 1 cycle | 0 cycles (gem5 default) |
-| DIV/REM latency | 23 cycles | 8 cycles (gem5 default IntMultDiv) |
+| DIV/REM latency | 23 cycles | 23 cycles (matched via `--div-lat 23`; DefaultFUPool default is 20) |
 | Physical registers | ROB + 32 extra | 64 int, 64 FP |
 
 ### Benchmark binaries
@@ -56,61 +56,59 @@ now indicate genuine instruction-count divergence.
 
 ## Results
 
-Horologium `+Matched` (w2): ROB=30, IQ=5×8, L1 16KB, LoadHit=4, Bypass=1, DivLat=23, **LTage** (kernel-only IPC).
-gem5 O3CPU SE: width=2, ROB=30, IQ=8, L1 16KB, TournamentBP, RAS=16.
+Horologium (w2): ROB=30, IQ=5×8 per-class, L1 16KB, LoadHit=4, Bypass=1, DivLat=23, **LTage** (kernel-only IPC).
+gem5 O3CPU SE: width=2, ROB=30, IQ=40 flat (matched total), L1 16KB, TournamentBP, RAS=16, DivLat=23.
 Run with: `bash scripts/gem5-compare.sh`
 
 Predictor evaluated: ITTAGE won on qsort (+7pp) and multiply (+7pp) via indirect-target prediction;
 LTage (TAGE with 34-bit history + loop) won on treesum/towers/median via global-history direction
-accuracy. LTage chosen as better overall; ITTAGE advantage on qsort (0.940 vs 0.971) is residual.
+accuracy. LTage chosen as better overall; ITTAGE advantage on qsort is residual.
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
 |----------|----------|----------|-----------|--------|
-| median   | 0.608    | 0.570    | 0.937     | +27%   |
-| qsort    | 0.741    | 0.696    | 0.940     | +2%    |
-| rsort    | 1.088    | 1.208    | 1.110     | +1%    |
-| towers   | 0.781    | 0.533    | 0.683     | +41%   |
-| vvadd    | 0.864    | 0.808    | 0.935     | +45%   |
-| memcpy   | 0.559    | 0.620    | 1.110     | +10%   |
-| multiply | 1.735    | 1.497    | 0.863     | +6%    |
-| gcd      | 0.317    | 0.278    | 0.878     | +12%   |
-| treesum  | 1.330    | 0.709    | 0.533     | +6%    |
-| pchase   | 0.420    | 0.566    | 1.348     | +1%    |
+| median   | 0.682    | 0.570    | 0.836     | +27%   |
+| qsort    | 0.818    | 0.696    | 0.851     | +2%    |
+| rsort    | 1.292    | 1.208    | 0.935     | +1%    |
+| towers   | 0.921    | 0.533    | 0.579     | +41%   |
+| vvadd    | 1.108    | 0.808    | 0.729     | +45%   |
+| memcpy   | 0.667    | 0.620    | 0.929     | +10%   |
+| multiply | 1.786    | 1.497    | 0.838     | +6%    |
+| gcd      | 0.323    | 0.278    | 0.862     | +12%   |
+| treesum  | 1.705    | 0.709    | 0.416     | +6%    |
+| pchase   | 0.442    | 0.566    | 1.278     | +1%    |
 
 H/G ratio > 1 means Horologium has higher IPC than gem5.
 
 ## What this shows
 
-**gem5 has higher IPC on branch-heavy / call-heavy workloads (ratio < 0.9):**
+**gem5 has higher IPC on all workloads except pchase:**
 
-- `treesum` (0.51): two-call recursive traversal with a 9-deep call stack. The
-  tree_sum function calls itself at two distinct sites; gem5's TournamentBP
-  (local 2048-entry + global 8192-entry) is substantially better than
-  Horologium's 2-bit saturating BHT for this pattern. Both have a 16-entry
-  RAS, but the conditional branch prediction matters here.
-- `towers` (0.66): recursive Hanoi — high branch misprediction rate. 
-  TournamentBP's global history component helps here vs Horologium's local 2-bit.
-- `multiply` (0.80): integer multiply chains — likely gem5's default MultDiv
-  latency is lower than Horologium's 3-cycle MulLatency for some paths, or
-  gem5's O3CPU's FU pipeline has more throughput.
-- `gcd` (0.86): DIV-heavy (Euclidean). gem5's default IntDiv latency (DefaultFUPool)
-  is 20 cycles; the comparison script now passes `--div-lat 23` so both simulators
-  use 23-cycle division. The residual gap may come from throughput differences
-  (gem5 has 2× IntMultDiv units vs Horologium's single shared divider).
+The IQ structure is the dominant factor: gem5's flat 40-entry IQ schedules any
+instruction into any slot, while Horologium's 5 per-class IQs of 8 entries each
+constrain scheduling within class boundaries. The per-class design reduces
+head-of-line blocking between instruction types but limits cross-class scheduling
+flexibility.
 
-**Horologium has higher IPC on memory-bound workloads (ratio > 1.0):**
+- `treesum` (0.42): recursive traversal — both branch mispredictions and IQ
+  constraints compound. gem5's TournamentBP (local 2048-entry + global 8192-entry)
+  is better than LTage here, and the flat IQ avoids class-local head-of-line blocking.
+- `towers` (0.58): recursive Hanoi — same pattern as treesum.
+- `vvadd` (0.73): vector-add loop, store-intensive. gem5's flat IQ can overlap loads,
+  stores, and ALU instructions freely; Horologium's store-class IQ is a bottleneck.
+- `median` (0.84), `qsort` (0.85), `multiply` (0.84): integer-compute workloads.
+  gem5's FU pool has 6× IntAlu and 2× IntMultDiv units; the flat IQ keeps them
+  saturated more consistently than per-class dispatch.
+- `gcd` (0.86): DIV-heavy. Both simulators use 23-cycle IntDiv; gem5 has 2×
+  IntMultDiv units vs Horologium's single divider.
+- `rsort` (0.94) and `memcpy` (0.93): store-intensive. Previously >1 when gem5
+  used IQ=8; with matched IQ=40, gem5 catches up despite the 30 ns DRAM penalty.
 
-- `pchase` (1.35): pointer-chase through a 64 KB array. gem5's SimpleMemory
-  adds 30 ns DRAM latency per miss; Horologium's HtifMemory charges 10-cycle
-  L1 miss penalty, producing shorter miss penalties for long-latency loads.
-- `rsort` (1.11) and `memcpy` (1.11): store-intensive. Horologium's write
-  buffer (2 slots at w2) absorbs store-commit stalls; gem5's cache model
-  serializes more store traffic through the SimpleMemory 30 ns path.
+**Horologium has higher IPC only on `pchase` (1.28):**
 
-**Workloads within ±15% (ratio 0.85–1.15): median, qsort, vvadd, gcd**
-
-These are close enough to suggest structural model alignment for integer
-computation, branch prediction, and basic cache behavior.
+- `pchase` (1.28): pointer-chase through a 64 KB array. gem5's SimpleMemory adds
+  30 ns DRAM latency per miss; Horologium's HtifMemory charges only a ~10-cycle
+  L1 miss penalty. This DRAM asymmetry (not IQ) explains Horologium's lead here.
+  Pass `--mem-lat-ns 10ns` to eliminate it.
 
 ## Structural differences
 
