@@ -3,6 +3,7 @@ namespace Orrery.Observation;
 public enum PEventKind {
     Fetch,
     Decode,
+    Rename,
     Dispatch,
     Issue,
     Execute,

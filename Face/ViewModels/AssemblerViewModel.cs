@@ -1038,6 +1038,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     private string MapOoo(PEventKind kind, long eventCycle) => kind switch {
         PEventKind.Fetch                                   => "IF",
+        PEventKind.Rename                                  => "Rn",
         PEventKind.Dispatch                                => "Dis",
         PEventKind.Issue                                   => "Iss",
         PEventKind.Execute                                 => "Ex",

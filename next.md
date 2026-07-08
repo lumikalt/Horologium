@@ -13,7 +13,7 @@ See `TODO.md` for the full backlog and research ideas.
 
 ## Face / UI
 
-- [ ] **Rename event in PEventLog** — emit a distinct `Rn` PEventKind at decode-queue drain, separate from
+- [x] **Rename event in PEventLog** — emit a distinct `Rn` PEventKind at decode-queue drain, separate from
   Dispatch (`Ds`), so the waterfall shows the rename stage as its own bar. Matches gem5 O3CPU stage breakdown;
   makes rename timing visible for OoOE analysis.
 
@@ -53,7 +53,7 @@ See `TODO.md` for the full backlog and research ideas.
 
 - [ ] **µop cache (loop buffer)** — cache decoded µop bundles; skip re-decode on repeated loops.
 
-- [ ] **Register renaming** — explicit rename stage with RAT and free list, replacing implicit PRF indexing.
+- [x] **Register renaming** — explicit rename stage with RAT and free list, replacing implicit PRF indexing.
 
 ---
 

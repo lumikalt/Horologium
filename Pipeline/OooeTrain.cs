@@ -147,6 +147,19 @@ internal sealed class OoOPipelineCore : Gear {
         TrapInfo? PreTrap = null
     );
 
+    // Instruction that has been renamed but not yet dispatched to ROB/IQ.
+    private readonly record struct RenameEntry(
+        ulong Pc,
+        ITooth? Decoded,
+        ulong PredictedNextPc,
+        ulong InstrId,
+        TrapInfo? PreTrap,
+        int ArchDest,     // -1 if no architectural destination
+        int PhysDest,     // -1 if no architectural destination
+        int PrevPhysDest, // -1 if no architectural destination
+        int P1, int P2, int P3  // physical source tags captured from RAT, -1 if unused
+    );
+
     private readonly record struct IssuedInstr(
         int RobIdx,
         int PhysDest,
@@ -284,6 +297,7 @@ internal sealed class OoOPipelineCore : Gear {
 
     // Cross-tick latches
     private readonly Queue<FetchedInstr> _decodeQueue = new();
+    private readonly Queue<RenameEntry> _renameQueue = new();
     private readonly List<IssuedInstr> _execBuffer = [];
     private readonly List<(int Countdown, ExecResult Result, bool HoldsMshr)> _inFlight = [];
     private readonly List<ExecResult> _cdbBuffer = [];
@@ -396,7 +410,7 @@ internal sealed class OoOPipelineCore : Gear {
         _flushesCounter = Dials.AddCounter("flushes", "Pipeline flushes (branch + trap)");
         _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions");
         _stallsCounter = Dials.AddCounter(
-            "stalls", "Dispatch-stall cycles (structural hazards) + cache miss penalties"
+            "stalls", "Dispatch-stall cycles (ROB/IQ/LQ/SQ full) + cache miss penalties"
         );
         _memViolationsCounter = Dials.AddCounter(
             "mem_order_violations", "Memory-order violations: speculative load read stale data"
@@ -537,8 +551,11 @@ internal sealed class OoOPipelineCore : Gear {
         // Issue: select up to issueWidth ready IQ entries.
         StepIssue();
 
-        // Dispatch: rename and allocate ROB + IQ slots from the decode queue.
+        // Dispatch: allocate ROB + IQ slots from the rename queue.
         StepDispatch();
+
+        // Rename: drain decoded instructions through the RAT/PRF rename stage.
+        StepRename();
 
         // Fetch: fill the decode queue with new speculative instructions.
         StepFetch();
@@ -1040,75 +1057,51 @@ internal sealed class OoOPipelineCore : Gear {
         return aAddr < bEnd && bAddr < aEnd;
     }
 
-    /// <summary>Rename and allocate ROB + IQ + LQ/SQ slots for decoded instructions.</summary>
+    /// <summary>Allocate ROB + IQ + LQ/SQ slots for instructions that have already been renamed.</summary>
     private void StepDispatch() {
-        while (_decodeQueue.Count > 0) {
-            // Stop if any structural resource is exhausted.
+        while (_renameQueue.Count > 0) {
             if (_rob.IsFull) break;
 
-            FetchedInstr fi = _decodeQueue.Peek();
+            RenameEntry ri = _renameQueue.Peek();
 
             // Fetch page fault: park in ROB as a completed trap; skip IQ entirely.
-            if (fi.PreTrap is not null) {
+            if (ri.PreTrap is not null) {
                 int faultRobIdx = _rob.Allocate();
                 RobEntry robFault = _rob.At(faultRobIdx);
-                robFault.Pc = fi.Pc;
-                robFault.InstrId = fi.InstrId;
+                robFault.Pc = ri.Pc;
+                robFault.InstrId = ri.InstrId;
                 robFault.HasTrap = true;
-                robFault.Trap = fi.PreTrap;
+                robFault.Trap = ri.PreTrap;
                 robFault.IsComplete = true;
                 robFault.ArchDestination = -1;
                 robFault.PhysDestination = -1;
-                PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
-                _decodeQueue.Dequeue();
+                PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
+                _renameQueue.Dequeue();
                 continue;
             }
 
-            ITooth instr = fi.Decoded!;
+            ITooth instr = ri.Decoded!;
             if (_iqs[IqIndex(instr.Class)].IsFull) break;
 
-            int destArch = instr.DestinationRegister;
-
-            // Check memory queue capacity before committing any allocation.
             bool needsLq = instr.Class is ToothClass.Load or ToothClass.Atomic;
             bool needsSq = instr.Class is ToothClass.Store or ToothClass.Atomic;
             if (needsLq && _lq.IsFull) break;
             if (needsSq && _sq.IsFull) break;
 
-            bool needsRename = destArch > 0 && _rat.HasFree;
-            if (destArch > 0 && !_rat.HasFree) break; // stall: no free physical registers
-
-            // ── Source lookup BEFORE destination rename ────────────────────────
-            // Tomasulo invariant: sources must be resolved against the RAT state
-            // as it exists just before this instruction's rename, so that an
-            // instruction whose source == destination (e.g. addi x1,x1,1) reads
-            // the producer's physical register, not its own pending output.
-            IReadOnlyList<int> srcs = instr.SourceRegisters;
-            int p1 = srcs.Count > 0 ? _rat.Lookup(srcs[0]) : -1;
-            int p2 = srcs.Count > 1 ? _rat.Lookup(srcs[1]) : -1;
-            int p3 = srcs.Count > 2 ? _rat.Lookup(srcs[2]) : -1;
-
-            // ── Rename destination ─────────────────────────────────────────────
-            int newPhys = -1, oldPhys = -1;
-            if (needsRename) {
-                (newPhys, oldPhys) = _rat.Rename(destArch);
-                _prf.MarkPending(newPhys);
-            }
-
-            // Allocate ROB entry.
+            // Allocate ROB entry using physical register info captured at rename.
             int robIdx = _rob.Allocate();
             RobEntry rob = _rob.At(robIdx);
-            rob.Pc = fi.Pc;
-            rob.InstrId = fi.InstrId;
+            rob.Pc = ri.Pc;
+            rob.InstrId = ri.InstrId;
             rob.Instruction = instr;
-            rob.ArchDestination = destArch > 0 ? destArch : -1;
-            rob.PhysDestination = newPhys;
-            rob.PrevPhysDestination = oldPhys;
-            rob.PredictedNextPc = fi.PredictedNextPc;
+            rob.ArchDestination = ri.ArchDest;
+            rob.PhysDestination = ri.PhysDest;
+            rob.PrevPhysDestination = ri.PrevPhysDest;
+            rob.PredictedNextPc = ri.PredictedNextPc;
             rob.IsStore = instr.Class == ToothClass.Store;
             rob.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             rob.IsHalt = instr.Class == ToothClass.Halt;
-            PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
+            PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
 
             // ── Allocate LQ/SQ entries ─────────────────────────────────────────
             // Each memory instruction gets a shared SeqNo so that cross-queue
@@ -1133,46 +1126,90 @@ internal sealed class OoOPipelineCore : Gear {
                 rob.SqIdx = sqIdx;
             }
 
-            // Allocate IQ slot and fill source operands from pre-rename RAT snapshot.
+            // Allocate IQ slot. Check PRF readiness at dispatch time: sources may have
+            // become ready between rename and dispatch via CDB broadcast.
             IssueQueue classIq = _iqs[IqIndex(instr.Class)];
             int iqSlot = classIq.Allocate();
             RsEntry rs = classIq.At(iqSlot);
             rs.RobIndex = robIdx;
             rs.Instruction = instr;
-            rs.Pc = fi.Pc;
-            rs.PredictedNextPc = fi.PredictedNextPc;
-            rs.PhysDestination = newPhys;
+            rs.Pc = ri.Pc;
+            rs.PredictedNextPc = ri.PredictedNextPc;
+            rs.PhysDestination = ri.PhysDest;
 
-            if (p1 >= 0) {
-                if (_prf.IsReady(p1)) {
+            if (ri.P1 >= 0) {
+                if (_prf.IsReady(ri.P1)) {
                     rs.Src1Ready = true;
-                    rs.Src1Value = _prf.Read(p1);
+                    rs.Src1Value = _prf.Read(ri.P1);
                 }
-                else { rs.Src1Tag = p1; }
+                else { rs.Src1Tag = ri.P1; }
             }
 
-            if (p2 >= 0) {
-                if (_prf.IsReady(p2)) {
+            if (ri.P2 >= 0) {
+                if (_prf.IsReady(ri.P2)) {
                     rs.Src2Ready = true;
-                    rs.Src2Value = _prf.Read(p2);
+                    rs.Src2Value = _prf.Read(ri.P2);
                 }
-                else { rs.Src2Tag = p2; }
+                else { rs.Src2Tag = ri.P2; }
             }
 
-            if (p3 >= 0) {
-                if (_prf.IsReady(p3)) {
+            if (ri.P3 >= 0) {
+                if (_prf.IsReady(ri.P3)) {
                     rs.Src3Ready = true;
-                    rs.Src3Value = _prf.Read(p3);
+                    rs.Src3Value = _prf.Read(ri.P3);
                 }
-                else { rs.Src3Tag = p3; }
+                else { rs.Src3Tag = ri.P3; }
             }
 
-            _decodeQueue.Dequeue();
+            _renameQueue.Dequeue();
         }
 
-        // Count cycles where we had work to dispatch but were blocked by a structural limit
-        // (ROB full, IQ full, or no free physical registers).
-        if (_decodeQueue.Count > 0) _stallsCounter.Increment();
+        // Count cycles where the rename queue had work but dispatch was structurally blocked.
+        if (_renameQueue.Count > 0) _stallsCounter.Increment();
+    }
+
+    /// <summary>Drain up to issueWidth decoded instructions through the RAT/PRF rename stage.</summary>
+    private void StepRename() {
+        while (_decodeQueue.Count > 0 && _renameQueue.Count < _maxDecodeDepth) {
+            FetchedInstr fi = _decodeQueue.Peek();
+
+            // Pre-trap: pass through rename without RAT allocation.
+            if (fi.PreTrap is not null) {
+                PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
+                _renameQueue.Enqueue(new RenameEntry(
+                    fi.Pc, fi.Decoded, fi.PredictedNextPc, fi.InstrId, fi.PreTrap,
+                    -1, -1, -1, -1, -1, -1));
+                _decodeQueue.Dequeue();
+                continue;
+            }
+
+            ITooth instr = fi.Decoded!;
+            int destArch = instr.DestinationRegister;
+            if (destArch > 0 && !_rat.HasFree) break; // stall: no free physical registers
+
+            // ── Source lookup BEFORE destination rename ────────────────────────
+            // Tomasulo invariant: sources must be resolved against the RAT state
+            // as it exists just before this instruction's rename, so that an
+            // instruction whose source == destination (e.g. addi x1,x1,1) reads
+            // the producer's physical register, not its own pending output.
+            IReadOnlyList<int> srcs = instr.SourceRegisters;
+            int p1 = srcs.Count > 0 ? _rat.Lookup(srcs[0]) : -1;
+            int p2 = srcs.Count > 1 ? _rat.Lookup(srcs[1]) : -1;
+            int p3 = srcs.Count > 2 ? _rat.Lookup(srcs[2]) : -1;
+
+            // ── Rename destination ─────────────────────────────────────────────
+            int newPhys = -1, oldPhys = -1;
+            if (destArch > 0) {
+                (newPhys, oldPhys) = _rat.Rename(destArch);
+                _prf.MarkPending(newPhys);
+            }
+
+            PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
+            _renameQueue.Enqueue(new RenameEntry(
+                fi.Pc, instr, fi.PredictedNextPc, fi.InstrId, null,
+                destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3));
+            _decodeQueue.Dequeue();
+        }
     }
 
     /// <summary>Fetch up to issueWidth instructions into the decode queue.</summary>
@@ -1255,10 +1292,25 @@ internal sealed class OoOPipelineCore : Gear {
     private void StepFlush() {
         _flushesCounter.Increment();
 
-        if (PEventLog is not null)
+        if (PEventLog is not null) {
             foreach ((_, RobEntry entry) in _rob.InOrder())
                 if (entry.InstrId != 0)
                     PEventLog.Record(entry.InstrId, entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
+            foreach (RenameEntry ri in _renameQueue)
+                if (ri.InstrId != 0)
+                    PEventLog.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Flush);
+        }
+
+        // Rename queue instructions are younger than any ROB entry. Undo them newest-first
+        // (queue tail = newest) before undoing the ROB so RAT restore order is correct.
+        RenameEntry[] renameArr = _renameQueue.ToArray();
+        for (int i = renameArr.Length - 1; i >= 0; i--) {
+            RenameEntry ri = renameArr[i];
+            if (ri is { ArchDest: > 0, PhysDest: >= 0, }) {
+                _rat.RestoreMapping(ri.ArchDest, ri.PrevPhysDest);
+                _rat.FreePhysical(ri.PhysDest);
+            }
+        }
 
         // Walk ROB youngest-to-oldest, restoring the RAT to committed state.
         foreach ((_, RobEntry entry) in _rob.InOrder().Reverse())
@@ -1272,6 +1324,7 @@ internal sealed class OoOPipelineCore : Gear {
         _lq.Flush();
         _sq.Flush();
         _decodeQueue.Clear();
+        _renameQueue.Clear();
         _execBuffer.Clear();
         _inFlight.Clear();
         _mshrUsed = 0;

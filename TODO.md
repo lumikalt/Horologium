@@ -239,9 +239,9 @@ Implemented:
 - [x] Streaming Engine for UVE wired into OooeTrain.
 - [ ] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary
   stalls. — Chrysos & Emer, ISCA 1998
-- [ ] Register renaming: explicit rename stage with a register alias table (RAT) and free list, replacing implicit PRF
+- [x] Register renaming: explicit rename stage with a register alias table (RAT) and free list, replacing implicit PRF
   indexing.
-- [ ] Rename event in PEventLog: emit a distinct Rn event at decode-queue drain (separate from Dispatch/Ds) to match
+- [x] Rename event in PEventLog: emit a distinct Rn event at decode-queue drain (separate from Dispatch/Ds) to match
   gem5's O3CPU stage breakdown and make Konata-style rename timing visible in the waterfall.
 - [x] True oracle branch predictor: two-pass simulation (pre-run to collect outcomes, replay with perfect prediction)
   for IPC upper-bound measurement.

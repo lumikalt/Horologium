@@ -337,11 +337,12 @@ public partial class MainWindowViewModel : ObservableObject {
         return new WaterfallData(rows, minCy, maxCy, fetchPcPerCycle, flushCycles, fetchStallCycles, basePc);
 
         static int Priority(PEventKind k) => k switch {
-            PEventKind.Flush      => 6,
-            PEventKind.Retire     => 5,
-            PEventKind.Execute    => 4,
-            PEventKind.Issue      => 3,
-            PEventKind.Dispatch   => 2,
+            PEventKind.Flush      => 7,
+            PEventKind.Retire     => 6,
+            PEventKind.Execute    => 5,
+            PEventKind.Issue      => 4,
+            PEventKind.Dispatch   => 3,
+            PEventKind.Rename     => 2,
             PEventKind.Decode     => 1,
             PEventKind.Fetch      => 0,
             PEventKind.FetchStall => -1,

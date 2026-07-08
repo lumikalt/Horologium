@@ -14,6 +14,7 @@ public sealed class StageBrushConverter : IValueConverter {
     private static readonly IBrush ExBrush = new SolidColorBrush(Color.FromArgb(70, 200, 122, 42));
     private static readonly IBrush MemBrush = new SolidColorBrush(Color.FromArgb(45, 200, 122, 42));
     private static readonly IBrush WbBrush = new SolidColorBrush(Color.FromArgb(70, 74, 176, 74));
+    private static readonly IBrush RnBrush = new SolidColorBrush(Color.FromArgb(70, 30, 138, 134));
     private static readonly IBrush DisBrush = new SolidColorBrush(Color.FromArgb(70, 46, 165, 160));
     private static readonly IBrush IssBrush = new SolidColorBrush(Color.FromArgb(70, 138, 107, 212));
     private static readonly IBrush FlBrush = new SolidColorBrush(Color.FromArgb(70, 196, 80, 80));
@@ -26,6 +27,7 @@ public sealed class StageBrushConverter : IValueConverter {
             "EX" or "Ex"  => StageBrushConverter.ExBrush,
             "MEM"         => StageBrushConverter.MemBrush,
             "WB" or "Ret" => StageBrushConverter.WbBrush,
+            "Rn"          => StageBrushConverter.RnBrush,
             "Dis"         => StageBrushConverter.DisBrush,
             "Iss"         => StageBrushConverter.IssBrush,
             "~~"          => StageBrushConverter.FlBrush,
