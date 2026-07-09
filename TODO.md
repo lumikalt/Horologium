@@ -23,8 +23,10 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Reduction ops (per-element into ud): `adde`/`adde.acc` (overwrite/accumulate), `mine`/`maxe` (running min/max)
 - [x] Scalar-write reductions: `sadde`/`fsadde` (→ integer/FP scalar reg)
 - [x] Non-word element widths: byte (`.b`), halfword (`.h`), doubleword (`.d`) for `ss.ld` and `ss.st`
-- [ ] Vector register manipulation: `mv`/`mvt` (move/transpose), `mvvs`/`mvsv.(width)` (vector↔scalar), `dp.(width)` (
-  duplicate scalar to all elements)
+- [x] `mvvs`/`mvsv.(width)` (vector↔scalar): `so.v.mvvs` writes first element of ud register into integer rd;
+  `so.v.mvsv.(b/h/w/d)` writes integer rs1 bits (width-masked) into ud register as scalar; `so.v.dp.(b/h/d)` width
+  variants of the existing scalar-broadcast op
+- [ ] Vector register manipulation: `mv`/`mvt` (move/transpose) — requires predicate register file (SO_P group)
 - [ ] Explicit vector load/store: `ld.(width)` / `ld.(width).s` and `st` / `st.s` (non-stream bulk memory ops)
 - [x] Static dimension modifiers: `ss.app.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a
   descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns

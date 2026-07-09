@@ -2036,9 +2036,25 @@ public class Rv32Decoder : IDecoder {
             );
         }
 
-        // so.v.dp.w: funct7=0x56, funct3=2
-        if (funct7 == 0x56 && funct3 == 2)
-            return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDpW(rd, rs1));
+        // so.v.dp.(width): funct7=0x56; funct3 selects element width (0=b, 1=h, 2=w, 3=d)
+        if (funct7 == 0x56) {
+            int elemBytes = (int)funct3 switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8,
+                _ => throw new IllegalInstructionException(raw, $"Unknown so.v.dp width funct3=0x{funct3:X}") };
+            return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDp(rd, rs1, elemBytes));
+        }
+
+        // so.v.mv family: funct7=0x54; rs2[4:3] selects op (2=mvvs, 3=mvsv); 0/1=mv/mvt (pred regs, not implemented)
+        if (funct7 == 0x54) {
+            int mvKind = (rs2 >> 3) & 3;
+            if (mvKind == 2)
+                return new RvInstruction(pc, raw, rd, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
+            if (mvKind == 3) {
+                int elemBytes = (int)funct3 switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8,
+                    _ => throw new IllegalInstructionException(raw, $"Unknown so.v.mvsv width funct3=0x{funct3:X}") };
+                return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVMvsv(rd, rs1, elemBytes));
+            }
+            throw new IllegalInstructionException(raw, "UVE so.v.mv/mvt not implemented (requires predicate registers)");
+        }
 
         // so.a.*: group = funct7>>3, upper = funct3&4, type = funct3&3 (0=US, 1=FP, 2=SG)
         int group = (int)(funct7 >> 3);

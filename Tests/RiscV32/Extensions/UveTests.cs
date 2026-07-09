@@ -26,9 +26,22 @@ public class UveTests {
 
     // ── Encode helpers ────────────────────────────────────────────────────────
 
-    // so.v.dp.w ud, rs1 — custom-1, funct7=0x56, funct3=0x2
-    private static uint SoVDpW(int ud, int rs1) =>
-        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu);
+    // so.v.dp.(width) ud, rs1 — custom-1, funct7=0x56; funct3: 0=b, 1=h, 2=w, 3=d
+    private static uint SoVDp(int ud, int rs1, int elemBytes) {
+        uint funct3 = elemBytes switch { 1 => 0u, 2 => 1u, 4 => 2u, 8 => 3u, _ => throw new ArgumentOutOfRangeException() };
+        return (0x56u << 25) | (uint)((rs1 & 0x1F) << 15) | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
+    }
+    private static uint SoVDpW(int ud, int rs1) => SoVDp(ud, rs1, 4);
+
+    // so.v.mvvs rd, us1 — funct7=0x54, rs2=16
+    private static uint SoVMvvs(int rd, int us1) =>
+        (0x54u << 25) | (16u << 20) | (uint)((us1 & 0x1F) << 15) | (uint)((rd & 0x1F) << 7) | 0x2Bu;
+
+    // so.v.mvsv.(width) ud, rs1 — funct7=0x54, rs2=24; funct3: 0=b, 1=h, 2=w, 3=d
+    private static uint SoVMvsv(int ud, int rs1, int elemBytes) {
+        uint funct3 = elemBytes switch { 1 => 0u, 2 => 1u, 4 => 2u, 8 => 3u, _ => throw new ArgumentOutOfRangeException() };
+        return (0x54u << 25) | (24u << 20) | (uint)((rs1 & 0x1F) << 15) | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
+    }
 
     // so.a.fp ud, usrc1, usrc2 — custom-1; (funct7>>3, funct3) encodes the operation.
     // usrc2=-1 for unary ops (Abs, Inc, Dec) — rs2 field set to 0 in encoding.
@@ -230,11 +243,50 @@ public class UveTests {
         var state = new Rv32ArchState();
         state.IntegerRegisters.Write(5, (uint)BitConverter.SingleToInt32Bits(3.14f));
 
-        ExecuteResult er = Exec(new RvUveSoVDpW(4, 5), state);
+        ExecuteResult er = Exec(new RvUveSoVDp(4, 5, 4), state);
         er.SideEffect?.Invoke(state);
 
         Assert.Equal(3.14f, state.UveState.Scalars[4], 4);
         Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[4]);
+    }
+
+    [Fact]
+    public void SoVDp_Byte_MasksToLowByte() {
+        var state = new Rv32ArchState();
+        state.IntegerRegisters.Write(5, 0xDEAD00ABu);
+        ExecuteResult er = Exec(new RvUveSoVDp(4, 5, 1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0xAB, BitConverter.SingleToInt32Bits(state.UveState.Scalars[4]));
+        Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[4]);
+    }
+
+    [Fact]
+    public void SoVMvvs_WritesFirstElementToIntegerReg() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[3] = BitConverter.Int32BitsToSingle(0x12345678);
+        ExecuteResult er = Exec(new RvUveSoVMvvs(3, 7), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0x12345678u, (uint)state.IntegerRegisters.Read(7));
+    }
+
+    [Fact]
+    public void SoVMvsv_Word_SetsScalarSlot() {
+        var state = new Rv32ArchState();
+        state.IntegerRegisters.Write(2, 0xCAFEBABEu);
+        ExecuteResult er = Exec(new RvUveSoVMvsv(6, 2, 4), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(unchecked((int)0xCAFEBABEu), BitConverter.SingleToInt32Bits(state.UveState.Scalars[6]));
+        Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[6]);
+    }
+
+    [Fact]
+    public void SoVMvsv_Byte_MasksToLowByte() {
+        var state = new Rv32ArchState();
+        state.IntegerRegisters.Write(2, 0xDEAD00CDu);
+        ExecuteResult er = Exec(new RvUveSoVMvsv(6, 2, 1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0xCD, BitConverter.SingleToInt32Bits(state.UveState.Scalars[6]));
+        Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[6]);
     }
 
     [Fact]
@@ -1355,6 +1407,36 @@ public class UveTests {
         Assert.Equal(UveIntOp.Abs, op.Op);
         Assert.True(op.Signed);
         Assert.Equal(-1, op.Usrc2);
+    }
+
+    [Fact]
+    public void Decoder_SoVDpB_DecodesWidth() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoVDp(5, 1, 1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoVDp>(tooth.Payload);
+        Assert.Equal(1, op.ElementBytes);
+    }
+
+    [Fact]
+    public void Decoder_SoVMvvs_Decodes() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoVMvvs(7, 3)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoVMvvs>(tooth.Payload);
+        Assert.Equal(3, op.Us1);
+        Assert.Equal(7, op.Rd);
+    }
+
+    [Fact]
+    public void Decoder_SoVMvsvW_Decodes() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoVMvsv(6, 2, 4)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoVMvsv>(tooth.Payload);
+        Assert.Equal(6, op.Ud);
+        Assert.Equal(2, op.Rs1);
+        Assert.Equal(4, op.ElementBytes);
     }
 
     // ── Reduction ops (adde / adde.acc / mine / maxe) ─────────────────────────

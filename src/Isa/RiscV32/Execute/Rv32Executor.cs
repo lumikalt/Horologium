@@ -717,7 +717,9 @@ public class Rv32Executor : IExecutor {
             RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
             RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp) =>
                 ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp),
-            RvUveSoVDpW (var ud, var rs1) => ExecuteUveSoVDpW(regs, ud, rs1),
+            RvUveSoVDp (var ud, var rs1, var elemBytes) => ExecuteUveSoVDp(regs, ud, rs1, elemBytes),
+            RvUveSoVMvvs (var us1, var rd) => ExecuteUveSoVMvvs(state, rd, us1),
+            RvUveSoVMvsv (var ud, var rs1, var elemBytes) => ExecuteUveSoVMvsv(regs, ud, rs1, elemBytes),
             RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
                 state, memory, fpOp, ud, usrc1, usrc2
             ),
@@ -2997,8 +2999,31 @@ public class Rv32Executor : IExecutor {
     private static Rv32ArchState UState(IArchState state) => (Rv32ArchState)state;
 
     // so.v.dp.w ud, rs1 — broadcast float32 bits from integer register into u-reg scalar slot
-    private static ExecuteResult ExecuteUveSoVDpW(IRegisterFile regs, int ud, int rs1) {
-        float value = BitConverter.Int32BitsToSingle((int)(uint)regs.Read(rs1));
+    private static ExecuteResult ExecuteUveSoVDp(IRegisterFile regs, int ud, int rs1, int elemBytes) {
+        uint mask = elemBytes switch { 1 => 0xFFu, 2 => 0xFFFFu, _ => 0xFFFFFFFFu };
+        uint bits = (uint)regs.Read(rs1) & mask;
+        float value = BitConverter.Int32BitsToSingle((int)bits);
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState uveState = UState(s).UveState;
+                uveState.Scalars[ud] = value;
+                uveState.RegKind[ud] = UveRegKind.Scalar;
+            },
+        };
+    }
+
+    private static ExecuteResult ExecuteUveSoVMvvs(IArchState state, int rd, int us1) {
+        UveState uveState = UState(state).UveState;
+        int bits = BitConverter.SingleToInt32Bits(uveState.Scalars[us1]);
+        return new ExecuteResult {
+            SideEffect = s => UState(s).IntegerRegisters.Write(rd, (uint)bits),
+        };
+    }
+
+    private static ExecuteResult ExecuteUveSoVMvsv(IRegisterFile regs, int ud, int rs1, int elemBytes) {
+        uint mask = elemBytes switch { 1 => 0xFFu, 2 => 0xFFFFu, _ => 0xFFFFFFFFu };
+        uint bits = (uint)regs.Read(rs1) & mask;
+        float value = BitConverter.Int32BitsToSingle((int)bits);
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uveState = UState(s).UveState;

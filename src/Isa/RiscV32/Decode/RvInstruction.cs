@@ -113,6 +113,7 @@ public sealed class RvInstruction(
         RvUveSoAShiftV op => [op.Usrc1, op.Usrc2,],
         RvUveSoAShiftS op => [op.Usrc1,],
         RvUveSoASadde op  => [op.Usrc1,],
+        RvUveSoVMvvs op   => [op.Us1,],
         _                 => [],
     };
 
@@ -1217,9 +1218,17 @@ public record RvUveSsAppMod(
     int Rs3Disp
 ) : RvOp;
 
-// so.v.dp.w ud, rs1 — broadcast float32 bits from integer register rs1 into u-reg scalar slot
-// (custom-1, opcode=0x2B, funct7=0x56, funct3=0x2)
-public record RvUveSoVDpW(int Ud, int Rs1) : RvOp;
+// so.v.dp.(width) ud, rs1 — broadcast integer register rs1 bits (masked to ElementBytes) into u-reg scalar slot
+// (custom-1, opcode=0x2B, funct7=0x56; funct3: 0=b, 1=h, 2=w, 3=d)
+public record RvUveSoVDp(int Ud, int Rs1, int ElementBytes) : RvOp;
+
+// so.v.mvvs rd, us1 — write first element of UVE register us1 into integer register rd
+// (custom-1, opcode=0x2B, funct7=0x54, rs2=16, Rd=integer dest)
+public record RvUveSoVMvvs(int Us1, int Rd) : RvOp;
+
+// so.v.mvsv.(width) ud, rs1 — move integer register rs1 (masked to ElementBytes) into UVE register ud as scalar
+// (custom-1, opcode=0x2B, funct7=0x54, rs2=24; funct3: 0=b, 1=h, 2=w, 3=d)
+public record RvUveSoVMvsv(int Ud, int Rs1, int ElementBytes) : RvOp;
 
 // Arithmetic on stream elements (custom-1, opcode=0x2B):
 //   (funct7>>3, funct3): Add=(0,1), Sub=(0,5), Mul=(1,1), Div=(1,5), Mac=(3,5)
