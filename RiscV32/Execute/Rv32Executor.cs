@@ -721,9 +721,15 @@ public class Rv32Executor : IExecutor {
             ),
             RvUveSsApp (var ud, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs2, rs3),
             RvUveSsEnd (var ud, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
-            RvUveSsCfgVec (var ud)                => ExecuteUveSsCfgVec(ud),
-            RvUveSoVDpW (var ud, var rs1)         => ExecuteUveSoVDpW(regs, ud, rs1),
-            RvUveSoVDupFpW (var ud, var fs1)      => ExecuteUveSoVDupFpW(regs, ud, fs1),
+            RvUveSsAppMod (var ud, var rs2, var rs3, var target, var behavior) => ExecuteUveSsAppMod(
+                regs, ud, rs2, rs3, target, behavior
+            ),
+            RvUveSsEndMod (var ud, var rs2, var rs3, var target, var behavior) => ExecuteUveSsEndMod(
+                state, regs, ud, rs2, rs3, target, behavior
+            ),
+            RvUveSsCfgVec (var ud)           => ExecuteUveSsCfgVec(ud),
+            RvUveSoVDpW (var ud, var rs1)    => ExecuteUveSoVDpW(regs, ud, rs1),
+            RvUveSoVDupFpW (var ud, var fs1) => ExecuteUveSoVDupFpW(regs, ud, fs1),
             RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
                 state, memory, fpOp, ud, usrc1, usrc2
             ),
@@ -3150,7 +3156,8 @@ public class Rv32Executor : IExecutor {
         if (pending is null) return ExecuteResult.Clean;
 
         StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).ToArray();
-        var descriptor = new StreamDescriptor(pending.BaseAddress, pending.ElementBytes, dims);
+        StreamModifier[]? mods = pending.Modifiers.Count > 0 ? pending.Modifiers.ToArray() : null;
+        var descriptor = new StreamDescriptor(pending.BaseAddress, pending.ElementBytes, dims, mods);
         bool isLoad = pending.IsLoad;
 
         if (isLoad)
@@ -3177,6 +3184,63 @@ public class Rv32Executor : IExecutor {
                 uvs.RegKind[ud] = UveRegKind.StoreStream;
             },
         };
+    }
+
+    // ss.app.mod ud, rs2_disp, rs3_size — append static modifier for the most-recently-added dimension.
+    // Issued BEFORE the next-outer dimension (ss.end), so DimIndex = Dimensions.Count - 1.
+    private static ExecuteResult ExecuteUveSsAppMod(
+        IRegisterFile regs,
+        int ud,
+        int rs2Disp,
+        int rs3Size,
+        StreamModifierTarget target,
+        StreamModifierBehavior behavior
+    ) {
+        var disp = (long)regs.Read(rs2Disp);
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState uvs = UState(s).UveState;
+                PendingStreamConfig? cfg = uvs.PendingConfig[ud];
+                if (cfg is null || cfg.Dimensions.Count < 1) return;
+                cfg.Modifiers.Add(new StreamModifier(cfg.Dimensions.Count - 1, target, behavior, disp));
+            },
+        };
+    }
+
+    // ss.end.mod ud, rs2_disp, rs3_size — append modifier + activate stream.
+    // The outermost dimension has already been added by the preceding ss.app.
+    private static ExecuteResult ExecuteUveSsEndMod(
+        IArchState state,
+        IRegisterFile regs,
+        int ud,
+        int rs2Disp,
+        int rs3Size,
+        StreamModifierTarget target,
+        StreamModifierBehavior behavior
+    ) {
+        var disp = (long)regs.Read(rs2Disp);
+        UveState uveState = UState(state).UveState;
+        PendingStreamConfig? pending = uveState.PendingConfig[ud];
+        if (pending is null || pending.Dimensions.Count < 2) return ExecuteResult.Clean;
+
+        int dimIndex = pending.Dimensions.Count - 2;
+        StreamModifier[] modifiers
+            = pending.Modifiers.Append(new StreamModifier(dimIndex, target, behavior, disp)).ToArray();
+        StreamDimension[] dims = pending.Dimensions.ToArray();
+        var descriptor = new StreamDescriptor(pending.BaseAddress, pending.ElementBytes, dims, modifiers);
+        bool isLoad = pending.IsLoad;
+
+        if (isLoad)
+            return new ExecuteResult {
+                StreamConfig = (ud, descriptor),
+                SideEffect = s => {
+                    UveState uvs = UState(s).UveState;
+                    uvs.PendingConfig[ud] = null;
+                    uvs.RegKind[ud] = UveRegKind.LoadStream;
+                },
+            };
+
+        return ExecuteResult.Clean; // store modifier streams not yet implemented
     }
 
     // ss.cfg.vec ud — flag pending stream as vector-mode (no-op until vector streaming).

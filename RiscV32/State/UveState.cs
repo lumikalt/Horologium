@@ -68,6 +68,7 @@ public sealed class PendingStreamConfig {
     public bool IsLoad;
     public bool IsVector;
     public readonly List<StreamDimension> Dimensions = [];
+    public readonly List<StreamModifier> Modifiers = [];
 }
 
 public enum UveRegKind {

@@ -44,7 +44,7 @@ public sealed class PythiaPrefetcherTests {
         // Use a large page so page-crossing rarely occurs due to page size,
         // but still exercise the guard.  With blockBytes=32 and 4KB pages,
         // an access at the very end of a page would trigger the guard.
-        var p = new PythiaPrefetcher(32, 4096);
+        var p = new PythiaPrefetcher();
         Span<ulong> buf = stackalloc ulong[1];
         const ulong pc = 0xABCDUL;
 

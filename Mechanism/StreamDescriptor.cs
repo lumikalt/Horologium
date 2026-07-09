@@ -3,6 +3,26 @@ namespace Mechanism;
 /// <summary>One dimension of a multi-dimensional affine stream: iteration count and byte stride.</summary>
 public readonly record struct StreamDimension(long Count, long Stride);
 
+/// <summary>Which field of a stream dimension a static modifier updates.</summary>
+public enum StreamModifierTarget {
+    Size = 0, Offset = 1, Stride = 2,
+}
+
+/// <summary>Whether the modifier adds or subtracts the displacement.</summary>
+public enum StreamModifierBehavior { Inc = 0, Dec = 1, }
+
+/// <summary>
+/// Static descriptor modifier {T, B, D, E}: when dimension DimIndex wraps, apply
+/// B(D) to parameter T of dimension DimIndex, for up to E total applications.
+/// Encoded inline in ss.app.mod / ss.end.mod instructions.
+/// </summary>
+public readonly record struct StreamModifier(
+    int DimIndex,
+    StreamModifierTarget Target,
+    StreamModifierBehavior Behavior,
+    long Displacement
+);
+
 /// <summary>
 /// Describes an affine memory stream with one or more dimensions.
 /// Dimension[0] is the innermost (fastest-varying); higher indices are outer loops.
@@ -12,7 +32,8 @@ public readonly record struct StreamDimension(long Count, long Stride);
 public readonly record struct StreamDescriptor(
     ulong BaseAddress,
     int ElementBytes,
-    StreamDimension[] Dimensions
+    StreamDimension[] Dimensions,
+    StreamModifier[]? Modifiers = null
 ) {
     /// <summary>Backward-compatible 1D constructor.</summary>
     public StreamDescriptor(ulong baseAddress, int elementBytes, long count, long stride)

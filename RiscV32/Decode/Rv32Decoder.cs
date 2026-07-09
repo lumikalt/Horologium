@@ -2010,7 +2010,19 @@ public class Rv32Decoder : IDecoder {
             0x3 => new RvInstruction(
                 pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, rs2, rs3, ew)
             ),
+            0x4 when (raw & (1u << 26)) != 0 => new RvInstruction(
+                pc, raw, -1, [rs2, rs3,], ToothClass.Uve,
+                new RvUveSsAppMod(
+                    ud, rs2, rs3, (StreamModifierTarget)(rs1 & 0x3), (StreamModifierBehavior)((rs1 >> 2) & 0x1)
+                )
+            ),
             0x4 => new RvInstruction(pc, raw, -1, [rs2, rs3,], ToothClass.Uve, new RvUveSsApp(ud, rs2, rs3)),
+            0x5 when (raw & (1u << 26)) != 0 => new RvInstruction(
+                pc, raw, -1, [rs2, rs3,], ToothClass.Uve,
+                new RvUveSsEndMod(
+                    ud, rs2, rs3, (StreamModifierTarget)(rs1 & 0x3), (StreamModifierBehavior)((rs1 >> 2) & 0x1)
+                )
+            ),
             0x5 => new RvInstruction(pc, raw, -1, [rs2, rs3,], ToothClass.Uve, new RvUveSsEnd(ud, rs2, rs3)),
             0x6 => new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSsCfgVec(ud)),
             _   => throw new IllegalInstructionException(raw, $"Unknown UVE setup funct3=0x{funct3:X}"),

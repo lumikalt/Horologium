@@ -63,8 +63,7 @@ public sealed class BertiPrefetcherTests {
         //
         // wasHit is approximated the same way as PythiaPrefetcherTests: a circular
         // log of the last 40 issued prefetches; wasHit=true when any entry matches.
-        const int latency = 10;
-        var p = new BertiPrefetcher(32, latency);
+        var p = new BertiPrefetcher();
         Span<ulong> buf = stackalloc ulong[4];
         const ulong pc = 0x1000UL;
         ulong addr = 200 * 32UL;

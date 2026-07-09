@@ -1195,8 +1195,10 @@ public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
 //   funct3=0x1 → ss.st.w (1D)
 //   funct3=0x2 → ss.sta.ld.w (start multi-dim load stream, first/innermost dimension)
 //   funct3=0x3 → ss.sta.st.w (start multi-dim store stream)
-//   funct3=0x4 → ss.app ud, _, rs2_count, rs3_stride (append next dimension)
-//   funct3=0x5 → ss.end ud, _, rs2_count, rs3_stride (outermost dimension + activate)
+//   funct3=0x4 + bit[26]=0 → ss.app ud, _, rs2_count, rs3_stride (append next dimension)
+//   funct3=0x4 + bit[26]=1 → ss.app.mod ud, rs2_disp, rs3_size, {T,B} in rs1[2:0] (append modifier)
+//   funct3=0x5 + bit[26]=0 → ss.end ud, _, rs2_count, rs3_stride (outermost dimension + activate)
+//   funct3=0x5 + bit[26]=1 → ss.end.mod ud, rs2_disp, rs3_size, {T,B} in rs1[2:0] (append modifier + activate)
 //   funct3=0x6 → ss.cfg.vec ud (mark pending stream as vector-mode)
 // ElementBytes defaults to 4 (.w); funct2 in decoder sets 1/2/4/8 for .b/.h/.w/.d
 public record RvUveSsLdW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride, int ElementBytes = 4) : RvOp;
@@ -1212,6 +1214,25 @@ public record RvUveSsApp(int Ud, int Rs2Count, int Rs3Stride) : RvOp;
 
 // Same field layout as ss.app; also returns StreamConfig when IsLoad.
 public record RvUveSsEnd(int Ud, int Rs2Count, int Rs3Stride) : RvOp;
+
+// ss.app.mod: append a static modifier for the most-recently-added dimension.
+// Rs2Disp = displacement register, Rs3Size = size register, Target/Behavior as literals in rs1[2:0].
+public record RvUveSsAppMod(
+    int Ud,
+    int Rs2Disp,
+    int Rs3Size,
+    StreamModifierTarget Target,
+    StreamModifierBehavior Behavior
+) : RvOp;
+
+// ss.end.mod: append modifier + activate stream. Outermost dimension already added by last ss.app.
+public record RvUveSsEndMod(
+    int Ud,
+    int Rs2Disp,
+    int Rs3Size,
+    StreamModifierTarget Target,
+    StreamModifierBehavior Behavior
+) : RvOp;
 
 // ss.cfg.vec ud — flag the pending stream as vector-mode (no-op until vector streaming).
 public record RvUveSsCfgVec(int Ud) : RvOp;

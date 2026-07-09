@@ -87,9 +87,39 @@ public class UveTests {
         (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
              | (0x3 << 12) | ((ud & 0x1F) << 7) | 0x0B);
 
+    // ss.app ud, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x4, bit[26]=0
+    private static uint SsApp(int ud, int rs2, int rs3) =>
+        (uint)(((rs3 & 0x1F) << 27) | (0 << 26) | ((rs2 & 0x1F) << 20) | (0x4 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+
     // ss.end ud, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x5; rs1=x0 (ignored)
     private static uint SsEnd(int ud, int rs2, int rs3) =>
         (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | (0x5 << 12) | ((ud & 0x1F) << 7) | 0x0B);
+
+    // ss.app.mod ud, rs2_disp, rs3_size — funct3=0x4, bit[26]=1; rs1 encodes T[1:0]|B<<2
+    private static uint SsAppMod(
+        int ud,
+        int rs2Disp,
+        int rs3Size,
+        StreamModifierTarget target,
+        StreamModifierBehavior behavior
+    ) {
+        int rs1Literal = ((int)target & 0x3) | (((int)behavior & 0x1) << 2);
+        return (uint)(((rs3Size & 0x1F) << 27) | (1 << 26) | ((rs2Disp & 0x1F) << 20)
+                    | ((rs1Literal & 0x1F) << 15) | (0x4 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+    }
+
+    // ss.end.mod ud, rs2_disp, rs3_size — funct3=0x5, bit[26]=1; rs1 encodes T[1:0]|B<<2
+    private static uint SsEndMod(
+        int ud,
+        int rs2Disp,
+        int rs3Size,
+        StreamModifierTarget target,
+        StreamModifierBehavior behavior
+    ) {
+        int rs1Literal = ((int)target & 0x3) | (((int)behavior & 0x1) << 2);
+        return (uint)(((rs3Size & 0x1F) << 27) | (1 << 26) | ((rs2Disp & 0x1F) << 20)
+                    | ((rs1Literal & 0x1F) << 15) | (0x5 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+    }
 
     // EBREAK — halts the pipeline
     private static uint EBreak() => 0x00100073u;
@@ -929,5 +959,146 @@ public class UveTests {
 
         uint Lui(int rd, int imm20) =>
             (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
+    // ── ss.app.mod / ss.end.mod decode tests ─────────────────────────────────
+
+    [Fact]
+    public void SsAppMod_DecodesCorrectly() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SsAppMod(1, 5, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSsAppMod>(tooth.Payload);
+        Assert.Equal(1, op.Ud);
+        Assert.Equal(5, op.Rs2Disp);
+        Assert.Equal(2, op.Rs3Size);
+        Assert.Equal(StreamModifierTarget.Size, op.Target);
+        Assert.Equal(StreamModifierBehavior.Inc, op.Behavior);
+    }
+
+    [Fact]
+    public void SsEndMod_DecodesCorrectly() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SsEndMod(3, 7, 4, StreamModifierTarget.Stride, StreamModifierBehavior.Dec)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSsEndMod>(tooth.Payload);
+        Assert.Equal(3, op.Ud);
+        Assert.Equal(7, op.Rs2Disp);
+        Assert.Equal(4, op.Rs3Size);
+        Assert.Equal(StreamModifierTarget.Stride, op.Target);
+        Assert.Equal(StreamModifierBehavior.Dec, op.Behavior);
+    }
+
+    // ── ss.app.mod / ss.end.mod integration tests ────────────────────────────
+
+    private static float LowerTriangularExpected(int n) {
+        var sum = 0f;
+        for (var r = 0; r < n; r++)
+        for (var c = 0; c <= r; c++)
+            sum += r * n + c + 1;
+        return sum;
+    }
+
+    // 2D stream with static Size modifier via ss.sta.ld.w → ss.app.mod → ss.end.
+    // The modifier grows D0's count by 1 on each D1 iteration (lower-triangular access).
+    private static float RunSsAppModLowerTriangular(int n) {
+        const ulong matBase = 0x0200u;
+        const ulong resultAddr = 0x0100u;
+        const ulong codeBase = 0x1000u;
+
+        var mem = new FlatMemory(0x4000);
+        for (var r = 0; r < n; r++)
+        for (var c = 0; c < n; c++) {
+            float v = r * n + c + 1;
+            mem.Load(matBase + (ulong)((r * n + c) * 4), BitConverter.GetBytes(v));
+        }
+
+        // x1=matBase  x2=N  x3=N*4  x4=4  x5=1(disp)  x9=resultAddr  x10=1
+        // Stream: D0(count=1,stride=4) → modifier{Size,Inc,1} → D1(count=N,stride=N*4)
+        // [9] inner  [10] so.b.ndc.0 → [9]  [11] so.b.nc → [9]
+        uint[] words = [
+            Addi(1, 0, (int)matBase), // [0]
+            Addi(2, 0, n), // [1]
+            Addi(3, 0, n * 4), // [2]
+            Addi(4, 0, 4), // [3]
+            Addi(5, 0, 1), // [4]
+            SoVDpW(2, 0), // [5]  u2 = 0.0f
+            SsStaLdW(1, 1, 5, 4), // [6]  D0: count=1, stride=4
+            SsAppMod(1, 5, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc), // [7] mod
+            SsEnd(1, 2, 3), // [8]  D1: count=N, stride=N*4, activate
+            SoAFp(UveFpOp.Add, 2, 1, 2), // [9]  inner: u2 += elem
+            SoBNdcD(1, 0, -4), // [10] → [9] while D0 not done
+            SoBNc(1, -8), // [11] → [9] while stream active
+            Addi(9, 0, (int)resultAddr), // [12]
+            Addi(10, 0, 1), // [13]
+            SsStW(3, 9, 10, 4), // [14]
+            SoAFp(UveFpOp.Add, 3, 2, 0), // [15] write u2 to result
+            EBreak(), // [16]
+        ];
+
+        for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+        new OooeTrain(new Rv32Mechanism(), mem, codeBase, streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32)
+           .Run(20_000);
+        return BitConverter.Int32BitsToSingle((int)(uint)mem.Read(resultAddr, 4));
+    }
+
+    // Same pattern but via ss.sta.ld.w → ss.app → ss.end.mod.
+    private static float RunSsEndModLowerTriangular(int n) {
+        const ulong matBase = 0x0200u;
+        const ulong resultAddr = 0x0100u;
+        const ulong codeBase = 0x1000u;
+
+        var mem = new FlatMemory(0x4000);
+        for (var r = 0; r < n; r++)
+        for (var c = 0; c < n; c++) {
+            float v = r * n + c + 1;
+            mem.Load(matBase + (ulong)((r * n + c) * 4), BitConverter.GetBytes(v));
+        }
+
+        // Stream: D0(count=1,stride=4) → D1(count=N,stride=N*4) → modifier{Size,Inc,1}+activate
+        uint[] words = [
+            Addi(1, 0, (int)matBase),                                                 // [0]
+            Addi(2, 0, n),                                                            // [1]
+            Addi(3, 0, n * 4),                                                        // [2]
+            Addi(4, 0, 4),                                                            // [3]
+            Addi(5, 0, 1),                                                            // [4]
+            SoVDpW(2, 0),                                                             // [5]
+            SsStaLdW(1, 1, 5, 4),                                                     // [6]  D0
+            SsApp(1, 2, 3),                                                           // [7]  D1
+            SsEndMod(1, 5, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc), // [8] mod+activate
+            SoAFp(UveFpOp.Add, 2, 1, 2),                                              // [9]
+            SoBNdcD(1, 0, -4),                                                        // [10]
+            SoBNc(1, -8),                                                             // [11]
+            Addi(9, 0, (int)resultAddr),                                              // [12]
+            Addi(10, 0, 1),                                                           // [13]
+            SsStW(3, 9, 10, 4),                                                       // [14]
+            SoAFp(UveFpOp.Add, 3, 2, 0),                                              // [15]
+            EBreak(),                                                                 // [16]
+        ];
+
+        for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+        new OooeTrain(new Rv32Mechanism(), mem, codeBase, streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32)
+           .Run(20_000);
+        return BitConverter.Int32BitsToSingle((int)(uint)mem.Read(resultAddr, 4));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void SsAppMod_LowerTriangular_CorrectSum(int n) {
+        Assert.Equal(LowerTriangularExpected(n), RunSsAppModLowerTriangular(n), 3);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void SsEndMod_LowerTriangular_CorrectSum(int n) {
+        Assert.Equal(LowerTriangularExpected(n), RunSsEndModLowerTriangular(n), 3);
     }
 }

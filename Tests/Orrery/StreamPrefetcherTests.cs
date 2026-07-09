@@ -134,7 +134,7 @@ public sealed class StreamPrefetcherTests {
 
     [Fact]
     public void Access_MidLine_SnapsToLineBase() {
-        var p = new StreamPrefetcher(4, 2, 32);
+        var p = new StreamPrefetcher(4, 2);
         Span<ulong> buf = stackalloc ulong[8];
 
         // Address 10 is inside line 0 (bytes 0–31)

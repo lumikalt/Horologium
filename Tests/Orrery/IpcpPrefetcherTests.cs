@@ -9,7 +9,7 @@ namespace Tests.Orrery;
 /// </summary>
 public sealed class IpcpPrefetcherTests {
     // Convenience wrappers
-    private static IpcpPrefetcher Make() => new(32, 4096, 2048);
+    private static IpcpPrefetcher Make() => new();
 
     private static int Fire(IpcpPrefetcher p, ulong pc, ulong addr, Span<ulong> buf)
         => p.OnAccess(pc, addr, false, buf);

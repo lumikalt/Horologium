@@ -84,7 +84,9 @@
   - [x] Non-word element widths: byte (`.b`), halfword (`.h`), doubleword (`.d`) for `ss.ld` and `ss.st`
   - [ ] Vector register manipulation: `mv`/`mvt` (move/transpose), `mvvs`/`mvsv.(width)` (vector↔scalar), `dp.(width)` (duplicate scalar to all elements)
   - [ ] Explicit vector load/store: `ld.(width)` / `ld.(width).s` and `st` / `st.s` (non-stream bulk memory ops)
-  - [ ] Static dimension modifiers: `ss.app.mod` / `ss.end.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns without per-row reconfiguration)
+  - [x] Static dimension modifiers: `ss.app.mod` / `ss.end.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns without per-row reconfiguration)
+  - [ ] Static modifier E-field (Size) enforcement: cap modifier applications to E total outer-loop iterations; currently the modifier fires unconditionally on every inner-dim wrap and the decoded `rs3Size` register value is ignored at execution time
+  - [ ] Static modifier Offset and Stride targets: implement `Target=Offset` and `Target=Stride` mutations in `StreamingEngine.ApplyModifiers`; currently only `Target=Size` is handled and the other two are decoded but no-op
   - [ ] Indirect dimension modifiers: `ss.app.ind` / `ss.end.ind` — attach a `{Target, Behavior, StreamPointer}` modifier so a live stream drives the offset of another (gather/indirect access; confirmed UVE1 in ISCA 2021 paper)
   - [ ] Stream suspend/resume/stop: `ss.suspend`, `ss.resume`, `ss.stop` — explicit stream lifecycle control for context switching and early termination
   - [ ] Vector-length control: `ss.getvl` / `ss.setvl` — read and configure the active vector length for narrower-VL emulation and VL-aligned dimension padding

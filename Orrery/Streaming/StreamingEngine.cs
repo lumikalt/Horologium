@@ -112,24 +112,24 @@ public sealed class StreamingEngine {
 
         // Per-dimension fetch and consume indices. Innermost = index 0.
         private long[] _fetchIndices = [];
-
         private long[] _consumeIndices = [];
+
+        // Mutable per-odometer copies of dimension counts; updated by modifiers as each dim wraps.
+        private long[] _fetchDimCounts = [];
+        private long[] _consumeDimCounts = [];
+
+        // True once the outermost fetch dimension has wrapped (all elements fetched).
+        private bool _fetchDone;
 
         // Set by Consume() for each dimension that wraps; cleared at the start of the next Consume().
         private bool[] _dimPassComplete = [];
-        private long _totalFetched;
+
         private readonly Queue<ulong> _buffer = new();
 
         public bool Active { get; private set; }
         public bool HasElement => _buffer.Count > 0;
 
-        public bool IsExhausted {
-            get {
-                if (!Active) return false;
-                long total = TotalCount();
-                return _totalFetched >= total && _buffer.Count == 0;
-            }
-        }
+        public bool IsExhausted => Active && _fetchDone && _buffer.Count == 0;
 
         public bool IsDimPassComplete(int dim) =>
             Active && (uint)dim < (uint)_dimPassComplete.Length && _dimPassComplete[dim];
@@ -139,8 +139,15 @@ public sealed class StreamingEngine {
             int ndim = desc.Dimensions.Length;
             _fetchIndices = new long[ndim];
             _consumeIndices = new long[ndim];
+            _fetchDimCounts = new long[ndim];
+            _consumeDimCounts = new long[ndim];
             _dimPassComplete = new bool[ndim];
-            _totalFetched = 0;
+            for (var d = 0; d < ndim; d++) {
+                _fetchDimCounts[d] = desc.Dimensions[d].Count;
+                _consumeDimCounts[d] = desc.Dimensions[d].Count;
+            }
+
+            _fetchDone = false;
             _buffer.Clear();
             Active = true;
         }
@@ -165,19 +172,12 @@ public sealed class StreamingEngine {
         public void Step(IMemory memory, int prefetchDepth) {
             if (!Active) return;
             if (_buffer.Count >= prefetchDepth) return;
-            if (_totalFetched >= TotalCount()) return;
+            if (_fetchDone) return;
 
             var addr = (ulong)((long)_desc.BaseAddress + FetchOffset());
             ulong element = memory.Read(addr, _desc.ElementBytes);
             _buffer.Enqueue(element);
-            _totalFetched++;
             AdvanceFetchIndex();
-        }
-
-        private long TotalCount() {
-            long total = 1;
-            foreach (StreamDimension d in _desc.Dimensions) total *= d.Count;
-            return total;
         }
 
         private long FetchOffset() {
@@ -187,18 +187,36 @@ public sealed class StreamingEngine {
         }
 
         private void AdvanceFetchIndex() {
-            for (var d = 0; d < _fetchIndices.Length; d++) {
-                if (++_fetchIndices[d] < _desc.Dimensions[d].Count) break;
+            for (var d = 0; d < _fetchDimCounts.Length; d++) {
+                if (++_fetchIndices[d] < _fetchDimCounts[d]) return;
                 _fetchIndices[d] = 0;
+                ApplyModifiers(d, _fetchDimCounts);
+                if (d == _fetchDimCounts.Length - 1) {
+                    _fetchDone = true;
+                    return;
+                }
             }
         }
 
         private void AdvanceConsumeIndex() {
             Array.Fill(_dimPassComplete, false);
-            for (var d = 0; d < _consumeIndices.Length; d++) {
-                if (++_consumeIndices[d] < _desc.Dimensions[d].Count) break;
+            for (var d = 0; d < _consumeDimCounts.Length; d++) {
+                if (++_consumeIndices[d] < _consumeDimCounts[d]) return; // no wrap
                 _consumeIndices[d] = 0;
                 _dimPassComplete[d] = true;
+                ApplyModifiers(d, _consumeDimCounts);
+                // continue loop to carry into d+1
+            }
+        }
+
+        private void ApplyModifiers(int wrappedDim, long[] dimCounts) {
+            if (_desc.Modifiers is not { Length: > 0, } mods) return;
+            foreach (StreamModifier m in mods) {
+                if (m.DimIndex != wrappedDim) continue;
+                long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
+                if (m.Target == StreamModifierTarget.Size)
+                    dimCounts[wrappedDim] = Math.Max(0, dimCounts[wrappedDim] + delta);
+                // Offset and Stride modifications would require updating _desc (mutable copy) — deferred.
             }
         }
     }
