@@ -2048,10 +2048,16 @@ public class Rv32Decoder : IDecoder {
         RvOp uvOp = group switch {
             0 => UveArith(upper ? UveFpOp.Sub : UveFpOp.Add, upper ? UveIntOp.Sub : UveIntOp.Add, type, rd, rs1, rs2),
             1 => UveArith(upper ? UveFpOp.Div : UveFpOp.Mul, upper ? UveIntOp.Div : UveIntOp.Mul, type, rd, rs1, rs2),
+            // Group 2: adde (lower) — accumulate stream element into ud; rs2=1 selects the += variant.
+            // Group 2 upper (Adds → scalar register write) not yet implemented.
+            2 when !upper && rs2 == 1 => UveArith(UveFpOp.AddeAcc, UveIntOp.AddeAcc, type, rd, rs1, -1),
+            2 when !upper             => UveArith(UveFpOp.Adde,    UveIntOp.Adde,    type, rd, rs1, -1),
             3 => upper
                 ? UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2)
                 : UveArith(UveFpOp.Abs, UveIntOp.Abs, type, rd, rs1, -1),
             4 => UveArith(upper ? UveFpOp.Max : UveFpOp.Min, upper ? UveIntOp.Max : UveIntOp.Min, type, rd, rs1, rs2),
+            // Group 5: mine/maxe — running min/max reduction into ud.
+            5 => UveArith(upper ? UveFpOp.Maxe : UveFpOp.Mine, upper ? UveIntOp.Maxe : UveIntOp.Mine, type, rd, rs1, -1),
             6 when upper && rs2 == 1 && type == 1 => new RvUveSoAFp(UveFpOp.Sqrt, rd, rs1, -1),
             6 => UveArith(upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1),
             12 => (int)funct3 switch {

@@ -20,8 +20,8 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Additional arithmetic ops: `abs`, element-wise `min`/`max`, `inc`/`dec`; `sqrt` (FP)
 - [x] Logic ops: `and`, `or`, `xor`, `not`, `nand`, `nor`; vector-vector shifts `sll`/`srl`/`sra` and scalar-register
   forms `ssll`/`ssrl`/`ssra`
-- [ ] Reduction ops: `adde`/`adde.acc` (element-sum → u-reg[0]), `sadde`/`fsadde` (→ integer/FP scalar reg), `mins`/
-  `maxs`
+- [x] Reduction ops (per-element into ud): `adde`/`adde.acc` (overwrite/accumulate), `mine`/`maxe` (running min/max)
+- [ ] Scalar-write reductions: `sadde`/`fsadde` (→ integer/FP scalar reg)
 - [x] Non-word element widths: byte (`.b`), halfword (`.h`), doubleword (`.d`) for `ss.ld` and `ss.st`
 - [ ] Vector register manipulation: `mv`/`mvt` (move/transpose), `mvvs`/`mvsv.(width)` (vector↔scalar), `dp.(width)` (
   duplicate scalar to all elements)

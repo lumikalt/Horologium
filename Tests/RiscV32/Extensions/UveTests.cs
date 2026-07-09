@@ -39,15 +39,20 @@ public class UveTests {
             UveFpOp.Mul  => (1u, 1u),
             UveFpOp.Div  => (5u, 1u),
             UveFpOp.Mac  => (5u, 3u),
-            UveFpOp.Min  => (1u, 4u),
-            UveFpOp.Max  => (5u, 4u),
-            UveFpOp.Abs  => (1u, 3u),
-            UveFpOp.Inc  => (1u, 6u),
-            UveFpOp.Dec  => (5u, 6u),
-            _            => throw new ArgumentOutOfRangeException(nameof(op)),
+            UveFpOp.Min     => (1u, 4u),
+            UveFpOp.Max     => (5u, 4u),
+            UveFpOp.Abs     => (1u, 3u),
+            UveFpOp.Inc     => (1u, 6u),
+            UveFpOp.Dec     => (5u, 6u),
+            UveFpOp.Adde    => (1u, 2u),
+            UveFpOp.AddeAcc => (1u, 2u), // same group+lower+FP; rs2=1 distinguishes from Adde
+            UveFpOp.Mine    => (1u, 5u),
+            UveFpOp.Maxe    => (5u, 5u),
+            _               => throw new ArgumentOutOfRangeException(nameof(op)),
         };
         uint funct7 = top4 << 3;
-        int rs2Enc = usrc2 < 0 ? 0 : usrc2;
+        // AddeAcc: rs2=1 in the binary distinguishes it from Adde (rs2=0).
+        int rs2Enc = op == UveFpOp.AddeAcc ? 1 : (usrc2 < 0 ? 0 : usrc2);
         return (funct7 << 25) | (uint)((rs2Enc & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
@@ -55,22 +60,26 @@ public class UveTests {
     // so.a.int ud, usrc1, usrc2 — integer arithmetic; usrc2=-1 for unary ops (Abs, Inc, Dec).
     private static uint SoAInt(UveIntOp op, bool signed, int ud, int usrc1, int usrc2) {
         (int group, bool upper) = op switch {
-            UveIntOp.Add => (0, false),
-            UveIntOp.Sub => (0, true),
-            UveIntOp.Mul => (1, false),
-            UveIntOp.Div => (1, true),
-            UveIntOp.Mac => (3, true),
-            UveIntOp.Min => (4, false),
-            UveIntOp.Max => (4, true),
-            UveIntOp.Abs => (3, false),
-            UveIntOp.Inc => (6, false),
-            UveIntOp.Dec => (6, true),
-            _            => throw new ArgumentOutOfRangeException(nameof(op)),
+            UveIntOp.Add     => (0, false),
+            UveIntOp.Sub     => (0, true),
+            UveIntOp.Mul     => (1, false),
+            UveIntOp.Div     => (1, true),
+            UveIntOp.Mac     => (3, true),
+            UveIntOp.Min     => (4, false),
+            UveIntOp.Max     => (4, true),
+            UveIntOp.Abs     => (3, false),
+            UveIntOp.Inc     => (6, false),
+            UveIntOp.Dec     => (6, true),
+            UveIntOp.Adde    => (2, false),
+            UveIntOp.AddeAcc => (2, false), // same as Adde but rs2=1
+            UveIntOp.Mine    => (5, false),
+            UveIntOp.Maxe    => (5, true),
+            _                => throw new ArgumentOutOfRangeException(nameof(op)),
         };
         int opType = signed ? 2 : 0;
         uint funct3 = (uint)(opType | (upper ? 4 : 0));
         uint funct7 = (uint)(group << 3);
-        int rs2Enc = usrc2 < 0 ? 0 : usrc2;
+        int rs2Enc = op == UveIntOp.AddeAcc ? 1 : (usrc2 < 0 ? 0 : usrc2);
         return (funct7 << 25) | (uint)((rs2Enc & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
@@ -1308,6 +1317,126 @@ public class UveTests {
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoAFp>(tooth.Payload);
         Assert.Equal(UveFpOp.Abs, op.Op);
+        Assert.Equal(-1, op.Usrc2);
+    }
+
+    // ── Reduction ops (adde / adde.acc / mine / maxe) ─────────────────────────
+
+    [Fact]
+    public void SoAFp_Adde_OverwritesUd() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[5] = 999f;     // existing accumulator
+        state.UveState.Scalars[1] = 7.0f;
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Adde, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(7.0f, state.UveState.Scalars[5]);
+    }
+
+    [Fact]
+    public void SoAFp_AddeAcc_AccumulatesIntoUd() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[5] = 10f;
+        state.UveState.Scalars[1] = 3.0f;
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.AddeAcc, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(13.0f, state.UveState.Scalars[5]);
+    }
+
+    [Fact]
+    public void SoAFp_Mine_UpdatesRunningMin() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[5] = 10f;     // current running min
+        state.UveState.Scalars[1] = 3.0f;    // new element, smaller
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Mine, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(3.0f, state.UveState.Scalars[5]);
+
+        // Element larger than current min: does not update
+        state.UveState.Scalars[1] = 99f;
+        er = Exec(new RvUveSoAFp(UveFpOp.Mine, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(3.0f, state.UveState.Scalars[5]);
+    }
+
+    [Fact]
+    public void SoAFp_Maxe_UpdatesRunningMax() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[5] = 5f;
+        state.UveState.Scalars[1] = 12.0f;
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Maxe, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(12.0f, state.UveState.Scalars[5]);
+    }
+
+    [Fact]
+    public void SoAInt_AddeAcc_US_Accumulates() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[5] = UB(100u);
+        state.UveState.Scalars[1] = UB(42u);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.AddeAcc, false, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(142u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Mine_SG_UpdatesRunningMin() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[5] = IB(10);
+        state.UveState.Scalars[1] = IB(-5);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Mine, true, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(-5, RIB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Maxe_US_UpdatesRunningMax() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[5] = UB(50u);
+        state.UveState.Scalars[1] = UB(200u);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Maxe, false, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(200u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void Decoder_SoAFp_AddeAcc_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAFp(UveFpOp.AddeAcc, 5, 1, -1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAFp>(tooth.Payload);
+        Assert.Equal(UveFpOp.AddeAcc, op.Op);
+        Assert.Equal(5, op.Ud);
+        Assert.Equal(1, op.Usrc1);
+        Assert.Equal(-1, op.Usrc2);
+    }
+
+    [Fact]
+    public void Decoder_SoAFp_Adde_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAFp(UveFpOp.Adde, 5, 1, -1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAFp>(tooth.Payload);
+        Assert.Equal(UveFpOp.Adde, op.Op);
+        Assert.Equal(-1, op.Usrc2);
+    }
+
+    [Fact]
+    public void Decoder_SoAFp_Mine_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAFp(UveFpOp.Mine, 5, 1, -1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAFp>(tooth.Payload);
+        Assert.Equal(UveFpOp.Mine, op.Op);
+    }
+
+    [Fact]
+    public void Decoder_SoAInt_AddeAcc_SG_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAInt(UveIntOp.AddeAcc, true, 5, 1, -1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAInt>(tooth.Payload);
+        Assert.Equal(UveIntOp.AddeAcc, op.Op);
+        Assert.True(op.Signed);
         Assert.Equal(-1, op.Usrc2);
     }
 }

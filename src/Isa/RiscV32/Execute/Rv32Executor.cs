@@ -3015,18 +3015,22 @@ public class Rv32Executor : IExecutor {
         float a = uveState.Scalars[usrc1];
         float b = usrc2 >= 0 ? uveState.Scalars[usrc2] : 0f;
         float result = op switch {
-            UveFpOp.Mul  => a * b,
-            UveFpOp.Add  => a + b,
-            UveFpOp.Mac  => uveState.Scalars[ud] + a * b,
-            UveFpOp.Sub  => a - b,
-            UveFpOp.Div  => a / b,
-            UveFpOp.Min  => MathF.Min(a, b),
-            UveFpOp.Max  => MathF.Max(a, b),
-            UveFpOp.Abs  => MathF.Abs(a),
-            UveFpOp.Inc  => a + 1f,
-            UveFpOp.Dec  => a - 1f,
-            UveFpOp.Sqrt => MathF.Sqrt(a),
-            _            => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
+            UveFpOp.Mul     => a * b,
+            UveFpOp.Add     => a + b,
+            UveFpOp.Mac     => uveState.Scalars[ud] + a * b,
+            UveFpOp.Sub     => a - b,
+            UveFpOp.Div     => a / b,
+            UveFpOp.Min     => MathF.Min(a, b),
+            UveFpOp.Max     => MathF.Max(a, b),
+            UveFpOp.Abs     => MathF.Abs(a),
+            UveFpOp.Inc     => a + 1f,
+            UveFpOp.Dec     => a - 1f,
+            UveFpOp.Sqrt    => MathF.Sqrt(a),
+            UveFpOp.Adde    => a,
+            UveFpOp.AddeAcc => uveState.Scalars[ud] + a,
+            UveFpOp.Mine    => MathF.Min(uveState.Scalars[ud], a),
+            UveFpOp.Maxe    => MathF.Max(uveState.Scalars[ud], a),
+            _               => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
         };
         return UveWriteScalar(state, memory, ud, result);
     }
@@ -3048,10 +3052,14 @@ public class Rv32Executor : IExecutor {
                 UveIntOp.Mac => acc + a * b,
                 UveIntOp.Min => Math.Min(a, b),
                 UveIntOp.Max => Math.Max(a, b),
-                UveIntOp.Abs => Math.Abs(a),
-                UveIntOp.Inc => a + 1,
-                UveIntOp.Dec => a - 1,
-                _            => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
+                UveIntOp.Abs     => Math.Abs(a),
+                UveIntOp.Inc     => a + 1,
+                UveIntOp.Dec     => a - 1,
+                UveIntOp.Adde    => a,
+                UveIntOp.AddeAcc => acc + a,
+                UveIntOp.Mine    => Math.Min(acc, a),
+                UveIntOp.Maxe    => Math.Max(acc, a),
+                _                => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
             };
             result = BitConverter.Int32BitsToSingle(r);
         } else {
@@ -3059,17 +3067,21 @@ public class Rv32Executor : IExecutor {
             uint b   = usrc2 >= 0 ? (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0u;
             uint acc = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[ud]);
             uint r = op switch {
-                UveIntOp.Add => a + b,
-                UveIntOp.Sub => a - b,
-                UveIntOp.Mul => a * b,
-                UveIntOp.Div => a / b,
-                UveIntOp.Mac => acc + a * b,
-                UveIntOp.Min => Math.Min(a, b),
-                UveIntOp.Max => Math.Max(a, b),
-                UveIntOp.Abs => a,
-                UveIntOp.Inc => a + 1u,
-                UveIntOp.Dec => a - 1u,
-                _            => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
+                UveIntOp.Add     => a + b,
+                UveIntOp.Sub     => a - b,
+                UveIntOp.Mul     => a * b,
+                UveIntOp.Div     => a / b,
+                UveIntOp.Mac     => acc + a * b,
+                UveIntOp.Min     => Math.Min(a, b),
+                UveIntOp.Max     => Math.Max(a, b),
+                UveIntOp.Abs     => a,
+                UveIntOp.Inc     => a + 1u,
+                UveIntOp.Dec     => a - 1u,
+                UveIntOp.Adde    => a,
+                UveIntOp.AddeAcc => acc + a,
+                UveIntOp.Mine    => Math.Min(acc, a),
+                UveIntOp.Maxe    => Math.Max(acc, a),
+                _                => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
             };
             result = BitConverter.Int32BitsToSingle((int)r);
         }

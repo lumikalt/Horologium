@@ -1223,33 +1223,41 @@ public record RvUveSoVDpW(int Ud, int Rs1) : RvOp;
 // Arithmetic on stream elements (custom-1, opcode=0x2B):
 //   (funct7>>3, funct3): Add=(0,1), Sub=(0,5), Mul=(1,1), Div=(1,5), Mac=(3,5)
 public enum UveFpOp {
-    Mul  = 0,
-    Add  = 1,
-    Mac  = 2,
-    Sub  = 3,
-    Div  = 4,
-    Min  = 5,
-    Max  = 6,
-    Abs  = 7,
-    Inc  = 8,
-    Dec  = 9,
-    Sqrt = 10,
+    Mul     = 0,
+    Add     = 1,
+    Mac     = 2,
+    Sub     = 3,
+    Div     = 4,
+    Min     = 5,
+    Max     = 6,
+    Abs     = 7,
+    Inc     = 8,
+    Dec     = 9,
+    Sqrt    = 10,
+    Adde    = 11, // accumulate stream element into ud (overwrite)
+    AddeAcc = 12, // accumulate stream element into ud (add)
+    Mine    = 13, // ud = min(ud, stream_elem)
+    Maxe    = 14, // ud = max(ud, stream_elem)
 }
 
 // FP arithmetic on stream elements; Usrc2=-1 for unary ops (Abs, Inc, Dec, Sqrt).
 public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
 
 public enum UveIntOp {
-    Add = 0,
-    Sub = 1,
-    Mul = 2,
-    Div = 3,
-    Mac = 4,
-    Min = 5,
-    Max = 6,
-    Abs = 7,
-    Inc = 8,
-    Dec = 9,
+    Add     = 0,
+    Sub     = 1,
+    Mul     = 2,
+    Div     = 3,
+    Mac     = 4,
+    Min     = 5,
+    Max     = 6,
+    Abs     = 7,
+    Inc     = 8,
+    Dec     = 9,
+    Adde    = 10,
+    AddeAcc = 11,
+    Mine    = 12,
+    Maxe    = 13,
 }
 
 // Integer arithmetic on stream elements; Usrc2=-1 for unary ops (Abs, Inc, Dec).
