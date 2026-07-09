@@ -721,6 +721,18 @@ public class Rv32Executor : IExecutor {
             RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
                 state, memory, fpOp, ud, usrc1, usrc2
             ),
+            RvUveSoAInt (var intOp, var signed, var ud, var usrc1, var usrc2) => ExecuteUveSoAInt(
+                state, memory, intOp, signed, ud, usrc1, usrc2
+            ),
+            RvUveSoALogic (var logicOp, var ud, var usrc1, var usrc2) => ExecuteUveSoALogic(
+                state, memory, logicOp, ud, usrc1, usrc2
+            ),
+            RvUveSoAShiftV (var shiftOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAShiftV(
+                state, memory, shiftOp, ud, usrc1, usrc2
+            ),
+            RvUveSoAShiftS (var shiftOp, var ud, var usrc1, var rs2) => ExecuteUveSoAShiftS(
+                state, memory, regs, shiftOp, ud, usrc1, rs2
+            ),
             RvUveSoBNc (var urs, var imm)           => ExecuteUveSoBNc(state, pc, urs, imm),
             RvUveSoBNdc (var urs, var dim, var imm) => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
             RvUveSoBc (var urs, var imm)            => ExecuteUveSoBc(state, pc, urs, imm),
@@ -3001,22 +3013,125 @@ public class Rv32Executor : IExecutor {
     ) {
         UveState uveState = UState(state).UveState;
         float a = uveState.Scalars[usrc1];
-        float b = uveState.Scalars[usrc2];
+        float b = usrc2 >= 0 ? uveState.Scalars[usrc2] : 0f;
         float result = op switch {
-            UveFpOp.Mul => a * b,
-            UveFpOp.Add => a + b,
-            UveFpOp.Mac => uveState.Scalars[ud] + a * b,
-            UveFpOp.Sub => a - b,
-            UveFpOp.Div => a / b,
-            _           => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
+            UveFpOp.Mul  => a * b,
+            UveFpOp.Add  => a + b,
+            UveFpOp.Mac  => uveState.Scalars[ud] + a * b,
+            UveFpOp.Sub  => a - b,
+            UveFpOp.Div  => a / b,
+            UveFpOp.Min  => MathF.Min(a, b),
+            UveFpOp.Max  => MathF.Max(a, b),
+            UveFpOp.Abs  => MathF.Abs(a),
+            UveFpOp.Inc  => a + 1f,
+            UveFpOp.Dec  => a - 1f,
+            UveFpOp.Sqrt => MathF.Sqrt(a),
+            _            => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
         };
-        var resultBits = (uint)BitConverter.SingleToInt32Bits(result);
+        return UveWriteScalar(state, memory, ud, result);
+    }
 
+    private static ExecuteResult ExecuteUveSoAInt(
+        IArchState state, IMemory memory, UveIntOp op, bool signed, int ud, int usrc1, int usrc2
+    ) {
+        UveState uveState = UState(state).UveState;
+        float result;
+        if (signed) {
+            int a   = BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+            int b   = usrc2 >= 0 ? BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0;
+            int acc = BitConverter.SingleToInt32Bits(uveState.Scalars[ud]);
+            int r = op switch {
+                UveIntOp.Add => a + b,
+                UveIntOp.Sub => a - b,
+                UveIntOp.Mul => a * b,
+                UveIntOp.Div => a / b,
+                UveIntOp.Mac => acc + a * b,
+                UveIntOp.Min => Math.Min(a, b),
+                UveIntOp.Max => Math.Max(a, b),
+                UveIntOp.Abs => Math.Abs(a),
+                UveIntOp.Inc => a + 1,
+                UveIntOp.Dec => a - 1,
+                _            => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
+            };
+            result = BitConverter.Int32BitsToSingle(r);
+        } else {
+            uint a   = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+            uint b   = usrc2 >= 0 ? (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0u;
+            uint acc = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[ud]);
+            uint r = op switch {
+                UveIntOp.Add => a + b,
+                UveIntOp.Sub => a - b,
+                UveIntOp.Mul => a * b,
+                UveIntOp.Div => a / b,
+                UveIntOp.Mac => acc + a * b,
+                UveIntOp.Min => Math.Min(a, b),
+                UveIntOp.Max => Math.Max(a, b),
+                UveIntOp.Abs => a,
+                UveIntOp.Inc => a + 1u,
+                UveIntOp.Dec => a - 1u,
+                _            => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
+            };
+            result = BitConverter.Int32BitsToSingle((int)r);
+        }
+        return UveWriteScalar(state, memory, ud, result);
+    }
+
+    private static ExecuteResult ExecuteUveSoALogic(
+        IArchState state, IMemory memory, UveLogicOp op, int ud, int usrc1, int usrc2
+    ) {
+        UveState uveState = UState(state).UveState;
+        uint a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+        uint b = usrc2 >= 0 ? (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0u;
+        uint r = op switch {
+            UveLogicOp.Nand => ~(a & b),
+            UveLogicOp.And  =>   a & b,
+            UveLogicOp.Nor  => ~(a | b),
+            UveLogicOp.Or   =>   a | b,
+            UveLogicOp.Not  =>  ~a,
+            UveLogicOp.Xor  =>   a ^ b,
+            _               => throw new InvalidOperationException($"Unknown UveLogicOp {op}"),
+        };
+        return UveWriteScalar(state, memory, ud, BitConverter.Int32BitsToSingle((int)r));
+    }
+
+    private static ExecuteResult ExecuteUveSoAShiftV(
+        IArchState state, IMemory memory, UveShiftOp op, int ud, int usrc1, int usrc2
+    ) {
+        UveState uveState = UState(state).UveState;
+        uint a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+        int shamt = (int)((uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) & 0x1F);
+        uint r = op switch {
+            UveShiftOp.Sll => a << shamt,
+            UveShiftOp.Srl => a >> shamt,
+            UveShiftOp.Sra => (uint)((int)a >> shamt),
+            _              => throw new InvalidOperationException($"Unknown UveShiftOp {op}"),
+        };
+        return UveWriteScalar(state, memory, ud, BitConverter.Int32BitsToSingle((int)r));
+    }
+
+    private static ExecuteResult ExecuteUveSoAShiftS(
+        IArchState state, IMemory memory, IRegisterFile regs, UveShiftOp op, int ud, int usrc1, int rs2
+    ) {
+        UveState uveState = UState(state).UveState;
+        uint a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+        int shamt = (int)(regs.Read(rs2) & 0x1F);
+        uint r = op switch {
+            UveShiftOp.Sll => a << shamt,
+            UveShiftOp.Srl => a >> shamt,
+            UveShiftOp.Sra => (uint)((int)a >> shamt),
+            _              => throw new InvalidOperationException($"Unknown UveShiftOp {op}"),
+        };
+        return UveWriteScalar(state, memory, ud, BitConverter.Int32BitsToSingle((int)r));
+    }
+
+    // Shared write-back for all so.a.* ops: if ud is a store stream, write to memory and
+    // advance the cursor; otherwise update the scalar slot.
+    private static ExecuteResult UveWriteScalar(IArchState state, IMemory memory, int ud, float result) {
+        UveState uveState = UState(state).UveState;
         if (uveState.RegKind[ud] == UveRegKind.StoreStream && uveState.StoreStreams[ud] is { } ss) {
-            // Write result element to the store stream's current memory address.
             ulong addr = ss.CurrentAddress;
             int ewBytes = ss.ElementBytes;
-            memory.Write(addr, resultBits, ewBytes);
+            memory.Write(addr, (uint)BitConverter.SingleToInt32Bits(result), ewBytes);
             return new ExecuteResult {
                 SideEffect = s => {
                     UveState uvs = UState(s).UveState;
@@ -3025,8 +3140,6 @@ public class Rv32Executor : IExecutor {
                 },
             };
         }
-
-        // Destination is a scalar/accumulator u-reg: just store the result.
         return new ExecuteResult {
             SideEffect = s => { UState(s).UveState.Scalars[ud] = result; },
         };

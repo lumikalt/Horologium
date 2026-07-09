@@ -2011,15 +2011,16 @@ public class Rv32Decoder : IDecoder {
     private static int UveElementBytes(uint funct3) => 1 << (int)(funct3 & 3);
 
     private static RvInstruction DecodeUveOp(ulong pc, uint raw) {
-        var rd = (int)((raw >> 7) & 0x1F);
+        var rd  = (int)((raw >>  7) & 0x1F);
         var rs1 = (int)((raw >> 15) & 0x1F);
+        var rs2 = (int)((raw >> 20) & 0x1F);
         uint funct3 = (raw >> 12) & 0x7;
         uint funct7 = (raw >> 25) & 0x7F;
 
         // UVE branch: bits[31:29]=111 (funct7[6:4]=111, i.e. raw>>29==7)
         if (raw >> 29 == 7) {
             int imm = UveBranchImm(raw);
-            var notDone = (int)((raw >> 20) & 1); // LSB of rs2 field
+            var notDone = rs2 & 1; // LSB of rs2 field
 
             if (funct3 == 0)
                 return new RvInstruction(
@@ -2039,18 +2040,52 @@ public class Rv32Decoder : IDecoder {
         if (funct7 == 0x56 && funct3 == 2)
             return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDpW(rd, rs1));
 
-        // so.a.fp.*: (funct7>>3, funct3) encodes the operation
-        UveFpOp fpOp = ((int)(funct7 >> 3), funct3) switch {
-            (0, 1) => UveFpOp.Add,
-            (0, 5) => UveFpOp.Sub,
-            (1, 1) => UveFpOp.Mul,
-            (1, 5) => UveFpOp.Div,
-            (3, 5) => UveFpOp.Mac,
-            _ => throw new IllegalInstructionException(raw, $"Unknown UVE op funct7=0x{funct7:X} funct3=0x{funct3:X}"),
+        // so.a.*: group = funct7>>3, upper = funct3&4, type = funct3&3 (0=US, 1=FP, 2=SG)
+        int group = (int)(funct7 >> 3);
+        bool upper = (funct3 & 4) != 0;
+        int type  = (int)(funct3 & 3);
+
+        RvOp uvOp = group switch {
+            0 => UveArith(upper ? UveFpOp.Sub : UveFpOp.Add, upper ? UveIntOp.Sub : UveIntOp.Add, type, rd, rs1, rs2),
+            1 => UveArith(upper ? UveFpOp.Div : UveFpOp.Mul, upper ? UveIntOp.Div : UveIntOp.Mul, type, rd, rs1, rs2),
+            3 => upper
+                ? UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2)
+                : UveArith(UveFpOp.Abs, UveIntOp.Abs, type, rd, rs1, -1),
+            4 => UveArith(upper ? UveFpOp.Max : UveFpOp.Min, upper ? UveIntOp.Max : UveIntOp.Min, type, rd, rs1, rs2),
+            6 when upper && rs2 == 1 && type == 1 => new RvUveSoAFp(UveFpOp.Sqrt, rd, rs1, -1),
+            6 => UveArith(upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1),
+            12 => (int)funct3 switch {
+                0 => (RvOp)new RvUveSoALogic(UveLogicOp.Nand, rd, rs1, rs2),
+                1 => new RvUveSoALogic(UveLogicOp.And,  rd, rs1, rs2),
+                2 => new RvUveSoALogic(UveLogicOp.Nor,  rd, rs1, rs2),
+                3 => new RvUveSoALogic(UveLogicOp.Or,   rd, rs1, rs2),
+                4 => new RvUveSoALogic(UveLogicOp.Not,  rd, rs1, -1),
+                5 => new RvUveSoALogic(UveLogicOp.Xor,  rd, rs1, rs2),
+                _ => throw new IllegalInstructionException(raw, $"Unknown UVE logic funct3=0x{funct3:X}"),
+            },
+            13 => (int)funct3 switch {
+                0 => (RvOp)new RvUveSoAShiftV(UveShiftOp.Sll, rd, rs1, rs2),
+                1 => new RvUveSoAShiftS(UveShiftOp.Sll, rd, rs1, rs2),
+                2 => new RvUveSoAShiftV(UveShiftOp.Srl, rd, rs1, rs2),
+                3 => new RvUveSoAShiftS(UveShiftOp.Srl, rd, rs1, rs2),
+                4 => new RvUveSoAShiftV(UveShiftOp.Sra, rd, rs1, rs2),
+                5 => new RvUveSoAShiftS(UveShiftOp.Sra, rd, rs1, rs2),
+                _ => throw new IllegalInstructionException(raw, $"Unknown UVE shift funct3=0x{funct3:X}"),
+            },
+            _ => throw new IllegalInstructionException(raw, $"Unknown UVE op group={group} funct3=0x{funct3:X}"),
         };
-        var rs2 = (int)((raw >> 20) & 0x1F);
-        return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoAFp(fpOp, rd, rs1, rs2));
+
+        // ShiftS uses an integer register for the shift amount
+        int[] intSrcs = uvOp is RvUveSoAShiftS ss ? [ss.Rs2] : [];
+        return new RvInstruction(pc, raw, -1, intSrcs, ToothClass.Uve, uvOp);
     }
+
+    private static RvOp UveArith(UveFpOp fpOp, UveIntOp intOp, int type, int ud, int usrc1, int usrc2) =>
+        type switch {
+            1 => new RvUveSoAFp(fpOp, ud, usrc1, usrc2),
+            2 => new RvUveSoAInt(intOp, true,  ud, usrc1, usrc2),
+            _ => new RvUveSoAInt(intOp, false, ud, usrc1, usrc2),
+        };
 
     // UVE non-standard B-type immediate: bit28=imm[12](sign), bits[27:22]=imm[10:5], bit7=imm[11], bits[11:8]=imm[4:1]
     private static int UveBranchImm(uint raw) => SignExtendN(

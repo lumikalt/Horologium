@@ -107,9 +107,12 @@ public sealed class RvInstruction(
     };
 
     public IReadOnlyList<int> UveStreamSources { get; } = payload switch {
-        // so.a.fp consumes one element from each source u-reg (if they are load streams).
-        RvUveSoAFp op => [op.Usrc1, op.Usrc2,],
-        _             => [],
+        RvUveSoAFp op     => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2] : [op.Usrc1],
+        RvUveSoAInt op    => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2] : [op.Usrc1],
+        RvUveSoALogic op  => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2] : [op.Usrc1],
+        RvUveSoAShiftV op => [op.Usrc1, op.Usrc2,],
+        RvUveSoAShiftS op => [op.Usrc1,],
+        _                 => [],
     };
 
     public IReadOnlyList<int> UveBranchStreams { get; } = payload switch {
@@ -1220,14 +1223,50 @@ public record RvUveSoVDpW(int Ud, int Rs1) : RvOp;
 // Arithmetic on stream elements (custom-1, opcode=0x2B):
 //   (funct7>>3, funct3): Add=(0,1), Sub=(0,5), Mul=(1,1), Div=(1,5), Mac=(3,5)
 public enum UveFpOp {
-    Mul = 0,
-    Add = 1,
-    Mac = 2,
-    Sub = 3,
-    Div = 4,
+    Mul  = 0,
+    Add  = 1,
+    Mac  = 2,
+    Sub  = 3,
+    Div  = 4,
+    Min  = 5,
+    Max  = 6,
+    Abs  = 7,
+    Inc  = 8,
+    Dec  = 9,
+    Sqrt = 10,
 }
 
+// FP arithmetic on stream elements; Usrc2=-1 for unary ops (Abs, Inc, Dec, Sqrt).
 public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
+
+public enum UveIntOp {
+    Add = 0,
+    Sub = 1,
+    Mul = 2,
+    Div = 3,
+    Mac = 4,
+    Min = 5,
+    Max = 6,
+    Abs = 7,
+    Inc = 8,
+    Dec = 9,
+}
+
+// Integer arithmetic on stream elements; Usrc2=-1 for unary ops (Abs, Inc, Dec).
+public record RvUveSoAInt(UveIntOp Op, bool Signed, int Ud, int Usrc1, int Usrc2) : RvOp;
+
+public enum UveLogicOp { Nand, And, Nor, Or, Not, Xor }
+
+// Bitwise logic on stream elements; Usrc2=-1 for Not (unary).
+public record RvUveSoALogic(UveLogicOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
+
+public enum UveShiftOp { Sll, Srl, Sra }
+
+// Element-wise shift with amount from another u-reg.
+public record RvUveSoAShiftV(UveShiftOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
+
+// Element-wise shift with amount from integer register Rs2.
+public record RvUveSoAShiftS(UveShiftOp Op, int Ud, int Usrc1, int Rs2) : RvOp;
 
 // Stream branch (custom-1, opcode=0x2B, UVE B-type: bits[31:29]=111, bit28=imm[12]):
 //   funct3=0:     so.b.nc urs, imm — not exhausted (bit20=1) / so.b.c urs, imm — exhausted (bit20=0)

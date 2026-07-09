@@ -30,20 +30,91 @@ public class UveTests {
     private static uint SoVDpW(int ud, int rs1) =>
         (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu);
 
-    // so.a.fp ud, usrc1, usrc2 — custom-1; (funct7>>3, funct3) encodes the operation
+    // so.a.fp ud, usrc1, usrc2 — custom-1; (funct7>>3, funct3) encodes the operation.
+    // usrc2=-1 for unary ops (Abs, Inc, Dec) — rs2 field set to 0 in encoding.
     private static uint SoAFp(UveFpOp op, int ud, int usrc1, int usrc2) {
         (uint funct3, uint top4) = op switch {
-            UveFpOp.Add => (1u, 0u),
-            UveFpOp.Sub => (5u, 0u),
-            UveFpOp.Mul => (1u, 1u),
-            UveFpOp.Div => (5u, 1u),
-            UveFpOp.Mac => (5u, 3u),
-            _           => throw new ArgumentOutOfRangeException(nameof(op)),
+            UveFpOp.Add  => (1u, 0u),
+            UveFpOp.Sub  => (5u, 0u),
+            UveFpOp.Mul  => (1u, 1u),
+            UveFpOp.Div  => (5u, 1u),
+            UveFpOp.Mac  => (5u, 3u),
+            UveFpOp.Min  => (1u, 4u),
+            UveFpOp.Max  => (5u, 4u),
+            UveFpOp.Abs  => (1u, 3u),
+            UveFpOp.Inc  => (1u, 6u),
+            UveFpOp.Dec  => (5u, 6u),
+            _            => throw new ArgumentOutOfRangeException(nameof(op)),
         };
         uint funct7 = top4 << 3;
-        return (funct7 << 25) | (uint)((usrc2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
+        int rs2Enc = usrc2 < 0 ? 0 : usrc2;
+        return (funct7 << 25) | (uint)((rs2Enc & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
+
+    // so.a.int ud, usrc1, usrc2 — integer arithmetic; usrc2=-1 for unary ops (Abs, Inc, Dec).
+    private static uint SoAInt(UveIntOp op, bool signed, int ud, int usrc1, int usrc2) {
+        (int group, bool upper) = op switch {
+            UveIntOp.Add => (0, false),
+            UveIntOp.Sub => (0, true),
+            UveIntOp.Mul => (1, false),
+            UveIntOp.Div => (1, true),
+            UveIntOp.Mac => (3, true),
+            UveIntOp.Min => (4, false),
+            UveIntOp.Max => (4, true),
+            UveIntOp.Abs => (3, false),
+            UveIntOp.Inc => (6, false),
+            UveIntOp.Dec => (6, true),
+            _            => throw new ArgumentOutOfRangeException(nameof(op)),
+        };
+        int opType = signed ? 2 : 0;
+        uint funct3 = (uint)(opType | (upper ? 4 : 0));
+        uint funct7 = (uint)(group << 3);
+        int rs2Enc = usrc2 < 0 ? 0 : usrc2;
+        return (funct7 << 25) | (uint)((rs2Enc & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
+             | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
+    }
+
+    // so.a.logic ud, usrc1, usrc2 — bitwise logic; usrc2=-1 for Not (unary).
+    private static uint SoALogic(UveLogicOp op, int ud, int usrc1, int usrc2) {
+        int f3 = op switch {
+            UveLogicOp.Nand => 0,
+            UveLogicOp.And  => 1,
+            UveLogicOp.Nor  => 2,
+            UveLogicOp.Or   => 3,
+            UveLogicOp.Not  => 4,
+            UveLogicOp.Xor  => 5,
+            _               => throw new ArgumentOutOfRangeException(nameof(op)),
+        };
+        uint funct7 = 12u << 3;
+        int rs2Enc = usrc2 < 0 ? 0 : usrc2;
+        return (funct7 << 25) | (uint)((rs2Enc & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
+             | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
+    }
+
+    // so.a.shift.v ud, usrc1, usrc2 — vector-vector shift (amount from u-reg).
+    private static uint SoAShiftV(UveShiftOp op, int ud, int usrc1, int usrc2) {
+        int f3 = op switch { UveShiftOp.Sll => 0, UveShiftOp.Srl => 2, UveShiftOp.Sra => 4,
+            _ => throw new ArgumentOutOfRangeException(nameof(op)), };
+        uint funct7 = 13u << 3;
+        return (funct7 << 25) | (uint)((usrc2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
+             | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
+    }
+
+    // so.a.shift.s ud, usrc1, rs2 — scalar-register shift (amount from integer register).
+    private static uint SoAShiftS(UveShiftOp op, int ud, int usrc1, int rs2) {
+        int f3 = op switch { UveShiftOp.Sll => 1, UveShiftOp.Srl => 3, UveShiftOp.Sra => 5,
+            _ => throw new ArgumentOutOfRangeException(nameof(op)), };
+        uint funct7 = 13u << 3;
+        return (funct7 << 25) | (uint)((rs2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
+             | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
+    }
+
+    // Bit-cast helpers for integer ↔ float round-trips through Scalars[].
+    private static float IB(int v) => BitConverter.Int32BitsToSingle(v);
+    private static float UB(uint v) => BitConverter.Int32BitsToSingle((int)v);
+    private static int RIB(float f) => BitConverter.SingleToInt32Bits(f);
+    private static uint RUB(float f) => (uint)BitConverter.SingleToInt32Bits(f);
 
     // UVE non-standard B-type: bits[31:29]=111, bit28=imm[12](sign), bits[27:22]=imm[10:5],
     // bit7=imm[11], bits[11:8]=imm[4:1]. rs2=0b00001 → notDone; rs2=0b00000 → done.
@@ -887,5 +958,356 @@ public class UveTests {
     [InlineData(5)]
     public void SsAppMod_LowerTriangular_CorrectSum(int n) {
         Assert.Equal(LowerTriangularExpected(n), RunSsAppModLowerTriangular(n), 3);
+    }
+
+    // ── FP extended ops (Min/Max/Abs/Inc/Dec) ─────────────────────────────────
+
+    [Fact]
+    public void SoAFp_Min_ReturnsSmaller() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = 3.0f;
+        state.UveState.Scalars[2] = 7.0f;
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Min, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(3.0f, state.UveState.Scalars[5]);
+    }
+
+    [Fact]
+    public void SoAFp_Max_ReturnsLarger() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = 3.0f;
+        state.UveState.Scalars[2] = 7.0f;
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Max, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(7.0f, state.UveState.Scalars[5]);
+    }
+
+    [Fact]
+    public void SoAFp_Abs_RemovesSign() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = -4.5f;
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Abs, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(4.5f, state.UveState.Scalars[5]);
+    }
+
+    [Fact]
+    public void SoAFp_Inc_AddsOne() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = 9.0f;
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Inc, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(10.0f, state.UveState.Scalars[5]);
+    }
+
+    [Fact]
+    public void SoAFp_Dec_SubtractsOne() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = 5.0f;
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Dec, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(4.0f, state.UveState.Scalars[5]);
+    }
+
+    // ── Integer arithmetic ops ─────────────────────────────────────────────────
+
+    [Fact]
+    public void SoAInt_Add_US_ComputesSum() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(10u);
+        state.UveState.Scalars[2] = UB(32u);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Add, false, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(42u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Sub_SG_ComputesSignedDifference() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = IB(5);
+        state.UveState.Scalars[2] = IB(8);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Sub, true, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(-3, RIB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Mul_US_ComputesProduct() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(6u);
+        state.UveState.Scalars[2] = UB(7u);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Mul, false, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(42u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Div_SG_ComputesQuotient() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = IB(-20);
+        state.UveState.Scalars[2] = IB(4);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Div, true, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(-5, RIB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Mac_AccumulatesResult() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[5] = IB(100);  // accumulator
+        state.UveState.Scalars[1] = IB(3);
+        state.UveState.Scalars[2] = IB(4);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Mac, true, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(112, RIB(state.UveState.Scalars[5])); // 100 + 3*4
+    }
+
+    [Fact]
+    public void SoAInt_Min_SG_ReturnsMinimum() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = IB(-3);
+        state.UveState.Scalars[2] = IB(5);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Min, true, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(-3, RIB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Max_US_ReturnsMaximum() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(0xFFFFFFF0u);
+        state.UveState.Scalars[2] = UB(0x00000010u);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Max, false, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0xFFFFFFF0u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Abs_SG_RemovesSign() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = IB(-42);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Abs, true, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(42, RIB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Inc_US_Increments() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(99u);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Inc, false, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(100u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAInt_Dec_SG_Decrements() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = IB(0);
+        ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Dec, true, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(-1, RIB(state.UveState.Scalars[5]));
+    }
+
+    // ── Logic ops ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void SoALogic_And_ComputesBitwiseAnd() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(0xFF00FF00u);
+        state.UveState.Scalars[2] = UB(0xF0F0F0F0u);
+        ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.And, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0xF000F000u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoALogic_Or_ComputesBitwiseOr() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(0xFF00FF00u);
+        state.UveState.Scalars[2] = UB(0x00FF00FFu);
+        ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Or, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0xFFFFFFFFu, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoALogic_Xor_ComputesBitwiseXor() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(0xAAAAAAAAu);
+        state.UveState.Scalars[2] = UB(0x55555555u);
+        ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Xor, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0xFFFFFFFFu, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoALogic_Not_InvertsBits() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(0xFFFF0000u);
+        ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Not, 5, 1, -1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0x0000FFFFu, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoALogic_Nand_ComputesNand() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(0xFFFFFFFFu);
+        state.UveState.Scalars[2] = UB(0xFFFFFFFFu);
+        ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Nand, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoALogic_Nor_ComputesNor() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(0u);
+        state.UveState.Scalars[2] = UB(0u);
+        ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Nor, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0xFFFFFFFFu, RUB(state.UveState.Scalars[5]));
+    }
+
+    // ── Shift ops ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void SoAShiftV_Sll_ShiftsLeft() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(1u);
+        state.UveState.Scalars[2] = UB(8u); // shift amount
+        ExecuteResult er = Exec(new RvUveSoAShiftV(UveShiftOp.Sll, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(256u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAShiftV_Srl_ShiftsRightLogical() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(0x80000000u);
+        state.UveState.Scalars[2] = UB(1u);
+        ExecuteResult er = Exec(new RvUveSoAShiftV(UveShiftOp.Srl, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(0x40000000u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAShiftV_Sra_ShiftsRightArithmetic() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = IB(-8);
+        state.UveState.Scalars[2] = UB(1u);
+        ExecuteResult er = Exec(new RvUveSoAShiftV(UveShiftOp.Sra, 5, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(-4, RIB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAShiftS_Sll_UsesIntegerRegisterForAmount() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = UB(1u);
+        state.IntegerRegisters.Write(3, 4); // rs2=x3 holds shift amount 4
+        ExecuteResult er = Exec(new RvUveSoAShiftS(UveShiftOp.Sll, 5, 1, 3), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(16u, RUB(state.UveState.Scalars[5]));
+    }
+
+    [Fact]
+    public void SoAShiftS_Sra_SignExtends() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = IB(int.MinValue); // 0x80000000
+        state.IntegerRegisters.Write(3, 31);
+        ExecuteResult er = Exec(new RvUveSoAShiftS(UveShiftOp.Sra, 5, 1, 3), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(-1, RIB(state.UveState.Scalars[5]));
+    }
+
+    // ── Decoder round-trips for new ops ───────────────────────────────────────
+
+    [Fact]
+    public void Decoder_SoAInt_Add_US_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAInt(UveIntOp.Add, false, 5, 1, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAInt>(tooth.Payload);
+        Assert.Equal(UveIntOp.Add, op.Op);
+        Assert.False(op.Signed);
+        Assert.Equal(5, op.Ud);
+        Assert.Equal(1, op.Usrc1);
+        Assert.Equal(2, op.Usrc2);
+    }
+
+    [Fact]
+    public void Decoder_SoAInt_Mac_SG_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAInt(UveIntOp.Mac, true, 3, 1, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAInt>(tooth.Payload);
+        Assert.Equal(UveIntOp.Mac, op.Op);
+        Assert.True(op.Signed);
+    }
+
+    [Fact]
+    public void Decoder_SoALogic_Xor_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoALogic(UveLogicOp.Xor, 5, 1, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoALogic>(tooth.Payload);
+        Assert.Equal(UveLogicOp.Xor, op.Op);
+        Assert.Equal(5, op.Ud);
+        Assert.Equal(1, op.Usrc1);
+        Assert.Equal(2, op.Usrc2);
+    }
+
+    [Fact]
+    public void Decoder_SoALogic_Not_IsUnary() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoALogic(UveLogicOp.Not, 5, 1, -1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoALogic>(tooth.Payload);
+        Assert.Equal(UveLogicOp.Not, op.Op);
+        Assert.Equal(-1, op.Usrc2);
+    }
+
+    [Fact]
+    public void Decoder_SoAShiftV_Sll_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAShiftV(UveShiftOp.Sll, 5, 1, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAShiftV>(tooth.Payload);
+        Assert.Equal(UveShiftOp.Sll, op.Op);
+        Assert.Equal(5, op.Ud);
+        Assert.Equal(2, op.Usrc2);
+    }
+
+    [Fact]
+    public void Decoder_SoAShiftS_Sra_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAShiftS(UveShiftOp.Sra, 5, 1, 3)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAShiftS>(tooth.Payload);
+        Assert.Equal(UveShiftOp.Sra, op.Op);
+        Assert.Equal(3, op.Rs2);
+        // ShiftS lists integer rs2 as a source register
+        Assert.Contains(3, tooth.SourceRegisters);
+    }
+
+    [Fact]
+    public void Decoder_SoAFp_Min_Roundtrip() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAFp(UveFpOp.Min, 5, 1, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAFp>(tooth.Payload);
+        Assert.Equal(UveFpOp.Min, op.Op);
+    }
+
+    [Fact]
+    public void Decoder_SoAFp_Abs_IsUnary() {
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAFp(UveFpOp.Abs, 5, 1, -1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAFp>(tooth.Payload);
+        Assert.Equal(UveFpOp.Abs, op.Op);
+        Assert.Equal(-1, op.Usrc2);
     }
 }

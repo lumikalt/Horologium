@@ -16,9 +16,9 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] FP arithmetic on stream elements: add/sub/mul/div/mac (`so.a.fp.*`)
 - [x] Stream loop-control branches: `sb.nc` / `sb.ndc.(dim)`
 - [x] Branch-if-complete variants: `sb.c` / `sb.dc.(dim)` — opposite polarity of the existing nc/ndc branches
-- [ ] Integer (USG/SG) arithmetic variants of add/sub/mul/div/mac on stream elements
-- [ ] Additional arithmetic ops: `abs`, element-wise `min`/`max`, `inc`/`dec`
-- [ ] Logic ops: `and`, `or`, `xor`, `not`, `nand`, `nor`; vector-vector shifts `sll`/`srl`/`sra` and scalar-register
+- [x] Integer (USG/SG) arithmetic variants of add/sub/mul/div/mac on stream elements
+- [x] Additional arithmetic ops: `abs`, element-wise `min`/`max`, `inc`/`dec`; `sqrt` (FP)
+- [x] Logic ops: `and`, `or`, `xor`, `not`, `nand`, `nor`; vector-vector shifts `sll`/`srl`/`sra` and scalar-register
   forms `ssll`/`ssrl`/`ssra`
 - [ ] Reduction ops: `adde`/`adde.acc` (element-sum → u-reg[0]), `sadde`/`fsadde` (→ integer/FP scalar reg), `mins`/
   `maxs`
