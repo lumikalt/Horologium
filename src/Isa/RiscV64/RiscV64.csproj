@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net11.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../../Core/Mechanism/Mechanism.csproj"/>
+        <ProjectReference Include="../../Core/Orrery/Orrery.csproj"/>
+        <ProjectReference Include="../../Core/Pipeline/Pipeline.csproj"/>
+        <ProjectReference Include="..\RiscV32\RiscV32.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="JetBrains.Annotations" Version="2026.2.0"/>
+    </ItemGroup>
+
+</Project>

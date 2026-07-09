@@ -685,7 +685,7 @@ Conclusion: prefetching — free or realistic — is not a lever for the remaini
 Horologium-vs-Olympia IPC gaps on this suite. The realistic model is kept (default-off)
 as infrastructure for future large-working-set workloads where prefetch timeliness
 matters. Regression coverage: cache-level countdown tests in `Tests/Orrery/CacheTests.cs`
-and an end-to-end memcpy run in `Tests/RiscV32/OoOMemoryParallelismTests.cs` asserting
+and an end-to-end memcpy run in `Tests/RiscV32/Pipelines/OoOMemoryParallelismTests.cs` asserting
 HTIF PASS, `late hits > 0`, and cycles(realistic) ≥ cycles(free).
 
 ## Load-side memory-level parallelism (done)
@@ -706,7 +706,7 @@ stale value (on `memcpy` w8+L1 it read a corrupted return address and livelocked
 The fix registers load disambiguation state at **execute** time, keeping the
 in-flight load visible to violation detection for its whole life. The gap existed
 because nothing in the suite exercised *load-miss + store-to-same-address + an L1*
-together; `Tests/RiscV32/OoOMemoryParallelismTests.cs` now does, and is verified to
+together; `Tests/RiscV32/Pipelines/OoOMemoryParallelismTests.cs` now does, and is verified to
 fail on the broken model.
 
 ## Store-side memory-level parallelism (done; L1$+WB column)

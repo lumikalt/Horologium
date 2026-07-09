@@ -89,7 +89,7 @@ for B in $BMARKS; do
     [[ -z "$GEM5_INSTS" ]] && GEM5_INSTS=""
 
     # ── Horologium run (single dotnet call) ───────────────────────────────────
-    HORO_ROW=$(dotnet run --project Runner --no-build -c Release -- \
+    HORO_ROW=$(dotnet run --project src/Apps/Runner --no-build -c Release -- \
         "TestBinaries/benchmarks/$B.elf" --sweep "$TMP/sweep.json" \
         --max-ticks 5000000 2>/dev/null \
         | grep "| w${WIDTH} |")

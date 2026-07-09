@@ -1,6 +1,6 @@
 # Horologium
 
-[▶ Face demo](face.mp4)
+[▶ Face demo](docs/face.mp4)
 
 A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The simulation engine is ISA-agnostic; concrete ISAs are plugged in as separate assemblies without modifying the engine. The primary goal is comparing hardware configurations (branch predictors, caches, pipelines) and generating measurement data for analysis.
 
@@ -22,7 +22,9 @@ A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The sim
 | **Face** | Avalonia desktop UI. Opens with an **ISA launcher** so the user picks RISC-V or CHIP-8 before entering the appropriate view. The RISC-V side includes a workload preset picker, a **PEvents tab** with a scrollable Argos-style pipeline waterfall (rows = instructions, columns = cycles, cells = stage abbreviation F/DC/D/IS/EX/RT/FL), a **SpecPC** gutter column showing the fetch-window start address, flush/misprediction cycles highlighted red, fetch-stall cycles dimmed, and an **Assembler tab** with a three-pane RISC-V assembly editor (editor + decoded listing + register file). The Assembler tab has a sidebar **language toggle (RISC-V ASM / C)**: in C mode the source is compiled with `riscv32-none-elf-gcc` (selectable `-O` level) against a tiny `_start` stub, the resulting `.text` is disassembled into the listing, and single-cycle stepping highlights the current C source line via `objdump -dl` line info. The CHIP-8 side renders the 64×32 pixel framebuffer at 10× scale with a 60 fps game loop, keyboard input (QWERTY layout mapped to the CHIP-8 hex keypad), and ROM load/start/pause/reset controls. |
 | **Runner** | Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. Accepts `--script <file.csx>` to evaluate a C# script that returns a `MachineSpec` and run the workload against it. |
 | **Script** | C# and F# scripting host. `ScriptHost.EvaluateFileAsync(path)` compiles and runs a `.csx` (Roslyn) or `.fsx` (F# Interactive) file returning a `MachineSpec`, with all Spec/Cache/RiscV32 namespaces pre-imported and assemblies pre-referenced — no `#r` or `using`/`open` needed in the script. |
-| **Tests** | xUnit tests, organized by project (`Tests/Orrery`, `Tests/RiscV32`, `Tests/RiscV64`, `Tests/Chip8`, `Tests/Subleq`, `Tests/Pdp8`, `Tests/J1`, `Tests/Move`, `Tests/F18A`, `Tests/Mechanism`). |
+| **Tests** | xUnit tests. Engine tests under `Tests/Orrery`, `Tests/Pipeline`, `Tests/Mechanism`; small-ISA tests under `Tests/Isa`; RISC-V tests under `Tests/RiscV32/{Isa,Extensions,Pipelines,MultiHart,System,CoSim,Analysis}`. |
+
+Projects live under `src/`: the ISA-agnostic core in `src/Core/`, ISA plugins in `src/Isa/`, and applications in `src/Apps/`.
 
 ## Commands
 
@@ -31,8 +33,8 @@ dotnet build                                                    # build the whol
 dotnet test                                                     # run all tests
 dotnet test --filter "FullyQualifiedName~DecoderTests"          # one test class
 dotnet test --filter "Name=SpecificTestMethod"                  # one test method
-dotnet run --project Runner                                     # run the console entry point
-dotnet run --project Runner -- --help                           # CLI usage
+dotnet run --project src/Apps/Runner                                     # run the console entry point
+dotnet run --project src/Apps/Runner -- --help                           # CLI usage
 ```
 
 The development environment is provided by a Nix flake (`flake.nix`, `direnv`). It supplies the .NET 11 SDK, a `riscv32-embedded` GCC/binutils cross-toolchain for producing bare-metal test binaries, and native libraries required to launch Rider via the `rider` command.
@@ -60,7 +62,7 @@ The codebase uses a horological metaphor for domain types throughout. Match it w
 
 ### Simulation engine (Orrery)
 
-All simulation activity is driven by the `Escapement` (`Orrery/Scheduling/Escapement.cs`), a single-threaded priority-queue discrete-event scheduler keyed by `(tick, phase)`. Nothing in the simulation happens except by the Escapement scheduling it.
+All simulation activity is driven by the `Escapement` (`src/Core/Orrery/Scheduling/Escapement.cs`), a single-threaded priority-queue discrete-event scheduler keyed by `(tick, phase)`. Nothing in the simulation happens except by the Escapement scheduling it.
 
 Within a single tick, events execute in a fixed phase order. Pipeline stages depend on this ordering as a contract:
 
@@ -70,27 +72,27 @@ Fetch(0) → Dispatch(1) → Issue(2) → Execute(3) → ArborUpdate(4) → Comp
 
 In-order pipelines use Fetch, Execute, ArborUpdate, Writeback, Commit, Flush, and Collection. The Dispatch, Issue, and Complete phases are reserved for out-of-order execution and are never scheduled by in-order code.
 
-**Gears** (`Orrery/Gears/Gear.cs`) are the simulated components. They register Arbors (ports) and Settings during construction and `Initialize()`, then schedule work via the Escapement. Gears communicate only through typed `Arbor` channels. `OutArbor<T>.Send()` schedules delivery to a bound `InArbor<T>` at `currentTick + latency` at phase `ArborUpdate`. Latency must be at least 1; zero-latency connections would collapse sender and receiver within the same tick and break phase-ordering guarantees.
+**Gears** (`src/Core/Orrery/Gears/Gear.cs`) are the simulated components. They register Arbors (ports) and Settings during construction and `Initialize()`, then schedule work via the Escapement. Gears communicate only through typed `Arbor` channels. `OutArbor<T>.Send()` schedules delivery to a bound `InArbor<T>` at `currentTick + latency` at phase `ArborUpdate`. Latency must be at least 1; zero-latency connections would collapse sender and receiver within the same tick and break phase-ordering guarantees.
 
-**Lifecycle** is a strict one-way state machine enforced by the `SimNode` tree (`Orrery/Tree/SimNode.cs`); the entire tree moves together:
+**Lifecycle** is a strict one-way state machine enforced by the `SimNode` tree (`src/Core/Orrery/Tree/SimNode.cs`); the entire tree moves together:
 
 ```
 Building → Finalizing (bind Arbors here) → Running → Finished
 ```
 
-The **Train** (`Orrery/Train/Train.cs`) owns the Gears and the Escapement and drives `Build()` → `Run(maxTicks)` → `Reset()`. `Build()` calls `Initialize()` on all Gears, transitions to Finalizing, calls `Seal()` (where Arbors are bound), then locks Settings. `Run()` returns a `RevolutionResult` containing a snapshot of every Gear's `DialBoard`, and optionally periodic `TimeSeries` snapshots for tracking how metrics evolve during execution. The Train knows nothing about ISAs or instruction semantics.
+The **Train** (`src/Core/Orrery/Train/Train.cs`) owns the Gears and the Escapement and drives `Build()` → `Run(maxTicks)` → `Reset()`. `Build()` calls `Initialize()` on all Gears, transitions to Finalizing, calls `Seal()` (where Arbors are bound), then locks Settings. `Run()` returns a `RevolutionResult` containing a snapshot of every Gear's `DialBoard`, and optionally periodic `TimeSeries` snapshots for tracking how metrics evolve during execution. The Train knows nothing about ISAs or instruction semantics.
 
 ### ISA plugins (Mechanism)
 
 `IMechanism` is the factory and registry for one ISA. It produces an `IArchState` and exposes the `Decoder`, `Executor`, optional `ImpulseCracker`, and `TrapController`. A Train is constructed from a single `IMechanism`; swapping the Mechanism swaps the entire ISA without touching any Train code.
 
-### Pipeline trains (Pipeline/)
+### Pipeline trains (src/Core/Pipeline/)
 
 Four Trains, all ISA-agnostic — they operate on `IArchState` and `ExecuteResult` closures with no dependency on any ISA assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `Rv64Mechanism` (RV64I):
 
 - **`SingleCycleTrain`** — one Gear, one instruction per tick (fetch → decode → execute → writeback, all inline). Used to validate the Mechanism independently of pipeline complexity.
 - **`FiveStageTrain`** — classic IF/ID/EX/MEM/WB pipeline. Each stage is its own Gear wired in sequence via Arbors. A `HazardUnit` handles RAW stall detection and register forwarding (controlled by a `forwardingEnabled` flag). Branch handling uses a pluggable `IBranchPredictor`; built-in implementations include static predictors (`AlwaysNotTaken`, `AlwaysTaken`, `AlwaysBackwardNotForwards`), 1-bit and 2-bit saturating counter predictors, correlated (m,n), Gselect, Gshare, L-TAGE (TAGE with a loop predictor overlay), IMLI (Inter-Mediated Loop Iteration — single shared loop-iteration counter indexes the PHT so body-branch predictions are iteration-specific; Jiménez, IEEE CAL 2018), LLBP (Last-Level Branch Predictor — context-addressed backing store over TAGE-SC-L; Rolling Context Register hashes recent taken-branch PCs into a context ID, patterns indexed by TAGE's PC×GHR tags; Schall et al., MICRO 2024), LLBP-X (LLBP Revisited — adds a Context Tracking Table that promotes high-contention contexts from shallow W=2 to deep W=64 history depth, splitting storage into short/long history ranges; Schall et al., HPCA 2026), VLA-TAGE (Vector-Loop-Aware TAGE — extends TAGE-SC-L with a power-gating mechanism; a Vector Loop Table tracks backward branches and a Loop Monitor estimates remaining iterations from comparison-register operand values at execute time; when the innermost loop is confirmed vector-intensive with ≥32 estimated remaining iterations the PEN signal bypasses tagged history tables T1–T3 and the SC predictor, relying only on bimodal T0 and the loop predictor; PEN is deasserted 5 iterations early to give the full predictor time to re-engage before loop exit; `GatedPredictions` counter enables power-reduction modeling; Zhang et al., IEEE CAL 2026), plus a `ReturnAddressStack` wrapper for call/return prediction, and a `TrueOraclePredictor` that runs a `SingleCycleTrain` functional pre-pass to collect the complete branch trace and replay it with zero mispredictions (useful as an IPC upper bound). Both instruction and data memory support optional set-associative caches and TLBs. A `StoreBuffer` provides deferred writes with store-to-load forwarding.
-- **`OooeTrain`** — superscalar out-of-order pipeline using Tomasulo's algorithm. Physical register renaming, ROB-based in-order commit, and a unified issue queue. Functional units are configurable per class (`FuLatencyConfig`): each class (integer ALU, multiplier/divider, pipelined FP, FP divide/sqrt, load-store, branch, system) has an independent issue-port count and execution latency; multi-cycle results flow through a countdown-based in-flight buffer before CDB broadcast. Default latencies: integer ALU 1 cycle, integer mul/div 3, pipelined FP 4 (add/sub/mul/fma/compare/convert), FP div/sqrt 16, load-store 1. Dedicated `LoadQueue` and `StoreQueue` circular buffers track in-flight speculative loads and stores independently of the ROB. Loads and stores share a monotonic sequence number at dispatch so program order can be determined across queues without ROB-index wrap. Loads issue speculatively without waiting for older stores; store-to-load forwarding supplies the correct value when the store has already executed, and a memory-order violation squash (flush + re-execute from the load's PC) recovers when the store resolved after the load. A `mem_order_violations` counter tracks re-executions. Memory-level parallelism is modelled on both sides: each missed load carries the miss penalty in its own in-flight countdown so independent misses overlap (load-side MLP); a bounded write buffer (`writeBufferCapacity` parameter, default 0) absorbs committed store write-miss penalties asynchronously so the pipeline is not frozen while the write bus drains (store-side MLP). The D-cache is write-through / no-write-allocate, so writes reach memory the instant they are issued and write-buffer occupancy is a pure bus-latency model with no forwarding implications. TSO fences are modeled: a FENCE whose predecessor set contains W and successor set contains R (`ITooth.IsStoreLoadFence`, including FENCE.TSO) issues only at the ROB head once the write buffer has fully drained, and younger loads may not issue while it is in the ROB — closing the store→load window, the only reordering the train performs; all other fence flavours are timing no-ops because TSO already provides their ordering. The `OooeTrain` public API is a thin wrapper; `OoOPipelineCore` is the single-Gear implementation. A `StreamingEngine` (`Orrery/Streaming/StreamingEngine.cs`) is embedded in every `OoOPipelineCore`: it manages up to 8 independently configured affine memory streams (`StreamDescriptor` in `Mechanism/`: base address, element width in bytes, element count, byte stride), each backed by a prefetch buffer of configurable depth. The engine's `Step()` is called unconditionally every pipeline cycle so streams prefetch ahead of consumption; streams are architectural state and survive pipeline flushes. UVE (Unlimited Vector Extension) instructions consume streams in the OoO pipeline: `ToothClass.Uve` ops are head-serialized (like `Vector`); the pipeline injects load-stream elements into `IUveScalars` before calling the executor; Issue stalls when a required load stream has no buffered element; `ExecuteResult.StreamConfig` carries `ss.ld.w` descriptors for `StreamingEngine.Configure`.
+- **`OooeTrain`** — superscalar out-of-order pipeline using Tomasulo's algorithm. Physical register renaming, ROB-based in-order commit, and a unified issue queue. Functional units are configurable per class (`FuLatencyConfig`): each class (integer ALU, multiplier/divider, pipelined FP, FP divide/sqrt, load-store, branch, system) has an independent issue-port count and execution latency; multi-cycle results flow through a countdown-based in-flight buffer before CDB broadcast. Default latencies: integer ALU 1 cycle, integer mul/div 3, pipelined FP 4 (add/sub/mul/fma/compare/convert), FP div/sqrt 16, load-store 1. Dedicated `LoadQueue` and `StoreQueue` circular buffers track in-flight speculative loads and stores independently of the ROB. Loads and stores share a monotonic sequence number at dispatch so program order can be determined across queues without ROB-index wrap. Loads issue speculatively without waiting for older stores; store-to-load forwarding supplies the correct value when the store has already executed, and a memory-order violation squash (flush + re-execute from the load's PC) recovers when the store resolved after the load. A `mem_order_violations` counter tracks re-executions. Memory-level parallelism is modelled on both sides: each missed load carries the miss penalty in its own in-flight countdown so independent misses overlap (load-side MLP); a bounded write buffer (`writeBufferCapacity` parameter, default 0) absorbs committed store write-miss penalties asynchronously so the pipeline is not frozen while the write bus drains (store-side MLP). The D-cache is write-through / no-write-allocate, so writes reach memory the instant they are issued and write-buffer occupancy is a pure bus-latency model with no forwarding implications. TSO fences are modeled: a FENCE whose predecessor set contains W and successor set contains R (`ITooth.IsStoreLoadFence`, including FENCE.TSO) issues only at the ROB head once the write buffer has fully drained, and younger loads may not issue while it is in the ROB — closing the store→load window, the only reordering the train performs; all other fence flavours are timing no-ops because TSO already provides their ordering. The `OooeTrain` public API is a thin wrapper; `OoOPipelineCore` is the single-Gear implementation. A `StreamingEngine` (`src/Core/Orrery/Streaming/StreamingEngine.cs`) is embedded in every `OoOPipelineCore`: it manages up to 8 independently configured affine memory streams (`StreamDescriptor` in `src/Core/Mechanism/`: base address, element width in bytes, element count, byte stride), each backed by a prefetch buffer of configurable depth. The engine's `Step()` is called unconditionally every pipeline cycle so streams prefetch ahead of consumption; streams are architectural state and survive pipeline flushes. UVE (Unlimited Vector Extension) instructions consume streams in the OoO pipeline: `ToothClass.Uve` ops are head-serialized (like `Vector`); the pipeline injects load-stream elements into `IUveScalars` before calling the executor; Issue stalls when a required load stream has no buffered element; `ExecuteResult.StreamConfig` carries `ss.ld.w` descriptors for `StreamingEngine.Configure`.
 
 The five-stage pipeline timing: an instruction is fetched at cycle T, decoded at T+1, executed at T+2, accesses memory at T+3, and writes back at T+4. Writeback is scheduled at `Phase.Writeback` (6) before Decode runs at `Phase.Commit` (7), so a register written this cycle is visible to a dependent instruction reading the register file in the same cycle.
 
@@ -100,7 +102,7 @@ ISA mutations (register writes, vector state, CSRs, trap returns) are delivered 
 
 **Privilege model:** Three privilege levels (User=0, Supervisor=1, Machine=3). Trap delegation: when an exception's `medeleg` bit is set and the hart is below Machine privilege, `RaiseTrap` enters S-mode (writes `sepc`/`scause`/`stval`, updates `sstatus` SPP/SPIE/SIE, sets privilege to Supervisor, returns `stvec` base); otherwise the existing M-mode path applies. Interrupt causes (bit 31 set in mcause/scause) are delegated via `mideleg` rather than `medeleg`. `MRET` is guarded to Machine mode; `SRET` requires at least Supervisor. `ECALL` emits the correct cause code for the current privilege level (8=U, 9=S, 11=M). CSR accesses from an insufficient privilege level or writes to read-only CSRs raise `IllegalInstruction`.
 
-**Virtual memory (Sv32):** The `satp` CSR (0x180, Supervisor-mode) controls address translation. When `satp.MODE=1`, both instruction fetch and data loads/stores go through a two-level Sv32 page table walk (`Sv32Walker`). `MODE=0` (bare) uses virtual address = physical address and preserves the existing behaviour for all benchmark workloads. A/D bits are enforced using a fault-on-access model: `A=0` or (`D=0` on a store) raises the corresponding page fault (`LoadPageFault`/`StorePageFault`). Supervisor User Memory (SUM) is not implemented; S-mode always faults on user pages (PTE.U=1). Instruction fetch translation crosses the ISA isolation boundary via the `IFetchTranslator` interface in Mechanism/: `RvFetchTranslator` (in RiscV/) calls `Sv32Walker` with `isExec=true`, returning `(physAddr, 0)` on success or `(0, 12)` for `InstructionPageFault`; M-mode fetches bypass the walk entirely (RISC-V priv spec §3.1.6). All four pipeline trains wire up the translator and propagate the pre-baked `TrapInfo` through the pipeline latch chain to Writeback, where it is raised via the normal trap path.
+**Virtual memory (Sv32):** The `satp` CSR (0x180, Supervisor-mode) controls address translation. When `satp.MODE=1`, both instruction fetch and data loads/stores go through a two-level Sv32 page table walk (`Sv32Walker`). `MODE=0` (bare) uses virtual address = physical address and preserves the existing behaviour for all benchmark workloads. A/D bits are enforced using a fault-on-access model: `A=0` or (`D=0` on a store) raises the corresponding page fault (`LoadPageFault`/`StorePageFault`). Supervisor User Memory (SUM) is not implemented; S-mode always faults on user pages (PTE.U=1). Instruction fetch translation crosses the ISA isolation boundary via the `IFetchTranslator` interface in src/Core/Mechanism/: `RvFetchTranslator` (in src/Isa/RiscV32/) calls `Sv32Walker` with `isExec=true`, returning `(physAddr, 0)` on success or `(0, 12)` for `InstructionPageFault`; M-mode fetches bypass the walk entirely (RISC-V priv spec §3.1.6). All four pipeline trains wire up the translator and propagate the pre-baked `TrapInfo` through the pipeline latch chain to Writeback, where it is raised via the normal trap path.
 
 **Interrupt dispatch:** `ITrapController.PeekInterrupt(IArchState)` returns the highest-priority pending interrupt (per the RISC-V §3.1.9 priority order: MEI > MSI > MTI > SEI > SSI > STI) when `mip & mie` has a pending bit and the global interrupt enable for the current privilege and delegation state permits delivery. All four pipeline trains call `PeekInterrupt` at each retire/commit boundary and invoke `RaiseTrap` when a non-null result is returned. `mideleg` routes delegated interrupts to S-mode.
 
@@ -110,16 +112,16 @@ Seven bare-metal RISC-V benchmarks compiled from the riscv-tests suite: `median`
 
 ISA conformance tests (`TestBinaries/isa/`) are also linked at `0x80000000`. `FlatMemory` accepts an optional `baseAddress` constructor parameter so the backing byte array starts at the first PT_LOAD segment (e.g. `0x80000000`) rather than at address 0, avoiding a 2 GB allocation. `Rv32ElfWorkload.BaseAddress` exposes this value; `IWorkload.BaseAddress` defaults to 0 for zero-based images.
 
-### Full-system booting (RiscV32/Memory, Orrery/Devices)
+### Full-system booting (src/Isa/RiscV32/Memory, src/Core/Orrery/Devices)
 
 Two full-system boot milestones are verified by tests in `Tests/RiscV32/`:
 
 - **OpenSBI v1.8** (`SingleCycle_OpenSBI_PrintsBanner`): `fw_jump.bin` (generic platform, RV32) boots on a `SingleCycleTrain` and prints its version banner on the ns16550a UART. Built via `nix build .#opensbi-rv32`.
 - **Linux 6.12 RV32 NOMMU** (`SingleCycle_Linux_PrintsBanner`): a `nommu_virt_defconfig + 32-bit.config + M-mode` kernel loads at `0x80000000` (PAGE_OFFSET) and prints `Linux version …` via earlycon on the UART within 10 M instructions. No OpenSBI — the kernel runs entirely in M-mode, so it is launched directly. Built via `nix build .#linux-rv32`.
 
-The peripheral bus is a `PeripheralBus` routing three devices: a `ClintDevice` (MTIP/MSIP at 0x02000000), a `PlicDevice` (external interrupt routing at 0x0C000000), and an `Ns16550aUart` (ns16550a console at 0x10000000; TX writes flush immediately to a `TextWriter`). `VirtDtb.Bytes` is a hand-crafted device tree blob (`RiscV32/Memory/virt.dts`) declaring 128 MiB RAM, all three devices, and one `virtio_mmio` block device slot.
+The peripheral bus is a `PeripheralBus` routing three devices: a `ClintDevice` (MTIP/MSIP at 0x02000000), a `PlicDevice` (external interrupt routing at 0x0C000000), and an `Ns16550aUart` (ns16550a console at 0x10000000; TX writes flush immediately to a `TextWriter`). `VirtDtb.Bytes` is a hand-crafted device tree blob (`src/Isa/RiscV32/Memory/virt.dts`) declaring 128 MiB RAM, all three devices, and one `virtio_mmio` block device slot.
 
-### Multi-hart kernel (RiscV32/MultiCore)
+### Multi-hart kernel (src/Isa/RiscV32/MultiCore)
 
 `MultiHartKernel` drives N RISC-V harts round-robin against a shared physical memory. Each call to `Step()` advances every non-halted hart by one instruction and returns the number still active; `Run(maxTicks)` loops until all harts halt or the tick limit is reached. Each hart has its own `IArchState` (created by `Rv32Mechanism.CreateArchState()`). Halt detection covers EBREAK (`result.IsHalt`), HTIF tohost (`result.RequestHalt`), and the infinite-self-loop idiom (`PC == pc && class == Branch`). The kernel operates in physical address space (no fetch translation), making it suited for bare-metal multi-hart workloads.
 
@@ -137,15 +139,15 @@ var kernel  = new MultiHartKernel(guarded,
 
 `ReservationTable` tracks per-hart LR/SC reservations. Each hart registers a reservation on `LR.W`; any write from any hart to the same 4-byte-aligned granule cancels all overlapping reservations so a subsequent `SC.W` fails correctly. `ReservationAwareMemory` is a thin `IMemory` wrapper whose `Write()` calls `table.InvalidateAt()` before the actual write, ensuring cancellation fires on every store. Single-hart setups leave `ReservationTable` null and use the existing private `_reservation` field unchanged — no API or behaviour change for existing code.
 
-### Cache replacement policies (Orrery/Cache)
+### Cache replacement policies (src/Core/Orrery/Cache)
 
 `SetAssociativeCache` supports a pluggable replacement policy via `IReplacementPolicy` and the `ReplacementPolicyKind` enum: **LRU** (default), **MRU** (`Mru`): inverse of LRU — a hit promotes the way to age 0 (next eviction candidate); new installs are placed at the LRU position so they survive until first use; useful for sequential-scan workloads where the just-accessed block is unlikely to be reused soon, **CLOCK** (`Clock`): one reference bit per way and a circular hand per set; on eviction the hand sweeps forward clearing bits=1 (second chance) until it finds a bit=0 victim; on hit or install the bit is set to 1; O(1) amortized victim search, hardware-cheap LRU approximation common in OS page replacement, **FIFO** (circular-pointer eviction, ignores hits — ordering baseline), **Random** (uniform random victim, deterministically seeded), **Tree-PLRU** (`Plru`): binary tree of `ways−1` bits per set; on every access the bits on the root-to-leaf path are pointed away from the accessed subtree; victim selection follows bits root-to-leaf; exact LRU for 2-way, hardware-friendly approximation for wider associativity (Intel P6 and later), **SRRIP-HP** (scan-resistant; inserts at RRPV 2^M−2, promotes hits to 0), **BRRIP-HP** (thrash-resistant; inserts at distant RRPV 2^M−1 with probability 1−ε, long with probability ε=1/32), **DRRIP-HP** (scan- and thrash-resistant; uses Set Dueling — 32-set SDMs, 10-bit PSEL — to dynamically choose between SRRIP and BRRIP per set) — Jaleel et al., ISCA 2010; and **SHiP-Mem** (`Ship`) and **SHiP-PC** (`ShipPc`): layer a 16K×3-bit Signature History Counter Table (SHCT) on top of SRRIP-HP — inserts at RRPV=3 (distant) when SHCT[sig]=0, RRPV=2 (long) when SHCT[sig]>0; increments SHCT on every hit; decrements on eviction without reuse. SHiP-Mem indexes the SHCT by the upper address bits of the miss address; SHiP-PC indexes by the load PC via `IMemory.SetRequestPc(pc)`, which all pipeline trains call before every execute. Prefetches always use address-based signatures since no PC is available at prefetch time — Wu et al., MICRO 2011; and **Hawkeye** (`Hawkeye`): reconstructs Belady's optimal replacement decisions for the observed access stream using OPTgen (a circular occupancy vector of length 8×ways per set), trains a PC-indexed 8K×3-bit saturating-counter predictor, and uses the predictor's label at each install — cache-friendly (counter ≥ 4) inserts at RRPV=0, cache-averse at RRPV=7; demand hits decrement RRPV toward 0; victim selection is SRRIP-style (scan for RRPV=7, age all lines if none found) — Jain &amp; Lin, ISCA 2016. The `ReplacementPolicy` field on `MemoryConfig` (and `CacheReplacementPolicy` string on `TrainConfig`) selects the policy for all cache levels.
 
-### Cache prefetchers (Orrery/Cache)
+### Cache prefetchers (src/Core/Orrery/Cache)
 
 `IPrefetcher.OnAccess(pc, address, wasHit, Span<ulong> targets)` writes zero or more prefetch addresses into the caller-provided span and returns the count; the `OooeTrain` execute stage drives it once per demand load and calls `MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Seven prefetchers are implemented: **NextLine** — always prefetches the cache line immediately following the access; bandwidth-greedy but effective for sequential workloads. **Stride / RPT** — Reference Prediction Table (per-PC stride tracking with a 0–3 saturating confidence counter); issues a prefetch at `address + stride` once the stride is confirmed (confidence ≥ 2). **Stream** — multi-way sequential stream buffer (Jouppi, ISCA 1990): maintains up to N independent stream buffers in parallel (default 4, controlled by `PrefetcherTableSize`); on a cache miss that matches no buffer, the LRU buffer is evicted and restarted at the missed address, issuing `depth` lines at once (default 8, controlled by `PrefetcherDepth`); on each subsequent sequential access the frontier is advanced by one line to keep exactly `depth` lines pre-loaded; LRU replacement across buffers; targets sequential and near-sequential patterns including RVV vector loads and UVE streams. **IPCP** — IP Classifier-based Spatial Prefetcher (Pakalapati & Panda, ISCA 2020): classifies each load PC into one of three classes and issues spatially-targeted prefetches; **CS** (Constant Stride) tracks per-PC stride with a 2-bit saturating confidence counter and issues up to 3 prefetches at the confirmed stride; **CPLX** (Complex Stride) maintains a 7-bit rolling signature of recent strides (`sig = (sig<<1) XOR stride`) indexing a 128-entry CSPT table, issuing up to 3 prefetches when a pattern repeats (confidence ≥ 1); **GS** (Global Stream) tracks 2 KB regions in an 8-entry LRU Region Stream Table (RST) with a 64-bit access bitvector, classifying a PC as a global-stream if ≥75% of its region's lines have been touched (dense), then issuing up to 6 prefetches in the stream direction; a tentative GS prefetch fires when an IP enters a new region and its previous region was dense; no prefetch crosses a page boundary; a 32-entry recent-request filter suppresses duplicate prefetch requests. Priority: GS > CS > CPLX. **Berti** — accurate local-delta L1D prefetcher (Navarro-Torres et al., MICRO 2022): for each load IP maintains an 8-set × 16-way FIFO History Table (HT) of recent (line address, tick) pairs; on a demand miss it searches the IP's HT set for "timely" entries (entries whose tick satisfies `entry.tick + latency ≤ current_tick`, i.e., a prefetch issued then would have arrived before the miss) and accumulates the signed line-count deltas to the current miss address into a 16-entry fully-associative Table of Deltas (ToD); an epoch counter trips at 16 training events and assigns statuses by coverage fraction: >10/16 → L1DPref, 6–10/16 → L2Pref (or L2PrefRepl if <8/16), ≤5/16 → NoPref; at most 12 deltas may be active (L1DPref+L2Pref+L2PrefRepl combined); warmup mode issues a delta only when counter ≥ 8 and coverage > 80% of the counter value; latency is approximated by a configurable tick count (default 10) since no MSHR timestamps are available. **Pythia** — online reinforcement learning prefetcher (Bera et al., MICRO 2021): formulates prefetching as a SARSA RL problem; the agent observes two program features per demand — PC+Delta (current load PC XOR'd with the current cacheline delta) and the last-4-deltas rolling hash — and selects one prefetch offset from a 16-entry pruned action list {−6,−3,−1,0,+1,+3,+4,+5,+10,+11,+12,+16,+22,+23,+30,+32} (lines); Q-values are stored in a hierarchical Q-Value Store (QVStore): 2 vaults × 3 tile-coded planes × 128 feature-entries × 16 actions; Q(S,A) = max over vaults of the sum of plane partial Q-values; rewards: RAT=+20 (accurate+timely), RAL=+12 (accurate+late), RCL=−12 (page-crossing), RIN=−8 (inaccurate), RNP=−4 (no-prefetch); a 256-entry FIFO Evaluation Queue (EQ) defers SARSA updates (α=0.0065, γ=0.556) until the evicted entry's reward is known; ε=0.002 greedy exploration; per-access overhead is a 16-way Q-value lookup over 2 vaults × 3 planes. **SMS** — Spatial Memory Streaming (Somogyi et al., ISCA 2006): learns spatial access patterns over fixed 2 KB address regions and prefetches all blocks predicted to be accessed during a region generation; indexed by the PC and block offset of the trigger (first) access. The Active Generation Table (AGT) is split into a 32-entry fully-associative filter table (holds single-access generations; entries are discarded on eviction) and a 64-entry fully-associative accumulation table (promotes from filter on the second distinct block access; accumulates a 64-bit spatial pattern bitvector); accumulation entries are retired to the Pattern History Table on AGT capacity pressure, matching the paper's explicit description of capacity-based generation termination. The PHT (16 K entries, 16-way set-associative, LRU) stores one pattern bitvector per (trigger PC, block offset) hash key; on a trigger access the PHT is consulted first and matching predicted blocks (excluding the trigger block itself) are immediately emitted as prefetch targets. Select with `Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms}` on `MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher: "next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"` in `TrainConfig` JSON.
 
-### MOESIF cache coherence (Orrery/Cache)
+### MOESIF cache coherence (src/Core/Orrery/Cache)
 
 `MoesifCache` is an N-way set-associative write-back cache that participates in a MOESIF coherence protocol with cache-to-cache supply. Unlike `SetAssociativeCache` (write-through, no-write-allocate), `MoesifCache` is write-back and write-allocate: writes stay in the cache as Modified lines until eviction or a snoop, not every write goes to backing memory.
 
@@ -197,11 +199,11 @@ Instruction fetch and data access both route through the per-hart cache (unified
 | S/O/F→M upgrade (write hit on Shared/Owned/Forward) | `BusReadInvalidate` | `table.InvalidateAt` in `BusReadInvalidate` |
 | E→M upgrade (write hit on Exclusive) | none (silent) | `table.InvalidateAt` in `BusSilentUpgrade` |
 
-### MultiHartPipeline (Pipeline/)
+### MultiHartPipeline (src/Core/Pipeline/)
 
 `MultiHartPipeline` coordinates N full pipeline trains (`ISteppableTrain`) in round-robin cycle-interleaved order — the pipeline-train analogue of `MultiHartKernel`. Each hart owns its own train instance (and typically its own `MoesifCache`); the coordinator advances every non-halted train by one tick per logical cycle.
 
-`ISteppableTrain` (`Orrery/Train/`) is a minimal interface: `BeginStepping()`, `StepCycle() → bool`, `IsIdle`, `FinishStepping() → RevolutionResult`. All five train types implement it: `SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`, `SmtTrain`.
+`ISteppableTrain` (`src/Core/Orrery/Train/`) is a minimal interface: `BeginStepping()`, `StepCycle() → bool`, `IsIdle`, `FinishStepping() → RevolutionResult`. All five train types implement it: `SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`, `SmtTrain`.
 
 ```csharp
 var flat   = new FlatMemory(0x10000);
@@ -219,7 +221,7 @@ RevolutionResult[] results = new MultiHartPipeline(train0, train1).Run(maxTicks:
 
 **OoO timing note:** `OooeTrain`'s physical register file starts zeroed; `ArchState.IntegerRegisters.Write()` updates the architectural register file but not the PRF, so register values pre-set before `Run()` are invisible to the pipeline. For OoO MOESIF coherence tests or any test that requires non-zero initial register values, compute those values inside the program (e.g. `lui`+`addi` sequences). Also, OoO stores commit to the cache at ROB-head (several cycles after fetch), so a cross-hart load must be issued late enough to see the committed store — pad H1 with nops in the decode stream before the load's source-register computation.
 
-### SmtTrain (Pipeline/)
+### SmtTrain (src/Core/Pipeline/)
 
 `SmtTrain` is a barrel-processor SMT train: N independent hart contexts share a single issue window of width `issueWidth`. Each tick the coordinator distributes the available slots round-robin across active harts, rotating the starting hart every cycle for long-run fairness. This interleaves hart instructions at issue-slot granularity rather than the whole-tick round-robin of `MultiHartPipeline`.
 
@@ -244,13 +246,13 @@ IArchState s1 = smt.StateOf(1); // hart 1 register state
 
 `SmtTrain` also implements `ISteppableTrain` and can be wrapped in `MultiHartPipeline` for nested multi-level parallelism. Aggregate cycle/retired/stall/IPC counters appear in `FinishStepping().Dials`.
 
-### Per-instruction lifecycle events (Orrery/Observation)
+### Per-instruction lifecycle events (src/Core/Orrery/Observation)
 
 `PEventLog` captures structured per-instruction lifecycle events — Fetch, Decode, Dispatch, Issue, Execute, Retire, Flush — tagged with an instruction ID, PC, and cycle number. A cycle-level `FetchStall` sentinel (instrId=0) marks cycles where the OoO fetch unit is blocked (faulted PC). Pass a `PEventLog` instance to `FiveStageTrain` or `OooeTrain` to enable recording (null = zero overhead). Query methods include `ForInstruction(id)`, `OfKind(kind)`, and `InCycleRange(from, to)` for post-hoc filtering and phase analysis. Every instruction is assigned a monotonically increasing `InstrId` at fetch time, unique across the full simulation run, so lifecycle phases can be correlated even for wrong-path instructions that are later flushed.
 
 FiveStage records Fetch/Decode/Execute/Retire/Flush. OoO records the full lifecycle: Fetch → Decode → Dispatch → Issue → Execute → Retire/Flush. Flush events appear as an additional terminal event for wrong-path or squashed instructions.
 
-### Spike lock-step co-simulation (RiscV32/CoSim)
+### Spike lock-step co-simulation (src/Isa/RiscV32/CoSim)
 
 `SpikeCoSimReference` implements `ICommitObserver` and launches Spike as a live child process with `--log-commits`. For each instruction that Horologium commits, it reads the next line from Spike's stderr stream (blocking until Spike produces it), then immediately compares PC, raw encoding, and any integer register write — divergence is reported at the exact failing instruction. Boot-ROM commits (PC below `baseAddress`) are skipped. Attach it via the optional `commitObserver` parameter to `SingleCycleTrain`, `FiveStageTrain`, or `OooeTrain` — the in-order pipeline fires `OnCommit` from `WritebackStage` on normal retire, and the out-of-order pipeline fires once per ROB-head commit in program order, so the check covers the hazard/forwarding and speculative-memory datapaths too. Wrap in `using` to kill Spike on completion. `SpikeCoSimTests` runs three fixtures across all three trains: `test.elf` (simple RV32I golden path), `rich.elf` (RV32IM — multiply/divide, an insertion sort, and heavy data-dependent branching, to exercise the multi-cycle functional units, store-to-load forwarding, and flush paths), and `htif.elf` (the same RV32IM workload but terminating through the HTIF `tohost` register instead of EBREAK, so standalone Spike exits cleanly). Spike logs the post-exit spin-loop an indeterminate number of times; each train commits up to the exit, then halts, so its stream is a clean prefix of Spike's. `dtc` must be on PATH (the Nix dev-shell provides it); the tests can be excluded from CI without Spike with `--filter "FullyQualifiedName!~SpikeCoSim"`.
 
@@ -284,7 +286,7 @@ The Runner exposes this as `--script <file.csx|fsx>`. Two handoff patterns are s
 **Symbol-based region-of-interest (ROI)** — name ELF symbols to bracket the measurement window. The Runner fast-forwards functionally (single-cycle) until the start symbol's PC is committed, then restores state into the script's pipeline and runs the detailed model until the end symbol or `--max-ticks`:
 
 ```bash
-dotnet run --project Runner -- prog.elf \
+dotnet run --project src/Apps/Runner -- prog.elf \
   --script scripts/ooo.fsx \
   --roi-start roi_begin --roi-end roi_end \
   --max-ticks 5000000
@@ -296,15 +298,15 @@ dotnet run --project Runner -- prog.elf \
 
 ```bash
 # 1. Fast-forward 100 M instructions on a single-cycle model, save state.
-dotnet run --project Runner -- prog.elf \
+dotnet run --project src/Apps/Runner -- prog.elf \
   --script scripts/single_cycle.fsx --max-ticks 100000000 --checkpoint-save fast.chk
 
 # 2. Resume from the checkpoint on a detailed OoO model.
-dotnet run --project Runner -- prog.elf \
+dotnet run --project src/Apps/Runner -- prog.elf \
   --script scripts/ooo.fsx --checkpoint-load fast.chk --max-ticks 10000000
 ```
 
-**`ArchitecturalCheckpoint`** (`Mechanism/ArchitecturalCheckpoint.cs`) is the serialization layer. `Save(path, state, memory, tick)` writes PC, privilege level, integer/FP registers, memory, and an ISA-specific blob (CSRs, VRF, UVE scalar state via `IArchState.WriteState`) to a binary file. `Load(path)` deserialises without touching live state; `chk.RestoreInto(state, memory)` applies it. `FlatMemory` implements the `ISnapshotableMemory` interface (`BaseAddress`, `SizeBytes`, `CopyTo`, `LoadFrom`) required by the checkpoint API. `ISteppableTrain.ArchState` (default `null`) exposes the committed hart state after or during a run; `MachineHandle.ArchState` forwards it. ROI uses an in-memory checkpoint internally (no file I/O); both `--checkpoint-save` and the ROI path can be combined to persist the post-ROI state.
+**`ArchitecturalCheckpoint`** (`src/Core/Mechanism/ArchitecturalCheckpoint.cs`) is the serialization layer. `Save(path, state, memory, tick)` writes PC, privilege level, integer/FP registers, memory, and an ISA-specific blob (CSRs, VRF, UVE scalar state via `IArchState.WriteState`) to a binary file. `Load(path)` deserialises without touching live state; `chk.RestoreInto(state, memory)` applies it. `FlatMemory` implements the `ISnapshotableMemory` interface (`BaseAddress`, `SizeBytes`, `CopyTo`, `LoadFrom`) required by the checkpoint API. `ISteppableTrain.ArchState` (default `null`) exposes the committed hart state after or during a run; `MachineHandle.ArchState` forwards it. ROI uses an in-memory checkpoint internally (no file I/O); both `--checkpoint-save` and the ROI path can be combined to persist the post-ROI state.
 
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
@@ -313,7 +315,7 @@ dotnet run --project Runner -- prog.elf \
 Olympia (and its Sparta framework) are packaged by the flake from source — `nix/{softfloat,sparta,olympia}.nix`, exposed as `packages.{softfloat,sparta,olympia}` and on PATH inside `nix develop`. End to end:
 
 ```bash
-dotnet run --project Runner -- TestBinaries/rich.elf --trace-json trace.json
+dotnet run --project src/Apps/Runner -- TestBinaries/rich.elf --trace-json trace.json
 nix run .#olympia -- trace.json --report-all report.txt   # IPC / cycles / retired in report.txt
 ```
 
@@ -325,10 +327,10 @@ Register dependences track the unified 0–63 namespace (0–31 = integer, 32–
 
 ```bash
 # Record a DDG trace
-dotnet run --project Runner -- prog.elf --elastic-record prog.helf
+dotnet run --project src/Apps/Runner -- prog.elf --elastic-record prog.helf
 
 # Replay the critical-path dataflow DAG and print IPC upper bound
-dotnet run --project Runner -- --elastic-replay prog.helf
+dotnet run --project src/Apps/Runner -- --elastic-replay prog.helf
 # → Elastic replay: 1234567 instructions, 890123 cycles (critical path), IPC upper bound = 1.386
 ```
 
@@ -338,10 +340,10 @@ dotnet run --project Runner -- --elastic-replay prog.helf
 
 ```bash
 # Convert HELF → gem5 inst_dep_record.proto stream (dataTraceFile)
-dotnet run --project Runner -- --elastic-to-gem5 prog.helf prog.gem5data
+dotnet run --project src/Apps/Runner -- --elastic-to-gem5 prog.helf prog.gem5data
 
 # Convert HELF → gem5 packet.proto fetch-trace stream (instTraceFile)
-dotnet run --project Runner -- --fetch-to-gem5 prog.helf prog.gem5fetch
+dotnet run --project src/Apps/Runner -- --fetch-to-gem5 prog.helf prog.gem5fetch
 
 # Replay via gem5 TraceCPU (gem5 must be on PATH; see nix build .#gem5)
 gem5 gem5-scripts/trace_cpu_riscv.py \
@@ -357,7 +359,7 @@ gem5 gem5-scripts/trace_cpu_riscv.py \
 
 ```bash
 # Record an STF trace
-dotnet run --project Runner -- prog.elf --stf-record prog.stf
+dotnet run --project src/Apps/Runner -- prog.elf --stf-record prog.stf
 
 # Replay through Olympia (stf_lib-based tools: stf_dump, stf_check, etc.)
 # nix run .#olympia -- --input-file prog.stf ...

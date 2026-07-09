@@ -80,7 +80,7 @@
 
             # Olympia timing model (`olympia` on PATH), built by the flake — see
             # packages.olympia / nix/olympia.nix. Feed it a Horologium trace:
-            #   dotnet run --project Runner -- <elf> --trace-json trace.json
+            #   dotnet run --project src/Apps/Runner -- <elf> --trace-json trace.json
             #   olympia trace.json
             olympia
 
@@ -97,9 +97,9 @@
 
             # gem5 RISCV with TraceCPU + protobuf (`gem5` on PATH).
             # Validate elastic-trace round-trips end-to-end:
-            #   dotnet run --project Runner -- <elf> --elastic-record out.helf
-            #   dotnet run --project Runner -- --elastic-to-gem5 out.helf out.gem5data
-            #   dotnet run --project Runner -- --fetch-to-gem5   out.helf out.gem5fetch
+            #   dotnet run --project src/Apps/Runner -- <elf> --elastic-record out.helf
+            #   dotnet run --project src/Apps/Runner -- --elastic-to-gem5 out.helf out.gem5data
+            #   dotnet run --project src/Apps/Runner -- --fetch-to-gem5   out.helf out.gem5fetch
             #   gem5 gem5-scripts/trace_cpu_riscv.py ...
             # Built by: nix build .#gem5
             gem5

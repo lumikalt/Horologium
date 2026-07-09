@@ -2,7 +2,7 @@
 # performance model used for trace-driven *timing* co-simulation against
 # Horologium's OoO train. Feed it a `Runner --trace-json` trace:
 #
-#   dotnet run --project Runner -- <elf> --trace-json trace.json
+#   dotnet run --project src/Apps/Runner -- <elf> --trace-json trace.json
 #   olympia trace.json
 #
 # The build is sandbox-clean: softfloat is pre-built (nix/softfloat.nix) and

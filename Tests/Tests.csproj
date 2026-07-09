@@ -20,17 +20,17 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Chip8\Chip8.csproj"/>
-        <ProjectReference Include="..\Mechanism\Mechanism.csproj"/>
-        <ProjectReference Include="..\Orrery\Orrery.csproj"/>
-        <ProjectReference Include="..\Pipeline\Pipeline.csproj"/>
-        <ProjectReference Include="..\RiscV32\RiscV32.csproj"/>
-        <ProjectReference Include="..\RiscV64\RiscV64.csproj"/>
-        <ProjectReference Include="..\J1\J1.csproj"/>
-        <ProjectReference Include="..\Move\Move.csproj"/>
-        <ProjectReference Include="..\F18A\F18A.csproj"/>
-        <ProjectReference Include="..\Pdp8\Pdp8.csproj"/>
-        <ProjectReference Include="..\Subleq\Subleq.csproj"/>
+        <ProjectReference Include="../src/Isa/Chip8/Chip8.csproj"/>
+        <ProjectReference Include="../src/Core/Mechanism/Mechanism.csproj"/>
+        <ProjectReference Include="../src/Core/Orrery/Orrery.csproj"/>
+        <ProjectReference Include="../src/Core/Pipeline/Pipeline.csproj"/>
+        <ProjectReference Include="../src/Isa/RiscV32/RiscV32.csproj"/>
+        <ProjectReference Include="../src/Isa/RiscV64/RiscV64.csproj"/>
+        <ProjectReference Include="../src/Isa/J1/J1.csproj"/>
+        <ProjectReference Include="../src/Isa/Move/Move.csproj"/>
+        <ProjectReference Include="../src/Isa/F18A/F18A.csproj"/>
+        <ProjectReference Include="../src/Isa/Pdp8/Pdp8.csproj"/>
+        <ProjectReference Include="../src/Isa/Subleq/Subleq.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

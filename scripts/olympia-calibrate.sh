@@ -57,7 +57,7 @@ cat > "$TMP/cache_wb_matched.json" <<JSON
 JSON
 
 horo() { # elf sweep.json name
-  dotnet run --project Runner -- "$1" --sweep "$2" 2>/dev/null \
+  dotnet run --project src/Apps/Runner -- "$1" --sweep "$2" 2>/dev/null \
     | grep "| $3 |" | awk -F'|' '{gsub(/ /,"",$(NF-1)); print $(NF-1)}'
 }
 oly() { # trace arch
@@ -80,7 +80,7 @@ printf '%-9s | %-20s | %-20s | %-20s | %-20s | %-20s\n' \
 printf -- '----------+----------------------+----------------------+----------------------+----------------------+---------------------\n'
 for spec in "${WORKLOADS[@]}"; do
   name=${spec%%:*}; elf=${spec##*:}
-  dotnet run --project Runner -- "$elf" --trace-json "$TMP/t.json" >/dev/null 2>&1
+  dotnet run --project src/Apps/Runner -- "$elf" --trace-json "$TMP/t.json" >/dev/null 2>&1
   printf '%-9s | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s    | %5s %5s %5s\n' "$name" \
     "$(horo "$elf" "$TMP/nocache.json" w2)" "$(horo "$elf" "$TMP/nocache.json" w3)" "$(horo "$elf" "$TMP/nocache.json" w8)" \
     "$(horo "$elf" "$TMP/cache.json"   w2)" "$(horo "$elf" "$TMP/cache.json"   w3)" "$(horo "$elf" "$TMP/cache.json"   w8)" \

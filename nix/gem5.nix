@@ -1,8 +1,8 @@
 # gem5 RISCV build — provides `gem5` binary with TraceCPU + protobuf support.
 # Used for end-to-end validation of Horologium's HELF elastic trace pipeline:
-#   dotnet run --project Runner -- <elf> --elastic-record out.helf
-#   dotnet run --project Runner -- --elastic-to-gem5 out.helf out.gem5data
-#   dotnet run --project Runner -- --fetch-to-gem5   out.helf out.gem5fetch
+#   dotnet run --project src/Apps/Runner -- <elf> --elastic-record out.helf
+#   dotnet run --project src/Apps/Runner -- --elastic-to-gem5 out.helf out.gem5data
+#   dotnet run --project src/Apps/Runner -- --fetch-to-gem5   out.helf out.gem5fetch
 #   gem5 gem5-scripts/trace_cpu_riscv.py \
 #       --data-trace-file out.gem5data --inst-trace-file out.gem5fetch
 #
