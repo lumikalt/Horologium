@@ -303,6 +303,57 @@ public class UveTests {
     }
 
     [Fact]
+    public void SsApp_Rs1OffsetAccumulatesIntoOffsetBytes() {
+        var state = new Rv32ArchState();
+        var cfg = new PendingStreamConfig { BaseAddress = 0x2000, ElementBytes = 4, IsLoad = true, };
+        state.UveState.PendingConfig[3] = cfg;
+
+        state.IntegerRegisters.Write(1, 3); // rs1: offset=3 → adds 3*4=12 bytes
+        state.IntegerRegisters.Write(2, 5); // count
+        state.IntegerRegisters.Write(3, 4); // stride
+
+        ExecuteResult er = Exec(new RvUveSsApp(3, 1, 2, 3), state);
+        er.SideEffect?.Invoke(state);
+
+        Assert.Equal(12L, state.UveState.PendingConfig[3]!.OffsetBytes);
+    }
+
+    [Fact]
+    public void SsEnd_Rs1OffsetShiftsBaseAddress() {
+        var state = new Rv32ArchState();
+        var cfg = new PendingStreamConfig { BaseAddress = 0x1000, ElementBytes = 4, IsLoad = true, };
+        state.UveState.PendingConfig[0] = cfg;
+
+        state.IntegerRegisters.Write(1, 2); // rs1: offset=2 → adds 2*4=8 bytes → base becomes 0x1008
+        state.IntegerRegisters.Write(2, 5); // count
+        state.IntegerRegisters.Write(3, 4); // stride
+
+        ExecuteResult er = Exec(new RvUveSsEnd(0, 1, 2, 3), state);
+
+        Assert.True(er.StreamConfig.HasValue);
+        Assert.Equal(0x1008UL, er.StreamConfig!.Value.Descriptor.BaseAddress);
+    }
+
+    [Fact]
+    public void SsEnd_Rs1OffsetStacksWithSsAppOffset() {
+        // ss.app rs1=1 → +1*4=4 bytes; ss.end rs1=3 → +3*4=12 bytes; total=16 → base=0x1000+16=0x1010
+        var state = new Rv32ArchState();
+        var cfg = new PendingStreamConfig { BaseAddress = 0x1000, ElementBytes = 4, IsLoad = true, };
+        cfg.Dimensions.Add(new StreamDimension(4, 4));
+        cfg.OffsetBytes = 4; // simulates ss.app already having accumulated offset=1*4
+        state.UveState.PendingConfig[0] = cfg;
+
+        state.IntegerRegisters.Write(1, 3); // rs1: offset=3 → adds 3*4=12 bytes
+        state.IntegerRegisters.Write(2, 2); // count
+        state.IntegerRegisters.Write(3, 0); // stride
+
+        ExecuteResult er = Exec(new RvUveSsEnd(0, 1, 2, 3), state);
+
+        Assert.True(er.StreamConfig.HasValue);
+        Assert.Equal(0x1010UL, er.StreamConfig!.Value.Descriptor.BaseAddress);
+    }
+
+    [Fact]
     public void SoBNdc_TakenWhenDimNotComplete() {
         var state = new Rv32ArchState();
         state.UveState.DimDone[2, 0] = false; // dim 0 not yet complete

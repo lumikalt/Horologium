@@ -271,6 +271,69 @@ public class StreamingEngineTests {
         Assert.Equal(10UL, eng.Consume(0)); // back to the first element
     }
 
+    // ── Static dimension modifiers ────────────────────────────────────────────
+
+    [Fact]
+    public void StrideModifier_GrowsInnerStrideEachOuterIteration() {
+        // 2D stream: D0 count=3 stride=4, D1 count=2.
+        // Modifier on D0: Stride Inc 4 → stride grows by 4 after each D0 wrap.
+        // Row 0 (stride=4): words at offsets 0,4,8   → values 1,2,3
+        // Row 1 (stride=8): words at offsets 0,8,16  → values 1,3,5
+        const int wordCount = 6;
+        var mem = new FlatMemory(wordCount * 4);
+        for (var i = 0; i < wordCount; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+
+        var desc = new StreamDescriptor(
+            0,
+            4,
+            [new StreamDimension(3, 4), new StreamDimension(2, 0),],
+            [new StreamModifier(0, StreamModifierTarget.Stride, StreamModifierBehavior.Inc, 4),]
+        );
+        var eng = new StreamingEngine(8);
+        eng.Configure(0, desc);
+        for (var i = 0; i < 8; i++) eng.Step(mem);
+
+        // Row 0
+        Assert.Equal(1UL, eng.Consume(0));
+        Assert.Equal(2UL, eng.Consume(0));
+        Assert.Equal(3UL, eng.Consume(0));
+        // Row 1 (stride now 8)
+        Assert.Equal(1UL, eng.Consume(0));
+        Assert.Equal(3UL, eng.Consume(0));
+        Assert.Equal(5UL, eng.Consume(0));
+        Assert.True(eng.IsExhausted(0));
+    }
+
+    [Fact]
+    public void OffsetModifier_ShiftsBaseEachOuterIteration() {
+        // 2D stream: D0 count=2 stride=4, D1 count=3, base=0x10.
+        // Modifier on D0: Offset Inc 8 → base shifts by 8 after each D0 wrap.
+        // Row 0 (base=0x10+0):  words[4]=5, words[5]=6
+        // Row 1 (base=0x10+8):  words[6]=7, words[7]=8
+        // Row 2 (base=0x10+16): words[8]=9, words[9]=10
+        const int wordCount = 10;
+        var mem = new FlatMemory(wordCount * 4);
+        for (var i = 0; i < wordCount; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+
+        var desc = new StreamDescriptor(
+            0x10,
+            4,
+            [new StreamDimension(2, 4), new StreamDimension(3, 0),],
+            [new StreamModifier(0, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 8),]
+        );
+        var eng = new StreamingEngine(8);
+        eng.Configure(0, desc);
+        for (var i = 0; i < 8; i++) eng.Step(mem);
+
+        Assert.Equal(5UL, eng.Consume(0));
+        Assert.Equal(6UL, eng.Consume(0));
+        Assert.Equal(7UL, eng.Consume(0));
+        Assert.Equal(8UL, eng.Consume(0));
+        Assert.Equal(9UL, eng.Consume(0));
+        Assert.Equal(10UL, eng.Consume(0));
+        Assert.True(eng.IsExhausted(0));
+    }
+
     // ── Argument validation ───────────────────────────────────────────────────
 
     [Fact]

@@ -32,13 +32,12 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] Static modifier E-field (Size) enforcement: cap modifier applications to E total outer-loop iterations; currently
   the modifier fires unconditionally on every inner-dim wrap and the decoded `rs3Size` register value is ignored at
   execution time
-- [ ] Static modifier Offset and Stride targets: implement `Target=Offset` and `Target=Stride` mutations in
+- [x] Static modifier Offset and Stride targets: implement `Target=Offset` and `Target=Stride` mutations in
   `StreamingEngine.ApplyModifiers`; currently only `Target=Size` is handled and the other two are decoded but no-op
 - [x] UVE encoding alignment: decoder, executor, and all tests now match AnaBSF/riscv-isa-sim (uve branch, commit
   a048271) — `ss.sta.{ld,st}.w` funct3, `ss.app`/`ss.end` funct2, `ss.app.mod` Spike target encoding, `so.v.dp.w`
   funct7/funct3, `so.a.fp.*` (funct7>>3, funct3) table, UVE B-type branch immediate layout
-- [ ] Offset register (rs1) in `ss.app`/`ss.end` not modeled: `StreamDimension` has no base-address displacement field;
-  the rs1 value is decoded but ignored at execution time
+- [x] Offset register (rs1) in `ss.app`/`ss.end`: rs1*ew added to stream base address; accumulated across all ss.app instructions in a config sequence and applied at ss.end time
 - [ ] Indirect dimension modifiers: `ss.app.ind` / `ss.end.ind` — attach a `{Target, Behavior, StreamPointer}` modifier
   so a live stream drives the offset of another (gather/indirect access; confirmed UVE1 in ISCA 2021 paper)
 - [ ] Stream suspend/resume/stop: `ss.suspend`, `ss.resume`, `ss.stop` — explicit stream lifecycle control for context

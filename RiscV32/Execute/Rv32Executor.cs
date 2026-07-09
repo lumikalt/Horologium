@@ -711,10 +711,10 @@ public class Rv32Executor : IExecutor {
                 ExecuteVsxseg(state, memory, numFields, vs3, rs1, vs2, idxSew, masked),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsStaLdW (var ud, var rs1, var ew)  => ExecuteUveSsSta(regs, ud, rs1, true, ew),
-            RvUveSsStaStW (var ud, var rs1, var ew)  => ExecuteUveSsSta(regs, ud, rs1, false, ew),
-            RvUveSsApp (var ud, _, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs2, rs3),
-            RvUveSsEnd (var ud, _, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
+            RvUveSsStaLdW (var ud, var rs1, var ew)        => ExecuteUveSsSta(regs, ud, rs1, true, ew),
+            RvUveSsStaStW (var ud, var rs1, var ew)        => ExecuteUveSsSta(regs, ud, rs1, false, ew),
+            RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
+            RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
             RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp) =>
                 ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp),
             RvUveSoVDpW (var ud, var rs1) => ExecuteUveSoVDpW(regs, ud, rs1),
@@ -3063,35 +3063,43 @@ public class Rv32Executor : IExecutor {
     }
 
     // ss.app ud, rs1_offset, rs2_count, rs3_stride — append next outer dimension to pending config.
-    // rs1_offset is ignored (Spike adds offset*ew to base; no offset field in StreamDimension).
-    private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs2, int rs3) {
+    // rs1_offset adds offset*ew to the stream base address (accumulated into PendingStreamConfig.OffsetBytes).
+    private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
+        var offset = (long)regs.Read(rs1);
         var count = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
             SideEffect = s => {
-                UState(s).UveState.PendingConfig[ud]?.Dimensions.Add(new StreamDimension(count, stride));
+                PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
+                if (cfg is null) return;
+                cfg.OffsetBytes += offset * cfg.ElementBytes;
+                cfg.Dimensions.Add(new StreamDimension(count, stride));
             },
         };
     }
 
     // ss.end ud, rs1_offset, rs2_count, rs3_stride — outermost dimension + activate stream.
-    // rs1_offset is ignored (same reason as ss.app).
+    // rs1_offset adds offset*ew to the stream base address (combined with any prior ss.app offsets).
     private static ExecuteResult ExecuteUveSsEnd(
         IArchState state,
         IRegisterFile regs,
         int ud,
+        int rs1,
         int rs2,
         int rs3
     ) {
+        var offset = (long)regs.Read(rs1);
         var count = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
         UveState uveState = UState(state).UveState;
         PendingStreamConfig? pending = uveState.PendingConfig[ud];
         if (pending is null) return ExecuteResult.Clean;
 
+        long totalOffsetBytes = pending.OffsetBytes + offset * pending.ElementBytes;
+        var baseAddr = (ulong)((long)pending.BaseAddress + totalOffsetBytes);
         StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).ToArray();
         StreamModifier[]? mods = pending.Modifiers.Count > 0 ? pending.Modifiers.ToArray() : null;
-        var descriptor = new StreamDescriptor(pending.BaseAddress, pending.ElementBytes, dims, mods);
+        var descriptor = new StreamDescriptor(baseAddr, pending.ElementBytes, dims, mods);
         bool isLoad = pending.IsLoad;
 
         if (isLoad)
