@@ -72,7 +72,6 @@ internal sealed class BackgroundTraceChannel<T> : IDisposable {
     }
 
     private void ThrowIfFaulted() {
-        if (_fault is { } e)
-            throw new IOException($"Background trace consumer failed: {e.Message}", e);
+        if (_fault is { } e) throw new IOException($"Background trace consumer failed: {e.Message}", e);
     }
 }

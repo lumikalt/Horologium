@@ -57,24 +57,24 @@ public class TrisolvTests {
 
     // SS.STA.LD.W ud, rs1 — funct2=0, funct3=0b110 (load, ew=4)
     private static uint SsStaLdW(int ud, int rs1) =>
-        (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // SS.STA.ST.W ud, rs1 — funct2=0, funct3=0b010 (store, ew=4)
     private static uint SsStaStW(int ud, int rs1) =>
-        (uint)(((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs1 & 0x1F) << 15) | (0x2u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // SS.END ud, rs1Offset, rs2, rs3 — funct2=2, funct3=0
     private static uint SsEnd(int ud, int rs1Offset, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | ((rs2 & 0x1F) << 20)
-             | ((rs1Offset & 0x1F) << 15) | (0x0u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | (uint)((rs2 & 0x1F) << 20)
+             | (uint)((rs1Offset & 0x1F) << 15) | (0x0u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // SO.V.DP.W ud, rs1 — custom-1, funct7=0x56, funct3=2
     private static uint SoVDpW(int ud, int rs1) =>
-        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu);
 
     // SO.A.FP ud, usrc1, usrc2 — opCode uses UveFpOp int values: Mul=0,Add=1,Mac=2,Sub=3,Div=4
     private static uint SoAFp(int opCode, int ud, int usrc1, int usrc2) {
-        var (funct3, top4) = opCode switch {
+        (uint funct3, uint top4) = opCode switch {
             0 => (1u, 1u), // Mul
             1 => (1u, 0u), // Add
             2 => (5u, 3u), // Mac
@@ -83,8 +83,8 @@ public class TrisolvTests {
             _ => throw new ArgumentOutOfRangeException(nameof(opCode)),
         };
         uint funct7 = top4 << 3;
-        return (uint)((funct7 << 25) | ((usrc2 & 0x1F) << 20) | ((usrc1 & 0x1F) << 15)
-             | (funct3 << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+        return (funct7 << 25) | (uint)((usrc2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
+             | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
 
     private static uint SoAMacFp(int ud, int usrc1, int usrc2) => SoAFp(2, ud, usrc1, usrc2);
@@ -94,8 +94,10 @@ public class TrisolvTests {
     // SO.B.NC urs, imm — UVE B-type: bits[31:29]=111, bit28=imm[12], bit20=1(notDone), funct3=0
     private static uint SoBNc(int urs, int imm) {
         var i = (uint)imm;
-        uint bit12 = (i >> 12) & 1, bit11 = (i >> 11) & 1,
-             bits10To5 = (i >> 5) & 0x3F, bits4To1 = (i >> 1) & 0xF;
+        uint bit12 = (i >> 12) & 1,
+             bit11 = (i >> 11) & 1,
+             bits10To5 = (i >> 5) & 0x3F,
+             bits4To1 = (i >> 1) & 0xF;
         return (0b111u << 29) | (bit12 << 28) | (bits10To5 << 22) | (0b00001u << 20)
              | ((uint)(urs & 0x1F) << 15) | (bits4To1 << 8) | (bit11 << 7) | 0x2Bu;
     }
@@ -179,17 +181,17 @@ public class TrisolvTests {
             SoAMacFp(3, 1, 2),             // [18] u3 += u1[j] * u2[j]
             SoBNc(1, (innerIdx - 19) * 4), // [19] while u1 not done → [18]
 
-            Add(13, 9, 10),       // [20] x13 = &b[i]
-            Lw(11, 13, 0),        // [21] x11 = bits(b[i])
-            SoVDpW(5, 11),        // [22] u5 = b[i]
-            SoASubFp(6, 5, 3),    // [23] u6 = b[i] - u3
-            Add(15, 7, 10),       // [24] x15 = &L[i][i]  (= &L[i][0] + i*4)
-            Lw(11, 15, 0),        // [25] x11 = bits(L[i][i])
-            SoVDpW(4, 11),        // [26] u4 = L[i][i]
-            Add(12, 8, 10),       // [27] x12 = &x[i]
-            SsStaStW(7, 12),      // [28] u7 base = &x[i]
-            SsEnd(7, 0, 14, 6),   // [29] u7: count=1, stride=4; activate
-            SoADivFp(7, 6, 4),    // [30] u7 ← u6/u4 → writes x[i]
+            Add(13, 9, 10),     // [20] x13 = &b[i]
+            Lw(11, 13, 0),      // [21] x11 = bits(b[i])
+            SoVDpW(5, 11),      // [22] u5 = b[i]
+            SoASubFp(6, 5, 3),  // [23] u6 = b[i] - u3
+            Add(15, 7, 10),     // [24] x15 = &L[i][i]  (= &L[i][0] + i*4)
+            Lw(11, 15, 0),      // [25] x11 = bits(L[i][i])
+            SoVDpW(4, 11),      // [26] u4 = L[i][i]
+            Add(12, 8, 10),     // [27] x12 = &x[i]
+            SsStaStW(7, 12),    // [28] u7 base = &x[i]
+            SsEnd(7, 0, 14, 6), // [29] u7: count=1, stride=4; activate
+            SoADivFp(7, 6, 4),  // [30] u7 ← u6/u4 → writes x[i]
 
             Addi(3, 3, 1),               // [31] i++
             Add(4, 4, 5),                // [32] row_offset += N*4

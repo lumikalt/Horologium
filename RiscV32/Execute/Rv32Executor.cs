@@ -711,13 +711,13 @@ public class Rv32Executor : IExecutor {
                 ExecuteVsxseg(state, memory, numFields, vs3, rs1, vs2, idxSew, masked),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsStaLdW (var ud, var rs1, var ew) => ExecuteUveSsSta(regs, ud, rs1, true, ew),
-            RvUveSsStaStW (var ud, var rs1, var ew) => ExecuteUveSsSta(regs, ud, rs1, false, ew),
-            RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
-            RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
+            RvUveSsStaLdW (var ud, var rs1, var ew)  => ExecuteUveSsSta(regs, ud, rs1, true, ew),
+            RvUveSsStaStW (var ud, var rs1, var ew)  => ExecuteUveSsSta(regs, ud, rs1, false, ew),
+            RvUveSsApp (var ud, _, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs2, rs3),
+            RvUveSsEnd (var ud, _, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
             RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp) =>
                 ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp),
-            RvUveSoVDpW (var ud, var rs1)    => ExecuteUveSoVDpW(regs, ud, rs1),
+            RvUveSoVDpW (var ud, var rs1) => ExecuteUveSoVDpW(regs, ud, rs1),
             RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
                 state, memory, fpOp, ud, usrc1, usrc2
             ),
@@ -3064,8 +3064,8 @@ public class Rv32Executor : IExecutor {
 
     // ss.app ud, rs1_offset, rs2_count, rs3_stride — append next outer dimension to pending config.
     // rs1_offset is ignored (Spike adds offset*ew to base; no offset field in StreamDimension).
-    private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
-        var count  = (long)regs.Read(rs2);
+    private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs2, int rs3) {
+        var count = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
             SideEffect = s => {
@@ -3076,8 +3076,14 @@ public class Rv32Executor : IExecutor {
 
     // ss.end ud, rs1_offset, rs2_count, rs3_stride — outermost dimension + activate stream.
     // rs1_offset is ignored (same reason as ss.app).
-    private static ExecuteResult ExecuteUveSsEnd(IArchState state, IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
-        var count  = (long)regs.Read(rs2);
+    private static ExecuteResult ExecuteUveSsEnd(
+        IArchState state,
+        IRegisterFile regs,
+        int ud,
+        int rs2,
+        int rs3
+    ) {
+        var count = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
         UveState uveState = UState(state).UveState;
         PendingStreamConfig? pending = uveState.PendingConfig[ud];

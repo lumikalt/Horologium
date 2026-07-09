@@ -28,21 +28,21 @@ public class UveTests {
 
     // so.v.dp.w ud, rs1 — custom-1, funct7=0x56, funct3=0x2
     private static uint SoVDpW(int ud, int rs1) =>
-        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu);
 
     // so.a.fp ud, usrc1, usrc2 — custom-1; (funct7>>3, funct3) encodes the operation
     private static uint SoAFp(UveFpOp op, int ud, int usrc1, int usrc2) {
-        var (funct3, top4) = op switch {
+        (uint funct3, uint top4) = op switch {
             UveFpOp.Add => (1u, 0u),
             UveFpOp.Sub => (5u, 0u),
             UveFpOp.Mul => (1u, 1u),
             UveFpOp.Div => (5u, 1u),
             UveFpOp.Mac => (5u, 3u),
-            _ => throw new ArgumentOutOfRangeException(nameof(op)),
+            _           => throw new ArgumentOutOfRangeException(nameof(op)),
         };
         uint funct7 = top4 << 3;
-        return (uint)((funct7 << 25) | ((usrc2 & 0x1F) << 20) | ((usrc1 & 0x1F) << 15)
-             | (funct3 << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+        return (funct7 << 25) | (uint)((usrc2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
+             | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
 
     // UVE non-standard B-type: bits[31:29]=111, bit28=imm[12](sign), bits[27:22]=imm[10:5],
@@ -71,25 +71,25 @@ public class UveTests {
 
     // ss.sta.ld.w ud, rs1 — funct2=0, funct3=0b110 (isLoad=1, ew=4)
     private static uint SsStaLdW(int ud, int rs1) =>
-        (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // ss.sta.ld.* ud, rs1 — funct2=0, funct3 encodes load+ew
     private static uint SsStaLdEw(int ud, int rs1, uint funct3) =>
-        (uint)(((rs1 & 0x1F) << 15) | (funct3 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)((rs1 & 0x1F) << 15) | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu;
 
     // ss.sta.st.w ud, rs1 — funct2=0, funct3=0b010 (isLoad=0, ew=4)
     private static uint SsStaStW(int ud, int rs1) =>
-        (uint)(((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs1 & 0x1F) << 15) | (0x2u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // ss.app ud, rs1Offset, rs2, rs3 — funct2=1, funct3=0
     private static uint SsApp(int ud, int rs1Offset, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | (0x1u << 25) | ((rs2 & 0x1F) << 20)
-             | ((rs1Offset & 0x1F) << 15) | (0x0u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs3 & 0x1F) << 27) | (0x1u << 25) | (uint)((rs2 & 0x1F) << 20)
+             | (uint)((rs1Offset & 0x1F) << 15) | (0x0u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // ss.end ud, rs1Offset, rs2, rs3 — funct2=2, funct3=0
     private static uint SsEnd(int ud, int rs1Offset, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | ((rs2 & 0x1F) << 20)
-             | ((rs1Offset & 0x1F) << 15) | (0x0u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | (uint)((rs2 & 0x1F) << 20)
+             | (uint)((rs1Offset & 0x1F) << 15) | (0x0u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // ss.app.mod: funct2=1, funct3=4; rs1=dimIndex literal, rs2=behavior<<2|spikeTarget, rs3=disp reg
     // Spike target encoding: Size=0, Stride=1, Offset=2 (differs from Horologium: Size=0, Offset=1, Stride=2)
@@ -104,11 +104,11 @@ public class UveTests {
             StreamModifierTarget.Size   => 0,
             StreamModifierTarget.Stride => 1,
             StreamModifierTarget.Offset => 2,
-            _ => throw new ArgumentOutOfRangeException(nameof(target)),
+            _                           => throw new ArgumentOutOfRangeException(nameof(target)),
         };
         int rs2Fixed = ((int)behavior << 2) | spikeTarget;
-        return (uint)(((rs3Disp & 0x1F) << 27) | (0x1u << 25) | ((rs2Fixed & 0x1F) << 20)
-                    | ((dimIndex & 0x1F) << 15) | (0x4u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        return (uint)(((rs3Disp & 0x1F) << 27) | (0x1u << 25) | (uint)((rs2Fixed & 0x1F) << 20)
+                    | (uint)((dimIndex & 0x1F) << 15) | (0x4u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
     }
 
     // EBREAK — halts the pipeline
@@ -539,7 +539,7 @@ public class UveTests {
             SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // u1 = load X
             SsStaLdW(2, 2), SsEnd(2, 0, 3, 4), // u2 = load Y
             SsStaStW(3, 2), SsEnd(3, 0, 3, 4), // u3 = store Y
-            SoVDpW(4, 5),                        // u4 = broadcast A
+            SoVDpW(4, 5),                      // u4 = broadcast A
             // loop: u5 = u1[i]*u4; u3[i] = u2[i]+u5; branch back -8 bytes (2 instrs)
             SoAFp(UveFpOp.Mul, 5, 1, 4),
             SoAFp(UveFpOp.Add, 3, 2, 5),
@@ -643,16 +643,11 @@ public class UveTests {
             SsEnd(1, 0, 5, 6), // outer dim: count=x5(3), stride=x6(32); activate
             // 1D store stream u2: ss.sta.st.w + ss.end
             SsStaStW(2, 2), SsEnd(2, 0, 8, 4), // count=x8(12), stride=x4(4)
-            SoVDpW(4, 7),      // u4 = broadcast Scalar
+            SoVDpW(4, 7),
+            SoAFp(UveFpOp.Mul, 2, 1, 4), // u2[i] = u1[elem] * u4
+            SoBNc(1, -4),                // loop while u1 not done
+            EBreak(),                    // u4 = broadcast Scalar
         };
-
-        // Single loop: so.a.mul.fp u2, u1, u4 then so.b.nc u1, -4 (back 1 instr)
-        int loopStart = words.Count;
-
-        words.Add(SoAFp(UveFpOp.Mul, 2, 1, 4)); // u2[i] = u1[elem] * u4
-        words.Add(SoBNc(1, -4));                 // loop while u1 not done
-
-        words.Add(EBreak());
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
@@ -717,12 +712,12 @@ public class UveTests {
             // 1D load stream u1: ss.sta.ld.w + ss.end
             SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // count=x3(12), stride=x4(4)
             // 2D store stream u2: ss.sta.st.w + ss.app (inner) + ss.end (outer)
-            SsStaStW(2, 2),    // base=x2
-            SsApp(2, 0, 5, 4), // inner dim: count=x5(4 cols), stride=x4(4)
-            SsEnd(2, 0, 6, 8), // outer dim: count=x6(3 rows), stride=x8(32); activate
-            SoVDpW(4, 7),      // u4 = 1.0f
+            SsStaStW(2, 2),              // base=x2
+            SsApp(2, 0, 5, 4),           // inner dim: count=x5(4 cols), stride=x4(4)
+            SsEnd(2, 0, 6, 8),           // outer dim: count=x6(3 rows), stride=x8(32); activate
+            SoVDpW(4, 7),                // u4 = 1.0f
             SoAFp(UveFpOp.Mul, 2, 1, 4), // u2[dst] = u1[i] * u4
-            SoBNc(1, -4),                 // loop while u1 not exhausted
+            SoBNc(1, -4),                // loop while u1 not exhausted
             EBreak(),
         };
 
@@ -809,22 +804,22 @@ public class UveTests {
         // Loop: so.b.nc u1 (whole-stream done check; ndc_1/dim=0 doesn't exist in Spike encoding)
         uint[] words = [
             Addi(1, 0, (int)matBase), // [0]
-            Addi(2, 0, n),            // [1] x2 = N
-            Addi(3, 0, n * 4),        // [2] x3 = N*4
-            Addi(4, 0, 4),            // [3] x4 = 4
-            Addi(5, 0, 1),            // [4] x5 = 1 (disp)
-            SoVDpW(2, 0),             // [5] u2 = 0.0f
-            SsStaLdW(1, 1),           // [6] base=x1
-            SsApp(1, 0, 5, 4),        // [7] D0: count=x5(1), stride=x4(4)
+            Addi(2, 0, n), // [1] x2 = N
+            Addi(3, 0, n * 4), // [2] x3 = N*4
+            Addi(4, 0, 4), // [3] x4 = 4
+            Addi(5, 0, 1), // [4] x5 = 1 (disp)
+            SoVDpW(2, 0), // [5] u2 = 0.0f
+            SsStaLdW(1, 1), // [6] base=x1
+            SsApp(1, 0, 5, 4), // [7] D0: count=x5(1), stride=x4(4)
             SsAppMod(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), // [8] mod D0.Size += x5
-            SsEnd(1, 0, 2, 3),        // [9] D1: count=x2(N), stride=x3(N*4); activate
+            SsEnd(1, 0, 2, 3), // [9] D1: count=x2(N), stride=x3(N*4); activate
             SoAFp(UveFpOp.Add, 2, 1, 2), // [10] u2 += elem
-            SoBNc(1, -4),             // [11] loop while stream active (back 1 instr)
+            SoBNc(1, -4), // [11] loop while stream active (back 1 instr)
             Addi(9, 0, (int)resultAddr), // [12]
-            Addi(10, 0, 1),           // [13]
+            Addi(10, 0, 1), // [13]
             SsStaStW(3, 9), SsEnd(3, 0, 10, 4), // [14,15] 1D store stream
             SoAFp(UveFpOp.Add, 3, 2, 0), // [16] write u2 to result
-            EBreak(),                 // [17]
+            EBreak(), // [17]
         ];
 
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));

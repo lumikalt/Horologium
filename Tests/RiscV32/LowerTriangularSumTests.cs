@@ -56,31 +56,33 @@ public class LowerTriangularSumTests {
 
     // SS.STA.LD.W ud, rs1 — funct2=0, funct3=0b110 (load, ew=4)
     private static uint SsStaLdW(int ud, int rs1) =>
-        (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // SS.STA.ST.W ud, rs1 — funct2=0, funct3=0b010 (store, ew=4)
     private static uint SsStaStW(int ud, int rs1) =>
-        (uint)(((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs1 & 0x1F) << 15) | (0x2u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // SS.END ud, rs1Offset, rs2, rs3 — funct2=2, funct3=0
     private static uint SsEnd(int ud, int rs1Offset, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | ((rs2 & 0x1F) << 20)
-             | ((rs1Offset & 0x1F) << 15) | (0x0u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | (uint)((rs2 & 0x1F) << 20)
+             | (uint)((rs1Offset & 0x1F) << 15) | (0x0u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
     // SO.V.DP.W ud, rs1 — custom-1, funct7=0x56, funct3=2
     private static uint SoVDpW(int ud, int rs1) =>
-        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu);
 
     // SO.A.ADD.FP ud, usrc1, usrc2 — Add: (funct7>>3, funct3)=(0,1)
     private static uint SoAAddFp(int ud, int usrc1, int usrc2) =>
         (uint)(((usrc2 & 0x1F) << 20) | ((usrc1 & 0x1F) << 15)
-             | (0x1u << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+                                      | (0x1u << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu);
 
     // SO.B.NC urs, imm — UVE B-type: bits[31:29]=111, bit28=imm[12], bit20=1(notDone), funct3=0
     private static uint SoBNc(int urs, int imm) {
         var i = (uint)imm;
-        uint bit12 = (i >> 12) & 1, bit11 = (i >> 11) & 1,
-             bits10To5 = (i >> 5) & 0x3F, bits4To1 = (i >> 1) & 0xF;
+        uint bit12 = (i >> 12) & 1,
+             bit11 = (i >> 11) & 1,
+             bits10To5 = (i >> 5) & 0x3F,
+             bits4To1 = (i >> 1) & 0xF;
         return (0b111u << 29) | (bit12 << 28) | (bits10To5 << 22) | (0b00001u << 20)
              | ((uint)(urs & 0x1F) << 15) | (bits4To1 << 8) | (bit11 << 7) | 0x2Bu;
     }
