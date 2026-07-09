@@ -63,7 +63,7 @@ public sealed record TrainConfig(
     int MshrCapacity = 0,              // 0 = unlimited outstanding misses
     string? DPrefetcher = null,        // null | "next_line" | "stride" | "stream" | "ipcp" | "pythia" | "berti" | "sms"
     int DPrefetcherTableSize = 64,
-    int DPrefetcherDepth = 8,         // stream buffer depth (lines ahead); ignored for other prefetchers
+    int DPrefetcherDepth = 8, // stream buffer depth (lines ahead); ignored for other prefetchers
     int DPrefetchLatency = 0, // cycles until a prefetched line is usable; 0 = free/instant
     string? CacheReplacementPolicy
         = null // null/"lru" | "mru" | "clock" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc" | "random" | "fifo" | "plru" | "hawkeye"

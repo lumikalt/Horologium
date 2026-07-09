@@ -11,7 +11,7 @@ public sealed class BertiPrefetcherTests {
 
     [Fact]
     public void Constructor_NonPow2BlockBytes_Throws() {
-        Assert.Throws<ArgumentException>(() => new BertiPrefetcher(blockBytes: 33));
+        Assert.Throws<ArgumentException>(() => new BertiPrefetcher(33));
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public sealed class BertiPrefetcherTests {
     public void SingleAccess_NoCrash_ReturnsZero() {
         var p = new BertiPrefetcher();
         Span<ulong> buf = stackalloc ulong[4];
-        int cnt = p.OnAccess(0x1000UL, 0x2000UL, wasHit: false, buf);
+        int cnt = p.OnAccess(0x1000UL, 0x2000UL, false, buf);
         Assert.Equal(0, cnt); // no HT history yet → nothing trained
     }
 
@@ -33,7 +33,7 @@ public sealed class BertiPrefetcherTests {
     public void SingleAccess_EmptySpan_NeverCrashes() {
         var p = new BertiPrefetcher();
         Span<ulong> empty = [];
-        int cnt = p.OnAccess(0x1000UL, 0x2000UL, wasHit: false, empty);
+        int cnt = p.OnAccess(0x1000UL, 0x2000UL, false, empty);
         Assert.Equal(0, cnt);
     }
 
@@ -44,10 +44,10 @@ public sealed class BertiPrefetcherTests {
         var p = new BertiPrefetcher();
         Span<ulong> buf = stackalloc ulong[4];
         for (var i = 0; i < 2000; i++) {
-            var pc   = (ulong)(0x1000 + (i % 64) * 4);
-            var addr = (ulong)(0x2000 + (i % 256) * 32);
+            var pc = (ulong)(0x1000 + i % 64 * 4);
+            var addr = (ulong)(0x2000 + i % 256 * 32);
             buf.Clear();
-            int cnt = p.OnAccess(pc, addr, wasHit: i % 3 == 0, buf);
+            int cnt = p.OnAccess(pc, addr, i % 3 == 0, buf);
             Assert.True(cnt is >= 0 and <= 4);
         }
     }
@@ -63,46 +63,48 @@ public sealed class BertiPrefetcherTests {
         //
         // wasHit is approximated the same way as PythiaPrefetcherTests: a circular
         // log of the last 40 issued prefetches; wasHit=true when any entry matches.
-        const int latency   = 10;
-        var p = new BertiPrefetcher(blockBytes: 32, latency: latency);
+        const int latency = 10;
+        var p = new BertiPrefetcher(32, latency);
         Span<ulong> buf = stackalloc ulong[4];
         const ulong pc = 0x1000UL;
         ulong addr = 200 * 32UL;
 
         const int trackLen = 40;
         var prefetchLog = new ulong[trackLen];
-        var logHead     = 0;
+        var logHead = 0;
 
         var forwardCount = 0;
         const int warmup = 2000;
-        const int check  = 200;
+        const int check = 200;
 
         for (var i = 0; i < warmup + check; i++) {
             var wasHit = false;
-            for (var j = 0; j < trackLen; j++) {
-                if (prefetchLog[j] != 0 && prefetchLog[j] == addr) { wasHit = true; break; }
-            }
+            for (var j = 0; j < trackLen; j++)
+                if (prefetchLog[j] != 0 && prefetchLog[j] == addr) {
+                    wasHit = true;
+                    break;
+                }
 
             buf.Clear();
             p.OnAccess(pc, addr, wasHit, buf);
 
-            foreach (ulong t in buf) {
+            foreach (ulong t in buf)
                 if (t != 0) {
                     prefetchLog[logHead % trackLen] = t;
                     logHead++;
                 }
-            }
 
-            if (i >= warmup) {
+            if (i >= warmup)
                 // Forward = strictly ahead, within 20-line range
                 if (buf[0] > addr && buf[0] <= addr + 20 * 32)
                     forwardCount++;
-            }
 
             addr += 32;
         }
 
-        Assert.True(forwardCount >= 150,
-            $"Convergence: expected ≥150 forward prefetches in last {check}, got {forwardCount}");
+        Assert.True(
+            forwardCount >= 150,
+            $"Convergence: expected ≥150 forward prefetches in last {check}, got {forwardCount}"
+        );
     }
 }

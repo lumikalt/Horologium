@@ -711,19 +711,26 @@ public class Rv32Executor : IExecutor {
                 ExecuteVsxseg(state, memory, numFields, vs3, rs1, vs2, idxSew, masked),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsLdW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3),
-            RvUveSsStW (var ud, var rs1, var rs2, var rs3)    => ExecuteUveSsSt(regs, ud, rs1, rs2, rs3),
-            RvUveSsStaLdW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(regs, ud, rs1, rs2, rs3, true),
-            RvUveSsStaStW (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsSta(regs, ud, rs1, rs2, rs3, false),
-            RvUveSsApp (var ud, var rs2, var rs3)             => ExecuteUveSsApp(regs, ud, rs2, rs3),
-            RvUveSsEnd (var ud, var rs2, var rs3)             => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
-            RvUveSsCfgVec (var ud)                            => ExecuteUveSsCfgVec(ud),
-            RvUveSoVDpW (var ud, var rs1)                     => ExecuteUveSoVDpW(regs, ud, rs1),
+            RvUveSsLdW (var ud, var rs1, var rs2, var rs3, var ew) => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3, ew),
+            RvUveSsStW (var ud, var rs1, var rs2, var rs3, var ew) => ExecuteUveSsSt(regs, ud, rs1, rs2, rs3, ew),
+            RvUveSsStaLdW (var ud, var rs1, var rs2, var rs3, var ew) => ExecuteUveSsSta(
+                regs, ud, rs1, rs2, rs3, true, ew
+            ),
+            RvUveSsStaStW (var ud, var rs1, var rs2, var rs3, var ew) => ExecuteUveSsSta(
+                regs, ud, rs1, rs2, rs3, false, ew
+            ),
+            RvUveSsApp (var ud, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs2, rs3),
+            RvUveSsEnd (var ud, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
+            RvUveSsCfgVec (var ud)                => ExecuteUveSsCfgVec(ud),
+            RvUveSoVDpW (var ud, var rs1)         => ExecuteUveSoVDpW(regs, ud, rs1),
+            RvUveSoVDupFpW (var ud, var fs1)      => ExecuteUveSoVDupFpW(regs, ud, fs1),
             RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
                 state, memory, fpOp, ud, usrc1, usrc2
             ),
             RvUveSoBNc (var urs, var imm)           => ExecuteUveSoBNc(state, pc, urs, imm),
             RvUveSoBNdc (var urs, var dim, var imm) => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
+            RvUveSoBc (var urs, var imm)            => ExecuteUveSoBc(state, pc, urs, imm),
+            RvUveSoBdc (var urs, var dim, var imm)  => ExecuteUveSoBdc(state, pc, urs, dim, imm),
 
             _ => throw new InvalidOperationException(
                 $"Unhandled RvOp: {op.GetType().Name}"
@@ -2975,27 +2982,21 @@ public class Rv32Executor : IExecutor {
 
     private static Rv32ArchState UState(IArchState state) => (Rv32ArchState)state;
 
-    // ss.ld.w ud, rs1_base, rs2_count, rs3_stride
+    // ss.ld.{w|b|h|d} ud, rs1_base, rs2_count, rs3_stride
     // Returns a StreamConfig so the pipeline can configure the streaming engine.
-    private static ExecuteResult ExecuteUveSsLd(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
+    private static ExecuteResult ExecuteUveSsLd(IRegisterFile regs, int ud, int rs1, int rs2, int rs3, int ew) {
         ulong baseAddr = regs.Read(rs1);
         var count = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
-            StreamConfig = (ud, new StreamDescriptor(baseAddr, 4, count, stride)),
+            StreamConfig = (ud, new StreamDescriptor(baseAddr, ew, count, stride)),
             SideEffect = s => { UState(s).UveState.RegKind[ud] = UveRegKind.LoadStream; },
         };
     }
 
-    // ss.st.w ud, rs1_base, rs2_count, rs3_stride
+    // ss.st.{w|b|h|d} ud, rs1_base, rs2_count, rs3_stride
     // Configures a store-stream cursor in UveState; no StreamingEngine involvement.
-    private static ExecuteResult ExecuteUveSsSt(
-        IRegisterFile regs,
-        int ud,
-        int rs1,
-        int rs2,
-        int rs3
-    ) {
+    private static ExecuteResult ExecuteUveSsSt(IRegisterFile regs, int ud, int rs1, int rs2, int rs3, int ew) {
         ulong baseAddr = regs.Read(rs1);
         var count = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
@@ -3003,7 +3004,7 @@ public class Rv32Executor : IExecutor {
             SideEffect = s => {
                 UveState uveState = UState(s).UveState;
                 var ss = new UveStoreStream {
-                    BaseAddress = baseAddr, ElementBytes = 4,
+                    BaseAddress = baseAddr, ElementBytes = ew,
                     Dimensions = [new StreamDimension(count, stride),],
                     Indices = [0,],
                 };
@@ -3017,6 +3018,18 @@ public class Rv32Executor : IExecutor {
     // so.v.dp.w ud, rs1 — broadcast float32 bits from integer register into u-reg scalar slot
     private static ExecuteResult ExecuteUveSoVDpW(IRegisterFile regs, int ud, int rs1) {
         float value = BitConverter.Int32BitsToSingle((int)(uint)regs.Read(rs1));
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState uveState = UState(s).UveState;
+                uveState.Scalars[ud] = value;
+                uveState.RegKind[ud] = UveRegKind.Scalar;
+            },
+        };
+    }
+
+    // so.v.dup.fp.w ud, fs1 — broadcast float32 from FP register (fs1 = unified-RF index = reg+32)
+    private static ExecuteResult ExecuteUveSoVDupFpW(IRegisterFile regs, int ud, int fs1) {
+        float value = BitConverter.Int32BitsToSingle((int)(uint)regs.Read(fs1));
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uveState = UState(s).UveState;
@@ -3070,17 +3083,24 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // so.b.nc urs, imm — branch (PC += imm) while stream urs is not exhausted
+    // sb.nc urs, imm — branch (PC += imm) while stream urs is not exhausted
     // The pipeline has already synced the exhaustion state into UveState via IUveScalars.
     private static ExecuteResult ExecuteUveSoBNc(IArchState state, ulong pc, int urs, int imm) {
         bool done = UState(state).UveState.StreamDone[urs];
-        bool taken = !done;
-        return taken
+        return !done
             ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)imm, }
             : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
     }
 
-    // ss.sta.ld.w / ss.sta.st.w — start multi-dim stream configuration.
+    // sb.c urs, imm — branch when stream urs IS exhausted (complete polarity of sb.nc)
+    private static ExecuteResult ExecuteUveSoBc(IArchState state, ulong pc, int urs, int imm) {
+        bool done = UState(state).UveState.StreamDone[urs];
+        return done
+            ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)imm, }
+            : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
+    }
+
+    // ss.sta.{ld|st}.{w|b|h|d} — start multi-dim stream configuration.
     // Creates a pending config with the first (innermost) dimension and stores in UveState.
     private static ExecuteResult ExecuteUveSsSta(
         IRegisterFile regs,
@@ -3088,7 +3108,8 @@ public class Rv32Executor : IExecutor {
         int rs1,
         int rs2,
         int rs3,
-        bool isLoad
+        bool isLoad,
+        int ew
     ) {
         ulong baseAddr = regs.Read(rs1);
         var count = (long)regs.Read(rs2);
@@ -3098,7 +3119,7 @@ public class Rv32Executor : IExecutor {
                 UveState uvs = UState(s).UveState;
                 var cfg = new PendingStreamConfig {
                     BaseAddress = baseAddr,
-                    ElementBytes = 4,
+                    ElementBytes = ew,
                     IsLoad = isLoad,
                 };
                 cfg.Dimensions.Add(new StreamDimension(count, stride));
@@ -3167,12 +3188,19 @@ public class Rv32Executor : IExecutor {
             },
         };
 
-    // so.b.ndc.D urs, imm — branch while dimension D of stream urs has not completed its pass.
+    // sb.ndc.D urs, imm — branch while dimension D of stream urs has not completed its pass.
     // The pipeline has already synced IsDimPassComplete into UveState.DimDone before this call.
     private static ExecuteResult ExecuteUveSoBNdc(IArchState state, ulong pc, int urs, int dim, int imm) {
         bool done = UState(state).UveState.DimDone[urs, dim];
-        bool taken = !done;
-        return taken
+        return !done
+            ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)imm, }
+            : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
+    }
+
+    // sb.dc.D urs, imm — branch when dimension D IS complete (complete polarity of sb.ndc)
+    private static ExecuteResult ExecuteUveSoBdc(IArchState state, ulong pc, int urs, int dim, int imm) {
+        bool done = UState(state).UveState.DimDone[urs, dim];
+        return done
             ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)imm, }
             : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
     }

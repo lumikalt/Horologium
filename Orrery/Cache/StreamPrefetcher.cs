@@ -49,7 +49,7 @@ public sealed class StreamPrefetcher : IPrefetcher {
         // rather than a separate buffer, so a demand hit on a prefetched line
         // is the equivalent of Jouppi's "stream buffer hit".  Not advancing on
         // hits would break the stream as soon as prefetching succeeds.
-        for (int i = 0; i < _streams.Length; i++) {
+        for (var i = 0; i < _streams.Length; i++) {
             if (!_streams[i].Valid) continue;
             if (lineBase != _streams[i].DemandLine + _blockBytes) continue;
 
@@ -63,6 +63,7 @@ public sealed class StreamPrefetcher : IPrefetcher {
                 _streams[i].PrefetchFront = front + _blockBytes;
                 return 1;
             }
+
             return 0; // frontier already Depth+ lines ahead — buffer full
         }
 
@@ -76,22 +77,25 @@ public sealed class StreamPrefetcher : IPrefetcher {
         _streams[slot].DemandLine = lineBase;
         _streams[slot].LruAge = ++_tick;
 
-        int count = 0;
+        var count = 0;
         ulong next = lineBase + _blockBytes;
         while (count < _depth && count < targets.Length) {
             targets[count++] = next;
             next += _blockBytes;
         }
+
         _streams[slot].PrefetchFront = next;
         return count;
     }
 
     private int FindLruSlot() {
-        for (int i = 0; i < _streams.Length; i++)
-            if (!_streams[i].Valid) return i;
-        int oldest = 0;
-        for (int i = 1; i < _streams.Length; i++)
-            if (_streams[i].LruAge < _streams[oldest].LruAge) oldest = i;
+        for (var i = 0; i < _streams.Length; i++)
+            if (!_streams[i].Valid)
+                return i;
+        var oldest = 0;
+        for (var i = 1; i < _streams.Length; i++)
+            if (_streams[i].LruAge < _streams[oldest].LruAge)
+                oldest = i;
         return oldest;
     }
 }

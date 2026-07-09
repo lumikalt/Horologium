@@ -11,13 +11,13 @@ public sealed class SmsPrefetcherTests {
 
     [Fact]
     public void Constructor_NonPow2BlockBytes_Throws() {
-        Assert.Throws<ArgumentException>(() => new SmsPrefetcher(blockBytes: 33));
+        Assert.Throws<ArgumentException>(() => new SmsPrefetcher(33));
     }
 
     [Fact]
     public void Constructor_TooSmallBlockBytes_Throws() {
         // blockBytes=16 → 2048/16=128 blocks, overflow ulong pattern
-        Assert.Throws<ArgumentException>(() => new SmsPrefetcher(blockBytes: 16));
+        Assert.Throws<ArgumentException>(() => new SmsPrefetcher(16));
     }
 
     // ── Single-access sanity ──────────────────────────────────────────────────
@@ -26,7 +26,7 @@ public sealed class SmsPrefetcherTests {
     public void TriggerAccess_NoPhtEntry_ReturnsZero() {
         var sms = new SmsPrefetcher();
         Span<ulong> buf = stackalloc ulong[8];
-        int cnt = sms.OnAccess(0x1000UL, 0x8000UL, wasHit: false, buf);
+        int cnt = sms.OnAccess(0x1000UL, 0x8000UL, false, buf);
         Assert.Equal(0, cnt); // PHT is empty
     }
 
@@ -34,7 +34,7 @@ public sealed class SmsPrefetcherTests {
     public void EmptyTargetSpan_NoCrash() {
         var sms = new SmsPrefetcher();
         Span<ulong> empty = [];
-        int cnt = sms.OnAccess(0x1000UL, 0x8000UL, wasHit: false, empty);
+        int cnt = sms.OnAccess(0x1000UL, 0x8000UL, false, empty);
         Assert.Equal(0, cnt);
     }
 
@@ -51,7 +51,7 @@ public sealed class SmsPrefetcherTests {
             var region = (ulong)(i % 200 * regionBytes);
             var offset = (ulong)(i % 64 * blockBytes);
             buf.Clear();
-            int cnt = sms.OnAccess(pc, region + offset, wasHit: i % 4 == 0, buf);
+            int cnt = sms.OnAccess(pc, region + offset, i % 4 == 0, buf);
             Assert.True(cnt >= 0 && cnt <= buf.Length);
         }
     }
@@ -77,18 +77,18 @@ public sealed class SmsPrefetcherTests {
         for (var r = 0; r < accumSize + 1; r++) {
             var regionBase = (ulong)(r * regionBytes);
             // Trigger (offset 0) → filter allocation + PHT lookup (empty at first)
-            sms.OnAccess(triggerPc, regionBase, wasHit: false, buf);
+            sms.OnAccess(triggerPc, regionBase, false, buf);
             // Offset 1 → promotes filter entry to accumulation table
-            sms.OnAccess(triggerPc, regionBase + 1 * blockBytes, wasHit: false, buf);
+            sms.OnAccess(triggerPc, regionBase + 1 * blockBytes, false, buf);
             // Offset 2 → sets third bit in accumulation pattern
-            sms.OnAccess(triggerPc, regionBase + 2 * (ulong)blockBytes, wasHit: false, buf);
+            sms.OnAccess(triggerPc, regionBase + 2 * (ulong)blockBytes, false, buf);
         }
 
         // At this point the PHT has (TriggerPc, offset=0) → pattern {0,1,2}.
         // A trigger access to any new region should produce prefetches for offsets 1 and 2.
         const ulong newBase = (accumSize + 1) * regionBytes;
         Array.Clear(buf);
-        int count = sms.OnAccess(triggerPc, newBase, wasHit: false, buf);
+        int count = sms.OnAccess(triggerPc, newBase, false, buf);
 
         Assert.True(count >= 2, $"Expected ≥2 prefetches, got {count}");
         Assert.Contains(newBase + 1 * (ulong)blockBytes, buf[..count]);
@@ -108,13 +108,13 @@ public sealed class SmsPrefetcherTests {
 
         for (var r = 0; r < accumSize + 1; r++) {
             var b = (ulong)(r * regionBytes);
-            sms.OnAccess(pc, b, wasHit: false, buf);
-            sms.OnAccess(pc, b + 1 * (ulong)blockBytes, wasHit: false, buf);
+            sms.OnAccess(pc, b, false, buf);
+            sms.OnAccess(pc, b + 1 * (ulong)blockBytes, false, buf);
         }
 
         const ulong newBase = (accumSize + 1) * regionBytes;
         Array.Clear(buf);
-        int count = sms.OnAccess(pc, newBase, wasHit: false, buf);
+        int count = sms.OnAccess(pc, newBase, false, buf);
 
         Assert.True(count >= 1);
         // The trigger block (offset 0 = newBase) must not be in prefetch list

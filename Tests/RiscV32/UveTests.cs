@@ -62,6 +62,21 @@ public class UveTests {
     // so.b.ndc.D urs, imm — B-type, opcode=0x2B, funct3=0x5; dim D encoded in rs2 field
     private static uint SoBNdcD(int urs, int dim, int imm) => BTypeImm(imm, (uint)urs, (uint)dim, 0x5);
 
+    // sb.c urs, imm — B-type, opcode=0x2B, funct3=0x6 (complete polarity)
+    private static uint SoBc(int urs, int imm) => BTypeImm(imm, (uint)urs, 0, 0x6);
+
+    // sb.dc.D urs, imm — B-type, opcode=0x2B, funct3=0x7; dim D encoded in rs2 field
+    private static uint SoBdcD(int urs, int dim, int imm) => BTypeImm(imm, (uint)urs, (uint)dim, 0x7);
+
+    // so.v.dup.fp.w ud, fs1 — R-type, opcode=0x2B, funct3=0x0, funct7[0]=1
+    private static uint SoVDupFpW(int ud, int fs1) =>
+        (uint)((1 << 25) | ((fs1 & 0x1F) << 20) | ((fs1 & 0x1F) << 15) | (0x0 << 12) | ((ud & 0x1F) << 7) | 0x2B);
+
+    // ss.ld.b/h/d — R4-type, opcode=0x0B, funct3=0x0; funct2 encodes element width
+    private static uint SsLdBytes(int ud, int rs1, int rs2, int rs3, int funct2) =>
+        (uint)(((rs3 & 0x1F) << 27) | ((funct2 & 0x3) << 25) | ((rs2 & 0x1F) << 20)
+             | ((rs1 & 0x1F) << 15) | (0x0 << 12) | ((ud & 0x1F) << 7) | 0x0B);
+
     // ss.sta.ld.w ud, rs1, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x2
     private static uint SsStaLdW(int ud, int rs1, int rs2, int rs3) =>
         (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
@@ -357,6 +372,191 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoBNdc(2, 0, -8), state);
 
         Assert.False(er.BranchTaken);
+    }
+
+    // ── sb.c / sb.dc tests ────────────────────────────────────────────────────
+
+    [Fact]
+    public void SoBc_TakenWhenDone() {
+        var state = new Rv32ArchState();
+        state.UveState.StreamDone[3] = true;
+
+        ExecuteResult er = Exec(new RvUveSoBc(3, 16), state);
+
+        Assert.True(er.BranchTaken);
+        Assert.Equal(0x1000UL + 16UL, er.BranchTarget);
+    }
+
+    [Fact]
+    public void SoBc_NotTakenWhenNotDone() {
+        var state = new Rv32ArchState();
+        state.UveState.StreamDone[3] = false;
+
+        ExecuteResult er = Exec(new RvUveSoBc(3, 16), state);
+
+        Assert.False(er.BranchTaken);
+    }
+
+    [Fact]
+    public void SoBdc_TakenWhenDimDone() {
+        var state = new Rv32ArchState();
+        state.UveState.DimDone[1, 2] = true;
+
+        ExecuteResult er = Exec(new RvUveSoBdc(1, 2, -20), state);
+
+        Assert.True(er.BranchTaken);
+        Assert.Equal(0x1000UL - 20UL, er.BranchTarget);
+    }
+
+    [Fact]
+    public void SoBdc_NotTakenWhenDimNotDone() {
+        var state = new Rv32ArchState();
+        state.UveState.DimDone[1, 2] = false;
+
+        ExecuteResult er = Exec(new RvUveSoBdc(1, 2, -20), state);
+
+        Assert.False(er.BranchTaken);
+    }
+
+    [Fact]
+    public void Decoder_SoBc_Roundtrip() {
+        var dec = new Rv32Decoder();
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoBc(5, 24)));
+
+        ITooth tooth = dec.Decode(0, mem);
+
+        Assert.IsType<RvUveSoBc>(tooth.Payload);
+        var op = (RvUveSoBc)tooth.Payload!;
+        Assert.Equal(5, op.Urs);
+        Assert.Equal(24, op.Imm);
+    }
+
+    [Fact]
+    public void Decoder_SoBdcD_Roundtrip() {
+        var dec = new Rv32Decoder();
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoBdcD(2, 3, -16)));
+
+        ITooth tooth = dec.Decode(0, mem);
+
+        Assert.IsType<RvUveSoBdc>(tooth.Payload);
+        var op = (RvUveSoBdc)tooth.Payload!;
+        Assert.Equal(2, op.Urs);
+        Assert.Equal(3, op.Dim);
+        Assert.Equal(-16, op.Imm);
+    }
+
+    // ── so.v.dup.fp.w tests ───────────────────────────────────────────────────
+
+    [Fact]
+    public void SoVDupFpW_BroadcastsFromFpReg() {
+        var state = new Rv32ArchState();
+        // FP register f2 lives at unified-RF index 34 (= 2 + 32)
+        state.IntegerRegisters.Write(34, (uint)BitConverter.SingleToInt32Bits(1.5f));
+
+        ExecuteResult er = Exec(new RvUveSoVDupFpW(6, 34), state); // fs1=34 = f2
+        er.SideEffect?.Invoke(state);
+
+        Assert.Equal(1.5f, state.UveState.Scalars[6], 4);
+        Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[6]);
+    }
+
+    [Fact]
+    public void Decoder_SoVDupFpW_Roundtrip() {
+        var dec = new Rv32Decoder();
+        var mem = new FlatMemory(16);
+        // fs1 = f3 → rs1=3 in the encoding; unified index is 3+32=35
+        mem.Load(0, BitConverter.GetBytes(SoVDupFpW(7, 3)));
+
+        ITooth tooth = dec.Decode(0, mem);
+
+        Assert.IsType<RvUveSoVDupFpW>(tooth.Payload);
+        var op = (RvUveSoVDupFpW)tooth.Payload!;
+        Assert.Equal(7, op.Ud);
+        Assert.Equal(35, op.Fs1); // rs1=3 → unified index 3+32=35
+    }
+
+    // ── Non-word element widths tests ─────────────────────────────────────────
+
+    [Fact]
+    public void Decoder_SsLdB_DecodesElementBytes1() {
+        var dec = new Rv32Decoder();
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SsLdBytes(1, 2, 3, 4, 1))); // .b = 1 byte
+
+        ITooth tooth = dec.Decode(0, mem);
+
+        var op = Assert.IsType<RvUveSsLdW>(tooth.Payload);
+        Assert.Equal(1, op.ElementBytes);
+    }
+
+    [Fact]
+    public void Decoder_SsLdH_DecodesElementBytes2() {
+        var dec = new Rv32Decoder();
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SsLdBytes(1, 2, 3, 4, 2))); // .h = 2 bytes
+
+        ITooth tooth = dec.Decode(0, mem);
+
+        var op = Assert.IsType<RvUveSsLdW>(tooth.Payload);
+        Assert.Equal(2, op.ElementBytes);
+    }
+
+    [Fact]
+    public void Decoder_SsLdD_DecodesElementBytes8() {
+        var dec = new Rv32Decoder();
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SsLdBytes(1, 2, 3, 4, 3))); // .d = 8 bytes
+
+        ITooth tooth = dec.Decode(0, mem);
+
+        var op = Assert.IsType<RvUveSsLdW>(tooth.Payload);
+        Assert.Equal(8, op.ElementBytes);
+    }
+
+    [Fact]
+    public void SsLdB_StreamConfigCarriesElementBytes() {
+        var state = new Rv32ArchState();
+        state.IntegerRegisters.Write(1, 0x1000); // base
+        state.IntegerRegisters.Write(2, 8);      // count
+        state.IntegerRegisters.Write(3, 1);      // stride (1 byte)
+
+        ExecuteResult er = Exec(new RvUveSsLdW(0, 1, 2, 3, 1), state);
+
+        Assert.True(er.StreamConfig.HasValue);
+        Assert.Equal(1, er.StreamConfig!.Value.Descriptor.ElementBytes);
+    }
+
+    [Fact]
+    public void SsLdD_StreamConfigCarriesElementBytes() {
+        var state = new Rv32ArchState();
+        state.IntegerRegisters.Write(1, 0x2000); // base
+        state.IntegerRegisters.Write(2, 4);      // count
+        state.IntegerRegisters.Write(3, 8);      // stride (8 bytes)
+
+        ExecuteResult er = Exec(new RvUveSsLdW(0, 1, 2, 3, 8), state);
+
+        Assert.True(er.StreamConfig.HasValue);
+        Assert.Equal(8, er.StreamConfig!.Value.Descriptor.ElementBytes);
+    }
+
+    [Fact]
+    public void StreamingEngine_ByteElements_ReadsCorrectly() {
+        // A stream of 4 bytes read one-at-a-time from a tightly-packed array
+        var mem = new FlatMemory(16);
+        mem.Load(0, [0x0A, 0x0B, 0x0C, 0x0D,]);
+        var desc = new StreamDescriptor(0, 1, [new StreamDimension(4, 1),]);
+
+        var se = new StreamingEngine(8);
+        se.Configure(0, desc);
+        for (var i = 0; i < 8; i++) se.Step(mem);
+
+        Assert.Equal(0x0A, (int)(uint)se.Consume(0));
+        Assert.Equal(0x0B, (int)(uint)se.Consume(0));
+        Assert.Equal(0x0C, (int)(uint)se.Consume(0));
+        Assert.Equal(0x0D, (int)(uint)se.Consume(0));
+        Assert.True(se.IsExhausted(0));
     }
 
     [Fact]

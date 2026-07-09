@@ -69,8 +69,27 @@
 - [ ] Smnpm / Ssnpm: pointer masking.
 - [x] Supervisor and user-privileged execution (trap delegation, Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation through Sv32Walker.
-- [-] UVE (Unlimited Vector Extension) — 1D and multi-dimensional streams.
-  - [ ] Confirm what's missing. Indirect memory access optimization?
+- [ ] UVE (Unlimited Vector Extension) — 1D and multi-dimensional streams.
+  - [x] 1D load/store stream setup: `ss.ld.w` / `ss.st.w`
+  - [x] Multi-dim stream config sequence: `ss.sta.{ld,st}.w` → `ss.app` → `ss.end`
+  - [x] `ss.cfg.vec` instruction decode (full vector-delivery effect tracked separately below)
+  - [x] Scalar broadcast to u-reg: `so.v.dp.w`
+  - [x] FP arithmetic on stream elements: add/sub/mul/div/mac (`so.a.fp.*`)
+  - [x] Stream loop-control branches: `sb.nc` / `sb.ndc.(dim)`
+  - [x] Branch-if-complete variants: `sb.c` / `sb.dc.(dim)` — opposite polarity of the existing nc/ndc branches
+  - [ ] Integer (USG/SG) arithmetic variants of add/sub/mul/div/mac on stream elements
+  - [ ] Additional arithmetic ops: `abs`, element-wise `min`/`max`, `inc`/`dec`
+  - [ ] Logic ops: `and`, `or`, `xor`, `not`, `nand`, `nor`; vector-vector shifts `sll`/`srl`/`sra` and scalar-register forms `ssll`/`ssrl`/`ssra`
+  - [ ] Reduction ops: `adde`/`adde.acc` (element-sum → u-reg[0]), `sadde`/`fsadde` (→ integer/FP scalar reg), `mins`/`maxs`
+  - [x] Non-word element widths: byte (`.b`), halfword (`.h`), doubleword (`.d`) for `ss.ld` and `ss.st`
+  - [ ] Vector register manipulation: `mv`/`mvt` (move/transpose), `mvvs`/`mvsv.(width)` (vector↔scalar), `dp.(width)` (duplicate scalar to all elements)
+  - [ ] Explicit vector load/store: `ld.(width)` / `ld.(width).s` and `st` / `st.s` (non-stream bulk memory ops)
+  - [ ] Static dimension modifiers: `ss.app.mod` / `ss.end.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns without per-row reconfiguration)
+  - [ ] Indirect dimension modifiers: `ss.app.ind` / `ss.end.ind` — attach a `{Target, Behavior, StreamPointer}` modifier so a live stream drives the offset of another (gather/indirect access; confirmed UVE1 in ISCA 2021 paper)
+  - [ ] Stream suspend/resume/stop: `ss.suspend`, `ss.resume`, `ss.stop` — explicit stream lifecycle control for context switching and early termination
+  - [ ] Vector-length control: `ss.getvl` / `ss.setvl` — read and configure the active vector length for narrower-VL emulation and VL-aligned dimension padding
+  - [ ] Cache-level stream routing: `so.cfg.memx` — direct a stream to operate from L x rather than the default L2
+  - [x] FP register source for scalar broadcast: `so.v.dup.fp.w ud, fs1` — the paper's SAXPY uses an FP register (fa0) not an integer register; current `so.v.dp.w` only reads from integer rs1
 - [ ] UVE 2 (ISCA 2024): predicates, scatter/gather, widening/narrowing.
 - [ ] `ss.cfg.vec` effect: vector-width element delivery from load streams.
 - [x] SUM: honor `sstatus.SUM` so S-mode can access user pages.

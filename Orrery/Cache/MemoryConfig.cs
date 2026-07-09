@@ -4,7 +4,14 @@ using Orrery.Spec;
 namespace Orrery.Cache;
 
 public enum PrefetcherKind {
-    None, NextLine, Stride, Stream, Ipcp, Pythia, Berti, Sms,
+    None,
+    NextLine,
+    Stride,
+    Stream,
+    Ipcp,
+    Pythia,
+    Berti,
+    Sms,
 }
 
 public enum ReplacementPolicyKind {
@@ -194,12 +201,14 @@ public sealed record MemoryLayers(
             ? cfg.Prefetcher switch {
                 PrefetcherKind.NextLine => new NextLinePrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Stride   => new StridePrefetcher(cfg.PrefetcherTableSize),
-                PrefetcherKind.Stream   => new StreamPrefetcher(cfg.PrefetcherTableSize, cfg.PrefetcherDepth, cfg.CacheBlockBytes),
-                PrefetcherKind.Ipcp     => new IpcpPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Pythia   => new PythiaPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Berti    => new BertiPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Sms      => new SmsPrefetcher(cfg.CacheBlockBytes),
-                _                       => null,
+                PrefetcherKind.Stream => new StreamPrefetcher(
+                    cfg.PrefetcherTableSize, cfg.PrefetcherDepth, cfg.CacheBlockBytes
+                ),
+                PrefetcherKind.Ipcp   => new IpcpPrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Pythia => new PythiaPrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Berti  => new BertiPrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Sms    => new SmsPrefetcher(cfg.CacheBlockBytes),
+                _                     => null,
             }
             : null;
 
@@ -270,12 +279,14 @@ public sealed record MemoryLayers(
             prefetcher = s0.Prefetcher switch {
                 PrefetcherKind.NextLine => new NextLinePrefetcher(s0.BlockBytes),
                 PrefetcherKind.Stride   => new StridePrefetcher(s0.PrefetcherTableSize),
-                PrefetcherKind.Stream   => new StreamPrefetcher(s0.PrefetcherTableSize, s0.PrefetcherDepth, s0.BlockBytes),
-                PrefetcherKind.Ipcp     => new IpcpPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Pythia   => new PythiaPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Berti    => new BertiPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Sms      => new SmsPrefetcher(s0.BlockBytes),
-                _                       => null,
+                PrefetcherKind.Stream => new StreamPrefetcher(
+                    s0.PrefetcherTableSize, s0.PrefetcherDepth, s0.BlockBytes
+                ),
+                PrefetcherKind.Ipcp   => new IpcpPrefetcher(s0.BlockBytes),
+                PrefetcherKind.Pythia => new PythiaPrefetcher(s0.BlockBytes),
+                PrefetcherKind.Berti  => new BertiPrefetcher(s0.BlockBytes),
+                PrefetcherKind.Sms    => new SmsPrefetcher(s0.BlockBytes),
+                _                     => null,
             };
 
         // Map the first three caches to the named MemoryLayers stat fields (innermost first).

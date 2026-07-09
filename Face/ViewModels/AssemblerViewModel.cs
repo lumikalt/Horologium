@@ -1115,6 +1115,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2WbCapacity = L2CacheWbCapacity,
             };
         }
+
         PrefetcherKind prefKind = DCachePrefetcher switch {
             "next_line" => PrefetcherKind.NextLine,
             "stride"    => PrefetcherKind.Stride,

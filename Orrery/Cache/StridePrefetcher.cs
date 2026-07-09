@@ -52,6 +52,7 @@ public sealed class StridePrefetcher : IPrefetcher {
             targets[0] = (ulong)((long)address + e.Stride);
             return 1;
         }
+
         return 0;
     }
 }

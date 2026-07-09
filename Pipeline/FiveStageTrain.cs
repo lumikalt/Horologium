@@ -477,10 +477,12 @@ internal sealed class PipelineCore : Gear {
         if (DLayers.Prefetcher is not null && _loadTracker.HasRead) {
             Span<ulong> prefBuf = stackalloc ulong[32];
             bool wasHit = DLayers.Cache?.LastAccessWasHit ?? true;
-            int prefCount = DLayers.Prefetcher.OnAccess(_loadTracker.RequestPc, _loadTracker.ReadAddress, wasHit, prefBuf);
-            for (int k = 0; k < prefCount; k++)
-                DLayers.TryPrefetch(prefBuf[k]);
+            int prefCount = DLayers.Prefetcher.OnAccess(
+                _loadTracker.RequestPc, _loadTracker.ReadAddress, wasHit, prefBuf
+            );
+            for (var k = 0; k < prefCount; k++) DLayers.TryPrefetch(prefBuf[k]);
         }
+
         _mem.Inject(exMemLast);
         _mem.Cycle();
         _if.Cycle();
@@ -590,7 +592,12 @@ internal sealed class PipelineCore : Gear {
 
         public void Write(ulong address, ulong value, int bytes) => backing.Write(address, value, bytes);
         public void Load(ulong address, ReadOnlySpan<byte> data) => backing.Load(address, data);
-        public void SetRequestPc(ulong pc) { RequestPc = pc; backing.SetRequestPc(pc); }
+
+        public void SetRequestPc(ulong pc) {
+            RequestPc = pc;
+            backing.SetRequestPc(pc);
+        }
+
         public void InvalidateLine(ulong address) => backing.InvalidateLine(address);
         public void CleanLine(ulong address) => backing.CleanLine(address);
         public void FlushLine(ulong address) => backing.FlushLine(address);

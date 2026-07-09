@@ -833,7 +833,7 @@ internal sealed class OoOPipelineCore : Gear {
             if (result.HasLoadAccess && !result.LoadWasForwarded && DLayers.Prefetcher is not null) {
                 bool wasHit = DLayers.Cache?.LastAccessWasHit ?? true;
                 int prefCount = DLayers.Prefetcher.OnAccess(issued.Pc, result.LoadAddr, wasHit, prefBuf);
-                for (int k = 0; k < prefCount; k++) {
+                for (var k = 0; k < prefCount; k++) {
                     if (_mshrCapacity > 0 && _mshrUsed + InFlightPrefetches >= _mshrCapacity) break;
                     DLayers.TryPrefetch(prefBuf[k]);
                 }
