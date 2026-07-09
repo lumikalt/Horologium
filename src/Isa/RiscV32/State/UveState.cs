@@ -40,6 +40,13 @@ public sealed class UveState : IUveScalars {
     // Non-null while a configuration sequence is in progress for that u-reg.
     public readonly PendingStreamConfig?[] PendingConfig = new PendingStreamConfig?[UveState.Count];
 
+    // Per-u-reg suspension flag, set by ss.suspend and cleared by ss.resume.
+    public readonly bool[] Suspended = new bool[UveState.Count];
+
+    // Active vector length (element count per vector delivery tick).
+    // 0 = not yet configured (natural VL applies).
+    public int VectorLength;
+
     // IUveScalars implementation — used by the pipeline.
     public float GetScalar(int uid) => Scalars[uid];
     public void SetScalar(int uid, float value) => Scalars[uid] = value;
@@ -55,6 +62,8 @@ public sealed class UveState : IUveScalars {
         Array.Clear(StreamDone);
         Array.Clear(DimDone);
         Array.Clear(PendingConfig);
+        Array.Clear(Suspended);
+        VectorLength = 0;
     }
 }
 

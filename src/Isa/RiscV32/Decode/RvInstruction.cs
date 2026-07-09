@@ -1281,6 +1281,18 @@ public record RvUveSoAShiftS(UveShiftOp Op, int Ud, int Usrc1, int Rs2) : RvOp;
 // Rd is the unified-file index: integer reg (0–31) for sadde; FP reg (32–63, pre-offset) for fsadde.
 public record RvUveSoASadde(bool IsFp, bool Acc, int Rd, int Usrc1) : RvOp;
 
+// SO_C group (custom-1, funct7=0x58): stream lifecycle and vector-length control.
+// ss.stop ud — terminate stream in u-reg ud (SO_C_BREAK, funct3=3).
+public record RvUveSoCBreak(int Ud) : RvOp;
+// ss.suspend ud — suspend stream in u-reg ud (SO_C_SUSPD, funct3=1).
+public record RvUveSoCSuspd(int Ud) : RvOp;
+// ss.resume ud — resume suspended stream in u-reg ud (SO_C_RESUM, funct3=2).
+public record RvUveSoCResum(int Ud) : RvOp;
+// ss.getvl rd — read current vector length into integer register rd (SO_C_GETVL, funct3=7).
+public record RvUveSoCGetvl(int Rd) : RvOp;
+// ss.setvl rd, rs1 — set vector length from integer rs1, return old VL in rd (SO_C_SETVL, funct3=0).
+public record RvUveSoCSetvl(int Rd, int Rs1) : RvOp;
+
 // Stream branch (custom-1, opcode=0x2B, UVE B-type: bits[31:29]=111, bit28=imm[12]):
 //   funct3=0:     so.b.nc urs, imm — not exhausted (bit20=1) / so.b.c urs, imm — exhausted (bit20=0)
 //   funct3=D≥1:  so.b.ndc.D urs, imm — dim D not complete (bit20=1) / so.b.dc.D — dim D complete (bit20=0)

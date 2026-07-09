@@ -119,6 +119,19 @@ public class UveTests {
              | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
 
+    // SO_C group (custom-1, funct7=0x58): stream lifecycle and VL control.
+    // ss.stop ud  (SO_C_BREAK, funct3=3) / ss.suspend ud (SUSPD, 1) / ss.resume ud (RESUM, 2)
+    // ss.getvl rd (GETVL, funct3=7) / ss.setvl rd, rs1 (SETVL, funct3=0)
+    private static uint SoCBreak(int ud)           => SoC(3, ud, 0, 0);
+    private static uint SoCSuspd(int ud)           => SoC(1, ud, 0, 0);
+    private static uint SoCResum(int ud)           => SoC(2, ud, 0, 0);
+    private static uint SoCGetvl(int rd)           => SoC(7, rd, 0, 0);
+    private static uint SoCSetvl(int rd, int rs1)  => SoC(0, rd, rs1, 0);
+
+    private static uint SoC(int funct3, int rd, int rs1, int rs2) =>
+        (0x58u << 25) | (uint)((rs2 & 0x1F) << 20) | (uint)((rs1 & 0x1F) << 15)
+        | ((uint)(funct3 & 7) << 12) | (uint)((rd & 0x1F) << 7) | 0x2Bu;
+
     // sadde rd, usrc1 / fsadde rd, usrc1 — group 2 upper; funct3 upper bit set.
     // isFp=true → type=1 (FP, funct3=5); isFp=false → type=0 (US int, funct3=4).
     // acc=true → rs2=1 (accumulate); acc=false → rs2=0 (overwrite).
@@ -1534,5 +1547,96 @@ public class UveTests {
         Assert.Equal(3, op.Rd);
         Assert.Equal(2, op.Usrc1);
         Assert.Equal([3], tooth.SourceRegisters);  // rd read as accumulator
+    }
+
+    // ── SO_C: stream lifecycle and vector-length control ──────────────────────
+
+    [Fact]
+    public void SoCBreak_ClearsStreamAndMarksDone() {
+        var state = new Rv32ArchState();
+        state.UveState.RegKind[3] = UveRegKind.LoadStream;
+        ExecuteResult er = Exec(new RvUveSoCBreak(3), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(UveRegKind.None, state.UveState.RegKind[3]);
+        Assert.True(state.UveState.StreamDone[3]);
+        Assert.False(state.UveState.Suspended[3]);
+    }
+
+    [Fact]
+    public void SoCSuspd_SetsSuspendedFlag() {
+        var state = new Rv32ArchState();
+        ExecuteResult er = Exec(new RvUveSoCSuspd(5), state);
+        er.SideEffect?.Invoke(state);
+        Assert.True(state.UveState.Suspended[5]);
+    }
+
+    [Fact]
+    public void SoCResum_ClearsSuspendedFlag() {
+        var state = new Rv32ArchState();
+        state.UveState.Suspended[5] = true;
+        ExecuteResult er = Exec(new RvUveSoCResum(5), state);
+        er.SideEffect?.Invoke(state);
+        Assert.False(state.UveState.Suspended[5]);
+    }
+
+    [Fact]
+    public void SoCGetvl_ReadsCurrentVl() {
+        var state = new Rv32ArchState();
+        state.UveState.VectorLength = 16;
+        ExecuteResult er = Exec(new RvUveSoCGetvl(7), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(16u, (uint)state.IntegerRegisters.Read(7));
+    }
+
+    [Fact]
+    public void SoCSetvl_SetsVlAndReturnsOld() {
+        var state = new Rv32ArchState();
+        state.UveState.VectorLength = 8;
+        state.IntegerRegisters.Write(2, 32u);  // new VL
+        ExecuteResult er = Exec(new RvUveSoCSetvl(7, 2), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(32, state.UveState.VectorLength);
+        Assert.Equal(8u, (uint)state.IntegerRegisters.Read(7));  // old VL returned
+    }
+
+    [Fact]
+    public void Decoder_SoCBreak_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoCBreak(4)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoCBreak>(tooth.Payload);
+        Assert.Equal(4, op.Ud);
+        Assert.Equal(-1, tooth.DestinationRegister);
+    }
+
+    [Fact]
+    public void Decoder_SoCSuspd_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoCSuspd(6)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoCSuspd>(tooth.Payload);
+        Assert.Equal(6, op.Ud);
+    }
+
+    [Fact]
+    public void Decoder_SoCGetvl_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoCGetvl(5)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoCGetvl>(tooth.Payload);
+        Assert.Equal(5, op.Rd);
+        Assert.Equal(5, tooth.DestinationRegister);
+    }
+
+    [Fact]
+    public void Decoder_SoCSetvl_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoCSetvl(7, 3)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoCSetvl>(tooth.Payload);
+        Assert.Equal(7, op.Rd);
+        Assert.Equal(3, op.Rs1);
+        Assert.Equal(7, tooth.DestinationRegister);
+        Assert.Equal([3], tooth.SourceRegisters);
     }
 }

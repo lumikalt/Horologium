@@ -40,9 +40,9 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Offset register (rs1) in `ss.app`/`ss.end`: rs1*ew added to stream base address; accumulated across all ss.app instructions in a config sequence and applied at ss.end time
 - [ ] Indirect dimension modifiers: `ss.app.ind` / `ss.end.ind` — attach a `{Target, Behavior, StreamPointer}` modifier
   so a live stream drives the offset of another (gather/indirect access; confirmed UVE1 in ISCA 2021 paper)
-- [ ] Stream suspend/resume/stop: `ss.suspend`, `ss.resume`, `ss.stop` — explicit stream lifecycle control for context
+- [x] Stream suspend/resume/stop: `ss.suspend`, `ss.resume`, `ss.stop` — explicit stream lifecycle control for context
   switching and early termination
-- [ ] Vector-length control: `ss.getvl` / `ss.setvl` — read and configure the active vector length for narrower-VL
+- [x] Vector-length control: `ss.getvl` / `ss.setvl` — read and configure the active vector length for narrower-VL
   emulation and VL-aligned dimension padding
 - [ ] Cache-level stream routing: `so.cfg.memx` — direct a stream to operate from L x rather than the default L2
 - [ ] FP register source for scalar broadcast: `so.v.dup.fp.w ud, fs1` — the paper's SAXPY uses an FP register (fa0) not

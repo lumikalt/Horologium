@@ -2062,6 +2062,16 @@ public class Rv32Decoder : IDecoder {
             5 => UveArith(upper ? UveFpOp.Maxe : UveFpOp.Mine, upper ? UveIntOp.Maxe : UveIntOp.Mine, type, rd, rs1, -1),
             6 when upper && rs2 == 1 && type == 1 => new RvUveSoAFp(UveFpOp.Sqrt, rd, rs1, -1),
             6 => UveArith(upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1),
+            // Group 11 (funct7=0x58): SO_C — stream lifecycle and vector-length control.
+            // funct3 distinguishes ops; only rd (and rs1 for SETVL) are register fields.
+            11 => (int)funct3 switch {
+                0 => (RvOp)new RvUveSoCSetvl(rd, rs1),
+                1 => new RvUveSoCSuspd(rd),
+                2 => new RvUveSoCResum(rd),
+                3 => new RvUveSoCBreak(rd),
+                7 => new RvUveSoCGetvl(rd),
+                _ => throw new IllegalInstructionException(raw, $"Unknown UVE SO_C funct3=0x{funct3:X}"),
+            },
             12 => (int)funct3 switch {
                 0 => (RvOp)new RvUveSoALogic(UveLogicOp.Nand, rd, rs1, rs2),
                 1 => new RvUveSoALogic(UveLogicOp.And,  rd, rs1, rs2),
@@ -2083,16 +2093,18 @@ public class Rv32Decoder : IDecoder {
             _ => throw new IllegalInstructionException(raw, $"Unknown UVE op group={group} funct3=0x{funct3:X}"),
         };
 
-        // ShiftS uses an integer register for the shift amount.
-        // Sadde/fsadde write to a scalar reg (dest) and may read it when accumulating.
+        // ShiftS uses integer shift-amount; Sadde/fsadde and SO_C getvl/setvl write scalar regs.
         int dest = uvOp switch {
-            RvUveSoASadde s => s.Rd,
+            RvUveSoASadde s  => s.Rd,
+            RvUveSoCGetvl s  => s.Rd,
+            RvUveSoCSetvl s  => s.Rd,
             _ => -1,
         };
         int[] intSrcs = uvOp switch {
-            RvUveSoAShiftS ss                       => [ss.Rs2],
-            RvUveSoASadde { Acc: true } s           => [s.Rd],
-            _                                       => [],
+            RvUveSoAShiftS ss               => [ss.Rs2],
+            RvUveSoASadde { Acc: true } s   => [s.Rd],
+            RvUveSoCSetvl s                 => [s.Rs1],
+            _                               => [],
         };
         return new RvInstruction(pc, raw, dest, intSrcs, ToothClass.Uve, uvOp);
     }

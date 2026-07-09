@@ -736,6 +736,11 @@ public class Rv32Executor : IExecutor {
             RvUveSoASadde (var isFp, var acc, var rd, var usrc1) => ExecuteUveSoASadde(
                 state, regs, isFp, acc, rd, usrc1
             ),
+            RvUveSoCBreak (var ud)          => ExecuteUveSoCBreak(state, ud),
+            RvUveSoCSuspd (var ud)          => ExecuteUveSoCSuspd(state, ud),
+            RvUveSoCResum (var ud)          => ExecuteUveSoCResum(state, ud),
+            RvUveSoCGetvl (var rd)          => ExecuteUveSoCGetvl(state, rd),
+            RvUveSoCSetvl (var rd, var rs1) => ExecuteUveSoCSetvl(state, regs, rd, rs1),
             RvUveSoBNc (var urs, var imm)           => ExecuteUveSoBNc(state, pc, urs, imm),
             RvUveSoBNdc (var urs, var dim, var imm) => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
             RvUveSoBc (var urs, var imm)            => ExecuteUveSoBc(state, pc, urs, imm),
@@ -3154,6 +3159,41 @@ public class Rv32Executor : IExecutor {
             int result = acc ? (int)(uint)regs.Read(rd) + elem : elem;
             return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)result); } };
         }
+    }
+
+    // SO_C: stream lifecycle — stop / suspend / resume.
+    private static ExecuteResult ExecuteUveSoCBreak(IArchState state, int ud) =>
+        new() {
+            SideEffect = s => {
+                UveState uvs = UState(s).UveState;
+                uvs.StoreStreams[ud] = null;
+                uvs.RegKind[ud]  = UveRegKind.None;
+                uvs.StreamDone[ud] = true;
+                uvs.Suspended[ud]  = false;
+            },
+        };
+
+    private static ExecuteResult ExecuteUveSoCSuspd(IArchState state, int ud) =>
+        new() { SideEffect = s => { UState(s).UveState.Suspended[ud] = true; } };
+
+    private static ExecuteResult ExecuteUveSoCResum(IArchState state, int ud) =>
+        new() { SideEffect = s => { UState(s).UveState.Suspended[ud] = false; } };
+
+    // SO_C: vector-length control — getvl / setvl.
+    private static ExecuteResult ExecuteUveSoCGetvl(IArchState state, int rd) {
+        int vl = UState(state).UveState.VectorLength;
+        return new() { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)vl); } };
+    }
+
+    private static ExecuteResult ExecuteUveSoCSetvl(IArchState state, IRegisterFile regs, int rd, int rs1) {
+        int oldVl = UState(state).UveState.VectorLength;
+        int newVl = (int)(uint)regs.Read(rs1);
+        return new() {
+            SideEffect = s => {
+                UState(s).UveState.VectorLength = newVl;
+                UState(s).IntegerRegisters.Write(rd, (uint)oldVl);
+            },
+        };
     }
 
     // Shared write-back for all so.a.* ops: if ud is a store stream, write to memory and
