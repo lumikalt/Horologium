@@ -711,25 +711,13 @@ public class Rv32Executor : IExecutor {
                 ExecuteVsxseg(state, memory, numFields, vs3, rs1, vs2, idxSew, masked),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsLdW (var ud, var rs1, var rs2, var rs3, var ew) => ExecuteUveSsLd(regs, ud, rs1, rs2, rs3, ew),
-            RvUveSsStW (var ud, var rs1, var rs2, var rs3, var ew) => ExecuteUveSsSt(regs, ud, rs1, rs2, rs3, ew),
-            RvUveSsStaLdW (var ud, var rs1, var rs2, var rs3, var ew) => ExecuteUveSsSta(
-                regs, ud, rs1, rs2, rs3, true, ew
-            ),
-            RvUveSsStaStW (var ud, var rs1, var rs2, var rs3, var ew) => ExecuteUveSsSta(
-                regs, ud, rs1, rs2, rs3, false, ew
-            ),
-            RvUveSsApp (var ud, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs2, rs3),
-            RvUveSsEnd (var ud, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs2, rs3),
-            RvUveSsAppMod (var ud, var rs2, var rs3, var target, var behavior) => ExecuteUveSsAppMod(
-                regs, ud, rs2, rs3, target, behavior
-            ),
-            RvUveSsEndMod (var ud, var rs2, var rs3, var target, var behavior) => ExecuteUveSsEndMod(
-                state, regs, ud, rs2, rs3, target, behavior
-            ),
-            RvUveSsCfgVec (var ud)           => ExecuteUveSsCfgVec(ud),
+            RvUveSsStaLdW (var ud, var rs1, var ew) => ExecuteUveSsSta(regs, ud, rs1, true, ew),
+            RvUveSsStaStW (var ud, var rs1, var ew) => ExecuteUveSsSta(regs, ud, rs1, false, ew),
+            RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
+            RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
+            RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp) =>
+                ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp),
             RvUveSoVDpW (var ud, var rs1)    => ExecuteUveSoVDpW(regs, ud, rs1),
-            RvUveSoVDupFpW (var ud, var fs1) => ExecuteUveSoVDupFpW(regs, ud, fs1),
             RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
                 state, memory, fpOp, ud, usrc1, usrc2
             ),
@@ -2988,54 +2976,9 @@ public class Rv32Executor : IExecutor {
 
     private static Rv32ArchState UState(IArchState state) => (Rv32ArchState)state;
 
-    // ss.ld.{w|b|h|d} ud, rs1_base, rs2_count, rs3_stride
-    // Returns a StreamConfig so the pipeline can configure the streaming engine.
-    private static ExecuteResult ExecuteUveSsLd(IRegisterFile regs, int ud, int rs1, int rs2, int rs3, int ew) {
-        ulong baseAddr = regs.Read(rs1);
-        var count = (long)regs.Read(rs2);
-        var stride = (long)regs.Read(rs3);
-        return new ExecuteResult {
-            StreamConfig = (ud, new StreamDescriptor(baseAddr, ew, count, stride)),
-            SideEffect = s => { UState(s).UveState.RegKind[ud] = UveRegKind.LoadStream; },
-        };
-    }
-
-    // ss.st.{w|b|h|d} ud, rs1_base, rs2_count, rs3_stride
-    // Configures a store-stream cursor in UveState; no StreamingEngine involvement.
-    private static ExecuteResult ExecuteUveSsSt(IRegisterFile regs, int ud, int rs1, int rs2, int rs3, int ew) {
-        ulong baseAddr = regs.Read(rs1);
-        var count = (long)regs.Read(rs2);
-        var stride = (long)regs.Read(rs3);
-        return new ExecuteResult {
-            SideEffect = s => {
-                UveState uveState = UState(s).UveState;
-                var ss = new UveStoreStream {
-                    BaseAddress = baseAddr, ElementBytes = ew,
-                    Dimensions = [new StreamDimension(count, stride),],
-                    Indices = [0,],
-                };
-                ss.Initialize();
-                uveState.StoreStreams[ud] = ss;
-                uveState.RegKind[ud] = UveRegKind.StoreStream;
-            },
-        };
-    }
-
     // so.v.dp.w ud, rs1 — broadcast float32 bits from integer register into u-reg scalar slot
     private static ExecuteResult ExecuteUveSoVDpW(IRegisterFile regs, int ud, int rs1) {
         float value = BitConverter.Int32BitsToSingle((int)(uint)regs.Read(rs1));
-        return new ExecuteResult {
-            SideEffect = s => {
-                UveState uveState = UState(s).UveState;
-                uveState.Scalars[ud] = value;
-                uveState.RegKind[ud] = UveRegKind.Scalar;
-            },
-        };
-    }
-
-    // so.v.dup.fp.w ud, fs1 — broadcast float32 from FP register (fs1 = unified-RF index = reg+32)
-    private static ExecuteResult ExecuteUveSoVDupFpW(IRegisterFile regs, int ud, int fs1) {
-        float value = BitConverter.Int32BitsToSingle((int)(uint)regs.Read(fs1));
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uveState = UState(s).UveState;
@@ -3106,37 +3049,23 @@ public class Rv32Executor : IExecutor {
             : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
     }
 
-    // ss.sta.{ld|st}.{w|b|h|d} — start multi-dim stream configuration.
-    // Creates a pending config with the first (innermost) dimension and stores in UveState.
-    private static ExecuteResult ExecuteUveSsSta(
-        IRegisterFile regs,
-        int ud,
-        int rs1,
-        int rs2,
-        int rs3,
-        bool isLoad,
-        int ew
-    ) {
+    // ss.sta.{ld|st}.* — start multi-dim stream configuration. Sets base and element width; no dimension added.
+    private static ExecuteResult ExecuteUveSsSta(IRegisterFile regs, int ud, int rs1, bool isLoad, int ew) {
         ulong baseAddr = regs.Read(rs1);
-        var count = (long)regs.Read(rs2);
-        var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uvs = UState(s).UveState;
-                var cfg = new PendingStreamConfig {
-                    BaseAddress = baseAddr,
-                    ElementBytes = ew,
-                    IsLoad = isLoad,
+                uvs.PendingConfig[ud] = new PendingStreamConfig {
+                    BaseAddress = baseAddr, ElementBytes = ew, IsLoad = isLoad,
                 };
-                cfg.Dimensions.Add(new StreamDimension(count, stride));
-                uvs.PendingConfig[ud] = cfg;
             },
         };
     }
 
-    // ss.app ud, _, rs2_count, rs3_stride — append next outer dimension to pending config.
-    private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs2, int rs3) {
-        var count = (long)regs.Read(rs2);
+    // ss.app ud, rs1_offset, rs2_count, rs3_stride — append next outer dimension to pending config.
+    // rs1_offset is ignored (Spike adds offset*ew to base; no offset field in StreamDimension).
+    private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
+        var count  = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
         return new ExecuteResult {
             SideEffect = s => {
@@ -3145,11 +3074,10 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // ss.end ud, _, rs2_count, rs3_stride — outermost dimension + activate stream.
-    // For load streams: returns StreamConfig so the pipeline can configure StreamingEngine.
-    // For store streams: configures a flattened UveStoreStream (multi-dim store TBD).
-    private static ExecuteResult ExecuteUveSsEnd(IArchState state, IRegisterFile regs, int ud, int rs2, int rs3) {
-        var count = (long)regs.Read(rs2);
+    // ss.end ud, rs1_offset, rs2_count, rs3_stride — outermost dimension + activate stream.
+    // rs1_offset is ignored (same reason as ss.app).
+    private static ExecuteResult ExecuteUveSsEnd(IArchState state, IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
+        var count  = (long)regs.Read(rs2);
         var stride = (long)regs.Read(rs3);
         UveState uveState = UState(state).UveState;
         PendingStreamConfig? pending = uveState.PendingConfig[ud];
@@ -3186,71 +3114,25 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // ss.app.mod ud, rs2_disp, rs3_size — append static modifier for the most-recently-added dimension.
-    // Issued BEFORE the next-outer dimension (ss.end), so DimIndex = Dimensions.Count - 1.
+    // ss.app.mod ud, dimIndex, target, behavior, rs3Disp — append static modifier.
+    // dimIndex is a literal (not a register), taken directly from rs1 in the encoding.
     private static ExecuteResult ExecuteUveSsAppMod(
         IRegisterFile regs,
         int ud,
-        int rs2Disp,
-        int rs3Size,
+        int dimIndex,
         StreamModifierTarget target,
-        StreamModifierBehavior behavior
+        StreamModifierBehavior behavior,
+        int rs3Disp
     ) {
-        var disp = (long)regs.Read(rs2Disp);
+        var disp = (long)regs.Read(rs3Disp);
         return new ExecuteResult {
             SideEffect = s => {
-                UveState uvs = UState(s).UveState;
-                PendingStreamConfig? cfg = uvs.PendingConfig[ud];
-                if (cfg is null || cfg.Dimensions.Count < 1) return;
-                cfg.Modifiers.Add(new StreamModifier(cfg.Dimensions.Count - 1, target, behavior, disp));
-            },
-        };
-    }
-
-    // ss.end.mod ud, rs2_disp, rs3_size — append modifier + activate stream.
-    // The outermost dimension has already been added by the preceding ss.app.
-    private static ExecuteResult ExecuteUveSsEndMod(
-        IArchState state,
-        IRegisterFile regs,
-        int ud,
-        int rs2Disp,
-        int rs3Size,
-        StreamModifierTarget target,
-        StreamModifierBehavior behavior
-    ) {
-        var disp = (long)regs.Read(rs2Disp);
-        UveState uveState = UState(state).UveState;
-        PendingStreamConfig? pending = uveState.PendingConfig[ud];
-        if (pending is null || pending.Dimensions.Count < 2) return ExecuteResult.Clean;
-
-        int dimIndex = pending.Dimensions.Count - 2;
-        StreamModifier[] modifiers
-            = pending.Modifiers.Append(new StreamModifier(dimIndex, target, behavior, disp)).ToArray();
-        StreamDimension[] dims = pending.Dimensions.ToArray();
-        var descriptor = new StreamDescriptor(pending.BaseAddress, pending.ElementBytes, dims, modifiers);
-        bool isLoad = pending.IsLoad;
-
-        if (isLoad)
-            return new ExecuteResult {
-                StreamConfig = (ud, descriptor),
-                SideEffect = s => {
-                    UveState uvs = UState(s).UveState;
-                    uvs.PendingConfig[ud] = null;
-                    uvs.RegKind[ud] = UveRegKind.LoadStream;
-                },
-            };
-
-        return ExecuteResult.Clean; // store modifier streams not yet implemented
-    }
-
-    // ss.cfg.vec ud — flag pending stream as vector-mode (no-op until vector streaming).
-    private static ExecuteResult ExecuteUveSsCfgVec(int ud) =>
-        new() {
-            SideEffect = s => {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
-                cfg?.IsVector = true;
+                if (cfg is null) return;
+                cfg.Modifiers.Add(new StreamModifier(dimIndex, target, behavior, disp));
             },
         };
+    }
 
     // sb.ndc.D urs, imm — branch while dimension D of stream urs has not completed its pass.
     // The pipeline has already synced IsDimPassComplete into UveState.DimDone before this call.

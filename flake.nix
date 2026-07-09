@@ -45,10 +45,11 @@
           opensbi-rv32 = pkgs.callPackage ./nix/opensbi-rv32.nix { };
           linux-rv32   = pkgs.callPackage ./nix/linux-rv32.nix { };
           gem5         = pkgs.callPackage ./nix/gem5.nix { };
+          uve-spike    = pkgs.callPackage ./nix/uve-spike.nix { };
         in
         {
           inherit (t) softfloat sparta olympia;
-          inherit opensbi-rv32 linux-rv32 gem5;
+          inherit opensbi-rv32 linux-rv32 gem5 uve-spike;
           default = t.olympia;
         }
       );
@@ -60,6 +61,7 @@
           opensbi-rv32 = pkgs.callPackage ./nix/opensbi-rv32.nix { };
           linux-rv32   = pkgs.callPackage ./nix/linux-rv32.nix { };
           gem5         = pkgs.callPackage ./nix/gem5.nix { };
+          uve-spike    = pkgs.callPackage ./nix/uve-spike.nix { };
 
           extra-path = with pkgs; [
             dotnetCorePackages.sdk_11_0-bin
@@ -101,6 +103,11 @@
             #   gem5 gem5-scripts/trace_cpu_riscv.py ...
             # Built by: nix build .#gem5
             gem5
+
+            # UVE-extended Spike ISA simulator (AnaBSF/riscv-isa-sim, uve branch).
+            # Reference for encoding verification against Horologium's UVE decoder.
+            # Built by: nix build .#uve-spike
+            uve-spike
           ];
 
           extra-lib = with pkgs; [

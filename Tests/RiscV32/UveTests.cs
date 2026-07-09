@@ -26,99 +26,89 @@ public class UveTests {
 
     // ── Encode helpers ────────────────────────────────────────────────────────
 
-    // ss.ld.w ud, rs1, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x0
-    private static uint SsLdW(int ud, int rs1, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | (0 << 25) | ((rs2 & 0x1F) << 20)
-             | ((rs1 & 0x1F) << 15) | (0x0 << 12) | ((ud & 0x1F) << 7) | 0x0B);
-
-    // ss.st.w ud, rs1, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x1
-    private static uint SsStW(int ud, int rs1, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | (0 << 25) | ((rs2 & 0x1F) << 20)
-             | ((rs1 & 0x1F) << 15) | (0x1 << 12) | ((ud & 0x1F) << 7) | 0x0B);
-
-    // so.v.dp.w ud, rs1 — R-type, opcode=0x2B, funct3=0x0, funct7=0x00
+    // so.v.dp.w ud, rs1 — custom-1, funct7=0x56, funct3=0x2
     private static uint SoVDpW(int ud, int rs1) =>
-        (uint)((0 << 25) | ((rs1 & 0x1F) << 20) | ((rs1 & 0x1F) << 15) | (0x0 << 12) | ((ud & 0x1F) << 7) | 0x2B);
+        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
 
-    // so.a.fp ud, usrc1, usrc2 — R-type, opcode=0x2B, funct3=0x1, funct7[6:4]=op
-    private static uint SoAFp(UveFpOp op, int ud, int usrc1, int usrc2) =>
-        (uint)(((int)op << 4 << 25) | ((usrc2 & 0x1F) << 20) | ((usrc1 & 0x1F) << 15)
-             | (0x1 << 12) | ((ud & 0x1F) << 7) | 0x2B);
+    // so.a.fp ud, usrc1, usrc2 — custom-1; (funct7>>3, funct3) encodes the operation
+    private static uint SoAFp(UveFpOp op, int ud, int usrc1, int usrc2) {
+        var (funct3, top4) = op switch {
+            UveFpOp.Add => (1u, 0u),
+            UveFpOp.Sub => (5u, 0u),
+            UveFpOp.Mul => (1u, 1u),
+            UveFpOp.Div => (5u, 1u),
+            UveFpOp.Mac => (5u, 3u),
+            _ => throw new ArgumentOutOfRangeException(nameof(op)),
+        };
+        uint funct7 = top4 << 3;
+        return (uint)((funct7 << 25) | ((usrc2 & 0x1F) << 20) | ((usrc1 & 0x1F) << 15)
+             | (funct3 << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+    }
 
-    // B-type immediate encoding helper used by so.b.nc and so.b.ndc.D
-    private static uint BTypeImm(int imm, uint rs1, uint rs2, uint funct3) {
+    // UVE non-standard B-type: bits[31:29]=111, bit28=imm[12](sign), bits[27:22]=imm[10:5],
+    // bit7=imm[11], bits[11:8]=imm[4:1]. rs2=0b00001 → notDone; rs2=0b00000 → done.
+    private static uint UveBTypeImm(int imm, uint rs1, uint rs2, uint funct3) {
         var i = (uint)imm;
         uint bit12 = (i >> 12) & 1;
         uint bit11 = (i >> 11) & 1;
         uint bits10To5 = (i >> 5) & 0x3F;
         uint bits4To1 = (i >> 1) & 0xF;
-        return (bit12 << 31) | (bits10To5 << 25) | (rs2 << 20) | (rs1 << 15)
+        return (0b111u << 29) | (bit12 << 28) | (bits10To5 << 22) | (rs2 << 20) | (rs1 << 15)
              | (funct3 << 12) | (bits4To1 << 8) | (bit11 << 7) | 0x2Bu;
     }
 
-    // so.b.nc urs, imm — B-type, opcode=0x2B, funct3=0x4
-    private static uint SoBNc(int urs, int imm) => BTypeImm(imm, (uint)urs, 0, 0x4);
+    // so.b.nc urs, imm — funct3=0, bit20=1 (notDone)
+    private static uint SoBNc(int urs, int imm) => UveBTypeImm(imm, (uint)urs, 0b00001u, 0x0);
 
-    // so.b.ndc.D urs, imm — B-type, opcode=0x2B, funct3=0x5; dim D encoded in rs2 field
-    private static uint SoBNdcD(int urs, int dim, int imm) => BTypeImm(imm, (uint)urs, (uint)dim, 0x5);
+    // so.b.c urs, imm — funct3=0, bit20=0 (done)
+    private static uint SoBc(int urs, int imm) => UveBTypeImm(imm, (uint)urs, 0b00000u, 0x0);
 
-    // sb.c urs, imm — B-type, opcode=0x2B, funct3=0x6 (complete polarity)
-    private static uint SoBc(int urs, int imm) => BTypeImm(imm, (uint)urs, 0, 0x6);
+    // so.b.ndc.D urs, imm — funct3=D, bit20=1 (notDone)
+    private static uint SoBNdcD(int urs, int dim, int imm) => UveBTypeImm(imm, (uint)urs, 0b00001u, (uint)dim);
 
-    // sb.dc.D urs, imm — B-type, opcode=0x2B, funct3=0x7; dim D encoded in rs2 field
-    private static uint SoBdcD(int urs, int dim, int imm) => BTypeImm(imm, (uint)urs, (uint)dim, 0x7);
+    // so.b.dc.D urs, imm — funct3=D, bit20=0 (done)
+    private static uint SoBdcD(int urs, int dim, int imm) => UveBTypeImm(imm, (uint)urs, 0b00000u, (uint)dim);
 
-    // so.v.dup.fp.w ud, fs1 — R-type, opcode=0x2B, funct3=0x0, funct7[0]=1
-    private static uint SoVDupFpW(int ud, int fs1) =>
-        (uint)((1 << 25) | ((fs1 & 0x1F) << 20) | ((fs1 & 0x1F) << 15) | (0x0 << 12) | ((ud & 0x1F) << 7) | 0x2B);
+    // ss.sta.ld.w ud, rs1 — funct2=0, funct3=0b110 (isLoad=1, ew=4)
+    private static uint SsStaLdW(int ud, int rs1) =>
+        (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
 
-    // ss.ld.b/h/d — R4-type, opcode=0x0B, funct3=0x0; funct2 encodes element width
-    private static uint SsLdBytes(int ud, int rs1, int rs2, int rs3, int funct2) =>
-        (uint)(((rs3 & 0x1F) << 27) | ((funct2 & 0x3) << 25) | ((rs2 & 0x1F) << 20)
-             | ((rs1 & 0x1F) << 15) | (0x0 << 12) | ((ud & 0x1F) << 7) | 0x0B);
+    // ss.sta.ld.* ud, rs1 — funct2=0, funct3 encodes load+ew
+    private static uint SsStaLdEw(int ud, int rs1, uint funct3) =>
+        (uint)(((rs1 & 0x1F) << 15) | (funct3 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
 
-    // ss.sta.ld.w ud, rs1, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x2
-    private static uint SsStaLdW(int ud, int rs1, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
-             | (0x2 << 12) | ((ud & 0x1F) << 7) | 0x0B);
+    // ss.sta.st.w ud, rs1 — funct2=0, funct3=0b010 (isLoad=0, ew=4)
+    private static uint SsStaStW(int ud, int rs1) =>
+        (uint)(((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
 
-    // ss.sta.st.w ud, rs1, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x3
-    private static uint SsStaStW(int ud, int rs1, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
-             | (0x3 << 12) | ((ud & 0x1F) << 7) | 0x0B);
+    // ss.app ud, rs1Offset, rs2, rs3 — funct2=1, funct3=0
+    private static uint SsApp(int ud, int rs1Offset, int rs2, int rs3) =>
+        (uint)(((rs3 & 0x1F) << 27) | (0x1u << 25) | ((rs2 & 0x1F) << 20)
+             | ((rs1Offset & 0x1F) << 15) | (0x0u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
 
-    // ss.app ud, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x4, bit[26]=0
-    private static uint SsApp(int ud, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | (0 << 26) | ((rs2 & 0x1F) << 20) | (0x4 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+    // ss.end ud, rs1Offset, rs2, rs3 — funct2=2, funct3=0
+    private static uint SsEnd(int ud, int rs1Offset, int rs2, int rs3) =>
+        (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | ((rs2 & 0x1F) << 20)
+             | ((rs1Offset & 0x1F) << 15) | (0x0u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
 
-    // ss.end ud, rs2, rs3 — R4-type, opcode=0x0B, funct3=0x5; rs1=x0 (ignored)
-    private static uint SsEnd(int ud, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | (0x5 << 12) | ((ud & 0x1F) << 7) | 0x0B);
-
-    // ss.app.mod ud, rs2_disp, rs3_size — funct3=0x4, bit[26]=1; rs1 encodes T[1:0]|B<<2
+    // ss.app.mod: funct2=1, funct3=4; rs1=dimIndex literal, rs2=behavior<<2|spikeTarget, rs3=disp reg
+    // Spike target encoding: Size=0, Stride=1, Offset=2 (differs from Horologium: Size=0, Offset=1, Stride=2)
     private static uint SsAppMod(
         int ud,
-        int rs2Disp,
-        int rs3Size,
+        int dimIndex,
         StreamModifierTarget target,
-        StreamModifierBehavior behavior
+        StreamModifierBehavior behavior,
+        int rs3Disp
     ) {
-        int rs1Literal = ((int)target & 0x3) | (((int)behavior & 0x1) << 2);
-        return (uint)(((rs3Size & 0x1F) << 27) | (1 << 26) | ((rs2Disp & 0x1F) << 20)
-                    | ((rs1Literal & 0x1F) << 15) | (0x4 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
-    }
-
-    // ss.end.mod ud, rs2_disp, rs3_size — funct3=0x5, bit[26]=1; rs1 encodes T[1:0]|B<<2
-    private static uint SsEndMod(
-        int ud,
-        int rs2Disp,
-        int rs3Size,
-        StreamModifierTarget target,
-        StreamModifierBehavior behavior
-    ) {
-        int rs1Literal = ((int)target & 0x3) | (((int)behavior & 0x1) << 2);
-        return (uint)(((rs3Size & 0x1F) << 27) | (1 << 26) | ((rs2Disp & 0x1F) << 20)
-                    | ((rs1Literal & 0x1F) << 15) | (0x5 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        int spikeTarget = target switch {
+            StreamModifierTarget.Size   => 0,
+            StreamModifierTarget.Stride => 1,
+            StreamModifierTarget.Offset => 2,
+            _ => throw new ArgumentOutOfRangeException(nameof(target)),
+        };
+        int rs2Fixed = ((int)behavior << 2) | spikeTarget;
+        return (uint)(((rs3Disp & 0x1F) << 27) | (0x1u << 25) | ((rs2Fixed & 0x1F) << 20)
+                    | ((dimIndex & 0x1F) << 15) | (0x4u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
     }
 
     // EBREAK — halts the pipeline
@@ -129,54 +119,6 @@ public class UveTests {
         (uint)(((imm & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | (0x0 << 12) | ((rd & 0x1F) << 7) | 0x13);
 
     // ── Executor unit tests ───────────────────────────────────────────────────
-
-    [Fact]
-    public void SsLdW_ReturnsStreamConfig() {
-        var state = new Rv32ArchState();
-        state.IntegerRegisters.Write(1, 0x1000); // base
-        state.IntegerRegisters.Write(2, 4);      // count
-        state.IntegerRegisters.Write(3, 4);      // stride (word)
-
-        ExecuteResult er = Exec(new RvUveSsLdW(1, 1, 2, 3), state);
-
-        Assert.True(er.StreamConfig.HasValue);
-        Assert.Equal(1, er.StreamConfig!.Value.StreamId);
-        Assert.Equal(0x1000UL, er.StreamConfig.Value.Descriptor.BaseAddress);
-        Assert.Equal(4, er.StreamConfig.Value.Descriptor.ElementBytes);
-        Assert.Equal(4L, er.StreamConfig.Value.Descriptor.Count);
-        Assert.Equal(4L, er.StreamConfig.Value.Descriptor.Stride);
-    }
-
-    [Fact]
-    public void SsLdW_SideEffect_SetsLoadStreamKind() {
-        var state = new Rv32ArchState();
-        state.IntegerRegisters.Write(1, 0x1000);
-        state.IntegerRegisters.Write(2, 4);
-        state.IntegerRegisters.Write(3, 4);
-
-        ExecuteResult er = Exec(new RvUveSsLdW(2, 1, 2, 3), state);
-        er.SideEffect?.Invoke(state);
-
-        Assert.Equal(UveRegKind.LoadStream, state.UveState.RegKind[2]);
-    }
-
-    [Fact]
-    public void SsStW_SideEffect_ConfiguresStoreStream() {
-        var state = new Rv32ArchState();
-        state.IntegerRegisters.Write(1, 0x2000); // base
-        state.IntegerRegisters.Write(2, 8);      // count
-        state.IntegerRegisters.Write(3, 4);      // stride
-
-        ExecuteResult er = Exec(new RvUveSsStW(3, 1, 2, 3), state);
-        er.SideEffect?.Invoke(state);
-
-        UveStoreStream? ss = state.UveState.StoreStreams[3];
-        Assert.NotNull(ss);
-        Assert.Equal(0x2000UL, ss.BaseAddress);
-        Assert.Equal(8L, ss.Dimensions[0].Count);
-        Assert.Equal(4L, ss.Dimensions[0].Stride);
-        Assert.Equal(UveRegKind.StoreStream, state.UveState.RegKind[3]);
-    }
 
     [Fact]
     public void SoVDpW_WritesBroadcastScalar() {
@@ -266,24 +208,6 @@ public class UveTests {
     // ── Decoder tests ─────────────────────────────────────────────────────────
 
     [Fact]
-    public void Decoder_SsLdW_Roundtrip() {
-        var dec = new Rv32Decoder();
-        var mem = new FlatMemory(16);
-        uint enc = SsLdW(2, 1, 3, 4);
-        mem.Load(0, BitConverter.GetBytes(enc));
-
-        ITooth tooth = dec.Decode(0, mem);
-
-        Assert.IsType<RvUveSsLdW>(tooth.Payload);
-        var op = (RvUveSsLdW)tooth.Payload!;
-        Assert.Equal(2, op.Ud);
-        Assert.Equal(1, op.Rs1Base);
-        Assert.Equal(3, op.Rs2Count);
-        Assert.Equal(4, op.Rs3Stride);
-        Assert.Equal(ToothClass.Uve, tooth.Class);
-    }
-
-    [Fact]
     public void Decoder_SoBNc_Roundtrip() {
         var dec = new Rv32Decoder();
         var mem = new FlatMemory(16);
@@ -318,41 +242,36 @@ public class UveTests {
     // ── Multi-dim stream unit tests ───────────────────────────────────────────
 
     [Fact]
-    public void SsStaLdW_CreatesPendingConfig_WithFirstDimension() {
+    public void SsStaLdW_CreatesPendingConfig_NoDimension() {
         var state = new Rv32ArchState();
         state.IntegerRegisters.Write(1, 0x1000); // base
-        state.IntegerRegisters.Write(2, 4);      // inner count
-        state.IntegerRegisters.Write(3, 4);      // inner stride
 
-        ExecuteResult er = Exec(new RvUveSsStaLdW(2, 1, 2, 3), state);
+        ExecuteResult er = Exec(new RvUveSsStaLdW(2, 1), state);
         er.SideEffect?.Invoke(state);
 
         PendingStreamConfig? cfg = state.UveState.PendingConfig[2];
         Assert.NotNull(cfg);
         Assert.Equal(0x1000UL, cfg.BaseAddress);
+        Assert.Equal(4, cfg.ElementBytes);
         Assert.True(cfg.IsLoad);
-        Assert.Single(cfg.Dimensions);
-        Assert.Equal(4L, cfg.Dimensions[0].Count);
-        Assert.Equal(4L, cfg.Dimensions[0].Stride);
+        Assert.Empty(cfg.Dimensions);
     }
 
     [Fact]
     public void SsApp_AppendsDimensionToPendingConfig() {
         var state = new Rv32ArchState();
-        // Pre-populate a pending config (as ss.sta would have done)
         var cfg = new PendingStreamConfig { BaseAddress = 0x2000, ElementBytes = 4, IsLoad = true, };
-        cfg.Dimensions.Add(new StreamDimension(4, 4)); // first dim
         state.UveState.PendingConfig[3] = cfg;
 
         state.IntegerRegisters.Write(2, 3);  // outer count
         state.IntegerRegisters.Write(3, 32); // outer stride
 
-        ExecuteResult er = Exec(new RvUveSsApp(3, 2, 3), state);
+        ExecuteResult er = Exec(new RvUveSsApp(3, 0, 2, 3), state);
         er.SideEffect?.Invoke(state);
 
-        Assert.Equal(2, state.UveState.PendingConfig[3]!.Dimensions.Count);
-        Assert.Equal(3L, state.UveState.PendingConfig[3]!.Dimensions[1].Count);
-        Assert.Equal(32L, state.UveState.PendingConfig[3]!.Dimensions[1].Stride);
+        Assert.Single(state.UveState.PendingConfig[3]!.Dimensions);
+        Assert.Equal(3L, state.UveState.PendingConfig[3]!.Dimensions[0].Count);
+        Assert.Equal(32L, state.UveState.PendingConfig[3]!.Dimensions[0].Stride);
     }
 
     [Fact]
@@ -366,7 +285,7 @@ public class UveTests {
         state.IntegerRegisters.Write(2, 2); // outermost count
         state.IntegerRegisters.Write(3, 0); // outermost stride (unused here)
 
-        ExecuteResult er = Exec(new RvUveSsEnd(1, 2, 3), state);
+        ExecuteResult er = Exec(new RvUveSsEnd(1, 0, 2, 3), state);
 
         // Should produce a StreamConfig with 3 dimensions
         Assert.True(er.StreamConfig.HasValue);
@@ -477,99 +396,7 @@ public class UveTests {
         Assert.Equal(-16, op.Imm);
     }
 
-    // ── so.v.dup.fp.w tests ───────────────────────────────────────────────────
-
-    [Fact]
-    public void SoVDupFpW_BroadcastsFromFpReg() {
-        var state = new Rv32ArchState();
-        // FP register f2 lives at unified-RF index 34 (= 2 + 32)
-        state.IntegerRegisters.Write(34, (uint)BitConverter.SingleToInt32Bits(1.5f));
-
-        ExecuteResult er = Exec(new RvUveSoVDupFpW(6, 34), state); // fs1=34 = f2
-        er.SideEffect?.Invoke(state);
-
-        Assert.Equal(1.5f, state.UveState.Scalars[6], 4);
-        Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[6]);
-    }
-
-    [Fact]
-    public void Decoder_SoVDupFpW_Roundtrip() {
-        var dec = new Rv32Decoder();
-        var mem = new FlatMemory(16);
-        // fs1 = f3 → rs1=3 in the encoding; unified index is 3+32=35
-        mem.Load(0, BitConverter.GetBytes(SoVDupFpW(7, 3)));
-
-        ITooth tooth = dec.Decode(0, mem);
-
-        Assert.IsType<RvUveSoVDupFpW>(tooth.Payload);
-        var op = (RvUveSoVDupFpW)tooth.Payload!;
-        Assert.Equal(7, op.Ud);
-        Assert.Equal(35, op.Fs1); // rs1=3 → unified index 3+32=35
-    }
-
-    // ── Non-word element widths tests ─────────────────────────────────────────
-
-    [Fact]
-    public void Decoder_SsLdB_DecodesElementBytes1() {
-        var dec = new Rv32Decoder();
-        var mem = new FlatMemory(16);
-        mem.Load(0, BitConverter.GetBytes(SsLdBytes(1, 2, 3, 4, 1))); // .b = 1 byte
-
-        ITooth tooth = dec.Decode(0, mem);
-
-        var op = Assert.IsType<RvUveSsLdW>(tooth.Payload);
-        Assert.Equal(1, op.ElementBytes);
-    }
-
-    [Fact]
-    public void Decoder_SsLdH_DecodesElementBytes2() {
-        var dec = new Rv32Decoder();
-        var mem = new FlatMemory(16);
-        mem.Load(0, BitConverter.GetBytes(SsLdBytes(1, 2, 3, 4, 2))); // .h = 2 bytes
-
-        ITooth tooth = dec.Decode(0, mem);
-
-        var op = Assert.IsType<RvUveSsLdW>(tooth.Payload);
-        Assert.Equal(2, op.ElementBytes);
-    }
-
-    [Fact]
-    public void Decoder_SsLdD_DecodesElementBytes8() {
-        var dec = new Rv32Decoder();
-        var mem = new FlatMemory(16);
-        mem.Load(0, BitConverter.GetBytes(SsLdBytes(1, 2, 3, 4, 3))); // .d = 8 bytes
-
-        ITooth tooth = dec.Decode(0, mem);
-
-        var op = Assert.IsType<RvUveSsLdW>(tooth.Payload);
-        Assert.Equal(8, op.ElementBytes);
-    }
-
-    [Fact]
-    public void SsLdB_StreamConfigCarriesElementBytes() {
-        var state = new Rv32ArchState();
-        state.IntegerRegisters.Write(1, 0x1000); // base
-        state.IntegerRegisters.Write(2, 8);      // count
-        state.IntegerRegisters.Write(3, 1);      // stride (1 byte)
-
-        ExecuteResult er = Exec(new RvUveSsLdW(0, 1, 2, 3, 1), state);
-
-        Assert.True(er.StreamConfig.HasValue);
-        Assert.Equal(1, er.StreamConfig!.Value.Descriptor.ElementBytes);
-    }
-
-    [Fact]
-    public void SsLdD_StreamConfigCarriesElementBytes() {
-        var state = new Rv32ArchState();
-        state.IntegerRegisters.Write(1, 0x2000); // base
-        state.IntegerRegisters.Write(2, 4);      // count
-        state.IntegerRegisters.Write(3, 8);      // stride (8 bytes)
-
-        ExecuteResult er = Exec(new RvUveSsLdW(0, 1, 2, 3, 8), state);
-
-        Assert.True(er.StreamConfig.HasValue);
-        Assert.Equal(8, er.StreamConfig!.Value.Descriptor.ElementBytes);
-    }
+    // ── StreamingEngine element-width tests ───────────────────────────────────
 
     [Fact]
     public void StreamingEngine_ByteElements_ReadsCorrectly() {
@@ -618,7 +445,7 @@ public class UveTests {
     public void Decoder_SsStaLdW_Roundtrip() {
         var dec = new Rv32Decoder();
         var mem = new FlatMemory(16);
-        uint enc = SsStaLdW(2, 1, 3, 5);
+        uint enc = SsStaLdW(2, 1);
         mem.Load(0, BitConverter.GetBytes(enc));
 
         ITooth tooth = dec.Decode(0, mem);
@@ -627,8 +454,23 @@ public class UveTests {
         var op = (RvUveSsStaLdW)tooth.Payload!;
         Assert.Equal(2, op.Ud);
         Assert.Equal(1, op.Rs1Base);
-        Assert.Equal(3, op.Rs2Count);
-        Assert.Equal(5, op.Rs3Stride);
+        Assert.Equal(4, op.ElementBytes);
+        Assert.Equal(ToothClass.Uve, tooth.Class);
+    }
+
+    [Fact]
+    public void Decoder_SsStaLdEw_DecodesElementBytes() {
+        var dec = new Rv32Decoder();
+        var mem = new FlatMemory(16);
+        // funct3=0b101: isLoad=1, ew=1<<(0b101&3)=1<<1=2 → .h
+        mem.Load(0, BitConverter.GetBytes(SsStaLdEw(3, 2, 0b101u)));
+
+        ITooth tooth = dec.Decode(0, mem);
+
+        var op = Assert.IsType<RvUveSsStaLdW>(tooth.Payload);
+        Assert.Equal(3, op.Ud);
+        Assert.Equal(2, op.Rs1Base);
+        Assert.Equal(2, op.ElementBytes);
     }
 
     [Fact]
@@ -685,50 +527,24 @@ public class UveTests {
 
         _ = (uint)BitConverter.SingleToInt32Bits(a);
 
-        // Register allocation for the instruction sequence:
-        // x1=base_x, x2=base_y, x3=N, x4=stride(4), x5=bits(A)
-        // We use LUI/ADDI to load constants.
-        // For addresses and small constants, ADDI x0 is enough.
-
-        // Code at address 0x1000:
-        //   addi x1, x0, 0       → x1 = 0 (base X — but 0 is default, so skip? No, use for clarity)
-        //   addi x2, x0, 0x100   → x2 = 0x100 (base Y)
-        //   addi x3, x0, N       → x3 = 4 (count)
-        //   addi x4, x0, 4       → x4 = 4 (stride)
-        //   addi x5, x0, bits(A) → won't work for large bits, need alternate approach
-
-        // Problem: scalarBits for A=2.0 = 0x40000000. That's larger than 12-bit immediate.
-        // For A=2.0, use LUI x5, 0x40000 + addi x5, x5, 0
-        // LUI rd, imm: puts imm in upper 20 bits, rd[11:0]=0
-        // bits: 0x40000000 = 0b0100_0000_0000_0000_0000_0000_0000_0000
-        // LUI x5, 0x40000 (20-bit imm placed in bits[31:12])
-
         // A=2.0f bits = 0x40000000 → upper 20 bits = 0x40000
         const ulong code = 0x1000;
         var words = new List<uint> {
-            // Setup integer registers
             Addi(1, 0, 0),     // x1 = 0 (base X)
             Addi(2, 0, 0x100), // x2 = 0x100 (base Y)
             Addi(3, 0, n),     // x3 = N (count)
             Addi(4, 0, 4),     // x4 = 4 (stride)
-            Lui(5, 0x40000),   // x5 = 0x40000000 (A=2.0 raw bits, lower 12 = 0)
-            // Configure streams:
-            //   u1 = load from X (base=x1, count=x3, stride=x4)
-            //   u2 = load from Y (base=x2, count=x3, stride=x4)
-            //   u3 = store to Y  (base=x2, count=x3, stride=x4)
-            SsLdW(1, 1, 3, 4), // u1 = load stream X
-            SsLdW(2, 2, 3, 4), // u2 = load stream Y
-            SsStW(3, 2, 3, 4), // u3 = store stream Y
-            // Broadcast scalar A into u4
-            SoVDpW(4, 5),
-            // Loop body:  so.b.nc u1, loop_back
-            // Loop: so.a.mul.fp u5, u1, u4  — u5 = x[i] * A
-            //        so.a.add.fp u3, u2, u5  — u3(y) = y[i] + u5
-            //        so.b.nc u1, -8          — branch back -8 bytes (2 instructions × 4 bytes)
-            SoAFp(UveFpOp.Mul, 5, 1, 4), // u5 = u1[i] * u4
-            SoAFp(UveFpOp.Add, 3, 2, 5), // u3[i] = u2[i] + u5
-            SoBNc(1, -8),                // loop while u1 not done (-2 instructions)
-            EBreak(),                    // u4 = broadcast A
+            Lui(5, 0x40000),   // x5 = 0x40000000 (A=2.0 raw bits)
+            // 1D streams: ss.sta.ld/st.w (base) + ss.end (count, stride, activate)
+            SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // u1 = load X
+            SsStaLdW(2, 2), SsEnd(2, 0, 3, 4), // u2 = load Y
+            SsStaStW(3, 2), SsEnd(3, 0, 3, 4), // u3 = store Y
+            SoVDpW(4, 5),                        // u4 = broadcast A
+            // loop: u5 = u1[i]*u4; u3[i] = u2[i]+u5; branch back -8 bytes (2 instrs)
+            SoAFp(UveFpOp.Mul, 5, 1, 4),
+            SoAFp(UveFpOp.Add, 3, 2, 5),
+            SoBNc(1, -8),
+            EBreak(),
         };
 
         // Load code at 0x1000
@@ -810,7 +626,7 @@ public class UveTests {
         //   x5 = 3            outer count (rows)
         //   x6 = RowBytes=32  outer stride (bytes per row)
         //   x7 = bits(Scalar) scalar multiplier raw bits
-        //   x8 = 12           output count
+        //   x8 = 12           output element count
         const ulong code = 0x1000;
         var words = new List<uint> {
             Addi(1, 0, 0x000),       // x1 = 0 (matrix base)
@@ -819,45 +635,22 @@ public class UveTests {
             Addi(4, 0, 4),           // x4 = 4 (byte stride)
             Addi(5, 0, rows),        // x5 = 3
             Addi(6, 0, rowBytes),    // x6 = 32
-            Addi(8, 0, rows * cols), // x8 = 12 (output element count)
-            // Scalar: 3.0f = 0x40400000. LUI x7, 0x40400 puts 0x40400000 in x7 (lower 12=0). ✓
-            Lui(7, 0x40400),
-            // 2D load stream on u1: dim0=inner(count=4,stride=4), dim1=outer(count=3,stride=32)
-            // ss.sta provides the innermost dimension; ss.end provides the outermost and activates.
-            SsStaLdW(1, 1, 3, 4), // ss.sta.ld.w u1, x1, x3, x4  — dim0: inner
-            SsEnd(1, 5, 6),       // ss.end      u1, x5, x6       — dim1: outer, finalize
-            // 1D store stream on u2: 12 elements at 0x0200, stride=4
-            SsStW(2, 2, 8, 4), // ss.st.w u2, x2, x8, x4
-            // Broadcast scalar into u4
-            SoVDpW(4, 7), // u4 = broadcast Scalar
+            Addi(8, 0, rows * cols), // x8 = 12
+            Lui(7, 0x40400),         // x7 = bits(3.0f)
+            // 2D load stream u1: ss.sta.ld.w (base) + ss.app (inner dim) + ss.end (outer dim, activate)
+            SsStaLdW(1, 1),    // base=x1
+            SsApp(1, 0, 3, 4), // inner dim: count=x3(4), stride=x4(4)
+            SsEnd(1, 0, 5, 6), // outer dim: count=x5(3), stride=x6(32); activate
+            // 1D store stream u2: ss.sta.st.w + ss.end
+            SsStaStW(2, 2), SsEnd(2, 0, 8, 4), // count=x8(12), stride=x4(4)
+            SoVDpW(4, 7),      // u4 = broadcast Scalar
         };
 
-        // Loop:
-        //   outer: (check dim1 not complete at bottom)
-        //     inner: so.a.mul.fp u2, u1, u4  — writes to store stream
-        //            so.b.ndc.0 u1, -4       — branch while inner dim not complete (-1 instr)
-        //   so.b.ndc.1 u1, outer_offset      — branch while outer dim not complete
+        // Single loop: so.a.mul.fp u2, u1, u4 then so.b.nc u1, -4 (back 1 instr)
+        int loopStart = words.Count;
 
-        // Instruction layout relative to code base:
-        //   [0..7]  setup addi/lui  (8 words)
-        //   [8]     SsStaLdW
-        //   [9]     SsEnd
-        //   [10]    SsStW
-        //   [11]    SoVDpW
-        //   [12]    inner_loop_start: SoAFp (mul)
-        //   [13]    SoBNdcD dim0 (branch -4 bytes = -1 instr back to [12])
-        //   [14]    SoBNdcD dim1 (branch to [12] = -8 bytes)
-        //   [15]    EBreak
-
-        int innerLoopWord = words.Count; // will be word index 13
-
-        words.Add(SoAFp(UveFpOp.Mul, 2, 1, 4)); // u2 = u1[elem] * u4
-        words.Add(SoBNdcD(1, 0, -4));           // so.b.ndc.0 u1, -4 (inner loop back 1 instr)
-
-        // Outer loop branch: target = innerLoopWord instruction, from current position = innerLoopWord+2
-        int outerBranchWord = words.Count;                          // word index 15
-        int outerBranchImm = (innerLoopWord - outerBranchWord) * 4; // negative offset
-        words.Add(SoBNdcD(1, 1, outerBranchImm));                   // so.b.ndc.1 u1, outer
+        words.Add(SoAFp(UveFpOp.Mul, 2, 1, 4)); // u2[i] = u1[elem] * u4
+        words.Add(SoBNc(1, -4));                 // loop while u1 not done
 
         words.Add(EBreak());
 
@@ -920,20 +713,16 @@ public class UveTests {
             Addi(5, 0, cols),        // x5 = 4
             Addi(6, 0, rows),        // x6 = 3
             Addi(8, 0, rowBytes),    // x8 = 32
-            // 1.0f = 0x3F800000; LUI x7, 0x3F800 gives 0x3F800000 (lower 12 bits = 0). ✓
-            Lui(7, 0x3F800), // x7 = bits(1.0f)
-            // Load stream: u1 reads all 12 source elements in order (1D)
-            SsLdW(1, 1, 3, 4), // ss.ld.w u1, x1, x3, x4
-            // Store stream: u2 writes to a 3×4 matrix with 32-byte rows (multi-dim)
-            SsStaStW(2, 2, 5, 4), // ss.sta.st.w u2, x2, x5, x4  (dim0: 4 cols, stride 4)
-            SsEnd(2, 6, 8),       // ss.end u2, x6, x8            (dim1: 3 rows, stride 32)
-            // Broadcast scalar 1.0 into u4
-            SoVDpW(4, 7), // u4 = 1.0f
-            // Loop: copy each element (u1 elem × 1.0 = u1 elem), write to u2 store stream
-            //   [loop]: so.a.mul.fp u2, u1, u4   — writes dst[row][col], advances 2D cursor
-            //           so.b.nc u1, -4           — branch while load stream not exhausted
-            SoAFp(UveFpOp.Mul, 2, 1, 4), // u2 = u1[i] * u4
-            SoBNc(1, -4),                // so.b.nc u1, -4
+            Lui(7, 0x3F800),         // x7 = bits(1.0f)
+            // 1D load stream u1: ss.sta.ld.w + ss.end
+            SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // count=x3(12), stride=x4(4)
+            // 2D store stream u2: ss.sta.st.w + ss.app (inner) + ss.end (outer)
+            SsStaStW(2, 2),    // base=x2
+            SsApp(2, 0, 5, 4), // inner dim: count=x5(4 cols), stride=x4(4)
+            SsEnd(2, 0, 6, 8), // outer dim: count=x6(3 rows), stride=x8(32); activate
+            SoVDpW(4, 7),      // u4 = 1.0f
+            SoAFp(UveFpOp.Mul, 2, 1, 4), // u2[dst] = u1[i] * u4
+            SoBNc(1, -4),                 // loop while u1 not exhausted
             EBreak(),
         };
 
@@ -966,27 +755,28 @@ public class UveTests {
     [Fact]
     public void SsAppMod_DecodesCorrectly() {
         var mem = new FlatMemory(16);
-        mem.Load(0, BitConverter.GetBytes(SsAppMod(1, 5, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc)));
+        // dimIndex=0, target=Size, behavior=Inc, rs3Disp=x5
+        mem.Load(0, BitConverter.GetBytes(SsAppMod(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5)));
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSsAppMod>(tooth.Payload);
         Assert.Equal(1, op.Ud);
-        Assert.Equal(5, op.Rs2Disp);
-        Assert.Equal(2, op.Rs3Size);
+        Assert.Equal(0, op.DimIndex);
         Assert.Equal(StreamModifierTarget.Size, op.Target);
         Assert.Equal(StreamModifierBehavior.Inc, op.Behavior);
+        Assert.Equal(5, op.Rs3Disp);
     }
 
     [Fact]
-    public void SsEndMod_DecodesCorrectly() {
+    public void SsAppMod_StrideTarget_DecodesCorrectly() {
         var mem = new FlatMemory(16);
-        mem.Load(0, BitConverter.GetBytes(SsEndMod(3, 7, 4, StreamModifierTarget.Stride, StreamModifierBehavior.Dec)));
+        mem.Load(0, BitConverter.GetBytes(SsAppMod(2, 1, StreamModifierTarget.Stride, StreamModifierBehavior.Dec, 7)));
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
-        var op = Assert.IsType<RvUveSsEndMod>(tooth.Payload);
-        Assert.Equal(3, op.Ud);
-        Assert.Equal(7, op.Rs2Disp);
-        Assert.Equal(4, op.Rs3Size);
+        var op = Assert.IsType<RvUveSsAppMod>(tooth.Payload);
+        Assert.Equal(2, op.Ud);
+        Assert.Equal(1, op.DimIndex);
         Assert.Equal(StreamModifierTarget.Stride, op.Target);
         Assert.Equal(StreamModifierBehavior.Dec, op.Behavior);
+        Assert.Equal(7, op.Rs3Disp);
     }
 
     // ── ss.app.mod / ss.end.mod integration tests ────────────────────────────
@@ -999,7 +789,7 @@ public class UveTests {
         return sum;
     }
 
-    // 2D stream with static Size modifier via ss.sta.ld.w → ss.app.mod → ss.end.
+    // 2D stream with static Size modifier via ss.sta.ld.w → ss.app.mod → ss.app → ss.end.
     // The modifier grows D0's count by 1 on each D1 iteration (lower-triangular access).
     private static float RunSsAppModLowerTriangular(int n) {
         const ulong matBase = 0x0200u;
@@ -1013,67 +803,28 @@ public class UveTests {
             mem.Load(matBase + (ulong)((r * n + c) * 4), BitConverter.GetBytes(v));
         }
 
-        // x1=matBase  x2=N  x3=N*4  x4=4  x5=1(disp)  x9=resultAddr  x10=1
-        // Stream: D0(count=1,stride=4) → modifier{Size,Inc,1} → D1(count=N,stride=N*4)
-        // [9] inner  [10] so.b.ndc.0 → [9]  [11] so.b.nc → [9]
+        // Registers: x1=matBase, x2=N, x3=N*4, x4=4, x5=1(disp register)
+        // Stream: ss.sta.ld.w (base) → ss.app (D0: count=x5=1, stride=x4=4)
+        //       → ss.app.mod (dimIndex=0, Size, Inc, disp=x5) → ss.end (D1: count=x2=N, stride=x3=N*4)
+        // Loop: so.b.nc u1 (whole-stream done check; ndc_1/dim=0 doesn't exist in Spike encoding)
         uint[] words = [
             Addi(1, 0, (int)matBase), // [0]
-            Addi(2, 0, n), // [1]
-            Addi(3, 0, n * 4), // [2]
-            Addi(4, 0, 4), // [3]
-            Addi(5, 0, 1), // [4]
-            SoVDpW(2, 0), // [5]  u2 = 0.0f
-            SsStaLdW(1, 1, 5, 4), // [6]  D0: count=1, stride=4
-            SsAppMod(1, 5, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc), // [7] mod
-            SsEnd(1, 2, 3), // [8]  D1: count=N, stride=N*4, activate
-            SoAFp(UveFpOp.Add, 2, 1, 2), // [9]  inner: u2 += elem
-            SoBNdcD(1, 0, -4), // [10] → [9] while D0 not done
-            SoBNc(1, -8), // [11] → [9] while stream active
+            Addi(2, 0, n),            // [1] x2 = N
+            Addi(3, 0, n * 4),        // [2] x3 = N*4
+            Addi(4, 0, 4),            // [3] x4 = 4
+            Addi(5, 0, 1),            // [4] x5 = 1 (disp)
+            SoVDpW(2, 0),             // [5] u2 = 0.0f
+            SsStaLdW(1, 1),           // [6] base=x1
+            SsApp(1, 0, 5, 4),        // [7] D0: count=x5(1), stride=x4(4)
+            SsAppMod(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), // [8] mod D0.Size += x5
+            SsEnd(1, 0, 2, 3),        // [9] D1: count=x2(N), stride=x3(N*4); activate
+            SoAFp(UveFpOp.Add, 2, 1, 2), // [10] u2 += elem
+            SoBNc(1, -4),             // [11] loop while stream active (back 1 instr)
             Addi(9, 0, (int)resultAddr), // [12]
-            Addi(10, 0, 1), // [13]
-            SsStW(3, 9, 10, 4), // [14]
-            SoAFp(UveFpOp.Add, 3, 2, 0), // [15] write u2 to result
-            EBreak(), // [16]
-        ];
-
-        for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
-        new OooeTrain(new Rv32Mechanism(), mem, codeBase, streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32)
-           .Run(20_000);
-        return BitConverter.Int32BitsToSingle((int)(uint)mem.Read(resultAddr, 4));
-    }
-
-    // Same pattern but via ss.sta.ld.w → ss.app → ss.end.mod.
-    private static float RunSsEndModLowerTriangular(int n) {
-        const ulong matBase = 0x0200u;
-        const ulong resultAddr = 0x0100u;
-        const ulong codeBase = 0x1000u;
-
-        var mem = new FlatMemory(0x4000);
-        for (var r = 0; r < n; r++)
-        for (var c = 0; c < n; c++) {
-            float v = r * n + c + 1;
-            mem.Load(matBase + (ulong)((r * n + c) * 4), BitConverter.GetBytes(v));
-        }
-
-        // Stream: D0(count=1,stride=4) → D1(count=N,stride=N*4) → modifier{Size,Inc,1}+activate
-        uint[] words = [
-            Addi(1, 0, (int)matBase),                                                 // [0]
-            Addi(2, 0, n),                                                            // [1]
-            Addi(3, 0, n * 4),                                                        // [2]
-            Addi(4, 0, 4),                                                            // [3]
-            Addi(5, 0, 1),                                                            // [4]
-            SoVDpW(2, 0),                                                             // [5]
-            SsStaLdW(1, 1, 5, 4),                                                     // [6]  D0
-            SsApp(1, 2, 3),                                                           // [7]  D1
-            SsEndMod(1, 5, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc), // [8] mod+activate
-            SoAFp(UveFpOp.Add, 2, 1, 2),                                              // [9]
-            SoBNdcD(1, 0, -4),                                                        // [10]
-            SoBNc(1, -8),                                                             // [11]
-            Addi(9, 0, (int)resultAddr),                                              // [12]
-            Addi(10, 0, 1),                                                           // [13]
-            SsStW(3, 9, 10, 4),                                                       // [14]
-            SoAFp(UveFpOp.Add, 3, 2, 0),                                              // [15]
-            EBreak(),                                                                 // [16]
+            Addi(10, 0, 1),           // [13]
+            SsStaStW(3, 9), SsEnd(3, 0, 10, 4), // [14,15] 1D store stream
+            SoAFp(UveFpOp.Add, 3, 2, 0), // [16] write u2 to result
+            EBreak(),                 // [17]
         ];
 
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
@@ -1090,15 +841,5 @@ public class UveTests {
     [InlineData(5)]
     public void SsAppMod_LowerTriangular_CorrectSum(int n) {
         Assert.Equal(LowerTriangularExpected(n), RunSsAppModLowerTriangular(n), 3);
-    }
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(4)]
-    [InlineData(5)]
-    public void SsEndMod_LowerTriangular_CorrectSum(int n) {
-        Assert.Equal(LowerTriangularExpected(n), RunSsEndModLowerTriangular(n), 3);
     }
 }

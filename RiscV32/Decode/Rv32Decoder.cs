@@ -1987,113 +1987,102 @@ public class Rv32Decoder : IDecoder {
 
     private static RvInstruction DecodeUveSetup(ulong pc, uint raw) {
         // R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | 0x0B
-        var ud = (int)((raw >> 7) & 0x1F);
+        var ud  = (int)((raw >> 7)  & 0x1F);
         var rs1 = (int)((raw >> 15) & 0x1F);
         var rs2 = (int)((raw >> 20) & 0x1F);
         var rs3 = (int)((raw >> 27) & 0x1F);
+        uint funct2 = (raw >> 25) & 0x3;
         uint funct3 = (raw >> 12) & 0x7;
-        // funct2 [26:25] encodes element width: 0=.w(4B,default), 1=.b(1B), 2=.h(2B), 3=.d(8B)
-        int ew = UveElementBytes((raw >> 25) & 0x3);
 
-        return funct3 switch {
-            // 1D stream setup
-            0x0 => new RvInstruction(
-                pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsLdW(ud, rs1, rs2, rs3, ew)
-            ),
-            0x1 => new RvInstruction(
-                pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStW(ud, rs1, rs2, rs3, ew)
-            ),
-            // Multi-dim stream setup: ss.sta starts, ss.app appends, ss.end finalises
-            0x2 => new RvInstruction(
-                pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, rs2, rs3, ew)
-            ),
-            0x3 => new RvInstruction(
-                pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, rs2, rs3, ew)
-            ),
-            0x4 when (raw & (1u << 26)) != 0 => new RvInstruction(
-                pc, raw, -1, [rs2, rs3,], ToothClass.Uve,
-                new RvUveSsAppMod(
-                    ud, rs2, rs3, (StreamModifierTarget)(rs1 & 0x3), (StreamModifierBehavior)((rs1 >> 2) & 0x1)
-                )
-            ),
-            0x4 => new RvInstruction(pc, raw, -1, [rs2, rs3,], ToothClass.Uve, new RvUveSsApp(ud, rs2, rs3)),
-            0x5 when (raw & (1u << 26)) != 0 => new RvInstruction(
-                pc, raw, -1, [rs2, rs3,], ToothClass.Uve,
-                new RvUveSsEndMod(
-                    ud, rs2, rs3, (StreamModifierTarget)(rs1 & 0x3), (StreamModifierBehavior)((rs1 >> 2) & 0x1)
-                )
-            ),
-            0x5 => new RvInstruction(pc, raw, -1, [rs2, rs3,], ToothClass.Uve, new RvUveSsEnd(ud, rs2, rs3)),
-            0x6 => new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSsCfgVec(ud)),
-            _   => throw new IllegalInstructionException(raw, $"Unknown UVE setup funct3=0x{funct3:X}"),
-        };
+        if (funct2 == 0) {
+            // ss.sta.{ld|st}.*: funct3[2]=1→load,0→store; ew=1<<(funct3&3)
+            int ew = UveElementBytes(funct3);
+            bool isLoad = (funct3 >> 2) != 0;
+            return isLoad
+                ? new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, ew))
+                : new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, ew));
+        }
+
+        if (funct2 == 1 && funct3 == 0) {
+            // ss.app ud, rs1_offset, rs2_count, rs3_stride
+            return new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsApp(ud, rs1, rs2, rs3));
+        }
+
+        if (funct2 == 1 && funct3 == 4) {
+            // ss.app.mod: rs1=dimIndex literal, rs2=fixed literal (behavior<<2|spikeTarget), rs3=disp reg
+            // Spike target encoding: 0=Size, 1=Stride, 2=Offset → map to Horologium enum: Size=0, Stride=2, Offset=1
+            int spikeTarget = rs2 & 0x3;
+            var target = spikeTarget switch {
+                0 => StreamModifierTarget.Size,
+                1 => StreamModifierTarget.Stride,
+                _ => StreamModifierTarget.Offset,
+            };
+            var behavior = (StreamModifierBehavior)((rs2 >> 2) & 0x1);
+            return new RvInstruction(pc, raw, -1, [rs3,], ToothClass.Uve, new RvUveSsAppMod(ud, rs1, target, behavior, rs3));
+        }
+
+        if (funct2 == 2 && funct3 == 0) {
+            // ss.end ud, rs1_offset, rs2_count, rs3_stride
+            return new RvInstruction(pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsEnd(ud, rs1, rs2, rs3));
+        }
+
+        throw new IllegalInstructionException(raw, $"Unknown UVE setup funct2=0x{funct2:X} funct3=0x{funct3:X}");
     }
 
-    // funct2 encoding for element width in stream setup instructions.
-    // 0 = .w (word/4B, backward-compatible default), 1 = .b (byte), 2 = .h (half/2B), 3 = .d (double/8B)
-    private static int UveElementBytes(uint funct2) => funct2 switch {
-        1 => 1,
-        2 => 2,
-        3 => 8,
-        _ => 4, // 0 → .w, also the safe default for unknown values
-    };
+    // funct3 encodes element width for ss.sta.*: ew = 1 << (funct3 & 3) → 1/2/4/8 bytes
+    private static int UveElementBytes(uint funct3) => 1 << (int)(funct3 & 3);
 
     private static RvInstruction DecodeUveOp(ulong pc, uint raw) {
-        // R-type fields for most ops; B-type for so.b.*
-        var rd = (int)((raw >> 7) & 0x1F);
+        var rd  = (int)((raw >> 7)  & 0x1F);
         var rs1 = (int)((raw >> 15) & 0x1F);
-        var rs2 = (int)((raw >> 20) & 0x1F);
         uint funct3 = (raw >> 12) & 0x7;
         uint funct7 = (raw >> 25) & 0x7F;
 
-        switch (funct3) {
-            case 0x0: {
-                // funct7[0]=0: so.v.dp.w ud, rs1  — broadcast float32 bits from integer reg
-                // funct7[0]=1: so.v.dup.fp.w ud, fs1 — broadcast float32 from FP reg
-                if ((funct7 & 1) != 0) {
-                    int fs1 = rs1 + 32; // FP register in the unified register file
-                    return new RvInstruction(pc, raw, -1, [fs1,], ToothClass.Uve, new RvUveSoVDupFpW(rd, fs1));
-                }
+        // UVE branch: bits[31:29]=111 (funct7[6:4]=111, i.e. raw>>29==7)
+        if ((raw >> 29) == 7) {
+            int urs = rs1;
+            int imm = UveBranchImm(raw);
+            int notDone = (int)((raw >> 20) & 1); // LSB of rs2 field
 
-                return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDpW(rd, rs1));
-            }
+            if (funct3 == 0)
+                return new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Uve,
+                    notDone != 0 ? (RvOp)new RvUveSoBNc(urs, imm) : new RvUveSoBc(urs, imm)
+                );
 
-            case 0x1: {
-                // so.a.fp ud, usrc1, usrc2 — arithmetic on stream elements
-                var op = (UveFpOp)((funct7 >> 4) & 0x7);
-                if (!Enum.IsDefined(op)) throw new IllegalInstructionException(raw, $"Unknown UVE so.a.fp op={op}");
-                // rd=dest u-reg, rs1=usrc1, rs2=usrc2; no integer source/dest registers
-                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoAFp(op, rd, rs1, rs2));
-            }
-
-            case 0x4: {
-                // sb.nc urs, imm — branch while whole stream not exhausted (B-type)
-                int imm = BranchImm(raw);
-                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNc(rs1, imm));
-            }
-
-            case 0x5: {
-                // sb.ndc.D urs, imm — branch while dim D of stream not complete (B-type)
-                // dim is encoded in rs2 field (0 = innermost; literal, not a register index)
-                int imm = BranchImm(raw);
-                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBNdc(rs1, rs2, imm));
-            }
-
-            case 0x6: {
-                // sb.c urs, imm — branch when whole stream IS exhausted (complete polarity)
-                int imm = BranchImm(raw);
-                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBc(rs1, imm));
-            }
-
-            case 0x7: {
-                // sb.dc.D urs, imm — branch when dim D IS complete; dim in rs2 field
-                int imm = BranchImm(raw);
-                return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoBdc(rs1, rs2, imm));
-            }
-
-            default: throw new IllegalInstructionException(raw, $"Unknown UVE op funct3=0x{funct3:X}");
+            return new RvInstruction(
+                pc, raw, -1, [], ToothClass.Uve,
+                notDone != 0
+                    ? (RvOp)new RvUveSoBNdc(urs, (int)funct3, imm)
+                    : new RvUveSoBdc(urs, (int)funct3, imm)
+            );
         }
+
+        // so.v.dp.w: funct7=0x56, funct3=2
+        if (funct7 == 0x56 && funct3 == 2)
+            return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDpW(rd, rs1));
+
+        // so.a.fp.*: (funct7>>3, funct3) encodes the operation
+        var fpOp = ((int)(funct7 >> 3), funct3) switch {
+            (0, 1) => UveFpOp.Add,
+            (0, 5) => UveFpOp.Sub,
+            (1, 1) => UveFpOp.Mul,
+            (1, 5) => UveFpOp.Div,
+            (3, 5) => UveFpOp.Mac,
+            _ => throw new IllegalInstructionException(raw, $"Unknown UVE op funct7=0x{funct7:X} funct3=0x{funct3:X}"),
+        };
+        var rs2 = (int)((raw >> 20) & 0x1F);
+        return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoAFp(fpOp, rd, rs1, rs2));
     }
+
+    // UVE non-standard B-type immediate: bit28=imm[12](sign), bits[27:22]=imm[10:5], bit7=imm[11], bits[11:8]=imm[4:1]
+    private static int UveBranchImm(uint raw) => SignExtendN(
+        (int)(((raw >> 8) & 0xF) << 1)   |
+        (int)(((raw >> 22) & 0x3F) << 5) |
+        (int)(((raw >> 7) & 1) << 11)    |
+        (int)(((raw >> 28) & 1) << 12),
+        13
+    );
 
     // ── Immediate helpers ─────────────────────────────────────────────────────
 

@@ -70,9 +70,9 @@
 - [x] Supervisor and user-privileged execution (trap delegation, Sv32, page faults, interrupt dispatch).
 - [x] Instruction fetch translation through Sv32Walker.
 - [ ] UVE (Unlimited Vector Extension) — 1D and multi-dimensional streams.
-  - [x] 1D load/store stream setup: `ss.ld.w` / `ss.st.w`
+  - [x] 1D load/store stream setup: `ss.sta.ld.w` + `ss.end` / `ss.sta.st.w` + `ss.end`
   - [x] Multi-dim stream config sequence: `ss.sta.{ld,st}.w` → `ss.app` → `ss.end`
-  - [x] `ss.cfg.vec` instruction decode (full vector-delivery effect tracked separately below)
+  - [ ] `ss.cfg.vec` instruction decode (full vector-delivery effect tracked separately below)
   - [x] Scalar broadcast to u-reg: `so.v.dp.w`
   - [x] FP arithmetic on stream elements: add/sub/mul/div/mac (`so.a.fp.*`)
   - [x] Stream loop-control branches: `sb.nc` / `sb.ndc.(dim)`
@@ -84,14 +84,16 @@
   - [x] Non-word element widths: byte (`.b`), halfword (`.h`), doubleword (`.d`) for `ss.ld` and `ss.st`
   - [ ] Vector register manipulation: `mv`/`mvt` (move/transpose), `mvvs`/`mvsv.(width)` (vector↔scalar), `dp.(width)` (duplicate scalar to all elements)
   - [ ] Explicit vector load/store: `ld.(width)` / `ld.(width).s` and `st` / `st.s` (non-stream bulk memory ops)
-  - [x] Static dimension modifiers: `ss.app.mod` / `ss.end.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns without per-row reconfiguration)
+  - [x] Static dimension modifiers: `ss.app.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns without per-row reconfiguration)
   - [ ] Static modifier E-field (Size) enforcement: cap modifier applications to E total outer-loop iterations; currently the modifier fires unconditionally on every inner-dim wrap and the decoded `rs3Size` register value is ignored at execution time
   - [ ] Static modifier Offset and Stride targets: implement `Target=Offset` and `Target=Stride` mutations in `StreamingEngine.ApplyModifiers`; currently only `Target=Size` is handled and the other two are decoded but no-op
+  - [x] UVE encoding alignment: decoder, executor, and all tests now match AnaBSF/riscv-isa-sim (uve branch, commit a048271) — `ss.sta.{ld,st}.w` funct3, `ss.app`/`ss.end` funct2, `ss.app.mod` Spike target encoding, `so.v.dp.w` funct7/funct3, `so.a.fp.*` (funct7>>3, funct3) table, UVE B-type branch immediate layout
+  - [ ] Offset register (rs1) in `ss.app`/`ss.end` not modeled: `StreamDimension` has no base-address displacement field; the rs1 value is decoded but ignored at execution time
   - [ ] Indirect dimension modifiers: `ss.app.ind` / `ss.end.ind` — attach a `{Target, Behavior, StreamPointer}` modifier so a live stream drives the offset of another (gather/indirect access; confirmed UVE1 in ISCA 2021 paper)
   - [ ] Stream suspend/resume/stop: `ss.suspend`, `ss.resume`, `ss.stop` — explicit stream lifecycle control for context switching and early termination
   - [ ] Vector-length control: `ss.getvl` / `ss.setvl` — read and configure the active vector length for narrower-VL emulation and VL-aligned dimension padding
   - [ ] Cache-level stream routing: `so.cfg.memx` — direct a stream to operate from L x rather than the default L2
-  - [x] FP register source for scalar broadcast: `so.v.dup.fp.w ud, fs1` — the paper's SAXPY uses an FP register (fa0) not an integer register; current `so.v.dp.w` only reads from integer rs1
+  - [ ] FP register source for scalar broadcast: `so.v.dup.fp.w ud, fs1` — the paper's SAXPY uses an FP register (fa0) not an integer register; `so.v.dp.w` reads from integer rs1 only
 - [ ] UVE 2 (ISCA 2024): predicates, scatter/gather, widening/narrowing.
 - [ ] `ss.cfg.vec` effect: vector-width element delivery from load streams.
 - [x] SUM: honor `sstatus.SUM` so S-mode can access user pages.

@@ -1189,63 +1189,36 @@ public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
 
 // ── UVE extension ─────────────────────────────────────────────────────────────
 // Stream setup (custom-0, opcode=0x0B, R4-type):
-//   bits[31:27]=rs3_stride, bits[26:25]=funct2, bits[24:20]=rs2_count,
-//   bits[19:15]=rs1_base, bits[14:12]=funct3, bits[11:7]=ud, bits[6:0]=0x0B
-//   funct3=0x0 → ss.ld.w (1D)
-//   funct3=0x1 → ss.st.w (1D)
-//   funct3=0x2 → ss.sta.ld.w (start multi-dim load stream, first/innermost dimension)
-//   funct3=0x3 → ss.sta.st.w (start multi-dim store stream)
-//   funct3=0x4 + bit[26]=0 → ss.app ud, _, rs2_count, rs3_stride (append next dimension)
-//   funct3=0x4 + bit[26]=1 → ss.app.mod ud, rs2_disp, rs3_size, {T,B} in rs1[2:0] (append modifier)
-//   funct3=0x5 + bit[26]=0 → ss.end ud, _, rs2_count, rs3_stride (outermost dimension + activate)
-//   funct3=0x5 + bit[26]=1 → ss.end.mod ud, rs2_disp, rs3_size, {T,B} in rs1[2:0] (append modifier + activate)
-//   funct3=0x6 → ss.cfg.vec ud (mark pending stream as vector-mode)
-// ElementBytes defaults to 4 (.w); funct2 in decoder sets 1/2/4/8 for .b/.h/.w/.d
-public record RvUveSsLdW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride, int ElementBytes = 4) : RvOp;
+//   bits[31:27]=rs3, bits[26:25]=funct2, bits[24:20]=rs2, bits[19:15]=rs1, bits[14:12]=funct3, bits[11:7]=ud
+//   funct2=0: ss.sta.{ld|st}.* — funct3[2]=1→load,0→store; ew=1<<(funct3&3); only rs1(base) used
+//   funct2=1, funct3=0: ss.app   — rs1=offset reg, rs2=count reg, rs3=stride reg
+//   funct2=1, funct3=4: ss.app.mod — rs1=dimIndex literal, rs2=target+behavior literal, rs3=disp reg
+//   funct2=2, funct3=0: ss.end   — rs1=offset reg, rs2=count reg, rs3=stride reg; activates stream
+public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
 
-public record RvUveSsStW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride, int ElementBytes = 4) : RvOp;
+public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
 
-public record RvUveSsStaLdW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride, int ElementBytes = 4) : RvOp;
+// Rs1Offset is the offset register (Spike adds offset*ew to base); ignored — no offset field in StreamDimension.
+public record RvUveSsApp(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;
 
-public record RvUveSsStaStW(int Ud, int Rs1Base, int Rs2Count, int Rs3Stride, int ElementBytes = 4) : RvOp;
+// Same field layout as ss.app; activates the stream after appending the outermost dimension.
+public record RvUveSsEnd(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;
 
-// Rs2Count/Rs3Stride are the count and stride for this additional dimension.
-public record RvUveSsApp(int Ud, int Rs2Count, int Rs3Stride) : RvOp;
-
-// Same field layout as ss.app; also returns StreamConfig when IsLoad.
-public record RvUveSsEnd(int Ud, int Rs2Count, int Rs3Stride) : RvOp;
-
-// ss.app.mod: append a static modifier for the most-recently-added dimension.
-// Rs2Disp = displacement register, Rs3Size = size register, Target/Behavior as literals in rs1[2:0].
+// ss.app.mod: append a static modifier. rs1=DimIndex literal, rs2=target+behavior literal, rs3=displacement register.
 public record RvUveSsAppMod(
     int Ud,
-    int Rs2Disp,
-    int Rs3Size,
+    int DimIndex,
     StreamModifierTarget Target,
-    StreamModifierBehavior Behavior
+    StreamModifierBehavior Behavior,
+    int Rs3Disp
 ) : RvOp;
 
-// ss.end.mod: append modifier + activate stream. Outermost dimension already added by last ss.app.
-public record RvUveSsEndMod(
-    int Ud,
-    int Rs2Disp,
-    int Rs3Size,
-    StreamModifierTarget Target,
-    StreamModifierBehavior Behavior
-) : RvOp;
-
-// ss.cfg.vec ud — flag the pending stream as vector-mode (no-op until vector streaming).
-public record RvUveSsCfgVec(int Ud) : RvOp;
-
-// Scalar broadcast (custom-1, opcode=0x2B, R-type, funct3=0x0):
-//   funct7[0]=0  so.v.dp.w ud, rs1   — broadcast float32 bits from integer reg rs1
-//   funct7[0]=1  so.v.dup.fp.w ud, fs1 — broadcast float32 from FP reg fs1 (unified-RF index)
+// so.v.dp.w ud, rs1 — broadcast float32 bits from integer register rs1 into u-reg scalar slot
+// (custom-1, opcode=0x2B, funct7=0x56, funct3=0x2)
 public record RvUveSoVDpW(int Ud, int Rs1) : RvOp;
 
-public record RvUveSoVDupFpW(int Ud, int Fs1) : RvOp;
-
-// Arithmetic on stream elements (custom-1, opcode=0x2B, R-type, funct3=0x1):
-//   funct7[6:4] selects the FP operation; ud=dest u-reg, usrc1/usrc2=source u-regs
+// Arithmetic on stream elements (custom-1, opcode=0x2B):
+//   (funct7>>3, funct3): Add=(0,1), Sub=(0,5), Mul=(1,1), Div=(1,5), Mac=(3,5)
 public enum UveFpOp {
     Mul = 0,
     Add = 1,
@@ -1256,11 +1229,9 @@ public enum UveFpOp {
 
 public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
 
-// Stream branch (custom-1, opcode=0x2B, B-type):
-//   funct3=0x4  so.b.nc  urs, imm — taken while whole stream urs is NOT exhausted
-//   funct3=0x5  so.b.ndc.D urs, imm — taken while dimension D (rs2) is NOT complete
-//   funct3=0x6  sb.c  urs, imm — taken when stream urs IS exhausted
-//   funct3=0x7  sb.dc.D urs, imm — taken when dimension D (rs2) IS complete
+// Stream branch (custom-1, opcode=0x2B, UVE B-type: bits[31:29]=111, bit28=imm[12]):
+//   funct3=0:     so.b.nc urs, imm — not exhausted (bit20=1) / so.b.c urs, imm — exhausted (bit20=0)
+//   funct3=D≥1:  so.b.ndc.D urs, imm — dim D not complete (bit20=1) / so.b.dc.D — dim D complete (bit20=0)
 public record RvUveSoBNc(int Urs, int Imm) : RvOp;
 
 public record RvUveSoBNdc(int Urs, int Dim, int Imm) : RvOp;

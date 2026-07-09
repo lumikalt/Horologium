@@ -54,27 +54,36 @@ public class LowerTriangularSumTests {
     // EBREAK
     private static uint EBreak() => 0x00100073u;
 
-    // SS.LD.W ud, rs1_base, rs2_count, rs3_stride — R4-type, opcode=0x0B, funct3=0x0
-    private static uint SsLdW(int ud, int rs1, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
-             | (0x0 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+    // SS.STA.LD.W ud, rs1 — funct2=0, funct3=0b110 (load, ew=4)
+    private static uint SsStaLdW(int ud, int rs1) =>
+        (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
 
-    // SS.ST.W ud, rs1_base, rs2_count, rs3_stride — R4-type, opcode=0x0B, funct3=0x1
-    private static uint SsStW(int ud, int rs1, int rs2, int rs3) =>
-        (uint)(((rs3 & 0x1F) << 27) | ((rs2 & 0x1F) << 20) | ((rs1 & 0x1F) << 15)
-             | (0x1 << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+    // SS.STA.ST.W ud, rs1 — funct2=0, funct3=0b010 (store, ew=4)
+    private static uint SsStaStW(int ud, int rs1) =>
+        (uint)(((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
 
-    // SO.V.DP.W ud, rs1 — broadcast float bits from integer register into u-reg scalar
+    // SS.END ud, rs1Offset, rs2, rs3 — funct2=2, funct3=0
+    private static uint SsEnd(int ud, int rs1Offset, int rs2, int rs3) =>
+        (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | ((rs2 & 0x1F) << 20)
+             | ((rs1Offset & 0x1F) << 15) | (0x0u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+
+    // SO.V.DP.W ud, rs1 — custom-1, funct7=0x56, funct3=2
     private static uint SoVDpW(int ud, int rs1) =>
-        (uint)(((rs1 & 0x1F) << 20) | ((rs1 & 0x1F) << 15) | (0x0 << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+        (uint)((0x56u << 25) | ((rs1 & 0x1F) << 15) | (0x2u << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
 
-    // SO.A.ADD.FP ud, usrc1, usrc2 — element-wise FP add (UveFpOp.Add = 1)
+    // SO.A.ADD.FP ud, usrc1, usrc2 — Add: (funct7>>3, funct3)=(0,1)
     private static uint SoAAddFp(int ud, int usrc1, int usrc2) =>
-        (uint)((1 << 4 << 25) | ((usrc2 & 0x1F) << 20) | ((usrc1 & 0x1F) << 15)
-             | (0x1 << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
+        (uint)(((usrc2 & 0x1F) << 20) | ((usrc1 & 0x1F) << 15)
+             | (0x1u << 12) | ((ud & 0x1F) << 7) | 0x2Bu);
 
-    // SO.B.NC urs, imm — B-type, opcode=0x2B, funct3=0x4; branch while stream not exhausted
-    private static uint SoBNc(int urs, int imm) => BranchInstr(imm, urs, 0, 0x4, 0x2Bu);
+    // SO.B.NC urs, imm — UVE B-type: bits[31:29]=111, bit28=imm[12], bit20=1(notDone), funct3=0
+    private static uint SoBNc(int urs, int imm) {
+        var i = (uint)imm;
+        uint bit12 = (i >> 12) & 1, bit11 = (i >> 11) & 1,
+             bits10To5 = (i >> 5) & 0x3F, bits4To1 = (i >> 1) & 0xF;
+        return (0b111u << 29) | (bit12 << 28) | (bits10To5 << 22) | (0b00001u << 20)
+             | ((uint)(urs & 0x1F) << 15) | (bits4To1 << 8) | (bit11 << 7) | 0x2Bu;
+    }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -119,18 +128,16 @@ public class LowerTriangularSumTests {
         // Instruction layout (word indices):
         //   [0..6]   setup
         //   [7]      outer_loop: BGE exit
-        //   [8..10]  configure row
-        //   [11]     inner_loop: so.a.add.fp  ← inner loop back-edge target
-        //   [12]     so.b.nc (imm=-4)
-        //   [13..15] advance outer loop + jump back to [7]
-        //   [16..20] done: store result + ebreak
+        //   [8..11]  configure row: add, addi, ss.sta.ld.w, ss.end
+        //   [12]     inner_loop: so.a.add.fp
+        //   [13]     so.b.nc
+        //   [14..16] advance outer loop + jal back to [7]
+        //   [17..22] done: store result + ebreak
 
         const int outerLoopIdx = 7;
-        const int innerLoopIdx = 11;
-        const int doneIdx = 16;
+        const int innerLoopIdx = 12;
+        const int doneIdx = 17;
 
-        // Offset of done from BGE (at index 7):  (16-7)*4 = 36
-        // Offset of outer from JAL (at index 15): (7-15)*4 = -32
         uint[] words = [
             // ── Setup ────────────────────────────────────────────────────────
             Addi(1, 0, (int)matBase), // [0]  x1 = matBase
@@ -139,29 +146,31 @@ public class LowerTriangularSumTests {
             Addi(3, 0, 0),            // [3]  r = 0
             Addi(4, 0, 0),            // [4]  row_offset = 0
             Addi(8, 0, 4),            // [5]  x8 = 4 (element stride)
-            SoVDpW(2, 0),             // [6]  u2 = 0.0f  (x0 = 0 = bits(+0.0f))
+            SoVDpW(2, 0),             // [6]  u2 = 0.0f
 
             // ── Outer loop ────────────────────────────────────────────────────
             Bge(3, 2, (doneIdx - outerLoopIdx) * 4), // [7]  if r >= N → done
             Add(7, 1, 4),                            // [8]  x7 = &matrix[r][0]
             Addi(6, 3, 1),                           // [9]  x6 = r+1
-            SsLdW(1, 7, 6, 8),                       // [10] ss.ld.w u1, x7, x6, x8
+            SsStaLdW(1, 7),                          // [10] base=x7
+            SsEnd(1, 0, 6, 8),                       // [11] count=x6(r+1), stride=x8(4); activate u1
 
             // ── Inner loop ────────────────────────────────────────────────────
-            SoAAddFp(2, 1, 2),                 // [11] u2 += stream-element
-            SoBNc(1, (innerLoopIdx - 12) * 4), // [12] while !done → [11]
+            SoAAddFp(2, 1, 2),                 // [12] u2 += stream-element
+            SoBNc(1, (innerLoopIdx - 13) * 4), // [13] while !done → [12]
 
             // ── Outer loop tail ───────────────────────────────────────────────
-            Addi(3, 3, 1),                   // [13] r++
-            Add(4, 4, 5),                    // [14] row_offset += N*4
-            Jal(0, (outerLoopIdx - 15) * 4), // [15] → outer_loop [7]
+            Addi(3, 3, 1),                   // [14] r++
+            Add(4, 4, 5),                    // [15] row_offset += N*4
+            Jal(0, (outerLoopIdx - 16) * 4), // [16] → outer_loop [7]
 
-            // ── Epilogue: store accumulator to result address ──────────────────
-            Addi(9, 0, (int)resultAddr), // [16] x9 = resultAddr
-            Addi(10, 0, 1),              // [17] x10 = 1
-            SsStW(3, 9, 10, 8),          // [18] ss.st.w u3, x9, x10, x8
-            SoAAddFp(3, 2, 0),           // [19] u3 = u2 + u0 → writes sum
-            EBreak(),                    // [20] halt
+            // ── Epilogue ──────────────────────────────────────────────────────
+            Addi(9, 0, (int)resultAddr), // [17] x9 = resultAddr
+            Addi(10, 0, 1),              // [18] x10 = 1
+            SsStaStW(3, 9),              // [19] base=x9
+            SsEnd(3, 0, 10, 8),          // [20] count=x10(1), stride=x8(4); activate u3
+            SoAAddFp(3, 2, 0),           // [21] u3 = u2 + 0 → writes sum
+            EBreak(),                    // [22]
         ];
 
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
