@@ -35,7 +35,8 @@ public sealed class FiveStageTrain : ISteppableTrain {
         MemoryConfig? dMemConfig = null,
         int storeBufferCapacity = 0,
         PEventLog? pEventLog = null,
-        ICommitObserver? commitObserver = null
+        ICommitObserver? commitObserver = null,
+        int fdipFtqCapacity = 0
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
@@ -46,7 +47,7 @@ public sealed class FiveStageTrain : ISteppableTrain {
                 "pipeline", _train.Root, esc,
                 mechanism, memory, iLayers, dLayers, entryPoint, forwardingEnabled,
                 predictor ?? new AlwaysNotTakenPredictor(),
-                storeBufferCapacity, pEventLog, commitObserver
+                storeBufferCapacity, pEventLog, commitObserver, fdipFtqCapacity
             )
         );
         _train.Build();
@@ -170,7 +171,8 @@ internal sealed class PipelineCore : Gear {
         IBranchPredictor predictor,
         int storeBufferCapacity = 0,
         PEventLog? pEventLog = null,
-        ICommitObserver? commitObserver = null
+        ICommitObserver? commitObserver = null,
+        int fdipFtqCapacity = 0
     )
         : base(name, parent, esc) {
         _plog = pEventLog;
@@ -190,10 +192,15 @@ internal sealed class PipelineCore : Gear {
             dAccessor = StoreBuffer;
         }
 
+        FdipPrefetcher? fdip = fdipFtqCapacity > 0 && iLayers.Cache is not null
+            ? new FdipPrefetcher(predictor, _decoder, fetchTranslatorMemory, iLayers.Cache, entryPoint, fdipFtqCapacity)
+            : null;
+
         // Create stages — IF uses instruction memory, EX/MEM use data memory.
         _if = new FetchStage(
             "if", parent, esc, ILayers.Accessor, predictor, _decoder,
-            fetchTranslator: mechanism.CreateFetchTranslator(State, fetchTranslatorMemory)
+            fetchTranslator: mechanism.CreateFetchTranslator(State, fetchTranslatorMemory),
+            fdip: fdip
         );
         _id = new DecodeStage("id", parent, esc, mechanism.Decoder, State);
         _ex = new ExecuteStage(

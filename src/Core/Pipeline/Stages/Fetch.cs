@@ -4,6 +4,7 @@ using Orrery.Gears;
 using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
+using Pipeline;
 
 namespace Pipeline.Stages;
 
@@ -15,7 +16,8 @@ public sealed class FetchStage(
     IBranchPredictor predictor,
     IDecoder decoder,
     int rasDepth = 16,
-    IFetchTranslator? fetchTranslator = null
+    IFetchTranslator? fetchTranslator = null,
+    FdipPrefetcher? fdip = null
 )
     : Gear(name, parent, esc) {
     private readonly ReturnAddressStack _ras = new(rasDepth);
@@ -43,6 +45,7 @@ public sealed class FetchStage(
 
     public void Cycle() {
         if (Flush) {
+            fdip?.Flush(FlushTarget);
             Pc = FlushTarget;
             Flush = false;
             _fetchFaulted = false;
@@ -50,6 +53,8 @@ public sealed class FetchStage(
             LastSent = IfIdLatch.Bubble;
             return;
         }
+
+        fdip?.Tick(Pc);
 
         if (Stall) {
             // Hold: do not advance PC, re-present the instruction already in flight.

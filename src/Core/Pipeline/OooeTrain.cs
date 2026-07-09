@@ -47,7 +47,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int sqCapacity = 0,
         int writeBufferCapacity = 0,
         int mshrCapacity = 0,
-        bool flatIq = false
+        bool flatIq = false,
+        int fdipFtqCapacity = 0
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -67,7 +68,9 @@ public sealed class OooeTrain : ISteppableTrain {
                 sqCapacity,
                 writeBufferCapacity,
                 mshrCapacity,
-                flatIq
+                flatIq,
+                memory,
+                fdipFtqCapacity
             )
         );
         _train.Build();
@@ -359,6 +362,7 @@ internal sealed class OoOPipelineCore : Gear {
     // True when a D-prefetcher is configured with PrefetchLatency > 0: prefetched lines
     // arrive after a countdown instead of instantly (realistic prefetch latency model).
     private readonly bool _realisticPrefetch;
+    private readonly FdipPrefetcher? _fdip;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
     public IArchState State { get; }
@@ -384,7 +388,9 @@ internal sealed class OoOPipelineCore : Gear {
         int sqCapacity = 0,
         int writeBufferCapacity = 0,
         int mshrCapacity = 0,
-        bool flatIq = false
+        bool flatIq = false,
+        IMemory? fdipBackingMemory = null,
+        int fdipFtqCapacity = 0
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -406,6 +412,10 @@ internal sealed class OoOPipelineCore : Gear {
         State = mechanism.CreateArchState();
         State.Pc = entryPoint;
         _fetchTranslator = mechanism.CreateFetchTranslator(State, ILayers.Accessor);
+
+        _fdip = fdipFtqCapacity > 0 && fdipBackingMemory is not null && iLayers.Cache is not null
+            ? new FdipPrefetcher(predictor, _decoder, fdipBackingMemory, iLayers.Cache, entryPoint, fdipFtqCapacity)
+            : null;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -1250,6 +1260,7 @@ internal sealed class OoOPipelineCore : Gear {
 
     /// <summary>Fetch up to issueWidth instructions into the decode queue.</summary>
     private void StepFetch() {
+        _fdip?.Tick(_fetchPc);
         if (_fetchFaulted) return; // wait for flush to clear before fetching again
 
         var fetched = 0;
@@ -1369,6 +1380,7 @@ internal sealed class OoOPipelineCore : Gear {
         _fetchPc = _flushTarget;
         _flushPending = false;
         _fetchFaulted = false;
+        _fdip?.Flush(_flushTarget);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

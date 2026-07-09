@@ -78,7 +78,7 @@ the active thread.
 
 ## Front-End
 
-- [ ] FDIP (fetch-directed instruction prefetching): decouple the branch predictor from fetch via a fetch target queue
+- [x] FDIP (fetch-directed instruction prefetching): decouple the branch predictor from fetch via a fetch target queue
   and prefetch the I-cache along the predicted path. — Reinman, Calder & Austin, MICRO 1999
 - [ ] RDIP: return-address-stack-directed instruction prefetching keyed on call-stack context. — Kolli, Saidi &
   Wenisch, MICRO 2013
