@@ -26,6 +26,7 @@ public class FdipPrefetcherTests {
             bytes[i * 4 + 2] = (byte)(words[i] >> 16);
             bytes[i * 4 + 3] = (byte)(words[i] >> 24);
         }
+
         mem.Load(0, bytes);
     }
 
@@ -48,17 +49,17 @@ public class FdipPrefetcherTests {
     [Fact]
     public void Fdip_FiveStage_ArchStateIdenticalToWithout() {
         var memOff = new FlatMemory(4096);
-        var memOn  = new FlatMemory(4096);
-        Load(memOff, LoopProgram);
-        Load(memOn,  LoopProgram);
+        var memOn = new FlatMemory(4096);
+        Load(memOff, FdipPrefetcherTests.LoopProgram);
+        Load(memOn, FdipPrefetcherTests.LoopProgram);
 
         var off = new FiveStageTrain(new Rv32Mechanism(), memOff, iMemConfig: ICache());
-        var on  = new FiveStageTrain(new Rv32Mechanism(), memOn,  iMemConfig: ICache(), fdipFtqCapacity: 32);
+        var on = new FiveStageTrain(new Rv32Mechanism(), memOn, iMemConfig: ICache(), fdipFtqCapacity: 32);
 
         off.Run();
         on.Run();
 
-        for (int r = 0; r < 32; r++)
+        for (var r = 0; r < 32; r++)
             Assert.Equal(
                 off.ArchState.IntegerRegisters.Read(r),
                 on.ArchState.IntegerRegisters.Read(r)
@@ -70,21 +71,23 @@ public class FdipPrefetcherTests {
         // branch_misses must be byte-identical: if FDIP's lookahead calls to
         // Predict() overwrite per-prediction carry state consumed by Update(),
         // the count would diverge. This test catches that class of bug.
-        var predictor = () => (IBranchPredictor)new LTagePredictor();
+        Func<IBranchPredictor> predictor = () => (IBranchPredictor)new LTagePredictor();
 
         var memOff = new FlatMemory(4096);
-        var memOn  = new FlatMemory(4096);
-        Load(memOff, LoopProgram);
-        Load(memOn,  LoopProgram);
+        var memOn = new FlatMemory(4096);
+        Load(memOff, FdipPrefetcherTests.LoopProgram);
+        Load(memOn, FdipPrefetcherTests.LoopProgram);
 
         var off = new FiveStageTrain(new Rv32Mechanism(), memOff, predictor: predictor(), iMemConfig: ICache());
-        var on  = new FiveStageTrain(new Rv32Mechanism(), memOn,  predictor: predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32);
+        var on = new FiveStageTrain(
+            new Rv32Mechanism(), memOn, predictor: predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32
+        );
 
         RevolutionResult rOff = off.Run();
-        RevolutionResult rOn  = on.Run();
+        RevolutionResult rOn = on.Run();
 
         DialBoardSnapshot? sOff = rOff.Find("five_stage.pipeline");
-        DialBoardSnapshot? sOn  = rOn.Find("five_stage.pipeline");
+        DialBoardSnapshot? sOn = rOn.Find("five_stage.pipeline");
         Assert.NotNull(sOff);
         Assert.NotNull(sOn);
         Assert.Equal(sOff!.Counters["branch_misses"], sOn!.Counters["branch_misses"]);
@@ -93,7 +96,7 @@ public class FdipPrefetcherTests {
     [Fact]
     public void Fdip_FiveStage_IssuesPrefetchesIntoICache() {
         var mem = new FlatMemory(4096);
-        Load(mem, LoopProgram);
+        Load(mem, FdipPrefetcherTests.LoopProgram);
 
         var train = new FiveStageTrain(new Rv32Mechanism(), mem, iMemConfig: ICache(), fdipFtqCapacity: 32);
         train.Run();
@@ -107,17 +110,17 @@ public class FdipPrefetcherTests {
     [Fact]
     public void Fdip_OoO_ArchStateIdenticalToWithout() {
         var memOff = new FlatMemory(4096);
-        var memOn  = new FlatMemory(4096);
-        Load(memOff, LoopProgram);
-        Load(memOn,  LoopProgram);
+        var memOn = new FlatMemory(4096);
+        Load(memOff, FdipPrefetcherTests.LoopProgram);
+        Load(memOn, FdipPrefetcherTests.LoopProgram);
 
         var off = new OooeTrain(new Rv32Mechanism(), memOff, iMemConfig: ICache());
-        var on  = new OooeTrain(new Rv32Mechanism(), memOn,  iMemConfig: ICache(), fdipFtqCapacity: 32);
+        var on = new OooeTrain(new Rv32Mechanism(), memOn, iMemConfig: ICache(), fdipFtqCapacity: 32);
 
         off.Run();
         on.Run();
 
-        for (int r = 0; r < 32; r++)
+        for (var r = 0; r < 32; r++)
             Assert.Equal(
                 off.ArchState.IntegerRegisters.Read(r),
                 on.ArchState.IntegerRegisters.Read(r)
@@ -126,21 +129,23 @@ public class FdipPrefetcherTests {
 
     [Fact]
     public void Fdip_OoO_BranchMissCountIsIdentical() {
-        var predictor = () => (IBranchPredictor)new LTagePredictor();
+        Func<IBranchPredictor> predictor = () => (IBranchPredictor)new LTagePredictor();
 
         var memOff = new FlatMemory(4096);
-        var memOn  = new FlatMemory(4096);
-        Load(memOff, LoopProgram);
-        Load(memOn,  LoopProgram);
+        var memOn = new FlatMemory(4096);
+        Load(memOff, FdipPrefetcherTests.LoopProgram);
+        Load(memOn, FdipPrefetcherTests.LoopProgram);
 
         var off = new OooeTrain(new Rv32Mechanism(), memOff, predictor: predictor(), iMemConfig: ICache());
-        var on  = new OooeTrain(new Rv32Mechanism(), memOn,  predictor: predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32);
+        var on = new OooeTrain(
+            new Rv32Mechanism(), memOn, predictor: predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32
+        );
 
         RevolutionResult rOff = off.Run();
-        RevolutionResult rOn  = on.Run();
+        RevolutionResult rOn = on.Run();
 
         DialBoardSnapshot? sOff = rOff.Find("ooo.pipeline");
-        DialBoardSnapshot? sOn  = rOn.Find("ooo.pipeline");
+        DialBoardSnapshot? sOn = rOn.Find("ooo.pipeline");
         Assert.NotNull(sOff);
         Assert.NotNull(sOn);
         Assert.Equal(sOff!.Counters["branch_misses"], sOn!.Counters["branch_misses"]);
@@ -149,7 +154,7 @@ public class FdipPrefetcherTests {
     [Fact]
     public void Fdip_OoO_IssuesPrefetchesIntoICache() {
         var mem = new FlatMemory(4096);
-        Load(mem, LoopProgram);
+        Load(mem, FdipPrefetcherTests.LoopProgram);
 
         var train = new OooeTrain(new Rv32Mechanism(), mem, iMemConfig: ICache(), fdipFtqCapacity: 32);
         train.Run();

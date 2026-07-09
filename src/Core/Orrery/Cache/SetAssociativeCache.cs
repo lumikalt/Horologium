@@ -63,6 +63,7 @@ public sealed class SetAssociativeCache : IMemory {
     public int WbCapacity => _wbCapacity;
     public int WbOccupancy => _wbCount;
     public long Prefetches { get; private set; }
+    public long PrefetchRedundant { get; private set; }
     public long LatePrefetchHits { get; private set; }
     public ulong? LastAccessAddress { get; private set; }
     public bool LastAccessWasHit { get; private set; }
@@ -451,7 +452,11 @@ public sealed class SetAssociativeCache : IMemory {
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + 1 > _blockSize) return;
         Decompose(address, out int set, out ulong tag);
-        if (FindWay(set, tag) >= 0) return; // already present
+        if (FindWay(set, tag) >= 0) {
+            PrefetchRedundant++;
+            return;
+        } // already present
+
         int evict = _policy.ChooseVictim(set);
         _policy.SetPendingSignature(address >> _offsetBits);
         try {

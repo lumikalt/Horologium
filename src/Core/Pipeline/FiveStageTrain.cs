@@ -36,7 +36,8 @@ public sealed class FiveStageTrain : ISteppableTrain {
         int storeBufferCapacity = 0,
         PEventLog? pEventLog = null,
         ICommitObserver? commitObserver = null,
-        int fdipFtqCapacity = 0
+        int fdipFtqCapacity = 0,
+        bool rdip = false
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
@@ -47,7 +48,7 @@ public sealed class FiveStageTrain : ISteppableTrain {
                 "pipeline", _train.Root, esc,
                 mechanism, memory, iLayers, dLayers, entryPoint, forwardingEnabled,
                 predictor ?? new AlwaysNotTakenPredictor(),
-                storeBufferCapacity, pEventLog, commitObserver, fdipFtqCapacity
+                storeBufferCapacity, pEventLog, commitObserver, fdipFtqCapacity, rdip
             )
         );
         _train.Build();
@@ -172,7 +173,8 @@ internal sealed class PipelineCore : Gear {
         int storeBufferCapacity = 0,
         PEventLog? pEventLog = null,
         ICommitObserver? commitObserver = null,
-        int fdipFtqCapacity = 0
+        int fdipFtqCapacity = 0,
+        bool rdipEnabled = false
     )
         : base(name, parent, esc) {
         _plog = pEventLog;
@@ -196,11 +198,17 @@ internal sealed class PipelineCore : Gear {
             ? new FdipPrefetcher(predictor, _decoder, fetchTranslatorMemory, iLayers.Cache, entryPoint, fdipFtqCapacity)
             : null;
 
+        RdipPrefetcher? rdip = rdipEnabled && iLayers.Cache is not null
+            ? new RdipPrefetcher(iLayers.Cache, _decoder)
+            : null;
+
         // Create stages — IF uses instruction memory, EX/MEM use data memory.
         _if = new FetchStage(
             "if", parent, esc, ILayers.Accessor, predictor, _decoder,
             fetchTranslator: mechanism.CreateFetchTranslator(State, fetchTranslatorMemory),
-            fdip: fdip
+            fdip: fdip,
+            rdipICache: iLayers.Cache,
+            rdip: rdip
         );
         _id = new DecodeStage("id", parent, esc, mechanism.Decoder, State);
         _ex = new ExecuteStage(
@@ -210,7 +218,7 @@ internal sealed class PipelineCore : Gear {
         _mem = new MemoryStage("mem", parent, esc);
         _wb = new WritebackStage(
             "wb", parent, esc,
-            State, mechanism.TrapController, commitObserver
+            State, mechanism.TrapController, commitObserver, rdip
         );
 
         _if.Pc = entryPoint;

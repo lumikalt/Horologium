@@ -11,6 +11,7 @@ public sealed class WritebackStage : Gear {
     private readonly IArchState _state;
     private readonly ITrapController _trap;
     private readonly ICommitObserver? _commitObserver;
+    private readonly RdipPrefetcher? _rdip;
 
     private MemWbLatch _current = MemWbLatch.Bubble;
 
@@ -28,12 +29,14 @@ public sealed class WritebackStage : Gear {
         Escapement esc,
         IArchState state,
         ITrapController trap,
-        ICommitObserver? commitObserver = null
+        ICommitObserver? commitObserver = null,
+        RdipPrefetcher? rdip = null
     )
         : base(name, parent, esc) {
         _state = state;
         _trap = trap;
         _commitObserver = commitObserver;
+        _rdip = rdip;
         Input = new InArbor<MemWbLatch>($"{name}.in") {
             OnReceive = latch => _current = latch,
         };
@@ -91,8 +94,10 @@ public sealed class WritebackStage : Gear {
             // Co-sim notification — a normal retire (trap/return set TrapRedirect
             // above and skip this block). Fire before the interrupt peek so an
             // instruction that triggers a following interrupt still commits.
-            if (_commitObserver is not null && latch.Instruction is not null)
-                _commitObserver.OnCommit(latch.Pc, latch.Instruction.RawEncoding, _state);
+            if (latch.Instruction is not null) {
+                _commitObserver?.OnCommit(latch.Pc, latch.Instruction.RawEncoding, _state);
+                _rdip?.OnCommit(latch.Pc, latch.Instruction.RawEncoding);
+            }
 
             // First-class HTIF tohost exit: the store flagged a post-commit halt.
             // The instruction has committed above; stop before any further retire.

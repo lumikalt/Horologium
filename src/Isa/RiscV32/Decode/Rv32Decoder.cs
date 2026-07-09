@@ -2011,7 +2011,7 @@ public class Rv32Decoder : IDecoder {
     private static int UveElementBytes(uint funct3) => 1 << (int)(funct3 & 3);
 
     private static RvInstruction DecodeUveOp(ulong pc, uint raw) {
-        var rd  = (int)((raw >>  7) & 0x1F);
+        var rd = (int)((raw >> 7) & 0x1F);
         var rs1 = (int)((raw >> 15) & 0x1F);
         var rs2 = (int)((raw >> 20) & 0x1F);
         uint funct3 = (raw >> 12) & 0x7;
@@ -2020,7 +2020,7 @@ public class Rv32Decoder : IDecoder {
         // UVE branch: bits[31:29]=111 (funct7[6:4]=111, i.e. raw>>29==7)
         if (raw >> 29 == 7) {
             int imm = UveBranchImm(raw);
-            var notDone = rs2 & 1; // LSB of rs2 field
+            int notDone = rs2 & 1; // LSB of rs2 field
 
             if (funct3 == 0)
                 return new RvInstruction(
@@ -2038,28 +2038,34 @@ public class Rv32Decoder : IDecoder {
 
         // so.v.dp.(width): funct7=0x56; funct3 selects element width (0=b, 1=h, 2=w, 3=d)
         if (funct7 == 0x56) {
-            int elemBytes = (int)funct3 switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8,
-                _ => throw new IllegalInstructionException(raw, $"Unknown so.v.dp width funct3=0x{funct3:X}") };
+            int elemBytes = (int)funct3 switch {
+                0 => 1, 1 => 2, 2 => 4, 3 => 8,
+                _ => throw new IllegalInstructionException(raw, $"Unknown so.v.dp width funct3=0x{funct3:X}"),
+            };
             return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDp(rd, rs1, elemBytes));
         }
 
         // so.v.mv family: funct7=0x54; rs2[4:3] selects op (2=mvvs, 3=mvsv); 0/1=mv/mvt (pred regs, not implemented)
         if (funct7 == 0x54) {
             int mvKind = (rs2 >> 3) & 3;
-            if (mvKind == 2)
-                return new RvInstruction(pc, raw, rd, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
+            if (mvKind == 2) return new RvInstruction(pc, raw, rd, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
             if (mvKind == 3) {
-                int elemBytes = (int)funct3 switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8,
-                    _ => throw new IllegalInstructionException(raw, $"Unknown so.v.mvsv width funct3=0x{funct3:X}") };
+                int elemBytes = (int)funct3 switch {
+                    0 => 1, 1 => 2, 2 => 4, 3 => 8,
+                    _ => throw new IllegalInstructionException(raw, $"Unknown so.v.mvsv width funct3=0x{funct3:X}"),
+                };
                 return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVMvsv(rd, rs1, elemBytes));
             }
-            throw new IllegalInstructionException(raw, "UVE so.v.mv/mvt not implemented (requires predicate registers)");
+
+            throw new IllegalInstructionException(
+                raw, "UVE so.v.mv/mvt not implemented (requires predicate registers)"
+            );
         }
 
         // so.a.*: group = funct7>>3, upper = funct3&4, type = funct3&3 (0=US, 1=FP, 2=SG)
-        int group = (int)(funct7 >> 3);
+        var group = (int)(funct7 >> 3);
         bool upper = (funct3 & 4) != 0;
-        int type  = (int)(funct3 & 3);
+        var type = (int)(funct3 & 3);
 
         RvOp uvOp = group switch {
             0 => UveArith(upper ? UveFpOp.Sub : UveFpOp.Add, upper ? UveIntOp.Sub : UveIntOp.Add, type, rd, rs1, rs2),
@@ -2067,16 +2073,18 @@ public class Rv32Decoder : IDecoder {
             // Group 2 lower: adde — accumulate stream element into ud; rs2=1 selects the += variant.
             // Group 2 upper: sadde/fsadde — write stream element (or accumulate) into integer/FP scalar reg.
             2 when !upper && rs2 == 1 => UveArith(UveFpOp.AddeAcc, UveIntOp.AddeAcc, type, rd, rs1, -1),
-            2 when !upper             => UveArith(UveFpOp.Adde,    UveIntOp.Adde,    type, rd, rs1, -1),
-            2 when  upper && rs2 == 1 => new RvUveSoASadde(type == 1, true,  type == 1 ? rd + 32 : rd, rs1),
-            2 when  upper             => new RvUveSoASadde(type == 1, false, type == 1 ? rd + 32 : rd, rs1),
-            3 when  upper              => UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2),
+            2 when !upper             => UveArith(UveFpOp.Adde, UveIntOp.Adde, type, rd, rs1, -1),
+            2 when upper && rs2 == 1  => new RvUveSoASadde(type == 1, true, type == 1 ? rd + 32 : rd, rs1),
+            2 when upper              => new RvUveSoASadde(type == 1, false, type == 1 ? rd + 32 : rd, rs1),
+            3 when upper              => UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2),
             // ABS has no US variant in Spike (MATCH_SO_A_ABS_SG uses funct3=0); force Signed=true.
             3 when !upper && type == 1 => new RvUveSoAFp(UveFpOp.Abs, rd, rs1, -1),
-            3 when !upper              => new RvUveSoAInt(UveIntOp.Abs, true, rd, rs1, -1),
+            3 when !upper => new RvUveSoAInt(UveIntOp.Abs, true, rd, rs1, -1),
             4 => UveArith(upper ? UveFpOp.Max : UveFpOp.Min, upper ? UveIntOp.Max : UveIntOp.Min, type, rd, rs1, rs2),
             // Group 5: mine/maxe — running min/max reduction into ud.
-            5 => UveArith(upper ? UveFpOp.Maxe : UveFpOp.Mine, upper ? UveIntOp.Maxe : UveIntOp.Mine, type, rd, rs1, -1),
+            5 => UveArith(
+                upper ? UveFpOp.Maxe : UveFpOp.Mine, upper ? UveIntOp.Maxe : UveIntOp.Mine, type, rd, rs1, -1
+            ),
             6 when upper && rs2 == 1 && type == 1 => new RvUveSoAFp(UveFpOp.Sqrt, rd, rs1, -1),
             6 => UveArith(upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1),
             // Group 11 (funct7=0x58): SO_C — stream lifecycle and vector-length control.
@@ -2091,11 +2099,11 @@ public class Rv32Decoder : IDecoder {
             },
             12 => (int)funct3 switch {
                 0 => (RvOp)new RvUveSoALogic(UveLogicOp.Nand, rd, rs1, rs2),
-                1 => new RvUveSoALogic(UveLogicOp.And,  rd, rs1, rs2),
-                2 => new RvUveSoALogic(UveLogicOp.Nor,  rd, rs1, rs2),
-                3 => new RvUveSoALogic(UveLogicOp.Or,   rd, rs1, rs2),
-                4 => new RvUveSoALogic(UveLogicOp.Not,  rd, rs1, -1),
-                5 => new RvUveSoALogic(UveLogicOp.Xor,  rd, rs1, rs2),
+                1 => new RvUveSoALogic(UveLogicOp.And, rd, rs1, rs2),
+                2 => new RvUveSoALogic(UveLogicOp.Nor, rd, rs1, rs2),
+                3 => new RvUveSoALogic(UveLogicOp.Or, rd, rs1, rs2),
+                4 => new RvUveSoALogic(UveLogicOp.Not, rd, rs1, -1),
+                5 => new RvUveSoALogic(UveLogicOp.Xor, rd, rs1, rs2),
                 _ => throw new IllegalInstructionException(raw, $"Unknown UVE logic funct3=0x{funct3:X}"),
             },
             13 => (int)funct3 switch {
@@ -2112,16 +2120,16 @@ public class Rv32Decoder : IDecoder {
 
         // ShiftS uses integer shift-amount; Sadde/fsadde and SO_C getvl/setvl write scalar regs.
         int dest = uvOp switch {
-            RvUveSoASadde s  => s.Rd,
-            RvUveSoCGetvl s  => s.Rd,
-            RvUveSoCSetvl s  => s.Rd,
-            _ => -1,
+            RvUveSoASadde s => s.Rd,
+            RvUveSoCGetvl s => s.Rd,
+            RvUveSoCSetvl s => s.Rd,
+            _               => -1,
         };
         int[] intSrcs = uvOp switch {
-            RvUveSoAShiftS ss               => [ss.Rs2],
-            RvUveSoASadde { Acc: true } s   => [s.Rd],
-            RvUveSoCSetvl s                 => [s.Rs1],
-            _                               => [],
+            RvUveSoAShiftS ss              => [ss.Rs2,],
+            RvUveSoASadde { Acc: true, } s => [s.Rd,],
+            RvUveSoCSetvl s                => [s.Rs1,],
+            _                              => [],
         };
         return new RvInstruction(pc, raw, dest, intSrcs, ToothClass.Uve, uvOp);
     }
@@ -2129,7 +2137,7 @@ public class Rv32Decoder : IDecoder {
     private static RvOp UveArith(UveFpOp fpOp, UveIntOp intOp, int type, int ud, int usrc1, int usrc2) =>
         type switch {
             1 => new RvUveSoAFp(fpOp, ud, usrc1, usrc2),
-            2 => new RvUveSoAInt(intOp, true,  ud, usrc1, usrc2),
+            2 => new RvUveSoAInt(intOp, true, ud, usrc1, usrc2),
             _ => new RvUveSoAInt(intOp, false, ud, usrc1, usrc2),
         };
 

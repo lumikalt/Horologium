@@ -107,9 +107,9 @@ public sealed class RvInstruction(
     };
 
     public IReadOnlyList<int> UveStreamSources { get; } = payload switch {
-        RvUveSoAFp op     => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2] : [op.Usrc1],
-        RvUveSoAInt op    => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2] : [op.Usrc1],
-        RvUveSoALogic op  => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2] : [op.Usrc1],
+        RvUveSoAFp op     => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2,] : [op.Usrc1,],
+        RvUveSoAInt op    => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2,] : [op.Usrc1,],
+        RvUveSoALogic op  => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2,] : [op.Usrc1,],
         RvUveSoAShiftV op => [op.Usrc1, op.Usrc2,],
         RvUveSoAShiftS op => [op.Usrc1,],
         RvUveSoASadde op  => [op.Usrc1,],
@@ -1233,52 +1233,61 @@ public record RvUveSoVMvsv(int Ud, int Rs1, int ElementBytes) : RvOp;
 // Arithmetic on stream elements (custom-1, opcode=0x2B):
 //   (funct7>>3, funct3): Add=(0,1), Sub=(0,5), Mul=(1,1), Div=(1,5), Mac=(3,5)
 public enum UveFpOp {
-    Mul     = 0,
-    Add     = 1,
-    Mac     = 2,
-    Sub     = 3,
-    Div     = 4,
-    Min     = 5,
-    Max     = 6,
-    Abs     = 7,
-    Inc     = 8,
-    Dec     = 9,
-    Sqrt    = 10,
-    Adde    = 11, // accumulate stream element into ud (overwrite)
+    Mul = 0,
+    Add = 1,
+    Mac = 2,
+    Sub = 3,
+    Div = 4,
+    Min = 5,
+    Max = 6,
+    Abs = 7,
+    Inc = 8,
+    Dec = 9,
+    Sqrt = 10,
+    Adde = 11,    // accumulate stream element into ud (overwrite)
     AddeAcc = 12, // accumulate stream element into ud (add)
-    Mine    = 13, // ud = min(ud, stream_elem)
-    Maxe    = 14, // ud = max(ud, stream_elem)
+    Mine = 13,    // ud = min(ud, stream_elem)
+    Maxe = 14,    // ud = max(ud, stream_elem)
 }
 
 // FP arithmetic on stream elements; Usrc2=-1 for unary ops (Abs, Inc, Dec, Sqrt).
 public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
 
 public enum UveIntOp {
-    Add     = 0,
-    Sub     = 1,
-    Mul     = 2,
-    Div     = 3,
-    Mac     = 4,
-    Min     = 5,
-    Max     = 6,
-    Abs     = 7,
-    Inc     = 8,
-    Dec     = 9,
-    Adde    = 10,
+    Add = 0,
+    Sub = 1,
+    Mul = 2,
+    Div = 3,
+    Mac = 4,
+    Min = 5,
+    Max = 6,
+    Abs = 7,
+    Inc = 8,
+    Dec = 9,
+    Adde = 10,
     AddeAcc = 11,
-    Mine    = 12,
-    Maxe    = 13,
+    Mine = 12,
+    Maxe = 13,
 }
 
 // Integer arithmetic on stream elements; Usrc2=-1 for unary ops (Abs, Inc, Dec).
 public record RvUveSoAInt(UveIntOp Op, bool Signed, int Ud, int Usrc1, int Usrc2) : RvOp;
 
-public enum UveLogicOp { Nand, And, Nor, Or, Not, Xor }
+public enum UveLogicOp {
+    Nand,
+    And,
+    Nor,
+    Or,
+    Not,
+    Xor,
+}
 
 // Bitwise logic on stream elements; Usrc2=-1 for Not (unary).
 public record RvUveSoALogic(UveLogicOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
 
-public enum UveShiftOp { Sll, Srl, Sra }
+public enum UveShiftOp {
+    Sll, Srl, Sra,
+}
 
 // Element-wise shift with amount from another u-reg.
 public record RvUveSoAShiftV(UveShiftOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
@@ -1293,12 +1302,16 @@ public record RvUveSoASadde(bool IsFp, bool Acc, int Rd, int Usrc1) : RvOp;
 // SO_C group (custom-1, funct7=0x58): stream lifecycle and vector-length control.
 // ss.stop ud — terminate stream in u-reg ud (SO_C_BREAK, funct3=3).
 public record RvUveSoCBreak(int Ud) : RvOp;
+
 // ss.suspend ud — suspend stream in u-reg ud (SO_C_SUSPD, funct3=1).
 public record RvUveSoCSuspd(int Ud) : RvOp;
+
 // ss.resume ud — resume suspended stream in u-reg ud (SO_C_RESUM, funct3=2).
 public record RvUveSoCResum(int Ud) : RvOp;
+
 // ss.getvl rd — read current vector length into integer register rd (SO_C_GETVL, funct3=7).
 public record RvUveSoCGetvl(int Rd) : RvOp;
+
 // ss.setvl rd, rs1 — set vector length from integer rs1, return old VL in rd (SO_C_SETVL, funct3=0).
 public record RvUveSoCSetvl(int Rd, int Rs1) : RvOp;
 

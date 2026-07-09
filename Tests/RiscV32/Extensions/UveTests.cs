@@ -28,9 +28,12 @@ public class UveTests {
 
     // so.v.dp.(width) ud, rs1 — custom-1, funct7=0x56; funct3: 0=b, 1=h, 2=w, 3=d
     private static uint SoVDp(int ud, int rs1, int elemBytes) {
-        uint funct3 = elemBytes switch { 1 => 0u, 2 => 1u, 4 => 2u, 8 => 3u, _ => throw new ArgumentOutOfRangeException() };
+        uint funct3 = elemBytes switch {
+            1 => 0u, 2 => 1u, 4 => 2u, 8 => 3u, _ => throw new ArgumentOutOfRangeException(),
+        };
         return (0x56u << 25) | (uint)((rs1 & 0x1F) << 15) | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
+
     private static uint SoVDpW(int ud, int rs1) => SoVDp(ud, rs1, 4);
 
     // so.v.mvvs rd, us1 — funct7=0x54, rs2=16
@@ -39,19 +42,22 @@ public class UveTests {
 
     // so.v.mvsv.(width) ud, rs1 — funct7=0x54, rs2=24; funct3: 0=b, 1=h, 2=w, 3=d
     private static uint SoVMvsv(int ud, int rs1, int elemBytes) {
-        uint funct3 = elemBytes switch { 1 => 0u, 2 => 1u, 4 => 2u, 8 => 3u, _ => throw new ArgumentOutOfRangeException() };
-        return (0x54u << 25) | (24u << 20) | (uint)((rs1 & 0x1F) << 15) | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
+        uint funct3 = elemBytes switch {
+            1 => 0u, 2 => 1u, 4 => 2u, 8 => 3u, _ => throw new ArgumentOutOfRangeException(),
+        };
+        return (0x54u << 25) | (24u << 20) | (uint)((rs1 & 0x1F) << 15) | (funct3 << 12) | (uint)((ud & 0x1F) << 7)
+             | 0x2Bu;
     }
 
     // so.a.fp ud, usrc1, usrc2 — custom-1; (funct7>>3, funct3) encodes the operation.
     // usrc2=-1 for unary ops (Abs, Inc, Dec) — rs2 field set to 0 in encoding.
     private static uint SoAFp(UveFpOp op, int ud, int usrc1, int usrc2) {
         (uint funct3, uint top4) = op switch {
-            UveFpOp.Add  => (1u, 0u),
-            UveFpOp.Sub  => (5u, 0u),
-            UveFpOp.Mul  => (1u, 1u),
-            UveFpOp.Div  => (5u, 1u),
-            UveFpOp.Mac  => (5u, 3u),
+            UveFpOp.Add     => (1u, 0u),
+            UveFpOp.Sub     => (5u, 0u),
+            UveFpOp.Mul     => (1u, 1u),
+            UveFpOp.Div     => (5u, 1u),
+            UveFpOp.Mac     => (5u, 3u),
             UveFpOp.Min     => (1u, 4u),
             UveFpOp.Max     => (5u, 4u),
             UveFpOp.Abs     => (1u, 3u),
@@ -65,7 +71,7 @@ public class UveTests {
         };
         uint funct7 = top4 << 3;
         // AddeAcc: rs2=1 in the binary distinguishes it from Adde (rs2=0).
-        int rs2Enc = op == UveFpOp.AddeAcc ? 1 : (usrc2 < 0 ? 0 : usrc2);
+        int rs2Enc = op == UveFpOp.AddeAcc ? 1 : usrc2 < 0 ? 0 : usrc2;
         return (funct7 << 25) | (uint)((rs2Enc & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
@@ -90,10 +96,10 @@ public class UveTests {
             _                => throw new ArgumentOutOfRangeException(nameof(op)),
         };
         // Spike encodes ABS_SG with funct3=0 (type=0 slot); no ABS_US variant exists.
-        int opType = (op == UveIntOp.Abs) ? 0 : (signed ? 2 : 0);
-        uint funct3 = (uint)(opType | (upper ? 4 : 0));
-        uint funct7 = (uint)(group << 3);
-        int rs2Enc = op == UveIntOp.AddeAcc ? 1 : (usrc2 < 0 ? 0 : usrc2);
+        int opType = op == UveIntOp.Abs ? 0 : signed ? 2 : 0;
+        var funct3 = (uint)(opType | (upper ? 4 : 0));
+        var funct7 = (uint)(group << 3);
+        int rs2Enc = op == UveIntOp.AddeAcc ? 1 : usrc2 < 0 ? 0 : usrc2;
         return (funct7 << 25) | (uint)((rs2Enc & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
@@ -117,8 +123,10 @@ public class UveTests {
 
     // so.a.shift.v ud, usrc1, usrc2 — vector-vector shift (amount from u-reg).
     private static uint SoAShiftV(UveShiftOp op, int ud, int usrc1, int usrc2) {
-        int f3 = op switch { UveShiftOp.Sll => 0, UveShiftOp.Srl => 2, UveShiftOp.Sra => 4,
-            _ => throw new ArgumentOutOfRangeException(nameof(op)), };
+        int f3 = op switch {
+            UveShiftOp.Sll => 0, UveShiftOp.Srl => 2, UveShiftOp.Sra => 4,
+            _              => throw new ArgumentOutOfRangeException(nameof(op)),
+        };
         uint funct7 = 13u << 3;
         return (funct7 << 25) | (uint)((usrc2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
@@ -126,8 +134,10 @@ public class UveTests {
 
     // so.a.shift.s ud, usrc1, rs2 — scalar-register shift (amount from integer register).
     private static uint SoAShiftS(UveShiftOp op, int ud, int usrc1, int rs2) {
-        int f3 = op switch { UveShiftOp.Sll => 1, UveShiftOp.Srl => 3, UveShiftOp.Sra => 5,
-            _ => throw new ArgumentOutOfRangeException(nameof(op)), };
+        int f3 = op switch {
+            UveShiftOp.Sll => 1, UveShiftOp.Srl => 3, UveShiftOp.Sra => 5,
+            _              => throw new ArgumentOutOfRangeException(nameof(op)),
+        };
         uint funct7 = 13u << 3;
         return (funct7 << 25) | (uint)((rs2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
@@ -136,15 +146,15 @@ public class UveTests {
     // SO_C group (custom-1, funct7=0x58): stream lifecycle and VL control.
     // ss.stop ud  (SO_C_BREAK, funct3=3) / ss.suspend ud (SUSPD, 1) / ss.resume ud (RESUM, 2)
     // ss.getvl rd (GETVL, funct3=7) / ss.setvl rd, rs1 (SETVL, funct3=0)
-    private static uint SoCBreak(int ud)           => SoC(3, ud, 0, 0);
-    private static uint SoCSuspd(int ud)           => SoC(1, ud, 0, 0);
-    private static uint SoCResum(int ud)           => SoC(2, ud, 0, 0);
-    private static uint SoCGetvl(int rd)           => SoC(7, rd, 0, 0);
-    private static uint SoCSetvl(int rd, int rs1)  => SoC(0, rd, rs1, 0);
+    private static uint SoCBreak(int ud) => SoC(3, ud, 0, 0);
+    private static uint SoCSuspd(int ud) => SoC(1, ud, 0, 0);
+    private static uint SoCResum(int ud) => SoC(2, ud, 0, 0);
+    private static uint SoCGetvl(int rd) => SoC(7, rd, 0, 0);
+    private static uint SoCSetvl(int rd, int rs1) => SoC(0, rd, rs1, 0);
 
     private static uint SoC(int funct3, int rd, int rs1, int rs2) =>
         (0x58u << 25) | (uint)((rs2 & 0x1F) << 20) | (uint)((rs1 & 0x1F) << 15)
-        | ((uint)(funct3 & 7) << 12) | (uint)((rd & 0x1F) << 7) | 0x2Bu;
+      | ((uint)(funct3 & 7) << 12) | (uint)((rd & 0x1F) << 7) | 0x2Bu;
 
     // sadde rd, usrc1 / fsadde rd, usrc1 — group 2 upper; funct3 upper bit set.
     // isFp=true → type=1 (FP, funct3=5); isFp=false → type=0 (US int, funct3=4).
@@ -152,7 +162,7 @@ public class UveTests {
     private static uint SoASadde(bool isFp, bool acc, int rd, int usrc1) {
         uint funct3 = 4u | (isFp ? 1u : 0u);
         uint funct7 = 2u << 3;
-        uint rs2    = acc ? 1u : 0u;
+        uint rs2 = acc ? 1u : 0u;
         return (funct7 << 25) | (rs2 << 20) | (uint)((usrc1 & 0x1F) << 15)
              | (funct3 << 12) | (uint)((rd & 0x1F) << 7) | 0x2Bu;
     }
@@ -1140,7 +1150,7 @@ public class UveTests {
     [Fact]
     public void SoAInt_Mac_AccumulatesResult() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = IB(100);  // accumulator
+        state.UveState.Scalars[5] = IB(100); // accumulator
         state.UveState.Scalars[1] = IB(3);
         state.UveState.Scalars[2] = IB(4);
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Mac, true, 5, 1, 2), state);
@@ -1444,7 +1454,7 @@ public class UveTests {
     [Fact]
     public void SoAFp_Adde_OverwritesUd() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = 999f;     // existing accumulator
+        state.UveState.Scalars[5] = 999f; // existing accumulator
         state.UveState.Scalars[1] = 7.0f;
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Adde, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
@@ -1464,8 +1474,8 @@ public class UveTests {
     [Fact]
     public void SoAFp_Mine_UpdatesRunningMin() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = 10f;     // current running min
-        state.UveState.Scalars[1] = 3.0f;    // new element, smaller
+        state.UveState.Scalars[5] = 10f;  // current running min
+        state.UveState.Scalars[1] = 3.0f; // new element, smaller
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Mine, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
         Assert.Equal(3.0f, state.UveState.Scalars[5]);
@@ -1587,7 +1597,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoASadde(true, false, 7 + 32, 1), state);
         er.SideEffect?.Invoke(state);
         ulong raw = state.IntegerRegisters.Read(7 + 32);
-        Assert.Equal(0xFFFFFFFFu, (uint)(raw >> 32));      // NaN-boxed
+        Assert.Equal(0xFFFFFFFFu, (uint)(raw >> 32)); // NaN-boxed
         Assert.Equal(2.5f, BitConverter.Int32BitsToSingle((int)(uint)raw), 4);
     }
 
@@ -1600,7 +1610,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoASadde(true, true, 7 + 32, 1), state);
         er.SideEffect?.Invoke(state);
         ulong raw = state.IntegerRegisters.Read(7 + 32);
-        Assert.Equal(0xFFFFFFFFu, (uint)(raw >> 32));      // NaN-boxed
+        Assert.Equal(0xFFFFFFFFu, (uint)(raw >> 32)); // NaN-boxed
         Assert.Equal(2.5f, BitConverter.Int32BitsToSingle((int)(uint)raw), 4);
     }
 
@@ -1608,21 +1618,21 @@ public class UveTests {
     public void Decoder_SoASadde_Int_Roundtrip() {
         var mem = new FlatMemory(256);
         mem.Load(0, BitConverter.GetBytes(SoASadde(false, false, 5, 1)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoASadde>(tooth.Payload);
         Assert.False(op.IsFp);
         Assert.False(op.Acc);
         Assert.Equal(5, op.Rd);
         Assert.Equal(1, op.Usrc1);
         Assert.Equal(5, tooth.DestinationRegister);
-        Assert.Equal([1], tooth.UveStreamSources);
+        Assert.Equal([1,], tooth.UveStreamSources);
     }
 
     [Fact]
     public void Decoder_SoASadde_Fp_Roundtrip() {
         var mem = new FlatMemory(256);
         mem.Load(0, BitConverter.GetBytes(SoASadde(true, false, 5, 1)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoASadde>(tooth.Payload);
         Assert.True(op.IsFp);
         Assert.False(op.Acc);
@@ -1635,13 +1645,13 @@ public class UveTests {
     public void Decoder_SoASadde_Int_Acc_Roundtrip() {
         var mem = new FlatMemory(256);
         mem.Load(0, BitConverter.GetBytes(SoASadde(false, true, 3, 2)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoASadde>(tooth.Payload);
         Assert.False(op.IsFp);
         Assert.True(op.Acc);
         Assert.Equal(3, op.Rd);
         Assert.Equal(2, op.Usrc1);
-        Assert.Equal([3], tooth.SourceRegisters);  // rd read as accumulator
+        Assert.Equal([3,], tooth.SourceRegisters); // rd read as accumulator
     }
 
     // ── SO_C: stream lifecycle and vector-length control ──────────────────────
@@ -1687,18 +1697,18 @@ public class UveTests {
     public void SoCSetvl_SetsVlAndReturnsOld() {
         var state = new Rv32ArchState();
         state.UveState.VectorLength = 8;
-        state.IntegerRegisters.Write(2, 32u);  // new VL
+        state.IntegerRegisters.Write(2, 32u); // new VL
         ExecuteResult er = Exec(new RvUveSoCSetvl(7, 2), state);
         er.SideEffect?.Invoke(state);
         Assert.Equal(32, state.UveState.VectorLength);
-        Assert.Equal(8u, (uint)state.IntegerRegisters.Read(7));  // old VL returned
+        Assert.Equal(8u, (uint)state.IntegerRegisters.Read(7)); // old VL returned
     }
 
     [Fact]
     public void Decoder_SoCBreak_Roundtrip() {
         var mem = new FlatMemory(256);
         mem.Load(0, BitConverter.GetBytes(SoCBreak(4)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoCBreak>(tooth.Payload);
         Assert.Equal(4, op.Ud);
         Assert.Equal(-1, tooth.DestinationRegister);
@@ -1708,7 +1718,7 @@ public class UveTests {
     public void Decoder_SoCSuspd_Roundtrip() {
         var mem = new FlatMemory(256);
         mem.Load(0, BitConverter.GetBytes(SoCSuspd(6)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoCSuspd>(tooth.Payload);
         Assert.Equal(6, op.Ud);
     }
@@ -1717,7 +1727,7 @@ public class UveTests {
     public void Decoder_SoCGetvl_Roundtrip() {
         var mem = new FlatMemory(256);
         mem.Load(0, BitConverter.GetBytes(SoCGetvl(5)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoCGetvl>(tooth.Payload);
         Assert.Equal(5, op.Rd);
         Assert.Equal(5, tooth.DestinationRegister);
@@ -1727,11 +1737,11 @@ public class UveTests {
     public void Decoder_SoCSetvl_Roundtrip() {
         var mem = new FlatMemory(256);
         mem.Load(0, BitConverter.GetBytes(SoCSetvl(7, 3)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoCSetvl>(tooth.Payload);
         Assert.Equal(7, op.Rd);
         Assert.Equal(3, op.Rs1);
         Assert.Equal(7, tooth.DestinationRegister);
-        Assert.Equal([3], tooth.SourceRegisters);
+        Assert.Equal([3,], tooth.SourceRegisters);
     }
 }

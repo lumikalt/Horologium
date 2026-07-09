@@ -20,6 +20,7 @@ public sealed class OooeTrain : ISteppableTrain {
     public IArchState ArchState => _core.State;
 
     public SetAssociativeCache? ICache => _core.ILayers.Cache;
+    public RdipPrefetcher? Rdip => _core.Rdip;
     public SetAssociativeCache? DCache => _core.DLayers.Cache;
     public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
     public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
@@ -48,7 +49,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int writeBufferCapacity = 0,
         int mshrCapacity = 0,
         bool flatIq = false,
-        int fdipFtqCapacity = 0
+        int fdipFtqCapacity = 0,
+        bool rdip = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -70,7 +72,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 mshrCapacity,
                 flatIq,
                 memory,
-                fdipFtqCapacity
+                fdipFtqCapacity,
+                rdip
             )
         );
         _train.Build();
@@ -363,6 +366,8 @@ internal sealed class OoOPipelineCore : Gear {
     // arrive after a countdown instead of instantly (realistic prefetch latency model).
     private readonly bool _realisticPrefetch;
     private readonly FdipPrefetcher? _fdip;
+    private readonly RdipPrefetcher? _rdip;
+    public RdipPrefetcher? Rdip => _rdip;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
     public IArchState State { get; }
@@ -390,7 +395,8 @@ internal sealed class OoOPipelineCore : Gear {
         int mshrCapacity = 0,
         bool flatIq = false,
         IMemory? fdipBackingMemory = null,
-        int fdipFtqCapacity = 0
+        int fdipFtqCapacity = 0,
+        bool rdipEnabled = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -415,6 +421,10 @@ internal sealed class OoOPipelineCore : Gear {
 
         _fdip = fdipFtqCapacity > 0 && fdipBackingMemory is not null && iLayers.Cache is not null
             ? new FdipPrefetcher(predictor, _decoder, fdipBackingMemory, iLayers.Cache, entryPoint, fdipFtqCapacity)
+            : null;
+
+        _rdip = rdipEnabled && iLayers.Cache is not null
+            ? new RdipPrefetcher(iLayers.Cache, _decoder)
             : null;
 
         int archRegs = State.IntegerRegisters.Count;
@@ -709,8 +719,10 @@ internal sealed class OoOPipelineCore : Gear {
             // Co-sim notification. Reaching here guarantees a real commit: halt,
             // trap, return-from-trap, and load-violation cases all returned above.
             // Fires for both the normal and branch-mispredict retire paths below.
-            if (_commitObserver is not null && head.Instruction is not null)
-                _commitObserver.OnCommit(head.Pc, head.Instruction.RawEncoding, State);
+            if (head.Instruction is not null) {
+                _commitObserver?.OnCommit(head.Pc, head.Instruction.RawEncoding, State);
+                _rdip?.OnCommit(head.Pc, head.Instruction.RawEncoding);
+            }
 
             // First-class HTIF tohost exit: the store flagged a post-commit halt.
             // It has committed (memory write + OnCommit) above; advance PC, retire
@@ -1308,6 +1320,8 @@ internal sealed class OoOPipelineCore : Gear {
                 _fetchFaulted = true;
                 break;
             }
+
+            if (_rdip is not null && ILayers.Cache?.LastAccessWasHit == false) _rdip.OnIcacheMiss(physPc);
 
             // Only branch/jump instructions consult the predictor; all others
             // continue sequentially to avoid corrupting the BTB.

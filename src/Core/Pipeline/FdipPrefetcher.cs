@@ -69,9 +69,8 @@ public sealed class FdipPrefetcher {
         ulong currentLine = LineOf(fetchPc);
 
         // Drain one FTQ head entry each time fetch crosses into a new cache line.
-        if (_prevFetchLine == ulong.MaxValue) {
-            _prevFetchLine = currentLine;
-        } else if (currentLine != _prevFetchLine) {
+        if (_prevFetchLine == ulong.MaxValue) { _prevFetchLine = currentLine; }
+        else if (currentLine != _prevFetchLine) {
             if (_ftq.Count > 0) _ftq.Dequeue();
             _prevFetchLine = currentLine;
         }
@@ -79,21 +78,21 @@ public sealed class FdipPrefetcher {
         // Step the branch predictor ahead to keep FTQ full.
         // Guard against spin: at most capacity × (blockBytes/2 + 2) iterations.
         int maxSteps = _ftqCapacity * (_blockBytes / 2 + 2);
-        for (int s = 0; _ftq.Count < _ftqCapacity && s < maxSteps; s++) {
+        for (var s = 0; _ftq.Count < _ftqCapacity && s < maxSteps; s++) {
             ulong line = LineOf(_lookAheadPc);
             if (line != _lastEnqueuedLine) {
                 _ftq.Enqueue(line);
                 _lastEnqueuedLine = line;
             }
+
             StepLookAhead();
         }
 
         // Issue prefetches for FTQ positions 1.._prefetchWindow.
         // Position 0 = the cache line currently being fetched — too close to benefit from a prefetch.
-        int pos = 0;
+        var pos = 0;
         foreach (ulong addr in _ftq) {
-            if (pos > 0 && pos <= _prefetchWindow)
-                _iCache.Prefetch(addr);
+            if (pos > 0 && pos <= _prefetchWindow) _iCache.Prefetch(addr);
             if (++pos > _prefetchWindow) break;
         }
     }
@@ -114,7 +113,8 @@ public sealed class FdipPrefetcher {
                 ? _predictor.Predict(_lookAheadPc, hint.BranchTarget)
                 : BranchPrediction.NotTaken(_lookAheadPc + (ulong)hint.InstructionSize);
             _lookAheadPc = pred.PredictedTaken ? pred.PredictedTarget : _lookAheadPc + (ulong)hint.InstructionSize;
-        } catch {
+        }
+        catch {
             // Lookahead reached unmapped memory (e.g. end of program image); skip forward.
             _lookAheadPc += (ulong)_blockBytes;
         }

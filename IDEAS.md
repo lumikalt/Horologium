@@ -80,7 +80,7 @@ the active thread.
 
 - [x] FDIP (fetch-directed instruction prefetching): decouple the branch predictor from fetch via a fetch target queue
   and prefetch the I-cache along the predicted path. — Reinman, Calder & Austin, MICRO 1999
-- [ ] RDIP: return-address-stack-directed instruction prefetching keyed on call-stack context. — Kolli, Saidi &
+- [x] RDIP: return-address-stack-directed instruction prefetching keyed on call-stack context. — Kolli, Saidi &
   Wenisch, MICRO 2013
 - [ ] Boomerang / Shotgun: metadata-free front-end prefetching that unifies BTB prefill and I-cache prefetch under the
   branch predictor. — Kumar et al., HPCA 2017 / ASPLOS 2018

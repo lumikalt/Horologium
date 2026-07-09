@@ -717,8 +717,8 @@ public class Rv32Executor : IExecutor {
             RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
             RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp) =>
                 ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp),
-            RvUveSoVDp (var ud, var rs1, var elemBytes) => ExecuteUveSoVDp(regs, ud, rs1, elemBytes),
-            RvUveSoVMvvs (var us1, var rd) => ExecuteUveSoVMvvs(state, rd, us1),
+            RvUveSoVDp (var ud, var rs1, var elemBytes)   => ExecuteUveSoVDp(regs, ud, rs1, elemBytes),
+            RvUveSoVMvvs (var us1, var rd)                => ExecuteUveSoVMvvs(state, rd, us1),
             RvUveSoVMvsv (var ud, var rs1, var elemBytes) => ExecuteUveSoVMvsv(regs, ud, rs1, elemBytes),
             RvUveSoAFp (var fpOp, var ud, var usrc1, var usrc2) => ExecuteUveSoAFp(
                 state, memory, fpOp, ud, usrc1, usrc2
@@ -738,11 +738,11 @@ public class Rv32Executor : IExecutor {
             RvUveSoASadde (var isFp, var acc, var rd, var usrc1) => ExecuteUveSoASadde(
                 state, regs, isFp, acc, rd, usrc1
             ),
-            RvUveSoCBreak (var ud)          => ExecuteUveSoCBreak(state, ud),
-            RvUveSoCSuspd (var ud)          => ExecuteUveSoCSuspd(state, ud),
-            RvUveSoCResum (var ud)          => ExecuteUveSoCResum(state, ud),
-            RvUveSoCGetvl (var rd)          => ExecuteUveSoCGetvl(state, rd),
-            RvUveSoCSetvl (var rd, var rs1) => ExecuteUveSoCSetvl(state, regs, rd, rs1),
+            RvUveSoCBreak (var ud)                  => ExecuteUveSoCBreak(state, ud),
+            RvUveSoCSuspd (var ud)                  => ExecuteUveSoCSuspd(state, ud),
+            RvUveSoCResum (var ud)                  => ExecuteUveSoCResum(state, ud),
+            RvUveSoCGetvl (var rd)                  => ExecuteUveSoCGetvl(state, rd),
+            RvUveSoCSetvl (var rd, var rs1)         => ExecuteUveSoCSetvl(state, regs, rd, rs1),
             RvUveSoBNc (var urs, var imm)           => ExecuteUveSoBNc(state, pc, urs, imm),
             RvUveSoBNdc (var urs, var dim, var imm) => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
             RvUveSoBc (var urs, var imm)            => ExecuteUveSoBc(state, pc, urs, imm),
@@ -3000,7 +3000,7 @@ public class Rv32Executor : IExecutor {
 
     // so.v.dp.w ud, rs1 — broadcast float32 bits from integer register into u-reg scalar slot
     private static ExecuteResult ExecuteUveSoVDp(IRegisterFile regs, int ud, int rs1, int elemBytes) {
-        uint mask = elemBytes switch { 1 => 0xFFu, 2 => 0xFFFFu, _ => 0xFFFFFFFFu };
+        uint mask = elemBytes switch { 1 => 0xFFu, 2 => 0xFFFFu, _ => 0xFFFFFFFFu, };
         uint bits = (uint)regs.Read(rs1) & mask;
         float value = BitConverter.Int32BitsToSingle((int)bits);
         return new ExecuteResult {
@@ -3021,7 +3021,7 @@ public class Rv32Executor : IExecutor {
     }
 
     private static ExecuteResult ExecuteUveSoVMvsv(IRegisterFile regs, int ud, int rs1, int elemBytes) {
-        uint mask = elemBytes switch { 1 => 0xFFu, 2 => 0xFFFFu, _ => 0xFFFFFFFFu };
+        uint mask = elemBytes switch { 1 => 0xFFu, 2 => 0xFFFFu, _ => 0xFFFFFFFFu, };
         uint bits = (uint)regs.Read(rs1) & mask;
         float value = BitConverter.Int32BitsToSingle((int)bits);
         return new ExecuteResult {
@@ -3069,22 +3069,28 @@ public class Rv32Executor : IExecutor {
     }
 
     private static ExecuteResult ExecuteUveSoAInt(
-        IArchState state, IMemory memory, UveIntOp op, bool signed, int ud, int usrc1, int usrc2
+        IArchState state,
+        IMemory memory,
+        UveIntOp op,
+        bool signed,
+        int ud,
+        int usrc1,
+        int usrc2
     ) {
         UveState uveState = UState(state).UveState;
         float result;
         if (signed) {
-            int a   = BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-            int b   = usrc2 >= 0 ? BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0;
+            int a = BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+            int b = usrc2 >= 0 ? BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0;
             int acc = BitConverter.SingleToInt32Bits(uveState.Scalars[ud]);
             int r = op switch {
-                UveIntOp.Add => a + b,
-                UveIntOp.Sub => a - b,
-                UveIntOp.Mul => a * b,
-                UveIntOp.Div => a / b,
-                UveIntOp.Mac => acc + a * b,
-                UveIntOp.Min => Math.Min(a, b),
-                UveIntOp.Max => Math.Max(a, b),
+                UveIntOp.Add     => a + b,
+                UveIntOp.Sub     => a - b,
+                UveIntOp.Mul     => a * b,
+                UveIntOp.Div     => a / b,
+                UveIntOp.Mac     => acc + a * b,
+                UveIntOp.Min     => Math.Min(a, b),
+                UveIntOp.Max     => Math.Max(a, b),
                 UveIntOp.Abs     => Math.Abs(a),
                 UveIntOp.Inc     => a + 1,
                 UveIntOp.Dec     => a - 1,
@@ -3095,10 +3101,11 @@ public class Rv32Executor : IExecutor {
                 _                => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
             };
             result = BitConverter.Int32BitsToSingle(r);
-        } else {
-            uint a   = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-            uint b   = usrc2 >= 0 ? (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0u;
-            uint acc = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[ud]);
+        }
+        else {
+            var a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+            uint b = usrc2 >= 0 ? (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0u;
+            var acc = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[ud]);
             uint r = op switch {
                 UveIntOp.Add     => a + b,
                 UveIntOp.Sub     => a - b,
@@ -3118,33 +3125,44 @@ public class Rv32Executor : IExecutor {
             };
             result = BitConverter.Int32BitsToSingle((int)r);
         }
+
         return UveWriteScalar(state, memory, ud, result);
     }
 
     private static ExecuteResult ExecuteUveSoALogic(
-        IArchState state, IMemory memory, UveLogicOp op, int ud, int usrc1, int usrc2
+        IArchState state,
+        IMemory memory,
+        UveLogicOp op,
+        int ud,
+        int usrc1,
+        int usrc2
     ) {
         UveState uveState = UState(state).UveState;
-        uint a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+        var a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
         uint b = usrc2 >= 0 ? (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0u;
         uint r = op switch {
             UveLogicOp.Nand => ~(a & b),
-            UveLogicOp.And  =>   a & b,
+            UveLogicOp.And  => a & b,
             UveLogicOp.Nor  => ~(a | b),
-            UveLogicOp.Or   =>   a | b,
-            UveLogicOp.Not  =>  ~a,
-            UveLogicOp.Xor  =>   a ^ b,
+            UveLogicOp.Or   => a | b,
+            UveLogicOp.Not  => ~a,
+            UveLogicOp.Xor  => a ^ b,
             _               => throw new InvalidOperationException($"Unknown UveLogicOp {op}"),
         };
         return UveWriteScalar(state, memory, ud, BitConverter.Int32BitsToSingle((int)r));
     }
 
     private static ExecuteResult ExecuteUveSoAShiftV(
-        IArchState state, IMemory memory, UveShiftOp op, int ud, int usrc1, int usrc2
+        IArchState state,
+        IMemory memory,
+        UveShiftOp op,
+        int ud,
+        int usrc1,
+        int usrc2
     ) {
         UveState uveState = UState(state).UveState;
-        uint a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-        int shamt = (int)((uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) & 0x1F);
+        var a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+        var shamt = (int)((uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) & 0x1F);
         uint r = op switch {
             UveShiftOp.Sll => a << shamt,
             UveShiftOp.Srl => a >> shamt,
@@ -3155,11 +3173,17 @@ public class Rv32Executor : IExecutor {
     }
 
     private static ExecuteResult ExecuteUveSoAShiftS(
-        IArchState state, IMemory memory, IRegisterFile regs, UveShiftOp op, int ud, int usrc1, int rs2
+        IArchState state,
+        IMemory memory,
+        IRegisterFile regs,
+        UveShiftOp op,
+        int ud,
+        int usrc1,
+        int rs2
     ) {
         UveState uveState = UState(state).UveState;
-        uint a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-        int shamt = (int)(regs.Read(rs2) & 0x1F);
+        var a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+        var shamt = (int)(regs.Read(rs2) & 0x1F);
         uint r = op switch {
             UveShiftOp.Sll => a << shamt,
             UveShiftOp.Srl => a >> shamt,
@@ -3170,7 +3194,12 @@ public class Rv32Executor : IExecutor {
     }
 
     private static ExecuteResult ExecuteUveSoASadde(
-        IArchState state, IRegisterFile regs, bool isFp, bool acc, int rd, int usrc1
+        IArchState state,
+        IRegisterFile regs,
+        bool isFp,
+        bool acc,
+        int rd,
+        int usrc1
     ) {
         UveState uveState = UState(state).UveState;
         if (isFp) {
@@ -3178,11 +3207,12 @@ public class Rv32Executor : IExecutor {
             float elem = uveState.Scalars[usrc1];
             float result = acc ? FBits(regs, rd) + elem : elem;
             ulong nanBoxed = 0xFFFFFFFF00000000UL | (uint)BitConverter.SingleToInt32Bits(result);
-            return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, nanBoxed); } };
-        } else {
-            int elem   = BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+            return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, nanBoxed); }, };
+        }
+        else {
+            int elem = BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
             int result = acc ? (int)(uint)regs.Read(rd) + elem : elem;
-            return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)result); } };
+            return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)result); }, };
         }
     }
 
@@ -3192,28 +3222,28 @@ public class Rv32Executor : IExecutor {
             SideEffect = s => {
                 UveState uvs = UState(s).UveState;
                 uvs.StoreStreams[ud] = null;
-                uvs.RegKind[ud]  = UveRegKind.None;
+                uvs.RegKind[ud] = UveRegKind.None;
                 uvs.StreamDone[ud] = true;
-                uvs.Suspended[ud]  = false;
+                uvs.Suspended[ud] = false;
             },
         };
 
     private static ExecuteResult ExecuteUveSoCSuspd(IArchState state, int ud) =>
-        new() { SideEffect = s => { UState(s).UveState.Suspended[ud] = true; } };
+        new() { SideEffect = s => { UState(s).UveState.Suspended[ud] = true; }, };
 
     private static ExecuteResult ExecuteUveSoCResum(IArchState state, int ud) =>
-        new() { SideEffect = s => { UState(s).UveState.Suspended[ud] = false; } };
+        new() { SideEffect = s => { UState(s).UveState.Suspended[ud] = false; }, };
 
     // SO_C: vector-length control — getvl / setvl.
     private static ExecuteResult ExecuteUveSoCGetvl(IArchState state, int rd) {
         int vl = UState(state).UveState.VectorLength;
-        return new() { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)vl); } };
+        return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)vl); }, };
     }
 
     private static ExecuteResult ExecuteUveSoCSetvl(IArchState state, IRegisterFile regs, int rd, int rs1) {
         int oldVl = UState(state).UveState.VectorLength;
-        int newVl = (int)(uint)regs.Read(rs1);
-        return new() {
+        var newVl = (int)(uint)regs.Read(rs1);
+        return new ExecuteResult {
             SideEffect = s => {
                 UState(s).UveState.VectorLength = newVl;
                 UState(s).IntegerRegisters.Write(rd, (uint)oldVl);
@@ -3237,6 +3267,7 @@ public class Rv32Executor : IExecutor {
                 },
             };
         }
+
         return new ExecuteResult {
             SideEffect = s => { UState(s).UveState.Scalars[ud] = result; },
         };

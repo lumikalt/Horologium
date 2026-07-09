@@ -1,5 +1,6 @@
 using Mechanism;
 using Mechanism.BranchPredictModels;
+using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Ports;
 using Orrery.Scheduling;
@@ -17,7 +18,9 @@ public sealed class FetchStage(
     IDecoder decoder,
     int rasDepth = 16,
     IFetchTranslator? fetchTranslator = null,
-    FdipPrefetcher? fdip = null
+    FdipPrefetcher? fdip = null,
+    SetAssociativeCache? rdipICache = null,
+    RdipPrefetcher? rdip = null
 )
     : Gear(name, parent, esc) {
     private readonly ReturnAddressStack _ras = new(rasDepth);
@@ -89,6 +92,7 @@ public sealed class FetchStage(
         }
 
         var raw = (uint)memory.Read(physPc, 4);
+        if (rdipICache?.LastAccessWasHit == false) rdip?.OnIcacheMiss(physPc);
         FetchHint hint = decoder.GetFetchHint(Pc, raw);
         int instrSize = hint.InstructionSize;
 
