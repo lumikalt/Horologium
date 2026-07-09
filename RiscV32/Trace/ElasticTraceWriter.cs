@@ -29,6 +29,11 @@ public sealed class ElasticTraceWriter : ICommitObserver, IDisposable {
     private readonly IDecoder _decoder;
     private readonly TracingMemory _mem;
     private readonly BinaryWriter _out;
+    private readonly BackgroundTraceChannel<Record> _channel;
+
+    // Captured on the simulation thread at commit; dependence tracking and
+    // serialization happen on the consumer thread, which owns all state below.
+    private readonly record struct Record(ITooth Instr, ulong Pc, uint Raw, bool HasAccess, ulong Addr, byte Bytes);
 
     private long _seqno;
 
@@ -51,6 +56,7 @@ public sealed class ElasticTraceWriter : ICommitObserver, IDisposable {
         Array.Fill(_lastWriter, -1L);
         Array.Fill(_lastVecWriter, -1L);
         WriteHeader();
+        _channel = new BackgroundTraceChannel<Record>(Emit, "elastic-trace-writer");
     }
 
     private void WriteHeader() {
@@ -61,7 +67,16 @@ public sealed class ElasticTraceWriter : ICommitObserver, IDisposable {
     }
 
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
+        // Decode stays on the simulation thread: the decoder cache is shared with
+        // the running train and is not thread-safe.
         ITooth instr = _decoder.Decode(pc, rawEncoding);
+        _channel.Post(new Record(instr, pc, rawEncoding, _mem.HasAccess, _mem.Address, (byte)_mem.Bytes));
+        Count++;
+        _mem.Reset(); // always reset — clears stale fetch address for next instruction
+    }
+
+    private void Emit(Record r) {
+        ITooth instr = r.Instr;
         long seqno = _seqno++;
 
         // ── Register RAW deps ─────────────────────────────────────────────────
@@ -88,15 +103,15 @@ public sealed class ElasticTraceWriter : ICommitObserver, IDisposable {
         };
 
         // ── Memory RAW deps ───────────────────────────────────────────────────
-        // Gate on class, NOT on _mem.HasAccess: single-cycle fetch also touches
+        // Gate on class, NOT on HasAccess alone: single-cycle fetch also touches
         // TracingMemory, so HasAccess is true even for ALU ops after the fetch.
         ulong vAddr = 0;
         byte accessSize = 0;
         var addrDeps = new List<long>(1);
 
-        if (type != (byte)ElasticTraceType.Comp && _mem.HasAccess) {
-            vAddr = _mem.Address;
-            accessSize = (byte)_mem.Bytes;
+        if (type != (byte)ElasticTraceType.Comp && r.HasAccess) {
+            vAddr = r.Addr;
+            accessSize = r.Bytes;
 
             if (type == (byte)ElasticTraceType.Load) {
                 if (_lastStore.TryGetValue(vAddr, out long prod)) addrDeps.Add(prod);
@@ -104,16 +119,14 @@ public sealed class ElasticTraceWriter : ICommitObserver, IDisposable {
             else { _lastStore[vAddr] = seqno; }
         }
 
-        _mem.Reset(); // always reset — clears stale fetch address for next instruction
-
         // ── comp_delay from pipeline defaults ─────────────────────────────────
         var compDelay = (uint)FuLatencyConfig.Default.LatencyFor(instr.Class);
 
         // ── Serialize ─────────────────────────────────────────────────────────
         long[] robDeps = [.. robDepsSet,];
         _out.Write((ulong)seqno);
-        _out.Write(pc);
-        _out.Write(rawEncoding);
+        _out.Write(r.Pc);
+        _out.Write(r.Raw);
         _out.Write(type);
         _out.Write(compDelay);
         _out.Write(vAddr);
@@ -122,8 +135,10 @@ public sealed class ElasticTraceWriter : ICommitObserver, IDisposable {
         _out.Write((byte)addrDeps.Count);
         foreach (long dep in robDeps) _out.Write((ulong)dep);
         foreach (long dep in addrDeps) _out.Write((ulong)dep);
-        Count++;
     }
 
-    public void Dispose() => _out.Dispose();
+    public void Dispose() {
+        _channel.Dispose(); // drain and join before releasing the writer
+        _out.Dispose();
+    }
 }

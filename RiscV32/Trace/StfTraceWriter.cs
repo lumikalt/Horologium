@@ -50,6 +50,26 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
     private readonly IDecoder _decoder;
     private readonly TracingMemory _mem;
     private readonly BinaryWriter _out;
+    private readonly BackgroundTraceChannel<Record> _channel;
+
+    // Captured on the simulation thread at commit — register values and next-PC
+    // must be read there because the architectural state is live and mutates as
+    // soon as the next instruction commits. Serialization happens on the consumer
+    // thread. SrcValues holds one value per qualifying (index > 0) source register,
+    // in SourceRegisters order.
+    private readonly record struct Record(
+        ITooth Instr,
+        ulong Pc,
+        uint Raw,
+        ulong NextPc,
+        ulong[] SrcValues,
+        ulong DestValue,
+        bool HasMem,
+        ulong MemAddr,
+        ushort MemBytes,
+        bool MemIsWrite,
+        ulong MemValue
+    );
 
     /// <summary>Number of instructions recorded.</summary>
     public int Count { get; private set; }
@@ -59,6 +79,7 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
         _mem = mem;
         _out = new BinaryWriter(output, Encoding.UTF8, true);
         WriteHeader(initialPc);
+        _channel = new BackgroundTraceChannel<Record>(Emit, "stf-trace-writer");
     }
 
     private void WriteHeader(ulong initialPc) {
@@ -103,57 +124,87 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
     }
 
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
+        // Decode stays on the simulation thread: the decoder cache is shared with
+        // the running train and is not thread-safe.
         ITooth instr = _decoder.Decode(pc, rawEncoding);
 
-        // PC_TARGET: emit when the instruction is a taken branch/jump.
+        // Source register values (integer and FP; skip x0 = hardwired zero).
+        IReadOnlyList<int> srcs = instr.SourceRegisters;
+        var srcCount = 0;
+        for (var i = 0; i < srcs.Count; i++)
+            if (srcs[i] > 0)
+                srcCount++;
+        ulong[] srcValues = srcCount == 0 ? [] : new ulong[srcCount];
+        var k = 0;
+        for (var i = 0; i < srcs.Count; i++)
+            if (srcs[i] > 0)
+                srcValues[k++] = state.IntegerRegisters.Read(srcs[i]);
+
+        int rd = instr.DestinationRegister;
+        ulong destValue = rd > 0 ? state.IntegerRegisters.Read(rd) : 0;
+
+        bool isMem = instr.Class is ToothClass.Load or ToothClass.Store or ToothClass.Atomic;
+        bool hasMem = isMem && _mem.HasAccess;
+
         // SingleCycleTrain updates state.Pc before calling OnCommit, so state.Pc
         // is already the next-PC for this instruction.
-        ulong nextPc = state.Pc;
-        if (nextPc != pc + (ulong)instr.SizeBytes) {
+        _channel.Post(
+            new Record(
+                instr, pc, rawEncoding, state.Pc, srcValues, destValue,
+                hasMem,
+                hasMem ? _mem.Address : 0,
+                hasMem ? (ushort)_mem.Bytes : (ushort)0,
+                hasMem && _mem.IsWrite,
+                hasMem ? _mem.Value : 0
+            )
+        );
+        Count++;
+        _mem.Reset();
+    }
+
+    private void Emit(Record r) {
+        // PC_TARGET: emit when the instruction is a taken branch/jump.
+        if (r.NextPc != r.Pc + (ulong)r.Instr.SizeBytes) {
             _out.Write(StfTraceWriter.DescInstPcTarget);
-            _out.Write(nextPc);
+            _out.Write(r.NextPc);
         }
 
-        // Source REG records (integer and FP; skip x0 = hardwired zero).
-        foreach (int src in instr.SourceRegisters) {
+        // Source REG records.
+        var k = 0;
+        foreach (int src in r.Instr.SourceRegisters) {
             if (src <= 0) continue;
-            WriteReg(src, StfTraceWriter.OpSource, state);
+            WriteReg(src, StfTraceWriter.OpSource, r.SrcValues[k++]);
         }
 
         // Destination REG record (integer and FP; skip x0 writes).
-        int rd = instr.DestinationRegister;
-        if (rd > 0) WriteReg(rd, StfTraceWriter.OpDest, state);
+        int rd = r.Instr.DestinationRegister;
+        if (rd > 0) WriteReg(rd, StfTraceWriter.OpDest, r.DestValue);
 
         // MEM_ACCESS + MEM_CONTENT for loads, stores, and atomics.
-        bool isMem = instr.Class is ToothClass.Load or ToothClass.Store or ToothClass.Atomic;
-        if (isMem && _mem.HasAccess) {
+        if (r.HasMem) {
             _out.Write(StfTraceWriter.DescInstMemAccess);
-            _out.Write(_mem.Address); // uint64 address
-            _out.Write((ushort)_mem.Bytes); // uint16 size
+            _out.Write(r.MemAddr); // uint64 address
+            _out.Write(r.MemBytes); // uint16 size
             _out.Write((ushort)0); // uint16 attr (page attributes)
-            _out.Write(_mem.IsWrite ? StfTraceWriter.MemWrite : StfTraceWriter.MemRead); // uint8 type
+            _out.Write(r.MemIsWrite ? StfTraceWriter.MemWrite : StfTraceWriter.MemRead); // uint8 type
 
             _out.Write(StfTraceWriter.DescInstMemContent);
-            _out.Write(_mem.Value); // uint64 data
+            _out.Write(r.MemValue); // uint64 data
         }
 
-        _mem.Reset();
-
         // OPCODE — the instruction boundary marker; always last.
-        if (instr.SizeBytes == 2) {
+        if (r.Instr.SizeBytes == 2) {
             _out.Write(StfTraceWriter.DescInstOpcode16);
-            _out.Write((ushort)(rawEncoding & 0xFFFF));
+            _out.Write((ushort)(r.Raw & 0xFFFF));
         }
         else {
             _out.Write(StfTraceWriter.DescInstOpcode32);
-            _out.Write(rawEncoding);
+            _out.Write(r.Raw);
         }
-
-        Count++;
     }
 
     // Write one INST_REG record. regIdx 0–31 = integer x_n; 32–63 = FP f_{n-32}.
-    private void WriteReg(int regIdx, byte operandType, IArchState state) {
+    private void WriteReg(int regIdx, byte operandType, ulong value) {
         byte regType;
         ushort packed;
         if (regIdx < 32) {
@@ -166,7 +217,6 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
         }
 
         var metadata = (byte)((operandType << 4) | regType);
-        ulong value = state.IntegerRegisters.Read(regIdx);
 
         _out.Write(StfTraceWriter.DescInstReg);
         _out.Write(packed);   // uint16 packed register number
@@ -174,5 +224,8 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
         _out.Write(value);    // uint64 register value
     }
 
-    public void Dispose() => _out.Dispose();
+    public void Dispose() {
+        _channel.Dispose(); // drain and join before releasing the writer
+        _out.Dispose();
+    }
 }

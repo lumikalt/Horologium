@@ -166,6 +166,15 @@
 - [x] Parallelize config sweep in `Experiment.Run`.
 - [x] Parallelize multi-workload sweeps.
 - [x] Multi-hart concurrency (distinct from run-level parallelism).
+- [x] Background trace serialization: bounded producer–consumer hand-off moving trace formatting and file I/O to a
+  dedicated thread, overlapping with simulation; commit order preserved so output is byte-identical to synchronous
+  writing.
+- [ ] Deterministic parallel multi-hart tick: BSP-style barrier synchronization deferring every cross-hart-visible
+  coherence action (snoop state transitions included) into per-hart queues drained in fixed hart order — a
+  run-to-run-reproducible replacement for the racy two-phase concurrent mode.
+- [ ] Parallelize the benchmark test suite across per-binary test collections; each run is fully independent.
+- [ ] Background checkpoint and report serialization: write checkpoint files and result tables on a worker thread
+  after a synchronous state copy.
 
 ## Mechanism
 

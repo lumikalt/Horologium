@@ -38,7 +38,14 @@ public sealed class OlympiaJsonTraceWriter : ICommitObserver, IDisposable {
     private readonly IDecoder _decoder;
     private readonly TracingMemory _mem;
     private readonly TextWriter _out;
+    private readonly BackgroundTraceChannel<Record> _channel;
+
+    // Consumer-thread state: whether the next record is the first in the array.
     private bool _first = true;
+
+    // Captured on the simulation thread at commit; formatted and written on the
+    // consumer thread. The tooth is an immutable record, safe to share.
+    private readonly record struct Record(ITooth Instr, ulong Pc, uint Raw, bool HasVaddr, ulong Vaddr);
 
     /// <summary>Number of instructions written so far.</summary>
     public int Count { get; private set; }
@@ -48,39 +55,49 @@ public sealed class OlympiaJsonTraceWriter : ICommitObserver, IDisposable {
         _mem = mem;
         _out = output;
         _out.Write('[');
+        _channel = new BackgroundTraceChannel<Record>(Emit, "olympia-trace-writer");
     }
 
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
-        // The trace contains only committed instructions, so the decode always
-        // succeeds; it yields the class (for vaddr gating) and payload (mnemonic).
+        // Decode stays on the simulation thread: the decoder cache is shared with
+        // the running train and is not thread-safe. The trace contains only
+        // committed instructions, so the decode always succeeds; it yields the
+        // class (for vaddr gating) and payload (mnemonic).
         ITooth instr = _decoder.Decode(pc, rawEncoding);
 
+        // The effective address is the data access. Loads/stores reach memory
+        // during execute, after the fetch, so it is the last recorded access.
+        bool hasVaddr = instr.Class is ToothClass.Load or ToothClass.Store or ToothClass.Atomic && _mem.HasAccess;
+
+        _channel.Post(new Record(instr, pc, rawEncoding, hasVaddr, hasVaddr ? _mem.Address : 0));
+        Count++;
+        _mem.Reset();
+    }
+
+    private void Emit(Record r) {
         var sb = new StringBuilder(_first ? "\n  " : ",\n  ");
         _first = false;
 
         // Raw opcode — the source of truth Mavis decodes (16-bit for RVC).
         sb.Append("{ \"opcode\": \"0x")
-          .Append(rawEncoding.ToString("x", CultureInfo.InvariantCulture))
+          .Append(r.Raw.ToString("x", CultureInfo.InvariantCulture))
           .Append('"');
 
         // Best-effort human-readable label; omitted if the disassembler doesn't
         // cover the op (it's cosmetic — Olympia uses the opcode).
-        if (TryMnemonic(instr.Payload, pc) is { } m) sb.Append(", \"mnemonic\": \"").Append(m).Append('"');
+        if (TryMnemonic(r.Instr.Payload, r.Pc) is { } m) sb.Append(", \"mnemonic\": \"").Append(m).Append('"');
 
-        // The effective address is the data access. Loads/stores reach memory
-        // during execute, after the fetch, so it is the last recorded access.
-        if (instr.Class is ToothClass.Load or ToothClass.Store or ToothClass.Atomic && _mem.HasAccess)
+        if (r.HasVaddr)
             sb.Append(", \"vaddr\": \"0x")
-              .Append(_mem.Address.ToString("x", CultureInfo.InvariantCulture))
+              .Append(r.Vaddr.ToString("x", CultureInfo.InvariantCulture))
               .Append('"');
 
         sb.Append(" }");
         _out.Write(sb.ToString());
-        Count++;
-        _mem.Reset();
     }
 
     public void Dispose() {
+        _channel.Dispose(); // drain and join before writing the footer
         _out.Write(_first ? "]\n" : "\n]\n");
         _out.Flush();
     }
