@@ -2054,9 +2054,10 @@ public class Rv32Decoder : IDecoder {
             2 when !upper             => UveArith(UveFpOp.Adde,    UveIntOp.Adde,    type, rd, rs1, -1),
             2 when  upper && rs2 == 1 => new RvUveSoASadde(type == 1, true,  type == 1 ? rd + 32 : rd, rs1),
             2 when  upper             => new RvUveSoASadde(type == 1, false, type == 1 ? rd + 32 : rd, rs1),
-            3 => upper
-                ? UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2)
-                : UveArith(UveFpOp.Abs, UveIntOp.Abs, type, rd, rs1, -1),
+            3 when  upper              => UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2),
+            // ABS has no US variant in Spike (MATCH_SO_A_ABS_SG uses funct3=0); force Signed=true.
+            3 when !upper && type == 1 => new RvUveSoAFp(UveFpOp.Abs, rd, rs1, -1),
+            3 when !upper              => new RvUveSoAInt(UveIntOp.Abs, true, rd, rs1, -1),
             4 => UveArith(upper ? UveFpOp.Max : UveFpOp.Min, upper ? UveIntOp.Max : UveIntOp.Min, type, rd, rs1, rs2),
             // Group 5: mine/maxe — running min/max reduction into ud.
             5 => UveArith(upper ? UveFpOp.Maxe : UveFpOp.Mine, upper ? UveIntOp.Maxe : UveIntOp.Mine, type, rd, rs1, -1),

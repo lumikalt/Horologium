@@ -76,7 +76,8 @@ public class UveTests {
             UveIntOp.Maxe    => (5, true),
             _                => throw new ArgumentOutOfRangeException(nameof(op)),
         };
-        int opType = signed ? 2 : 0;
+        // Spike encodes ABS_SG with funct3=0 (type=0 slot); no ABS_US variant exists.
+        int opType = (op == UveIntOp.Abs) ? 0 : (signed ? 2 : 0);
         uint funct3 = (uint)(opType | (upper ? 4 : 0));
         uint funct7 = (uint)(group << 3);
         int rs2Enc = op == UveIntOp.AddeAcc ? 1 : (usrc2 < 0 ? 0 : usrc2);
@@ -1341,6 +1342,18 @@ public class UveTests {
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoAFp>(tooth.Payload);
         Assert.Equal(UveFpOp.Abs, op.Op);
+        Assert.Equal(-1, op.Usrc2);
+    }
+
+    [Fact]
+    public void Decoder_SoAInt_Abs_IsSigned() {
+        // Spike MATCH_SO_A_ABS_SG = 0x3000002b uses funct3=0 (type=0 slot) — always signed.
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SoAInt(UveIntOp.Abs, true, 5, 1, -1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoAInt>(tooth.Payload);
+        Assert.Equal(UveIntOp.Abs, op.Op);
+        Assert.True(op.Signed);
         Assert.Equal(-1, op.Usrc2);
     }
 
