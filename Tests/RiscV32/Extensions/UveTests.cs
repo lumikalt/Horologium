@@ -119,6 +119,17 @@ public class UveTests {
              | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
 
+    // sadde rd, usrc1 / fsadde rd, usrc1 — group 2 upper; funct3 upper bit set.
+    // isFp=true → type=1 (FP, funct3=5); isFp=false → type=0 (US int, funct3=4).
+    // acc=true → rs2=1 (accumulate); acc=false → rs2=0 (overwrite).
+    private static uint SoASadde(bool isFp, bool acc, int rd, int usrc1) {
+        uint funct3 = 4u | (isFp ? 1u : 0u);
+        uint funct7 = 2u << 3;
+        uint rs2    = acc ? 1u : 0u;
+        return (funct7 << 25) | (rs2 << 20) | (uint)((usrc1 & 0x1F) << 15)
+             | (funct3 << 12) | (uint)((rd & 0x1F) << 7) | 0x2Bu;
+    }
+
     // Bit-cast helpers for integer ↔ float round-trips through Scalars[].
     private static float IB(int v) => BitConverter.Int32BitsToSingle(v);
     private static float UB(uint v) => BitConverter.Int32BitsToSingle((int)v);
@@ -1438,5 +1449,90 @@ public class UveTests {
         Assert.Equal(UveIntOp.AddeAcc, op.Op);
         Assert.True(op.Signed);
         Assert.Equal(-1, op.Usrc2);
+    }
+
+    // ── sadde / fsadde — scalar-write reductions ──────────────────────────────
+
+    [Fact]
+    public void SoASadde_Int_OverwritesIntegerReg() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = IB(42);
+        ExecuteResult er = Exec(new RvUveSoASadde(false, false, 7, 1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(42u, (uint)state.IntegerRegisters.Read(7));
+    }
+
+    [Fact]
+    public void SoASadde_Int_Acc_AccumulatesIntoIntegerReg() {
+        var state = new Rv32ArchState();
+        state.IntegerRegisters.Write(7, 10u);
+        state.UveState.Scalars[1] = IB(32);
+        ExecuteResult er = Exec(new RvUveSoASadde(false, true, 7, 1), state);
+        er.SideEffect?.Invoke(state);
+        Assert.Equal(42u, (uint)state.IntegerRegisters.Read(7));
+    }
+
+    [Fact]
+    public void SoASadde_Fp_OverwritesFpReg() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[1] = 2.5f;
+        ExecuteResult er = Exec(new RvUveSoASadde(true, false, 7 + 32, 1), state);
+        er.SideEffect?.Invoke(state);
+        ulong raw = state.IntegerRegisters.Read(7 + 32);
+        Assert.Equal(0xFFFFFFFFu, (uint)(raw >> 32));      // NaN-boxed
+        Assert.Equal(2.5f, BitConverter.Int32BitsToSingle((int)(uint)raw), 4);
+    }
+
+    [Fact]
+    public void SoASadde_Fp_Acc_AccumulatesIntoFpReg() {
+        var state = new Rv32ArchState();
+        ulong init = 0xFFFFFFFF00000000UL | (uint)BitConverter.SingleToInt32Bits(1.5f);
+        state.IntegerRegisters.Write(7 + 32, init);
+        state.UveState.Scalars[1] = 1.0f;
+        ExecuteResult er = Exec(new RvUveSoASadde(true, true, 7 + 32, 1), state);
+        er.SideEffect?.Invoke(state);
+        ulong raw = state.IntegerRegisters.Read(7 + 32);
+        Assert.Equal(0xFFFFFFFFu, (uint)(raw >> 32));      // NaN-boxed
+        Assert.Equal(2.5f, BitConverter.Int32BitsToSingle((int)(uint)raw), 4);
+    }
+
+    [Fact]
+    public void Decoder_SoASadde_Int_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoASadde(false, false, 5, 1)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoASadde>(tooth.Payload);
+        Assert.False(op.IsFp);
+        Assert.False(op.Acc);
+        Assert.Equal(5, op.Rd);
+        Assert.Equal(1, op.Usrc1);
+        Assert.Equal(5, tooth.DestinationRegister);
+        Assert.Equal([1], tooth.UveStreamSources);
+    }
+
+    [Fact]
+    public void Decoder_SoASadde_Fp_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoASadde(true, false, 5, 1)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoASadde>(tooth.Payload);
+        Assert.True(op.IsFp);
+        Assert.False(op.Acc);
+        Assert.Equal(5 + 32, op.Rd);
+        Assert.Equal(1, op.Usrc1);
+        Assert.Equal(5 + 32, tooth.DestinationRegister);
+    }
+
+    [Fact]
+    public void Decoder_SoASadde_Int_Acc_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoASadde(false, true, 3, 2)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoASadde>(tooth.Payload);
+        Assert.False(op.IsFp);
+        Assert.True(op.Acc);
+        Assert.Equal(3, op.Rd);
+        Assert.Equal(2, op.Usrc1);
+        Assert.Equal([3], tooth.SourceRegisters);  // rd read as accumulator
     }
 }

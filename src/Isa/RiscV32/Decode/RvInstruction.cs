@@ -112,6 +112,7 @@ public sealed class RvInstruction(
         RvUveSoALogic op  => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2] : [op.Usrc1],
         RvUveSoAShiftV op => [op.Usrc1, op.Usrc2,],
         RvUveSoAShiftS op => [op.Usrc1,],
+        RvUveSoASadde op  => [op.Usrc1,],
         _                 => [],
     };
 
@@ -1275,6 +1276,10 @@ public record RvUveSoAShiftV(UveShiftOp Op, int Ud, int Usrc1, int Usrc2) : RvOp
 
 // Element-wise shift with amount from integer register Rs2.
 public record RvUveSoAShiftS(UveShiftOp Op, int Ud, int Usrc1, int Rs2) : RvOp;
+
+// Scalar-write reduction: accumulate stream element into integer (sadde, IsFp=false) or FP (fsadde, IsFp=true).
+// Rd is the unified-file index: integer reg (0–31) for sadde; FP reg (32–63, pre-offset) for fsadde.
+public record RvUveSoASadde(bool IsFp, bool Acc, int Rd, int Usrc1) : RvOp;
 
 // Stream branch (custom-1, opcode=0x2B, UVE B-type: bits[31:29]=111, bit28=imm[12]):
 //   funct3=0:     so.b.nc urs, imm — not exhausted (bit20=1) / so.b.c urs, imm — exhausted (bit20=0)

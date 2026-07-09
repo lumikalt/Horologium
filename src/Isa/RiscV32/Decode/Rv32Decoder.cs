@@ -2048,10 +2048,12 @@ public class Rv32Decoder : IDecoder {
         RvOp uvOp = group switch {
             0 => UveArith(upper ? UveFpOp.Sub : UveFpOp.Add, upper ? UveIntOp.Sub : UveIntOp.Add, type, rd, rs1, rs2),
             1 => UveArith(upper ? UveFpOp.Div : UveFpOp.Mul, upper ? UveIntOp.Div : UveIntOp.Mul, type, rd, rs1, rs2),
-            // Group 2: adde (lower) — accumulate stream element into ud; rs2=1 selects the += variant.
-            // Group 2 upper (Adds → scalar register write) not yet implemented.
+            // Group 2 lower: adde — accumulate stream element into ud; rs2=1 selects the += variant.
+            // Group 2 upper: sadde/fsadde — write stream element (or accumulate) into integer/FP scalar reg.
             2 when !upper && rs2 == 1 => UveArith(UveFpOp.AddeAcc, UveIntOp.AddeAcc, type, rd, rs1, -1),
             2 when !upper             => UveArith(UveFpOp.Adde,    UveIntOp.Adde,    type, rd, rs1, -1),
+            2 when  upper && rs2 == 1 => new RvUveSoASadde(type == 1, true,  type == 1 ? rd + 32 : rd, rs1),
+            2 when  upper             => new RvUveSoASadde(type == 1, false, type == 1 ? rd + 32 : rd, rs1),
             3 => upper
                 ? UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2)
                 : UveArith(UveFpOp.Abs, UveIntOp.Abs, type, rd, rs1, -1),
@@ -2081,9 +2083,18 @@ public class Rv32Decoder : IDecoder {
             _ => throw new IllegalInstructionException(raw, $"Unknown UVE op group={group} funct3=0x{funct3:X}"),
         };
 
-        // ShiftS uses an integer register for the shift amount
-        int[] intSrcs = uvOp is RvUveSoAShiftS ss ? [ss.Rs2] : [];
-        return new RvInstruction(pc, raw, -1, intSrcs, ToothClass.Uve, uvOp);
+        // ShiftS uses an integer register for the shift amount.
+        // Sadde/fsadde write to a scalar reg (dest) and may read it when accumulating.
+        int dest = uvOp switch {
+            RvUveSoASadde s => s.Rd,
+            _ => -1,
+        };
+        int[] intSrcs = uvOp switch {
+            RvUveSoAShiftS ss                       => [ss.Rs2],
+            RvUveSoASadde { Acc: true } s           => [s.Rd],
+            _                                       => [],
+        };
+        return new RvInstruction(pc, raw, dest, intSrcs, ToothClass.Uve, uvOp);
     }
 
     private static RvOp UveArith(UveFpOp fpOp, UveIntOp intOp, int type, int ud, int usrc1, int usrc2) =>

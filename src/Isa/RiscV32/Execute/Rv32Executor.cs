@@ -733,6 +733,9 @@ public class Rv32Executor : IExecutor {
             RvUveSoAShiftS (var shiftOp, var ud, var usrc1, var rs2) => ExecuteUveSoAShiftS(
                 state, memory, regs, shiftOp, ud, usrc1, rs2
             ),
+            RvUveSoASadde (var isFp, var acc, var rd, var usrc1) => ExecuteUveSoASadde(
+                state, regs, isFp, acc, rd, usrc1
+            ),
             RvUveSoBNc (var urs, var imm)           => ExecuteUveSoBNc(state, pc, urs, imm),
             RvUveSoBNdc (var urs, var dim, var imm) => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
             RvUveSoBc (var urs, var imm)            => ExecuteUveSoBc(state, pc, urs, imm),
@@ -3134,6 +3137,23 @@ public class Rv32Executor : IExecutor {
             _              => throw new InvalidOperationException($"Unknown UveShiftOp {op}"),
         };
         return UveWriteScalar(state, memory, ud, BitConverter.Int32BitsToSingle((int)r));
+    }
+
+    private static ExecuteResult ExecuteUveSoASadde(
+        IArchState state, IRegisterFile regs, bool isFp, bool acc, int rd, int usrc1
+    ) {
+        UveState uveState = UState(state).UveState;
+        if (isFp) {
+            // rd is already the unified-file FP index (32+); FBits reads NaN-unboxed float.
+            float elem = uveState.Scalars[usrc1];
+            float result = acc ? FBits(regs, rd) + elem : elem;
+            ulong nanBoxed = 0xFFFFFFFF00000000UL | (uint)BitConverter.SingleToInt32Bits(result);
+            return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, nanBoxed); } };
+        } else {
+            int elem   = BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
+            int result = acc ? (int)(uint)regs.Read(rd) + elem : elem;
+            return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)result); } };
+        }
     }
 
     // Shared write-back for all so.a.* ops: if ud is a store stream, write to memory and
