@@ -735,6 +735,31 @@ public class UveTests {
         mem.Load(0, BitConverter.GetBytes(SsStaLdW(2, 1)));
         var op = Assert.IsType<RvUveSsStaLdW>(new Rv32Decoder().Decode(0, mem).Payload);
         Assert.False(op.IsVectorMode);
+        Assert.False(op.MergingPredication);
+        Assert.Equal(0, op.MemLevel);
+    }
+
+    [Fact]
+    public void Decoder_SsStaLdW_PmAndMemFields() {
+        // ss.sta.ld.w.m.mem2: pm bit[31]=1 (merging predication), mem bits[23:22]=2 (cache level)
+        var mem = new FlatMemory(16);
+        uint enc = SsStaLdW(2, 1) | (1u << 31) | (2u << 22);
+        mem.Load(0, BitConverter.GetBytes(enc));
+        var op = Assert.IsType<RvUveSsStaLdW>(new Rv32Decoder().Decode(0, mem).Payload);
+        Assert.True(op.MergingPredication);
+        Assert.Equal(2, op.MemLevel);
+        Assert.False(op.IsVectorMode);
+    }
+
+    [Fact]
+    public void Decoder_SsStaLdWInds_MemField() {
+        // ss.sta.ld.w_inds_mem1: inds bit[24]=1, mem bits[23:22]=1
+        var mem = new FlatMemory(16);
+        uint enc = SsStaLdW(3, 2) | (1u << 24) | (1u << 22);
+        mem.Load(0, BitConverter.GetBytes(enc));
+        var op = Assert.IsType<RvUveSsStaLdWInds>(new Rv32Decoder().Decode(0, mem).Payload);
+        Assert.Equal(3, op.Ud);
+        Assert.Equal(1, op.MemLevel);
     }
 
     [Fact]

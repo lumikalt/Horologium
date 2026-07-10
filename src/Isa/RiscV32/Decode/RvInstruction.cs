@@ -1197,21 +1197,37 @@ public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
 //   bits[31:27]=rs3, bits[26:25]=funct2, bits[24:20]=rs2, bits[19:15]=rs1, bits[14:12]=funct3, bits[11:7]=ud
 //   funct2=0: ss.sta.{ld|st}.* — funct3[2]=1→load,0→store; ew=1<<(funct3&3); only rs1(base) used
 //     rs3=0: scalar mode; rs3=0x8..0xE: vector mode (VecCfgDim=rs3-8); rs3=0xF: vector, innermost dim (VecCfgDim=-1)
-//     rs3 bit[4]=1: pm — merging predication for the stream (decoded but not yet applied)
+//   Header fields (UVE2): pm[31]=merging predication (default zeroing), vec[30]+vdim[29:27]=vector
+//   mode/coupled dim, inds[24]=IndSource, mem[23:22]=cache-level routing. MergingPredication and
+//   MemLevel are decoded but not yet consumed (predication policy → vector-width model; mem → cache routing).
 //   funct2=1, funct3=0: ss.app     — rs1=offset reg, rs2=count reg, rs3=stride reg
 //   funct2=1, funct3=4: ss.app.mod — static modifier: b[24:22], ta[21:20], tdim[17:15], rs3=disp reg
 //   funct2=1, funct3=6: ss.app.ind — indirect modifier: tdim[30:28], b[24:22], ta[21:20], rs1=IndSource reg
 //   funct2=2, funct3=0: ss.end     — rs1=offset reg, rs2=count reg, rs3=stride reg; activates stream
 // VecCfgDim: -1 = innermost dimension; 0..6 = explicit dimension (outermost-first, Spike order).
-public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1)
-    : RvOp;
+public record RvUveSsStaLdW(
+    int Ud,
+    int Rs1Base,
+    int ElementBytes = 4,
+    bool IsVectorMode = false,
+    int VecCfgDim = -1,
+    bool MergingPredication = false,
+    int MemLevel = 0
+) : RvOp;
 
-public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1)
-    : RvOp;
+public record RvUveSsStaStW(
+    int Ud,
+    int Rs1Base,
+    int ElementBytes = 4,
+    bool IsVectorMode = false,
+    int VecCfgDim = -1,
+    bool MergingPredication = false,
+    int MemLevel = 0
+) : RvOp;
 
 // ss.sta.ld.*_inds ud, rs1 — IndSource stream: backed by a load stream but provides values for indirect modifiers.
-// Encoded as ss.sta.ld.* with rs2 bit[4]=1. No vector mode; follows with ss.app*/ss.end like a normal load stream.
-public record RvUveSsStaLdWInds(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
+// Encoded as ss.sta.ld.* with inds bit[24]=1. No vector mode; follows with ss.app*/ss.end like a normal load stream.
+public record RvUveSsStaLdWInds(int Ud, int Rs1Base, int ElementBytes = 4, int MemLevel = 0) : RvOp;
 
 // ss.app.ind ud, rs1_indsrc — attach one indirect (dynamic) modifier to the pending stream config.
 // The trigger dimension is positional (the most recently appended dimension at execute time);

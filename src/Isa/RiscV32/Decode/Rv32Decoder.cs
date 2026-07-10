@@ -1969,25 +1969,30 @@ public class Rv32Decoder : IDecoder {
 
         switch (funct2) {
             case 0: {
-                // ss.sta.{ld|st}.*: funct3[2]=1→load,0→store; ew=1<<(funct3&3)
-                // rs3 bit[3]=1 → vector mode; bits[2:0]=7 → innermost dim (-1); bits[2:0]=0..6 → explicit
-                // dim, counted OUTERMOST-FIRST (Spike deque index) — remapped to engine order at ss.end
-                // rs3 bit[4]=1 → masked variant (predicate reg; decoded but mask is ignored until SO_P implemented)
-                // rs2 bit[4]=1 + isLoad → IndSource stream (ss.sta.ld.*_inds)
+                // ss.sta.{ld|st}.* stream header (UVE2): funct3[2]=1→load,0→store; ew=1<<(funct3&3)
+                //   pm   [31] = 1 → merging predication (ss.sta.m; default is zeroing)
+                //   vec  [30] = 1 → vectorial stream; vdim [29:27] = vector-coupled dim
+                //                   (7 → innermost = -1; 0..6 explicit, outermost-first, remapped at ss.end)
+                //   inds [24] = 1 + isLoad → IndSource stream (ss.sta.ld.*_inds)
+                //   mem  [23:22] = cache-level routing (ss.sta.mem[l]; 0 = default)
                 int ew = UveElementBytes(funct3);
                 bool isLoad = funct3 >> 2 != 0;
+                bool merging = (rs3 & 0x10) != 0;
+                var memLevel = (int)((raw >> 22) & 0x3);
                 if (isLoad && (rs2 & 0x10) != 0)
                     return new RvInstruction(
-                        pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdWInds(ud, rs1, ew)
+                        pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdWInds(ud, rs1, ew, memLevel)
                     );
                 bool isVec = (rs3 & 0x8) != 0;
                 int vecCfgDim = isVec ? (rs3 & 0x7) == 0x7 ? -1 : rs3 & 0x7 : -1;
                 return isLoad
                     ? new RvInstruction(
-                        pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, ew, isVec, vecCfgDim)
+                        pc, raw, -1, [rs1,], ToothClass.Uve,
+                        new RvUveSsStaLdW(ud, rs1, ew, isVec, vecCfgDim, merging, memLevel)
                     )
                     : new RvInstruction(
-                        pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, ew, isVec, vecCfgDim)
+                        pc, raw, -1, [rs1,], ToothClass.Uve,
+                        new RvUveSsStaStW(ud, rs1, ew, isVec, vecCfgDim, merging, memLevel)
                     );
             }
             // ss.app ud, rs1_offset, rs2_count, rs3_stride

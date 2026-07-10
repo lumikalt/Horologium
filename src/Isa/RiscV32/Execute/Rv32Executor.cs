@@ -711,13 +711,13 @@ public class Rv32Executor : IExecutor {
                 ExecuteVsxseg(state, memory, numFields, vs3, rs1, vs2, idxSew, masked),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsStaLdW (var ud, var rs1, var ew, var isVec, var vecDim) => ExecuteUveSsSta(
+            RvUveSsStaLdW (var ud, var rs1, var ew, var isVec, var vecDim, _, _) => ExecuteUveSsSta(
                 regs, ud, rs1, true, ew, isVec, vecDim
             ),
-            RvUveSsStaStW (var ud, var rs1, var ew, var isVec, var vecDim) => ExecuteUveSsSta(
+            RvUveSsStaStW (var ud, var rs1, var ew, var isVec, var vecDim, _, _) => ExecuteUveSsSta(
                 regs, ud, rs1, false, ew, isVec, vecDim
             ),
-            RvUveSsStaLdWInds (var ud, var rs1, var ew)    => ExecuteUveSsStaLdWInds(regs, ud, rs1, ew),
+            RvUveSsStaLdWInds (var ud, var rs1, var ew, _) => ExecuteUveSsStaLdWInds(regs, ud, rs1, ew),
             RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
             RvUveSsAppInd (var ud, var tdim, var target, var behavior, var srcId) =>
                 ExecuteUveSsAppInd(ud, tdim, target, behavior, srcId),

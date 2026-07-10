@@ -76,8 +76,9 @@ Remaining delta, in rough dependency order:
   Horologium-specific funct2=3 encoding; the E/size field is removed in UVE2 (never used in Spike).
 - [x] `ss.ld.*` / `ss.st.*` 1D shorthand: never existed as a separate decode path (README naming only, now
   corrected); tc=11 rejects as an illegal instruction, matching UVE2's reserved encoding
-- [ ] Stream header `pm` (bit 31, merging-predication flag — currently mis-documented as "masked variant") and
-  `mem` (bits [23:22], cache-level) field decode
+- [x] Stream header `pm` (bit 31, merging-predication flag — was mis-documented as "masked variant") and
+  `mem` (bits [23:22], cache-level) field decode; recorded on the header instruction but not yet consumed
+  (pm → vector-width predication model; mem → cache routing)
 - [ ] Vector-width execution model: u-registers hold VLEN-wide element vectors (element width from stream config);
   per-register scalar/vector mode (scalar default, `vec` header flag, mode-transition rules per instruction class);
   valid-element counts; implicit predication on lanes beyond the valid count — zeroing (default) or merging (pm)
