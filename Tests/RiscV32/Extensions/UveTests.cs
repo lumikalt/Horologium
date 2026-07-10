@@ -219,14 +219,15 @@ public class UveTests {
         (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | (uint)((rs2 & 0x1F) << 20)
              | (uint)((rs1Offset & 0x1F) << 15) | (0x0u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
-    // ss.app.mod: funct2=1, funct3=4; rs1=dimIndex literal, rs2=behavior<<2|spikeTarget, rs3=disp reg
+    // ss.app.mod: funct2=3, funct3=dimIndex (0-7), rs1=E register (0=x0=unlimited), rs2=behavior<<2|spikeTarget, rs3=disp reg
     // Spike target encoding: Size=0, Stride=1, Offset=2 (differs from Horologium: Size=0, Offset=1, Stride=2)
     private static uint SsAppMod(
         int ud,
         int dimIndex,
         StreamModifierTarget target,
         StreamModifierBehavior behavior,
-        int rs3Disp
+        int rs3Disp,
+        int rs1E = 0
     ) {
         int spikeTarget = target switch {
             StreamModifierTarget.Size   => 0,
@@ -235,8 +236,8 @@ public class UveTests {
             _                           => throw new ArgumentOutOfRangeException(nameof(target)),
         };
         int rs2Fixed = ((int)behavior << 2) | spikeTarget;
-        return (uint)(((rs3Disp & 0x1F) << 27) | (0x1u << 25) | (uint)((rs2Fixed & 0x1F) << 20)
-                    | (uint)((dimIndex & 0x1F) << 15) | (0x4u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
+        return (uint)(((rs3Disp & 0x1F) << 27) | (0x3u << 25) | (uint)((rs2Fixed & 0x1F) << 20)
+                    | (uint)((rs1E & 0x1F) << 15) | (uint)((dimIndex & 0x7) << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
     }
 
     // EBREAK — halts the pipeline
@@ -968,8 +969,8 @@ public class UveTests {
     [Fact]
     public void SsAppMod_DecodesCorrectly() {
         var mem = new FlatMemory(16);
-        // dimIndex=0, target=Size, behavior=Inc, rs3Disp=x5
-        mem.Load(0, BitConverter.GetBytes(SsAppMod(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5)));
+        // dimIndex=0, target=Size, behavior=Inc, rs3Disp=x5, rs1E=x6 (MaxApplications from register)
+        mem.Load(0, BitConverter.GetBytes(SsAppMod(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5, 6)));
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSsAppMod>(tooth.Payload);
         Assert.Equal(1, op.Ud);
@@ -977,11 +978,13 @@ public class UveTests {
         Assert.Equal(StreamModifierTarget.Size, op.Target);
         Assert.Equal(StreamModifierBehavior.Inc, op.Behavior);
         Assert.Equal(5, op.Rs3Disp);
+        Assert.Equal(6, op.Rs1Size);
     }
 
     [Fact]
     public void SsAppMod_StrideTarget_DecodesCorrectly() {
         var mem = new FlatMemory(16);
+        // rs1E=0 (x0) means unlimited applications
         mem.Load(0, BitConverter.GetBytes(SsAppMod(2, 1, StreamModifierTarget.Stride, StreamModifierBehavior.Dec, 7)));
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSsAppMod>(tooth.Payload);
@@ -990,6 +993,7 @@ public class UveTests {
         Assert.Equal(StreamModifierTarget.Stride, op.Target);
         Assert.Equal(StreamModifierBehavior.Dec, op.Behavior);
         Assert.Equal(7, op.Rs3Disp);
+        Assert.Equal(0, op.Rs1Size);
     }
 
     // ── ss.app.mod / ss.end.mod integration tests ────────────────────────────

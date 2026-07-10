@@ -31,15 +31,17 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Static dimension modifiers: `ss.app.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a
   descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns
   without per-row reconfiguration)
-- [ ] Static modifier E-field (Size) enforcement: cap modifier applications to E total outer-loop iterations; currently
-  the modifier fires unconditionally on every inner-dim wrap and the decoded `rs3Size` register value is ignored at
-  execution time
+- [x] Static modifier E-field (Size) enforcement: `StreamModifier.MaxApplications` (E=0 means unlimited); per-modifier
+  application counts tracked separately on fetch and consume sides in `StreamingEngine`. Encoding: funct2=3,
+  funct3=dimIndex (0–7), rs1=E register (x0 → unlimited), rs2=behavior<<2|spikeTarget, rs3=displacement register.
+  Spike comments out E enforcement entirely; this encoding is Horologium-specific.
 - [x] Static modifier Offset and Stride targets: implement `Target=Offset` and `Target=Stride` mutations in
   `StreamingEngine.ApplyModifiers`; currently only `Target=Size` is handled and the other two are decoded but no-op
 - [x] UVE encoding alignment: decoder, executor, and all tests now match AnaBSF/riscv-isa-sim (uve branch, commit
   a048271) — `ss.sta.{ld,st}.w` funct3, `ss.app`/`ss.end` funct2, `ss.app.mod` Spike target encoding, `so.v.dp.w`
   funct7/funct3, `so.a.fp.*` (funct7>>3, funct3) table, UVE B-type branch immediate layout
-- [x] Offset register (rs1) in `ss.app`/`ss.end`: rs1*ew added to stream base address; accumulated across all ss.app instructions in a config sequence and applied at ss.end time
+- [x] Offset register (rs1) in `ss.app`/`ss.end`: rs1*ew added to stream base address; accumulated across all ss.app
+  instructions in a config sequence and applied at ss.end time
 - [ ] Indirect dimension modifiers: `ss.app.ind` / `ss.end.ind` — attach a `{Target, Behavior, StreamPointer}` modifier
   so a live stream drives the offset of another (gather/indirect access; confirmed UVE1 in ISCA 2021 paper)
 - [x] Stream suspend/resume/stop: `ss.suspend`, `ss.resume`, `ss.stop` — explicit stream lifecycle control for context
@@ -83,7 +85,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Cache Model Realism
 
-- [ ] Write-back buffer (eviction buffer): dirty victims drain to the next level asynchronously from a small
+- [x] Write-back buffer (eviction buffer): dirty victims drain to the next level asynchronously from a small
   (4–8 entry) buffer instead of charging the full miss latency synchronously at eviction; stall only when the buffer
   is full or a demand miss targets a line still queued in it. Write-through counterpart: a coalescing write buffer so
   stores don't pay backing latency individually.

@@ -1981,9 +1981,10 @@ public class Rv32Decoder : IDecoder {
                 return new RvInstruction(
                     pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsApp(ud, rs1, rs2, rs3)
                 );
-            case 1 when funct3 == 4: {
-                // ss.app.mod: rs1=dimIndex literal, rs2=fixed literal (behavior<<2|spikeTarget), rs3=disp reg
+            case 3: {
+                // ss.app.mod: funct2=3, funct3=dimIndex (0-7), rs1=E register, rs2=target+behavior literal, rs3=disp reg
                 // Spike target encoding: 0=Size, 1=Stride, 2=Offset → map to Horologium enum: Size=0, Stride=2, Offset=1
+                var dimIndex = (int)funct3;
                 int spikeTarget = rs2 & 0x3;
                 StreamModifierTarget target = spikeTarget switch {
                     0 => StreamModifierTarget.Size,
@@ -1992,7 +1993,8 @@ public class Rv32Decoder : IDecoder {
                 };
                 var behavior = (StreamModifierBehavior)((rs2 >> 2) & 0x1);
                 return new RvInstruction(
-                    pc, raw, -1, [rs3,], ToothClass.Uve, new RvUveSsAppMod(ud, rs1, target, behavior, rs3)
+                    pc, raw, -1, [rs1, rs3,], ToothClass.Uve,
+                    new RvUveSsAppMod(ud, dimIndex, target, behavior, rs3, rs1)
                 );
             }
             // ss.end ud, rs1_offset, rs2_count, rs3_stride

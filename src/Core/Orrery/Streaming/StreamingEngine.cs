@@ -130,6 +130,10 @@ public sealed class StreamingEngine {
         // Set by Consume() for each dimension that wraps; cleared at the start of the next Consume().
         private bool[] _dimPassComplete = [];
 
+        // Per-modifier application counts (indexed by Modifiers[i]); separate for fetch/consume.
+        private int[] _fetchModApplyCounts = [];
+        private int[] _consumeModApplyCounts = [];
+
         private readonly Queue<ulong> _buffer = new();
 
         public bool Active { get; private set; }
@@ -158,6 +162,9 @@ public sealed class StreamingEngine {
             _fetchBaseOffset = 0;
             _fetchDone = false;
             _buffer.Clear();
+            int nmod = desc.Modifiers?.Length ?? 0;
+            _fetchModApplyCounts = nmod > 0 ? new int[nmod] : [];
+            _consumeModApplyCounts = nmod > 0 ? new int[nmod] : [];
             Active = true;
         }
 
@@ -220,8 +227,11 @@ public sealed class StreamingEngine {
 
         private void ApplyFetchModifiers(int wrappedDim) {
             if (_desc.Modifiers is not { Length: > 0, } mods) return;
-            foreach (StreamModifier m in mods) {
+            for (var i = 0; i < mods.Length; i++) {
+                StreamModifier m = mods[i];
                 if (m.DimIndex != wrappedDim) continue;
+                if (m.MaxApplications > 0 && _fetchModApplyCounts[i] >= m.MaxApplications) continue;
+                _fetchModApplyCounts[i]++;
                 long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
                 switch (m.Target) {
                     case StreamModifierTarget.Size:
@@ -235,8 +245,11 @@ public sealed class StreamingEngine {
 
         private void ApplyConsumeModifiers(int wrappedDim) {
             if (_desc.Modifiers is not { Length: > 0, } mods) return;
-            foreach (StreamModifier m in mods) {
+            for (var i = 0; i < mods.Length; i++) {
+                StreamModifier m = mods[i];
                 if (m.DimIndex != wrappedDim || m.Target != StreamModifierTarget.Size) continue;
+                if (m.MaxApplications > 0 && _consumeModApplyCounts[i] >= m.MaxApplications) continue;
+                _consumeModApplyCounts[i]++;
                 long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
                 _consumeDimCounts[wrappedDim] = Math.Max(0, _consumeDimCounts[wrappedDim] + delta);
             }

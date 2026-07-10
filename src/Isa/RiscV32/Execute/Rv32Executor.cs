@@ -715,8 +715,8 @@ public class Rv32Executor : IExecutor {
             RvUveSsStaStW (var ud, var rs1, var ew)        => ExecuteUveSsSta(regs, ud, rs1, false, ew),
             RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
             RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
-            RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp) =>
-                ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp),
+            RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp, var rs1Size) =>
+                ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp, rs1Size),
             RvUveSoVDp (var ud, var rs1, var elemBytes)   => ExecuteUveSoVDp(regs, ud, rs1, elemBytes),
             RvUveSoVMvvs (var us1, var rd)                => ExecuteUveSoVMvvs(state, rd, us1),
             RvUveSoVMvsv (var ud, var rs1, var elemBytes) => ExecuteUveSoVMvsv(regs, ud, rs1, elemBytes),
@@ -3369,22 +3369,24 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // ss.app.mod ud, dimIndex, target, behavior, rs3Disp — append static modifier.
-    // dimIndex is a literal (not a register), taken directly from rs1 in the encoding.
+    // ss.app.mod ud, rs1Size, dimIndex, target, behavior, rs3Disp — append static modifier.
+    // dimIndex comes from funct3; rs1Size holds MaxApplications (0 = unlimited); rs3Disp is the displacement register.
     private static ExecuteResult ExecuteUveSsAppMod(
         IRegisterFile regs,
         int ud,
         int dimIndex,
         StreamModifierTarget target,
         StreamModifierBehavior behavior,
-        int rs3Disp
+        int rs3Disp,
+        int rs1Size
     ) {
         var disp = (long)regs.Read(rs3Disp);
+        var maxApp = (int)regs.Read(rs1Size);
         return new ExecuteResult {
             SideEffect = s => {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
                 if (cfg is null) return;
-                cfg.Modifiers.Add(new StreamModifier(dimIndex, target, behavior, disp));
+                cfg.Modifiers.Add(new StreamModifier(dimIndex, target, behavior, disp, maxApp));
             },
         };
     }

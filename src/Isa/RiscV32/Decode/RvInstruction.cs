@@ -1197,8 +1197,8 @@ public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
 //   bits[31:27]=rs3, bits[26:25]=funct2, bits[24:20]=rs2, bits[19:15]=rs1, bits[14:12]=funct3, bits[11:7]=ud
 //   funct2=0: ss.sta.{ld|st}.* — funct3[2]=1→load,0→store; ew=1<<(funct3&3); only rs1(base) used
 //   funct2=1, funct3=0: ss.app   — rs1=offset reg, rs2=count reg, rs3=stride reg
-//   funct2=1, funct3=4: ss.app.mod — rs1=dimIndex literal, rs2=target+behavior literal, rs3=disp reg
 //   funct2=2, funct3=0: ss.end   — rs1=offset reg, rs2=count reg, rs3=stride reg; activates stream
+//   funct2=3, funct3=dimIndex (0-7): ss.app.mod — rs1=E reg (MaxApplications, 0=∞), rs2=target+behavior literal, rs3=disp reg
 public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
 
 public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
@@ -1209,13 +1209,14 @@ public record RvUveSsApp(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : R
 // Same field layout as ss.app; activates the stream after appending the outermost dimension.
 public record RvUveSsEnd(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;
 
-// ss.app.mod: append a static modifier. rs1=DimIndex literal, rs2=target+behavior literal, rs3=displacement register.
+// ss.app.mod: append a static modifier. funct3=dimIndex, rs1=E register (0 means unlimited), rs2=target+behavior literal, rs3=disp reg.
 public record RvUveSsAppMod(
     int Ud,
     int DimIndex,
     StreamModifierTarget Target,
     StreamModifierBehavior Behavior,
-    int Rs3Disp
+    int Rs3Disp,
+    int Rs1Size
 ) : RvOp;
 
 // so.v.dp.(width) ud, rs1 — broadcast integer register rs1 bits (masked to ElementBytes) into u-reg scalar slot

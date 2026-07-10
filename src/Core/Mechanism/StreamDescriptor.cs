@@ -15,12 +15,14 @@ public enum StreamModifierBehavior { Inc = 0, Dec = 1, }
 /// Static descriptor modifier {T, B, D, E}: when dimension DimIndex wraps, apply
 /// B(D) to parameter T of dimension DimIndex, for up to E total applications.
 /// Encoded inline in ss.app.mod / ss.end.mod instructions.
+/// E = 0 (default) means unlimited applications.
 /// </summary>
 public readonly record struct StreamModifier(
     int DimIndex,
     StreamModifierTarget Target,
     StreamModifierBehavior Behavior,
-    long Displacement
+    long Displacement,
+    int MaxApplications = 0
 );
 
 /// <summary>
