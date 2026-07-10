@@ -33,7 +33,8 @@ off here until a periodic cleanup removes them; the durable record is git histor
   variants of the existing scalar-broadcast op
 - [x] Vector register manipulation: `mv`/`mvt` (move/transpose) — `so.v.mv` / `so.v.mvt` gated by predicate register
 - [x] SO_P predicate register file: 16 registers (VLEN=128 → 16 bytes each); register 0 all-ones; `so.p.{zero,one,vr,not,mv,mvt}` simple ops with governing predicate + zeroing mode; `so.p.{ge,eq,lt}.{us,fp,sg}` element-wise comparisons (merging on inactive); `_z` comparison variants tag output register with Zeroing mode (Spike invariant: tag only, no element-level difference)
-- [ ] Explicit vector load/store: `ld.(width)` / `ld.(width).s` and `st` / `st.s` (non-stream bulk memory ops)
+- [ ] ~~Explicit vector load/store: `ld.(width)` / `ld.(width).s` and `st` / `st.s` (non-stream bulk memory ops)~~
+  — dropped: UVE2 removes non-streaming vector memory ops (replicable with linear streams)
 - [x] Static dimension modifiers: `ss.app.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a
   descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns
   without per-row reconfiguration)
@@ -58,9 +59,34 @@ off here until a periodic cleanup removes them; the durable record is git histor
   (`ss.end` adds the innermost dimension), matching Spike's deque order; `ss.app.mod` funct3, `ss.app.ind`
   rs3, and explicit `ss.cfg.vec` dim indices are all outermost-first and remapped to the engine's
   innermost-first order at `ss.end`.
-- [ ] Cache-level stream routing: `so.cfg.memx` — direct a stream to operate from L x rather than the default L2
-- [ ] FP register source for scalar broadcast: `so.v.dup.fp.w ud, fs1` — the paper's SAXPY uses an FP register (fa0) not
-  an integer register; `so.v.dp.w` reads from integer rs1 only
+- [ ] ~~Cache-level stream routing: `so.cfg.memx`~~ — superseded: UVE2 folds this into the stream header
+  `mem` field (`ss.sta.mem[l]`, bits [23:22])
+- [ ] ~~FP register source for scalar broadcast: `so.v.dup.fp.w ud, fs1`~~ — dropped: no such instruction in UVE2
+
+### UVE2 (target spec: Fernandes, "A functional validation framework for the UVE", MSc dissertation, U. Coimbra 2025)
+
+The AnaBSF/riscv-isa-sim uve branch is the UVE2 reference implementation; Horologium's existing encodings
+(config order, so.b.ndc, SO_P including pm/_z bits, so.a.* layout, ss.sta header inds/vec/vdim bits) already match.
+Remaining delta, in rough dependency order:
+
+- [ ] `ss.app.mod` re-encoding and semantics: UVE2 encodes static modifiers as tc=APP + funct3=MOD with literal
+  b/ta fields and an explicit 3-bit `tdim` target dimension (bits [17:15]); the trigger dimension is positional (the
+  most recently appended dimension), decoupled from the target. Replaces the Horologium-specific funct2=3 encoding;
+  the E/size field is removed in UVE2 (never used in Spike).
+- [ ] Remove `ss.ld.*` / `ss.st.*` 1D shorthand setup (UVE2 reserves tc=11; 1D streams use header + `ss.end`)
+- [ ] Stream header `pm` (bit 31, merging-predication flag — currently mis-documented as "masked variant") and
+  `mem` (bits [23:22], cache-level) field decode
+- [ ] Vector-width execution model: u-registers hold VLEN-wide element vectors (element width from stream config);
+  per-register scalar/vector mode (scalar default, `vec` header flag, mode-transition rules per instruction class);
+  valid-element counts; implicit predication on lanes beyond the valid count — zeroing (default) or merging (pm)
+  per stream register. This is the core semantic chunk of UVE2 and consumes the existing PredZeroing tags.
+- [ ] Explicit predicate operand in compute ops: ps3 field (bits [27:25]) on so.a.* / so.p.* / so.v.* — currently
+  implicitly p0; stream pm policy prevails over the instruction predicate's policy
+- [ ] Scatter-gather dynamic modifiers (`ss.app.sgi` / `ss.<app/end>.ind.ofs.sg.<b>`): applied per element rather
+  than per dimension wrap, offset target only — enables vectorial gather (SpMV-2 pattern)
+- [ ] Predicate width conversion `so.p.cv.<dw>.<sw>` (dual width fields) and vector element conversion
+  `so.v.cv.<fps>.<wth>` (narrowing/widening; lost-lane behaviour still open in the spec)
+- [ ] Suspended-stream data exchange: `so.v.vload` / `so.v.vstor` (load/store vector data to/from suspended streams)
 
 ## RISC-V
 
