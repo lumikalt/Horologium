@@ -8,7 +8,7 @@ namespace Pipeline;
 /// Associates I-cache miss sequences with signatures derived from the commit-time
 /// call stack; prefetches on call/return when a matching signature is found.
 /// </summary>
-public sealed class RdipPrefetcher {
+public sealed class RdipPrefetcher(SetAssociativeCache iCache, IDecoder decoder) {
     // ── RDIP commit-time RAS (4 entries, per paper sensitivity study) ──────────
     private const int RasDepth = 4;
     private readonly ulong[] _ras = new ulong[RdipPrefetcher.RasDepth];
@@ -46,15 +46,7 @@ public sealed class RdipPrefetcher {
         = new byte[RdipPrefetcher.Sets * RdipPrefetcher.Ways * RdipPrefetcher.MaxTriggers];
 
     // ── Hardware references ───────────────────────────────────────────────────
-    private readonly SetAssociativeCache _iCache;
-    private readonly int _blockBytes;
-    private readonly IDecoder _decoder;
-
-    public RdipPrefetcher(SetAssociativeCache iCache, IDecoder decoder) {
-        _iCache = iCache;
-        _blockBytes = iCache.BlockBytes;
-        _decoder = decoder;
-    }
+    private readonly int _blockBytes = iCache.BlockBytes;
 
     // ── Public interface ──────────────────────────────────────────────────────
 
@@ -65,7 +57,7 @@ public sealed class RdipPrefetcher {
 
     /// <summary>Called at commit for every instruction; routes to call/return handlers.</summary>
     public void OnCommit(ulong pc, uint rawEncoding) {
-        FetchHint hint = _decoder.GetFetchHint(pc, rawEncoding);
+        FetchHint hint = decoder.GetFetchHint(pc, rawEncoding);
         if (hint.IsCall)
             OnCallCommit(pc + (ulong)hint.InstructionSize);
         else if (hint.IsReturn) OnReturnCommit();
@@ -137,7 +129,7 @@ public sealed class RdipPrefetcher {
             byte mask = _trigMask[trigBase + t];
             for (var b = 0; b < RdipPrefetcher.TriggerWindow; b++)
                 if ((mask & (1 << b)) != 0)
-                    _iCache.Prefetch(blockBase + (ulong)(b * _blockBytes));
+                    iCache.Prefetch(blockBase + (ulong)(b * _blockBytes));
         }
     }
 
@@ -151,18 +143,18 @@ public sealed class RdipPrefetcher {
         }
 
         // LRU victim: way with the highest age within this set.
-        int base_ = setIdx * RdipPrefetcher.Ways;
+        int @base = setIdx * RdipPrefetcher.Ways;
         var victimWay = 0;
-        int maxAge = _entryLruAge[base_];
+        int maxAge = _entryLruAge[@base];
         for (var w = 1; w < RdipPrefetcher.Ways; w++) {
-            int age = _entryLruAge[base_ + w];
+            int age = _entryLruAge[@base + w];
             if (age > maxAge) {
                 maxAge = age;
                 victimWay = w;
             }
         }
 
-        int idx = base_ + victimWay;
+        int idx = @base + victimWay;
         _entryValid[idx] = true;
         _entryTag[idx] = tag;
         _entryNextTrigger[idx] = 0;
@@ -177,9 +169,9 @@ public sealed class RdipPrefetcher {
 
     // Returns flat index into the table arrays, or -1 if not found.
     private int FindWay(int setIdx, uint tag) {
-        int base_ = setIdx * RdipPrefetcher.Ways;
+        int @base = setIdx * RdipPrefetcher.Ways;
         for (var w = 0; w < RdipPrefetcher.Ways; w++) {
-            int idx = base_ + w;
+            int idx = @base + w;
             if (_entryValid[idx] && _entryTag[idx] == tag) return idx;
         }
 
@@ -187,9 +179,9 @@ public sealed class RdipPrefetcher {
     }
 
     private void TouchLru(int setIdx, int accessedWay) {
-        int base_ = setIdx * RdipPrefetcher.Ways;
-        for (var w = 0; w < RdipPrefetcher.Ways; w++) _entryLruAge[base_ + w]++;
-        _entryLruAge[base_ + accessedWay] = 0;
+        int @base = setIdx * RdipPrefetcher.Ways;
+        for (var w = 0; w < RdipPrefetcher.Ways; w++) _entryLruAge[@base + w]++;
+        _entryLruAge[@base + accessedWay] = 0;
     }
 
     private void MergeMiss(int entryIdx, ulong physAddress) {

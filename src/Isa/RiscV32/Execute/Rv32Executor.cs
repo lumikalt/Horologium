@@ -745,17 +745,17 @@ public class Rv32Executor : IExecutor {
             RvUveSoASadde (var isFp, var acc, var rd, var usrc1) => ExecuteUveSoASadde(
                 state, regs, isFp, acc, rd, usrc1
             ),
-            RvUveSoCBreak (var ud)                  => ExecuteUveSoCBreak(state, ud),
-            RvUveSoCSuspd (var ud)                  => ExecuteUveSoCSuspd(state, ud),
-            RvUveSoCResum (var ud)                  => ExecuteUveSoCResum(state, ud),
+            RvUveSoCBreak (var ud)                  => ExecuteUveSoCBreak(ud),
+            RvUveSoCSuspd (var ud)                  => ExecuteUveSoCSuspd(ud),
+            RvUveSoCResum (var ud)                  => ExecuteUveSoCResum(ud),
             RvUveSoCGetvl (var rd)                  => ExecuteUveSoCGetvl(state, rd),
             RvUveSoCSetvl (var rd, var rs1)         => ExecuteUveSoCSetvl(state, regs, rd, rs1),
             RvUveSoBNc (var urs, var imm)           => ExecuteUveSoBNc(state, pc, urs, imm),
             RvUveSoBNdc (var urs, var dim, var imm) => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
             RvUveSoBc (var urs, var imm)            => ExecuteUveSoBc(state, pc, urs, imm),
             RvUveSoBdc (var urs, var dim, var imm)  => ExecuteUveSoBdc(state, pc, urs, dim, imm),
-            RvUveSoPSimple (var sop, var pd, var govPred, var zeroing, var ps1, var vs1)
-                => ExecuteUveSoPSimple(state, sop, pd, govPred, zeroing, ps1, vs1),
+            RvUveSoPSimple (var sop, var pd, var govPred, var zeroing, var ps1, _)
+                => ExecuteUveSoPSimple(state, sop, pd, govPred, zeroing, ps1),
             RvUveSoPCmp (var cop, var cmpType, var pd, var govPred, var vs1, var vs2, var cmpZeroing)
                 => ExecuteUveSoPCmp(state, cop, cmpType, pd, govPred, vs1, vs2, cmpZeroing),
             RvUveSoVMv (var transpose, var vd, var vs1, var predIdx)
@@ -3230,7 +3230,7 @@ public class Rv32Executor : IExecutor {
     }
 
     // SO_C: stream lifecycle — stop / suspend / resume.
-    private static ExecuteResult ExecuteUveSoCBreak(IArchState state, int ud) =>
+    private static ExecuteResult ExecuteUveSoCBreak(int ud) =>
         new() {
             SideEffect = s => {
                 UveState uvs = UState(s).UveState;
@@ -3241,10 +3241,10 @@ public class Rv32Executor : IExecutor {
             },
         };
 
-    private static ExecuteResult ExecuteUveSoCSuspd(IArchState state, int ud) =>
+    private static ExecuteResult ExecuteUveSoCSuspd(int ud) =>
         new() { SideEffect = s => { UState(s).UveState.Suspended[ud] = true; }, };
 
-    private static ExecuteResult ExecuteUveSoCResum(IArchState state, int ud) =>
+    private static ExecuteResult ExecuteUveSoCResum(int ud) =>
         new() { SideEffect = s => { UState(s).UveState.Suspended[ud] = false; }, };
 
     // SO_C: vector-length control — getvl / setvl.
@@ -3458,8 +3458,9 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // sb.ndc.D urs, imm — branch while dimension D of stream urs has not completed its pass.
-    // The pipeline has already synced IsDimPassComplete into UveState.DimDone before this call.
+    // sb.ndc.D urs, imm — branch while the dimension has not completed its pass.
+    // dim = funct3 = D-1, counting from the OUTERMOST dimension (Spike convention);
+    // the pipeline has already remapped and synced the flag into UveState.DimDone[urs, dim].
     private static ExecuteResult ExecuteUveSoBNdc(IArchState state, ulong pc, int urs, int dim, int imm) {
         bool done = UState(state).UveState.DimDone[urs, dim];
         return !done
@@ -3485,8 +3486,7 @@ public class Rv32Executor : IExecutor {
         int pd,
         int govPred,
         bool zeroing,
-        int ps1,
-        int vs1
+        int ps1
     ) {
         UveState uvs = UState(state).UveState;
         // Capture the valid element count for Vr before the closure.

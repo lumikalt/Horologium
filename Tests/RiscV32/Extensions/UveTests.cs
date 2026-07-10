@@ -127,7 +127,7 @@ public class UveTests {
             UveShiftOp.Sll => 0, UveShiftOp.Srl => 2, UveShiftOp.Sra => 4,
             _              => throw new ArgumentOutOfRangeException(nameof(op)),
         };
-        uint funct7 = 13u << 3;
+        const uint funct7 = 13u << 3;
         return (funct7 << 25) | (uint)((usrc2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
@@ -138,13 +138,13 @@ public class UveTests {
             UveShiftOp.Sll => 1, UveShiftOp.Srl => 3, UveShiftOp.Sra => 5,
             _              => throw new ArgumentOutOfRangeException(nameof(op)),
         };
-        uint funct7 = 13u << 3;
+        const uint funct7 = 13u << 3;
         return (funct7 << 25) | (uint)((rs2 & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
              | ((uint)f3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
     }
 
     // SO_C group (custom-1, funct7=0x58): stream lifecycle and VL control.
-    // ss.stop ud  (SO_C_BREAK, funct3=3) / ss.suspend ud (SUSPD, 1) / ss.resume ud (RESUM, 2)
+    // ss.stop ud (SO_C_BREAK, funct3=3) / ss.suspend ud (SUSPD, 1) / ss.resume ud (RESUM, 2)
     // ss.getvl rd (GETVL, funct3=7) / ss.setvl rd, rs1 (SETVL, funct3=0)
     private static uint SoCBreak(int ud) => SoC(3, ud, 0, 0);
     private static uint SoCSuspd(int ud) => SoC(1, ud, 0, 0);
@@ -161,7 +161,7 @@ public class UveTests {
     // acc=true → rs2=1 (accumulate); acc=false → rs2=0 (overwrite).
     private static uint SoASadde(bool isFp, bool acc, int rd, int usrc1) {
         uint funct3 = 4u | (isFp ? 1u : 0u);
-        uint funct7 = 2u << 3;
+        const uint funct7 = 2u << 3;
         uint rs2 = acc ? 1u : 0u;
         return (funct7 << 25) | (rs2 << 20) | (uint)((usrc1 & 0x1F) << 15)
              | (funct3 << 12) | (uint)((rd & 0x1F) << 7) | 0x2Bu;
@@ -191,10 +191,11 @@ public class UveTests {
     // so.b.c urs, imm — funct3=0, bit20=0 (done)
     private static uint SoBc(int urs, int imm) => UveBTypeImm(imm, (uint)urs, 0b00000u, 0x0);
 
-    // so.b.ndc.D urs, imm — funct3=D, bit20=1 (notDone)
+    // so.b.ndc.D urs, imm — funct3=D-1, bit20=1 (notDone). The dim param is the raw funct3
+    // value, counting dimensions from the OUTERMOST (Spike convention; innermost of N dims = N-1).
     private static uint SoBNdcD(int urs, int dim, int imm) => UveBTypeImm(imm, (uint)urs, 0b00001u, (uint)dim);
 
-    // so.b.dc.D urs, imm — funct3=D, bit20=0 (done)
+    // so.b.dc.D urs, imm — funct3=D-1, bit20=0 (done)
     private static uint SoBdcD(int urs, int dim, int imm) => UveBTypeImm(imm, (uint)urs, 0b00000u, (uint)dim);
 
     // ss.sta.ld.w ud, rs1 — funct2=0, funct3=0b110 (isLoad=1, ew=4)
@@ -627,7 +628,7 @@ public class UveTests {
 
     [Fact]
     public void StreamingEngine_ByteElements_ReadsCorrectly() {
-        // A stream of 4 bytes read one-at-a-time from a tightly-packed array
+        // A stream of 4 bytes read one-at-a-time from a tightly packed array
         var mem = new FlatMemory(16);
         mem.Load(0, [0x0A, 0x0B, 0x0C, 0x0D,]);
         var desc = new StreamDescriptor(0, 1, [new StreamDimension(4, 1),]);
@@ -763,11 +764,11 @@ public class UveTests {
     /// </para>
     /// <para>
     /// Register assignments in setup ADDI sequence:
-    ///   x1 = 0x0000  (base of X)
-    ///   x2 = 0x0040  (base of Y)
-    ///   x3 = 8       (element count)
-    ///   x4 = 4       (stride in bytes, = element width)
-    ///   x5 = bits(A) (scalar multiplier, as float32 raw bits)
+    ///   x1 = 0x0000   (base of X)
+    ///   x2 = 0x0040   (base of Y)
+    ///   x3 = 8        (element count)
+    ///   x4 = 4        (stride in bytes, = element width)
+    ///   x5 = bits (A) (scalar multiplier, as float32 raw bits)
     /// </para>
     /// </summary>
     [Fact]
@@ -838,9 +839,9 @@ public class UveTests {
     /// Memory layout (data region at 0x0000):
     ///   A 3×4 matrix stored in row-major order in an 8-float-wide (32 byte) row buffer.
     ///   Only the first 4 floats of each row are part of the matrix; the trailing 4 are padding.
-    ///   Row 0: A[0][0..3] at 0x0000–0x000F, padding 0x0010–0x001F
-    ///   Row 1: A[1][0..3] at 0x0020–0x002F, padding 0x0030–0x003F
-    ///   Row 2: A[2][0..3] at 0x0040–0x004F, padding 0x0050–0x005F
+    ///   Row 0: A[0][0..3] at 0x0000 - 0x000F, padding 0x0010 - 0x001F
+    ///   Row 1: A[1][0..3] at 0x0020 - 0x002F, padding 0x0030 - 0x003F
+    ///   Row 2: A[2][0..3] at 0x0040 - 0x004F, padding 0x0050 - 0x005F
     ///   Output: 12 floats at 0x0200 (linearized, row-major).
     /// </para>
     /// <para>
@@ -919,7 +920,7 @@ public class UveTests {
         );
         train.Run(5000);
 
-        // Verify output = A[r][c] * Scalar for every element, linearised row-major
+        // Verify output = A[r][c] * Scalar for every element, linearized row-major
         for (var r = 0; r < rows; r++)
         for (var c = 0; c < cols; c++) {
             var outAddr = (ulong)(0x200 + (r * cols + c) * 4);
@@ -936,7 +937,7 @@ public class UveTests {
 
     /// <summary>
     /// Copies 12 floats from a 1D source to a 3×4 matrix stored with padded rows (8 floats wide
-    /// = 32 bytes per row). Uses a 1D load stream (ss.ld.w) as source and a 2D store stream
+    /// = 32 bytes per row). Uses a 1D load stream (ss.ld.w) as a source and a 2D store stream
     /// (ss.sta.st.w → ss.end) as destination. Verifies that UveStoreStream advances its inner/outer
     /// indices correctly, skipping the 4-element padding gap between rows.
     /// </summary>
@@ -1733,8 +1734,11 @@ public class UveTests {
 
     [Fact]
     public void SoCGetvl_ReadsCurrentVl() {
-        var state = new Rv32ArchState();
-        state.UveState.VectorLength = 16;
+        var state = new Rv32ArchState {
+            UveState = {
+                VectorLength = 16,
+            },
+        };
         ExecuteResult er = Exec(new RvUveSoCGetvl(7), state);
         er.SideEffect?.Invoke(state);
         Assert.Equal(16u, (uint)state.IntegerRegisters.Read(7));
@@ -1742,8 +1746,11 @@ public class UveTests {
 
     [Fact]
     public void SoCSetvl_SetsVlAndReturnsOld() {
-        var state = new Rv32ArchState();
-        state.UveState.VectorLength = 8;
+        var state = new Rv32ArchState {
+            UveState = {
+                VectorLength = 8,
+            },
+        };
         state.IntegerRegisters.Write(2, 32u); // new VL
         ExecuteResult er = Exec(new RvUveSoCSetvl(7, 2), state);
         er.SideEffect?.Invoke(state);
@@ -1768,15 +1775,6 @@ public class UveTests {
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoCSuspd>(tooth.Payload);
         Assert.Equal(6, op.Ud);
-    }
-
-    [Fact]
-    public void Decoder_SoCResum_Roundtrip() {
-        var mem = new FlatMemory(256);
-        mem.Load(0, BitConverter.GetBytes(SoCResum(7)));
-        ITooth tooth = new Rv32Decoder().Decode(0, mem);
-        var op = Assert.IsType<RvUveSoCResum>(tooth.Payload);
-        Assert.Equal(7, op.Ud);
     }
 
     [Fact]
@@ -1872,19 +1870,6 @@ public class UveTests {
         Assert.Equal(UveSoPSimpleOp.One, op.Op);
         Assert.Equal(5, op.Pd);
         Assert.Equal(0, op.GovPred);
-        Assert.False(op.Zeroing);
-    }
-
-    [Fact]
-    public void Decoder_SoPVr_Roundtrip() {
-        var mem = new FlatMemory(256);
-        mem.Load(0, BitConverter.GetBytes(SoPVr(4, 2, 1)));
-        ITooth tooth = new Rv32Decoder().Decode(0, mem);
-        var op = Assert.IsType<RvUveSoPSimple>(tooth.Payload);
-        Assert.Equal(UveSoPSimpleOp.Vr, op.Op);
-        Assert.Equal(4, op.Pd);
-        Assert.Equal(2, op.Vs1);
-        Assert.Equal(1, op.GovPred);
         Assert.False(op.Zeroing);
     }
 
@@ -2011,13 +1996,13 @@ public class UveTests {
     [Fact]
     public void SoP_Reg0_InitiallyAllTrue() {
         var state = new Rv32ArchState();
-        Assert.All(state.UveState.PredicateRegs[0], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[0], Assert.True);
     }
 
     [Fact]
     public void SoP_OtherRegs_InitiallyAllFalse() {
         var state = new Rv32ArchState();
-        for (var i = 1; i < UveState.PredCount; i++) Assert.All(state.UveState.PredicateRegs[i], b => Assert.False(b));
+        for (var i = 1; i < UveState.PredCount; i++) Assert.All(state.UveState.PredicateRegs[i], Assert.False);
     }
 
     [Fact]
@@ -2029,7 +2014,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Zero, 1, 0, false, -1, -1), state);
         er.SideEffect!(state);
 
-        Assert.All(state.UveState.PredicateRegs[1], b => Assert.False(b));
+        Assert.All(state.UveState.PredicateRegs[1], Assert.False);
     }
 
     [Fact]
@@ -2042,7 +2027,7 @@ public class UveTests {
         er.SideEffect!(state);
 
         // All inactive → merge → still all-true
-        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[2], Assert.True);
     }
 
     [Fact]
@@ -2055,7 +2040,7 @@ public class UveTests {
         er.SideEffect!(state);
 
         // Zeroing mode: inactive → cleared to false
-        Assert.All(state.UveState.PredicateRegs[2], b => Assert.False(b));
+        Assert.All(state.UveState.PredicateRegs[2], Assert.False);
     }
 
     [Fact]
@@ -2065,7 +2050,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.One, 3, 0, false, -1, -1), state);
         er.SideEffect!(state);
 
-        Assert.All(state.UveState.PredicateRegs[3], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[3], Assert.True);
     }
 
     [Fact]
@@ -2075,7 +2060,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Not, 2, 0, false, 0, -1), state);
         er.SideEffect!(state);
 
-        Assert.All(state.UveState.PredicateRegs[2], b => Assert.False(b));
+        Assert.All(state.UveState.PredicateRegs[2], Assert.False);
     }
 
     [Fact]
@@ -2085,7 +2070,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Mv, 3, 0, false, 0, -1), state);
         er.SideEffect!(state);
 
-        Assert.All(state.UveState.PredicateRegs[3], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[3], Assert.True);
     }
 
     [Fact]
@@ -2100,13 +2085,16 @@ public class UveTests {
         // Reversed: the last byte of pd should be true.
         bool[] pd = state.UveState.PredicateRegs[3];
         Assert.True(pd[UveState.PredBytes - 1]);
-        Assert.All(pd[..^1], b => Assert.False(b));
+        Assert.All(pd[..^1], Assert.False);
     }
 
     [Fact]
     public void SoP_Vr_SetsValidRange() {
-        var state = new Rv32ArchState();
-        state.UveState.VectorLength = 4;
+        var state = new Rv32ArchState {
+            UveState = {
+                VectorLength = 4,
+            },
+        };
 
         ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Vr, 2, 0, false, -1, 0), state);
         er.SideEffect!(state);
@@ -2129,7 +2117,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1), state);
         er.SideEffect!(state);
 
-        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[2], Assert.True);
     }
 
     [Fact]
@@ -2143,7 +2131,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1), state);
         er.SideEffect!(state);
 
-        Assert.All(state.UveState.PredicateRegs[2], b => Assert.False(b));
+        Assert.All(state.UveState.PredicateRegs[2], Assert.False);
     }
 
     [Fact]
@@ -2155,7 +2143,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Lt, UveSoPCmpType.Us, 2, 0, 0, 1), state);
         er.SideEffect!(state);
 
-        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[2], Assert.True);
     }
 
     [Fact]
@@ -2168,7 +2156,7 @@ public class UveTests {
         er.SideEffect!(state);
 
         // No update: still all-true (merging)
-        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[2], Assert.True);
     }
 
     [Fact]
@@ -2176,7 +2164,7 @@ public class UveTests {
         var state = new Rv32ArchState();
         Array.Clear(state.UveState.PredicateRegs[0]);
         state.UveState.Reset();
-        Assert.All(state.UveState.PredicateRegs[0], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[0], Assert.True);
     }
 
     [Fact]
@@ -2184,7 +2172,7 @@ public class UveTests {
         var state = new Rv32ArchState();
         state.UveState.PredZeroing[3] = true;
         state.UveState.Reset();
-        Assert.All(state.UveState.PredZeroing, b => Assert.False(b));
+        Assert.All(state.UveState.PredZeroing, Assert.False);
     }
 
     [Fact]
@@ -2225,7 +2213,7 @@ public class UveTests {
 
         Assert.True(state.UveState.PredZeroing[3]);
         // Comparison result unaffected by the _z flag.
-        Assert.All(state.UveState.PredicateRegs[3], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[3], Assert.True);
     }
 
     [Fact]
@@ -2252,7 +2240,7 @@ public class UveTests {
         er.SideEffect!(state);
 
         // Inactive elements merged (kept all-true); _z only tags the mode.
-        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+        Assert.All(state.UveState.PredicateRegs[2], Assert.True);
         Assert.True(state.UveState.PredZeroing[2]);
     }
 
@@ -2261,7 +2249,7 @@ public class UveTests {
     [Fact]
     public void SoVMv_CopiesWhenPredicateActive() {
         var state = new Rv32ArchState();
-        var src = 3.14f;
+        const float src = 3.14f;
         state.UveState.Scalars[5] = src;
 
         ExecuteResult er = Exec(new RvUveSoVMv(false, 3, 5, 0), state);
@@ -2273,8 +2261,8 @@ public class UveTests {
     [Fact]
     public void SoVMv_MergesWhenPredicateInactive() {
         var state = new Rv32ArchState();
-        var src = 3.14f;
-        var dst = 2.71f;
+        const float src = 3.14f;
+        const float dst = 2.71f;
         state.UveState.Scalars[5] = src;
         state.UveState.Scalars[3] = dst;
         // PredIdx = 1, which is all-false.

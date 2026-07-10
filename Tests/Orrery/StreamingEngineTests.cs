@@ -507,7 +507,7 @@ public class StreamingEngineTests {
         //   total: 9 elements
 
         const int nWords = 16;
-        var mem = new FlatMemory((int)(0x200 + nWords * 4));
+        var mem = new FlatMemory(0x200 + nWords * 4);
         for (var i = 0; i < nWords; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
         mem.Load(0x100, BitConverter.GetBytes(3u));
         mem.Load(0x104, BitConverter.GetBytes(2u));
@@ -561,7 +561,7 @@ public class StreamingEngineTests {
         // total: 4 + 7 + 7 = 18 elements
 
         const int nWords = 32;
-        var mem = new FlatMemory((int)(0x300 + nWords * 4));
+        var mem = new FlatMemory(0x300 + nWords * 4);
         for (var i = 0; i < nWords; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
         mem.Load(0x200, BitConverter.GetBytes(2u));
         mem.Load(0x204, BitConverter.GetBytes(3u));

@@ -1435,9 +1435,14 @@ internal sealed class OoOPipelineCore : Gear {
                             ? StreamingEngine.IsExhausted(uid)
                             : true
                     ); // inactive = deactivated = done
+            // so.b.ndc.D encodes the dimension as funct3 = D-1, counting from the
+            // OUTERMOST dimension (Spike: EODTable.at(funct3), dimensions[0] = outermost).
+            // The engine indexes dimensions innermost-first, so remap before querying.
             foreach ((int uid, int dim) in issued.Instr.UveDimBranchSources)
-                if (uid >= 0)
-                    uvs.SetDimDone(uid, dim, StreamingEngine.IsDimPassComplete(uid, dim));
+                if (uid >= 0) {
+                    int engineDim = StreamingEngine.DimensionCount(uid) - 1 - dim;
+                    uvs.SetDimDone(uid, dim, StreamingEngine.IsDimPassComplete(uid, engineDim));
+                }
         }
 
         IMemory mem = isVec || isUve ? DLayers.Accessor : _capMem;

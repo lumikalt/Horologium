@@ -1,5 +1,4 @@
 using Mechanism;
-using Mechanism.BranchPredictModels;
 using Orrery.Cache;
 
 namespace Pipeline;

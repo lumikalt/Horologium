@@ -5,7 +5,6 @@ using Orrery.Gears;
 using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
-using Pipeline;
 
 namespace Pipeline.Stages;
 

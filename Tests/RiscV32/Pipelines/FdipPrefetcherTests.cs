@@ -42,7 +42,7 @@ public class FdipPrefetcherTests {
 
     // I-cache: 256 bytes, 4-way, 64-byte blocks, 10-cycle miss latency.
     // The loop fits in 2 blocks; cold misses are charged per block.
-    private static MemoryConfig ICache() => new(256, 4, 64, 10);
+    private static MemoryConfig ICache() => new(256, 4, 64);
 
     // ── FiveStageTrain ────────────────────────────────────────────────────────
 
@@ -68,19 +68,14 @@ public class FdipPrefetcherTests {
 
     [Fact]
     public void Fdip_FiveStage_BranchMissCountIsIdentical() {
-        // branch_misses must be byte-identical: if FDIP's lookahead calls to
-        // Predict() overwrite per-prediction carry state consumed by Update(),
-        // the count would diverge. This test catches that class of bug.
-        Func<IBranchPredictor> predictor = () => (IBranchPredictor)new LTagePredictor();
-
         var memOff = new FlatMemory(4096);
         var memOn = new FlatMemory(4096);
         Load(memOff, FdipPrefetcherTests.LoopProgram);
         Load(memOn, FdipPrefetcherTests.LoopProgram);
 
-        var off = new FiveStageTrain(new Rv32Mechanism(), memOff, predictor: predictor(), iMemConfig: ICache());
+        var off = new FiveStageTrain(new Rv32Mechanism(), memOff, predictor: Predictor(), iMemConfig: ICache());
         var on = new FiveStageTrain(
-            new Rv32Mechanism(), memOn, predictor: predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32
+            new Rv32Mechanism(), memOn, predictor: Predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32
         );
 
         RevolutionResult rOff = off.Run();
@@ -90,7 +85,13 @@ public class FdipPrefetcherTests {
         DialBoardSnapshot? sOn = rOn.Find("five_stage.pipeline");
         Assert.NotNull(sOff);
         Assert.NotNull(sOn);
-        Assert.Equal(sOff!.Counters["branch_misses"], sOn!.Counters["branch_misses"]);
+        Assert.Equal(sOff.Counters["branch_misses"], sOn.Counters["branch_misses"]);
+        return;
+
+        // branch_misses must be byte-identical: if FDIP's lookahead calls to
+        // Predict() overwrite per-prediction carry state consumed by Update(),
+        // the count would diverge. This test catches that class of bug.
+        IBranchPredictor Predictor() => new LTagePredictor();
     }
 
     [Fact]
@@ -129,16 +130,14 @@ public class FdipPrefetcherTests {
 
     [Fact]
     public void Fdip_OoO_BranchMissCountIsIdentical() {
-        Func<IBranchPredictor> predictor = () => (IBranchPredictor)new LTagePredictor();
-
         var memOff = new FlatMemory(4096);
         var memOn = new FlatMemory(4096);
         Load(memOff, FdipPrefetcherTests.LoopProgram);
         Load(memOn, FdipPrefetcherTests.LoopProgram);
 
-        var off = new OooeTrain(new Rv32Mechanism(), memOff, predictor: predictor(), iMemConfig: ICache());
+        var off = new OooeTrain(new Rv32Mechanism(), memOff, predictor: Predictor(), iMemConfig: ICache());
         var on = new OooeTrain(
-            new Rv32Mechanism(), memOn, predictor: predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32
+            new Rv32Mechanism(), memOn, predictor: Predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32
         );
 
         RevolutionResult rOff = off.Run();
@@ -148,7 +147,10 @@ public class FdipPrefetcherTests {
         DialBoardSnapshot? sOn = rOn.Find("ooo.pipeline");
         Assert.NotNull(sOff);
         Assert.NotNull(sOn);
-        Assert.Equal(sOff!.Counters["branch_misses"], sOn!.Counters["branch_misses"]);
+        Assert.Equal(sOff.Counters["branch_misses"], sOn.Counters["branch_misses"]);
+        return;
+
+        IBranchPredictor Predictor() => new LTagePredictor();
     }
 
     [Fact]

@@ -1,5 +1,4 @@
 using Orrery.Cache;
-using Orrery.Train;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
@@ -49,16 +48,16 @@ public class RdipPrefetcherTests {
     private const uint Nop = 0x00000013;
 
     // addi x5, x0, 3
-    private const uint AddiX5_3 = 0x00300293;
+    private const uint AddiX5Imm3 = 0x00300293;
 
     // jal x1, 4092  (offset=4092 → target 0x1000 from PC=0x004); rd=1 → IsCall
-    private const uint JalX1_4092 = 0x7FD000EF;
+    private const uint JalX1Imm4092 = 0x7FD000EF;
 
     // addi x5, x5, -1
-    private const uint AddiX5_Dec = 0xFFF28293;
+    private const uint AddiX5Dec = 0xFFF28293;
 
     // bne x5, x0, -8
-    private const uint BneX5_Neg8 = 0xFE029CE3;
+    private const uint BneX5Neg8 = 0xFE029CE3;
 
     private const uint Ebreak = 0x00100073;
 
@@ -69,12 +68,13 @@ public class RdipPrefetcherTests {
     private static readonly uint[] CalleeWords;
 
     static RdipPrefetcherTests() {
-        var caller = new List<uint>();
-        caller.Add(RdipPrefetcherTests.AddiX5_3);                         // 0x000
-        caller.Add(RdipPrefetcherTests.JalX1_4092);                       // 0x004  (call to 0x1000)
-        caller.Add(RdipPrefetcherTests.AddiX5_Dec);                       // 0x008
-        caller.Add(RdipPrefetcherTests.BneX5_Neg8);                       // 0x00c
-        caller.Add(RdipPrefetcherTests.Ebreak);                           // 0x010
+        var caller = new List<uint> {
+            RdipPrefetcherTests.AddiX5Imm3,   // 0x000
+            RdipPrefetcherTests.JalX1Imm4092, // 0x004 (call 0x1000)
+            RdipPrefetcherTests.AddiX5Dec,    // 0x008
+            RdipPrefetcherTests.BneX5Neg8,    // 0x00c
+            RdipPrefetcherTests.Ebreak,       // 0x010
+        };
         for (var i = 0; i < 11; i++) caller.Add(RdipPrefetcherTests.Nop); // 0x014–0x03C
         RdipPrefetcherTests.CallerWords = caller.ToArray();
 
@@ -86,8 +86,8 @@ public class RdipPrefetcherTests {
     }
 
     // 256 bytes, 4-way, 64-byte blocks = 4 blocks capacity, 10-cycle miss latency.
-    // The callee spans 5 blocks (B_c1–B_c5); its 5th block evicts B_c1 on each call.
-    private static MemoryConfig ICache() => new(256, 4, 64, 10);
+    // The callee spans 5 blocks (B_c1 - B_c5); its 5th block evicts B_c1 on each call.
+    private static MemoryConfig ICache() => new(256, 4, 64);
 
     // ── FiveStageTrain ────────────────────────────────────────────────────────
 

@@ -77,6 +77,12 @@ public sealed class StreamingEngine {
         return _streams[streamId].IsDimPassComplete(dim);
     }
 
+    /// <summary>Returns the number of configured dimensions, or 0 if the stream is inactive.</summary>
+    public int DimensionCount(int streamId) {
+        Validate(streamId);
+        return _streams[streamId].DimensionCount;
+    }
+
     /// <summary>Returns true when the stream was configured in vector delivery mode (ss.sta.ld.*_v).</summary>
     public bool IsVectorMode(int streamId) {
         Validate(streamId);
@@ -169,6 +175,8 @@ public sealed class StreamingEngine {
 
         public bool IsDimPassComplete(int dim) =>
             Active && (uint)dim < (uint)_dimPassComplete.Length && _dimPassComplete[dim];
+
+        public int DimensionCount => Active ? _consumeDimCounts.Length : 0;
 
         public void Configure(StreamDescriptor desc) {
             _desc = desc;

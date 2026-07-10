@@ -2073,30 +2073,34 @@ public class Rv32Decoder : IDecoder {
             );
         }
 
-        // so.v.dp.(width): funct7=0x56; funct3 selects element width (0=b, 1=h, 2=w, 3=d)
-        if (funct7 == 0x56) {
-            int elemBytes = (int)funct3 switch {
-                0 => 1, 1 => 2, 2 => 4, 3 => 8,
-                _ => throw new IllegalInstructionException(raw, $"Unknown so.v.dp width funct3=0x{funct3:X}"),
-            };
-            return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDp(rd, rs1, elemBytes));
-        }
-
-        // so.v.mv family: funct7=0x54; rs2[4:3] selects op (2=mvvs, 3=mvsv, 0=mv, 1=mvt)
-        if (funct7 == 0x54) {
-            int mvKind = (rs2 >> 3) & 3;
-            if (mvKind == 2) return new RvInstruction(pc, raw, rd, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
-            if (mvKind == 3) {
+        switch (funct7) {
+            // so.v.dp.(width): funct7=0x56; funct3 selects element width (0=b, 1=h, 2=w, 3=d)
+            case 0x56: {
                 int elemBytes = (int)funct3 switch {
                     0 => 1, 1 => 2, 2 => 4, 3 => 8,
-                    _ => throw new IllegalInstructionException(raw, $"Unknown so.v.mvsv width funct3=0x{funct3:X}"),
+                    _ => throw new IllegalInstructionException(raw, $"Unknown so.v.dp width funct3=0x{funct3:X}"),
                 };
-                return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVMvsv(rd, rs1, elemBytes));
+                return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDp(rd, rs1, elemBytes));
             }
-
-            // mv/mvt: rs2[2:0] = uve_v_pred = bits[22:20]
-            int predIdx = rs2 & 7;
-            return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoVMv(mvKind == 1, rd, rs1, predIdx));
+            // so.v.mv family: funct7=0x54; rs2[4:3] selects op (2=mvvs, 3=mvsv, 0=mv, 1=mvt)
+            case 0x54: {
+                int mvKind = (rs2 >> 3) & 3;
+                switch (mvKind) {
+                    case 2: return new RvInstruction(pc, raw, rd, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
+                    case 3: {
+                        int elemBytes = (int)funct3 switch {
+                            0 => 1, 1 => 2, 2 => 4, 3 => 8,
+                            _ => throw new IllegalInstructionException(raw, $"Unknown so.v.mvsv width funct3=0x{funct3:X}"),
+                        };
+                        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVMvsv(rd, rs1, elemBytes));
+                    }
+                    default: {
+                        // mv/mvt: rs2[2:0] = uve_v_pred = bits[22:20]
+                        int predIdx = rs2 & 7;
+                        return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoVMv(mvKind == 1, rd, rs1, predIdx));
+                    }
+                }
+            }
         }
 
         // so.a.*: group = funct7>>3, upper = funct3&4, type = funct3&3 (0=US, 1=FP, 2=SG)
@@ -2127,7 +2131,7 @@ public class Rv32Decoder : IDecoder {
             // Group 11 (funct7=0x58): SO_C — stream lifecycle and vector-length control.
             // funct3 distinguishes ops; only rd (and rs1 for SETVL) are register fields.
             11 => (int)funct3 switch {
-                0 => (RvOp)new RvUveSoCSetvl(rd, rs1),
+                0 => new RvUveSoCSetvl(rd, rs1),
                 1 => new RvUveSoCSuspd(rd),
                 2 => new RvUveSoCResum(rd),
                 3 => new RvUveSoCBreak(rd),
@@ -2135,7 +2139,7 @@ public class Rv32Decoder : IDecoder {
                 _ => throw new IllegalInstructionException(raw, $"Unknown UVE SO_C funct3=0x{funct3:X}"),
             },
             12 => (int)funct3 switch {
-                0 => (RvOp)new RvUveSoALogic(UveLogicOp.Nand, rd, rs1, rs2),
+                0 => new RvUveSoALogic(UveLogicOp.Nand, rd, rs1, rs2),
                 1 => new RvUveSoALogic(UveLogicOp.And, rd, rs1, rs2),
                 2 => new RvUveSoALogic(UveLogicOp.Nor, rd, rs1, rs2),
                 3 => new RvUveSoALogic(UveLogicOp.Or, rd, rs1, rs2),
@@ -2144,7 +2148,7 @@ public class Rv32Decoder : IDecoder {
                 _ => throw new IllegalInstructionException(raw, $"Unknown UVE logic funct3=0x{funct3:X}"),
             },
             13 => (int)funct3 switch {
-                0 => (RvOp)new RvUveSoAShiftV(UveShiftOp.Sll, rd, rs1, rs2),
+                0 => new RvUveSoAShiftV(UveShiftOp.Sll, rd, rs1, rs2),
                 1 => new RvUveSoAShiftS(UveShiftOp.Sll, rd, rs1, rs2),
                 2 => new RvUveSoAShiftV(UveShiftOp.Srl, rd, rs1, rs2),
                 3 => new RvUveSoAShiftS(UveShiftOp.Srl, rd, rs1, rs2),

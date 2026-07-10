@@ -1338,7 +1338,11 @@ public record RvUveSoCSetvl(int Rd, int Rs1) : RvOp;
 
 // Stream branch (custom-1, opcode=0x2B, UVE B-type: bits[31:29]=111, bit28=imm[12]):
 //   funct3=0:     so.b.nc urs, imm — not exhausted (bit20=1) / so.b.c urs, imm — exhausted (bit20=0)
-//   funct3=D≥1:  so.b.ndc.D urs, imm — dim D not complete (bit20=1) / so.b.dc.D — dim D complete (bit20=0)
+//   funct3=D-1:   so.b.ndc.D urs, imm — dim not complete (bit20=1) / so.b.dc.D — dim complete (bit20=0)
+// Dim = funct3 counts dimensions from the OUTERMOST (Spike: EODTable.at(funct3),
+// dimensions[0] = outermost). The innermost dim of an N-dim stream is so.b.ndc.N
+// (funct3 = N-1). The pipeline remaps to the engine's innermost-first index when
+// syncing DimDone; DimDone itself is keyed by the raw funct3 value.
 public record RvUveSoBNc(int Urs, int Imm) : RvOp;
 
 public record RvUveSoBNdc(int Urs, int Dim, int Imm) : RvOp;
@@ -1382,7 +1386,15 @@ public enum UveSoPCmpType {
     Us, Fp, Sg,
 }
 
-public record RvUveSoPCmp(UveSoPCmpOp Op, UveSoPCmpType CmpType, int Pd, int GovPred, int Vs1, int Vs2, bool Zeroing = false) : RvOp;
+public record RvUveSoPCmp(
+    UveSoPCmpOp Op,
+    UveSoPCmpType CmpType,
+    int Pd,
+    int GovPred,
+    int Vs1,
+    int Vs2,
+    bool Zeroing = false
+) : RvOp;
 
 // so.v.mv/mvt — move (or transpose-move) vector register vs1 into vd, gated by predicate PredIdx.
 // funct7=0x54, rs2[4:3]: 0=mv, 1=mvt; rs2[2:0]=uve_v_pred (bits[22:20])
