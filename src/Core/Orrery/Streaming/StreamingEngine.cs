@@ -77,6 +77,12 @@ public sealed class StreamingEngine {
         return _streams[streamId].IsDimPassComplete(dim);
     }
 
+    /// <summary>Returns true when the stream was configured in vector delivery mode (ss.sta.ld.*_v).</summary>
+    public bool IsVectorMode(int streamId) {
+        Validate(streamId);
+        return _streams[streamId].IsVectorMode;
+    }
+
     /// <summary>Returns the next buffered element without advancing the consume pointer.</summary>
     /// <exception cref="InvalidOperationException">The buffer is empty.</exception>
     public ulong Peek(int streamId) {
@@ -134,10 +140,15 @@ public sealed class StreamingEngine {
         private int[] _fetchModApplyCounts = [];
         private int[] _consumeModApplyCounts = [];
 
+        // Vector-mode coupling dimension. -1 = not vector mode; 0..N-1 = dimension that acts as the
+        // vector boundary (resolved from IsVectorMode/VecCfgDim at Configure time; innermost = 0).
+        private int _vecCfgDim = -1;
+
         private readonly Queue<ulong> _buffer = new();
 
         public bool Active { get; private set; }
         public bool HasElement => _buffer.Count > 0;
+        public bool IsVectorMode => _vecCfgDim >= 0;
 
         public bool IsExhausted => Active && _fetchDone && _buffer.Count == 0;
 
@@ -165,6 +176,8 @@ public sealed class StreamingEngine {
             int nmod = desc.Modifiers?.Length ?? 0;
             _fetchModApplyCounts = nmod > 0 ? new int[nmod] : [];
             _consumeModApplyCounts = nmod > 0 ? new int[nmod] : [];
+            // Resolve vector coupling dim: VecCfgDim=-1 (innermost) → dim 0 (Horologium innermost convention).
+            _vecCfgDim = desc.IsVectorMode ? (desc.VecCfgDim < 0 ? 0 : desc.VecCfgDim) : -1;
             Active = true;
         }
 

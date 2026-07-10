@@ -375,6 +375,24 @@ public class StreamingEngineTests {
         Assert.True(eng.IsExhausted(0));
     }
 
+    [Fact]
+    public void VectorMode_Configure_SetsIsVectorMode() {
+        var mem = new FlatMemory(4 * 4);
+        for (var i = 0; i < 4; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+        var desc = new StreamDescriptor(0, 4, [new StreamDimension(4, 4),], IsVectorMode: true, VecCfgDim: -1);
+        var eng = new StreamingEngine(8);
+        eng.Configure(0, desc);
+        Assert.True(eng.IsVectorMode(0));
+    }
+
+    [Fact]
+    public void ScalarMode_Configure_IsNotVectorMode() {
+        var desc = new StreamDescriptor(0, 4, [new StreamDimension(4, 4),]);
+        var eng = new StreamingEngine(8);
+        eng.Configure(0, desc);
+        Assert.False(eng.IsVectorMode(0));
+    }
+
     // ── Argument validation ───────────────────────────────────────────────────
 
     [Fact]

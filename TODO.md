@@ -10,8 +10,13 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 - [x] 1D load/store stream setup: `ss.sta.ld.w` + `ss.end` / `ss.sta.st.w` + `ss.end`
 - [x] Multi-dim stream config sequence: `ss.sta.{ld,st}.w` → `ss.app` → `ss.end`
-- [ ] `ss.cfg.vec` instruction decode (full vector-delivery effect tracked separately below)
-- [ ] `ss.cfg.vec` effect: vector-width element delivery from load streams.
+- [x] `ss.cfg.vec` instruction decode: `ss.sta.ld.*_v` variants (funct2=0, rs3 bit[3]=1). rs3 bits[2:0]=7
+  → innermost dim (VecCfgDim=-1); bits[2:0]=0..6 → explicit dim. rs3 bit[4]=1 → masked variant (decoded
+  but mask ignored; requires SO_P predicate registers). `IsVectorMode`+`VecCfgDim` propagate through
+  PendingStreamConfig → StreamDescriptor → StreamingEngine.StreamState.
+- [ ] `ss.cfg.vec` effect: vector-width element delivery from load streams — bulk deliver VL elements per
+  `Consume()` cycle (currently always 1); engine fills up to VL elements in vector mode, stopping at the
+  vecCfgDim boundary.
 - [x] Scalar broadcast to u-reg: `so.v.dp.w`
 - [x] FP arithmetic on stream elements: add/sub/mul/div/mac (`so.a.fp.*`)
 - [x] Stream loop-control branches: `sb.nc` / `sb.ndc.(dim)`

@@ -1970,11 +1970,15 @@ public class Rv32Decoder : IDecoder {
         switch (funct2) {
             case 0: {
                 // ss.sta.{ld|st}.*: funct3[2]=1→load,0→store; ew=1<<(funct3&3)
+                // rs3 bit[3]=1 → vector mode; bits[2:0]=7 → innermost dim (-1); bits[2:0]=0..6 → explicit dim
+                // rs3 bit[4]=1 → masked variant (predicate reg; decoded but mask is ignored until SO_P implemented)
                 int ew = UveElementBytes(funct3);
                 bool isLoad = funct3 >> 2 != 0;
+                bool isVec = (rs3 & 0x8) != 0;
+                int vecCfgDim = isVec ? ((rs3 & 0x7) == 0x7 ? -1 : (rs3 & 0x7)) : -1;
                 return isLoad
-                    ? new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, ew))
-                    : new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, ew));
+                    ? new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, ew, isVec, vecCfgDim))
+                    : new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, ew, isVec, vecCfgDim));
             }
             // ss.app ud, rs1_offset, rs2_count, rs3_stride
             case 1 when funct3 == 0:

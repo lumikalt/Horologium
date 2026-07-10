@@ -201,6 +201,13 @@ public class UveTests {
     private static uint SsStaLdW(int ud, int rs1) =>
         (uint)(((rs1 & 0x1F) << 15) | (0x6u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
+    // ss.sta.ld.w_v ud, rs1 — vector mode; rs3 bit[3]=1; bits[2:0]=dimIndex (7=innermost)
+    // vecCfgDimBits: 0..6=explicit, 7=innermost (-1 in Horologium)
+    private static uint SsStaLdWV(int ud, int rs1, int vecCfgDimBits = 7) {
+        int rs3 = 0x8 | (vecCfgDimBits & 0x7);
+        return (uint)(((rs3 & 0x1F) << 27) | ((rs1 & 0x1F) << 15) | (0x6u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+    }
+
     // ss.sta.ld.* ud, rs1 — funct2=0, funct3 encodes load+ew
     private static uint SsStaLdEw(int ud, int rs1, uint funct3) =>
         (uint)((rs1 & 0x1F) << 15) | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu;
@@ -690,6 +697,41 @@ public class UveTests {
         Assert.Equal(3, op.Ud);
         Assert.Equal(2, op.Rs1Base);
         Assert.Equal(2, op.ElementBytes);
+    }
+
+    [Fact]
+    public void Decoder_SsStaLdWV_InnerMost_DecodesVectorMode() {
+        // ss.sta.ld.w_v ud=1, rs1=2 — innermost (vecCfgDimBits=7 → rs3=0xF, VecCfgDim=-1)
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SsStaLdWV(1, 2)));
+        var op = Assert.IsType<RvUveSsStaLdW>(new Rv32Decoder().Decode(0, mem).Payload);
+        Assert.Equal(1, op.Ud);
+        Assert.Equal(2, op.Rs1Base);
+        Assert.Equal(4, op.ElementBytes);
+        Assert.True(op.IsVectorMode);
+        Assert.Equal(-1, op.VecCfgDim);   // innermost sentinel
+    }
+
+    [Fact]
+    public void Decoder_SsStaLdWV_ExplicitDim_DecodesVectorMode() {
+        // ss.sta.ld.w_v_2 ud=3, rs1=4 — vecCfgDimBits=1 → rs3=0x9, VecCfgDim=1
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SsStaLdWV(3, 4, vecCfgDimBits: 1)));
+        var op = Assert.IsType<RvUveSsStaLdW>(new Rv32Decoder().Decode(0, mem).Payload);
+        Assert.Equal(3, op.Ud);
+        Assert.Equal(4, op.Rs1Base);
+        Assert.Equal(4, op.ElementBytes);
+        Assert.True(op.IsVectorMode);
+        Assert.Equal(1, op.VecCfgDim);
+    }
+
+    [Fact]
+    public void Decoder_SsStaLdW_ScalarMode_HasNoVectorMode() {
+        // Scalar variant: rs3=0 → IsVectorMode=false
+        var mem = new FlatMemory(16);
+        mem.Load(0, BitConverter.GetBytes(SsStaLdW(2, 1)));
+        var op = Assert.IsType<RvUveSsStaLdW>(new Rv32Decoder().Decode(0, mem).Payload);
+        Assert.False(op.IsVectorMode);
     }
 
     [Fact]

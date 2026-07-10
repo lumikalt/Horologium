@@ -76,6 +76,7 @@ public sealed class PendingStreamConfig {
     public int ElementBytes;
     public bool IsLoad;
     public bool IsVector;
+    public int VecCfgDim = -1;
     public long OffsetBytes;
     public readonly List<StreamDimension> Dimensions = [];
     public readonly List<StreamModifier> Modifiers = [];

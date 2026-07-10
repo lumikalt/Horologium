@@ -1196,12 +1196,15 @@ public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
 // Stream setup (custom-0, opcode=0x0B, R4-type):
 //   bits[31:27]=rs3, bits[26:25]=funct2, bits[24:20]=rs2, bits[19:15]=rs1, bits[14:12]=funct3, bits[11:7]=ud
 //   funct2=0: ss.sta.{ld|st}.* — funct3[2]=1→load,0→store; ew=1<<(funct3&3); only rs1(base) used
+//     rs3=0: scalar mode; rs3=0x8..0xE: vector mode (VecCfgDim=rs3-8); rs3=0xF: vector, innermost dim (VecCfgDim=-1)
+//     rs3 bit[4]=1: masked variant (requires predicate regs; decoded but mask ignored)
 //   funct2=1, funct3=0: ss.app   — rs1=offset reg, rs2=count reg, rs3=stride reg
 //   funct2=2, funct3=0: ss.end   — rs1=offset reg, rs2=count reg, rs3=stride reg; activates stream
 //   funct2=3, funct3=dimIndex (0-7): ss.app.mod — rs1=E reg (MaxApplications, 0=∞), rs2=target+behavior literal, rs3=disp reg
-public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
+// VecCfgDim: -1 = innermost dimension; 0..6 = explicit dimension.
+public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1) : RvOp;
 
-public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
+public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1) : RvOp;
 
 // Rs1Offset is the offset register (Spike adds offset*ew to base); ignored — no offset field in StreamDimension.
 public record RvUveSsApp(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;

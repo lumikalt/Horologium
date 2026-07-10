@@ -35,7 +35,9 @@ public readonly record struct StreamDescriptor(
     ulong BaseAddress,
     int ElementBytes,
     StreamDimension[] Dimensions,
-    StreamModifier[]? Modifiers = null
+    StreamModifier[]? Modifiers = null,
+    bool IsVectorMode = false,
+    int VecCfgDim = -1
 ) {
     /// <summary>Backward-compatible 1D constructor.</summary>
     public StreamDescriptor(ulong baseAddress, int elementBytes, long count, long stride)

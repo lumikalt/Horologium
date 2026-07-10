@@ -711,8 +711,8 @@ public class Rv32Executor : IExecutor {
                 ExecuteVsxseg(state, memory, numFields, vs3, rs1, vs2, idxSew, masked),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsStaLdW (var ud, var rs1, var ew)        => ExecuteUveSsSta(regs, ud, rs1, true, ew),
-            RvUveSsStaStW (var ud, var rs1, var ew)        => ExecuteUveSsSta(regs, ud, rs1, false, ew),
+            RvUveSsStaLdW (var ud, var rs1, var ew, var isVec, var vecDim) => ExecuteUveSsSta(regs, ud, rs1, true,  ew, isVec, vecDim),
+            RvUveSsStaStW (var ud, var rs1, var ew, var isVec, var vecDim) => ExecuteUveSsSta(regs, ud, rs1, false, ew, isVec, vecDim),
             RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
             RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
             RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp, var rs1Size) =>
@@ -3291,13 +3291,16 @@ public class Rv32Executor : IExecutor {
     }
 
     // ss.sta.{ld|st}.* — start multi-dim stream configuration. Sets base and element width; no dimension added.
-    private static ExecuteResult ExecuteUveSsSta(IRegisterFile regs, int ud, int rs1, bool isLoad, int ew) {
+    private static ExecuteResult ExecuteUveSsSta(
+        IRegisterFile regs, int ud, int rs1, bool isLoad, int ew, bool isVec = false, int vecCfgDim = -1
+    ) {
         ulong baseAddr = regs.Read(rs1);
         return new ExecuteResult {
             SideEffect = s => {
                 UveState uvs = UState(s).UveState;
                 uvs.PendingConfig[ud] = new PendingStreamConfig {
                     BaseAddress = baseAddr, ElementBytes = ew, IsLoad = isLoad,
+                    IsVector = isVec, VecCfgDim = vecCfgDim,
                 };
             },
         };
@@ -3340,7 +3343,9 @@ public class Rv32Executor : IExecutor {
         var baseAddr = (ulong)((long)pending.BaseAddress + totalOffsetBytes);
         StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).ToArray();
         StreamModifier[]? mods = pending.Modifiers.Count > 0 ? pending.Modifiers.ToArray() : null;
-        var descriptor = new StreamDescriptor(baseAddr, pending.ElementBytes, dims, mods);
+        var descriptor = new StreamDescriptor(
+            baseAddr, pending.ElementBytes, dims, mods, pending.IsVector, pending.VecCfgDim
+        );
         bool isLoad = pending.IsLoad;
 
         if (isLoad)
