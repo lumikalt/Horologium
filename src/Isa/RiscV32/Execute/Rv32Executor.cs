@@ -756,8 +756,8 @@ public class Rv32Executor : IExecutor {
             RvUveSoBdc (var urs, var dim, var imm)  => ExecuteUveSoBdc(state, pc, urs, dim, imm),
             RvUveSoPSimple (var sop, var pd, var govPred, var zeroing, var ps1, var vs1)
                 => ExecuteUveSoPSimple(state, sop, pd, govPred, zeroing, ps1, vs1),
-            RvUveSoPCmp (var cop, var cmpType, var pd, var govPred, var vs1, var vs2)
-                => ExecuteUveSoPCmp(state, cop, cmpType, pd, govPred, vs1, vs2),
+            RvUveSoPCmp (var cop, var cmpType, var pd, var govPred, var vs1, var vs2, var cmpZeroing)
+                => ExecuteUveSoPCmp(state, cop, cmpType, pd, govPred, vs1, vs2, cmpZeroing),
             RvUveSoVMv (var transpose, var vd, var vs1, var predIdx)
                 => ExecuteUveSoVMv(state, transpose, vd, vs1, predIdx),
 
@@ -3517,9 +3517,11 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // so.p.{ge,eq,lt}.{us,fp,sg} pd, vs1, vs2 — element-wise comparison into predicate register.
+    // so.p.{ge,eq,lt}.{us,fp,sg}[.z] pd, vs1, vs2 — element-wise comparison into predicate register.
     // Both vs1 and vs2 are ud register indices; the executor reads their current Scalar values.
-    // Inactive governing-pred elements always merge (keep old dest) — no zeroing variant exists.
+    // Inactive governing-pred elements always merge (keep old dest) during the comparison itself.
+    // zeroing=true (_z variant): sets PredZeroing[pd]=true — the output register is tagged Zeroing
+    // so future SO_A ops using it as governing pred will zero inactive elements.
     private static ExecuteResult ExecuteUveSoPCmp(
         IArchState state,
         UveSoPCmpOp op,
@@ -3527,7 +3529,8 @@ public class Rv32Executor : IExecutor {
         int pd,
         int govPred,
         int vs1,
-        int vs2
+        int vs2,
+        bool zeroing
     ) {
         UveState uvs = UState(state).UveState;
         float a = uvs.Scalars[vs1];
@@ -3558,6 +3561,7 @@ public class Rv32Executor : IExecutor {
                     if (gov[i])
                         dst[i] = result;
                 // inactive → merge (keep old)
+                u.PredZeroing[pd] = zeroing;
             },
         };
     }

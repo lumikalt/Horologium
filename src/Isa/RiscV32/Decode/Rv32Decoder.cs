@@ -2201,7 +2201,9 @@ public class Rv32Decoder : IDecoder {
 
         // Comparison ops: GE (group=8, funct3[2]=1), EQ (group=9, funct3[2]=0), LT (group=9, funct3[2]=1)
         // vs2 = bits[24:20] (uve_pred_rs2); bit24 is the MSB of vs2, NOT the zeroing flag.
+        // _z variants encoded as bit[11]=1; sets Zeroing mode tag on the output predicate register.
         var vs2 = (int)((raw >> 20) & 0x1F);
+        bool cmpZeroing = ((raw >> 11) & 1) != 0;
         UveSoPCmpType cmpType = (funct3 & 3) switch {
             0 => UveSoPCmpType.Us,
             1 => UveSoPCmpType.Fp,
@@ -2209,7 +2211,7 @@ public class Rv32Decoder : IDecoder {
             _ => throw new IllegalInstructionException(raw, $"Unknown SO_P cmp type funct3[1:0]={funct3 & 3}"),
         };
         UveSoPCmpOp cmpOp = group == 8 ? UveSoPCmpOp.Ge : (funct3 & 4) == 0 ? UveSoPCmpOp.Eq : UveSoPCmpOp.Lt;
-        return new RvUveSoPCmp(cmpOp, cmpType, predRd, govPred, vs1, vs2);
+        return new RvUveSoPCmp(cmpOp, cmpType, predRd, govPred, vs1, vs2, cmpZeroing);
     }
 
     private static RvOp UveArith(UveFpOp fpOp, UveIntOp intOp, int type, int ud, int usrc1, int usrc2) =>

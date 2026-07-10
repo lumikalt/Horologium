@@ -23,6 +23,11 @@ public sealed class UveState : IUveScalars {
     public const int PredBytes = 16; // VLEN/8
     public readonly bool[][] PredicateRegs;
 
+    // Per-predicate-register zeroing mode: true = Zeroing (inactive governing-pred elements → 0 in future SO_A ops),
+    // false = Merging (keep old value). Written by so.p.{ge,eq,lt}._z comparison variants.
+    // Register 0 defaults to Merging. Spike: predRegister_t default pm = PredicateMode::Merging.
+    public readonly bool[] PredZeroing = new bool[UveState.PredCount];
+
     public UveState() {
         PredicateRegs = new bool[UveState.PredCount][];
         for (var i = 0; i < UveState.PredCount; i++) PredicateRegs[i] = new bool[UveState.PredBytes];
@@ -81,6 +86,7 @@ public sealed class UveState : IUveScalars {
         VectorLength = 0;
         for (var i = 0; i < UveState.PredCount; i++) Array.Clear(PredicateRegs[i]);
         Array.Fill(PredicateRegs[0], true);
+        Array.Clear(PredZeroing);
     }
 }
 

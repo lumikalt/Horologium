@@ -205,7 +205,7 @@ public class UveTests {
     // vecCfgDimBits: 0..6=explicit, 7=innermost (-1 in Horologium)
     private static uint SsStaLdWV(int ud, int rs1, int vecCfgDimBits = 7) {
         int rs3 = 0x8 | (vecCfgDimBits & 0x7);
-        return (uint)(((rs3 & 0x1F) << 27) | ((rs1 & 0x1F) << 15) | (0x6u << 12) | ((ud & 0x1F) << 7) | 0x0Bu);
+        return ((uint)(rs3 & 0x1F) << 27) | ((uint)(rs1 & 0x1F) << 15) | (0x6u << 12) | ((uint)(ud & 0x1F) << 7) | 0x0Bu;
     }
 
     // ss.sta.ld.* ud, rs1 — funct2=0, funct3 encodes load+ew
@@ -1822,17 +1822,17 @@ public class UveTests {
 
     // so.p.ge.us/eq.us/lt.us pd, vs1, vs2
     // GE: group=8 (bits31-28=1000), funct3=100; EQ: group=9 (bits31-28=1001), funct3=000; LT: group=9, funct3=100
-    private static uint SoPGeUs(int pd, int vs1, int vs2, int govPred = 0) =>
+    private static uint SoPGeUs(int pd, int vs1, int vs2, int govPred = 0, bool zeroing = false) =>
         (0x80u << 24) | ((uint)govPred << 25) | (uint)((vs2 & 0x1F) << 20) |
-        (uint)((vs1 & 0x1F) << 15) | (4u << 12) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+        (uint)((vs1 & 0x1F) << 15) | (4u << 12) | (zeroing ? (1u << 11) : 0u) | (uint)((pd & 0xF) << 7) | 0x2Bu;
 
-    private static uint SoPEqUs(int pd, int vs1, int vs2, int govPred = 0) =>
+    private static uint SoPEqUs(int pd, int vs1, int vs2, int govPred = 0, bool zeroing = false) =>
         (0x90u << 24) | ((uint)govPred << 25) | (uint)((vs2 & 0x1F) << 20) |
-        (uint)((vs1 & 0x1F) << 15) | (0u << 12) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+        (uint)((vs1 & 0x1F) << 15) | (0u << 12) | (zeroing ? (1u << 11) : 0u) | (uint)((pd & 0xF) << 7) | 0x2Bu;
 
-    private static uint SoPLtUs(int pd, int vs1, int vs2, int govPred = 0) =>
+    private static uint SoPLtUs(int pd, int vs1, int vs2, int govPred = 0, bool zeroing = false) =>
         (0x90u << 24) | ((uint)govPred << 25) | (uint)((vs2 & 0x1F) << 20) |
-        (uint)((vs1 & 0x1F) << 15) | (4u << 12) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+        (uint)((vs1 & 0x1F) << 15) | (4u << 12) | (zeroing ? (1u << 11) : 0u) | (uint)((pd & 0xF) << 7) | 0x2Bu;
 
     // so.v.mv/mvt vd, vs1, predIdx — funct7=0x54; rs2 = (0<<3)|predIdx for mv, (1<<3)|predIdx for mvt
     private static uint SoVMv(int vd, int vs1, int predIdx = 0, bool transpose = false) =>
@@ -1928,6 +1928,38 @@ public class UveTests {
         var op = Assert.IsType<RvUveSoPCmp>(tooth.Payload);
         Assert.Equal(UveSoPCmpOp.Lt, op.Op);
         Assert.Equal(UveSoPCmpType.Us, op.CmpType);
+        Assert.False(op.Zeroing);
+    }
+
+    [Fact]
+    public void Decoder_SoPGeUs_Z_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPGeUs(3, 4, 5, zeroing: true)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPCmp>(tooth.Payload);
+        Assert.Equal(UveSoPCmpOp.Ge, op.Op);
+        Assert.Equal(UveSoPCmpType.Us, op.CmpType);
+        Assert.True(op.Zeroing);
+    }
+
+    [Fact]
+    public void Decoder_SoPEqUs_Z_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPEqUs(2, 3, 4, zeroing: true)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPCmp>(tooth.Payload);
+        Assert.Equal(UveSoPCmpOp.Eq, op.Op);
+        Assert.True(op.Zeroing);
+    }
+
+    [Fact]
+    public void Decoder_SoPLtUs_Z_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPLtUs(1, 0, 2, zeroing: true)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPCmp>(tooth.Payload);
+        Assert.Equal(UveSoPCmpOp.Lt, op.Op);
+        Assert.True(op.Zeroing);
     }
 
     [Fact]
@@ -2122,6 +2154,83 @@ public class UveTests {
         Array.Clear(state.UveState.PredicateRegs[0]);
         state.UveState.Reset();
         Assert.All(state.UveState.PredicateRegs[0], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_Reset_ClearsPredZeroing() {
+        var state = new Rv32ArchState();
+        state.UveState.PredZeroing[3] = true;
+        state.UveState.Reset();
+        Assert.All(state.UveState.PredZeroing, b => Assert.False(b));
+    }
+
+    [Fact]
+    public void SoP_EqUs_NonZ_SetsPredZeroingFalse() {
+        var state = new Rv32ArchState();
+        state.UveState.PredZeroing[2] = true; // pre-set to true
+        float v = BitConverter.Int32BitsToSingle(7);
+        state.UveState.Scalars[0] = v;
+        state.UveState.Scalars[1] = v;
+
+        ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1, false), state);
+        er.SideEffect!(state);
+
+        Assert.False(state.UveState.PredZeroing[2]);
+    }
+
+    [Fact]
+    public void SoP_EqUs_Z_SetsPredZeroingTrue() {
+        var state = new Rv32ArchState();
+        float v = BitConverter.Int32BitsToSingle(7);
+        state.UveState.Scalars[0] = v;
+        state.UveState.Scalars[1] = v;
+
+        ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1, true), state);
+        er.SideEffect!(state);
+
+        Assert.True(state.UveState.PredZeroing[2]);
+    }
+
+    [Fact]
+    public void SoP_GeUs_Z_SetsPredZeroingTrue() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(5);
+        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(3);
+
+        ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Ge, UveSoPCmpType.Us, 3, 0, 0, 1, true), state);
+        er.SideEffect!(state);
+
+        Assert.True(state.UveState.PredZeroing[3]);
+        // Comparison result unaffected by the _z flag.
+        Assert.All(state.UveState.PredicateRegs[3], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_LtUs_Z_SetsPredZeroingTrue() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(1);
+        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(2);
+
+        ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Lt, UveSoPCmpType.Us, 4, 0, 0, 1, true), state);
+        er.SideEffect!(state);
+
+        Assert.True(state.UveState.PredZeroing[4]);
+    }
+
+    [Fact]
+    public void SoP_CmpZ_OnlyTagsMode_DoesNotChangeInactiveElements() {
+        var state = new Rv32ArchState();
+        // GovPred=1 (all-false): no elements active → comparison body skips → old dest kept.
+        Array.Fill(state.UveState.PredicateRegs[2], true); // pre-fill pd to all-true
+        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(1);
+        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(2);
+
+        ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 1, 0, 1, true), state);
+        er.SideEffect!(state);
+
+        // Inactive elements merged (kept all-true); _z only tags the mode.
+        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+        Assert.True(state.UveState.PredZeroing[2]);
     }
 
     // ── so.v.mv / so.v.mvt executor tests ────────────────────────────────────

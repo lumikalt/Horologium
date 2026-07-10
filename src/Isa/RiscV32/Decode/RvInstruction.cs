@@ -1371,7 +1371,9 @@ public record RvUveSoPSimple(UveSoPSimpleOp Op, int Pd, int GovPred, bool Zeroin
 // Comparison predicate ops: ge (group=8, funct3[2]=1), eq/lt (group=9, funct3[2]=0/1)
 //   CmpType = funct3[1:0]: 0=Us, 1=Fp, 2=Sg
 //   Vs1 = bits[19:15], Vs2 = bits[24:20] (ud register source indices; bit24 is NOT zeroing here)
-//   Inactive elements always merge (keep old dest) — no _z variant for comparisons.
+//   Inactive elements always merge (keep old dest) during the comparison itself.
+//   Zeroing = bit[11]: 1 → _z variant; sets PredZeroing[Pd]=true on the output predicate register,
+//   so future SO_A ops using it as governing pred will zero inactive elements (Spike: predMode tag).
 public enum UveSoPCmpOp {
     Ge, Eq, Lt,
 }
@@ -1380,7 +1382,7 @@ public enum UveSoPCmpType {
     Us, Fp, Sg,
 }
 
-public record RvUveSoPCmp(UveSoPCmpOp Op, UveSoPCmpType CmpType, int Pd, int GovPred, int Vs1, int Vs2) : RvOp;
+public record RvUveSoPCmp(UveSoPCmpOp Op, UveSoPCmpType CmpType, int Pd, int GovPred, int Vs1, int Vs2, bool Zeroing = false) : RvOp;
 
 // so.v.mv/mvt — move (or transpose-move) vector register vs1 into vd, gated by predicate PredIdx.
 // funct7=0x54, rs2[4:3]: 0=mv, 1=mvt; rs2[2:0]=uve_v_pred (bits[22:20])

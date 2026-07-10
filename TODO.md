@@ -32,7 +32,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   `so.v.mvsv.(b/h/w/d)` writes integer rs1 bits (width-masked) into ud register as scalar; `so.v.dp.(b/h/d)` width
   variants of the existing scalar-broadcast op
 - [x] Vector register manipulation: `mv`/`mvt` (move/transpose) — `so.v.mv` / `so.v.mvt` gated by predicate register
-- [x] SO_P predicate register file: 16 registers (VLEN=128 → 16 bytes each); register 0 all-ones; `so.p.{zero,one,vr,not,mv,mvt}` simple ops with governing predicate + zeroing mode; `so.p.{ge,eq,lt}.{us,fp,sg}` element-wise comparisons (merging on inactive)
+- [x] SO_P predicate register file: 16 registers (VLEN=128 → 16 bytes each); register 0 all-ones; `so.p.{zero,one,vr,not,mv,mvt}` simple ops with governing predicate + zeroing mode; `so.p.{ge,eq,lt}.{us,fp,sg}` element-wise comparisons (merging on inactive); `_z` comparison variants tag output register with Zeroing mode (Spike invariant: tag only, no element-level difference)
 - [ ] Explicit vector load/store: `ld.(width)` / `ld.(width).s` and `st` / `st.s` (non-stream bulk memory ops)
 - [x] Static dimension modifiers: `ss.app.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a
   descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns
