@@ -1208,6 +1208,21 @@ public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVe
 public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1)
     : RvOp;
 
+// ss.sta.ld.*_inds ud, rs1 — IndSource stream: backed by a load stream but provides values for indirect modifiers.
+// Encoded as ss.sta.ld.* with rs2 bit[4]=1. No vector mode; follows with ss.app*/ss.end like a normal load stream.
+public record RvUveSsStaLdWInds(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
+
+// ss.app.ind ud, rs1_indsrc — attach one indirect modifier to the pending stream config.
+// SpikeDimIndex: dimension in Spike's outermost-first convention; remapped to Horologium in ExecuteUveSsEnd.
+// SourceStreamId = rs1 field = UVE register number of the IndSource stream.
+public record RvUveSsAppInd(
+    int Ud,
+    int SpikeDimIndex,
+    StreamModifierTarget Target,
+    StreamModifierBehavior Behavior,
+    int SourceStreamId
+) : RvOp;
+
 // Rs1Offset is the offset register (Spike adds offset*ew to base); ignored — no offset field in StreamDimension.
 public record RvUveSsApp(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;
 
@@ -1331,6 +1346,45 @@ public record RvUveSoBNdc(int Urs, int Dim, int Imm) : RvOp;
 public record RvUveSoBc(int Urs, int Imm) : RvOp;
 
 public record RvUveSoBdc(int Urs, int Dim, int Imm) : RvOp;
+
+// ── SO_P predicate register group (custom-1, opcode=0x2B, bits[31:28]=1000/1001) ─────────
+// Predicate register file: 16 regs (uve_pred_rd = bits[10:7]), each with PredBytes (16) entries.
+// Governing predicate GovPred = bits[27:25] (3-bit → regs 0-7).
+// Zeroing flag Zeroing = bit[24]: 1 → inactive elements → 0; 0 → merge (keep old dest).
+
+// Simple predicate ops: zero/one/vr/not/mv/mvt (group=8, funct3 bit[2]=0)
+//   Encoding summary:
+//   (funct3[1:0], bit11): (0,0)=zero, (0,1)=one, (1,0)=vr, (1,1)=not, (2,0)=mv, (2,1)=mvt
+//   Ps1 = uve_pred_rs1 = bits[18:15] (source pred reg for not/mv/mvt; -1 otherwise)
+//   Vs1 = uve_pred_vs1 = bits[19:15] (source ud reg for vr; -1 otherwise)
+public enum UveSoPSimpleOp {
+    Zero,
+    One,
+    Vr,
+    Not,
+    Mv,
+    Mvt,
+}
+
+public record RvUveSoPSimple(UveSoPSimpleOp Op, int Pd, int GovPred, bool Zeroing, int Ps1, int Vs1) : RvOp;
+
+// Comparison predicate ops: ge (group=8, funct3[2]=1), eq/lt (group=9, funct3[2]=0/1)
+//   CmpType = funct3[1:0]: 0=Us, 1=Fp, 2=Sg
+//   Vs1 = bits[19:15], Vs2 = bits[24:20] (ud register source indices; bit24 is NOT zeroing here)
+//   Inactive elements always merge (keep old dest) — no _z variant for comparisons.
+public enum UveSoPCmpOp {
+    Ge, Eq, Lt,
+}
+
+public enum UveSoPCmpType {
+    Us, Fp, Sg,
+}
+
+public record RvUveSoPCmp(UveSoPCmpOp Op, UveSoPCmpType CmpType, int Pd, int GovPred, int Vs1, int Vs2) : RvOp;
+
+// so.v.mv/mvt — move (or transpose-move) vector register vs1 into vd, gated by predicate PredIdx.
+// funct7=0x54, rs2[4:3]: 0=mv, 1=mvt; rs2[2:0]=uve_v_pred (bits[22:20])
+public record RvUveSoVMv(bool Transpose, int Vd, int Vs1, int PredIdx) : RvOp;
 
 // ── RV64I W-suffix instructions (opcode=0x3B: OP-32; opcode=0x1B: OP-IMM-32) ──────────────
 // Each performs the operation on the lower 32 bits and sign-extends the 32-bit result to 64.

@@ -717,7 +717,10 @@ public class Rv32Executor : IExecutor {
             RvUveSsStaStW (var ud, var rs1, var ew, var isVec, var vecDim) => ExecuteUveSsSta(
                 regs, ud, rs1, false, ew, isVec, vecDim
             ),
+            RvUveSsStaLdWInds (var ud, var rs1, var ew)    => ExecuteUveSsStaLdWInds(regs, ud, rs1, ew),
             RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
+            RvUveSsAppInd (var ud, var spikeDim, var target, var behavior, var srcId) =>
+                ExecuteUveSsAppInd(ud, spikeDim, target, behavior, srcId),
             RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
             RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp, var rs1Size) =>
                 ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp, rs1Size),
@@ -751,6 +754,12 @@ public class Rv32Executor : IExecutor {
             RvUveSoBNdc (var urs, var dim, var imm) => ExecuteUveSoBNdc(state, pc, urs, dim, imm),
             RvUveSoBc (var urs, var imm)            => ExecuteUveSoBc(state, pc, urs, imm),
             RvUveSoBdc (var urs, var dim, var imm)  => ExecuteUveSoBdc(state, pc, urs, dim, imm),
+            RvUveSoPSimple (var sop, var pd, var govPred, var zeroing, var ps1, var vs1)
+                => ExecuteUveSoPSimple(state, sop, pd, govPred, zeroing, ps1, vs1),
+            RvUveSoPCmp (var cop, var cmpType, var pd, var govPred, var vs1, var vs2)
+                => ExecuteUveSoPCmp(state, cop, cmpType, pd, govPred, vs1, vs2),
+            RvUveSoVMv (var transpose, var vd, var vs1, var predIdx)
+                => ExecuteUveSoVMv(state, transpose, vd, vs1, predIdx),
 
             _ => throw new InvalidOperationException(
                 $"Unhandled RvOp: {op.GetType().Name}"
@@ -3316,6 +3325,37 @@ public class Rv32Executor : IExecutor {
         };
     }
 
+    // ss.sta.ld.*_inds ud, rs1 — begin IndSource stream configuration (provides values for indirect modifiers).
+    private static ExecuteResult ExecuteUveSsStaLdWInds(IRegisterFile regs, int ud, int rs1, int ew) {
+        ulong baseAddr = regs.Read(rs1);
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState uvs = UState(s).UveState;
+                uvs.PendingConfig[ud] = new PendingStreamConfig {
+                    BaseAddress = baseAddr, ElementBytes = ew, IsLoad = true, IsIndSource = true,
+                };
+            },
+        };
+    }
+
+    // ss.app.ind ud, rs1_indsrc — append one indirect modifier to the pending stream config.
+    // SpikeDimIndex uses Spike's outermost-first convention; remapped to Horologium in ExecuteUveSsEnd.
+    private static ExecuteResult ExecuteUveSsAppInd(
+        int ud,
+        int spikeDimIndex,
+        StreamModifierTarget target,
+        StreamModifierBehavior behavior,
+        int sourceStreamId
+    ) {
+        return new ExecuteResult {
+            SideEffect = s => {
+                PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
+                if (cfg is null) return;
+                cfg.Modifiers.Add(new StreamModifier(spikeDimIndex, target, behavior, 0, 0, sourceStreamId));
+            },
+        };
+    }
+
     // ss.app ud, rs1_offset, rs2_count, rs3_stride — append next outer dimension to pending config.
     // rs1_offset adds offset*ew to the stream base address (accumulated into PendingStreamConfig.OffsetBytes).
     private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
@@ -3334,6 +3374,7 @@ public class Rv32Executor : IExecutor {
 
     // ss.end ud, rs1_offset, rs2_count, rs3_stride — outermost dimension + activate stream.
     // rs1_offset adds offset*ew to the stream base address (combined with any prior ss.app offsets).
+    // Remaps indirect modifier DimIndex from Spike outermost-first to Horologium innermost-first.
     private static ExecuteResult ExecuteUveSsEnd(
         IArchState state,
         IRegisterFile regs,
@@ -3352,21 +3393,32 @@ public class Rv32Executor : IExecutor {
         long totalOffsetBytes = pending.OffsetBytes + offset * pending.ElementBytes;
         var baseAddr = (ulong)((long)pending.BaseAddress + totalOffsetBytes);
         StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).ToArray();
-        StreamModifier[]? mods = pending.Modifiers.Count > 0 ? pending.Modifiers.ToArray() : null;
+        int ndim = dims.Length;
+
+        // Build modifier array; remap indirect modifier DimIndex from Spike (outermost=0) to Horologium (innermost=0).
+        StreamModifier[]? mods = null;
+        if (pending.Modifiers.Count > 0)
+            mods = pending.Modifiers
+                          .Select(m => m.SourceStreamId >= 0 ? m with { DimIndex = ndim - 1 - m.DimIndex, } : m)
+                          .ToArray();
+
         var descriptor = new StreamDescriptor(
             baseAddr, pending.ElementBytes, dims, mods, pending.IsVector, pending.VecCfgDim
         );
         bool isLoad = pending.IsLoad;
+        bool isIndSource = pending.IsIndSource;
 
-        if (isLoad)
+        if (isLoad || isIndSource) {
+            UveRegKind regKind = isIndSource ? UveRegKind.IndSource : UveRegKind.LoadStream;
             return new ExecuteResult {
                 StreamConfig = (ud, descriptor),
                 SideEffect = s => {
                     UveState uvs = UState(s).UveState;
                     uvs.PendingConfig[ud] = null;
-                    uvs.RegKind[ud] = UveRegKind.LoadStream;
+                    uvs.RegKind[ud] = regKind;
                 },
             };
+        }
 
         // Store stream: full multi-dim cursor, innermost dimension first.
         return new ExecuteResult {
@@ -3421,6 +3473,114 @@ public class Rv32Executor : IExecutor {
         return done
             ? new ExecuteResult { BranchTaken = true, BranchTarget = pc + (ulong)imm, }
             : new ExecuteResult { BranchTaken = false, BranchTarget = pc + 4, };
+    }
+
+    // ── SO_P predicate register operations ───────────────────────────────────
+
+    // so.p.{zero,one,vr,not,mv,mvt} pd, ... — manipulate predicate register pd.
+    // GovPred[i]=true → apply operation; GovPred[i]=false → zeroing ? 0 : keep old.
+    private static ExecuteResult ExecuteUveSoPSimple(
+        IArchState state,
+        UveSoPSimpleOp op,
+        int pd,
+        int govPred,
+        bool zeroing,
+        int ps1,
+        int vs1
+    ) {
+        UveState uvs = UState(state).UveState;
+        // Capture the valid element count for Vr before the closure.
+        int validCount = uvs.VectorLength > 0 ? uvs.VectorLength : UveState.PredBytes;
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState u = UState(s).UveState;
+                bool[] gov = u.PredicateRegs[govPred];
+                bool[] dst = u.PredicateRegs[pd];
+                bool[] src = ps1 >= 0 ? u.PredicateRegs[ps1] : [];
+                for (var i = 0; i < UveState.PredBytes; i++) {
+                    if (!gov[i]) {
+                        if (zeroing) dst[i] = false;
+                        continue;
+                    }
+
+                    dst[i] = op switch {
+                        UveSoPSimpleOp.Zero => false,
+                        UveSoPSimpleOp.One  => true,
+                        UveSoPSimpleOp.Vr   => i < validCount,
+                        UveSoPSimpleOp.Not  => !src[i],
+                        UveSoPSimpleOp.Mv   => src[i],
+                        UveSoPSimpleOp.Mvt  => src[UveState.PredBytes - 1 - i],
+                        _                   => throw new InvalidOperationException($"Unknown UveSoPSimpleOp {op}"),
+                    };
+                }
+            },
+        };
+    }
+
+    // so.p.{ge,eq,lt}.{us,fp,sg} pd, vs1, vs2 — element-wise comparison into predicate register.
+    // Both vs1 and vs2 are ud register indices; the executor reads their current Scalar values.
+    // Inactive governing-pred elements always merge (keep old dest) — no zeroing variant exists.
+    private static ExecuteResult ExecuteUveSoPCmp(
+        IArchState state,
+        UveSoPCmpOp op,
+        UveSoPCmpType cmpType,
+        int pd,
+        int govPred,
+        int vs1,
+        int vs2
+    ) {
+        UveState uvs = UState(state).UveState;
+        float a = uvs.Scalars[vs1];
+        float b = uvs.Scalars[vs2];
+        bool result = (op, cmpType) switch {
+            (UveSoPCmpOp.Ge, UveSoPCmpType.Us) => (uint)BitConverter.SingleToInt32Bits(a)
+                                               >= (uint)BitConverter.SingleToInt32Bits(b),
+            (UveSoPCmpOp.Ge, UveSoPCmpType.Sg) =>
+                BitConverter.SingleToInt32Bits(a) >= BitConverter.SingleToInt32Bits(b),
+            (UveSoPCmpOp.Ge, UveSoPCmpType.Fp) => a >= b,
+            (UveSoPCmpOp.Eq, UveSoPCmpType.Us) => (uint)BitConverter.SingleToInt32Bits(a)
+                                               == (uint)BitConverter.SingleToInt32Bits(b),
+            (UveSoPCmpOp.Eq, UveSoPCmpType.Sg) =>
+                BitConverter.SingleToInt32Bits(a) == BitConverter.SingleToInt32Bits(b),
+            (UveSoPCmpOp.Eq, UveSoPCmpType.Fp) => a == b,
+            (UveSoPCmpOp.Lt, UveSoPCmpType.Us) => (uint)BitConverter.SingleToInt32Bits(a)
+                                                < (uint)BitConverter.SingleToInt32Bits(b),
+            (UveSoPCmpOp.Lt, UveSoPCmpType.Sg) => BitConverter.SingleToInt32Bits(a) < BitConverter.SingleToInt32Bits(b),
+            (UveSoPCmpOp.Lt, UveSoPCmpType.Fp) => a < b,
+            _ => throw new InvalidOperationException($"Unknown SO_P comparison {op}/{cmpType}"),
+        };
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState u = UState(s).UveState;
+                bool[] gov = u.PredicateRegs[govPred];
+                bool[] dst = u.PredicateRegs[pd];
+                for (var i = 0; i < UveState.PredBytes; i++)
+                    if (gov[i])
+                        dst[i] = result;
+                // inactive → merge (keep old)
+            },
+        };
+    }
+
+    // so.v.mv/mvt vd, vs1, pred — copy vs1 into vd where predicate PredIdx is active (merging).
+    // Transpose variant (mvt) reverses the active range.
+    private static ExecuteResult ExecuteUveSoVMv(IArchState state, bool transpose, int vd, int vs1, int predIdx) {
+        UveState uvs = UState(state).UveState;
+        float src = uvs.Scalars[vs1];
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState u = UState(s).UveState;
+                // Check the governing predicate byte for element index 0 (byte 0 for single-element mode).
+                // For transpose, check from the end of the predicate.
+                bool[] pred = u.PredicateRegs[predIdx];
+                int checkIdx = transpose ? UveState.PredBytes - 1 : 0;
+                if (pred[checkIdx]) {
+                    u.Scalars[vd] = src;
+                    u.RegKind[vd] = UveRegKind.Scalar;
+                }
+                // else merge: keep existing Scalars[vd]
+            },
+        };
     }
 
     // ── FP vector helpers ─────────────────────────────────────────────────────

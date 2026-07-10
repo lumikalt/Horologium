@@ -487,4 +487,99 @@ public class StreamingEngineTests {
         eng.Configure(0, UnitStride(0, 4, 3));
         Assert.Throws<InvalidOperationException>(() => eng.Consume(0));
     }
+
+    // ── Indirect dimension modifiers ─────────────────────────────────────────
+
+    [Fact]
+    public void IndirectSizeModifier_Set_VariableInnerCount() {
+        // Stream 1 (IndSource): 3 elements [3, 2, 4] at address 0x100.
+        // Stream 0 (target): 2D stream, dim0=inner (count=1 placeholder, stride=4), dim1=outer (count=3, stride=0).
+        // Indirect modifier on dim0: Size/Set driven by stream 1.
+        //
+        // Expected sequence:
+        //   initial apply: consume IndSource[0]=3 → inner count=3
+        //   row 0: 3 elements (addresses 0x000, 0x004, 0x008) → values 1, 2, 3
+        //   dim0 wrap → consume IndSource[1]=2 → inner count=2
+        //   row 1: 2 elements (addresses 0x000, 0x004) → values 1, 2
+        //   dim0 wrap → consume IndSource[2]=4 → inner count=4
+        //   row 2: 4 elements (addresses 0x000..0x00C) → values 1, 2, 3, 4
+        //   dim0 wrap → IndSource empty (skip) → dim1 wraps → done
+        //   total: 9 elements
+
+        const int nWords = 16;
+        var mem = new FlatMemory((int)(0x200 + nWords * 4));
+        for (var i = 0; i < nWords; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+        mem.Load(0x100, BitConverter.GetBytes(3u));
+        mem.Load(0x104, BitConverter.GetBytes(2u));
+        mem.Load(0x108, BitConverter.GetBytes(4u));
+
+        var eng = new StreamingEngine(16);
+
+        // IndSource on stream 1
+        eng.Configure(1, new StreamDescriptor(0x100, 4, 3, 4));
+
+        // Target on stream 0; dim 0 = inner, dim 1 = outer
+        var desc = new StreamDescriptor(
+            0x000, 4,
+            [new StreamDimension(1, 4), new StreamDimension(3, 0),],
+            [new StreamModifier(0, StreamModifierTarget.Size, StreamModifierBehavior.Set, 0, 0, 1),]
+        );
+        eng.Configure(0, desc);
+
+        // Step enough cycles to fill everything (stream 1 must step first to prime IndSource).
+        for (var i = 0; i < 20; i++) eng.Step(mem);
+
+        // Row 0 (inner count = 3)
+        Assert.Equal(1UL, eng.Consume(0));
+        Assert.Equal(2UL, eng.Consume(0));
+        Assert.Equal(3UL, eng.Consume(0));
+        // Row 1 (inner count = 2)
+        Assert.Equal(1UL, eng.Consume(0));
+        Assert.Equal(2UL, eng.Consume(0));
+        // Row 2 (inner count = 4)
+        Assert.Equal(1UL, eng.Consume(0));
+        Assert.Equal(2UL, eng.Consume(0));
+        Assert.Equal(3UL, eng.Consume(0));
+        Assert.Equal(4UL, eng.Consume(0));
+        Assert.True(eng.IsExhausted(0));
+    }
+
+    [Fact]
+    public void IndirectSizeModifier_Inc_GrowsInnerCount() {
+        // Stream 1 (IndSource): 2 elements [2, 3] at address 0x200.
+        // Stream 0: 2D stream, dim0=inner (count=2 initial, stride=4), dim1=outer (count=3, stride=0).
+        // Indirect modifier on dim0: Size/Inc driven by stream 1.
+        // Inc behavior: new_count = current_count + raw_value
+        //
+        // initial apply: consume 2 → inner count = 2 + 2 = 4
+        // row 0: 4 elements
+        // dim0 wrap → consume 3 → inner count = 4 + 3 = 7
+        // row 1: 7 elements
+        // dim0 wrap → IndSource empty (skip, count stays 7) → dim1 advance
+        // row 2: 7 elements
+        // dim0 wrap → dim1 wraps → done
+        // total: 4 + 7 + 7 = 18 elements
+
+        const int nWords = 32;
+        var mem = new FlatMemory((int)(0x300 + nWords * 4));
+        for (var i = 0; i < nWords; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+        mem.Load(0x200, BitConverter.GetBytes(2u));
+        mem.Load(0x204, BitConverter.GetBytes(3u));
+
+        var eng = new StreamingEngine(32);
+        eng.Configure(1, new StreamDescriptor(0x200, 4, 2, 4));
+        var desc = new StreamDescriptor(
+            0x000, 4,
+            [new StreamDimension(2, 4), new StreamDimension(3, 0),],
+            [new StreamModifier(0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 0, 0, 1),]
+        );
+        eng.Configure(0, desc);
+        for (var i = 0; i < 40; i++) eng.Step(mem);
+
+        var values = new List<ulong>();
+        while (eng.HasElement(0)) values.Add(eng.Consume(0));
+
+        Assert.Equal(4 + 7 + 7, values.Count);
+        Assert.True(eng.IsExhausted(0));
+    }
 }

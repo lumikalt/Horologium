@@ -1972,8 +1972,13 @@ public class Rv32Decoder : IDecoder {
                 // ss.sta.{ld|st}.*: funct3[2]=1→load,0→store; ew=1<<(funct3&3)
                 // rs3 bit[3]=1 → vector mode; bits[2:0]=7 → innermost dim (-1); bits[2:0]=0..6 → explicit dim
                 // rs3 bit[4]=1 → masked variant (predicate reg; decoded but mask is ignored until SO_P implemented)
+                // rs2 bit[4]=1 + isLoad → IndSource stream (ss.sta.ld.*_inds)
                 int ew = UveElementBytes(funct3);
                 bool isLoad = funct3 >> 2 != 0;
+                if (isLoad && (rs2 & 0x10) != 0)
+                    return new RvInstruction(
+                        pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdWInds(ud, rs1, ew)
+                    );
                 bool isVec = (rs3 & 0x8) != 0;
                 int vecCfgDim = isVec ? (rs3 & 0x7) == 0x7 ? -1 : rs3 & 0x7 : -1;
                 return isLoad
@@ -1989,6 +1994,28 @@ public class Rv32Decoder : IDecoder {
                 return new RvInstruction(
                     pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsApp(ud, rs1, rs2, rs3)
                 );
+            // ss.app.ind ud, rs1_indsrc — attach indirect modifier; funct2=1, funct3=6
+            // rs3[4:1] = Spike dim index (outermost=0); rs2[1:0]=target, rs2[4:2]=behavior
+            // rs1 = UVE register number of the IndSource stream (not an integer register read)
+            case 1 when funct3 == 6: {
+                int spikeDimIndex = rs3 >> 1;
+                StreamModifierTarget indTarget = (rs2 & 0x3) switch {
+                    0 => StreamModifierTarget.Size,
+                    1 => StreamModifierTarget.Stride,
+                    _ => StreamModifierTarget.Offset,
+                };
+                StreamModifierBehavior indBehavior = ((rs2 >> 2) & 0x7) switch {
+                    0 => StreamModifierBehavior.Inc,
+                    1 => StreamModifierBehavior.Dec,
+                    2 => StreamModifierBehavior.Add,
+                    3 => StreamModifierBehavior.Sub,
+                    _ => StreamModifierBehavior.Set,
+                };
+                return new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Uve,
+                    new RvUveSsAppInd(ud, spikeDimIndex, indTarget, indBehavior, rs1)
+                );
+            }
             case 3: {
                 // ss.app.mod: funct2=3, funct3=dimIndex (0-7), rs1=E register, rs2=target+behavior literal, rs3=disp reg
                 // Spike target encoding: 0=Size, 1=Stride, 2=Offset → map to Horologium enum: Size=0, Stride=2, Offset=1
@@ -2055,7 +2082,7 @@ public class Rv32Decoder : IDecoder {
             return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVDp(rd, rs1, elemBytes));
         }
 
-        // so.v.mv family: funct7=0x54; rs2[4:3] selects op (2=mvvs, 3=mvsv); 0/1=mv/mvt (pred regs, not implemented)
+        // so.v.mv family: funct7=0x54; rs2[4:3] selects op (2=mvvs, 3=mvsv, 0=mv, 1=mvt)
         if (funct7 == 0x54) {
             int mvKind = (rs2 >> 3) & 3;
             if (mvKind == 2) return new RvInstruction(pc, raw, rd, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
@@ -2067,9 +2094,9 @@ public class Rv32Decoder : IDecoder {
                 return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVMvsv(rd, rs1, elemBytes));
             }
 
-            throw new IllegalInstructionException(
-                raw, "UVE so.v.mv/mvt not implemented (requires predicate registers)"
-            );
+            // mv/mvt: rs2[2:0] = uve_v_pred = bits[22:20]
+            int predIdx = rs2 & 7;
+            return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoVMv(mvKind == 1, rd, rs1, predIdx));
         }
 
         // so.a.*: group = funct7>>3, upper = funct3&4, type = funct3&3 (0=US, 1=FP, 2=SG)
@@ -2125,7 +2152,10 @@ public class Rv32Decoder : IDecoder {
                 5 => new RvUveSoAShiftS(UveShiftOp.Sra, rd, rs1, rs2),
                 _ => throw new IllegalInstructionException(raw, $"Unknown UVE shift funct3=0x{funct3:X}"),
             },
-            _ => throw new IllegalInstructionException(raw, $"Unknown UVE op group={group} funct3=0x{funct3:X}"),
+            // Groups 8/9: SO_P predicate register operations.
+            // bits[31:28]=1000 → group=8 (simple ops + GE); bits[31:28]=1001 → group=9 (EQ + LT)
+            8 or 9 => DecodeSoP(raw, group, funct3),
+            _      => throw new IllegalInstructionException(raw, $"Unknown UVE op group={group} funct3=0x{funct3:X}"),
         };
 
         // ShiftS uses integer shift-amount; Sadde/fsadde and SO_C getvl/setvl write scalar regs.
@@ -2142,6 +2172,44 @@ public class Rv32Decoder : IDecoder {
             _                              => [],
         };
         return new RvInstruction(pc, raw, dest, intSrcs, ToothClass.Uve, uvOp);
+    }
+
+    // SO_P predicate register operations.
+    // group=8: simple manipulation ops (funct3[2]=0) and GE comparisons (funct3[2]=1)
+    // group=9: EQ comparisons (funct3[2]=0) and LT comparisons (funct3[2]=1)
+    private static RvOp DecodeSoP(uint raw, int group, uint funct3) {
+        var govPred = (int)((raw >> 25) & 0x7); // bits[27:25] — governing predicate reg index
+        bool zeroing = (raw & (1u << 24)) != 0; // bit[24] — only valid for simple ops
+        var predRd = (int)((raw >> 7) & 0xF);   // bits[10:7] — dest pred reg (uve_pred_rd)
+        var vs1 = (int)((raw >> 15) & 0x1F);    // bits[19:15] — source ud or pred reg
+        var predRs1 = (int)((raw >> 15) & 0xF); // bits[18:15] — source pred reg (4-bit)
+
+        if (group == 8 && (funct3 & 4) == 0) {
+            // Simple ops: funct3[1:0] + bit[11]
+            var bit11 = (int)((raw >> 11) & 1);
+            var subOp = (int)(funct3 & 3);
+            return (subOp, bit11) switch {
+                (0, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Zero, predRd, govPred, zeroing, -1, -1),
+                (0, 1) => new RvUveSoPSimple(UveSoPSimpleOp.One, predRd, govPred, zeroing, -1, -1),
+                (1, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Vr, predRd, govPred, zeroing, -1, vs1),
+                (1, 1) => new RvUveSoPSimple(UveSoPSimpleOp.Not, predRd, govPred, zeroing, predRs1, -1),
+                (2, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Mv, predRd, govPred, zeroing, predRs1, -1),
+                (2, 1) => new RvUveSoPSimple(UveSoPSimpleOp.Mvt, predRd, govPred, zeroing, predRs1, -1),
+                _ => throw new IllegalInstructionException(raw, $"Unknown SO_P simple subOp={subOp} bit11={bit11}"),
+            };
+        }
+
+        // Comparison ops: GE (group=8, funct3[2]=1), EQ (group=9, funct3[2]=0), LT (group=9, funct3[2]=1)
+        // vs2 = bits[24:20] (uve_pred_rs2); bit24 is the MSB of vs2, NOT the zeroing flag.
+        var vs2 = (int)((raw >> 20) & 0x1F);
+        UveSoPCmpType cmpType = (funct3 & 3) switch {
+            0 => UveSoPCmpType.Us,
+            1 => UveSoPCmpType.Fp,
+            2 => UveSoPCmpType.Sg,
+            _ => throw new IllegalInstructionException(raw, $"Unknown SO_P cmp type funct3[1:0]={funct3 & 3}"),
+        };
+        UveSoPCmpOp cmpOp = group == 8 ? UveSoPCmpOp.Ge : (funct3 & 4) == 0 ? UveSoPCmpOp.Eq : UveSoPCmpOp.Lt;
+        return new RvUveSoPCmp(cmpOp, cmpType, predRd, govPred, vs1, vs2);
     }
 
     private static RvOp UveArith(UveFpOp fpOp, UveIntOp intOp, int type, int ud, int usrc1, int usrc2) =>

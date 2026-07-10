@@ -105,7 +105,7 @@ public sealed class StreamingEngine {
     /// </summary>
     public void Step(IMemory memory, int vectorLength = 1) {
         if (_activeCount == 0) return;
-        foreach (StreamState s in _streams) s.Step(memory, _prefetchDepth, vectorLength);
+        foreach (StreamState s in _streams) s.Step(memory, _prefetchDepth, vectorLength, _streams);
     }
 
     private static void Validate(int id) {
@@ -129,11 +129,19 @@ public sealed class StreamingEngine {
         // Mutable per-dimension strides for the fetch side; updated by Stride modifiers.
         private long[] _fetchDimStrides = [];
 
+        // Original configured values — base for Add/Sub indirect modifier calculations.
+        private long[] _fetchDimCountsBase = [];
+        private long[] _fetchDimStridesBase = [];
+        private long _fetchBaseOffsetBase;
+
         // Cumulative base-address displacement for the fetch side; updated by Offset modifiers.
         private long _fetchBaseOffset;
 
         // True once the outermost fetch dimension has wrapped (all elements fetched).
         private bool _fetchDone;
+
+        // True when indirect modifiers need their initial application (before the first fetch).
+        private bool _needsInitialModApply;
 
         // Set by Consume() for each dimension that wraps; cleared at the start of the next Consume().
         private bool[] _dimPassComplete = [];
@@ -141,6 +149,11 @@ public sealed class StreamingEngine {
         // Per-modifier application counts (indexed by Modifiers[i]); separate for fetch/consume.
         private int[] _fetchModApplyCounts = [];
         private int[] _consumeModApplyCounts = [];
+
+        // Per-modifier queue for indirect Size modifiers: fetch side enqueues the new count
+        // so the consume-side odometer can apply matching updates when the dimension wraps.
+        // Null entries = static modifier or non-Size indirect modifier.
+        private Queue<long>?[] _indModSizeQueues = [];
 
         // Vector-mode coupling dimension. -1 = not vector mode; 0..N-1 = dimension that acts as the
         // vector boundary (resolved from IsVectorMode/VecCfgDim at Configure time; innermost = 0).
@@ -165,19 +178,39 @@ public sealed class StreamingEngine {
             _fetchDimCounts = new long[ndim];
             _consumeDimCounts = new long[ndim];
             _fetchDimStrides = new long[ndim];
+            _fetchDimCountsBase = new long[ndim];
+            _fetchDimStridesBase = new long[ndim];
             _dimPassComplete = new bool[ndim];
             for (var d = 0; d < ndim; d++) {
                 _fetchDimCounts[d] = desc.Dimensions[d].Count;
                 _consumeDimCounts[d] = desc.Dimensions[d].Count;
                 _fetchDimStrides[d] = desc.Dimensions[d].Stride;
+                _fetchDimCountsBase[d] = desc.Dimensions[d].Count;
+                _fetchDimStridesBase[d] = desc.Dimensions[d].Stride;
             }
 
             _fetchBaseOffset = 0;
+            _fetchBaseOffsetBase = 0;
             _fetchDone = false;
             _buffer.Clear();
             int nmod = desc.Modifiers?.Length ?? 0;
             _fetchModApplyCounts = nmod > 0 ? new int[nmod] : [];
             _consumeModApplyCounts = nmod > 0 ? new int[nmod] : [];
+
+            // Allocate per-modifier size queues for indirect Size modifiers.
+            var hasIndirect = false;
+            _indModSizeQueues = new Queue<long>?[nmod];
+            if (desc.Modifiers != null)
+                for (var i = 0; i < nmod; i++) {
+                    StreamModifier m = desc.Modifiers[i];
+                    if (m.SourceStreamId >= 0) {
+                        hasIndirect = true;
+                        if (m.Target == StreamModifierTarget.Size) _indModSizeQueues[i] = new Queue<long>();
+                    }
+                }
+
+            _needsInitialModApply = hasIndirect;
+
             // Resolve vector coupling dim: VecCfgDim=-1 (innermost) → dim 0 (Horologium innermost convention).
             _vecCfgDim = desc.IsVectorMode ? desc.VecCfgDim < 0 ? 0 : desc.VecCfgDim : -1;
             Active = true;
@@ -200,18 +233,43 @@ public sealed class StreamingEngine {
             return val;
         }
 
-        public void Step(IMemory memory, int prefetchDepth, int vectorLength) {
+        public void Step(IMemory memory, int prefetchDepth, int vectorLength, StreamState[] allStreams) {
             if (!Active) return;
-            if (_buffer.Count >= prefetchDepth) return;
             if (_fetchDone) return;
+            if (_needsInitialModApply && !ApplyInitialIndirectModifiers(allStreams)) return;
+            if (_buffer.Count >= prefetchDepth) return;
 
             int toFetch = _vecCfgDim >= 0 ? vectorLength : 1;
             for (var i = 0; i < toFetch; i++) {
                 if (_buffer.Count >= prefetchDepth) break;
                 if (_fetchDone) break;
                 _buffer.Enqueue(memory.Read((ulong)((long)_desc.BaseAddress + FetchOffset()), _desc.ElementBytes));
-                if (AdvanceFetchIndex()) break;
+                if (AdvanceFetchIndex(allStreams)) break;
             }
+        }
+
+        // Applies all indirect modifiers using their initial IndSource values.
+        // Returns false (and defers) if any source stream has no element ready yet.
+        private bool ApplyInitialIndirectModifiers(StreamState[] allStreams) {
+            if (_desc.Modifiers is not { Length: > 0, } mods) {
+                _needsInitialModApply = false;
+                return true;
+            }
+
+            for (var i = 0; i < mods.Length; i++)
+                if (mods[i].SourceStreamId >= 0 && !allStreams[mods[i].SourceStreamId].HasElement)
+                    return false;
+            for (var i = 0; i < mods.Length; i++) {
+                StreamModifier m = mods[i];
+                if (m.SourceStreamId < 0) continue;
+                var rawVal = (long)(int)allStreams[m.SourceStreamId].Consume();
+                long newVal = CalculateIndirectValue(m, rawVal, m.DimIndex);
+                ApplyToFetchField(m.Target, m.DimIndex, newVal);
+                if (m.Target == StreamModifierTarget.Size) _consumeDimCounts[m.DimIndex] = Math.Max(0, newVal);
+            }
+
+            _needsInitialModApply = false;
+            return true;
         }
 
         private long FetchOffset() {
@@ -222,12 +280,12 @@ public sealed class StreamingEngine {
 
         // Returns true when _vecCfgDim wrapped (vector slice boundary) or stream is done.
         // The carry always propagates fully so _fetchIndices is consistent for the next call.
-        private bool AdvanceFetchIndex() {
+        private bool AdvanceFetchIndex(StreamState[] allStreams) {
             var boundary = false;
             for (var d = 0; d < _fetchDimCounts.Length; d++) {
                 if (++_fetchIndices[d] < _fetchDimCounts[d]) return boundary;
                 _fetchIndices[d] = 0;
-                ApplyFetchModifiers(d);
+                ApplyFetchModifiers(d, allStreams);
                 if (d == _fetchDimCounts.Length - 1) {
                     _fetchDone = true;
                     return true;
@@ -250,20 +308,31 @@ public sealed class StreamingEngine {
             }
         }
 
-        private void ApplyFetchModifiers(int wrappedDim) {
+        private void ApplyFetchModifiers(int wrappedDim, StreamState[] allStreams) {
             if (_desc.Modifiers is not { Length: > 0, } mods) return;
             for (var i = 0; i < mods.Length; i++) {
                 StreamModifier m = mods[i];
                 if (m.DimIndex != wrappedDim) continue;
                 if (m.MaxApplications > 0 && _fetchModApplyCounts[i] >= m.MaxApplications) continue;
                 _fetchModApplyCounts[i]++;
-                long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
-                switch (m.Target) {
-                    case StreamModifierTarget.Size:
-                        _fetchDimCounts[wrappedDim] = Math.Max(0, _fetchDimCounts[wrappedDim] + delta);
-                        break;
-                    case StreamModifierTarget.Stride: _fetchDimStrides[wrappedDim] += delta; break;
-                    case StreamModifierTarget.Offset: _fetchBaseOffset += delta; break;
+                if (m.SourceStreamId >= 0) {
+                    // Indirect modifier: consume one element from the IndSource stream.
+                    if (!allStreams[m.SourceStreamId].HasElement) continue;
+                    var rawVal = (long)(int)allStreams[m.SourceStreamId].Consume();
+                    long newVal = CalculateIndirectValue(m, rawVal, wrappedDim);
+                    ApplyToFetchField(m.Target, wrappedDim, newVal);
+                    if (m.Target == StreamModifierTarget.Size && _indModSizeQueues[i] is { } q) q.Enqueue(newVal);
+                }
+                else {
+                    // Static modifier.
+                    long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
+                    switch (m.Target) {
+                        case StreamModifierTarget.Size:
+                            _fetchDimCounts[wrappedDim] = Math.Max(0, _fetchDimCounts[wrappedDim] + delta);
+                            break;
+                        case StreamModifierTarget.Stride: _fetchDimStrides[wrappedDim] += delta; break;
+                        case StreamModifierTarget.Offset: _fetchBaseOffset += delta; break;
+                    }
                 }
             }
         }
@@ -275,8 +344,47 @@ public sealed class StreamingEngine {
                 if (m.DimIndex != wrappedDim || m.Target != StreamModifierTarget.Size) continue;
                 if (m.MaxApplications > 0 && _consumeModApplyCounts[i] >= m.MaxApplications) continue;
                 _consumeModApplyCounts[i]++;
-                long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
-                _consumeDimCounts[wrappedDim] = Math.Max(0, _consumeDimCounts[wrappedDim] + delta);
+                if (m.SourceStreamId >= 0) {
+                    // Indirect: dequeue the count pre-computed by the fetch side.
+                    // Queue may be empty if IndSource was exhausted when the fetch side wrapped.
+                    if (_indModSizeQueues[i] is { Count: > 0, } q)
+                        _consumeDimCounts[wrappedDim] = Math.Max(0, q.Dequeue());
+                }
+                else {
+                    // Static modifier.
+                    long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
+                    _consumeDimCounts[wrappedDim] = Math.Max(0, _consumeDimCounts[wrappedDim] + delta);
+                }
+            }
+        }
+
+        // Computes the new field value for an indirect modifier given the raw IndSource element.
+        private long CalculateIndirectValue(StreamModifier m, long rawVal, int dim) => m.Behavior switch {
+            StreamModifierBehavior.Add => GetBase(m.Target, dim) + rawVal,
+            StreamModifierBehavior.Sub => GetBase(m.Target, dim) - rawVal,
+            StreamModifierBehavior.Set => rawVal,
+            StreamModifierBehavior.Inc => GetCurrent(m.Target, dim) + rawVal,
+            StreamModifierBehavior.Dec => GetCurrent(m.Target, dim) - rawVal,
+            _                          => rawVal,
+        };
+
+        private long GetBase(StreamModifierTarget target, int dim) => target switch {
+            StreamModifierTarget.Size   => _fetchDimCountsBase[dim],
+            StreamModifierTarget.Stride => _fetchDimStridesBase[dim],
+            _                           => _fetchBaseOffsetBase,
+        };
+
+        private long GetCurrent(StreamModifierTarget target, int dim) => target switch {
+            StreamModifierTarget.Size   => _fetchDimCounts[dim],
+            StreamModifierTarget.Stride => _fetchDimStrides[dim],
+            _                           => _fetchBaseOffset,
+        };
+
+        private void ApplyToFetchField(StreamModifierTarget target, int dim, long newVal) {
+            switch (target) {
+                case StreamModifierTarget.Size:   _fetchDimCounts[dim] = Math.Max(0, newVal); break;
+                case StreamModifierTarget.Stride: _fetchDimStrides[dim] = newVal; break;
+                case StreamModifierTarget.Offset: _fetchBaseOffset = newVal; break;
             }
         }
     }

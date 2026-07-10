@@ -16,6 +16,20 @@ public sealed class UveState : IUveScalars {
     public const int Count = 32;
     public const int MaxDims = 8;
 
+    // Predicate register file: 16 registers, each holding VLEN/8 = 16 bytes.
+    // Predicate for element i of width W bytes is at index (i+1)*W - 1.
+    // Register 0 is initialized all-true (Spike invariant).
+    public const int PredCount = 16;
+    public const int PredBytes = 16; // VLEN/8
+    public readonly bool[][] PredicateRegs;
+
+    public UveState() {
+        PredicateRegs = new bool[UveState.PredCount][];
+        for (var i = 0; i < UveState.PredCount; i++) PredicateRegs[i] = new bool[UveState.PredBytes];
+        // Spike initializes predicate register 0 to all-ones.
+        Array.Fill(PredicateRegs[0], true);
+    }
+
     // Float accumulator for each u-slot.
     // Load-stream sources: the pipeline overwrites Scalars[uid] with the consumed
     // element value before calling the executor. Scalar sources: value set by so.v.dp.w.
@@ -65,6 +79,8 @@ public sealed class UveState : IUveScalars {
         Array.Clear(PendingConfig);
         Array.Clear(Suspended);
         VectorLength = 0;
+        for (var i = 0; i < UveState.PredCount; i++) Array.Clear(PredicateRegs[i]);
+        Array.Fill(PredicateRegs[0], true);
     }
 }
 
@@ -79,6 +95,7 @@ public sealed class PendingStreamConfig {
     public bool IsVector;
     public int VecCfgDim = -1;
     public long OffsetBytes;
+    public bool IsIndSource;
     public readonly List<StreamDimension> Dimensions = [];
     public readonly List<StreamModifier> Modifiers = [];
 }
@@ -88,6 +105,7 @@ public enum UveRegKind {
     LoadStream,
     StoreStream,
     Scalar,
+    IndSource,
 }
 
 /// <summary>

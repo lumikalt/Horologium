@@ -8,21 +8,30 @@ public enum StreamModifierTarget {
     Size = 0, Offset = 1, Stride = 2,
 }
 
-/// <summary>Whether the modifier adds or subtracts the displacement.</summary>
-public enum StreamModifierBehavior { Inc = 0, Dec = 1, }
+/// <summary>How a modifier updates its target field.</summary>
+public enum StreamModifierBehavior {
+    Inc = 0,
+    Dec = 1, // static: target += ±Displacement
+    Add = 2,
+    Sub = 3, // indirect: target = original_base ± source_value
+    Set = 4, // indirect: target = source_value
+}
 
 /// <summary>
-/// Static descriptor modifier {T, B, D, E}: when dimension DimIndex wraps, apply
-/// B(D) to parameter T of dimension DimIndex, for up to E total applications.
-/// Encoded inline in ss.app.mod / ss.end.mod instructions.
-/// E = 0 (default) means unlimited applications.
+/// Descriptor modifier: when dimension DimIndex wraps, update field Target.
+/// <para>
+/// Static modifiers (SourceStreamId &lt; 0): apply Behavior(Displacement) up to MaxApplications times.
+/// Indirect modifiers (SourceStreamId ≥ 0): consume one element from the IndSource stream and
+/// apply Behavior to the field. MaxApplications=0 means unlimited. Displacement is unused.
+/// </para>
 /// </summary>
 public readonly record struct StreamModifier(
     int DimIndex,
     StreamModifierTarget Target,
     StreamModifierBehavior Behavior,
     long Displacement,
-    int MaxApplications = 0
+    int MaxApplications = 0,
+    int SourceStreamId = -1
 );
 
 /// <summary>

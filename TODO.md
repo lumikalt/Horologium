@@ -31,7 +31,8 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] `mvvs`/`mvsv.(width)` (vector↔scalar): `so.v.mvvs` writes first element of ud register into integer rd;
   `so.v.mvsv.(b/h/w/d)` writes integer rs1 bits (width-masked) into ud register as scalar; `so.v.dp.(b/h/d)` width
   variants of the existing scalar-broadcast op
-- [ ] Vector register manipulation: `mv`/`mvt` (move/transpose) — requires predicate register file (SO_P group)
+- [x] Vector register manipulation: `mv`/`mvt` (move/transpose) — `so.v.mv` / `so.v.mvt` gated by predicate register
+- [x] SO_P predicate register file: 16 registers (VLEN=128 → 16 bytes each); register 0 all-ones; `so.p.{zero,one,vr,not,mv,mvt}` simple ops with governing predicate + zeroing mode; `so.p.{ge,eq,lt}.{us,fp,sg}` element-wise comparisons (merging on inactive)
 - [ ] Explicit vector load/store: `ld.(width)` / `ld.(width).s` and `st` / `st.s` (non-stream bulk memory ops)
 - [x] Static dimension modifiers: `ss.app.mod` — attach a `{Target, Behavior, Displacement, Size}` modifier to a
   descriptor so the inner loop count/stride updates automatically each outer-loop iteration (enables triangular patterns
@@ -47,7 +48,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   funct7/funct3, `so.a.fp.*` (funct7>>3, funct3) table, UVE B-type branch immediate layout
 - [x] Offset register (rs1) in `ss.app`/`ss.end`: rs1*ew added to stream base address; accumulated across all ss.app
   instructions in a config sequence and applied at ss.end time
-- [ ] Indirect dimension modifiers: `ss.app.ind` / `ss.end.ind` — attach a `{Target, Behavior, StreamPointer}` modifier
+- [x] Indirect dimension modifiers: `ss.app.ind` / `ss.end.ind` — attach a `{Target, Behavior, StreamPointer}` modifier
   so a live stream drives the offset of another (gather/indirect access; confirmed UVE1 in ISCA 2021 paper)
 - [x] Stream suspend/resume/stop: `ss.suspend`, `ss.resume`, `ss.stop` — explicit stream lifecycle control for context
   switching and early termination

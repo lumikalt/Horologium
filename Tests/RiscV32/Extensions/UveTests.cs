@@ -1790,4 +1790,366 @@ public class UveTests {
         Assert.Equal(7, tooth.DestinationRegister);
         Assert.Equal([3,], tooth.SourceRegisters);
     }
+
+    // ── SO_P encode helpers ───────────────────────────────────────────────────
+
+    // so.p.zero/one pd [.z] [, govPred=0]
+    // group=8, funct3=000, bit11=0(zero)/1(one); bits[27:25]=govPred; bit24=zeroing
+    private static uint SoPZero(int pd, int govPred = 0, bool zeroing = false) =>
+        (0x80u << 24) | ((uint)govPred << 25) | (zeroing ? 1u << 24 : 0u) |
+        (uint)((pd & 0xF) << 7) | 0x2Bu;
+
+    private static uint SoPOne(int pd, int govPred = 0, bool zeroing = false) =>
+        SoPZero(pd, govPred, zeroing) | (1u << 11);
+
+    // so.p.vr pd, vs1 [.z] [, govPred=0] — funct3=001, bit11=0
+    private static uint SoPVr(int pd, int vs1, int govPred = 0, bool zeroing = false) =>
+        (0x80u << 24) | ((uint)govPred << 25) | (zeroing ? 1u << 24 : 0u) |
+        (1u << 12) | (uint)((vs1 & 0x1F) << 15) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+
+    // so.p.not/mv/mvt pd, ps1 [.z] [, govPred=0]
+    // not: funct3=001, bit11=1; mv: funct3=010, bit11=0; mvt: funct3=010, bit11=1
+    private static uint SoPNot(int pd, int ps1, int govPred = 0, bool zeroing = false) =>
+        (0x80u << 24) | ((uint)govPred << 25) | (zeroing ? 1u << 24 : 0u) |
+        (1u << 12) | (1u << 11) | (uint)((ps1 & 0xF) << 15) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+
+    private static uint SoPMv(int pd, int ps1, int govPred = 0, bool zeroing = false) =>
+        (0x80u << 24) | ((uint)govPred << 25) | (zeroing ? 1u << 24 : 0u) |
+        (2u << 12) | (uint)((ps1 & 0xF) << 15) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+
+    private static uint SoPMvt(int pd, int ps1, int govPred = 0, bool zeroing = false) =>
+        SoPMv(pd, ps1, govPred, zeroing) | (1u << 11);
+
+    // so.p.ge.us/eq.us/lt.us pd, vs1, vs2
+    // GE: group=8 (bits31-28=1000), funct3=100; EQ: group=9 (bits31-28=1001), funct3=000; LT: group=9, funct3=100
+    private static uint SoPGeUs(int pd, int vs1, int vs2, int govPred = 0) =>
+        (0x80u << 24) | ((uint)govPred << 25) | (uint)((vs2 & 0x1F) << 20) |
+        (uint)((vs1 & 0x1F) << 15) | (4u << 12) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+
+    private static uint SoPEqUs(int pd, int vs1, int vs2, int govPred = 0) =>
+        (0x90u << 24) | ((uint)govPred << 25) | (uint)((vs2 & 0x1F) << 20) |
+        (uint)((vs1 & 0x1F) << 15) | (0u << 12) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+
+    private static uint SoPLtUs(int pd, int vs1, int vs2, int govPred = 0) =>
+        (0x90u << 24) | ((uint)govPred << 25) | (uint)((vs2 & 0x1F) << 20) |
+        (uint)((vs1 & 0x1F) << 15) | (4u << 12) | (uint)((pd & 0xF) << 7) | 0x2Bu;
+
+    // so.v.mv/mvt vd, vs1, predIdx — funct7=0x54; rs2 = (0<<3)|predIdx for mv, (1<<3)|predIdx for mvt
+    private static uint SoVMv(int vd, int vs1, int predIdx = 0, bool transpose = false) =>
+        (0x54u << 25) | (uint)((((transpose ? 1 : 0) << 3) | (predIdx & 7)) << 20) |
+        (uint)((vs1 & 0x1F) << 15) | (uint)((vd & 0x1F) << 7) | 0x2Bu;
+
+    // ── SO_P decoder round-trip tests ─────────────────────────────────────────
+
+    [Fact]
+    public void Decoder_SoPZero_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPZero(3, 2, true)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPSimple>(tooth.Payload);
+        Assert.Equal(UveSoPSimpleOp.Zero, op.Op);
+        Assert.Equal(3, op.Pd);
+        Assert.Equal(2, op.GovPred);
+        Assert.True(op.Zeroing);
+    }
+
+    [Fact]
+    public void Decoder_SoPOne_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPOne(5)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPSimple>(tooth.Payload);
+        Assert.Equal(UveSoPSimpleOp.One, op.Op);
+        Assert.Equal(5, op.Pd);
+        Assert.Equal(0, op.GovPred);
+        Assert.False(op.Zeroing);
+    }
+
+    [Fact]
+    public void Decoder_SoPNot_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPNot(1, 4)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPSimple>(tooth.Payload);
+        Assert.Equal(UveSoPSimpleOp.Not, op.Op);
+        Assert.Equal(1, op.Pd);
+        Assert.Equal(4, op.Ps1);
+    }
+
+    [Fact]
+    public void Decoder_SoPMv_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPMv(2, 6)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPSimple>(tooth.Payload);
+        Assert.Equal(UveSoPSimpleOp.Mv, op.Op);
+        Assert.Equal(2, op.Pd);
+        Assert.Equal(6, op.Ps1);
+    }
+
+    [Fact]
+    public void Decoder_SoPMvt_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPMvt(2, 6)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPSimple>(tooth.Payload);
+        Assert.Equal(UveSoPSimpleOp.Mvt, op.Op);
+    }
+
+    [Fact]
+    public void Decoder_SoPGeUs_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPGeUs(3, 4, 5, 1)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPCmp>(tooth.Payload);
+        Assert.Equal(UveSoPCmpOp.Ge, op.Op);
+        Assert.Equal(UveSoPCmpType.Us, op.CmpType);
+        Assert.Equal(3, op.Pd);
+        Assert.Equal(1, op.GovPred);
+        Assert.Equal(4, op.Vs1);
+        Assert.Equal(5, op.Vs2);
+    }
+
+    [Fact]
+    public void Decoder_SoPEqUs_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPEqUs(2, 3, 4)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPCmp>(tooth.Payload);
+        Assert.Equal(UveSoPCmpOp.Eq, op.Op);
+        Assert.Equal(UveSoPCmpType.Us, op.CmpType);
+    }
+
+    [Fact]
+    public void Decoder_SoPLtUs_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPLtUs(1, 0, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPCmp>(tooth.Payload);
+        Assert.Equal(UveSoPCmpOp.Lt, op.Op);
+        Assert.Equal(UveSoPCmpType.Us, op.CmpType);
+    }
+
+    [Fact]
+    public void Decoder_SoVMv_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoVMv(3, 5, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoVMv>(tooth.Payload);
+        Assert.False(op.Transpose);
+        Assert.Equal(3, op.Vd);
+        Assert.Equal(5, op.Vs1);
+        Assert.Equal(2, op.PredIdx);
+    }
+
+    [Fact]
+    public void Decoder_SoVMvt_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoVMv(3, 5, 2, true)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoVMv>(tooth.Payload);
+        Assert.True(op.Transpose);
+    }
+
+    // ── SO_P executor tests ───────────────────────────────────────────────────
+
+    [Fact]
+    public void SoP_Reg0_InitiallyAllTrue() {
+        var state = new Rv32ArchState();
+        Assert.All(state.UveState.PredicateRegs[0], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_OtherRegs_InitiallyAllFalse() {
+        var state = new Rv32ArchState();
+        for (var i = 1; i < UveState.PredCount; i++) Assert.All(state.UveState.PredicateRegs[i], b => Assert.False(b));
+    }
+
+    [Fact]
+    public void SoP_Zero_ClearsActiveElements() {
+        var state = new Rv32ArchState();
+        // Governing pred is reg 0 (all-true); target is reg 1.
+        Array.Fill(state.UveState.PredicateRegs[1], true);
+
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Zero, 1, 0, false, -1, -1), state);
+        er.SideEffect!(state);
+
+        Assert.All(state.UveState.PredicateRegs[1], b => Assert.False(b));
+    }
+
+    [Fact]
+    public void SoP_Zero_MergesMaskedElements() {
+        var state = new Rv32ArchState();
+        // Governing pred = reg 1 (all-false); target = reg 2 (all-true).
+        Array.Fill(state.UveState.PredicateRegs[2], true);
+
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Zero, 2, 1, false, -1, -1), state);
+        er.SideEffect!(state);
+
+        // All inactive → merge → still all-true
+        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_Zero_ZeroingFlagClearsInactiveElements() {
+        var state = new Rv32ArchState();
+        // Governing pred = reg 1 (all-false); target = reg 2 (all-true).
+        Array.Fill(state.UveState.PredicateRegs[2], true);
+
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Zero, 2, 1, true, -1, -1), state);
+        er.SideEffect!(state);
+
+        // Zeroing mode: inactive → cleared to false
+        Assert.All(state.UveState.PredicateRegs[2], b => Assert.False(b));
+    }
+
+    [Fact]
+    public void SoP_One_SetsAllActive() {
+        var state = new Rv32ArchState();
+
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.One, 3, 0, false, -1, -1), state);
+        er.SideEffect!(state);
+
+        Assert.All(state.UveState.PredicateRegs[3], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_Not_InvertsSource() {
+        var state = new Rv32ArchState();
+        // ps1 = reg 0 (all-true); pd = reg 2.
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Not, 2, 0, false, 0, -1), state);
+        er.SideEffect!(state);
+
+        Assert.All(state.UveState.PredicateRegs[2], b => Assert.False(b));
+    }
+
+    [Fact]
+    public void SoP_Mv_CopiesSource() {
+        var state = new Rv32ArchState();
+        // Source = reg 0 (all-true); dest = reg 3.
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Mv, 3, 0, false, 0, -1), state);
+        er.SideEffect!(state);
+
+        Assert.All(state.UveState.PredicateRegs[3], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_Mvt_ReversesSource() {
+        var state = new Rv32ArchState();
+        // Source = reg 2 with only first byte set.
+        state.UveState.PredicateRegs[2][0] = true;
+
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Mvt, 3, 0, false, 2, -1), state);
+        er.SideEffect!(state);
+
+        // Reversed: the last byte of pd should be true.
+        bool[] pd = state.UveState.PredicateRegs[3];
+        Assert.True(pd[UveState.PredBytes - 1]);
+        Assert.All(pd[..^1], b => Assert.False(b));
+    }
+
+    [Fact]
+    public void SoP_Vr_SetsValidRange() {
+        var state = new Rv32ArchState();
+        state.UveState.VectorLength = 4;
+
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Vr, 2, 0, false, -1, 0), state);
+        er.SideEffect!(state);
+
+        bool[] pd = state.UveState.PredicateRegs[2];
+        Assert.True(pd[0]);
+        Assert.True(pd[1]);
+        Assert.True(pd[2]);
+        Assert.True(pd[3]);
+        Assert.False(pd[4]);
+    }
+
+    [Fact]
+    public void SoP_EqUs_SetsPredicateOnMatch() {
+        var state = new Rv32ArchState();
+        float v = BitConverter.Int32BitsToSingle(42);
+        state.UveState.Scalars[0] = v;
+        state.UveState.Scalars[1] = v;
+
+        ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1), state);
+        er.SideEffect!(state);
+
+        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_EqUs_ClearsPredicateOnMismatch() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(1);
+        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(2);
+        // Initialize pd to all-true first.
+        Array.Fill(state.UveState.PredicateRegs[2], true);
+
+        ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1), state);
+        er.SideEffect!(state);
+
+        Assert.All(state.UveState.PredicateRegs[2], b => Assert.False(b));
+    }
+
+    [Fact]
+    public void SoP_LtUs_SetsPredicateWhenLess() {
+        var state = new Rv32ArchState();
+        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(1);
+        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(2);
+
+        ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Lt, UveSoPCmpType.Us, 2, 0, 0, 1), state);
+        er.SideEffect!(state);
+
+        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_GovPred_MasksUpdate() {
+        var state = new Rv32ArchState();
+        // GovPred = reg 1 (all-false); no update expected on pd=2.
+        Array.Fill(state.UveState.PredicateRegs[2], true);
+
+        ExecuteResult er = Exec(new RvUveSoPSimple(UveSoPSimpleOp.Zero, 2, 1, false, -1, -1), state);
+        er.SideEffect!(state);
+
+        // No update: still all-true (merging)
+        Assert.All(state.UveState.PredicateRegs[2], b => Assert.True(b));
+    }
+
+    [Fact]
+    public void SoP_Reset_RestoresReg0AllTrue() {
+        var state = new Rv32ArchState();
+        Array.Clear(state.UveState.PredicateRegs[0]);
+        state.UveState.Reset();
+        Assert.All(state.UveState.PredicateRegs[0], b => Assert.True(b));
+    }
+
+    // ── so.v.mv / so.v.mvt executor tests ────────────────────────────────────
+
+    [Fact]
+    public void SoVMv_CopiesWhenPredicateActive() {
+        var state = new Rv32ArchState();
+        var src = 3.14f;
+        state.UveState.Scalars[5] = src;
+
+        ExecuteResult er = Exec(new RvUveSoVMv(false, 3, 5, 0), state);
+        er.SideEffect!(state);
+
+        Assert.Equal(src, state.UveState.Scalars[3]);
+    }
+
+    [Fact]
+    public void SoVMv_MergesWhenPredicateInactive() {
+        var state = new Rv32ArchState();
+        var src = 3.14f;
+        var dst = 2.71f;
+        state.UveState.Scalars[5] = src;
+        state.UveState.Scalars[3] = dst;
+        // PredIdx = 1, which is all-false.
+
+        ExecuteResult er = Exec(new RvUveSoVMv(false, 3, 5, 1), state);
+        er.SideEffect!(state);
+
+        Assert.Equal(dst, state.UveState.Scalars[3]); // unchanged
+    }
 }
