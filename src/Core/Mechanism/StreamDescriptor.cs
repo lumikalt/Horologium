@@ -5,16 +5,26 @@ public readonly record struct StreamDimension(long Count, long Stride);
 
 /// <summary>Which field of a stream dimension a static modifier updates.</summary>
 public enum StreamModifierTarget {
-    Size = 0, Offset = 1, Stride = 2,
+    /// <summary>Update the iteration count of the target dimension.</summary>
+    Size = 0,
+    /// <summary>Update the base-address offset of the stream.</summary>
+    Offset = 1,
+    /// <summary>Update the stride of the target dimension.</summary>
+    Stride = 2,
 }
 
 /// <summary>How a modifier updates its target field.</summary>
 public enum StreamModifierBehavior {
+    /// <summary>Increment: target += Displacement (static) or target += source_value (indirect).</summary>
     Inc = 0,
-    Dec = 1, // static: target += ±Displacement
+    /// <summary>Decrement: target -= Displacement (static) or target -= source_value (indirect).</summary>
+    Dec = 1,
+    /// <summary>Add to original: target = original_base + source_value (indirect only).</summary>
     Add = 2,
-    Sub = 3, // indirect: target = original_base ± source_value
-    Set = 4, // indirect: target = source_value
+    /// <summary>Subtract from original: target = original_base - source_value (indirect only).</summary>
+    Sub = 3,
+    /// <summary>Set directly: target = source_value (indirect only).</summary>
+    Set = 4,
 }
 
 /// <summary>
