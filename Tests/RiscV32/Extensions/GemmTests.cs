@@ -23,12 +23,13 @@ namespace Tests.RiscV32.Extensions;
 ///          so.b.nc     u1, acc       ; while A stream not exhausted
 /// </para>
 /// <para>
-/// The traversal orders are expressed with stride-0 "repeat" dimensions:
-///   u1 (A): dim0 k (count N, stride 4) · dim1 j (count N, stride 0 — replay the row
-///           N times) · dim2 i (count N, stride 4N)
-///   u2 (B): dim0 k (count N, stride 4N — walk a column) · dim1 j (count N, stride 4)
-///           · dim2 i (count N, stride 0 — replay the whole matrix)
-///   u4 (C): dim0 j (count N, stride 4) · dim1 i (count N, stride 4N), store stream
+/// The traversal orders are expressed with stride-0 "repeat" dimensions
+/// (configured outermost-first, Spike style; ss.end adds the innermost):
+///   u1 (A): i (count N, stride 4N) · j (count N, stride 0 — replay the row N times)
+///           · k (count N, stride 4, innermost)
+///   u2 (B): i (count N, stride 0 — replay the whole matrix) · j (count N, stride 4)
+///           · k (count N, stride 4N — walk a column, innermost)
+///   u4 (C): i (count N, stride 4N) · j (count N, stride 4, innermost), store stream
 /// </para>
 /// <para>
 /// Contrast with <see cref="TrisolvTests"/> / <see cref="LowerTriangularSumTests"/>,
@@ -152,21 +153,22 @@ public class GemmTests {
         //   [22]     ebreak
         //
         // Stream configuration ([6..16]). Each stream is opened by ss.sta.{ld,st}.w
-        // (base address, pending config), extended by ss.app (append next-outer
-        // dimension: count register, stride register), and closed by ss.end (append
-        // outermost dimension + activate). Dimensions are appended innermost-first.
+        // (base address, pending config), extended by ss.app (append next dimension:
+        // count register, stride register), and closed by ss.end (append the last
+        // dimension + activate). Dimensions are configured OUTERMOST-FIRST (Spike
+        // convention): ss.end adds the innermost dimension.
         //
         //   u1 = A in the order  for i { for j { for k { A[i][k] } } }:
-        //     dim0 k: count=N, stride=4   — one row, consecutive floats
-        //     dim1 j: count=N, stride=0   — j is absent from A's index: when k wraps,
-        //                                   move 0 bytes and REPLAY the same row N times
-        //     dim2 i: count=N, stride=4N  — advance one row
+        //     i: count=N, stride=4N  — advance one row
+        //     j: count=N, stride=0   — j is absent from A's index: when k wraps,
+        //                              move 0 bytes and REPLAY the same row N times
+        //     k: count=N, stride=4   — one row, consecutive floats (innermost, via ss.end)
         //   u2 = B in the order  for i { for j { for k { B[k][j] } } }:
-        //     dim0 k: count=N, stride=4N  — stepping k jumps a whole row = walk a COLUMN
-        //     dim1 j: count=N, stride=4   — next column
-        //     dim2 i: count=N, stride=0   — replay the entire matrix for each i
+        //     i: count=N, stride=0   — replay the entire matrix for each i
+        //     j: count=N, stride=4   — next column
+        //     k: count=N, stride=4N  — stepping k jumps a whole row = walk a COLUMN (innermost)
         //   u4 = C store, row-major, one write per (i,j):
-        //     dim0 j: count=N, stride=4;  dim1 i: count=N, stride=4N
+        //     i: count=N, stride=4N;  j: count=N, stride=4 (innermost)
         //
         // The loop ([17..21]) — all three induction variables live in the streaming
         // engine as dimension odometers; no loads, no address math, no counters:
@@ -191,22 +193,22 @@ public class GemmTests {
             Addi(5, 0, 4),          // [4]  x5 = 4
             Slli(6, 4, 2),          // [5]  x6 = N*4
 
-            // u1 = A: k (N,4) · j (N,0) · i (N,4N)
+            // u1 = A, outermost-first: i (N,4N) · j (N,0) · k (N,4)
             SsStaLdW(1, 1),    // [6]
-            SsApp(1, 0, 4, 5), // [7]  dim0 k: count=N, stride=4
-            SsApp(1, 0, 4, 0), // [8]  dim1 j: count=N, stride=0 (replay row)
-            SsEnd(1, 0, 4, 6), // [9]  dim2 i: count=N, stride=4N; activate
+            SsApp(1, 0, 4, 6), // [7]  i: count=N, stride=4N
+            SsApp(1, 0, 4, 0), // [8]  j: count=N, stride=0 (replay row)
+            SsEnd(1, 0, 4, 5), // [9]  k (innermost): count=N, stride=4; activate
 
-            // u2 = B: k (N,4N) · j (N,4) · i (N,0)
+            // u2 = B, outermost-first: i (N,0) · j (N,4) · k (N,4N)
             SsStaLdW(2, 2),    // [10]
-            SsApp(2, 0, 4, 6), // [11] dim0 k: count=N, stride=4N (walk column)
-            SsApp(2, 0, 4, 5), // [12] dim1 j: count=N, stride=4
-            SsEnd(2, 0, 4, 0), // [13] dim2 i: count=N, stride=0 (replay matrix)
+            SsApp(2, 0, 4, 0), // [11] i: count=N, stride=0 (replay matrix)
+            SsApp(2, 0, 4, 5), // [12] j: count=N, stride=4
+            SsEnd(2, 0, 4, 6), // [13] k (innermost): count=N, stride=4N (walk column); activate
 
-            // u4 = C store: j (N,4) · i (N,4N)
+            // u4 = C store, outermost-first: i (N,4N) · j (N,4)
             SsStaStW(4, 3),    // [14]
-            SsApp(4, 0, 4, 5), // [15] dim0 j: count=N, stride=4
-            SsEnd(4, 0, 4, 6), // [16] dim1 i: count=N, stride=4N; activate
+            SsApp(4, 0, 4, 6), // [15] i: count=N, stride=4N
+            SsEnd(4, 0, 4, 5), // [16] j (innermost): count=N, stride=4; activate
 
             // ── The entire GEMM loop nest ─────────────────────────────────────
             SoVDpW(3, 0),                       // [17] acc: u3 = 0.0

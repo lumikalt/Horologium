@@ -54,9 +54,10 @@ off here until a periodic cleanup removes them; the durable record is git histor
   switching and early termination
 - [x] Vector-length control: `ss.getvl` / `ss.setvl` — read and configure the active vector length for narrower-VL
   emulation and VL-aligned dimension padding
-- [ ] Dimension configuration order alignment with Spike: Spike's `ss.app`/`ss.end` build descriptors
-  outermost-first (`ss.end` adds the innermost dimension); Horologium builds innermost-first. Programs written
-  for one are dimension-reversed on the other — flip the config order to match Spike.
+- [x] Dimension configuration order alignment with Spike: `ss.app`/`ss.end` build descriptors outermost-first
+  (`ss.end` adds the innermost dimension), matching Spike's deque order; `ss.app.mod` funct3, `ss.app.ind`
+  rs3, and explicit `ss.cfg.vec` dim indices are all outermost-first and remapped to the engine's
+  innermost-first order at `ss.end`.
 - [ ] Cache-level stream routing: `so.cfg.memx` — direct a stream to operate from L x rather than the default L2
 - [ ] FP register source for scalar broadcast: `so.v.dup.fp.w ud, fs1` — the paper's SAXPY uses an FP register (fa0) not
   an integer register; `so.v.dp.w` reads from integer rs1 only

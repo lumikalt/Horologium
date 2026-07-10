@@ -124,8 +124,9 @@ public class SparseDotProductTests {
         // UVE register plan:
         //   u1 = val load stream (1D)
         //   u2 = IndSource stream over the column offsets (consumed by the engine only)
-        //   u3 = gathered x stream: dim0 count=1 with {Offset, Set} indirect modifier,
-        //        dim1 count=M — each element fetched at xBase + col-offset
+        //   u3 = gathered x stream: outer dim count=M over an innermost dim count=1
+        //        carrying an {Offset, Set} indirect modifier — each element fetched
+        //        at xBase + col-offset
         //   u4 = accumulator   u5 = 1-element result store stream
 
         uint[] words = [
@@ -141,11 +142,12 @@ public class SparseDotProductTests {
             SsStaLdWInds(2, 2), // [7]
             SsEnd(2, 0, 4, 5),  // [8]  count=M, stride=4; activate
 
-            // u3: gathered x — 2D, dim0 count=1 re-based per element from u2
+            // u3: gathered x — 2D (config outermost-first), innermost count=1 re-based
+            // per element from u2
             SsStaLdW(3, 3),     // [9]  base = xBase
-            SsApp(3, 0, 7, 0),  // [10] dim0: count=1, stride=0
-            SsAppInd(3, 2, 1),  // [11] {Offset, Set} from u2 on dim0 (Spike dim 1 of 2)
-            SsEnd(3, 0, 4, 0),  // [12] dim1: count=M, stride=0; activate
+            SsApp(3, 0, 4, 0),  // [10] outer: count=M, stride=0
+            SsAppInd(3, 2, 1),  // [11] {Offset, Set} from u2 on the innermost (Spike dim 1 of 2)
+            SsEnd(3, 0, 7, 0),  // [12] innermost: count=1, stride=0; activate
 
             // u1: sparse values, plain 1D
             SsStaLdW(1, 1),    // [13]

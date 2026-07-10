@@ -1970,7 +1970,8 @@ public class Rv32Decoder : IDecoder {
         switch (funct2) {
             case 0: {
                 // ss.sta.{ld|st}.*: funct3[2]=1→load,0→store; ew=1<<(funct3&3)
-                // rs3 bit[3]=1 → vector mode; bits[2:0]=7 → innermost dim (-1); bits[2:0]=0..6 → explicit dim
+                // rs3 bit[3]=1 → vector mode; bits[2:0]=7 → innermost dim (-1); bits[2:0]=0..6 → explicit
+                // dim, counted OUTERMOST-FIRST (Spike deque index) — remapped to engine order at ss.end
                 // rs3 bit[4]=1 → masked variant (predicate reg; decoded but mask is ignored until SO_P implemented)
                 // rs2 bit[4]=1 + isLoad → IndSource stream (ss.sta.ld.*_inds)
                 int ew = UveElementBytes(funct3);
@@ -2017,7 +2018,8 @@ public class Rv32Decoder : IDecoder {
                 );
             }
             case 3: {
-                // ss.app.mod: funct2=3, funct3=dimIndex (0-7), rs1=E register, rs2=target+behavior literal, rs3=disp reg
+                // ss.app.mod: funct2=3, funct3=dimIndex (0-7, outermost-first — remapped to the
+                // engine's innermost-first index at ss.end), rs1=E register, rs2=target+behavior literal, rs3=disp reg
                 // Spike target encoding: 0=Size, 1=Stride, 2=Offset → map to Horologium enum: Size=0, Stride=2, Offset=1
                 var dimIndex = (int)funct3;
                 int spikeTarget = rs2 & 0x3;

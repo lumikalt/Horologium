@@ -228,7 +228,8 @@ public class UveTests {
         (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | (uint)((rs2 & 0x1F) << 20)
              | (uint)((rs1Offset & 0x1F) << 15) | (0x0u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
-    // ss.app.mod: funct2=3, funct3=dimIndex (0-7), rs1=E register (0=x0=unlimited), rs2=behavior<<2|spikeTarget, rs3=disp reg
+    // ss.app.mod: funct2=3, funct3=dimIndex (0-7, outermost-first), rs1=E register (0=x0=unlimited),
+    // rs2=behavior<<2|spikeTarget, rs3=disp reg
     // Spike target encoding: Size=0, Stride=1, Offset=2 (differs from Horologium: Size=0, Offset=1, Stride=2)
     private static uint SsAppMod(
         int ud,
@@ -453,26 +454,28 @@ public class UveTests {
 
     [Fact]
     public void SsEnd_ActivatesMultiDimLoadStream() {
+        // Config order is outermost-first (Spike); ss.end appends the innermost dimension
+        // and the descriptor comes out in the engine's innermost-first order.
         var state = new Rv32ArchState();
         var cfg = new PendingStreamConfig { BaseAddress = 0x3000, ElementBytes = 4, IsLoad = true, };
-        cfg.Dimensions.Add(new StreamDimension(4, 4));  // inner dim
+        cfg.Dimensions.Add(new StreamDimension(4, 4));  // outermost dim
         cfg.Dimensions.Add(new StreamDimension(3, 32)); // middle dim
         state.UveState.PendingConfig[1] = cfg;
 
-        state.IntegerRegisters.Write(2, 2); // outermost count
-        state.IntegerRegisters.Write(3, 0); // outermost stride (unused here)
+        state.IntegerRegisters.Write(2, 2); // innermost count
+        state.IntegerRegisters.Write(3, 0); // innermost stride (unused here)
 
         ExecuteResult er = Exec(new RvUveSsEnd(1, 0, 2, 3), state);
 
-        // Should produce a StreamConfig with 3 dimensions
+        // Should produce a StreamConfig with 3 dimensions, innermost first
         Assert.True(er.StreamConfig.HasValue);
         Assert.Equal(1, er.StreamConfig!.Value.StreamId);
         StreamDescriptor desc = er.StreamConfig.Value.Descriptor;
         Assert.Equal(0x3000UL, desc.BaseAddress);
         Assert.Equal(3, desc.Dimensions.Length);
-        Assert.Equal(4L, desc.Dimensions[0].Count);
+        Assert.Equal(2L, desc.Dimensions[0].Count); // ss.end dim = innermost
         Assert.Equal(3L, desc.Dimensions[1].Count);
-        Assert.Equal(2L, desc.Dimensions[2].Count);
+        Assert.Equal(4L, desc.Dimensions[2].Count); // first-configured dim = outermost
 
         er.SideEffect?.Invoke(state);
         Assert.Null(state.UveState.PendingConfig[1]);
@@ -845,11 +848,10 @@ public class UveTests {
     ///   Output: 12 floats at 0x0200 (linearized, row-major).
     /// </para>
     /// <para>
-    /// Stream u1 configured as a 2D load stream:
-    ///   ss.sta.ld.w u1, x1, x3, x4   — base=0x0000, inner count=4, inner stride=4
-    ///   ss.app      u1, x5, x6        — outer count=3, outer stride=32
-    ///   ss.end      u1, x0, x0        — no additional dimension (0-count dim ignored? No —
-    ///                                   we use a 2-dim stream: ss.sta provides dim0, ss.end provides dim1)
+    /// Stream u1 configured as a 2D load stream (config order outermost-first, Spike style):
+    ///   ss.sta.ld.w u1, x1            — base=0x0000
+    ///   ss.app      u1, x0, x5, x6    — outer dim: count=3 rows, stride=32
+    ///   ss.end      u1, x0, x3, x4    — inner dim: count=4 cols, stride=4; activate
     /// </para>
     /// <para>
     /// Loop structure:
@@ -900,10 +902,10 @@ public class UveTests {
             Addi(6, 0, rowBytes),    // x6 = 32
             Addi(8, 0, rows * cols), // x8 = 12
             Lui(7, 0x40400),         // x7 = bits(3.0f)
-            // 2D load stream u1: ss.sta.ld.w (base) + ss.app (inner dim) + ss.end (outer dim, activate)
+            // 2D load stream u1: ss.sta.ld.w (base) + ss.app (outer dim) + ss.end (inner dim, activate)
             SsStaLdW(1, 1),    // base=x1
-            SsApp(1, 0, 3, 4), // inner dim: count=x3(4), stride=x4(4)
-            SsEnd(1, 0, 5, 6), // outer dim: count=x5(3), stride=x6(32); activate
+            SsApp(1, 0, 5, 6), // outer dim: count=x5(3), stride=x6(32)
+            SsEnd(1, 0, 3, 4), // inner dim: count=x3(4), stride=x4(4); activate
             // 1D store stream u2: ss.sta.st.w + ss.end
             SsStaStW(2, 2), SsEnd(2, 0, 8, 4), // count=x8(12), stride=x4(4)
             SoVDpW(4, 7),
@@ -974,10 +976,10 @@ public class UveTests {
             Lui(7, 0x3F800),         // x7 = bits(1.0f)
             // 1D load stream u1: ss.sta.ld.w + ss.end
             SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // count=x3(12), stride=x4(4)
-            // 2D store stream u2: ss.sta.st.w + ss.app (inner) + ss.end (outer)
+            // 2D store stream u2: ss.sta.st.w + ss.app (outer) + ss.end (inner)
             SsStaStW(2, 2),              // base=x2
-            SsApp(2, 0, 5, 4),           // inner dim: count=x5(4 cols), stride=x4(4)
-            SsEnd(2, 0, 6, 8),           // outer dim: count=x6(3 rows), stride=x8(32); activate
+            SsApp(2, 0, 6, 8),           // outer dim: count=x6(3 rows), stride=x8(32)
+            SsEnd(2, 0, 5, 4),           // inner dim: count=x5(4 cols), stride=x4(4); activate
             SoVDpW(4, 7),                // u4 = 1.0f
             SoAFp(UveFpOp.Mul, 2, 1, 4), // u2[dst] = u1[i] * u4
             SoBNc(1, -4),                // loop while u1 not exhausted
@@ -1050,8 +1052,8 @@ public class UveTests {
         return sum;
     }
 
-    // 2D stream with static Size modifier via ss.sta.ld.w → ss.app.mod → ss.app → ss.end.
-    // The modifier grows D0's count by 1 on each D1 iteration (lower-triangular access).
+    // 2D stream with static Size modifier via ss.sta.ld.w → ss.app → ss.app.mod → ss.end.
+    // The modifier grows the innermost count by 1 on each row wrap (lower-triangular access).
     private static float RunSsAppModLowerTriangular(int n) {
         const ulong matBase = 0x0200u;
         const ulong resultAddr = 0x0100u;
@@ -1065,9 +1067,10 @@ public class UveTests {
         }
 
         // Registers: x1=matBase, x2=N, x3=N*4, x4=4, x5=1(disp register)
-        // Stream: ss.sta.ld.w (base) → ss.app (D0: count=x5=1, stride=x4=4)
-        //       → ss.app.mod (dimIndex=0, Size, Inc, disp=x5) → ss.end (D1: count=x2=N, stride=x3=N*4)
-        // Loop: so.b.nc u1 (whole-stream done check; ndc_1/dim=0 doesn't exist in Spike encoding)
+        // Stream (config outermost-first): ss.sta.ld.w (base) → ss.app (rows: count=x2=N, stride=x3=N*4)
+        //       → ss.app.mod (dimIndex=1 = innermost of 2, Size, Inc, disp=x5)
+        //       → ss.end (row elements: count=x5=1, stride=x4=4)
+        // Loop: so.b.nc u1 (whole-stream done check)
         uint[] words = [
             Addi(1, 0, (int)matBase), // [0]
             Addi(2, 0, n), // [1] x2 = N
@@ -1076,9 +1079,9 @@ public class UveTests {
             Addi(5, 0, 1), // [4] x5 = 1 (disp)
             SoVDpW(2, 0), // [5] u2 = 0.0f
             SsStaLdW(1, 1), // [6] base=x1
-            SsApp(1, 0, 5, 4), // [7] D0: count=x5(1), stride=x4(4)
-            SsAppMod(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), // [8] mod D0.Size += x5
-            SsEnd(1, 0, 2, 3), // [9] D1: count=x2(N), stride=x3(N*4); activate
+            SsApp(1, 0, 2, 3), // [7] outer rows: count=x2(N), stride=x3(N*4)
+            SsAppMod(1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), // [8] innermost.Size += x5
+            SsEnd(1, 0, 5, 4), // [9] innermost: count=x5(1), stride=x4(4); activate
             SoAFp(UveFpOp.Add, 2, 1, 2), // [10] u2 += elem
             SoBNc(1, -4), // [11] loop while stream active (back 1 instr)
             Addi(9, 0, (int)resultAddr), // [12]

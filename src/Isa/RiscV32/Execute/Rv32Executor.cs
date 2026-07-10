@@ -3356,7 +3356,10 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // ss.app ud, rs1_offset, rs2_count, rs3_stride — append next outer dimension to pending config.
+    // ss.app ud, rs1_offset, rs2_count, rs3_stride — append the next dimension to the pending config.
+    // Dimensions are configured OUTERMOST-FIRST (Spike: dimensions.push_back, dimensions.back() = innermost);
+    // ss.end appends the innermost dimension. The list is reversed into the engine's innermost-first
+    // order when the stream is activated.
     // rs1_offset adds offset*ew to the stream base address (accumulated into PendingStreamConfig.OffsetBytes).
     private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
         var offset = (long)regs.Read(rs1);
@@ -3372,9 +3375,11 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // ss.end ud, rs1_offset, rs2_count, rs3_stride — outermost dimension + activate stream.
+    // ss.end ud, rs1_offset, rs2_count, rs3_stride — innermost dimension + activate stream.
+    // Config order is outermost-first (Spike convention), so the accumulated dimension list is
+    // reversed into the engine's innermost-first order here. Modifier DimIndex values (ss.app.mod,
+    // ss.app.ind) and explicit vecCfgDim are encoded outermost-first and remapped the same way.
     // rs1_offset adds offset*ew to the stream base address (combined with any prior ss.app offsets).
-    // Remaps indirect modifier DimIndex from Spike outermost-first to Horologium innermost-first.
     private static ExecuteResult ExecuteUveSsEnd(
         IArchState state,
         IRegisterFile regs,
@@ -3392,18 +3397,19 @@ public class Rv32Executor : IExecutor {
 
         long totalOffsetBytes = pending.OffsetBytes + offset * pending.ElementBytes;
         var baseAddr = (ulong)((long)pending.BaseAddress + totalOffsetBytes);
-        StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).ToArray();
+
+        // Config order is outermost-first; the engine indexes innermost-first. Reverse.
+        StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).Reverse().ToArray();
         int ndim = dims.Length;
 
-        // Build modifier array; remap indirect modifier DimIndex from Spike (outermost=0) to Horologium (innermost=0).
+        // Remap modifier DimIndex and explicit vecCfgDim from Spike (outermost=0) to engine (innermost=0).
         StreamModifier[]? mods = null;
         if (pending.Modifiers.Count > 0)
-            mods = pending.Modifiers
-                          .Select(m => m.SourceStreamId >= 0 ? m with { DimIndex = ndim - 1 - m.DimIndex, } : m)
-                          .ToArray();
+            mods = pending.Modifiers.Select(m => m with { DimIndex = ndim - 1 - m.DimIndex, }).ToArray();
+        int vecCfgDim = pending.VecCfgDim >= 0 ? ndim - 1 - pending.VecCfgDim : -1;
 
         var descriptor = new StreamDescriptor(
-            baseAddr, pending.ElementBytes, dims, mods, pending.IsVector, pending.VecCfgDim
+            baseAddr, pending.ElementBytes, dims, mods, pending.IsVector, vecCfgDim
         );
         bool isLoad = pending.IsLoad;
         bool isIndSource = pending.IsIndSource;
@@ -3437,7 +3443,9 @@ public class Rv32Executor : IExecutor {
     }
 
     // ss.app.mod ud, rs1Size, dimIndex, target, behavior, rs3Disp — append static modifier.
-    // dimIndex comes from funct3; rs1Size holds MaxApplications (0 = unlimited); rs3Disp is the displacement register.
+    // dimIndex comes from funct3 and counts dimensions OUTERMOST-FIRST (Spike convention, like
+    // ss.app.ind and so.b.ndc); remapped to the engine's innermost-first index in ExecuteUveSsEnd.
+    // rs1Size holds MaxApplications (0 = unlimited); rs3Disp is the displacement register.
     private static ExecuteResult ExecuteUveSsAppMod(
         IRegisterFile regs,
         int ud,
