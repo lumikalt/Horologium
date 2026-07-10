@@ -265,7 +265,7 @@ public class UveTests {
         ExecuteResult er = Exec(new RvUveSoVDp(4, 5, 4), state);
         er.SideEffect?.Invoke(state);
 
-        Assert.Equal(3.14f, state.UveState.Scalars[4], 4);
+        Assert.Equal(3.14f, state.UveState.GetScalar(4), 4);
         Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[4]);
     }
 
@@ -275,14 +275,14 @@ public class UveTests {
         state.IntegerRegisters.Write(5, 0xDEAD00ABu);
         ExecuteResult er = Exec(new RvUveSoVDp(4, 5, 1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0xAB, BitConverter.SingleToInt32Bits(state.UveState.Scalars[4]));
+        Assert.Equal(0xAB, BitConverter.SingleToInt32Bits(state.UveState.GetScalar(4)));
         Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[4]);
     }
 
     [Fact]
     public void SoVMvvs_WritesFirstElementToIntegerReg() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[3] = BitConverter.Int32BitsToSingle(0x12345678);
+        state.UveState.SetScalar(3, BitConverter.Int32BitsToSingle(0x12345678));
         ExecuteResult er = Exec(new RvUveSoVMvvs(3, 7), state);
         er.SideEffect?.Invoke(state);
         Assert.Equal(0x12345678u, (uint)state.IntegerRegisters.Read(7));
@@ -294,7 +294,7 @@ public class UveTests {
         state.IntegerRegisters.Write(2, 0xCAFEBABEu);
         ExecuteResult er = Exec(new RvUveSoVMvsv(6, 2, 4), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(unchecked((int)0xCAFEBABEu), BitConverter.SingleToInt32Bits(state.UveState.Scalars[6]));
+        Assert.Equal(unchecked((int)0xCAFEBABEu), BitConverter.SingleToInt32Bits(state.UveState.GetScalar(6)));
         Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[6]);
     }
 
@@ -304,7 +304,7 @@ public class UveTests {
         state.IntegerRegisters.Write(2, 0xDEAD00CDu);
         ExecuteResult er = Exec(new RvUveSoVMvsv(6, 2, 1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0xCD, BitConverter.SingleToInt32Bits(state.UveState.Scalars[6]));
+        Assert.Equal(0xCD, BitConverter.SingleToInt32Bits(state.UveState.GetScalar(6)));
         Assert.Equal(UveRegKind.Scalar, state.UveState.RegKind[6]);
     }
 
@@ -312,25 +312,25 @@ public class UveTests {
     public void SoAFp_Mul_ComputesProduct() {
         var state = new Rv32ArchState();
         // Pipeline would inject source values; simulate by pre-setting scalars
-        state.UveState.Scalars[1] = 3.0f;
-        state.UveState.Scalars[2] = 4.0f;
+        state.UveState.SetScalar(1, 3.0f);
+        state.UveState.SetScalar(2, 4.0f);
 
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Mul, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
 
-        Assert.Equal(12.0f, state.UveState.Scalars[5], 4);
+        Assert.Equal(12.0f, state.UveState.GetScalar(5), 4);
     }
 
     [Fact]
     public void SoAFp_Add_ComputesSum() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = 2.5f;
-        state.UveState.Scalars[2] = 7.5f;
+        state.UveState.SetScalar(1, 2.5f);
+        state.UveState.SetScalar(2, 7.5f);
 
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Add, 0, 1, 2), state);
         er.SideEffect?.Invoke(state);
 
-        Assert.Equal(10.0f, state.UveState.Scalars[0], 4);
+        Assert.Equal(10.0f, state.UveState.GetScalar(0), 4);
     }
 
     [Fact]
@@ -347,8 +347,8 @@ public class UveTests {
         state.UveState.StoreStreams[3] = storeStream;
         state.UveState.RegKind[3] = UveRegKind.StoreStream;
 
-        state.UveState.Scalars[1] = 5.0f;
-        state.UveState.Scalars[2] = 3.0f;
+        state.UveState.SetScalar(1, 5.0f);
+        state.UveState.SetScalar(2, 3.0f);
 
         // so.a.mul.fp u3, u1, u2 → should write 5*3=15 to address 0 and advance cursor
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Mul, 3, 1, 2), state, mem);
@@ -1132,48 +1132,48 @@ public class UveTests {
     [Fact]
     public void SoAFp_Min_ReturnsSmaller() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = 3.0f;
-        state.UveState.Scalars[2] = 7.0f;
+        state.UveState.SetScalar(1, 3.0f);
+        state.UveState.SetScalar(2, 7.0f);
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Min, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(3.0f, state.UveState.Scalars[5]);
+        Assert.Equal(3.0f, state.UveState.GetScalar(5));
     }
 
     [Fact]
     public void SoAFp_Max_ReturnsLarger() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = 3.0f;
-        state.UveState.Scalars[2] = 7.0f;
+        state.UveState.SetScalar(1, 3.0f);
+        state.UveState.SetScalar(2, 7.0f);
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Max, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(7.0f, state.UveState.Scalars[5]);
+        Assert.Equal(7.0f, state.UveState.GetScalar(5));
     }
 
     [Fact]
     public void SoAFp_Abs_RemovesSign() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = -4.5f;
+        state.UveState.SetScalar(1, -4.5f);
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Abs, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(4.5f, state.UveState.Scalars[5]);
+        Assert.Equal(4.5f, state.UveState.GetScalar(5));
     }
 
     [Fact]
     public void SoAFp_Inc_AddsOne() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = 9.0f;
+        state.UveState.SetScalar(1, 9.0f);
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Inc, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(10.0f, state.UveState.Scalars[5]);
+        Assert.Equal(10.0f, state.UveState.GetScalar(5));
     }
 
     [Fact]
     public void SoAFp_Dec_SubtractsOne() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = 5.0f;
+        state.UveState.SetScalar(1, 5.0f);
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Dec, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(4.0f, state.UveState.Scalars[5]);
+        Assert.Equal(4.0f, state.UveState.GetScalar(5));
     }
 
     // ── Integer arithmetic ops ─────────────────────────────────────────────────
@@ -1181,99 +1181,99 @@ public class UveTests {
     [Fact]
     public void SoAInt_Add_US_ComputesSum() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(10u);
-        state.UveState.Scalars[2] = Ub(32u);
+        state.UveState.SetScalar(1, Ub(10u));
+        state.UveState.SetScalar(2, Ub(32u));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Add, false, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(42u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(42u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Sub_SG_ComputesSignedDifference() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ib(5);
-        state.UveState.Scalars[2] = Ib(8);
+        state.UveState.SetScalar(1, Ib(5));
+        state.UveState.SetScalar(2, Ib(8));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Sub, true, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(-3, Rib(state.UveState.Scalars[5]));
+        Assert.Equal(-3, Rib(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Mul_US_ComputesProduct() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(6u);
-        state.UveState.Scalars[2] = Ub(7u);
+        state.UveState.SetScalar(1, Ub(6u));
+        state.UveState.SetScalar(2, Ub(7u));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Mul, false, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(42u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(42u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Div_SG_ComputesQuotient() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ib(-20);
-        state.UveState.Scalars[2] = Ib(4);
+        state.UveState.SetScalar(1, Ib(-20));
+        state.UveState.SetScalar(2, Ib(4));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Div, true, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(-5, Rib(state.UveState.Scalars[5]));
+        Assert.Equal(-5, Rib(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Mac_AccumulatesResult() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = Ib(100); // accumulator
-        state.UveState.Scalars[1] = Ib(3);
-        state.UveState.Scalars[2] = Ib(4);
+        state.UveState.SetScalar(5, Ib(100)); // accumulator
+        state.UveState.SetScalar(1, Ib(3));
+        state.UveState.SetScalar(2, Ib(4));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Mac, true, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(112, Rib(state.UveState.Scalars[5])); // 100 + 3*4
+        Assert.Equal(112, Rib(state.UveState.GetScalar(5))); // 100 + 3*4
     }
 
     [Fact]
     public void SoAInt_Min_SG_ReturnsMinimum() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ib(-3);
-        state.UveState.Scalars[2] = Ib(5);
+        state.UveState.SetScalar(1, Ib(-3));
+        state.UveState.SetScalar(2, Ib(5));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Min, true, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(-3, Rib(state.UveState.Scalars[5]));
+        Assert.Equal(-3, Rib(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Max_US_ReturnsMaximum() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(0xFFFFFFF0u);
-        state.UveState.Scalars[2] = Ub(0x00000010u);
+        state.UveState.SetScalar(1, Ub(0xFFFFFFF0u));
+        state.UveState.SetScalar(2, Ub(0x00000010u));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Max, false, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0xFFFFFFF0u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(0xFFFFFFF0u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Abs_SG_RemovesSign() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ib(-42);
+        state.UveState.SetScalar(1, Ib(-42));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Abs, true, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(42, Rib(state.UveState.Scalars[5]));
+        Assert.Equal(42, Rib(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Inc_US_Increments() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(99u);
+        state.UveState.SetScalar(1, Ub(99u));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Inc, false, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(100u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(100u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Dec_SG_Decrements() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ib(0);
+        state.UveState.SetScalar(1, Ib(0));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Dec, true, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(-1, Rib(state.UveState.Scalars[5]));
+        Assert.Equal(-1, Rib(state.UveState.GetScalar(5)));
     }
 
     // ── Logic ops ─────────────────────────────────────────────────────────────
@@ -1281,60 +1281,60 @@ public class UveTests {
     [Fact]
     public void SoALogic_And_ComputesBitwiseAnd() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(0xFF00FF00u);
-        state.UveState.Scalars[2] = Ub(0xF0F0F0F0u);
+        state.UveState.SetScalar(1, Ub(0xFF00FF00u));
+        state.UveState.SetScalar(2, Ub(0xF0F0F0F0u));
         ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.And, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0xF000F000u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(0xF000F000u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoALogic_Or_ComputesBitwiseOr() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(0xFF00FF00u);
-        state.UveState.Scalars[2] = Ub(0x00FF00FFu);
+        state.UveState.SetScalar(1, Ub(0xFF00FF00u));
+        state.UveState.SetScalar(2, Ub(0x00FF00FFu));
         ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Or, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0xFFFFFFFFu, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(0xFFFFFFFFu, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoALogic_Xor_ComputesBitwiseXor() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(0xAAAAAAAAu);
-        state.UveState.Scalars[2] = Ub(0x55555555u);
+        state.UveState.SetScalar(1, Ub(0xAAAAAAAAu));
+        state.UveState.SetScalar(2, Ub(0x55555555u));
         ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Xor, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0xFFFFFFFFu, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(0xFFFFFFFFu, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoALogic_Not_InvertsBits() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(0xFFFF0000u);
+        state.UveState.SetScalar(1, Ub(0xFFFF0000u));
         ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Not, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0x0000FFFFu, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(0x0000FFFFu, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoALogic_Nand_ComputesNand() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(0xFFFFFFFFu);
-        state.UveState.Scalars[2] = Ub(0xFFFFFFFFu);
+        state.UveState.SetScalar(1, Ub(0xFFFFFFFFu));
+        state.UveState.SetScalar(2, Ub(0xFFFFFFFFu));
         ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Nand, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(0u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoALogic_Nor_ComputesNor() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(0u);
-        state.UveState.Scalars[2] = Ub(0u);
+        state.UveState.SetScalar(1, Ub(0u));
+        state.UveState.SetScalar(2, Ub(0u));
         ExecuteResult er = Exec(new RvUveSoALogic(UveLogicOp.Nor, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0xFFFFFFFFu, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(0xFFFFFFFFu, Rub(state.UveState.GetScalar(5)));
     }
 
     // ── Shift ops ─────────────────────────────────────────────────────────────
@@ -1342,51 +1342,51 @@ public class UveTests {
     [Fact]
     public void SoAShiftV_Sll_ShiftsLeft() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(1u);
-        state.UveState.Scalars[2] = Ub(8u); // shift amount
+        state.UveState.SetScalar(1, Ub(1u));
+        state.UveState.SetScalar(2, Ub(8u)); // shift amount
         ExecuteResult er = Exec(new RvUveSoAShiftV(UveShiftOp.Sll, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(256u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(256u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAShiftV_Srl_ShiftsRightLogical() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(0x80000000u);
-        state.UveState.Scalars[2] = Ub(1u);
+        state.UveState.SetScalar(1, Ub(0x80000000u));
+        state.UveState.SetScalar(2, Ub(1u));
         ExecuteResult er = Exec(new RvUveSoAShiftV(UveShiftOp.Srl, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(0x40000000u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(0x40000000u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAShiftV_Sra_ShiftsRightArithmetic() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ib(-8);
-        state.UveState.Scalars[2] = Ub(1u);
+        state.UveState.SetScalar(1, Ib(-8));
+        state.UveState.SetScalar(2, Ub(1u));
         ExecuteResult er = Exec(new RvUveSoAShiftV(UveShiftOp.Sra, 5, 1, 2), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(-4, Rib(state.UveState.Scalars[5]));
+        Assert.Equal(-4, Rib(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAShiftS_Sll_UsesIntegerRegisterForAmount() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ub(1u);
+        state.UveState.SetScalar(1, Ub(1u));
         state.IntegerRegisters.Write(3, 4); // rs2=x3 holds shift amount 4
         ExecuteResult er = Exec(new RvUveSoAShiftS(UveShiftOp.Sll, 5, 1, 3), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(16u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(16u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAShiftS_Sra_SignExtends() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ib(int.MinValue); // 0x80000000
+        state.UveState.SetScalar(1, Ib(int.MinValue)); // 0x80000000
         state.IntegerRegisters.Write(3, 31);
         ExecuteResult er = Exec(new RvUveSoAShiftS(UveShiftOp.Sra, 5, 1, 3), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(-1, Rib(state.UveState.Scalars[5]));
+        Assert.Equal(-1, Rib(state.UveState.GetScalar(5)));
     }
 
     // ── Decoder round-trips for new ops ───────────────────────────────────────
@@ -1525,77 +1525,77 @@ public class UveTests {
     [Fact]
     public void SoAFp_Adde_OverwritesUd() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = 999f; // existing accumulator
-        state.UveState.Scalars[1] = 7.0f;
+        state.UveState.SetScalar(5, 999f); // existing accumulator
+        state.UveState.SetScalar(1, 7.0f);
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Adde, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(7.0f, state.UveState.Scalars[5]);
+        Assert.Equal(7.0f, state.UveState.GetScalar(5));
     }
 
     [Fact]
     public void SoAFp_AddeAcc_AccumulatesIntoUd() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = 10f;
-        state.UveState.Scalars[1] = 3.0f;
+        state.UveState.SetScalar(5, 10f);
+        state.UveState.SetScalar(1, 3.0f);
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.AddeAcc, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(13.0f, state.UveState.Scalars[5]);
+        Assert.Equal(13.0f, state.UveState.GetScalar(5));
     }
 
     [Fact]
     public void SoAFp_Mine_UpdatesRunningMin() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = 10f;  // current running min
-        state.UveState.Scalars[1] = 3.0f; // new element, smaller
+        state.UveState.SetScalar(5, 10f);  // current running min
+        state.UveState.SetScalar(1, 3.0f); // new element, smaller
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Mine, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(3.0f, state.UveState.Scalars[5]);
+        Assert.Equal(3.0f, state.UveState.GetScalar(5));
 
         // Element larger than current min: does not update
-        state.UveState.Scalars[1] = 99f;
+        state.UveState.SetScalar(1, 99f);
         er = Exec(new RvUveSoAFp(UveFpOp.Mine, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(3.0f, state.UveState.Scalars[5]);
+        Assert.Equal(3.0f, state.UveState.GetScalar(5));
     }
 
     [Fact]
     public void SoAFp_Maxe_UpdatesRunningMax() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = 5f;
-        state.UveState.Scalars[1] = 12.0f;
+        state.UveState.SetScalar(5, 5f);
+        state.UveState.SetScalar(1, 12.0f);
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Maxe, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(12.0f, state.UveState.Scalars[5]);
+        Assert.Equal(12.0f, state.UveState.GetScalar(5));
     }
 
     [Fact]
     public void SoAInt_AddeAcc_US_Accumulates() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = Ub(100u);
-        state.UveState.Scalars[1] = Ub(42u);
+        state.UveState.SetScalar(5, Ub(100u));
+        state.UveState.SetScalar(1, Ub(42u));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.AddeAcc, false, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(142u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(142u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Mine_SG_UpdatesRunningMin() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = Ib(10);
-        state.UveState.Scalars[1] = Ib(-5);
+        state.UveState.SetScalar(5, Ib(10));
+        state.UveState.SetScalar(1, Ib(-5));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Mine, true, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(-5, Rib(state.UveState.Scalars[5]));
+        Assert.Equal(-5, Rib(state.UveState.GetScalar(5)));
     }
 
     [Fact]
     public void SoAInt_Maxe_US_UpdatesRunningMax() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[5] = Ub(50u);
-        state.UveState.Scalars[1] = Ub(200u);
+        state.UveState.SetScalar(5, Ub(50u));
+        state.UveState.SetScalar(1, Ub(200u));
         ExecuteResult er = Exec(new RvUveSoAInt(UveIntOp.Maxe, false, 5, 1, -1), state);
         er.SideEffect?.Invoke(state);
-        Assert.Equal(200u, Rub(state.UveState.Scalars[5]));
+        Assert.Equal(200u, Rub(state.UveState.GetScalar(5)));
     }
 
     [Fact]
@@ -1645,7 +1645,7 @@ public class UveTests {
     [Fact]
     public void SoASadde_Int_OverwritesIntegerReg() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = Ib(42);
+        state.UveState.SetScalar(1, Ib(42));
         ExecuteResult er = Exec(new RvUveSoASadde(false, false, 7, 1), state);
         er.SideEffect?.Invoke(state);
         Assert.Equal(42u, (uint)state.IntegerRegisters.Read(7));
@@ -1655,7 +1655,7 @@ public class UveTests {
     public void SoASadde_Int_Acc_AccumulatesIntoIntegerReg() {
         var state = new Rv32ArchState();
         state.IntegerRegisters.Write(7, 10u);
-        state.UveState.Scalars[1] = Ib(32);
+        state.UveState.SetScalar(1, Ib(32));
         ExecuteResult er = Exec(new RvUveSoASadde(false, true, 7, 1), state);
         er.SideEffect?.Invoke(state);
         Assert.Equal(42u, (uint)state.IntegerRegisters.Read(7));
@@ -1664,7 +1664,7 @@ public class UveTests {
     [Fact]
     public void SoASadde_Fp_OverwritesFpReg() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[1] = 2.5f;
+        state.UveState.SetScalar(1, 2.5f);
         ExecuteResult er = Exec(new RvUveSoASadde(true, false, 7 + 32, 1), state);
         er.SideEffect?.Invoke(state);
         ulong raw = state.IntegerRegisters.Read(7 + 32);
@@ -1677,7 +1677,7 @@ public class UveTests {
         var state = new Rv32ArchState();
         ulong init = 0xFFFFFFFF00000000UL | (uint)BitConverter.SingleToInt32Bits(1.5f);
         state.IntegerRegisters.Write(7 + 32, init);
-        state.UveState.Scalars[1] = 1.0f;
+        state.UveState.SetScalar(1, 1.0f);
         ExecuteResult er = Exec(new RvUveSoASadde(true, true, 7 + 32, 1), state);
         er.SideEffect?.Invoke(state);
         ulong raw = state.IntegerRegisters.Read(7 + 32);
@@ -2134,8 +2134,8 @@ public class UveTests {
     public void SoP_EqUs_SetsPredicateOnMatch() {
         var state = new Rv32ArchState();
         float v = BitConverter.Int32BitsToSingle(42);
-        state.UveState.Scalars[0] = v;
-        state.UveState.Scalars[1] = v;
+        state.UveState.SetScalar(0, v);
+        state.UveState.SetScalar(1, v);
 
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1), state);
         er.SideEffect!(state);
@@ -2146,8 +2146,8 @@ public class UveTests {
     [Fact]
     public void SoP_EqUs_ClearsPredicateOnMismatch() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(1);
-        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(2);
+        state.UveState.SetScalar(0, BitConverter.Int32BitsToSingle(1));
+        state.UveState.SetScalar(1, BitConverter.Int32BitsToSingle(2));
         // Initialize pd to all-true first.
         Array.Fill(state.UveState.PredicateRegs[2], true);
 
@@ -2160,8 +2160,8 @@ public class UveTests {
     [Fact]
     public void SoP_LtUs_SetsPredicateWhenLess() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(1);
-        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(2);
+        state.UveState.SetScalar(0, BitConverter.Int32BitsToSingle(1));
+        state.UveState.SetScalar(1, BitConverter.Int32BitsToSingle(2));
 
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Lt, UveSoPCmpType.Us, 2, 0, 0, 1), state);
         er.SideEffect!(state);
@@ -2203,8 +2203,8 @@ public class UveTests {
         var state = new Rv32ArchState();
         state.UveState.PredZeroing[2] = true; // pre-set to true
         float v = BitConverter.Int32BitsToSingle(7);
-        state.UveState.Scalars[0] = v;
-        state.UveState.Scalars[1] = v;
+        state.UveState.SetScalar(0, v);
+        state.UveState.SetScalar(1, v);
 
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1), state);
         er.SideEffect!(state);
@@ -2216,8 +2216,8 @@ public class UveTests {
     public void SoP_EqUs_Z_SetsPredZeroingTrue() {
         var state = new Rv32ArchState();
         float v = BitConverter.Int32BitsToSingle(7);
-        state.UveState.Scalars[0] = v;
-        state.UveState.Scalars[1] = v;
+        state.UveState.SetScalar(0, v);
+        state.UveState.SetScalar(1, v);
 
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 0, 0, 1, true), state);
         er.SideEffect!(state);
@@ -2228,8 +2228,8 @@ public class UveTests {
     [Fact]
     public void SoP_GeUs_Z_SetsPredZeroingTrue() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(5);
-        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(3);
+        state.UveState.SetScalar(0, BitConverter.Int32BitsToSingle(5));
+        state.UveState.SetScalar(1, BitConverter.Int32BitsToSingle(3));
 
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Ge, UveSoPCmpType.Us, 3, 0, 0, 1, true), state);
         er.SideEffect!(state);
@@ -2242,8 +2242,8 @@ public class UveTests {
     [Fact]
     public void SoP_LtUs_Z_SetsPredZeroingTrue() {
         var state = new Rv32ArchState();
-        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(1);
-        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(2);
+        state.UveState.SetScalar(0, BitConverter.Int32BitsToSingle(1));
+        state.UveState.SetScalar(1, BitConverter.Int32BitsToSingle(2));
 
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Lt, UveSoPCmpType.Us, 4, 0, 0, 1, true), state);
         er.SideEffect!(state);
@@ -2256,8 +2256,8 @@ public class UveTests {
         var state = new Rv32ArchState();
         // GovPred=1 (all-false): no elements active → comparison body skips → old dest kept.
         Array.Fill(state.UveState.PredicateRegs[2], true); // pre-fill pd to all-true
-        state.UveState.Scalars[0] = BitConverter.Int32BitsToSingle(1);
-        state.UveState.Scalars[1] = BitConverter.Int32BitsToSingle(2);
+        state.UveState.SetScalar(0, BitConverter.Int32BitsToSingle(1));
+        state.UveState.SetScalar(1, BitConverter.Int32BitsToSingle(2));
 
         ExecuteResult er = Exec(new RvUveSoPCmp(UveSoPCmpOp.Eq, UveSoPCmpType.Us, 2, 1, 0, 1, true), state);
         er.SideEffect!(state);
@@ -2273,12 +2273,12 @@ public class UveTests {
     public void SoVMv_CopiesWhenPredicateActive() {
         var state = new Rv32ArchState();
         const float src = 3.14f;
-        state.UveState.Scalars[5] = src;
+        state.UveState.SetScalar(5, src);
 
         ExecuteResult er = Exec(new RvUveSoVMv(false, 3, 5, 0), state);
         er.SideEffect!(state);
 
-        Assert.Equal(src, state.UveState.Scalars[3]);
+        Assert.Equal(src, state.UveState.GetScalar(3));
     }
 
     [Fact]
@@ -2286,13 +2286,13 @@ public class UveTests {
         var state = new Rv32ArchState();
         const float src = 3.14f;
         const float dst = 2.71f;
-        state.UveState.Scalars[5] = src;
-        state.UveState.Scalars[3] = dst;
+        state.UveState.SetScalar(5, src);
+        state.UveState.SetScalar(3, dst);
         // PredIdx = 1, which is all-false.
 
         ExecuteResult er = Exec(new RvUveSoVMv(false, 3, 5, 1), state);
         er.SideEffect!(state);
 
-        Assert.Equal(dst, state.UveState.Scalars[3]); // unchanged
+        Assert.Equal(dst, state.UveState.GetScalar(3)); // unchanged
     }
 }

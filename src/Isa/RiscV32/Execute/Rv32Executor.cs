@@ -711,11 +711,11 @@ public class Rv32Executor : IExecutor {
                 ExecuteVsxseg(state, memory, numFields, vs3, rs1, vs2, idxSew, masked),
 
             // ── UVE extension ─────────────────────────────────────────────────
-            RvUveSsStaLdW (var ud, var rs1, var ew, var isVec, var vecDim, _, _) => ExecuteUveSsSta(
-                regs, ud, rs1, true, ew, isVec, vecDim
+            RvUveSsStaLdW (var ud, var rs1, var ew, var isVec, var vecDim, var pm, _) => ExecuteUveSsSta(
+                regs, ud, rs1, true, ew, isVec, vecDim, pm
             ),
-            RvUveSsStaStW (var ud, var rs1, var ew, var isVec, var vecDim, _, _) => ExecuteUveSsSta(
-                regs, ud, rs1, false, ew, isVec, vecDim
+            RvUveSsStaStW (var ud, var rs1, var ew, var isVec, var vecDim, var pm, _) => ExecuteUveSsSta(
+                regs, ud, rs1, false, ew, isVec, vecDim, pm
             ),
             RvUveSsStaLdWInds (var ud, var rs1, var ew, _) => ExecuteUveSsStaLdWInds(regs, ud, rs1, ew),
             RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
@@ -3011,44 +3011,46 @@ public class Rv32Executor : IExecutor {
 
     private static Rv32ArchState UState(IArchState state) => (Rv32ArchState)state;
 
-    // so.v.dp.w ud, rs1 — broadcast float32 bits from integer register into u-reg scalar slot
+    // so.v.dp.(b/h/w) ud, rs1 — data pack: broadcast masked register value into u-reg lanes.
+    // 32-bit width: broadcast to all 4 lanes, Vector mode. Sub-word: lane 0 only, Scalar mode.
     private static ExecuteResult ExecuteUveSoVDp(IRegisterFile regs, int ud, int rs1, int elemBytes) {
         uint mask = elemBytes switch { 1 => 0xFFu, 2 => 0xFFFFu, _ => 0xFFFFFFFFu, };
         uint bits = (uint)regs.Read(rs1) & mask;
-        float value = BitConverter.Int32BitsToSingle((int)bits);
+        int lanes = elemBytes >= 4 ? 4 : 1;
         return new ExecuteResult {
             SideEffect = s => {
-                UveState uveState = UState(s).UveState;
-                uveState.Scalars[ud] = value;
-                uveState.RegKind[ud] = UveRegKind.Scalar;
+                UveState u = UState(s).UveState;
+                for (var i = 0; i < lanes; i++) u.SetLane32(ud, i, bits);
+                u.RegMode[ud] = lanes > 1 ? UveRegMode.Vector : UveRegMode.Scalar;
+                u.ValidElements[ud] = lanes;
+                u.RegKind[ud] = UveRegKind.Scalar;
             },
         };
     }
 
     private static ExecuteResult ExecuteUveSoVMvvs(IArchState state, int rd, int us1) {
-        UveState uveState = UState(state).UveState;
-        int bits = BitConverter.SingleToInt32Bits(uveState.Scalars[us1]);
+        uint bits = UState(state).UveState.GetLane32(us1, 0);
         return new ExecuteResult {
-            SideEffect = s => UState(s).IntegerRegisters.Write(rd, (uint)bits),
+            SideEffect = s => UState(s).IntegerRegisters.Write(rd, bits),
         };
     }
 
     private static ExecuteResult ExecuteUveSoVMvsv(IRegisterFile regs, int ud, int rs1, int elemBytes) {
         uint mask = elemBytes switch { 1 => 0xFFu, 2 => 0xFFFFu, _ => 0xFFFFFFFFu, };
         uint bits = (uint)regs.Read(rs1) & mask;
-        float value = BitConverter.Int32BitsToSingle((int)bits);
         return new ExecuteResult {
             SideEffect = s => {
-                UveState uveState = UState(s).UveState;
-                uveState.Scalars[ud] = value;
-                uveState.RegKind[ud] = UveRegKind.Scalar;
+                UveState u = UState(s).UveState;
+                u.SetLane32(ud, 0, bits);
+                u.RegMode[ud] = UveRegMode.Scalar;
+                u.ValidElements[ud] = 1;
+                u.RegKind[ud] = UveRegKind.Scalar;
             },
         };
     }
 
-    // so.a.fp ud, usrc1, usrc2 — element-wise FP arithmetic
-    // The pipeline injected source values into UveState.Scalars[usrc*] before this call.
-    // If ud is a store stream, the result is written to memory and the store cursor advances.
+    // so.a.fp ud, usrc1, usrc2 — element-wise FP arithmetic, per lane.
+    // Both scalar sources → vLen=1 (scalar result). Both vector → vLen=4.
     private static ExecuteResult ExecuteUveSoAFp(
         IArchState state,
         IMemory memory,
@@ -3058,27 +3060,33 @@ public class Rv32Executor : IExecutor {
         int usrc2
     ) {
         UveState uveState = UState(state).UveState;
-        float a = uveState.Scalars[usrc1];
-        float b = usrc2 >= 0 ? uveState.Scalars[usrc2] : 0f;
-        float result = op switch {
-            UveFpOp.Mul     => a * b,
-            UveFpOp.Add     => a + b,
-            UveFpOp.Mac     => uveState.Scalars[ud] + a * b,
-            UveFpOp.Sub     => a - b,
-            UveFpOp.Div     => a / b,
-            UveFpOp.Min     => MathF.Min(a, b),
-            UveFpOp.Max     => MathF.Max(a, b),
-            UveFpOp.Abs     => MathF.Abs(a),
-            UveFpOp.Inc     => a + 1f,
-            UveFpOp.Dec     => a - 1f,
-            UveFpOp.Sqrt    => MathF.Sqrt(a),
-            UveFpOp.Adde    => a,
-            UveFpOp.AddeAcc => uveState.Scalars[ud] + a,
-            UveFpOp.Mine    => MathF.Min(uveState.Scalars[ud], a),
-            UveFpOp.Maxe    => MathF.Max(uveState.Scalars[ud], a),
-            _               => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
-        };
-        return UveWriteScalar(state, memory, ud, result);
+        (int vLen, bool zeroing) = UveLaneParams(uveState, usrc1, usrc2);
+        var results = new uint[vLen];
+        for (var i = 0; i < vLen; i++) {
+            float a = BitConverter.Int32BitsToSingle((int)uveState.GetLane32(usrc1, i));
+            float b = usrc2 >= 0 ? BitConverter.Int32BitsToSingle((int)uveState.GetLane32(usrc2, i)) : 0f;
+            float acc = BitConverter.Int32BitsToSingle((int)uveState.GetLane32(ud, i));
+            float r = op switch {
+                UveFpOp.Mul     => a * b,
+                UveFpOp.Add     => a + b,
+                UveFpOp.Mac     => acc + a * b,
+                UveFpOp.Sub     => a - b,
+                UveFpOp.Div     => a / b,
+                UveFpOp.Min     => MathF.Min(a, b),
+                UveFpOp.Max     => MathF.Max(a, b),
+                UveFpOp.Abs     => MathF.Abs(a),
+                UveFpOp.Inc     => a + 1f,
+                UveFpOp.Dec     => a - 1f,
+                UveFpOp.Sqrt    => MathF.Sqrt(a),
+                UveFpOp.Adde    => a,
+                UveFpOp.AddeAcc => acc + a,
+                UveFpOp.Mine    => MathF.Min(acc, a),
+                UveFpOp.Maxe    => MathF.Max(acc, a),
+                _               => throw new InvalidOperationException($"Unknown UveFpOp {op}"),
+            };
+            results[i] = (uint)BitConverter.SingleToInt32Bits(r);
+        }
+        return UveWriteResult(state, memory, ud, results, vLen, zeroing);
     }
 
     private static ExecuteResult ExecuteUveSoAInt(
@@ -3091,55 +3099,54 @@ public class Rv32Executor : IExecutor {
         int usrc2
     ) {
         UveState uveState = UState(state).UveState;
-        float result;
-        if (signed) {
-            int a = BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-            int b = usrc2 >= 0 ? BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0;
-            int acc = BitConverter.SingleToInt32Bits(uveState.Scalars[ud]);
-            int r = op switch {
-                UveIntOp.Add     => a + b,
-                UveIntOp.Sub     => a - b,
-                UveIntOp.Mul     => a * b,
-                UveIntOp.Div     => a / b,
-                UveIntOp.Mac     => acc + a * b,
-                UveIntOp.Min     => Math.Min(a, b),
-                UveIntOp.Max     => Math.Max(a, b),
-                UveIntOp.Abs     => Math.Abs(a),
-                UveIntOp.Inc     => a + 1,
-                UveIntOp.Dec     => a - 1,
-                UveIntOp.Adde    => a,
-                UveIntOp.AddeAcc => acc + a,
-                UveIntOp.Mine    => Math.Min(acc, a),
-                UveIntOp.Maxe    => Math.Max(acc, a),
-                _                => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
-            };
-            result = BitConverter.Int32BitsToSingle(r);
+        (int vLen, bool zeroing) = UveLaneParams(uveState, usrc1, usrc2);
+        var results = new uint[vLen];
+        for (var i = 0; i < vLen; i++) {
+            uint rawA = uveState.GetLane32(usrc1, i);
+            uint rawB = usrc2 >= 0 ? uveState.GetLane32(usrc2, i) : 0u;
+            uint rawAcc = uveState.GetLane32(ud, i);
+            uint r;
+            if (signed) {
+                int a = (int)rawA, b = (int)rawB, acc = (int)rawAcc;
+                r = (uint)(op switch {
+                    UveIntOp.Add     => a + b,
+                    UveIntOp.Sub     => a - b,
+                    UveIntOp.Mul     => a * b,
+                    UveIntOp.Div     => a / b,
+                    UveIntOp.Mac     => acc + a * b,
+                    UveIntOp.Min     => Math.Min(a, b),
+                    UveIntOp.Max     => Math.Max(a, b),
+                    UveIntOp.Abs     => Math.Abs(a),
+                    UveIntOp.Inc     => a + 1,
+                    UveIntOp.Dec     => a - 1,
+                    UveIntOp.Adde    => a,
+                    UveIntOp.AddeAcc => acc + a,
+                    UveIntOp.Mine    => Math.Min(acc, a),
+                    UveIntOp.Maxe    => Math.Max(acc, a),
+                    _                => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
+                });
+            } else {
+                r = op switch {
+                    UveIntOp.Add     => rawA + rawB,
+                    UveIntOp.Sub     => rawA - rawB,
+                    UveIntOp.Mul     => rawA * rawB,
+                    UveIntOp.Div     => rawA / rawB,
+                    UveIntOp.Mac     => rawAcc + rawA * rawB,
+                    UveIntOp.Min     => Math.Min(rawA, rawB),
+                    UveIntOp.Max     => Math.Max(rawA, rawB),
+                    UveIntOp.Abs     => rawA,
+                    UveIntOp.Inc     => rawA + 1u,
+                    UveIntOp.Dec     => rawA - 1u,
+                    UveIntOp.Adde    => rawA,
+                    UveIntOp.AddeAcc => rawAcc + rawA,
+                    UveIntOp.Mine    => Math.Min(rawAcc, rawA),
+                    UveIntOp.Maxe    => Math.Max(rawAcc, rawA),
+                    _                => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
+                };
+            }
+            results[i] = r;
         }
-        else {
-            var a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-            uint b = usrc2 >= 0 ? (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0u;
-            var acc = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[ud]);
-            uint r = op switch {
-                UveIntOp.Add     => a + b,
-                UveIntOp.Sub     => a - b,
-                UveIntOp.Mul     => a * b,
-                UveIntOp.Div     => a / b,
-                UveIntOp.Mac     => acc + a * b,
-                UveIntOp.Min     => Math.Min(a, b),
-                UveIntOp.Max     => Math.Max(a, b),
-                UveIntOp.Abs     => a,
-                UveIntOp.Inc     => a + 1u,
-                UveIntOp.Dec     => a - 1u,
-                UveIntOp.Adde    => a,
-                UveIntOp.AddeAcc => acc + a,
-                UveIntOp.Mine    => Math.Min(acc, a),
-                UveIntOp.Maxe    => Math.Max(acc, a),
-                _                => throw new InvalidOperationException($"Unknown UveIntOp {op}"),
-            };
-            result = BitConverter.Int32BitsToSingle((int)r);
-        }
-
-        return UveWriteScalar(state, memory, ud, result);
+        return UveWriteResult(state, memory, ud, results, vLen, zeroing);
     }
 
     private static ExecuteResult ExecuteUveSoALogic(
@@ -3151,18 +3158,22 @@ public class Rv32Executor : IExecutor {
         int usrc2
     ) {
         UveState uveState = UState(state).UveState;
-        var a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-        uint b = usrc2 >= 0 ? (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) : 0u;
-        uint r = op switch {
-            UveLogicOp.Nand => ~(a & b),
-            UveLogicOp.And  => a & b,
-            UveLogicOp.Nor  => ~(a | b),
-            UveLogicOp.Or   => a | b,
-            UveLogicOp.Not  => ~a,
-            UveLogicOp.Xor  => a ^ b,
-            _               => throw new InvalidOperationException($"Unknown UveLogicOp {op}"),
-        };
-        return UveWriteScalar(state, memory, ud, BitConverter.Int32BitsToSingle((int)r));
+        (int vLen, bool zeroing) = UveLaneParams(uveState, usrc1, usrc2);
+        var results = new uint[vLen];
+        for (var i = 0; i < vLen; i++) {
+            uint a = uveState.GetLane32(usrc1, i);
+            uint b = usrc2 >= 0 ? uveState.GetLane32(usrc2, i) : 0u;
+            results[i] = op switch {
+                UveLogicOp.Nand => ~(a & b),
+                UveLogicOp.And  => a & b,
+                UveLogicOp.Nor  => ~(a | b),
+                UveLogicOp.Or   => a | b,
+                UveLogicOp.Not  => ~a,
+                UveLogicOp.Xor  => a ^ b,
+                _               => throw new InvalidOperationException($"Unknown UveLogicOp {op}"),
+            };
+        }
+        return UveWriteResult(state, memory, ud, results, vLen, zeroing);
     }
 
     private static ExecuteResult ExecuteUveSoAShiftV(
@@ -3174,15 +3185,19 @@ public class Rv32Executor : IExecutor {
         int usrc2
     ) {
         UveState uveState = UState(state).UveState;
-        var a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-        var shamt = (int)((uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc2]) & 0x1F);
-        uint r = op switch {
-            UveShiftOp.Sll => a << shamt,
-            UveShiftOp.Srl => a >> shamt,
-            UveShiftOp.Sra => (uint)((int)a >> shamt),
-            _              => throw new InvalidOperationException($"Unknown UveShiftOp {op}"),
-        };
-        return UveWriteScalar(state, memory, ud, BitConverter.Int32BitsToSingle((int)r));
+        (int vLen, bool zeroing) = UveLaneParams(uveState, usrc1, usrc2);
+        var results = new uint[vLen];
+        for (var i = 0; i < vLen; i++) {
+            uint a = uveState.GetLane32(usrc1, i);
+            int shamt = (int)(uveState.GetLane32(usrc2, i) & 0x1F);
+            results[i] = op switch {
+                UveShiftOp.Sll => a << shamt,
+                UveShiftOp.Srl => a >> shamt,
+                UveShiftOp.Sra => (uint)((int)a >> shamt),
+                _              => throw new InvalidOperationException($"Unknown UveShiftOp {op}"),
+            };
+        }
+        return UveWriteResult(state, memory, ud, results, vLen, zeroing);
     }
 
     private static ExecuteResult ExecuteUveSoAShiftS(
@@ -3195,15 +3210,19 @@ public class Rv32Executor : IExecutor {
         int rs2
     ) {
         UveState uveState = UState(state).UveState;
-        var a = (uint)BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-        var shamt = (int)(regs.Read(rs2) & 0x1F);
-        uint r = op switch {
-            UveShiftOp.Sll => a << shamt,
-            UveShiftOp.Srl => a >> shamt,
-            UveShiftOp.Sra => (uint)((int)a >> shamt),
-            _              => throw new InvalidOperationException($"Unknown UveShiftOp {op}"),
-        };
-        return UveWriteScalar(state, memory, ud, BitConverter.Int32BitsToSingle((int)r));
+        (int vLen, bool zeroing) = UveLaneParams(uveState, usrc1, -1);
+        int shamt = (int)(regs.Read(rs2) & 0x1F);
+        var results = new uint[vLen];
+        for (var i = 0; i < vLen; i++) {
+            uint a = uveState.GetLane32(usrc1, i);
+            results[i] = op switch {
+                UveShiftOp.Sll => a << shamt,
+                UveShiftOp.Srl => a >> shamt,
+                UveShiftOp.Sra => (uint)((int)a >> shamt),
+                _              => throw new InvalidOperationException($"Unknown UveShiftOp {op}"),
+            };
+        }
+        return UveWriteResult(state, memory, ud, results, vLen, zeroing);
     }
 
     private static ExecuteResult ExecuteUveSoASadde(
@@ -3215,16 +3234,19 @@ public class Rv32Executor : IExecutor {
         int usrc1
     ) {
         UveState uveState = UState(state).UveState;
+        int vLen = uveState.ValidElements[usrc1] > 0 ? uveState.ValidElements[usrc1] : 1;
         if (isFp) {
-            // rd is already the unified-file FP index (32+); FBits reads NaN-unboxed float.
-            float elem = uveState.Scalars[usrc1];
-            float result = acc ? FBits(regs, rd) + elem : elem;
+            float sum = 0f;
+            for (var i = 0; i < vLen; i++)
+                sum += BitConverter.Int32BitsToSingle((int)uveState.GetLane32(usrc1, i));
+            float result = acc ? FBits(regs, rd) + sum : sum;
             ulong nanBoxed = 0xFFFFFFFF00000000UL | (uint)BitConverter.SingleToInt32Bits(result);
             return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, nanBoxed); }, };
         }
         else {
-            int elem = BitConverter.SingleToInt32Bits(uveState.Scalars[usrc1]);
-            int result = acc ? (int)(uint)regs.Read(rd) + elem : elem;
+            int sum = 0;
+            for (var i = 0; i < vLen; i++) sum += (int)uveState.GetLane32(usrc1, i);
+            int result = acc ? (int)(uint)regs.Read(rd) + sum : sum;
             return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)result); }, };
         }
     }
@@ -3264,25 +3286,43 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // Shared write-back for all so.a.* ops: if ud is a store stream, write to memory and
-    // advance the cursor; otherwise update the scalar slot.
-    private static ExecuteResult UveWriteScalar(IArchState state, IMemory memory, int ud, float result) {
+    // Returns (vLen, zeroing): vLen=1 if either source is Scalar, else 4.
+    // zeroing = neither source uses merging predication (pm=0).
+    private static (int vLen, bool zeroing) UveLaneParams(UveState u, int usrc1, int usrc2) {
+        bool s1Scalar = u.RegMode[usrc1] == UveRegMode.Scalar;
+        bool s2Scalar = usrc2 < 0 || u.RegMode[usrc2] == UveRegMode.Scalar;
+        int vLen = (s1Scalar || s2Scalar) ? 1 : 4;
+        bool zeroing = !u.RegMerging[usrc1] && (usrc2 < 0 || !u.RegMerging[usrc2]);
+        return (vLen, zeroing);
+    }
+
+    // Shared write-back for so.a.* ops: writes vLen lane results to store stream or u-register.
+    private static ExecuteResult UveWriteResult(
+        IArchState state, IMemory memory, int ud, uint[] results, int vLen, bool zeroing
+    ) {
         UveState uveState = UState(state).UveState;
         if (uveState.RegKind[ud] == UveRegKind.StoreStream && uveState.StoreStreams[ud] is { } ss) {
-            ulong addr = ss.CurrentAddress;
             int ewBytes = ss.ElementBytes;
-            memory.Write(addr, (uint)BitConverter.SingleToInt32Bits(result), ewBytes);
+            for (var i = 0; i < vLen; i++) { memory.Write(ss.CurrentAddress, results[i], ewBytes); ss.Advance(); }
             return new ExecuteResult {
                 SideEffect = s => {
                     UveState uvs = UState(s).UveState;
-                    uvs.StoreStreams[ud]?.Advance();
-                    uvs.Scalars[ud] = result;
+                    for (var i = 0; i < vLen; i++) uvs.SetLane32(ud, i, results[i]);
+                    uvs.RegMode[ud] = vLen == 1 ? UveRegMode.Scalar : UveRegMode.Vector;
+                    uvs.ValidElements[ud] = vLen;
                 },
             };
         }
 
+        const int MaxLanes = 4;
         return new ExecuteResult {
-            SideEffect = s => { UState(s).UveState.Scalars[ud] = result; },
+            SideEffect = s => {
+                UveState uvs = UState(s).UveState;
+                for (var i = 0; i < vLen; i++) uvs.SetLane32(ud, i, results[i]);
+                if (zeroing) { for (var i = vLen; i < MaxLanes; i++) uvs.SetLane32(ud, i, 0); }
+                uvs.RegMode[ud] = vLen == 1 ? UveRegMode.Scalar : UveRegMode.Vector;
+                uvs.ValidElements[ud] = vLen;
+            },
         };
     }
 
@@ -3311,7 +3351,8 @@ public class Rv32Executor : IExecutor {
         bool isLoad,
         int ew,
         bool isVec = false,
-        int vecCfgDim = -1
+        int vecCfgDim = -1,
+        bool mergingPredication = false
     ) {
         ulong baseAddr = regs.Read(rs1);
         return new ExecuteResult {
@@ -3319,7 +3360,7 @@ public class Rv32Executor : IExecutor {
                 UveState uvs = UState(s).UveState;
                 uvs.PendingConfig[ud] = new PendingStreamConfig {
                     BaseAddress = baseAddr, ElementBytes = ew, IsLoad = isLoad,
-                    IsVector = isVec, VecCfgDim = vecCfgDim,
+                    IsVector = isVec, VecCfgDim = vecCfgDim, MergingPredication = mergingPredication,
                 };
             },
         };
@@ -3420,7 +3461,7 @@ public class Rv32Executor : IExecutor {
         int vecCfgDim = pending.VecCfgDim >= 0 ? ndim - 1 - pending.VecCfgDim : -1;
 
         var descriptor = new StreamDescriptor(
-            baseAddr, pending.ElementBytes, dims, mods, pending.IsVector, vecCfgDim
+            baseAddr, pending.ElementBytes, dims, mods, pending.IsVector, vecCfgDim, pending.MergingPredication
         );
         bool isLoad = pending.IsLoad;
         bool isIndSource = pending.IsIndSource;
@@ -3537,10 +3578,9 @@ public class Rv32Executor : IExecutor {
     }
 
     // so.p.{ge,eq,lt}.{us,fp,sg}[.z] pd, vs1, vs2 — element-wise comparison into predicate register.
-    // Both vs1 and vs2 are ud register indices; the executor reads their current Scalar values.
-    // Inactive governing-pred elements always merge (keep old dest) during the comparison itself.
-    // zeroing=true (_z variant): sets PredZeroing[pd]=true — the output register is tagged Zeroing
-    // so future SO_A ops using it as governing pred will zero inactive elements.
+    // Scalar sources → uniform result broadcast to all governed bytes.
+    // Both vector → per-lane result (4 bytes per lane for float32 width).
+    // zeroing=true (_z variant): sets PredZeroing[pd]=true — tags the output register Zeroing.
     private static ExecuteResult ExecuteUveSoPCmp(
         IArchState state,
         UveSoPCmpOp op,
@@ -3552,34 +3592,47 @@ public class Rv32Executor : IExecutor {
         bool zeroing
     ) {
         UveState uvs = UState(state).UveState;
-        float a = uvs.Scalars[vs1];
-        float b = uvs.Scalars[vs2];
-        bool result = (op, cmpType) switch {
-            (UveSoPCmpOp.Ge, UveSoPCmpType.Us) => (uint)BitConverter.SingleToInt32Bits(a)
-                                               >= (uint)BitConverter.SingleToInt32Bits(b),
-            (UveSoPCmpOp.Ge, UveSoPCmpType.Sg) =>
-                BitConverter.SingleToInt32Bits(a) >= BitConverter.SingleToInt32Bits(b),
-            (UveSoPCmpOp.Ge, UveSoPCmpType.Fp) => a >= b,
-            (UveSoPCmpOp.Eq, UveSoPCmpType.Us) => (uint)BitConverter.SingleToInt32Bits(a)
-                                               == (uint)BitConverter.SingleToInt32Bits(b),
-            (UveSoPCmpOp.Eq, UveSoPCmpType.Sg) =>
-                BitConverter.SingleToInt32Bits(a) == BitConverter.SingleToInt32Bits(b),
-            (UveSoPCmpOp.Eq, UveSoPCmpType.Fp) => a == b,
-            (UveSoPCmpOp.Lt, UveSoPCmpType.Us) => (uint)BitConverter.SingleToInt32Bits(a)
-                                                < (uint)BitConverter.SingleToInt32Bits(b),
-            (UveSoPCmpOp.Lt, UveSoPCmpType.Sg) => BitConverter.SingleToInt32Bits(a) < BitConverter.SingleToInt32Bits(b),
-            (UveSoPCmpOp.Lt, UveSoPCmpType.Fp) => a < b,
-            _ => throw new InvalidOperationException($"Unknown SO_P comparison {op}/{cmpType}"),
-        };
+        bool isVector = uvs.RegMode[vs1] == UveRegMode.Vector && uvs.RegMode[vs2] == UveRegMode.Vector;
+        int vLen = isVector ? Math.Max(uvs.ValidElements[vs1] > 0 ? uvs.ValidElements[vs1] : 1,
+                                       uvs.ValidElements[vs2] > 0 ? uvs.ValidElements[vs2] : 1) : 1;
+        var laneResults = new bool[vLen];
+        for (var i = 0; i < vLen; i++) {
+            uint rawA = uvs.GetLane32(vs1, i);
+            uint rawB = uvs.GetLane32(vs2, i);
+            float fa = BitConverter.Int32BitsToSingle((int)rawA);
+            float fb = BitConverter.Int32BitsToSingle((int)rawB);
+            laneResults[i] = (op, cmpType) switch {
+                (UveSoPCmpOp.Ge, UveSoPCmpType.Us) => rawA >= rawB,
+                (UveSoPCmpOp.Ge, UveSoPCmpType.Sg) => (int)rawA >= (int)rawB,
+                (UveSoPCmpOp.Ge, UveSoPCmpType.Fp) => fa >= fb,
+                (UveSoPCmpOp.Eq, UveSoPCmpType.Us) => rawA == rawB,
+                (UveSoPCmpOp.Eq, UveSoPCmpType.Sg) => (int)rawA == (int)rawB,
+                (UveSoPCmpOp.Eq, UveSoPCmpType.Fp) => fa == fb,
+                (UveSoPCmpOp.Lt, UveSoPCmpType.Us) => rawA < rawB,
+                (UveSoPCmpOp.Lt, UveSoPCmpType.Sg) => (int)rawA < (int)rawB,
+                (UveSoPCmpOp.Lt, UveSoPCmpType.Fp) => fa < fb,
+                _ => throw new InvalidOperationException($"Unknown SO_P comparison {op}/{cmpType}"),
+            };
+        }
         return new ExecuteResult {
             SideEffect = s => {
                 UveState u = UState(s).UveState;
                 bool[] gov = u.PredicateRegs[govPred];
                 bool[] dst = u.PredicateRegs[pd];
-                for (var i = 0; i < UveState.PredBytes; i++)
-                    if (gov[i])
-                        dst[i] = result;
-                // inactive → merge (keep old)
+                if (!isVector) {
+                    bool r = laneResults[0];
+                    for (var i = 0; i < UveState.PredBytes; i++)
+                        if (gov[i]) dst[i] = r;
+                } else {
+                    for (var i = 0; i < vLen; i++) {
+                        int predBase = i * 4;
+                        int repIdx = predBase + 3;
+                        if (repIdx < UveState.PredBytes && gov[repIdx]) {
+                            bool r = laneResults[i];
+                            for (var k = predBase; k <= repIdx; k++) dst[k] = r;
+                        }
+                    }
+                }
                 u.PredZeroing[pd] = zeroing;
             },
         };
@@ -3589,19 +3642,29 @@ public class Rv32Executor : IExecutor {
     // Transpose variant (mvt) reverses the active range.
     private static ExecuteResult ExecuteUveSoVMv(IArchState state, bool transpose, int vd, int vs1, int predIdx) {
         UveState uvs = UState(state).UveState;
-        float src = uvs.Scalars[vs1];
+        bool isVector = uvs.RegMode[vs1] == UveRegMode.Vector;
+        int vLen = isVector ? (uvs.ValidElements[vs1] > 0 ? uvs.ValidElements[vs1] : 1) : 1;
+        var srcLanes = new uint[vLen];
+        for (var i = 0; i < vLen; i++) srcLanes[i] = uvs.GetLane32(vs1, i);
         return new ExecuteResult {
             SideEffect = s => {
                 UveState u = UState(s).UveState;
-                // Check the governing predicate byte for element index 0 (byte 0 for single-element mode).
-                // For transpose, check from the end of the predicate.
                 bool[] pred = u.PredicateRegs[predIdx];
-                int checkIdx = transpose ? UveState.PredBytes - 1 : 0;
-                if (pred[checkIdx]) {
-                    u.Scalars[vd] = src;
-                    u.RegKind[vd] = UveRegKind.Scalar;
+                if (!isVector) {
+                    int checkIdx = transpose ? UveState.PredBytes - 1 : 0;
+                    if (pred[checkIdx]) {
+                        u.SetLane32(vd, 0, srcLanes[0]);
+                        u.RegMode[vd] = UveRegMode.Scalar;
+                        u.ValidElements[vd] = 1;
+                        u.RegKind[vd] = UveRegKind.Scalar;
+                    }
+                } else {
+                    for (var i = 0; i < vLen; i++) {
+                        int predByte = transpose ? UveState.PredBytes - 1 - (i * 4 + 3) : i * 4 + 3;
+                        if (predByte >= 0 && predByte < UveState.PredBytes && pred[predByte])
+                            u.SetLane32(vd, i, srcLanes[i]);
+                    }
                 }
-                // else merge: keep existing Scalars[vd]
             },
         };
     }

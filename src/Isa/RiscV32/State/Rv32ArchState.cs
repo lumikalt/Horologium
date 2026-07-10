@@ -113,9 +113,9 @@ public class Rv32ArchState : IArchState {
             w.Write(vr);
         }
 
-        // UVE scalar state (scalars, kinds, stream-done, dim-done flags).
+        // UVE register state: lane 0 as float32 (scalar value), kind, stream-done, dim-done flags.
         for (var i = 0; i < UveState.Count; i++) {
-            w.Write(UveState.Scalars[i]);
+            w.Write(BitConverter.Int32BitsToSingle((int)UveState.GetLane32(i, 0)));
             w.Write((byte)UveState.RegKind[i]);
             w.Write(UveState.StreamDone[i]);
             for (var d = 0; d < UveState.MaxDims; d++) w.Write(UveState.DimDone[i, d]);
@@ -137,7 +137,7 @@ public class Rv32ArchState : IArchState {
         }
 
         for (var i = 0; i < UveState.Count; i++) {
-            UveState.Scalars[i] = r.ReadSingle();
+            UveState.SetLane32(i, 0, (uint)BitConverter.SingleToInt32Bits(r.ReadSingle()));
             UveState.RegKind[i] = (UveRegKind)r.ReadByte();
             UveState.StreamDone[i] = r.ReadBoolean();
             for (var d = 0; d < UveState.MaxDims; d++) UveState.DimDone[i, d] = r.ReadBoolean();

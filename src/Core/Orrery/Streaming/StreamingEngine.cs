@@ -89,6 +89,18 @@ public sealed class StreamingEngine {
         return _streams[streamId].IsVectorMode;
     }
 
+    /// <summary>Returns the element size in bytes for the configured stream.</summary>
+    public int GetElementBytes(int streamId) {
+        Validate(streamId);
+        return _streams[streamId].ElementBytes;
+    }
+
+    /// <summary>Returns true when the stream was configured with merging predication (pm bit set in header).</summary>
+    public bool GetMergingPredication(int streamId) {
+        Validate(streamId);
+        return _streams[streamId].MergingPredication;
+    }
+
     /// <summary>Returns the next buffered element without advancing the consume pointer.</summary>
     /// <exception cref="InvalidOperationException">The buffer is empty.</exception>
     public ulong Peek(int streamId) {
@@ -166,6 +178,8 @@ public sealed class StreamingEngine {
         public bool Active { get; private set; }
         public bool HasElement => _buffer.Count > 0;
         public bool IsVectorMode => _vecCfgDim >= 0;
+        public int ElementBytes => _desc.ElementBytes;
+        public bool MergingPredication => _desc.MergingPredication;
 
         public bool IsExhausted => Active && _fetchDone && _buffer.Count == 0;
 

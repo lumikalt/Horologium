@@ -1421,13 +1421,25 @@ internal sealed class OoOPipelineCore : Gear {
         bool isVec = issued.Instr.Class == ToothClass.Vector;
         bool isUve = issued.Instr.Class == ToothClass.Uve;
 
-        // For UVE ops: inject stream element values into UveState.Scalars before the
-        // executor runs, and sync exhaustion state for branch ops. The pipeline owns
-        // the StreamingEngine; the executor reads results from IUveScalars.
+        // For UVE ops: inject stream element values into u-register lanes before the executor runs,
+        // and sync exhaustion state for branch ops. Vector-mode streams deliver up to VL lanes.
         if (isUve && State.UveScalars is { } uvs) {
-            foreach (int uid in issued.Instr.UveStreamSources)
-                if (uid >= 0 && StreamingEngine.IsActive(uid) && StreamingEngine.HasElement(uid))
-                    uvs.SetScalar(uid, BitConverter.Int32BitsToSingle((int)(uint)StreamingEngine.Consume(uid)));
+            // Buffer for vector lane injection; max VLEN=128 bits = 4 float32 lanes.
+            Span<uint> laneBuf = stackalloc uint[16];
+            foreach (int uid in issued.Instr.UveStreamSources) {
+                if (uid < 0 || !StreamingEngine.IsActive(uid) || !StreamingEngine.HasElement(uid)) continue;
+                bool merging = StreamingEngine.GetMergingPredication(uid);
+                if (StreamingEngine.IsVectorMode(uid)) {
+                    int ew = StreamingEngine.GetElementBytes(uid);
+                    int maxLanes = 16 / Math.Max(1, ew); // VLEN=128 bits = 16 bytes
+                    int vl = uvs.VectorLength > 0 ? Math.Min(uvs.VectorLength, maxLanes) : maxLanes;
+                    for (var i = 0; i < vl && StreamingEngine.HasElement(uid); i++)
+                        laneBuf[i] = (uint)StreamingEngine.Consume(uid);
+                    uvs.SetVectorRaw(uid, laneBuf[..vl], vl, merging);
+                } else {
+                    uvs.SetScalarRaw(uid, (uint)StreamingEngine.Consume(uid), merging);
+                }
+            }
             foreach (int uid in issued.Instr.UveBranchStreams)
                 if (uid >= 0)
                     uvs.SetStreamDone(
