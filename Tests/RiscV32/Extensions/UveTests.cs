@@ -228,26 +228,24 @@ public class UveTests {
         (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | (uint)((rs2 & 0x1F) << 20)
              | (uint)((rs1Offset & 0x1F) << 15) | (0x0u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
-    // ss.app.mod: funct2=3, funct3=dimIndex (0-7, outermost-first), rs1=E register (0=x0=unlimited),
-    // rs2=behavior<<2|spikeTarget, rs3=disp reg
-    // Spike target encoding: Size=0, Stride=1, Offset=2 (differs from Horologium: Size=0, Offset=1, Stride=2)
+    // ss.app.mod (UVE2): funct2=1 (APP), funct3=4 (MOD), b[24:22]=behavior, ta[21:20]=target
+    // (Size=0, Stride=1, Offset=2), tdim[17:15]=target dim (outermost-first; 7="linked"),
+    // rs3[31:27]=displacement register. Trigger dim is positional (last-appended dimension).
     private static uint SsAppMod(
         int ud,
-        int dimIndex,
+        int tdim,
         StreamModifierTarget target,
         StreamModifierBehavior behavior,
-        int rs3Disp,
-        int rs1E = 0
+        int rs3Disp
     ) {
-        int spikeTarget = target switch {
-            StreamModifierTarget.Size   => 0,
-            StreamModifierTarget.Stride => 1,
-            StreamModifierTarget.Offset => 2,
+        uint ta = target switch {
+            StreamModifierTarget.Size   => 0u,
+            StreamModifierTarget.Stride => 1u,
+            StreamModifierTarget.Offset => 2u,
             _                           => throw new ArgumentOutOfRangeException(nameof(target)),
         };
-        int rs2Fixed = ((int)behavior << 2) | spikeTarget;
-        return (uint)(((rs3Disp & 0x1F) << 27) | (0x3u << 25) | (uint)((rs2Fixed & 0x1F) << 20)
-                    | (uint)((rs1E & 0x1F) << 15) | (uint)((dimIndex & 0x7) << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
+        return ((uint)(rs3Disp & 0x1F) << 27) | (0x1u << 25) | ((uint)behavior << 22) | (ta << 20)
+             | ((uint)(tdim & 0x7) << 15) | (0x4u << 12) | ((uint)(ud & 0x1F) << 7) | 0x0Bu;
     }
 
     // EBREAK — halts the pipeline
@@ -1010,39 +1008,36 @@ public class UveTests {
             (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
-    // ── ss.app.mod / ss.end.mod decode tests ─────────────────────────────────
+    // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]
     public void SsAppMod_DecodesCorrectly() {
         var mem = new FlatMemory(16);
-        // dimIndex=0, target=Size, behavior=Inc, rs3Disp=x5, rs1E=x6 (MaxApplications from register)
-        mem.Load(0, BitConverter.GetBytes(SsAppMod(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5, 6)));
+        // tdim=0, target=Size, behavior=Inc, rs3Disp=x5
+        mem.Load(0, BitConverter.GetBytes(SsAppMod(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5)));
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSsAppMod>(tooth.Payload);
         Assert.Equal(1, op.Ud);
-        Assert.Equal(0, op.DimIndex);
+        Assert.Equal(0, op.TargetDimRaw);
         Assert.Equal(StreamModifierTarget.Size, op.Target);
         Assert.Equal(StreamModifierBehavior.Inc, op.Behavior);
         Assert.Equal(5, op.Rs3Disp);
-        Assert.Equal(6, op.Rs1Size);
     }
 
     [Fact]
     public void SsAppMod_StrideTarget_DecodesCorrectly() {
         var mem = new FlatMemory(16);
-        // rs1E=0 (x0) means unlimited applications
         mem.Load(0, BitConverter.GetBytes(SsAppMod(2, 1, StreamModifierTarget.Stride, StreamModifierBehavior.Dec, 7)));
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSsAppMod>(tooth.Payload);
         Assert.Equal(2, op.Ud);
-        Assert.Equal(1, op.DimIndex);
+        Assert.Equal(1, op.TargetDimRaw);
         Assert.Equal(StreamModifierTarget.Stride, op.Target);
         Assert.Equal(StreamModifierBehavior.Dec, op.Behavior);
         Assert.Equal(7, op.Rs3Disp);
-        Assert.Equal(0, op.Rs1Size);
     }
 
-    // ── ss.app.mod / ss.end.mod integration tests ────────────────────────────
+    // ── ss.app.mod integration tests ─────────────────────────────────────────
 
     private static float LowerTriangularExpected(int n) {
         var sum = 0f;

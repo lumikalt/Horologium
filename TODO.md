@@ -69,11 +69,13 @@ The AnaBSF/riscv-isa-sim uve branch is the UVE2 reference implementation; Horolo
 (config order, so.b.ndc, SO_P including pm/_z bits, so.a.* layout, ss.sta header inds/vec/vdim bits) already match.
 Remaining delta, in rough dependency order:
 
-- [ ] `ss.app.mod` re-encoding and semantics: UVE2 encodes static modifiers as tc=APP + funct3=MOD with literal
+- [x] `ss.app.mod` re-encoding and semantics: UVE2 encodes static modifiers as tc=APP + funct3=MOD with literal
   b/ta fields and an explicit 3-bit `tdim` target dimension (bits [17:15]); the trigger dimension is positional (the
-  most recently appended dimension), decoupled from the target. Replaces the Horologium-specific funct2=3 encoding;
-  the E/size field is removed in UVE2 (never used in Spike).
-- [ ] Remove `ss.ld.*` / `ss.st.*` 1D shorthand setup (UVE2 reserves tc=11; 1D streams use header + `ss.end`)
+  most recently appended dimension), decoupled from the target; target fields reset to configured values when the
+  trigger dimension itself wraps; Offset displacements and indirect offset values are element-scaled. Replaces the
+  Horologium-specific funct2=3 encoding; the E/size field is removed in UVE2 (never used in Spike).
+- [x] `ss.ld.*` / `ss.st.*` 1D shorthand: never existed as a separate decode path (README naming only, now
+  corrected); tc=11 rejects as an illegal instruction, matching UVE2's reserved encoding
 - [ ] Stream header `pm` (bit 31, merging-predication flag — currently mis-documented as "masked variant") and
   `mem` (bits [23:22], cache-level) field decode
 - [ ] Vector-width execution model: u-registers hold VLEN-wide element vectors (element width from stream config);

@@ -28,19 +28,22 @@ public enum StreamModifierBehavior {
 }
 
 /// <summary>
-/// Descriptor modifier: when dimension DimIndex wraps, update field Target.
+/// Descriptor modifier (UVE2 semantics): when dimension <see cref="TriggerDim"/> wraps, update
+/// field <see cref="Target"/> of dimension <see cref="TargetDim"/>. When the dimension one level
+/// outside the trigger wraps (TriggerDim+1), the target dimension's modified fields are reset to
+/// their configured values. Both indices are engine order (innermost = 0).
 /// <para>
-/// Static modifiers (SourceStreamId &lt; 0): apply Behavior(Displacement) up to MaxApplications times.
-/// Indirect modifiers (SourceStreamId ≥ 0): consume one element from the IndSource stream and
-/// apply Behavior to the field. MaxApplications=0 means unlimited. Displacement is unused.
+/// Static modifiers (SourceStreamId &lt; 0): apply Behavior with Displacement; Offset displacements
+/// are scaled by the stream's element width. Indirect modifiers (SourceStreamId ≥ 0): consume one
+/// element from the IndSource stream and apply Behavior; Displacement is unused.
 /// </para>
 /// </summary>
 public readonly record struct StreamModifier(
-    int DimIndex,
+    int TriggerDim,
+    int TargetDim,
     StreamModifierTarget Target,
     StreamModifierBehavior Behavior,
-    long Displacement,
-    int MaxApplications = 0,
+    long Displacement = 0,
     int SourceStreamId = -1
 );
 

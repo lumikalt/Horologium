@@ -1995,43 +1995,27 @@ public class Rv32Decoder : IDecoder {
                 return new RvInstruction(
                     pc, raw, -1, [rs1, rs2, rs3,], ToothClass.Uve, new RvUveSsApp(ud, rs1, rs2, rs3)
                 );
-            // ss.app.ind ud, rs1_indsrc — attach indirect modifier; funct2=1, funct3=6
-            // rs3[4:1] = Spike dim index (outermost=0); rs2[1:0]=target, rs2[4:2]=behavior
-            // rs1 = UVE register number of the IndSource stream (not an integer register read)
-            case 1 when funct3 == 6: {
-                int spikeDimIndex = rs3 >> 1;
-                StreamModifierTarget indTarget = (rs2 & 0x3) switch {
-                    0 => StreamModifierTarget.Size,
-                    1 => StreamModifierTarget.Stride,
-                    _ => StreamModifierTarget.Offset,
-                };
-                StreamModifierBehavior indBehavior = ((rs2 >> 2) & 0x7) switch {
-                    0 => StreamModifierBehavior.Inc,
-                    1 => StreamModifierBehavior.Dec,
-                    2 => StreamModifierBehavior.Add,
-                    3 => StreamModifierBehavior.Sub,
-                    _ => StreamModifierBehavior.Set,
-                };
+            // ss.app.mod — static modifier (UVE2): funct2=1(APP), funct3=4(MOD).
+            // b[24:22]=behavior, ta[21:20]=target (0=Size,1=Stride,2=Offset), tdim[17:15]=target dim
+            // (outermost-first, Spike order; 7 = "linked"), rs3=displacement register.
+            // The trigger dimension is positional and resolved at execute time.
+            case 1 when funct3 == 4: {
+                var tdim = (int)((raw >> 15) & 0x7);
                 return new RvInstruction(
-                    pc, raw, -1, [], ToothClass.Uve,
-                    new RvUveSsAppInd(ud, spikeDimIndex, indTarget, indBehavior, rs1)
+                    pc, raw, -1, [rs3,], ToothClass.Uve,
+                    new RvUveSsAppMod(ud, tdim, UveModTarget(rs2 & 0x3), UveModBehavior((rs2 >> 2) & 0x7), rs3)
                 );
             }
-            case 3: {
-                // ss.app.mod: funct2=3, funct3=dimIndex (0-7, outermost-first — remapped to the
-                // engine's innermost-first index at ss.end), rs1=E register, rs2=target+behavior literal, rs3=disp reg
-                // Spike target encoding: 0=Size, 1=Stride, 2=Offset → map to Horologium enum: Size=0, Stride=2, Offset=1
-                var dimIndex = (int)funct3;
-                int spikeTarget = rs2 & 0x3;
-                StreamModifierTarget target = spikeTarget switch {
-                    0 => StreamModifierTarget.Size,
-                    1 => StreamModifierTarget.Stride,
-                    _ => StreamModifierTarget.Offset,
-                };
-                var behavior = (StreamModifierBehavior)((rs2 >> 2) & 0x1);
+            // ss.app.ind ud, rs1_indsrc — indirect (dynamic) modifier; funct2=1, funct3=6.
+            // tdim[30:28] (bit 31 = sg, scatter-gather — not yet implemented); b[24:22], ta[21:20];
+            // rs1 = UVE register number of the IndSource stream (not an integer register read).
+            case 1 when funct3 == 6: {
+                if (raw >> 31 != 0)
+                    throw new IllegalInstructionException(raw, "ss.app.sgi (scatter-gather) not implemented");
+                var tdim = (int)((raw >> 28) & 0x7);
                 return new RvInstruction(
-                    pc, raw, -1, [rs1, rs3,], ToothClass.Uve,
-                    new RvUveSsAppMod(ud, dimIndex, target, behavior, rs3, rs1)
+                    pc, raw, -1, [], ToothClass.Uve,
+                    new RvUveSsAppInd(ud, tdim, UveModTarget(rs2 & 0x3), UveModBehavior((rs2 >> 2) & 0x7), rs1)
                 );
             }
             // ss.end ud, rs1_offset, rs2_count, rs3_stride
@@ -2048,6 +2032,22 @@ public class Rv32Decoder : IDecoder {
 
     // funct3 encodes element width for ss.sta.*: ew = 1 << (funct3 & 3) → 1/2/4/8 bytes
     private static int UveElementBytes(uint funct3) => 1 << (int)(funct3 & 3);
+
+    // Modifier ta field: 0=Size, 1=Stride, 2=Offset (Spike Table 2.4)
+    private static StreamModifierTarget UveModTarget(int ta) => ta switch {
+        0 => StreamModifierTarget.Size,
+        1 => StreamModifierTarget.Stride,
+        _ => StreamModifierTarget.Offset,
+    };
+
+    // Modifier b field: 0=Inc, 1=Dec, 2=Add, 3=Sub, 4+=Set (Spike Table 2.3)
+    private static StreamModifierBehavior UveModBehavior(int b) => b switch {
+        0 => StreamModifierBehavior.Inc,
+        1 => StreamModifierBehavior.Dec,
+        2 => StreamModifierBehavior.Add,
+        3 => StreamModifierBehavior.Sub,
+        _ => StreamModifierBehavior.Set,
+    };
 
     private static RvInstruction DecodeUveOp(ulong pc, uint raw) {
         var rd = (int)((raw >> 7) & 0x1F);

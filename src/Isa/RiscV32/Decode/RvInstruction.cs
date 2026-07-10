@@ -1197,11 +1197,12 @@ public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
 //   bits[31:27]=rs3, bits[26:25]=funct2, bits[24:20]=rs2, bits[19:15]=rs1, bits[14:12]=funct3, bits[11:7]=ud
 //   funct2=0: ss.sta.{ld|st}.* — funct3[2]=1→load,0→store; ew=1<<(funct3&3); only rs1(base) used
 //     rs3=0: scalar mode; rs3=0x8..0xE: vector mode (VecCfgDim=rs3-8); rs3=0xF: vector, innermost dim (VecCfgDim=-1)
-//     rs3 bit[4]=1: masked variant (requires predicate regs; decoded but mask ignored)
-//   funct2=1, funct3=0: ss.app   — rs1=offset reg, rs2=count reg, rs3=stride reg
-//   funct2=2, funct3=0: ss.end   — rs1=offset reg, rs2=count reg, rs3=stride reg; activates stream
-//   funct2=3, funct3=dimIndex (0-7): ss.app.mod — rs1=E reg (MaxApplications, 0=∞), rs2=target+behavior literal, rs3=disp reg
-// VecCfgDim: -1 = innermost dimension; 0..6 = explicit dimension.
+//     rs3 bit[4]=1: pm — merging predication for the stream (decoded but not yet applied)
+//   funct2=1, funct3=0: ss.app     — rs1=offset reg, rs2=count reg, rs3=stride reg
+//   funct2=1, funct3=4: ss.app.mod — static modifier: b[24:22], ta[21:20], tdim[17:15], rs3=disp reg
+//   funct2=1, funct3=6: ss.app.ind — indirect modifier: tdim[30:28], b[24:22], ta[21:20], rs1=IndSource reg
+//   funct2=2, funct3=0: ss.end     — rs1=offset reg, rs2=count reg, rs3=stride reg; activates stream
+// VecCfgDim: -1 = innermost dimension; 0..6 = explicit dimension (outermost-first, Spike order).
 public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1)
     : RvOp;
 
@@ -1212,12 +1213,14 @@ public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVe
 // Encoded as ss.sta.ld.* with rs2 bit[4]=1. No vector mode; follows with ss.app*/ss.end like a normal load stream.
 public record RvUveSsStaLdWInds(int Ud, int Rs1Base, int ElementBytes = 4) : RvOp;
 
-// ss.app.ind ud, rs1_indsrc — attach one indirect modifier to the pending stream config.
-// SpikeDimIndex: dimension in Spike's outermost-first convention; remapped to Horologium in ExecuteUveSsEnd.
+// ss.app.ind ud, rs1_indsrc — attach one indirect (dynamic) modifier to the pending stream config.
+// The trigger dimension is positional (the most recently appended dimension at execute time);
+// TargetDimRaw is the tdim field (outermost-first, Spike order; 7 = "linked" → the dimension
+// configured right after the trigger). Both are remapped to engine indices in ExecuteUveSsEnd.
 // SourceStreamId = rs1 field = UVE register number of the IndSource stream.
 public record RvUveSsAppInd(
     int Ud,
-    int SpikeDimIndex,
+    int TargetDimRaw,
     StreamModifierTarget Target,
     StreamModifierBehavior Behavior,
     int SourceStreamId
@@ -1226,17 +1229,17 @@ public record RvUveSsAppInd(
 // Rs1Offset is the offset register (Spike adds offset*ew to base); ignored — no offset field in StreamDimension.
 public record RvUveSsApp(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;
 
-// Same field layout as ss.app; activates the stream after appending the outermost dimension.
+// Same field layout as ss.app; activates the stream after appending the innermost dimension.
 public record RvUveSsEnd(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;
 
-// ss.app.mod: append a static modifier. funct3=dimIndex, rs1=E register (0 means unlimited), rs2=target+behavior literal, rs3=disp reg.
+// ss.app.mod: append a static modifier. Trigger dimension is positional (like ss.app.ind);
+// TargetDimRaw = tdim field [17:15] (outermost-first; 7 = "linked"). rs3 = displacement register.
 public record RvUveSsAppMod(
     int Ud,
-    int DimIndex,
+    int TargetDimRaw,
     StreamModifierTarget Target,
     StreamModifierBehavior Behavior,
-    int Rs3Disp,
-    int Rs1Size
+    int Rs3Disp
 ) : RvOp;
 
 // so.v.dp.(width) ud, rs1 — broadcast integer register rs1 bits (masked to ElementBytes) into u-reg scalar slot

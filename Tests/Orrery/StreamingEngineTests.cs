@@ -287,7 +287,7 @@ public class StreamingEngineTests {
             0,
             4,
             [new StreamDimension(3, 4), new StreamDimension(2, 0),],
-            [new StreamModifier(0, StreamModifierTarget.Stride, StreamModifierBehavior.Inc, 4),]
+            [new StreamModifier(0, 0, StreamModifierTarget.Stride, StreamModifierBehavior.Inc, 4),]
         );
         var eng = new StreamingEngine(8);
         eng.Configure(0, desc);
@@ -307,7 +307,7 @@ public class StreamingEngineTests {
     [Fact]
     public void OffsetModifier_ShiftsBaseEachOuterIteration() {
         // 2D stream: D0 count=2 stride=4, D1 count=3, base=0x10.
-        // Modifier on D0: Offset Inc 8 → base shifts by 8 after each D0 wrap.
+        // Modifier on D0: Offset Inc 2 (element-scaled ×4 → 8 bytes) after each D0 wrap.
         // Row 0 (base=0x10+0):  words[4]=5, words[5]=6
         // Row 1 (base=0x10+8):  words[6]=7, words[7]=8
         // Row 2 (base=0x10+16): words[8]=9, words[9]=10
@@ -319,7 +319,7 @@ public class StreamingEngineTests {
             0x10,
             4,
             [new StreamDimension(2, 4), new StreamDimension(3, 0),],
-            [new StreamModifier(0, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 8),]
+            [new StreamModifier(0, 0, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 2),]
         );
         var eng = new StreamingEngine(8);
         eng.Configure(0, desc);
@@ -335,43 +335,35 @@ public class StreamingEngineTests {
     }
 
     [Fact]
-    public void SizeModifier_CappedAtMaxApplications() {
-        // 2D stream: D0 count=1 stride=4, D1 count=4 stride=16.
-        // Modifier on D0: Size Inc 1, MaxApplications=2.
-        // Row 0 (count=1): addr 0          → 1 element
-        // D0 wraps → apply (1 of 2) → count=2
-        // Row 1 (count=2): addr 16,20      → 2 elements
-        // D0 wraps → apply (2 of 2) → count=3
-        // Row 2 (count=3): addr 32,36,40   → 3 elements
-        // D0 wraps → capped → count stays 3
-        // Row 3 (count=3): addr 48,52,56   → 3 elements
-        // Total: 1+2+3+3 = 9 elements
-        const int words = 15;
+    public void SizeModifier_ResetsWhenTriggerDimensionWraps() {
+        // 3D stream: D0 count=1 stride=4, D1 count=2 stride=16, D2 count=2 stride=32.
+        // Modifier: trigger=D0 wrap, target=D0, Size Inc 1. When D1 wraps (the dimension
+        // outside the trigger), the target's count RESETS to its configured value (Spike
+        // updateIteration resetIterValues semantics).
+        // D2 pass 0: row (count=1) at 0 → [1];  D0 wraps → count=2; row at 16,20 → [5,6];
+        //            D1 wraps → RESET count=1
+        // D2 pass 1: row (count=1) at 32 → [9]; D0 wraps → count=2; row at 48,52 → [13,14]
+        // Total: 1+2+1+2 = 6 elements
+        const int words = 16;
         var mem = new FlatMemory(words * 4);
         for (var i = 0; i < words; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
 
         var desc = new StreamDescriptor(
             0, 4,
-            [new StreamDimension(1, 4), new StreamDimension(4, 16),],
-            [new StreamModifier(0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 1, 2),]
+            [new StreamDimension(1, 4), new StreamDimension(2, 16), new StreamDimension(2, 32),],
+            [new StreamModifier(0, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 1),]
         );
         var eng = new StreamingEngine(16);
         eng.Configure(0, desc);
         for (var i = 0; i < 16; i++) eng.Step(mem);
 
-        // Row 0: 1 element at offset 0
         Assert.Equal(1UL, eng.Consume(0));
-        // Row 1: 2 elements at offsets 16, 20
         Assert.Equal(5UL, eng.Consume(0));
         Assert.Equal(6UL, eng.Consume(0));
-        // Row 2: 3 elements at offsets 32, 36, 40
+        // D1 wrapped → count reset to 1 for the next D2 pass
         Assert.Equal(9UL, eng.Consume(0));
-        Assert.Equal(10UL, eng.Consume(0));
-        Assert.Equal(11UL, eng.Consume(0));
-        // Row 3: 3 elements (capped) at offsets 48, 52, 56
         Assert.Equal(13UL, eng.Consume(0));
         Assert.Equal(14UL, eng.Consume(0));
-        Assert.Equal(15UL, eng.Consume(0));
         Assert.True(eng.IsExhausted(0));
     }
 
@@ -522,7 +514,7 @@ public class StreamingEngineTests {
         var desc = new StreamDescriptor(
             0x000, 4,
             [new StreamDimension(1, 4), new StreamDimension(3, 0),],
-            [new StreamModifier(0, StreamModifierTarget.Size, StreamModifierBehavior.Set, 0, 0, 1),]
+            [new StreamModifier(0, 0, StreamModifierTarget.Size, StreamModifierBehavior.Set, 0, 1),]
         );
         eng.Configure(0, desc);
 
@@ -571,7 +563,7 @@ public class StreamingEngineTests {
         var desc = new StreamDescriptor(
             0x000, 4,
             [new StreamDimension(2, 4), new StreamDimension(3, 0),],
-            [new StreamModifier(0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 0, 0, 1),]
+            [new StreamModifier(0, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 0, 1),]
         );
         eng.Configure(0, desc);
         for (var i = 0; i < 40; i++) eng.Step(mem);

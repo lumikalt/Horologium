@@ -719,11 +719,11 @@ public class Rv32Executor : IExecutor {
             ),
             RvUveSsStaLdWInds (var ud, var rs1, var ew)    => ExecuteUveSsStaLdWInds(regs, ud, rs1, ew),
             RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
-            RvUveSsAppInd (var ud, var spikeDim, var target, var behavior, var srcId) =>
-                ExecuteUveSsAppInd(ud, spikeDim, target, behavior, srcId),
+            RvUveSsAppInd (var ud, var tdim, var target, var behavior, var srcId) =>
+                ExecuteUveSsAppInd(ud, tdim, target, behavior, srcId),
             RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
-            RvUveSsAppMod (var ud, var dimIndex, var target, var behavior, var rs3Disp, var rs1Size) =>
-                ExecuteUveSsAppMod(regs, ud, dimIndex, target, behavior, rs3Disp, rs1Size),
+            RvUveSsAppMod (var ud, var tdim, var target, var behavior, var rs3Disp) =>
+                ExecuteUveSsAppMod(regs, ud, tdim, target, behavior, rs3Disp),
             RvUveSoVDp (var ud, var rs1, var elemBytes)   => ExecuteUveSoVDp(regs, ud, rs1, elemBytes),
             RvUveSoVMvvs (var us1, var rd)                => ExecuteUveSoVMvvs(state, rd, us1),
             RvUveSoVMvsv (var ud, var rs1, var elemBytes) => ExecuteUveSoVMvsv(regs, ud, rs1, elemBytes),
@@ -3339,10 +3339,12 @@ public class Rv32Executor : IExecutor {
     }
 
     // ss.app.ind ud, rs1_indsrc — append one indirect modifier to the pending stream config.
-    // SpikeDimIndex uses Spike's outermost-first convention; remapped to Horologium in ExecuteUveSsEnd.
+    // The trigger is positional: the most recently appended dimension at execute time (Spike
+    // keys modifiers to dimensions.size()-1). Pending modifiers hold SPIKE (outermost-first)
+    // indices in TriggerDim/TargetDim; ExecuteUveSsEnd remaps both to engine order.
     private static ExecuteResult ExecuteUveSsAppInd(
         int ud,
-        int spikeDimIndex,
+        int targetDimRaw,
         StreamModifierTarget target,
         StreamModifierBehavior behavior,
         int sourceStreamId
@@ -3350,8 +3352,10 @@ public class Rv32Executor : IExecutor {
         return new ExecuteResult {
             SideEffect = s => {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
-                if (cfg is null) return;
-                cfg.Modifiers.Add(new StreamModifier(spikeDimIndex, target, behavior, 0, 0, sourceStreamId));
+                if (cfg is null || cfg.Dimensions.Count == 0) return;
+                int spikeTrigger = cfg.Dimensions.Count - 1;
+                int spikeTarget = targetDimRaw == 7 ? spikeTrigger + 1 : targetDimRaw;
+                cfg.Modifiers.Add(new StreamModifier(spikeTrigger, spikeTarget, target, behavior, 0, sourceStreamId));
             },
         };
     }
@@ -3402,10 +3406,17 @@ public class Rv32Executor : IExecutor {
         StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).Reverse().ToArray();
         int ndim = dims.Length;
 
-        // Remap modifier DimIndex and explicit vecCfgDim from Spike (outermost=0) to engine (innermost=0).
+        // Remap modifier dims and explicit vecCfgDim from Spike (outermost=0) to engine (innermost=0).
+        // Pending TriggerDim holds the Spike deque index K of the dimension the modifier was appended
+        // after; that dimension ADVANCES when its inner neighbour (deque K+1) wraps, so the engine
+        // trigger is ndim-2-K. TargetDim is a plain index remap.
         StreamModifier[]? mods = null;
         if (pending.Modifiers.Count > 0)
-            mods = pending.Modifiers.Select(m => m with { DimIndex = ndim - 1 - m.DimIndex, }).ToArray();
+            mods = pending.Modifiers
+                          .Select(m => m with {
+                               TriggerDim = ndim - 2 - m.TriggerDim, TargetDim = ndim - 1 - m.TargetDim,
+                           })
+                          .ToArray();
         int vecCfgDim = pending.VecCfgDim >= 0 ? ndim - 1 - pending.VecCfgDim : -1;
 
         var descriptor = new StreamDescriptor(
@@ -3442,26 +3453,26 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // ss.app.mod ud, rs1Size, dimIndex, target, behavior, rs3Disp — append static modifier.
-    // dimIndex comes from funct3 and counts dimensions OUTERMOST-FIRST (Spike convention, like
-    // ss.app.ind and so.b.ndc); remapped to the engine's innermost-first index in ExecuteUveSsEnd.
-    // rs1Size holds MaxApplications (0 = unlimited); rs3Disp is the displacement register.
+    // ss.app.mod ud, tdim, target, behavior, rs3Disp — append static modifier (UVE2).
+    // Trigger is positional (the most recently appended dimension); tdim is the target dimension
+    // in Spike outermost-first order (7 = "linked" → the dimension configured right after the
+    // trigger). Pending modifiers hold Spike indices; ExecuteUveSsEnd remaps to engine order.
     private static ExecuteResult ExecuteUveSsAppMod(
         IRegisterFile regs,
         int ud,
-        int dimIndex,
+        int targetDimRaw,
         StreamModifierTarget target,
         StreamModifierBehavior behavior,
-        int rs3Disp,
-        int rs1Size
+        int rs3Disp
     ) {
         var disp = (long)regs.Read(rs3Disp);
-        var maxApp = (int)regs.Read(rs1Size);
         return new ExecuteResult {
             SideEffect = s => {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
-                if (cfg is null) return;
-                cfg.Modifiers.Add(new StreamModifier(dimIndex, target, behavior, disp, maxApp));
+                if (cfg is null || cfg.Dimensions.Count == 0) return;
+                int spikeTrigger = cfg.Dimensions.Count - 1;
+                int spikeTarget = targetDimRaw == 7 ? spikeTrigger + 1 : targetDimRaw;
+                cfg.Modifiers.Add(new StreamModifier(spikeTrigger, spikeTarget, target, behavior, disp));
             },
         };
     }

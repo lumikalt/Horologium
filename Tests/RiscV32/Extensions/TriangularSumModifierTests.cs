@@ -59,26 +59,24 @@ public class TriangularSumModifierTests {
         (uint)(((rs3 & 0x1F) << 27) | (0x2u << 25) | (uint)((rs2 & 0x1F) << 20)
              | (uint)((rs1Offset & 0x1F) << 15) | (0x0u << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
 
-    // SS.APP.MOD ud — funct2=3, funct3=dimIndex (outermost-first), rs1=E register (x0 → unlimited),
-    // rs2=(behavior<<2)|spikeTarget literal, rs3=displacement register.
-    // Spike target encoding: Size=0, Stride=1, Offset=2.
+    // SS.APP.MOD ud (UVE2) — funct2=1 (APP), funct3=4 (MOD), b[24:22]=behavior, ta[21:20]=target
+    // (Size=0, Stride=1, Offset=2), tdim[17:15]=target dim (outermost-first), rs3=displacement register.
+    // The trigger dimension is positional: the most recently appended dimension.
     private static uint SsAppMod(
         int ud,
-        int dimIndex,
+        int tdim,
         StreamModifierTarget target,
         StreamModifierBehavior behavior,
-        int rs3Disp,
-        int rs1E = 0
+        int rs3Disp
     ) {
-        int spikeTarget = target switch {
-            StreamModifierTarget.Size   => 0,
-            StreamModifierTarget.Stride => 1,
-            StreamModifierTarget.Offset => 2,
+        uint ta = target switch {
+            StreamModifierTarget.Size   => 0u,
+            StreamModifierTarget.Stride => 1u,
+            StreamModifierTarget.Offset => 2u,
             _                           => throw new ArgumentOutOfRangeException(nameof(target)),
         };
-        int rs2Fixed = ((int)behavior << 2) | spikeTarget;
-        return (uint)(((rs3Disp & 0x1F) << 27) | (0x3u << 25) | (uint)((rs2Fixed & 0x1F) << 20)
-                    | (uint)((rs1E & 0x1F) << 15) | (uint)((dimIndex & 0x7) << 12) | (uint)((ud & 0x1F) << 7) | 0x0Bu);
+        return ((uint)(rs3Disp & 0x1F) << 27) | (0x1u << 25) | ((uint)behavior << 22) | (ta << 20)
+             | ((uint)(tdim & 0x7) << 15) | (0x4u << 12) | ((uint)(ud & 0x1F) << 7) | 0x0Bu;
     }
 
     // SO.V.DP.W ud, rs1 — custom-1, funct7=0x56, funct3=2

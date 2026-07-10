@@ -26,7 +26,8 @@ namespace Tests.RiscV32.Extensions;
 /// stream modifiers with: the memory-indirection chain (load index → compute
 /// address → load data) moves off the critical path into the streaming engine,
 /// which resolves it ahead of the consuming MAC.
-/// Offsets are byte displacements from the stream base (col[k] * 4 for floats).
+/// IndSource values are element indices; the engine scales them by the element
+/// width (col[k] · 4 bytes for floats), so the index array holds plain col[k].
 /// </para>
 /// </summary>
 public class SparseDotProductTests {
@@ -104,7 +105,7 @@ public class SparseDotProductTests {
     public void SparseDot_IndirectGatherStream_CorrectResult(int[] cols, float[] vals) {
         const ulong xBase = 0x0100u;    // dense vector (8 floats)
         const ulong valBase = 0x0200u;  // sparse values
-        const ulong colBase = 0x0300u;  // column byte-offsets (col*4)
+        const ulong colBase = 0x0300u;  // column indices (element-scaled by the engine)
         const ulong resultAddr = 0x0400u;
         const ulong codeBase = 0x1000u;
 
@@ -116,7 +117,7 @@ public class SparseDotProductTests {
         for (var i = 0; i < x.Length; i++) mem.Load(xBase + (ulong)(i * 4), BitConverter.GetBytes(x[i]));
         for (var k = 0; k < m; k++) {
             mem.Load(valBase + (ulong)(k * 4), BitConverter.GetBytes(vals[k]));
-            mem.Load(colBase + (ulong)(k * 4), BitConverter.GetBytes((uint)(cols[k] * 4)));
+            mem.Load(colBase + (ulong)(k * 4), BitConverter.GetBytes((uint)cols[k]));
         }
 
         // Register plan: x1=valBase  x2=colBase  x3=xBase  x4=M  x5=4  x7=1  x9=resultAddr
