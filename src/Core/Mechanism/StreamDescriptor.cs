@@ -7,8 +7,10 @@ public readonly record struct StreamDimension(long Count, long Stride);
 public enum StreamModifierTarget {
     /// <summary>Update the iteration count of the target dimension.</summary>
     Size = 0,
+
     /// <summary>Update the base-address offset of the stream.</summary>
     Offset = 1,
+
     /// <summary>Update the stride of the target dimension.</summary>
     Stride = 2,
 }
@@ -17,12 +19,16 @@ public enum StreamModifierTarget {
 public enum StreamModifierBehavior {
     /// <summary>Increment: target += Displacement (static) or target += source_value (indirect).</summary>
     Inc = 0,
+
     /// <summary>Decrement: target -= Displacement (static) or target -= source_value (indirect).</summary>
     Dec = 1,
+
     /// <summary>Add to original: target = original_base + source_value (indirect only).</summary>
     Add = 2,
+
     /// <summary>Subtract from original: target = original_base - source_value (indirect only).</summary>
     Sub = 3,
+
     /// <summary>Set directly: target = source_value (indirect only).</summary>
     Set = 4,
 }

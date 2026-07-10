@@ -2097,14 +2097,20 @@ public class Rv32Decoder : IDecoder {
                     case 3: {
                         int elemBytes = (int)funct3 switch {
                             0 => 1, 1 => 2, 2 => 4, 3 => 8,
-                            _ => throw new IllegalInstructionException(raw, $"Unknown so.v.mvsv width funct3=0x{funct3:X}"),
+                            _ => throw new IllegalInstructionException(
+                                raw, $"Unknown so.v.mvsv width funct3=0x{funct3:X}"
+                            ),
                         };
-                        return new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVMvsv(rd, rs1, elemBytes));
+                        return new RvInstruction(
+                            pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSoVMvsv(rd, rs1, elemBytes)
+                        );
                     }
                     default: {
                         // mv/mvt: rs2[2:0] = uve_v_pred = bits[22:20]
                         int predIdx = rs2 & 7;
-                        return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoVMv(mvKind == 1, rd, rs1, predIdx));
+                        return new RvInstruction(
+                            pc, raw, -1, [], ToothClass.Uve, new RvUveSoVMv(mvKind == 1, rd, rs1, predIdx)
+                        );
                     }
                 }
             }

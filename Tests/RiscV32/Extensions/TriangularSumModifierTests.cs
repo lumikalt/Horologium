@@ -147,7 +147,9 @@ public class TriangularSumModifierTests {
             // u1: the whole triangle in one descriptor (config outermost-first)
             SsStaLdW(1, 1),    // [6]  base = matBase
             SsApp(1, 0, 2, 6), // [7]  rows: count=N, stride=4N
-            SsAppMod(1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 7), // [8] innermost.count += 1 per row wrap
+            SsAppMod(
+                1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 7
+            ),                 // [8] innermost.count += 1 per row wrap
             SsEnd(1, 0, 7, 5), // [9]  row elements (innermost): count=1 (grows), stride=4; activate
 
             // ── The entire kernel ─────────────────────────────────────────────

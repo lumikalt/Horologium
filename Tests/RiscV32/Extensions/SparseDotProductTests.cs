@@ -81,7 +81,7 @@ public class SparseDotProductTests {
 
     // SO.A.MAC.FP ud, usrc1, usrc2 — (funct7>>3, funct3)=(3,5)
     private static uint SoAMacFp(int ud, int usrc1, int usrc2) =>
-        ((3u << 3) << 25) | ((uint)(usrc2 & 0x1F) << 20) | ((uint)(usrc1 & 0x1F) << 15)
+        (3u << 3 << 25) | ((uint)(usrc2 & 0x1F) << 20) | ((uint)(usrc1 & 0x1F) << 15)
       | (0x5u << 12) | ((uint)(ud & 0x1F) << 7) | 0x2Bu;
 
     // SO.B.NC urs, imm — UVE B-type: bits[31:29]=111, bit28=imm[12], bit20=1(notDone), funct3=0
@@ -103,9 +103,9 @@ public class SparseDotProductTests {
     [InlineData(new[] { 0, }, new[] { 4.0f, })]                   // single element
     [InlineData(new[] { 3, 1, 4, 1, 5, 2, 6, 0, }, new[] { 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, })]
     public void SparseDot_IndirectGatherStream_CorrectResult(int[] cols, float[] vals) {
-        const ulong xBase = 0x0100u;    // dense vector (8 floats)
-        const ulong valBase = 0x0200u;  // sparse values
-        const ulong colBase = 0x0300u;  // column indices (element-scaled by the engine)
+        const ulong xBase = 0x0100u;   // dense vector (8 floats)
+        const ulong valBase = 0x0200u; // sparse values
+        const ulong colBase = 0x0300u; // column indices (element-scaled by the engine)
         const ulong resultAddr = 0x0400u;
         const ulong codeBase = 0x1000u;
 
@@ -145,10 +145,10 @@ public class SparseDotProductTests {
 
             // u3: gathered x — 2D (config outermost-first), innermost count=1 re-based
             // per element from u2
-            SsStaLdW(3, 3),     // [9]  base = xBase
-            SsApp(3, 0, 4, 0),  // [10] outer: count=M, stride=0
-            SsAppInd(3, 2, 1),  // [11] {Offset, Set} from u2 on the innermost (Spike dim 1 of 2)
-            SsEnd(3, 0, 7, 0),  // [12] innermost: count=1, stride=0; activate
+            SsStaLdW(3, 3),    // [9]  base = xBase
+            SsApp(3, 0, 4, 0), // [10] outer: count=M, stride=0
+            SsAppInd(3, 2, 1), // [11] {Offset, Set} from u2 on the innermost (Spike dim 1 of 2)
+            SsEnd(3, 0, 7, 0), // [12] innermost: count=1, stride=0; activate
 
             // u1: sparse values, plain 1D
             SsStaLdW(1, 1),    // [13]

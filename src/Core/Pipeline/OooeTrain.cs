@@ -1436,10 +1436,10 @@ internal sealed class OoOPipelineCore : Gear {
                     for (var i = 0; i < vl && StreamingEngine.HasElement(uid); i++)
                         laneBuf[i] = (uint)StreamingEngine.Consume(uid);
                     uvs.SetVectorRaw(uid, laneBuf[..vl], vl, merging);
-                } else {
-                    uvs.SetScalarRaw(uid, (uint)StreamingEngine.Consume(uid), merging);
                 }
+                else { uvs.SetScalarRaw(uid, (uint)StreamingEngine.Consume(uid), merging); }
             }
+
             foreach (int uid in issued.Instr.UveBranchStreams)
                 if (uid >= 0)
                     uvs.SetStreamDone(

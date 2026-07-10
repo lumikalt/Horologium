@@ -146,7 +146,7 @@ public sealed class UveState : IUveScalars {
     }
 }
 
-public enum UveRegMode { Scalar, Vector }
+public enum UveRegMode { Scalar, Vector, }
 
 /// <summary>
 /// Accumulated configuration for a multi-dim stream being built by ss.sta → ss.app* → ss.end.
