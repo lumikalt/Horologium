@@ -54,6 +54,7 @@ public sealed class UveState : IUveScalars {
     public void SetStreamDone(int uid, bool done) => StreamDone[uid] = done;
     public bool GetDimDone(int streamId, int dim) => DimDone[streamId, dim];
     public void SetDimDone(int streamId, int dim, bool done) => DimDone[streamId, dim] = done;
+    int IUveScalars.VectorLength => VectorLength;
 
     public void Reset() {
         Array.Clear(Scalars);

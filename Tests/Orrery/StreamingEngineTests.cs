@@ -393,6 +393,78 @@ public class StreamingEngineTests {
         Assert.False(eng.IsVectorMode(0));
     }
 
+    [Fact]
+    public void VectorMode_Step_FillsVlElementsPerCall() {
+        // 2D: 3 rows × 4 cols (dim0=4 elements, dim1=3 rows). VecCfgDim=0 (innermost).
+        // Each Step(vl=4) should enqueue exactly 4 elements (one full row), stopping at dim0 wrap.
+        var mem = new FlatMemory(3 * 4 * 4);
+        for (var i = 0; i < 12; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+        var desc = new StreamDescriptor(
+            0, 4,
+            [new StreamDimension(4, 4), new StreamDimension(3, 16),],
+            IsVectorMode: true, VecCfgDim: 0
+        );
+        var eng = new StreamingEngine(16);
+        eng.Configure(0, desc);
+
+        eng.Step(mem, 4);
+        Assert.Equal(4, Enumerable.Range(0, 4).Count(_ => eng.HasElement(0)));
+        // First row: elements 1–4
+        Assert.Equal(1u, (uint)eng.Consume(0));
+        Assert.Equal(2u, (uint)eng.Consume(0));
+        Assert.Equal(3u, (uint)eng.Consume(0));
+        Assert.Equal(4u, (uint)eng.Consume(0));
+    }
+
+    [Fact]
+    public void VectorMode_Step_StopsAtVecCfgDimBoundary() {
+        // 2D: 2 rows × 4 cols. VecCfgDim=0. VL=8 > row size (4).
+        // Step with vl=8 should only fill 4 elements (the whole row), not 8.
+        var mem = new FlatMemory(2 * 4 * 4);
+        for (var i = 0; i < 8; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+        var desc = new StreamDescriptor(
+            0, 4,
+            [new StreamDimension(4, 4), new StreamDimension(2, 16),],
+            IsVectorMode: true, VecCfgDim: 0
+        );
+        var eng = new StreamingEngine(16);
+        eng.Configure(0, desc);
+
+        eng.Step(mem, 8);
+        var count = 0;
+        while (eng.HasElement(0)) {
+            eng.Consume(0);
+            count++;
+        }
+
+        Assert.Equal(4, count);
+
+        // Second Step fills the next row.
+        eng.Step(mem, 8);
+        count = 0;
+        while (eng.HasElement(0)) {
+            eng.Consume(0);
+            count++;
+        }
+
+        Assert.Equal(4, count);
+        Assert.True(eng.IsExhausted(0));
+    }
+
+    [Fact]
+    public void ScalarMode_Step_FillsOneElementRegardlessOfVl() {
+        var mem = new FlatMemory(4 * 4);
+        for (var i = 0; i < 4; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+        var desc = new StreamDescriptor(0, 4, [new StreamDimension(4, 4),]);
+        var eng = new StreamingEngine(16);
+        eng.Configure(0, desc);
+
+        eng.Step(mem, 4);
+        Assert.True(eng.HasElement(0));
+        eng.Consume(0);
+        Assert.False(eng.HasElement(0));
+    }
+
     // ── Argument validation ───────────────────────────────────────────────────
 
     [Fact]

@@ -14,7 +14,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   → innermost dim (VecCfgDim=-1); bits[2:0]=0..6 → explicit dim. rs3 bit[4]=1 → masked variant (decoded
   but mask ignored; requires SO_P predicate registers). `IsVectorMode`+`VecCfgDim` propagate through
   PendingStreamConfig → StreamDescriptor → StreamingEngine.StreamState.
-- [ ] `ss.cfg.vec` effect: vector-width element delivery from load streams — bulk deliver VL elements per
+- [x] `ss.cfg.vec` effect: vector-width element delivery from load streams — bulk deliver VL elements per
   `Consume()` cycle (currently always 1); engine fills up to VL elements in vector mode, stopping at the
   vecCfgDim boundary.
 - [x] Scalar broadcast to u-reg: `so.v.dp.w`

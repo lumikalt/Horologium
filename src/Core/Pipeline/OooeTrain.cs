@@ -556,7 +556,7 @@ internal sealed class OoOPipelineCore : Gear {
 
         // Advance all active streams one prefetch step. Streams are architectural state
         // and run every cycle, independent of pipeline flush/stall.
-        StreamingEngine.Step(DLayers.Accessor);
+        StreamingEngine.Step(DLayers.Accessor, State.UveScalars?.VectorLength ?? 1);
 
         // Charge the previous cycle's instruction-fetch (and any store-commit) stall
         // penalties. Load-miss penalties are NOT lump-summed here — StepExecute gives

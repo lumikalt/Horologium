@@ -1202,9 +1202,11 @@ public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
 //   funct2=2, funct3=0: ss.end   — rs1=offset reg, rs2=count reg, rs3=stride reg; activates stream
 //   funct2=3, funct3=dimIndex (0-7): ss.app.mod — rs1=E reg (MaxApplications, 0=∞), rs2=target+behavior literal, rs3=disp reg
 // VecCfgDim: -1 = innermost dimension; 0..6 = explicit dimension.
-public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1) : RvOp;
+public record RvUveSsStaLdW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1)
+    : RvOp;
 
-public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1) : RvOp;
+public record RvUveSsStaStW(int Ud, int Rs1Base, int ElementBytes = 4, bool IsVectorMode = false, int VecCfgDim = -1)
+    : RvOp;
 
 // Rs1Offset is the offset register (Spike adds offset*ew to base); ignored — no offset field in StreamDimension.
 public record RvUveSsApp(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;

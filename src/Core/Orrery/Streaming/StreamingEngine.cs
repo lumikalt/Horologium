@@ -98,12 +98,14 @@ public sealed class StreamingEngine {
     }
 
     /// <summary>
-    /// Advances each active stream by one prefetch step: reads one element from memory into
-    /// the buffer if the buffer has room and elements remain. Call once per pipeline cycle.
+    /// Advances each active stream by one prefetch step. Scalar streams read one element;
+    /// vector-mode streams read up to <paramref name="vectorLength"/> elements, stopping at
+    /// the vecCfgDim boundary so each Step delivers at most one complete vector slice.
+    /// Call once per pipeline cycle.
     /// </summary>
-    public void Step(IMemory memory) {
+    public void Step(IMemory memory, int vectorLength = 1) {
         if (_activeCount == 0) return;
-        foreach (StreamState s in _streams) s.Step(memory, _prefetchDepth);
+        foreach (StreamState s in _streams) s.Step(memory, _prefetchDepth, vectorLength);
     }
 
     private static void Validate(int id) {
@@ -177,7 +179,7 @@ public sealed class StreamingEngine {
             _fetchModApplyCounts = nmod > 0 ? new int[nmod] : [];
             _consumeModApplyCounts = nmod > 0 ? new int[nmod] : [];
             // Resolve vector coupling dim: VecCfgDim=-1 (innermost) → dim 0 (Horologium innermost convention).
-            _vecCfgDim = desc.IsVectorMode ? (desc.VecCfgDim < 0 ? 0 : desc.VecCfgDim) : -1;
+            _vecCfgDim = desc.IsVectorMode ? desc.VecCfgDim < 0 ? 0 : desc.VecCfgDim : -1;
             Active = true;
         }
 
@@ -198,15 +200,18 @@ public sealed class StreamingEngine {
             return val;
         }
 
-        public void Step(IMemory memory, int prefetchDepth) {
+        public void Step(IMemory memory, int prefetchDepth, int vectorLength) {
             if (!Active) return;
             if (_buffer.Count >= prefetchDepth) return;
             if (_fetchDone) return;
 
-            var addr = (ulong)((long)_desc.BaseAddress + FetchOffset());
-            ulong element = memory.Read(addr, _desc.ElementBytes);
-            _buffer.Enqueue(element);
-            AdvanceFetchIndex();
+            int toFetch = _vecCfgDim >= 0 ? vectorLength : 1;
+            for (var i = 0; i < toFetch; i++) {
+                if (_buffer.Count >= prefetchDepth) break;
+                if (_fetchDone) break;
+                _buffer.Enqueue(memory.Read((ulong)((long)_desc.BaseAddress + FetchOffset()), _desc.ElementBytes));
+                if (AdvanceFetchIndex()) break;
+            }
         }
 
         private long FetchOffset() {
@@ -215,16 +220,23 @@ public sealed class StreamingEngine {
             return offset;
         }
 
-        private void AdvanceFetchIndex() {
+        // Returns true when _vecCfgDim wrapped (vector slice boundary) or stream is done.
+        // The carry always propagates fully so _fetchIndices is consistent for the next call.
+        private bool AdvanceFetchIndex() {
+            var boundary = false;
             for (var d = 0; d < _fetchDimCounts.Length; d++) {
-                if (++_fetchIndices[d] < _fetchDimCounts[d]) return;
+                if (++_fetchIndices[d] < _fetchDimCounts[d]) return boundary;
                 _fetchIndices[d] = 0;
                 ApplyFetchModifiers(d);
                 if (d == _fetchDimCounts.Length - 1) {
                     _fetchDone = true;
-                    return;
+                    return true;
                 }
+
+                if (d == _vecCfgDim) boundary = true;
             }
+
+            return boundary;
         }
 
         private void AdvanceConsumeIndex() {

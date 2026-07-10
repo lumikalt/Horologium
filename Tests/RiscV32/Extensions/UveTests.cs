@@ -709,14 +709,14 @@ public class UveTests {
         Assert.Equal(2, op.Rs1Base);
         Assert.Equal(4, op.ElementBytes);
         Assert.True(op.IsVectorMode);
-        Assert.Equal(-1, op.VecCfgDim);   // innermost sentinel
+        Assert.Equal(-1, op.VecCfgDim); // innermost sentinel
     }
 
     [Fact]
     public void Decoder_SsStaLdWV_ExplicitDim_DecodesVectorMode() {
         // ss.sta.ld.w_v_2 ud=3, rs1=4 — vecCfgDimBits=1 → rs3=0x9, VecCfgDim=1
         var mem = new FlatMemory(16);
-        mem.Load(0, BitConverter.GetBytes(SsStaLdWV(3, 4, vecCfgDimBits: 1)));
+        mem.Load(0, BitConverter.GetBytes(SsStaLdWV(3, 4, 1)));
         var op = Assert.IsType<RvUveSsStaLdW>(new Rv32Decoder().Decode(0, mem).Payload);
         Assert.Equal(3, op.Ud);
         Assert.Equal(4, op.Rs1Base);

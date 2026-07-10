@@ -1975,10 +1975,14 @@ public class Rv32Decoder : IDecoder {
                 int ew = UveElementBytes(funct3);
                 bool isLoad = funct3 >> 2 != 0;
                 bool isVec = (rs3 & 0x8) != 0;
-                int vecCfgDim = isVec ? ((rs3 & 0x7) == 0x7 ? -1 : (rs3 & 0x7)) : -1;
+                int vecCfgDim = isVec ? (rs3 & 0x7) == 0x7 ? -1 : rs3 & 0x7 : -1;
                 return isLoad
-                    ? new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, ew, isVec, vecCfgDim))
-                    : new RvInstruction(pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, ew, isVec, vecCfgDim));
+                    ? new RvInstruction(
+                        pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaLdW(ud, rs1, ew, isVec, vecCfgDim)
+                    )
+                    : new RvInstruction(
+                        pc, raw, -1, [rs1,], ToothClass.Uve, new RvUveSsStaStW(ud, rs1, ew, isVec, vecCfgDim)
+                    );
             }
             // ss.app ud, rs1_offset, rs2_count, rs3_stride
             case 1 when funct3 == 0:

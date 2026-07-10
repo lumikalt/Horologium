@@ -27,4 +27,10 @@ public interface IUveScalars {
 
     /// <summary>Sets the dimension-done flag for dimension <paramref name="dim"/> of stream <paramref name="streamId"/>.</summary>
     void SetDimDone(int streamId, int dim, bool done);
+
+    /// <summary>
+    /// Active vector length (number of elements per vector operation).
+    /// Set by ss.setvl; used by the streaming engine to fill VL elements per Step in vector mode.
+    /// </summary>
+    int VectorLength => 1;
 }
