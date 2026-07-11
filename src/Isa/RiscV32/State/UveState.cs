@@ -163,6 +163,7 @@ public sealed class PendingStreamConfig {
     public bool IsIndSource;
     public readonly List<StreamDimension> Dimensions = [];
     public readonly List<StreamModifier> Modifiers = [];
+    public (int SourceStreamId, StreamModifierBehavior Behavior)? SgiMod;
 }
 
 public enum UveRegKind {

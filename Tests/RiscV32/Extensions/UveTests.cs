@@ -248,6 +248,20 @@ public class UveTests {
              | ((uint)(tdim & 0x7) << 15) | (0x4u << 12) | ((uint)(ud & 0x1F) << 7) | 0x0Bu;
     }
 
+    // ss.app.sgi: funct2=1, funct3=6, bit27=1; rs1=source stream id, rs2=(behavior<<2)
+    private static uint SsAppSgi(int ud, int rs1Source, StreamModifierBehavior behavior) {
+        uint rs2Literal = (uint)behavior << 2;
+        return (1u << 27) | (0x1u << 25) | (rs2Literal << 20) | ((uint)(rs1Source & 0x1F) << 15)
+             | (0x6u << 12) | ((uint)(ud & 0x1F) << 7) | 0x0Bu;
+    }
+
+    // ss.end.sgi: funct2=2, funct3=6, bit27=1; same field layout as ss.app.sgi
+    private static uint SsEndSgi(int ud, int rs1Source, StreamModifierBehavior behavior) {
+        uint rs2Literal = (uint)behavior << 2;
+        return (1u << 27) | (0x2u << 25) | (rs2Literal << 20) | ((uint)(rs1Source & 0x1F) << 15)
+             | (0x6u << 12) | ((uint)(ud & 0x1F) << 7) | 0x0Bu;
+    }
+
     // EBREAK — halts the pipeline
     private static uint EBreak() => 0x00100073u;
 
@@ -2384,5 +2398,75 @@ public class UveTests {
         er.SideEffect!(state);
 
         Assert.Equal(dst, state.UveState.GetScalar(3)); // unchanged
+    }
+
+    // ── Scatter-gather modifier (ss.app.sgi / ss.end.sgi) tests ─────────────────
+
+    [Fact]
+    public void Decoder_SsAppSgi_Add_Roundtrip() {
+        var mem = new FlatMemory(4);
+        mem.Load(0, BitConverter.GetBytes(SsAppSgi(3, 5, StreamModifierBehavior.Add)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSsAppSgi>(tooth.Payload);
+        Assert.Equal(3, op.Ud);
+        Assert.Equal(5, op.Rs1Source);
+        Assert.Equal(StreamModifierBehavior.Add, op.Behavior);
+    }
+
+    [Fact]
+    public void Decoder_SsEndSgi_Inc_Roundtrip() {
+        var mem = new FlatMemory(4);
+        mem.Load(0, BitConverter.GetBytes(SsEndSgi(2, 7, StreamModifierBehavior.Inc)));
+        var tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSsEndSgi>(tooth.Payload);
+        Assert.Equal(2, op.Ud);
+        Assert.Equal(7, op.Rs1Source);
+        Assert.Equal(StreamModifierBehavior.Inc, op.Behavior);
+    }
+
+    [Fact]
+    public void SsEndSgi_SetsDescriptorSgiMod() {
+        var state = new Rv32ArchState();
+        var cfg = new PendingStreamConfig { BaseAddress = 0x1000, ElementBytes = 4, IsLoad = true, };
+        cfg.Dimensions.Add(new StreamDimension(4, 4));
+        state.UveState.PendingConfig[0] = cfg;
+
+        ExecuteResult er = Exec(new RvUveSsEndSgi(0, 3, StreamModifierBehavior.Set), state);
+
+        Assert.True(er.StreamConfig.HasValue);
+        StreamDescriptor desc = er.StreamConfig.Value.Descriptor;
+        Assert.True(desc.SgiMod.HasValue);
+        Assert.Equal(3, desc.SgiMod!.Value.SourceStreamId);
+        Assert.Equal(StreamModifierBehavior.Set, desc.SgiMod.Value.Behavior);
+    }
+
+    [Fact]
+    public void ScatterGather_SgiSet_GathersIndirectElements() {
+        // IndSource stream 1: indices [2, 0, 1] at 0x100 (4-byte uint each).
+        // Data array at 0x000: A = [10, 20, 30] (4 bytes each).
+        // Gather stream 0: base=0x000, count=3, stride=0; sgi from stream 1 with behavior=Set.
+        // sgi sets _fetchDimOffsets[0] = index * elementBytes before each fetch:
+        //   idx=2 → offset=8 → A[2]=30; idx=0 → offset=0 → A[0]=10; idx=1 → offset=4 → A[1]=20.
+        var mem = new FlatMemory(0x200);
+        mem.Load(0x000, BitConverter.GetBytes(10u));
+        mem.Load(0x004, BitConverter.GetBytes(20u));
+        mem.Load(0x008, BitConverter.GetBytes(30u));
+        mem.Load(0x100, BitConverter.GetBytes(2u)); // → A[2]=30
+        mem.Load(0x104, BitConverter.GetBytes(0u)); // → A[0]=10
+        mem.Load(0x108, BitConverter.GetBytes(1u)); // → A[1]=20
+
+        var eng = new StreamingEngine(16);
+        eng.Configure(1, new StreamDescriptor(0x100, 4, 3, 4)); // IndSource: 3 indices
+        eng.Configure(0, new StreamDescriptor(
+            0x000, 4, [new StreamDimension(3, 0),],
+            SgiMod: (1, StreamModifierBehavior.Set)
+        ));
+
+        for (var i = 0; i < 20; i++) eng.Step(mem);
+
+        Assert.Equal(30UL, eng.Consume(0));
+        Assert.Equal(10UL, eng.Consume(0));
+        Assert.Equal(20UL, eng.Consume(0));
+        Assert.True(eng.IsExhausted(0));
     }
 }

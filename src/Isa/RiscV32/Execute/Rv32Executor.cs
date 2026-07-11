@@ -721,6 +721,8 @@ public class Rv32Executor : IExecutor {
             RvUveSsApp (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsApp(regs, ud, rs1, rs2, rs3),
             RvUveSsAppInd (var ud, var tdim, var target, var behavior, var srcId) =>
                 ExecuteUveSsAppInd(ud, tdim, target, behavior, srcId),
+            RvUveSsAppSgi (var ud, var srcId, var behavior) => ExecuteUveSsAppSgi(ud, srcId, behavior),
+            RvUveSsEndSgi (var ud, var srcId, var behavior) => ExecuteUveSsEndSgi(state, ud, srcId, behavior),
             RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
             RvUveSsAppMod (var ud, var tdim, var target, var behavior, var rs3Disp) =>
                 ExecuteUveSsAppMod(regs, ud, tdim, target, behavior, rs3Disp),
@@ -3487,9 +3489,48 @@ public class Rv32Executor : IExecutor {
 
         long totalOffsetBytes = pending.OffsetBytes + offset * pending.ElementBytes;
         var baseAddr = (ulong)((long)pending.BaseAddress + totalOffsetBytes);
-
-        // Config order is outermost-first; the engine indexes innermost-first. Reverse.
         StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).Reverse().ToArray();
+        return BuildAndActivatePendingStream(ud, pending, baseAddr, dims);
+    }
+
+    // ss.app.sgi ud, rs1_indsrc — attach scatter-gather modifier to the pending config.
+    // Fires per element, always targeting Offset of dimension 0; encoded in PendingStreamConfig.SgiMod.
+    private static ExecuteResult ExecuteUveSsAppSgi(int ud, int srcId, StreamModifierBehavior behavior) {
+        return new ExecuteResult {
+            SideEffect = s => {
+                PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
+                if (cfg is null) return;
+                cfg.SgiMod = (srcId, behavior);
+            },
+        };
+    }
+
+    // ss.end.sgi ud, rs1_indsrc — attach scatter-gather modifier + activate stream.
+    // Does NOT add a new dimension; existing dimensions from prior ss.app instructions are used.
+    private static ExecuteResult ExecuteUveSsEndSgi(
+        IArchState state,
+        int ud,
+        int srcId,
+        StreamModifierBehavior behavior
+    ) {
+        UveState uveState = UState(state).UveState;
+        PendingStreamConfig? pending = uveState.PendingConfig[ud];
+        if (pending is null || pending.Dimensions.Count == 0) return ExecuteResult.Clean;
+
+        pending.SgiMod = (srcId, behavior);
+        var baseAddr = (ulong)((long)pending.BaseAddress + pending.OffsetBytes);
+        StreamDimension[] dims = ((IEnumerable<StreamDimension>)pending.Dimensions).Reverse().ToArray();
+        return BuildAndActivatePendingStream(ud, pending, baseAddr, dims);
+    }
+
+    // Shared activation helper: builds a StreamDescriptor from pending config + already-reversed dims
+    // and returns the appropriate ExecuteResult (load/IndSource → StreamConfig; store → SideEffect).
+    private static ExecuteResult BuildAndActivatePendingStream(
+        int ud,
+        PendingStreamConfig pending,
+        ulong baseAddr,
+        StreamDimension[] dims
+    ) {
         int ndim = dims.Length;
 
         // Remap modifier dims and explicit vecCfgDim from Spike (outermost=0) to engine (innermost=0).
@@ -3507,7 +3548,8 @@ public class Rv32Executor : IExecutor {
         int vecCfgDim = pending.VecCfgDim >= 0 ? ndim - 1 - pending.VecCfgDim : -1;
 
         var descriptor = new StreamDescriptor(
-            baseAddr, pending.ElementBytes, dims, mods, pending.IsVector, vecCfgDim, pending.MergingPredication
+            baseAddr, pending.ElementBytes, dims, mods, pending.IsVector, vecCfgDim, pending.MergingPredication,
+            pending.SgiMod
         );
         bool isLoad = pending.IsLoad;
         bool isIndSource = pending.IsIndSource;

@@ -87,7 +87,7 @@ Remaining delta, in rough dependency order:
   stored in Ps3 field of all so.a.* records; UveWriteResult gates per-lane writes with predicate register;
   inactive lanes always merge (keep existing dest value) per Spike semantics; zeroing flag still governs lanes
   beyond vLen; sadde/fsadde skip inactive elements from the accumulation sum
-- [ ] Scatter-gather dynamic modifiers (`ss.app.sgi` / `ss.<app/end>.ind.ofs.sg.<b>`): applied per element rather
+- [x] Scatter-gather dynamic modifiers (`ss.app.sgi` / `ss.end.sgi`): applied per element rather
   than per dimension wrap, offset target only — enables vectorial gather (SpMV-2 pattern)
 - [ ] Predicate width conversion `so.p.cv.<dw>.<sw>` (dual width fields) and vector element conversion
   `so.v.cv.<fps>.<wth>` (narrowing/widening; lost-lane behaviour still open in the spec)

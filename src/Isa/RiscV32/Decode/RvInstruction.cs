@@ -1229,6 +1229,16 @@ public record RvUveSsStaStW(
 // Encoded as ss.sta.ld.* with inds bit[24]=1. No vector mode; follows with ss.app*/ss.end like a normal load stream.
 public record RvUveSsStaLdWInds(int Ud, int Rs1Base, int ElementBytes = 4, int MemLevel = 0) : RvOp;
 
+// ss.app.sgi ud, rs1_indsrc — attach a scatter-gather modifier to the pending config.
+// Fires per element (before each address generation), always targeting Offset of dimension 0.
+// Rs1Source is the UVE register number of the IndSource stream; behavior = (rs2_literal >> 2) & 7.
+// Discriminated from ss.app.ind by bit27=1 in the instruction encoding.
+public record RvUveSsAppSgi(int Ud, int Rs1Source, StreamModifierBehavior Behavior) : RvOp;
+
+// ss.end.sgi ud, rs1_indsrc — attach scatter-gather modifier + activate the pending stream config.
+// Like ss.app.sgi but also ends the configuration. Does NOT add a new dimension.
+public record RvUveSsEndSgi(int Ud, int Rs1Source, StreamModifierBehavior Behavior) : RvOp;
+
 // ss.app.ind ud, rs1_indsrc — attach one indirect (dynamic) modifier to the pending stream config.
 // The trigger dimension is positional (the most recently appended dimension at execute time);
 // TargetDimRaw is the tdim field (outermost-first, Spike order; 7 = "linked" → the dimension

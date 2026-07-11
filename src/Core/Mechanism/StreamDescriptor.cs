@@ -66,7 +66,8 @@ public readonly record struct StreamDescriptor(
     StreamModifier[]? Modifiers = null,
     bool IsVectorMode = false,
     int VecCfgDim = -1,
-    bool MergingPredication = false
+    bool MergingPredication = false,
+    (int SourceStreamId, StreamModifierBehavior Behavior)? SgiMod = null
 ) {
     /// <summary>Backward-compatible 1D constructor.</summary>
     public StreamDescriptor(ulong baseAddress, int elementBytes, long count, long stride)

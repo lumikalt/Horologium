@@ -173,6 +173,9 @@ public sealed class StreamingEngine {
         // vector boundary (resolved from IsVectorMode/VecCfgDim at Configure time; innermost = 0).
         private int _vecCfgDim = -1;
 
+        // Scatter-gather modifier: fires per element before each address generation, targeting dim-0 Offset.
+        private (int SourceStreamId, StreamModifierBehavior Behavior)? _sgiMod;
+
         private readonly Queue<ulong> _buffer = new();
 
         public bool Active { get; private set; }
@@ -228,6 +231,8 @@ public sealed class StreamingEngine {
 
             // Resolve vector coupling dim: VecCfgDim=-1 (innermost) → dim 0 (Horologium innermost convention).
             _vecCfgDim = desc.IsVectorMode ? desc.VecCfgDim < 0 ? 0 : desc.VecCfgDim : -1;
+
+            _sgiMod = desc.SgiMod;
             Active = true;
         }
 
@@ -258,6 +263,7 @@ public sealed class StreamingEngine {
             for (var i = 0; i < toFetch; i++) {
                 if (_buffer.Count >= prefetchDepth) break;
                 if (_fetchDone) break;
+                if (_sgiMod.HasValue && !ApplySgiMod(allStreams)) break;
                 _buffer.Enqueue(memory.Read((ulong)((long)_desc.BaseAddress + FetchOffset()), _desc.ElementBytes));
                 if (AdvanceFetchIndex(allStreams)) break;
             }
@@ -292,6 +298,27 @@ public sealed class StreamingEngine {
             for (var d = 0; d < _fetchIndices.Length; d++)
                 offset += _fetchIndices[d] * _fetchDimStrides[d] + _fetchDimOffsets[d];
             return offset;
+        }
+
+        // Applies the scatter-gather modifier: consumes one element from the source stream and
+        // updates _fetchDimOffsets[0]. Returns false (stalls the fetch) if the source has no element.
+        // Spike: dim.iter_offset = f(dim.offset, behavior, sourceValue * elementWidth), where
+        // dim.offset (the configured base) is always 0, so Add/Sub collapse to the same as Set/Negate.
+        private bool ApplySgiMod(StreamState[] allStreams) {
+            var (srcId, behavior) = _sgiMod!.Value;
+            StreamState src = allStreams[srcId];
+            if (!src.HasElement) return false;
+            var rawVal = (long)(int)src.Consume();
+            long scaled = rawVal * _desc.ElementBytes;
+            _fetchDimOffsets[0] = behavior switch {
+                StreamModifierBehavior.Add => scaled,          // base=0, so Add ≡ Set
+                StreamModifierBehavior.Sub => -scaled,         // base=0, so Sub ≡ Negate
+                StreamModifierBehavior.Set => scaled,
+                StreamModifierBehavior.Inc => _fetchDimOffsets[0] + scaled,
+                StreamModifierBehavior.Dec => _fetchDimOffsets[0] - scaled,
+                _                          => scaled,
+            };
+            return true;
         }
 
         // Returns true when _vecCfgDim wrapped (vector slice boundary) or stream is done.

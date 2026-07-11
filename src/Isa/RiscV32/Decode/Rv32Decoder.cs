@@ -2011,18 +2011,29 @@ public class Rv32Decoder : IDecoder {
                     new RvUveSsAppMod(ud, tdim, UveModTarget(rs2 & 0x3), UveModBehavior((rs2 >> 2) & 0x7), rs3)
                 );
             }
-            // ss.app.ind ud, rs1_indsrc — indirect (dynamic) modifier; funct2=1, funct3=6.
-            // tdim[30:28] (bit 31 = sg, scatter-gather — not yet implemented); b[24:22], ta[21:20];
+            // ss.app.ind ud, rs1_indsrc — indirect (dynamic) modifier; funct2=1, funct3=6, bit27=0.
+            // ss.app.sgi ud, rs1_indsrc — scatter-gather modifier; funct2=1, funct3=6, bit27=1.
+            // tdim[30:28] (ind only); b = (rs2>>2)&7; ta[1:0] (ind only);
             // rs1 = UVE register number of the IndSource stream (not an integer register read).
             case 1 when funct3 == 6: {
-                if (raw >> 31 != 0)
-                    throw new IllegalInstructionException(raw, "ss.app.sgi (scatter-gather) not implemented");
+                if ((raw & (1u << 27)) != 0)
+                    return new RvInstruction(
+                        pc, raw, -1, [], ToothClass.Uve,
+                        new RvUveSsAppSgi(ud, rs1, UveModBehavior((rs2 >> 2) & 0x7))
+                    );
                 var tdim = (int)((raw >> 28) & 0x7);
                 return new RvInstruction(
                     pc, raw, -1, [], ToothClass.Uve,
                     new RvUveSsAppInd(ud, tdim, UveModTarget(rs2 & 0x3), UveModBehavior((rs2 >> 2) & 0x7), rs1)
                 );
             }
+            // ss.end.sgi ud, rs1_indsrc — scatter-gather modifier + activate; funct2=2, funct3=6.
+            // rs1 = source stream ID; behavior = (rs2_literal >> 2) & 7; no new dimension added.
+            case 2 when funct3 == 6:
+                return new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Uve,
+                    new RvUveSsEndSgi(ud, rs1, UveModBehavior((rs2 >> 2) & 0x7))
+                );
             // ss.end ud, rs1_offset, rs2_count, rs3_stride
             case 2 when funct3 == 0:
                 return new RvInstruction(
