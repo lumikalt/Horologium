@@ -143,7 +143,7 @@ All four items were implemented. Results (`--structurally-matched`, store_buffer
   by code: `LTageBranchPrediction.Ghr` is updated only in `Update()` at commit, so the
   global history is stale across the ROB window. The real treesum lever is **speculative
   branch-history update + squash recovery** — a change to the `IBranchPredictor` contract
-  and every predictor. Not implemented here; logged in `IDEAS.md`. treesum stays at 0.478.
+  and every predictor. Deferred to the follow-up below; treesum stays at 0.478 for now.
 - **D — doc correction** applied to `docs/gem5-comparison.md` (the gem5-gets-499 error and
   the associativity/DRAM misattribution for memcpy).
 
@@ -153,7 +153,7 @@ more faithful to gem5 — but they were not the treesum lever.
 
 ## Follow-up: speculative branch history (implemented)
 
-The real treesum lever from the IDEAS backlog. `LTageBranchPrediction` updated the global
+The real treesum lever. `LTageBranchPrediction` updated the global
 history register only at commit, so TAGE lookups indexed stale history across the ROB
 window. Fixed by keeping a speculative `Ghr` advanced at fetch against an architectural
 `_committedGhr` shadow that trains the tables and restores `Ghr` on flush; exposed as
@@ -166,4 +166,5 @@ Measured (structurally-matched): mispredicts fell broadly (treesum 495 → 322, 
 0.721 → 0.744; rest flat. treesum slipped 0.478 → 0.459 — the mispredict win drives deeper
 speculation and lifts memory-order violations 26 → 245; store sets remove them and recover
 IPC to ~0.84. The residual treesum gap (322 vs 70) is predictor *structure*: gem5's
-local-history predictor suits the recursive null-check. Logged as a new IDEAS item.
+local-history predictor suits the recursive null-check. Logged in `TODO.md`, along with
+extending speculative history to the non-TAGE GHR predictors.

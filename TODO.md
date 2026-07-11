@@ -127,6 +127,14 @@ Remaining delta, in rough dependency order:
 - [x] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary
   stalls. — Chrysos & Emer, ISCA 1998
 
+## Branch Prediction
+
+- [ ] Extend speculative global history to the non-TAGE GHR predictors (Tournament, Gshare/Gselect,
+  Perceptron/HashedPerceptron, Correlated, ITTAGE, IMLI) and the LLBP/VLA-TAGE context registers, which are
+  still commit-time. The TAGE family already has it via `LTageBranchPrediction`'s `_committedGhr` shadow.
+- [ ] Local (per-PC) history predictor component to close the residual treesum gap (LTage mispredicts 322 vs
+  gem5 TournamentBP's 70 with speculative history already on; the gap is local-history structure, not timing).
+
 ## Cache Model Realism
 
 - [x] Write-back buffer (eviction buffer): dirty victims drain to the next level asynchronously from a small
