@@ -20,7 +20,6 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
     private static readonly int[] DefaultHistLengths = [0, 2, 4, 8, 11, 16, 23, 32,];
 
     private readonly int[] _histLengths;
-    private readonly int _maxHist;
     private readonly int _threshold;    // θ = floor(1.93·H + 14)
     private readonly sbyte[][] _tables; // [numTables][tableSize]
     private readonly int _tableMask;
@@ -39,13 +38,13 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
     /// </param>
     public HashedPerceptronPredictor(int tableSize = 512, int[]? histLengths = null) {
         _histLengths = histLengths ?? HashedPerceptronPredictor.DefaultHistLengths;
-        _maxHist = _histLengths.Max();
-        _threshold = (int)(1.93 * _maxHist + 14);
+        int maxHist = _histLengths.Max();
+        _threshold = (int)(1.93 * maxHist + 14);
         _tableMask = tableSize - 1;
         _indexBits = BitWidth(tableSize);
         _tables = new sbyte[_histLengths.Length][];
         for (var i = 0; i < _histLengths.Length; i++) _tables[i] = new sbyte[tableSize];
-        _hist = new SpeculativeGlobalHistory(_maxHist);
+        _hist = new SpeculativeGlobalHistory(maxHist);
     }
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
@@ -62,11 +61,13 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
     /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
-        _hist.Commit(taken, () => {
-            int y = Sum(pc);
-            bool pred = y >= 0;
-            if (pred != taken || Math.Abs(y) <= _threshold) Train(pc, taken);
-        });
+        _hist.Commit(
+            taken, () => {
+                int y = Sum(pc);
+                bool pred = y >= 0;
+                if (pred != taken || Math.Abs(y) <= _threshold) Train(pc, taken);
+            }
+        );
     }
 
     /// <inheritdoc />

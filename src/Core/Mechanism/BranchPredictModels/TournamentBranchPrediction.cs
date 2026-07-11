@@ -13,7 +13,7 @@ namespace Mechanism.BranchPredictModels;
 public sealed class TournamentPredictor : IBranchPredictor {
     // Local predictor
     private readonly SpeculativeLocalHistory _local; // per-PC branch history shift register
-    private readonly byte[] _localPht; // 3-bit counters; taken ≥ 4
+    private readonly byte[] _localPht;               // 3-bit counters; taken ≥ 4
     private readonly int _bhtMask;
     private readonly int _localPhtMask;
 
@@ -87,24 +87,28 @@ public sealed class TournamentPredictor : IBranchPredictor {
         // Swap both histories to their committed (predict-time) values for the whole update:
         // the chooser must train on what each component predicted at fetch, and the global
         // PHT/chooser index off committed global history.
-        _hist.Commit(taken, () =>
-            _local.Commit(bhtIdx, taken, () => {
-                bool local = LocalPred(pc);
-                bool global = GlobalPred(pc);
-                int ci = ChooserIdx();
+        _hist.Commit(
+            taken, () =>
+                _local.Commit(
+                    bhtIdx, taken, () => {
+                        bool local = LocalPred(pc);
+                        bool global = GlobalPred(pc);
+                        int ci = ChooserIdx();
 
-                // Update both predictors unconditionally (history advance is handled by the
-                // enclosing Commit calls).
-                UpdateLocalPht(bhtIdx, taken);
-                UpdateGlobal(pc, taken);
+                        // Update both predictors unconditionally (history advance is handled by the
+                        // enclosing Commit calls).
+                        UpdateLocalPht(bhtIdx, taken);
+                        UpdateGlobal(pc, taken);
 
-                // Update chooser only when they disagree.
-                if (local != global) {
-                    if (global == taken && _chooser[ci] < 3)
-                        _chooser[ci]++;
-                    else if (local == taken && _chooser[ci] > 0) _chooser[ci]--;
-                }
-            }));
+                        // Update chooser only when they disagree.
+                        if (local != global) {
+                            if (global == taken && _chooser[ci] < 3)
+                                _chooser[ci]++;
+                            else if (local == taken && _chooser[ci] > 0) _chooser[ci]--;
+                        }
+                    }
+                )
+        );
     }
 
     /// <inheritdoc />

@@ -16,9 +16,9 @@ namespace Pipeline.Ooo;
 /// already earned confidence via a prior violation.
 /// </summary>
 internal sealed class StoreSetPredictor {
-    private readonly int[] _ssit;     // SSIT slot → SSID (0 = unassigned)
-    private readonly ulong[] _ssitPc; // PC that owns the slot; valid only when _ssit[slot] != 0
-    private readonly ulong[] _lfst;   // LFST: (SSID-1) → last-dispatched-store SeqNo
+    private readonly int[] _ssit;      // SSIT slot → SSID (0 = unassigned)
+    private readonly ulong[] _ssitPc;  // PC that owns the slot; valid only when _ssit[slot] != 0
+    private readonly ulong[] _lfst;    // LFST: (SSID-1) → last-dispatched-store SeqNo
     private readonly ulong[] _seen1Pc; // load PC seen in one violation but not yet assigned SSID
     private readonly int _ssitMask;
     private readonly uint _clearPeriod;
@@ -32,13 +32,13 @@ internal sealed class StoreSetPredictor {
         uint clearPeriod = 250_000,
         int threshold = 2
     ) {
-        _ssit    = new int[ssitSize];
-        _ssitPc  = new ulong[ssitSize];
-        _lfst    = new ulong[lfstSize];
+        _ssit = new int[ssitSize];
+        _ssitPc = new ulong[ssitSize];
+        _lfst = new ulong[lfstSize];
         _seen1Pc = new ulong[ssitSize];
-        _ssitMask   = ssitSize - 1;
+        _ssitMask = ssitSize - 1;
         _clearPeriod = clearPeriod;
-        _threshold   = threshold;
+        _threshold = threshold;
     }
 
     private int SsitIdx(ulong pc) => (int)((pc >> 2) & (uint)_ssitMask);
@@ -50,7 +50,7 @@ internal sealed class StoreSetPredictor {
 
     private void SetSsid(ulong pc, int ssid) {
         int idx = SsitIdx(pc);
-        _ssit[idx]   = ssid;
+        _ssit[idx] = ssid;
         _ssitPc[idx] = pc;
     }
 
@@ -87,7 +87,7 @@ internal sealed class StoreSetPredictor {
     public void RecordViolation(ulong storePc, ulong loadPc) {
         if (storePc == 0) return;
         int storeSsid = GetSsid(storePc);
-        int loadSsid  = GetSsid(loadPc);
+        int loadSsid = GetSsid(loadPc);
 
         if (storeSsid == 0 && loadSsid == 0) {
             // Rule 1: neither has a set yet.
@@ -95,31 +95,35 @@ internal sealed class StoreSetPredictor {
                 // Original paper behaviour: assign on first violation.
                 int s = AllocSsid();
                 SetSsid(storePc, s);
-                SetSsid(loadPc,  s);
-            } else {
+                SetSsid(loadPc, s);
+            }
+            else {
                 // Confidence gate: promote to SSID only on the second violation.
                 int pendIdx = SsitIdx(loadPc);
                 if (_seen1Pc[pendIdx] == loadPc) {
                     _seen1Pc[pendIdx] = 0;
                     int s = AllocSsid();
                     SetSsid(storePc, s);
-                    SetSsid(loadPc,  s);
-                } else {
-                    _seen1Pc[pendIdx] = loadPc;
+                    SetSsid(loadPc, s);
                 }
+                else { _seen1Pc[pendIdx] = loadPc; }
             }
-        } else if (storeSsid == 0) {
+        }
+        else if (storeSsid == 0) {
             // Rule 2: load has a set, store joins it.
             SetSsid(storePc, loadSsid);
-        } else if (loadSsid == 0) {
+        }
+        else if (loadSsid == 0) {
             // Rule 3: store has a set, load joins it.
             SetSsid(loadPc, storeSsid);
-        } else if (storeSsid != loadSsid) {
+        }
+        else if (storeSsid != loadSsid) {
             // Rule 4: merge — smaller SSID wins, remap all loser entries.
             int winner = Math.Min(storeSsid, loadSsid);
-            int loser  = Math.Max(storeSsid, loadSsid);
+            int loser = Math.Max(storeSsid, loadSsid);
             for (var i = 0; i < _ssit.Length; i++)
-                if (_ssit[i] == loser) _ssit[i] = winner;
+                if (_ssit[i] == loser)
+                    _ssit[i] = winner;
             int wi = winner - 1, li = loser - 1;
             if (wi < _lfst.Length && li < _lfst.Length) {
                 if (_lfst[li] > _lfst[wi]) _lfst[wi] = _lfst[li];

@@ -26,8 +26,8 @@ public sealed class ImliPredictor : IBranchPredictor {
     private readonly ulong[] _btb;
     private readonly HashSet<ulong> _backwardBranches;
     private int _imli;          // working (speculative) loop counter, used by Predict
-    private int _committedImli;  // architectural shadow, advanced at commit
-    private bool _speculative;   // latches on first speculative update; keeps in-order bit-identical
+    private int _committedImli; // architectural shadow, advanced at commit
+    private bool _speculative;  // latches on first speculative update; keeps in-order bit-identical
 
     /// <summary>Initializes an <see cref="ImliPredictor"/> with the given PHT and BTB sizes (must be powers of two).</summary>
     public ImliPredictor(int phtSize = 65536, int btbSize = 1024) {
@@ -82,8 +82,10 @@ public sealed class ImliPredictor : IBranchPredictor {
         // branch simply doesn't advance speculatively until then — a one-time drift that the
         // next flush heals.
         if (!_backwardBranches.Contains(pc)) return;
-        if (predictedTaken) _imli++;
-        else _imli = 0;
+        if (predictedTaken)
+            _imli++;
+        else
+            _imli = 0;
     }
 
     /// <inheritdoc/>

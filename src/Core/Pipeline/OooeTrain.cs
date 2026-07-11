@@ -253,7 +253,9 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly IExecutor _executor;
     private readonly ITrapController _trapController;
     private readonly IBranchPredictor _predictor;
+
     private readonly ReturnAddressStack _ras = new();
+
     // Architectural RAS shadow: updated only when a call/return actually retires.
     // On a flush the speculative _ras is restored from this, discarding the wrong-path
     // push/pop corruption that would otherwise cascade into return mispredictions.
@@ -739,7 +741,7 @@ internal sealed class OoOPipelineCore : Gear {
             // (ToothClass.Branch) touch the RAS; the shadow sees the correct committed path
             // only, so it never suffers the wrong-path corruption the speculative _ras can.
             // Order (push-then-pop) mirrors the fetch path for the rare call+return jalr.
-            if (head.Instruction is { Class: ToothClass.Branch }) {
+            if (head.Instruction is { Class: ToothClass.Branch, }) {
                 FetchHint hint = _decoder.GetFetchHint(head.Pc, head.Instruction.RawEncoding);
                 if (hint.IsCall) _committedRas.Push(head.Pc + (ulong)head.Instruction.SizeBytes);
                 if (hint.IsReturn) _committedRas.TryPop(out _);

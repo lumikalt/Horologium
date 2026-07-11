@@ -8,9 +8,8 @@ public sealed class CorrelatedPredictor : IBranchPredictor {
     private readonly int _satMax;
     private readonly int _satThreshold;
     private readonly int _bhtMask;
-    private readonly int _phtMask;
     private readonly SpeculativeLocalHistory _local; // per-branch history registers
-    private readonly byte[] _pht; // shared pattern history table (2^m entries)
+    private readonly byte[] _pht;                    // shared pattern history table (2^m entries)
     private readonly ulong[] _btb;
 
     /// <summary>
@@ -32,7 +31,6 @@ public sealed class CorrelatedPredictor : IBranchPredictor {
         _satMax = (1 << n) - 1;
         _satThreshold = 1 << (n - 1);
         _bhtMask = bhtSize - 1;
-        _phtMask = phtSize - 1;
         _local = new SpeculativeLocalHistory(bhtSize, m);
         _pht = new byte[phtSize];
         _btb = new ulong[bhtSize];
@@ -52,13 +50,15 @@ public sealed class CorrelatedPredictor : IBranchPredictor {
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         int idx = BhtIndex(pc);
         _btb[idx] = actualTarget;
-        _local.Commit(idx, taken, () => {
-            var history = (int)_local.Value(idx);
-            switch (taken) {
-                case true when _pht[history] < _satMax: _pht[history]++; break;
-                case false when _pht[history] > 0:      _pht[history]--; break;
+        _local.Commit(
+            idx, taken, () => {
+                var history = (int)_local.Value(idx);
+                switch (taken) {
+                    case true when _pht[history] < _satMax: _pht[history]++; break;
+                    case false when _pht[history] > 0:      _pht[history]--; break;
+                }
             }
-        });
+        );
     }
 
     /// <inheritdoc />
@@ -118,14 +118,16 @@ public sealed class GselectPredictor : IBranchPredictor {
 
     /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) =>
-        _hist.Commit(taken, () => {
-            int idx = PhtIndex(pc);
-            _btb[idx] = actualTarget;
-            switch (taken) {
-                case true when _pht[idx] < _satMax: _pht[idx]++; break;
-                case false when _pht[idx] > 0:      _pht[idx]--; break;
+        _hist.Commit(
+            taken, () => {
+                int idx = PhtIndex(pc);
+                _btb[idx] = actualTarget;
+                switch (taken) {
+                    case true when _pht[idx] < _satMax: _pht[idx]++; break;
+                    case false when _pht[idx] > 0:      _pht[idx]--; break;
+                }
             }
-        });
+        );
 
     /// <inheritdoc />
     public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);
@@ -175,14 +177,16 @@ public sealed class GsharePredictor : IBranchPredictor {
 
     /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) =>
-        _hist.Commit(taken, () => {
-            int idx = PhtIndex(pc);
-            _btb[idx] = actualTarget;
-            switch (taken) {
-                case true when _pht[idx] < _satMax: _pht[idx]++; break;
-                case false when _pht[idx] > 0:      _pht[idx]--; break;
+        _hist.Commit(
+            taken, () => {
+                int idx = PhtIndex(pc);
+                _btb[idx] = actualTarget;
+                switch (taken) {
+                    case true when _pht[idx] < _satMax: _pht[idx]++; break;
+                    case false when _pht[idx] > 0:      _pht[idx]--; break;
+                }
             }
-        });
+        );
 
     /// <inheritdoc />
     public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);

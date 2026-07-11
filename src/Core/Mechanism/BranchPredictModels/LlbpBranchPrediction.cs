@@ -19,6 +19,7 @@ namespace Mechanism.BranchPredictModels;
 public class LlbpPredictor : TageScLPredictor {
     // Working RCR: advanced speculatively at fetch, used for Predict-time context lookups.
     private protected readonly RollingContextReg Rcr = new();
+
     // Architectural RCR shadow: advanced only when a taken branch retires. By the in-order
     // invariant it equals a committing branch's predict-time context, so training keys off it
     // (dissolving the predict-time LlbpCtxKey raciness); the speculative RCR restores from it
@@ -116,7 +117,9 @@ public class LlbpPredictor : TageScLPredictor {
     /// the context is trained still uses the predict-time LlbpHistIdx/LastProvider, a residual
     /// out-of-order imprecision that does not affect correctness.</summary>
     protected virtual void TrainLlbp(ulong pc, bool taken, bool provPred) {
-        if (LlbpIsProvider && LlbpHistIdx >= 0) { Storage.GetOrCreate(CommittedRcr.ContextId).SatUpdate(LlbpPatternKey, taken); }
+        if (LlbpIsProvider && LlbpHistIdx >= 0) {
+            Storage.GetOrCreate(CommittedRcr.ContextId).SatUpdate(LlbpPatternKey, taken);
+        }
         else if (provPred != taken) {
             int allocTable = LastProvider + 1;
             if ((uint)allocTable < LTagePredictor.NumTables)

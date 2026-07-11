@@ -57,27 +57,29 @@ public sealed class IttagePredictor : IBranchPredictor {
 
     /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) =>
-        _hist.Commit(taken, () => {
-            // Capture state before any writes.
-            int provider = FindProvider(pc);
-            ulong prevTarget = provider >= 0
-                ? _tables[provider][TableIdx(pc, provider)].Target
-                : _btb.TryGetValue(pc, out ulong bt)
-                    ? bt
-                    : pc + 4;
-            bool targetCorrect = prevTarget == actualTarget;
+        _hist.Commit(
+            taken, () => {
+                // Capture state before any writes.
+                int provider = FindProvider(pc);
+                ulong prevTarget = provider >= 0
+                    ? _tables[provider][TableIdx(pc, provider)].Target
+                    : _btb.TryGetValue(pc, out ulong bt)
+                        ? bt
+                        : pc + 4;
+                bool targetCorrect = prevTarget == actualTarget;
 
-            if (taken) _btb[pc] = actualTarget;
-            Sat2(ref _base[BaseIdx(pc)], taken);
+                if (taken) _btb[pc] = actualTarget;
+                Sat2(ref _base[BaseIdx(pc)], taken);
 
-            if (provider >= 0) {
-                ref IttageEntry e = ref _tables[provider][TableIdx(pc, provider)];
-                e.Target = actualTarget;
-                if (!targetCorrect && e.U > 0) e.U--;
+                if (provider >= 0) {
+                    ref IttageEntry e = ref _tables[provider][TableIdx(pc, provider)];
+                    e.Target = actualTarget;
+                    if (!targetCorrect && e.U > 0) e.U--;
+                }
+
+                if (!targetCorrect) AllocateOrDecay(pc, actualTarget, provider + 1);
             }
-
-            if (!targetCorrect) AllocateOrDecay(pc, actualTarget, provider + 1);
-        });
+        );
 
     /// <inheritdoc />
     public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);

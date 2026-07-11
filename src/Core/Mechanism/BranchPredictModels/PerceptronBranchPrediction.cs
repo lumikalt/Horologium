@@ -12,9 +12,9 @@ namespace Mechanism.BranchPredictModels;
 /// </summary>
 public sealed class PerceptronPredictor : IBranchPredictor {
     private readonly int _historyLength;
-    private readonly int _threshold;     // θ = floor(1.93·H + 14)
-    private readonly sbyte[][] _weights; // [tableSize][H+1]; [i][0] = bias
-    private readonly int _tableMask;     // tableSize must be a power of 2
+    private readonly int _threshold;                 // θ = floor(1.93·H + 14)
+    private readonly sbyte[][] _weights;             // [tableSize][H+1]; [i][0] = bias
+    private readonly int _tableMask;                 // tableSize must be a power of 2
     private readonly SpeculativeGlobalHistory _hist; // bit history, LSB = most recent; 1=taken
     private readonly Dictionary<ulong, ulong> _btb = new();
 
@@ -51,11 +51,13 @@ public sealed class PerceptronPredictor : IBranchPredictor {
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
 
-        _hist.Commit(taken, () => {
-            int y = DotProduct(pc);
-            bool pred = y >= 0;
-            if (pred != taken || Math.Abs(y) <= _threshold) Train(pc, taken);
-        });
+        _hist.Commit(
+            taken, () => {
+                int y = DotProduct(pc);
+                bool pred = y >= 0;
+                if (pred != taken || Math.Abs(y) <= _threshold) Train(pc, taken);
+            }
+        );
     }
 
     /// <inheritdoc />
