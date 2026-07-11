@@ -119,20 +119,30 @@ With `--mem-lat-ns 10ns` (eliminating DRAM asymmetry, bypass=1):
 | pchase   | 0.2181   | 0.2554   | **1.171** |
 
 With `--structurally-matched` (`--bypass-lat 0 --mem-lat-ns 10ns` combined) — closest
-structural match to gem5 O3CPU:
+structural match to gem5 O3CPU. Store buffer = 8 (matches gem5 L1D write_buffers=8);
+fetch resolves direct unconditional jumps without the direction predictor; the OoO RAS
+is checkpointed and restored on flush:
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
 |----------|----------|----------|-----------|--------|
-| median   | 0.7901   | 0.6263   | 0.793     | +0.2%  |
-| qsort    | 0.6185   | 0.6871   | **1.111** | +0.0%  |
-| rsort    | 1.3418   | 1.5279   | **1.139** | +0.0%  |
-| towers   | 1.1807   | 0.8369   | 0.709     | +0.6%  |
-| vvadd    | 1.4705   | 1.0880   | 0.740     | +0.3%  |
-| memcpy   | 1.0864   | 0.3276   | 0.302     | +0.1%  |
-| multiply | 1.8584   | 1.7432   | 0.938     | +0.0%  |
-| gcd      | 0.2792   | 0.2396   | 0.858     | +0.1%  |
-| treesum  | 1.6658   | 0.7962   | 0.478     | +0.1%  |
-| pchase   | 0.2181   | 0.3016   | **1.383** | +0.0%  |
+| median   | 0.7901   | 0.6295   | 0.797     | +0.2%  |
+| qsort    | 0.6185   | 0.6890   | **1.114** | +0.0%  |
+| rsort    | 1.3418   | 1.6545   | **1.233** | +0.0%  |
+| towers   | 1.1807   | 0.8508   | 0.721     | +0.6%  |
+| vvadd    | 1.4705   | 1.9330   | **1.315** | +0.3%  |
+| memcpy   | 1.0864   | 1.5573   | **1.433** | +0.1%  |
+| multiply | 1.8584   | 1.7463   | 0.940     | +0.0%  |
+| gcd      | 0.2792   | 0.2414   | 0.865     | +0.1%  |
+| treesum  | 1.6658   | 0.7963   | 0.478     | +0.1%  |
+| pchase   | 0.2181   | 0.3017   | **1.383** | +0.0%  |
+
+Changes from the earlier store_buffer=2 profile: **memcpy** 0.302 → 1.433 and **vvadd**
+0.740 → 1.315 — the depth-2 store buffer was throttling store-streaming kernels, not a
+cache or DRAM effect (see "memcpy/vvadd: store-buffer depth" below). Both now exceed gem5
+because Horologium's HtifMemory (~10-cycle miss) is faster than gem5's DRAM, the same
+memory-latency asymmetry that makes pchase Horologium-favoured. **rsort** 1.139 → 1.233
+for the same reason. **treesum** is unchanged at 0.478 — its gap is the branch-history
+timing model, not the RAS (see "treesum: speculative branch history" below).
 
 H/G ratio > 1 means Horologium has higher IPC than gem5.
 
@@ -189,9 +199,11 @@ Horologium 0.255) is primarily DRAM latency: gem5 SimpleMemory 30 ns vs Horologi
 HtifMemory ~10 cycles. The `--mem-lat-ns 10ns` variant closes most of the gap
 (gem5 0.218, H/G 1.171).
 
-**memcpy: PREALLOCATE elimination + total cache thrashing:**
+**memcpy: cold cache + high miss rate (context for the store-buffer finding below):**
 
-Two compounding factors explain the low kernel IPC (0.321) and the near-zero bypass gain.
+The kernel runs cold with a very high miss rate — but the *IPC* is set by store-buffer
+depth, not the miss rate (see "memcpy/vvadd: store-buffer depth"). Two facts about why the
+copy misses so much:
 
 *1. GCC -O2 eliminates the PREALLOCATE warmup.* `memcpy_main.c` has:
 ```c
@@ -216,20 +228,54 @@ Horologium counters show 4238 D-misses / 8021 accesses = **52.8% miss rate**,
 27 430 / 34 399 cycles = **79.7% stall fraction** in the kernel window.
 
 gem5's L1 D-cache is 8-way (32 sets), which changes the set mapping but not the outcome:
-with 250 lines/array the per-set occupancy rises to ~16 lines vs 8 ways, so gem5 also
-fully thrashes. gem5 kernel-only stats show a similar miss rate. With ROI instrumentation
-both simulators measure the cold, fully-thrashing streaming copy; the IPC gap (0.321 vs
-0.727) reflects gem5's DRAM latency (30 ns) and wider cache (8-way thrash pattern differs),
-not startup or teardown overhead.
+it also fully thrashes with a similar miss rate. The high miss rate is real in both
+simulators — but it does not explain the old 0.321 IPC. With the store buffer sized to
+match gem5 (8), the same cold, fully-thrashing copy runs at 1.56 in Horologium: the misses
+overlap through the write buffer instead of stalling commit. See the next subsection.
 
-**treesum: predictor sweep:**
+**memcpy/vvadd: store-buffer depth:**
+
+The earlier store_buffer=2 profile put memcpy at H/G 0.302 and vvadd at 0.740, and the
+prior write-up blamed cache associativity and DRAM latency. That was wrong. Holding
+everything else fixed and sweeping only `store_buffer_capacity` (D-cache `ways` has zero
+effect) on memcpy: 0.32 (sb2) → 0.50 (sb4) → 1.03 (sb6) → 1.58 (sb8); vvadd saturates at
+~1.90 by sb3; rsort at 1.35 by sb4. A depth-2 store buffer forces committed store-misses
+to stall commit (`wb_absorbed_stalls` rises from 12 460 to 39 880 as depth goes 2→8, i.e.
+stores get absorbed instead of stalling; `cache_miss_stalls` collapses from 27 430 to 10).
+gem5 sustains eight outstanding stores (`config.ini`: L1D `write_buffers=8`, `mshrs=4`),
+so the fair value is `store_buffer_capacity=8`. With it, these kernels are bounded only by
+Horologium's faster memory and land above gem5 (memcpy 1.43, vvadd 1.32) — the same
+latency asymmetry as pchase, not a defect.
+
+**treesum: speculative branch history:**
 
 With ROI instrumentation both simulators commit ~11 530 kernel-only instructions (Δinsts
-+0.1%). The H/G gap (gem5 1.661 vs Horologium 0.865, ratio 0.521) is genuine simulation
-divergence. gem5 records ~499 conditional mispredictions over ~6 924 kernel cycles with
-TournamentBP; the gap reflects structural differences between gem5's O3CPU (0-cycle
-forwarding by default, full out-of-order windows, TournamentBP local history) and
-Horologium (1-cycle bypass, 30-entry ROB, LTage).
++0.1%). gem5 commits **70** branch mispredicts (70 conditional, **0 return**, 2 call) over
+~6 924 cycles; Horologium commits **~495** → ~521 flushes → 13 342 cycles. The ~450 extra
+flushes are the entire 2× gap.
+
+An earlier version of this section claimed gem5 also records ~499 treesum mispredicts and
+concluded predictor differences don't explain the gap. **That was a measurement error** —
+gem5's actual committed count is 70 (`branchPred.committed`/`commit.branchMispredicts`),
+and it is what led the prior analysis to dismiss the control-flow angle.
+
+Two control-flow modeling gaps were fixed and a third identified:
+
+- *Fixed — direct unconditional jumps bypass the direction predictor.* `FetchHint` gained
+  `IsUnconditional`; fetch now resolves `jal`/`j` straight to their known target instead of
+  asking a direction predictor that may say not-taken (which is why `true_oracle` and
+  `always_not_taken` used to mispredict every call, 1537 on treesum).
+- *Fixed — RAS checkpoint/restore.* The OoO core keeps an architectural RAS shadow, updated
+  only when a call/return retires, and restores the speculative RAS from it on every flush.
+  gem5 checkpoints its RAS the same way (0 committed return mispredicts).
+- *Not yet fixed — speculative global history.* These two fixes together removed only ~4 of
+  the 499 treesum mispredicts: the excess is **conditional** mispredicts, not returns. Root
+  cause: `LTageBranchPrediction` updates the global history register `Ghr` only in
+  `Update()`, which fires at **commit**. Within the 30-entry ROB and deep recursion every
+  TAGE lookup indexes stale history, so LTage, TAGE-SC-L and Tournament all converge to
+  ~499 while gem5 (speculative history + squash recovery) gets 70. Closing this needs
+  speculative history update at predict time plus checkpoint/restore on flush — a change to
+  the `IBranchPredictor` contract and every predictor. Tracked in `IDEAS.md`.
 
 Predictor sweep (Horologium kernel-only, bypass=1):
 
@@ -286,27 +332,32 @@ Key findings:
    with matched forwarding latency. **This is the dominant factor** for most
    compute-bound workloads.
 
-2. **Branch predictor quality**: Predictor differences do not explain the treesum H/G gap.
-   Using TournamentBP inside Horologium *reduces* IPC for treesum at bypass=1 (0.742 vs
-   LTage 0.865) and towers (0.708 vs 0.751), driven by +155 extra memory-order violations
-   from TournamentBP's different speculative execution pattern. At bypass=0, the gap
-   disappears (tournament 0.797 ≈ LTage 0.796): stores resolve their addresses sooner,
-   reducing the window in which loads execute before their older stores are resolved.
-   The null-check `beqz` in tree_sum is nearly unpredictable: LTage (499 mispredicts)
-   saves only ~16 mispredictions vs always_taken (515), so predictor quality is not a
-   lever here. The residual H/G gap for treesum is genuine simulation divergence
-   (0-cycle vs 1-cycle forwarding, ROB/IQ differences). For bypass=1, the remaining
-   tournament violation gap is a candidate for store sets (memory dependence prediction).
+2. **Branch-history update timing**: The treesum H/G gap (0.478) *is* a control-flow
+   issue — gem5 commits 70 mispredicts, Horologium ~495. Not the predictor *algorithm*
+   (LTage, TAGE-SC-L and Tournament all give ~499) but *when* it learns: Horologium updates
+   the global history register only at commit, so within the 30-entry ROB every TAGE lookup
+   indexes stale history. gem5 updates speculative history at predict and rolls it back on
+   squash. Two related gaps were fixed (direct unconditional jumps bypass the direction
+   predictor; the OoO RAS is checkpointed/restored on flush), but they removed only ~4 of
+   the 499 — the excess is conditional, not return, mispredicts. See "treesum: speculative
+   branch history". Speculative history update is tracked in `IDEAS.md`.
 
-3. **DIV latency**: Both simulators use `--div-lat 23` (matched). The residual gcd
+3. **Store-buffer depth**: `store_buffer_capacity=8` matches gem5's L1D `write_buffers=8`.
+   The earlier value 2 throttled store-streaming kernels (memcpy, vvadd) to a fraction of
+   gem5's IPC; it was a harness calibration artifact, not a Horologium defect. See
+   "memcpy/vvadd: store-buffer depth".
+
+4. **DIV latency**: Both simulators use `--div-lat 23` (matched). The residual gcd
    gap comes from FU count (gem5 has 2× IntMultDiv units vs Horologium's single
    shared divider).
 
-4. **DRAM latency asymmetry**: gem5 SimpleMemory 30 ns vs Horologium HtifMemory
+5. **DRAM latency asymmetry**: gem5 SimpleMemory 30 ns vs Horologium HtifMemory
    (~10-cycle, fixed). Pass `--mem-lat-ns 10ns` to eliminate this variable for
-   gem5; Horologium IPC is unaffected by this flag.
+   gem5; Horologium IPC is unaffected by this flag. This is why the store-streaming
+   and pointer-chasing kernels (memcpy, vvadd, pchase) land above gem5 once other
+   throttles are removed — Horologium's memory is simply faster.
 
-5. **IQ structure**: gem5 uses a flat 40-entry IQ; Horologium uses per-class
+6. **IQ structure**: gem5 uses a flat 40-entry IQ; Horologium uses per-class
    queues (5 × 8 = 40 slots). Experiment confirms **zero IPC impact**: switching
    Horologium to a flat unified IQ (`--flat-iq`) produces identical results on
    all 10 workloads.

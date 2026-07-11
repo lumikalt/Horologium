@@ -34,11 +34,13 @@ public class Rv32Decoder : IDecoder {
                     InstructionSize = 2,
                     IsBranch = true,
                     IsCall = true,
+                    IsUnconditional = true,
                     BranchTarget = ((ulong)((long)pc + CJumpOffset(c)), true),
                 },
                 // c.j: unconditional PC-relative jump.
                 0x1 when cfunct3 == 0x5 => new FetchHint {
-                    InstructionSize = 2, IsBranch = true, BranchTarget = ((ulong)((long)pc + CJumpOffset(c)), true),
+                    InstructionSize = 2, IsBranch = true, IsUnconditional = true,
+                    BranchTarget = ((ulong)((long)pc + CJumpOffset(c)), true),
                 },
                 // c.beqz / c.bnez: PC-relative conditional branches.
                 0x1 when cfunct3 == 0x6 || cfunct3 == 0x7 => new FetchHint {
@@ -46,11 +48,11 @@ public class Rv32Decoder : IDecoder {
                 },
                 // c.jalr: register-indirect call — target not statically known.
                 0x2 when cfunct3 == 0x4 && inst12 && crs2 == 0 && crs1 != 0 => new FetchHint {
-                    InstructionSize = 2, IsBranch = true, IsCall = true,
+                    InstructionSize = 2, IsBranch = true, IsCall = true, IsUnconditional = true,
                 },
                 // c.jr / c.ret: register-indirect return — target not statically known.
                 0x2 when cfunct3 == 0x4 && !inst12 && crs2 == 0 && crs1 != 0 => new FetchHint {
-                    InstructionSize = 2, IsBranch = true, IsReturn = crs1 is 1 or 5,
+                    InstructionSize = 2, IsBranch = true, IsUnconditional = true, IsReturn = crs1 is 1 or 5,
                 },
                 _ => new FetchHint { InstructionSize = 2, },
             };
@@ -90,6 +92,7 @@ public class Rv32Decoder : IDecoder {
             IsBranch = opcode is 0x63 || isJal || isJalr,
             IsCall = (isJal || isJalr) && linkRd,
             IsReturn = isJalr && linkRs1 && !linkRd,
+            IsUnconditional = isJal || isJalr,
             BranchTarget = branchTarget,
         };
     }

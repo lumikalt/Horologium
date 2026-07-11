@@ -310,10 +310,11 @@ public class FiveStagePipelineTests {
     }
 
     [Fact]
-    public void Pipeline_RasPredictsReturn_CorrectResultAndOneJalMiss() {
-        // jal ra → func causes 1 miss (AlwaysNotTaken predicts not-taken)
-        // jalr x0, ra (return) is predicted by RAS → 0 misses for the return
-        // Total branch_misses == 1
+    public void Pipeline_RasPredictsReturn_AndDirectJalResolved_ZeroMisses() {
+        // jal ra → func is a direct unconditional jump: fetch resolves it straight to its
+        // statically known target, bypassing the (AlwaysNotTaken) direction predictor → 0 misses.
+        // jalr x0, ra (return) is predicted by RAS → 0 misses for the return.
+        // Total branch_misses == 0
         //
         //   0x00: addi x10, x0, 0         (x10 = 0; x10/a0 is result reg; ra/x1 is link)
         //   0x04: jal  ra, +8             (ra = 0x08, jump to 0x0C)
@@ -335,7 +336,7 @@ public class FiveStagePipelineTests {
 
         DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
         Assert.NotNull(snap);
-        Assert.Equal(1L, snap.Counters["branch_misses"]);
+        Assert.Equal(0L, snap.Counters["branch_misses"]);
     }
 
     // ── Cache / TLB integration ───────────────────────────────────────────────

@@ -21,6 +21,14 @@ public readonly record struct FetchHint {
     public bool IsReturn { get; init; }
 
     /// <summary>
+    /// True if this branch is unconditional (jump, call, or return) — always taken.
+    /// The fetch stage resolves direct unconditional branches straight to
+    /// <see cref="BranchTarget"/> without consulting the direction predictor; only
+    /// conditional branches (and indirect targets) need the predictor.
+    /// </summary>
+    public bool IsUnconditional { get; init; }
+
+    /// <summary>
     /// Statically decoded branch target (PC + offset) for PC-relative instructions.
     /// HasValue=false for register-indirect branches (e.g. JALR) where the target is unknown at fetch time.
     /// </summary>

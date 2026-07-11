@@ -97,10 +97,16 @@ public sealed class FetchStage(
 
         // Only consult the predictor for actual branch/jump instructions.
         // Non-branch instructions always continue to PC+instrSize; feeding them to the
-        // predictor would corrupt the BTB with non-branch addresses.
-        BranchPrediction pred = hint.IsBranch
-            ? predictor.Predict(Pc, hint.BranchTarget)
-            : BranchPrediction.NotTaken(Pc + (ulong)instrSize);
+        // predictor would corrupt the BTB with non-branch addresses. Direct unconditional
+        // jumps/calls are always taken to their known target and bypass the predictor
+        // (mirrors gem5, which never direction-predicts unconditional branches).
+        BranchPrediction pred;
+        if (hint.IsUnconditional && hint.BranchTarget.HasValue)
+            pred = BranchPrediction.Taken(hint.BranchTarget.Value);
+        else if (hint.IsBranch)
+            pred = predictor.Predict(Pc, hint.BranchTarget);
+        else
+            pred = BranchPrediction.NotTaken(Pc + (ulong)instrSize);
 
         if (hint.IsCall)
             _ras.Push(Pc + (ulong)instrSize);

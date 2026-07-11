@@ -64,6 +64,9 @@ GEM5_IQ=$((IQ * 5))
 BMARKS="median qsort rsort towers vvadd memcpy multiply gcd treesum pchase"
 
 # ── Horologium +Matched sweep config ─────────────────────────────────────────
+# store_buffer_capacity=8 matches gem5's L1D write_buffers=8 (see any m5out-compare
+# config.ini). The prior value 2 artificially throttled store-streaming kernels
+# (memcpy, vvadd), which are bounded by outstanding-store capacity, not caches.
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 cat > "$TMP/sweep.json" <<JSON
 [{"name":"w${WIDTH}","config":{
@@ -72,7 +75,7 @@ cat > "$TMP/sweep.json" <<JSON
   "predictor":${PREDICTOR_JSON},
   "i_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
   "d_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
-  "store_buffer_capacity":2,
+  "store_buffer_capacity":8,
   "fu_latency":{"load_hit_latency":4,"bypass_latency":${BYPASS_LAT},"div_latency":${DIV_LAT}},
   "enable_store_sets":${STORE_SETS}
 }}]

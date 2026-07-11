@@ -179,20 +179,22 @@ public class ExperimentTests {
 
     // ── Experiment integration ────────────────────────────────────────────────
 
-    // A tight loop: x1 = 10, loop: beq x1,x0 → exit; addi x1,x1,-1; j loop; ebreak
+    // A tight loop counting x1 down from 20 with a backward *conditional* loop branch.
+    // The bne is taken 19× and not-taken once, so a learning predictor (2-bit) beats
+    // always-not-taken; there is no unconditional jump to skew the comparison.
     // Encoding:
-    //   0x00A00093  addi x1, x0, 10
-    //   0x00008663  beq  x1, x0, +12   (branch to ebreak at addr 16 when x1==0)
-    //   0xFFF08093  addi x1, x1, -1
-    //   0xFF9FF06F  jal  x0, -8        (back to beq at addr 4)
+    //   0x01400093  addi x1, x0, 20
+    //   0xFFF08093  loop: addi x1, x1, -1
+    //   0xFE009EE3  bne  x1, x0, -4    (back to loop while x1 != 0)
     //   0x00100073  ebreak
+    //   0x00000013  nop                (padding; keeps CodeSize == 20 bytes)
     private static byte[] MakeCountdownProgram() {
         uint[] words = [
-            0x00A00093,
-            0x00008663,
+            0x01400093,
             0xFFF08093,
-            0xFF9FF06F,
+            0xFE009EE3,
             0x00100073,
+            0x00000013,
         ];
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) {

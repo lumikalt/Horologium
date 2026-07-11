@@ -254,6 +254,10 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly ITrapController _trapController;
     private readonly IBranchPredictor _predictor;
     private readonly ReturnAddressStack _ras = new();
+    // Architectural RAS shadow: updated only when a call/return actually retires.
+    // On a flush the speculative _ras is restored from this, discarding the wrong-path
+    // push/pop corruption that would otherwise cascade into return mispredictions.
+    private readonly ReturnAddressStack _committedRas = new();
     private readonly IFetchTranslator? _fetchTranslator;
     private readonly CapturingMemory _capMem;
     private readonly FuLatencyConfig _fuConfig;
@@ -729,6 +733,16 @@ internal sealed class OoOPipelineCore : Gear {
             if (head.Instruction is not null) {
                 _commitObserver?.OnCommit(head.Pc, head.Instruction.RawEncoding, State);
                 _rdip?.OnCommit(head.Pc, head.Instruction.RawEncoding);
+            }
+
+            // Advance the architectural RAS shadow for a retiring call/return. Only jumps
+            // (ToothClass.Branch) touch the RAS; the shadow sees the correct committed path
+            // only, so it never suffers the wrong-path corruption the speculative _ras can.
+            // Order (push-then-pop) mirrors the fetch path for the rare call+return jalr.
+            if (head.Instruction is { Class: ToothClass.Branch }) {
+                FetchHint hint = _decoder.GetFetchHint(head.Pc, head.Instruction.RawEncoding);
+                if (hint.IsCall) _committedRas.Push(head.Pc + (ulong)head.Instruction.SizeBytes);
+                if (hint.IsReturn) _committedRas.TryPop(out _);
             }
 
             // First-class HTIF tohost exit: the store flagged a post-commit halt.
@@ -1380,6 +1394,11 @@ internal sealed class OoOPipelineCore : Gear {
                 BranchPrediction pred;
                 if (hint.IsReturn && _ras.TryPop(out ulong ret))
                     pred = BranchPrediction.Taken(ret);
+                else if (hint.IsUnconditional && hint.BranchTarget.HasValue)
+                    // Direct unconditional jump/call: always taken to the known target.
+                    // No direction predictor needed (mirrors gem5, which never
+                    // direction-predicts unconditional branches).
+                    pred = BranchPrediction.Taken(hint.BranchTarget.Value);
                 else
                     pred = _predictor.Predict(_fetchPc, hint.BranchTarget);
                 predictedNext = pred.PredictedTaken ? pred.PredictedTarget : _fetchPc + (ulong)decoded.SizeBytes;
@@ -1437,6 +1456,10 @@ internal sealed class OoOPipelineCore : Gear {
         _inFlight.Clear();
         _mshrUsed = 0;
         _cdbBuffer.Clear();
+
+        // Restore the speculative RAS to the architectural shadow, discarding any
+        // wrong-path push/pop corruption accumulated by the squashed instructions.
+        _ras.CopyFrom(_committedRas);
 
         _fetchPc = _flushTarget;
         _flushPending = false;

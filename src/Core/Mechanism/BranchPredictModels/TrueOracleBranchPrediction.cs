@@ -38,6 +38,11 @@ public sealed class TrueOraclePredictor(IReadOnlyList<BranchOutcome> trace) : IB
 
     /// <inheritdoc/>
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
+        // Seek to the next recorded outcome for this PC, skipping entries for branches
+        // the fetch stage resolves without consulting the predictor (direct unconditional
+        // jumps, RAS-predicted returns). The trace is in commit order and Predict is
+        // called in program order, so a forward scan stays aligned.
+        while (_nextIdx < trace.Count && trace[_nextIdx].Pc != pc) _nextIdx++;
         if (_nextIdx >= trace.Count) return BranchPrediction.NotTaken(pc + 4);
         BranchOutcome outcome = trace[_nextIdx++];
         return outcome.Taken

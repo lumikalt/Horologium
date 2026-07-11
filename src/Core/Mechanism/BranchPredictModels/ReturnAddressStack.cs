@@ -55,4 +55,16 @@ public sealed class ReturnAddressStack {
         _count--;
         return true;
     }
+
+    /// <summary>
+    /// Overwrites this stack's contents with a copy of <paramref name="other"/>.
+    /// Used to restore the speculative stack from a committed (architectural) shadow
+    /// on a pipeline flush, discarding wrong-path corruption. Both stacks must share
+    /// the same depth.
+    /// </summary>
+    public void CopyFrom(ReturnAddressStack other) {
+        Array.Copy(other._entries, _entries, Math.Min(_entries.Length, other._entries.Length));
+        _top = other._top;
+        _count = other._count;
+    }
 }
