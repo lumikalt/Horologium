@@ -118,11 +118,29 @@ With `--mem-lat-ns 10ns` (eliminating DRAM asymmetry, bypass=1):
 | treesum  | 1.6658   | 0.8647   | 0.519     |
 | pchase   | 0.2181   | 0.2554   | **1.171** |
 
+With `--structurally-matched` (`--bypass-lat 0 --mem-lat-ns 10ns` combined) — closest
+structural match to gem5 O3CPU:
+
+| workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
+|----------|----------|----------|-----------|--------|
+| median   | 0.7901   | 0.6263   | 0.793     | +0.2%  |
+| qsort    | 0.6185   | 0.6871   | **1.111** | +0.0%  |
+| rsort    | 1.3418   | 1.5279   | **1.139** | +0.0%  |
+| towers   | 1.1807   | 0.8369   | 0.709     | +0.6%  |
+| vvadd    | 1.4705   | 1.0880   | 0.740     | +0.3%  |
+| memcpy   | 1.0864   | 0.3276   | 0.302     | +0.1%  |
+| multiply | 1.8584   | 1.7432   | 0.938     | +0.0%  |
+| gcd      | 0.2792   | 0.2396   | 0.858     | +0.1%  |
+| treesum  | 1.6658   | 0.7962   | 0.478     | +0.1%  |
+| pchase   | 0.2181   | 0.3016   | **1.383** | +0.0%  |
+
 H/G ratio > 1 means Horologium has higher IPC than gem5.
 
-Note: the 10ns DRAM variant does not change Horologium IPC (HtifMemory is always ~10-cycle
-regardless of `--mem-lat-ns`); only gem5's IPC changes. This variant isolates the effect
-of gem5's DRAM latency on the kernel-only IPC.
+Note: `--mem-lat-ns` does not change Horologium IPC (HtifMemory is always ~10-cycle
+regardless of the flag); only gem5's IPC changes. The `--structurally-matched` preset
+eliminates both the bypass-latency and DRAM-latency asymmetries. Remaining gaps (towers,
+vvadd, memcpy, treesum) reflect structural simulation differences: FU count, mispredict
+penalty, and cache-thrashing behaviour under different associativity.
 
 ## What this shows
 
@@ -286,6 +304,7 @@ make -C gem5-bmarks benchmarks
 bash scripts/gem5-compare.sh
 
 # Knobs for structural matching experiments
+bash scripts/gem5-compare.sh --structurally-matched     # bypass=0 + mem=10ns: closest structural match
 bash scripts/gem5-compare.sh --width 4 --rob 64        # wider pipeline
 bash scripts/gem5-compare.sh --mem-lat-ns 10ns          # reduce gem5 DRAM latency (Horo unaffected)
 bash scripts/gem5-compare.sh --bypass-lat 0             # match gem5's 0-cycle forwarding

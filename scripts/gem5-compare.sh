@@ -12,16 +12,18 @@
 # Usage:
 #   bash scripts/gem5-compare.sh [--width N] [--rob N] [--iq N]
 #                                 [--div-lat N] [--bypass-lat N] [--mem-lat-ns STR]
-#                                 [--flat-iq]
+#                                 [--flat-iq] [--structurally-matched]
 #
-# --div-lat N       IntDiv latency for both gem5 and Horologium (default: 23).
-#                   gem5 DefaultFUPool uses 20; Horologium default is 23.
-# --bypass-lat N    Horologium result-forwarding latency in cycles (default: 1).
-#                   gem5 O3CPU uses 0-cycle forwarding by default; pass 0 to match.
-# --mem-lat-ns STR  SimpleMemory latency for gem5 (default: "30ns").
-#                   Pass "10ns" to eliminate DRAM asymmetry with Horologium HtifMemory.
-# --flat-iq         Use Horologium's flat (unified) IQ mode: one 40-entry IQ for all
-#                   instruction classes, matching gem5's scheduling model.
+# --div-lat N           IntDiv latency for both gem5 and Horologium (default: 23).
+#                       gem5 DefaultFUPool uses 20; Horologium default is 23.
+# --bypass-lat N        Horologium result-forwarding latency in cycles (default: 1).
+#                       gem5 O3CPU uses 0-cycle forwarding by default; pass 0 to match.
+# --mem-lat-ns STR      SimpleMemory latency for gem5 (default: "30ns").
+#                       Pass "10ns" to eliminate DRAM asymmetry with Horologium HtifMemory.
+# --flat-iq             Use Horologium's flat (unified) IQ mode: one 40-entry IQ for all
+#                       instruction classes, matching gem5's scheduling model.
+# --structurally-matched  Preset: bypass-lat=0 + mem-lat-ns=10ns — the closest structural
+#                       match to gem5 O3CPU (0-cycle forwarding, DRAM latency equalised).
 #
 # Prerequisites:
 #   gem5 on PATH  (nix build .#gem5 or nix develop)
@@ -34,13 +36,14 @@ cd "$(dirname "$0")/.."
 WIDTH=2; ROB=30; IQ=8; DIV_LAT=23; BYPASS_LAT=1; MEM_LAT_NS="30ns"; FLAT_IQ=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --width)      WIDTH=$2;      shift 2 ;;
-        --rob)        ROB=$2;        shift 2 ;;
-        --iq)         IQ=$2;         shift 2 ;;
-        --div-lat)    DIV_LAT=$2;    shift 2 ;;
-        --bypass-lat) BYPASS_LAT=$2; shift 2 ;;
-        --mem-lat-ns) MEM_LAT_NS=$2; shift 2 ;;
-        --flat-iq)    FLAT_IQ=true;  shift ;;
+        --width)                WIDTH=$2;         shift 2 ;;
+        --rob)                  ROB=$2;           shift 2 ;;
+        --iq)                   IQ=$2;            shift 2 ;;
+        --div-lat)              DIV_LAT=$2;       shift 2 ;;
+        --bypass-lat)           BYPASS_LAT=$2;    shift 2 ;;
+        --mem-lat-ns)           MEM_LAT_NS=$2;    shift 2 ;;
+        --flat-iq)              FLAT_IQ=true;     shift ;;
+        --structurally-matched) BYPASS_LAT=0; MEM_LAT_NS="10ns"; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
