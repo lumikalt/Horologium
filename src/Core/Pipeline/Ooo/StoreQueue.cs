@@ -25,6 +25,9 @@ public sealed class SqEntry {
     /// <summary>Number of bytes to write.</summary>
     public int Width { get; set; }
 
+    /// <summary>PC of the store instruction (used by the store-set predictor).</summary>
+    public ulong Pc { get; set; }
+
     internal void Clear() {
         Valid = false;
         RobIdx = -1;
@@ -33,6 +36,7 @@ public sealed class SqEntry {
         Address = 0;
         Value = 0;
         Width = 0;
+        Pc = 0;
     }
 }
 

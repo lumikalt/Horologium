@@ -124,7 +124,7 @@ Remaining delta, in rough dependency order:
 
 ## Out-of-Order Execution
 
-- [ ] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary
+- [x] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary
   stalls. — Chrysos & Emer, ISCA 1998
 
 ## Cache Model Realism

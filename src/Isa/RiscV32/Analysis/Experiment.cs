@@ -156,7 +156,8 @@ public static class Experiment {
                 commitObserver: setStatsObs,
                 writeBufferCapacity: config.StoreBufferCapacity,
                 mshrCapacity: config.MshrCapacity,
-                flatIq: config.FlatIq
+                flatIq: config.FlatIq,
+                enableStoreSets: config.EnableStoreSets
             );
 
             result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);

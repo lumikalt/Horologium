@@ -29,6 +29,18 @@ public sealed class LqEntry {
     /// </summary>
     public bool Violated { get; set; }
 
+    /// <summary>
+    /// PC of the store that caused the violation (set alongside Violated = true).
+    /// Used by the store-set predictor's RecordViolation at commit time.
+    /// </summary>
+    public ulong ViolatingStorePc { get; set; }
+
+    /// <summary>
+    /// SeqNo of the predicted dependent store from the store-set predictor (0 = none).
+    /// Set at dispatch; the load stalls at issue until that store's address is known.
+    /// </summary>
+    public ulong PredStoreSeqNo { get; set; }
+
     internal void Clear() {
         Valid = false;
         RobIdx = -1;
@@ -37,6 +49,8 @@ public sealed class LqEntry {
         Address = 0;
         Bytes = 0;
         Violated = false;
+        ViolatingStorePc = 0;
+        PredStoreSeqNo = 0;
     }
 }
 

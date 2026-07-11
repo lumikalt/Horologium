@@ -50,7 +50,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int mshrCapacity = 0,
         bool flatIq = false,
         int fdipFtqCapacity = 0,
-        bool rdip = false
+        bool rdip = false,
+        bool enableStoreSets = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -73,7 +74,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 flatIq,
                 memory,
                 fdipFtqCapacity,
-                rdip
+                rdip,
+                enableStoreSets
             )
         );
         _train.Build();
@@ -368,6 +370,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly FdipPrefetcher? _fdip;
     private readonly RdipPrefetcher? _rdip;
     public RdipPrefetcher? Rdip => _rdip;
+    private readonly StoreSetPredictor? _storeSets;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
     public IArchState State { get; }
@@ -396,7 +399,8 @@ internal sealed class OoOPipelineCore : Gear {
         bool flatIq = false,
         IMemory? fdipBackingMemory = null,
         int fdipFtqCapacity = 0,
-        bool rdipEnabled = false
+        bool rdipEnabled = false,
+        bool enableStoreSets = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -426,6 +430,7 @@ internal sealed class OoOPipelineCore : Gear {
         _rdip = rdipEnabled && iLayers.Cache is not null
             ? new RdipPrefetcher(iLayers.Cache, _decoder)
             : null;
+        _storeSets = enableStoreSets ? new StoreSetPredictor() : null;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -633,7 +638,8 @@ internal sealed class OoOPipelineCore : Gear {
                 sq.Width = r.StoreBytes;
                 // A store's address just became known: check whether any younger speculative
                 // load has already executed against the same address with a stale value.
-                CheckLoadViolations(sq.SeqNo, r.StoreAddr, r.StoreBytes);
+                CheckLoadViolations(sq.SeqNo, r.StoreAddr, r.StoreBytes, sq.Pc);
+                _storeSets?.OnStoreIssued(sq.Pc, sq.SeqNo);
             }
 
             // Load disambiguation state (LQ.Executed/Address + violation check) is
@@ -699,6 +705,7 @@ internal sealed class OoOPipelineCore : Gear {
             // Check LQ violation before the store-write below (matters for atomics).
             if (head.IsLoad && head.LqIdx >= 0 && _lq.At(head.LqIdx).Violated) {
                 _memViolationsCounter.Increment();
+                _storeSets?.RecordViolation(_lq.At(head.LqIdx).ViolatingStorePc, head.Pc);
                 SetFlush(head.Pc); // re-executes from the load's PC; flush clears the ROB+LQ+SQ
                 return;
             }
@@ -843,9 +850,13 @@ internal sealed class OoOPipelineCore : Gear {
                 // store already has a known overlapping address (the store resolved before
                 // this load executed; the converse ordering is caught by CheckLoadViolations
                 // when the store later resolves).
-                if (!result.LoadWasForwarded
-                 && HasOlderConflictingStore(lq.SeqNo, result.LoadAddr, result.LoadBytes))
-                    lq.Violated = true;
+                if (!result.LoadWasForwarded) {
+                    ulong? conflictPc = HasOlderConflictingStore(lq.SeqNo, result.LoadAddr, result.LoadBytes);
+                    if (conflictPc.HasValue) {
+                        lq.Violated = true;
+                        lq.ViolatingStorePc = conflictPc.Value;
+                    }
+                }
             }
 
             // D-cache prefetch: fire before draining stalls so the prefetch sees the cache
@@ -925,6 +936,15 @@ internal sealed class OoOPipelineCore : Gear {
                     case ToothClass.Load when _fuConfig.ConservativeLoads: {
                         int lqIdx = _rob.At(rs.RobIndex).LqIdx;
                         if (lqIdx >= 0 && HasUnresolvedPrecedingStore(_lq.At(lqIdx).SeqNo)) continue;
+                        break;
+                    }
+                    case ToothClass.Load when _storeSets is not null: {
+                        int lqIdx = _rob.At(rs.RobIndex).LqIdx;
+                        if (lqIdx >= 0) {
+                            LqEntry lq = _lq.At(lqIdx);
+                            if (StoreSetStallLoad(lq.SeqNo, lq.PredStoreSeqNo)) continue;
+                        }
+
                         break;
                     }
                 }
@@ -1054,16 +1074,34 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
+    /// True if the load's predicted dependent store is still in the SQ with an unresolved
+    /// address.  Returns false if the store is not found (committed, flushed, or never
+    /// assigned) or if the atomic guard fires (predStoreSeqNo >= loadSeqNo).
+    /// </summary>
+    private bool StoreSetStallLoad(ulong loadSeqNo, ulong predStoreSeqNo) {
+        if (predStoreSeqNo == 0 || predStoreSeqNo >= loadSeqNo) return false;
+        foreach (SqEntry sq in _sq.InOrder()) {
+            if (sq.SeqNo == predStoreSeqNo) return !sq.AddressKnown;
+            if (sq.SeqNo > predStoreSeqNo) break;
+        }
+
+        return false; // store already committed or flushed — safe to issue
+    }
+
+    /// <summary>
     /// After a store's address resolves, scan LQ entries younger than the store's
     /// sequence number for loads that have already executed against the same (or
     /// overlapping) address. Those loads read a stale value and are flagged for
     /// re-execution at the ROB head.
     /// </summary>
-    private void CheckLoadViolations(ulong storeSeqNo, ulong storeAddr, int storeBytes) {
+    private void CheckLoadViolations(ulong storeSeqNo, ulong storeAddr, int storeBytes, ulong storePc = 0) {
         foreach (LqEntry lq in _lq.InOrder()) {
             if (lq.SeqNo <= storeSeqNo) continue; // older than or equal to the store
             if (!lq.Executed) continue;
-            if (AddressOverlaps(lq.Address, lq.Bytes, storeAddr, storeBytes)) lq.Violated = true;
+            if (AddressOverlaps(lq.Address, lq.Bytes, storeAddr, storeBytes)) {
+                lq.Violated = true;
+                if (storePc != 0) lq.ViolatingStorePc = storePc;
+            }
         }
     }
 
@@ -1097,14 +1135,15 @@ internal sealed class OoOPipelineCore : Gear {
     /// weren't caught by <see cref="CheckLoadViolations"/> (the store resolved before
     /// the load executed; the converse ordering is caught when the store later resolves).
     /// </summary>
-    private bool HasOlderConflictingStore(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
+    private ulong? HasOlderConflictingStore(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
+        ulong? conflict = null;
         foreach (SqEntry sq in _sq.InOrder()) {
             if (sq.SeqNo >= loadSeqNo) break; // past the load's position — done
             if (!sq.AddressKnown) continue;
-            if (AddressOverlaps(sq.Address, sq.Width, loadAddr, loadBytes)) return true;
+            if (AddressOverlaps(sq.Address, sq.Width, loadAddr, loadBytes)) conflict = sq.Pc;
         }
 
-        return false;
+        return conflict;
     }
 
     private static bool AddressOverlaps(ulong aAddr, int aBytes, ulong bAddr, int bBytes) {
@@ -1171,6 +1210,8 @@ internal sealed class OoOPipelineCore : Gear {
                 LqEntry lq = _lq.At(lqIdx);
                 lq.RobIdx = robIdx;
                 lq.SeqNo = memSeqNo;
+                if (_storeSets is not null && instr.Class == ToothClass.Load)
+                    lq.PredStoreSeqNo = _storeSets.OnLoadDispatch(ri.Pc);
                 rob.LqIdx = lqIdx;
             }
 
@@ -1179,6 +1220,8 @@ internal sealed class OoOPipelineCore : Gear {
                 SqEntry sq = _sq.At(sqIdx);
                 sq.RobIdx = robIdx;
                 sq.SeqNo = memSeqNo;
+                sq.Pc = ri.Pc;
+                _storeSets?.OnStoreDispatch(ri.Pc, memSeqNo);
                 rob.SqIdx = sqIdx;
             }
 
