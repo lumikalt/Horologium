@@ -390,12 +390,12 @@ public class StreamingEngineTests {
         //   i=2: k=0→C[2,0..2]=30,31,32; k=1→same       (j count=3, x2)
         //   Total 12 elements: [10,10, 20,21,20,21, 30,31,32,30,31,32]
         const int ew = 4;
-        const int N  = 3;
-        const int M  = 2;
+        const int n = 3;
+        const int m = 2;
 
-        // 9 words covers all of the lower-triangular region.
+        // 9 words cover all the lower-triangular region.
         var mem = new FlatMemory(9 * ew);
-        mem.Load(0,  BitConverter.GetBytes(10u));
+        mem.Load(0, BitConverter.GetBytes(10u));
         mem.Load(12, BitConverter.GetBytes(20u));
         mem.Load(16, BitConverter.GetBytes(21u));
         mem.Load(24, BitConverter.GetBytes(30u));
@@ -406,9 +406,9 @@ public class StreamingEngineTests {
         var desc = new StreamDescriptor(
             0, ew,
             [
-                new StreamDimension(1,    ew),      // j: count=1, stride=4B
-                new StreamDimension(M,    0),       // k: count=2, stride=0B
-                new StreamDimension(N,    N * ew),  // i: count=3, stride=12B
+                new StreamDimension(1, ew),     // j: count=1, stride=4B
+                new StreamDimension(m, 0),      // k: count=2, stride=0B
+                new StreamDimension(n, n * ew), // i: count=3, stride=12B
             ],
             [new StreamModifier(1, 0, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 1),]
         );
@@ -417,8 +417,8 @@ public class StreamingEngineTests {
         eng.Configure(0, desc);
         for (var step = 0; step < 48; step++) eng.Step(mem);
 
-        uint[] expected = [10, 10,  20, 21, 20, 21,  30, 31, 32, 30, 31, 32,];
-        foreach (var e in expected) Assert.Equal((ulong)e, eng.Consume(0));
+        uint[] expected = [10, 10, 20, 21, 20, 21, 30, 31, 32, 30, 31, 32,];
+        foreach (uint e in expected) Assert.Equal(e, eng.Consume(0));
         Assert.True(eng.IsExhausted(0));
     }
 
@@ -637,14 +637,14 @@ public class StreamingEngineTests {
         // 4×4 int32 matrix (row-major), values 1–16 at base 0x000.
         // Index stream: flat element indices [0, 5, 10, 15] (main diagonal) at 0x100.
         // Gather stream uses SgiMod=Set: each element consumes one index from stream 1 and
-        // reads data[index] — i.e. scaledOffset = index * 4 added to base 0x000.
+        // reads data[index] — i.e., scaledOffset = index * 4 added to base 0x000.
         //
         // Diagonal values: 1 (addr 0), 6 (addr 20), 11 (addr 40), 16 (addr 60).
         // Sum = 1 + 6 + 11 + 16 = 34.
         //
         // Index values are cast (long)(int) matching Spike's 32-bit truncate + sign-extend.
         // RTL zero-extends by element width instead; the two agree for non-negative indices
-        // below 2³¹ (all sane kernels). Divergence case not exercised here — see SPEC_NOTES.
+        // below 2³¹ (all sane kernels). Divergence case isn't exercised here — see SPEC_NOTES.
         const int ew = 4;
         var mem = new FlatMemory(0x100 + 4 * ew);
         for (var i = 0; i < 16; i++) mem.Load((ulong)(i * ew), BitConverter.GetBytes((uint)(i + 1)));
@@ -653,8 +653,10 @@ public class StreamingEngineTests {
         for (var i = 0; i < indices.Length; i++) mem.Load((ulong)(0x100 + i * ew), BitConverter.GetBytes(indices[i]));
 
         var eng = new StreamingEngine(16);
-        eng.Configure(1, new StreamDescriptor(0x100, ew, 4, ew));   // index stream
-        eng.Configure(0, new StreamDescriptor(0x000, ew, [new StreamDimension(4, 0),], SgiMod: (1, StreamModifierBehavior.Set)));
+        eng.Configure(1, new StreamDescriptor(0x100, ew, 4, ew)); // index stream
+        eng.Configure(
+            0, new StreamDescriptor(0x000, ew, [new StreamDimension(4, 0),], SgiMod: (1, StreamModifierBehavior.Set))
+        );
         for (var i = 0; i < 16; i++) eng.Step(mem);
 
         var sum = 0UL;

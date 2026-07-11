@@ -305,14 +305,14 @@ public sealed class StreamingEngine {
         // Spike: dim.iter_offset = f(dim.offset, behavior, sourceValue * elementWidth), where
         // dim.offset (the configured base) is always 0, so Add/Sub collapse to the same as Set/Negate.
         private bool ApplySgiMod(StreamState[] allStreams) {
-            var (srcId, behavior) = _sgiMod!.Value;
+            (int srcId, StreamModifierBehavior behavior) = _sgiMod!.Value;
             StreamState src = allStreams[srcId];
             if (!src.HasElement) return false;
             var rawVal = (long)(int)src.Consume();
             long scaled = rawVal * _desc.ElementBytes;
             _fetchDimOffsets[0] = behavior switch {
-                StreamModifierBehavior.Add => scaled,          // base=0, so Add ≡ Set
-                StreamModifierBehavior.Sub => -scaled,         // base=0, so Sub ≡ Negate
+                StreamModifierBehavior.Add => scaled,  // base=0, so Add ≡ Set
+                StreamModifierBehavior.Sub => -scaled, // base=0, so Sub ≡ Negate
                 StreamModifierBehavior.Set => scaled,
                 StreamModifierBehavior.Inc => _fetchDimOffsets[0] + scaled,
                 StreamModifierBehavior.Dec => _fetchDimOffsets[0] - scaled,

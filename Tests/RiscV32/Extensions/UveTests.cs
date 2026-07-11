@@ -148,7 +148,6 @@ public class UveTests {
     // ss.getvl rd (GETVL, funct3=7) / ss.setvl rd, rs1 (SETVL, funct3=0)
     private static uint SoCBreak(int ud) => SoC(3, ud, 0, 0);
     private static uint SoCSuspd(int ud) => SoC(1, ud, 0, 0);
-    private static uint SoCResum(int ud) => SoC(2, ud, 0, 0);
     private static uint SoCGetvl(int rd) => SoC(7, rd, 0, 0);
     private static uint SoCSetvl(int rd, int rs1) => SoC(0, rd, rs1, 0);
 
@@ -433,7 +432,7 @@ public class UveTests {
     private static uint SoAFpWithPs3(UveFpOp op, int ud, int usrc1, int usrc2, int ps3) {
         (uint funct3, uint top4) = op switch {
             UveFpOp.Add => (1u, 0u), UveFpOp.Mul => (1u, 1u),
-            _ => throw new ArgumentOutOfRangeException(nameof(op)),
+            _           => throw new ArgumentOutOfRangeException(nameof(op)),
         };
         uint funct7 = (top4 << 3) | ((uint)ps3 & 7);
         int rs2Enc = usrc2 < 0 ? 0 : usrc2;
@@ -446,7 +445,7 @@ public class UveTests {
         // Confirm that bits[27:25] = ps3 are decoded and stored in Ps3.
         var dec = new Rv32Decoder();
         var mem = new FlatMemory(16);
-        uint enc = SoAFpWithPs3(UveFpOp.Add, 3, 1, 2, ps3: 5);
+        uint enc = SoAFpWithPs3(UveFpOp.Add, 3, 1, 2, 5);
         mem.Load(0, BitConverter.GetBytes(enc));
 
         var op = (RvUveSoAFp)dec.Decode(0, mem).Payload!;
@@ -488,16 +487,16 @@ public class UveTests {
         state.UveState.SetVectorRaw(3, dest, 4, false);
 
         // p1: all-false by default; set representative bytes for lanes 0 and 2.
-        state.UveState.PredicateRegs[1][3]  = true;  // lane 0 active
-        state.UveState.PredicateRegs[1][11] = true;  // lane 2 active
+        state.UveState.PredicateRegs[1][3] = true;  // lane 0 active
+        state.UveState.PredicateRegs[1][11] = true; // lane 2 active
         // bytes 7 and 15 remain false → lanes 1 and 3 inactive
 
-        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Add, 3, 1, 2, Ps3: 1), state);
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Add, 3, 1, 2, 1), state);
         er.SideEffect?.Invoke(state);
 
-        Assert.Equal(11f,  BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 0)), 4);
+        Assert.Equal(11f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 0)), 4);
         Assert.Equal(200f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 1)), 4); // merged
-        Assert.Equal(33f,  BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 2)), 4);
+        Assert.Equal(33f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 2)), 4);
         Assert.Equal(400f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 3)), 4); // merged
     }
 
@@ -506,14 +505,16 @@ public class UveTests {
         // Source registers have ValidElements=2 (simulating VL=2 after ss.setvl).
         // pm=0 (zeroing): dest lanes 2 and 3 must be zeroed even if they held old values.
         var state = new Rv32ArchState();
-        uint f1 = (uint)BitConverter.SingleToInt32Bits(1f);
-        uint f2 = (uint)BitConverter.SingleToInt32Bits(2f);
-        uint f3 = (uint)BitConverter.SingleToInt32Bits(3f);
-        uint sentinel = (uint)BitConverter.SingleToInt32Bits(99f);
+        var f1 = (uint)BitConverter.SingleToInt32Bits(1f);
+        var f2 = (uint)BitConverter.SingleToInt32Bits(2f);
+        _ = (uint)BitConverter.SingleToInt32Bits(3f);
+        var sentinel = (uint)BitConverter.SingleToInt32Bits(99f);
         // src: 2 valid elements, pm=0 (merging=false → zeroing)
         state.UveState.SetVectorRaw(1, [f1, f2, sentinel, sentinel,], 2, false);
         state.UveState.SetVectorRaw(2, [f1, f2, sentinel, sentinel,], 2, false);
-        // dest pre-loaded with old values in all 4 lanes
+        // dest
+        //
+        // preloaded with old values in all 4 lanes
         state.UveState.SetVectorRaw(3, [sentinel, sentinel, sentinel, sentinel,], 4, false);
 
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Add, 3, 1, 2), state);
@@ -531,21 +532,21 @@ public class UveTests {
         // Source registers have ValidElements=2, pm=1 (merging).
         // Dest lanes 2 and 3 must keep their old values, not be zeroed.
         var state = new Rv32ArchState();
-        uint f1 = (uint)BitConverter.SingleToInt32Bits(1f);
-        uint f2 = (uint)BitConverter.SingleToInt32Bits(2f);
-        uint old2 = (uint)BitConverter.SingleToInt32Bits(77f);
-        uint old3 = (uint)BitConverter.SingleToInt32Bits(88f);
+        var f1 = (uint)BitConverter.SingleToInt32Bits(1f);
+        var f2 = (uint)BitConverter.SingleToInt32Bits(2f);
+        var old2 = (uint)BitConverter.SingleToInt32Bits(77f);
+        var old3 = (uint)BitConverter.SingleToInt32Bits(88f);
         // src: 2 valid elements, pm=1 (merging=true)
         state.UveState.SetVectorRaw(1, [f1, f2, 0u, 0u,], 2, true);
         state.UveState.SetVectorRaw(2, [f1, f2, 0u, 0u,], 2, true);
-        // dest pre-loaded; lanes 2 and 3 must survive
+        // dest preloaded; lanes 2 and 3 must survive
         state.UveState.SetVectorRaw(3, [0u, 0u, old2, old3,], 4, false);
 
         ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Add, 3, 1, 2), state);
         er.SideEffect?.Invoke(state);
 
-        Assert.Equal(2f,  BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 0)), 4);
-        Assert.Equal(4f,  BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 1)), 4);
+        Assert.Equal(2f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 0)), 4);
+        Assert.Equal(4f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 1)), 4);
         Assert.Equal(77f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 2)), 4); // merged
         Assert.Equal(88f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 3)), 4); // merged
         Assert.Equal(2, state.UveState.ValidElements[3]);
@@ -557,13 +558,13 @@ public class UveTests {
         // u1 = [1, 2, 3, 4] (scalar ints), p1 lanes 0 and 2 active.
         // Expected sum = 1 + 3 = 4.
         var state = new Rv32ArchState();
-        uint[] vals = [1u, 2u, 3u, 4u];
+        uint[] vals = [1u, 2u, 3u, 4u,];
         state.UveState.SetVectorRaw(1, vals, 4, false);
 
-        state.UveState.PredicateRegs[1][3]  = true;  // lane 0 active
-        state.UveState.PredicateRegs[1][11] = true;  // lane 2 active
+        state.UveState.PredicateRegs[1][3] = true;  // lane 0 active
+        state.UveState.PredicateRegs[1][11] = true; // lane 2 active
 
-        ExecuteResult er = Exec(new RvUveSoASadde(false, false, 5, 1, Ps3: 1), state);
+        ExecuteResult er = Exec(new RvUveSoASadde(false, false, 5, 1, 1), state);
         er.SideEffect?.Invoke(state);
 
         Assert.Equal(4u, (uint)state.IntegerRegisters.Read(5));
@@ -606,7 +607,7 @@ public class UveTests {
 
     [Fact]
     public void SsEnd_ActivatesMultiDimLoadStream() {
-        // Config order is outermost-first (Spike); ss.end appends the innermost dimension
+        // Config order is outermost-first (Spike); ss.end appends the innermost dimension,
         // and the descriptor comes out in the engine's innermost-first order.
         var state = new Rv32ArchState();
         var cfg = new PendingStreamConfig { BaseAddress = 0x3000, ElementBytes = 4, IsLoad = true, };
@@ -1071,14 +1072,14 @@ public class UveTests {
         //   x8 = 12           output element count
         const ulong code = 0x1000;
         var words = new List<uint> {
-            Addi(1, 0, 0x000),       // x1 = 0 (matrix base)
-            Addi(2, 0, 0x200),       // x2 = 0x200 (output base)
-            Addi(3, 0, cols),        // x3 = 4
-            Addi(4, 0, 1),           // x4 = 1 (element stride)
-            Addi(5, 0, rows),        // x5 = 3
-            Addi(6, 0, rowBytes / 4),// x6 = 8 (elements per padded row)
-            Addi(8, 0, rows * cols), // x8 = 12
-            Lui(7, 0x40400),         // x7 = bits(3.0f)
+            Addi(1, 0, 0x000),        // x1 = 0 (matrix base)
+            Addi(2, 0, 0x200),        // x2 = 0x200 (output base)
+            Addi(3, 0, cols),         // x3 = 4
+            Addi(4, 0, 1),            // x4 = 1 (element stride)
+            Addi(5, 0, rows),         // x5 = 3
+            Addi(6, 0, rowBytes / 4), // x6 = 8 (elements per padded row)
+            Addi(8, 0, rows * cols),  // x8 = 12
+            Lui(7, 0x40400),          // x7 = bits(3.0f)
             // 2D load stream u1: ss.sta.ld.w (base) + ss.app (outer dim) + ss.end (inner dim, activate)
             SsStaLdW(1, 1),    // base=x1
             SsApp(1, 0, 5, 6), // outer dim: count=x5(3), stride=x6(8 elems)
@@ -1143,14 +1144,14 @@ public class UveTests {
         //   x8 = 8            outer row stride (8 elements = 1 padded row)
         const ulong code = 0x1000;
         var words = new List<uint> {
-            Addi(1, 0, 0x000),       // x1 = 0
-            Addi(2, 0, 0x400),       // x2 = 0x400
-            Addi(3, 0, rows * cols), // x3 = 12
-            Addi(4, 0, 1),           // x4 = 1 (element stride)
-            Addi(5, 0, cols),        // x5 = 4
-            Addi(6, 0, rows),        // x6 = 3
-            Addi(8, 0, rowBytes / 4),// x8 = 8 (elements per padded row)
-            Lui(7, 0x3F800),         // x7 = bits(1.0f)
+            Addi(1, 0, 0x000),        // x1 = 0
+            Addi(2, 0, 0x400),        // x2 = 0x400
+            Addi(3, 0, rows * cols),  // x3 = 12
+            Addi(4, 0, 1),            // x4 = 1 (element stride)
+            Addi(5, 0, cols),         // x5 = 4
+            Addi(6, 0, rows),         // x6 = 3
+            Addi(8, 0, rowBytes / 4), // x8 = 8 (elements per padded row)
+            Lui(7, 0x3F800),          // x7 = bits(1.0f)
             // 1D load stream u1: ss.sta.ld.w + ss.end
             SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // count=x3(12), stride=x4(1 elem)
             // 2D store stream u2: ss.sta.st.w + ss.app (outer) + ss.end (inner)
@@ -1987,11 +1988,6 @@ public class UveTests {
     private static uint SoPOne(int pd, int govPred = 0, bool zeroing = false) =>
         SoPZero(pd, govPred, zeroing) | (1u << 11);
 
-    // so.p.vr pd, vs1 [.z] [, govPred=0] — funct3=001, bit11=0
-    private static uint SoPVr(int pd, int vs1, int govPred = 0, bool zeroing = false) =>
-        (0x80u << 24) | ((uint)govPred << 25) | (zeroing ? 1u << 24 : 0u) |
-        (1u << 12) | (uint)((vs1 & 0x1F) << 15) | (uint)((pd & 0xF) << 7) | 0x2Bu;
-
     // so.p.not/mv/mvt pd, ps1 [.z] [, govPred=0]
     // not: funct3=001, bit11=1; mv: funct3=010, bit11=0; mvt: funct3=010, bit11=1
     private static uint SoPNot(int pd, int ps1, int govPred = 0, bool zeroing = false) =>
@@ -2456,7 +2452,7 @@ public class UveTests {
     public void Decoder_SsAppSgi_Add_Roundtrip() {
         var mem = new FlatMemory(4);
         mem.Load(0, BitConverter.GetBytes(SsAppSgi(3, 5, StreamModifierBehavior.Add)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSsAppSgi>(tooth.Payload);
         Assert.Equal(3, op.Ud);
         Assert.Equal(5, op.Rs1Source);
@@ -2467,7 +2463,7 @@ public class UveTests {
     public void Decoder_SsEndSgi_Inc_Roundtrip() {
         var mem = new FlatMemory(4);
         mem.Load(0, BitConverter.GetBytes(SsEndSgi(2, 7, StreamModifierBehavior.Inc)));
-        var tooth = new Rv32Decoder().Decode(0, mem);
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSsEndSgi>(tooth.Payload);
         Assert.Equal(2, op.Ud);
         Assert.Equal(7, op.Rs1Source);
@@ -2507,10 +2503,12 @@ public class UveTests {
 
         var eng = new StreamingEngine(16);
         eng.Configure(1, new StreamDescriptor(0x100, 4, 3, 4)); // IndSource: 3 indices
-        eng.Configure(0, new StreamDescriptor(
-            0x000, 4, [new StreamDimension(3, 0),],
-            SgiMod: (1, StreamModifierBehavior.Set)
-        ));
+        eng.Configure(
+            0, new StreamDescriptor(
+                0x000, 4, [new StreamDimension(3, 0),],
+                SgiMod: (1, StreamModifierBehavior.Set)
+            )
+        );
 
         for (var i = 0; i < 20; i++) eng.Step(mem);
 
@@ -2526,9 +2524,9 @@ public class UveTests {
     // group=8 (funct7=0x40..0x47), funct3=3, rs2[1:0]=srcWidthIdx, rs2[3:2]=destWidthIdx, rs2[4]=zeroing
     // rs1[3:0]=ps1, rd[3:0]=pd
     private static uint SoPCv(int pd, int ps1, int srcBytes, int destBytes, bool zeroing = false) {
-        int srcIdx  = srcBytes  == 1 ? 0 : srcBytes  == 2 ? 1 : srcBytes  == 4 ? 2 : 3;
+        int srcIdx = srcBytes == 1   ? 0 : srcBytes == 2  ? 1 : srcBytes == 4  ? 2 : 3;
         int destIdx = destBytes == 1 ? 0 : destBytes == 2 ? 1 : destBytes == 4 ? 2 : 3;
-        uint rs2 = (uint)(srcIdx | (destIdx << 2) | (zeroing ? 0x10 : 0));
+        var rs2 = (uint)(srcIdx | (destIdx << 2) | (zeroing ? 0x10 : 0));
         return (0x40u << 25) | (rs2 << 20) | (uint)((ps1 & 0xF) << 15) | (3u << 12) |
                (uint)((pd & 0xF) << 7) | 0x2Bu;
     }
@@ -2573,7 +2571,7 @@ public class UveTests {
     [Fact]
     public void Decoder_SoPCv_WB_Zeroing_Roundtrip() {
         var mem = new FlatMemory(256);
-        mem.Load(0, BitConverter.GetBytes(SoPCv(3, 1, 4, 1, zeroing: true)));
+        mem.Load(0, BitConverter.GetBytes(SoPCv(3, 1, 4, 1, true)));
         ITooth tooth = new Rv32Decoder().Decode(0, mem);
         var op = Assert.IsType<RvUveSoPCv>(tooth.Payload);
         Assert.Equal(3, op.Pd);
@@ -2592,12 +2590,12 @@ public class UveTests {
         // Only element 0 is active: dest[1] = src[0] = true, rest false.
         var state = new Rv32ArchState();
         state.UveState.PredicateRegs[1][0] = true; // element 0 active (byte-width active bit at index 0)
-        var result = Exec(new RvUveSoPCv(2, 1, 1, 2, false), state);
+        ExecuteResult result = Exec(new RvUveSoPCv(2, 1, 1, 2, false), state);
         result.SideEffect!(state);
         bool[] pd = state.UveState.PredicateRegs[2];
-        Assert.True(pd[1]);   // element 0 dest active bit at (0+1)*2-1 = 1
-        Assert.False(pd[3]);  // element 1 inactive
-        Assert.False(pd[0]);  // no spurious set
+        Assert.True(pd[1]);  // element 0 dest active bit at (0+1)*2-1 = 1
+        Assert.False(pd[3]); // element 1 inactive
+        Assert.False(pd[0]); // no spurious set
     }
 
     [Fact]
@@ -2607,7 +2605,7 @@ public class UveTests {
         var state = new Rv32ArchState();
         state.UveState.PredicateRegs[3][1] = true; // elem 0 of H
         state.UveState.PredicateRegs[3][5] = true; // elem 2 of H
-        var result = Exec(new RvUveSoPCv(4, 3, 2, 1, false), state);
+        ExecuteResult result = Exec(new RvUveSoPCv(4, 3, 2, 1, false), state);
         result.SideEffect!(state);
         bool[] pd = state.UveState.PredicateRegs[4];
         Assert.True(pd[0]);  // elem 0 → dest byte 0
@@ -2619,7 +2617,7 @@ public class UveTests {
     public void SoPCv_Zeroing_SetsTag() {
         var state = new Rv32ArchState();
         Assert.False(state.UveState.PredZeroing[5]);
-        var result = Exec(new RvUveSoPCv(5, 0, 1, 2, true), state);
+        ExecuteResult result = Exec(new RvUveSoPCv(5, 0, 1, 2, true), state);
         result.SideEffect!(state);
         Assert.True(state.UveState.PredZeroing[5]);
     }
@@ -2676,7 +2674,7 @@ public class UveTests {
         state.UveState.SetLane32(1, 1, 0x7F);
         state.UveState.ValidElements[1] = 2;
         state.UveState.RegElemBytes[1] = 1;
-        var result = Exec(new RvUveSoVCv(2, 1, 4, false, false), state);
+        ExecuteResult result = Exec(new RvUveSoVCv(2, 1, 4, false, false), state);
         result.SideEffect!(state);
         Assert.Equal(0x000000FFu, state.UveState.GetLane32(2, 0));
         Assert.Equal(0x0000007Fu, state.UveState.GetLane32(2, 1));
@@ -2693,7 +2691,7 @@ public class UveTests {
         state.UveState.SetLane32(3, 1, 0x01);
         state.UveState.ValidElements[3] = 2;
         state.UveState.RegElemBytes[3] = 1;
-        var result = Exec(new RvUveSoVCv(4, 3, 4, false, true), state);
+        ExecuteResult result = Exec(new RvUveSoVCv(4, 3, 4, false, true), state);
         result.SideEffect!(state);
         Assert.Equal(0xFFFFFFFFu, state.UveState.GetLane32(4, 0));
         Assert.Equal(0x00000001u, state.UveState.GetLane32(4, 1));
@@ -2706,7 +2704,7 @@ public class UveTests {
         state.UveState.SetLane32(5, 0, 0x12345678u);
         state.UveState.ValidElements[5] = 1;
         state.UveState.RegElemBytes[5] = 4;
-        var result = Exec(new RvUveSoVCv(6, 5, 1, false, false), state);
+        ExecuteResult result = Exec(new RvUveSoVCv(6, 5, 1, false, false), state);
         result.SideEffect!(state);
         Assert.Equal(0x78u, state.UveState.GetLane32(6, 0));
     }
@@ -2714,16 +2712,16 @@ public class UveTests {
     [Fact]
     public void SoVCv_Fp_Float32ToFloat16_Converts() {
         // Source: float32 1.0f → float16 representation.
-        float src = 1.0f;
-        uint srcBits = (uint)BitConverter.SingleToInt32Bits(src);
+        const float src = 1.0f;
+        var srcBits = (uint)BitConverter.SingleToInt32Bits(src);
         ushort expected = BitConverter.HalfToUInt16Bits((Half)src);
         var state = new Rv32ArchState();
         state.UveState.SetLane32(7, 0, srcBits);
         state.UveState.ValidElements[7] = 1;
         state.UveState.RegElemBytes[7] = 4;
-        var result = Exec(new RvUveSoVCv(8, 7, 2, true, false), state);
+        ExecuteResult result = Exec(new RvUveSoVCv(8, 7, 2, true, false), state);
         result.SideEffect!(state);
-        Assert.Equal((uint)expected, state.UveState.GetLane32(8, 0));
+        Assert.Equal(expected, state.UveState.GetLane32(8, 0));
         Assert.Equal(2, state.UveState.RegElemBytes[8]);
     }
 }

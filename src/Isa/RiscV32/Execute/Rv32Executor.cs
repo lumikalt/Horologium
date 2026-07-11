@@ -723,7 +723,7 @@ public class Rv32Executor : IExecutor {
                 ExecuteUveSsAppInd(ud, tdim, target, behavior, srcId),
             RvUveSsAppSgi (var ud, var srcId, var behavior) => ExecuteUveSsAppSgi(ud, srcId, behavior),
             RvUveSsEndSgi (var ud, var srcId, var behavior) => ExecuteUveSsEndSgi(state, ud, srcId, behavior),
-            RvUveSsEnd (var ud, var rs1, var rs2, var rs3) => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
+            RvUveSsEnd (var ud, var rs1, var rs2, var rs3)  => ExecuteUveSsEnd(state, regs, ud, rs1, rs2, rs3),
             RvUveSsAppMod (var ud, var tdim, var target, var behavior, var rs3Disp) =>
                 ExecuteUveSsAppMod(regs, ud, tdim, target, behavior, rs3Disp),
             RvUveSoVDp (var ud, var rs1, var elemBytes)   => ExecuteUveSoVDp(regs, ud, rs1, elemBytes),
@@ -3256,11 +3256,11 @@ public class Rv32Executor : IExecutor {
         int vLen = uveState.ValidElements[usrc1] > 0 ? uveState.ValidElements[usrc1] : 1;
         bool[] predReg = uveState.PredicateRegs[ps3];
         // predicate byte for element i (float32 = 4 bytes/element): (i+1)*4-1
-        const int ElemBytesInPred = 4;
+        const int elemBytesInPred = 4;
         if (isFp) {
             var sum = 0f;
             for (var i = 0; i < vLen; i++)
-                if (predReg[(i + 1) * ElemBytesInPred - 1])
+                if (predReg[(i + 1) * elemBytesInPred - 1])
                     sum += BitConverter.Int32BitsToSingle((int)uveState.GetLane32(usrc1, i));
             float result = acc ? FBits(regs, rd) + sum : sum;
             ulong nanBoxed = 0xFFFFFFFF00000000UL | (uint)BitConverter.SingleToInt32Bits(result);
@@ -3269,7 +3269,7 @@ public class Rv32Executor : IExecutor {
         else {
             var sum = 0;
             for (var i = 0; i < vLen; i++)
-                if (predReg[(i + 1) * ElemBytesInPred - 1])
+                if (predReg[(i + 1) * elemBytesInPred - 1])
                     sum += (int)uveState.GetLane32(usrc1, i);
             int result = acc ? (int)(uint)regs.Read(rd) + sum : sum;
             return new ExecuteResult { SideEffect = s => { UState(s).IntegerRegisters.Write(rd, (uint)result); }, };
@@ -3314,19 +3314,19 @@ public class Rv32Executor : IExecutor {
     // Returns (vLen, zeroing).
     // vLen: 1 if either source is Scalar; otherwise the min of sources' ValidElements counts
     //       (0 → 4 as safe default). This makes the out-of-range zeroing/merging loop in
-    //       UveWriteResult actually fire when VL < VLEN/ew (e.g. after ss.setvl).
+    //       UveWriteResult actually fire when VL < VLEN/ew (e.g., after ss.setvl).
     // zeroing: true when no source register has pm=1 (merging), so lanes beyond vLen are zeroed.
     private static (int vLen, bool zeroing) UveLaneParams(UveState u, int usrc1, int usrc2) {
         bool s1Scalar = u.RegMode[usrc1] == UveRegMode.Scalar;
         bool s2Scalar = usrc2 < 0 || u.RegMode[usrc2] == UveRegMode.Scalar;
         int vLen;
-        if (s1Scalar || s2Scalar) {
-            vLen = 1;
-        } else {
+        if (s1Scalar || s2Scalar) { vLen = 1; }
+        else {
             int v1 = u.ValidElements[usrc1] > 0 ? u.ValidElements[usrc1] : 4;
-            int v2 = usrc2 < 0 ? v1 : (u.ValidElements[usrc2] > 0 ? u.ValidElements[usrc2] : 4);
+            int v2 = usrc2 < 0 ? v1 : u.ValidElements[usrc2] > 0 ? u.ValidElements[usrc2] : 4;
             vLen = Math.Min(v1, v2);
         }
+
         bool zeroing = !u.RegMerging[usrc1] && (usrc2 < 0 || !u.RegMerging[usrc2]);
         return (vLen, zeroing);
     }
@@ -3345,14 +3345,13 @@ public class Rv32Executor : IExecutor {
         int ps3
     ) {
         // Predicate byte for lane i (float32 = 4 bytes/element): (i+1)*4-1 = i*4+3
-        const int ElemBytesInPred = 4;
+        const int elemBytesInPred = 4;
         UveState uveState = UState(state).UveState;
         if (uveState.RegKind[ud] == UveRegKind.StoreStream && uveState.StoreStreams[ud] is { } ss) {
             int ewBytes = ss.ElementBytes;
             bool[] predReg = uveState.PredicateRegs[ps3];
             for (var i = 0; i < vLen; i++) {
-                if (predReg[(i + 1) * ElemBytesInPred - 1])
-                    memory.Write(ss.CurrentAddress, results[i], ewBytes);
+                if (predReg[(i + 1) * elemBytesInPred - 1]) memory.Write(ss.CurrentAddress, results[i], ewBytes);
                 ss.Advance(); // always advance stream position, even for inactive lanes
             }
 
@@ -3361,7 +3360,7 @@ public class Rv32Executor : IExecutor {
                     UveState uvs = UState(s).UveState;
                     bool[] pr = uvs.PredicateRegs[ps3];
                     for (var i = 0; i < vLen; i++)
-                        if (pr[(i + 1) * ElemBytesInPred - 1])
+                        if (pr[(i + 1) * elemBytesInPred - 1])
                             uvs.SetLane32(ud, i, results[i]);
                     uvs.RegMode[ud] = vLen == 1 ? UveRegMode.Scalar : UveRegMode.Vector;
                     uvs.ValidElements[ud] = vLen;
@@ -3375,11 +3374,11 @@ public class Rv32Executor : IExecutor {
                 UveState uvs = UState(s).UveState;
                 bool[] pr = uvs.PredicateRegs[ps3];
                 for (var i = 0; i < vLen; i++)
-                    if (pr[(i + 1) * ElemBytesInPred - 1])
+                    if (pr[(i + 1) * elemBytesInPred - 1])
                         uvs.SetLane32(ud, i, results[i]);
                 // predicate-inactive lanes: merging — no write, existing value preserved
                 if (zeroing)
-                    for (var i = vLen; i < maxLanes; i++)
+                    for (int i = vLen; i < maxLanes; i++)
                         uvs.SetLane32(ud, i, 0);
                 uvs.RegMode[ud] = vLen == 1 ? UveRegMode.Scalar : UveRegMode.Vector;
                 uvs.ValidElements[ud] = vLen;
@@ -3505,7 +3504,8 @@ public class Rv32Executor : IExecutor {
 
         long totalOffsetBytes = pending.OffsetBytes + offset * pending.ElementBytes;
         var baseAddr = (ulong)((long)pending.BaseAddress + totalOffsetBytes);
-        StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride * pending.ElementBytes)).Reverse().ToArray();
+        StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride * pending.ElementBytes))
+                                        .Reverse().ToArray();
         return BuildAndActivatePendingStream(ud, pending, baseAddr, dims);
     }
 
@@ -3802,8 +3802,7 @@ public class Rv32Executor : IExecutor {
         bool[] src = uvs.PredicateRegs[ps1];
         int nElems = UveState.PredBytes / Math.Max(srcBytes, destBytes);
         var destPred = new bool[UveState.PredBytes];
-        for (var i = 0; i < nElems; i++)
-            destPred[(i + 1) * destBytes - 1] = src[(i + 1) * srcBytes - 1];
+        for (var i = 0; i < nElems; i++) destPred[(i + 1) * destBytes - 1] = src[(i + 1) * srcBytes - 1];
         return new ExecuteResult {
             SideEffect = s => {
                 UveState u = UState(s).UveState;
@@ -3836,6 +3835,7 @@ public class Rv32Executor : IExecutor {
                 ? ConvertFpLane(raw, srcBytes, destBytes)
                 : ConvertIntLane(raw, srcBytes, destBytes, isSigned);
         }
+
         return new ExecuteResult {
             SideEffect = s => {
                 UveState u = UState(s).UveState;
@@ -3855,6 +3855,7 @@ public class Rv32Executor : IExecutor {
             uint signBit = 1u << (srcBytes * 8 - 1);
             if ((narrow & signBit) != 0) narrow |= ~mask;
         }
+
         // Truncate to destBytes width before storing as uint32.
         uint destMask = destBytes >= 4 ? uint.MaxValue : (1u << (destBytes * 8)) - 1u;
         return narrow & destMask;
@@ -3864,16 +3865,18 @@ public class Rv32Executor : IExecutor {
     // Only the combinations meaningful for a 32-bit lane model are handled:
     // fp.h (float32→float16), fp.w (float32→float32 = identity), others default to identity.
     private static uint ConvertFpLane(uint raw, int srcBytes, int destBytes) {
-        if (srcBytes == 4 && destBytes == 2) {
-            float f = BitConverter.Int32BitsToSingle((int)raw);
-            Half h = (Half)f;
-            return BitConverter.HalfToUInt16Bits(h);
+        switch (srcBytes) {
+            case 4 when destBytes == 2: {
+                float f = BitConverter.Int32BitsToSingle((int)raw);
+                var h = (Half)f;
+                return BitConverter.HalfToUInt16Bits(h);
+            }
+            case 2 when destBytes == 4: {
+                Half h = BitConverter.UInt16BitsToHalf((ushort)raw);
+                return (uint)BitConverter.SingleToInt32Bits((float)h);
+            }
+            default: return raw; // identity for matching widths or unsupported combos
         }
-        if (srcBytes == 2 && destBytes == 4) {
-            Half h = BitConverter.UInt16BitsToHalf((ushort)raw);
-            return (uint)BitConverter.SingleToInt32Bits((float)h);
-        }
-        return raw; // identity for matching widths or unsupported combos
     }
 
     // ── FP vector helpers ─────────────────────────────────────────────────────

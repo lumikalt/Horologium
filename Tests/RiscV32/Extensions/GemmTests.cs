@@ -42,9 +42,6 @@ public class GemmTests {
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | (0 << 12) | ((rd & 0x1F) << 7) | 0x13u);
 
-    private static uint Slli(int rd, int rs1, int shamt) =>
-        (uint)((0 << 25) | ((shamt & 0x1F) << 20) | ((rs1 & 0x1F) << 15) | (1 << 12) | ((rd & 0x1F) << 7) | 0x13u);
-
     private static uint EBreak() => 0x00100073u;
 
     // SS.STA.LD.W ud, rs1 — funct2=0, funct3=0b110 (load, ew=4)

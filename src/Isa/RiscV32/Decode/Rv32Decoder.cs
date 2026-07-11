@@ -2130,13 +2130,17 @@ public class Rv32Decoder : IDecoder {
         // so.a.*: group = funct7>>3, ps3 = funct7&7 (bits[27:25] = governing predicate register)
         // upper = funct3&4, type = funct3&3 (0=US, 1=FP, 2=SG)
         var group = (int)(funct7 >> 3);
-        int ps3 = (int)(funct7 & 7);
+        var ps3 = (int)(funct7 & 7);
         bool upper = (funct3 & 4) != 0;
         var type = (int)(funct3 & 3);
 
         RvOp uvOp = group switch {
-            0 => UveArith(upper ? UveFpOp.Sub : UveFpOp.Add, upper ? UveIntOp.Sub : UveIntOp.Add, type, rd, rs1, rs2, ps3),
-            1 => UveArith(upper ? UveFpOp.Div : UveFpOp.Mul, upper ? UveIntOp.Div : UveIntOp.Mul, type, rd, rs1, rs2, ps3),
+            0 => UveArith(
+                upper ? UveFpOp.Sub : UveFpOp.Add, upper ? UveIntOp.Sub : UveIntOp.Add, type, rd, rs1, rs2, ps3
+            ),
+            1 => UveArith(
+                upper ? UveFpOp.Div : UveFpOp.Mul, upper ? UveIntOp.Div : UveIntOp.Mul, type, rd, rs1, rs2, ps3
+            ),
             // Group 2 lower: adde — accumulate stream element into ud; rs2=1 selects the += variant.
             // Group 2 upper: sadde/fsadde — write stream element (or accumulate) into integer/FP scalar reg.
             2 when !upper && rs2 == 1 => UveArith(UveFpOp.AddeAcc, UveIntOp.AddeAcc, type, rd, rs1, -1, ps3),
@@ -2146,18 +2150,22 @@ public class Rv32Decoder : IDecoder {
             3 when upper              => UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2, ps3),
             // ABS has no US variant in Spike (MATCH_SO_A_ABS_SG uses funct3=0); force Signed=true.
             3 when !upper && type == 1 => new RvUveSoAFp(UveFpOp.Abs, rd, rs1, -1, ps3),
-            3 when !upper => new RvUveSoAInt(UveIntOp.Abs, true, rd, rs1, -1, ps3),
-            4 => UveArith(upper ? UveFpOp.Max : UveFpOp.Min, upper ? UveIntOp.Max : UveIntOp.Min, type, rd, rs1, rs2, ps3),
+            3 when !upper              => new RvUveSoAInt(UveIntOp.Abs, true, rd, rs1, -1, ps3),
+            4 => UveArith(
+                upper ? UveFpOp.Max : UveFpOp.Min, upper ? UveIntOp.Max : UveIntOp.Min, type, rd, rs1, rs2, ps3
+            ),
             // Group 5: mine/maxe — running min/max reduction into ud.
             5 => UveArith(
                 upper ? UveFpOp.Maxe : UveFpOp.Mine, upper ? UveIntOp.Maxe : UveIntOp.Mine, type, rd, rs1, -1, ps3
             ),
             6 when upper && rs2 == 1 && type == 1 => new RvUveSoAFp(UveFpOp.Sqrt, rd, rs1, -1, ps3),
-            6 => UveArith(upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1, ps3),
+            6 => UveArith(
+                upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1, ps3
+            ),
             // Group 10 (funct7=0x50..0x57): SO_V_CV — vector element type conversion.
             // funct3 = destWidthIdx (0=b,1=h,2=w,3=d); rs2 = cvType (0=US, 8=FP, 16=SG).
             10 when funct3 <= 3 => new RvUveSoVCv(rd, rs1, 1 << (int)funct3, rs2 == 8, rs2 == 16),
-            10 => throw new IllegalInstructionException(raw, $"Unknown so.v.cv funct3=0x{funct3:X}"),
+            10                  => throw new IllegalInstructionException(raw, $"Unknown so.v.cv funct3=0x{funct3:X}"),
             // Group 11 (funct7=0x58): SO_C — stream lifecycle and vector-length control.
             // funct3 distinguishes ops; only rd (and rs1 for SETVL) are register fields.
             11 => (int)funct3 switch {
@@ -2221,8 +2229,8 @@ public class Rv32Decoder : IDecoder {
         // so.p.cv: group=8, funct3=3 — predicate width conversion.
         // rs2[1:0]=srcWidthIdx, rs2[3:2]=destWidthIdx, rs2[4]=zeroing (same as outer zeroing = bit24).
         if (group == 8 && funct3 == 3) {
-            var cvRs2    = (int)((raw >> 20) & 0x1F);
-            int srcBytes  = 1 << (cvRs2 & 3);
+            var cvRs2 = (int)((raw >> 20) & 0x1F);
+            int srcBytes = 1 << (cvRs2 & 3);
             int destBytes = 1 << ((cvRs2 >> 2) & 3);
             return new RvUveSoPCv(predRd, predRs1, srcBytes, destBytes, zeroing);
         }
