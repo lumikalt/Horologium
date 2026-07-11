@@ -13,6 +13,7 @@
 #   bash scripts/gem5-compare.sh [--width N] [--rob N] [--iq N]
 #                                 [--div-lat N] [--bypass-lat N] [--mem-lat-ns STR]
 #                                 [--flat-iq] [--structurally-matched]
+#                                 [--predictor-json JSON]
 #
 # --div-lat N           IntDiv latency for both gem5 and Horologium (default: 23).
 #                       gem5 DefaultFUPool uses 20; Horologium default is 23.
@@ -24,6 +25,12 @@
 #                       instruction classes, matching gem5's scheduling model.
 # --structurally-matched  Preset: bypass-lat=0 + mem-lat-ns=10ns — the closest structural
 #                       match to gem5 O3CPU (0-cycle forwarding, DRAM latency equalised).
+# --predictor-json JSON Horologium predictor config as a JSON object (default: {"type":"l_tage"}).
+#                       gem5-matched TournamentBP:
+#                         '{"type":"tournament","LocalHistoryBits":11,"LocalTableSize":2048,"GlobalHistoryBits":13}'
+#                       (gem5 TournamentBP defaults: localPredictorSize=2048,
+#                        localHistoryTableSize=2048, globalPredictorSize=8192,
+#                        choicePredictorSize=8192)
 #
 # Prerequisites:
 #   gem5 on PATH  (nix build .#gem5 or nix develop)
@@ -34,16 +41,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 WIDTH=2; ROB=30; IQ=8; DIV_LAT=23; BYPASS_LAT=1; MEM_LAT_NS="30ns"; FLAT_IQ=false
+PREDICTOR_JSON='{"type":"l_tage"}'
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --width)                WIDTH=$2;         shift 2 ;;
-        --rob)                  ROB=$2;           shift 2 ;;
-        --iq)                   IQ=$2;            shift 2 ;;
-        --div-lat)              DIV_LAT=$2;       shift 2 ;;
-        --bypass-lat)           BYPASS_LAT=$2;    shift 2 ;;
-        --mem-lat-ns)           MEM_LAT_NS=$2;    shift 2 ;;
-        --flat-iq)              FLAT_IQ=true;     shift ;;
+        --width)                WIDTH=$2;                    shift 2 ;;
+        --rob)                  ROB=$2;                      shift 2 ;;
+        --iq)                   IQ=$2;                       shift 2 ;;
+        --div-lat)              DIV_LAT=$2;                  shift 2 ;;
+        --bypass-lat)           BYPASS_LAT=$2;               shift 2 ;;
+        --mem-lat-ns)           MEM_LAT_NS=$2;               shift 2 ;;
+        --flat-iq)              FLAT_IQ=true;                shift ;;
         --structurally-matched) BYPASS_LAT=0; MEM_LAT_NS="10ns"; shift ;;
+        --predictor-json)       PREDICTOR_JSON=$2;           shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -59,7 +68,7 @@ cat > "$TMP/sweep.json" <<JSON
 [{"name":"w${WIDTH}","config":{
   "pipeline":"ooo","issue_width":${WIDTH},"rob_capacity":${ROB},"iq_capacity":${IQ},
   "flat_iq":${FLAT_IQ},
-  "predictor":{"type":"l_tage"},
+  "predictor":${PREDICTOR_JSON},
   "i_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
   "d_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
   "store_buffer_capacity":2,
@@ -119,8 +128,8 @@ done
 printf "\nNotes:\n"
 printf "  gem5 : RiscvO3CPU SE mode, TournamentBP+RAS(16), flat IQ(%d), L1 16KB split, %s DRAM, IntDiv=%d\n" \
     "$GEM5_IQ" "$MEM_LAT_NS" "$DIV_LAT"
-printf "  Horo : OooeTrain — %s IQ(%s), RAS(16), LTage, HTIF binary (kernel-only IPC), Bypass=%d, DivLat=%d\n" \
-    "$IQ_MODE" "$([[ "$FLAT_IQ" == "true" ]] && echo "1×$GEM5_IQ" || echo "5×$IQ")" "$BYPASS_LAT" "$DIV_LAT"
+printf "  Horo : OooeTrain — %s IQ(%s), RAS(16), predictor=%s, HTIF binary (kernel-only IPC), Bypass=%d, DivLat=%d\n" \
+    "$IQ_MODE" "$([[ "$FLAT_IQ" == "true" ]] && echo "1×$GEM5_IQ" || echo "5×$IQ")" "$PREDICTOR_JSON" "$BYPASS_LAT" "$DIV_LAT"
 printf "  ratio: Horo IPC / gem5 IPC  (>1 = Horologium faster than gem5)\n"
 printf "  Δinsts: (Horo_retired − gem5_committed) / gem5_committed\n"
 printf "          Both measure kernel-only: gem5 setStats(1) fires m5_reset_stats(0,0) and\n"

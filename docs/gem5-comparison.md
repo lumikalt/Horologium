@@ -305,6 +305,9 @@ bash scripts/gem5-compare.sh
 
 # Knobs for structural matching experiments
 bash scripts/gem5-compare.sh --structurally-matched     # bypass=0 + mem=10ns: closest structural match
+bash scripts/gem5-compare.sh --structurally-matched \
+  --predictor-json '{"type":"tournament","LocalHistoryBits":11,"LocalTableSize":2048,"GlobalHistoryBits":13}'
+                                                       # gem5-matched TournamentBP table sizes
 bash scripts/gem5-compare.sh --width 4 --rob 64        # wider pipeline
 bash scripts/gem5-compare.sh --mem-lat-ns 10ns          # reduce gem5 DRAM latency (Horo unaffected)
 bash scripts/gem5-compare.sh --bypass-lat 0             # match gem5's 0-cycle forwarding
