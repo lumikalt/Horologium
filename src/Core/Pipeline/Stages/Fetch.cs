@@ -114,7 +114,12 @@ public sealed class FetchStage(
             if (_ras.TryPop(out ulong ret))
                 pred = BranchPrediction.Taken(ret);
 
-        ulong nextPc = pred.PredictedTaken ? pred.PredictedTarget : Pc + (ulong)instrSize;
+        // A direct branch's taken target is statically known — take it from the decode hint,
+        // not the predictor's BTB, which may be cold or aliased (a stale 0 there would send
+        // fetch to a null address). The predictor target is used only for indirect branches
+        // (and RAS returns); a cold indirect target (0) falls through rather than crashing.
+        ulong takenTarget = hint.BranchTarget.HasValue ? hint.BranchTarget.Value : pred.PredictedTarget;
+        ulong nextPc = pred.PredictedTaken && takenTarget != 0 ? takenTarget : Pc + (ulong)instrSize;
         var latch = new IfIdLatch {
             IsValid = true, Pc = Pc, InstrId = _nextInstrId++, RawEncoding = raw, PredictedNextPc = nextPc,
         };

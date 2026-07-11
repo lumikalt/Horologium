@@ -1401,12 +1401,20 @@ internal sealed class OoOPipelineCore : Gear {
                     pred = BranchPrediction.Taken(hint.BranchTarget.Value);
                 else
                     pred = _predictor.Predict(_fetchPc, hint.BranchTarget);
-                predictedNext = pred.PredictedTaken ? pred.PredictedTarget : _fetchPc + (ulong)decoded.SizeBytes;
+
+                // A direct branch's taken target is statically known — take it from the
+                // decode hint, not the predictor's BTB, which may be cold or aliased (a stale
+                // 0 there would send speculative fetch to a null address). The predictor's
+                // target is used only for indirect branches; a cold indirect target (0) falls
+                // through rather than crashing.
+                ulong fallThrough = _fetchPc + (ulong)decoded.SizeBytes;
+                ulong takenTarget = hint.BranchTarget.HasValue ? hint.BranchTarget.Value : pred.PredictedTarget;
+                predictedNext = pred.PredictedTaken && takenTarget != 0 ? takenTarget : fallThrough;
 
                 // Fold the predicted direction into speculative history so younger in-flight
                 // branches index fresh history. Matches the taken bit Update applies at commit
                 // (resolvedPc != fall-through); on the correct path the two agree bit-for-bit.
-                _predictor.SpeculativeHistoryUpdate(_fetchPc, predictedNext != _fetchPc + (ulong)decoded.SizeBytes);
+                _predictor.SpeculativeHistoryUpdate(_fetchPc, predictedNext != fallThrough);
             }
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
