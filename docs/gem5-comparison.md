@@ -246,11 +246,24 @@ Key findings:
   null-check `beqz a0` in tree_sum follows a tree-topology-driven sequence with no
   learnable global-history pattern; both predictors make ~499 mispredictions.
 
-- **TournamentBP reduces IPC** (0.742 vs LTage 0.865) despite slightly fewer branch
-  mispredicts. TournamentBP's per-PC local history generates a different speculative
-  execution pattern, producing +155 extra memory-order violations (wrong-path loads
-  conflicting with correct-path stores). The additional pipeline flushes more than
-  offset the branch-prediction gain. The same effect appears in towers (0.708 vs 0.751).
+- **TournamentBP reduces IPC at bypass=1** (0.742 vs LTage 0.865) despite slightly
+  fewer branch mispredicts. TournamentBP's per-PC local history generates a different
+  speculative execution pattern, producing +155 extra memory-order violations (181 vs 26),
+  both at exact-address overlaps where the store's address was not yet resolved when the
+  load executed. The additional pipeline flushes more than offset the branch-prediction
+  gain. The same effect appears in towers (0.708 vs 0.751).
+
+  At bypass=0, this gap disappears: tournament (390 mispredicts, 132 violations, IPC 0.797)
+  converges with LTage (500 mispredicts, 19 violations, IPC 0.796). With bypass=0, stores
+  resolve their addresses one cycle sooner, which both enables sub-word store-to-load
+  forwarding (implemented in `TryForwardFromStore`) and shifts the load-store timing so
+  fewer loads execute before their older stores have known addresses. The penalty-balance
+  between fewer mispredicts and more violations nets out near zero.
+
+  At bypass=1, the forwarding stall delays store address resolution by one cycle, keeping
+  loads and unresolved stores concurrent more often; sub-word forwarding cannot fire for
+  stores that haven't resolved yet. The 155-violation gap remains a store-sets candidate
+  (stall loads at issue time when they're predicted to alias an unresolved older store).
 
 - **always_not_taken yields 1537 mispredictions** — ~3× the expected ~511 conditional
   branches. The excess comes from a RAS interaction: when the recursive `jal` at
@@ -274,12 +287,16 @@ Key findings:
    compute-bound workloads.
 
 2. **Branch predictor quality**: Predictor differences do not explain the treesum H/G gap.
-   Using TournamentBP inside Horologium *reduces* IPC for both treesum (0.742 vs LTage 0.865)
-   and towers (0.708 vs 0.751), driven by additional memory-order violations from
-   TournamentBP's different speculative execution pattern. The null-check `beqz` in tree_sum
-   is nearly unpredictable: LTage (499 mispredicts) saves only ~16 mispredictions vs
-   always_taken (515), so predictor quality is not a lever here. The residual H/G gap for
-   treesum is genuine simulation divergence (0-cycle vs 1-cycle forwarding, ROB/IQ differences).
+   Using TournamentBP inside Horologium *reduces* IPC for treesum at bypass=1 (0.742 vs
+   LTage 0.865) and towers (0.708 vs 0.751), driven by +155 extra memory-order violations
+   from TournamentBP's different speculative execution pattern. At bypass=0, the gap
+   disappears (tournament 0.797 ≈ LTage 0.796): stores resolve their addresses sooner,
+   reducing the window in which loads execute before their older stores are resolved.
+   The null-check `beqz` in tree_sum is nearly unpredictable: LTage (499 mispredicts)
+   saves only ~16 mispredictions vs always_taken (515), so predictor quality is not a
+   lever here. The residual H/G gap for treesum is genuine simulation divergence
+   (0-cycle vs 1-cycle forwarding, ROB/IQ differences). For bypass=1, the remaining
+   tournament violation gap is a candidate for store sets (memory dependence prediction).
 
 3. **DIV latency**: Both simulators use `--div-lat 23` (matched). The residual gcd
    gap comes from FU count (gem5 has 2× IntMultDiv units vs Horologium's single

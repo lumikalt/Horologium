@@ -1068,20 +1068,24 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// If any older SQ entry has already executed against the same address as
-    /// <paramref name="loadAddr"/>, return its stored value as a forwarded result.
-    /// Returns <c>default</c> (HasValue=false) when no forwarding match is found.
+    /// If any older SQ entry's byte range fully contains the load's byte range, return
+    /// the forwarded bytes extracted from the stored value.  Partial overlap (store
+    /// covers some but not all of the load's bytes) is not forwarded — the load goes
+    /// to memory and <see cref="CheckLoadViolations"/> will flag it on store resolution.
     /// The youngest matching store wins (last seen in program order = head-to-tail).
     /// </summary>
     private (ulong Value, bool HasValue) TryForwardFromStore(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
         (ulong Value, bool HasValue) result = default;
+        ulong loadEnd = loadAddr + (ulong)loadBytes;
+        ulong mask = loadBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, _ => 0xFFFF_FFFFUL, };
         foreach (SqEntry sq in _sq.InOrder()) {
-            if (sq.SeqNo >= loadSeqNo) break; // reached entries younger than or equal to this load
+            if (sq.SeqNo >= loadSeqNo) break;
             if (!sq.AddressKnown) continue;
-            // Only exact base-address forwarding; partial-overlap cases require shifting.
-            if (sq.Address != loadAddr || sq.Width < loadBytes) continue;
-            ulong mask = loadBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, _ => 0xFFFF_FFFFUL, };
-            result = (sq.Value & mask, true); // keep overwriting to get youngest match
+            // Skip unless the store's byte range fully contains the load's byte range.
+            if (sq.Address > loadAddr || loadEnd > sq.Address + (ulong)sq.Width) continue;
+            // Extract the relevant bytes: shift right by the byte offset within the store.
+            int shift = (int)(loadAddr - sq.Address) * 8;
+            result = ((sq.Value >> shift) & mask, true); // keep overwriting to get youngest match
         }
 
         return result;

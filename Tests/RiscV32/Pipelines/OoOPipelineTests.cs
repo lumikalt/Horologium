@@ -323,6 +323,76 @@ public class OoOPipelineTests {
         Assert.Equal(20u, Reg(train, 4));
     }
 
+    [Fact]
+    public void MemOrder_SubWordForwarding_ByteAtOffset() {
+        // A word store followed by a byte load at a non-zero offset within the stored
+        // word.  The load's byte range is fully contained in the store's byte range, so
+        // TryForwardFromStore must shift the store value to extract the right byte.
+        //
+        // Store 0x00000100 at 0x200.  In little-endian memory:
+        //   0x200: 0x00, 0x201: 0x01, 0x202: 0x00, 0x203: 0x00
+        // lbu at 0x201 should yield 0x01 via sub-word forwarding.
+        //
+        // addi x1, x0, 0x100   → x1 = 0x100
+        // addi x2, x0, 0x200   → x2 = 0x200 (address)
+        // sw   x1, 0(x2)       → mem[0x200..0x203] = 0x00000100
+        // lbu  x3, 1(x2)       → x3 = byte at 0x201 = 0x01
+        // ebreak
+        (OooeTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x10000093, // addi x1, x0, 0x100
+            0x20000113, // addi x2, x0, 0x200
+            0x00112023, // sw   x1, 0(x2)
+            0x00114183, // lbu  x3, 1(x2)
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(1u, Reg(train, 3));
+    }
+
+    [Fact]
+    public void MemOrder_SubWordForwarding_HalfwordAtOffset() {
+        // Same pattern but with a 2-byte load at a 2-byte offset within a 4-byte store.
+        // Store 0x01020304 (built with lui + addi) at 0x200.  Memory layout:
+        //   0x200: 0x04, 0x201: 0x03, 0x202: 0x02, 0x203: 0x01
+        // lhu at 0x202 should yield 0x0102 via sub-word forwarding.
+        //
+        // lui  x1, 0x1         → x1 = 0x1000
+        // addi x1, x1, 0x24   → x1 = 0x1024  (nope; simpler: use a small value)
+        //
+        // Use 0x00020001 instead (easy to build):
+        //   addi x1, x0, 1        → x1 = 1 = 0x00000001
+        //   addi x5, x0, 2        → x5 = 2
+        //   slli x5, x5, 16       → x5 = 0x00020000
+        //   add  x1, x1, x5       → x1 = 0x00020001
+        // Memory at 0x200: 0x01, 0x00, 0x02, 0x00
+        // lhu at 0x202 → 0x0002
+        //
+        // addi x1, x0, 1         0x00100093
+        // addi x5, x0, 2         0x00200293
+        // slli x5, x5, 16        0x01029293
+        // add  x1, x1, x5        0x005080b3
+        // addi x2, x0, 0x200     0x20000113
+        // sw   x1, 0(x2)         0x00112023
+        // lhu  x3, 2(x2)         0x00215183
+        // ebreak                 0x00100073
+        (OooeTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x00100093, // addi x1, x0, 1
+            0x00200293, // addi x5, x0, 2
+            0x01029293, // slli x5, x5, 16
+            0x005080b3, // add  x1, x1, x5   → x1 = 0x00020001
+            0x20000113, // addi x2, x0, 0x200
+            0x00112023, // sw   x1, 0(x2)
+            0x00215183, // lhu  x3, 2(x2)    → x3 = 0x0002
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(2u, Reg(train, 3));
+    }
+
     // ── FU latency ────────────────────────────────────────────────────────────
 
     [Fact]
