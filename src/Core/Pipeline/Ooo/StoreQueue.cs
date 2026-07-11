@@ -7,6 +7,9 @@ public sealed class SqEntry {
     /// <summary>ROB index of the owning instruction.</summary>
     public int RobIdx { get; set; } = -1;
 
+    /// <summary>Monotonic per-instruction age, for partial-squash younger-than comparisons.</summary>
+    public ulong InstrId { get; set; }
+
     /// <summary>
     /// Monotonic dispatch sequence number shared with the LoadQueue.
     /// An Atomic instruction receives the same SeqNo in both its LQ and SQ entry.
@@ -31,6 +34,7 @@ public sealed class SqEntry {
     internal void Clear() {
         Valid = false;
         RobIdx = -1;
+        InstrId = 0;
         SeqNo = 0;
         AddressKnown = false;
         Address = 0;
@@ -97,6 +101,20 @@ public sealed class StoreQueue {
         _head = 0;
         _tail = 0;
         Count = 0;
+    }
+
+    /// <summary>
+    /// Removes entries younger than <paramref name="instrId"/> from the tail. Used by an
+    /// execute-time partial squash; the newest (highest-InstrId) entries sit at the tail.
+    /// </summary>
+    public void TruncateYoungerThan(ulong instrId) {
+        while (Count > 0) {
+            int last = (_tail - 1 + Capacity) % Capacity;
+            if (_slots[last].InstrId <= instrId) break;
+            _slots[last].Clear();
+            _tail = last;
+            Count--;
+        }
     }
 
     /// <summary>

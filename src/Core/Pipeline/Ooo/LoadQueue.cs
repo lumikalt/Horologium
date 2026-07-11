@@ -7,6 +7,9 @@ public sealed class LqEntry {
     /// <summary>ROB index of the owning instruction.</summary>
     public int RobIdx { get; set; } = -1;
 
+    /// <summary>Monotonic per-instruction age, for partial-squash younger-than comparisons.</summary>
+    public ulong InstrId { get; set; }
+
     /// <summary>
     /// Monotonic dispatch sequence number shared with the StoreQueue.
     /// Used to determine program-order relationship between LQ and SQ entries
@@ -44,6 +47,7 @@ public sealed class LqEntry {
     internal void Clear() {
         Valid = false;
         RobIdx = -1;
+        InstrId = 0;
         SeqNo = 0;
         Executed = false;
         Address = 0;
@@ -110,6 +114,22 @@ public sealed class LoadQueue {
         _head = 0;
         _tail = 0;
         Count = 0;
+    }
+
+    /// <summary>
+    /// Removes entries younger than <paramref name="instrId"/> from the tail (they are the most
+    /// recently allocated, so program-order youngest sit at the tail). Used by an execute-time
+    /// partial squash. Entries are contiguous in age, so this walks the tail back while the newest
+    /// entry's InstrId exceeds the threshold.
+    /// </summary>
+    public void TruncateYoungerThan(ulong instrId) {
+        while (Count > 0) {
+            int last = (_tail - 1 + Capacity) % Capacity;
+            if (_slots[last].InstrId <= instrId) break;
+            _slots[last].Clear();
+            _tail = last;
+            Count--;
+        }
     }
 
     /// <summary>

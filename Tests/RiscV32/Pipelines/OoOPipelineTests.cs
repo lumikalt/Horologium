@@ -805,4 +805,36 @@ public class OoOPipelineTests {
         Assert.NotNull(snap);
         Assert.Equal(0L, snap.Counters["branch_misses"]);
     }
+
+    [Fact]
+    public void OoO_ExecuteTimeSquash_PreservesOlderInFlight_AndDiscardsWrongPath() {
+        // A taken branch (mispredicted by the default AlwaysNotTaken predictor) resolves at
+        // execute while an older multi-cycle divide is still in flight, so it is not yet the ROB
+        // head — exercising the execute-time PARTIAL squash rather than a commit-time full flush.
+        // Verifies: (a) the older divide survives the squash and commits its result, (b) the
+        // wrong-path instruction after the branch is discarded (never writes its register), and
+        // (c) the correct-path target executes after the redirect.
+        (OooeTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x06400093, // 0:  addi x1, x0, 100
+            0x00700113, // 4:  addi x2, x0, 7
+            0x0220C1B3, // 8:  div  x3, x1, x2     -- older, multi-cycle, in flight when bne resolves
+            0x00100213, // 12: addi x4, x0, 1
+            0x00021463, // 16: bne  x4, x0, +8     -- taken (x4!=0); AlwaysNotTaken → mispredict → squash
+            0x3E700293, // 20: addi x5, x0, 999    -- WRONG PATH: must be squashed
+            0x02A00313, // 24: addi x6, x0, 42     -- branch target / correct path
+            0x00100073  // 28: ebreak
+        );
+
+        RevolutionResult result = train.Run();
+
+        Assert.Equal(14u, Reg(train, 3)); // 100 / 7 = 14 — older divide survived the partial squash
+        Assert.Equal(42u, Reg(train, 6)); // correct-path target executed after the redirect
+        Assert.Equal(0u, Reg(train, 5));  // wrong-path instruction was discarded, never committed
+
+        DialBoardSnapshot? snap = result.Find("ooo.pipeline");
+        Assert.NotNull(snap);
+        Assert.Equal(1L, snap.Counters["branch_misses"]); // exactly one misprediction, resolved at execute
+    }
 }

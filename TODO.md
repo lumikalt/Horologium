@@ -145,8 +145,16 @@ Remaining delta, in rough dependency order:
   which pattern *within* an LLBP context is trained still uses predict-time fields (`LlbpHistIdx`/`LastProvider`)
   that a younger in-flight branch can clobber — a training-quality-only limitation, never a correctness issue,
   and not worth the full commit-time lookup recompute for a near-inert exotic predictor.
-- [ ] Local (per-PC) history predictor component to close the residual treesum gap (LTage mispredicts 322 vs
-  gem5 TournamentBP's 70 with speculative history already on; the gap is local-history structure, not timing).
+- [x] Local (per-PC) history predictor component to close the residual treesum gap. Resolved by measurement:
+  Horologium's Tournament (per-PC local history, now speculative) already gets treesum to 37 mispredicts, below
+  gem5 TournamentBP's 70 — so l_tage's 322 is a predictor-choice gap, not a modelling limit. See
+  `docs/gem5-comparison.md` "treesum with Tournament + store sets".
+- [x] Execute-time branch misprediction resolution in `OooeTrain`: partial squash that redirects fetch when a
+  branch resolves mispredicted at Execute (as gem5 O3CPU's `iew` does), keeping the branch and older in-flight
+  instructions live, instead of deferring a full flush to the ROB head at commit. Per-branch speculative-history
+  checkpoints (GHR + Tournament local history) recover exact predictor state; the RAS is rebuilt from the
+  committed shadow plus a replay of surviving in-flight calls/returns. Recovered the predicted 315 cycles on
+  treesum (H/G 0.921 → 0.962) and improved every benchmark (median +4.8%, multiply +6.5%, none regressed).
 
 ## Cache Model Realism
 

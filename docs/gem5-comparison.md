@@ -82,45 +82,45 @@ Both gem5 and Horologium measure kernel-only IPC; Δinsts ≈ 0% confirms aligne
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
 |----------|----------|----------|-----------|--------|
-| median   | 0.7872   | 0.7451   | 0.947     | +0.2%  |
-| qsort    | 0.6184   | 0.5726   | 0.926     | +0.0%  |
-| rsort    | 1.3237   | 1.3478   | **1.018** | +0.0%  |
-| towers   | 1.1726   | 0.8211   | 0.700     | +0.6%  |
-| vvadd    | 1.4537   | 1.9042   | **1.310** | +0.3%  |
-| memcpy   | 0.7268   | 1.5827   | **2.178** | +0.1%  |
-| multiply | 1.8560   | 1.6916   | 0.911     | +0.0%  |
-| gcd      | 0.2790   | 0.2420   | 0.868     | +0.1%  |
-| treesum  | 1.6610   | 0.7707   | 0.464     | +0.1%  |
+| median   | 0.7872   | 0.7810   | 0.992     | +0.2%  |
+| qsort    | 0.6184   | 0.5837   | 0.944     | +0.0%  |
+| rsort    | 1.3237   | 1.3495   | **1.019** | +0.0%  |
+| towers   | 1.1726   | 0.8351   | 0.712     | +0.6%  |
+| vvadd    | 1.4537   | 1.9501   | **1.341** | +0.3%  |
+| memcpy   | 0.7268   | 1.5864   | **2.183** | +0.1%  |
+| multiply | 1.8560   | 1.8017   | 0.971     | +0.0%  |
+| gcd      | 0.2790   | 0.2421   | 0.868     | +0.1%  |
+| treesum  | 1.6610   | 0.7857   | 0.473     | +0.1%  |
 | pchase   | 0.1313   | 0.2555   | **1.946** | +0.0%  |
 
 With `--bypass-lat 0` (matching gem5's 0-cycle result forwarding):
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δ from bypass=1 |
 |----------|----------|----------|-----------|-----------------|
-| median   | 0.7872   | 0.8303   | **1.055** | +11%            |
-| qsort    | 0.6184   | 0.6815   | **1.102** | +19%            |
-| rsort    | 1.3237   | 1.6543   | **1.250** | +23%            |
-| towers   | 1.1726   | 0.8784   | 0.749     | +7%             |
-| vvadd    | 1.4537   | 1.9330   | **1.330** | +2%             |
-| memcpy   | 0.7268   | 1.5573   | **2.143** | -2%             |
-| multiply | 1.8560   | 1.7463   | 0.941     | +3%             |
-| gcd      | 0.2790   | 0.2528   | 0.906     | +4%             |
-| treesum  | 1.6610   | 0.7644   | 0.460     | -1%             |
+| median   | 0.7872   | 0.8781   | **1.115** | +12%            |
+| qsort    | 0.6184   | 0.6998   | **1.132** | +20%            |
+| rsort    | 1.3237   | 1.6559   | **1.251** | +23%            |
+| towers   | 1.1726   | 0.8955   | 0.764     | +7%             |
+| vvadd    | 1.4537   | 1.9533   | **1.344** | +0%             |
+| memcpy   | 0.7268   | 1.5570   | **2.142** | -2%             |
+| multiply | 1.8560   | 1.8637   | **1.004** | +3%             |
+| gcd      | 0.2790   | 0.2529   | 0.906     | +4%             |
+| treesum  | 1.6610   | 0.8576   | 0.516     | +9%             |
 | pchase   | 0.1313   | 0.3017   | **2.298** | +18%            |
 
 With `--mem-lat-ns 10ns` (eliminating DRAM asymmetry, bypass=1):
 
 | workload | gem5 IPC | Horo IPC | H/G ratio |
 |----------|----------|----------|-----------|
-| median   | 0.7901   | 0.7451   | 0.943     |
-| qsort    | 0.6185   | 0.5726   | 0.926     |
-| rsort    | 1.3418   | 1.3478   | **1.004** |
-| towers   | 1.1807   | 0.8211   | 0.695     |
-| vvadd    | 1.4705   | 1.9042   | **1.295** |
-| memcpy   | 1.0864   | 1.5827   | **1.457** |
-| multiply | 1.8584   | 1.6916   | 0.910     |
-| gcd      | 0.2792   | 0.2420   | 0.867     |
-| treesum  | 1.6658   | 0.7707   | 0.463     |
+| median   | 0.7901   | 0.7810   | 0.989     |
+| qsort    | 0.6185   | 0.5837   | 0.944     |
+| rsort    | 1.3418   | 1.3495   | **1.006** |
+| towers   | 1.1807   | 0.8351   | 0.707     |
+| vvadd    | 1.4705   | 1.9501   | **1.326** |
+| memcpy   | 1.0864   | 1.5864   | **1.460** |
+| multiply | 1.8584   | 1.8017   | 0.970     |
+| gcd      | 0.2792   | 0.2421   | 0.867     |
+| treesum  | 1.6658   | 0.7857   | 0.472     |
 | pchase   | 0.2181   | 0.2555   | **1.171** |
 
 With `--structurally-matched` (`--bypass-lat 0 --mem-lat-ns 10ns` combined) — closest
@@ -131,18 +131,21 @@ history (updated at fetch, recovered on flush) instead of commit-only history:
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
 |----------|----------|----------|-----------|--------|
-| median   | 0.7901   | 0.8303   | **1.051** | +0.2%  |
-| qsort    | 0.6185   | 0.6815   | **1.102** | +0.0%  |
-| rsort    | 1.3418   | 1.6543   | **1.233** | +0.0%  |
-| towers   | 1.1807   | 0.8784   | 0.744     | +0.6%  |
-| vvadd    | 1.4705   | 1.9330   | **1.315** | +0.3%  |
-| memcpy   | 1.0864   | 1.5573   | **1.433** | +0.1%  |
-| multiply | 1.8584   | 1.7463   | 0.940     | +0.0%  |
+| median   | 0.7901   | 0.8781   | **1.111** | +0.2%  |
+| qsort    | 0.6185   | 0.6998   | **1.132** | +0.0%  |
+| rsort    | 1.3418   | 1.6559   | **1.234** | +0.0%  |
+| towers   | 1.1807   | 0.8955   | 0.758     | +0.6%  |
+| vvadd    | 1.4705   | 1.9533   | **1.328** | +0.3%  |
+| memcpy   | 1.0864   | 1.5570   | **1.433** | +0.1%  |
+| multiply | 1.8584   | 1.8637   | **1.003** | +0.0%  |
 | gcd      | 0.2792   | 0.2529   | 0.906     | +0.1%  |
-| treesum  | 1.6658   | 0.7644   | 0.459     | +0.1%  |
+| treesum  | 1.6658   | 0.8576   | 0.515     | +0.1%  |
 | pchase   | 0.2181   | 0.3017   | **1.383** | +0.0%  |
 
-Progression of the fixes (structurally-matched):
+Progression of the fixes (structurally-matched). *These bullets give each earlier fix's isolated
+contribution as measured when it landed, before execute-time branch resolution was added on top;
+the current absolute IPCs are in the tables above (execute-time resolution lifts them a further
+1–7%).*
 
 - **Store buffer 2 → 8** lifted memcpy 0.302 → 1.433 and vvadd 0.740 → 1.315 (both now
   above gem5, for the same memory-latency reason pchase is); rsort 1.139 → 1.233.
@@ -170,16 +173,17 @@ penalty, and cache-thrashing behaviour under different associativity.
 
 Running `--bypass-lat 0` to match gem5's 0-cycle result forwarding:
 
-- **median, qsort, rsort**: bypass=0 gains +11–23% (median +11%, qsort +19%, rsort +23%).
-  All three lead Horologium once forwarding is matched (H/G 1.055, 1.102, 1.250). LTage's
+- **median, qsort, rsort**: bypass=0 gains +12–23% (median +12%, qsort +20%, rsort +23%).
+  All three lead Horologium once forwarding is matched (H/G 1.115, 1.132, 1.234). LTage's
   global-history prediction, now with speculative history, outperforms TournamentBP on these
   kernels.
 - **vvadd, multiply, gcd**: small gains (+2–4%). vvadd already leads gem5 at either bypass
   setting (H/G 1.31–1.33) because the store-buffer fix removed its throttle; the residual
   multiply/gcd gaps are FU count (gem5 has 2× IntMultDiv vs Horologium's single divider).
-- **treesum**: bypass=0 is ≈ flat now (−1%, 0.771 → 0.764; H/G 0.464 → 0.460). Its gap is not
-  bypass latency — see "treesum: speculative branch history" below.
-- **towers**: bypass=0 gains +7% (0.821 → 0.878, H/G 0.700 → 0.749). Recursive Hanoi is
+- **treesum**: bypass=0 gains +9% (0.786 → 0.858; H/G 0.473 → 0.516). Its residual gap is not
+  bypass latency but predictor structure and violation coupling — see "treesum: speculative branch
+  history" below.
+- **towers**: bypass=0 gains +7% (0.835 → 0.895, H/G 0.712 → 0.764). Recursive Hanoi is
   compute-bound, so bypass latency matters; the residual gap is memory-order violations that
   store sets remove.
 - **pchase**: bypass=0 gains +18% (0.255 → 0.302, H/G 1.946 → 2.298). The kernel is
@@ -259,9 +263,9 @@ latency asymmetry as pchase, not a defect.
 **treesum: speculative branch history:**
 
 With ROI instrumentation both simulators commit ~11 530 kernel-only instructions (Δinsts
-+0.1%). gem5 commits **70** branch mispredicts (70 conditional, **0 return**, 2 call) over
-~6 924 cycles; Horologium commits **~495** → ~521 flushes → 13 342 cycles. The ~450 extra
-flushes are the entire 2× gap.
++0.1%). gem5 commits **72** branch mispredicts (`branchPred.mispredicted_0`: 70 `DirectCond`,
+**0 `Return`**, 2 `CallDirect`) over ~6 924 cycles; Horologium (default l_tage) commits
+**~495** → ~521 flushes → 13 342 cycles. The ~450 extra flushes are the entire 2× gap.
 
 An earlier version of this section claimed gem5 also records ~499 treesum mispredicts and
 concluded predictor differences don't explain the gap. **That was a measurement error** —
@@ -296,39 +300,105 @@ comparison happens to default to (l_tage), not a modelling limitation. The mispr
 still does not fully convert to IPC because deeper correct-path speculation raises
 memory-order violations (LTage 26 → 245); store sets remove them (→ 0) and recover IPC.
 
-Predictor sweep (Horologium kernel-only, bypass=1, store buffer = 8):
+Predictor sweep (Horologium kernel-only, bypass=1, store buffer = 8; execute-time resolution).
+The *squashes* column is the execute-time branch-squash count, which includes transient
+wrong-path branches (see the metric note above) — so it exceeds the committed-mispredict count in
+the violation-heavy configs here; the clean committed anchor is the 0-violation tournament +
+store-sets result (37, above):
 
-| predictor        | IPC   | mispredicts | mem-order violations |
-|------------------|-------|-------------|----------------------|
-| LTage            | 0.771 | 323         | 245                  |
-| TAGE-SC-L        | 0.771 | 323         | 245                  |
-| Tournament       | 0.998 | 37          | 188                  |
-| always_not_taken | 0.891 | 511         | 1                    |
-| always_taken     | 0.672 | 513         | 256                  |
+| predictor        | IPC   | squashes | mem-order violations |
+|------------------|-------|----------|----------------------|
+| LTage            | 0.786 | 416      | 245                  |
+| TAGE-SC-L        | 0.786 | 416      | 245                  |
+| Tournament       | 1.017 | 38       | 188                  |
+| always_not_taken | 0.969 | 513      | 1                    |
+| always_taken     | 0.693 | 512      | 256                  |
 
 Key findings:
 
-- **TAGE-SC-L ≡ LTage for treesum** (both 323 mispredicts, IPC 0.771): the statistical
+- **TAGE-SC-L ≡ LTage for treesum** (both 416 squashes, IPC 0.786): the statistical
   corrector adds nothing. The null-check `beqz a0` in tree_sum has no learnable
   *global*-history or statistical pattern.
 
-- **Tournament is the best treesum predictor** (37 mispredicts, IPC 0.998 — below gem5's
-  70). Its per-PC *local* history, now speculative, captures the null-check sequence that
-  global-history TAGE misses. This is the direct evidence that the l_tage H/G gap is
-  predictor choice, not a modelling limit.
+- **Tournament is the best treesum predictor** (38 squashes here, a clean 37 committed with store
+  sets — below gem5's 70; IPC 1.017). Its per-PC *local* history, now speculative, captures the
+  null-check sequence that global-history TAGE misses. This is the direct evidence that the
+  l_tage H/G gap is predictor choice, not a modelling limit.
 
-- **IPC here is violation-bound, not mispredict-bound.** `always_not_taken` has the *most*
-  mispredicts (511) yet a high IPC (0.891), because predicting not-taken keeps speculation
-  shallow — only 1 memory-order violation. LTage predicts far better (323) but its deeper
-  speculation triggers 245 violations, dropping IPC to 0.771. Tournament wins on both axes
-  (37 mispredicts, 188 violations). Store sets decouple prediction quality from the
-  violation penalty.
+- **IPC here is violation-bound, not squash-bound.** `always_not_taken` has the *most* squashes
+  (513) yet a high IPC (0.969), because predicting not-taken keeps speculation shallow — only 1
+  memory-order violation. LTage speculates far deeper (245 violations), dropping IPC to 0.786
+  despite fewer squashes. Tournament wins on both axes (38 squashes, 188 violations). Store sets
+  decouple prediction quality from the violation penalty.
 
 - **The RAS-checkpoint and direct-unconditional-jump fixes removed `always_not_taken`'s old
   1537-mispredict pathology.** Previously a `jal` predicted not-taken sent wrong-path fetch
   into the `ret` epilogue, whose speculative pop corrupted the uncheckpointed RAS and cost
   ~512 spurious return mispredicts on top of ~512 jal + ~511 conditional. With calls resolved
   from decode and the RAS restored on flush, it now sits at 511 — the true conditional count.
+
+**treesum with Tournament + store sets — how close it gets, and the residual gap.**
+Stacking the two treesum levers (Tournament for prediction, store sets to break the
+violation coupling) closes most of the l_tage gap. Kernel-only treesum, ROB=30, IQ=8, store
+buffer = 8:
+
+| config                                              | bypass | IPC   | H/G ratio | committed cond. mispredicts | violations | cycles |
+|-----------------------------------------------------|--------|-------|-----------|-----------------------------|------------|--------|
+| l_tage (default)                                    | 1      | 0.786 | 0.473     | 323                         | 245        | 14 681 |
+| tournament                                          | 1      | 1.017 | 0.612     | 37                          | 188        | 11 346 |
+| tournament + store sets (default)                   | 1      | 1.457 | 0.875     | 37                          | 2          | 7 918  |
+| tournament + store sets, commit-time resolution     | 0      | 1.535 | 0.921     | 37                          | 0          | 7 515  |
+| **tournament + store sets, execute-time resolution**| 0      | **1.603** | **0.962** | 37                      | 0          | **7 200** |
+| gem5 O3CPU (TournamentBP, execute-time resolution)  | 0      | 1.666 | 1.000     | 70                          | 0          | 6 923  |
+
+The gem5 anchor is apples-to-apples: gem5's 70 is `branchPred.mispredicted_0::DirectCond`
+(conditional-direction mispredicts), the same category Horologium's 37 counts; gem5's other two
+mispredicts are `CallDirect`, which Horologium resolves from decode and never mis-speculates. So
+the config lands at **H/G 0.962** — within ~4% of gem5, while committing **half** as many
+conditional mispredicts (37 vs 70). The remaining ~4% is *not* a prediction-quality or
+memory-ordering deficit; both are already at or below gem5's level.
+
+**Execute-time resolution, and how it closes the gap.** gem5's O3CPU detects a mispredicted branch
+in the **execute** stage (`iew`) and redirects fetch on the same cycle, squashing younger in-flight
+instructions immediately. Horologium's `OooeTrain` now does the same: a branch that resolves
+mispredicted before reaching the ROB head triggers a **partial squash** — the branch and every
+older in-flight instruction stay live and commit normally, while everything younger is discarded
+and fetch is redirected. Previously the flush waited until the branch reached the ROB head at
+commit, so the wrong path stayed alive for the whole commit-drain window.
+
+**The intervention hit the predicted ceiling, with no second-order losses.** Before building it, ROB
+instrumentation (a `CompleteTick` per entry) predicted a **315-cycle** recoverable ceiling — the
+summed gap, over the 37 flushed branches, between each branch resolving (direction known at CDB
+broadcast) and reaching the ROB head. The implemented feature landed treesum at **7 200 cycles**,
+i.e. `7 515 − 315` to the cycle. Because the instrument measured `commitTick − CompleteTick` and the
+feature redirects at exactly `CompleteTick`, recovering the full sum is partly by construction — so
+what hitting the *upper bound* independently establishes is that second-order effects (resource
+contention on the freed slots, refill misalignment) are negligible here, not merely that the
+attribution was right. IPC rose 1.535 → 1.603, H/G 0.921 → 0.962.
+
+The recovery is bounded because `tree_sum`'s null-check is load-dependent (`a0` = node pointer), so
+the branch resolves only ~8.5 cycles before it would commit anyway. The wrong-path fetch count
+corroborates: Horologium's wrong-path fetch fell (icache_hits 12 749 → 12 199), the ~630-instruction
+drop the 315 slack-cycles at width 2 predict.
+
+**Residual ~277 cycles (7 200 − 6 923): still gem5-favouring, cause not yet confirmed.** The
+leading hypothesis is Horologium's longer fetch-to-execute refill window (more pipeline stages
+between redirect and the first correct-path execute); FU/scheduling differences are a secondary
+candidate. This is an attribution, not a measurement — unlike the 315-cycle component it has not
+been independently instrumented.
+
+*Metric note.* `branch_misses` now counts execute-time squashes, which include transient wrong-path
+branches that resolve mispredicted before an older mispredict flushes them — the same events gem5
+counts as squashes. It is therefore ≥ the committed-mispredict count in general (e.g. l_tage default
+323 committed → 416 raw squashes). In a 0-violation config like tournament + store sets the two
+coincide (37 = 37, verified against the commit-time model), which is why the 37-vs-70 comparison
+above stays a clean committed-vs-committed anchor.
+
+An oracle-floor check (perfect prediction to isolate the cycle floor) was also attempted with
+`true_oracle` but is **confounded** in the OoO core: `TrueOraclePredictor` consumes its trace
+positionally and drifts on wrong-path speculation, so it mispredicts more (511) than Tournament
+(37) rather than less. It does not cleanly establish the floor; the ROB slack measurement and the
+confirming 7 200-cycle result above are the load-bearing evidence instead.
 
 ## Structural differences
 
@@ -367,6 +437,15 @@ Key findings:
    Horologium to a flat unified IQ (`--flat-iq`) produces identical results on
    all 10 workloads.
 
+7. **Misprediction-resolution timing** (resolved): both simulators now resolve branch
+   mispredicts at **execute** and redirect fetch the same cycle. gem5 O3CPU does this in `iew`;
+   Horologium's `OooeTrain` does it via a partial squash that keeps the redirecting branch and
+   every older in-flight instruction live (previously it deferred the flush to the ROB head at
+   commit). On treesum with matched prediction and store sets this recovered a **measured**
+   315 cycles — exactly the pre-build ROB-slack prediction — lifting H/G 0.921 → 0.962. The
+   remaining ~4% (277 cycles) is hypothesised to be Horologium's longer fetch-to-execute refill
+   window, not yet independently confirmed. See "treesum with Tournament + store sets" above.
+
 ## Reproduce
 
 ```bash
@@ -386,4 +465,7 @@ bash scripts/gem5-compare.sh --mem-lat-ns 10ns          # reduce gem5 DRAM laten
 bash scripts/gem5-compare.sh --bypass-lat 0             # match gem5's 0-cycle forwarding
 bash scripts/gem5-compare.sh --div-lat 20               # revert gem5 IntDiv to DefaultFUPool default
 bash scripts/gem5-compare.sh --flat-iq                  # Horologium unified IQ: 1×40 flat, matching gem5
+bash scripts/gem5-compare.sh --structurally-matched \
+  --predictor-json '{"type":"tournament"}' --enable-store-sets
+                                                       # treesum's best config: H/G 0.962, 37 mispredicts, 0 violations
 ```

@@ -40,6 +40,27 @@ internal sealed class SpeculativeLocalHistory {
     public void Recover() => Array.Copy(_committed, _working, _working.Length);
 
     /// <summary>
+    /// The working history for entry <paramref name="idx"/>, captured (before this branch's
+    /// <see cref="Speculate"/>) as a per-branch checkpoint for an execute-time partial squash.
+    /// </summary>
+    public ulong Capture(int idx) => _working[idx];
+
+    /// <summary>
+    /// Rewinds entry <paramref name="idx"/> to a captured pre-branch value. Used when walking the
+    /// squashed branches youngest-to-oldest so each per-PC entry unwinds exactly.
+    /// </summary>
+    public void RestoreEntry(int idx, ulong value) => _working[idx] = value;
+
+    /// <summary>
+    /// Restores entry <paramref name="idx"/> to a captured value and folds the redirecting branch's
+    /// resolved direction — the local-history analogue of <see cref="SpeculativeGlobalHistory.RestoreTo"/>.
+    /// </summary>
+    public void RestoreEntryAndFold(int idx, ulong value, bool actualTaken) {
+        _speculative = true;
+        _working[idx] = ((value << 1) | (actualTaken ? 1UL : 0UL)) & _mask;
+    }
+
+    /// <summary>
     /// Runs <paramref name="train"/> with entry <paramref name="idx"/> swapped to its committed
     /// (predict-time) history, then advances that entry's committed shadow and restores its
     /// working value. In non-speculative mode the working value ends equal to the advanced

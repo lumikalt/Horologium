@@ -127,6 +127,17 @@ public class LTagePredictor : IBranchPredictor {
     /// <inheritdoc />
     public virtual void RecoverSpeculativeHistory() => Ghr = _committedGhr;
 
+    /// <inheritdoc />
+    // The whole TAGE family indexes off Ghr (folded histories are recomputed on the fly from it),
+    // so a single ulong checkpoint of Ghr is a complete history snapshot. No local component.
+    public virtual BranchHistoryCheckpoint CaptureHistory(ulong pc) => new(Ghr);
+
+    /// <inheritdoc />
+    public virtual void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) {
+        _speculative = true;
+        Ghr = ((checkpoint.Global << 1) | (actualTaken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
+    }
+
     // ── Extension points for subclasses ──────────────────────────────────────
 
     /// <summary>

@@ -158,7 +158,8 @@ internal sealed class OoOPipelineCore : Gear {
         ITooth? Decoded,
         ulong PredictedNextPc,
         ulong InstrId = 0,
-        TrapInfo? PreTrap = null
+        TrapInfo? PreTrap = null,
+        BranchHistoryCheckpoint HistCheckpoint = default
     );
 
     // Instruction that has been renamed but not yet dispatched to ROB/IQ.
@@ -173,7 +174,8 @@ internal sealed class OoOPipelineCore : Gear {
         int PrevPhysDest, // -1 if no architectural destination
         int P1,
         int P2,
-        int P3 // physical source tags captured from RAT, -1 if unused
+        int P3, // physical source tags captured from RAT, -1 if unused
+        BranchHistoryCheckpoint HistCheckpoint = default
     );
 
     private readonly record struct IssuedInstr(
@@ -202,8 +204,9 @@ internal sealed class OoOPipelineCore : Gear {
         bool HasLoadAccess,
         ulong LoadAddr,
         int LoadBytes,
-        bool LoadWasForwarded,   // true if TryForwardFromStore supplied the register value
-        bool RequestHalt = false // true for an HTIF tohost-exit store: halt after commit
+        bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
+        bool RequestHalt = false, // true for an HTIF tohost-exit store: halt after commit
+        ulong InstrId = 0         // per-instruction age, for pruning in-flight results on a partial squash
     );
 
     /// <summary>
@@ -336,6 +339,15 @@ internal sealed class OoOPipelineCore : Gear {
     private bool _halted;
     private bool _flushPending;
     private ulong _flushTarget;
+
+    // Execute-time partial squash (branch mispredict resolved before the branch reaches the ROB
+    // head). Detected in StepComplete, applied at the flush-check like a full flush but preserving
+    // the redirecting branch and every older in-flight instruction. gem5 O3CPU redirects fetch at
+    // execute (iew) the same way; this is the microarchitectural analogue.
+    private bool _squashPending;
+    private ulong _squashInstrId;
+    private ulong _squashTarget;
+    private bool _squashTaken;
     private bool _fetchFaulted; // suppress repeated fault entries until flush clears
 
     // PEvent recording
@@ -597,8 +609,9 @@ internal sealed class OoOPipelineCore : Gear {
             DLayers.TickWb();
         }
 
-        if (_halted || _flushPending) {
+        if (_halted || _flushPending || _squashPending) {
             if (_flushPending) StepFlush();
+            else if (_squashPending) StepPartialSquash();
             if (!_halted) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
             return;
         }
@@ -625,6 +638,11 @@ internal sealed class OoOPipelineCore : Gear {
 
     /// <summary>CDB broadcast: apply Execute T-1 results to PRF + IQ + ROB.</summary>
     private void StepComplete() {
+        // Track the oldest branch that resolves mispredicted this tick, to redirect fetch at
+        // execute rather than deferring the flush to the ROB head (see StepPartialSquash).
+        var haveMispredict = false;
+        ulong oldestMispredId = 0;
+
         foreach (ExecResult r in _cdbBuffer) {
             RobEntry rob = _rob.At(r.RobIdx);
             rob.IsComplete = true;
@@ -634,6 +652,13 @@ internal sealed class OoOPipelineCore : Gear {
             rob.IsReturnFromTrap = r.IsReturnFromTrap;
             rob.ReturnPrivilege = r.ReturnPrivilege;
             rob.RequestHalt = r.RequestHalt;
+
+            // A branch (only branches set ResolvedNextPc) that resolved off its predicted path.
+            if (rob.ResolvedNextPc is { HasValue: true, Value: var resolved } && resolved != rob.PredictedNextPc
+             && (!haveMispredict || r.InstrId < oldestMispredId)) {
+                haveMispredict = true;
+                oldestMispredId = r.InstrId;
+            }
 
             if (r.HasStoreCapture) {
                 // Update the SQ entry with the resolved store address and value.
@@ -660,6 +685,21 @@ internal sealed class OoOPipelineCore : Gear {
         }
 
         _cdbBuffer.Clear();
+
+        // Arm an execute-time partial squash on the oldest branch that mispredicted this tick.
+        // Skip when that branch is already the ROB head (the commit-time path flushes it — an
+        // identical outcome, nothing older to overlap), or when an older in-flight halt/trap will
+        // redirect or stop the machine at commit: that makes this branch definitively wrong-path,
+        // and the commit-time model never counts such a mispredict because the older halt/trap
+        // retires first (e.g. speculative fetch of a loop branch past a program-terminating ebreak).
+        if (haveMispredict && _rob.Head.InstrId != oldestMispredId && !AnyOlderHaltOrTrap(oldestMispredId)) {
+            RobEntry b = FindRobByInstrId(oldestMispredId);
+            ulong resolvedPc = b.ResolvedNextPc.Value;
+            _squashPending = true;
+            _squashInstrId = oldestMispredId;
+            _squashTarget = resolvedPc;
+            _squashTaken = resolvedPc != b.Pc + (ulong)(b.Instruction?.SizeBytes ?? 4);
+        }
     }
 
     /// <summary>In-order retirement from the ROB head.</summary>
@@ -1209,6 +1249,7 @@ internal sealed class OoOPipelineCore : Gear {
             rob.PhysDestination = ri.PhysDest;
             rob.PrevPhysDestination = ri.PrevPhysDest;
             rob.PredictedNextPc = ri.PredictedNextPc;
+            rob.HistCheckpoint = ri.HistCheckpoint;
             rob.IsStore = instr.Class == ToothClass.Store;
             rob.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             rob.IsHalt = instr.Class == ToothClass.Halt;
@@ -1225,6 +1266,7 @@ internal sealed class OoOPipelineCore : Gear {
                 int lqIdx = _lq.Allocate();
                 LqEntry lq = _lq.At(lqIdx);
                 lq.RobIdx = robIdx;
+                lq.InstrId = ri.InstrId;
                 lq.SeqNo = memSeqNo;
                 if (_storeSets is not null && instr.Class == ToothClass.Load)
                     lq.PredStoreSeqNo = _storeSets.OnLoadDispatch(ri.Pc);
@@ -1235,6 +1277,7 @@ internal sealed class OoOPipelineCore : Gear {
                 int sqIdx = _sq.Allocate();
                 SqEntry sq = _sq.At(sqIdx);
                 sq.RobIdx = robIdx;
+                sq.InstrId = ri.InstrId;
                 sq.SeqNo = memSeqNo;
                 sq.Pc = ri.Pc;
                 _storeSets?.OnStoreDispatch(ri.Pc, memSeqNo);
@@ -1247,6 +1290,7 @@ internal sealed class OoOPipelineCore : Gear {
             int iqSlot = classIq.Allocate();
             RsEntry rs = classIq.At(iqSlot);
             rs.RobIndex = robIdx;
+            rs.InstrId = ri.InstrId;
             rs.Instruction = instr;
             rs.Pc = ri.Pc;
             rs.PredictedNextPc = ri.PredictedNextPc;
@@ -1326,7 +1370,7 @@ internal sealed class OoOPipelineCore : Gear {
             _renameQueue.Enqueue(
                 new RenameEntry(
                     fi.Pc, instr, fi.PredictedNextPc, fi.InstrId, null,
-                    destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3
+                    destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3, fi.HistCheckpoint
                 )
             );
             _decodeQueue.Dequeue();
@@ -1383,6 +1427,22 @@ internal sealed class OoOPipelineCore : Gear {
                 _fetchFaulted = true;
                 break;
             }
+            catch (AccessViolationException) {
+                // Fetch address out of bounds. On the correct path this is a genuine instruction
+                // access fault; on a wrong path (e.g. an execute-time squash redirected fetch to a
+                // wrong-path branch's garbage target) the pre-trap is squashed before it commits,
+                // exactly like the illegal-instruction case above. Either way, never crash the sim.
+                ulong faultId = _nextInstrId++;
+                _decodeQueue.Enqueue(
+                    new FetchedInstr(
+                        _fetchPc, null, _fetchPc, faultId,
+                        new TrapInfo(TrapCause.InstructionAccessFault, _fetchPc, _fetchPc)
+                    )
+                );
+                PEventLog?.Record(faultId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
+                _fetchFaulted = true;
+                break;
+            }
 
             if (_rdip is not null && ILayers.Cache?.LastAccessWasHit == false) _rdip.OnIcacheMiss(physPc);
 
@@ -1390,7 +1450,11 @@ internal sealed class OoOPipelineCore : Gear {
             // continue sequentially to avoid corrupting the BTB.
             FetchHint hint = _decoder.GetFetchHint(_fetchPc, raw);
             ulong predictedNext;
+            BranchHistoryCheckpoint histCheckpoint = default;
             if (hint.IsBranch) {
+                // Snapshot the predictor's speculative history before this branch folds its own
+                // direction, so an execute-time partial squash can rewind to exactly here.
+                histCheckpoint = _predictor.CaptureHistory(_fetchPc);
                 if (hint.IsCall) _ras.Push(_fetchPc + (ulong)decoded.SizeBytes);
 
                 BranchPrediction pred;
@@ -1421,7 +1485,7 @@ internal sealed class OoOPipelineCore : Gear {
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
             ulong instrId = _nextInstrId++;
-            _decodeQueue.Enqueue(new FetchedInstr(_fetchPc, decoded, predictedNext, instrId));
+            _decodeQueue.Enqueue(new FetchedInstr(_fetchPc, decoded, predictedNext, instrId, HistCheckpoint: histCheckpoint));
             PEventLog?.Record(instrId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
             PEventLog?.RecordDisasm(instrId, _decoder.Disassemble(_fetchPc, decoded.RawEncoding));
             _fetchPc = predictedNext;
@@ -1483,8 +1547,123 @@ internal sealed class OoOPipelineCore : Gear {
 
         _fetchPc = _flushTarget;
         _flushPending = false;
+        _squashPending = false; // a full flush supersedes any pending execute-time partial squash
         _fetchFaulted = false;
         _fdip?.Flush(_flushTarget);
+    }
+
+    /// <summary>
+    /// Execute-time partial squash: a branch resolved mispredicted before reaching the ROB head.
+    /// Redirects fetch now (as gem5 O3CPU's iew does) instead of waiting for commit, discarding
+    /// only the instructions younger than the redirecting branch while the branch and every older
+    /// in-flight instruction stay live and commit normally.
+    /// </summary>
+    private void StepPartialSquash() {
+        _flushesCounter.Increment();
+        _branchMissCounter.Increment(); // a partial squash is one branch misprediction, resolved at execute
+        ulong bId = _squashInstrId;
+        RobEntry b = FindRobByInstrId(bId);
+
+        if (PEventLog is not null) {
+            foreach ((_, RobEntry entry) in _rob.InOrder())
+                if (entry.InstrId > bId && entry.InstrId != 0)
+                    PEventLog.Record(entry.InstrId, entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
+            foreach (RenameEntry ri in _renameQueue)
+                if (ri.InstrId != 0) PEventLog.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Flush);
+            foreach (FetchedInstr fi in _decodeQueue)
+                if (fi.InstrId != 0) PEventLog.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Flush);
+        }
+
+        // ── Recover speculative predictor history, youngest-to-oldest ──────────────────
+        // Global history is a single register restored once (step d) from B's checkpoint; here we
+        // rewind each younger branch's per-PC local-history entry so same-PC entries unwind exactly.
+        // Non-branch checkpoints carry LocalIdx = -1, so RestoreLocalEntry is a no-op for them.
+        FetchedInstr[] decodeArr = _decodeQueue.ToArray(); // youngest of all: fetched, not renamed
+        for (int i = decodeArr.Length - 1; i >= 0; i--)
+            _predictor.RestoreLocalEntry(decodeArr[i].HistCheckpoint);
+
+        // Rename queue: younger than any ROB entry. Walk back the RAT (undo the rename) and rewind
+        // local history, newest-first so the RAT restore order is correct.
+        RenameEntry[] renameArr = _renameQueue.ToArray();
+        for (int i = renameArr.Length - 1; i >= 0; i--) {
+            RenameEntry ri = renameArr[i];
+            if (ri is { ArchDest: > 0, PhysDest: >= 0, }) {
+                _rat.RestoreMapping(ri.ArchDest, ri.PrevPhysDest);
+                _rat.FreePhysical(ri.PhysDest);
+            }
+
+            _predictor.RestoreLocalEntry(ri.HistCheckpoint);
+        }
+
+        // ROB entries younger than B, youngest-to-oldest: RAT walk-back + local-history rewind.
+        foreach ((_, RobEntry entry) in _rob.InOrder().Reverse()) {
+            if (entry.InstrId <= bId) break; // reached B or older — keep these
+            if (entry is { ArchDestination: > 0, PhysDestination: >= 0, }) {
+                _rat.RestoreMapping(entry.ArchDestination, entry.PrevPhysDestination);
+                _rat.FreePhysical(entry.PhysDestination);
+            }
+
+            _predictor.RestoreLocalEntry(entry.HistCheckpoint);
+        }
+
+        // (d) Restore global history (+ B's own local entry) to as-of-B and fold B's true direction.
+        _predictor.RestoreHistory(b.HistCheckpoint, b.Pc, _squashTaken);
+
+        // ── Discard the younger structures (B and everything older survive) ─────────────
+        _rob.TruncateYoungerThan(bId);
+        foreach (IssueQueue iq in _iqs) iq.SquashYoungerThan(bId);
+        _lq.TruncateYoungerThan(bId);
+        _sq.TruncateYoungerThan(bId);
+        _decodeQueue.Clear();
+        _renameQueue.Clear();
+        _execBuffer.RemoveAll(e => e.InstrId > bId);
+        for (int i = _inFlight.Count - 1; i >= 0; i--)
+            if (_inFlight[i].Result.InstrId > bId) {
+                if (_inFlight[i].HoldsMshr) _mshrUsed--;
+                _inFlight.RemoveAt(i);
+            }
+        // _cdbBuffer was already drained by StepComplete this cycle.
+
+        // ── Reconstruct the speculative RAS: committed shadow + replay of the surviving
+        //    (head..B) in-flight calls/returns, discarding wrong-path push/pop corruption. ──
+        _ras.CopyFrom(_committedRas);
+        foreach ((_, RobEntry entry) in _rob.InOrder())
+            if (entry.Instruction is { Class: ToothClass.Branch, } ins) {
+                FetchHint hint = _decoder.GetFetchHint(entry.Pc, ins.RawEncoding);
+                if (hint.IsCall) _ras.Push(entry.Pc + (ulong)ins.SizeBytes);
+                if (hint.IsReturn) _ras.TryPop(out _);
+            }
+
+        // Prevent a second (commit-time) flush when B retires: its prediction now matches its
+        // resolved target. Training (_predictor.Update) and the committed RAS/GHR shadows still
+        // advance normally at B's commit.
+        b.PredictedNextPc = b.ResolvedNextPc.Value;
+
+        _fetchPc = _squashTarget;
+        _fetchFaulted = false;
+        _squashPending = false;
+        _fdip?.Flush(_squashTarget);
+    }
+
+    private RobEntry FindRobByInstrId(ulong instrId) {
+        foreach ((_, RobEntry e) in _rob.InOrder())
+            if (e.InstrId == instrId) return e;
+        throw new InvalidOperationException($"ROB entry for InstrId {instrId} not found during partial squash.");
+    }
+
+    /// <summary>
+    /// True when an in-flight instruction older than <paramref name="instrId"/> will redirect or
+    /// halt the machine at commit (a halt, a trap, or a return-from-trap). Such an older entry makes
+    /// every younger instruction wrong-path, so an execute-time squash on a younger branch would act
+    /// on a doomed path the commit-time model never reaches.
+    /// </summary>
+    private bool AnyOlderHaltOrTrap(ulong instrId) {
+        foreach ((_, RobEntry e) in _rob.InOrder()) {
+            if (e.InstrId >= instrId) break;
+            if (e.IsHalt || e.HasTrap || e.IsReturnFromTrap) return true;
+        }
+
+        return false;
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1568,7 +1747,8 @@ internal sealed class OoOPipelineCore : Gear {
                 issued.RobIdx, issued.PhysDest,
                 default((ulong Value, bool HasValue)), default((ulong Value, bool HasValue)),
                 new TrapInfo(cause, faultAddr, issued.Pc),
-                false, null, false, 0, 0, 0, false, 0, 0, false
+                false, null, false, 0, 0, 0, false, 0, 0, false,
+                InstrId: issued.InstrId
             );
         }
 
@@ -1634,7 +1814,7 @@ internal sealed class OoOPipelineCore : Gear {
             er.IsReturnFromTrap, er.ReturnPrivilege,
             _capMem.HasWrite, _capMem.WriteAddress, _capMem.WriteValue, _capMem.WriteBytes,
             _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes, loadForwarded,
-            er.RequestHalt
+            er.RequestHalt, issued.InstrId
         );
     }
 

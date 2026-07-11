@@ -68,6 +68,23 @@ public sealed class CorrelatedPredictor : IBranchPredictor {
     /// <inheritdoc />
     public void RecoverSpeculativeHistory() => _local.Recover();
 
+    /// <inheritdoc />
+    public BranchHistoryCheckpoint CaptureHistory(ulong pc) {
+        int idx = BhtIndex(pc);
+        return new BranchHistoryCheckpoint(0, idx, _local.Capture(idx));
+    }
+
+    /// <inheritdoc />
+    public void RestoreLocalEntry(in BranchHistoryCheckpoint checkpoint) {
+        if (checkpoint.LocalIdx >= 0) _local.RestoreEntry(checkpoint.LocalIdx, checkpoint.LocalValue);
+    }
+
+    /// <inheritdoc />
+    public void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) {
+        if (checkpoint.LocalIdx >= 0)
+            _local.RestoreEntryAndFold(checkpoint.LocalIdx, checkpoint.LocalValue, actualTaken);
+    }
+
     private int BhtIndex(ulong pc) => (int)((pc >> 2) & (uint)_bhtMask);
 }
 
@@ -135,6 +152,13 @@ public sealed class GselectPredictor : IBranchPredictor {
     /// <inheritdoc />
     public void RecoverSpeculativeHistory() => _hist.Recover();
 
+    /// <inheritdoc />
+    public BranchHistoryCheckpoint CaptureHistory(ulong pc) => new(_hist.Capture());
+
+    /// <inheritdoc />
+    public void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) =>
+        _hist.RestoreTo(checkpoint.Global, actualTaken);
+
     // index = GHR occupies the upper historyBits; PC occupies the lower pcBits
     private int PhtIndex(ulong pc) =>
         (((int)_hist.Value & _ghrMask) << _pcBits) | ((int)(pc >> 2) & _pcMask);
@@ -193,6 +217,13 @@ public sealed class GsharePredictor : IBranchPredictor {
 
     /// <inheritdoc />
     public void RecoverSpeculativeHistory() => _hist.Recover();
+
+    /// <inheritdoc />
+    public BranchHistoryCheckpoint CaptureHistory(ulong pc) => new(_hist.Capture());
+
+    /// <inheritdoc />
+    public void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) =>
+        _hist.RestoreTo(checkpoint.Global, actualTaken);
 
     private int PhtIndex(ulong pc) => ((int)(pc >> 2) ^ (int)_hist.Value) & _ghrMask;
 }

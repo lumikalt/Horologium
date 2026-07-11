@@ -39,6 +39,21 @@ internal sealed class SpeculativeGlobalHistory {
     public void Recover() => Value = _committed;
 
     /// <summary>
+    /// The current working history, captured (before this branch's <see cref="Speculate"/>) as a
+    /// per-branch checkpoint for exact recovery on an execute-time partial squash.
+    /// </summary>
+    public ulong Capture() => Value;
+
+    /// <summary>
+    /// Restores the working history to a captured checkpoint and folds <paramref name="actualTaken"/>
+    /// — the redirecting branch's resolved direction — so fetch resumes with history as-of-the-branch.
+    /// </summary>
+    public void RestoreTo(ulong value, bool actualTaken) {
+        Value = value;
+        Speculate(actualTaken);
+    }
+
+    /// <summary>
     /// Runs <paramref name="train"/> with <see cref="Value"/> swapped to the committed
     /// (predict-time) history, then advances the committed shadow with
     /// <paramref name="taken"/> and restores the working history. In non-speculative mode

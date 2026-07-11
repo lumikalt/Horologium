@@ -53,6 +53,13 @@ public sealed class RobEntry {
     /// </summary>
     public (ulong Value, bool HasValue) ResolvedNextPc { get; set; }
 
+    /// <summary>
+    /// Speculative branch-history snapshot captured at this instruction's fetch (before it folded
+    /// its own predicted direction). Populated only for branches; used to recover exact predictor
+    /// history on an execute-time partial squash. Default for non-branches.
+    /// </summary>
+    public BranchHistoryCheckpoint HistCheckpoint { get; set; }
+
     // ── Memory queue links ────────────────────────────────────────────────────
 
     /// <summary>True for load and atomic instructions.</summary>
@@ -105,6 +112,7 @@ public sealed class RobEntry {
         Trap = null;
         PredictedNextPc = 0;
         ResolvedNextPc = default((ulong Value, bool HasValue));
+        HistCheckpoint = default;
         IsLoad = false;
         IsStore = false;
         LqIdx = -1;
@@ -189,6 +197,22 @@ public sealed class ReorderBuffer {
         _head = 0;
         _tail = 0;
         Count = 0;
+    }
+
+    /// <summary>
+    /// Removes entries younger than <paramref name="instrId"/> from the tail (highest-InstrId
+    /// entries sit at the tail). Used by an execute-time partial squash, which retains the
+    /// redirecting branch and every older in-flight instruction. The caller must first walk the
+    /// removed entries youngest-to-oldest to restore the RAT (see <see cref="InOrder"/>).
+    /// </summary>
+    public void TruncateYoungerThan(ulong instrId) {
+        while (Count > 0) {
+            int last = (_tail - 1 + Capacity) % Capacity;
+            if (_slots[last].InstrId <= instrId) break;
+            _slots[last].Clear();
+            _tail = last;
+            Count--;
+        }
     }
 
     /// <summary>

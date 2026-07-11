@@ -18,6 +18,9 @@ public sealed class RsEntry {
     /// <summary>ROB slot this RS entry is paired with.</summary>
     public int RobIndex { get; set; }
 
+    /// <summary>Monotonic per-instruction age, for partial-squash younger-than comparisons.</summary>
+    public ulong InstrId { get; set; }
+
     public ITooth? Instruction { get; set; }
     public ulong Pc { get; set; }
     public ulong PredictedNextPc { get; set; }
@@ -49,6 +52,7 @@ public sealed class RsEntry {
     internal void Clear() {
         Busy = false;
         RobIndex = 0;
+        InstrId = 0;
         Instruction = null;
         Pc = 0;
         PredictedNextPc = 0;
@@ -169,5 +173,18 @@ public sealed class IssueQueue {
     public void Flush() {
         foreach (RsEntry e in _slots) e.Clear();
         Count = 0;
+    }
+
+    /// <summary>
+    /// Squashes every busy entry younger than <paramref name="instrId"/> (i.e. with a strictly
+    /// greater InstrId). Used by an execute-time partial squash, which keeps the redirecting
+    /// branch and all older in-flight instructions live.
+    /// </summary>
+    public void SquashYoungerThan(ulong instrId) {
+        foreach (RsEntry e in _slots)
+            if (e.Busy && e.InstrId > instrId) {
+                e.Clear();
+                Count--;
+            }
     }
 }

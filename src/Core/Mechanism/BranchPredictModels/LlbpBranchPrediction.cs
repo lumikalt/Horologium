@@ -112,6 +112,15 @@ public class LlbpPredictor : TageScLPredictor {
         Rcr.CopyFrom(CommittedRcr);
     }
 
+    /// <inheritdoc/>
+    // Ghr is checkpointed exactly (base LTage); the Rolling Context Register is not — it restores
+    // to the committed shadow on a partial squash, the same documented residual as a full flush.
+    // LLBP is a near-inert exotic predictor, so the RCR's per-branch fidelity is not worth carrying.
+    public override void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) {
+        base.RestoreHistory(checkpoint, pc, actualTaken);
+        Rcr.CopyFrom(CommittedRcr);
+    }
+
     /// <summary>Updates LLBP counters or allocates a new entry on misprediction. Keys the
     /// context off the committed RCR (the branch's predict-time context); which pattern within
     /// the context is trained still uses the predict-time LlbpHistIdx/LastProvider, a residual

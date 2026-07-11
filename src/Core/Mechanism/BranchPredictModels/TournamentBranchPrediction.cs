@@ -123,6 +123,24 @@ public sealed class TournamentPredictor : IBranchPredictor {
         _local.Recover();
     }
 
+    /// <inheritdoc />
+    public BranchHistoryCheckpoint CaptureHistory(ulong pc) {
+        int idx = BhtIdx(pc);
+        return new BranchHistoryCheckpoint(_hist.Capture(), idx, _local.Capture(idx));
+    }
+
+    /// <inheritdoc />
+    public void RestoreLocalEntry(in BranchHistoryCheckpoint checkpoint) {
+        if (checkpoint.LocalIdx >= 0) _local.RestoreEntry(checkpoint.LocalIdx, checkpoint.LocalValue);
+    }
+
+    /// <inheritdoc />
+    public void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) {
+        _hist.RestoreTo(checkpoint.Global, actualTaken);
+        if (checkpoint.LocalIdx >= 0)
+            _local.RestoreEntryAndFold(checkpoint.LocalIdx, checkpoint.LocalValue, actualTaken);
+    }
+
     // ── Local predictor ───────────────────────────────────────────────────────
 
     private bool LocalPred(ulong pc) {
