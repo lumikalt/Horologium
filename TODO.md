@@ -131,8 +131,16 @@ Remaining delta, in rough dependency order:
 
 - [x] Extend speculative global history to the non-TAGE GHR predictors (Gshare, Gselect, Perceptron,
   HashedPerceptron, ITTAGE, Tournament) via the shared `SpeculativeGlobalHistory` helper.
-- [ ] Extend speculative history to the per-PC *local* history registers (Tournament BHT, Correlated) and the
-  IMLI loop counter, which are still commit-time. Also the LLBP/VLA-TAGE context registers.
+- [x] Extend speculative history to the per-PC *local* history registers (Tournament BHT, Correlated) via the
+  shared `SpeculativeLocalHistory` helper, and to the IMLI loop counter. Validated in OoO for Tournament
+  (treesum mispredicts 180 → 37); Correlated and IMLI are bit-identical in-order but their OoO speculative
+  path is unexercised (blocked by the cold-BTB crash below).
+- [ ] Fix the pre-existing crash: Correlated and IMLI predictors abort in the OoO train on every benchmark —
+  a cold BTB returns target 0, so a predicted-taken not-yet-warm branch makes fetch read address 0 (out of
+  bounds). For conditional branches the OoO fetch should use the statically-known `FetchHint.BranchTarget`
+  as the taken target instead of trusting a possibly-cold predictor BTB. Affects only these two predictors.
+- [ ] Speculative history for the LLBP/VLA-TAGE context registers (Rolling Context Register, vector-loop
+  state), which sit beside the base `Ghr` and are still commit-time.
 - [ ] Local (per-PC) history predictor component to close the residual treesum gap (LTage mispredicts 322 vs
   gem5 TournamentBP's 70 with speculative history already on; the gap is local-history structure, not timing).
 

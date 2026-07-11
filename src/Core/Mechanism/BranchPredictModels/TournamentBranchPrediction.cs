@@ -12,7 +12,7 @@ namespace Mechanism.BranchPredictModels;
 /// </summary>
 public sealed class TournamentPredictor : IBranchPredictor {
     // Local predictor
-    private readonly ulong[] _bht;     // per-PC branch history shift register
+    private readonly SpeculativeLocalHistory _local; // per-PC branch history shift register
     private readonly byte[] _localPht; // 3-bit counters; taken ≥ 4
     private readonly int _bhtMask;
     private readonly int _localPhtMask;
@@ -48,7 +48,7 @@ public sealed class TournamentPredictor : IBranchPredictor {
     ) {
         int bhtSize = localTableSize;
         _bhtMask = bhtSize - 1;
-        _bht = new ulong[bhtSize];
+        _local = new SpeculativeLocalHistory(bhtSize, localHistoryBits);
 
         int localPhtSize = 1 << localHistoryBits;
         _localPhtMask = localPhtSize - 1;
@@ -83,47 +83,57 @@ public sealed class TournamentPredictor : IBranchPredictor {
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
 
-        _hist.Commit(taken, () => {
-            bool local = LocalPred(pc);
-            bool global = GlobalPred(pc);
-            int ci = ChooserIdx();
+        int bhtIdx = BhtIdx(pc);
+        // Swap both histories to their committed (predict-time) values for the whole update:
+        // the chooser must train on what each component predicted at fetch, and the global
+        // PHT/chooser index off committed global history.
+        _hist.Commit(taken, () =>
+            _local.Commit(bhtIdx, taken, () => {
+                bool local = LocalPred(pc);
+                bool global = GlobalPred(pc);
+                int ci = ChooserIdx();
 
-            // Update both predictors unconditionally.
-            UpdateLocal(pc, taken);
-            UpdateGlobal(pc, taken);
+                // Update both predictors unconditionally (history advance is handled by the
+                // enclosing Commit calls).
+                UpdateLocalPht(bhtIdx, taken);
+                UpdateGlobal(pc, taken);
 
-            // Update chooser only when they disagree.
-            if (local != global) {
-                if (global == taken && _chooser[ci] < 3)
-                    _chooser[ci]++;
-                else if (local == taken && _chooser[ci] > 0) _chooser[ci]--;
-            }
-        });
+                // Update chooser only when they disagree.
+                if (local != global) {
+                    if (global == taken && _chooser[ci] < 3)
+                        _chooser[ci]++;
+                    else if (local == taken && _chooser[ci] > 0) _chooser[ci]--;
+                }
+            }));
     }
 
     /// <inheritdoc />
-    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) {
+        _hist.Speculate(predictedTaken);
+        _local.Speculate(BhtIdx(pc), predictedTaken);
+    }
 
     /// <inheritdoc />
-    public void RecoverSpeculativeHistory() => _hist.Recover();
+    public void RecoverSpeculativeHistory() {
+        _hist.Recover();
+        _local.Recover();
+    }
 
     // ── Local predictor ───────────────────────────────────────────────────────
 
     private bool LocalPred(ulong pc) {
-        int bhtIdx = BhtIdx(pc);
-        var phtIdx = (int)(_bht[bhtIdx] & (ulong)_localPhtMask);
+        var phtIdx = (int)(_local.Value(BhtIdx(pc)) & (ulong)_localPhtMask);
         return _localPht[phtIdx] >= 4;
     }
 
-    private void UpdateLocal(ulong pc, bool taken) {
-        int bhtIdx = BhtIdx(pc);
-        var phtIdx = (int)(_bht[bhtIdx] & (ulong)_localPhtMask);
+    // Trains the local PHT against the (committed) local history; the history shift is
+    // handled by the enclosing _local.Commit in Update.
+    private void UpdateLocalPht(int bhtIdx, bool taken) {
+        var phtIdx = (int)(_local.Value(bhtIdx) & (ulong)_localPhtMask);
         switch (taken) {
             case true when _localPht[phtIdx] < 7:  _localPht[phtIdx]++; break;
             case false when _localPht[phtIdx] > 0: _localPht[phtIdx]--; break;
         }
-
-        _bht[bhtIdx] = ((_bht[bhtIdx] << 1) | (taken ? 1UL : 0UL)) & (ulong)_localPhtMask;
     }
 
     // ── Global predictor (gshare) ─────────────────────────────────────────────

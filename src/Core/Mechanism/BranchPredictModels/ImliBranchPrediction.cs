@@ -25,7 +25,9 @@ public sealed class ImliPredictor : IBranchPredictor {
     private readonly byte[] _pht;
     private readonly ulong[] _btb;
     private readonly HashSet<ulong> _backwardBranches;
-    private int _imli;
+    private int _imli;          // working (speculative) loop counter, used by Predict
+    private int _committedImli;  // architectural shadow, advanced at commit
+    private bool _speculative;   // latches on first speculative update; keeps in-order bit-identical
 
     /// <summary>Initializes an <see cref="ImliPredictor"/> with the given PHT and BTB sizes (must be powers of two).</summary>
     public ImliPredictor(int phtSize = 65536, int btbSize = 1024) {
@@ -48,6 +50,10 @@ public sealed class ImliPredictor : IBranchPredictor {
 
     /// <inheritdoc/>
     public void Update(ulong pc, bool taken, ulong actualTarget) {
+        // Index the PHT with the committed (predict-time) counter, then advance the shadow.
+        int working = _imli;
+        _imli = _committedImli;
+
         int phtIdx = PhtIndex(pc);
         if (taken) _btb[BtbIndex(pc)] = actualTarget;
         switch (taken) {
@@ -60,11 +66,28 @@ public sealed class ImliPredictor : IBranchPredictor {
                 // IMLI counter: taken backward → iterating; not-taken backward → loop exit
                 actualTarget < pc:
                 _backwardBranches.Add(pc);
-                _imli++;
+                _committedImli++;
                 break;
-            case false when _backwardBranches.Contains(pc): _imli = 0; break;
+            case false when _backwardBranches.Contains(pc): _committedImli = 0; break;
         }
+
+        _imli = _speculative ? working : _committedImli;
     }
+
+    /// <inheritdoc/>
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) {
+        _speculative = true;
+        // Only backward branches drive the loop counter. The classification is populated by
+        // Predict (when the static target is known) and Update; an as-yet-unseen backward
+        // branch simply doesn't advance speculatively until then — a one-time drift that the
+        // next flush heals.
+        if (!_backwardBranches.Contains(pc)) return;
+        if (predictedTaken) _imli++;
+        else _imli = 0;
+    }
+
+    /// <inheritdoc/>
+    public void RecoverSpeculativeHistory() => _imli = _committedImli;
 
     private int PhtIndex(ulong pc) =>
         (int)(((pc >> 2) ^ (uint)_imli) & (uint)_phtMask);
