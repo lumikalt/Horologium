@@ -2116,31 +2116,33 @@ public class Rv32Decoder : IDecoder {
             }
         }
 
-        // so.a.*: group = funct7>>3, upper = funct3&4, type = funct3&3 (0=US, 1=FP, 2=SG)
+        // so.a.*: group = funct7>>3, ps3 = funct7&7 (bits[27:25] = governing predicate register)
+        // upper = funct3&4, type = funct3&3 (0=US, 1=FP, 2=SG)
         var group = (int)(funct7 >> 3);
+        int ps3 = (int)(funct7 & 7);
         bool upper = (funct3 & 4) != 0;
         var type = (int)(funct3 & 3);
 
         RvOp uvOp = group switch {
-            0 => UveArith(upper ? UveFpOp.Sub : UveFpOp.Add, upper ? UveIntOp.Sub : UveIntOp.Add, type, rd, rs1, rs2),
-            1 => UveArith(upper ? UveFpOp.Div : UveFpOp.Mul, upper ? UveIntOp.Div : UveIntOp.Mul, type, rd, rs1, rs2),
+            0 => UveArith(upper ? UveFpOp.Sub : UveFpOp.Add, upper ? UveIntOp.Sub : UveIntOp.Add, type, rd, rs1, rs2, ps3),
+            1 => UveArith(upper ? UveFpOp.Div : UveFpOp.Mul, upper ? UveIntOp.Div : UveIntOp.Mul, type, rd, rs1, rs2, ps3),
             // Group 2 lower: adde — accumulate stream element into ud; rs2=1 selects the += variant.
             // Group 2 upper: sadde/fsadde — write stream element (or accumulate) into integer/FP scalar reg.
-            2 when !upper && rs2 == 1 => UveArith(UveFpOp.AddeAcc, UveIntOp.AddeAcc, type, rd, rs1, -1),
-            2 when !upper             => UveArith(UveFpOp.Adde, UveIntOp.Adde, type, rd, rs1, -1),
-            2 when upper && rs2 == 1  => new RvUveSoASadde(type == 1, true, type == 1 ? rd + 32 : rd, rs1),
-            2 when upper              => new RvUveSoASadde(type == 1, false, type == 1 ? rd + 32 : rd, rs1),
-            3 when upper              => UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2),
+            2 when !upper && rs2 == 1 => UveArith(UveFpOp.AddeAcc, UveIntOp.AddeAcc, type, rd, rs1, -1, ps3),
+            2 when !upper             => UveArith(UveFpOp.Adde, UveIntOp.Adde, type, rd, rs1, -1, ps3),
+            2 when upper && rs2 == 1  => new RvUveSoASadde(type == 1, true, type == 1 ? rd + 32 : rd, rs1, ps3),
+            2 when upper              => new RvUveSoASadde(type == 1, false, type == 1 ? rd + 32 : rd, rs1, ps3),
+            3 when upper              => UveArith(UveFpOp.Mac, UveIntOp.Mac, type, rd, rs1, rs2, ps3),
             // ABS has no US variant in Spike (MATCH_SO_A_ABS_SG uses funct3=0); force Signed=true.
-            3 when !upper && type == 1 => new RvUveSoAFp(UveFpOp.Abs, rd, rs1, -1),
-            3 when !upper => new RvUveSoAInt(UveIntOp.Abs, true, rd, rs1, -1),
-            4 => UveArith(upper ? UveFpOp.Max : UveFpOp.Min, upper ? UveIntOp.Max : UveIntOp.Min, type, rd, rs1, rs2),
+            3 when !upper && type == 1 => new RvUveSoAFp(UveFpOp.Abs, rd, rs1, -1, ps3),
+            3 when !upper => new RvUveSoAInt(UveIntOp.Abs, true, rd, rs1, -1, ps3),
+            4 => UveArith(upper ? UveFpOp.Max : UveFpOp.Min, upper ? UveIntOp.Max : UveIntOp.Min, type, rd, rs1, rs2, ps3),
             // Group 5: mine/maxe — running min/max reduction into ud.
             5 => UveArith(
-                upper ? UveFpOp.Maxe : UveFpOp.Mine, upper ? UveIntOp.Maxe : UveIntOp.Mine, type, rd, rs1, -1
+                upper ? UveFpOp.Maxe : UveFpOp.Mine, upper ? UveIntOp.Maxe : UveIntOp.Mine, type, rd, rs1, -1, ps3
             ),
-            6 when upper && rs2 == 1 && type == 1 => new RvUveSoAFp(UveFpOp.Sqrt, rd, rs1, -1),
-            6 => UveArith(upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1),
+            6 when upper && rs2 == 1 && type == 1 => new RvUveSoAFp(UveFpOp.Sqrt, rd, rs1, -1, ps3),
+            6 => UveArith(upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1, ps3),
             // Group 11 (funct7=0x58): SO_C — stream lifecycle and vector-length control.
             // funct3 distinguishes ops; only rd (and rs1 for SETVL) are register fields.
             11 => (int)funct3 switch {
@@ -2152,21 +2154,21 @@ public class Rv32Decoder : IDecoder {
                 _ => throw new IllegalInstructionException(raw, $"Unknown UVE SO_C funct3=0x{funct3:X}"),
             },
             12 => (int)funct3 switch {
-                0 => new RvUveSoALogic(UveLogicOp.Nand, rd, rs1, rs2),
-                1 => new RvUveSoALogic(UveLogicOp.And, rd, rs1, rs2),
-                2 => new RvUveSoALogic(UveLogicOp.Nor, rd, rs1, rs2),
-                3 => new RvUveSoALogic(UveLogicOp.Or, rd, rs1, rs2),
-                4 => new RvUveSoALogic(UveLogicOp.Not, rd, rs1, -1),
-                5 => new RvUveSoALogic(UveLogicOp.Xor, rd, rs1, rs2),
+                0 => new RvUveSoALogic(UveLogicOp.Nand, rd, rs1, rs2, ps3),
+                1 => new RvUveSoALogic(UveLogicOp.And, rd, rs1, rs2, ps3),
+                2 => new RvUveSoALogic(UveLogicOp.Nor, rd, rs1, rs2, ps3),
+                3 => new RvUveSoALogic(UveLogicOp.Or, rd, rs1, rs2, ps3),
+                4 => new RvUveSoALogic(UveLogicOp.Not, rd, rs1, -1, ps3),
+                5 => new RvUveSoALogic(UveLogicOp.Xor, rd, rs1, rs2, ps3),
                 _ => throw new IllegalInstructionException(raw, $"Unknown UVE logic funct3=0x{funct3:X}"),
             },
             13 => (int)funct3 switch {
-                0 => new RvUveSoAShiftV(UveShiftOp.Sll, rd, rs1, rs2),
-                1 => new RvUveSoAShiftS(UveShiftOp.Sll, rd, rs1, rs2),
-                2 => new RvUveSoAShiftV(UveShiftOp.Srl, rd, rs1, rs2),
-                3 => new RvUveSoAShiftS(UveShiftOp.Srl, rd, rs1, rs2),
-                4 => new RvUveSoAShiftV(UveShiftOp.Sra, rd, rs1, rs2),
-                5 => new RvUveSoAShiftS(UveShiftOp.Sra, rd, rs1, rs2),
+                0 => new RvUveSoAShiftV(UveShiftOp.Sll, rd, rs1, rs2, ps3),
+                1 => new RvUveSoAShiftS(UveShiftOp.Sll, rd, rs1, rs2, ps3),
+                2 => new RvUveSoAShiftV(UveShiftOp.Srl, rd, rs1, rs2, ps3),
+                3 => new RvUveSoAShiftS(UveShiftOp.Srl, rd, rs1, rs2, ps3),
+                4 => new RvUveSoAShiftV(UveShiftOp.Sra, rd, rs1, rs2, ps3),
+                5 => new RvUveSoAShiftS(UveShiftOp.Sra, rd, rs1, rs2, ps3),
                 _ => throw new IllegalInstructionException(raw, $"Unknown UVE shift funct3=0x{funct3:X}"),
             },
             // Groups 8/9: SO_P predicate register operations.
@@ -2231,11 +2233,11 @@ public class Rv32Decoder : IDecoder {
         return new RvUveSoPCmp(cmpOp, cmpType, predRd, govPred, vs1, vs2, cmpZeroing);
     }
 
-    private static RvOp UveArith(UveFpOp fpOp, UveIntOp intOp, int type, int ud, int usrc1, int usrc2) =>
+    private static RvOp UveArith(UveFpOp fpOp, UveIntOp intOp, int type, int ud, int usrc1, int usrc2, int ps3) =>
         type switch {
-            1 => new RvUveSoAFp(fpOp, ud, usrc1, usrc2),
-            2 => new RvUveSoAInt(intOp, true, ud, usrc1, usrc2),
-            _ => new RvUveSoAInt(intOp, false, ud, usrc1, usrc2),
+            1 => new RvUveSoAFp(fpOp, ud, usrc1, usrc2, ps3),
+            2 => new RvUveSoAInt(intOp, true, ud, usrc1, usrc2, ps3),
+            _ => new RvUveSoAInt(intOp, false, ud, usrc1, usrc2, ps3),
         };
 
     // UVE non-standard B-type immediate: bit28=imm[12](sign), bits[27:22]=imm[10:5], bit7=imm[11], bits[11:8]=imm[4:1]

@@ -415,6 +415,96 @@ public class UveTests {
         Assert.Equal(2, op.Usrc2);
     }
 
+    // Helper: encode so.a.fp with explicit ps3 field (bits[27:25] = ps3 in funct7).
+    private static uint SoAFpWithPs3(UveFpOp op, int ud, int usrc1, int usrc2, int ps3) {
+        (uint funct3, uint top4) = op switch {
+            UveFpOp.Add => (1u, 0u), UveFpOp.Mul => (1u, 1u),
+            _ => throw new ArgumentOutOfRangeException(nameof(op)),
+        };
+        uint funct7 = (top4 << 3) | ((uint)ps3 & 7);
+        int rs2Enc = usrc2 < 0 ? 0 : usrc2;
+        return (funct7 << 25) | (uint)((rs2Enc & 0x1F) << 20) | (uint)((usrc1 & 0x1F) << 15)
+             | (funct3 << 12) | (uint)((ud & 0x1F) << 7) | 0x2Bu;
+    }
+
+    [Fact]
+    public void Decoder_SoAFp_Ps3_RoundTrip() {
+        // Confirm that bits[27:25] = ps3 are decoded and stored in Ps3.
+        var dec = new Rv32Decoder();
+        var mem = new FlatMemory(16);
+        uint enc = SoAFpWithPs3(UveFpOp.Add, 3, 1, 2, ps3: 5);
+        mem.Load(0, BitConverter.GetBytes(enc));
+
+        var op = (RvUveSoAFp)dec.Decode(0, mem).Payload!;
+        Assert.Equal(UveFpOp.Add, op.Op);
+        Assert.Equal(5, op.Ps3);
+    }
+
+    [Fact]
+    public void SoAFp_GoverningPredicate_InactiveLanesMerge() {
+        // Governing predicate p1: lanes 0 and 2 active, lanes 1 and 3 inactive.
+        // Predicate byte for lane i (float32): (i+1)*4-1 = i*4+3.
+        // u1 = [1, 2, 3, 4], u2 = [10, 20, 30, 40], ud (u3) = [100, 200, 300, 400] initially.
+        // so.a.add.fp u3, u1, u2 with ps3=1:
+        //   lane 0 (active):   1 + 10 = 11  → write
+        //   lane 1 (inactive): keep existing = 200
+        //   lane 2 (active):   3 + 30 = 33  → write
+        //   lane 3 (inactive): keep existing = 400
+        var state = new Rv32ArchState();
+        uint[] src1 = [
+            (uint)BitConverter.SingleToInt32Bits(1f),
+            (uint)BitConverter.SingleToInt32Bits(2f),
+            (uint)BitConverter.SingleToInt32Bits(3f),
+            (uint)BitConverter.SingleToInt32Bits(4f),
+        ];
+        uint[] src2 = [
+            (uint)BitConverter.SingleToInt32Bits(10f),
+            (uint)BitConverter.SingleToInt32Bits(20f),
+            (uint)BitConverter.SingleToInt32Bits(30f),
+            (uint)BitConverter.SingleToInt32Bits(40f),
+        ];
+        uint[] dest = [
+            (uint)BitConverter.SingleToInt32Bits(100f),
+            (uint)BitConverter.SingleToInt32Bits(200f),
+            (uint)BitConverter.SingleToInt32Bits(300f),
+            (uint)BitConverter.SingleToInt32Bits(400f),
+        ];
+        state.UveState.SetVectorRaw(1, src1, 4, false);
+        state.UveState.SetVectorRaw(2, src2, 4, false);
+        state.UveState.SetVectorRaw(3, dest, 4, false);
+
+        // p1: all-false by default; set representative bytes for lanes 0 and 2.
+        state.UveState.PredicateRegs[1][3]  = true;  // lane 0 active
+        state.UveState.PredicateRegs[1][11] = true;  // lane 2 active
+        // bytes 7 and 15 remain false → lanes 1 and 3 inactive
+
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Add, 3, 1, 2, Ps3: 1), state);
+        er.SideEffect?.Invoke(state);
+
+        Assert.Equal(11f,  BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 0)), 4);
+        Assert.Equal(200f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 1)), 4); // merged
+        Assert.Equal(33f,  BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 2)), 4);
+        Assert.Equal(400f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 3)), 4); // merged
+    }
+
+    [Fact]
+    public void SoASadde_GoverningPredicate_SkipsInactiveLanes() {
+        // sadde with ps3=1 (p1): only elements where predicate byte (i+1)*4-1 is true contribute.
+        // u1 = [1, 2, 3, 4] (scalar ints), p1 lanes 0 and 2 active.
+        // Expected sum = 1 + 3 = 4.
+        var state = new Rv32ArchState();
+        uint[] vals = [1u, 2u, 3u, 4u];
+        state.UveState.SetVectorRaw(1, vals, 4, false);
+
+        state.UveState.PredicateRegs[1][3]  = true;  // lane 0 active
+        state.UveState.PredicateRegs[1][11] = true;  // lane 2 active
+
+        ExecuteResult er = Exec(new RvUveSoASadde(false, false, 5, 1, Ps3: 1), state);
+        er.SideEffect?.Invoke(state);
+
+        Assert.Equal(4u, (uint)state.IntegerRegisters.Read(5));
+    }
+
     // ── Multi-dim stream unit tests ───────────────────────────────────────────
 
     [Fact]

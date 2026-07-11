@@ -1291,7 +1291,8 @@ public enum UveFpOp {
 }
 
 // FP arithmetic on stream elements; Usrc2=-1 for unary ops (Abs, Inc, Dec, Sqrt).
-public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
+// Ps3 = bits[27:25] of the instruction — governing predicate register index (0 = p0 = all-ones).
+public record RvUveSoAFp(UveFpOp Op, int Ud, int Usrc1, int Usrc2, int Ps3 = 0) : RvOp;
 
 public enum UveIntOp {
     Add = 0,
@@ -1311,7 +1312,8 @@ public enum UveIntOp {
 }
 
 // Integer arithmetic on stream elements; Usrc2=-1 for unary ops (Abs, Inc, Dec).
-public record RvUveSoAInt(UveIntOp Op, bool Signed, int Ud, int Usrc1, int Usrc2) : RvOp;
+// Ps3 = governing predicate register index.
+public record RvUveSoAInt(UveIntOp Op, bool Signed, int Ud, int Usrc1, int Usrc2, int Ps3 = 0) : RvOp;
 
 public enum UveLogicOp {
     Nand,
@@ -1323,21 +1325,25 @@ public enum UveLogicOp {
 }
 
 // Bitwise logic on stream elements; Usrc2=-1 for Not (unary).
-public record RvUveSoALogic(UveLogicOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
+// Ps3 = governing predicate register index.
+public record RvUveSoALogic(UveLogicOp Op, int Ud, int Usrc1, int Usrc2, int Ps3 = 0) : RvOp;
 
 public enum UveShiftOp {
     Sll, Srl, Sra,
 }
 
 // Element-wise shift with amount from another u-reg.
-public record RvUveSoAShiftV(UveShiftOp Op, int Ud, int Usrc1, int Usrc2) : RvOp;
+// Ps3 = governing predicate register index.
+public record RvUveSoAShiftV(UveShiftOp Op, int Ud, int Usrc1, int Usrc2, int Ps3 = 0) : RvOp;
 
 // Element-wise shift with amount from integer register Rs2.
-public record RvUveSoAShiftS(UveShiftOp Op, int Ud, int Usrc1, int Rs2) : RvOp;
+// Ps3 = governing predicate register index.
+public record RvUveSoAShiftS(UveShiftOp Op, int Ud, int Usrc1, int Rs2, int Ps3 = 0) : RvOp;
 
 // Scalar-write reduction: accumulate stream element into integer (sadde, IsFp=false) or FP (fsadde, IsFp=true).
 // Rd is the unified-file index: integer reg (0–31) for sadde; FP reg (32–63, pre-offset) for fsadde.
-public record RvUveSoASadde(bool IsFp, bool Acc, int Rd, int Usrc1) : RvOp;
+// Ps3 = governing predicate register index (gates which elements contribute to the sum).
+public record RvUveSoASadde(bool IsFp, bool Acc, int Rd, int Usrc1, int Ps3 = 0) : RvOp;
 
 // SO_C group (custom-1, funct7=0x58): stream lifecycle and vector-length control.
 // ss.stop ud — terminate stream in u-reg ud (SO_C_BREAK, funct3=3).

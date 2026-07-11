@@ -83,8 +83,10 @@ Remaining delta, in rough dependency order:
   per-register scalar/vector mode (scalar default, `vec` header flag, mode-transition rules per instruction class);
   valid-element counts; implicit predication on lanes beyond the valid count — zeroing (default) or merging (pm)
   per stream register. This is the core semantic chunk of UVE2 and consumes the existing PredZeroing tags.
-- [ ] Explicit predicate operand in compute ops: ps3 field (bits [27:25]) on so.a.* / so.p.* / so.v.* — currently
-  implicitly p0; stream pm policy prevails over the instruction predicate's policy
+- [x] Explicit predicate operand in compute ops: ps3 field (bits [27:25]) on so.a.* — decoded from funct7&7,
+  stored in Ps3 field of all so.a.* records; UveWriteResult gates per-lane writes with predicate register;
+  inactive lanes always merge (keep existing dest value) per Spike semantics; zeroing flag still governs lanes
+  beyond vLen; sadde/fsadde skip inactive elements from the accumulation sum
 - [ ] Scatter-gather dynamic modifiers (`ss.app.sgi` / `ss.<app/end>.ind.ofs.sg.<b>`): applied per element rather
   than per dimension wrap, offset target only — enables vectorial gather (SpMV-2 pattern)
 - [ ] Predicate width conversion `so.p.cv.<dw>.<sw>` (dual width fields) and vector element conversion
