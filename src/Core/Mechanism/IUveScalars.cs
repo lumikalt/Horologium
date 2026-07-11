@@ -31,6 +31,9 @@ public interface IUveScalars {
     /// <summary>Returns true when u-register <paramref name="uid"/> is in vector mode.</summary>
     bool IsVectorReg(int uid) => false;
 
+    /// <summary>Records the element width in bytes for u-register <paramref name="uid"/>. Used by so.v.cv.</summary>
+    void SetRegElemBytes(int uid, int elemBytes) { }
+
     /// <summary>Returns the valid lane count for u-register <paramref name="uid"/> (1 in scalar mode).</summary>
     int GetValidElements(int uid) => 1;
 

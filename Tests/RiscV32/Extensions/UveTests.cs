@@ -502,6 +502,56 @@ public class UveTests {
     }
 
     [Fact]
+    public void SoAFp_PartialVl_ZeroingMode_ZerosExcessLanes() {
+        // Source registers have ValidElements=2 (simulating VL=2 after ss.setvl).
+        // pm=0 (zeroing): dest lanes 2 and 3 must be zeroed even if they held old values.
+        var state = new Rv32ArchState();
+        uint f1 = (uint)BitConverter.SingleToInt32Bits(1f);
+        uint f2 = (uint)BitConverter.SingleToInt32Bits(2f);
+        uint f3 = (uint)BitConverter.SingleToInt32Bits(3f);
+        uint sentinel = (uint)BitConverter.SingleToInt32Bits(99f);
+        // src: 2 valid elements, pm=0 (merging=false → zeroing)
+        state.UveState.SetVectorRaw(1, [f1, f2, sentinel, sentinel,], 2, false);
+        state.UveState.SetVectorRaw(2, [f1, f2, sentinel, sentinel,], 2, false);
+        // dest pre-loaded with old values in all 4 lanes
+        state.UveState.SetVectorRaw(3, [sentinel, sentinel, sentinel, sentinel,], 4, false);
+
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Add, 3, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+
+        Assert.Equal(2f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 0)), 4);
+        Assert.Equal(4f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 1)), 4);
+        Assert.Equal(0u, state.UveState.GetLane32(3, 2)); // zeroed
+        Assert.Equal(0u, state.UveState.GetLane32(3, 3)); // zeroed
+        Assert.Equal(2, state.UveState.ValidElements[3]);
+    }
+
+    [Fact]
+    public void SoAFp_PartialVl_MergingMode_PreservesExcessLanes() {
+        // Source registers have ValidElements=2, pm=1 (merging).
+        // Dest lanes 2 and 3 must keep their old values, not be zeroed.
+        var state = new Rv32ArchState();
+        uint f1 = (uint)BitConverter.SingleToInt32Bits(1f);
+        uint f2 = (uint)BitConverter.SingleToInt32Bits(2f);
+        uint old2 = (uint)BitConverter.SingleToInt32Bits(77f);
+        uint old3 = (uint)BitConverter.SingleToInt32Bits(88f);
+        // src: 2 valid elements, pm=1 (merging=true)
+        state.UveState.SetVectorRaw(1, [f1, f2, 0u, 0u,], 2, true);
+        state.UveState.SetVectorRaw(2, [f1, f2, 0u, 0u,], 2, true);
+        // dest pre-loaded; lanes 2 and 3 must survive
+        state.UveState.SetVectorRaw(3, [0u, 0u, old2, old3,], 4, false);
+
+        ExecuteResult er = Exec(new RvUveSoAFp(UveFpOp.Add, 3, 1, 2), state);
+        er.SideEffect?.Invoke(state);
+
+        Assert.Equal(2f,  BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 0)), 4);
+        Assert.Equal(4f,  BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 1)), 4);
+        Assert.Equal(77f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 2)), 4); // merged
+        Assert.Equal(88f, BitConverter.Int32BitsToSingle((int)state.UveState.GetLane32(3, 3)), 4); // merged
+        Assert.Equal(2, state.UveState.ValidElements[3]);
+    }
+
+    [Fact]
     public void SoASadde_GoverningPredicate_SkipsInactiveLanes() {
         // sadde with ps3=1 (p1): only elements where predicate byte (i+1)*4-1 is true contribute.
         // u1 = [1, 2, 3, 4] (scalar ints), p1 lanes 0 and 2 active.
@@ -2468,5 +2518,212 @@ public class UveTests {
         Assert.Equal(10UL, eng.Consume(0));
         Assert.Equal(20UL, eng.Consume(0));
         Assert.True(eng.IsExhausted(0));
+    }
+
+    // ── so.p.cv encode helper ─────────────────────────────────────────────────
+
+    // so.p.cv.<srcW>.<destW>[.z] pd, ps1
+    // group=8 (funct7=0x40..0x47), funct3=3, rs2[1:0]=srcWidthIdx, rs2[3:2]=destWidthIdx, rs2[4]=zeroing
+    // rs1[3:0]=ps1, rd[3:0]=pd
+    private static uint SoPCv(int pd, int ps1, int srcBytes, int destBytes, bool zeroing = false) {
+        int srcIdx  = srcBytes  == 1 ? 0 : srcBytes  == 2 ? 1 : srcBytes  == 4 ? 2 : 3;
+        int destIdx = destBytes == 1 ? 0 : destBytes == 2 ? 1 : destBytes == 4 ? 2 : 3;
+        uint rs2 = (uint)(srcIdx | (destIdx << 2) | (zeroing ? 0x10 : 0));
+        return (0x40u << 25) | (rs2 << 20) | (uint)((ps1 & 0xF) << 15) | (3u << 12) |
+               (uint)((pd & 0xF) << 7) | 0x2Bu;
+    }
+
+    // so.v.cv.{fp,sg,us}.<destW> vd, vs1
+    // group=10 (funct7=0x50+cvType/2): funct3=destWidthIdx; rs2=0(US)/8(FP)/16(SG)
+    private static uint SoVCvUs(int vd, int vs1, int destBytes) {
+        int destIdx = destBytes == 1 ? 0 : destBytes == 2 ? 1 : destBytes == 4 ? 2 : 3;
+        // US: rs2=0; funct7=0x55 (bits[31:25]); rs2 in bits[24:20]=0
+        return (0x55u << 25) | (0u << 20) | (uint)((vs1 & 0x1F) << 15) | ((uint)destIdx << 12) |
+               (uint)((vd & 0x1F) << 7) | 0x2Bu;
+    }
+
+    private static uint SoVCvFp(int vd, int vs1, int destBytes) {
+        int destIdx = destBytes == 1 ? 0 : destBytes == 2 ? 1 : destBytes == 4 ? 2 : 3;
+        return (0x55u << 25) | (8u << 20) | (uint)((vs1 & 0x1F) << 15) | ((uint)destIdx << 12) |
+               (uint)((vd & 0x1F) << 7) | 0x2Bu;
+    }
+
+    private static uint SoVCvSg(int vd, int vs1, int destBytes) {
+        int destIdx = destBytes == 1 ? 0 : destBytes == 2 ? 1 : destBytes == 4 ? 2 : 3;
+        // SG: rs2=16 (bit24=1, bits[23:20]=0); funct7=bits[31:25]=0x55 (bit24 is part of rs2, not funct7)
+        return (0x55u << 25) | (16u << 20) | (uint)((vs1 & 0x1F) << 15) | ((uint)destIdx << 12) |
+               (uint)((vd & 0x1F) << 7) | 0x2Bu;
+    }
+
+    // ── so.p.cv decoder round-trip ────────────────────────────────────────────
+
+    [Fact]
+    public void Decoder_SoPCv_BH_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPCv(2, 5, 1, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPCv>(tooth.Payload);
+        Assert.Equal(2, op.Pd);
+        Assert.Equal(5, op.Ps1);
+        Assert.Equal(1, op.SrcBytes);
+        Assert.Equal(2, op.DestBytes);
+        Assert.False(op.Zeroing);
+    }
+
+    [Fact]
+    public void Decoder_SoPCv_WB_Zeroing_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoPCv(3, 1, 4, 1, zeroing: true)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoPCv>(tooth.Payload);
+        Assert.Equal(3, op.Pd);
+        Assert.Equal(1, op.Ps1);
+        Assert.Equal(4, op.SrcBytes);
+        Assert.Equal(1, op.DestBytes);
+        Assert.True(op.Zeroing);
+    }
+
+    // ── so.p.cv semantics ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void SoPCv_B_to_H_MapsActiveBits() {
+        // Source predicate: element 0 active (byte 0 = true), elements 1..7 inactive.
+        // B→H: nElems=8; elem i: src=(i+1)*1-1=i, dest=(i+1)*2-1=2i+1.
+        // Only element 0 is active: dest[1] = src[0] = true, rest false.
+        var state = new Rv32ArchState();
+        state.UveState.PredicateRegs[1][0] = true; // element 0 active (byte-width active bit at index 0)
+        var result = Exec(new RvUveSoPCv(2, 1, 1, 2, false), state);
+        result.SideEffect!(state);
+        bool[] pd = state.UveState.PredicateRegs[2];
+        Assert.True(pd[1]);   // element 0 dest active bit at (0+1)*2-1 = 1
+        Assert.False(pd[3]);  // element 1 inactive
+        Assert.False(pd[0]);  // no spurious set
+    }
+
+    [Fact]
+    public void SoPCv_H_to_B_MapsActiveBits() {
+        // H→B: nElems=8; src=(i+1)*2-1=2i+1, dest=(i+1)*1-1=i.
+        // Elements 0 and 2 of H are active: src[1]=true, src[5]=true.
+        var state = new Rv32ArchState();
+        state.UveState.PredicateRegs[3][1] = true; // elem 0 of H
+        state.UveState.PredicateRegs[3][5] = true; // elem 2 of H
+        var result = Exec(new RvUveSoPCv(4, 3, 2, 1, false), state);
+        result.SideEffect!(state);
+        bool[] pd = state.UveState.PredicateRegs[4];
+        Assert.True(pd[0]);  // elem 0 → dest byte 0
+        Assert.True(pd[2]);  // elem 2 → dest byte 2
+        Assert.False(pd[1]); // elem 1 was not active
+    }
+
+    [Fact]
+    public void SoPCv_Zeroing_SetsTag() {
+        var state = new Rv32ArchState();
+        Assert.False(state.UveState.PredZeroing[5]);
+        var result = Exec(new RvUveSoPCv(5, 0, 1, 2, true), state);
+        result.SideEffect!(state);
+        Assert.True(state.UveState.PredZeroing[5]);
+    }
+
+    // ── so.v.cv decoder round-trip ────────────────────────────────────────────
+
+    [Fact]
+    public void Decoder_SoVCvUs_Word_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoVCvUs(1, 3, 4)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoVCv>(tooth.Payload);
+        Assert.Equal(1, op.Vd);
+        Assert.Equal(3, op.Vs1);
+        Assert.Equal(4, op.DestBytes);
+        Assert.False(op.IsFp);
+        Assert.False(op.IsSigned);
+    }
+
+    [Fact]
+    public void Decoder_SoVCvSg_Halfword_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoVCvSg(2, 4, 2)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoVCv>(tooth.Payload);
+        Assert.Equal(2, op.Vd);
+        Assert.Equal(4, op.Vs1);
+        Assert.Equal(2, op.DestBytes);
+        Assert.True(op.IsSigned);
+        Assert.False(op.IsFp);
+    }
+
+    [Fact]
+    public void Decoder_SoVCvFp_Word_Roundtrip() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, BitConverter.GetBytes(SoVCvFp(5, 6, 4)));
+        ITooth tooth = new Rv32Decoder().Decode(0, mem);
+        var op = Assert.IsType<RvUveSoVCv>(tooth.Payload);
+        Assert.Equal(5, op.Vd);
+        Assert.Equal(6, op.Vs1);
+        Assert.Equal(4, op.DestBytes);
+        Assert.True(op.IsFp);
+        Assert.False(op.IsSigned);
+    }
+
+    // ── so.v.cv semantics ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void SoVCv_Us_ByteToWord_ZeroExtends() {
+        // Source: 2 byte-wide elements: 0xFF (-1 as signed byte) and 0x7F.
+        // US (zero-extend) → 0x000000FF and 0x0000007F.
+        var state = new Rv32ArchState();
+        state.UveState.SetLane32(1, 0, 0xFF);
+        state.UveState.SetLane32(1, 1, 0x7F);
+        state.UveState.ValidElements[1] = 2;
+        state.UveState.RegElemBytes[1] = 1;
+        var result = Exec(new RvUveSoVCv(2, 1, 4, false, false), state);
+        result.SideEffect!(state);
+        Assert.Equal(0x000000FFu, state.UveState.GetLane32(2, 0));
+        Assert.Equal(0x0000007Fu, state.UveState.GetLane32(2, 1));
+        Assert.Equal(2, state.UveState.ValidElements[2]);
+        Assert.Equal(4, state.UveState.RegElemBytes[2]);
+    }
+
+    [Fact]
+    public void SoVCv_Sg_ByteToWord_SignExtends() {
+        // Source: 2 byte-wide elements: 0xFF (-1 signed) and 0x01.
+        // SG (sign-extend) → 0xFFFFFFFF and 0x00000001.
+        var state = new Rv32ArchState();
+        state.UveState.SetLane32(3, 0, 0xFF);
+        state.UveState.SetLane32(3, 1, 0x01);
+        state.UveState.ValidElements[3] = 2;
+        state.UveState.RegElemBytes[3] = 1;
+        var result = Exec(new RvUveSoVCv(4, 3, 4, false, true), state);
+        result.SideEffect!(state);
+        Assert.Equal(0xFFFFFFFFu, state.UveState.GetLane32(4, 0));
+        Assert.Equal(0x00000001u, state.UveState.GetLane32(4, 1));
+    }
+
+    [Fact]
+    public void SoVCv_Us_WordToByte_Truncates() {
+        // Source: word 0x12345678 → byte 0x78 (low byte).
+        var state = new Rv32ArchState();
+        state.UveState.SetLane32(5, 0, 0x12345678u);
+        state.UveState.ValidElements[5] = 1;
+        state.UveState.RegElemBytes[5] = 4;
+        var result = Exec(new RvUveSoVCv(6, 5, 1, false, false), state);
+        result.SideEffect!(state);
+        Assert.Equal(0x78u, state.UveState.GetLane32(6, 0));
+    }
+
+    [Fact]
+    public void SoVCv_Fp_Float32ToFloat16_Converts() {
+        // Source: float32 1.0f → float16 representation.
+        float src = 1.0f;
+        uint srcBits = (uint)BitConverter.SingleToInt32Bits(src);
+        ushort expected = BitConverter.HalfToUInt16Bits((Half)src);
+        var state = new Rv32ArchState();
+        state.UveState.SetLane32(7, 0, srcBits);
+        state.UveState.ValidElements[7] = 1;
+        state.UveState.RegElemBytes[7] = 4;
+        var result = Exec(new RvUveSoVCv(8, 7, 2, true, false), state);
+        result.SideEffect!(state);
+        Assert.Equal((uint)expected, state.UveState.GetLane32(8, 0));
+        Assert.Equal(2, state.UveState.RegElemBytes[8]);
     }
 }

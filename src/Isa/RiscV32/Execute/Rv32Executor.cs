@@ -762,6 +762,10 @@ public class Rv32Executor : IExecutor {
                 => ExecuteUveSoPCmp(state, cop, cmpType, pd, govPred, vs1, vs2, cmpZeroing),
             RvUveSoVMv (var transpose, var vd, var vs1, var predIdx)
                 => ExecuteUveSoVMv(state, transpose, vd, vs1, predIdx),
+            RvUveSoPCv (var pd, var ps1, var srcBytes, var destBytes, var zeroing)
+                => ExecuteUveSoPCv(state, pd, ps1, srcBytes, destBytes, zeroing),
+            RvUveSoVCv (var vd, var vs1, var destBytes, var isFp, var isSigned)
+                => ExecuteUveSoVCv(state, vd, vs1, destBytes, isFp, isSigned),
 
             _ => throw new InvalidOperationException(
                 $"Unhandled RvOp: {op.GetType().Name}"
@@ -3307,12 +3311,22 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    // Returns (vLen, zeroing): vLen=1 if either source is Scalar, else 4.
-    // zeroing = neither source uses merging predication (pm=0).
+    // Returns (vLen, zeroing).
+    // vLen: 1 if either source is Scalar; otherwise the min of sources' ValidElements counts
+    //       (0 → 4 as safe default). This makes the out-of-range zeroing/merging loop in
+    //       UveWriteResult actually fire when VL < VLEN/ew (e.g. after ss.setvl).
+    // zeroing: true when no source register has pm=1 (merging), so lanes beyond vLen are zeroed.
     private static (int vLen, bool zeroing) UveLaneParams(UveState u, int usrc1, int usrc2) {
         bool s1Scalar = u.RegMode[usrc1] == UveRegMode.Scalar;
         bool s2Scalar = usrc2 < 0 || u.RegMode[usrc2] == UveRegMode.Scalar;
-        int vLen = s1Scalar || s2Scalar ? 1 : 4;
+        int vLen;
+        if (s1Scalar || s2Scalar) {
+            vLen = 1;
+        } else {
+            int v1 = u.ValidElements[usrc1] > 0 ? u.ValidElements[usrc1] : 4;
+            int v2 = usrc2 < 0 ? v1 : (u.ValidElements[usrc2] > 0 ? u.ValidElements[usrc2] : 4);
+            vLen = Math.Min(v1, v2);
+        }
         bool zeroing = !u.RegMerging[usrc1] && (usrc2 < 0 || !u.RegMerging[usrc2]);
         return (vLen, zeroing);
     }
@@ -3764,6 +3778,96 @@ public class Rv32Executor : IExecutor {
                 }
             },
         };
+    }
+
+    // so.p.cv.<srcW>.<destW>[.z] pd, ps1 — predicate register width conversion.
+    // Maps the active bit for each element from the source width slot to the destination width slot.
+    // Horologium active-bit position for element i of width W: (i+1)*W - 1 (MSByte).
+    // nElems = PredBytes / max(srcBytes, destBytes): elements that fit in both widths.
+    private static ExecuteResult ExecuteUveSoPCv(
+        IArchState state,
+        int pd,
+        int ps1,
+        int srcBytes,
+        int destBytes,
+        bool zeroing
+    ) {
+        UveState uvs = UState(state).UveState;
+        bool[] src = uvs.PredicateRegs[ps1];
+        int nElems = UveState.PredBytes / Math.Max(srcBytes, destBytes);
+        var destPred = new bool[UveState.PredBytes];
+        for (var i = 0; i < nElems; i++)
+            destPred[(i + 1) * destBytes - 1] = src[(i + 1) * srcBytes - 1];
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState u = UState(s).UveState;
+                Array.Copy(destPred, u.PredicateRegs[pd], UveState.PredBytes);
+                u.PredZeroing[pd] = zeroing;
+            },
+        };
+    }
+
+    // so.v.cv.{fp,sg,us}.<destW> vd, vs1 — vector u-register element type conversion.
+    // Reads ValidElements[vs1] lanes from vs1 (interpreting each as RegElemBytes[vs1]-wide),
+    // converts to destBytes width, and writes to vd.
+    // isFp=true: floating-point cast; isSigned=true: sign-extend; else zero-extend.
+    private static ExecuteResult ExecuteUveSoVCv(
+        IArchState state,
+        int vd,
+        int vs1,
+        int destBytes,
+        bool isFp,
+        bool isSigned
+    ) {
+        UveState uvs = UState(state).UveState;
+        int srcBytes = uvs.RegElemBytes[vs1] > 0 ? uvs.RegElemBytes[vs1] : 4;
+        int srcValid = Math.Max(1, uvs.ValidElements[vs1]);
+        int finalCount = Math.Min(4, srcValid);
+        var converted = new uint[finalCount];
+        for (var i = 0; i < finalCount; i++) {
+            uint raw = uvs.GetLane32(vs1, i);
+            converted[i] = isFp
+                ? ConvertFpLane(raw, srcBytes, destBytes)
+                : ConvertIntLane(raw, srcBytes, destBytes, isSigned);
+        }
+        return new ExecuteResult {
+            SideEffect = s => {
+                UveState u = UState(s).UveState;
+                for (var i = 0; i < finalCount; i++) u.SetLane32(vd, i, converted[i]);
+                u.RegMode[vd] = uvs.RegMode[vs1];
+                u.ValidElements[vd] = finalCount;
+                u.RegElemBytes[vd] = destBytes;
+            },
+        };
+    }
+
+    // Mask raw to srcBytes width, then sign- or zero-extend to destBytes width stored as uint32.
+    private static uint ConvertIntLane(uint raw, int srcBytes, int destBytes, bool signed) {
+        uint mask = srcBytes >= 4 ? uint.MaxValue : (1u << (srcBytes * 8)) - 1u;
+        uint narrow = raw & mask;
+        if (signed && srcBytes < 4) {
+            uint signBit = 1u << (srcBytes * 8 - 1);
+            if ((narrow & signBit) != 0) narrow |= ~mask;
+        }
+        // Truncate to destBytes width before storing as uint32.
+        uint destMask = destBytes >= 4 ? uint.MaxValue : (1u << (destBytes * 8)) - 1u;
+        return narrow & destMask;
+    }
+
+    // Floating-point conversion between lane widths (stored as uint32 bits).
+    // Only the combinations meaningful for a 32-bit lane model are handled:
+    // fp.h (float32→float16), fp.w (float32→float32 = identity), others default to identity.
+    private static uint ConvertFpLane(uint raw, int srcBytes, int destBytes) {
+        if (srcBytes == 4 && destBytes == 2) {
+            float f = BitConverter.Int32BitsToSingle((int)raw);
+            Half h = (Half)f;
+            return BitConverter.HalfToUInt16Bits(h);
+        }
+        if (srcBytes == 2 && destBytes == 4) {
+            Half h = BitConverter.UInt16BitsToHalf((ushort)raw);
+            return (uint)BitConverter.SingleToInt32Bits((float)h);
+        }
+        return raw; // identity for matching widths or unsupported combos
     }
 
     // ── FP vector helpers ─────────────────────────────────────────────────────

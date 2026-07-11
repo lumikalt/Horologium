@@ -89,7 +89,7 @@ Remaining delta, in rough dependency order:
   beyond vLen; sadde/fsadde skip inactive elements from the accumulation sum
 - [x] Scatter-gather dynamic modifiers (`ss.app.sgi` / `ss.end.sgi`): applied per element rather
   than per dimension wrap, offset target only — enables vectorial gather (SpMV-2 pattern)
-- [ ] Predicate width conversion `so.p.cv.<dw>.<sw>` (dual width fields) and vector element conversion
+- [x] Predicate width conversion `so.p.cv.<dw>.<sw>` (dual width fields) and vector element conversion
   `so.v.cv.<fps>.<wth>` (narrowing/widening; lost-lane behaviour still open in the spec)
 - [ ] Suspended-stream data exchange: `so.v.vload` / `so.v.vstor` (load/store vector data to/from suspended streams)
 

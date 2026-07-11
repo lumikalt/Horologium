@@ -114,6 +114,7 @@ public sealed class RvInstruction(
         RvUveSoAShiftS op => [op.Usrc1,],
         RvUveSoASadde op  => [op.Usrc1,],
         RvUveSoVMvvs op   => [op.Us1,],
+        RvUveSoVCv op     => [op.Vs1,],
         _                 => [],
     };
 
@@ -1434,6 +1435,16 @@ public record RvUveSoPCmp(
 // so.v.mv/mvt — move (or transpose-move) vector register vs1 into vd, gated by predicate PredIdx.
 // funct7=0x54, rs2[4:3]: 0=mv, 1=mvt; rs2[2:0]=uve_v_pred (bits[22:20])
 public record RvUveSoVMv(bool Transpose, int Vd, int Vs1, int PredIdx) : RvOp;
+
+// so.p.cv.<srcW>.<destW>[.z] pd, ps1 — predicate register width conversion.
+// group=8, funct3=3; rs2[1:0]=srcWidthIdx (0=b,1=h,2=w,3=d), rs2[3:2]=destWidthIdx, rs2[4]=zeroing flag.
+// rs1[3:0]=src pred reg, rd[3:0]=dest pred reg.
+public record RvUveSoPCv(int Pd, int Ps1, int SrcBytes, int DestBytes, bool Zeroing) : RvOp;
+
+// so.v.cv.{fp,sg,us}.<destW> vd, vs1 — vector element type conversion.
+// group=10; funct3=destWidthIdx (0=b,1=h,2=w,3=d); rs2: 0=US, 8=FP, 16=SG.
+// Reads ValidElements[vs1] lanes from vs1, converts each, writes to vd.
+public record RvUveSoVCv(int Vd, int Vs1, int DestBytes, bool IsFp, bool IsSigned) : RvOp;
 
 // ── RV64I W-suffix instructions (opcode=0x3B: OP-32; opcode=0x1B: OP-IMM-32) ──────────────
 // Each performs the operation on the lower 32 bits and sign-extends the 32-bit result to 64.

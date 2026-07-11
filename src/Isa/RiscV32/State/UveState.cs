@@ -56,6 +56,11 @@ public sealed class UveState : IUveScalars {
     // lanes → 0), true = Merging (out-of-range lanes keep old value). Default Zeroing.
     public readonly bool[] RegMerging = new bool[UveState.Count];
 
+    // Per-register source element width in bytes, set at stream-injection time.
+    // Used by so.v.cv to know how wide each lane value actually is (1/2/4/8).
+    // 0 = unknown (default to 4).
+    public readonly int[] RegElemBytes = new int[UveState.Count];
+
     /// <summary>Returns the raw 32-bit bits of lane <paramref name="lane"/> of u-register <paramref name="uid"/>.</summary>
     public uint GetLane32(int uid, int lane) =>
         (uint)(_lanes[uid, lane >> 1] >> ((lane & 1) * 32));
@@ -118,6 +123,7 @@ public sealed class UveState : IUveScalars {
         RegMerging[uid] = merging;
     }
 
+    public void SetRegElemBytes(int uid, int elemBytes) => RegElemBytes[uid] = elemBytes;
     public bool GetStreamDone(int uid) => StreamDone[uid];
     public void SetStreamDone(int uid, bool done) => StreamDone[uid] = done;
     public bool GetDimDone(int streamId, int dim) => DimDone[streamId, dim];
@@ -133,6 +139,7 @@ public sealed class UveState : IUveScalars {
         Array.Clear(RegMode);
         Array.Clear(ValidElements);
         Array.Clear(RegMerging);
+        Array.Clear(RegElemBytes);
         Array.Clear(StoreStreams);
         Array.Clear(RegKind);
         Array.Clear(StreamDone);

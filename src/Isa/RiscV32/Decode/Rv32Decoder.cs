@@ -2154,6 +2154,10 @@ public class Rv32Decoder : IDecoder {
             ),
             6 when upper && rs2 == 1 && type == 1 => new RvUveSoAFp(UveFpOp.Sqrt, rd, rs1, -1, ps3),
             6 => UveArith(upper ? UveFpOp.Dec : UveFpOp.Inc, upper ? UveIntOp.Dec : UveIntOp.Inc, type, rd, rs1, -1, ps3),
+            // Group 10 (funct7=0x50..0x57): SO_V_CV — vector element type conversion.
+            // funct3 = destWidthIdx (0=b,1=h,2=w,3=d); rs2 = cvType (0=US, 8=FP, 16=SG).
+            10 when funct3 <= 3 => new RvUveSoVCv(rd, rs1, 1 << (int)funct3, rs2 == 8, rs2 == 16),
+            10 => throw new IllegalInstructionException(raw, $"Unknown so.v.cv funct3=0x{funct3:X}"),
             // Group 11 (funct7=0x58): SO_C — stream lifecycle and vector-length control.
             // funct3 distinguishes ops; only rd (and rs1 for SETVL) are register fields.
             11 => (int)funct3 switch {
@@ -2213,6 +2217,15 @@ public class Rv32Decoder : IDecoder {
         var predRd = (int)((raw >> 7) & 0xF);   // bits[10:7] — dest pred reg (uve_pred_rd)
         var vs1 = (int)((raw >> 15) & 0x1F);    // bits[19:15] — source ud or pred reg
         var predRs1 = (int)((raw >> 15) & 0xF); // bits[18:15] — source pred reg (4-bit)
+
+        // so.p.cv: group=8, funct3=3 — predicate width conversion.
+        // rs2[1:0]=srcWidthIdx, rs2[3:2]=destWidthIdx, rs2[4]=zeroing (same as outer zeroing = bit24).
+        if (group == 8 && funct3 == 3) {
+            var cvRs2    = (int)((raw >> 20) & 0x1F);
+            int srcBytes  = 1 << (cvRs2 & 3);
+            int destBytes = 1 << ((cvRs2 >> 2) & 3);
+            return new RvUveSoPCv(predRd, predRs1, srcBytes, destBytes, zeroing);
+        }
 
         if (group == 8 && (funct3 & 4) == 0) {
             // Simple ops: funct3[1:0] + bit[11]
