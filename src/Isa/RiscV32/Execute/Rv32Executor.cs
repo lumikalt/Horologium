@@ -3334,7 +3334,7 @@ public class Rv32Executor : IExecutor {
     // Shared write-back for so.a.* ops: writes vLen lane results to store stream or u-register.
     // ps3 selects the governing predicate register (p0 = all-ones = all lanes active).
     // Per Spike semantics: predicate-inactive lanes always merge (keep existing dest value);
-    // zeroing flag only applies to lanes beyond vLen (controlled by stream pm).
+    // zeroing the flag only applies to lanes beyond vLen (controlled by stream pm).
     private static ExecuteResult UveWriteResult(
         IArchState state,
         IMemory memory,

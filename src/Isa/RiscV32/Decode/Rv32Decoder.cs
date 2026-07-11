@@ -5,7 +5,7 @@ namespace RiscV32.Decode;
 /// <summary>
 /// Instruction decoder with a (PC, raw) keyed cache.
 /// Safe for all programs — keying on both PC and raw encoding avoids false hits when
-/// two different instructions happen to share the same PC (e.g. in unit tests).
+/// two different instructions happen to share the same PC (e.g., in unit tests).
 /// </summary>
 public class Rv32Decoder : IDecoder {
     private readonly Dictionary<(ulong pc, uint raw), ITooth> _cache = new();
@@ -2144,8 +2144,8 @@ public class Rv32Decoder : IDecoder {
             1 => UveArith(
                 upper ? UveFpOp.Div : UveFpOp.Mul, upper ? UveIntOp.Div : UveIntOp.Mul, type, rd, rs1, rs2, ps3
             ),
-            // Group 2 lower: adde — accumulate stream element into ud; rs2=1 selects the += variant.
-            // Group 2 upper: sadde/fsadde — write stream element (or accumulate) into integer/FP scalar reg.
+            // Group 2 lower: adde — accumulate the stream element into ud; rs2=1 selects the += variant.
+            // Group 2 upper: sadde/fsadde — write the stream element (or accumulate) into integer/FP scalar reg.
             2 when !upper && rs2 == 1 => UveArith(UveFpOp.AddeAcc, UveIntOp.AddeAcc, type, rd, rs1, -1, ps3),
             2 when !upper             => UveArith(UveFpOp.Adde, UveIntOp.Adde, type, rd, rs1, -1, ps3),
             2 when upper && rs2 == 1  => new RvUveSoASadde(type == 1, true, type == 1 ? rd + 32 : rd, rs1, ps3),
@@ -2229,28 +2229,29 @@ public class Rv32Decoder : IDecoder {
         var vs1 = (int)((raw >> 15) & 0x1F);    // bits[19:15] — source ud or pred reg
         var predRs1 = (int)((raw >> 15) & 0xF); // bits[18:15] — source pred reg (4-bit)
 
-        // so.p.cv: group=8, funct3=3 — predicate width conversion.
-        // rs2[1:0]=srcWidthIdx, rs2[3:2]=destWidthIdx, rs2[4]=zeroing (same as outer zeroing = bit24).
-        if (group == 8 && funct3 == 3) {
-            var cvRs2 = (int)((raw >> 20) & 0x1F);
-            int srcBytes = 1 << (cvRs2 & 3);
-            int destBytes = 1 << ((cvRs2 >> 2) & 3);
-            return new RvUveSoPCv(predRd, predRs1, srcBytes, destBytes, zeroing);
-        }
-
-        if (group == 8 && (funct3 & 4) == 0) {
-            // Simple ops: funct3[1:0] + bit[11]
-            var bit11 = (int)((raw >> 11) & 1);
-            var subOp = (int)(funct3 & 3);
-            return (subOp, bit11) switch {
-                (0, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Zero, predRd, govPred, zeroing, -1, -1),
-                (0, 1) => new RvUveSoPSimple(UveSoPSimpleOp.One, predRd, govPred, zeroing, -1, -1),
-                (1, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Vr, predRd, govPred, zeroing, -1, vs1),
-                (1, 1) => new RvUveSoPSimple(UveSoPSimpleOp.Not, predRd, govPred, zeroing, predRs1, -1),
-                (2, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Mv, predRd, govPred, zeroing, predRs1, -1),
-                (2, 1) => new RvUveSoPSimple(UveSoPSimpleOp.Mvt, predRd, govPred, zeroing, predRs1, -1),
-                _ => throw new IllegalInstructionException(raw, $"Unknown SO_P simple subOp={subOp} bit11={bit11}"),
-            };
+        switch (group) {
+            // so.p.cv: group=8, funct3=3 — predicate width conversion.
+            // rs2[1:0]=srcWidthIdx, rs2[3:2]=destWidthIdx, rs2[4]=zeroing (same as outer zeroing = bit24).
+            case 8 when funct3 == 3: {
+                var cvRs2 = (int)((raw >> 20) & 0x1F);
+                int srcBytes = 1 << (cvRs2 & 3);
+                int destBytes = 1 << ((cvRs2 >> 2) & 3);
+                return new RvUveSoPCv(predRd, predRs1, srcBytes, destBytes, zeroing);
+            }
+            case 8 when (funct3 & 4) == 0: {
+                // Simple ops: funct3[1:0] + bit[11]
+                var bit11 = (int)((raw >> 11) & 1);
+                var subOp = (int)(funct3 & 3);
+                return (subOp, bit11) switch {
+                    (0, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Zero, predRd, govPred, zeroing, -1, -1),
+                    (0, 1) => new RvUveSoPSimple(UveSoPSimpleOp.One, predRd, govPred, zeroing, -1, -1),
+                    (1, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Vr, predRd, govPred, zeroing, -1, vs1),
+                    (1, 1) => new RvUveSoPSimple(UveSoPSimpleOp.Not, predRd, govPred, zeroing, predRs1, -1),
+                    (2, 0) => new RvUveSoPSimple(UveSoPSimpleOp.Mv, predRd, govPred, zeroing, predRs1, -1),
+                    (2, 1) => new RvUveSoPSimple(UveSoPSimpleOp.Mvt, predRd, govPred, zeroing, predRs1, -1),
+                    _ => throw new IllegalInstructionException(raw, $"Unknown SO_P simple subOp={subOp} bit11={bit11}"),
+                };
+            }
         }
 
         // Comparison ops: GE (group=8, funct3[2]=1), EQ (group=9, funct3[2]=0), LT (group=9, funct3[2]=1)

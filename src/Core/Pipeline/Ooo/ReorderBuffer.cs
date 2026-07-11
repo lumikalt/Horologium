@@ -112,7 +112,7 @@ public sealed class RobEntry {
         Trap = null;
         PredictedNextPc = 0;
         ResolvedNextPc = default((ulong Value, bool HasValue));
-        HistCheckpoint = default;
+        HistCheckpoint = default(BranchHistoryCheckpoint);
         IsLoad = false;
         IsStore = false;
         LqIdx = -1;

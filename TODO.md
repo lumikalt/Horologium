@@ -150,11 +150,8 @@ Remaining delta, in rough dependency order:
   gem5 TournamentBP's 70 — so l_tage's 322 is a predictor-choice gap, not a modelling limit. See
   `docs/gem5-comparison.md` "treesum with Tournament + store sets".
 - [x] Execute-time branch misprediction resolution in `OooeTrain`: partial squash that redirects fetch when a
-  branch resolves mispredicted at Execute (as gem5 O3CPU's `iew` does), keeping the branch and older in-flight
-  instructions live, instead of deferring a full flush to the ROB head at commit. Per-branch speculative-history
-  checkpoints (GHR + Tournament local history) recover exact predictor state; the RAS is rebuilt from the
-  committed shadow plus a replay of surviving in-flight calls/returns. Recovered the predicted 315 cycles on
-  treesum (H/G 0.921 → 0.962) and improved every benchmark (median +4.8%, multiply +6.5%, none regressed).
+  branch resolves mispredicted at Execute (as gem5 O3CPU's `iew` does) rather than deferring a full flush to the
+  ROB head. Closes the treesum resolution-timing gap (H/G 0.921 → 0.962); see `docs/gem5-comparison.md`.
 
 ## Cache Model Realism
 

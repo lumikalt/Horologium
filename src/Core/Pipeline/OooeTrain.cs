@@ -610,7 +610,8 @@ internal sealed class OoOPipelineCore : Gear {
         }
 
         if (_halted || _flushPending || _squashPending) {
-            if (_flushPending) StepFlush();
+            if (_flushPending)
+                StepFlush();
             else if (_squashPending) StepPartialSquash();
             if (!_halted) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
             return;
@@ -654,7 +655,7 @@ internal sealed class OoOPipelineCore : Gear {
             rob.RequestHalt = r.RequestHalt;
 
             // A branch (only branches set ResolvedNextPc) that resolved off its predicted path.
-            if (rob.ResolvedNextPc is { HasValue: true, Value: var resolved } && resolved != rob.PredictedNextPc
+            if (rob.ResolvedNextPc is { HasValue: true, Value: var resolved, } && resolved != rob.PredictedNextPc
              && (!haveMispredict || r.InstrId < oldestMispredId)) {
                 haveMispredict = true;
                 oldestMispredId = r.InstrId;
@@ -1485,7 +1486,9 @@ internal sealed class OoOPipelineCore : Gear {
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
             ulong instrId = _nextInstrId++;
-            _decodeQueue.Enqueue(new FetchedInstr(_fetchPc, decoded, predictedNext, instrId, HistCheckpoint: histCheckpoint));
+            _decodeQueue.Enqueue(
+                new FetchedInstr(_fetchPc, decoded, predictedNext, instrId, HistCheckpoint: histCheckpoint)
+            );
             PEventLog?.Record(instrId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
             PEventLog?.RecordDisasm(instrId, _decoder.Disassemble(_fetchPc, decoded.RawEncoding));
             _fetchPc = predictedNext;
@@ -1569,9 +1572,11 @@ internal sealed class OoOPipelineCore : Gear {
                 if (entry.InstrId > bId && entry.InstrId != 0)
                     PEventLog.Record(entry.InstrId, entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
             foreach (RenameEntry ri in _renameQueue)
-                if (ri.InstrId != 0) PEventLog.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Flush);
+                if (ri.InstrId != 0)
+                    PEventLog.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Flush);
             foreach (FetchedInstr fi in _decodeQueue)
-                if (fi.InstrId != 0) PEventLog.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Flush);
+                if (fi.InstrId != 0)
+                    PEventLog.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Flush);
         }
 
         // ── Recover speculative predictor history, youngest-to-oldest ──────────────────
@@ -1579,8 +1584,7 @@ internal sealed class OoOPipelineCore : Gear {
         // rewind each younger branch's per-PC local-history entry so same-PC entries unwind exactly.
         // Non-branch checkpoints carry LocalIdx = -1, so RestoreLocalEntry is a no-op for them.
         FetchedInstr[] decodeArr = _decodeQueue.ToArray(); // youngest of all: fetched, not renamed
-        for (int i = decodeArr.Length - 1; i >= 0; i--)
-            _predictor.RestoreLocalEntry(decodeArr[i].HistCheckpoint);
+        for (int i = decodeArr.Length - 1; i >= 0; i--) _predictor.RestoreLocalEntry(decodeArr[i].HistCheckpoint);
 
         // Rename queue: younger than any ROB entry. Walk back the RAT (undo the rename) and rewind
         // local history, newest-first so the RAT restore order is correct.
@@ -1647,7 +1651,8 @@ internal sealed class OoOPipelineCore : Gear {
 
     private RobEntry FindRobByInstrId(ulong instrId) {
         foreach ((_, RobEntry e) in _rob.InOrder())
-            if (e.InstrId == instrId) return e;
+            if (e.InstrId == instrId)
+                return e;
         throw new InvalidOperationException($"ROB entry for InstrId {instrId} not found during partial squash.");
     }
 
