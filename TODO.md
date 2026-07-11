@@ -91,7 +91,7 @@ Remaining delta, in rough dependency order:
   than per dimension wrap, offset target only — enables vectorial gather (SpMV-2 pattern)
 - [x] Predicate width conversion `so.p.cv.<dw>.<sw>` (dual width fields) and vector element conversion
   `so.v.cv.<fps>.<wth>` (narrowing/widening; lost-lane behaviour still open in the spec)
-- [ ] Suspended-stream data exchange: `so.v.vload` / `so.v.vstor` (load/store vector data to/from suspended streams)
+- [ ] Suspended-stream data exchange: `so.v.vload` / `so.v.vstor` (load/store vector data to/from suspended streams) — **hold**: the dissertation gives one sentence with no operand semantics; Spike has only MATCH/MASK entries in encoding.h and no instruction files; currently decoded as illegal. Skip until the spec is clarified.
 - [x] ISA-level stride operands: switch from byte counts to element counts to match Spike and the RTL (`ss.app` and
   `ss.end` now multiply the register value by element width; stride modifier displacements for Stride target scaled
   likewise) — binary portability with Spike/RTL restored; all pipeline tests updated
@@ -109,7 +109,7 @@ Remaining delta, in rough dependency order:
 
 ## Analysis
 
-- [ ] gem5 ROI instrumentation for treesum: wire `setStats(1)`/`setStats(0)` markers into the gem5 SE
+- [x] gem5 ROI instrumentation for treesum: wire `setStats(1)`/`setStats(0)` markers into the gem5 SE
   simulation so gem5 measures the same kernel interval as Horologium's `SetStatsObserver` and the IPC
   comparison is apples-to-apples.
 - [ ] treesum bypass=0 D-cache regression: measure wrong-path load counts to confirm that deeper

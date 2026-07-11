@@ -34,8 +34,26 @@ static void __attribute__((noreturn)) _linux_exit(int code) {
 
 // ── Public API (matching riscv-tests/benchmarks/common/syscalls.c) ───────────
 
-// setStats: no-op — gem5 stat file provides cycle/inst counts externally.
-void setStats(int enable) { (void)enable; }
+// setStats: wire gem5 ROI markers so stats cover only the kernel interval.
+//
+// gem5 RISC-V pseudo-ops use opcode 0x7b (custom-3) with the m5op function
+// code in bits [31:25] and x0 in all register fields.  gem5 reads arguments
+// from the ABI registers (a0/a1) out-of-band; the register-pinned variables
+// ensure the compiler keeps those registers loaded with 0 at the asm site.
+//
+//   M5OP_RESET_STATS = 0x40  →  0x0000007b | (0x40 << 25) = 0x8000007b
+//   M5OP_EXIT        = 0x21  →  0x0000007b | (0x21 << 25) = 0x4200007b
+void setStats(int enable) {
+    if (enable) {
+        register long _a0 asm("a0") = 0;  // delay  = 0 ticks
+        register long _a1 asm("a1") = 0;  // period = 0 (one-shot)
+        asm volatile(".long 0x8000007b" :: "r"(_a0), "r"(_a1));
+    } else {
+        register long _a0 asm("a0") = 0;  // exit code
+        register long _a1 asm("a1") = 0;
+        asm volatile(".long 0x4200007b" :: "r"(_a0), "r"(_a1));
+    }
+}
 
 void __attribute__((noreturn)) tohost_exit(uintptr_t code) {
     _linux_exit((int)code);

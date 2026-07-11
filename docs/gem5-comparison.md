@@ -41,27 +41,30 @@ but with different startup and exit code:
 | aspect | HTIF binary | Linux binary |
 |--------|-------------|--------------|
 | entry point | 0x80000000 | 0x10000 |
-| `setStats()` | reads `mcycle`/`minstret` CSRs | no-op |
-| exit | write to `tohost` | `ecall a7=93` |
-| teardown | `sprintf` + `printstr` (via HTIF) | none (setStats is no-op, so counters are 0) |
+| `setStats(1)` | reads `mcycle`/`minstret` CSRs | `m5_reset_stats(0,0)` — gem5 pseudo-op (opcode `0x7b`, funct7=`0x40`), zeroes all counters |
+| `setStats(0)` | reads `mcycle`/`minstret` CSRs | `m5_exit(0)` — gem5 pseudo-op (funct7=`0x21`), terminates simulation; stats file covers ROI only |
+| exit | write to `tohost` | unreachable after `m5_exit` |
+| teardown | `sprintf` + `printstr` (via HTIF) | none |
 
-### Measurement asymmetry
+### Measurement window
 
-Horologium measures **kernel-only** IPC: `Experiment.RunOne` attaches a
-`SetStatsObserver` that snapshots the pipeline `DialBoard` at the first
-instruction of `setStats(1)` and `setStats(0)`, then subtracts to isolate the
-kernel interval. The `PREALLOCATE` warmup region runs before `setStats(1)` and
-warms the caches; the counters only cover the ROI.
+Both simulators measure **kernel-only** IPC via the same `setStats` ROI boundary.
 
-gem5 measures the **full run** IPC, because the Linux binary's `setStats` is a
-no-op — gem5 has no equivalent ROI instrumentation. Its committed-instruction
-count includes startup + kernel + any teardown.
+Horologium: `Experiment.RunOne` attaches a `SetStatsObserver` that snapshots the
+pipeline `DialBoard` at the first instruction of `setStats(1)` and `setStats(0)`,
+then subtracts to isolate the kernel interval.
 
-As a result, `Δinsts` is large and negative for all workloads: it measures
-`(Horo_kernel_retired − gem5_full_committed) / gem5_full_committed`. This is
-expected and reflects the startup/exit overhead in gem5's count, not a kernel
-divergence. The IPC column compares actual throughput of each simulator's
-measured window — kernel-only for Horologium, full-run for gem5.
+gem5: `setStats(1)` in `syscalls_linux.c` emits `m5_reset_stats(0,0)` (gem5
+RISC-V pseudo-op, opcode `0x7b`, funct7=`0x40`, a0=a1=0), zeroing all statistics
+counters. `setStats(0)` emits `m5_exit(0)` (funct7=`0x21`), terminating the
+simulation immediately; the stats file therefore contains only the kernel-interval
+counts. gem5 reads its arguments from the ABI registers a0/a1 (not from the
+instruction's register-field encoding, which is always x0).
+
+The `PREALLOCATE` warmup region runs before `setStats(1)` in both cases and warms
+the caches; neither simulator's counters cover it.
+
+`Δinsts` ≈ 0% for all workloads confirms the windows are aligned.
 
 ## Results
 
@@ -69,56 +72,57 @@ Horologium (w2): ROB=30, IQ=5×8 per-class, L1 16KB, LoadHit=4, Bypass=1, DivLat
 gem5 O3CPU SE: width=2, ROB=30, IQ=40 flat (matched total), L1 16KB, TournamentBP, RAS=16, DivLat=23.
 Run with: `bash scripts/gem5-compare.sh`
 
-Default run (`--mem-lat-ns 30ns`, `--bypass-lat 1` matching Olympia calibration):
+Default run (`--mem-lat-ns 30ns`, `--bypass-lat 1` matching Olympia calibration).
+Both gem5 and Horologium measure kernel-only IPC; Δinsts ≈ 0% confirms aligned windows.
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δinsts |
 |----------|----------|----------|-----------|--------|
-| median   | 0.682    | 0.527    | 0.773     | -59.6% |
-| qsort    | 0.818    | 0.576    | 0.705     | -45.5% |
-| rsort    | 1.292    | 1.264    | 0.978     | -53.1% |
-| towers   | 0.921    | 0.751    | 0.816     | -52.2% |
-| vvadd    | 1.108    | 1.072    | 0.968     | -62.0% |
-| memcpy   | 0.667    | 0.321    | 0.481     | -64.5% |
-| multiply | 1.786    | 1.689    | 0.946     | -50.5% |
-| gcd      | 0.323    | 0.229    | 0.711     | -60.3% |
-| treesum  | 1.705    | 0.865    | 0.507     | -78.3% |
-| pchase   | 0.442    | 0.255    | 0.577     | -88.9% |
+| median   | 0.7872   | 0.5270   | 0.669     | +0.2%  |
+| qsort    | 0.6184   | 0.5762   | 0.932     | +0.0%  |
+| rsort    | 1.3237   | 1.2637   | 0.955     | +0.0%  |
+| towers   | 1.1726   | 0.7510   | 0.640     | +0.6%  |
+| vvadd    | 1.4537   | 1.0721   | 0.737     | +0.3%  |
+| memcpy   | 0.7268   | 0.3206   | 0.441     | +0.1%  |
+| multiply | 1.8560   | 1.6889   | 0.910     | +0.0%  |
+| gcd      | 0.2790   | 0.2294   | 0.822     | +0.1%  |
+| treesum  | 1.6610   | 0.8647   | 0.521     | +0.1%  |
+| pchase   | 0.1313   | 0.2554   | **1.945** | +0.0%  |
 
 With `--bypass-lat 0` (matching gem5's 0-cycle result forwarding):
 
 | workload | gem5 IPC | Horo IPC | H/G ratio | Δ from bypass=1 |
 |----------|----------|----------|-----------|-----------------|
-| median   | 0.682    | 0.626    | 0.918     | +19%            |
-| qsort    | 0.818    | 0.687    | 0.840     | +19%            |
-| rsort    | 1.292    | 1.528    | **1.183** | +21%            |
-| towers   | 0.921    | 0.837    | 0.909     | +11%            |
-| vvadd    | 1.108    | 1.088    | 0.982     | +1%             |
-| memcpy   | 0.667    | 0.328    | 0.491     | +2%             |
-| multiply | 1.786    | 1.743    | 0.976     | +3%             |
-| gcd      | 0.323    | 0.240    | 0.743     | +4%             |
-| treesum  | 1.705    | 0.796    | 0.467     | -5%             |
-| pchase   | 0.442    | 0.302    | 0.682     | +18%            |
+| median   | 0.7872   | 0.6263   | 0.796     | +19%            |
+| qsort    | 0.6184   | 0.6871   | **1.111** | +19%            |
+| rsort    | 1.3237   | 1.5279   | **1.154** | +21%            |
+| towers   | 1.1726   | 0.8369   | 0.714     | +11%            |
+| vvadd    | 1.4537   | 1.0880   | 0.748     | +1%             |
+| memcpy   | 0.7268   | 0.3276   | 0.451     | +2%             |
+| multiply | 1.8560   | 1.7432   | 0.939     | +3%             |
+| gcd      | 0.2790   | 0.2396   | 0.859     | +0.1%           |
+| treesum  | 1.6610   | 0.7962   | 0.479     | -8%             |
+| pchase   | 0.1313   | 0.3016   | **2.297** | +18%            |
 
 With `--mem-lat-ns 10ns` (eliminating DRAM asymmetry, bypass=1):
 
 | workload | gem5 IPC | Horo IPC | H/G ratio |
 |----------|----------|----------|-----------|
-| median   | 0.736    | 0.527    | 0.716     |
-| qsort    | 0.835    | 0.576    | 0.690     |
-| rsort    | 1.347    | 1.264    | 0.938     |
-| towers   | 1.010    | 0.751    | 0.744     |
-| vvadd    | 1.399    | 1.072    | 0.766     |
-| memcpy   | 0.988    | 0.321    | 0.325     |
-| multiply | 1.815    | 1.689    | 0.931     |
-| gcd      | 0.323    | 0.229    | 0.710     |
-| treesum  | 1.716    | 0.865    | 0.504     |
-| pchase   | 0.655    | 0.255    | 0.390     |
+| median   | 0.7901   | 0.5270   | 0.667     |
+| qsort    | 0.6185   | 0.5762   | 0.932     |
+| rsort    | 1.3418   | 1.2637   | 0.942     |
+| towers   | 1.1807   | 0.7510   | 0.636     |
+| vvadd    | 1.4705   | 1.0721   | 0.729     |
+| memcpy   | 1.0864   | 0.3206   | 0.295     |
+| multiply | 1.8584   | 1.6889   | 0.909     |
+| gcd      | 0.2792   | 0.2294   | 0.822     |
+| treesum  | 1.6658   | 0.8647   | 0.519     |
+| pchase   | 0.2181   | 0.2554   | **1.171** |
 
 H/G ratio > 1 means Horologium has higher IPC than gem5.
 
 Note: the 10ns DRAM variant does not change Horologium IPC (HtifMemory is always ~10-cycle
-regardless of `--mem-lat-ns`); only gem5's IPC changes. So this variant isolates the effect
-of gem5's DRAM latency on its full-run IPC.
+regardless of `--mem-lat-ns`); only gem5's IPC changes. This variant isolates the effect
+of gem5's DRAM latency on the kernel-only IPC.
 
 ## What this shows
 
@@ -126,26 +130,29 @@ of gem5's DRAM latency on its full-run IPC.
 
 Running `--bypass-lat 0` to match gem5's 0-cycle result forwarding:
 
-- **median, qsort, rsort**: bypass=0 gains +19–21%. rsort flips to Horologium leading (1.183).
-  LTage's global-history prediction outperforms TournamentBP on sort kernels once bypass
-  latency is matched.
+- **median, qsort, rsort**: bypass=0 gains +19–21%. qsort and rsort flip to Horologium leading
+  (H/G 1.111 and 1.154 respectively). LTage's global-history prediction outperforms
+  TournamentBP on sort kernels once bypass latency is matched.
 - **vvadd, multiply, gcd**: small gains (1–4%). Residual gaps are from FU count differences
   (gem5 has 2× IntMultDiv vs Horologium's single shared divider for gcd) and potential
   write-allocate cache miss patterns.
-- **treesum**: bypass=0 *reduces* Horologium IPC by 8% (0.865 → 0.796, H/G 0.507 → 0.467)
+- **treesum**: bypass=0 *reduces* Horologium IPC by 8% (0.865 → 0.796, H/G 0.521 → 0.479)
   — not zero effect. Branch mispredicts are unchanged (499 → 500), but D-cache misses
   increase by 138 and dispatch stall cycles by 1 479, consistent with wrong-path execution
-  reaching deeper into the cache under faster forwarding. The ~2× H/G gap is primarily
-  **measurement asymmetry**: gem5 full-run commits 53 272 instructions (make_tree, startup,
-  PREALLOCATE traversal, kernel, teardown) while Horologium measures only the kernel interval
-  (11 539 instructions). See "treesum: predictor sweep" below.
-- **towers**: bypass=0 gains +11% (0.816 → 0.909). Recursive Hanoi is more compute-bound
+  reaching deeper into the cache under faster forwarding. With ROI instrumentation both
+  simulators now commit ~11 530 kernel-only instructions (Δinsts +0.1%). The remaining
+  H/G gap is genuine simulation divergence: see "treesum: predictor sweep" below.
+- **towers**: bypass=0 gains +11% (0.751 → 0.837). Recursive Hanoi is more compute-bound
   than treesum, making bypass latency a larger factor. A predictor sweep finds the same
   result as treesum: TournamentBP reduces Horologium IPC (0.708 vs LTage 0.751) due to
   extra memory-order violations.
-- **pchase**: bypass=0 gains +18% (0.577 → 0.682). The kernel is cold-cache (the
-  `PREALLOCATE` phase warms a *different* permutation than the one the kernel chases),
-  so the workload is heavily DRAM-miss-bound regardless of bypass latency.
+- **pchase**: bypass=0 gains +18% (0.255 → 0.302, H/G 1.945 → 2.297). The kernel is
+  cold-cache (the `PREALLOCATE` phase warms a *different* permutation than the one the kernel
+  chases), so the workload is heavily DRAM-miss-bound regardless of bypass latency. With ROI
+  instrumentation, gem5 kernel-only IPC (0.131) is now far lower than Horologium's (0.255)
+  because Horologium's HtifMemory has ~10-cycle miss latency while gem5's SimpleMemory is
+  30 ns ≈ 30 cycles; pchase is entirely latency-bound. The `--mem-lat-ns 10ns` variant
+  reduces the gap (gem5 0.218, H/G 1.171).
 - **memcpy**: bypass=0 has near-zero effect (+2%, 0.481 → 0.491). The gap is not
   bypass-driven; see "memcpy: PREALLOCATE elimination + total cache thrashing" below.
 
@@ -158,9 +165,11 @@ in-order dispatch, the global issue width saturates before IQ class boundaries c
 **pchase: kernel window is cold-cache:**
 
 The pchase `PREALLOCATE` warms a first permutation, then `init_permutation()` re-shuffles
-before the kernel. The kernel chases a second permutation that the I-cache never saw.
-This explains the low kernel IPC (0.255) and why reducing DRAM latency helps gem5 (its
-full-run includes the warm PREALLOCATE phase) but not Horologium's kernel-only measurement.
+before the kernel. The kernel chases a second permutation the cache never saw. Both
+simulators now measure this cold-cache kernel only. gem5's low kernel IPC (0.131 vs
+Horologium 0.255) is primarily DRAM latency: gem5 SimpleMemory 30 ns vs Horologium
+HtifMemory ~10 cycles. The `--mem-lat-ns 10ns` variant closes most of the gap
+(gem5 0.218, H/G 1.171).
 
 **memcpy: PREALLOCATE elimination + total cache thrashing:**
 
@@ -190,22 +199,19 @@ Horologium counters show 4238 D-misses / 8021 accesses = **52.8% miss rate**,
 
 gem5's L1 D-cache is 8-way (32 sets), which changes the set mapping but not the outcome:
 with 250 lines/array the per-set occupancy rises to ~16 lines vs 8 ways, so gem5 also
-fully thrashes. gem5 stats confirm: 7495 misses / 16 022 accesses = **46.8% miss rate**
-(full-run; the denominator includes startup accesses that partially warm the cache before
-`setStats` would fire). The IPC gap (0.321 vs 0.667) is therefore primarily a measurement
-asymmetry: gem5's full-run number averages in startup and verification phases that access
-a much smaller working set and run at much higher IPC; Horologium's kernel-only number
-isolates the cold, fully-thrashing streaming copy.
+fully thrashes. gem5 kernel-only stats show a similar miss rate. With ROI instrumentation
+both simulators measure the cold, fully-thrashing streaming copy; the IPC gap (0.321 vs
+0.727) reflects gem5's DRAM latency (30 ns) and wider cache (8-way thrash pattern differs),
+not startup or teardown overhead.
 
-**treesum: predictor sweep and measurement asymmetry:**
+**treesum: predictor sweep:**
 
-The ~2× H/G gap (gem5 1.705 vs Horologium 0.865) is primarily **measurement asymmetry**.
-gem5 full-run commits 53 272 instructions spanning make_tree, startup, a full PREALLOCATE
-tree traversal, the kernel traversal, and teardown; Horologium measures only the kernel
-traversal (11 539 instructions). gem5 records 209 conditional mispredictions over 31 047
-cycles — the low mispredict count reflects that startup and PREALLOCATE phases dominate
-its cycle budget at high IPC, diluting branch overhead. A like-for-like comparison would
-require gem5 ROI instrumentation.
+With ROI instrumentation both simulators commit ~11 530 kernel-only instructions (Δinsts
++0.1%). The H/G gap (gem5 1.661 vs Horologium 0.865, ratio 0.521) is genuine simulation
+divergence. gem5 records ~499 conditional mispredictions over ~6 924 kernel cycles with
+TournamentBP; the gap reflects structural differences between gem5's O3CPU (0-cycle
+forwarding by default, full out-of-order windows, TournamentBP local history) and
+Horologium (1-cycle bypass, 30-entry ROB, LTage).
 
 Predictor sweep (Horologium kernel-only, bypass=1):
 
@@ -250,12 +256,12 @@ Key findings:
    compute-bound workloads.
 
 2. **Branch predictor quality**: Predictor differences do not explain the treesum H/G gap.
-   The ~2× gap is primarily measurement asymmetry (gem5 full-run vs Horologium kernel-only;
-   see "treesum: predictor sweep"). Using TournamentBP inside Horologium *reduces* IPC for
-   both treesum (0.742 vs LTage 0.865) and towers (0.708 vs 0.751), driven by additional
-   memory-order violations from TournamentBP's different speculative execution pattern. The
-   null-check `beqz` in tree_sum is nearly unpredictable: LTage (499 mispredicts) saves only
-   ~16 mispredictions vs always_taken (515), so predictor quality is not a lever here.
+   Using TournamentBP inside Horologium *reduces* IPC for both treesum (0.742 vs LTage 0.865)
+   and towers (0.708 vs 0.751), driven by additional memory-order violations from
+   TournamentBP's different speculative execution pattern. The null-check `beqz` in tree_sum
+   is nearly unpredictable: LTage (499 mispredicts) saves only ~16 mispredictions vs
+   always_taken (515), so predictor quality is not a lever here. The residual H/G gap for
+   treesum is genuine simulation divergence (0-cycle vs 1-cycle forwarding, ROB/IQ differences).
 
 3. **DIV latency**: Both simulators use `--div-lat 23` (matched). The residual gcd
    gap comes from FU count (gem5 has 2× IntMultDiv units vs Horologium's single
