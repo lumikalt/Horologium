@@ -40,7 +40,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-WIDTH=2; ROB=30; IQ=8; DIV_LAT=23; BYPASS_LAT=1; MEM_LAT_NS="30ns"; FLAT_IQ=false
+WIDTH=2; ROB=30; IQ=8; DIV_LAT=23; BYPASS_LAT=1; MEM_LAT_NS="30ns"; FLAT_IQ=false; STORE_SETS=false
 PREDICTOR_JSON='{"type":"l_tage"}'
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -53,6 +53,7 @@ while [[ $# -gt 0 ]]; do
         --flat-iq)              FLAT_IQ=true;                shift ;;
         --structurally-matched) BYPASS_LAT=0; MEM_LAT_NS="10ns"; shift ;;
         --predictor-json)       PREDICTOR_JSON=$2;           shift 2 ;;
+        --enable-store-sets)    STORE_SETS=true;             shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -72,7 +73,8 @@ cat > "$TMP/sweep.json" <<JSON
   "i_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
   "d_cache":{"capacity_bytes":16384,"ways":4,"block_bytes":64,"miss_latency":10},
   "store_buffer_capacity":2,
-  "fu_latency":{"load_hit_latency":4,"bypass_latency":${BYPASS_LAT},"div_latency":${DIV_LAT}}
+  "fu_latency":{"load_hit_latency":4,"bypass_latency":${BYPASS_LAT},"div_latency":${DIV_LAT}},
+  "enable_store_sets":${STORE_SETS}
 }}]
 JSON
 
@@ -81,8 +83,9 @@ mkdir -p m5out-compare
 
 IQ_MODE="per-class"
 [[ "$FLAT_IQ" == "true" ]] && IQ_MODE="flat"
-printf "\nHorologium vs gem5 O3CPU — w%d  ROB=%d  Horo-IQ=%s(%dx%d=%d)  gem5-IQ=%d  L1 16KB  LoadHit=4  Bypass=%d  DivLat=%d  MemLat=%s\n\n" \
-    "$WIDTH" "$ROB" "$IQ_MODE" 5 "$IQ" "$GEM5_IQ" "$GEM5_IQ" "$BYPASS_LAT" "$DIV_LAT" "$MEM_LAT_NS"
+SS_TAG=""; [[ "$STORE_SETS" == "true" ]] && SS_TAG="  StoreSets=on"
+printf "\nHorologium vs gem5 O3CPU — w%d  ROB=%d  Horo-IQ=%s(%dx%d=%d)  gem5-IQ=%d  L1 16KB  LoadHit=4  Bypass=%d  DivLat=%d  MemLat=%s%s\n\n" \
+    "$WIDTH" "$ROB" "$IQ_MODE" 5 "$IQ" "$GEM5_IQ" "$GEM5_IQ" "$BYPASS_LAT" "$DIV_LAT" "$MEM_LAT_NS" "$SS_TAG"
 printf "%-10s  %8s  %9s  %9s  %8s\n" benchmark "gem5 IPC" "Horo IPC" "H/G ratio" "Δinsts"
 printf "%-10s  %8s  %9s  %9s  %8s\n" ---------- -------- --------- --------- --------
 
@@ -128,8 +131,8 @@ done
 printf "\nNotes:\n"
 printf "  gem5 : RiscvO3CPU SE mode, TournamentBP+RAS(16), flat IQ(%d), L1 16KB split, %s DRAM, IntDiv=%d\n" \
     "$GEM5_IQ" "$MEM_LAT_NS" "$DIV_LAT"
-printf "  Horo : OooeTrain — %s IQ(%s), RAS(16), predictor=%s, HTIF binary (kernel-only IPC), Bypass=%d, DivLat=%d\n" \
-    "$IQ_MODE" "$([[ "$FLAT_IQ" == "true" ]] && echo "1×$GEM5_IQ" || echo "5×$IQ")" "$PREDICTOR_JSON" "$BYPASS_LAT" "$DIV_LAT"
+printf "  Horo : OooeTrain — %s IQ(%s), RAS(16), predictor=%s, StoreSets=%s, HTIF binary (kernel-only IPC), Bypass=%d, DivLat=%d\n" \
+    "$IQ_MODE" "$([[ "$FLAT_IQ" == "true" ]] && echo "1×$GEM5_IQ" || echo "5×$IQ")" "$PREDICTOR_JSON" "$STORE_SETS" "$BYPASS_LAT" "$DIV_LAT"
 printf "  ratio: Horo IPC / gem5 IPC  (>1 = Horologium faster than gem5)\n"
 printf "  Δinsts: (Horo_retired − gem5_committed) / gem5_committed\n"
 printf "          Both measure kernel-only: gem5 setStats(1) fires m5_reset_stats(0,0) and\n"
