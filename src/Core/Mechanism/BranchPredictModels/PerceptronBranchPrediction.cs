@@ -15,7 +15,7 @@ public sealed class PerceptronPredictor : IBranchPredictor {
     private readonly int _threshold;     // θ = floor(1.93·H + 14)
     private readonly sbyte[][] _weights; // [tableSize][H+1]; [i][0] = bias
     private readonly int _tableMask;     // tableSize must be a power of 2
-    private ulong _ghr;                  // bit history, LSB = most recent; 1=taken
+    private readonly SpeculativeGlobalHistory _hist; // bit history, LSB = most recent; 1=taken
     private readonly Dictionary<ulong, ulong> _btb = new();
 
     /// <summary>
@@ -33,6 +33,7 @@ public sealed class PerceptronPredictor : IBranchPredictor {
         _tableMask = tableSize - 1;
         _weights = new sbyte[tableSize][];
         for (var i = 0; i < tableSize; i++) _weights[i] = new sbyte[historyLength + 1]; // zero = unbiased
+        _hist = new SpeculativeGlobalHistory(historyLength);
     }
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
@@ -50,19 +51,25 @@ public sealed class PerceptronPredictor : IBranchPredictor {
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
 
-        int y = DotProduct(pc);
-        bool pred = y >= 0;
-        if (pred != taken || Math.Abs(y) <= _threshold) Train(pc, taken);
-
-        _ghr = ((_ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << _historyLength) - 1);
+        _hist.Commit(taken, () => {
+            int y = DotProduct(pc);
+            bool pred = y >= 0;
+            if (pred != taken || Math.Abs(y) <= _threshold) Train(pc, taken);
+        });
     }
+
+    /// <inheritdoc />
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);
+
+    /// <inheritdoc />
+    public void RecoverSpeculativeHistory() => _hist.Recover();
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private int DotProduct(ulong pc) {
         sbyte[] w = _weights[TableIdx(pc)];
         int y = w[0]; // bias
-        ulong ghr = _ghr;
+        ulong ghr = _hist.Value;
         for (var i = 0; i < _historyLength; i++) {
             int xi = ((ghr >> i) & 1) == 1 ? 1 : -1;
             y += w[i + 1] * xi;
@@ -75,7 +82,7 @@ public sealed class PerceptronPredictor : IBranchPredictor {
         sbyte[] w = _weights[TableIdx(pc)];
         int t = taken ? 1 : -1;
         w[0] = Clamp(w[0] + t);
-        ulong ghr = _ghr;
+        ulong ghr = _hist.Value;
         for (var i = 0; i < _historyLength; i++) {
             int xi = ((ghr >> i) & 1) == 1 ? 1 : -1;
             w[i + 1] = Clamp(w[i + 1] + t * xi);

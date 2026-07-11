@@ -30,7 +30,7 @@ public sealed class IttagePredictor : IBranchPredictor {
     private readonly byte[] _base;            // 2-bit bimodal for direction (taken ≥ 2)
     private readonly IttageEntry[][] _tables; // target-storing ITTAGE tables
     private readonly Dictionary<ulong, ulong> _btb = new();
-    private ulong _ghr;
+    private readonly SpeculativeGlobalHistory _hist;
 
     /// <summary>
     /// Constructs an ITTAGE predictor.
@@ -42,6 +42,8 @@ public sealed class IttagePredictor : IBranchPredictor {
         _tables = new IttageEntry[IttagePredictor.NumTables][];
         for (var t = 0; t < IttagePredictor.NumTables; t++)
             _tables[t] = new IttageEntry[1 << IttagePredictor.TableIndexBits];
+
+        _hist = new SpeculativeGlobalHistory(IttagePredictor.MaxHist);
     }
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
@@ -54,29 +56,34 @@ public sealed class IttagePredictor : IBranchPredictor {
     }
 
     /// <inheritdoc />
-    public void Update(ulong pc, bool taken, ulong actualTarget) {
-        // Capture state before any writes.
-        int provider = FindProvider(pc);
-        ulong prevTarget = provider >= 0
-            ? _tables[provider][TableIdx(pc, provider)].Target
-            : _btb.TryGetValue(pc, out ulong bt)
-                ? bt
-                : pc + 4;
-        bool targetCorrect = prevTarget == actualTarget;
+    public void Update(ulong pc, bool taken, ulong actualTarget) =>
+        _hist.Commit(taken, () => {
+            // Capture state before any writes.
+            int provider = FindProvider(pc);
+            ulong prevTarget = provider >= 0
+                ? _tables[provider][TableIdx(pc, provider)].Target
+                : _btb.TryGetValue(pc, out ulong bt)
+                    ? bt
+                    : pc + 4;
+            bool targetCorrect = prevTarget == actualTarget;
 
-        if (taken) _btb[pc] = actualTarget;
-        Sat2(ref _base[BaseIdx(pc)], taken);
+            if (taken) _btb[pc] = actualTarget;
+            Sat2(ref _base[BaseIdx(pc)], taken);
 
-        if (provider >= 0) {
-            ref IttageEntry e = ref _tables[provider][TableIdx(pc, provider)];
-            e.Target = actualTarget;
-            if (!targetCorrect && e.U > 0) e.U--;
-        }
+            if (provider >= 0) {
+                ref IttageEntry e = ref _tables[provider][TableIdx(pc, provider)];
+                e.Target = actualTarget;
+                if (!targetCorrect && e.U > 0) e.U--;
+            }
 
-        if (!targetCorrect) AllocateOrDecay(pc, actualTarget, provider + 1);
+            if (!targetCorrect) AllocateOrDecay(pc, actualTarget, provider + 1);
+        });
 
-        _ghr = ((_ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << IttagePredictor.MaxHist) - 1);
-    }
+    /// <inheritdoc />
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);
+
+    /// <inheritdoc />
+    public void RecoverSpeculativeHistory() => _hist.Recover();
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
@@ -136,7 +143,7 @@ public sealed class IttagePredictor : IBranchPredictor {
     }
 
     private int FoldHist(int histLen, int outBits) {
-        ulong hist = _ghr & ((1UL << histLen) - 1);
+        ulong hist = _hist.Value & ((1UL << histLen) - 1);
         int mask = (1 << outBits) - 1;
         var res = 0;
         for (var sh = 0; sh < histLen; sh += outBits) res ^= (int)((hist >> sh) & (ulong)mask);

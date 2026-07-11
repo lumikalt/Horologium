@@ -74,7 +74,7 @@ public sealed class GselectPredictor : IBranchPredictor {
     private readonly int _satMax;
     private readonly byte[] _pht;
     private readonly ulong[] _btb;
-    private int _ghr;
+    private readonly SpeculativeGlobalHistory _hist;
 
     /// <summary>
     /// Constructs a Gselect predictor with the given history and PC lengths.
@@ -97,6 +97,7 @@ public sealed class GselectPredictor : IBranchPredictor {
         _satMax = 3;
         _pht = new byte[phtSize];
         _btb = new ulong[phtSize];
+        _hist = new SpeculativeGlobalHistory(historyBits);
         Array.Fill(_pht, (byte)1); // weakly not-taken
     }
 
@@ -109,20 +110,25 @@ public sealed class GselectPredictor : IBranchPredictor {
     }
 
     /// <inheritdoc />
-    public void Update(ulong pc, bool taken, ulong actualTarget) {
-        int idx = PhtIndex(pc);
-        _btb[idx] = actualTarget;
-        switch (taken) {
-            case true when _pht[idx] < _satMax: _pht[idx]++; break;
-            case false when _pht[idx] > 0:      _pht[idx]--; break;
-        }
+    public void Update(ulong pc, bool taken, ulong actualTarget) =>
+        _hist.Commit(taken, () => {
+            int idx = PhtIndex(pc);
+            _btb[idx] = actualTarget;
+            switch (taken) {
+                case true when _pht[idx] < _satMax: _pht[idx]++; break;
+                case false when _pht[idx] > 0:      _pht[idx]--; break;
+            }
+        });
 
-        _ghr = ((_ghr << 1) | (taken ? 1 : 0)) & _ghrMask;
-    }
+    /// <inheritdoc />
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);
+
+    /// <inheritdoc />
+    public void RecoverSpeculativeHistory() => _hist.Recover();
 
     // index = GHR occupies the upper historyBits; PC occupies the lower pcBits
     private int PhtIndex(ulong pc) =>
-        ((_ghr & _ghrMask) << _pcBits) | ((int)(pc >> 2) & _pcMask);
+        (((int)_hist.Value & _ghrMask) << _pcBits) | ((int)(pc >> 2) & _pcMask);
 }
 
 /// Gshare: global history register; PHT index = GHR XOR lower PC bits.
@@ -133,7 +139,7 @@ public sealed class GsharePredictor : IBranchPredictor {
     private readonly int _satMax;
     private readonly byte[] _pht;
     private readonly ulong[] _btb;
-    private int _ghr;
+    private readonly SpeculativeGlobalHistory _hist;
 
     /// <summary>
     /// Constructs a Gshare predictor with the given history length.
@@ -148,6 +154,7 @@ public sealed class GsharePredictor : IBranchPredictor {
         _satMax = 3;
         _pht = new byte[phtSize];
         _btb = new ulong[phtSize];
+        _hist = new SpeculativeGlobalHistory(historyBits);
         Array.Fill(_pht, (byte)1); // weakly not-taken
     }
 
@@ -160,16 +167,21 @@ public sealed class GsharePredictor : IBranchPredictor {
     }
 
     /// <inheritdoc />
-    public void Update(ulong pc, bool taken, ulong actualTarget) {
-        int idx = PhtIndex(pc);
-        _btb[idx] = actualTarget;
-        switch (taken) {
-            case true when _pht[idx] < _satMax: _pht[idx]++; break;
-            case false when _pht[idx] > 0:      _pht[idx]--; break;
-        }
+    public void Update(ulong pc, bool taken, ulong actualTarget) =>
+        _hist.Commit(taken, () => {
+            int idx = PhtIndex(pc);
+            _btb[idx] = actualTarget;
+            switch (taken) {
+                case true when _pht[idx] < _satMax: _pht[idx]++; break;
+                case false when _pht[idx] > 0:      _pht[idx]--; break;
+            }
+        });
 
-        _ghr = ((_ghr << 1) | (taken ? 1 : 0)) & _ghrMask;
-    }
+    /// <inheritdoc />
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);
 
-    private int PhtIndex(ulong pc) => ((int)(pc >> 2) ^ _ghr) & _ghrMask;
+    /// <inheritdoc />
+    public void RecoverSpeculativeHistory() => _hist.Recover();
+
+    private int PhtIndex(ulong pc) => ((int)(pc >> 2) ^ (int)_hist.Value) & _ghrMask;
 }

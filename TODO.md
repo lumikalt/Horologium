@@ -129,9 +129,10 @@ Remaining delta, in rough dependency order:
 
 ## Branch Prediction
 
-- [ ] Extend speculative global history to the non-TAGE GHR predictors (Tournament, Gshare/Gselect,
-  Perceptron/HashedPerceptron, Correlated, ITTAGE, IMLI) and the LLBP/VLA-TAGE context registers, which are
-  still commit-time. The TAGE family already has it via `LTageBranchPrediction`'s `_committedGhr` shadow.
+- [x] Extend speculative global history to the non-TAGE GHR predictors (Gshare, Gselect, Perceptron,
+  HashedPerceptron, ITTAGE, Tournament) via the shared `SpeculativeGlobalHistory` helper.
+- [ ] Extend speculative history to the per-PC *local* history registers (Tournament BHT, Correlated) and the
+  IMLI loop counter, which are still commit-time. Also the LLBP/VLA-TAGE context registers.
 - [ ] Local (per-PC) history predictor component to close the residual treesum gap (LTage mispredicts 322 vs
   gem5 TournamentBP's 70 with speculative history already on; the gap is local-history structure, not timing).
 

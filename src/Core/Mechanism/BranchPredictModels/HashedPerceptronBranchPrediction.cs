@@ -25,7 +25,7 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
     private readonly sbyte[][] _tables; // [numTables][tableSize]
     private readonly int _tableMask;
     private readonly int _indexBits; // log2(tableSize), used for XOR-folding
-    private ulong _ghr;
+    private readonly SpeculativeGlobalHistory _hist;
     private readonly Dictionary<ulong, ulong> _btb = new();
 
     /// <summary>
@@ -45,6 +45,7 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
         _indexBits = BitWidth(tableSize);
         _tables = new sbyte[_histLengths.Length][];
         for (var i = 0; i < _histLengths.Length; i++) _tables[i] = new sbyte[tableSize];
+        _hist = new SpeculativeGlobalHistory(_maxHist);
     }
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
@@ -61,11 +62,18 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
     /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
-        int y = Sum(pc);
-        bool pred = y >= 0;
-        if (pred != taken || Math.Abs(y) <= _threshold) Train(pc, taken);
-        _ghr = ((_ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << _maxHist) - 1);
+        _hist.Commit(taken, () => {
+            int y = Sum(pc);
+            bool pred = y >= 0;
+            if (pred != taken || Math.Abs(y) <= _threshold) Train(pc, taken);
+        });
     }
+
+    /// <inheritdoc />
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);
+
+    /// <inheritdoc />
+    public void RecoverSpeculativeHistory() => _hist.Recover();
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
@@ -91,7 +99,7 @@ public sealed class HashedPerceptronPredictor : IBranchPredictor {
     }
 
     private int FoldHist(int histLen) {
-        ulong hist = _ghr & ((1UL << histLen) - 1);
+        ulong hist = _hist.Value & ((1UL << histLen) - 1);
         int outMask = (1 << _indexBits) - 1;
         var res = 0;
         for (var sh = 0; sh < histLen; sh += _indexBits) res ^= (int)((hist >> sh) & (ulong)outMask);

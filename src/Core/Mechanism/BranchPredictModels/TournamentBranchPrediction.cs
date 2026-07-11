@@ -11,8 +11,6 @@ namespace Mechanism.BranchPredictModels;
 /// </para>
 /// </summary>
 public sealed class TournamentPredictor : IBranchPredictor {
-    private readonly int _globalHistoryBits;
-
     // Local predictor
     private readonly ulong[] _bht;     // per-PC branch history shift register
     private readonly byte[] _localPht; // 3-bit counters; taken ≥ 4
@@ -27,7 +25,7 @@ public sealed class TournamentPredictor : IBranchPredictor {
     private readonly byte[] _chooser; // 2-bit counters; ≥2 → prefer global
     private readonly int _chooserMask;
 
-    private ulong _ghr; // global history register
+    private readonly SpeculativeGlobalHistory _hist; // global history register
 
     private readonly Dictionary<ulong, ulong> _btb = new();
 
@@ -48,8 +46,6 @@ public sealed class TournamentPredictor : IBranchPredictor {
         int localTableSize = 1024,
         int globalHistoryBits = 12
     ) {
-        _globalHistoryBits = globalHistoryBits;
-
         int bhtSize = localTableSize;
         _bhtMask = bhtSize - 1;
         _bht = new ulong[bhtSize];
@@ -68,6 +64,8 @@ public sealed class TournamentPredictor : IBranchPredictor {
         _chooserMask = chooserSize - 1;
         _chooser = new byte[chooserSize];
         Array.Fill(_chooser, (byte)1); // weakly prefer local
+
+        _hist = new SpeculativeGlobalHistory(globalHistoryBits);
     }
 
     // ── IBranchPredictor ──────────────────────────────────────────────────────
@@ -85,23 +83,29 @@ public sealed class TournamentPredictor : IBranchPredictor {
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
 
-        bool local = LocalPred(pc);
-        bool global = GlobalPred(pc);
-        int ci = ChooserIdx();
+        _hist.Commit(taken, () => {
+            bool local = LocalPred(pc);
+            bool global = GlobalPred(pc);
+            int ci = ChooserIdx();
 
-        // Update both predictors unconditionally.
-        UpdateLocal(pc, taken);
-        UpdateGlobal(pc, taken);
+            // Update both predictors unconditionally.
+            UpdateLocal(pc, taken);
+            UpdateGlobal(pc, taken);
 
-        // Update chooser only when they disagree.
-        if (local != global) {
-            if (global == taken && _chooser[ci] < 3)
-                _chooser[ci]++;
-            else if (local == taken && _chooser[ci] > 0) _chooser[ci]--;
-        }
-
-        _ghr = ((_ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << _globalHistoryBits) - 1);
+            // Update chooser only when they disagree.
+            if (local != global) {
+                if (global == taken && _chooser[ci] < 3)
+                    _chooser[ci]++;
+                else if (local == taken && _chooser[ci] > 0) _chooser[ci]--;
+            }
+        });
     }
+
+    /// <inheritdoc />
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) => _hist.Speculate(predictedTaken);
+
+    /// <inheritdoc />
+    public void RecoverSpeculativeHistory() => _hist.Recover();
 
     // ── Local predictor ───────────────────────────────────────────────────────
 
@@ -141,7 +145,7 @@ public sealed class TournamentPredictor : IBranchPredictor {
     private int BhtIdx(ulong pc) => (int)((pc >> 2) & (ulong)_bhtMask);
 
     private int GlobalIdx(ulong pc) =>
-        (int)((_ghr ^ (pc >> 2)) & (ulong)_globalPhtMask);
+        (int)((_hist.Value ^ (pc >> 2)) & (ulong)_globalPhtMask);
 
-    private int ChooserIdx() => (int)(_ghr & (ulong)_chooserMask);
+    private int ChooserIdx() => (int)(_hist.Value & (ulong)_chooserMask);
 }
