@@ -60,11 +60,15 @@ public sealed class LlbpXPredictor : LlbpPredictor {
 
     /// <inheritdoc />
     protected override void TrainLlbp(ulong pc, bool taken, bool provPred) {
-        uint cid2 = Rcr.CidShallow;
+        // Key off the committed RCR (the committing branch's predict-time context), not the
+        // working RCR, which has already run ahead speculatively by commit time.
+        uint cid2 = CommittedRcr.CidShallow;
 
         if (LlbpIsProvider && LlbpHistIdx >= 0) {
-            // LlbpCtxKey was set by TryLlbpPredict during the preceding Predict call.
-            PatternMap pm = Storage.GetOrCreate(LlbpCtxKey);
+            // Recompute the depth-appropriate context key from the committed RCR rather than
+            // the predict-time LlbpCtxKey (which a younger in-flight branch may have clobbered).
+            uint ctxKey = _ctt.IsDeep(cid2) ? CommittedRcr.CidDeep : cid2;
+            PatternMap pm = Storage.GetOrCreate(ctxKey);
             pm.SatUpdate(LlbpPatternKey, taken);
             if (pm.IsFull()) _ctt.NotifyOverflow(cid2);
         }
@@ -75,7 +79,7 @@ public sealed class LlbpXPredictor : LlbpPredictor {
                 _ctt.NotifyAllocation(cid2, isLong);
                 // Route into the depth-appropriate storage directly, independent of
                 // the current _usedDeep flag (which reflects the last predict, not this update).
-                uint allocCtxKey = isLong ? Rcr.CidDeep : cid2;
+                uint allocCtxKey = isLong ? CommittedRcr.CidDeep : cid2;
                 PatternMap pm = Storage.GetOrCreate(allocCtxKey);
                 pm.AllocateIfAbsent(PatternKey(pc, allocTable), taken);
                 if (pm.IsFull()) _ctt.NotifyOverflow(cid2);

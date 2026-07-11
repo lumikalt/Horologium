@@ -17,8 +17,19 @@ namespace Mechanism.BranchPredictModels;
 /// </para>
 /// </summary>
 public class LlbpPredictor : TageScLPredictor {
+    // Working RCR: advanced speculatively at fetch, used for Predict-time context lookups.
     private protected readonly RollingContextReg Rcr = new();
+    // Architectural RCR shadow: advanced only when a taken branch retires. By the in-order
+    // invariant it equals a committing branch's predict-time context, so training keys off it
+    // (dissolving the predict-time LlbpCtxKey raciness); the speculative RCR restores from it
+    // on flush.
+    private protected readonly RollingContextReg CommittedRcr = new();
     private protected readonly LlbpStorage Storage = new();
+
+    // Latches once the pipeline drives speculative history (out-of-order). Until then the
+    // working RCR is advanced at commit alongside the shadow, so in-order pipelines behave
+    // exactly as a single commit-time RCR (bit-identical).
+    private bool _rcrSpeculative;
 
     /// <summary>True when LLBP (not TAGE) was the final prediction provider for the current branch.</summary>
     protected bool LlbpIsProvider;
@@ -79,16 +90,37 @@ public class LlbpPredictor : TageScLPredictor {
     protected override void OnAfterUpdate(ulong pc, bool taken, bool provPred, int preScore, bool loopWasConfident) {
         base.OnAfterUpdate(pc, taken, provPred, preScore, loopWasConfident);
         TrainLlbp(pc, taken, provPred);
-        if (taken) Rcr.Update(pc);
+        if (taken) {
+            // Advance the committed shadow (predict-time context of the committing branch).
+            CommittedRcr.Update(pc);
+            // In-order: no fetch speculation ran, so keep the working RCR in lock-step.
+            if (!_rcrSpeculative) Rcr.Update(pc);
+        }
     }
 
-    /// <summary>Updates LLBP counters or allocates a new entry on misprediction.</summary>
+    /// <inheritdoc/>
+    public override void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) {
+        base.SpeculativeHistoryUpdate(pc, predictedTaken);
+        _rcrSpeculative = true;
+        if (predictedTaken) Rcr.Update(pc);
+    }
+
+    /// <inheritdoc/>
+    public override void RecoverSpeculativeHistory() {
+        base.RecoverSpeculativeHistory();
+        Rcr.CopyFrom(CommittedRcr);
+    }
+
+    /// <summary>Updates LLBP counters or allocates a new entry on misprediction. Keys the
+    /// context off the committed RCR (the branch's predict-time context); which pattern within
+    /// the context is trained still uses the predict-time LlbpHistIdx/LastProvider, a residual
+    /// out-of-order imprecision that does not affect correctness.</summary>
     protected virtual void TrainLlbp(ulong pc, bool taken, bool provPred) {
-        if (LlbpIsProvider && LlbpHistIdx >= 0) { Storage.GetOrCreate(LlbpCtxKey).SatUpdate(LlbpPatternKey, taken); }
+        if (LlbpIsProvider && LlbpHistIdx >= 0) { Storage.GetOrCreate(CommittedRcr.ContextId).SatUpdate(LlbpPatternKey, taken); }
         else if (provPred != taken) {
             int allocTable = LastProvider + 1;
             if ((uint)allocTable < LTagePredictor.NumTables)
-                Storage.GetOrCreate(LlbpCtxKey).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
+                Storage.GetOrCreate(CommittedRcr.ContextId).AllocateIfAbsent(PatternKey(pc, allocTable), taken);
         }
     }
 
@@ -125,6 +157,19 @@ internal sealed class RollingContextReg {
             _cidShallow = CalcHash(RollingContextReg.WShallow, RollingContextReg.D);
             _cidDeep = CalcHash(RollingContextReg.WDeep, RollingContextReg.D);
         }
+    }
+
+    /// <summary>
+    /// Overwrites this register with a copy of <paramref name="other"/>. Used to restore the
+    /// speculative RCR from the committed shadow on a pipeline flush.
+    /// </summary>
+    public void CopyFrom(RollingContextReg other) {
+        Array.Copy(other._window, _window, _window.Length);
+        _head = other._head;
+        _count = other._count;
+        _ccid = other._ccid;
+        _cidShallow = other._cidShallow;
+        _cidDeep = other._cidDeep;
     }
 
     private uint CalcHash(int n, int start) {

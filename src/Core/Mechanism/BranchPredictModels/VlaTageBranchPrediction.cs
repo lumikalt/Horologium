@@ -24,6 +24,13 @@ namespace Mechanism.BranchPredictModels;
 /// remaining ≤ LoopTermThreshold (5), anticipating the loop exit branch
 /// prediction by the pipeline latency between Issue and Fetch (per the paper).
 /// </para>
+/// <para>
+/// Unlike the global history register (which the base <see cref="LTagePredictor"/> now keeps
+/// speculative), the VLT is intentionally <em>not</em> fetch-speculative: it is driven by
+/// register operand values delivered at execute (<see cref="NotifyLoopBranchExecute"/>), which
+/// are unknown at fetch, so there is no predicted direction to fold in speculatively. The
+/// inherited speculative <c>Ghr</c> is all the fetch-time history VLA-TAGE carries.
+/// </para>
 /// </summary>
 public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredictor {
     private const int VltSize = 8;

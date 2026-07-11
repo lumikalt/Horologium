@@ -119,13 +119,13 @@ public class LTagePredictor : IBranchPredictor {
     }
 
     /// <inheritdoc />
-    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) {
+    public virtual void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) {
         _speculative = true;
         Ghr = ((Ghr << 1) | (predictedTaken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
     }
 
     /// <inheritdoc />
-    public void RecoverSpeculativeHistory() => Ghr = _committedGhr;
+    public virtual void RecoverSpeculativeHistory() => Ghr = _committedGhr;
 
     // ── Extension points for subclasses ──────────────────────────────────────
 

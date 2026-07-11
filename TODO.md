@@ -137,8 +137,14 @@ Remaining delta, in rough dependency order:
 - [x] Fix the cold-BTB fetch crash: direct branches now take their taken target from the statically-known
   `FetchHint.BranchTarget` instead of the predictor's (possibly cold/aliased) BTB, and a cold indirect target
   (0) falls through instead of fetching a null address. Applied to both the OoO and five-stage fetch.
-- [ ] Speculative history for the LLBP/VLA-TAGE context registers (Rolling Context Register, vector-loop
-  state), which sit beside the base `Ghr` and are still commit-time.
+- [x] Speculative history for the LLBP/VLA-TAGE context registers. LLBP's Rolling Context Register is now
+  speculative (working RCR advanced at fetch, committed shadow restored on flush, training keyed off the
+  committed context); measurably improves OoO predictions (llbp median mispredicts 217 → 196). VLA-TAGE's
+  Vector Loop Table is execute-driven (operand values arrive at execute, not fetch) and is intentionally not
+  fetch-speculative — the inherited speculative `Ghr` is all its fetch-time history. Residual OoO imprecision:
+  which pattern *within* an LLBP context is trained still uses predict-time fields (`LlbpHistIdx`/`LastProvider`)
+  that a younger in-flight branch can clobber — a training-quality-only limitation, never a correctness issue,
+  and not worth the full commit-time lookup recompute for a near-inert exotic predictor.
 - [ ] Local (per-PC) history predictor component to close the residual treesum gap (LTage mispredicts 322 vs
   gem5 TournamentBP's 70 with speculative history already on; the gap is local-history structure, not timing).
 
