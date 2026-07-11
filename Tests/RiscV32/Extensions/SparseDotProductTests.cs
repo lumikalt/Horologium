@@ -135,13 +135,13 @@ public class SparseDotProductTests {
             Addi(2, 0, (int)colBase),    // [1]
             Addi(3, 0, (int)xBase),      // [2]
             Addi(4, 0, m),               // [3]  x4 = M
-            Addi(5, 0, 4),               // [4]  x5 = 4
+            Addi(5, 0, 1),               // [4]  x5 = 1 (element stride → 4 bytes after scaling)
             Addi(7, 0, 1),               // [5]  x7 = 1
             Addi(9, 0, (int)resultAddr), // [6]
 
             // u2: IndSource over col offsets — configured first so it primes ahead
             SsStaLdWInds(2, 2), // [7]
-            SsEnd(2, 0, 4, 5),  // [8]  count=M, stride=4; activate
+            SsEnd(2, 0, 4, 5),  // [8]  count=M, stride=1 elem; activate
 
             // u3: gathered x — 2D (config outermost-first), innermost count=1 re-based
             // per element from u2
@@ -152,7 +152,7 @@ public class SparseDotProductTests {
 
             // u1: sparse values, plain 1D
             SsStaLdW(1, 1),    // [13]
-            SsEnd(1, 0, 4, 5), // [14] count=M, stride=4; activate
+            SsEnd(1, 0, 4, 5), // [14] count=M, stride=1 elem; activate
 
             // ── The entire kernel ─────────────────────────────────────────────
             SoVDpW(4, 0),      // [15] u4 = 0.0
@@ -161,7 +161,7 @@ public class SparseDotProductTests {
 
             // Result: 1-element store stream
             SsStaStW(5, 9),    // [18]
-            SsEnd(5, 0, 7, 5), // [19] count=1, stride=4; activate
+            SsEnd(5, 0, 7, 5), // [19] count=1, stride=1 elem; activate
             SoAAddFp(5, 4, 0), // [20] u5 ← u4 + 0 → writes result
             EBreak(),          // [21]
         ];

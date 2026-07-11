@@ -92,6 +92,9 @@ Remaining delta, in rough dependency order:
 - [x] Predicate width conversion `so.p.cv.<dw>.<sw>` (dual width fields) and vector element conversion
   `so.v.cv.<fps>.<wth>` (narrowing/widening; lost-lane behaviour still open in the spec)
 - [ ] Suspended-stream data exchange: `so.v.vload` / `so.v.vstor` (load/store vector data to/from suspended streams)
+- [x] ISA-level stride operands: switch from byte counts to element counts to match Spike and the RTL (`ss.app` and
+  `ss.end` now multiply the register value by element width; stride modifier displacements for Stride target scaled
+  likewise) — binary portability with Spike/RTL restored; all pipeline tests updated
 
 ## RISC-V
 

@@ -159,16 +159,16 @@ public class GemmTests {
         // convention): ss.end adds the innermost dimension.
         //
         //   u1 = A in the order  for i { for j { for k { A[i][k] } } }:
-        //     i: count=N, stride=4N  — advance one row
-        //     j: count=N, stride=0   — j is absent from A's index: when k wraps,
-        //                              move 0 bytes and REPLAY the same row N times
-        //     k: count=N, stride=4   — one row, consecutive floats (innermost, via ss.end)
+        //     i: count=N, stride=N elems  — advance one row
+        //     j: count=N, stride=0        — j is absent from A's index: when k wraps,
+        //                                   move 0 bytes and REPLAY the same row N times
+        //     k: count=N, stride=1 elem   — one row, consecutive floats (innermost, via ss.end)
         //   u2 = B in the order  for i { for j { for k { B[k][j] } } }:
-        //     i: count=N, stride=0   — replay the entire matrix for each i
-        //     j: count=N, stride=4   — next column
-        //     k: count=N, stride=4N  — stepping k jumps a whole row = walk a COLUMN (innermost)
+        //     i: count=N, stride=0        — replay the entire matrix for each i
+        //     j: count=N, stride=1 elem   — next column
+        //     k: count=N, stride=N elems  — stepping k jumps a whole row = walk a COLUMN (innermost)
         //   u4 = C store, row-major, one write per (i,j):
-        //     i: count=N, stride=4N;  j: count=N, stride=4 (innermost)
+        //     i: count=N, stride=N elems;  j: count=N, stride=1 elem (innermost)
         //
         // The loop ([17..21]) — all three induction variables live in the streaming
         // engine as dimension odometers; no loads, no address math, no counters:
@@ -190,25 +190,25 @@ public class GemmTests {
             Addi(2, 0, (int)bBase), // [1]  x2 = bBase
             Addi(3, 0, (int)cBase), // [2]  x3 = cBase
             Addi(4, 0, n),          // [3]  x4 = N
-            Addi(5, 0, 4),          // [4]  x5 = 4
-            Slli(6, 4, 2),          // [5]  x6 = N*4
+            Addi(5, 0, 1),          // [4]  x5 = 1 (element stride → 4 bytes after scaling)
+            Addi(6, 4, 0),          // [5]  x6 = N (element stride for rows → N*4 bytes after scaling)
 
-            // u1 = A, outermost-first: i (N,4N) · j (N,0) · k (N,4)
+            // u1 = A, outermost-first: i (N,N elems) · j (N,0) · k (N,1 elem)
             SsStaLdW(1, 1),    // [6]
-            SsApp(1, 0, 4, 6), // [7]  i: count=N, stride=4N
+            SsApp(1, 0, 4, 6), // [7]  i: count=N, stride=N elems
             SsApp(1, 0, 4, 0), // [8]  j: count=N, stride=0 (replay row)
-            SsEnd(1, 0, 4, 5), // [9]  k (innermost): count=N, stride=4; activate
+            SsEnd(1, 0, 4, 5), // [9]  k (innermost): count=N, stride=1 elem; activate
 
-            // u2 = B, outermost-first: i (N,0) · j (N,4) · k (N,4N)
+            // u2 = B, outermost-first: i (N,0) · j (N,1 elem) · k (N,N elems)
             SsStaLdW(2, 2),    // [10]
             SsApp(2, 0, 4, 0), // [11] i: count=N, stride=0 (replay matrix)
-            SsApp(2, 0, 4, 5), // [12] j: count=N, stride=4
-            SsEnd(2, 0, 4, 6), // [13] k (innermost): count=N, stride=4N (walk column); activate
+            SsApp(2, 0, 4, 5), // [12] j: count=N, stride=1 elem
+            SsEnd(2, 0, 4, 6), // [13] k (innermost): count=N, stride=N elems (walk column); activate
 
-            // u4 = C store, outermost-first: i (N,4N) · j (N,4)
+            // u4 = C store, outermost-first: i (N,N elems) · j (N,1 elem)
             SsStaStW(4, 3),    // [14]
-            SsApp(4, 0, 4, 6), // [15] i: count=N, stride=4N
-            SsEnd(4, 0, 4, 5), // [16] j (innermost): count=N, stride=4; activate
+            SsApp(4, 0, 4, 6), // [15] i: count=N, stride=N elems
+            SsEnd(4, 0, 4, 5), // [16] j (innermost): count=N, stride=1 elem; activate
 
             // ── The entire GEMM loop nest ─────────────────────────────────────
             SoVDpW(3, 0),                       // [17] acc: u3 = 0.0

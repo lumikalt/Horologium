@@ -126,12 +126,12 @@ public class TrisolvTests {
     //   x4  = row byte offset    x11 = temp (float bits from LW)
     //         (i * N * 4)        x12 = &x[i]
     //   x5  = N*4 (row stride)   x13 = &b[i]
-    //   x6  = 4 (elem stride)    x14 = 1 (1-element count)
+    //   x6  = 1 (elem stride)    x14 = 1 (1-element count)
     //   x7  = &L[i][0]           x15 = &L[i][i]
     //
     // UVE register plan:
-    //   u1 = load stream for L[i][0..i-1]  (count=i, stride=4)
-    //   u2 = load stream for x[0..i-1]     (count=i, stride=4)
+    //   u1 = load stream for L[i][0..i-1]  (count=i, stride=1 elem)
+    //   u2 = load stream for x[0..i-1]     (count=i, stride=1 elem)
     //   u3 = MAC accumulator (sum of L[i][j]*x[j])
     //   u4 = scalar L[i][i]
     //   u5 = scalar b[i]
@@ -163,7 +163,7 @@ public class TrisolvTests {
             Slli(5, 2, 2),          // [2]  x5 = N*4
             Addi(3, 0, 0),          // [3]  i = 0
             Addi(4, 0, 0),          // [4]  row_byte_offset = 0
-            Addi(6, 0, 4),          // [5]  x6 = 4 (elem stride)
+            Addi(6, 0, 1),          // [5]  x6 = 1 (element stride → 4 bytes after scaling)
             Addi(8, 0, (int)xBase), // [6]  x8 = xBase
             Addi(9, 0, (int)bBase), // [7]  x9 = bBase
             Addi(10, 0, 0),         // [8]  element_byte_offset = 0
@@ -172,9 +172,9 @@ public class TrisolvTests {
             Bge(3, 2, (doneIdx - outerIdx) * 4), // [10] if i >= N → done
             Add(7, 1, 4),                        // [11] x7 = &L[i][0]
             SsStaLdW(1, 7),                      // [12] u1 base = &L[i][0]
-            SsEnd(1, 0, 3, 6),                   // [13] u1: count=i, stride=4; activate
+            SsEnd(1, 0, 3, 6),                   // [13] u1: count=i, stride=1 elem; activate
             SsStaLdW(2, 8),                      // [14] u2 base = xBase
-            SsEnd(2, 0, 3, 6),                   // [15] u2: count=i, stride=4; activate
+            SsEnd(2, 0, 3, 6),                   // [15] u2: count=i, stride=1 elem; activate
             SoVDpW(3, 0),                        // [16] u3 = 0.0f
             Beq(3, 0, (skipIdx - 17) * 4),       // [17] if i==0 → skip (count=0 deadlock guard)
 
@@ -190,7 +190,7 @@ public class TrisolvTests {
             SoVDpW(4, 11),      // [26] u4 = L[i][i]
             Add(12, 8, 10),     // [27] x12 = &x[i]
             SsStaStW(7, 12),    // [28] u7 base = &x[i]
-            SsEnd(7, 0, 14, 6), // [29] u7: count=1, stride=4; activate
+            SsEnd(7, 0, 14, 6), // [29] u7: count=1, stride=1 elem; activate
             SoADivFp(7, 6, 4),  // [30] u7 ← u6/u4 → writes x[i]
 
             Addi(3, 3, 1),               // [31] i++

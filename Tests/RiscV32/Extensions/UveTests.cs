@@ -593,15 +593,15 @@ public class UveTests {
         var cfg = new PendingStreamConfig { BaseAddress = 0x2000, ElementBytes = 4, IsLoad = true, };
         state.UveState.PendingConfig[3] = cfg;
 
-        state.IntegerRegisters.Write(2, 3);  // outer count
-        state.IntegerRegisters.Write(3, 32); // outer stride
+        state.IntegerRegisters.Write(2, 3); // outer count
+        state.IntegerRegisters.Write(3, 8); // outer stride: 8 elements × 4 bytes = 32 bytes stored
 
         ExecuteResult er = Exec(new RvUveSsApp(3, 0, 2, 3), state);
         er.SideEffect?.Invoke(state);
 
         Assert.Single(state.UveState.PendingConfig[3]!.Dimensions);
         Assert.Equal(3L, state.UveState.PendingConfig[3]!.Dimensions[0].Count);
-        Assert.Equal(32L, state.UveState.PendingConfig[3]!.Dimensions[0].Stride);
+        Assert.Equal(32L, state.UveState.PendingConfig[3]!.Dimensions[0].Stride); // 8 elems × 4 bytes
     }
 
     [Fact]
@@ -976,7 +976,7 @@ public class UveTests {
             Addi(1, 0, 0),     // x1 = 0 (base X)
             Addi(2, 0, 0x100), // x2 = 0x100 (base Y)
             Addi(3, 0, n),     // x3 = N (count)
-            Addi(4, 0, 4),     // x4 = 4 (stride)
+            Addi(4, 0, 1),     // x4 = 1 (element stride → 4 bytes after scaling)
             Lui(5, 0x40000),   // x5 = 0x40000000 (A=2.0 raw bits)
             // 1D streams: ss.sta.ld/st.w (base) + ss.end (count, stride, activate)
             SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // u1 = load X
@@ -1064,9 +1064,9 @@ public class UveTests {
         //   x1 = 0x0000       base of matrix
         //   x2 = 0x0200       base of output
         //   x3 = 4            inner count (cols)
-        //   x4 = 4            inner stride (bytes per float)
+        //   x4 = 1            inner stride (1 element)
         //   x5 = 3            outer count (rows)
-        //   x6 = RowBytes=32  outer stride (bytes per row)
+        //   x6 = 8            outer stride (8 elements = 1 padded row)
         //   x7 = bits(Scalar) scalar multiplier raw bits
         //   x8 = 12           output element count
         const ulong code = 0x1000;
@@ -1074,17 +1074,17 @@ public class UveTests {
             Addi(1, 0, 0x000),       // x1 = 0 (matrix base)
             Addi(2, 0, 0x200),       // x2 = 0x200 (output base)
             Addi(3, 0, cols),        // x3 = 4
-            Addi(4, 0, 4),           // x4 = 4 (byte stride)
+            Addi(4, 0, 1),           // x4 = 1 (element stride)
             Addi(5, 0, rows),        // x5 = 3
-            Addi(6, 0, rowBytes),    // x6 = 32
+            Addi(6, 0, rowBytes / 4),// x6 = 8 (elements per padded row)
             Addi(8, 0, rows * cols), // x8 = 12
             Lui(7, 0x40400),         // x7 = bits(3.0f)
             // 2D load stream u1: ss.sta.ld.w (base) + ss.app (outer dim) + ss.end (inner dim, activate)
             SsStaLdW(1, 1),    // base=x1
-            SsApp(1, 0, 5, 6), // outer dim: count=x5(3), stride=x6(32)
-            SsEnd(1, 0, 3, 4), // inner dim: count=x3(4), stride=x4(4); activate
+            SsApp(1, 0, 5, 6), // outer dim: count=x5(3), stride=x6(8 elems)
+            SsEnd(1, 0, 3, 4), // inner dim: count=x3(4), stride=x4(1 elem); activate
             // 1D store stream u2: ss.sta.st.w + ss.end
-            SsStaStW(2, 2), SsEnd(2, 0, 8, 4), // count=x8(12), stride=x4(4)
+            SsStaStW(2, 2), SsEnd(2, 0, 8, 4), // count=x8(12), stride=x4(1 elem)
             SoVDpW(4, 7),
             SoAFp(UveFpOp.Mul, 2, 1, 4), // u2[i] = u1[elem] * u4
             SoBNc(1, -4),                // loop while u1 not done
@@ -1136,27 +1136,27 @@ public class UveTests {
         //   x1 = 0x0000       src base
         //   x2 = 0x0400       dst matrix base
         //   x3 = 12           load-stream count (all 12 elements)
-        //   x4 = 4            inner byte stride (sizeof float)
+        //   x4 = 1            inner element stride (1 element)
         //   x5 = 4            inner col count
         //   x6 = 3            outer row count
         //   x7 = bits(1.0f)   scalar multiplier (copy via mul)
-        //   x8 = 32           outer row stride (RowBytes)
+        //   x8 = 8            outer row stride (8 elements = 1 padded row)
         const ulong code = 0x1000;
         var words = new List<uint> {
             Addi(1, 0, 0x000),       // x1 = 0
             Addi(2, 0, 0x400),       // x2 = 0x400
             Addi(3, 0, rows * cols), // x3 = 12
-            Addi(4, 0, 4),           // x4 = 4
+            Addi(4, 0, 1),           // x4 = 1 (element stride)
             Addi(5, 0, cols),        // x5 = 4
             Addi(6, 0, rows),        // x6 = 3
-            Addi(8, 0, rowBytes),    // x8 = 32
+            Addi(8, 0, rowBytes / 4),// x8 = 8 (elements per padded row)
             Lui(7, 0x3F800),         // x7 = bits(1.0f)
             // 1D load stream u1: ss.sta.ld.w + ss.end
-            SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // count=x3(12), stride=x4(4)
+            SsStaLdW(1, 1), SsEnd(1, 0, 3, 4), // count=x3(12), stride=x4(1 elem)
             // 2D store stream u2: ss.sta.st.w + ss.app (outer) + ss.end (inner)
             SsStaStW(2, 2),              // base=x2
-            SsApp(2, 0, 6, 8),           // outer dim: count=x6(3 rows), stride=x8(32)
-            SsEnd(2, 0, 5, 4),           // inner dim: count=x5(4 cols), stride=x4(4); activate
+            SsApp(2, 0, 6, 8),           // outer dim: count=x6(3 rows), stride=x8(8 elems)
+            SsEnd(2, 0, 5, 4),           // inner dim: count=x5(4 cols), stride=x4(1 elem); activate
             SoVDpW(4, 7),                // u4 = 1.0f
             SoAFp(UveFpOp.Mul, 2, 1, 4), // u2[dst] = u1[i] * u4
             SoBNc(1, -4),                // loop while u1 not exhausted
@@ -1240,27 +1240,27 @@ public class UveTests {
             mem.Load(matBase + (ulong)((r * n + c) * 4), BitConverter.GetBytes(v));
         }
 
-        // Registers: x1=matBase, x2=N, x3=N*4, x4=4, x5=1(disp register)
-        // Stream (config outermost-first): ss.sta.ld.w (base) → ss.app (rows: count=x2=N, stride=x3=N*4)
+        // Registers: x1=matBase, x2=N, x3=N (element stride for outer rows), x4=1 (element stride), x5=1(disp register)
+        // Stream (config outermost-first): ss.sta.ld.w (base) → ss.app (rows: count=x2=N, stride=x3=N elems)
         //       → ss.app.mod (dimIndex=1 = innermost of 2, Size, Inc, disp=x5)
-        //       → ss.end (row elements: count=x5=1, stride=x4=4)
+        //       → ss.end (row elements: count=x5=1, stride=x4=1 elem)
         // Loop: so.b.nc u1 (whole-stream done check)
         uint[] words = [
             Addi(1, 0, (int)matBase), // [0]
             Addi(2, 0, n), // [1] x2 = N
-            Addi(3, 0, n * 4), // [2] x3 = N*4
-            Addi(4, 0, 4), // [3] x4 = 4
+            Addi(3, 0, n), // [2] x3 = N (element stride for outer rows → N*4 bytes after scaling)
+            Addi(4, 0, 1), // [3] x4 = 1 (element stride → 4 bytes after scaling)
             Addi(5, 0, 1), // [4] x5 = 1 (disp)
             SoVDpW(2, 0), // [5] u2 = 0.0f
             SsStaLdW(1, 1), // [6] base=x1
-            SsApp(1, 0, 2, 3), // [7] outer rows: count=x2(N), stride=x3(N*4)
+            SsApp(1, 0, 2, 3), // [7] outer rows: count=x2(N), stride=x3(N elems)
             SsAppMod(1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), // [8] innermost.Size += x5
-            SsEnd(1, 0, 5, 4), // [9] innermost: count=x5(1), stride=x4(4); activate
+            SsEnd(1, 0, 5, 4), // [9] innermost: count=x5(1), stride=x4(1 elem); activate
             SoAFp(UveFpOp.Add, 2, 1, 2), // [10] u2 += elem
             SoBNc(1, -4), // [11] loop while stream active (back 1 instr)
             Addi(9, 0, (int)resultAddr), // [12]
             Addi(10, 0, 1), // [13]
-            SsStaStW(3, 9), SsEnd(3, 0, 10, 4), // [14,15] 1D store stream
+            SsStaStW(3, 9), SsEnd(3, 0, 10, 4), // [14,15] 1D store stream, stride=x4(1 elem)
             SoAFp(UveFpOp.Add, 3, 2, 0), // [16] write u2 to result
             EBreak(), // [17]
         ];

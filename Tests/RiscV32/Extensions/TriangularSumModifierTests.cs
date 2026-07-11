@@ -23,8 +23,8 @@ namespace Tests.RiscV32.Extensions;
 ///         so.b.nc     u1, loop     ; until the stream is exhausted
 /// </para>
 /// <para>
-/// Stream shape (configured outermost-first): rows: count=N, stride=4N; row
-/// elements (innermost, added by ss.end): count=1 initially, stride=4, with
+/// Stream shape (configured outermost-first): rows: count=N, stride=N (elements); row
+/// elements (innermost, added by ss.end): count=1 initially, stride=1 (element), with
 /// modifier {Size, Inc, +1} → rows deliver 1, 2, 3, …, N elements. This is
 /// precisely the pattern the UVE paper cites as motivation for descriptor
 /// modifiers.
@@ -129,7 +129,7 @@ public class TriangularSumModifierTests {
         for (var c = 0; c < n; c++)
             mem.Load(matBase + (ulong)((r * n + c) * 4), BitConverter.GetBytes((float)(r * n + c + 1)));
 
-        // Register plan: x1=matBase  x2=N  x5=4  x6=N*4  x7=1  x9=resultAddr
+        // Register plan: x1=matBase  x2=N  x5=1(elem stride)  x6=N(elem stride for rows)  x7=1  x9=resultAddr
         //
         // UVE register plan:
         //   u1 = triangle load stream (2D + Size/Inc modifier) — configured ONCE
@@ -139,18 +139,18 @@ public class TriangularSumModifierTests {
         uint[] words = [
             Addi(1, 0, (int)matBase),    // [0]  x1 = matBase
             Addi(2, 0, n),               // [1]  x2 = N
-            Addi(5, 0, 4),               // [2]  x5 = 4
-            Slli(6, 2, 2),               // [3]  x6 = N*4
+            Addi(5, 0, 1),               // [2]  x5 = 1 (element stride → 4 bytes after scaling)
+            Addi(6, 2, 0),               // [3]  x6 = N (element stride for rows → N*4 bytes after scaling)
             Addi(7, 0, 1),               // [4]  x7 = 1
             Addi(9, 0, (int)resultAddr), // [5]  x9 = resultAddr
 
             // u1: the whole triangle in one descriptor (config outermost-first)
             SsStaLdW(1, 1),    // [6]  base = matBase
-            SsApp(1, 0, 2, 6), // [7]  rows: count=N, stride=4N
+            SsApp(1, 0, 2, 6), // [7]  rows: count=N, stride=N elems
             SsAppMod(
                 1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 7
             ),                 // [8] innermost.count += 1 per row wrap
-            SsEnd(1, 0, 7, 5), // [9]  row elements (innermost): count=1 (grows), stride=4; activate
+            SsEnd(1, 0, 7, 5), // [9]  row elements (innermost): count=1 (grows), stride=1 elem; activate
 
             // ── The entire kernel ─────────────────────────────────────────────
             SoVDpW(2, 0),      // [10] u2 = 0.0

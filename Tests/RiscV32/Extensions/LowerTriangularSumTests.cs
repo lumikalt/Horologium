@@ -147,7 +147,7 @@ public class LowerTriangularSumTests {
             Slli(5, 2, 2),            // [2]  x5 = N*4
             Addi(3, 0, 0),            // [3]  r = 0
             Addi(4, 0, 0),            // [4]  row_offset = 0
-            Addi(8, 0, 4),            // [5]  x8 = 4 (element stride)
+            Addi(8, 0, 1),            // [5]  x8 = 1 (element stride → 4 bytes after scaling)
             SoVDpW(2, 0),             // [6]  u2 = 0.0f
 
             // ── Outer loop ────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ public class LowerTriangularSumTests {
             Add(7, 1, 4),                            // [8]  x7 = &matrix[r][0]
             Addi(6, 3, 1),                           // [9]  x6 = r+1
             SsStaLdW(1, 7),                          // [10] base=x7
-            SsEnd(1, 0, 6, 8),                       // [11] count=x6(r+1), stride=x8(4); activate u1
+            SsEnd(1, 0, 6, 8),                       // [11] count=x6(r+1), stride=x8(1 elem); activate u1
 
             // ── Inner loop ────────────────────────────────────────────────────
             SoAAddFp(2, 1, 2),                 // [12] u2 += stream-element
@@ -170,7 +170,7 @@ public class LowerTriangularSumTests {
             Addi(9, 0, (int)resultAddr), // [17] x9 = resultAddr
             Addi(10, 0, 1),              // [18] x10 = 1
             SsStaStW(3, 9),              // [19] base=x9
-            SsEnd(3, 0, 10, 8),          // [20] count=x10(1), stride=x8(4); activate u3
+            SsEnd(3, 0, 10, 8),          // [20] count=x10(1), stride=x8(1 elem); activate u3
             SoAAddFp(3, 2, 0),           // [21] u3 = u2 + 0 → writes sum
             EBreak(),                    // [22]
         ];

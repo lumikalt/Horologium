@@ -3467,6 +3467,7 @@ public class Rv32Executor : IExecutor {
     // ss.end appends the innermost dimension. The list is reversed into the engine's innermost-first
     // order when the stream is activated.
     // rs1_offset adds offset*ew to the stream base address (accumulated into PendingStreamConfig.OffsetBytes).
+    // rs3_stride is an element count (Spike/RTL convention); scaled to bytes here before storing.
     private static ExecuteResult ExecuteUveSsApp(IRegisterFile regs, int ud, int rs1, int rs2, int rs3) {
         var offset = (long)regs.Read(rs1);
         var count = (long)regs.Read(rs2);
@@ -3476,7 +3477,7 @@ public class Rv32Executor : IExecutor {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
                 if (cfg is null) return;
                 cfg.OffsetBytes += offset * cfg.ElementBytes;
-                cfg.Dimensions.Add(new StreamDimension(count, stride));
+                cfg.Dimensions.Add(new StreamDimension(count, stride * cfg.ElementBytes));
             },
         };
     }
@@ -3486,6 +3487,7 @@ public class Rv32Executor : IExecutor {
     // reversed into the engine's innermost-first order here. Modifier DimIndex values (ss.app.mod,
     // ss.app.ind) and explicit vecCfgDim are encoded outermost-first and remapped the same way.
     // rs1_offset adds offset*ew to the stream base address (combined with any prior ss.app offsets).
+    // rs3_stride is an element count (Spike/RTL convention); scaled to bytes here before storing.
     private static ExecuteResult ExecuteUveSsEnd(
         IArchState state,
         IRegisterFile regs,
@@ -3503,7 +3505,7 @@ public class Rv32Executor : IExecutor {
 
         long totalOffsetBytes = pending.OffsetBytes + offset * pending.ElementBytes;
         var baseAddr = (ulong)((long)pending.BaseAddress + totalOffsetBytes);
-        StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride)).Reverse().ToArray();
+        StreamDimension[] dims = pending.Dimensions.Append(new StreamDimension(count, stride * pending.ElementBytes)).Reverse().ToArray();
         return BuildAndActivatePendingStream(ud, pending, baseAddr, dims);
     }
 
@@ -3615,7 +3617,11 @@ public class Rv32Executor : IExecutor {
                 if (cfg is null || cfg.Dimensions.Count == 0) return;
                 int spikeTrigger = cfg.Dimensions.Count - 1;
                 int spikeTarget = targetDimRaw == 7 ? spikeTrigger + 1 : targetDimRaw;
-                cfg.Modifiers.Add(new StreamModifier(spikeTrigger, spikeTarget, target, behavior, disp));
+                // Stride displacement is an element count; scale to bytes for the engine.
+                // Offset displacement stays as element count (engine scales internally).
+                // Size displacement is already a count; no scaling.
+                long scaledDisp = target == StreamModifierTarget.Stride ? disp * cfg.ElementBytes : disp;
+                cfg.Modifiers.Add(new StreamModifier(spikeTrigger, spikeTarget, target, behavior, scaledDisp));
             },
         };
     }
