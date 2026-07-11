@@ -42,9 +42,23 @@ public class LTagePredictor : IBranchPredictor {
     private readonly LoopEntry[] _loop;   // [1 << LoopIndexBits]
 
     /// <summary>
-    /// Global history register.
+    /// Working global history register used for indexing at Predict time. In an
+    /// out-of-order pipeline this is the *speculative* history: advanced at fetch by
+    /// <see cref="SpeculativeHistoryUpdate"/> with predicted directions, and restored from
+    /// <see cref="_committedGhr"/> on a flush. When no speculative updates arrive (in-order
+    /// pipelines) it stays in lock-step with <see cref="_committedGhr"/>.
     /// </summary>
     protected ulong Ghr; // global history, LSB = most recent
+
+    // Architectural history shadow: advanced only when a branch retires (in Update, with the
+    // true outcome). Because commit and fetch are in-order, a branch that commits had every
+    // older branch on its path predicted correctly, so this equals that branch's predict-time
+    // history — Update swaps it into Ghr to train tables against the history the branch saw.
+    private ulong _committedGhr;
+
+    // Latches true once the pipeline drives speculative history (out-of-order). Until then
+    // Update keeps Ghr == _committedGhr so the commit-time-history behaviour is bit-identical.
+    private bool _speculative;
 
     private readonly Dictionary<ulong, ulong> _btb = new();
 
@@ -85,6 +99,12 @@ public class LTagePredictor : IBranchPredictor {
     public virtual void Update(ulong pc, bool taken, ulong actualTarget) {
         if (taken) _btb[pc] = actualTarget;
 
+        // Train against committed (predict-time) history: swap it into Ghr for the table
+        // lookups, then restore the working history afterwards. In non-speculative mode the
+        // two are equal, so this is a no-op swap and behaviour is unchanged.
+        ulong working = Ghr;
+        Ghr = _committedGhr;
+
         TageLookup(pc, out int provider, out bool provPred, out bool altPred);
         int preScore = TageScore(pc, provider);
         bool preLoopConfident = _loop[LoopIdx(pc)].Tag == (ushort)LoopTag(pc) && _loop[LoopIdx(pc)].Confident;
@@ -92,8 +112,20 @@ public class LTagePredictor : IBranchPredictor {
         UpdateLoop(pc, taken);
         OnAfterUpdate(pc, taken, provPred, preScore, preLoopConfident);
 
-        Ghr = ((Ghr << 1) | (taken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
+        _committedGhr = ((_committedGhr << 1) | (taken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
+        // Non-speculative: keep the working history in lock-step with committed (old
+        // behaviour). Speculative: leave it as fetch advanced it; flush restores it.
+        Ghr = _speculative ? working : _committedGhr;
     }
+
+    /// <inheritdoc />
+    public void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) {
+        _speculative = true;
+        Ghr = ((Ghr << 1) | (predictedTaken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
+    }
+
+    /// <inheritdoc />
+    public void RecoverSpeculativeHistory() => Ghr = _committedGhr;
 
     // ── Extension points for subclasses ──────────────────────────────────────
 

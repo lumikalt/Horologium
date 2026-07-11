@@ -26,6 +26,28 @@ public interface IBranchPredictor {
     /// Called at commit, in program order.
     /// </summary>
     void Update(ulong pc, bool taken, ulong actualTarget);
+
+    /// <summary>
+    /// Folds the <paramref name="predictedTaken"/> direction of the branch at
+    /// <paramref name="pc"/> into the predictor's speculative global history. Called at
+    /// fetch, immediately after <see cref="Predict"/>, so that younger in-flight branches
+    /// index fresh history instead of stale commit-only history — the difference that lets
+    /// a history-based predictor track tight recursion and loops inside the ROB window.
+    /// <para>
+    /// Default no-op: predictors that keep no global history, and in-order pipelines that
+    /// never call this, retain the commit-time history behaviour unchanged.
+    /// </para>
+    /// </summary>
+    void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) { }
+
+    /// <summary>
+    /// Discards wrong-path speculative history on a pipeline flush, restoring the working
+    /// history to the last committed state. Default no-op. Pairs with
+    /// <see cref="SpeculativeHistoryUpdate"/>: an out-of-order train calls this from its
+    /// flush handler after <see cref="Update"/> has applied the redirecting branch's true
+    /// outcome, so fetch resumes with correct history.
+    /// </summary>
+    void RecoverSpeculativeHistory() { }
 }
 
 /// <summary>

@@ -69,12 +69,18 @@ the active thread.
 
 ## Branch Prediction
 
-- [ ] Speculative global-history update + squash recovery: advance branch-predictor history
-  at predict time (fetch) with a per-branch checkpoint, and restore it on flush, instead of
-  updating history only at commit. History-based predictors (TAGE/LTage) index stale history
-  across the ROB window today, which is the dominant treesum H/G gap vs gem5 (70 vs ~495
-  mispredicts). Touches the `IBranchPredictor` contract and every predictor; mirrors gem5's
-  `BPredUnit` speculative history + `squash()`.
+- [x] Speculative global-history update + squash recovery: advance branch-predictor history
+  at predict (fetch) and restore it on flush instead of updating only at commit. Done for the
+  TAGE family via an architectural `_committedGhr` shadow in `LTageBranchPrediction`
+  (`SpeculativeHistoryUpdate` / `RecoverSpeculativeHistory` on `IBranchPredictor`, wired into
+  `OooeTrain`); bit-identical for in-order pipelines. Cut treesum mispredicts 495 → 322 and
+  lifted median IPC 0.797 → 1.051. **Remaining**: extend speculative history to the non-TAGE
+  GHR predictors (Tournament, Gshare/Gselect, Perceptron/HashedPerceptron, Correlated,
+  ITTAGE, IMLI) and to the LLBP/VLA-TAGE context registers, all still commit-time.
+- [ ] Local (per-PC) history predictor component: gem5's TournamentBP mispredicts treesum's
+  recursive null-check 70× vs LTage's 322 with speculative history — the residual gap is
+  local-history structure, not timing. A per-branch local history table (à la the local
+  half of TournamentBP) would close it.
 - [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
 - [ ] CBP-2025 front runner: correlate on register values rather than history.
 - [ ] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020

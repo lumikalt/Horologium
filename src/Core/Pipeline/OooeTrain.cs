@@ -1402,6 +1402,11 @@ internal sealed class OoOPipelineCore : Gear {
                 else
                     pred = _predictor.Predict(_fetchPc, hint.BranchTarget);
                 predictedNext = pred.PredictedTaken ? pred.PredictedTarget : _fetchPc + (ulong)decoded.SizeBytes;
+
+                // Fold the predicted direction into speculative history so younger in-flight
+                // branches index fresh history. Matches the taken bit Update applies at commit
+                // (resolvedPc != fall-through); on the correct path the two agree bit-for-bit.
+                _predictor.SpeculativeHistoryUpdate(_fetchPc, predictedNext != _fetchPc + (ulong)decoded.SizeBytes);
             }
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
@@ -1460,6 +1465,11 @@ internal sealed class OoOPipelineCore : Gear {
         // Restore the speculative RAS to the architectural shadow, discarding any
         // wrong-path push/pop corruption accumulated by the squashed instructions.
         _ras.CopyFrom(_committedRas);
+
+        // Same for the branch predictor's speculative global history: Update has already
+        // applied the redirecting branch's true outcome to the committed shadow, so this
+        // resumes fetch with correct history and drops wrong-path history bits.
+        _predictor.RecoverSpeculativeHistory();
 
         _fetchPc = _flushTarget;
         _flushPending = false;

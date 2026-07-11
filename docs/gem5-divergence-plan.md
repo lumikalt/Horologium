@@ -150,3 +150,20 @@ All four items were implemented. Results (`--structurally-matched`, store_buffer
 Lesson (kept for the next investigation): measure the return-vs-conditional split before
 attributing a mispredict gap to the RAS. B/C are still worth keeping — they are strictly
 more faithful to gem5 — but they were not the treesum lever.
+
+## Follow-up: speculative branch history (implemented)
+
+The real treesum lever from the IDEAS backlog. `LTageBranchPrediction` updated the global
+history register only at commit, so TAGE lookups indexed stale history across the ROB
+window. Fixed by keeping a speculative `Ghr` advanced at fetch against an architectural
+`_committedGhr` shadow that trains the tables and restores `Ghr` on flush; exposed as
+`SpeculativeHistoryUpdate`/`RecoverSpeculativeHistory` on `IBranchPredictor` (default
+no-ops) and wired into `OooeTrain` only. Bit-identical for in-order pipelines via a
+`_speculative` latch; covers the whole TAGE family (all share the base `Ghr`).
+
+Measured (structurally-matched): mispredicts fell broadly (treesum 495 → 322, towers
+41 → 21, below gem5's 30). IPC: **median 0.797 → 1.051**, gcd 0.865 → 0.906, towers
+0.721 → 0.744; rest flat. treesum slipped 0.478 → 0.459 — the mispredict win drives deeper
+speculation and lifts memory-order violations 26 → 245; store sets remove them and recover
+IPC to ~0.84. The residual treesum gap (322 vs 70) is predictor *structure*: gem5's
+local-history predictor suits the recursive null-check. Logged as a new IDEAS item.
