@@ -159,6 +159,22 @@ the current absolute IPCs are in the tables above (execute-time resolution lifts
   treesum gap is now predictor *structure*, not timing — see "treesum: speculative branch
   history" below.
 
+**Store sets is a net loss across the full suite — it should stay opt-in.** Running
+`--enable-store-sets` against all 10 benchmarks (default bypass=1, l_tage): treesum
+(0.473 → 0.678) and towers (0.712 → 0.924) improve substantially, matching the
+per-workload story above, but **rsort regresses severely** (H/G 1.019 → 0.631; IPC
+1.3495 → 0.8347, cycles 126 843 → 205 079) and qsort dips slightly (0.944 → 0.893).
+The remaining six workloads are unaffected (no store/load conflicts to predict). For
+rsort, `mem_order_violations` drops 82 → 1 as intended, but `stalls` balloons
+125 299 → 204 899 — roughly 79 000 stall cycles paid to avoid ~81 violations, which
+individually cost far less than that to squash-and-replay. The likely cause: the SSIT
+is PC-indexed only (no address hashing), so a single genuine conflict at a load/store
+PC pair permanently merges *every* future dynamic instance of that pair into the same
+store set — recursive/generic functions (rsort's partition step reuses one swap PC for
+many independent array indices) pay for one real dependency by serializing all the
+unrelated ones forever. See the TODO for a possible mitigation (periodic SSIT/LFST
+clearing or address-aware set assignment).
+
 H/G ratio > 1 means Horologium has higher IPC than gem5.
 
 Note: `--mem-lat-ns` does not change Horologium IPC (HtifMemory is always ~10-cycle

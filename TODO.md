@@ -135,6 +135,11 @@ Remaining delta, in rough dependency order:
 
 - [x] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary
   stalls. — Chrysos & Emer, ISCA 1998
+- [ ] Store-set false-dependency mitigation: the PC-only SSIT permanently merges every future dynamic instance of
+  a load/store PC pair after one genuine conflict, so a recursive/generic function that reuses one PC pair across
+  many independent addresses (measured: rsort) serializes all of them forever for a single real dependency —
+  periodic SSIT/LFST clearing or address-aware set assignment. See `docs/gem5-comparison.md` "Store sets is a
+  net loss across the full suite".
 
 ## Branch Prediction
 
