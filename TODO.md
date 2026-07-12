@@ -128,6 +128,14 @@ Remaining delta, in rough dependency order:
 - [x] Zcmop: compressed may-be-operations (c.mop.N, N odd 1–15) — already implemented (decoder, executor,
   disassembler) and verified commit-for-commit against Spike on all three trains; the TODO entry was stale.
 - [ ] Zabha+Zacas narrower variants: amocas.b / amocas.h; amocas.d for RV32.
+- [x] RV64 V extension: vlse/vsse strided load-store read the rs2 stride through a
+  virtual `ReadStride` hook — RV32 sign-extends the 32-bit register value, RV64 uses
+  it as the native full-width signed stride. The rest of the V extension (register
+  file, vtype/vl/vlenb CSRs, ALU/mask/reduction ops, unit-stride and indexed
+  load/store) is XLEN-agnostic and works unmodified via inheritance.
+- [ ] RV64 V/UVE conformance and system coverage: no `rv64uv-*` conformance suite,
+  and RV32-only `Tests/RiscV32/{System,MultiHart,CoSim}` (CLINT/HTIF/Linux
+  boot/OpenSBI/UART, multi-hart, Spike/torture co-sim) have no RV64 counterparts.
 
 ## Analysis
 

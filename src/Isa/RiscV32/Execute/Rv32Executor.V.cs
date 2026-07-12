@@ -41,6 +41,11 @@ public partial class Rv32Executor {
         for (var b = 0; b < ewBytes; b++) data[off + b] = (byte)(value >> (b * 8));
     }
 
+    // Vlse/Vsse stride: RV32's rs2 holds a 32-bit signed byte stride that must be sign-extended
+    // to the 64-bit address-arithmetic width. Rv64Executor overrides this — under RV64 the
+    // register already holds the full native-width stride and must not be truncated to 32 bits.
+    protected virtual long ReadStride(IRegisterFile regs, int rs2) => (int)(uint)regs.Read(rs2);
+
     private static (uint vl, int ewBytes) VGetVlEw(IArchState state) {
         CsrFile csrs = VState(state).CsrFile;
         uint vl = csrs.DirectRead(CsrFile.Vl);
@@ -262,7 +267,7 @@ public partial class Rv32Executor {
         return ExecuteResult.Clean;
     }
 
-    private static ExecuteResult ExecuteVlse(
+    private ExecuteResult ExecuteVlse(
         IArchState state,
         IMemory memory,
         int vd,
@@ -274,7 +279,7 @@ public partial class Rv32Executor {
         (uint vl, _) = VGetVlEw(state);
         int ewBytes = sew / 8;
         ulong baseAddr = state.IntegerRegisters.Read(rs1);
-        long stride = (int)(uint)state.IntegerRegisters.Read(rs2); // sign-extend 32→64
+        long stride = ReadStride(state.IntegerRegisters, rs2);
         var result = new byte[VectorRegisterFile.VLenB];
         byte[] mask = VState(state).VectorRegisters.Read(0);
 
@@ -287,7 +292,7 @@ public partial class Rv32Executor {
         return VectorWrite(vd, result);
     }
 
-    private static ExecuteResult ExecuteVsse(
+    private ExecuteResult ExecuteVsse(
         IArchState state,
         IMemory memory,
         int vs3,
@@ -299,7 +304,7 @@ public partial class Rv32Executor {
         (uint vl, _) = VGetVlEw(state);
         int ewBytes = sew / 8;
         ulong baseAddr = state.IntegerRegisters.Read(rs1);
-        long stride = (int)(uint)state.IntegerRegisters.Read(rs2); // sign-extend 32→64
+        long stride = ReadStride(state.IntegerRegisters, rs2);
         byte[] data = VState(state).VectorRegisters.Read(vs3);
         byte[] mask = VState(state).VectorRegisters.Read(0);
 

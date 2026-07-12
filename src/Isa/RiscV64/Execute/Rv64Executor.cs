@@ -35,6 +35,11 @@ public class Rv64Executor : Rv32Executor {
 
     protected override ExecuteResult Reg(ulong value) => ExecuteResult.WithResult(value);
 
+    // Vlse/Vsse stride: under RV64 the register already holds the full 64-bit signed stride —
+    // the inherited RV32 override truncates to the low 32 bits before sign-extending, which is
+    // correct only when XLEN=32.
+    protected override long ReadStride(IRegisterFile regs, int rs2) => (long)regs.Read(rs2);
+
     protected override ExecuteResult Load(
         IMemory memory,
         IArchState state,
