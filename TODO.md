@@ -118,7 +118,13 @@ Remaining delta, in rough dependency order:
   with faster forwarding resolving branches earlier and fetching less wrong-path work. The
   originally observed regression doesn't reproduce; it predates the store-sets and execute-time
   branch-resolution fixes since landed. No further action.
-- [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
+- [x] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops. Resolved —
+  `OlympiaJsonTraceWriter` has emitted the raw `opcode` (not mnemonic+register fields) since commit
+  7005e60, which subsumes both the opcode and FP-register-numbering concerns; this TODO entry
+  predated that fix and was never updated. The writer emits raw encoding bits unconditionally, so
+  there's no Horologium-side vector/UVE gap left to close — whether a UVE opcode decodes is a
+  property of Olympia's Mavis, not this writer, and no calibration benchmark exercises UVE anyway
+  (the Olympia calibration research is closed; see docs/olympia-calibration.md).
 
 ## Co-simulation
 
