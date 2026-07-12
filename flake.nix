@@ -70,9 +70,11 @@
             msbuild
             omnisharp-roslyn
 
-            # RISC-V bare-metal toolchain
+            # RISC-V bare-metal toolchains
             pkgsCross.riscv32-embedded.buildPackages.gcc
             pkgsCross.riscv32-embedded.buildPackages.binutils
+            pkgsCross.riscv64-embedded.buildPackages.gcc
+            pkgsCross.riscv64-embedded.buildPackages.binutils
 
             # RISC-V ISA reference simulator for lock-step co-simulation
             spike

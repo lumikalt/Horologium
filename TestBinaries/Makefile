@@ -212,6 +212,144 @@ isa/rv32si-p-%.elf: riscv-tests/isa/rv32si/%.S env/si/riscv_test.h env/riscv_tes
 	@mkdir -p isa
 	$(CC) $(CFLAGS) -I env/si -I env $(SI_INCLUDES) $(LDFLAGS) $< env/default_trap.S -o $@
 
+# ── RV64: shared toolchain/env ────────────────────────────────────────────────
+#
+# env/riscv_test.h, env/riscv_test_s.h, env/default_trap.S, and env/link.ld are
+# all XLEN-agnostic (RVTEST_RV64U/RVTEST_RV64S/RVTEST_RV64M are already defined
+# as no-ops upstream) and are reused unchanged from the RV32 test environment.
+
+CC64      = riscv64-none-elf-gcc
+CFLAGS64  = -march=rv64imafd -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+LDFLAGS64 = -T env/link.ld
+
+# ── Official riscv-tests — rv64ui (base integer ISA) ──────────────────────────
+#
+# fence_i.S / ma_data.S: excluded for the same reasons as their RV32
+# counterparts — no I-cache coherency model, and misaligned accesses never
+# trap (FlatMemory allows byte-granular access directly).
+
+RV64UI_SRC   = $(wildcard riscv-tests/isa/rv64ui/*.S)
+RV64UI_SKIP  = riscv-tests/isa/rv64ui/fence_i.S riscv-tests/isa/rv64ui/ma_data.S
+RV64UI_BUILD = $(filter-out $(RV64UI_SKIP), $(RV64UI_SRC))
+RV64UI_ELFS  = $(patsubst riscv-tests/isa/rv64ui/%.S, isa/rv64ui-p-%.elf, $(RV64UI_BUILD))
+
+isa/rv64ui-p-%.elf: riscv-tests/isa/rv64ui/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+# ── Official riscv-tests — rv64um (multiply / divide, incl. *W variants) ──────
+
+RV64UM_SRC  = $(wildcard riscv-tests/isa/rv64um/*.S)
+RV64UM_ELFS = $(patsubst riscv-tests/isa/rv64um/%.S, isa/rv64um-p-%.elf, $(RV64UM_SRC))
+
+isa/rv64um-p-%.elf: riscv-tests/isa/rv64um/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+# ── Official riscv-tests — rv64ua (atomic AMOs + LR/SC, incl. .D forms) ───────
+
+RV64UA_SRC  = $(wildcard riscv-tests/isa/rv64ua/*.S)
+RV64UA_ELFS = $(patsubst riscv-tests/isa/rv64ua/%.S, isa/rv64ua-p-%.elf, $(RV64UA_SRC))
+
+isa/rv64ua-p-%.elf: riscv-tests/isa/rv64ua/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+# ── Official riscv-tests — rv64uc (compressed instructions) ───────────────────
+
+CFLAGS64_C = -march=rv64imafdc -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+
+RV64UC_SRC  = $(wildcard riscv-tests/isa/rv64uc/*.S)
+RV64UC_ELFS = $(patsubst riscv-tests/isa/rv64uc/%.S, isa/rv64uc-p-%.elf, $(RV64UC_SRC))
+
+isa/rv64uc-p-%.elf: riscv-tests/isa/rv64uc/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64_C) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+# ── Official riscv-tests — rv64uf (single-precision float) ────────────────────
+
+RV64UF_SRC  = $(wildcard riscv-tests/isa/rv64uf/*.S)
+RV64UF_ELFS = $(patsubst riscv-tests/isa/rv64uf/%.S, isa/rv64uf-p-%.elf, $(RV64UF_SRC))
+
+isa/rv64uf-p-%.elf: riscv-tests/isa/rv64uf/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+# ── Official riscv-tests — rv64ud (double-precision float) ────────────────────
+
+RV64UD_SRC  = $(wildcard riscv-tests/isa/rv64ud/*.S)
+RV64UD_ELFS = $(patsubst riscv-tests/isa/rv64ud/%.S, isa/rv64ud-p-%.elf, $(RV64UD_SRC))
+
+isa/rv64ud-p-%.elf: riscv-tests/isa/rv64ud/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+# ── Official riscv-tests — rv64uzfh (half-precision float) ────────────────────
+
+CFLAGS64_ZFH = -march=rv64imafd_zfh -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+
+RV64UZFH_SRC  = $(wildcard riscv-tests/isa/rv64uzfh/*.S)
+RV64UZFH_ELFS = $(patsubst riscv-tests/isa/rv64uzfh/%.S, isa/rv64uzfh-p-%.elf, $(RV64UZFH_SRC))
+
+isa/rv64uzfh-p-%.elf: riscv-tests/isa/rv64uzfh/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64_ZFH) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+# ── Official riscv-tests — rv64uzba/zbb/zbc/zbs (bit-manipulation) ────────────
+
+CFLAGS64_ZBA = -march=rv64imafd_zba -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS64_ZBB = -march=rv64imafd_zbb -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS64_ZBC = -march=rv64imafd_zbc -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS64_ZBS = -march=rv64imafd_zbs -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+
+RV64UZBA_SRC  = $(wildcard riscv-tests/isa/rv64uzba/*.S)
+RV64UZBA_ELFS = $(patsubst riscv-tests/isa/rv64uzba/%.S, isa/rv64uzba-p-%.elf, $(RV64UZBA_SRC))
+
+isa/rv64uzba-p-%.elf: riscv-tests/isa/rv64uzba/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64_ZBA) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+RV64UZBB_SRC  = $(wildcard riscv-tests/isa/rv64uzbb/*.S)
+RV64UZBB_ELFS = $(patsubst riscv-tests/isa/rv64uzbb/%.S, isa/rv64uzbb-p-%.elf, $(RV64UZBB_SRC))
+
+isa/rv64uzbb-p-%.elf: riscv-tests/isa/rv64uzbb/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64_ZBB) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+RV64UZBC_SRC  = $(wildcard riscv-tests/isa/rv64uzbc/*.S)
+RV64UZBC_ELFS = $(patsubst riscv-tests/isa/rv64uzbc/%.S, isa/rv64uzbc-p-%.elf, $(RV64UZBC_SRC))
+
+isa/rv64uzbc-p-%.elf: riscv-tests/isa/rv64uzbc/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64_ZBC) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+RV64UZBS_SRC  = $(wildcard riscv-tests/isa/rv64uzbs/*.S)
+RV64UZBS_ELFS = $(patsubst riscv-tests/isa/rv64uzbs/%.S, isa/rv64uzbs-p-%.elf, $(RV64UZBS_SRC))
+
+isa/rv64uzbs-p-%.elf: riscv-tests/isa/rv64uzbs/%.S env/riscv_test.h env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64_ZBS) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
+# ── Official riscv-tests — rv64si (supervisor-level integer) ──────────────────
+#
+# sbreak / dirty / ma_fetch: excluded for the same reasons as rv32si (see
+# above). icache-alias: tests that a stale I-cache line is not used after a
+# page-table remap without FENCE.I; Horologium has no I-cache to alias in the
+# first place (fetch always reads the current backing memory), so this is
+# also excluded as testing a cache implementation Horologium doesn't have.
+
+RV64SI_SRC   = $(wildcard riscv-tests/isa/rv64si/*.S)
+RV64SI_SKIP  = riscv-tests/isa/rv64si/sbreak.S \
+               riscv-tests/isa/rv64si/dirty.S \
+               riscv-tests/isa/rv64si/ma_fetch.S \
+               riscv-tests/isa/rv64si/icache-alias.S
+RV64SI_BUILD = $(filter-out $(RV64SI_SKIP), $(RV64SI_SRC))
+RV64SI_ELFS  = $(patsubst riscv-tests/isa/rv64si/%.S, isa/rv64si-p-%.elf, $(RV64SI_BUILD))
+
+isa/rv64si-p-%.elf: riscv-tests/isa/rv64si/%.S env/si/riscv_test.h env/riscv_test_s.h env/default_trap.S env/link.ld
+	@mkdir -p isa
+	$(CC64) $(CFLAGS64) -I env/si -I env $(SI_INCLUDES) $(LDFLAGS64) $< env/default_trap.S -o $@
+
 # ── riscv-tests benchmarks ───────────────────────────────────────────────────
 #
 # dhrystone: uses a retry loop guarded by read_csr(mcycle).  Our simulator
@@ -287,16 +425,23 @@ torture/%.elf: torture/%.S env/riscv_test.h env/link.ld
 
 # ── Targets ───────────────────────────────────────────────────────────────────
 
-.PHONY: all isa-tests custom-elfs benchmarks torture clean
+.PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture clean
 
 all: test.elf rich.elf htif.elf zcmop.elf custom-elfs isa-tests benchmarks torture
 
 custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
 
-isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS) $(RV32SI_ELFS) \
+isa-tests: rv32-isa-tests rv64-isa-tests
+
+rv32-isa-tests: $(RV32UI_ELFS) $(RV32UM_ELFS) $(RV32SI_ELFS) \
            $(RV32UA_ELFS) $(RV32UC_ELFS) $(RV32UF_ELFS) \
            $(RV32UZBA_ELFS) $(RV32UZBB_ELFS) $(RV32UZBC_ELFS) $(RV32UZBS_ELFS) \
            $(RV32UZICOND_ELFS)
+
+rv64-isa-tests: $(RV64UI_ELFS) $(RV64UM_ELFS) $(RV64SI_ELFS) \
+           $(RV64UA_ELFS) $(RV64UC_ELFS) $(RV64UF_ELFS) $(RV64UD_ELFS) \
+           $(RV64UZFH_ELFS) \
+           $(RV64UZBA_ELFS) $(RV64UZBB_ELFS) $(RV64UZBC_ELFS) $(RV64UZBS_ELFS)
 
 benchmarks: $(BMARKS_ELFS)
 
