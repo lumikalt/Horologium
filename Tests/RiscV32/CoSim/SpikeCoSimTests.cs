@@ -292,4 +292,51 @@ public class SpikeCoSimTests {
 
     [SkippableFact]
     public void Oooe_VectorElf_MatchesSpike() => RunCoSim("vector.elf", Oooe);
+
+    // ── ReadLine watchdog: a stalled or ended Spike must fail cleanly, not hang ──
+    //
+    // These use a stub in place of the spike binary, so they run (and matter)
+    // even where the real toolchain is absent.
+
+    private static string WriteStubSpike(string body) {
+        string path = Path.Combine(Path.GetTempPath(), $"stub-spike-{Guid.NewGuid():N}.sh");
+        File.WriteAllText(path, $"#!/bin/sh\n{body}\n");
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
+    }
+
+    [Fact]
+    public void Watchdog_SilentSpike_TimesOutInsteadOfHanging() {
+        string stub = WriteStubSpike("exec sleep 300");
+        try {
+            using var cosim = new SpikeCoSimReference(
+                "/dev/null",
+                readTimeout: TimeSpan.FromMilliseconds(500),
+                spikeExecutable: stub
+            );
+            CoSimDivergenceException ex = Assert.Throws<CoSimDivergenceException>(
+                () => cosim.OnCommit(0x80000000UL, 0x00000013u, null!)
+            );
+            Assert.Contains("No Spike commit record", ex.Message);
+        }
+        finally { File.Delete(stub); }
+    }
+
+    [Fact]
+    public void Watchdog_ExitingSpike_ReportsLogEnd() {
+        string stub = WriteStubSpike("exit 0");
+        try {
+            using var cosim = new SpikeCoSimReference(
+                "/dev/null",
+                readTimeout: TimeSpan.FromSeconds(5),
+                spikeExecutable: stub
+            );
+            CoSimDivergenceException ex = Assert.Throws<CoSimDivergenceException>(
+                () => cosim.OnCommit(0x80000000UL, 0x00000013u, null!)
+            );
+            Assert.Contains("ended unexpectedly", ex.Message);
+        }
+        finally { File.Delete(stub); }
+    }
 }

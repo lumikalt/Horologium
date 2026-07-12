@@ -119,7 +119,7 @@ Remaining delta, in rough dependency order:
 
 ## Co-simulation
 
-- [ ] Watchdog on `ReadLine` to fail cleanly on over-run instead of hanging.
+- [x] Watchdog on `ReadLine` to fail cleanly on over-run instead of hanging.
 - [ ] CI workflow with `HOROLOGIUM_REQUIRE_COSIM=1`.
 
 ## Out-of-Order Execution

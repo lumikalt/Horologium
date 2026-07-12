@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Mechanism;
@@ -9,9 +10,9 @@ namespace RiscV32.CoSim;
 /// 
 /// Launches Spike with <c>--log-commits</c> and keeps it running as a child
 /// process. Each call to <see cref="ICommitObserver.OnCommit"/> reads the
-/// next commit record from Spike's live stderr stream, blocks until Spike
-/// has produced the matching instruction, and immediately compares PC, raw
-/// encoding, and any integer register write.
+/// next commit record from Spike's live stderr stream, waits (bounded by a
+/// watchdog timeout) until Spike has produced the matching instruction, and
+/// immediately compares PC, raw encoding, and any integer register write.
 /// 
 /// Divergence (PC out-of-order, encoding mismatch, wrong register value) is
 /// detected at the exact failing instruction and reported via
@@ -35,22 +36,35 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
     private readonly Process _proc;
     private readonly StreamReader _log;
     private readonly ulong _baseAddress;
+    private readonly TimeSpan _readTimeout;
+    private readonly BlockingCollection<string> _lines = new();
+    private readonly Thread _reader;
     private int _committed;
 
     /// <param name="elfPath">Path to the ELF binary to run under Spike.</param>
     /// <param name="baseAddress">ELF base address; Spike boot-ROM commits below this are skipped.</param>
     /// <param name="memorySizeBytes">Spike <c>-m</c> region size in bytes.</param>
     /// <param name="isa">ISA string passed to Spike's <c>--isa=</c>.</param>
+    /// <param name="readTimeout">
+    /// Watchdog limit on waiting for the next Spike commit record (default 30 s).
+    /// If Spike produces nothing within it — over-run past the workload's end, or a
+    /// stall — the wait fails with <see cref="CoSimDivergenceException"/> instead
+    /// of blocking forever.
+    /// </param>
+    /// <param name="spikeExecutable">Spike binary to launch (name on PATH or explicit path).</param>
     public SpikeCoSimReference(
         string elfPath,
         ulong baseAddress = 0x80000000UL,
         int memorySizeBytes = 0x400000,
-        string isa = "rv32imafcv"
+        string isa = "rv32imafcv",
+        TimeSpan? readTimeout = null,
+        string spikeExecutable = "spike"
     ) {
         _baseAddress = baseAddress;
+        _readTimeout = readTimeout ?? TimeSpan.FromSeconds(30);
 
         var psi = new ProcessStartInfo {
-            FileName = "spike",
+            FileName = spikeExecutable,
             Arguments =
                 $"--log-commits --isa={isa} -m0x{baseAddress:x}:0x{memorySizeBytes:x} {elfPath}",
             RedirectStandardOutput = true,
@@ -62,6 +76,18 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
         _proc = Process.Start(psi)
              ?? throw new InvalidOperationException("Failed to start spike. Is it on PATH?");
         _log = _proc.StandardError;
+
+        // Pump Spike's stderr on a dedicated thread so the consumer side can
+        // wait with a timeout. Ends (completing the collection) when the pipe
+        // closes — normal Spike exit or Dispose killing the process.
+        _reader = new Thread(() => {
+            try {
+                while (_log.ReadLine() is { } line) _lines.Add(line);
+            }
+            catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+            finally { _lines.CompleteAdding(); }
+        }) { IsBackground = true, Name = "spike-cosim-log-reader" };
+        _reader.Start();
     }
 
     /// <summary>
@@ -99,19 +125,29 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
             _proc.WaitForExit(1000);
         }
 
+        // Killing the process closes the stderr pipe, which unblocks the
+        // reader thread and completes the collection.
+        _reader.Join(1000);
         _proc.Dispose();
+        _lines.Dispose();
     }
 
     // Reads lines from Spike's live commit log, discarding warning lines and
     // boot-ROM commits, until it finds the next ELF-range commit record.
     private SpikeEntry ReadNextElfEntry(ulong expectedPc) {
         while (true) {
-            string? line = _log.ReadLine();
-            if (line is null)
+            if (!_lines.TryTake(out string? line, _readTimeout)) {
+                if (_lines.IsCompleted)
+                    throw new CoSimDivergenceException(
+                        $"Spike commit log ended unexpectedly at commit #{_committed + 1} " +
+                        $"(Horologium about to commit 0x{expectedPc:x8})"
+                    );
                 throw new CoSimDivergenceException(
-                    $"Spike commit log ended unexpectedly at commit #{_committed + 1} " +
-                    $"(Horologium about to commit 0x{expectedPc:x8})"
+                    $"No Spike commit record within {_readTimeout.TotalSeconds:0.#}s at commit " +
+                    $"#{_committed + 1} (Horologium about to commit 0x{expectedPc:x8}) — " +
+                    "Horologium has over-run Spike's instruction stream or Spike has stalled"
                 );
+            }
 
             Match m = SpikeCoSimReference.CommitLine.Match(line);
             if (!m.Success) continue;
