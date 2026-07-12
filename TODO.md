@@ -105,11 +105,11 @@ Remaining delta, in rough dependency order:
   - [x] RV64 F/D extension.
 - [x] riscv64-embedded cross-toolchain in the devshell, real compiled RV64 ISA-conformance ELFs, and an
   xUnit runner exercising them across all three pipeline trains (mirrors the RV32 suite).
-- [ ] RV64C: compressed-instruction fetch/decode bug — `rv64uc-p-rvc` crashes with an out-of-bounds fetch
-  on all three pipeline trains; suspected non-4-byte-aligned instruction fetch/decode edge case.
-- [ ] OoOE RV64 atomic/load-store bug — `rv64ua-p-amo*` and `rv64ui-p-{ld_st,sd,st_ld,sw}` fail under OoOE
-  only (SingleCycle and FiveStage pass), pointing at something OoOE-specific in load/store-queue or
-  atomic-RMW ordering rather than a shared ISA gap.
+- [x] RV64C: CA-type quadrant-1 funct3=4/sub=3 (bit[12]=1) decode and fetch-hint classification —
+  RV64's C.SUBW/C.ADDW versus RV64's C.ADDIW reassignment of quadrant-1 funct3=1 (was statically
+  mispredicted as RV32's C.JAL under speculative fetch).
+- [x] OoOE RV64 store-to-load forwarding — sign extension and byte-width masking for `lw`/`ld`-class
+  forwards through the store queue.
 - [x] RV64A: AMO*.D / LR.D / SC.D (opcode 0x2F, funct3=0x3) — the base RV32 AMO decoder only handles
   funct3=0x2 (word) and the Zabha .b/.h forms; doubleword atomics are entirely undecoded on RV64.
 - [x] RV64C: quadrant reassignments — C.LD/C.SD replace C.FLW/C.FSW (quadrant 0, funct3 3/7),

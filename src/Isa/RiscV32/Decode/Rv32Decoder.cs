@@ -18,7 +18,7 @@ public partial class Rv32Decoder : IDecoder {
         return hint;
     }
 
-    private static FetchHint ComputeFetchHint(ulong pc, uint firstWord) {
+    protected virtual FetchHint ComputeFetchHint(ulong pc, uint firstWord) {
         bool isCompressed = (firstWord & 0x3) != 0x3;
         if (isCompressed) {
             var c = (ushort)(firstWord & 0xFFFF);

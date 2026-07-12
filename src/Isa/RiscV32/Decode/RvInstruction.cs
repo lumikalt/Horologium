@@ -130,9 +130,12 @@ public sealed class RvInstruction(
         _              => [],
     };
 
+    // RvLw sign-extends 32→64 bits on RV64; on RV32 the extra sign bits above bit 31 are
+    // simply unused, so applying it unconditionally is correct for both widths.
     public int LoadSignExtendBytes { get; } = payload switch {
         RvLb => 1,
         RvLh => 2,
+        RvLw => 4,
         _    => 0,
     };
 

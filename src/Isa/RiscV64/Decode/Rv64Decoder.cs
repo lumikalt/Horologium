@@ -29,6 +29,20 @@ public class Rv64Decoder : Rv32Decoder {
         return base.Decode(pc, memory);
     }
 
+    // RV64 reassigns compressed quadrant-1 funct3=1 from C.JAL (RV32) to C.ADDIW — a plain
+    // ALU op, not a branch. The base RV32 fetch-hint table statically predicts it as an
+    // unconditional jump, which mispredicts every C.ADDIW under speculative fetch (FiveStage,
+    // OoOE); SingleCycle has no fetch prediction, so it never observed the bug.
+    protected override FetchHint ComputeFetchHint(ulong pc, uint firstWord) {
+        bool isCompressed = (firstWord & 0x3) != 0x3;
+        if (isCompressed) {
+            var c = (ushort)(firstWord & 0xFFFF);
+            if ((uint)(c & 0x3) == 0x1 && (uint)(c >> 13) == 0x1) return new FetchHint { InstructionSize = 2, };
+        }
+
+        return base.ComputeFetchHint(pc, firstWord);
+    }
+
     protected override ITooth DecodeRaw(ulong pc, uint raw) {
         if ((raw & 0x3) != 0x3) {
             ITooth? rv64C = TryDecodeRv64Compressed(pc, (ushort)raw);
@@ -241,12 +255,24 @@ public class Rv64Decoder : Rv32Decoder {
     //   Q0 funct3=3/7: C.FLW/C.FSW  → C.LD/C.SD
     //   Q1 funct3=1:   C.JAL        → C.ADDIW
     //   Q2 funct3=3/7: C.FLWSP/C.FSWSP → C.LDSP/C.SDSP
+    // Also, the CA-type funct3=100/sub=11 space (bits[6:5]) is reserved on RV32 whenever
+    // bit[12]=1, but on RV64 that bit selects the word-width C.SUBW/C.ADDW forms.
     // Returns null for every other encoding so the caller falls through to the base RV32C table.
     private static ITooth? TryDecodeRv64Compressed(ulong pc, ushort c) {
         uint q = (uint)(c & 0x3);
         var funct3 = (uint)(c >> 13);
 
         switch (q) {
+            case 0x1 when funct3 == 0x4 && (c & 0x1C00) == 0x1C00: { // C.SUBW/C.ADDW (bits[12:10]=111)
+                int rdp = ((c >> 7) & 0x7) + 8;
+                int rs2P = ((c >> 2) & 0x7) + 8;
+                RvOp op = ((c >> 5) & 0x3) switch {
+                    0x0 => new RvSubw(rdp, rdp, rs2P),
+                    0x1 => new RvAddw(rdp, rdp, rs2P),
+                    _ => throw new IllegalInstructionException(c, "C.SUBW/C.ADDW with funct2 ∈ {2,3} is reserved"),
+                };
+                return new RvInstruction(pc, c, rdp, [rdp, rs2P,], ToothClass.IntegerAlu, op, 2);
+            }
             case 0x0 when funct3 == 0x3: { // C.LD
                 int rdp = ((c >> 2) & 0x7) + 8;
                 int rs1P = ((c >> 7) & 0x7) + 8;

@@ -1196,7 +1196,7 @@ internal sealed class OoOPipelineCore : Gear {
     private (ulong Value, bool HasValue) TryForwardFromStore(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
         (ulong Value, bool HasValue) result = default;
         ulong loadEnd = loadAddr + (ulong)loadBytes;
-        ulong mask = loadBytes switch { 1 => 0xFFUL, 2 => 0xFFFFUL, _ => 0xFFFF_FFFFUL, };
+        ulong mask = loadBytes >= 8 ? ulong.MaxValue : (1UL << (loadBytes * 8)) - 1;
         foreach (SqEntry sq in _sq.InOrder()) {
             if (sq.SeqNo >= loadSeqNo) break;
             if (!sq.AddressKnown) continue;
