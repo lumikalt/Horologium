@@ -103,8 +103,13 @@ Remaining delta, in rough dependency order:
   - [x] Sv39 page-table walker for RV64 virtual memory.
   - [x] RV64 M extension.
   - [x] RV64 F/D extension.
-- [ ] riscv64-embedded cross-toolchain in the devshell (`flake.nix` only exposes `riscv32-embedded`) — RV64
-  ELF loader and end-to-end tests currently use hand-crafted byte buffers rather than real compiled binaries.
+- [x] riscv64-embedded cross-toolchain in the devshell, real compiled RV64 ISA-conformance ELFs, and an
+  xUnit runner exercising them across all three pipeline trains (mirrors the RV32 suite).
+- [ ] RV64C: compressed-instruction fetch/decode bug — `rv64uc-p-rvc` crashes with an out-of-bounds fetch
+  on all three pipeline trains; suspected non-4-byte-aligned instruction fetch/decode edge case.
+- [ ] OoOE RV64 atomic/load-store bug — `rv64ua-p-amo*` and `rv64ui-p-{ld_st,sd,st_ld,sw}` fail under OoOE
+  only (SingleCycle and FiveStage pass), pointing at something OoOE-specific in load/store-queue or
+  atomic-RMW ordering rather than a shared ISA gap.
 - [x] RV64A: AMO*.D / LR.D / SC.D (opcode 0x2F, funct3=0x3) — the base RV32 AMO decoder only handles
   funct3=0x2 (word) and the Zabha .b/.h forms; doubleword atomics are entirely undecoded on RV64.
 - [x] RV64C: quadrant reassignments — C.LD/C.SD replace C.FLW/C.FSW (quadrant 0, funct3 3/7),
