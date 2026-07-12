@@ -159,21 +159,27 @@ the current absolute IPCs are in the tables above (execute-time resolution lifts
   treesum gap is now predictor *structure*, not timing — see "treesum: speculative branch
   history" below.
 
-**Store sets is a net loss across the full suite — it should stay opt-in.** Running
-`--enable-store-sets` against all 10 benchmarks (default bypass=1, l_tage): treesum
-(0.473 → 0.678) and towers (0.712 → 0.924) improve substantially, matching the
-per-workload story above, but **rsort regresses severely** (H/G 1.019 → 0.631; IPC
-1.3495 → 0.8347, cycles 126 843 → 205 079) and qsort dips slightly (0.944 → 0.893).
-The remaining six workloads are unaffected (no store/load conflicts to predict). For
-rsort, `mem_order_violations` drops 82 → 1 as intended, but `stalls` balloons
-125 299 → 204 899 — roughly 79 000 stall cycles paid to avoid ~81 violations, which
-individually cost far less than that to squash-and-replay. The likely cause: the SSIT
-is PC-indexed only (no address hashing), so a single genuine conflict at a load/store
-PC pair permanently merges *every* future dynamic instance of that pair into the same
-store set — recursive/generic functions (rsort's partition step reuses one swap PC for
-many independent array indices) pay for one real dependency by serializing all the
-unrelated ones forever. See the TODO for a possible mitigation (periodic SSIT/LFST
-clearing or address-aware set assignment).
+**Store sets false-dependency mitigation: periodic clear period tuned to 4096 loads.**
+The SSIT is PC-indexed only (no address hashing), so a single genuine conflict at a
+load/store PC pair permanently merges *every* future dynamic instance of that pair
+into the same store set — recursive/generic functions (rsort's partition step reuses
+one swap PC for many independent array indices) paid for one real dependency by
+serializing all the unrelated ones forever. Running `--enable-store-sets` against all
+10 benchmarks at the original 250k-load clear period (default bypass=1, l_tage)
+showed this clearly: treesum (0.473 → 0.678) and towers (0.712 → 0.924) improved
+substantially, but **rsort regressed severely** (H/G 1.019 → 0.631; IPC 1.3495 →
+0.8347, cycles 126 843 → 205 079) and qsort dipped (0.944 → 0.893) — `mem_order_violations`
+dropped 82 → 1 as intended, but `stalls` ballooned 125 299 → 204 899, roughly 79 000
+stall cycles paid to avoid ~81 violations that individually cost far less to
+squash-and-replay. Sweeping the clear period across the full suite found a cliff:
+below ~4096 loads, towers loses its store-set benefit entirely (H/G 0.924 → 0.819 at
+3072) because real recurring dependencies get cleared before they matter; at and above
+4096, rsort/qsort recover most of their regression while towers/treesum keep their
+gains. `StoreSetPredictor`'s default `clearPeriod` is now 4096 (was 250 000). Final
+numbers at the new default: rsort 0.973 (was 0.631), qsort 0.916 (was 0.893), towers
+0.924 (unchanged), treesum 0.650 (was 0.678, a small giveback for rsort/qsort's much
+larger recovery). The remaining six workloads are unaffected at any clear period (no
+store/load conflicts to predict).
 
 H/G ratio > 1 means Horologium has higher IPC than gem5.
 

@@ -135,11 +135,13 @@ Remaining delta, in rough dependency order:
 
 - [x] Store sets for memory dependence prediction: predict which loads depend on which stores to avoid unnecessary
   stalls. — Chrysos & Emer, ISCA 1998
-- [ ] Store-set false-dependency mitigation: the PC-only SSIT permanently merges every future dynamic instance of
-  a load/store PC pair after one genuine conflict, so a recursive/generic function that reuses one PC pair across
-  many independent addresses (measured: rsort) serializes all of them forever for a single real dependency —
-  periodic SSIT/LFST clearing or address-aware set assignment. See `docs/gem5-comparison.md` "Store sets is a
-  net loss across the full suite".
+- [x] Store-set false-dependency mitigation: the periodic SSIT/LFST clear already existed but its 250k-load
+  period never fired within a single benchmark run, so a false dependency (PC-indexed, no address hashing) was
+  effectively permanent. Swept the clear period against the full gem5-compare suite and found a cliff at ~4096
+  loads: below it, towers loses its store-set benefit; at/above it, rsort/qsort recover most of their regression
+  while towers/treesum keep their gains. New default: 4096 (was 250 000). rsort H/G 0.631→0.973, qsort
+  0.893→0.916, towers unchanged at 0.924, treesum 0.678→0.650 (small giveback). See
+  `docs/gem5-comparison.md` "Store sets false-dependency mitigation".
 
 ## Branch Prediction
 

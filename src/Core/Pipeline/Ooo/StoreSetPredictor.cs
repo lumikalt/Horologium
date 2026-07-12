@@ -14,6 +14,17 @@ namespace Pipeline.Ooo;
 /// store set only on its Nth violation; the first N-1 are absorbed without adding stalls.
 /// Rules 2–4 (one or both parties already have SSIDs) bypass the threshold: the pair has
 /// already earned confidence via a prior violation.
+///
+/// The SSIT is PC-only (no address information), so once a load/store PC pair earns an
+/// SSID, every future dynamic instance of that pair is serialized — including independent
+/// ones a generic/recursive function reuses across many addresses (e.g. a sort's swap
+/// site). The periodic clear (default: every 4096 loads) is the mitigation: it decays
+/// stale pairings so a false dependency costs a bounded window of lost ILP rather than
+/// the rest of the run. 4096 was picked by sweeping the full gem5-compare benchmark suite
+/// (see docs/gem5-comparison.md "Store sets false-dependency mitigation"): below ~4096, towers loses
+/// its store-set benefit (0.924 → 0.819 H/G at 3072) because real recurring dependencies
+/// get cleared before they matter; at and above 4096, rsort/qsort recover most of their
+/// regression while towers/treesum keep their gains.
 /// </summary>
 internal sealed class StoreSetPredictor {
     private readonly int[] _ssit;      // SSIT slot → SSID (0 = unassigned)
@@ -29,7 +40,7 @@ internal sealed class StoreSetPredictor {
     public StoreSetPredictor(
         int ssitSize = 1024,
         int lfstSize = 1024,
-        uint clearPeriod = 250_000,
+        uint clearPeriod = 4_096,
         int threshold = 2
     ) {
         _ssit = new int[ssitSize];
