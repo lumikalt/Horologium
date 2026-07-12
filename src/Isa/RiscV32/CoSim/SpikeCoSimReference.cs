@@ -28,8 +28,9 @@ namespace RiscV32.CoSim;
 public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
     private readonly record struct SpikeEntry(ulong Pc, uint RawEncoding, int RegIndex, uint RegValue);
 
-    [GeneratedRegex(@"core\s+\d+:\s+\d+\s+(0x[0-9a-f]+)\s+\((0x[0-9a-f]+)\)(?:\s+x(\d+)\s+(0x[0-9a-f]+))?", RegexOptions.Compiled
-)]
+    [GeneratedRegex(
+        @"core\s+\d+:\s+\d+\s+(0x[0-9a-f]+)\s+\((0x[0-9a-f]+)\)(?:\s+x(\d+)\s+(0x[0-9a-f]+))?", RegexOptions.Compiled
+    )]
     private static partial Regex CommitLine { get; }
 
     private readonly Process _proc;
@@ -150,7 +151,7 @@ public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
                 );
             }
 
-            Match m = SpikeCoSimReference.CommitLine.Match(line);
+            Match m = CommitLine.Match(line);
             if (!m.Success) continue;
 
             var pc = Convert.ToUInt64(m.Groups[1].Value, 16);

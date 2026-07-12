@@ -1,9 +1,5 @@
 using System.Numerics;
 using Mechanism;
-using Orrery.Cache;
-using Orrery.Devices;
-using RiscV32.Decode;
-using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV32.State;
 
@@ -61,7 +57,7 @@ public partial class Rv32Executor {
     // the unsigned WU variants (they're specified like other W-suffixed ops). Routed
     // through the virtual Reg() so RV32 truncates the sign-extension back to 32 bits
     // (a no-op there) while RV64's override keeps the full 64-bit sign-extended value.
-    protected ExecuteResult IntRegF(uint value, uint flags) {
+    private ExecuteResult IntRegF(uint value, uint flags) {
         ExecuteResult result = Reg((ulong)(int)value);
         if (flags == 0) return result;
         return result with { SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
@@ -168,7 +164,7 @@ public partial class Rv32Executor {
     // FCVT.S.W / FCVT.S.WU: integer → float (may set NX if inexact).
     // Note: rounding mode affects which float is chosen; C# uses RNE by default.
     // We use the hardware default (RNE) since .NET doesn't expose per-op rounding.
-    protected static ExecuteResult FpIntToFloat(long intVal) {
+    private static ExecuteResult FpIntToFloat(long intVal) {
         var r = (float)intVal;
         // NX if the integer can't be exactly represented in float32 (24-bit mantissa)
         bool nx = (long)r != intVal;
@@ -518,7 +514,7 @@ public partial class Rv32Executor {
     }
 
     // FCVT.D.W / FCVT.D.WU: integer → double (always exact for 32-bit integers).
-    protected static ExecuteResult DpIntToDouble(long intVal) =>
+    private static ExecuteResult DpIntToDouble(long intVal) =>
         FloatRegD(intVal, 0);
 
     // FCVT.S.D: narrow double → single (may set NX, OF).

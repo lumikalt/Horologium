@@ -27,7 +27,7 @@ public static class ScriptHost {
                                                                             "Mechanism",
                                                                             "Pipeline.Spec",
                                                                             "Orrery.Spec",
-                                                                            "Orrery.Cache",
+                                                                            "Orrery.DoCache",
                                                                             "RiscV32"
                                                                         );
 

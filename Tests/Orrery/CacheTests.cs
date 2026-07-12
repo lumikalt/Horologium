@@ -368,7 +368,7 @@ public class CacheTests {
 
         // Backing unchanged — write stayed in cache.
         Assert.Equal(0xAAUL, mem.Read(0, 1));
-        // Cache line is dirty.
+        // DoCache line is dirty.
         CacheLine? line = cache.GetSnapshot().FirstOrDefault(l => l.Valid);
         Assert.NotNull(line);
         Assert.True(line.Dirty);

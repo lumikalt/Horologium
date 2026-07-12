@@ -31,7 +31,7 @@ public partial class Rv32Executor : IExecutor {
     /// Shared reservation table for multi-hart LR/SC.  When set, LR.W registers
     /// this hart's reservation in the table, and SC.W consults it; a write from
     /// any other hart to the same granule will cancel the reservation before SC
-    /// even executes.  Null = single-hart mode (private <see cref="_reservation"/>
+    /// even executes.  Null = single-hart mode (private <see cref="Reservation"/>
     /// field is used instead, preserving backward compatibility).
     /// </summary>
     public ReservationTable? ReservationTable { get; init; }
@@ -61,7 +61,7 @@ public partial class Rv32Executor : IExecutor {
     public bool WfiNeverHalts { get; init; }
 
     // Single-hart fallback: used when ReservationTable is null.
-    protected ulong? _reservation;
+    protected ulong? Reservation;
 
     public virtual ExecuteResult Execute(ITooth instruction, IArchState state, IMemory memory) {
         if (instruction.Payload is not RvOp op)
@@ -102,7 +102,7 @@ public partial class Rv32Executor : IExecutor {
             RvXori (_, var rs1, var imm) =>
                 Reg(regs.Read(rs1) ^ (ulong)imm),
             RvOri (_, var rs1, var imm) =>
-                Reg(regs.Read(rs1) | unchecked((ulong)(long)imm)),
+                Reg(regs.Read(rs1) | unchecked((uint)imm)),
             RvAndi (_, var rs1, var imm) =>
                 Reg(regs.Read(rs1) & (ulong)imm),
             RvSlli (_, var rs1, var shamt) =>
@@ -204,7 +204,7 @@ public partial class Rv32Executor : IExecutor {
             // Architecturally a NOP: ordering is a timing concern, enforced by the
             // pipeline via ITooth.IsStoreLoadFence (OoO write-buffer drain + load gate).
             RvFence     => ExecuteResult.Clean,
-            RvFenceI    => ExecuteResult.Clean, // I-cache invalidation not modeled
+            RvFenceI    => ExecuteResult.Clean, // I-cache invalidation isn't modeled
             RvSfenceVma => ExecuteResult.Clean, // TLB flush — no-op in NOMMU simulation
 
             // ── Zawrs extension (single-core: NOP) ────────────────────────────
@@ -334,6 +334,9 @@ public partial class Rv32Executor : IExecutor {
             // ── Zabha+Zacas: narrow compare-and-swap ───────────────────────────
             RvAmocasB(var rd, var rs1, var rs2) => AmoCasNarrow(memory, state, pc, regs, rd, rs1, rs2, 1),
             RvAmocasH(var rd, var rs1, var rs2) => AmoCasNarrow(memory, state, pc, regs, rd, rs1, rs2, 2),
+
+            // ── Zacas: RV32 register-pair amocas.d ──────────────────────────────
+            RvAmocasDPair(var rd, var rs1, var rs2) => AmoCasDPair(memory, state, pc, regs, rd, rs1, rs2),
 
             // ── Zabha extension (byte and halfword AMOs) ──────────────────────
             RvAmoswapB(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (_, v) => v),
@@ -498,7 +501,7 @@ public partial class Rv32Executor : IExecutor {
             RvFdivH (_, var rs1, var rs2) => HpBin(HBits(regs, rs1), HBits(regs, rs2), 3),
             RvFsqrtH(_, var rs1)          => HpSqrt(HBits(regs, rs1)),
 
-            // Same NaN-boxing caveat as fsgnj*.s above, at half width (upper 48 bits).
+            // Same NaN-boxing caveat as fsgnj*.s above, at half-width (upper 48 bits).
             RvFsgnjH (_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFFFFFF0000UL |
@@ -536,7 +539,7 @@ public partial class Rv32Executor : IExecutor {
             RvFcvtHWu(_, var rs1, _)      => FpIntToHalf((uint)regs.Read(rs1)),
 
             // FMV.X.H sign-extends the raw 16-bit pattern (bit 15 is the FP sign bit).
-            RvFmvXh(_, var rs1) => Reg((ulong)(long)(short)(ushort)regs.Read(rs1)),
+            RvFmvXh(_, var rs1) => Reg((ulong)(short)(ushort)regs.Read(rs1)),
             RvFmvHx(_, var rs1) => ExecuteResult.WithResult(0xFFFFFFFFFFFF0000UL | (regs.Read(rs1) & 0xFFFF)),
 
             RvFmaddH (_, var rs1, var rs2, var rs3) =>
@@ -968,7 +971,7 @@ public partial class Rv32Executor : IExecutor {
         if (ReservationTable is not null)
             ReservationTable.Set(HartId, paddr);
         else
-            _reservation = paddr;
+            Reservation = paddr;
         // LR.W is sign-extended to XLEN (matters for RV64); routed through the virtual
         // Reg() so RV32 truncates it back to 32 bits (a no-op there).
         return Reg((ulong)(int)(uint)memory.Read(paddr, 4));
@@ -993,8 +996,8 @@ public partial class Rv32Executor : IExecutor {
 
     // Single-hart reservation consume: clears _reservation regardless of match (per spec).
     protected bool ConsumePrivateReservation(ulong paddr) {
-        bool matched = _reservation == paddr;
-        _reservation = null; // SC always releases the reservation
+        bool matched = Reservation == paddr;
+        Reservation = null; // SC always releases the reservation
         return matched;
     }
 
@@ -1058,6 +1061,38 @@ public partial class Rv32Executor : IExecutor {
         if (old == ((uint)regs.Read(rdReg) & mask)) memory.Write(addr, regs.Read(rs2), bytes);
         int rd = bytes == 1 ? (sbyte)(byte)old : (short)(ushort)old;
         return Reg((ulong)rd); // sign-extended to XLEN (matters for RV64)
+    }
+
+    // Zacas: RV32 amocas.d register-pair form. RV32 has no 64-bit register, so the
+    // comparand/new-value/result are split across (rdReg, rdReg+1) and (rs2, rs2+1).
+    // rdReg's low half commits through the normal DestinationRegister path; rdReg+1
+    // commits via SideEffect (see ITooth.SecondaryDestinationRegister). Correct only
+    // because the OoO train head-serializes this instruction's issue (see OooeTrain),
+    // guaranteeing regs here already reflects every older instruction's commit.
+    private ExecuteResult AmoCasDPair(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rdReg,
+        int rs1,
+        int rs2
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        ulong compare = (regs.Read(rdReg) & 0xFFFFFFFFUL) | (regs.Read(rdReg + 1) << 32);
+        ulong old = memory.Read(addr, 8);
+        if (old == compare) {
+            ulong newVal = (regs.Read(rs2) & 0xFFFFFFFFUL) | (regs.Read(rs2 + 1) << 32);
+            memory.Write(addr, newVal, 8);
+        }
+
+        ulong oldHigh = old >> 32;
+        return new ExecuteResult {
+            RegisterResult = (old & 0xFFFFFFFFUL, true),
+            SideEffect = s => s.IntegerRegisters.Write(rdReg + 1, oldHigh),
+        };
     }
 
     protected virtual (ulong paddr, int faultCause) Translate(

@@ -144,7 +144,7 @@ public class CacheHierarchySpecTests {
     [Fact]
     public void Prefetcher_OnlyOnOuterLevel_NotWiredToMemoryLayers() {
         // If the prefetcher is on L2 (shared) but not L1 (innermost), MemoryLayers.Prefetcher
-        // is null — TryPrefetch targets Cache (L1), so an L2-only strategy is not activated.
+        // is null — TryPrefetch targets DoCache (L1), so an L2-only strategy is not activated.
         FlatMemory backing = MakeBacking();
         var l1 = new CacheLevelSpec(64, 2, 16, 5); // no prefetcher
         var l2 = new CacheLevelSpec(512, 4, 16, 20, Prefetcher: PrefetcherKind.NextLine);
@@ -184,7 +184,7 @@ public class CacheHierarchySpecTests {
         var layers = MemoryLayers.Build(backing, path);
 
         layers.Accessor.Read(0, 1);
-        Assert.Equal(1L, layers.Cache!.Misses);      // Cache = L0 (innermost)
+        Assert.Equal(1L, layers.Cache!.Misses);      // DoCache = L0 (innermost)
         Assert.Equal(1L, layers.L2Cache!.Misses);    // L2Cache = L1 (next out)
         Assert.Equal(10, layers.ConsumeAllStalls()); // 2 + 8
 

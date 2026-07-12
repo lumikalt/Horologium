@@ -106,6 +106,14 @@ public sealed class RvInstruction(
         _ => -1,
     };
 
+    // RV32 amocas.d (Zacas) holds its 64-bit result in a register pair: Rd gets the
+    // low word (via the normal DestinationRegister/RegisterResult path), Rd+1 gets the
+    // high word via SideEffect. See ITooth.SecondaryDestinationRegister.
+    public int SecondaryDestinationRegister { get; } = payload switch {
+        RvAmocasDPair op => op.Rd + 1,
+        _                => -1,
+    };
+
     public IReadOnlyList<int> UveStreamSources { get; } = payload switch {
         RvUveSoAFp op     => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2,] : [op.Usrc1,],
         RvUveSoAInt op    => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2,] : [op.Usrc1,],

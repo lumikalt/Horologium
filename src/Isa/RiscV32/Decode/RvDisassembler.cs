@@ -132,8 +132,9 @@ public static class RvDisassembler {
         RvAmomaxuW op => $"amomaxu.w {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
 
         // Zacas extension
-        RvAmocasW op => $"amocas.w {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
-        RvAmocasD op => $"amocas.d {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmocasW op     => $"amocas.w {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmocasD op     => $"amocas.d {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
+        RvAmocasDPair op => $"amocas.d {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",
 
         // Zabha+Zacas extension — narrow compare-and-swap
         RvAmocasB op => $"amocas.b {Xi(op.Rd)}, {Xi(op.Rs2)}, ({Xi(op.Rs1)})",

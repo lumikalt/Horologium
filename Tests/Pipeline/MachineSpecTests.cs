@@ -68,7 +68,7 @@ public class MachineSpecTests {
         Assert.NotNull(handle.Layers.Cache);
     }
 
-    // ── Cache miss counting ───────────────────────────────────────────────────
+    // ── DoCache miss counting ───────────────────────────────────────────────────
 
     [Fact]
     public void WithL1_CacheSeesMissesOnColdRun() {

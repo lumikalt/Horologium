@@ -1,5 +1,3 @@
-using Mechanism;
-
 namespace RiscV32.Decode;
 
 // ── A extension (atomics) ─────────────────────────────────────────────────────
@@ -36,9 +34,14 @@ public record RvAmocasB(int Rd, int Rs1, int Rs2) : RvOp;
 public record RvAmocasH(int Rd, int Rs1, int Rs2) : RvOp;
 
 // Zacas doubleword compare-and-swap. RV64 decodes this as a native single-register 64-bit
-// CAS (see Rv64Decoder/Rv64Executor). RV32 has no 64-bit register to hold the compare/swap
-// values, so amocas.d there is not yet decoded — see TODO.md.
+// CAS (see Rv64Decoder/Rv64Executor).
 public record RvAmocasD(int Rd, int Rs1, int Rs2) : RvOp;
+
+// RV32's amocas.d: no single 32-bit register holds a 64-bit value, so the compare/swap/result
+// values are split across an even/odd register pair (Rd/Rd+1, Rs2/Rs2+1). Rd is both the low
+// half of the comparand and the low half of the destination (via the normal path); Rd+1 is the
+// high half of both, delivered through SideEffect (see ITooth.SecondaryDestinationRegister).
+public record RvAmocasDPair(int Rd, int Rs1, int Rs2) : RvOp;
 
 // ── Zabha extension (byte/halfword atomics) ───────────────────────────────────
 public record RvAmoswapB(int Rd, int Rs1, int Rs2) : RvOp;

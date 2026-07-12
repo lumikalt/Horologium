@@ -1047,6 +1047,14 @@ internal sealed class OoOPipelineCore : Gear {
                     // Vector serialization: vector register renaming is not implemented.
                     // Head-gating ensures VRF writes are applied in program order.
                     case ToothClass.Vector when rs.RobIndex != _rob.HeadIndex:
+                    // Secondary-destination serialization (e.g. RV32 amocas.d's register
+                    // pair): the high half is delivered through SideEffect straight into
+                    // architectural state, not through the PRF, so it is never renamed.
+                    // Head-gating guarantees State.IntegerRegisters already reflects every
+                    // older instruction's commit by the time this one executes, which is
+                    // the only thing that makes its direct regs.Read() of the pair correct.
+                    case ToothClass.Atomic when rs.Instruction?.SecondaryDestinationRegister >= 0
+                                             && rs.RobIndex != _rob.HeadIndex:
                         continue;
                     // SC.W serialization: the reservation check (TryConsume) must see a
                     // coherent view of the ReservationTable — all older intra-hart stores
@@ -1105,6 +1113,35 @@ internal sealed class OoOPipelineCore : Gear {
                 issued++;
             }
         }
+    }
+
+    /// <summary>
+    /// True if any not-yet-committed instruction (already dispatched to the ROB, or
+    /// still sitting in the rename queue) has a secondary destination register that
+    /// <paramref name="srcs"/> reads (RAW) or that equals <paramref name="destArch"/>
+    /// (WAW). See StepRename's dispatch stall for why this must block renaming
+    /// rather than just issue.
+    /// <para>
+    /// The WAW case matters because the secondary-dest write never goes through the
+    /// RAT: CommitRegisters syncs the PRF slot the RAT *currently* maps for that
+    /// architectural register. If a younger instruction were allowed to rename a new
+    /// physical register for it first, that sync would target the wrong slot (or race
+    /// the younger producer's own completion). Blocking here keeps the RAT mapping for
+    /// that register stable until the secondary-dest producer retires and syncs it.
+    /// </para>
+    /// </summary>
+    private bool HasPendingSecondaryDest(IReadOnlyList<int> srcs, int destArch) {
+        foreach ((_, RobEntry entry) in _rob.InOrder()) {
+            int sd = entry.Instruction?.SecondaryDestinationRegister ?? -1;
+            if (sd >= 0 && (srcs.Contains(sd) || sd == destArch)) return true;
+        }
+
+        foreach (RenameEntry ri in _renameQueue) {
+            int sd = ri.Decoded?.SecondaryDestinationRegister ?? -1;
+            if (sd >= 0 && (srcs.Contains(sd) || sd == destArch)) return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1375,6 +1412,16 @@ internal sealed class OoOPipelineCore : Gear {
             ITooth instr = fi.Decoded!;
             int destArch = instr.DestinationRegister;
             if (destArch > 0 && !_rat.HasFree) break; // stall: no free physical registers
+
+            // Secondary-destination RAW/WAW hazard: an older, uncommitted instruction
+            // (e.g. an RV32 amocas.d) will write one of this instruction's sources — or
+            // this instruction's own destination — through SideEffect straight into
+            // architectural state, bypassing the RAT/PRF entirely. Renaming now would
+            // either bind a source to the stale physical register, or (WAW) let this
+            // instruction claim a new physical register for that architectural register
+            // before the producer's retirement-time PRF sync lands on the old one. Stall
+            // dispatch until that producer retires.
+            if (HasPendingSecondaryDest(instr.SourceRegisters, destArch)) break;
 
             // ── Source lookup BEFORE destination rename ────────────────────────
             // Tomasulo invariant: sources must be resolved against the RAT state
@@ -1877,6 +1924,16 @@ internal sealed class OoOPipelineCore : Gear {
     /// </summary>
     private void CommitRegisters(RobEntry head) {
         head.SideEffect?.Invoke(State);
+
+        // Secondary-destination sync: the SideEffect write above landed directly in
+        // State.IntegerRegisters, bypassing the RAT/PRF entirely. HasPendingSecondaryDest's
+        // WAW stall guarantees no younger instruction has re-renamed this architectural
+        // register since dispatch, so the RAT's current mapping for it is still the one
+        // live at (and before) this instruction — safe to push the fresh value into that
+        // PRF slot so a later consumer's normal RAT-based read picks it up.
+        int sd = head.Instruction?.SecondaryDestinationRegister ?? -1;
+        if (sd >= 0) _prf.Write(_rat.Lookup(sd), State.IntegerRegisters.Read(sd));
+
         if (head is not { PhysDestination: >= 0, ArchDestination: > 0, }) return;
         ulong val = _prf.Read(head.PhysDestination);
         State.IntegerRegisters.Write(head.ArchDestination, val);

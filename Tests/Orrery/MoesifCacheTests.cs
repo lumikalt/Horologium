@@ -6,7 +6,7 @@ namespace Tests.Orrery;
 /// <summary>
 /// Tests for <see cref="MoesifCache"/> coherence correctness.
 /// <para>
-/// Cache configuration used throughout:
+/// DoCache configuration used throughout:
 ///   capacityBytes=256, ways=2, blockSize=64 → 2 sets
 ///   set = (address >> 6) &amp; 1
 ///   Addresses mapping to set 0: 0x000, 0x080, 0x100, 0x180, 0x200, …

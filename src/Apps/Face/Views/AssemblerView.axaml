@@ -237,7 +237,7 @@
         </TabItem>
 
         <!-- ── Cache tab — hit-rate chart + cache contents grid ─────────────── -->
-        <TabItem Header="Cache">
+        <TabItem Header="DoCache">
             <Grid RowDefinitions="Auto,Auto,Auto,*">
 
                 <!-- Row 0: Cache selector + hint -->
@@ -247,11 +247,11 @@
                                FontSize="12" FontWeight="SemiBold" Opacity="0.7" />
                     <ComboBox Grid.Column="1"
                               SelectedIndex="{Binding SelectedCacheTab}">
-                        <ComboBoxItem Content="I-Cache (Instruction)" />
-                        <ComboBoxItem Content="D-Cache (Data)" />
+                        <ComboBoxItem Content="I-DoCache (Instruction)" />
+                        <ComboBoxItem Content="D-DoCache (Data)" />
                     </ComboBox>
                     <TextBlock Grid.Column="2"
-                               Text="Switch to 5-Stage or OoO pipeline mode, then enable I-Cache / D-Cache in the sidebar. Caches reset on mode or config change."
+                               Text="Switch to 5-Stage or OoO pipeline mode, then enable I-DoCache / D-DoCache in the sidebar. Caches reset on mode or config change."
                                VerticalAlignment="Center"
                                Margin="12,0,0,0"
                                FontSize="11"

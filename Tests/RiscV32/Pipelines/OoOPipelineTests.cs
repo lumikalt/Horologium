@@ -121,6 +121,39 @@ public class OoOPipelineTests {
     }
 
     [Fact]
+    public void Program_AmocasDPair_SecondaryDestConsumedByLaterInstruction() {
+        // amocas.d's high half (rd+1) is delivered through SideEffect, not the RAT/PRF —
+        // this exercises OooeTrain's HasPendingSecondaryDest dispatch stall, which must
+        // prevent a later instruction reading rd+1 from renaming onto the register's
+        // stale pre-atomic physical register.
+        // addi x5, x0, 999      → poison x5 (the atomic's future secondary dest)
+        // addi x8, x0, 256      → address
+        // addi x6, x0, 0x111    → new value, low half
+        // addi x7, x0, 0x222    → new value, high half
+        // amocas.d x4, x6, (x8) → mem[256..263] starts at 0, matches comparand (x4,x5)=(0,999)? no —
+        //                         comparand high (x5=999) != mem high (0), so CAS fails; but x5
+        //                         still gets overwritten with the old high half (0) via SideEffect.
+        // add  x9, x5, x0       → must read the corrected value (0), not the stale poison (999)
+        // ebreak
+        (OooeTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0x3e700293, // addi x5, x0, 999
+            0x10000413, // addi x8, x0, 256
+            0x11100313, // addi x6, x0, 0x111
+            0x22200393, // addi x7, x0, 0x222
+            0x2864322f, // amocas.d x4, x6, (x8)
+            0x000284b3, // add x9, x5, x0
+            0x00100073  // ebreak
+        );
+        train.Run();
+        Assert.Equal(0u, Reg(train, 4));     // old low half returned via normal dest path
+        Assert.Equal(0u, Reg(train, 5));     // old high half delivered via SideEffect
+        Assert.Equal(0u, Reg(train, 9));     // consumer must see the corrected value, not 999
+        Assert.Equal(0UL, mem.Read(256, 8)); // CAS failed (comparand mismatch) — mem unchanged
+    }
+
+    [Fact]
     public void Program_SubtractNumbers() {
         // addi x1, x0, 10   → x1 = 10
         // addi x2, x0, 3    → x2 = 3

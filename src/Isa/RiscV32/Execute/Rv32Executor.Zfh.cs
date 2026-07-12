@@ -1,11 +1,4 @@
-using System.Numerics;
 using Mechanism;
-using Orrery.Cache;
-using Orrery.Devices;
-using RiscV32.Decode;
-using RiscV32.Memory;
-using RiscV32.Registers;
-using RiscV32.State;
 
 // ReSharper disable CompareOfFloatsByEqualityOperator
 
@@ -15,7 +8,7 @@ public partial class Rv32Executor {
     // ── Half precision (Zfh) helpers ────────────────────────────────────────────
 
     // RISC-V canonical NaN for float16 (positive, quiet NaN with the top mantissa bit set).
-    private const ushort RvCanonicalNaNH = 0x7E00;
+    private const ushort RvCanonicalNaNh = 0x7E00;
 
     // Wrap an ExecuteResult (e.g., from Load) to NaN-box the 16-bit half value.
     private static ExecuteResult NanBoxH(ExecuteResult r) =>
@@ -23,18 +16,18 @@ public partial class Rv32Executor {
             ? ExecuteResult.WithResult(0xFFFFFFFFFFFF0000UL | r.RegisterResult.Value)
             : r;
 
-    // Read a half register as a C# Half (bit-exact reinterpret).
-    // NaN-boxing (§11.3, extended to fmt=H): upper 48 bits must be all 1s; otherwise canonical NaN.
+    // Read a half-register as a C# Half (bit-exact reinterpret).
+    // NaN-boxing (§11.3, extended to fmt=H): the upper 48 bits must be all 1s; otherwise canonical NaN.
     protected static Half HBits(IRegisterFile regs, int rs) {
         ulong raw = regs.Read(rs);
         return raw >> 16 == 0xFFFFFFFFFFFFUL
             ? BitConverter.UInt16BitsToHalf((ushort)raw)
-            : BitConverter.UInt16BitsToHalf(Rv32Executor.RvCanonicalNaNH);
+            : BitConverter.UInt16BitsToHalf(Rv32Executor.RvCanonicalNaNh);
     }
 
-    // Half result + OR flags into fflags via SideEffect. Writes NaN-boxed (upper 48 bits = 1).
-    protected static ExecuteResult FloatRegH(Half value, uint flags) {
-        ushort bits = Half.IsNaN(value) ? Rv32Executor.RvCanonicalNaNH : BitConverter.HalfToUInt16Bits(value);
+    // Half-result + OR flags into fflags via SideEffect. Writes NaN-boxed (upper 48 bits = 1).
+    private static ExecuteResult FloatRegH(Half value, uint flags) {
+        ushort bits = Half.IsNaN(value) ? Rv32Executor.RvCanonicalNaNh : BitConverter.HalfToUInt16Bits(value);
         ulong nanBoxed = 0xFFFFFFFFFFFF0000UL | bits;
         if (flags == 0) return ExecuteResult.WithResult(nanBoxed);
         return new ExecuteResult

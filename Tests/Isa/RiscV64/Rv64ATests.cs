@@ -126,15 +126,15 @@ public class Rv64ATests {
 
     [Fact]
     public void AmominD_SignedMin_UpperBitsMatter() {
-        _mem.Write(0x200, unchecked((ulong)(long)-1), 8);
+        _mem.Write(0x200, unchecked((ulong)-1), 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 5UL));
         Exec(AmoD(0x10, 3, 1, 2), s);
-        Assert.Equal(unchecked((ulong)(long)-1), _mem.Read(0x200, 8));
+        Assert.Equal(unchecked((ulong)-1), _mem.Read(0x200, 8));
     }
 
     [Fact]
     public void AmomaxD_SignedMax() {
-        _mem.Write(0x200, unchecked((ulong)(long)-1), 8);
+        _mem.Write(0x200, unchecked((ulong)-1), 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 5UL));
         Exec(AmoD(0x14, 3, 1, 2), s);
         Assert.Equal(5UL, _mem.Read(0x200, 8));
@@ -142,7 +142,7 @@ public class Rv64ATests {
 
     [Fact]
     public void AmominuD_UnsignedMin_TreatsAllOnesAsLargest() {
-        _mem.Write(0x200, unchecked((ulong)(long)-1), 8);
+        _mem.Write(0x200, unchecked((ulong)-1), 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 5UL));
         Exec(AmoD(0x18, 3, 1, 2), s);
         Assert.Equal(5UL, _mem.Read(0x200, 8));
@@ -150,10 +150,10 @@ public class Rv64ATests {
 
     [Fact]
     public void AmomaxuD_UnsignedMax_TreatsAllOnesAsLargest() {
-        _mem.Write(0x200, unchecked((ulong)(long)-1), 8);
+        _mem.Write(0x200, unchecked((ulong)-1), 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 5UL));
         Exec(AmoD(0x1C, 3, 1, 2), s);
-        Assert.Equal(unchecked((ulong)(long)-1), _mem.Read(0x200, 8));
+        Assert.Equal(unchecked((ulong)-1), _mem.Read(0x200, 8));
     }
 
     // ── AMOCAS.D (Zacas doubleword compare-and-swap, RV64-native single register) ────────
@@ -179,7 +179,7 @@ public class Rv64ATests {
 
     [Fact]
     public void AmocasD_ComparesFullDoublewordWidth_UpperBitsMatter() {
-        // Comparand's low 32 bits match but upper 32 bits don't — must still fail, unlike
+        // Comparand's low 32 bits match, but upper 32 bits don't — must still fail, unlike
         // AMOCAS.W which only ever compares 32 bits.
         _mem.Write(0x200, 0x1_0000_0000UL, 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 99UL), (5, 0UL)); // 0 matches low word only

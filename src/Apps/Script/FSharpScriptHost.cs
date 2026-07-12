@@ -19,7 +19,7 @@ internal static class FSharpScriptHost {
         "Mechanism",
         "Pipeline.Spec",
         "Orrery.Spec",
-        "Orrery.Cache",
+        "Orrery.DoCache",
         "RiscV32",
     ];
 

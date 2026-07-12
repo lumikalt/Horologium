@@ -131,7 +131,7 @@ public class Rv64Executor : Rv32Executor {
             RvMulh(_, var rs1, var rs2) =>
                 Reg((ulong)(((Int128)(long)regs.Read(rs1) * (long)regs.Read(rs2)) >> 64)),
             RvMulhsu(_, var rs1, var rs2) =>
-                Reg((ulong)(((Int128)(long)regs.Read(rs1) * (Int128)regs.Read(rs2)) >> 64)),
+                Reg((ulong)(((long)regs.Read(rs1) * (Int128)regs.Read(rs2)) >> 64)),
             RvMulhu(_, var rs1, var rs2) =>
                 Reg((ulong)(((UInt128)regs.Read(rs1) * regs.Read(rs2)) >> 64)),
             RvDiv(_, var rs1, var rs2) => DivSigned64(regs, rs1, rs2),
@@ -166,7 +166,7 @@ public class Rv64Executor : Rv32Executor {
             // ── RV64 semantic overrides for base instructions ──────────────────────
             // ORI: immediate must be sign-extended to 64 bits, not zero-extended via (uint).
             RvOri(_, var rs1, var imm) =>
-                Reg(regs.Read(rs1) | unchecked((ulong)(long)imm)),
+                Reg(regs.Read(rs1) | unchecked((uint)imm)),
 
             // Shifts: 6-bit shamt mask in RV64 (RV32 uses 5-bit).
             RvSll(_, var rs1, var rs2) =>
@@ -203,17 +203,17 @@ public class Rv64Executor : Rv32Executor {
             // satp: routed to Rv64ArchState.Rv64Csrs (see Rv64CsrFile) instead of the inherited
             // RV32 CsrFile, which stores every CSR as a 32-bit uint and would truncate away Sv39's
             // MODE field (bits 63:60). All other CSR addresses fall through to the base executor.
-            RvCsrrw(_, var rs1, var csr) when csr == CsrFile.Satp =>
+            RvCsrrw(_, var rs1, CsrFile.Satp) =>
                 ExecuteSatpCsr(state, pc, regs.Read(rs1), true, (_, src) => src),
-            RvCsrrs(_, var rs1, var csr) when csr == CsrFile.Satp =>
+            RvCsrrs(_, var rs1, CsrFile.Satp) =>
                 ExecuteSatpCsr(state, pc, regs.Read(rs1), rs1 != 0, (old, src) => old | src),
-            RvCsrrc(_, var rs1, var csr) when csr == CsrFile.Satp =>
+            RvCsrrc(_, var rs1, CsrFile.Satp) =>
                 ExecuteSatpCsr(state, pc, regs.Read(rs1), rs1 != 0, (old, src) => old & ~src),
-            RvCsrrwi(_, var zimm, var csr) when csr == CsrFile.Satp =>
+            RvCsrrwi(_, var zimm, CsrFile.Satp) =>
                 ExecuteSatpCsr(state, pc, zimm, true, (_, src) => src),
-            RvCsrrsi(_, var zimm, var csr) when csr == CsrFile.Satp =>
+            RvCsrrsi(_, var zimm, CsrFile.Satp) =>
                 ExecuteSatpCsr(state, pc, zimm, zimm != 0, (old, src) => old | src),
-            RvCsrrci(_, var zimm, var csr) when csr == CsrFile.Satp =>
+            RvCsrrci(_, var zimm, CsrFile.Satp) =>
                 ExecuteSatpCsr(state, pc, zimm, zimm != 0, (old, src) => old & ~src),
 
             // ── RV64A doubleword atomics ─────────────────────────────────────────
@@ -343,7 +343,7 @@ public class Rv64Executor : Rv32Executor {
         if (ReservationTable is not null)
             ReservationTable.Set(HartId, paddr, 8);
         else
-            _reservation = paddr;
+            Reservation = paddr;
         return Reg(memory.Read(paddr, 8));
     }
 
@@ -413,6 +413,7 @@ public class Rv64Executor : Rv32Executor {
         }
 
         var result = (long)rounded;
+        // ReSharper disable once CompareOfFloatsByEqualityOperator
         uint flags = f != result ? 0x01u : 0u;
         return IntRegF64(unchecked((ulong)result), flags);
     }
@@ -428,6 +429,7 @@ public class Rv64Executor : Rv32Executor {
         }
 
         var result = (ulong)rounded;
+        // ReSharper disable once CompareOfFloatsByEqualityOperator
         uint flags = f != result ? 0x01u : 0u;
         return IntRegF64(result, flags);
     }
@@ -443,6 +445,7 @@ public class Rv64Executor : Rv32Executor {
         }
 
         var result = (long)rounded;
+        // ReSharper disable once CompareOfFloatsByEqualityOperator
         uint flags = d != result ? 0x01u : 0u;
         return IntRegF64(unchecked((ulong)result), flags);
     }
@@ -458,6 +461,7 @@ public class Rv64Executor : Rv32Executor {
         }
 
         var result = (ulong)rounded;
+        // ReSharper disable once CompareOfFloatsByEqualityOperator
         uint flags = d != result ? 0x01u : 0u;
         return IntRegF64(result, flags);
     }

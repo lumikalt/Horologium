@@ -1,5 +1,3 @@
-using Mechanism;
-
 namespace RiscV32.Decode;
 
 // ── V extension (vector) ──────────────────────────────────────────────────────

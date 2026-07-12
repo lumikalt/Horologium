@@ -6,7 +6,7 @@ using Pipeline.Ooo;
 namespace RiscV32.Config;
 
 /// <summary>
-/// Cache configuration for one memory port (instruction or data).
+/// DoCache configuration for one memory port (instruction or data).
 /// null means the cache layer is disabled.
 /// </summary>
 public sealed record CacheHardwareConfig(

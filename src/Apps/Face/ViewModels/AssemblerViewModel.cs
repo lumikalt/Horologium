@@ -58,7 +58,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private OooeTrain? _oooeTrain;
     private long _currentCycle;
 
-    // Cache hit-rate history — one sample per StepCycle call
+    // DoCache hit-rate history — one sample per StepCycle call
     private readonly List<(long Cycle, double HitRate)> _iCacheHitHistory = [];
     private readonly List<(long Cycle, double HitRate)> _dCacheHitHistory = [];
 
@@ -246,7 +246,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [ObservableProperty] public partial string PipelineModeLabel { get; set; } = "Single Cycle";
 
-    // ── Cache config ──────────────────────────────────────────────────────────
+    // ── DoCache config ──────────────────────────────────────────────────────────
     [ObservableProperty] public partial bool ICacheEnabled { get; set; }
     [ObservableProperty] public partial int ICacheCapacityKb { get; set; } = 4;
     [ObservableProperty] public partial int ICacheWays { get; set; } = 4;
@@ -297,7 +297,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     public bool IsOooMode => CurrentMode == PipelineMode.OoO;
 
-    // ── Cache display state ───────────────────────────────────────────────────
+    // ── DoCache display state ───────────────────────────────────────────────────
     [ObservableProperty] public partial int SelectedCacheTab { get; set; }
     [ObservableProperty] public partial string CacheHits { get; set; } = "–";
     [ObservableProperty] public partial string CacheMisses { get; set; } = "–";

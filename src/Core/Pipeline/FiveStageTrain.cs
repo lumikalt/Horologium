@@ -377,6 +377,13 @@ internal sealed class PipelineCore : Gear {
             stall = VectorRawHazard(incoming, idExLast.Instruction)
                  || VectorRawHazard(incoming, exMemLast.Instruction);
 
+        // Secondary-destination RAW hazard (e.g. RV32 amocas.d's register-pair high
+        // half): that write completes via SideEffect in WB with no forwarding path,
+        // same treatment as the vector case above.
+        if (!stall && incoming != null)
+            stall = SecondaryDestRawHazard(incoming, idExLast.Instruction)
+                 || SecondaryDestRawHazard(incoming, exMemLast.Instruction);
+
         // fflags CSR hazard: FP ops OR their exception flags into fflags via SideEffect
         // in WB, with no forwarding path. A System-class instruction (csrr*, including
         // fsflags/frflags) reads CSRs synchronously in EX, so it must stall while any
@@ -611,6 +618,15 @@ internal sealed class PipelineCore : Gear {
         int vd = producer.VectorDestinationRegister;
         if (vd < 0) return false;
         return consumer.VectorSourceRegisters.Contains(vd);
+    }
+
+    // Returns true when the in-flight producer writes a secondary destination register
+    // (e.g. RV32 amocas.d's paired high half) read by consumer.
+    private static bool SecondaryDestRawHazard(ITooth? consumer, ITooth? producer) {
+        if (producer is null || consumer is null) return false;
+        int sd = producer.SecondaryDestinationRegister;
+        if (sd < 0) return false;
+        return consumer.SourceRegisters.Contains(sd);
     }
 
     // Returns true when the in-flight producer may still OR flags into fflags (via

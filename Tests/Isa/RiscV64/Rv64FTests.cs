@@ -55,7 +55,7 @@ public class Rv64FTests {
     public void FcvtLs_NegativeFloat_SignExtends() {
         Rv64ArchState s = MakeState((Rv64FTests.F2, FBoxed(-3.7f)));
         ExecuteResult r = Exec(OpFp(0x60, 2, 2, 1, 1), s); // RTZ
-        Assert.Equal(unchecked((ulong)(long)-3), r.RegisterResult.Value);
+        Assert.Equal(unchecked((ulong)-3), r.RegisterResult.Value);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class Rv64FTests {
     [Fact]
     public void FcvtSl_ConvertsNegativeInt64() {
         // fcvt.s.l f1, x2: funct7=0x68, rs2=2, rs1=2(x2)
-        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)-42)));
+        Rv64ArchState s = MakeState((2, unchecked((ulong)-42)));
         ExecuteResult r = Exec(OpFp(0x68, 2, 2, 0, 1), s);
         Assert.Equal(-42f, AFloat(r.RegisterResult.Value));
     }
@@ -89,7 +89,7 @@ public class Rv64FTests {
         // funct7=0x68, rs2=3 — value whose top bit would look negative if treated as signed
         Rv64ArchState s = MakeState((2, 0x8000_0000_0000_0000UL)); // 2^63
         ExecuteResult r = Exec(OpFp(0x68, 3, 2, 0, 1), s);
-        Assert.Equal((float)0x8000_0000_0000_0000UL, AFloat(r.RegisterResult.Value));
+        Assert.Equal(0x8000_0000_0000_0000UL, AFloat(r.RegisterResult.Value));
     }
 
     // ── FCVT.L.D / FCVT.LU.D: double → int64 ───────────────────────────────────────
@@ -115,7 +115,7 @@ public class Rv64FTests {
     [Fact]
     public void FcvtDl_ConvertsNegativeInt64() {
         // funct7=0x69, rs2=2
-        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)-123)));
+        Rv64ArchState s = MakeState((2, unchecked((ulong)-123)));
         ExecuteResult r = Exec(OpFp(0x69, 2, 2, 0, 1), s);
         Assert.Equal(-123.0, ADouble(r.RegisterResult.Value));
     }
@@ -125,7 +125,7 @@ public class Rv64FTests {
         // funct7=0x69, rs2=3
         Rv64ArchState s = MakeState((2, 0x8000_0000_0000_0000UL));
         ExecuteResult r = Exec(OpFp(0x69, 3, 2, 0, 1), s);
-        Assert.Equal((double)0x8000_0000_0000_0000UL, ADouble(r.RegisterResult.Value));
+        Assert.Equal(0x8000_0000_0000_0000UL, ADouble(r.RegisterResult.Value));
     }
 
     // ── FMV.X.D / FMV.D.X: full 64-bit bit copy ────────────────────────────────────
@@ -202,7 +202,7 @@ public class Rv64FTests {
     public void FcvtLh_NegativeHalf_SignExtends() {
         Rv64ArchState s = MakeState((Rv64FTests.F2, HBoxed((Half)(-3.5f))));
         ExecuteResult r = Exec(OpFp(0x62, 2, 2, 1, 1), s); // RTZ
-        Assert.Equal(unchecked((ulong)(long)-3), r.RegisterResult.Value);
+        Assert.Equal(unchecked((ulong)-3), r.RegisterResult.Value);
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public class Rv64FTests {
     [Fact]
     public void FcvtHl_ConvertsNegativeInt64() {
         // fcvt.h.l f1, x2: funct7=0x6A, rs2=2, rs1=2(x2)
-        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)-42)));
+        Rv64ArchState s = MakeState((2, unchecked((ulong)-42)));
         ExecuteResult r = Exec(OpFp(0x6A, 2, 2, 0, 1), s);
         Assert.Equal((Half)(-42f), AHalf(r.RegisterResult.Value));
     }
@@ -237,6 +237,6 @@ public class Rv64FTests {
         ushort bits = Hb((Half)(-2.0f));
         Rv64ArchState s = MakeState((Rv64FTests.F2, bits));
         ExecuteResult r = Exec(OpFp(0x72, 0, 2, 0, 1), s);
-        Assert.Equal((ulong)(long)(short)bits, r.RegisterResult.Value);
+        Assert.Equal((ulong)(short)bits, r.RegisterResult.Value);
     }
 }

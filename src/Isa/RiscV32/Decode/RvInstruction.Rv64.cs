@@ -1,5 +1,3 @@
-using Mechanism;
-
 namespace RiscV32.Decode;
 
 // ── RV64I W-suffix instructions (opcode=0x3B: OP-32; opcode=0x1B: OP-IMM-32) ──────────────

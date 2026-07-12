@@ -52,6 +52,17 @@ public interface ITooth {
     IReadOnlyList<int> VectorSourceRegisters => [];
 
     /// <summary>
+    /// A second architectural integer register index written by this instruction, or -1
+    /// if it has only the one destination. Exists for ISAs whose register width can't
+    /// hold a full result in a single register — e.g. RV32's Zacas amocas.d, which
+    /// operates on a 64-bit value split across an even/odd register pair. The write
+    /// itself is delivered through <c>ExecuteResult.SideEffect</c> (like any other
+    /// auxiliary state mutation); this property exists purely so pipelines can detect
+    /// the RAW hazard it creates. Most instructions, and most ISAs, never set this.
+    /// </summary>
+    int SecondaryDestinationRegister => -1;
+
+    /// <summary>
     /// UVE u-register indices whose stream element this instruction consumes.
     /// The pipeline stalls Issue when the streaming engine has no element ready
     /// for any listed ID that is an active load stream. Non-UVE ops return empty.

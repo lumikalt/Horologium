@@ -8,7 +8,7 @@ namespace RiscV32.Decode;
 /// two different instructions happen to share the same PC (e.g., in unit tests).
 /// </summary>
 public partial class Rv32Decoder : IDecoder {
-    protected readonly Dictionary<(ulong pc, uint raw), ITooth> _cache = new();
+    protected readonly Dictionary<(ulong pc, uint raw), ITooth> Cache = new();
     private readonly Dictionary<(ulong pc, uint raw), FetchHint> _hintCache = new();
 
     public FetchHint GetFetchHint(ulong pc, uint firstWord) {
@@ -105,15 +105,15 @@ public partial class Rv32Decoder : IDecoder {
     public virtual ITooth Decode(ulong pc, IMemory memory) {
         var half = (ushort)memory.Read(pc, 2);
         if ((half & 0x3) != 0x3)
-            return _cache.TryGetValue((pc, half), out ITooth? c) ? c : Cache(pc, half, DecodeCompressed(pc, half));
+            return Cache.TryGetValue((pc, half), out ITooth? c) ? c : DoCache(pc, half, DecodeCompressed(pc, half));
 
         var raw = (uint)memory.Read(pc, 4);
-        return _cache.TryGetValue((pc, raw), out ITooth? cached) ? cached : Cache(pc, raw, DecodeRaw(pc, raw));
+        return Cache.TryGetValue((pc, raw), out ITooth? cached) ? cached : DoCache(pc, raw, DecodeRaw(pc, raw));
     }
 
-    public virtual ITooth Decode(ulong pc, uint raw) => _cache.TryGetValue((pc, raw), out ITooth? cached)
+    public virtual ITooth Decode(ulong pc, uint raw) => Cache.TryGetValue((pc, raw), out ITooth? cached)
         ? cached
-        : Cache(pc, raw, DecodeRaw(pc, raw));
+        : DoCache(pc, raw, DecodeRaw(pc, raw));
 
     public string Disassemble(ulong pc, uint raw) {
         try {
@@ -123,8 +123,8 @@ public partial class Rv32Decoder : IDecoder {
         catch { return $"0x{raw:X8}"; }
     }
 
-    protected ITooth Cache(ulong pc, uint raw, ITooth tooth) {
-        _cache[(pc, raw)] = tooth;
+    protected ITooth DoCache(ulong pc, uint raw, ITooth tooth) {
+        Cache[(pc, raw)] = tooth;
         return tooth;
     }
 
@@ -544,6 +544,20 @@ public partial class Rv32Decoder : IDecoder {
     ) {
         // Zabha: byte (.b) and halfword (.h) AMOs — funct3=0 and funct3=1 respectively.
         if (funct3 is 0x0 or 0x1) return DecodeZabha(pc, raw, rd, rs1, rs2, funct3, funct5);
+
+        // Zacas amocas.d, register-pair form: RV32 has no 64-bit register, so the value
+        // is split across (rd, rd+1) and (rs2, rs2+1). This is the only funct3=3 (doubleword)
+        // AMO RV32 recognizes — plain 64-bit RMW AMOs (amoadd.d etc.) are RV64-only.
+        if (funct3 == 0x3) {
+            if (funct5 != 0x05)
+                throw new IllegalInstructionException(raw, $"RV32 AMO.D with unsupported funct5=0x{funct5:X2}");
+            if ((rd & 1) != 0 || (rs2 & 1) != 0)
+                throw new IllegalInstructionException(raw, "amocas.d: rd and rs2 must be even-numbered registers");
+            return new RvInstruction(
+                pc, raw, rd, [rs1, rs2, rs2 + 1, rd, rd + 1,], ToothClass.Atomic,
+                new RvAmocasDPair(rd, rs1, rs2)
+            );
+        }
 
         if (funct3 != 0x2)
             throw new IllegalInstructionException(

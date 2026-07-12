@@ -21,9 +21,9 @@ public class Rv64Decoder : Rv32Decoder {
     public override ITooth Decode(ulong pc, IMemory memory) {
         var half = (ushort)memory.Read(pc, 2);
         if ((half & 0x3) != 0x3)
-            return _cache.TryGetValue((pc, half), out ITooth? cached)
+            return Cache.TryGetValue((pc, half), out ITooth? cached)
                 ? cached
-                : Cache(pc, half, TryDecodeRv64Compressed(pc, half) ?? DecodeCompressed(pc, half));
+                : DoCache(pc, half, TryDecodeRv64Compressed(pc, half) ?? DecodeCompressed(pc, half));
 
         return base.Decode(pc, memory);
     }

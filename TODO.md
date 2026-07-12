@@ -130,13 +130,17 @@ Remaining delta, in rough dependency order:
 - [x] Zabha+Zacas narrower variants: amocas.b / amocas.h (RV32+RV64, XLEN-agnostic since
   narrow CAS fits the existing single-destination-register op shape); amocas.d for RV64
   (native single-register 64-bit CAS, same shape as amocas.w).
-- [ ] amocas.d for RV32: the spec's register-pair form (rd/rd+1 and rs2/rs2+1 forming a
-  64-bit compare/swap value) has no home in the current model — ITooth exposes only one
-  DestinationRegister, and it's consumed in ~19 places across the ISA-agnostic
-  Core/Pipeline hazard/rename/forwarding logic shared by every train and ISA plugin.
-  Would need a VectorDestinationRegister-style second-destination member threaded through
-  all of those call sites. Deferred as not worth the shared-infrastructure churn for a
-  rarely-used instruction — amocas.w already gives RV32 a working 32-bit CAS.
+- [x] amocas.d for RV32: the spec's register-pair form (rd/rd+1 and rs2/rs2+1 forming a
+  64-bit compare/swap value). Added `ITooth.SecondaryDestinationRegister` (default -1,
+  ISA-agnostic hook for any future ISA needing a second destination) purely as a
+  hazard-detection hint; the actual rd+1 write still flows through the existing
+  ExecuteResult.SideEffect closure. OoOE head-serializes the instruction's own issue
+  (like Vector ops) so its direct architectural-register reads are correct, stalls
+  dispatch of any later instruction with a RAW/WAW dependency on the pending secondary
+  dest, and syncs the RAT-mapped PRF slot at commit so post-stall consumers read the
+  corrected value rather than a stale physical register. FiveStageTrain stalls ID via a
+  VectorRawHazard-style check. SuperscalarTrain/SmtTrain/SingleCycleTrain need no changes
+  (fully sequential execution).
 - [x] RV64 V extension: vlse/vsse strided load-store read the rs2 stride through a
   virtual `ReadStride` hook — RV32 sign-extends the 32-bit register value, RV64 uses
   it as the native full-width signed stride. The rest of the V extension (register

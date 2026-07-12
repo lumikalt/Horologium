@@ -696,6 +696,51 @@ public class ExecutorTests {
         Assert.Equal(0x00FFUL, _mem.Read(100, 2)); // unchanged
     }
 
+    // ── Zacas extension, RV32 register-pair amocas.d ──────────────────────────
+    // funct3=3 (doubleword); rd/rs2 must be even (rd, rd+1) and (rs2, rs2+1) hold
+    // the low/high halves. rs1 holds the address.
+
+    [Fact]
+    public void Execute_AmocasDPair_Success_WritesNewValueAndReturnsOldAcrossBothHalves() {
+        // x2/x3 = comparand (low/high), x4 = address, x6/x7 = new value (low/high)
+        Rv32ArchState s = MakeState((2, 0x1111_2222), (3, 0x3333_4444), (4, 100), (6, 0x5555_6666), (7, 0x7777_8888));
+        _mem.Write(100, 0x1111_2222UL | (0x3333_4444UL << 32), 8);
+        ExecuteResult r = Exec(AmoCas(3, 2, 4, 6), s);       // amocas.d x2, x6, (x4)
+        Assert.Equal(0x1111_2222UL, r.RegisterResult.Value); // low half via normal dest path
+        r.SideEffect?.Invoke(s);
+        Assert.Equal(0x3333_4444UL, s.IntegerRegisters.Read(3)); // high half via SideEffect
+        Assert.Equal(0x5555_6666UL | (0x7777_8888UL << 32), _mem.Read(100, 8));
+    }
+
+    [Fact]
+    public void Execute_AmocasDPair_Failure_LeavesMemoryUnchangedAndReturnsOld() {
+        Rv32ArchState s = MakeState((2, 0), (3, 0), (4, 100), (6, 0x5555_6666), (7, 0x7777_8888));
+        _mem.Write(100, 0x1111_2222UL | (0x3333_4444UL << 32), 8);
+        ExecuteResult r = Exec(AmoCas(3, 2, 4, 6), s); // comparand (x2/x3=0) doesn't match mem
+        Assert.Equal(0x1111_2222UL, r.RegisterResult.Value);
+        r.SideEffect?.Invoke(s);
+        Assert.Equal(0x3333_4444UL, s.IntegerRegisters.Read(3));
+        Assert.Equal(0x1111_2222UL | (0x3333_4444UL << 32), _mem.Read(100, 8)); // unchanged
+    }
+
+    [Fact]
+    public void Decode_AmocasDPair_OddRd_ThrowsIllegalInstruction() {
+        Assert.Throws<IllegalInstructionException>(() => _dec.Decode(0, AmoCas(3, 1, 4, 6)));
+    }
+
+    [Fact]
+    public void Decode_AmocasDPair_OddRs2_ThrowsIllegalInstruction() {
+        Assert.Throws<IllegalInstructionException>(() => _dec.Decode(0, AmoCas(3, 2, 4, 5)));
+    }
+
+    [Fact]
+    public void Decode_AmocasDPair_RdX0_IsLegal() {
+        // rd=x0 is even, so the encoding itself is legal even though the low-half
+        // write is discarded; the high half (x1) still gets the SideEffect write.
+        ITooth instr = _dec.Decode(0, AmoCas(3, 0, 4, 6));
+        Assert.Equal(1, instr.SecondaryDestinationRegister);
+    }
+
     // ── F extension ───────────────────────────────────────────────────────────
     // FP registers are at unified indices 32-63 (f0=32 … f31=63).
     // MakeState accepts any index in 0-63; indices 32+ write float registers.
