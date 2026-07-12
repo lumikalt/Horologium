@@ -16,7 +16,6 @@ the active thread.
 - [ ] Smaia / Ssaia: Advanced Interrupt Architecture.
 - [ ] Smstateen: state-enable CSRs.
 - [ ] Smnpm / Ssnpm: pointer masking.
-- [ ] UVE 2 (ISCA 2024): predicates, scatter/gather, widening/narrowing.
 - [ ] Implement the rest of the extensions.
 
 ## Analysis
@@ -78,10 +77,6 @@ the active thread.
 
 ## Front-End
 
-- [x] FDIP (fetch-directed instruction prefetching): decouple the branch predictor from fetch via a fetch target queue
-  and prefetch the I-cache along the predicted path. — Reinman, Calder & Austin, MICRO 1999
-- [x] RDIP: return-address-stack-directed instruction prefetching keyed on call-stack context. — Kolli, Saidi &
-  Wenisch, MICRO 2013
 - [ ] Boomerang / Shotgun: metadata-free front-end prefetching that unifies BTB prefill and I-cache prefetch under the
   branch predictor. — Kumar et al., HPCA 2017 / ASPLOS 2018
 - [ ] EIP (entangling instruction prefetcher): links the instruction that gives timely coverage ("entangler") to the
@@ -107,32 +102,6 @@ the active thread.
   the DRAM access early, in parallel with cache lookup. — Bera et al., MICRO 2022
 - [ ] Voyager: hierarchical neural data prefetcher (offline-trained LSTM over page and offset vocabularies). — Shi et
   al., ASPLOS 2021
-
-## Cache Replacement
-
-- [ ] LFU (Least Frequently Used): frequency-based eviction; evicts the line with the lowest access count;
-  straightforward baseline for frequency-aware policies.
-- [ ] TinyLFU: compact approximate-frequency sketch (Count-Min or counting Bloom filter) gated by a doorkeeper;
-  frequency admission filter for SLRU-style main cache. — Einziger et al., IEEE Trans. Computers 2017
-- [ ] ARC (Adaptive Replacement Cache): two LRU lists (T1 recency, T2 frequency) with a ghost-entry feedback loop that
-  self-tunes the split point p. — Megiddo & Modha, FAST 2003
-- [ ] Hyperbolic caching (HyperbolicPolicy): each line assigned a priority = hits / age; evict the line with the lowest
-  priority at miss time; pure frequency × time trade-off with no parameters. — Blankstein et al., USENIX ATC 2017
-- [ ] LECAR (Least Expected Cost under Adaptive Replacement): hybrid of LFU and LRU using a two-armed bandit (
-  exponential-weight update) to dynamically pick between the two policies based on measured regret. — Vietri et al.,
-  HotStorage 2018
-- [ ] LRB (Learning-based Replacement beyond Belady): per-line feature vector (reuse distance, frequency, access
-  pattern) fed to a lightweight learned predictor trained with gradient boosting to approximate Belady's offline optimal
-  policy. — Song & Elber, ASPLOS 2020; Shi et al., ASPLOS 2019 (variant)
-- [ ] Mockingjay: reuse-distance-predicting Belady mimic; finer-grained successor to Hawkeye using estimated
-  time-of-reuse instead of binary friendly/averse classification. — Shah, Jain & Lin, HPCA 2022
-- [ ] Perceptron reuse prediction: multi-feature perceptron predicting dead blocks for bypass and early eviction;
-  extended to placement/promotion/bypass (MPPPB). — Teran, Wang & Jiménez, MICRO 2016; Jiménez & Teran, MICRO 2017
-- [ ] EVA (economic value added): replacement planned under uncertainty from measured reuse-distance distributions. —
-  Beckmann & Sanchez, HPCA 2017
-- [ ] Shared-LLC partitioning: utility-based way partitioning (UCP) and fine-grained partitioning (Vantage) for the
-  multi-hart shared cache. — Qureshi & Patt, MICRO 2006; Sanchez & Kozyrakis, ISCA 2011
-- [ ] Cache replacement competition (CRC) plug-in interface: match ChampSim's policy API so research policies drop in.
 
 ## Out-of-Order Execution
 
