@@ -119,7 +119,7 @@ Remaining delta, in rough dependency order:
 - [x] RV64 Zbb/Zbs register-form ops unreachable/incorrect: ROL/ROR/BSET/BCLR/BINV/BEXT (R-type,
   register-indexed shift/bit-manipulation) have the same 32-bit-truncation bug as the immediate forms
   above but were out of scope for that fix — no Rv64Decoder/Rv64Executor overrides exist for them.
-- [ ] Zfh / Zfhmin: half-precision FP.
+- [x] Zfh / Zfhmin: half-precision FP.
 - [x] Zcmop: compressed may-be-operations (c.mop.N, N odd 1–15) — already implemented (decoder, executor,
   disassembler) and verified commit-for-commit against Spike on all three trains; the TODO entry was stale.
 - [ ] Zabha+Zacas narrower variants: amocas.b / amocas.h; amocas.d for RV32.

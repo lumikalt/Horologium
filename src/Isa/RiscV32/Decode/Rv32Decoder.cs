@@ -623,6 +623,7 @@ public class Rv32Decoder : IDecoder {
     ) {
         int imm = SignExtend12((int)(word >> 20));
         return funct3 switch {
+            1 => new RvInstruction(pc, raw, rd + 32, [rs1,], ToothClass.Load, new RvFlh(rd + 32, rs1, imm)),
             2 => new RvInstruction(pc, raw, rd + 32, [rs1,], ToothClass.Load, new RvFlw(rd + 32, rs1, imm)),
             3 => new RvInstruction(pc, raw, rd + 32, [rs1,], ToothClass.Load, new RvFld(rd + 32, rs1, imm)),
             _ => DecodeVLoad(pc, raw, rd, rs1, funct3, word),
@@ -643,6 +644,7 @@ public class Rv32Decoder : IDecoder {
         int imm = SignExtend12((int)(((word >> 25) << 5) | ((word >> 7) & 0x1F)));
 
         return funct3 switch {
+            1 => new RvInstruction(pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store, new RvFsh(rs1, rs2 + 32, imm)),
             2 => new RvInstruction(pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store, new RvFsw(rs1, rs2 + 32, imm)),
             3 => new RvInstruction(pc, raw, -1, [rs1, rs2 + 32,], ToothClass.Store, new RvFsd(rs1, rs2 + 32, imm)),
             _ => DecodeVStore(pc, raw, rd, rs1, rs2, funct3, word),
@@ -1624,14 +1626,18 @@ public class Rv32Decoder : IDecoder {
                 1 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmaxD(rd + 32, rs1 + 32, rs2 + 32)),
                 _ => throw new IllegalInstructionException(raw, $"Unknown FMIN/FMAX.D funct3=0x{funct3:X}"),
             },
-            // FCVT.S.D (double→single): fmt=S(0), rs2=1(D)
-            0x20 => rs2 == 1
-                ? FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtSd(rd + 32, rs1 + 32, (int)funct3))
-                : throw new IllegalInstructionException(raw, $"Unknown FCVT.S.? rs2={rs2}"),
-            // FCVT.D.S (single→double): fmt=D(1), rs2=0(S)
-            0x21 => rs2 == 0
-                ? FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtDs(rd + 32, rs1 + 32, (int)funct3))
-                : throw new IllegalInstructionException(raw, $"Unknown FCVT.D.? rs2={rs2}"),
+            // FCVT.S.D (double→single, rs2=1) / FCVT.S.H (half→single, rs2=2): fmt=S(0)
+            0x20 => rs2 switch {
+                1 => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtSd(rd + 32, rs1 + 32, (int)funct3)),
+                2 => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtSh(rd + 32, rs1 + 32, (int)funct3)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FCVT.S.? rs2={rs2}"),
+            },
+            // FCVT.D.S (single→double, rs2=0) / FCVT.D.H (half→double, rs2=2): fmt=D(1)
+            0x21 => rs2 switch {
+                0 => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtDs(rd + 32, rs1 + 32, (int)funct3)),
+                2 => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtDh(rd + 32, rs1 + 32, (int)funct3)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FCVT.D.? rs2={rs2}"),
+            },
             // Comparisons D: FP sources, integer result
             0x51 => funct3 switch {
                 0 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFleD(rd, rs1 + 32, rs2 + 32)),
@@ -1653,6 +1659,59 @@ public class Rv32Decoder : IDecoder {
             },
             // FCLASS.D (no FMV.X.D in RV32D since XLEN < FLEN)
             0x71 when funct3 == 1 => FpR1(pc, raw, rd, rs1 + 32, new RvFclassD(rd, rs1 + 32)),
+
+            // ── Half precision (Zfh) ─────────────────────────────────────────
+            0x02 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFaddH(rd + 32, rs1 + 32, rs2 + 32)),
+            0x06 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsubH(rd + 32, rs1 + 32, rs2 + 32)),
+            0x0A => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmulH(rd + 32, rs1 + 32, rs2 + 32)),
+            0x0E => FpRr(
+                pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFdivH(rd + 32, rs1 + 32, rs2 + 32), ToothClass.FloatDivSqrt
+            ),
+            0x2E => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFsqrtH(rd + 32, rs1 + 32), ToothClass.FloatDivSqrt),
+            0x12 => funct3 switch {
+                0 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjH(rd + 32, rs1 + 32, rs2 + 32)),
+                1 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjnH(rd + 32, rs1 + 32, rs2 + 32)),
+                2 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFsgnjxH(rd + 32, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FSGNJ.H funct3=0x{funct3:X}"),
+            },
+            0x16 => funct3 switch {
+                0 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFminH(rd + 32, rs1 + 32, rs2 + 32)),
+                1 => FpRr(pc, raw, rd + 32, rs1 + 32, rs2 + 32, new RvFmaxH(rd + 32, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FMIN/FMAX.H funct3=0x{funct3:X}"),
+            },
+            // FCVT.H.S (fmt=H, rs2=0) / FCVT.H.D (fmt=H, rs2=1)
+            0x22 => rs2 switch {
+                0 => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtHs(rd + 32, rs1 + 32, (int)funct3)),
+                1 => FpR1(pc, raw, rd + 32, rs1 + 32, new RvFcvtHd(rd + 32, rs1 + 32, (int)funct3)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FCVT.H.? rs2={rs2}"),
+            },
+            // Comparisons H: FP sources, integer result
+            0x52 => funct3 switch {
+                0 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFleH(rd, rs1 + 32, rs2 + 32)),
+                1 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFltH(rd, rs1 + 32, rs2 + 32)),
+                2 => FpRr(pc, raw, rd, rs1 + 32, rs2 + 32, new RvFeqH(rd, rs1 + 32, rs2 + 32)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FP.H compare funct3=0x{funct3:X}"),
+            },
+            // Conversions half→int (funct3 = rounding mode)
+            0x62 => rs2 switch {
+                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWh(rd, rs1 + 32, (int)funct3)),
+                1 => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtWuH(rd, rs1 + 32, (int)funct3)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FCVT.W.H rs2={rs2}"),
+            },
+            // Conversions int→half
+            0x6A => rs2 switch {
+                0 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtHw(rd + 32, rs1, (int)funct3)),
+                1 => FpR1(pc, raw, rd + 32, rs1, new RvFcvtHWu(rd + 32, rs1, (int)funct3)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FCVT.H.W rs2={rs2}"),
+            },
+            // FMV.X.H / FCLASS.H
+            0x72 => funct3 switch {
+                0 => FpR1(pc, raw, rd, rs1 + 32, new RvFmvXh(rd, rs1 + 32)),
+                1 => FpR1(pc, raw, rd, rs1 + 32, new RvFclassH(rd, rs1 + 32)),
+                _ => throw new IllegalInstructionException(raw, $"Unknown FMV.X.H/FCLASS.H funct3=0x{funct3:X}"),
+            },
+            // FMV.H.X: int→half bit copy
+            0x7A => FpR1(pc, raw, rd + 32, rs1, new RvFmvHx(rd + 32, rs1)),
 
             _ => throw new IllegalInstructionException(raw, $"Unknown OP-FP funct7=0x{funct7:X2}"),
         };
@@ -1678,6 +1737,10 @@ public class Rv32Decoder : IDecoder {
             (0x47, 1) => new RvFmsubD(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             (0x4B, 1) => new RvFnmsubD(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             (0x4F, 1) => new RvFnmaddD(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            (0x43, 2) => new RvFmaddH(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            (0x47, 2) => new RvFmsubH(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            (0x4B, 2) => new RvFnmsubH(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
+            (0x4F, 2) => new RvFnmaddH(rd + 32, rs1 + 32, rs2 + 32, rs3 + 32),
             _         => throw new IllegalInstructionException(raw, $"FMA: unsupported fmt={fmt} opcode=0x{opcode:X}"),
         };
         return new RvInstruction(

@@ -183,4 +183,60 @@ public class Rv64FTests {
         ExecuteResult r = Exec(OpFp(0x61, 1, 2, 1, 1), s); // RTZ
         Assert.Equal(0xFFFFFFFF_B2D05E00UL, r.RegisterResult.Value);
     }
+
+    // ── RV64 Zfh: FCVT.L.H / FCVT.LU.H / FCVT.H.L / FCVT.H.LU ──────────────────────
+
+    private static ushort Hb(Half h) => BitConverter.HalfToUInt16Bits(h);
+    private static ulong HBoxed(Half h) => 0xFFFFFFFFFFFF0000UL | Hb(h);
+    private static Half AHalf(ulong bits) => BitConverter.UInt16BitsToHalf((ushort)bits);
+
+    [Fact]
+    public void FcvtLh_TruncatesPositiveHalf() {
+        // fcvt.l.h x1, f2, rm=1(RTZ): funct7=0x62, rs2=2
+        Rv64ArchState s = MakeState((F2, HBoxed((Half)3.5f)));
+        ExecuteResult r = Exec(OpFp(0x62, 2, 2, 1, 1), s);
+        Assert.Equal(3UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void FcvtLh_NegativeHalf_SignExtends() {
+        Rv64ArchState s = MakeState((F2, HBoxed((Half)(-3.5f))));
+        ExecuteResult r = Exec(OpFp(0x62, 2, 2, 1, 1), s); // RTZ
+        Assert.Equal(unchecked((ulong)(long)(-3)), r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void FcvtLuH_ConvertsPositiveHalf() {
+        // funct7=0x62, rs2=3
+        Rv64ArchState s = MakeState((F2, HBoxed((Half)5.0f)));
+        ExecuteResult r = Exec(OpFp(0x62, 3, 2, 0, 1), s);
+        Assert.Equal(5UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void FcvtHl_ConvertsNegativeInt64() {
+        // fcvt.h.l f1, x2: funct7=0x6A, rs2=2, rs1=2(x2)
+        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)(-42))));
+        ExecuteResult r = Exec(OpFp(0x6A, 2, 2, 0, 1), s);
+        Assert.Equal((Half)(-42f), AHalf(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void FcvtHLu_ConvertsLargeUnsignedInt64ToInfinity() {
+        // funct7=0x6A, rs2=3 — a huge unsigned int64 overflows half's range → +Infinity.
+        // Distinguishes from FCVT.H.L, which would treat the same bits as a large negative value.
+        Rv64ArchState s = MakeState((2, 0x8000_0000_0000_0000UL));
+        ExecuteResult r = Exec(OpFp(0x6A, 3, 2, 0, 1), s);
+        Assert.True(Half.IsPositiveInfinity(AHalf(r.RegisterResult.Value)));
+    }
+
+    [Fact]
+    public void FmvXh_SignExtendsBitsToFull64BitIntReg() {
+        // fmv.x.h x1, f2: funct7=0x72, rs2=0, funct3=0 — under RV64, XLEN=64 so the 16-bit
+        // pattern sign-extends all the way (unlike RV32, where it only extends to 32 bits).
+        ushort bits = Hb((Half)(-2.0f));
+        Rv64ArchState s = MakeState((F2, bits));
+        ExecuteResult r = Exec(OpFp(0x72, 0, 2, 0, 1), s);
+        Assert.Equal((ulong)(long)(short)bits, r.RegisterResult.Value);
+    }
 }

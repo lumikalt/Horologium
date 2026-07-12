@@ -207,6 +207,12 @@ public class Rv64Decoder : Rv32Decoder {
         (0x71, 0) when funct3 == 0 => FpR1(pc, raw, rd, rs1 + 32, new RvFmvXd(rd, rs1 + 32)),
         // FMV.D.X: int reg bit pattern → double reg
         (0x79, 0) => FpR1(pc, raw, rd + 32, rs1, new RvFmvDx(rd + 32, rs1)),
+        // FCVT.L.H / FCVT.LU.H: half→int64 (funct3 = rounding mode)
+        (0x62, 2) => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtLh(rd, rs1 + 32, (int)funct3)),
+        (0x62, 3) => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtLuH(rd, rs1 + 32, (int)funct3)),
+        // FCVT.H.L / FCVT.H.LU: int64→half
+        (0x6A, 2) => FpR1(pc, raw, rd + 32, rs1, new RvFcvtHl(rd + 32, rs1, (int)funct3)),
+        (0x6A, 3) => FpR1(pc, raw, rd + 32, rs1, new RvFcvtHLu(rd + 32, rs1, (int)funct3)),
         _ => null,
     };
 

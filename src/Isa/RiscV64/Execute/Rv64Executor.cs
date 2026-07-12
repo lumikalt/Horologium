@@ -137,6 +137,14 @@ public class Rv64Executor : Rv32Executor {
             RvFmvXd(_, var rs1) => Reg(regs.Read(rs1)),              // double bits → int reg (full 64 bits)
             RvFmvDx(_, var rs1) => ExecuteResult.WithResult(regs.Read(rs1)), // int reg bits → double reg
 
+            // ── RV64 Zfh: 64-bit integer conversions ────────────────────────────────
+            // Half is exactly representable in float, so FCVT.L(U).H reuses the S-format
+            // int64-conversion helpers unchanged (widening loses no precision or rounding info).
+            RvFcvtLh (_, var rs1, var rm) => FcvtLsResult((float)HBits(regs, rs1), rm, state),
+            RvFcvtLuH(_, var rs1, var rm) => FcvtLuSResult((float)HBits(regs, rs1), rm, state),
+            RvFcvtHl (_, var rs1, _)      => FpIntToHalf((long)regs.Read(rs1)),
+            RvFcvtHLu(_, var rs1, _)      => FpUIntToHalf(regs.Read(rs1)),
+
             // FCVT.W/WU.S/D: base RV32 result zero-extends via IntRegF; RV64 must sign-extend.
             RvFcvtWs or RvFcvtWuS or RvFcvtWd or RvFcvtWuD =>
                 SignExtendLow32(base.Execute(instruction, state, memory)),

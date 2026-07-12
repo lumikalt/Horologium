@@ -1281,4 +1281,344 @@ public class ExecutorTests {
         ExecuteResult r = Exec(0x223100C3, s);
         Assert.Equal(7.0, Adbl(r.RegisterResult.Value));
     }
+
+    // ── Zfh extension (half precision) ────────────────────────────────────────
+    // FP registers are at unified indices 32-63 (f0=32 … f31=63); half values NaN-box
+    // with the upper 48 bits set to 1 (vs. 32 for float, 0/native for double).
+
+    private static ushort Hb(Half h) => BitConverter.HalfToUInt16Bits(h);
+    private static Half Ah(ulong bits) => BitConverter.UInt16BitsToHalf((ushort)bits);
+
+    private Rv32ArchState MakeHState(params (int reg, ulong val)[] regs) {
+        var s = new Rv32ArchState();
+        foreach ((int r, ulong v) in regs) {
+            ulong stored = r >= 32 ? 0xFFFFFFFFFFFF0000UL | (v & 0xFFFF) : v;
+            s.IntegerRegisters.Write(r, stored);
+        }
+
+        return s;
+    }
+
+    [Fact]
+    public void Execute_Flh_LoadsHalfBitsFromMemory() {
+        // flh f1, 4(x2)  0x00411087 — x2=100, mem[104]=bits of 3.5h; result is NaN-boxed
+        ushort bits = Hb((Half)3.5f);
+        Rv32ArchState s = MakeHState((2, 100));
+        _mem.Write(104, bits, 2);
+        ExecuteResult r = Exec(0x00411087, s);
+        Assert.Equal(0xFFFFFFFFFFFF0000UL | bits, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_Fsh_StoresHalfBitsToMemory() {
+        // fsh f2, 4(x1)  0x00209227 — x1=100, f2=2.5h
+        ushort bits = Hb((Half)2.5f);
+        Rv32ArchState s = MakeHState((1, 100), (34, bits)); // f2 = index 34
+        Exec(0x00209227, s);
+        Assert.Equal(bits, (ushort)_mem.Read(104, 2));
+    }
+
+    [Fact]
+    public void Execute_FaddH_AddsHalves() {
+        // fadd.h f1, f2, f3  0x043100D3 — f2=2.0, f3=3.0 → 5.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0x043100D3, s);
+        Assert.Equal((Half)5.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FsubH_SubtractsHalves() {
+        // fsub.h f1, f2, f3  0x0C3100D3 — f2=5.0, f3=3.0 → 2.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)5.0f)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0x0C3100D3, s);
+        Assert.Equal((Half)2.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FmulH_MultipliesHalves() {
+        // fmul.h f1, f2, f3  0x143100D3 — f2=2.0, f3=3.0 → 6.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0x143100D3, s);
+        Assert.Equal((Half)6.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FdivH_DividesHalves() {
+        // fdiv.h f1, f2, f3  0x1C3100D3 — f2=6.0, f3=2.0 → 3.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)6.0f)), (35, Hb((Half)2.0f)));
+        ExecuteResult r = Exec(0x1C3100D3, s);
+        Assert.Equal((Half)3.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FsqrtH_ComputesSquareRoot() {
+        // fsqrt.h f1, f2  0x5C0100D3 — f2=4.0 → 2.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)4.0f)));
+        ExecuteResult r = Exec(0x5C0100D3, s);
+        Assert.Equal((Half)2.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FsgnjH_InjectsPositiveSign() {
+        // fsgnj.h f1, f2, f3  0x243100D3 — f2=-2.0 (neg), f3=3.0 (pos) → +2.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)(-2.0f))), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0x243100D3, s);
+        Assert.Equal((Half)2.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FsgnjnH_InjectsNegatedSign() {
+        // fsgnjn.h f1, f2, f3  0x243110D3 — f2=2.0 (pos), f3=3.0 (pos) → -2.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0x243110D3, s);
+        Assert.Equal((Half)(-2.0f), Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FsgnjxH_XorSign() {
+        // fsgnjx.h f1, f2, f3  0x243120D3 — f2=2.0 (pos), f3=-3.0 (neg) → -2.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)(-3.0f))));
+        ExecuteResult r = Exec(0x243120D3, s);
+        Assert.Equal((Half)(-2.0f), Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FminH_ReturnsSmaller() {
+        // fmin.h f1, f2, f3  0x2C3100D3 — f2=2.0, f3=3.0 → 2.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0x2C3100D3, s);
+        Assert.Equal((Half)2.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FminH_ReturnsNonNanWhenOneIsNaN() {
+        // fmin(NaN, 2.0) = 2.0 per RISC-V spec
+        Rv32ArchState s = MakeHState((34, Hb(Half.NaN)), (35, Hb((Half)2.0f)));
+        ExecuteResult r = Exec(0x2C3100D3, s);
+        Assert.Equal((Half)2.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FminH_ReturnsNegativeZeroWhenBothAreZero() {
+        // fmin(-0.0, +0.0) = -0.0; result is NaN-boxed
+        Rv32ArchState s = MakeHState((34, Hb((Half)(-0.0f))), (35, Hb((Half)0.0f)));
+        ExecuteResult r = Exec(0x2C3100D3, s);
+        Assert.Equal(0xFFFFFFFFFFFF8000UL, r.RegisterResult.Value); // NaN-boxed -0.0
+    }
+
+    [Fact]
+    public void Execute_FmaxH_ReturnsLarger() {
+        // fmax.h f1, f2, f3  0x2C3110D3 — f2=2.0, f3=3.0 → 3.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0x2C3110D3, s);
+        Assert.Equal((Half)3.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FmaxH_ReturnsNonNanWhenOneIsNaN() {
+        // fmax(NaN, 3.0) = 3.0
+        Rv32ArchState s = MakeHState((34, Hb(Half.NaN)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0x2C3110D3, s);
+        Assert.Equal((Half)3.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FmaxH_ReturnsPositiveZeroWhenBothAreZero() {
+        // fmax(-0.0, +0.0) = +0.0; result is NaN-boxed
+        Rv32ArchState s = MakeHState((34, Hb((Half)(-0.0f))), (35, Hb((Half)0.0f)));
+        ExecuteResult r = Exec(0x2C3110D3, s);
+        Assert.Equal(0xFFFFFFFFFFFF0000UL, r.RegisterResult.Value); // NaN-boxed +0.0
+    }
+
+    [Fact]
+    public void Execute_FeqH_ReturnsOneWhenEqual() {
+        // feq.h x1, f2, f3  0xA43120D3
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)2.0f)));
+        ExecuteResult r = Exec(0xA43120D3, s);
+        Assert.Equal(1UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FeqH_ReturnsZeroWhenNotEqual() {
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0xA43120D3, s);
+        Assert.Equal(0UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FltH_ReturnsOneWhenLess() {
+        // flt.h x1, f2, f3  0xA43110D3
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)));
+        ExecuteResult r = Exec(0xA43110D3, s);
+        Assert.Equal(1UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FleH_ReturnsOneWhenEqual() {
+        // fle.h x1, f2, f3  0xA43100D3 — 2.0 ≤ 2.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)2.0f)));
+        ExecuteResult r = Exec(0xA43100D3, s);
+        Assert.Equal(1UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FclassH_PositiveNormal() {
+        // fclass.h x1, f2  0xE40110D3 — 2.0h is +normal → bit 6
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)));
+        ExecuteResult r = Exec(0xE40110D3, s);
+        Assert.Equal(1UL << 6, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FclassH_PositiveInfinity() {
+        Rv32ArchState s = MakeHState((34, Hb(Half.PositiveInfinity)));
+        ExecuteResult r = Exec(0xE40110D3, s);
+        Assert.Equal(1UL << 7, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FclassH_NegativeZero() {
+        Rv32ArchState s = MakeHState((34, Hb((Half)(-0.0f))));
+        ExecuteResult r = Exec(0xE40110D3, s);
+        Assert.Equal(1UL << 3, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FclassH_PositiveZero() {
+        Rv32ArchState s = MakeHState((34, 0UL));
+        ExecuteResult r = Exec(0xE40110D3, s);
+        Assert.Equal(1UL << 4, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FclassH_QuietNaN() {
+        Rv32ArchState s = MakeHState((34, Hb(Half.NaN)));
+        ExecuteResult r = Exec(0xE40110D3, s);
+        Assert.Equal(1UL << 9, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FcvtWH_TruncatesPositiveHalf() {
+        // fcvt.w.h x1, f2, rtz  0xC40110D3 — 3.5h → 3 (RTZ truncates toward zero)
+        Rv32ArchState s = MakeHState((34, Hb((Half)3.5f)));
+        ExecuteResult r = Exec(0xC40110D3, s);
+        Assert.Equal(3UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FcvtWH_TruncatesNegativeHalf() {
+        // -3.5h → -3 (truncation toward zero) → 0xFFFFFFFD as uint32
+        Rv32ArchState s = MakeHState((34, Hb((Half)(-3.5f))));
+        ExecuteResult r = Exec(0xC40110D3, s);
+        Assert.Equal(unchecked((uint)-3), r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FcvtWuH_ConvertsPositiveHalf() {
+        // fcvt.wu.h x1, f2, rtz  0xC41110D3 — 5.5h → 5u (RTZ truncates toward zero)
+        Rv32ArchState s = MakeHState((34, Hb((Half)5.5f)));
+        ExecuteResult r = Exec(0xC41110D3, s);
+        Assert.Equal(5UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FcvtHW_ConvertsNegativeInt() {
+        // fcvt.h.w f1, x2  0xD40100D3 — x2=-5 → -5.0h
+        Rv32ArchState s = MakeHState((2, unchecked((uint)-5)));
+        ExecuteResult r = Exec(0xD40100D3, s);
+        Assert.Equal((Half)(-5.0f), Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FcvtHWu_ConvertsLargeUnsignedToInfinity() {
+        // fcvt.h.wu f1, x2  0xD41100D3 — x2=0xFFFFFFFF (unsigned) overflows half range → +Infinity.
+        // Distinguishes from FCVT.H.W, which would treat the same bits as -1 → -1.0h.
+        Rv32ArchState s = MakeHState((2, 0xFFFFFFFFUL));
+        ExecuteResult r = Exec(0xD41100D3, s);
+        Assert.True(Half.IsPositiveInfinity(Ah(r.RegisterResult.Value)));
+    }
+
+    [Fact]
+    public void Execute_FmvXH_SignExtendsBitsToIntReg() {
+        // fmv.x.h x1, f2  0xE40100D3 — f2 holds bits of -2.0h; result sign-extends the 16-bit
+        // pattern to XLEN=32 under RV32 (then zero-extended into the 64-bit unified register file).
+        ushort bits = Hb((Half)(-2.0f));
+        Rv32ArchState s = MakeHState((34, bits));
+        ExecuteResult r = Exec(0xE40100D3, s);
+        Assert.Equal((ulong)(uint)(int)(short)bits, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FmvHX_CopiesLower16BitsToFpReg() {
+        // fmv.h.x f1, x2  0xF40100D3 — only the low 16 bits of x2 matter; writes NaN-boxed
+        Rv32ArchState s = MakeHState((2, 0xFFFF1234UL));
+        ExecuteResult r = Exec(0xF40100D3, s);
+        Assert.Equal(0xFFFFFFFFFFFF1234UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Execute_FmaddH_FusedMultiplyAdd() {
+        // fmadd.h f1, f2, f3, f4  0x243100C3 — f2=2.0, f3=3.0, f4=1.0 → 7.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)), (36, Hb((Half)1.0f)));
+        ExecuteResult r = Exec(0x243100C3, s);
+        Assert.Equal((Half)7.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FmsubH_FusedMultiplySubtract() {
+        // fmsub.h f1, f2, f3, f4  0x243100C7 — f2*f3 - f4 = 6-1 = 5.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)), (36, Hb((Half)1.0f)));
+        ExecuteResult r = Exec(0x243100C7, s);
+        Assert.Equal((Half)5.0f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FnmsubH_NegatedFusedMultiplySubtract() {
+        // fnmsub.h f1, f2, f3, f4  0x243100CB — -(f2*f3) + f4 = -6+1 = -5.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)), (36, Hb((Half)1.0f)));
+        ExecuteResult r = Exec(0x243100CB, s);
+        Assert.Equal((Half)(-5.0f), Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FnmaddH_NegatedFusedMultiplyAdd() {
+        // fnmadd.h f1, f2, f3, f4  0x243100CF — -(f2*f3) - f4 = -6-1 = -7.0
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.0f)), (35, Hb((Half)3.0f)), (36, Hb((Half)1.0f)));
+        ExecuteResult r = Exec(0x243100CF, s);
+        Assert.Equal((Half)(-7.0f), Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FcvtHS_ConvertSingleToHalf() {
+        // fcvt.h.s f1, f2  0x440100D3 — f2=2.5f → f1=2.5h
+        Rv32ArchState s = MakeState((34, Fb(2.5f)));
+        ExecuteResult r = Exec(0x440100D3, s);
+        Assert.Equal((Half)2.5f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FcvtSH_ConvertHalfToSingleWithNaNBox() {
+        // fcvt.s.h f1, f2  0x402100D3 — f2=2.5h → f1=2.5f NaN-boxed
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.5f)));
+        ExecuteResult r = Exec(0x402100D3, s);
+        ulong result = r.RegisterResult.Value;
+        Assert.Equal(0xFFFFFFFF00000000UL, result & 0xFFFFFFFF00000000UL); // NaN-boxed
+        Assert.Equal(2.5f, Af(result));
+    }
+
+    [Fact]
+    public void Execute_FcvtHD_ConvertDoubleToHalf() {
+        // fcvt.h.d f1, f2  0x441100D3 — f2=2.5 → f1=2.5h
+        Rv32ArchState s = MakeDState((34, Dbl(2.5)));
+        ExecuteResult r = Exec(0x441100D3, s);
+        Assert.Equal((Half)2.5f, Ah(r.RegisterResult.Value));
+    }
+
+    [Fact]
+    public void Execute_FcvtDH_ConvertHalfToDouble() {
+        // fcvt.d.h f1, f2  0x422100D3 — f2=2.5h → f1=2.5
+        Rv32ArchState s = MakeHState((34, Hb((Half)2.5f)));
+        ExecuteResult r = Exec(0x422100D3, s);
+        Assert.Equal(2.5, Adbl(r.RegisterResult.Value));
+    }
 }

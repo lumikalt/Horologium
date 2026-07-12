@@ -575,6 +575,69 @@ public record RvFnmsubD(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
 
 public record RvFnmaddD(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
 
+// ── Zfh / Zfhmin extension (half-precision float) ─────────────────────────────
+// Register indices: 0-31 = int, 32-63 = fp (64-bit NaN-boxed when .H)
+
+public record RvFlh(int Rd, int Rs1, int Imm) : RvOp; // Rd=fp, Rs1=int
+
+public record RvFsh(int Rs1, int Rs2, int Imm) : RvOp; // Rs1=int base, Rs2=fp data
+
+public record RvFaddH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsubH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFmulH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFdivH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsqrtH(int Rd, int Rs1) : RvOp;
+
+public record RvFsgnjH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsgnjnH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFsgnjxH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFminH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFmaxH(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvFeqH(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFltH(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFleH(int Rd, int Rs1, int Rs2) : RvOp; // Rd=int result
+
+public record RvFclassH(int Rd, int Rs1) : RvOp; // Rd=int result
+
+public record RvFcvtWh(int Rd, int Rs1, int Rm) : RvOp; // half→signed int
+
+public record RvFcvtWuH(int Rd, int Rs1, int Rm) : RvOp; // half→unsigned int
+
+public record RvFcvtHw(int Rd, int Rs1, int Rm) : RvOp; // signed int→half
+
+public record RvFcvtHWu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int→half
+
+public record RvFmvXh(int Rd, int Rs1) : RvOp; // fp bits→int reg (sign-extended)
+
+public record RvFmvHx(int Rd, int Rs1) : RvOp; // int bits→fp reg
+
+public record RvFmaddH(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFmsubH(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFnmsubH(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFnmaddH(int Rd, int Rs1, int Rs2, int Rs3) : RvOp;
+
+public record RvFcvtHs(int Rd, int Rs1, int Rm) : RvOp; // single→half (narrowing)
+
+public record RvFcvtSh(int Rd, int Rs1, int Rm) : RvOp; // half→single (widening)
+
+public record RvFcvtHd(int Rd, int Rs1, int Rm) : RvOp; // double→half (narrowing)
+
+public record RvFcvtDh(int Rd, int Rs1, int Rm) : RvOp; // half→double (widening)
+
 // ── A extension (atomics) ─────────────────────────────────────────────────────
 public record RvLrW(int Rd, int Rs1) : RvOp;
 
@@ -1505,6 +1568,15 @@ public record RvFcvtDLu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int64→dou
 public record RvFmvXd(int Rd, int Rs1) : RvOp; // double bits→int reg (full 64 bits)
 
 public record RvFmvDx(int Rd, int Rs1) : RvOp; // int reg bits→double reg
+
+// ── RV64 Zfh: 64-bit integer conversions (opcode=0x53) ────────────────────────
+public record RvFcvtLh(int Rd, int Rs1, int Rm) : RvOp; // half→signed int64
+
+public record RvFcvtLuH(int Rd, int Rs1, int Rm) : RvOp; // half→unsigned int64
+
+public record RvFcvtHl(int Rd, int Rs1, int Rm) : RvOp; // signed int64→half
+
+public record RvFcvtHLu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int64→half
 
 // ── RV64A doubleword atomics (opcode=0x2F, funct3=0x3) ────────────────────────────────────────
 public record RvLrD(int Rd, int Rs1) : RvOp;
