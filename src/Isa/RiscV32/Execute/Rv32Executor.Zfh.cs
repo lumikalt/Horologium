@@ -145,11 +145,11 @@ public partial class Rv32Executor {
     }
 
     // FMIN.H/FMAX.H: set NV if either input is a signaling NaN.
+    // Operands go through HBits() for the NaN-boxing check (§11.3) — an improperly
+    // boxed source register must read as the canonical NaN, not its raw truncated bits.
     private static ExecuteResult HpMinMax(IRegisterFile regs, int rs1, int rs2, bool isMin) {
-        var raw1 = (ushort)regs.Read(rs1);
-        var raw2 = (ushort)regs.Read(rs2);
-        Half a = BitConverter.UInt16BitsToHalf(raw1);
-        Half b = BitConverter.UInt16BitsToHalf(raw2);
+        Half a = HBits(regs, rs1), b = HBits(regs, rs2);
+        ushort raw1 = BitConverter.HalfToUInt16Bits(a), raw2 = BitConverter.HalfToUInt16Bits(b);
         uint flags = IsHNan(raw1) || IsHNan(raw2) ? 0x10u : 0u;
         Half result = isMin ? HMin(a, b) : HMax(a, b);
         return FloatRegH(result, flags);
@@ -157,10 +157,8 @@ public partial class Rv32Executor {
 
     // FEQ.H/FLT.H/FLE.H: NV flag for sNaN (FEQ) or any NaN (FLT/FLE).
     private static ExecuteResult HpCmp(IRegisterFile regs, int rs1, int rs2, int op) {
-        var raw1 = (ushort)regs.Read(rs1);
-        var raw2 = (ushort)regs.Read(rs2);
-        Half a = BitConverter.UInt16BitsToHalf(raw1);
-        Half b = BitConverter.UInt16BitsToHalf(raw2);
+        Half a = HBits(regs, rs1), b = HBits(regs, rs2);
+        ushort raw1 = BitConverter.HalfToUInt16Bits(a), raw2 = BitConverter.HalfToUInt16Bits(b);
         bool nvFlt = Half.IsNaN(a) || Half.IsNaN(b);
         bool nvFeq = IsHNan(raw1) || IsHNan(raw2);
         uint flags = op switch { 0 => nvFeq ? 0x10u : 0u, _ => nvFlt ? 0x10u : 0u, };
@@ -275,7 +273,7 @@ public partial class Rv32Executor {
             ulong old = csrFile.Read(csr, state.PrivilegeLevel);
             // Per spec §2.8: CSRRSI/CSRRCI with zimm==0 must not write the CSR.
             if (writeIfSrcZero || zimm != 0) csrFile.Write(csr, combine(old, zimm), state.PrivilegeLevel);
-            return ExecuteResult.WithResult(old & 0xFFFFFFFF);
+            return ExecuteResult.WithResult(old);
         }
         catch (SystemRegisterAccessException) {
             return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));

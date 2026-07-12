@@ -42,6 +42,24 @@ public partial class Rv32Executor : IExecutor {
     /// </summary>
     public int HartId { get; init; }
 
+    /// <summary>
+    /// When true, EBREAK always halts the simulation, even if mtvec is non-zero.
+    /// The default (false) routes EBREAK through mtvec as a real Breakpoint trap
+    /// whenever a handler is installed, matching OpenSBI's semihosting probe.
+    /// Horologium's own ISA-conformance test environment (env/riscv_test*.h) installs
+    /// its own mtvec handler for unrelated traps but still expects its own terminating
+    /// EBREAK (RVTEST_PASS/RVTEST_FAIL) to halt unconditionally — set this for that case.
+    /// </summary>
+    public bool EbreakAlwaysHalts { get; init; }
+
+    /// <summary>
+    /// When true, WFI never halts the simulation — it degrades to a NOP whenever there
+    /// is no pending-and-enabled interrupt to wake it (mirrors Spike's functional-only
+    /// WFI semantics). The default (false) halts the simulation on an unwakeable WFI,
+    /// which system-boot tests use as a deliberate "idle loop reached" stop signal.
+    /// </summary>
+    public bool WfiNeverHalts { get; init; }
+
     // Single-hart fallback: used when ReservationTable is null.
     protected ulong? _reservation;
 
@@ -84,7 +102,7 @@ public partial class Rv32Executor : IExecutor {
             RvXori (_, var rs1, var imm) =>
                 Reg(regs.Read(rs1) ^ (ulong)imm),
             RvOri (_, var rs1, var imm) =>
-                Reg(regs.Read(rs1) | (uint)imm),
+                Reg(regs.Read(rs1) | unchecked((ulong)(long)imm)),
             RvAndi (_, var rs1, var imm) =>
                 Reg(regs.Read(rs1) & (ulong)imm),
             RvSlli (_, var rs1, var shamt) =>
@@ -168,7 +186,8 @@ public partial class Rv32Executor : IExecutor {
             // If a trap handler is installed (mtvec != 0), generate a real breakpoint exception
             // so OpenSBI's semihosting probe (and similar) can recover via their mtvec handler.
             // If mtvec == 0, halt — matches Spike's non-interactive behavior for bare-metal tests.
-            RvEbreak => state.SystemRegisters is CsrFile ebreakCsrs && ebreakCsrs.DirectRead(CsrFile.Mtvec) != 0
+            RvEbreak => !EbreakAlwaysHalts &&
+                        state.SystemRegisters is CsrFile ebreakCsrs && ebreakCsrs.DirectRead(CsrFile.Mtvec) != 0
                 ? ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.Breakpoint, pc, pc))
                 : new ExecuteResult { IsHalt = true, },
 
@@ -263,9 +282,9 @@ public partial class Rv32Executor : IExecutor {
             RvCzeroNez(_, var rs1, var rs2) => Reg(regs.Read(rs2) != 0 ? 0UL : regs.Read(rs1)),
 
             // ── Zbb extension (basic bit manipulation) ────────────────────────────────
-            RvAndn(_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) & ~(uint)regs.Read(rs2)),
-            RvOrn (_, var rs1, var rs2) => Reg((uint)regs.Read(rs1) | ~(uint)regs.Read(rs2)),
-            RvXnor(_, var rs1, var rs2) => Reg(~((uint)regs.Read(rs1) ^ (uint)regs.Read(rs2))),
+            RvAndn(_, var rs1, var rs2) => Reg(regs.Read(rs1) & ~regs.Read(rs2)),
+            RvOrn (_, var rs1, var rs2) => Reg(regs.Read(rs1) | ~regs.Read(rs2)),
+            RvXnor(_, var rs1, var rs2) => Reg(~(regs.Read(rs1) ^ regs.Read(rs2))),
             RvMin (_, var rs1, var rs2) => Reg(
                 (int)regs.Read(rs1) < (int)regs.Read(rs2) ? regs.Read(rs1) : regs.Read(rs2)
             ),
@@ -359,21 +378,27 @@ public partial class Rv32Executor : IExecutor {
             RvFdivS (_, var rs1, var rs2) => FpBin(FBits(regs, rs1), FBits(regs, rs2), 3),
             RvFsqrtS(_, var rs1)          => FpSqrt(FBits(regs, rs1)),
 
+            // fsgnj*.s operands go through the NaN-boxing check (§11.3): an improperly
+            // boxed source register (upper 32 bits not all 1s) reads as the canonical
+            // NaN, not its raw truncated bits — hence FBits() rather than a raw cast.
             RvFsgnjS (_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFF00000000UL |
-                    (((uint)regs.Read(rs1) & 0x7FFFFFFFu) | ((uint)regs.Read(rs2) & 0x80000000u))
+                    ((BitConverter.SingleToUInt32Bits(FBits(regs, rs1)) & 0x7FFFFFFFu) |
+                     (BitConverter.SingleToUInt32Bits(FBits(regs, rs2)) & 0x80000000u))
                 ),
             RvFsgnjnS(_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFF00000000UL |
-                    (((uint)regs.Read(rs1) & 0x7FFFFFFFu) | (~(uint)regs.Read(rs2) & 0x80000000u))
+                    ((BitConverter.SingleToUInt32Bits(FBits(regs, rs1)) & 0x7FFFFFFFu) |
+                     (~BitConverter.SingleToUInt32Bits(FBits(regs, rs2)) & 0x80000000u))
                 ),
             RvFsgnjxS(_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFF00000000UL |
-                    (((uint)regs.Read(rs1) & 0x7FFFFFFFu) |
-                     (((uint)regs.Read(rs1) ^ (uint)regs.Read(rs2)) & 0x80000000u))
+                    ((BitConverter.SingleToUInt32Bits(FBits(regs, rs1)) & 0x7FFFFFFFu) |
+                     ((BitConverter.SingleToUInt32Bits(FBits(regs, rs1)) ^
+                       BitConverter.SingleToUInt32Bits(FBits(regs, rs2))) & 0x80000000u))
                 ),
 
             RvFminS(_, var rs1, var rs2) => FpMinMax(regs, rs1, rs2, true),
@@ -384,14 +409,14 @@ public partial class Rv32Executor : IExecutor {
             RvFltS(_, var rs1, var rs2) => FpCmp(regs, rs1, rs2, 1),
             RvFleS(_, var rs1, var rs2) => FpCmp(regs, rs1, rs2, 2),
 
-            RvFclassS(_, var rs1) => Reg(FClass((uint)regs.Read(rs1))),
+            RvFclassS(_, var rs1) => Reg(FClass(BitConverter.SingleToUInt32Bits(FBits(regs, rs1)))),
 
             RvFcvtWs (_, var rs1, var rm) => FcvtWsResult(FBits(regs, rs1), rm, state),
             RvFcvtWuS(_, var rs1, var rm) => FcvtWuSResult(FBits(regs, rs1), rm, state),
             RvFcvtSw (_, var rs1, _)      => FpIntToFloat((int)(uint)regs.Read(rs1)),
             RvFcvtSWu(_, var rs1, _)      => FpIntToFloat((uint)regs.Read(rs1)),
 
-            RvFmvXw(_, var rs1) => Reg(regs.Read(rs1) & 0xFFFFFFFF), // lower 32 fp bits → int reg
+            RvFmvXw(_, var rs1) => Reg((ulong)(int)(uint)regs.Read(rs1)), // lower 32 fp bits → int reg, sign-extended
             RvFmvWx(_, var rs1) => ExecuteResult.WithResult(0xFFFFFFFF00000000UL | (regs.Read(rs1) & 0xFFFFFFFF)),
 
             RvFmaddS (_, var rs1, var rs2, var rs3) =>
@@ -414,27 +439,21 @@ public partial class Rv32Executor : IExecutor {
             RvFdivD (_, var rs1, var rs2) => DpBin(DBits(regs, rs1), DBits(regs, rs2), 3),
             RvFsqrtD(_, var rs1)          => DpSqrt(DBits(regs, rs1)),
 
+            // fsgnj*.d are pure bit-manipulation ops (§11.2): they must pass the
+            // mantissa/exponent through verbatim, even for NaN-shaped payloads,
+            // so bypass FloatRegD's NaN-canonicalization entirely.
             RvFsgnjD (_, var rs1, var rs2) =>
-                FloatRegD(
-                    BitConverter.Int64BitsToDouble(
-                        (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
-                               ((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2)) & 0x8000000000000000UL))
-                    ), 0
+                ExecuteResult.WithResult(
+                    (regs.Read(rs1) & 0x7FFFFFFFFFFFFFFFUL) | (regs.Read(rs2) & 0x8000000000000000UL)
                 ),
             RvFsgnjnD(_, var rs1, var rs2) =>
-                FloatRegD(
-                    BitConverter.Int64BitsToDouble(
-                        (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
-                               (~(ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2)) & 0x8000000000000000UL))
-                    ), 0
+                ExecuteResult.WithResult(
+                    (regs.Read(rs1) & 0x7FFFFFFFFFFFFFFFUL) | (~regs.Read(rs2) & 0x8000000000000000UL)
                 ),
             RvFsgnjxD(_, var rs1, var rs2) =>
-                FloatRegD(
-                    BitConverter.Int64BitsToDouble(
-                        (long)(((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) & 0x7FFFFFFFFFFFFFFFUL) |
-                               (((ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs1)) ^
-                                 (ulong)BitConverter.DoubleToInt64Bits(DBits(regs, rs2))) & 0x8000000000000000UL))
-                    ), 0
+                ExecuteResult.WithResult(
+                    (regs.Read(rs1) & 0x7FFFFFFFFFFFFFFFUL) |
+                    ((regs.Read(rs1) ^ regs.Read(rs2)) & 0x8000000000000000UL)
                 ),
 
             RvFminD(_, var rs1, var rs2) => DpMinMax(regs, rs1, rs2, true),
@@ -475,20 +494,25 @@ public partial class Rv32Executor : IExecutor {
             RvFdivH (_, var rs1, var rs2) => HpBin(HBits(regs, rs1), HBits(regs, rs2), 3),
             RvFsqrtH(_, var rs1)          => HpSqrt(HBits(regs, rs1)),
 
+            // Same NaN-boxing caveat as fsgnj*.s above, at half width (upper 48 bits).
             RvFsgnjH (_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFFFFFF0000UL |
-                    ((regs.Read(rs1) & 0x7FFFUL) | (regs.Read(rs2) & 0x8000UL))
+                    ((BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
+                     (BitConverter.HalfToUInt16Bits(HBits(regs, rs2)) & 0x8000UL))
                 ),
             RvFsgnjnH(_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFFFFFF0000UL |
-                    ((regs.Read(rs1) & 0x7FFFUL) | (~regs.Read(rs2) & 0x8000UL))
+                    ((BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
+                     (~(ulong)BitConverter.HalfToUInt16Bits(HBits(regs, rs2)) & 0x8000UL))
                 ),
             RvFsgnjxH(_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFFFFFF0000UL |
-                    ((regs.Read(rs1) & 0x7FFFUL) | ((regs.Read(rs1) ^ regs.Read(rs2)) & 0x8000UL))
+                    ((BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
+                     ((ulong)(BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) ^
+                              BitConverter.HalfToUInt16Bits(HBits(regs, rs2))) & 0x8000UL))
                 ),
 
             RvFminH(_, var rs1, var rs2) => HpMinMax(regs, rs1, rs2, true),
@@ -498,7 +522,7 @@ public partial class Rv32Executor : IExecutor {
             RvFltH(_, var rs1, var rs2) => HpCmp(regs, rs1, rs2, 1),
             RvFleH(_, var rs1, var rs2) => HpCmp(regs, rs1, rs2, 2),
 
-            RvFclassH(_, var rs1) => Reg(HClass((ushort)regs.Read(rs1))),
+            RvFclassH(_, var rs1) => Reg(HClass(BitConverter.HalfToUInt16Bits(HBits(regs, rs1)))),
 
             // Half is exactly representable in float, so FCVT.W(U).H reuses the S-format
             // int-conversion helpers unchanged (widening loses no precision or rounding info).
@@ -877,7 +901,7 @@ public partial class Rv32Executor : IExecutor {
                 uint mip = csrs.DirectRead(CsrFile.Mip) & csrs.DirectRead(CsrFile.Mie);
                 if (mip != 0) return ExecuteResult.Clean; // interrupt already pending
                 Clint?.SkipToTimer();
-                return Clint?.TimerPending() == true
+                return Clint?.TimerPending() == true || WfiNeverHalts
                     ? ExecuteResult.Clean // timer now set; PeekInterrupt will catch it
                     : new ExecuteResult { IsHalt = true, };
             }
@@ -887,7 +911,7 @@ public partial class Rv32Executor : IExecutor {
             if (sip != 0) return ExecuteResult.Clean;
         }
 
-        return new ExecuteResult { IsHalt = true, };
+        return WfiNeverHalts ? ExecuteResult.Clean : new ExecuteResult { IsHalt = true, };
     }
 
     protected virtual ExecuteResult Reg(ulong value) =>
@@ -924,7 +948,7 @@ public partial class Rv32Executor : IExecutor {
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         var old = (uint)memory.Read(addr, 4);
         memory.Write(addr, combine(old, (uint)regs.Read(rs2)), 4);
-        return Reg(old);
+        return Reg((ulong)(int)old); // AMO*.W results are sign-extended to XLEN (matters for RV64)
     }
 
     private ExecuteResult AmoLr(
@@ -941,7 +965,9 @@ public partial class Rv32Executor : IExecutor {
             ReservationTable.Set(HartId, paddr);
         else
             _reservation = paddr;
-        return ExecuteResult.WithResult(memory.Read(paddr, 4) & 0xFFFFFFFF);
+        // LR.W is sign-extended to XLEN (matters for RV64); routed through the virtual
+        // Reg() so RV32 truncates it back to 32 bits (a no-op there).
+        return Reg((ulong)(int)(uint)memory.Read(paddr, 4));
     }
 
     private ExecuteResult AmoSc(
@@ -984,10 +1010,10 @@ public partial class Rv32Executor : IExecutor {
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         var old = (uint)memory.Read(addr, bytes);
         memory.Write(addr, combine(old, (uint)regs.Read(rs2)), bytes);
-        uint rd = bytes == 1
-            ? (uint)(sbyte)(byte)old
-            : (uint)(short)(ushort)old;
-        return Reg(rd);
+        int rd = bytes == 1
+            ? (sbyte)(byte)old
+            : (short)(ushort)old;
+        return Reg((ulong)rd); // sign-extended to XLEN (matters for RV64)
     }
 
     // Zacas: compare-and-swap word. rdReg is both comparand (source) and destination.
@@ -1005,7 +1031,7 @@ public partial class Rv32Executor : IExecutor {
         if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
         var old = (uint)memory.Read(addr, 4);
         if (old == (uint)regs.Read(rdReg)) memory.Write(addr, regs.Read(rs2), 4);
-        return Reg(old);
+        return Reg((ulong)(int)old); // sign-extended to XLEN (matters for RV64)
     }
 
     protected virtual (ulong paddr, int faultCause) Translate(
@@ -1104,7 +1130,7 @@ public partial class Rv32Executor : IExecutor {
             ulong src = state.IntegerRegisters.Read(rs1);
             // Per spec §2.8: CSRRS/CSRRC with rs1==x0 must not write the CSR.
             if (writeIfSrcZero || rs1 != 0) csrFile.Write(csr, combine(old, src), state.PrivilegeLevel);
-            return ExecuteResult.WithResult(old & 0xFFFFFFFF);
+            return ExecuteResult.WithResult(old);
         }
         catch (SystemRegisterAccessException) {
             return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));

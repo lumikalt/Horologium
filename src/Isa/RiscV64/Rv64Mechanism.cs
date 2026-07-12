@@ -13,9 +13,18 @@ namespace RiscV64;
 /// corrects shift/comparison/LW semantics for 64-bit.
 /// </summary>
 public sealed class Rv64Mechanism : IMechanism {
+    /// <param name="ebreakAlwaysHalts">See <see cref="RiscV32.Execute.Rv32Executor.EbreakAlwaysHalts"/>.</param>
+    /// <param name="wfiNeverHalts">See <see cref="RiscV32.Execute.Rv32Executor.WfiNeverHalts"/>.</param>
+    public Rv64Mechanism(bool ebreakAlwaysHalts = false, bool wfiNeverHalts = false) {
+        Executor = new Rv64Executor {
+            EbreakAlwaysHalts = ebreakAlwaysHalts,
+            WfiNeverHalts = wfiNeverHalts,
+        };
+    }
+
     public string Name => "RV64I";
     public IDecoder Decoder { get; } = new Rv64Decoder();
-    public IExecutor Executor { get; } = new Rv64Executor();
+    public IExecutor Executor { get; }
     public IImpulseCracker? UopCracker => null;
     public ITrapController TrapController { get; } = new RvTrapController();
 

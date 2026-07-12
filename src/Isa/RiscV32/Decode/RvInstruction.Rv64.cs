@@ -104,3 +104,18 @@ public record RvSh2AddUw(int Rd, int Rs1, int Rs2) : RvOp;
 public record RvSh3AddUw(int Rd, int Rs1, int Rs2) : RvOp;
 
 public record RvSlliUw(int Rd, int Rs1, int Sh) : RvOp;
+
+// ── RV64-only Zbb W-suffix ops: operate on the lower 32 bits, result is a small
+// non-negative count (CLZW/CTZW/CPOPW, max 32) or a rotated 32-bit value sign-extended
+// to 64 (ROLW/RORW/RORIW) — opcode=0x3B (OP-32) / 0x1B (OP-IMM-32).
+public record RvRolw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvRorw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvRoriw(int Rd, int Rs1, int Shamt) : RvOp;
+
+public record RvClzw(int Rd, int Rs1) : RvOp;
+
+public record RvCtzw(int Rd, int Rs1) : RvOp;
+
+public record RvCpopw(int Rd, int Rs1) : RvOp;

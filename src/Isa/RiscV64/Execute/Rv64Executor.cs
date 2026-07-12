@@ -23,9 +23,8 @@ namespace RiscV64.Execute;
 ///     lower 32 bits only (via (int)/(uint) casts), which is wrong once regs.Read() returns a genuine
 ///     64-bit value under RV64.
 ///   • RV64F/D: FCVT.L/LU.S/D (float/double→int64), FCVT.S/D.L/LU (int64→float/double), FMV.X.D/FMV.D.X
-///     (full 64-bit double↔int bit copy — RV32D has no FMV.X.D since XLEN &lt; FLEN there), plus a fix for
-///     the inherited FCVT.W/WU.S/D: the RV32 IntRegF helper zero-extends the 32-bit result, but RV64
-///     requires it to be sign-extended into the 64-bit destination register.
+///     (full 64-bit double↔int bit copy — RV32D has no FMV.X.D since XLEN &lt; FLEN there). FCVT.W/WU.S/D/H
+///     need no override: the inherited IntRegF already sign-extends its 32-bit result to XLEN.
 /// </summary>
 public class Rv64Executor : Rv32Executor {
     // Sign-extend the lower 32 bits of v to 64 bits.
@@ -79,6 +78,19 @@ public class Rv64Executor : Rv32Executor {
                 Reg(SexW((uint)regs.Read(rs1) >> (int)(regs.Read(rs2) & 0x1F))),
             RvSraw(_, var rs1, var rs2) =>
                 Reg(SexW((ulong)((int)regs.Read(rs1) >> (int)(regs.Read(rs2) & 0x1F)))),
+
+            // Zbb W-suffix: ROLW/RORW operate on the lower 32 bits and sign-extend the
+            // rotated 32-bit result to 64. CLZW/CTZW/CPOPW produce a small non-negative
+            // count (max 32) that never needs sign-extension.
+            RvRolw(_, var rs1, var rs2) =>
+                Reg(SexW(BitOperations.RotateLeft((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 0x1F)))),
+            RvRorw(_, var rs1, var rs2) =>
+                Reg(SexW(BitOperations.RotateRight((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 0x1F)))),
+            RvRoriw(_, var rs1, var sh) =>
+                Reg(SexW(BitOperations.RotateRight((uint)regs.Read(rs1), sh))),
+            RvClzw(_, var rs1) => Reg((ulong)BitOperations.LeadingZeroCount((uint)regs.Read(rs1))),
+            RvCtzw(_, var rs1) => Reg((ulong)BitOperations.TrailingZeroCount((uint)regs.Read(rs1))),
+            RvCpopw(_, var rs1) => Reg((ulong)BitOperations.PopCount((uint)regs.Read(rs1))),
 
             // ── W-suffix (OP-IMM-32) ──────────────────────────────────────────────
             RvAddiw(_, var rs1, var imm) =>
@@ -145,14 +157,10 @@ public class Rv64Executor : Rv32Executor {
             RvFcvtHl (_, var rs1, _)      => FpIntToHalf((long)regs.Read(rs1)),
             RvFcvtHLu(_, var rs1, _)      => FpUIntToHalf(regs.Read(rs1)),
 
-            // FCVT.W/WU.S/D: base RV32 result zero-extends via IntRegF; RV64 must sign-extend.
-            RvFcvtWs or RvFcvtWuS or RvFcvtWd or RvFcvtWuD =>
-                SignExtendLow32(base.Execute(instruction, state, memory)),
-
             // ── RV64 semantic overrides for base instructions ──────────────────────
             // ORI: immediate must be sign-extended to 64 bits, not zero-extended via (uint).
             RvOri(_, var rs1, var imm) =>
-                Reg(regs.Read(rs1) | (uint)imm),
+                Reg(regs.Read(rs1) | unchecked((ulong)(long)imm)),
 
             // Shifts: 6-bit shamt mask in RV64 (RV32 uses 5-bit).
             RvSll(_, var rs1, var rs2) =>
@@ -245,6 +253,12 @@ public class Rv64Executor : Rv32Executor {
                 Reg(BitOperations.RotateLeft(regs.Read(rs1), (int)(regs.Read(rs2) & 63))),
             RvRor (_, var rs1, var rs2) =>
                 Reg(BitOperations.RotateRight(regs.Read(rs1), (int)(regs.Read(rs2) & 63))),
+
+            // ── Zbc: 64x64→128 carry-less multiply (base RV32 versions operate on 32-bit
+            // operands and produce a 63-bit product, wrong once regs.Read() is a full 64-bit value).
+            RvClmul (_, var rs1, var rs2) => Reg((ulong)Clmul64(regs.Read(rs1), regs.Read(rs2))),
+            RvClmulh(_, var rs1, var rs2) => Reg((ulong)(Clmul64(regs.Read(rs1), regs.Read(rs2)) >> 64)),
+            RvClmulr(_, var rs1, var rs2) => Reg((ulong)(Clmul64(regs.Read(rs1), regs.Read(rs2)) >> 63)),
 
             // ── Zba: address-generation ops over the zero-extended low 32 bits of rs1 ──
             RvAdduw    (_, var rs1, var rs2) => Reg(regs.Read(rs2) + ZextW(regs.Read(rs1))),
@@ -361,12 +375,6 @@ public class Rv64Executor : Rv32Executor {
         return Reg(r);
     }
 
-    // Sign-extend the lower 32 bits of a base-class ExecuteResult's register value.
-    // Used to fix FCVT.W/WU.S/D under RV64: the inherited RV32 result zero-extends via
-    // IntRegF, but a 32-bit conversion result must be sign-extended into a 64-bit register.
-    private static ExecuteResult SignExtendLow32(ExecuteResult r) =>
-        r.RegisterResult.HasValue ? r with { RegisterResult = (SexW(r.RegisterResult.Value), true), } : r;
-
     // FCVT.L.S: float→signed int64, with rounding mode and NV/NX flags.
     private static ExecuteResult FcvtLsResult(float f, int rm, IArchState state) {
         rm = ResolveRm(rm, state);
@@ -465,6 +473,16 @@ public class Rv64Executor : Rv32Executor {
         ulong old = csrs.Satp;
         if (writeSrc) csrs.Satp = combine(old, src);
         return ExecuteResult.WithResult(old);
+    }
+
+    // Carry-less multiply: XOR-sum of (a << i) for each set bit i in b.
+    // Returns the full 128-bit product; callers slice the desired half.
+    private static UInt128 Clmul64(ulong a, ulong b) {
+        UInt128 result = 0;
+        for (var i = 0; i < 64; i++)
+            if (((b >> i) & 1UL) != 0)
+                result ^= (UInt128)a << i;
+        return result;
     }
 
     // Sv39 page-table walk for load/store/AMO address translation — overrides the inherited

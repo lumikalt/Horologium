@@ -58,14 +58,18 @@ public partial class Rv32Executor {
     }
 
     // Integer result + OR flags into fflags via SideEffect.
-    protected static ExecuteResult IntRegF(uint value, uint flags) {
-        if (flags == 0) return ExecuteResult.WithResult(value);
-        return new ExecuteResult
-            { RegisterResult = (value, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
+    // FCVT.W*.{S,D,H} results are always sign-extended to XLEN on RV64, even for
+    // the unsigned WU variants (they're specified like other W-suffixed ops). Routed
+    // through the virtual Reg() so RV32 truncates the sign-extension back to 32 bits
+    // (a no-op there) while RV64's override keeps the full 64-bit sign-extended value.
+    protected ExecuteResult IntRegF(uint value, uint flags) {
+        ExecuteResult result = Reg((ulong)(int)value);
+        if (flags == 0) return result;
+        return result with { SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
     }
 
     // Same as IntRegF but for a full 64-bit result (RV64F/D int64 conversions — FCVT.L/LU.S/D —
-    // must fill the whole destination register, unlike the 32-bit FCVT.W/WU which zero-extend).
+    // fill the whole destination register directly, rather than sign-extending a 32-bit value).
     protected static ExecuteResult IntRegF64(ulong value, uint flags) {
         if (flags == 0) return ExecuteResult.WithResult(value);
         return new ExecuteResult
@@ -173,7 +177,7 @@ public partial class Rv32Executor {
     }
 
     // FCVT.W.S with rounding mode and NV/NX flags.
-    private static ExecuteResult FcvtWsResult(float f, int rm, IArchState state) {
+    private ExecuteResult FcvtWsResult(float f, int rm, IArchState state) {
         rm = ResolveRm(rm, state);
         if (float.IsNaN(f)) return IntRegF(0x7FFFFFFFu, 0x10u); // NaN → INT_MAX + NV
         float rounded = ApplyRm(f, rm);
@@ -189,7 +193,7 @@ public partial class Rv32Executor {
     }
 
     // FCVT.WU.S with rounding mode and NV/NX flags.
-    private static ExecuteResult FcvtWuSResult(float f, int rm, IArchState state) {
+    private ExecuteResult FcvtWuSResult(float f, int rm, IArchState state) {
         rm = ResolveRm(rm, state);
         if (float.IsNaN(f)) return IntRegF(0xFFFFFFFFu, 0x10u); // NaN → UINT_MAX + NV
         float rounded = ApplyRm(f, rm);
@@ -205,10 +209,11 @@ public partial class Rv32Executor {
     }
 
     // FMIN/FMAX: set NV if either input is a signaling NaN.
+    // Operands go through FBits() for the NaN-boxing check (§11.3) — an improperly
+    // boxed source register must read as the canonical NaN, not its raw truncated bits.
     private static ExecuteResult FpMinMax(IRegisterFile regs, int rs1, int rs2, bool isMin) {
-        uint raw1 = (uint)regs.Read(rs1), raw2 = (uint)regs.Read(rs2);
-        float a = BitConverter.Int32BitsToSingle((int)raw1);
-        float b = BitConverter.Int32BitsToSingle((int)raw2);
+        float a = FBits(regs, rs1), b = FBits(regs, rs2);
+        uint raw1 = BitConverter.SingleToUInt32Bits(a), raw2 = BitConverter.SingleToUInt32Bits(b);
         uint flags = IsSNan(raw1) || IsSNan(raw2) ? 0x10u : 0u;
         float result = isMin ? FMin(a, b) : FMax(a, b);
         return FloatRegF(result, flags);
@@ -216,9 +221,8 @@ public partial class Rv32Executor {
 
     // FEQ/FLT/FLE: NV flag for sNaN (FEQ) or any NaN (FLT/FLE).
     private static ExecuteResult FpCmp(IRegisterFile regs, int rs1, int rs2, int op) {
-        uint raw1 = (uint)regs.Read(rs1), raw2 = (uint)regs.Read(rs2);
-        float a = BitConverter.Int32BitsToSingle((int)raw1);
-        float b = BitConverter.Int32BitsToSingle((int)raw2);
+        float a = FBits(regs, rs1), b = FBits(regs, rs2);
+        uint raw1 = BitConverter.SingleToUInt32Bits(a), raw2 = BitConverter.SingleToUInt32Bits(b);
         // FLT/FLE: NV if either operand is NaN; FEQ: NV only for sNaN
         bool nvFlt = float.IsNaN(a) || float.IsNaN(b);
         bool nvFeq = IsSNan(raw1) || IsSNan(raw2);
@@ -316,7 +320,52 @@ public partial class Rv32Executor {
         (raw & 0x000FFFFFFFFFFFFFUL) != 0 &&
         (raw & 0x0008000000000000UL) == 0;
 
-    // Detect flags for D-precision binary op. NX/UF are best-effort (no 128-bit ref).
+    // ── Float64 minimum normal magnitude (2^-1022) ────────────────────────────
+    private const double MinNormalD = 2.2250738585072014E-308;
+
+    // Decompose a finite double into (mantissa, exp2) such that the exact real
+    // value is mantissa * 2^exp2, with mantissa a signed BigInteger. This lets
+    // NX/UF for double-precision ops be computed by *exact* integer arithmetic
+    // instead of a wider floating type (C# has none wider than double).
+    private static (BigInteger Mantissa, int Exp2) DecomposeExact(double d) {
+        long bits = BitConverter.DoubleToInt64Bits(d);
+        bool neg = bits < 0;
+        var exp = (int)((bits >> 52) & 0x7FF);
+        long frac = bits & 0xFFFFFFFFFFFFFL;
+        BigInteger mantissa;
+        int e2;
+        if (exp == 0) {
+            if (frac == 0) return (BigInteger.Zero, 0);
+            mantissa = frac;
+            e2 = -1074;
+        }
+        else {
+            mantissa = frac | (1L << 52);
+            e2 = exp - 1075;
+        }
+        return (neg ? -mantissa : mantissa, e2);
+    }
+
+    private static (BigInteger Mantissa, int Exp2) ExactAdd(
+        (BigInteger Mantissa, int Exp2) x, (BigInteger Mantissa, int Exp2) y) =>
+        x.Exp2 < y.Exp2
+            ? (x.Mantissa + (y.Mantissa << (y.Exp2 - x.Exp2)), x.Exp2)
+            : y.Exp2 < x.Exp2
+                ? (y.Mantissa + (x.Mantissa << (x.Exp2 - y.Exp2)), y.Exp2)
+                : (x.Mantissa + y.Mantissa, x.Exp2);
+
+    private static (BigInteger Mantissa, int Exp2) ExactMul(
+        (BigInteger Mantissa, int Exp2) x, (BigInteger Mantissa, int Exp2) y) =>
+        (x.Mantissa * y.Mantissa, x.Exp2 + y.Exp2);
+
+    private static bool ExactEqual((BigInteger Mantissa, int Exp2) x, (BigInteger Mantissa, int Exp2) y) {
+        if (x.Exp2 < y.Exp2) y = (y.Mantissa << (y.Exp2 - x.Exp2), x.Exp2);
+        else if (y.Exp2 < x.Exp2) x = (x.Mantissa << (x.Exp2 - y.Exp2), y.Exp2);
+        return x.Mantissa == y.Mantissa;
+    }
+
+    // Detect flags for D-precision binary op via exact BigInteger arithmetic
+    // (no double-rounding ambiguity, unlike a wider-float approximation).
     private static uint DpArithFlags(double a, double b, double r, int op) {
         var rawA = (ulong)BitConverter.DoubleToInt64Bits(a);
         var rawB = (ulong)BitConverter.DoubleToInt64Bits(b);
@@ -326,6 +375,19 @@ public partial class Rv32Executor {
         if (double.IsNaN(r)) return flags;
         if (op == 3 && b == 0.0 && !aNaN && !double.IsInfinity(a)) flags |= 0x08;
         if (double.IsInfinity(r) && !double.IsInfinity(a) && !double.IsInfinity(b)) flags |= 0x04;
+        if (double.IsInfinity(r)) return flags;
+
+        var da = DecomposeExact(a);
+        var db = DecomposeExact(b);
+        var dr = DecomposeExact(r);
+        bool nx = op switch {
+            0 => !ExactEqual(ExactAdd(da, db), dr),
+            1 => !ExactEqual(ExactAdd(da, (-db.Mantissa, db.Exp2)), dr),
+            2 => !ExactEqual(ExactMul(da, db), dr),
+            _ => !ExactEqual(da, ExactMul(dr, db)), // a == r*b exactly ⟺ r == a/b exactly
+        };
+        if (nx) flags |= 0x01;
+        if (nx && r != 0.0 && Math.Abs(r) < Rv32Executor.MinNormalD) flags |= 0x02;
         return flags;
     }
 
@@ -342,12 +404,23 @@ public partial class Rv32Executor {
         if (double.IsInfinity(r) &&
             !double.IsInfinity(a) && !double.IsInfinity(b) && !double.IsInfinity(c))
             flags |= 0x04;
+        if (double.IsInfinity(r)) return flags;
+
+        bool nx = !ExactEqual(ExactAdd(ExactMul(DecomposeExact(a), DecomposeExact(b)), DecomposeExact(c)),
+            DecomposeExact(r));
+        if (nx) flags |= 0x01;
+        if (nx && r != 0.0 && Math.Abs(r) < Rv32Executor.MinNormalD) flags |= 0x02;
         return flags;
     }
 
-    private static uint DpSqrtFlags(double a) {
+    private static uint DpSqrtFlags(double a, double r) {
         if (!double.IsNaN(a) && a < 0.0) return 0x10; // NV: sqrt of negative
-        return 0;
+        if (double.IsInfinity(r) || double.IsNaN(r)) return 0;
+
+        bool nx = !ExactEqual(ExactMul(DecomposeExact(r), DecomposeExact(r)), DecomposeExact(a));
+        uint flags = nx ? 0x01u : 0u;
+        if (nx && r != 0.0 && Math.Abs(r) < Rv32Executor.MinNormalD) flags |= 0x02;
+        return flags;
     }
 
     private static ExecuteResult DpBin(double a, double b, int op) {
@@ -357,7 +430,7 @@ public partial class Rv32Executor {
 
     private static ExecuteResult DpSqrt(double a) {
         double r = Math.Sqrt(a);
-        return FloatRegD(r, DpSqrtFlags(a));
+        return FloatRegD(r, DpSqrtFlags(a, r));
     }
 
     private static ExecuteResult DpFma(double a, double b, double c) {
@@ -409,7 +482,7 @@ public partial class Rv32Executor {
         _ => d >= 0.0 ? Math.Floor(d) : Math.Ceiling(d), // RTZ
     };
 
-    private static ExecuteResult FcvtWdResult(double d, int rm, IArchState state) {
+    private ExecuteResult FcvtWdResult(double d, int rm, IArchState state) {
         rm = ResolveRm(rm, state);
         if (double.IsNaN(d)) return IntRegF(0x7FFFFFFFu, 0x10u);
         double rounded = ApplyRmD(d, rm);
@@ -423,7 +496,7 @@ public partial class Rv32Executor {
         return IntRegF(result, flags);
     }
 
-    private static ExecuteResult FcvtWudResult(double d, int rm, IArchState state) {
+    private ExecuteResult FcvtWudResult(double d, int rm, IArchState state) {
         rm = ResolveRm(rm, state);
         if (double.IsNaN(d)) return IntRegF(0xFFFFFFFFu, 0x10u);
         double rounded = ApplyRmD(d, rm);

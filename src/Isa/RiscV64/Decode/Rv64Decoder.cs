@@ -70,6 +70,12 @@ public class Rv64Decoder : Rv32Decoder {
                     (0x2, 0x10) => new RvSh1AddUw(rd, rs1, rs2),
                     (0x4, 0x10) => new RvSh2AddUw(rd, rs1, rs2),
                     (0x6, 0x10) => new RvSh3AddUw(rd, rs1, rs2),
+                    // Zbb: ROLW/RORW.
+                    (0x1, 0x30) => new RvRolw(rd, rs1, rs2),
+                    (0x5, 0x30) => new RvRorw(rd, rs1, rs2),
+                    // Zbb ZEXT.H: RV64 encodes it in OP-32 (RV32 uses OP) — same semantics
+                    // (zero-extend the low 16 bits), just reached via a different opcode.
+                    (0x4, 0x04) when rs2 == 0 => new RvZextH(rd, rs1),
                     _ => throw new IllegalInstructionException(
                         raw,
                         $"Unknown OP-32 funct3=0x{funct3:X} funct7=0x{funct7:X}"
@@ -91,6 +97,17 @@ public class Rv64Decoder : Rv32Decoder {
                     0x1 when top6 == 0x02  => new RvSlliUw(rd, rs1, (int)((raw >> 20) & 0x3F)),
                     0x5 when f7 == 0x00    => new RvSrliw(rd, rs1, (int)shamt),
                     0x5 when f7 == 0x20    => new RvSraiw(rd, rs1, (int)shamt),
+                    // Zbb: RORIW (5-bit shamt) and the CLZW/CTZW/CPOPW single-operand forms,
+                    // discriminated by rs2 (bits 24:20, same field as shamt) at funct7=0x30.
+                    0x5 when f7 == 0x30    => new RvRoriw(rd, rs1, (int)shamt),
+                    0x1 when f7 == 0x30    => shamt switch {
+                        0 => new RvClzw(rd, rs1),
+                        1 => new RvCtzw(rd, rs1),
+                        2 => new RvCpopw(rd, rs1),
+                        _ => throw new IllegalInstructionException(
+                            raw, $"Unknown RV64 Zbb W-suffix unary op shamt=0x{shamt:X}"
+                        ),
+                    },
                     _ => throw new IllegalInstructionException(
                         raw,
                         $"Unknown OP-IMM-32 funct3=0x{funct3:X} funct7=0x{f7:X}"

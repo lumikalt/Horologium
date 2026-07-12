@@ -39,18 +39,24 @@ public sealed class Rv32Mechanism : IMechanism {
     /// PLIC device to attach to this hart's trap controller. When provided,
     /// MEIP/SEIP in mip reflect external interrupt state from the PLIC each poll.
     /// </param>
+    /// <param name="ebreakAlwaysHalts">See <see cref="Rv32Executor.EbreakAlwaysHalts"/>.</param>
+    /// <param name="wfiNeverHalts">See <see cref="Rv32Executor.WfiNeverHalts"/>.</param>
     public Rv32Mechanism(
         ulong? htifTohost = null,
         ReservationTable? reservationTable = null,
         int hartId = 0,
         ClintDevice? clint = null,
-        PlicDevice? plic = null
+        PlicDevice? plic = null,
+        bool ebreakAlwaysHalts = false,
+        bool wfiNeverHalts = false
     ) {
         Executor = new Rv32Executor {
             HtifTohostAddress = htifTohost,
             ReservationTable = reservationTable,
             HartId = hartId,
             Clint = clint,
+            EbreakAlwaysHalts = ebreakAlwaysHalts,
+            WfiNeverHalts = wfiNeverHalts,
         };
         TrapController = new RvTrapController(clint, plic);
     }
