@@ -43,13 +43,15 @@
         let
           t = olympiaToolchain pkgs;
           opensbi-rv32 = pkgs.callPackage ./nix/opensbi-rv32.nix { };
+          opensbi-rv64 = pkgs.callPackage ./nix/opensbi-rv64.nix { };
           linux-rv32   = pkgs.callPackage ./nix/linux-rv32.nix { };
+          linux-rv64   = pkgs.callPackage ./nix/linux-rv64.nix { };
           gem5         = pkgs.callPackage ./nix/gem5.nix { };
           uve-spike    = pkgs.callPackage ./nix/uve-spike.nix { };
         in
         {
           inherit (t) softfloat sparta olympia;
-          inherit opensbi-rv32 linux-rv32 gem5 uve-spike;
+          inherit opensbi-rv32 opensbi-rv64 linux-rv32 linux-rv64 gem5 uve-spike;
           default = t.olympia;
         }
       );
@@ -59,7 +61,9 @@
         let
           olympia = (olympiaToolchain pkgs).olympia;
           opensbi-rv32 = pkgs.callPackage ./nix/opensbi-rv32.nix { };
+          opensbi-rv64 = pkgs.callPackage ./nix/opensbi-rv64.nix { };
           linux-rv32   = pkgs.callPackage ./nix/linux-rv32.nix { };
+          linux-rv64   = pkgs.callPackage ./nix/linux-rv64.nix { };
           gem5         = pkgs.callPackage ./nix/gem5.nix { };
           uve-spike    = pkgs.callPackage ./nix/uve-spike.nix { };
 
@@ -92,10 +96,20 @@
             # Built by: nix build .#opensbi-rv32
             opensbi-rv32
 
+            # OpenSBI RV64 generic firmware — same layout as opensbi-rv32, built
+            # against the riscv64-unknown-linux-gnu cross toolchain.
+            # Built by: nix build .#opensbi-rv64
+            opensbi-rv64
+
             # Linux 6.12 RV32 NOMMU kernel (`Image` on PATH via share/linux/).
             # Linux boot test: load fw_jump.bin + Image, check UART for "Linux version".
             # Built by: nix build .#linux-rv32
             linux-rv32
+
+            # Linux 6.12 RV64 NOMMU kernel — same nommu_virt_defconfig as linux-rv32,
+            # minus the 32-bit.config fragment, built against riscv64-unknown-linux-gnu.
+            # Built by: nix build .#linux-rv64
+            linux-rv64
 
             # gem5 RISCV with TraceCPU + protobuf (`gem5` on PATH).
             # Validate elastic-trace round-trips end-to-end:

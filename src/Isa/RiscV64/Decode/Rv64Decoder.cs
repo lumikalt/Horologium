@@ -260,7 +260,9 @@ public class Rv64Decoder : Rv32Decoder {
     //   Q1 funct3=1:   C.JAL        → C.ADDIW
     //   Q2 funct3=3/7: C.FLWSP/C.FSWSP → C.LDSP/C.SDSP
     // Also, the CA-type funct3=100/sub=11 space (bits[6:5]) is reserved on RV32 whenever
-    // bit[12]=1, but on RV64 that bit selects the word-width C.SUBW/C.ADDW forms.
+    // bit[12]=1, but on RV64 that bit selects the word-width C.SUBW/C.ADDW forms. And
+    // C.SLLI's shamt[5] (bit[12]), reserved on RV32, is a live shamt bit on RV64 — as is
+    // C.SRLI/C.SRAI's shamt[5] (same bit[12], sub=00/01 in the same funct3=100 quadrant).
     // Returns null for every other encoding so the caller falls through to the base RV32C table.
     private static ITooth? TryDecodeRv64Compressed(ulong pc, ushort c) {
         var q = (uint)(c & 0x3);
@@ -277,6 +279,16 @@ public class Rv64Decoder : Rv32Decoder {
                     _   => throw new IllegalInstructionException(c, "C.SUBW/C.ADDW with funct2 ∈ {2,3} is reserved"),
                 };
                 return new RvInstruction(pc, c, rdp, [rdp, rs2P,], ToothClass.IntegerAlu, op, 2);
+            }
+            case 0x1 when funct3 == 0x4 && (c & 0x1000) != 0 && ((c >> 10) & 0x3) is 0x0 or 0x1: {
+                // C.SRLI/C.SRAI with shamt[5]=1 — RV64 allows the full 6-bit shamt; the base
+                // RV32 decoder rejects shamt[5]=1 as reserved.
+                int rs1P = ((c >> 7) & 0x7) + 8;
+                int shamt = (((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F);
+                RvOp op = ((c >> 10) & 0x3) == 0x0
+                    ? new RvSrli(rs1P, rs1P, shamt)
+                    : new RvSrai(rs1P, rs1P, shamt);
+                return new RvInstruction(pc, c, rs1P, [rs1P,], ToothClass.IntegerAlu, op, 2);
             }
             case 0x0 when funct3 == 0x3: {
                 // C.LD
@@ -309,6 +321,14 @@ public class Rv64Decoder : Rv32Decoder {
                 // C.SDSP
                 int rs2 = (c >> 2) & 0x1F;
                 return new RvInstruction(pc, c, -1, [2, rs2,], ToothClass.Store, new RvSd(2, rs2, CsdspImm(c)), 2);
+            }
+            case 0x2 when funct3 == 0x0: {
+                // C.SLLI — RV64 allows the full 6-bit shamt (shamt[5]=c[12]); the base
+                // RV32 decoder rejects shamt[5]=1 as reserved.
+                int rd = (c >> 7) & 0x1F;
+                int rs2 = (c >> 2) & 0x1F;
+                int shamt = (((c >> 12) & 0x1) << 5) | rs2;
+                return new RvInstruction(pc, c, rd, [rd,], ToothClass.IntegerAlu, new RvSlli(rd, rd, shamt), 2);
             }
             default: return null;
         }

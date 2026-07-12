@@ -94,6 +94,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <LinkBase>torture</LinkBase>
         </None>
+        <None Include="..\TestBinaries\torture64\*.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <LinkBase>torture64</LinkBase>
+        </None>
     </ItemGroup>
 
 </Project>

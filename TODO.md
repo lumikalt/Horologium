@@ -151,10 +151,11 @@ Remaining delta, in rough dependency order:
   hook, same as `vlse`/`vsse`); cheap-tier `Tests/RiscV64/{System,MultiHart,CoSim}`
   ported (CLINT/HTIF/UART/raw-binary-workload, multi-hart pipeline/atomics/TSO
   fence, Spike co-sim golden-path + full riscv-tests rv64u* conformance loop).
-- [ ] RV64 OpenSBI/Linux boot coverage: RV64 counterpart of `nix/opensbi-rv32.nix`
-  plus RV64 ports of OpenSbiBannerTests/LinuxBootTests.
-- [ ] RV64 torture co-simulation: extend the random-instruction-sequence torture
-  generator to RV64 and port TortureCoSimTests.
+- [x] RV64 OpenSBI/Linux boot coverage: RV64 counterparts of `nix/opensbi-rv32.nix`
+  and `nix/linux-rv32.nix`, plus RV64 ports of OpenSbiBannerTests/LinuxBootTests
+  (both passing).
+- [x] RV64 torture co-simulation: extended the random-instruction-sequence torture
+  generator to RV64 and ported TortureCoSimTests (60/60 passing against Spike).
 
 ## Analysis
 

@@ -422,29 +422,39 @@ $(foreach b,$(BMARKS),$(eval $(call bmark_template,$(b))))
 
 BMARKS_ELFS = $(patsubst %, benchmarks/%.elf, $(BMARKS))
 
-# ── Torture tests (RV32 random sequences for Spike co-simulation) ─────────────
+# ── Torture tests (RV32/RV64 random sequences for Spike co-simulation) ────────
 #
-# Pre-generated .S files live in torture/.  Regenerate from scratch with:
-#   python3 gen_torture.py 20 torture/ --seed 42
+# Pre-generated .S files live in torture/ (RV32) and torture64/ (RV64).
+# Regenerate from scratch with:
+#   python3 gen_torture.py 20 torture/   --seed 42
+#   python3 gen_torture.py 20 torture64/ --seed 42 --xlen 64
 # then rebuild ELFs with:
-#   make torture
+#   make torture torture64
 #
 # The generator and compiled ELFs are both committed; the ELFs can be rebuilt
-# from the .S files alone using only the riscv32-none-elf-gcc toolchain.
+# from the .S files alone using only the riscv32-none-elf-gcc / riscv64-none-elf-gcc
+# toolchains.
 
-CFLAGS_TORTURE = -march=rv32imafc -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS_TORTURE   = -march=rv32imafc -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS_TORTURE64 = -march=rv64imafdc -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
 
 TORTURE_SRCS = $(wildcard torture/*.S)
 TORTURE_ELFS = $(patsubst torture/%.S, torture/%.elf, $(TORTURE_SRCS))
 
+TORTURE64_SRCS = $(wildcard torture64/*.S)
+TORTURE64_ELFS = $(patsubst torture64/%.S, torture64/%.elf, $(TORTURE64_SRCS))
+
 torture/%.elf: torture/%.S env/riscv_test.h env/link.ld
 	$(CC) $(CFLAGS_TORTURE) $(INCLUDES) $(LDFLAGS) $< -o $@
 
+torture64/%.elf: torture64/%.S env/riscv_test.h env/link.ld
+	$(CC64) $(CFLAGS_TORTURE64) $(INCLUDES) $(LDFLAGS64) $< -o $@
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
-.PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture clean
+.PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture torture64 clean
 
-all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture
+all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture torture64
 
 custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
 
@@ -463,6 +473,8 @@ rv64-isa-tests: $(RV64UI_ELFS) $(RV64UM_ELFS) $(RV64SI_ELFS) \
 benchmarks: $(BMARKS_ELFS)
 
 torture: $(TORTURE_ELFS)
+
+torture64: $(TORTURE64_ELFS)
 
 # ── Lab 2 benchmarks (HPC Architectures 2023-2024) ───────────────────────────
 #
@@ -486,4 +498,4 @@ lab2: $(LAB2_ELFS)
 
 clean:
 	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
-	rm -f isa/*.elf benchmarks/*.elf torture/*.elf lab2/*.elf
+	rm -f isa/*.elf benchmarks/*.elf torture/*.elf torture64/*.elf lab2/*.elf

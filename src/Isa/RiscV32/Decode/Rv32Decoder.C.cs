@@ -37,13 +37,26 @@ public partial class Rv32Decoder {
 
         return funct3 switch {
             0x0 => DecodeAddi4Spn(pc, c, rdp),
+            0x1 => DecodeCFld(pc, c, rdp, rs1P),
             0x2 => DecodeCLw(pc, c, rdp, rs1P),
             0x3 => DecodeCFlw(pc, c, rdp, rs1P),
+            0x5 => DecodeCFsd(pc, c, rdp, rs1P),
             0x6 => DecodeCSw(pc, c, rdp, rs1P),
             0x7 => DecodeCFsw(pc, c, rdp, rs1P),
             _   => throw new IllegalInstructionException(c, $"Unknown C.Q0 funct3=0x{funct3:X}"),
         };
     }
+
+    // Doubleword CL/CS-format offset (shared by C.FLD/C.FSD, and — on RV64 — C.LD/C.SD):
+    // uimm[5:3]=c[12:10], uimm[7:6]=c[6:5].
+    private static int CDoublewordMemImm(ushort c) =>
+        (((c >> 10) & 0x7) << 3) | (((c >> 5) & 0x3) << 6);
+
+    private static RvInstruction DecodeCFld(ulong pc, ushort c, int rdp, int rs1P) =>
+        C(pc, c, rdp + 32, [rs1P,], ToothClass.Load, new RvFld(rdp + 32, rs1P, CDoublewordMemImm(c)));
+
+    private static RvInstruction DecodeCFsd(ulong pc, ushort c, int rs2P, int rs1P) =>
+        C(pc, c, -1, [rs1P, rs2P + 32,], ToothClass.Store, new RvFsd(rs1P, rs2P + 32, CDoublewordMemImm(c)));
 
     private static ITooth DecodeAddi4Spn(ulong pc, ushort c, int rdp) {
         // CIW: nzuimm[5:4]=c[12:11], nzuimm[9:6]=c[10:7], nzuimm[2]=c[6], nzuimm[3]=c[5]
@@ -189,14 +202,30 @@ public partial class Rv32Decoder {
 
         return funct3 switch {
             0x0 => DecodeCslli(pc, c, rd, rs2),
+            0x1 => DecodeCFldsp(pc, c, rd),
             0x2 => DecodeCLwsp(pc, c, rd),
             0x3 => DecodeCFlwsp(pc, c, rd),
             0x4 => DecodeQ2Funct3_100(pc, c, rd, rs2),
+            0x5 => DecodeCFsdsp(pc, c, rs2),
             0x6 => DecodeCSwsp(pc, c, rs2),
             0x7 => DecodeCFswsp(pc, c, rs2),
             _   => throw new IllegalInstructionException(c, $"Unknown C.Q2 funct3=0x{funct3:X}"),
         };
     }
+
+    // CI-format C.FLDSP offset: uimm[5]=c[12], uimm[4:3]=c[6:5], uimm[8:6]=c[4:2].
+    private static int CFldspImm(ushort c) =>
+        (((c >> 12) & 0x1) << 5) | (((c >> 5) & 0x3) << 3) | (((c >> 2) & 0x7) << 6);
+
+    private static RvInstruction DecodeCFldsp(ulong pc, ushort c, int rd) =>
+        C(pc, c, rd + 32, [2,], ToothClass.Load, new RvFld(rd + 32, 2, CFldspImm(c)));
+
+    // CSS-format C.FSDSP offset: uimm[5:3]=c[12:10], uimm[8:6]=c[9:7].
+    private static int CFsdspImm(ushort c) =>
+        (((c >> 10) & 0x7) << 3) | (((c >> 7) & 0x7) << 6);
+
+    private static RvInstruction DecodeCFsdsp(ulong pc, ushort c, int rs2) =>
+        C(pc, c, -1, [2, rs2 + 32,], ToothClass.Store, new RvFsd(2, rs2 + 32, CFsdspImm(c)));
 
     private static RvInstruction DecodeCslli(ulong pc, ushort c, int rd, int rs2) {
         int shamt = (((c >> 12) & 0x1) << 5) | rs2;

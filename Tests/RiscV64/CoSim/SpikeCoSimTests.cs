@@ -14,11 +14,11 @@ namespace Tests.RiscV64.CoSim;
 /// <c>rv64imafdc</c> ISA string (IMAFDC — no V; RV64+V co-sim parity is out of
 /// scope here, see TODO.md).
 /// <para>
-/// Only the cheap-tier fixtures are ported: test64.elf/rich64.elf/htif64.elf and
-/// the official riscv-tests rv64u* conformance ELFs (already built by
-/// <c>TestBinaries/Makefile</c>). The zcmop/zimop/zabha/zawrs/cbo/vector
-/// custom-workload theories and <see cref="Tests.RiscV32.CoSim.TortureCoSimTests"/>
-/// are RV32-only — no RV64 C sources or torture-ELF generation exist for them.
+/// The cheap-tier fixtures are ported: test64.elf/rich64.elf/htif64.elf, the
+/// official riscv-tests rv64u* conformance ELFs (already built by
+/// <c>TestBinaries/Makefile</c>), and RV64 torture co-simulation (see
+/// <see cref="TortureCoSimTests"/>). The zcmop/zimop/zabha/zawrs/cbo/vector
+/// custom-workload theories are RV32-only — no RV64 C sources exist for them.
 /// </para>
 /// </summary>
 public class SpikeCoSimTests {
