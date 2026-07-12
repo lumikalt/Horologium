@@ -26,7 +26,7 @@ namespace RiscV32.CoSim;
 /// Spike when the simulation ends.
 /// </summary>
 public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
-    private readonly record struct SpikeEntry(ulong Pc, uint RawEncoding, int RegIndex, uint RegValue);
+    private readonly record struct SpikeEntry(ulong Pc, uint RawEncoding, int RegIndex, ulong RegValue);
 
     [GeneratedRegex(
         @"core\s+\d+:\s+\d+\s+(0x[0-9a-f]+)\s+\((0x[0-9a-f]+)\)(?:\s+x(\d+)\s+(0x[0-9a-f]+))?", RegexOptions.Compiled
@@ -112,11 +112,11 @@ public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
             );
 
         if (entry.RegIndex > 0) {
-            var horologium = (uint)state.IntegerRegisters.Read(entry.RegIndex);
+            ulong horologium = state.IntegerRegisters.Read(entry.RegIndex);
             if (horologium != entry.RegValue)
                 throw new CoSimDivergenceException(
                     $"x{entry.RegIndex} mismatch at 0x{pc:x8} (0x{rawEncoding:x8}): " +
-                    $"Horologium=0x{horologium:x8}, Spike=0x{entry.RegValue:x8}"
+                    $"Horologium=0x{horologium:x16}, Spike=0x{entry.RegValue:x16}"
                 );
         }
     }
@@ -161,7 +161,7 @@ public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
                 pc,
                 Convert.ToUInt32(m.Groups[2].Value, 16),
                 m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : 0,
-                m.Groups[4].Success ? (uint)Convert.ToUInt64(m.Groups[4].Value, 16) : 0u
+                m.Groups[4].Success ? Convert.ToUInt64(m.Groups[4].Value, 16) : 0UL
             );
         }
     }

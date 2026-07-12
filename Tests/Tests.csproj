@@ -46,6 +46,18 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>htif.elf</Link>
         </None>
+        <None Include="..\TestBinaries\test64.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>test64.elf</Link>
+        </None>
+        <None Include="..\TestBinaries\rich64.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>rich64.elf</Link>
+        </None>
+        <None Include="..\TestBinaries\htif64.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>htif64.elf</Link>
+        </None>
         <None Include="..\TestBinaries\zcmop.elf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>zcmop.elf</Link>

@@ -222,6 +222,23 @@ CC64      = riscv64-none-elf-gcc
 CFLAGS64  = -march=rv64imafd -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
 LDFLAGS64 = -T env/link.ld
 
+# ── RV64 hand-written co-sim workloads (test.c/rich.c/htif.c, RV64 build) ─────
+#
+# Same sources as the RV32 test.elf/rich.elf/htif.elf above; crt0.s, htif_crt.s,
+# test.ld, and htif.ld are all XLEN-agnostic.
+
+CFLAGS64_ORIG = -march=rv64i -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+CFLAGS64_RICH = -march=rv64im -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
+
+test64.elf: crt0.s test.c test.ld
+	$(CC64) $(CFLAGS64_ORIG) -T test.ld crt0.s test.c -o $@
+
+rich64.elf: crt0.s rich.c test.ld
+	$(CC64) $(CFLAGS64_RICH) -T test.ld crt0.s rich.c -o $@
+
+htif64.elf: htif_crt.s htif.c htif.ld
+	$(CC64) $(CFLAGS64_RICH) -T htif.ld htif_crt.s htif.c -o $@
+
 # ── Official riscv-tests — rv64ui (base integer ISA) ──────────────────────────
 #
 # fence_i.S / ma_data.S: excluded for the same reasons as their RV32
@@ -427,7 +444,7 @@ torture/%.elf: torture/%.S env/riscv_test.h env/link.ld
 
 .PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture clean
 
-all: test.elf rich.elf htif.elf zcmop.elf custom-elfs isa-tests benchmarks torture
+all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture
 
 custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
 
@@ -468,5 +485,5 @@ lab2: $(LAB2_ELFS)
 .PHONY: lab2
 
 clean:
-	rm -f test.elf rich.elf htif.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
+	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
 	rm -f isa/*.elf benchmarks/*.elf torture/*.elf lab2/*.elf

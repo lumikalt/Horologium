@@ -56,6 +56,16 @@ public class Rv64VectorTests {
     private static uint Vsse(int vs3, int rs1, int rs2, int funct3Width) =>
         (uint)((2 << 26) | (1 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3Width << 12) | (vs3 << 7) | 0x27);
 
+    // vlsseg{nf}e{sew}.v vd,(rs1),rs2  (mop=2, opcode=0x07, nf-1 in bits[31:29])
+    private static uint Vlsseg(int nf, int vd, int rs1, int rs2, int funct3Width) =>
+        (uint)(((nf - 1) << 29) | (2 << 26) | (1 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3Width << 12) |
+               (vd << 7) | 0x07);
+
+    // vssseg{nf}e{sew}.v vs3,(rs1),rs2  (mop=2, opcode=0x27, nf-1 in bits[31:29])
+    private static uint Vssseg(int nf, int vs3, int rs1, int rs2, int funct3Width) =>
+        (uint)(((nf - 1) << 29) | (2 << 26) | (1 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3Width << 12) |
+               (vs3 << 7) | 0x27);
+
     // vtypei for e32,m1,ta,ma
     private const int VtypeiE32M1Tama = (1 << 7) | (1 << 6) | (2 << 3);
 
@@ -185,5 +195,90 @@ public class Rv64VectorTests {
         Assert.Equal(20u, BitConverter.ToUInt32(r, 4));
         Assert.Equal(30u, BitConverter.ToUInt32(r, 8));
         Assert.Equal(40u, BitConverter.ToUInt32(r, 12));
+    }
+
+    [Fact]
+    public void Vlsseg2e32_StrideAbove32Bits_UsesFull64BitValue() {
+        // Regression test: ExecuteVlsseg used to inline the same truncating stride read as
+        // ExecuteVlse before ReadStride existed as a virtual hook it could share.
+        Rv64ArchState s = MakeState();
+        ConfigVl4E32(s);
+
+        const ulong stride = 0x1_0000_0010UL; // > uint.MaxValue
+        ulong baseAddr = 0x2000;
+        for (var i = 0; i < 4; i++) {
+            ulong addr = baseAddr + stride * (ulong)i;
+            _sparseMem.Write(addr, (ulong)(10 + i * 10), 4);
+            _sparseMem.Write(addr + 4, (ulong)(11 + i * 10), 4);
+        }
+
+        s.IntegerRegisters.Write(10, baseAddr);
+        s.IntegerRegisters.Write(11, stride);
+
+        ExecuteResult r = ExecSparse(Vlsseg(2, 1, 10, 11, 6), s);
+        r.SideEffect!(s);
+
+        byte[] field0 = s.VectorRegisters.Read(1);
+        byte[] field1 = s.VectorRegisters.Read(2);
+        Assert.Equal(10u, BitConverter.ToUInt32(field0, 0));
+        Assert.Equal(20u, BitConverter.ToUInt32(field0, 4));
+        Assert.Equal(30u, BitConverter.ToUInt32(field0, 8));
+        Assert.Equal(40u, BitConverter.ToUInt32(field0, 12));
+        Assert.Equal(11u, BitConverter.ToUInt32(field1, 0));
+        Assert.Equal(21u, BitConverter.ToUInt32(field1, 4));
+        Assert.Equal(31u, BitConverter.ToUInt32(field1, 8));
+        Assert.Equal(41u, BitConverter.ToUInt32(field1, 12));
+    }
+
+    [Fact]
+    public void Vssseg2e32_StrideAbove32Bits_UsesFull64BitValue() {
+        Rv64ArchState s = MakeState();
+        ConfigVl4E32(s);
+        SetVReg(s, 1, [10u, 20u, 30u, 40u,]); // field 0
+        SetVReg(s, 2, [11u, 21u, 31u, 41u,]); // field 1
+
+        const ulong stride = 0x1_0000_0010UL; // > uint.MaxValue
+        ulong baseAddr = 0x3000;
+        s.IntegerRegisters.Write(10, baseAddr);
+        s.IntegerRegisters.Write(11, stride);
+
+        ExecSparse(Vssseg(2, 1, 10, 11, 6), s);
+
+        for (var i = 0; i < 4; i++) {
+            ulong addr = baseAddr + stride * (ulong)i;
+            Assert.Equal((ulong)(10 + i * 10), _sparseMem.Read(addr, 4));
+            Assert.Equal((ulong)(11 + i * 10), _sparseMem.Read(addr + 4, 4));
+        }
+    }
+
+    [Fact]
+    public void Vlsseg2e32_NegativeStride_SignExtendsFullWidth() {
+        Rv64ArchState s = MakeState();
+        ConfigVl4E32(s);
+
+        ulong baseAddr = 0x5000;
+        var stride = unchecked((ulong)-16L);
+        for (var i = 0; i < 4; i++) {
+            ulong addr = baseAddr - (ulong)(16 * i);
+            _mem.Write(addr, (ulong)(10 + i * 10), 4);
+            _mem.Write(addr + 4, (ulong)(11 + i * 10), 4);
+        }
+
+        s.IntegerRegisters.Write(10, baseAddr);
+        s.IntegerRegisters.Write(11, stride);
+
+        ExecuteResult r = Exec(Vlsseg(2, 1, 10, 11, 6), s);
+        r.SideEffect!(s);
+
+        byte[] field0 = s.VectorRegisters.Read(1);
+        byte[] field1 = s.VectorRegisters.Read(2);
+        Assert.Equal(10u, BitConverter.ToUInt32(field0, 0));
+        Assert.Equal(20u, BitConverter.ToUInt32(field0, 4));
+        Assert.Equal(30u, BitConverter.ToUInt32(field0, 8));
+        Assert.Equal(40u, BitConverter.ToUInt32(field0, 12));
+        Assert.Equal(11u, BitConverter.ToUInt32(field1, 0));
+        Assert.Equal(21u, BitConverter.ToUInt32(field1, 4));
+        Assert.Equal(31u, BitConverter.ToUInt32(field1, 8));
+        Assert.Equal(41u, BitConverter.ToUInt32(field1, 12));
     }
 }

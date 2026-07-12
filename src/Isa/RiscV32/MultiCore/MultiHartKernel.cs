@@ -7,9 +7,9 @@ namespace RiscV32.MultiCore;
 /// Each call to <see cref="Step"/> advances every non-halted hart by one instruction.
 /// <para>
 /// Callers are responsible for wrapping the shared backing memory in
-/// <c>ReservationAwareMemory</c> and wiring each <see cref="Rv32Mechanism"/>
-/// with the same <c>ReservationTable</c> so that LR/SC sequences are correctly
-/// cross-invalidated across harts.
+/// <c>ReservationAwareMemory</c> and wiring each mechanism (<c>Rv32Mechanism</c>,
+/// <c>Rv64Mechanism</c>, ...) with the same <c>ReservationTable</c> so that LR/SC
+/// sequences are correctly cross-invalidated across harts.
 /// </para>
 /// <para>
 /// This kernel operates entirely in physical address space. It does not apply
@@ -18,7 +18,7 @@ namespace RiscV32.MultiCore;
 /// </para>
 /// </summary>
 public sealed class MultiHartKernel {
-    private readonly Rv32Mechanism[] _mechanisms;
+    private readonly IMechanism[] _mechanisms;
     private readonly IArchState[] _states;
     private readonly IMemory[] _hartMemory;
     private readonly bool[] _halted;
@@ -29,7 +29,7 @@ public sealed class MultiHartKernel {
     /// <summary>Returns the live architectural state of the given hart.</summary>
     public IArchState StateOf(int hartId) => _states[hartId];
 
-    public MultiHartKernel(IMemory sharedMemory, params Rv32Mechanism[] mechanisms) {
+    public MultiHartKernel(IMemory sharedMemory, params IMechanism[] mechanisms) {
         ArgumentNullException.ThrowIfNull(sharedMemory);
         if (mechanisms.Length == 0) throw new ArgumentException("At least one mechanism required.", nameof(mechanisms));
 
@@ -47,7 +47,7 @@ public sealed class MultiHartKernel {
     /// (e.g. a <see cref="Orrery.Cache.MoesifCache"/> backed by a shared <see cref="Orrery.Cache.MoesifBus"/>).
     /// <paramref name="perHartMemory"/> must have the same length as <paramref name="mechanisms"/>.
     /// </summary>
-    public MultiHartKernel(IMemory[] perHartMemory, params Rv32Mechanism[] mechanisms) {
+    public MultiHartKernel(IMemory[] perHartMemory, params IMechanism[] mechanisms) {
         ArgumentNullException.ThrowIfNull(perHartMemory);
         if (mechanisms.Length == 0) throw new ArgumentException("At least one mechanism required.", nameof(mechanisms));
         if (perHartMemory.Length != mechanisms.Length)
@@ -86,7 +86,7 @@ public sealed class MultiHartKernel {
     }
 
     private void StepHart(int hartId) {
-        Rv32Mechanism mech = _mechanisms[hartId];
+        IMechanism mech = _mechanisms[hartId];
         IArchState state = _states[hartId];
         IMemory memory = _hartMemory[hartId];
         ulong pc = state.Pc;

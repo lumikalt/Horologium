@@ -146,9 +146,15 @@ Remaining delta, in rough dependency order:
   it as the native full-width signed stride. The rest of the V extension (register
   file, vtype/vl/vlenb CSRs, ALU/mask/reduction ops, unit-stride and indexed
   load/store) is XLEN-agnostic and works unmodified via inheritance.
-- [ ] RV64 V/UVE conformance and system coverage: no `rv64uv-*` conformance suite,
-  and RV32-only `Tests/RiscV32/{System,MultiHart,CoSim}` (CLINT/HTIF/Linux
-  boot/OpenSBI/UART, multi-hart, Spike/torture co-sim) have no RV64 counterparts.
+- [x] RV64 V/UVE conformance and system coverage: RV64 `vlsseg`/`vssseg` stride bug
+  fixed (segment strided load/store now go through the overridable `ReadStride`
+  hook, same as `vlse`/`vsse`); cheap-tier `Tests/RiscV64/{System,MultiHart,CoSim}`
+  ported (CLINT/HTIF/UART/raw-binary-workload, multi-hart pipeline/atomics/TSO
+  fence, Spike co-sim golden-path + full riscv-tests rv64u* conformance loop).
+- [ ] RV64 OpenSBI/Linux boot coverage: RV64 counterpart of `nix/opensbi-rv32.nix`
+  plus RV64 ports of OpenSbiBannerTests/LinuxBootTests.
+- [ ] RV64 torture co-simulation: extend the random-instruction-sequence torture
+  generator to RV64 and port TortureCoSimTests.
 
 ## Analysis
 

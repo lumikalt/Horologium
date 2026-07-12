@@ -36,9 +36,10 @@ public partial class Rv32Executor {
         for (var b = 0; b < ewBytes; b++) data[off + b] = (byte)(value >> (b * 8));
     }
 
-    // Vlse/Vsse stride: RV32's rs2 holds a 32-bit signed byte stride that must be sign-extended
-    // to the 64-bit address-arithmetic width. Rv64Executor overrides this — under RV64 the
-    // register already holds the full native-width stride and must not be truncated to 32 bits.
+    // Vlse/Vsse/Vlsseg/Vssseg stride: RV32's rs2 holds a 32-bit signed byte stride that must be
+    // sign-extended to the 64-bit address-arithmetic width. Rv64Executor overrides this — under
+    // RV64 the register already holds the full native-width stride and must not be truncated to
+    // 32 bits. Used by both the plain strided ops and the segment strided ops.
     protected virtual long ReadStride(IRegisterFile regs, int rs2) => (int)(uint)regs.Read(rs2);
 
     private static (uint vl, int ewBytes) VGetVlEw(IArchState state) {
@@ -604,7 +605,7 @@ public partial class Rv32Executor {
     }
 
     // vlsseg: strided segment load — element i field f at base + stride*i + f*ewBytes.
-    private static ExecuteResult ExecuteVlsseg(
+    private ExecuteResult ExecuteVlsseg(
         IArchState state,
         IMemory memory,
         int numFields,
@@ -617,7 +618,7 @@ public partial class Rv32Executor {
         (uint vl, _) = VGetVlEw(state);
         int ewBytes = sew / 8;
         ulong baseAddr = state.IntegerRegisters.Read(rs1);
-        long stride = (int)(uint)state.IntegerRegisters.Read(rs2);
+        long stride = ReadStride(state.IntegerRegisters, rs2);
         byte[] maskData = VState(state).VectorRegisters.Read(0);
         var results = new byte[numFields][];
         for (var f = 0; f < numFields; f++) results[f] = new byte[VectorRegisterFile.VLenB];
@@ -638,7 +639,7 @@ public partial class Rv32Executor {
     }
 
     // vsseg (strided): element i field f at base + stride*i + f*ewBytes.
-    private static ExecuteResult ExecuteVssseg(
+    private ExecuteResult ExecuteVssseg(
         IArchState state,
         IMemory memory,
         int numFields,
@@ -651,7 +652,7 @@ public partial class Rv32Executor {
         (uint vl, _) = VGetVlEw(state);
         int ewBytes = sew / 8;
         ulong baseAddr = state.IntegerRegisters.Read(rs1);
-        long stride = (int)(uint)state.IntegerRegisters.Read(rs2);
+        long stride = ReadStride(state.IntegerRegisters, rs2);
         byte[] maskData = VState(state).VectorRegisters.Read(0);
         var srcs = new byte[numFields][];
         for (var f = 0; f < numFields; f++) srcs[f] = VState(state).VectorRegisters.Read(vs3 + f);
