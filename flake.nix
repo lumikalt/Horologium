@@ -147,6 +147,22 @@
               export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath extra-lib}:$LD_LIBRARY_PATH
             '';
           };
+
+          # Minimal shell for CI: build + test with lock-step co-simulation.
+          # Deliberately excludes the heavy from-source tools of the default
+          # shell (gem5, Olympia, OpenSBI, Linux kernel, Rider) — everything
+          # here substitutes from the nixpkgs binary cache.
+          ci = pkgs.mkShell {
+            packages = with pkgs; [
+              dotnetCorePackages.sdk_11_0-bin
+              spike
+              dtc
+            ];
+            shellHook = ''
+              export DOTNET_CLI_TELEMETRY_OPTOUT=1
+              export DOTNET_NOLOGO=1
+            '';
+          };
         }
       );
     };

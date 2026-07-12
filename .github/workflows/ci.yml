@@ -1,0 +1,31 @@
+# Correctness contract: build + full test suite (benchmarks excluded) with
+# lock-step Spike co-simulation REQUIRED — a runner without the co-sim
+# toolchain fails loudly instead of silently skipping the contract.
+#
+# Runs in the flake's `ci` dev shell (dotnet SDK + spike + dtc), which
+# substitutes entirely from the nixpkgs binary cache; the heavy default
+# shell (gem5, Olympia, ...) is not used here.
+name: CI
+
+on:
+  push:
+    branches: [trunk]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Test
+        env:
+          HOROLOGIUM_REQUIRE_COSIM: "1"
+        run: |
+          nix develop .#ci --command \
+            dotnet test Tests/ --filter "FullyQualifiedName!~BenchmarkTests" --nologo

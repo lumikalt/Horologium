@@ -1,5 +1,7 @@
 # Horologium
 
+[![CI](https://github.com/lumikalt/Horologium/actions/workflows/ci.yml/badge.svg)](https://github.com/lumikalt/Horologium/actions/workflows/ci.yml)
+
 [▶ Face demo](docs/face.mp4)
 
 A discrete-event CPU pipeline simulator written in C# targeting .NET 11. The simulation engine is ISA-agnostic; concrete ISAs are plugged in as separate assemblies without modifying the engine. The primary goal is comparing hardware configurations (branch predictors, caches, pipelines) and generating measurement data for analysis.
@@ -386,6 +388,6 @@ dotnet test Tests/ --filter "FullyQualifiedName~SpikeCoSim"                     
 HOROLOGIUM_REQUIRE_COSIM=1 dotnet test Tests/ --filter "FullyQualifiedName~SpikeCoSim" # CI mode: missing toolchain → failure
 ```
 
-**Toolchain.** The tests need `spike` and `dtc`; the Nix dev-shell (`flake.nix` + `direnv`) provides both. When the toolchain is absent the tests **skip** rather than fail, so the suite stays runnable everywhere. Set **`HOROLOGIUM_REQUIRE_COSIM=1`** to flip a missing toolchain into a hard failure — use this in CI (or before merging) so the contract cannot be satisfied by silently skipping. ISA-correctness coverage that does *not* need Spike (e.g. HTIF termination, the official `riscv-tests` self-checks) lives in `HtifExitTests` / `RiscVTestSuiteTests` and always runs.
+**Toolchain.** The tests need `spike` and `dtc`; the Nix dev-shell (`flake.nix` + `direnv`) provides both. When the toolchain is absent the tests **skip** rather than fail, so the suite stays runnable everywhere. Set **`HOROLOGIUM_REQUIRE_COSIM=1`** to flip a missing toolchain into a hard failure so the contract cannot be satisfied by silently skipping. The GitHub Actions workflow (`.github/workflows/ci.yml`) enforces exactly this on every pull request and every push to `trunk`, running the full suite (benchmarks excluded) in the flake's lightweight `ci` dev shell. ISA-correctness coverage that does *not* need Spike (e.g. HTIF termination, the official `riscv-tests` self-checks) lives in `HtifExitTests` / `RiscVTestSuiteTests` and always runs.
 
 > Note: Spike sees only the standard ISA. UVE and other custom extensions are invisible to it, so their correctness is covered by Horologium's own integration tests, not co-sim.
