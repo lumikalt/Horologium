@@ -118,11 +118,8 @@ public class SpikeCoSimTests {
     // reasons as the RV32 suite. rv64uzb*/rv64uzfh need extended ISA strings —
     // handled by separate theories below. There is no rv64uzicond ELF built.
     //
-    // Three further exclusions, none of which are RV32 issues:
+    // Two further exclusions, neither an RV32 issue:
     //
-    //   - rv64ui-p-ori: a genuine Horologium RV64I `ori` correctness bug (confirmed
-    //     pre-existing via git-stash bisection, not introduced by this port). Left
-    //     as a TODO.md follow-up rather than silently dropped.
     //   - rv64ud-p-ldst / rv64ui-p-st_ld: not a Horologium bug — confirmed by running
     //     Horologium standalone (no Spike) against both, which halts cleanly with
     //     gp=1 (RVTEST_PASS) and no CSR trap (mcause/mepc/mtval all zero) in under
@@ -142,7 +139,6 @@ public class SpikeCoSimTests {
                  .Where(p => !p.Contains("ma_data")
                           && !Path.GetFileName(p).StartsWith("rv64uzb")
                           && !Path.GetFileName(p).StartsWith("rv64uzfh")
-                          && !Path.GetFileName(p).Equals("rv64ui-p-ori.elf")
                           && !Path.GetFileName(p).Equals("rv64ud-p-ldst.elf")
                           && !Path.GetFileName(p).Equals("rv64ui-p-st_ld.elf")
                   )

@@ -165,8 +165,12 @@ public class Rv64Executor : Rv32Executor {
 
             // ── RV64 semantic overrides for base instructions ──────────────────────
             // ORI: immediate must be sign-extended to 64 bits, not zero-extended via (uint).
+            // CS0675 flags | on a sign-extended operand as a common bug pattern, but the
+            // sign extension is exactly the semantic this override exists to restore.
+#pragma warning disable CS0675
             RvOri(_, var rs1, var imm) =>
-                Reg(regs.Read(rs1) | unchecked((uint)imm)),
+                Reg(regs.Read(rs1) | (ulong)imm),
+#pragma warning restore CS0675
 
             // Shifts: 6-bit shamt mask in RV64 (RV32 uses 5-bit).
             RvSll(_, var rs1, var rs2) =>
