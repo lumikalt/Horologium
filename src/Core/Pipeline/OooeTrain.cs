@@ -206,7 +206,8 @@ internal sealed class OoOPipelineCore : Gear {
         int LoadBytes,
         bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
         bool RequestHalt = false, // true for an HTIF tohost-exit store: halt after commit
-        ulong InstrId = 0         // per-instruction age, for pruning in-flight results on a partial squash
+        ulong InstrId = 0,        // per-instruction age, for pruning in-flight results on a partial squash
+        Action<IArchState>? SideEffect = null // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
     );
 
     /// <summary>
@@ -339,6 +340,16 @@ internal sealed class OoOPipelineCore : Gear {
     private bool _halted;
     private bool _flushPending;
     private ulong _flushTarget;
+
+    // Pending rename rollback for a trap/return-from-trap instruction that retires (leaves the
+    // ROB) as part of raising the flush itself. StepFlush's walk-back only sees entries still in
+    // the ROB, so this instruction's own rename must be undone separately — and specifically
+    // *after* that walk-back, since younger (already-flushed) entries may have chained their
+    // PrevPhysDestination through this instruction's PhysDestination, and undoing them first
+    // would overwrite this rollback if applied before them. Set to -1 when nothing is pending.
+    private int _pendingRollbackArch = -1;
+    private int _pendingRollbackPrevPhys = -1;
+    private int _pendingRollbackAbandonedPhys = -1;
 
     // Execute-time partial squash (branch mispredict resolved before the branch reaches the ROB
     // head). Detected in StepComplete, applied at the flush-check like a full flush but preserving
@@ -653,6 +664,7 @@ internal sealed class OoOPipelineCore : Gear {
             rob.IsReturnFromTrap = r.IsReturnFromTrap;
             rob.ReturnPrivilege = r.ReturnPrivilege;
             rob.RequestHalt = r.RequestHalt;
+            rob.SideEffect = r.SideEffect;
 
             // A branch (only branches set ResolvedNextPc) that resolved off its predicted path.
             if (rob.ResolvedNextPc is { HasValue: true, Value: var resolved, } && resolved != rob.PredictedNextPc
@@ -723,7 +735,19 @@ internal sealed class OoOPipelineCore : Gear {
                 }
                 case { HasTrap: true, Trap: not null, }: {
                     ulong target = _trapController.RaiseTrap(head.Trap, State);
-                    CommitRegisters(head);
+                    // A trapping instruction's destination write must never reach
+                    // architectural state (traps are precise), and its physical
+                    // destination was never broadcast on the CDB (StepComplete skips
+                    // that for trap results), so it can never become ready either.
+                    // Roll back the Dispatch-time rename instead of committing it —
+                    // this entry has already left the ROB by the time StepFlush's
+                    // walk-back runs, so nothing else will undo it. Deferred until
+                    // after that walk-back (see _pendingRollback* fields).
+                    if (head is { PhysDestination: >= 0, ArchDestination: > 0, }) {
+                        _pendingRollbackArch = head.ArchDestination;
+                        _pendingRollbackPrevPhys = head.PrevPhysDestination;
+                        _pendingRollbackAbandonedPhys = head.PhysDestination;
+                    }
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     RetireMemQueues(head);
                     _rob.Retire();
@@ -1528,6 +1552,16 @@ internal sealed class OoOPipelineCore : Gear {
                 _rat.FreePhysical(entry.PhysDestination);
             }
 
+        // Apply the trap/return instruction's own rollback last: it's the oldest rename in the
+        // chain, and any younger entry just undone above may have recorded its PrevPhysDestination
+        // as this instruction's (abandoned) PhysDestination — restoring this one first would get
+        // immediately overwritten by those.
+        if (_pendingRollbackArch >= 0) {
+            _rat.RestoreMapping(_pendingRollbackArch, _pendingRollbackPrevPhys);
+            _rat.FreePhysical(_pendingRollbackAbandonedPhys);
+            _pendingRollbackArch = -1;
+        }
+
         _rob.Flush();
         foreach (IssueQueue iq in _iqs) iq.Flush();
         _lq.Flush();
@@ -1819,7 +1853,9 @@ internal sealed class OoOPipelineCore : Gear {
             er.IsReturnFromTrap, er.ReturnPrivilege,
             _capMem.HasWrite, _capMem.WriteAddress, _capMem.WriteValue, _capMem.WriteBytes,
             _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes, loadForwarded,
-            er.RequestHalt, issued.InstrId
+            er.RequestHalt, issued.InstrId,
+            // Vec/UVE already applied their SideEffect immediately above; don't reapply at commit.
+            isVec || isUve ? null : er.SideEffect
         );
     }
 
@@ -1838,6 +1874,7 @@ internal sealed class OoOPipelineCore : Gear {
     /// to the arch state, frees the old physical register, and advances State.Pc.
     /// </summary>
     private void CommitRegisters(RobEntry head) {
+        head.SideEffect?.Invoke(State);
         if (head is not { PhysDestination: >= 0, ArchDestination: > 0, }) return;
         ulong val = _prf.Read(head.PhysDestination);
         State.IntegerRegisters.Write(head.ArchDestination, val);

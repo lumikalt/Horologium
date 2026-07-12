@@ -98,6 +98,16 @@ public sealed class RobEntry {
     /// <summary>Privilege level to return to when IsReturnFromTrap is true.</summary>
     public PrivilegeLevel? ReturnPrivilege { get; set; }
 
+    /// <summary>
+    /// Deferred non-register architectural mutation (e.g. fflags CSR update) from a
+    /// scalar instruction's ExecuteResult, applied at Commit — in program order — to
+    /// preserve precise-exception semantics for instructions that execute speculatively
+    /// out of order. Vector/UVE ops are head-serialized and apply their SideEffect
+    /// immediately at Execute instead (see OooeTrain.ExecuteOne), so this is left null
+    /// for those.
+    /// </summary>
+    public Action<IArchState>? SideEffect { get; set; }
+
     internal void Clear() {
         Valid = false;
         Pc = 0;
@@ -121,6 +131,7 @@ public sealed class RobEntry {
         RequestHalt = false;
         IsReturnFromTrap = false;
         ReturnPrivilege = null;
+        SideEffect = null;
     }
 }
 
