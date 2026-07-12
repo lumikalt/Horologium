@@ -234,6 +234,9 @@ public class Rv64Executor : Rv32Executor {
             RvAmomaxuD(_, var rs1, var rs2) =>
                 AmoD(memory, state, pc, regs, rs1, rs2, Math.Max),
 
+            // Zacas amocas.d: RV64-native single-register 64-bit compare-and-swap.
+            RvAmocasD(var rd, var rs1, var rs2) => AmoCasD(memory, state, pc, regs, rd, rs1, rs2),
+
             // ── Zbb/Zbs immediate ops: 64-bit width (base RV32 versions truncate to 32) ──
             // RvSextB/RvSextH are not overridden: the base implementation sign-extends
             // through Reg(), which Rv64Executor already returns untruncated.
@@ -358,6 +361,24 @@ public class Rv64Executor : Rv32Executor {
         if (!success) return Reg(1); // reservation is absent or invalidated → fail
         memory.Write(paddr, regs.Read(rs2), 8);
         return Reg(0); // 0 = success
+    }
+
+    // Zacas: doubleword compare-and-swap. rdReg is both comparand (source) and destination.
+    private ExecuteResult AmoCasD(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rdReg,
+        int rs1,
+        int rs2
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        ulong old = memory.Read(addr, 8);
+        if (old == regs.Read(rdReg)) memory.Write(addr, regs.Read(rs2), 8);
+        return Reg(old);
     }
 
     // orc.b: per-byte OR-combine over the full 64-bit register — nonzero byte → 0xFF.

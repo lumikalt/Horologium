@@ -331,6 +331,10 @@ public partial class Rv32Executor : IExecutor {
             // ── Zacas extension ───────────────────────────────────────────────
             RvAmocasW(var rd, var rs1, var rs2) => AmoCasW(memory, state, pc, regs, rd, rs1, rs2),
 
+            // ── Zabha+Zacas: narrow compare-and-swap ───────────────────────────
+            RvAmocasB(var rd, var rs1, var rs2) => AmoCasNarrow(memory, state, pc, regs, rd, rs1, rs2, 1),
+            RvAmocasH(var rd, var rs1, var rs2) => AmoCasNarrow(memory, state, pc, regs, rd, rs1, rs2, 2),
+
             // ── Zabha extension (byte and halfword AMOs) ──────────────────────
             RvAmoswapB(_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (_, v) => v),
             RvAmoaddB (_, var rs1, var rs2) => AmoNarrow(memory, state, pc, regs, rs1, rs2, 1, (a, v) => a + v),
@@ -1032,6 +1036,28 @@ public partial class Rv32Executor : IExecutor {
         var old = (uint)memory.Read(addr, 4);
         if (old == (uint)regs.Read(rdReg)) memory.Write(addr, regs.Read(rs2), 4);
         return Reg((ulong)(int)old); // sign-extended to XLEN (matters for RV64)
+    }
+
+    // Zabha+Zacas: narrow (byte/halfword) compare-and-swap. rdReg is both comparand and
+    // destination for the old value; only the low `bytes` of rdReg participate in the compare.
+    private ExecuteResult AmoCasNarrow(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rdReg,
+        int rs1,
+        int rs2,
+        int bytes
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        var old = (uint)memory.Read(addr, bytes);
+        uint mask = bytes == 1 ? 0xFFu : 0xFFFFu;
+        if (old == ((uint)regs.Read(rdReg) & mask)) memory.Write(addr, regs.Read(rs2), bytes);
+        int rd = bytes == 1 ? (sbyte)(byte)old : (short)(ushort)old;
+        return Reg((ulong)rd); // sign-extended to XLEN (matters for RV64)
     }
 
     protected virtual (ulong paddr, int faultCause) Translate(

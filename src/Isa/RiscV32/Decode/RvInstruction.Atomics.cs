@@ -29,6 +29,17 @@ public record RvAmomaxuW(int Rd, int Rs1, int Rs2) : RvOp;
 // rd is both comparand (source) and destination for the old value.
 public record RvAmocasW(int Rd, int Rs1, int Rs2) : RvOp;
 
+// Zabha+Zacas: narrow (byte/halfword) compare-and-swap. Same rd-is-source-and-dest shape as
+// amocas.w, just at 1/2-byte width.
+public record RvAmocasB(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmocasH(int Rd, int Rs1, int Rs2) : RvOp;
+
+// Zacas doubleword compare-and-swap. RV64 decodes this as a native single-register 64-bit
+// CAS (see Rv64Decoder/Rv64Executor). RV32 has no 64-bit register to hold the compare/swap
+// values, so amocas.d there is not yet decoded — see TODO.md.
+public record RvAmocasD(int Rd, int Rs1, int Rs2) : RvOp;
+
 // ── Zabha extension (byte/halfword atomics) ───────────────────────────────────
 public record RvAmoswapB(int Rd, int Rs1, int Rs2) : RvOp;
 

@@ -155,4 +155,36 @@ public class Rv64ATests {
         Exec(AmoD(0x1C, 3, 1, 2), s);
         Assert.Equal(unchecked((ulong)(long)(-1)), _mem.Read(0x200, 8));
     }
+
+    // ── AMOCAS.D (Zacas doubleword compare-and-swap, RV64-native single register) ────────
+
+    [Fact]
+    public void AmocasD_Success_WritesNewValueAndReturnsOld() {
+        // amocas.d x5, x2, (x1) — x5=comparand, x1=address, x2=new value
+        _mem.Write(0x200, 0x1122334455667788UL, 8);
+        Rv64ArchState s = MakeState((1, 0x200), (2, 0xDEADBEEFCAFEBABEUL), (5, 0x1122334455667788UL));
+        ExecuteResult r = Exec(AmoD(0x05, 5, 1, 2), s);
+        Assert.Equal(0x1122334455667788UL, r.RegisterResult.Value);
+        Assert.Equal(0xDEADBEEFCAFEBABEUL, _mem.Read(0x200, 8));
+    }
+
+    [Fact]
+    public void AmocasD_Failure_LeavesMemoryUnchangedAndReturnsOld() {
+        _mem.Write(0x200, 0x1122334455667788UL, 8);
+        Rv64ArchState s = MakeState((1, 0x200), (2, 0xDEADBEEFCAFEBABEUL), (5, 0UL)); // mismatched comparand
+        ExecuteResult r = Exec(AmoD(0x05, 5, 1, 2), s);
+        Assert.Equal(0x1122334455667788UL, r.RegisterResult.Value);
+        Assert.Equal(0x1122334455667788UL, _mem.Read(0x200, 8)); // unchanged
+    }
+
+    [Fact]
+    public void AmocasD_ComparesFullDoublewordWidth_UpperBitsMatter() {
+        // Comparand's low 32 bits match but upper 32 bits don't — must still fail, unlike
+        // AMOCAS.W which only ever compares 32 bits.
+        _mem.Write(0x200, 0x1_0000_0000UL, 8);
+        Rv64ArchState s = MakeState((1, 0x200), (2, 99UL), (5, 0UL)); // 0 matches low word only
+        ExecuteResult r = Exec(AmoD(0x05, 5, 1, 2), s);
+        Assert.Equal(0x1_0000_0000UL, r.RegisterResult.Value);
+        Assert.Equal(0x1_0000_0000UL, _mem.Read(0x200, 8)); // unchanged
+    }
 }

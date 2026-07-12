@@ -127,7 +127,16 @@ Remaining delta, in rough dependency order:
 - [x] Zfh / Zfhmin: half-precision FP.
 - [x] Zcmop: compressed may-be-operations (c.mop.N, N odd 1–15) — already implemented (decoder, executor,
   disassembler) and verified commit-for-commit against Spike on all three trains; the TODO entry was stale.
-- [ ] Zabha+Zacas narrower variants: amocas.b / amocas.h; amocas.d for RV32.
+- [x] Zabha+Zacas narrower variants: amocas.b / amocas.h (RV32+RV64, XLEN-agnostic since
+  narrow CAS fits the existing single-destination-register op shape); amocas.d for RV64
+  (native single-register 64-bit CAS, same shape as amocas.w).
+- [ ] amocas.d for RV32: the spec's register-pair form (rd/rd+1 and rs2/rs2+1 forming a
+  64-bit compare/swap value) has no home in the current model — ITooth exposes only one
+  DestinationRegister, and it's consumed in ~19 places across the ISA-agnostic
+  Core/Pipeline hazard/rename/forwarding logic shared by every train and ISA plugin.
+  Would need a VectorDestinationRegister-style second-destination member threaded through
+  all of those call sites. Deferred as not worth the shared-infrastructure churn for a
+  rarely-used instruction — amocas.w already gives RV32 a working 32-bit CAS.
 - [x] RV64 V extension: vlse/vsse strided load-store read the rs2 stride through a
   virtual `ReadStride` hook — RV32 sign-extends the 32-bit register value, RV64 uses
   it as the native full-width signed stride. The rest of the V extension (register

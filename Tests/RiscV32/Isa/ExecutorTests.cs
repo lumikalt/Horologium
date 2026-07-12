@@ -642,6 +642,60 @@ public class ExecutorTests {
         Assert.Equal(42UL, _mem.Read(100, 4)); // unchanged
     }
 
+    // ── Zabha+Zacas extension (narrow compare-and-swap) ───────────────────────
+
+    // R-type AMO encoding: opcode=0x2F, funct5=0x05 (CAS), funct3 selects width
+    // (0=byte, 1=halfword, 2=word), aq/rl bits left at 0.
+    private static uint AmoCas(uint funct3, int rd, int rs1, int rs2) =>
+        (0x05u << 27) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (funct3 << 12) | ((uint)rd << 7) | 0x2F;
+
+    [Fact]
+    public void Execute_AmocasB_Success_WritesNewValueAndReturnsOld() {
+        // amocas.b x1, x3, (x2) — x1=0xFF (comparand, matches mem byte), x3=42 (new)
+        Rv32ArchState s = MakeState((1, 0xFF), (2, 100), (3, 42));
+        _mem.Write(100, 0xFF, 1);
+        ExecuteResult r = Exec(AmoCas(0, 1, 2, 3), s);
+        Assert.Equal(0xFFFFFFFFUL, r.RegisterResult.Value); // sign-extended old byte (-1)
+        Assert.Equal(42UL, _mem.Read(100, 1));
+    }
+
+    [Fact]
+    public void Execute_AmocasB_Failure_LeavesMemoryUnchangedAndReturnsOld() {
+        Rv32ArchState s = MakeState((1, 7), (2, 100), (3, 42));
+        _mem.Write(100, 0xFF, 1);
+        ExecuteResult r = Exec(AmoCas(0, 1, 2, 3), s);
+        Assert.Equal(0xFFFFFFFFUL, r.RegisterResult.Value);
+        Assert.Equal(0xFFUL, _mem.Read(100, 1)); // unchanged
+    }
+
+    [Fact]
+    public void Execute_AmocasB_OnlyComparesLowByteOfRd() {
+        // rd holds 0xDEADBEFF — only the low byte (0xFF) participates in the comparison.
+        Rv32ArchState s = MakeState((1, 0xDEADBEFF), (2, 100), (3, 42));
+        _mem.Write(100, 0xFF, 1);
+        ExecuteResult r = Exec(AmoCas(0, 1, 2, 3), s);
+        Assert.Equal(42UL, _mem.Read(100, 1));
+    }
+
+    [Fact]
+    public void Execute_AmocasH_Success_WritesNewValueAndReturnsOld() {
+        // amocas.h x1, x3, (x2) — x1=0x8000 (comparand, matches mem halfword), x3=256 (new)
+        Rv32ArchState s = MakeState((1, 0x8000), (2, 100), (3, 256));
+        _mem.Write(100, 0x8000, 2);
+        ExecuteResult r = Exec(AmoCas(1, 1, 2, 3), s);
+        Assert.Equal(0xFFFF8000UL, r.RegisterResult.Value); // sign-extended old halfword (-32768)
+        Assert.Equal(256UL, _mem.Read(100, 2));
+    }
+
+    [Fact]
+    public void Execute_AmocasH_Failure_LeavesMemoryUnchangedAndReturnsOld() {
+        Rv32ArchState s = MakeState((1, 7), (2, 100), (3, 256));
+        _mem.Write(100, 0x00FF, 2);
+        ExecuteResult r = Exec(AmoCas(1, 1, 2, 3), s);
+        Assert.Equal(255UL, r.RegisterResult.Value);
+        Assert.Equal(0x00FFUL, _mem.Read(100, 2)); // unchanged
+    }
+
     // ── F extension ───────────────────────────────────────────────────────────
     // FP registers are at unified indices 32-63 (f0=32 … f31=63).
     // MakeState accepts any index in 0-63; indices 32+ write float registers.

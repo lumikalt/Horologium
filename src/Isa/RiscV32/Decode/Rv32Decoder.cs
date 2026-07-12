@@ -591,6 +591,14 @@ public partial class Rv32Decoder : IDecoder {
         uint funct5
     ) {
         bool isByte = funct3 == 0x0;
+
+        // Zabha+Zacas amocas.b / amocas.h: rd is also a source (the comparand), same shape
+        // as amocas.w.
+        if (funct5 == 0x05) {
+            RvOp casOp = isByte ? new RvAmocasB(rd, rs1, rs2) : new RvAmocasH(rd, rs1, rs2);
+            return new RvInstruction(pc, raw, rd, [rs1, rs2, rd,], ToothClass.Atomic, casOp);
+        }
+
         RvOp op = funct5 switch {
             0x01 => isByte ? new RvAmoswapB(rd, rs1, rs2) : new RvAmoswapH(rd, rs1, rs2),
             0x00 => isByte ? new RvAmoaddB(rd, rs1, rs2) : new RvAmoaddH(rd, rs1, rs2),

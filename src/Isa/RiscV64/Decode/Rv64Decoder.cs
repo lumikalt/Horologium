@@ -189,6 +189,11 @@ public class Rv64Decoder : Rv32Decoder {
             // funct3=2 (word AMOs) falls through to the base RV32A table unchanged.
             case 0x2F when funct3 == 0x3: {
                 uint funct5 = (raw >> 27) & 0x1F;
+                // amocas.d: rd is also a source (the comparand), same shape as amocas.w.
+                if (funct5 == 0x05)
+                    return new RvInstruction(
+                        pc, raw, rd, [rs1, rs2, rd,], ToothClass.Atomic, new RvAmocasD(rd, rs1, rs2)
+                    );
                 IReadOnlyList<int> sources = funct5 == 0x02 ? [rs1,] : [rs1, rs2,];
                 RvOp op = funct5 switch {
                     0x02 => new RvLrD(rd, rs1),
