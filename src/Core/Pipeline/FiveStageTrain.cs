@@ -377,6 +377,14 @@ internal sealed class PipelineCore : Gear {
             stall = VectorRawHazard(incoming, idExLast.Instruction)
                  || VectorRawHazard(incoming, exMemLast.Instruction);
 
+        // fflags CSR hazard: FP ops OR their exception flags into fflags via SideEffect
+        // in WB, with no forwarding path. A System-class instruction (csrr*, including
+        // fsflags/frflags) reads CSRs synchronously in EX, so it must stall while any
+        // in-flight FP op ahead of it hasn't reached WB yet, or it observes a stale fflags.
+        if (!stall && incoming != null)
+            stall = FflagsHazard(incoming, idExLast.Instruction)
+                 || FflagsHazard(incoming, exMemLast.Instruction);
+
         // Reconcile any branch leaving EX with the prediction made at fetch.
         // The predictor is trained on every resolved branch; a flush (and a
         // misprediction penalty) is only paid when the speculated next PC was
@@ -420,19 +428,33 @@ internal sealed class PipelineCore : Gear {
 
         if (stall) _stallsCounter.Increment();
 
-        // Kill instructions speculatively fetched past a halt:
-        //   - when halt is in MEM→WB: squash EX now (prevents the very-next
-        //     instruction from reaching MEM and attempting a memory access).
-        //   - when halt is in WB: squash EX again (kills the instruction that
-        //     entered ID while the halt was in MEM, one cycle later).
-        if (exMemLast is { IsValid: true, Result: { IsHalt: true, }, }
-         || memWbLast is { IsValid: true, IsHalt: true, })
+        // Kill instructions speculatively fetched past a halt, trap, or
+        // return-from-trap. A branch's redirect target is known as soon as it
+        // resolves in EX (handled above), so only the instruction already in
+        // EX needs squashing. A trap/return's target isn't known until the
+        // triggering instruction reaches WB — two cycles later — so by the
+        // time it's even detected, wrong-path instructions may already be
+        // sitting in ID and about to enter EX. Catch it at the earliest point
+        // it's visible (EX→MEM boundary, mirroring branch resolution) and
+        // again one cycle later (MEM→WB boundary) to squash EX and flush ID
+        // both times, before the third and final round (the WB.TrapRedirect
+        // check below) fires with the real target.
+        if (exMemLast is {
+                IsValid: true, Result: { IsHalt: true, } or { HasTrap: true, } or { IsReturnFromTrap: true, },
+            }
+         || memWbLast is { IsValid: true, } && (memWbLast.IsHalt || memWbLast.HasTrap || memWbLast.IsReturnFromTrap)) {
             _ex.Squash = true;
+            _id.Flush = true;
+        }
 
-        // Trap redirect from WB (computed last cycle).
+        // Trap redirect from WB (computed last cycle) — the third and final
+        // round: the trapper/returner has now reached WB and the real target
+        // is known. Flush IF (send fetch to the redirect Pc) and ID (kill
+        // whatever IF fetched wrong-path in the cycle since the second round).
         if (_wb.TrapRedirect.HasValue) {
             _if.FlushTarget = _wb.TrapRedirect.Value;
             _if.Flush = true;
+            _id.Flush = true;
         }
 
         // PEvents: record DECODE/FLUSH for instruction in ID, EXECUTE/FLUSH for instruction in EX.
@@ -588,6 +610,16 @@ internal sealed class PipelineCore : Gear {
         int vd = producer.VectorDestinationRegister;
         if (vd < 0) return false;
         return consumer.VectorSourceRegisters.Contains(vd);
+    }
+
+    // Returns true when the in-flight producer may still OR flags into fflags (via
+    // SideEffect, not yet applied) and the consumer is a CSR-class instruction that
+    // could read it. Coarse-grained (ToothClass.System covers ecall/ebreak/mret/wfi
+    // too, not just CSR ops) but safe — those are rare and never fflags-dependent.
+    private static bool FflagsHazard(ITooth? consumer, ITooth? producer) {
+        if (producer is null || consumer is null) return false;
+        if (producer.Class is not (ToothClass.FloatingPoint or ToothClass.FloatDivSqrt)) return false;
+        return consumer.Class == ToothClass.System;
     }
 
     // Sits between DLayers.Accessor and the StoreBuffer so the prefetcher sees

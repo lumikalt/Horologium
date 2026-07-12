@@ -90,7 +90,27 @@ public sealed class FetchStage(
             physPc = pa;
         }
 
-        var raw = (uint)memory.Read(physPc, 4);
+        uint raw;
+        try {
+            raw = (uint)memory.Read(physPc, 4);
+        }
+        catch (AccessViolationException) {
+            // Fetch address out of bounds. On the correct path this is a genuine instruction
+            // access fault; on a wrong path (e.g. a mispredicted branch landing on garbage
+            // data that itself decodes to a wild branch target) the fault latch is squashed
+            // before it commits, just like the translation-fault case above. Either way,
+            // never let the exception escape and crash the sim.
+            var faultLatch = new IfIdLatch {
+                IsValid = true,
+                Pc = Pc,
+                InstrId = _nextInstrId++,
+                PreTrap = new TrapInfo(TrapCause.InstructionAccessFault, Pc, Pc),
+            };
+            _fetchFaulted = true;
+            _held = IfIdLatch.Bubble;
+            LastSent = faultLatch;
+            return;
+        }
         if (rdipICache?.LastAccessWasHit == false) rdip?.OnIcacheMiss(physPc);
         FetchHint hint = decoder.GetFetchHint(Pc, raw);
         int instrSize = hint.InstructionSize;
