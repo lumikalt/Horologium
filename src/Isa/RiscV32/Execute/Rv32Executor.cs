@@ -1059,7 +1059,7 @@ public class Rv32Executor : IExecutor {
 
     // Read a float register as a C# float (bit-exact reinterpret).
     // NaN-boxing (§11.3): upper 32 bits must be all 1s; otherwise canonical NaN.
-    private static float FBits(IRegisterFile regs, int rs) {
+    protected static float FBits(IRegisterFile regs, int rs) {
         ulong raw = regs.Read(rs);
         return raw >> 32 == 0xFFFFFFFFu
             ? BitConverter.Int32BitsToSingle((int)(uint)raw)
@@ -1067,7 +1067,7 @@ public class Rv32Executor : IExecutor {
     }
 
     // Read a double register as a C# double (bit-exact reinterpret).
-    private static double DBits(IRegisterFile regs, int rs) =>
+    protected static double DBits(IRegisterFile regs, int rs) =>
         BitConverter.Int64BitsToDouble((long)regs.Read(rs));
 
     // RISC-V canonical NaN for float32 (positive, quiet NaN with one mantissa bit set).
@@ -1075,7 +1075,7 @@ public class Rv32Executor : IExecutor {
 
     // Float result + OR flags into fflags via SideEffect.
     // Writes NaN-boxed value (upper 32 bits = 0xFFFFFFFF) per spec §11.3.
-    private static ExecuteResult FloatRegF(float value, uint flags) {
+    protected static ExecuteResult FloatRegF(float value, uint flags) {
         uint bits = float.IsNaN(value) ? Rv32Executor.RvCanonicalNaN : (uint)BitConverter.SingleToInt32Bits(value);
         ulong nanBoxed = 0xFFFFFFFF00000000UL | bits;
         if (flags == 0) return ExecuteResult.WithResult(nanBoxed);
@@ -1086,7 +1086,7 @@ public class Rv32Executor : IExecutor {
     // Double result + OR flags into fflags via SideEffect.
     private const ulong RvCanonicalNaNd = 0x7FF8000000000000UL;
 
-    private static ExecuteResult FloatRegD(double value, uint flags) {
+    protected static ExecuteResult FloatRegD(double value, uint flags) {
         ulong bits = double.IsNaN(value) ? Rv32Executor.RvCanonicalNaNd : (ulong)BitConverter.DoubleToInt64Bits(value);
         if (flags == 0) return ExecuteResult.WithResult(bits);
         return new ExecuteResult
@@ -1094,7 +1094,15 @@ public class Rv32Executor : IExecutor {
     }
 
     // Integer result + OR flags into fflags via SideEffect.
-    private static ExecuteResult IntRegF(uint value, uint flags) {
+    protected static ExecuteResult IntRegF(uint value, uint flags) {
+        if (flags == 0) return ExecuteResult.WithResult(value);
+        return new ExecuteResult
+            { RegisterResult = (value, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
+    }
+
+    // Same as IntRegF but for a full 64-bit result (RV64F/D int64 conversions — FCVT.L/LU.S/D —
+    // must fill the whole destination register, unlike the 32-bit FCVT.W/WU which zero-extend).
+    protected static ExecuteResult IntRegF64(ulong value, uint flags) {
         if (flags == 0) return ExecuteResult.WithResult(value);
         return new ExecuteResult
             { RegisterResult = (value, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
@@ -1193,7 +1201,7 @@ public class Rv32Executor : IExecutor {
     // FCVT.S.W / FCVT.S.WU: integer → float (may set NX if inexact).
     // Note: rounding mode affects which float is chosen; C# uses RNE by default.
     // We use the hardware default (RNE) since .NET doesn't expose per-op rounding.
-    private static ExecuteResult FpIntToFloat(long intVal) {
+    protected static ExecuteResult FpIntToFloat(long intVal) {
         var r = (float)intVal;
         // NX if the integer can't be exactly represented in float32 (24-bit mantissa)
         bool nx = (long)r != intVal;
@@ -1273,7 +1281,7 @@ public class Rv32Executor : IExecutor {
 
     // Apply rounding mode to a float before converting to integer.
     // rm: 0=RNE, 1=RTZ, 2=RDN, 3=RUP, 4=RMM, 7=DYN (resolved before call).
-    private static float ApplyRm(float f, int rm) => rm switch {
+    protected static float ApplyRm(float f, int rm) => rm switch {
         0 => MathF.Round(f, MidpointRounding.ToEven),
         2 => MathF.Floor(f),
         3 => MathF.Ceiling(f),
@@ -1282,7 +1290,7 @@ public class Rv32Executor : IExecutor {
     };
 
     // Resolve DYN rounding mode (rm=7) from fcsr.frm.
-    private static int ResolveRm(int rm, IArchState state) =>
+    protected static int ResolveRm(int rm, IArchState state) =>
         rm == 7 ? (int)((Rv32ArchState)state).CsrFile.DirectRead(CsrFile.Frm) : rm;
 
     // RISC-V FCVT.W.S: float → signed int with rounding mode and saturating clamp.
@@ -1429,7 +1437,7 @@ public class Rv32Executor : IExecutor {
         };
     }
 
-    private static double ApplyRmD(double d, int rm) => rm switch {
+    protected static double ApplyRmD(double d, int rm) => rm switch {
         0 => Math.Round(d, MidpointRounding.ToEven),
         2 => Math.Floor(d),
         3 => Math.Ceiling(d),
@@ -1466,7 +1474,7 @@ public class Rv32Executor : IExecutor {
     }
 
     // FCVT.D.W / FCVT.D.WU: integer → double (always exact for 32-bit integers).
-    private static ExecuteResult DpIntToDouble(long intVal) =>
+    protected static ExecuteResult DpIntToDouble(long intVal) =>
         FloatRegD(intVal, 0);
 
     // FCVT.S.D: narrow double → single (may set NX, OF).

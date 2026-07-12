@@ -1472,3 +1472,36 @@ public record RvLwu(int Rd, int Rs1, int Imm) : RvOp; // load word unsigned — 
 public record RvLd(int Rd, int Rs1, int Imm) : RvOp; // load doubleword
 
 public record RvSd(int Rs1, int Rs2, int Imm) : RvOp; // store doubleword
+
+// ── RV64M W-suffix instructions (opcode=0x3B, funct7=0x01) ───────────────────────────────────
+// Each operates on the lower 32 bits of both operands and sign-extends the 32-bit result to 64.
+public record RvMulw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvDivw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvDivuw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvRemw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvRemuw(int Rd, int Rs1, int Rs2) : RvOp;
+
+// ── RV64F/D: 64-bit integer conversions and moves (opcode=0x53) ──────────────────────────────
+public record RvFcvtLs(int Rd, int Rs1, int Rm) : RvOp; // float→signed int64
+
+public record RvFcvtLuS(int Rd, int Rs1, int Rm) : RvOp; // float→unsigned int64
+
+public record RvFcvtSl(int Rd, int Rs1, int Rm) : RvOp; // signed int64→float
+
+public record RvFcvtSLu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int64→float
+
+public record RvFcvtLd(int Rd, int Rs1, int Rm) : RvOp; // double→signed int64
+
+public record RvFcvtLuD(int Rd, int Rs1, int Rm) : RvOp; // double→unsigned int64
+
+public record RvFcvtDl(int Rd, int Rs1, int Rm) : RvOp; // signed int64→double
+
+public record RvFcvtDLu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int64→double
+
+public record RvFmvXd(int Rd, int Rs1) : RvOp; // double bits→int reg (full 64 bits)
+
+public record RvFmvDx(int Rd, int Rs1) : RvOp; // int reg bits→double reg

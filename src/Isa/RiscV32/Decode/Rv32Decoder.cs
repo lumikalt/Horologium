@@ -1688,7 +1688,7 @@ public class Rv32Decoder : IDecoder {
 
     // ── FP instruction factories ───────────────────────────────────────────────
 
-    private static RvInstruction FpRr(
+    protected static RvInstruction FpRr(
         ulong pc,
         uint raw,
         int dest,
@@ -1699,7 +1699,7 @@ public class Rv32Decoder : IDecoder {
     ) =>
         new(pc, raw, dest, [s0, s1,], cls, op);
 
-    private static RvInstruction FpR1(
+    protected static RvInstruction FpR1(
         ulong pc,
         uint raw,
         int dest,

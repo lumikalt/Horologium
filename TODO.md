@@ -98,11 +98,13 @@ Remaining delta, in rough dependency order:
 
 ## RISC-V
 
-- [ ] RV64 completion:
-  - [ ] ELF64 loader for running RV64 binaries.
-  - [ ] Sv39 page-table walker for RV64 virtual memory.
-  - [ ] RV64 M extension.
-  - [ ] RV64 F/D extension.
+- [x] RV64 completion:
+  - [x] ELF64 loader for running RV64 binaries.
+  - [x] Sv39 page-table walker for RV64 virtual memory.
+  - [x] RV64 M extension.
+  - [x] RV64 F/D extension.
+- [ ] riscv64-embedded cross-toolchain in the devshell (`flake.nix` only exposes `riscv32-embedded`) — RV64
+  ELF loader and end-to-end tests currently use hand-crafted byte buffers rather than real compiled binaries.
 - [ ] Zfh / Zfhmin: half-precision FP.
 - [x] Zcmop: compressed may-be-operations (c.mop.N, N odd 1–15) — already implemented (decoder, executor,
   disassembler) and verified commit-for-commit against Spike on all three trains; the TODO entry was stale.

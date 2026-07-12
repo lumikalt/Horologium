@@ -1,8 +1,8 @@
 using Mechanism;
-using RiscV32.Memory;
 using RiscV32.Trap;
 using RiscV64.Decode;
 using RiscV64.Execute;
+using RiscV64.Memory;
 using RiscV64.State;
 
 namespace RiscV64;
@@ -22,5 +22,5 @@ public sealed class Rv64Mechanism : IMechanism {
     public IArchState CreateArchState() => new Rv64ArchState();
 
     public IFetchTranslator CreateFetchTranslator(IArchState state, IMemory memory) =>
-        new RvFetchTranslator(state, memory);
+        new Rv64FetchTranslator(state, memory);
 }

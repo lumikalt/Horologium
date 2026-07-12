@@ -5,11 +5,14 @@ namespace RiscV64.Decode;
 
 /// <summary>
 /// Instruction decoder for RV64I — extends Rv32Decoder with:
-///   • OP-32 (opcode=0x3B): ADDW/SUBW/SLLW/SRLW/SRAW
+///   • OP-32 (opcode=0x3B): ADDW/SUBW/SLLW/SRLW/SRAW, plus RV64M MULW/DIVW/DIVUW/REMW/REMUW
 ///   • OP-IMM-32 (opcode=0x1B): ADDIW/SLLIW/SRLIW/SRAIW
 ///   • LOAD (opcode=0x03) funct3=3 (LD), funct3=6 (LWU)
 ///   • STORE (opcode=0x23) funct3=3 (SD)
 ///   • OP-IMM (opcode=0x13) shifts with 6-bit shamt instead of 5-bit
+///   • OP-FP (opcode=0x53): RV64F/D 64-bit integer conversions/moves (FCVT.L/LU.S/D,
+///     FCVT.S/D.L/LU, FMV.X.D, FMV.D.X) not present in RV32F/D; everything else on 0x53
+///     falls through to the base RV32F/D decode table.
 /// </summary>
 public class Rv64Decoder : Rv32Decoder {
     protected override ITooth DecodeRaw(ulong pc, uint raw) {
@@ -24,6 +27,19 @@ public class Rv64Decoder : Rv32Decoder {
 
         switch (opcode) {
             // ── OP-32: 32-bit operations sign-extended to 64 ─────────────────────
+            case 0x3B when funct7 == 0x01: {
+                // RV64M: MULW/DIVW/DIVUW/REMW/REMUW — operate on the lower 32 bits, sign-extend.
+                IReadOnlyList<int> sources = [rs1, rs2,];
+                RvOp mop = funct3 switch {
+                    0x0 => new RvMulw(rd, rs1, rs2),
+                    0x4 => new RvDivw(rd, rs1, rs2),
+                    0x5 => new RvDivuw(rd, rs1, rs2),
+                    0x6 => new RvRemw(rd, rs1, rs2),
+                    0x7 => new RvRemuw(rd, rs1, rs2),
+                    _ => throw new IllegalInstructionException(raw, $"Unknown RV64M OP-32 funct3=0x{funct3:X}"),
+                };
+                return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerMulDiv, mop);
+            }
             case 0x3B: {
                 IReadOnlyList<int> sources = [rs1, rs2,];
                 RvOp op = (funct3, funct7) switch {
@@ -89,7 +105,43 @@ public class Rv64Decoder : Rv32Decoder {
                 };
                 return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerAlu, op);
             }
+            // ── OP-FP: RV64F/D 64-bit integer conversions/moves ──────────────────
+            case 0x53: {
+                RvInstruction? rv64Fp = TryDecodeRv64FpOp(pc, raw, rd, rs1, rs2, funct3, funct7);
+                return rv64Fp ?? base.DecodeRaw(pc, raw);
+            }
             default: return base.DecodeRaw(pc, raw);
         }
     }
+
+    // RV64F/D-only OP-FP encodings not present in RV32F/D (funct7=0x60/0x61/0x68/0x69 with
+    // rs2=2/3 select the L/LU int64 conversions; funct7=0x71/0x79 with rs2=0 select FMV.X.D/FMV.D.X).
+    // Returns null for everything else so the caller falls through to the base RV32F/D table.
+    private static RvInstruction? TryDecodeRv64FpOp(
+        ulong pc,
+        uint raw,
+        int rd,
+        int rs1,
+        int rs2,
+        uint funct3,
+        uint funct7
+    ) => (funct7, rs2) switch {
+        // FCVT.L.S / FCVT.LU.S: float→int64 (funct3 = rounding mode)
+        (0x60, 2) => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtLs(rd, rs1 + 32, (int)funct3)),
+        (0x60, 3) => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtLuS(rd, rs1 + 32, (int)funct3)),
+        // FCVT.S.L / FCVT.S.LU: int64→float
+        (0x68, 2) => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSl(rd + 32, rs1, (int)funct3)),
+        (0x68, 3) => FpR1(pc, raw, rd + 32, rs1, new RvFcvtSLu(rd + 32, rs1, (int)funct3)),
+        // FCVT.L.D / FCVT.LU.D: double→int64
+        (0x61, 2) => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtLd(rd, rs1 + 32, (int)funct3)),
+        (0x61, 3) => FpR1(pc, raw, rd, rs1 + 32, new RvFcvtLuD(rd, rs1 + 32, (int)funct3)),
+        // FCVT.D.L / FCVT.D.LU: int64→double
+        (0x69, 2) => FpR1(pc, raw, rd + 32, rs1, new RvFcvtDl(rd + 32, rs1, (int)funct3)),
+        (0x69, 3) => FpR1(pc, raw, rd + 32, rs1, new RvFcvtDLu(rd + 32, rs1, (int)funct3)),
+        // FMV.X.D: double bit pattern → int reg (funct3=0; funct3=1 at the same funct7/rs2 is FCLASS.D)
+        (0x71, 0) when funct3 == 0 => FpR1(pc, raw, rd, rs1 + 32, new RvFmvXd(rd, rs1 + 32)),
+        // FMV.D.X: int reg bit pattern → double reg
+        (0x79, 0) => FpR1(pc, raw, rd + 32, rs1, new RvFmvDx(rd + 32, rs1)),
+        _ => null,
+    };
 }
