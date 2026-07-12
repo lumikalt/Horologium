@@ -112,9 +112,12 @@ Remaining delta, in rough dependency order:
 - [x] gem5 ROI instrumentation for treesum: wire `setStats(1)`/`setStats(0)` markers into the gem5 SE
   simulation so gem5 measures the same kernel interval as Horologium's `SetStatsObserver` and the IPC
   comparison is apples-to-apples.
-- [ ] treesum bypass=0 D-cache regression: measure wrong-path load counts to confirm that deeper
-  wrong-path execution under 0-cycle forwarding is the source of the +138 D-cache misses and +1 479
-  dispatch stall cycles observed when switching from bypass=1 to bypass=0.
+- [x] treesum bypass=0 D-cache regression: re-measured on current trunk (l_tage, ROB=30, IQ=5×8,
+  L1 16KB, store buffer=8) — switching bypass=1→0 now *decreases* both dispatch-stall cycles
+  (1099→369) and D-cache misses (3→0), with `icache_hits` also falling (27938→25518), consistent
+  with faster forwarding resolving branches earlier and fetching less wrong-path work. The
+  originally observed regression doesn't reproduce; it predates the store-sets and execute-time
+  branch-resolution fixes since landed. No further action.
 - [ ] JSON-format limitations: no PC/opcode, FP register numbering, vector/UVE ops.
 
 ## Co-simulation
