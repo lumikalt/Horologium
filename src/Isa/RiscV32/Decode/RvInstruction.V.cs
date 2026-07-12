@@ -443,4 +443,3 @@ public enum VFpNCvtOp {
 }
 
 public record RvVFpNCvt(VFpNCvtOp Op, int Vd, int Vs2, bool Masked) : RvOp;
-

@@ -3,7 +3,6 @@ using Mechanism;
 namespace RiscV32.Decode;
 
 public partial class Rv32Decoder {
-
     // ── F extension ───────────────────────────────────────────────────────────
 
     // LOAD-FP / vector load: opcode=0x07.
@@ -270,6 +269,4 @@ public partial class Rv32Decoder {
         ToothClass cls = ToothClass.FloatingPoint
     ) =>
         new(pc, raw, dest, [s0,], cls, op);
-
-
 }

@@ -315,8 +315,7 @@ public class SpikeCoSimTests {
                 readTimeout: TimeSpan.FromMilliseconds(500),
                 spikeExecutable: stub
             );
-            CoSimDivergenceException ex = Assert.Throws<CoSimDivergenceException>(
-                () => cosim.OnCommit(0x80000000UL, 0x00000013u, null!)
+            var ex = Assert.Throws<CoSimDivergenceException>(() => cosim.OnCommit(0x80000000UL, 0x00000013u, null!)
             );
             Assert.Contains("No Spike commit record", ex.Message);
         }
@@ -332,8 +331,7 @@ public class SpikeCoSimTests {
                 readTimeout: TimeSpan.FromSeconds(5),
                 spikeExecutable: stub
             );
-            CoSimDivergenceException ex = Assert.Throws<CoSimDivergenceException>(
-                () => cosim.OnCommit(0x80000000UL, 0x00000013u, null!)
+            var ex = Assert.Throws<CoSimDivergenceException>(() => cosim.OnCommit(0x80000000UL, 0x00000013u, null!)
             );
             Assert.Contains("ended unexpectedly", ex.Message);
         }

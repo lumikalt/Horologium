@@ -20,19 +20,19 @@ public class Rv64ElfLoaderTests {
         buf[1] = (byte)'E';
         buf[2] = (byte)'L';
         buf[3] = (byte)'F';
-        buf[4] = 2; // ELFCLASS64
-        buf[5] = 1; // ELFDATA2LSB
-        BitConverter.GetBytes((ushort)0xF3).CopyTo(buf, 18); // e_machine = EM_RISCV
-        BitConverter.GetBytes(entry).CopyTo(buf, 24);        // e_entry
-        BitConverter.GetBytes((ulong)ehdrSize).CopyTo(buf, 32); // e_phoff
+        buf[4] = 2;                                              // ELFCLASS64
+        buf[5] = 1;                                              // ELFDATA2LSB
+        BitConverter.GetBytes((ushort)0xF3).CopyTo(buf, 18);     // e_machine = EM_RISCV
+        BitConverter.GetBytes(entry).CopyTo(buf, 24);            // e_entry
+        BitConverter.GetBytes((ulong)ehdrSize).CopyTo(buf, 32);  // e_phoff
         BitConverter.GetBytes((ushort)phdrSize).CopyTo(buf, 54); // e_phentsize
-        BitConverter.GetBytes((ushort)1).CopyTo(buf, 56);     // e_phnum
+        BitConverter.GetBytes((ushort)1).CopyTo(buf, 56);        // e_phnum
 
         int ph = ehdrSize;
-        BitConverter.GetBytes((uint)1).CopyTo(buf, ph + 0);              // p_type = PT_LOAD
-        BitConverter.GetBytes((ulong)(ehdrSize + phdrSize)).CopyTo(buf, ph + 8);  // p_offset
-        BitConverter.GetBytes(paddr).CopyTo(buf, ph + 24);                // p_paddr
-        BitConverter.GetBytes((ulong)payload.Length).CopyTo(buf, ph + 32); // p_filesz
+        BitConverter.GetBytes((uint)1).CopyTo(buf, ph + 0);                           // p_type = PT_LOAD
+        BitConverter.GetBytes((ulong)(ehdrSize + phdrSize)).CopyTo(buf, ph + 8);      // p_offset
+        BitConverter.GetBytes(paddr).CopyTo(buf, ph + 24);                            // p_paddr
+        BitConverter.GetBytes((ulong)payload.Length).CopyTo(buf, ph + 32);            // p_filesz
         BitConverter.GetBytes((ulong)payload.Length + bssExtra).CopyTo(buf, ph + 40); // p_memsz
 
         payload.CopyTo(buf, ehdrSize + phdrSize);
@@ -60,7 +60,7 @@ public class Rv64ElfLoaderTests {
     [Fact]
     public void Load_ZeroFillsBssBeyondFilesz() {
         byte[] payload = [0xAA, 0xBB, 0xCC, 0xDD,];
-        byte[] elf = BuildElf64(0x80000000UL, 0x80000000UL, payload, bssExtra: 4);
+        byte[] elf = BuildElf64(0x80000000UL, 0x80000000UL, payload, 4);
         var mem = new FlatMemory(0x10000, 0x80000000);
         Rv64ElfLoader.Load(mem, elf);
         Assert.Equal(0UL, mem.Read(0x80000004, 4));

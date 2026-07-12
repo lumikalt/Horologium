@@ -3,7 +3,6 @@ using Mechanism;
 namespace RiscV32.Decode;
 
 public partial class Rv32Decoder {
-
     // ── C extension (16-bit compressed instructions) ─────────────────────────
 
     // Factory for a 2-byte instruction that expands to an existing RvOp.
@@ -251,6 +250,4 @@ public partial class Rv32Decoder {
             // C.ADD → ADD rd, rd, rs2
             C(pc, c, rd, [rd, rs2,], ToothClass.IntegerAlu, new RvAdd(rd, rd, rs2));
     }
-
-
 }

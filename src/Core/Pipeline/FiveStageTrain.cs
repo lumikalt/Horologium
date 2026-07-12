@@ -442,7 +442,8 @@ internal sealed class PipelineCore : Gear {
         if (exMemLast is {
                 IsValid: true, Result: { IsHalt: true, } or { HasTrap: true, } or { IsReturnFromTrap: true, },
             }
-         || memWbLast is { IsValid: true, } && (memWbLast.IsHalt || memWbLast.HasTrap || memWbLast.IsReturnFromTrap)) {
+         || (memWbLast is { IsValid: true, }
+          && (memWbLast.IsHalt || memWbLast.HasTrap || memWbLast.IsReturnFromTrap))) {
             _ex.Squash = true;
             _id.Flush = true;
         }

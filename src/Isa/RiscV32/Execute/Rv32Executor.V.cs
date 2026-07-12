@@ -12,7 +12,6 @@ using RiscV32.State;
 namespace RiscV32.Execute;
 
 public partial class Rv32Executor {
-
     // ── V extension helpers ───────────────────────────────────────────────────
 
     private static Rv32ArchState VState(IArchState state) => (Rv32ArchState)state;
@@ -1492,5 +1491,4 @@ public partial class Rv32Executor {
 
         return VectorWrite(vd, result);
     }
-
 }

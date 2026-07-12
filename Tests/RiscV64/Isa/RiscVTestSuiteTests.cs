@@ -1,5 +1,4 @@
 using Mechanism;
-using Orrery.Train;
 using Pipeline;
 using RiscV32.Memory;
 using RiscV64;
@@ -71,7 +70,7 @@ public class RiscVTestSuiteTests {
         wl.Load(mem);
 
         var train = new SingleCycleTrain(
-            new Rv64Mechanism(ebreakAlwaysHalts: true, wfiNeverHalts: true), mem, wl.EntryPoint
+            new Rv64Mechanism(true, true), mem, wl.EntryPoint
         );
         train.Run(200_000);
 
@@ -88,7 +87,7 @@ public class RiscVTestSuiteTests {
         wl.Load(mem);
 
         var train = new FiveStageTrain(
-            new Rv64Mechanism(ebreakAlwaysHalts: true, wfiNeverHalts: true), mem, wl.EntryPoint
+            new Rv64Mechanism(true, true), mem, wl.EntryPoint
         );
         train.Run(400_000);
 
@@ -105,7 +104,7 @@ public class RiscVTestSuiteTests {
         wl.Load(mem);
 
         var train = new OooeTrain(
-            new Rv64Mechanism(ebreakAlwaysHalts: true, wfiNeverHalts: true), mem, wl.EntryPoint
+            new Rv64Mechanism(true, true), mem, wl.EntryPoint
         );
         train.Run(400_000);
 

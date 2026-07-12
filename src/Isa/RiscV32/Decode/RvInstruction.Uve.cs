@@ -254,4 +254,3 @@ public record RvUveSoPCv(int Pd, int Ps1, int SrcBytes, int DestBytes, bool Zero
 // group=10; funct3=destWidthIdx (0=b,1=h,2=w,3=d); rs2: 0=US, 8=FP, 16=SG.
 // Reads ValidElements[vs1] lanes from vs1, converts each, writes to vd.
 public record RvUveSoVCv(int Vd, int Vs1, int DestBytes, bool IsFp, bool IsSigned) : RvOp;
-

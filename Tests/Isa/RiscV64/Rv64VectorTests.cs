@@ -21,8 +21,7 @@ internal sealed class SparseMemory : IMemory {
 
     public ulong Read(ulong address, int bytes) {
         ulong v = 0;
-        for (var i = 0; i < bytes; i++)
-            v |= (ulong)(_bytes.GetValueOrDefault(address + (ulong)i)) << (i * 8);
+        for (var i = 0; i < bytes; i++) v |= (ulong)_bytes.GetValueOrDefault(address + (ulong)i) << (i * 8);
         return v;
     }
 
@@ -72,7 +71,7 @@ public class Rv64VectorTests {
         return _exe.Execute(instr, state, _sparseMem);
     }
 
-    private void ConfigVl4E32(Rv64ArchState s) => Exec(Vsetivli(10, 4, VtypeiE32M1Tama), s);
+    private void ConfigVl4E32(Rv64ArchState s) => Exec(Vsetivli(10, 4, Rv64VectorTests.VtypeiE32M1Tama), s);
 
     private static void SetVReg(Rv64ArchState s, int vr, uint[] elements32) {
         var bytes = new byte[VectorRegisterFile.VLenB];

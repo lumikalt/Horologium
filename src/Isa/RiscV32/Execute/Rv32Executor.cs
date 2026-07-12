@@ -502,21 +502,21 @@ public partial class Rv32Executor : IExecutor {
             RvFsgnjH (_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFFFFFF0000UL |
-                    ((BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
-                     (BitConverter.HalfToUInt16Bits(HBits(regs, rs2)) & 0x8000UL))
+                    (BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
+                    (BitConverter.HalfToUInt16Bits(HBits(regs, rs2)) & 0x8000UL)
                 ),
             RvFsgnjnH(_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFFFFFF0000UL |
-                    ((BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
-                     (~(ulong)BitConverter.HalfToUInt16Bits(HBits(regs, rs2)) & 0x8000UL))
+                    (BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
+                    (~(ulong)BitConverter.HalfToUInt16Bits(HBits(regs, rs2)) & 0x8000UL)
                 ),
             RvFsgnjxH(_, var rs1, var rs2) =>
                 ExecuteResult.WithResult(
                     0xFFFFFFFFFFFF0000UL |
-                    ((BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
-                     ((ulong)(BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) ^
-                              BitConverter.HalfToUInt16Bits(HBits(regs, rs2))) & 0x8000UL))
+                    (BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) & 0x7FFFUL) |
+                    ((ulong)(BitConverter.HalfToUInt16Bits(HBits(regs, rs1)) ^
+                             BitConverter.HalfToUInt16Bits(HBits(regs, rs2))) & 0x8000UL)
                 ),
 
             RvFminH(_, var rs1, var rs2) => HpMinMax(regs, rs1, rs2, true),
@@ -1162,5 +1162,4 @@ public partial class Rv32Executor : IExecutor {
             return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
         }
     }
-
 }

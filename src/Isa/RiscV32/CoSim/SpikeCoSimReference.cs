@@ -25,16 +25,14 @@ namespace RiscV32.CoSim;
 /// Implements <see cref="IDisposable"/> — the caller must dispose to kill
 /// Spike when the simulation ends.
 /// </summary>
-public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
+public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
     private readonly record struct SpikeEntry(ulong Pc, uint RawEncoding, int RegIndex, uint RegValue);
 
-    private static readonly Regex CommitLine = new(
-        @"core\s+\d+:\s+\d+\s+(0x[0-9a-f]+)\s+\((0x[0-9a-f]+)\)(?:\s+x(\d+)\s+(0x[0-9a-f]+))?",
-        RegexOptions.Compiled
-    );
+    [GeneratedRegex(@"core\s+\d+:\s+\d+\s+(0x[0-9a-f]+)\s+\((0x[0-9a-f]+)\)(?:\s+x(\d+)\s+(0x[0-9a-f]+))?", RegexOptions.Compiled
+)]
+    private static partial Regex CommitLine { get; }
 
     private readonly Process _proc;
-    private readonly StreamReader _log;
     private readonly ulong _baseAddress;
     private readonly TimeSpan _readTimeout;
     private readonly BlockingCollection<string> _lines = new();
@@ -70,23 +68,26 @@ public sealed class SpikeCoSimReference : ICommitObserver, IDisposable {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
+            Environment = {
+                ["PATH"] = BuildSpikeEnvPath(),
+            },
         };
-        psi.Environment["PATH"] = BuildSpikeEnvPath();
 
         _proc = Process.Start(psi)
              ?? throw new InvalidOperationException("Failed to start spike. Is it on PATH?");
-        _log = _proc.StandardError;
+        StreamReader log = _proc.StandardError;
 
         // Pump Spike's stderr on a dedicated thread so the consumer side can
         // wait with a timeout. Ends (completing the collection) when the pipe
         // closes — normal Spike exit or Dispose killing the process.
         _reader = new Thread(() => {
-            try {
-                while (_log.ReadLine() is { } line) _lines.Add(line);
+                try {
+                    while (log.ReadLine() is { } line) _lines.Add(line);
+                }
+                catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+                finally { _lines.CompleteAdding(); }
             }
-            catch (Exception e) when (e is IOException or ObjectDisposedException) { }
-            finally { _lines.CompleteAdding(); }
-        }) { IsBackground = true, Name = "spike-cosim-log-reader" };
+        ) { IsBackground = true, Name = "spike-cosim-log-reader", };
         _reader.Start();
     }
 

@@ -91,9 +91,7 @@ public sealed class FetchStage(
         }
 
         uint raw;
-        try {
-            raw = (uint)memory.Read(physPc, 4);
-        }
+        try { raw = (uint)memory.Read(physPc, 4); }
         catch (AccessViolationException) {
             // Fetch address out of bounds. On the correct path this is a genuine instruction
             // access fault; on a wrong path (e.g. a mispredicted branch landing on garbage
@@ -111,6 +109,7 @@ public sealed class FetchStage(
             LastSent = faultLatch;
             return;
         }
+
         if (rdipICache?.LastAccessWasHit == false) rdip?.OnIcacheMiss(physPc);
         FetchHint hint = decoder.GetFetchHint(Pc, raw);
         int instrSize = hint.InstructionSize;

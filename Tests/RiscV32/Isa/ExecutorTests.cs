@@ -673,7 +673,7 @@ public class ExecutorTests {
         // rd holds 0xDEADBEFF — only the low byte (0xFF) participates in the comparison.
         Rv32ArchState s = MakeState((1, 0xDEADBEFF), (2, 100), (3, 42));
         _mem.Write(100, 0xFF, 1);
-        ExecuteResult r = Exec(AmoCas(0, 1, 2, 3), s);
+        Exec(AmoCas(0, 1, 2, 3), s);
         Assert.Equal(42UL, _mem.Read(100, 1));
     }
 
@@ -1077,8 +1077,8 @@ public class ExecutorTests {
     public void Execute_Store_Sv32_WriteProtected_RaisesStorePageFault() {
         // PTE has R=1, V=1, U=1, A=1 but W=0 — read-only page
         (FlatMemory mem, uint satp) = BuildSv32Memory();
-        uint roPage = (5u << 10) | 0b0101_0011u; // A|U|R|V, no W, no D
-        mem.Write(0x2014UL, roPage, 4);          // level-1 PT entry 5 → PA 0x5000
+        const uint roPage = (5u << 10) | 0b0101_0011u; // A|U|R|V, no W, no D
+        mem.Write(0x2014UL, roPage, 4);                // level-1 PT entry 5 → PA 0x5000
         Rv32ArchState s = MakeState((1, 0x00005000u), (2, 0xABCDu));
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
         s.PrivilegeLevel = RvPrivilege.User;
@@ -1093,8 +1093,8 @@ public class ExecutorTests {
     public void Execute_Load_Sv32_AccessBitClear_RaisesLoadPageFault() {
         // PTE is otherwise valid but A=0 (fault-on-access model)
         (FlatMemory mem, uint satp) = BuildSv32Memory();
-        uint noABit = (6u << 10) | 0b0001_0111u; // U|W|R|V, no A, no D
-        mem.Write(0x2018UL, noABit, 4);          // level-1 PT entry 6
+        const uint noABit = (6u << 10) | 0b0001_0111u; // U|W|R|V, no A, no D
+        mem.Write(0x2018UL, noABit, 4);                // level-1 PT entry 6
         Rv32ArchState s = MakeState((1, 0x00006000u));
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
         s.PrivilegeLevel = RvPrivilege.User;
@@ -1108,8 +1108,8 @@ public class ExecutorTests {
     public void Execute_Load_Sv32_KernelPage_UserAccess_RaisesLoadPageFault() {
         // PTE has U=0 (kernel page); U-mode access must fault
         (FlatMemory mem, uint satp) = BuildSv32Memory();
-        uint kernelPage = (7u << 10) | 0b1100_0011u; // D|A|R|V, no U, no W
-        mem.Write(0x201CUL, kernelPage, 4);          // level-1 PT entry 7
+        const uint kernelPage = (7u << 10) | 0b1100_0011u; // D|A|R|V, no U, no W
+        mem.Write(0x201CUL, kernelPage, 4);                // level-1 PT entry 7
         Rv32ArchState s = MakeState((1, 0x00007000u));
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
         s.PrivilegeLevel = RvPrivilege.User;
@@ -1155,8 +1155,8 @@ public class ExecutorTests {
         // SUM never grants S-mode instruction-fetch access to U-pages (priv spec §4.3.1).
         // RvFetchTranslator always passes sum=false regardless of sstatus.SUM.
         (FlatMemory mem, uint satp) = BuildSv32Memory();
-        uint execUserPte = (5u << 10) | 0b0101_1111u; // A|U|X|R|V
-        mem.Write(0x2008UL, execUserPte, 4);          // L1 entry 2 → VA 0x2000 → PA 0x5000
+        const uint execUserPte = (5u << 10) | 0b0101_1111u; // A|U|X|R|V
+        mem.Write(0x2008UL, execUserPte, 4);                // L1 entry 2 → VA 0x2000 → PA 0x5000
         Rv32ArchState s = MakeState();
         s.SystemRegisters.Write(CsrFile.Satp, satp, RvPrivilege.Machine);
         s.SystemRegisters.Write(CsrFile.Sstatus, CsrFile.SstatusSum, RvPrivilege.Machine);
@@ -1599,7 +1599,7 @@ public class ExecutorTests {
         ushort bits = Hb((Half)(-2.0f));
         Rv32ArchState s = MakeHState((34, bits));
         ExecuteResult r = Exec(0xE40100D3, s);
-        Assert.Equal((ulong)(uint)(int)(short)bits, r.RegisterResult.Value);
+        Assert.Equal((uint)(short)bits, r.RegisterResult.Value);
     }
 
     [Fact]

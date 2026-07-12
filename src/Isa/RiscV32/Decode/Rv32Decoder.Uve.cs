@@ -3,7 +3,6 @@ using Mechanism;
 namespace RiscV32.Decode;
 
 public partial class Rv32Decoder {
-
     // ── UVE extension ─────────────────────────────────────────────────────────
     // custom-0 (0x0B): stream setup (ss.*)
     // custom-1 (0x2B): stream operations (so.*)
@@ -331,6 +330,4 @@ public partial class Rv32Decoder {
         (int)(((raw >> 28) & 1) << 12),
         13
     );
-
-
 }

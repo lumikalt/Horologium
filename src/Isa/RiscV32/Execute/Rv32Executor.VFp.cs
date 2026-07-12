@@ -12,7 +12,6 @@ using RiscV32.State;
 namespace RiscV32.Execute;
 
 public partial class Rv32Executor {
-
     // ── FP vector helpers ─────────────────────────────────────────────────────
 
     // Read element i of a vector register as a float32 (bit-exact).

@@ -6,6 +6,7 @@ using RiscV32.Execute;
 using RiscV32.Registers;
 using RiscV32.State;
 using RiscV64.Memory;
+using RiscV64.Registers;
 using RiscV64.State;
 
 namespace RiscV64.Execute;
@@ -93,8 +94,8 @@ public class Rv64Executor : Rv32Executor {
                 Reg(SexW(BitOperations.RotateRight((uint)regs.Read(rs1), (int)(regs.Read(rs2) & 0x1F)))),
             RvRoriw(_, var rs1, var sh) =>
                 Reg(SexW(BitOperations.RotateRight((uint)regs.Read(rs1), sh))),
-            RvClzw(_, var rs1) => Reg((ulong)BitOperations.LeadingZeroCount((uint)regs.Read(rs1))),
-            RvCtzw(_, var rs1) => Reg((ulong)BitOperations.TrailingZeroCount((uint)regs.Read(rs1))),
+            RvClzw(_, var rs1)  => Reg((ulong)BitOperations.LeadingZeroCount((uint)regs.Read(rs1))),
+            RvCtzw(_, var rs1)  => Reg((ulong)BitOperations.TrailingZeroCount((uint)regs.Read(rs1))),
             RvCpopw(_, var rs1) => Reg((ulong)BitOperations.PopCount((uint)regs.Read(rs1))),
 
             // ── W-suffix (OP-IMM-32) ──────────────────────────────────────────────
@@ -151,8 +152,8 @@ public class Rv64Executor : Rv32Executor {
             RvFcvtLuD(_, var rs1, var rm) => FcvtLuDResult(DBits(regs, rs1), rm, state),
             RvFcvtDl (_, var rs1, _)      => DpInt64ToDouble((long)regs.Read(rs1)),
             RvFcvtDLu(_, var rs1, _)      => DpUInt64ToDouble(regs.Read(rs1)),
-            RvFmvXd(_, var rs1) => Reg(regs.Read(rs1)),              // double bits → int reg (full 64 bits)
-            RvFmvDx(_, var rs1) => ExecuteResult.WithResult(regs.Read(rs1)), // int reg bits → double reg
+            RvFmvXd(_, var rs1)           => Reg(regs.Read(rs1)), // double bits → int reg (full 64 bits)
+            RvFmvDx(_, var rs1)           => ExecuteResult.WithResult(regs.Read(rs1)), // int reg bits → double reg
 
             // ── RV64 Zfh: 64-bit integer conversions ────────────────────────────────
             // Half is exactly representable in float, so FCVT.L(U).H reuses the S-format
@@ -269,11 +270,11 @@ public class Rv64Executor : Rv32Executor {
             RvClmulr(_, var rs1, var rs2) => Reg((ulong)(Clmul64(regs.Read(rs1), regs.Read(rs2)) >> 63)),
 
             // ── Zba: address-generation ops over the zero-extended low 32 bits of rs1 ──
-            RvAdduw    (_, var rs1, var rs2) => Reg(regs.Read(rs2) + ZextW(regs.Read(rs1))),
+            RvAdduw (_, var rs1, var rs2)    => Reg(regs.Read(rs2) + ZextW(regs.Read(rs1))),
             RvSh1AddUw (_, var rs1, var rs2) => Reg(regs.Read(rs2) + (ZextW(regs.Read(rs1)) << 1)),
             RvSh2AddUw (_, var rs1, var rs2) => Reg(regs.Read(rs2) + (ZextW(regs.Read(rs1)) << 2)),
             RvSh3AddUw (_, var rs1, var rs2) => Reg(regs.Read(rs2) + (ZextW(regs.Read(rs1)) << 3)),
-            RvSlliUw   (_, var rs1, var sh)  => Reg(ZextW(regs.Read(rs1)) << sh),
+            RvSlliUw (_, var rs1, var sh)    => Reg(ZextW(regs.Read(rs1)) << sh),
 
             _ => null,
         };
@@ -408,7 +409,7 @@ public class Rv64Executor : Rv32Executor {
         float rounded = ApplyRm(f, rm);
         switch (rounded) {
             case >= 9223372036854775808f: return IntRegF64(0x7FFFFFFF_FFFFFFFFUL, 0x10u); // > LONG_MAX → NV
-            case < -9223372036854775808f: return IntRegF64(0x8000000000000000UL, 0x10u); // < LONG_MIN → NV
+            case < -9223372036854775808f: return IntRegF64(0x8000000000000000UL, 0x10u);  // < LONG_MIN → NV
         }
 
         var result = (long)rounded;
@@ -491,11 +492,15 @@ public class Rv64Executor : Rv32Executor {
 
     // ── satp CSR (Rv64Csrs, not the inherited RV32 CsrFile — see Rv64CsrFile) ─────────────────
     private static ExecuteResult ExecuteSatpCsr(
-        IArchState state, ulong pc, ulong src, bool writeSrc, Func<ulong, ulong, ulong> combine
+        IArchState state,
+        ulong pc,
+        ulong src,
+        bool writeSrc,
+        Func<ulong, ulong, ulong> combine
     ) {
         if (state.PrivilegeLevel < RvPrivilege.Supervisor)
             return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
-        var csrs = ((Rv64ArchState)state).Rv64Csrs;
+        Rv64CsrFile csrs = ((Rv64ArchState)state).Rv64Csrs;
         ulong old = csrs.Satp;
         if (writeSrc) csrs.Satp = combine(old, src);
         return ExecuteResult.WithResult(old);
@@ -514,7 +519,11 @@ public class Rv64Executor : Rv32Executor {
     // Sv39 page-table walk for load/store/AMO address translation — overrides the inherited
     // Sv32 walk, which reads satp from the (32-bit, MODE-truncating) RV32 CsrFile.
     protected override (ulong paddr, int faultCause) Translate(
-        IMemory memory, IArchState state, ulong vaddr, bool isWrite, bool isExec
+        IMemory memory,
+        IArchState state,
+        ulong vaddr,
+        bool isWrite,
+        bool isExec
     ) {
         // Read(..., Machine) bypasses the privilege check — DirectRead isn't reachable here since
         // it's an internal member of RiscV32.Registers.CsrFile and RiscV64 has no cross-assembly

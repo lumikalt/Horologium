@@ -12,7 +12,6 @@ using RiscV32.State;
 namespace RiscV32.Execute;
 
 public partial class Rv32Executor {
-
     // ── FP helpers ────────────────────────────────────────────────────────────
 
     // Wrap an ExecuteResult (e.g., from Load) to NaN-box the 32-bit float value.
@@ -343,11 +342,14 @@ public partial class Rv32Executor {
             mantissa = frac | (1L << 52);
             e2 = exp - 1075;
         }
+
         return (neg ? -mantissa : mantissa, e2);
     }
 
     private static (BigInteger Mantissa, int Exp2) ExactAdd(
-        (BigInteger Mantissa, int Exp2) x, (BigInteger Mantissa, int Exp2) y) =>
+        (BigInteger Mantissa, int Exp2) x,
+        (BigInteger Mantissa, int Exp2) y
+    ) =>
         x.Exp2 < y.Exp2
             ? (x.Mantissa + (y.Mantissa << (y.Exp2 - x.Exp2)), x.Exp2)
             : y.Exp2 < x.Exp2
@@ -355,11 +357,14 @@ public partial class Rv32Executor {
                 : (x.Mantissa + y.Mantissa, x.Exp2);
 
     private static (BigInteger Mantissa, int Exp2) ExactMul(
-        (BigInteger Mantissa, int Exp2) x, (BigInteger Mantissa, int Exp2) y) =>
+        (BigInteger Mantissa, int Exp2) x,
+        (BigInteger Mantissa, int Exp2) y
+    ) =>
         (x.Mantissa * y.Mantissa, x.Exp2 + y.Exp2);
 
     private static bool ExactEqual((BigInteger Mantissa, int Exp2) x, (BigInteger Mantissa, int Exp2) y) {
-        if (x.Exp2 < y.Exp2) y = (y.Mantissa << (y.Exp2 - x.Exp2), x.Exp2);
+        if (x.Exp2 < y.Exp2)
+            y = (y.Mantissa << (y.Exp2 - x.Exp2), x.Exp2);
         else if (y.Exp2 < x.Exp2) x = (x.Mantissa << (x.Exp2 - y.Exp2), y.Exp2);
         return x.Mantissa == y.Mantissa;
     }
@@ -377,9 +382,9 @@ public partial class Rv32Executor {
         if (double.IsInfinity(r) && !double.IsInfinity(a) && !double.IsInfinity(b)) flags |= 0x04;
         if (double.IsInfinity(r)) return flags;
 
-        var da = DecomposeExact(a);
-        var db = DecomposeExact(b);
-        var dr = DecomposeExact(r);
+        (BigInteger Mantissa, int Exp2) da = DecomposeExact(a);
+        (BigInteger Mantissa, int Exp2) db = DecomposeExact(b);
+        (BigInteger Mantissa, int Exp2) dr = DecomposeExact(r);
         bool nx = op switch {
             0 => !ExactEqual(ExactAdd(da, db), dr),
             1 => !ExactEqual(ExactAdd(da, (-db.Mantissa, db.Exp2)), dr),
@@ -406,8 +411,10 @@ public partial class Rv32Executor {
             flags |= 0x04;
         if (double.IsInfinity(r)) return flags;
 
-        bool nx = !ExactEqual(ExactAdd(ExactMul(DecomposeExact(a), DecomposeExact(b)), DecomposeExact(c)),
-            DecomposeExact(r));
+        bool nx = !ExactEqual(
+            ExactAdd(ExactMul(DecomposeExact(a), DecomposeExact(b)), DecomposeExact(c)),
+            DecomposeExact(r)
+        );
         if (nx) flags |= 0x01;
         if (nx && r != 0.0 && Math.Abs(r) < Rv32Executor.MinNormalD) flags |= 0x02;
         return flags;
@@ -562,5 +569,4 @@ public partial class Rv32Executor {
             return BitConverter.DoubleToInt64Bits(a) >= 0 || BitConverter.DoubleToInt64Bits(b) >= 0 ? 0.0 : -0.0;
         return a > b ? a : b;
     }
-
 }

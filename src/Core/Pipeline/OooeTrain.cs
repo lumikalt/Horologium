@@ -207,7 +207,8 @@ internal sealed class OoOPipelineCore : Gear {
         bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
         bool RequestHalt = false, // true for an HTIF tohost-exit store: halt after commit
         ulong InstrId = 0,        // per-instruction age, for pruning in-flight results on a partial squash
-        Action<IArchState>? SideEffect = null // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
+        Action<IArchState>? SideEffect
+            = null // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
     );
 
     /// <summary>
@@ -748,6 +749,7 @@ internal sealed class OoOPipelineCore : Gear {
                         _pendingRollbackPrevPhys = head.PrevPhysDestination;
                         _pendingRollbackAbandonedPhys = head.PhysDestination;
                     }
+
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     RetireMemQueues(head);
                     _rob.Retire();

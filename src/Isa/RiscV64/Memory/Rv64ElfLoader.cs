@@ -40,29 +40,31 @@ public static class Rv64ElfLoader {
 
         ValidateMagic(elf);
 
-        if (elf[EhdrClass] != ElfClass64)
-            throw new ElfException($"Only ELF64 is supported (class byte = {elf[EhdrClass]}).");
-        if (elf[EhdrData] != ElfData2Lsb)
+        if (elf[Rv64ElfLoader.EhdrClass] != Rv64ElfLoader.ElfClass64)
+            throw new ElfException($"Only ELF64 is supported (class byte = {elf[Rv64ElfLoader.EhdrClass]}).");
+        if (elf[Rv64ElfLoader.EhdrData] != Rv64ElfLoader.ElfData2Lsb)
             throw new ElfException("Only little-endian ELF is supported.");
 
-        ushort machine = U16(elf, EhdrMachine);
-        if (machine != EmRiscv)
-            throw new ElfException($"Unexpected e_machine 0x{machine:X2}, expected EM_RISCV (0x{EmRiscv:X2}).");
+        ushort machine = U16(elf, Rv64ElfLoader.EhdrMachine);
+        if (machine != Rv64ElfLoader.EmRiscv)
+            throw new ElfException(
+                $"Unexpected e_machine 0x{machine:X2}, expected EM_RISCV (0x{Rv64ElfLoader.EmRiscv:X2})."
+            );
 
-        ulong entry = U64(elf, EhdrEntry);
-        ulong phoff = U64(elf, EhdrPhoff);
-        ushort phentsize = U16(elf, EhdrPhentsize);
-        ushort phnum = U16(elf, EhdrPhnum);
+        ulong entry = U64(elf, Rv64ElfLoader.EhdrEntry);
+        ulong phoff = U64(elf, Rv64ElfLoader.EhdrPhoff);
+        ushort phentsize = U16(elf, Rv64ElfLoader.EhdrPhentsize);
+        ushort phnum = U16(elf, Rv64ElfLoader.EhdrPhnum);
 
         for (var i = 0; i < phnum; i++) {
             var phdrStart = (int)(phoff + (ulong)(i * phentsize));
-            uint type = U32(elf, phdrStart + PhdrType);
-            if (type != PtLoad) continue;
+            uint type = U32(elf, phdrStart + Rv64ElfLoader.PhdrType);
+            if (type != Rv64ElfLoader.PtLoad) continue;
 
-            ulong fileOffset = U64(elf, phdrStart + PhdrOffset);
-            ulong paddr = U64(elf, phdrStart + PhdrPaddr);
-            ulong filesz = U64(elf, phdrStart + PhdrFilesz);
-            ulong memsz = U64(elf, phdrStart + PhdrMemsz);
+            ulong fileOffset = U64(elf, phdrStart + Rv64ElfLoader.PhdrOffset);
+            ulong paddr = U64(elf, phdrStart + Rv64ElfLoader.PhdrPaddr);
+            ulong filesz = U64(elf, phdrStart + Rv64ElfLoader.PhdrFilesz);
+            ulong memsz = U64(elf, phdrStart + Rv64ElfLoader.PhdrMemsz);
 
             // Load file bytes
             if (filesz > 0) memory.Load(paddr, elf.Slice((int)fileOffset, (int)filesz));

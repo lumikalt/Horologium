@@ -45,9 +45,9 @@ public class Rv64ATests {
     public void ScD_SucceedsAfterMatchingLrD_AndWritesDoubleword() {
         _mem.Write(0x100, 0UL, 8);
         Rv64ArchState s = MakeState((1, 0x100), (2, 0xDEADBEEFCAFEBABEUL));
-        Exec(AmoD(0x02, 5, 1, 0), s); // lr.d x5, (x1)
+        Exec(AmoD(0x02, 5, 1, 0), s);                   // lr.d x5, (x1)
         ExecuteResult r = Exec(AmoD(0x03, 6, 1, 2), s); // sc.d x6, x2, (x1)
-        Assert.Equal(0UL, r.RegisterResult.Value); // success
+        Assert.Equal(0UL, r.RegisterResult.Value);      // success
         Assert.Equal(0xDEADBEEFCAFEBABEUL, _mem.Read(0x100, 8));
     }
 
@@ -126,15 +126,15 @@ public class Rv64ATests {
 
     [Fact]
     public void AmominD_SignedMin_UpperBitsMatter() {
-        _mem.Write(0x200, unchecked((ulong)(long)(-1)), 8);
+        _mem.Write(0x200, unchecked((ulong)(long)-1), 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 5UL));
         Exec(AmoD(0x10, 3, 1, 2), s);
-        Assert.Equal(unchecked((ulong)(long)(-1)), _mem.Read(0x200, 8));
+        Assert.Equal(unchecked((ulong)(long)-1), _mem.Read(0x200, 8));
     }
 
     [Fact]
     public void AmomaxD_SignedMax() {
-        _mem.Write(0x200, unchecked((ulong)(long)(-1)), 8);
+        _mem.Write(0x200, unchecked((ulong)(long)-1), 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 5UL));
         Exec(AmoD(0x14, 3, 1, 2), s);
         Assert.Equal(5UL, _mem.Read(0x200, 8));
@@ -142,7 +142,7 @@ public class Rv64ATests {
 
     [Fact]
     public void AmominuD_UnsignedMin_TreatsAllOnesAsLargest() {
-        _mem.Write(0x200, unchecked((ulong)(long)(-1)), 8);
+        _mem.Write(0x200, unchecked((ulong)(long)-1), 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 5UL));
         Exec(AmoD(0x18, 3, 1, 2), s);
         Assert.Equal(5UL, _mem.Read(0x200, 8));
@@ -150,10 +150,10 @@ public class Rv64ATests {
 
     [Fact]
     public void AmomaxuD_UnsignedMax_TreatsAllOnesAsLargest() {
-        _mem.Write(0x200, unchecked((ulong)(long)(-1)), 8);
+        _mem.Write(0x200, unchecked((ulong)(long)-1), 8);
         Rv64ArchState s = MakeState((1, 0x200), (2, 5UL));
         Exec(AmoD(0x1C, 3, 1, 2), s);
-        Assert.Equal(unchecked((ulong)(long)(-1)), _mem.Read(0x200, 8));
+        Assert.Equal(unchecked((ulong)(long)-1), _mem.Read(0x200, 8));
     }
 
     // ── AMOCAS.D (Zacas doubleword compare-and-swap, RV64-native single register) ────────

@@ -12,7 +12,6 @@ using RiscV32.State;
 namespace RiscV32.Execute;
 
 public partial class Rv32Executor {
-
     // ── Half precision (Zfh) helpers ────────────────────────────────────────────
 
     // RISC-V canonical NaN for float16 (positive, quiet NaN with the top mantissa bit set).
@@ -30,12 +29,12 @@ public partial class Rv32Executor {
         ulong raw = regs.Read(rs);
         return raw >> 16 == 0xFFFFFFFFFFFFUL
             ? BitConverter.UInt16BitsToHalf((ushort)raw)
-            : BitConverter.UInt16BitsToHalf(RvCanonicalNaNH);
+            : BitConverter.UInt16BitsToHalf(Rv32Executor.RvCanonicalNaNH);
     }
 
     // Half result + OR flags into fflags via SideEffect. Writes NaN-boxed (upper 48 bits = 1).
     protected static ExecuteResult FloatRegH(Half value, uint flags) {
-        ushort bits = Half.IsNaN(value) ? RvCanonicalNaNH : BitConverter.HalfToUInt16Bits(value);
+        ushort bits = Half.IsNaN(value) ? Rv32Executor.RvCanonicalNaNH : BitConverter.HalfToUInt16Bits(value);
         ulong nanBoxed = 0xFFFFFFFFFFFF0000UL | bits;
         if (flags == 0) return ExecuteResult.WithResult(nanBoxed);
         return new ExecuteResult
@@ -70,7 +69,7 @@ public partial class Rv32Executor {
 
         bool nx = (float)r != exact;
         if (nx) flags |= 0x01;
-        if (nx && r != (Half)0f && Half.Abs(r) < MinNormalH) flags |= 0x02;
+        if (nx && r != (Half)0f && Half.Abs(r) < Rv32Executor.MinNormalH) flags |= 0x02;
         return flags;
     }
 
@@ -92,7 +91,7 @@ public partial class Rv32Executor {
 
         bool nx = (float)r != exact;
         if (nx) flags |= 0x01;
-        if (nx && r != (Half)0f && Half.Abs(r) < MinNormalH) flags |= 0x02;
+        if (nx && r != (Half)0f && Half.Abs(r) < Rv32Executor.MinNormalH) flags |= 0x02;
         return flags;
     }
 
@@ -107,7 +106,7 @@ public partial class Rv32Executor {
         if (Half.IsInfinity(r)) return 0;
         bool nx = (float)r != exact;
         uint flags = nx ? 0x01u : 0u;
-        if (nx && r != (Half)0f && Half.Abs(r) < MinNormalH) flags |= 0x02;
+        if (nx && r != (Half)0f && Half.Abs(r) < Rv32Executor.MinNormalH) flags |= 0x02;
         return flags;
     }
 
@@ -170,14 +169,14 @@ public partial class Rv32Executor {
 
     // RISC-V FCLASS encoding (10-bit result), half-precision bit layout.
     private static ulong HClass(ushort bits) {
-        bool sign = (bits >> 15) != 0;
-        uint exp = (uint)((bits >> 10) & 0x1F);
-        uint frac = (uint)(bits & 0x3FF);
+        bool sign = bits >> 15 != 0;
+        var exp = (uint)((bits >> 10) & 0x1F);
+        var frac = (uint)(bits & 0x3FF);
         return exp switch {
             0x1F when frac == 0 => sign ? 1UL << 0 : 1UL << 7,
             0x1F                => frac >> 9 != 0 ? 1UL << 9 : 1UL << 8,
             0 => frac == 0 ? sign ? 1UL << 3 : 1UL << 4 // ±zero
-                : sign      ? 1UL << 2 : 1UL << 5,
+                : sign     ? 1UL << 2 : 1UL << 5,
             _ => sign ? 1UL << 1 : 1UL << 6,
         };
     }
@@ -186,8 +185,7 @@ public partial class Rv32Executor {
     private static Half HMin(Half a, Half b) {
         if (Half.IsNaN(a)) return b;
         if (Half.IsNaN(b)) return a;
-        if (a == (Half)0f && b == (Half)0f)
-            return Half.IsNegative(a) || Half.IsNegative(b) ? (Half)(-0f) : (Half)0f;
+        if (a == (Half)0f && b == (Half)0f) return Half.IsNegative(a) || Half.IsNegative(b) ? (Half)(-0f) : (Half)0f;
         return a < b ? a : b;
     }
 
@@ -195,8 +193,7 @@ public partial class Rv32Executor {
     private static Half HMax(Half a, Half b) {
         if (Half.IsNaN(a)) return b;
         if (Half.IsNaN(b)) return a;
-        if (a == (Half)0f && b == (Half)0f)
-            return !Half.IsNegative(a) || !Half.IsNegative(b) ? (Half)0f : (Half)(-0f);
+        if (a == (Half)0f && b == (Half)0f) return !Half.IsNegative(a) || !Half.IsNegative(b) ? (Half)0f : (Half)(-0f);
         return a > b ? a : b;
     }
 
@@ -279,5 +276,4 @@ public partial class Rv32Executor {
             return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
         }
     }
-
 }

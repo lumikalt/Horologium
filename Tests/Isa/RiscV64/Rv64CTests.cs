@@ -39,27 +39,27 @@ public class Rv64CTests {
     // C.LD / C.SD (CL/CS-format): uimm[5:3]=c[12:10], uimm[7:6]=c[6:5]. rd'/rs1'/rs2' are
     // 3-bit fields (+8 for x8-x15).
     private static ushort CLd(int rdP, int rs1P, int uimm) =>
-        (ushort)(0x3u << 13 | ((uint)(uimm >> 6 & 0x3) << 5) | ((uint)(rs1P - 8) << 7)
-                 | ((uint)(uimm >> 3 & 0x7) << 10) | ((uint)(rdP - 8) << 2) | 0x0u);
+        (ushort)((0x3u << 13) | ((uint)((uimm >> 6) & 0x3) << 5) | ((uint)(rs1P - 8) << 7)
+               | ((uint)((uimm >> 3) & 0x7) << 10) | ((uint)(rdP - 8) << 2) | 0x0u);
 
     private static ushort CSd(int rs1P, int rs2P, int uimm) =>
-        (ushort)(0x7u << 13 | ((uint)(uimm >> 6 & 0x3) << 5) | ((uint)(rs1P - 8) << 7)
-                 | ((uint)(uimm >> 3 & 0x7) << 10) | ((uint)(rs2P - 8) << 2) | 0x0u);
+        (ushort)((0x7u << 13) | ((uint)((uimm >> 6) & 0x3) << 5) | ((uint)(rs1P - 8) << 7)
+               | ((uint)((uimm >> 3) & 0x7) << 10) | ((uint)(rs2P - 8) << 2) | 0x0u);
 
     // C.ADDIW (CI-format, quadrant 1, funct3=1): imm[5]=c[12], imm[4:0]=c[6:2].
     private static ushort CAddiw(int rd, int imm) =>
-        (ushort)(0x1u << 13 | ((uint)(imm >> 5 & 0x1) << 12) | ((uint)rd << 7)
-                 | ((uint)(imm & 0x1F) << 2) | 0x1u);
+        (ushort)((0x1u << 13) | ((uint)((imm >> 5) & 0x1) << 12) | ((uint)rd << 7)
+               | ((uint)(imm & 0x1F) << 2) | 0x1u);
 
     // C.LDSP (CI-format, quadrant 2, funct3=3): uimm[5]=c[12], uimm[4:3]=c[6:5], uimm[8:6]=c[4:2].
     private static ushort CLdsp(int rd, int uimm) =>
-        (ushort)(0x3u << 13 | ((uint)(uimm >> 5 & 0x1) << 12) | ((uint)rd << 7)
-                 | ((uint)(uimm >> 3 & 0x3) << 5) | ((uint)(uimm >> 6 & 0x7) << 2) | 0x2u);
+        (ushort)((0x3u << 13) | ((uint)((uimm >> 5) & 0x1) << 12) | ((uint)rd << 7)
+               | ((uint)((uimm >> 3) & 0x3) << 5) | ((uint)((uimm >> 6) & 0x7) << 2) | 0x2u);
 
     // C.SDSP (CSS-format, quadrant 2, funct3=7): uimm[5:3]=c[12:10], uimm[8:6]=c[9:7].
     private static ushort CSdsp(int rs2, int uimm) =>
-        (ushort)(0x7u << 13 | ((uint)(uimm >> 3 & 0x7) << 10) | ((uint)(uimm >> 6 & 0x7) << 7)
-                 | ((uint)rs2 << 2) | 0x2u);
+        (ushort)((0x7u << 13) | ((uint)((uimm >> 3) & 0x7) << 10) | ((uint)((uimm >> 6) & 0x7) << 7)
+               | ((uint)rs2 << 2) | 0x2u);
 
     // ── C.LD / C.SD ──────────────────────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ public class Rv64CTests {
     public void CLd_LoadsDoublewordViaDecodeRaw() {
         _mem.Write(0x100, 0xABCDEF0123456789UL, 8);
         Rv64ArchState s = MakeState((9, 0x100)); // x9 = s1 (rs1' index 1 -> reg 9)
-        ushort raw = CLd(10, 9, 0); // c.ld x10, 0(x9)
+        ushort raw = CLd(10, 9, 0);              // c.ld x10, 0(x9)
         ExecuteResult r = ExecRaw(raw, s);
         Assert.Equal(0xABCDEF0123456789UL, r.RegisterResult.Value);
     }
@@ -105,7 +105,7 @@ public class Rv64CTests {
     [Fact]
     public void CAddiw_SignExtends32To64ViaMemoryFetchPath() {
         Rv64ArchState s = MakeState((5, 0x7FFFFFFEUL)); // x5 near INT32_MAX
-        ushort raw = CAddiw(5, 3); // c.addiw x5, 3 -> lower32 overflow, sign-extend
+        ushort raw = CAddiw(5, 3);                      // c.addiw x5, 3 -> lower32 overflow, sign-extend
         ExecuteResult r = ExecViaMemory(raw, s, 0x400);
         Assert.Equal(0xFFFFFFFF80000001UL, r.RegisterResult.Value);
     }
@@ -130,7 +130,7 @@ public class Rv64CTests {
     public void CLdsp_LoadsFromStackPointerViaMemoryFetchPath() {
         _mem.Write(0x210, 0x9988776655443322UL, 8);
         Rv64ArchState s = MakeState((2, 0x200)); // sp = x2
-        ushort raw = CLdsp(11, 0x10); // c.ldsp x11, 0x10(sp)
+        ushort raw = CLdsp(11, 0x10);            // c.ldsp x11, 0x10(sp)
         ExecuteResult r = ExecViaMemory(raw, s, 0x400);
         Assert.Equal(0x9988776655443322UL, r.RegisterResult.Value);
     }

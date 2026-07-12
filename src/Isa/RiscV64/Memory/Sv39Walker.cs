@@ -36,7 +36,7 @@ internal static class Sv39Walker {
         PrivilegeLevel privilege,
         bool sum = false
     ) {
-        if ((satp >> 60) == 0) return (vaddr, 0); // Bare mode — no translation
+        if (satp >> 60 == 0) return (vaddr, 0); // Bare mode — no translation
 
         int fault = FaultCause(isWrite, isExec);
 

@@ -3,7 +3,6 @@ using Mechanism;
 namespace RiscV32.Decode;
 
 public partial class Rv32Decoder {
-
     // ── V extension ───────────────────────────────────────────────────────────
 
     // VLE8/16/32 and VLM: opcode=0x07, funct3 ≠ 2.
@@ -901,5 +900,4 @@ public partial class Rv32Decoder {
 
     private static int SignExtend5(int value) =>
         (value & 0x10) != 0 ? value | unchecked((int)0xFFFFFFE0) : value & 0x1F;
-
 }

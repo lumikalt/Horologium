@@ -114,7 +114,7 @@ public class Rv64ZbbZbsTests {
     public void OrcB_BroadcastsNonzeroBytesAcrossAllEightBytes() {
         Rv64ArchState s = MakeState((2, 0x0001000000000100UL));
         ExecuteResult r = Exec(OpImm(0x5, 0x0A, 1, 2, 0x07), s);
-        Assert.Equal(0x00FF000000000000UL | 0xFFUL << 8, r.RegisterResult.Value);
+        Assert.Equal(0x00FF000000000000UL | (0xFFUL << 8), r.RegisterResult.Value);
     }
 
     // ── RORI ──────────────────────────────────────────────────────────────────────

@@ -14,9 +14,8 @@ public class Rv64ArchState : Rv32ArchState {
 
     public Rv64ArchState() : base(new Rv64UnifiedRegisterFile()) { }
 
-    protected Rv64ArchState(Rv64ArchState source) : base(source, new Rv64UnifiedRegisterFile()) {
+    protected Rv64ArchState(Rv64ArchState source) : base(source, new Rv64UnifiedRegisterFile()) =>
         Rv64Csrs.Satp = source.Rv64Csrs.Satp;
-    }
 
     public override IArchState Snapshot() => new Rv64ArchState(this);
 

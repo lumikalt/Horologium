@@ -20,11 +20,10 @@ public class Rv64Decoder : Rv32Decoder {
     // pick up the RV64C quadrant reassignments below.
     public override ITooth Decode(ulong pc, IMemory memory) {
         var half = (ushort)memory.Read(pc, 2);
-        if ((half & 0x3) != 0x3) {
+        if ((half & 0x3) != 0x3)
             return _cache.TryGetValue((pc, half), out ITooth? cached)
                 ? cached
                 : Cache(pc, half, TryDecodeRv64Compressed(pc, half) ?? DecodeCompressed(pc, half));
-        }
 
         return base.Decode(pc, memory);
     }
@@ -67,7 +66,7 @@ public class Rv64Decoder : Rv32Decoder {
                     0x5 => new RvDivuw(rd, rs1, rs2),
                     0x6 => new RvRemw(rd, rs1, rs2),
                     0x7 => new RvRemuw(rd, rs1, rs2),
-                    _ => throw new IllegalInstructionException(raw, $"Unknown RV64M OP-32 funct3=0x{funct3:X}"),
+                    _   => throw new IllegalInstructionException(raw, $"Unknown RV64M OP-32 funct3=0x{funct3:X}"),
                 };
                 return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerMulDiv, mop);
             }
@@ -105,16 +104,16 @@ public class Rv64Decoder : Rv32Decoder {
                 uint top6 = (raw >> 26) & 0x3F;
                 IReadOnlyList<int> sources = [rs1,];
                 RvOp op = funct3 switch {
-                    0x0                    => new RvAddiw(rd, rs1, imm),
-                    0x1 when f7 == 0x00    => new RvSlliw(rd, rs1, (int)shamt),
+                    0x0                 => new RvAddiw(rd, rs1, imm),
+                    0x1 when f7 == 0x00 => new RvSlliw(rd, rs1, (int)shamt),
                     // Zba SLLI.UW: funct6=0b000010, 6-bit shamt (bits 25:20).
-                    0x1 when top6 == 0x02  => new RvSlliUw(rd, rs1, (int)((raw >> 20) & 0x3F)),
-                    0x5 when f7 == 0x00    => new RvSrliw(rd, rs1, (int)shamt),
-                    0x5 when f7 == 0x20    => new RvSraiw(rd, rs1, (int)shamt),
+                    0x1 when top6 == 0x02 => new RvSlliUw(rd, rs1, (int)((raw >> 20) & 0x3F)),
+                    0x5 when f7 == 0x00   => new RvSrliw(rd, rs1, (int)shamt),
+                    0x5 when f7 == 0x20   => new RvSraiw(rd, rs1, (int)shamt),
                     // Zbb: RORIW (5-bit shamt) and the CLZW/CTZW/CPOPW single-operand forms,
                     // discriminated by rs2 (bits 24:20, same field as shamt) at funct7=0x30.
-                    0x5 when f7 == 0x30    => new RvRoriw(rd, rs1, (int)shamt),
-                    0x1 when f7 == 0x30    => shamt switch {
+                    0x5 when f7 == 0x30 => new RvRoriw(rd, rs1, (int)shamt),
+                    0x1 when f7 == 0x30 => shamt switch {
                         0 => new RvClzw(rd, rs1),
                         1 => new RvCtzw(rd, rs1),
                         2 => new RvCpopw(rd, rs1),
@@ -207,7 +206,7 @@ public class Rv64Decoder : Rv32Decoder {
                     0x14 => new RvAmomaxD(rd, rs1, rs2),
                     0x18 => new RvAmominuD(rd, rs1, rs2),
                     0x1C => new RvAmomaxuD(rd, rs1, rs2),
-                    _ => throw new IllegalInstructionException(raw, $"Unknown RV64A AMO.D funct5=0x{funct5:X2}"),
+                    _    => throw new IllegalInstructionException(raw, $"Unknown RV64A AMO.D funct5=0x{funct5:X2}"),
                 };
                 return new RvInstruction(pc, raw, rd, sources, ToothClass.Atomic, op);
             }
@@ -249,7 +248,7 @@ public class Rv64Decoder : Rv32Decoder {
         // FCVT.H.L / FCVT.H.LU: int64→half
         (0x6A, 2) => FpR1(pc, raw, rd + 32, rs1, new RvFcvtHl(rd + 32, rs1, (int)funct3)),
         (0x6A, 3) => FpR1(pc, raw, rd + 32, rs1, new RvFcvtHLu(rd + 32, rs1, (int)funct3)),
-        _ => null,
+        _         => null,
     };
 
     // ── RV64C quadrant reassignments ──────────────────────────────────────────
@@ -264,44 +263,50 @@ public class Rv64Decoder : Rv32Decoder {
     // bit[12]=1, but on RV64 that bit selects the word-width C.SUBW/C.ADDW forms.
     // Returns null for every other encoding so the caller falls through to the base RV32C table.
     private static ITooth? TryDecodeRv64Compressed(ulong pc, ushort c) {
-        uint q = (uint)(c & 0x3);
+        var q = (uint)(c & 0x3);
         var funct3 = (uint)(c >> 13);
 
         switch (q) {
-            case 0x1 when funct3 == 0x4 && (c & 0x1C00) == 0x1C00: { // C.SUBW/C.ADDW (bits[12:10]=111)
+            case 0x1 when funct3 == 0x4 && (c & 0x1C00) == 0x1C00: {
+                // C.SUBW/C.ADDW (bits[12:10]=111)
                 int rdp = ((c >> 7) & 0x7) + 8;
                 int rs2P = ((c >> 2) & 0x7) + 8;
                 RvOp op = ((c >> 5) & 0x3) switch {
                     0x0 => new RvSubw(rdp, rdp, rs2P),
                     0x1 => new RvAddw(rdp, rdp, rs2P),
-                    _ => throw new IllegalInstructionException(c, "C.SUBW/C.ADDW with funct2 ∈ {2,3} is reserved"),
+                    _   => throw new IllegalInstructionException(c, "C.SUBW/C.ADDW with funct2 ∈ {2,3} is reserved"),
                 };
                 return new RvInstruction(pc, c, rdp, [rdp, rs2P,], ToothClass.IntegerAlu, op, 2);
             }
-            case 0x0 when funct3 == 0x3: { // C.LD
+            case 0x0 when funct3 == 0x3: {
+                // C.LD
                 int rdp = ((c >> 2) & 0x7) + 8;
                 int rs1P = ((c >> 7) & 0x7) + 8;
                 return new RvInstruction(pc, c, rdp, [rs1P,], ToothClass.Load, new RvLd(rdp, rs1P, CldMemImm(c)), 2);
             }
-            case 0x0 when funct3 == 0x7: { // C.SD
+            case 0x0 when funct3 == 0x7: {
+                // C.SD
                 int rs2P = ((c >> 2) & 0x7) + 8;
                 int rs1P = ((c >> 7) & 0x7) + 8;
                 return new RvInstruction(
                     pc, c, -1, [rs1P, rs2P,], ToothClass.Store, new RvSd(rs1P, rs2P, CldMemImm(c)), 2
                 );
             }
-            case 0x1 when funct3 == 0x1: { // C.ADDIW
+            case 0x1 when funct3 == 0x1: {
+                // C.ADDIW
                 int rd = (c >> 7) & 0x1F;
                 if (rd == 0) throw new IllegalInstructionException(c, "C.ADDIW with rd=x0 is reserved");
                 int imm = SignExtendN((((c >> 12) & 0x1) << 5) | ((c >> 2) & 0x1F), 6);
                 return new RvInstruction(pc, c, rd, [rd,], ToothClass.IntegerAlu, new RvAddiw(rd, rd, imm), 2);
             }
-            case 0x2 when funct3 == 0x3: { // C.LDSP
+            case 0x2 when funct3 == 0x3: {
+                // C.LDSP
                 int rd = (c >> 7) & 0x1F;
                 if (rd == 0) throw new IllegalInstructionException(c, "C.LDSP with rd=x0 is reserved");
                 return new RvInstruction(pc, c, rd, [2,], ToothClass.Load, new RvLd(rd, 2, CldspImm(c)), 2);
             }
-            case 0x2 when funct3 == 0x7: { // C.SDSP
+            case 0x2 when funct3 == 0x7: {
+                // C.SDSP
                 int rs2 = (c >> 2) & 0x1F;
                 return new RvInstruction(pc, c, -1, [2, rs2,], ToothClass.Store, new RvSd(2, rs2, CsdspImm(c)), 2);
             }

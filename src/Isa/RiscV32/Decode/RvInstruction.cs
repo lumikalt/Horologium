@@ -467,4 +467,3 @@ public record RvDivu(int Rd, int Rs1, int Rs2) : RvOp;
 public record RvRem(int Rd, int Rs1, int Rs2) : RvOp;
 
 public record RvRemu(int Rd, int Rs1, int Rs2) : RvOp;
-

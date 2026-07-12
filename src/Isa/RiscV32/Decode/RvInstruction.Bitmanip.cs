@@ -113,4 +113,3 @@ public record RvMopRr(int Rd) : RvOp; // mop.rr.N: register-register may-be-op
 // Pattern: (c & 0xF8FF) == 0x6081; N = 2*(bits[10:8])+1.
 // All are hint NOPs with no architectural effect.
 public record RvCMopN(int N) : RvOp; // c.mop.N (N odd, 1..15)
-

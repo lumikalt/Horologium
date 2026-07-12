@@ -57,9 +57,9 @@ public class Rv64MTests {
 
     [Fact]
     public void Divw_SignedDivision() {
-        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)(-7))), (3, 2UL));
+        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)-7)), (3, 2UL));
         ExecuteResult r = Exec(Op32M(0x4, 1, 2, 3), s);
-        Assert.Equal(unchecked((ulong)(long)(-3)), r.RegisterResult.Value);
+        Assert.Equal(unchecked((ulong)(long)-3), r.RegisterResult.Value);
     }
 
     [Fact]
@@ -98,9 +98,9 @@ public class Rv64MTests {
 
     [Fact]
     public void Remw_SignedRemainder() {
-        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)(-7))), (3, 2UL));
+        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)-7)), (3, 2UL));
         ExecuteResult r = Exec(Op32M(0x6, 1, 2, 3), s);
-        Assert.Equal(unchecked((ulong)(long)(-1)), r.RegisterResult.Value);
+        Assert.Equal(unchecked((ulong)(long)-1), r.RegisterResult.Value);
     }
 
     [Fact]
@@ -208,9 +208,9 @@ public class Rv64MTests {
 
     [Fact]
     public void Rem_64BitSignedRemainder() {
-        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)(-7))), (3, 2UL));
+        Rv64ArchState s = MakeState((2, unchecked((ulong)(long)-7)), (3, 2UL));
         ExecuteResult r = Exec(OpM(0x6, 1, 2, 3), s);
-        Assert.Equal(unchecked((ulong)(long)(-1)), r.RegisterResult.Value);
+        Assert.Equal(unchecked((ulong)(long)-1), r.RegisterResult.Value);
     }
 
     [Fact]

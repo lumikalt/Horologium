@@ -12,7 +12,6 @@ using RiscV32.State;
 namespace RiscV32.Execute;
 
 public partial class Rv32Executor {
-
     // ── UVE extension helpers ─────────────────────────────────────────────────
 
     private static Rv32ArchState UState(IArchState state) => (Rv32ArchState)state;
@@ -878,5 +877,4 @@ public partial class Rv32Executor {
             default: return raw; // identity for matching widths or unsupported combos
         }
     }
-
 }

@@ -76,4 +76,3 @@ public record RvAmomaxH(int Rd, int Rs1, int Rs2) : RvOp;
 public record RvAmominuH(int Rd, int Rs1, int Rs2) : RvOp;
 
 public record RvAmomaxuH(int Rd, int Rs1, int Rs2) : RvOp;
-

@@ -174,4 +174,3 @@ public record RvFcvtSh(int Rd, int Rs1, int Rm) : RvOp; // half→single (wideni
 public record RvFcvtHd(int Rd, int Rs1, int Rm) : RvOp; // double→half (narrowing)
 
 public record RvFcvtDh(int Rd, int Rs1, int Rm) : RvOp; // half→double (widening)
-
