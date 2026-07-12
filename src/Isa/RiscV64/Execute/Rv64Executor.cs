@@ -1,3 +1,4 @@
+using System.Numerics;
 using Mechanism;
 using RiscV32;
 using RiscV32.Decode;
@@ -29,6 +30,9 @@ namespace RiscV64.Execute;
 public class Rv64Executor : Rv32Executor {
     // Sign-extend the lower 32 bits of v to 64 bits.
     private static ulong SexW(ulong v) => (ulong)(int)(uint)v;
+
+    // Zero-extend the lower 32 bits of v to 64 bits.
+    private static ulong ZextW(ulong v) => v & 0xFFFFFFFFUL;
 
     protected override ExecuteResult Reg(ulong value) => ExecuteResult.WithResult(value);
 
@@ -190,6 +194,46 @@ public class Rv64Executor : Rv32Executor {
             RvCsrrci(_, var zimm, var csr) when csr == CsrFile.Satp =>
                 ExecuteSatpCsr(state, pc, zimm, zimm != 0, (old, src) => old & ~src),
 
+            // ── RV64A doubleword atomics ─────────────────────────────────────────
+            RvLrD(_, var rs1) => AmoLrD(memory, state, pc, regs, rs1),
+
+            RvScD(_, var rs1, var rs2) => AmoScD(memory, state, pc, regs, rs1, rs2),
+
+            RvAmoswapD(_, var rs1, var rs2) => AmoD(memory, state, pc, regs, rs1, rs2, (_, v) => v),
+            RvAmoaddD (_, var rs1, var rs2) => AmoD(memory, state, pc, regs, rs1, rs2, (a, v) => a + v),
+            RvAmoxorD (_, var rs1, var rs2) => AmoD(memory, state, pc, regs, rs1, rs2, (a, v) => a ^ v),
+            RvAmoandD (_, var rs1, var rs2) => AmoD(memory, state, pc, regs, rs1, rs2, (a, v) => a & v),
+            RvAmoorD (_, var rs1, var rs2)  => AmoD(memory, state, pc, regs, rs1, rs2, (a, v) => a | v),
+            RvAmominD (_, var rs1, var rs2) =>
+                AmoD(memory, state, pc, regs, rs1, rs2, (a, v) => (ulong)Math.Min((long)a, (long)v)),
+            RvAmomaxD (_, var rs1, var rs2) =>
+                AmoD(memory, state, pc, regs, rs1, rs2, (a, v) => (ulong)Math.Max((long)a, (long)v)),
+            RvAmominuD(_, var rs1, var rs2) =>
+                AmoD(memory, state, pc, regs, rs1, rs2, Math.Min),
+            RvAmomaxuD(_, var rs1, var rs2) =>
+                AmoD(memory, state, pc, regs, rs1, rs2, Math.Max),
+
+            // ── Zbb/Zbs immediate ops: 64-bit width (base RV32 versions truncate to 32) ──
+            // RvSextB/RvSextH are not overridden: the base implementation sign-extends
+            // through Reg(), which Rv64Executor already returns untruncated.
+            RvBclri(_, var rs1, var sh) => Reg(regs.Read(rs1) & ~(1UL << sh)),
+            RvBexti(_, var rs1, var sh) => Reg((regs.Read(rs1) >> sh) & 1),
+            RvBinvi(_, var rs1, var sh) => Reg(regs.Read(rs1) ^ (1UL << sh)),
+            RvBseti(_, var rs1, var sh) => Reg(regs.Read(rs1) | (1UL << sh)),
+            RvClz (_, var rs1)          => Reg((ulong)BitOperations.LeadingZeroCount(regs.Read(rs1))),
+            RvCtz (_, var rs1)          => Reg((ulong)BitOperations.TrailingZeroCount(regs.Read(rs1))),
+            RvCpop (_, var rs1)         => Reg((ulong)BitOperations.PopCount(regs.Read(rs1))),
+            RvRori (_, var rs1, var sh) => Reg(BitOperations.RotateRight(regs.Read(rs1), sh)),
+            RvOrcB (_, var rs1)         => OrcB64(regs, rs1),
+            RvRev8 (_, var rs1)         => Rev8_64(regs, rs1),
+
+            // ── Zba: address-generation ops over the zero-extended low 32 bits of rs1 ──
+            RvAdduw    (_, var rs1, var rs2) => Reg(regs.Read(rs2) + ZextW(regs.Read(rs1))),
+            RvSh1AddUw (_, var rs1, var rs2) => Reg(regs.Read(rs2) + (ZextW(regs.Read(rs1)) << 1)),
+            RvSh2AddUw (_, var rs1, var rs2) => Reg(regs.Read(rs2) + (ZextW(regs.Read(rs1)) << 2)),
+            RvSh3AddUw (_, var rs1, var rs2) => Reg(regs.Read(rs2) + (ZextW(regs.Read(rs1)) << 3)),
+            RvSlliUw   (_, var rs1, var sh)  => Reg(ZextW(regs.Read(rs1)) << sh),
+
             _ => null,
         };
 
@@ -230,6 +274,72 @@ public class Rv64Executor : Rv32Executor {
         if (b == 0) return Reg(regs.Read(rs1));
         if (a == long.MinValue && b == -1) return Reg(0);
         return Reg(unchecked((ulong)(a % b)));
+    }
+
+    // Atomic doubleword read-modify-write. Returns original value; combines with rs2 and stores.
+    private ExecuteResult AmoD(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rs1,
+        int rs2,
+        Func<ulong, ulong, ulong> combine
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        ulong old = memory.Read(addr, 8);
+        memory.Write(addr, combine(old, regs.Read(rs2)), 8);
+        return Reg(old);
+    }
+
+    private ExecuteResult AmoLrD(IMemory memory, IArchState state, ulong pc, IRegisterFile regs, int rs1) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong paddr, int fault) = Translate(memory, state, vaddr, false, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        if (ReservationTable is not null)
+            ReservationTable.Set(HartId, paddr, 8);
+        else
+            _reservation = paddr;
+        return Reg(memory.Read(paddr, 8));
+    }
+
+    private ExecuteResult AmoScD(
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs,
+        int rs1,
+        int rs2
+    ) {
+        ulong vaddr = regs.Read(rs1);
+        (ulong paddr, int fault) = Translate(memory, state, vaddr, true, false);
+        if (fault != 0) return ExecuteResult.WithTrap(new TrapInfo(fault, vaddr, pc));
+        bool success = ReservationTable?.TryConsume(HartId, paddr, 8) ?? ConsumePrivateReservation(paddr);
+        if (!success) return Reg(1); // reservation is absent or invalidated → fail
+        memory.Write(paddr, regs.Read(rs2), 8);
+        return Reg(0); // 0 = success
+    }
+
+    // orc.b: per-byte OR-combine over the full 64-bit register — nonzero byte → 0xFF.
+    private ExecuteResult OrcB64(IRegisterFile regs, int rs1) {
+        ulong v = regs.Read(rs1);
+        ulong r = 0;
+        for (var i = 0; i < 8; i++) {
+            ulong b = (v >> (i * 8)) & 0xFF;
+            if (b != 0) r |= 0xFFUL << (i * 8);
+        }
+
+        return Reg(r);
+    }
+
+    // rev8: reverse byte order of a 64-bit doubleword.
+    private ExecuteResult Rev8_64(IRegisterFile regs, int rs1) {
+        ulong v = regs.Read(rs1);
+        ulong r = 0;
+        for (var i = 0; i < 8; i++) r |= ((v >> (i * 8)) & 0xFF) << ((7 - i) * 8);
+        return Reg(r);
     }
 
     // Sign-extend the lower 32 bits of a base-class ExecuteResult's register value.

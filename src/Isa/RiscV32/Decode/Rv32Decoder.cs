@@ -8,7 +8,7 @@ namespace RiscV32.Decode;
 /// two different instructions happen to share the same PC (e.g., in unit tests).
 /// </summary>
 public class Rv32Decoder : IDecoder {
-    private readonly Dictionary<(ulong pc, uint raw), ITooth> _cache = new();
+    protected readonly Dictionary<(ulong pc, uint raw), ITooth> _cache = new();
     private readonly Dictionary<(ulong pc, uint raw), FetchHint> _hintCache = new();
 
     public FetchHint GetFetchHint(ulong pc, uint firstWord) {
@@ -123,7 +123,7 @@ public class Rv32Decoder : IDecoder {
         catch { return $"0x{raw:X8}"; }
     }
 
-    private ITooth Cache(ulong pc, uint raw, ITooth tooth) {
+    protected ITooth Cache(ulong pc, uint raw, ITooth tooth) {
         _cache[(pc, raw)] = tooth;
         return tooth;
     }
@@ -1722,7 +1722,7 @@ public class Rv32Decoder : IDecoder {
     ) =>
         new(pc, raw, dest, sources, cls, op, 2);
 
-    private static ITooth DecodeCompressed(ulong pc, ushort c) {
+    protected static ITooth DecodeCompressed(ulong pc, ushort c) {
         var q = (uint)(c & 0x3);
         var funct3 = (uint)(c >> 13);
         return q switch {
@@ -2290,7 +2290,7 @@ public class Rv32Decoder : IDecoder {
     protected static int SignExtend12(int value) =>
         (value & 0x800) != 0 ? value | unchecked((int)0xFFFFF000) : value & 0xFFF;
 
-    private static int SignExtendN(int value, int bits) {
+    protected static int SignExtendN(int value, int bits) {
         int shift = 32 - bits;
         return (value << shift) >> shift;
     }

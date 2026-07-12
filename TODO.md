@@ -105,6 +105,20 @@ Remaining delta, in rough dependency order:
   - [x] RV64 F/D extension.
 - [ ] riscv64-embedded cross-toolchain in the devshell (`flake.nix` only exposes `riscv32-embedded`) — RV64
   ELF loader and end-to-end tests currently use hand-crafted byte buffers rather than real compiled binaries.
+- [x] RV64A: AMO*.D / LR.D / SC.D (opcode 0x2F, funct3=0x3) — the base RV32 AMO decoder only handles
+  funct3=0x2 (word) and the Zabha .b/.h forms; doubleword atomics are entirely undecoded on RV64.
+- [x] RV64C: quadrant reassignments — C.LD/C.SD replace C.FLW/C.FSW (quadrant 0, funct3 3/7),
+  C.ADDIW replaces C.JAL (quadrant 1, funct3 1), C.LDSP/C.SDSP replace C.FLWSP/C.FSWSP
+  (quadrant 2, funct3 3/7).
+- [x] RV64 Zbb/Zbs immediate-form ops unreachable: CLZ/CTZ/CPOP/SEXT.B/SEXT.H/BSETI/BCLRI/BINVI/RORI/
+  REV8/ORC.B/BEXTI all decode through OP-IMM funct3=1/5, which Rv64Decoder's 6-bit-shamt override
+  (added for SLLI/SRLI/SRAI) intercepts and rejects with IllegalInstructionException for any encoding
+  that isn't a plain shift.
+- [x] RV64-only Zba ops: ADD.UW, SH1ADD.UW/SH2ADD.UW/SH3ADD.UW, SLLI.UW (OP-32/OP-IMM-32 with a
+  zero-extended-word left operand) — not implemented; these have no RV32 counterpart to inherit from.
+- [ ] RV64 Zbb/Zbs register-form ops unreachable/incorrect: ROL/ROR/BSET/BCLR/BINV/BEXT (R-type,
+  register-indexed shift/bit-manipulation) have the same 32-bit-truncation bug as the immediate forms
+  above but were out of scope for that fix — no Rv64Decoder/Rv64Executor overrides exist for them.
 - [ ] Zfh / Zfhmin: half-precision FP.
 - [x] Zcmop: compressed may-be-operations (c.mop.N, N odd 1–15) — already implemented (decoder, executor,
   disassembler) and verified commit-for-commit against Spike on all three trains; the TODO entry was stale.

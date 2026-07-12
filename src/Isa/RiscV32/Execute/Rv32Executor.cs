@@ -43,7 +43,7 @@ public class Rv32Executor : IExecutor {
     public int HartId { get; init; }
 
     // Single-hart fallback: used when ReservationTable is null.
-    private ulong? _reservation;
+    protected ulong? _reservation;
 
     public virtual ExecuteResult Execute(ITooth instruction, IArchState state, IMemory memory) {
         if (instruction.Payload is not RvOp op)
@@ -900,7 +900,7 @@ public class Rv32Executor : IExecutor {
     }
 
     // Single-hart reservation consume: clears _reservation regardless of match (per spec).
-    private bool ConsumePrivateReservation(ulong paddr) {
+    protected bool ConsumePrivateReservation(ulong paddr) {
         bool matched = _reservation == paddr;
         _reservation = null; // SC always releases the reservation
         return matched;

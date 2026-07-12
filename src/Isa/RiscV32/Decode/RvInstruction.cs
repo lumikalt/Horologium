@@ -138,7 +138,7 @@ public sealed class RvInstruction(
 
     public bool NanBoxLoadResult { get; } = payload is RvFlw;
     public bool IsDiv { get; } = payload is RvDiv or RvDivu or RvRem or RvRemu;
-    public bool IsStoreConditional { get; } = payload is RvScW;
+    public bool IsStoreConditional { get; } = payload is RvScW or RvScD;
 
     // W (bit 0) in the predecessor set and R (bit 1) in the successor set: the fence
     // orders older stores before younger loads — the only ordering TSO doesn't already
@@ -1505,3 +1505,37 @@ public record RvFcvtDLu(int Rd, int Rs1, int Rm) : RvOp; // unsigned int64→dou
 public record RvFmvXd(int Rd, int Rs1) : RvOp; // double bits→int reg (full 64 bits)
 
 public record RvFmvDx(int Rd, int Rs1) : RvOp; // int reg bits→double reg
+
+// ── RV64A doubleword atomics (opcode=0x2F, funct3=0x3) ────────────────────────────────────────
+public record RvLrD(int Rd, int Rs1) : RvOp;
+
+public record RvScD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoswapD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoaddD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoxorD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoandD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmoorD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmominD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmomaxD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmominuD(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvAmomaxuD(int Rd, int Rs1, int Rs2) : RvOp;
+
+// ── RV64-only Zba ops: operate on the zero-extended low 32 bits of rs1 (opcode=0x3B/0x1B) ─────
+public record RvAdduw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvSh1AddUw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvSh2AddUw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvSh3AddUw(int Rd, int Rs1, int Rs2) : RvOp;
+
+public record RvSlliUw(int Rd, int Rs1, int Sh) : RvOp;
