@@ -116,7 +116,7 @@ Remaining delta, in rough dependency order:
   that isn't a plain shift.
 - [x] RV64-only Zba ops: ADD.UW, SH1ADD.UW/SH2ADD.UW/SH3ADD.UW, SLLI.UW (OP-32/OP-IMM-32 with a
   zero-extended-word left operand) — not implemented; these have no RV32 counterpart to inherit from.
-- [ ] RV64 Zbb/Zbs register-form ops unreachable/incorrect: ROL/ROR/BSET/BCLR/BINV/BEXT (R-type,
+- [x] RV64 Zbb/Zbs register-form ops unreachable/incorrect: ROL/ROR/BSET/BCLR/BINV/BEXT (R-type,
   register-indexed shift/bit-manipulation) have the same 32-bit-truncation bug as the immediate forms
   above but were out of scope for that fix — no Rv64Decoder/Rv64Executor overrides exist for them.
 - [ ] Zfh / Zfhmin: half-precision FP.

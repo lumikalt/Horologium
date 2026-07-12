@@ -33,6 +33,10 @@ public class Rv64ZbbZbsTests {
     private static uint OpImm(uint funct3, uint top6, int rd, int rs1, uint shamt6) =>
         (top6 << 26) | (shamt6 << 20) | ((uint)rs1 << 15) | (funct3 << 12) | ((uint)rd << 7) | 0x13;
 
+    // R-type encoding: opcode=0x33 (OP).
+    private static uint Op(uint funct3, uint funct7, int rd, int rs1, int rs2) =>
+        (funct7 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (funct3 << 12) | ((uint)rd << 7) | 0x33;
+
     // ── BSETI / BCLRI / BINVI / BEXTI ────────────────────────────────────────────
 
     [Fact]
@@ -130,5 +134,64 @@ public class Rv64ZbbZbsTests {
         Rv64ArchState s = MakeState((2, 0x0102030405060708UL));
         ExecuteResult r = Exec(OpImm(0x5, 0x1A, 1, 2, 0x18), s);
         Assert.Equal(0x0807060504030201UL, r.RegisterResult.Value);
+    }
+
+    // ── Register-form Zbs (BCLR/BEXT/BINV/BSET): 64-bit width and 6-bit shift-amount mask ──
+
+    [Fact]
+    public void Bclr_RegisterForm_ClearsHighBit_ShiftMaskedTo6Bits() {
+        // shift amount 40 needs the full 6-bit mask (& 31 would alias it to 8).
+        Rv64ArchState s = MakeState((2, 0xFFFFFFFFFFFFFFFFUL), (3, 40UL));
+        ExecuteResult r = Exec(Op(0x1, 0x24, 1, 2, 3), s);
+        Assert.Equal(~(1UL << 40), r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Bext_RegisterForm_ExtractsHighBit() {
+        Rv64ArchState s = MakeState((2, 1UL << 40), (3, 40UL));
+        ExecuteResult r = Exec(Op(0x5, 0x24, 1, 2, 3), s);
+        Assert.Equal(1UL, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Binv_RegisterForm_TogglesHighBit() {
+        Rv64ArchState s = MakeState((2, 0UL), (3, 40UL));
+        ExecuteResult r = Exec(Op(0x1, 0x34, 1, 2, 3), s);
+        Assert.Equal(1UL << 40, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Bset_RegisterForm_SetsHighBit() {
+        Rv64ArchState s = MakeState((2, 0UL), (3, 40UL));
+        ExecuteResult r = Exec(Op(0x1, 0x14, 1, 2, 3), s);
+        Assert.Equal(1UL << 40, r.RegisterResult.Value);
+    }
+
+    // ── Register-form Zbb (ROL/ROR): full 64-bit width and value ────────────────
+
+    [Fact]
+    public void Rol_RegisterForm_PreservesHighBitsOfValue() {
+        // Identity rotation (shift=0): a base-RV32 (uint) cast would truncate a
+        // value with no set bits below bit 32 down to zero before rotating.
+        Rv64ArchState s = MakeState((2, 1UL << 40), (3, 0UL));
+        ExecuteResult r = Exec(Op(0x1, 0x30, 1, 2, 3), s);
+        Assert.Equal(1UL << 40, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Ror_RegisterForm_PreservesHighBitsOfValue() {
+        Rv64ArchState s = MakeState((2, 1UL << 40), (3, 0UL));
+        ExecuteResult r = Exec(Op(0x5, 0x30, 1, 2, 3), s);
+        Assert.Equal(1UL << 40, r.RegisterResult.Value);
+    }
+
+    [Fact]
+    public void Rol_RegisterForm_ShiftMaskedTo6Bits() {
+        // shift amount 64 should be a no-op mod 64 (& 63 => 0); (& 31) would rotate by 0 too
+        // by coincidence, so use 65 instead: (& 63) => 1, (& 31) => 1 as well — pick 96:
+        // (& 63) => 32 (correct half-width rotate), (& 31) => 0 (buggy no-op).
+        Rv64ArchState s = MakeState((2, 1UL), (3, 96UL));
+        ExecuteResult r = Exec(Op(0x1, 0x30, 1, 2, 3), s);
+        Assert.Equal(1UL << 32, r.RegisterResult.Value);
     }
 }

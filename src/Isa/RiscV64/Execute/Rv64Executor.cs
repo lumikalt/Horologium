@@ -227,6 +227,17 @@ public class Rv64Executor : Rv32Executor {
             RvOrcB (_, var rs1)         => OrcB64(regs, rs1),
             RvRev8 (_, var rs1)         => Rev8_64(regs, rs1),
 
+            // ── Zbb/Zbs register-form ops: 64-bit width and 6-bit shift-amount mask
+            // (base RV32 versions truncate to 32 bits and mask the shift amount with & 31).
+            RvBclr(_, var rs1, var rs2) => Reg(regs.Read(rs1) & ~(1UL << (int)(regs.Read(rs2) & 63))),
+            RvBext(_, var rs1, var rs2) => Reg((regs.Read(rs1) >> (int)(regs.Read(rs2) & 63)) & 1),
+            RvBinv(_, var rs1, var rs2) => Reg(regs.Read(rs1) ^ (1UL << (int)(regs.Read(rs2) & 63))),
+            RvBset(_, var rs1, var rs2) => Reg(regs.Read(rs1) | (1UL << (int)(regs.Read(rs2) & 63))),
+            RvRol (_, var rs1, var rs2) =>
+                Reg(BitOperations.RotateLeft(regs.Read(rs1), (int)(regs.Read(rs2) & 63))),
+            RvRor (_, var rs1, var rs2) =>
+                Reg(BitOperations.RotateRight(regs.Read(rs1), (int)(regs.Read(rs2) & 63))),
+
             // ── Zba: address-generation ops over the zero-extended low 32 bits of rs1 ──
             RvAdduw    (_, var rs1, var rs2) => Reg(regs.Read(rs2) + ZextW(regs.Read(rs1))),
             RvSh1AddUw (_, var rs1, var rs2) => Reg(regs.Read(rs2) + (ZextW(regs.Read(rs1)) << 1)),
