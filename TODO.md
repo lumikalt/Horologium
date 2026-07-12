@@ -104,7 +104,8 @@ Remaining delta, in rough dependency order:
   - [ ] RV64 M extension.
   - [ ] RV64 F/D extension.
 - [ ] Zfh / Zfhmin: half-precision FP.
-- [ ] Zcmop: compressed may-be-operations.
+- [x] Zcmop: compressed may-be-operations (c.mop.N, N odd 1–15) — already implemented (decoder, executor,
+  disassembler) and verified commit-for-commit against Spike on all three trains; the TODO entry was stale.
 - [ ] Zabha+Zacas narrower variants: amocas.b / amocas.h; amocas.d for RV32.
 
 ## Analysis
