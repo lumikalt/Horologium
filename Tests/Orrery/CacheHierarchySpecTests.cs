@@ -383,4 +383,106 @@ public class CacheHierarchySpecTests {
         Assert.Equal(CacheAccessModeKind.Sequential, layers.Cache!.AccessMode);
         Assert.Equal(7, layers.Cache.HitLatency);
     }
+
+    // ── Inclusion policy ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void Nine_Default_OuterEvictionDoesNotTouchInner() {
+        // Default (Nine) policy: an outer-level eviction must not invalidate the inner level's
+        // still-resident copy — matches pre-existing (uncoordinated) behavior.
+        FlatMemory backing = MakeBacking();
+        var l1 = new CacheLevelSpec(64, 4, 16, 5);  // 1 set, 4-way
+        var l2 = new CacheLevelSpec(32, 2, 16, 20); // 1 set, 2-way, Nine (default)
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]), [l2,]);
+
+        layers.Accessor.Read(0, 1);
+        layers.Accessor.Read(16, 1);
+        layers.ConsumeAllStalls();
+        layers.Accessor.Read(32, 1); // L2 (2-way, full) evicts line 0; L1 has room, keeps it
+        layers.ConsumeAllStalls();
+
+        Assert.Equal(0, layers.Cache!.BackInvalidations);
+        long l1MissesBefore = layers.Cache.Misses;
+        layers.Accessor.Read(0, 1); // still resident in L1 → hit, no new miss
+        Assert.Equal(l1MissesBefore, layers.Cache.Misses);
+    }
+
+    [Fact]
+    public void Inclusive_OuterEviction_BackInvalidatesInner() {
+        // L2 (2-way, Inclusive) is smaller than L1 (4-way): filling a 3rd distinct line forces
+        // L2 to evict line 0 while L1 still has room to keep it. Inclusion requires L1's copy of
+        // line 0 to be dropped too.
+        FlatMemory backing = MakeBacking();
+        var l1 = new CacheLevelSpec(64, 4, 16, 5);                                                  // 1 set, 4-way
+        var l2 = new CacheLevelSpec(32, 2, 16, 20, InclusionPolicy: InclusionPolicyKind.Inclusive); // 1 set, 2-way
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]), [l2,]);
+
+        layers.Accessor.Read(0, 1);  // L1 + L2 install line 0
+        layers.Accessor.Read(16, 1); // L1 + L2 install line 16; L2 now full (2/2)
+        layers.ConsumeAllStalls();
+
+        layers.Accessor.Read(32, 1); // L2 must evict (LRU: line 0); back-invalidates L1's copy
+        layers.ConsumeAllStalls();
+
+        Assert.Equal(1, layers.L2Cache!.Evictions);
+        Assert.Equal(1, layers.Cache!.BackInvalidations);
+
+        long l1MissesBefore = layers.Cache.Misses;
+        layers.Accessor.Read(0, 1); // L1's copy was dropped → must miss again
+        Assert.Equal(l1MissesBefore + 1, layers.Cache.Misses);
+    }
+
+    [Fact]
+    public void Inclusive_DirtyInnerLine_FoldedIntoOuterBeforeBackInvalidate() {
+        // A dirty write-back L1 line must not be lost when L2 back-invalidates it: the dirty
+        // bytes fold into L2's copy, which L2 then flushes to backing on its own eviction.
+        FlatMemory backing = MakeBacking();
+        var l1 = new CacheLevelSpec(
+            64, 4, 16, 5, WritePolicy: WritePolicyKind.WriteBack, WriteMissPolicy: WriteMissPolicyKind.WriteAllocate
+        );
+        var l2 = new CacheLevelSpec(32, 2, 16, 20, InclusionPolicy: InclusionPolicyKind.Inclusive);
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]), [l2,]);
+
+        layers.Accessor.Write(0, 0xAB, 1); // dirty in L1 only (write-back); L2 still holds original byte
+        layers.Accessor.Read(16, 1);       // L1 + L2 install line 16; L2 now full (2/2)
+        layers.ConsumeAllStalls();
+
+        layers.Accessor.Read(32, 1); // L2 evicts line 0: folds L1's dirty byte in, then flushes to backing
+        layers.ConsumeAllStalls();
+
+        Assert.Equal(0xABUL, backing.Read(0, 1));
+    }
+
+    [Fact]
+    public void Exclusive_InnerEviction_InsertsVictimIntoOuter() {
+        // L2 (1-way, Exclusive) never keeps a line that's resident in L1: fills remove the outer
+        // copy, and an L1 eviction hands the line to L2 as a victim instead of discarding it.
+        FlatMemory backing = MakeBacking();
+        var l1 = new CacheLevelSpec(32, 2, 16, 5);                                                  // 1 set, 2-way
+        var l2 = new CacheLevelSpec(16, 1, 16, 20, InclusionPolicy: InclusionPolicyKind.Exclusive); // 1 line
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]), [l2,]);
+
+        layers.Accessor.Read(0, 1);  // L1 installs line 0; momentarily fills L2 then removes it
+        layers.Accessor.Read(16, 1); // L1 installs line 16 (2/2 full); L2 emptied again
+        layers.ConsumeAllStalls();
+
+        layers.Accessor.Read(32, 1); // L1 evicts line 0 (LRU) → handed to L2 as a victim
+        layers.ConsumeAllStalls();
+
+        Assert.True(layers.L2Cache!.VictimInserts >= 1);
+
+        long l2HitsBefore = layers.L2Cache.Hits;
+        layers.Accessor.Read(0, 1); // gone from L1, but present in L2 as the victim → L2 hit
+        Assert.True(layers.L2Cache.Hits > l2HitsBefore);
+    }
+
+    [Fact]
+    public void Exclusive_MismatchedBlockSizes_ThrowsOnAttach() {
+        var l1Cache = new SetAssociativeCache(new FlatMemory(256), 32, 2, 16, 5);
+        var l2Cache = new SetAssociativeCache(
+            new FlatMemory(256), 32, 2, 32, 20, inclusionPolicy: InclusionPolicyKind.Exclusive
+        );
+
+        Assert.Throws<ArgumentException>(() => l2Cache.AttachInner(l1Cache));
+    }
 }

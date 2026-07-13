@@ -42,6 +42,25 @@ public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate, }
 /// </summary>
 public enum CacheAccessModeKind { Parallel, Sequential, }
 
+/// <summary>
+///     Inclusion policy between a cache level and the level directly inside it (closer to the
+///     CPU) — e.g. an L2's policy toward its L1. Ignored on the innermost level of a path, since
+///     nothing sits inside it.
+///     <para>
+///         <see cref="Nine" /> (non-inclusive non-exclusive) is the default and matches prior
+///         behavior: no coordination between levels. <see cref="Inclusive" /> (Intel-style)
+///         guarantees every line resident in the inner level is also resident here — when this
+///         level evicts a line it back-invalidates the inner level's copy (folding in any dirty
+///         data first). <see cref="Exclusive" /> (AMD-style) guarantees a line is resident in at
+///         most one of the two levels — an inner-level eviction is inserted here as a victim
+///         rather than discarded, and a fill that pulls a line up into the inner level removes it
+///         from here.
+///     </para>
+/// </summary>
+public enum InclusionPolicyKind {
+    Nine, Inclusive, Exclusive,
+}
+
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
 /// <param name="CacheWays">Associativity. Ignored when CacheCapacityBytes = 0.</param>
 /// <param name="CacheBlockBytes">Cache line size. Ignored when CacheCapacityBytes = 0.</param>
@@ -113,6 +132,8 @@ public enum CacheAccessModeKind { Parallel, Sequential, }
 /// <param name="CacheWbCapacity">L1 write-back buffer capacity in lines (0 = disabled).</param>
 /// <param name="L2WbCapacity">L2 write-back buffer capacity in lines (0 = disabled).</param>
 /// <param name="L3WbCapacity">L3 write-back buffer capacity in lines (0 = disabled).</param>
+/// <param name="L2InclusionPolicy">L2's inclusion policy toward L1. Ignored when L2 is disabled.</param>
+/// <param name="L3InclusionPolicy">L3's inclusion policy toward L2. Ignored when L3 is disabled.</param>
 /// <param name="ReplacementPolicy">
 ///     Cache replacement policy applied to every cache level.
 ///     Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling
@@ -169,7 +190,9 @@ public sealed record MemoryConfig(
     int L3WbCapacity = 0,
     int CacheMshrCount = 0,
     int L2MshrCount = 0,
-    int L3MshrCount = 0
+    int L3MshrCount = 0,
+    InclusionPolicyKind L2InclusionPolicy = InclusionPolicyKind.Nine,
+    InclusionPolicyKind L3InclusionPolicy = InclusionPolicyKind.Nine
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -203,7 +226,8 @@ public sealed record MemoryLayers(
             l3 = new SetAssociativeCache(
                 current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
                 0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency,
-                cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode
+                cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode,
+                cfg.L3InclusionPolicy
             );
             current = l3;
         }
@@ -212,8 +236,10 @@ public sealed record MemoryLayers(
             l2 = new SetAssociativeCache(
                 current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
                 0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency,
-                cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode
+                cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode,
+                cfg.L2InclusionPolicy
             );
+            l3?.AttachInner(l2);
             current = l2;
         }
 
@@ -225,6 +251,7 @@ public sealed record MemoryLayers(
                 cfg.CacheWritePolicy, cfg.CacheWriteMissPolicy, cfg.CacheWbCapacity, cfg.CacheMshrCount,
                 cfg.CacheAccessMode
             );
+            (l2 ?? l3)?.AttachInner(l1);
             current = l1;
         }
 
@@ -285,7 +312,7 @@ public sealed record MemoryLayers(
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
-                s.AccessMode
+                s.AccessMode, s.InclusionPolicy
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -298,12 +325,15 @@ public sealed record MemoryLayers(
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
-                s.AccessMode
+                s.AccessMode, s.InclusionPolicy
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
             current = cache;
         }
+
+        // allCaches is innermost-first; wire each level's InclusionPolicy toward its inner neighbor.
+        for (var i = 1; i < allCaches.Count; i++) allCaches[i].AttachInner(allCaches[i - 1]);
 
         // TLB wraps the innermost cache; UncacheableMemory wraps TLB (matching MemoryConfig build order).
         Tlb? tlb = null;

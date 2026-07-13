@@ -32,6 +32,10 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly WbEntry[]? _wbBuffer;
     private ulong _lastRequestPc;
 
+    // The cache directly inside this one (closer to the CPU), if any has been attached via
+    // AttachInner. Used to enforce InclusionPolicy toward that level.
+    private SetAssociativeCache? _innerCache;
+
     private long _pendingStalls;
 
     /// <param name="backing">Backing memory.</param>
@@ -83,6 +87,11 @@ public sealed class SetAssociativeCache : IMemory {
     ///     probes tags first and reads only the matching way, computing <see cref="HitLatency" /> as
     ///     <c>tagLatency + dataLatency</c> — typical of large lower-level caches.
     /// </param>
+    /// <param name="inclusionPolicy">
+    ///     This level's inclusion policy toward whatever cache is attached as its inner level via
+    ///     <see cref="AttachInner" />. No effect until a inner cache is attached. See
+    ///     <see cref="InclusionPolicyKind" />.
+    /// </param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
@@ -97,7 +106,8 @@ public sealed class SetAssociativeCache : IMemory {
         WriteMissPolicyKind writeMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
         int wbCapacity = 0,
         int mshrCount = 0,
-        CacheAccessModeKind accessMode = CacheAccessModeKind.Parallel
+        CacheAccessModeKind accessMode = CacheAccessModeKind.Parallel,
+        InclusionPolicyKind inclusionPolicy = InclusionPolicyKind.Nine
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -123,6 +133,7 @@ public sealed class SetAssociativeCache : IMemory {
         WritePolicy = writePolicy;
         WriteMissPolicy = writeMissPolicy;
         WbCapacity = writePolicy == WritePolicyKind.WriteBack ? Math.Max(0, wbCapacity) : 0;
+        InclusionPolicy = inclusionPolicy;
 
         OffsetBits = BitOperations.Log2((uint)blockSizeBytes);
         IndexBits = BitOperations.Log2((uint)sets);
@@ -206,6 +217,29 @@ public sealed class SetAssociativeCache : IMemory {
     public long MshrMerges { get; private set; }
     public long MshrCapacityStalls { get; private set; }
 
+    public InclusionPolicyKind InclusionPolicy { get; }
+
+    /// <summary>Lines dropped here because the attached outer level (Inclusive) evicted them.</summary>
+    public long BackInvalidations { get; private set; }
+
+    /// <summary>Lines installed here because the attached inner level (Exclusive) evicted them.</summary>
+    public long VictimInserts { get; private set; }
+
+    /// <summary>
+    ///     Registers <paramref name="inner" /> as the cache directly inside this one (closer to
+    ///     the CPU) for the purposes of <see cref="InclusionPolicy" />. Call after constructing
+    ///     both caches, once the chain is fully wired.
+    /// </summary>
+    public void AttachInner(SetAssociativeCache inner) {
+        if (InclusionPolicy == InclusionPolicyKind.Exclusive && BlockBytes != inner.BlockBytes)
+            throw new ArgumentException(
+                "Exclusive inclusion policy requires equal block sizes between the two levels " +
+                $"(this level: {BlockBytes}, inner level: {inner.BlockBytes})."
+            );
+
+        _innerCache = inner;
+    }
+
     /// <summary>Number of prefetched lines still in flight (counts against MSHR capacity).</summary>
     public int InFlightPrefetchCount => _inFlightPrefetches.Count;
 
@@ -284,6 +318,7 @@ public sealed class SetAssociativeCache : IMemory {
                         _tags[s][w] = null;
                         DropInFlightPrefetch(a);
                         DropInFlightMshr(a);
+                        PropagateInvalidate(a, BlockBytes);
                     }
             }
 
@@ -343,6 +378,7 @@ public sealed class SetAssociativeCache : IMemory {
                     _tags[set][w] = null;
                     DropInFlightPrefetch(a);
                     DropInFlightMshr(a);
+                    PropagateInvalidate(a, BlockBytes);
                 }
         }
     }
@@ -400,7 +436,21 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     private void FillBlock(int set, int way, ulong address, bool chargeWritebackStall = true) {
-        if (_tags[set][way] is { } existingTag) FlushDirtyLine(set, way, existingTag, chargeWritebackStall, true);
+        if (_tags[set][way] is { } existingTag) {
+            ulong evictedBase = (existingTag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
+
+            // Inclusive: our own eviction must also drop the inner level's copy, so it never
+            // outlives ours. Do this first so any dirty inner data folds into our (still valid)
+            // copy before we flush/hand it off below. No-op unless InclusionPolicy is Inclusive.
+            BackInvalidateInner(set, way, evictedBase);
+
+            // Exclusive: the level below acts as our victim cache, so the evicted line (clean or
+            // dirty) is handed off there instead of just flushed/discarded.
+            if (_backing is SetAssociativeCache { InclusionPolicy: InclusionPolicyKind.Exclusive, } outer)
+                outer.InsertVictim(evictedBase, _blocks[set][way], _dirty != null && _dirty[set][way]);
+            else
+                FlushDirtyLine(set, way, existingTag, chargeWritebackStall, true);
+        }
 
         ulong lineBase = address & ~(ulong)_offsetMask;
         bool fromWb = _wbBuffer != null && TryForwardFromWbBuffer(lineBase, _blocks[set][way]);
@@ -421,6 +471,124 @@ public sealed class SetAssociativeCache : IMemory {
         if (_dirty != null) _dirty[set][way] = fromWb;
         _policy.SetPendingAddress(tag, _lastRequestPc);
         _policy.RecordInstall(set, way);
+
+        // Exclusive: this line just became resident here, so it must not also remain resident in
+        // the level below (a line lives in exactly one of the two levels).
+        if (_backing is SetAssociativeCache { InclusionPolicy: InclusionPolicyKind.Exclusive, } exclusiveOuter)
+            exclusiveOuter.RemoveResident(lineBase);
+    }
+
+    /// <summary>
+    ///     Called when this cache is evicting its own line, currently at <paramref name="set" />/
+    ///     <paramref name="way" /> and covering <c>[rangeBase, rangeBase + BlockBytes)</c>: drops
+    ///     every attached-inner-cache line overlapping that range, folding any dirty inner data
+    ///     into our (still-resident, about-to-be-handed-off) copy first — the inner copy may be
+    ///     more current than ours. The inner cache's block size may be smaller than ours, in which
+    ///     case several of its lines fall inside our one block (both are powers of 2, so the range
+    ///     always divides evenly). No-op unless <see cref="InclusionPolicy" /> is
+    ///     <see cref="InclusionPolicyKind.Inclusive" /> with an inner cache attached.
+    /// </summary>
+    private void BackInvalidateInner(int set, int way, ulong rangeBase) {
+        if (InclusionPolicy != InclusionPolicyKind.Inclusive || _innerCache == null) return;
+        SetAssociativeCache inner = _innerCache;
+        for (ulong a = rangeBase; a < rangeBase + (ulong)BlockBytes; a += (ulong)inner.BlockBytes) {
+            inner.Decompose(a, out int iSet, out ulong iTag);
+            int iWay = inner.FindWay(iSet, iTag);
+            if (iWay < 0) continue;
+
+            if (inner._dirty != null && inner._dirty[iSet][iWay]) {
+                var offset = (int)(a - rangeBase);
+                Buffer.BlockCopy(inner._blocks[iSet][iWay], 0, _blocks[set][way], offset, inner.BlockBytes);
+                if (_dirty != null)
+                    _dirty[set][way] = true;
+                else
+                    // We're write-through ourselves, so there's no deferred-dirty slot to mark —
+                    // the folded data must go straight to backing now or it's lost.
+                    for (var i = 0; i < inner.BlockBytes; i++)
+                        _backing.Write(a + (ulong)i, inner._blocks[iSet][iWay][i], 1);
+            }
+
+            inner._tags[iSet][iWay] = null;
+            inner.DropInFlightPrefetch(a);
+            inner.DropInFlightMshr(a);
+            inner.BackInvalidations++;
+            // Cascade further inward (e.g. L3 evicting invalidates L2, which — if L2 is itself
+            // Inclusive over L1 — must in turn invalidate L1).
+            inner.BackInvalidateInner(iSet, iWay, a);
+        }
+    }
+
+    /// <summary>
+    ///     Called by an inner cache configured <see cref="InclusionPolicyKind.Exclusive" /> (from
+    ///     this cache's point of view) when that inner cache evicts a resident line: installs it
+    ///     as this cache's own line instead of letting it be discarded, since under an exclusive
+    ///     policy a line must not vanish from both levels at once. Requires equal block sizes,
+    ///     enforced by <see cref="AttachInner" />.
+    /// </summary>
+    private void InsertVictim(ulong lineBase, byte[] blockData, bool dirty) {
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) {
+            way = _policy.ChooseVictim(set);
+            if (_tags[set][way] is { } existingTag) {
+                ulong evictedBase = (existingTag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
+                BackInvalidateInner(set, way, evictedBase);
+                FlushDirtyLine(set, way, existingTag, false, true);
+                Evictions++;
+                DropInFlightPrefetch(evictedBase);
+                DropInFlightMshr(evictedBase);
+            }
+        }
+
+        Buffer.BlockCopy(blockData, 0, _blocks[set][way], 0, BlockBytes);
+        _tags[set][way] = tag;
+        if (_dirty != null) _dirty[set][way] = dirty;
+        _policy.SetPendingAddress(tag, _lastRequestPc);
+        _policy.RecordInstall(set, way);
+        VictimInserts++;
+    }
+
+    /// <summary>
+    ///     Called by an inner cache after it fills <paramref name="lineBase" /> from this cache,
+    ///     which it has determined (via this cache's <see cref="InclusionPolicy" />) to be
+    ///     <see cref="InclusionPolicyKind.Exclusive" />: drops this cache's copy, writing back any
+    ///     dirty data first so it is not lost now that this level no longer holds the line.
+    /// </summary>
+    private void RemoveResident(ulong lineBase) {
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
+        if (_dirty != null && _dirty[set][way]) FlushDirtyLine(set, way, tag, false);
+        _tags[set][way] = null;
+        DropInFlightPrefetch(lineBase);
+        DropInFlightMshr(lineBase);
+    }
+
+    /// <summary>
+    ///     Drops every attached-inner-cache line overlapping
+    ///     <c>[rangeBase, rangeBase + rangeBytes)</c> — our own range that was just invalidated —
+    ///     discarding any dirty inner data (the caller just overwrote the authoritative copy
+    ///     out-of-band, making stale dirty data meaningless). Used for out-of-band invalidation
+    ///     (cross-boundary write, <see cref="Load" />) rather than a normal capacity eviction.
+    ///     No-op unless <see cref="InclusionPolicy" /> is Inclusive with an inner cache attached.
+    /// </summary>
+    private void PropagateInvalidate(ulong rangeBase, int rangeBytes) {
+        if (InclusionPolicy != InclusionPolicyKind.Inclusive || _innerCache == null) return;
+        SetAssociativeCache inner = _innerCache;
+        for (ulong a = rangeBase; a < rangeBase + (ulong)rangeBytes; a += (ulong)inner.BlockBytes)
+            inner.DropIfPresent(a);
+    }
+
+    private void DropIfPresent(ulong lineBase) {
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
+        _tags[set][way] = null;
+        if (_dirty != null) _dirty[set][way] = false;
+        DropInFlightPrefetch(lineBase);
+        DropInFlightMshr(lineBase);
+        BackInvalidations++;
+        PropagateInvalidate(lineBase, BlockBytes);
     }
 
     // ── Write-back buffer helpers ────────────────────────────────────────────

@@ -11,14 +11,14 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Cache Model Realism
 
-- [ ] Cache-level MSHRs with hit-under-miss: move outstanding-miss tracking from the pipeline into each cache level;
+- [x] Cache-level MSHRs with hit-under-miss: move outstanding-miss tracking from the pipeline into each cache level;
   a secondary miss to a line already in flight merges into the existing MSHR entry instead of paying a second full
   miss, and the cache continues serving hits while misses are outstanding. Makes L2/L3 non-blocking too. — Kroft,
   ISCA 1981
 - [x] Sequential tag/data access mode: gem5's third timing knob alongside tag/data latency — hit latency
   = tag + data (probe tags first, then read only the matching way) instead of max(tag, data); typical for large
   lower-level caches.
-- [ ] Inclusion policy per level pair: inclusive (Intel-style — lower-level eviction back-invalidates the line in
+- [x] Inclusion policy per level pair: inclusive (Intel-style — lower-level eviction back-invalidates the line in
   upper levels), exclusive (AMD-style — lower levels act as victim caches for the level above), or NINE
   (non-inclusive non-exclusive, the current behavior).
 - [ ] Critical-word-first / early restart: a miss fill returns the demanded word first so the load resumes after the

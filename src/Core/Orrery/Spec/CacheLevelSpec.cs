@@ -8,6 +8,12 @@ namespace Orrery.Spec;
 ///         <see cref="SharedAcross" /> expresses the sharing intent for the multicore assembler (Phase 3):
 ///         1 = private per core; N = one physical cache instance shared by N cores.
 ///     </para>
+///     <para>
+///         <see cref="InclusionPolicy" /> describes this level's relationship to the level directly
+///         inside it in the same path/shared-levels list (e.g. an L2 entry's policy toward L1);
+///         see <see cref="InclusionPolicyKind" />. Ignored on the innermost level, since nothing
+///         sits inside it.
+///     </para>
 /// </summary>
 public sealed record CacheLevelSpec(
     int CapacityBytes,
@@ -26,7 +32,8 @@ public sealed record CacheLevelSpec(
     WriteMissPolicyKind WriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
     int WbCapacity = 0,
     int MshrCount = 0,
-    CacheAccessModeKind AccessMode = CacheAccessModeKind.Parallel
+    CacheAccessModeKind AccessMode = CacheAccessModeKind.Parallel,
+    InclusionPolicyKind InclusionPolicy = InclusionPolicyKind.Nine
 ) {
     public int HitLatency => AccessMode == CacheAccessModeKind.Sequential
         ? TagLatency + DataLatency
