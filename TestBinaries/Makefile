@@ -552,13 +552,23 @@ torture/%.elf: torture/%.S env/riscv_test.h env/link.ld
 torture64/%.elf: torture64/%.S env/riscv_test.h env/link.ld
 	$(CC64) $(CFLAGS_TORTURE64) $(INCLUDES) $(LDFLAGS64) $< -o $@
 
+# ── Syscall-emulation mode test binary ───────────────────────────────────────
+#
+# Pure assembly, no C startup: _start in .text.start writes to stdout via
+# SYS_write ecall (64) and exits via SYS_exit (93).  No HTIF tohost symbol.
+
+CFLAGS_SE = -march=rv32im -mabi=ilp32 -nostdlib -nostartfiles -static -O1 -g
+
+se_hello.elf: se_hello.s test.ld
+	$(CC) $(CFLAGS_SE) -T test.ld se_hello.s -o $@
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
 .PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture torture64 clean
 
 all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture torture64
 
-custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
+custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf
 
 isa-tests: rv32-isa-tests rv64-isa-tests
 
@@ -599,5 +609,5 @@ lab2: $(LAB2_ELFS)
 .PHONY: lab2
 
 clean:
-	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf
+	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf
 	rm -f isa/*.elf benchmarks/*.elf torture/*.elf torture64/*.elf lab2/*.elf

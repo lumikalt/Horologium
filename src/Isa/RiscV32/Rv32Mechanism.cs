@@ -5,6 +5,7 @@ using RiscV32.Decode;
 using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.State;
+using RiscV32.Syscalls;
 using RiscV32.Trap;
 
 namespace RiscV32;
@@ -41,6 +42,10 @@ public sealed class Rv32Mechanism : IMechanism {
     /// </param>
     /// <param name="ebreakAlwaysHalts">See <see cref="Rv32Executor.EbreakAlwaysHalts"/>.</param>
     /// <param name="wfiNeverHalts">See <see cref="Rv32Executor.WfiNeverHalts"/>.</param>
+    /// <param name="syscallHandler">
+    /// Optional Linux syscall-emulation handler. When non-null, ECALL instructions
+    /// are routed here instead of generating a trap. See <see cref="LinuxSyscallEmulator"/>.
+    /// </param>
     public Rv32Mechanism(
         ulong? htifTohost = null,
         ReservationTable? reservationTable = null,
@@ -48,7 +53,8 @@ public sealed class Rv32Mechanism : IMechanism {
         ClintDevice? clint = null,
         PlicDevice? plic = null,
         bool ebreakAlwaysHalts = false,
-        bool wfiNeverHalts = false
+        bool wfiNeverHalts = false,
+        ISyscallHandler? syscallHandler = null
     ) {
         Executor = new Rv32Executor {
             HtifTohostAddress = htifTohost,
@@ -57,6 +63,7 @@ public sealed class Rv32Mechanism : IMechanism {
             Clint = clint,
             EbreakAlwaysHalts = ebreakAlwaysHalts,
             WfiNeverHalts = wfiNeverHalts,
+            SyscallHandler = syscallHandler,
         };
         TrapController = new RvTrapController(clint, plic);
     }

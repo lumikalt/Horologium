@@ -60,6 +60,12 @@ public partial class Rv32Executor : IExecutor {
     /// </summary>
     public bool WfiNeverHalts { get; init; }
 
+    /// <summary>
+    /// When non-null, ECALL instructions are routed to this handler instead of
+    /// generating a trap, enabling Linux syscall-emulation (gem5 SE) mode.
+    /// </summary>
+    public ISyscallHandler? SyscallHandler { get; init; }
+
     // Single-hart fallback: used when ReservationTable is null.
     protected ulong? Reservation;
 
@@ -179,6 +185,8 @@ public partial class Rv32Executor : IExecutor {
             RvAuipc(_, var imm) => Reg(pc + (ulong)imm),
 
             // ── System ────────────────────────────────────────────────────────
+            RvEcall when SyscallHandler is { } handler =>
+                handler.Handle(state.IntegerRegisters.Read(17), state.IntegerRegisters, memory, pc),
             RvEcall => ExecuteResult.WithTrap(
                 new TrapInfo(EcallCause(state.PrivilegeLevel), 0, pc)
             ),

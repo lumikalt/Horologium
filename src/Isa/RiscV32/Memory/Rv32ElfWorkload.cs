@@ -26,6 +26,13 @@ public sealed class Rv32ElfWorkload : IWorkload {
     /// <summary>The HTIF <c>tohost</c> exit register address if the ELF exports it; null otherwise.</summary>
     public ulong? HtifTohostAddress { get; }
 
+    /// <summary>
+    /// Address just past the last PT_LOAD segment (i.e. the initial program break).
+    /// Pass to <see cref="RiscV32.Syscalls.LinuxSyscallEmulator"/> as <c>initialBreak</c>
+    /// so SYS_brk starts from the correct address.
+    /// </summary>
+    public ulong InitialBreak { get; }
+
     public Rv32ElfWorkload(string path, int? memorySizeBytes = null)
         : this(File.ReadAllBytes(path), memorySizeBytes) { }
 
@@ -35,18 +42,18 @@ public sealed class Rv32ElfWorkload : IWorkload {
         BaseAddress = ComputeBaseAddress(elfBytes);
         MemorySize = memorySizeBytes ?? ComputeMinMemorySize(elfBytes, BaseAddress);
         HtifTohostAddress = TryFindSymbol("tohost", out ulong tohost) ? tohost : null;
+        InitialBreak = ComputeInitialBreak(elfBytes);
     }
 
     public void Load(IMemory memory) => Rv32ElfLoader.Load(memory, _elfBytes);
 
     /// <summary>
     /// Wraps <paramref name="memory"/> with <see cref="HtifMemory"/> when the ELF contains
-    /// a <c>tohost</c> symbol so that HTIF syscall writes are auto-acknowledged.
-    /// Without this, benchmarks that call printstr would spin forever in the fromhost
-    /// polling loop, preventing them from reaching tohost_exit.
+    /// a <c>tohost</c> symbol, executing fesvr magic-mem syscalls and ACK-ing fromhost.
+    /// <paramref name="output"/> receives SYS_write output; when null, output is discarded.
     /// </summary>
-    public IMemory WrapMemory(IMemory memory) =>
-        TryFindSymbol("tohost", out ulong tohost) ? new HtifMemory(memory, tohost) : memory;
+    public IMemory WrapMemory(IMemory memory, TextWriter? output = null) =>
+        TryFindSymbol("tohost", out ulong tohost) ? new HtifMemory(memory, tohost, output) : memory;
 
     /// <summary>
     /// Returns the virtual address of a named ELF symbol, or throws if not found.
@@ -134,5 +141,23 @@ public sealed class Rv32ElfWorkload : IWorkload {
         // Size relative to the base address, rounded to next 64 KB + 64 KB for stack/heap.
         uint relativeEnd = maxEnd - (uint)baseAddress;
         return (int)((relativeEnd + 0xFFFF) & ~0xFFFFU) + 0x10000;
+    }
+
+    private static ulong ComputeInitialBreak(ReadOnlySpan<byte> elf) {
+        uint phoff = BinaryPrimitives.ReadUInt32LittleEndian(elf[28..]);
+        ushort phentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[42..]);
+        ushort phnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[44..]);
+
+        uint maxEnd = 0;
+        for (var i = 0; i < phnum; i++) {
+            var ph = (int)(phoff + (uint)(i * phentsz));
+            if (BinaryPrimitives.ReadUInt32LittleEndian(elf[ph..]) != 1) continue; // PT_LOAD = 1
+            uint paddr = BinaryPrimitives.ReadUInt32LittleEndian(elf[(ph + 12)..]);
+            uint memsz = BinaryPrimitives.ReadUInt32LittleEndian(elf[(ph + 20)..]);
+            maxEnd = Math.Max(maxEnd, paddr + memsz);
+        }
+
+        // Round up to the next page boundary (4 KiB).
+        return (maxEnd + 0xFFFU) & ~0xFFFUL;
     }
 }

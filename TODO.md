@@ -47,10 +47,10 @@ free embedded suites are runnable in full today.
   committed iteration count (compile-time scalable beyond).
 - [x] Embench-IoT port (Patterson et al.): the modern academic replacement for Dhrystone; designed for
   bare-metal RISC-V, fits the existing crt0/HTIF pattern.
-- [ ] HTIF syscall proxy (fesvr magic-mem protocol): decode the 8-word syscall struct at tohost and
+- [x] HTIF syscall proxy (fesvr magic-mem protocol): decode the 8-word syscall struct at tohost and
   service open/read/write/fstat/exit against the host FS, so newlib-linked binaries with file I/O run
   bare-metal (current HtifMemory only auto-ACKs).
-- [ ] Linux syscall-emulation mode (gem5 SE-style): ECALL shim implementing the ~40 syscalls needed by
+- [x] Linux syscall-emulation mode (gem5 SE-style): ECALL shim implementing the ~40 syscalls needed by
   statically linked musl binaries — unlocks MiBench and arbitrary self-built C programs.
 - [ ] SPEC CPU2006/2017 harness (user-supplied install; SPEC is licensed and non-redistributable):
   RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction

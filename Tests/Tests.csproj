@@ -82,6 +82,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>vector.elf</Link>
         </None>
+        <None Include="..\TestBinaries\se_hello.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>se_hello.elf</Link>
+        </None>
         <None Include="..\TestBinaries\isa\*.elf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <LinkBase>isa</LinkBase>
