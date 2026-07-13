@@ -9,8 +9,12 @@ public class SignalExtractorTests {
     // Snapshots every 100 ticks, cumulative values as Train.Run would record them.
     private static RevolutionResult MakeResult() {
         TimeSeriesPoint Point(
-            long tick, long retired, long cycles, long misses,
-            long hits, long cacheMisses
+            long tick,
+            long retired,
+            long cycles,
+            long misses,
+            long hits,
+            long cacheMisses
         ) => new(
             tick, [
                 new DialBoardSnapshot(
@@ -88,7 +92,7 @@ public class SignalExtractorTests {
 
     [Fact]
     public void Extract_Counter_CumulativeKeepsRawValues() {
-        Signal? sig = SignalExtractor.Extract(MakeResult(), "pipeline.retired", cumulativeCounters: true);
+        Signal? sig = SignalExtractor.Extract(MakeResult(), "pipeline.retired", true);
 
         Assert.NotNull(sig);
         Assert.Equal([80, 130, 130,], sig.Values);

@@ -46,14 +46,14 @@ public static class SignalExtractor {
                 if (counter.EndsWith("_hits")) {
                     string stem = counter[..^"_hits".Length];
                     if (snap.Counters.ContainsKey($"{stem}_misses"))
-                        names.Add($"{gear}.{stem}_hit_rate{WindowedSuffix}");
+                        names.Add($"{gear}.{stem}_hit_rate{SignalExtractor.WindowedSuffix}");
                 }
             }
 
             if (snap.Counters.ContainsKey("retired") && snap.Counters.ContainsKey("cycles"))
-                names.Add($"{gear}.ipc{WindowedSuffix}");
+                names.Add($"{gear}.ipc{SignalExtractor.WindowedSuffix}");
 
-            foreach (string dial in snap.Dials.Keys) names.Add($"{gear}.{dial}{CumulativeSuffix}");
+            foreach (string dial in snap.Dials.Keys) names.Add($"{gear}.{dial}{SignalExtractor.CumulativeSuffix}");
         }
 
         return [..names,];
@@ -73,14 +73,14 @@ public static class SignalExtractor {
 
         double[] ticks = [..ts.Select(p => (double)p.Tick),];
 
-        if (name.EndsWith(CumulativeSuffix)) {
-            (string gear, string dial) = SplitName(name[..^CumulativeSuffix.Length]);
+        if (name.EndsWith(SignalExtractor.CumulativeSuffix)) {
+            (string gear, string dial) = SplitName(name[..^SignalExtractor.CumulativeSuffix.Length]);
             double[]? values = DialSeries(ts, gear, dial);
             return values is null ? null : new Signal(name, ticks, values);
         }
 
-        if (name.EndsWith(WindowedSuffix)) {
-            (string gear, string metric) = SplitName(name[..^WindowedSuffix.Length]);
+        if (name.EndsWith(SignalExtractor.WindowedSuffix)) {
+            (string gear, string metric) = SplitName(name[..^SignalExtractor.WindowedSuffix.Length]);
             (string numer, string[] denom) = metric switch {
                 "ipc" => ("retired", (string[])["cycles",]),
                 _ when metric.EndsWith("_hit_rate") =>

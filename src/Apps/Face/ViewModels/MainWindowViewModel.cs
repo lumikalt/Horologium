@@ -29,6 +29,7 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } = [
         new("Built-in demo  (100-iter countdown loop)", null),
+        new("Benchmark — coremark", "coremark.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — dhrystone", "dhrystone.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — gcd", "gcd.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — median", "median.elf", MainWindowViewModel.BenchmarkMemoryBytes),
@@ -420,7 +421,7 @@ public partial class MainWindowViewModel : ObservableObject {
         foreach (string s in SignalExtractor.ListSignals(run.Result))
             names.Add(s);
 
-        var previous = AvailableSignals.Where(s => s.IsSelected).Select(s => s.Name).ToHashSet();
+        HashSet<string> previous = AvailableSignals.Where(s => s.IsSelected).Select(s => s.Name).ToHashSet();
         AvailableSignals.Clear();
         foreach (string name in names) {
             var toggle = new SignalToggle(name, previous.Contains(name));

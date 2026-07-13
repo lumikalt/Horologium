@@ -402,7 +402,7 @@ BMARKS_INCS = -I$(BMARKS_DIR) -I$(BMARKS_DIR)/common \
 BMARKS_COMMON = $(BMARKS_DIR)/common/syscalls.c $(BMARKS_DIR)/common/crt.S
 
 BMARKS = median qsort rsort towers vvadd memcpy multiply gcd treesum pchase \
-         dhrystone mm spmv
+         dhrystone mm spmv coremark
 
 BMARKS_SRCS_median   = $(BMARKS_DIR)/median/median_main.c   $(BMARKS_DIR)/median/median.c
 BMARKS_SRCS_qsort    = $(BMARKS_DIR)/qsort/qsort_main.c
@@ -420,6 +420,26 @@ BMARKS_SRCS_spmv     = $(BMARKS_DIR)/spmv/spmv_main.c
 
 # dhrystone is K&R C; GCC 15 defaults to C23, which removes unprototyped calls.
 BMARKS_EXTRA_dhrystone = -std=gnu11
+
+# ── CoreMark (vendored under coremark/, port under coremark/port/) ───────────
+#
+# ITERATIONS is fixed at compile time (SEED_VOLATILE); one iteration is
+# ~475k single-cycle cycles, so 14 iterations ≈ 6.6M — the heaviest committed
+# benchmark, still inside the BenchmarkTests tick budgets (10M single-cycle,
+# 20M five-stage/OoO).  Override with
+# `make benchmarks/coremark.elf COREMARK_ITERATIONS=n` for longer runs; the
+# port's nominal CLOCKS_PER_SEC (100 kHz) keeps CoreMark's minimum-10-second
+# validity check satisfied down to ~3 iterations.
+
+COREMARK_ITERATIONS ?= 14
+
+BMARKS_SRCS_coremark = coremark/core_main.c coremark/core_list_join.c \
+                       coremark/core_matrix.c coremark/core_state.c \
+                       coremark/core_util.c \
+                       coremark/port/core_portme.c coremark/port/ee_printf.c
+BMARKS_EXTRA_coremark = -Icoremark -Icoremark/port \
+                        -DPERFORMANCE_RUN=1 -DITERATIONS=$(COREMARK_ITERATIONS) \
+                        -DFLAGS_STR='"-O2"'
 
 define bmark_template
 benchmarks/$(1).elf: $$(BMARKS_SRCS_$(1)) $$(BMARKS_COMMON) bmarks.ld

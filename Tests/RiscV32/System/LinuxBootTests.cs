@@ -111,6 +111,7 @@ public class LinuxBootTests(ITestOutputHelper testOutputHelper) {
         testOutputHelper.WriteLine(
             $"[LinuxBoot] uart={uartOut.Length} bytes  pc=0x{train.ArchState.Pc:X8}"
         );
+        testOutputHelper.WriteLine(uartOut);
 
         Assert.Contains("Linux version", uartOut);
     }

@@ -42,8 +42,9 @@ Measured feasibility (Release, single thread): ~1M instr/s functional (single-cy
 detailed (OoO). SPEC-class ref inputs (~10¹² instructions) are therefore only reachable via sampling;
 free embedded suites are runnable in full today.
 
-- [ ] CoreMark port (EEMBC, freely licensed): bare-metal `core_portme.c` against HTIF console + mcycle
-  timer; the standard embedded core benchmark, 2–3 orders of magnitude more work than rsort.
+- [x] CoreMark port (EEMBC, freely licensed): bare-metal `core_portme.c` against HTIF console + mcycle
+  timer; the standard embedded core benchmark, an order of magnitude more work than rsort at the
+  committed iteration count (compile-time scalable beyond).
 - [ ] Embench-IoT port (Patterson et al.): the modern academic replacement for Dhrystone; designed for
   bare-metal RISC-V, fits the existing crt0/HTIF pattern.
 - [ ] HTIF syscall proxy (fesvr magic-mem protocol): decode the 8-word syscall struct at tohost and
