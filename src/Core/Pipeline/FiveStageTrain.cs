@@ -315,6 +315,8 @@ internal sealed class PipelineCore : Gear {
             _missStallBudget += CollectMemoryStalls();
             ILayers.TickWb();
             DLayers.TickWb();
+            ILayers.TickMshr();
+            DLayers.TickMshr();
         }
 
         // Reflect retirements produced by last cycle's Writeback.

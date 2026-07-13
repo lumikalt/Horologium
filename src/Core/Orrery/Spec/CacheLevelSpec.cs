@@ -22,7 +22,8 @@ public sealed record CacheLevelSpec(
     int DataLatency = 0,
     WritePolicyKind WritePolicy = WritePolicyKind.WriteThrough,
     WriteMissPolicyKind WriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
-    int WbCapacity = 0
+    int WbCapacity = 0,
+    int MshrCount = 0
 ) {
     public int HitLatency => Math.Max(TagLatency, DataLatency);
 }

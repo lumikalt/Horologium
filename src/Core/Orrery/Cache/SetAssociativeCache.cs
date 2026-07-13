@@ -43,6 +43,14 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly bool _usePcSignature;
     private readonly bool _requirePcOnHit; // Hawkeye needs OPTgen fed on every hit
 
+    // MSHRs: tracks in-flight demand fills (filled synchronously but timing window still open).
+    // null = unlimited (legacy behaviour, MshrCount == 0).
+    // A miss allocates a slot; a demand hit on the in-flight line charges the remaining
+    // countdown (merge / hit-under-miss). TickMshr() decrements all countdowns each cycle.
+    private struct MshrEntry { public ulong LineBase; public int Remaining; }
+    private readonly MshrEntry[]? _mshrs;
+    private readonly int _mshrCount;
+
     // Realistic prefetch latency: lines installed by Prefetch() that have not yet
     // "arrived". A demand hit on one of these pays the remaining countdown instead
     // of zero. Empty (and never touched) when PrefetchLatency = 0.
@@ -67,6 +75,15 @@ public sealed class SetAssociativeCache : IMemory {
     public long LatePrefetchHits { get; private set; }
     public ulong? LastAccessAddress { get; private set; }
     public bool LastAccessWasHit { get; private set; }
+    public int MshrCount => _mshrCount;
+    public int MshrOccupancy { get {
+        if (_mshrs == null) return 0;
+        int n = 0;
+        for (int i = 0; i < _mshrCount; i++) if (_mshrs[i].Remaining > 0) n++;
+        return n;
+    } }
+    public long MshrMerges { get; private set; }
+    public long MshrCapacityStalls { get; private set; }
 
     /// <param name="backing">Backing memory.</param>
     /// <param name="capacityBytes">Total cache size in bytes. Must be a power of 2.</param>
@@ -91,6 +108,12 @@ public sealed class SetAssociativeCache : IMemory {
     /// <param name="wbCapacity">Write-back buffer capacity in lines (0 = disabled). Only active in
     /// write-back mode. Dirty evicted lines go into the buffer and drain asynchronously (one line per
     /// <see cref="TickWb"/> call); a stall is charged only when the buffer is full.</param>
+    /// <param name="mshrCount">MSHR (Miss Status Holding Register) capacity in slots (0 = unlimited,
+    /// legacy behaviour). Each demand miss allocates a slot for <see cref="MissLatency"/> cycles; a
+    /// subsequent demand hit on the same in-flight line charges only the remaining countdown (merge /
+    /// hit-under-miss). When all slots are occupied a new unique-line miss pays the minimum remaining
+    /// countdown plus <see cref="MissLatency"/>. Call <see cref="TickMshr"/> once per simulated cycle
+    /// to advance the countdowns.</param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
@@ -103,7 +126,8 @@ public sealed class SetAssociativeCache : IMemory {
         int dataLatency = 0,
         WritePolicyKind writePolicy = WritePolicyKind.WriteThrough,
         WriteMissPolicyKind writeMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
-        int wbCapacity = 0
+        int wbCapacity = 0,
+        int mshrCount = 0
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -133,6 +157,9 @@ public sealed class SetAssociativeCache : IMemory {
         _indexBits = BitOperations.Log2((uint)sets);
         _offsetMask = blockSizeBytes - 1;
         _indexMask = sets - 1;
+
+        _mshrCount = Math.Max(0, mshrCount);
+        _mshrs = _mshrCount > 0 ? new MshrEntry[_mshrCount] : null;
 
         _tags = new ulong?[sets][];
         _blocks = new byte[sets][][];
@@ -227,8 +254,10 @@ public sealed class SetAssociativeCache : IMemory {
 
         Decompose(address, out _, out ulong tag);
         if (_tags[set][way] is { } oldTag) {
+            ulong evictedBase = (oldTag << (_offsetBits + _indexBits)) | ((ulong)set << _offsetBits);
             Evictions++;
-            DropInFlightPrefetch((oldTag << (_offsetBits + _indexBits)) | ((ulong)set << _offsetBits));
+            DropInFlightPrefetch(evictedBase);
+            DropInFlightMshr(evictedBase);
         }
 
         _tags[set][way] = tag;
@@ -337,13 +366,15 @@ public sealed class SetAssociativeCache : IMemory {
             Hits++;
             if (_requirePcOnHit) _policy.RecordHitPc(set, way, tag, _lastRequestPc);
             _policy.RecordHit(set, way);
+            ChargeInFlightMshr(address);
             ChargeInFlightPrefetch(address);
             return ReadBytes(_blocks[set][way], offset, bytes);
         }
 
         LastAccessWasHit = false;
         Misses++;
-        _pendingStalls += MissLatency;
+        ulong readLineBase = address & ~(ulong)_offsetMask;
+        _pendingStalls += ChargeAndAllocateMshr(readLineBase);
         int evict = _policy.ChooseVictim(set);
         _policy.SetPendingSignature(_usePcSignature ? _lastRequestPc : address >> _offsetBits);
         FillBlock(set, evict, address);
@@ -378,6 +409,7 @@ public sealed class SetAssociativeCache : IMemory {
                     if (_tags[s][w] == t) {
                         _tags[s][w] = null;
                         DropInFlightPrefetch(a);
+                        DropInFlightMshr(a);
                     }
             }
 
@@ -392,6 +424,7 @@ public sealed class SetAssociativeCache : IMemory {
             Hits++;
             if (_requirePcOnHit) _policy.RecordHitPc(set, way, tag, _lastRequestPc);
             _policy.RecordHit(set, way);
+            ChargeInFlightMshr(address);
             ChargeInFlightPrefetch(address);
             WriteBytes(_blocks[set][way], offset, value, bytes);
             if (_dirty != null) _dirty[set][way] = true; // write-back: mark dirty on hit
@@ -400,7 +433,8 @@ public sealed class SetAssociativeCache : IMemory {
             LastAccessWasHit = false;
             Misses++;
             if (_writeMissPolicy == WriteMissPolicyKind.WriteAllocate) {
-                _pendingStalls += MissLatency;
+                ulong writeLineBase = address & ~(ulong)_offsetMask;
+                _pendingStalls += ChargeAndAllocateMshr(writeLineBase);
                 int evict = _policy.ChooseVictim(set);
                 _policy.SetPendingSignature(_usePcSignature ? _lastRequestPc : address >> _offsetBits);
                 FillBlock(set, evict, address); // flushes any dirty victim
@@ -434,6 +468,7 @@ public sealed class SetAssociativeCache : IMemory {
                     if (_dirty != null) _dirty[set][w] = false;
                     _tags[set][w] = null;
                     DropInFlightPrefetch(a);
+                    DropInFlightMshr(a);
                 }
         }
     }
@@ -511,6 +546,70 @@ public sealed class SetAssociativeCache : IMemory {
             _inFlightPrefetches.RemoveAt(i);
             return;
         }
+    }
+
+    // ── MSHR ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Allocates an MSHR slot for a demand miss on <paramref name="lineBase"/> and returns
+    /// the stall to charge. When unlimited (<see cref="MshrCount"/> == 0) returns
+    /// <see cref="MissLatency"/> unchanged (legacy path). When a slot is available allocates
+    /// it and returns <see cref="MissLatency"/>. When all slots are full returns
+    /// <c>minRemaining + MissLatency</c> and increments <see cref="MshrCapacityStalls"/>;
+    /// the new fill is not tracked (the slot will be available after the stall expires).
+    /// </summary>
+    private int ChargeAndAllocateMshr(ulong lineBase) {
+        if (_mshrs == null) return MissLatency;
+
+        int freeIdx = -1;
+        int minRemaining = int.MaxValue;
+        for (int i = 0; i < _mshrCount; i++) {
+            if (_mshrs[i].Remaining <= 0) { freeIdx = i; break; }
+            if (_mshrs[i].Remaining < minRemaining) minRemaining = _mshrs[i].Remaining;
+        }
+
+        if (freeIdx >= 0) {
+            _mshrs[freeIdx] = new MshrEntry { LineBase = lineBase, Remaining = MissLatency };
+            return MissLatency;
+        }
+
+        MshrCapacityStalls++;
+        return minRemaining + MissLatency;
+    }
+
+    /// <summary>
+    /// If a demand access hits a line whose fill is still in-flight (tracked in the MSHR
+    /// table), charges the remaining countdown to <see cref="ConsumePendingStalls"/> and
+    /// frees the slot. This is the hit-under-miss / MSHR-merge path.
+    /// </summary>
+    private void ChargeInFlightMshr(ulong address) {
+        if (_mshrs == null) return;
+        ulong lineBase = address & ~(ulong)_offsetMask;
+        for (int i = 0; i < _mshrCount; i++) {
+            if (_mshrs[i].Remaining <= 0 || _mshrs[i].LineBase != lineBase) continue;
+            _pendingStalls += _mshrs[i].Remaining;
+            _mshrs[i] = default;
+            MshrMerges++;
+            return;
+        }
+    }
+
+    /// <summary>Releases the MSHR slot for an evicted or invalidated line.</summary>
+    private void DropInFlightMshr(ulong lineBase) {
+        if (_mshrs == null) return;
+        for (int i = 0; i < _mshrCount; i++)
+            if (_mshrs[i].Remaining > 0 && _mshrs[i].LineBase == lineBase)
+                _mshrs[i] = default;
+    }
+
+    /// <summary>
+    /// Advances all MSHR in-flight countdowns by one cycle. Must be called once per
+    /// simulated cycle when <see cref="MshrCount"/> &gt; 0; a no-op otherwise.
+    /// </summary>
+    public void TickMshr() {
+        if (_mshrs == null) return;
+        for (int i = 0; i < _mshrCount; i++)
+            if (_mshrs[i].Remaining > 0) _mshrs[i].Remaining--;
     }
 
     // ── Inspection ───────────────────────────────────────────────────────────

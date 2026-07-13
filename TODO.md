@@ -11,7 +11,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Cache Model Realism
 
-- [ ] Cache-level MSHRs with hit-under-miss: move outstanding-miss tracking from the pipeline into each cache level;
+- [x] Cache-level MSHRs with hit-under-miss: move outstanding-miss tracking from the pipeline into each cache level;
   a secondary miss to a line already in flight merges into the existing MSHR entry instead of paying a second full
   miss, and the cache continues serving hits while misses are outstanding. Makes L2/L3 non-blocking too. — Kroft,
   ISCA 1981

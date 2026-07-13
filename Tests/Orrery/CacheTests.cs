@@ -600,4 +600,106 @@ public class CacheTests {
         Assert.Equal(0xBBUL, mem.Read(0, 1)); // new value wins, not 0xAA from stale WB data
         Assert.Equal(0, cache.WbOccupancy);   // WB entry was consumed during NWA miss
     }
+
+    // ── MSHR ─────────────────────────────────────────────────────────────────
+
+    // Helper: 1-set fully-associative cache with explicit MSHR count.
+    private static SetAssociativeCache MakeMshr(IMemory backing, int mshrCount, int missLatency = 10) =>
+        new(backing, 64, 4, 16, missLatency, mshrCount: mshrCount);
+
+    [Fact]
+    public void Mshr_Unlimited_LegacyBehavior() {
+        // MshrCount == 0 means unlimited: every miss charges MissLatency exactly as before.
+        var mem = new FlatMemory(256);
+        var cache = MakeFullyAssoc(mem, missLatency: 10);
+
+        cache.Read(0, 1);
+        Assert.Equal(10, cache.ConsumePendingStalls());
+        cache.Read(16, 1);
+        Assert.Equal(10, cache.ConsumePendingStalls());
+        Assert.Equal(0, cache.MshrCount);
+        Assert.Equal(0, cache.MshrOccupancy);
+    }
+
+    [Fact]
+    public void Mshr_PrimaryMiss_AllocatesSlot_SlotFreedByTick() {
+        var mem = new FlatMemory(256);
+        var cache = MakeMshr(mem, mshrCount: 2, missLatency: 10);
+
+        // Cold miss: allocates MSHR slot, charges MissLatency.
+        cache.Read(0, 1);
+        Assert.Equal(10, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.MshrOccupancy);
+
+        // TickMshr 9 times: slot still occupied.
+        for (int i = 0; i < 9; i++) cache.TickMshr();
+        Assert.Equal(1, cache.MshrOccupancy);
+
+        // One more tick: slot freed.
+        cache.TickMshr();
+        Assert.Equal(0, cache.MshrOccupancy);
+    }
+
+    [Fact]
+    public void Mshr_HitOnInFlightLine_ChargesRemainingAndFreesSlot() {
+        var mem = new FlatMemory(256);
+        var cache = MakeMshr(mem, mshrCount: 2, missLatency: 10);
+
+        // Miss on line 0: MSHR[0] = 10.
+        cache.Read(0, 1);
+        cache.ConsumePendingStalls();
+        Assert.Equal(1, cache.MshrOccupancy);
+
+        // Advance 3 ticks: MSHR[0] = 7.
+        for (int i = 0; i < 3; i++) cache.TickMshr();
+
+        // Hit on the same line (byte 5 is within the 16-byte block starting at 0).
+        // Should charge the remaining 7 cycles and free the slot.
+        cache.Read(5, 1);
+        Assert.Equal(7, cache.ConsumePendingStalls());
+        Assert.Equal(0, cache.MshrOccupancy);
+        Assert.Equal(1, cache.MshrMerges);
+    }
+
+    [Fact]
+    public void Mshr_CapacityStall_AllSlotsBusy_ChargesMinPlusMissLatency() {
+        // 1 MSHR slot, MissLatency = 10. Miss A fills slot (remaining=10).
+        // After 4 ticks (remaining=6), miss B (unique line) cannot get a slot:
+        // stall = 6 + 10 = 16; MshrCapacityStalls++ and slot is NOT allocated for B.
+        var mem = new FlatMemory(256);
+        var cache = MakeMshr(mem, mshrCount: 1, missLatency: 10);
+
+        cache.Read(0, 1);                // Miss A: slot → MSHR[0] = 10
+        cache.ConsumePendingStalls();
+        Assert.Equal(1, cache.MshrOccupancy);
+
+        for (int i = 0; i < 4; i++) cache.TickMshr(); // MSHR[0] = 6
+
+        // Miss B (line 16): all slots full. Stall = 6 + 10 = 16.
+        cache.Read(16, 1);
+        Assert.Equal(16, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.MshrCapacityStalls);
+        // Slot A is still tracked (was not overwritten).
+        Assert.Equal(1, cache.MshrOccupancy);
+    }
+
+    [Fact]
+    public void Mshr_TwoIndependentSlots_BothTracked() {
+        var mem = new FlatMemory(256);
+        var cache = MakeMshr(mem, mshrCount: 2, missLatency: 10);
+
+        cache.Read(0, 1);   // Miss A: MSHR[0] = 10
+        cache.ConsumePendingStalls();
+        cache.Read(16, 1);  // Miss B: MSHR[1] = 10
+        cache.ConsumePendingStalls();
+        Assert.Equal(2, cache.MshrOccupancy);
+
+        for (int i = 0; i < 5; i++) cache.TickMshr(); // both at 5
+
+        // Hit on line A: pays remaining 5.
+        cache.Read(0, 1);
+        Assert.Equal(5, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.MshrOccupancy); // B still in-flight
+        Assert.Equal(1, cache.MshrMerges);
+    }
 }

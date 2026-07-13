@@ -310,6 +310,8 @@ internal sealed class SuperscalarCore(
     // Drains all pending stalls and updates hit/miss counters. Returns total stall count.
     private long DrainAndChargeStalls() {
         long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
+        ILayers.TickMshr();
+        DLayers.TickMshr();
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
         UpdateCacheStat(
             ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
