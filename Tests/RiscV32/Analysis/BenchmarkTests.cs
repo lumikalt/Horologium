@@ -47,18 +47,18 @@ public class BenchmarkTests(ITestOutputHelper output) {
 
     private static IEnumerable<string> AllBenchmarkNames() =>
         Directory
-           .EnumerateFiles(BenchmarksDir, "*.elf")
+           .EnumerateFiles(BenchmarkTests.BenchmarksDir, "*.elf")
            .OrderBy(p => p)
-           .Select(p => Path.GetFileNameWithoutExtension(p)!);
+           .Select(p => Path.GetFileNameWithoutExtension(p));
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static string ElfPath(string name) =>
-        Path.Combine(BenchmarksDir, name + ".elf");
+        Path.Combine(BenchmarkTests.BenchmarksDir, name + ".elf");
 
     private static (FlatMemory Mem, IMemory HtifMem, ulong EntryPoint, ulong TohostAddr) Load(string name) {
-        var wl = new Rv32ElfWorkload(ElfPath(name), MemoryBytes);
-        var mem = new FlatMemory(MemoryBytes, wl.BaseAddress);
+        var wl = new Rv32ElfWorkload(ElfPath(name), BenchmarkTests.MemoryBytes);
+        var mem = new FlatMemory(BenchmarkTests.MemoryBytes, wl.BaseAddress);
         wl.Load(mem);
         ulong tohost = wl.FindSymbol("tohost");
         return (mem, new HtifMemory(mem, tohost), wl.EntryPoint, tohost);
@@ -81,11 +81,8 @@ public class BenchmarkTests(ITestOutputHelper output) {
         var failures = new ConcurrentBag<string>();
         Parallel.ForEach(
             AllBenchmarkNames(), name => {
-                try {
-                    runOne(name);
-                } catch (Exception ex) {
-                    failures.Add($"{name}: {ex.Message}");
-                }
+                try { runOne(name); }
+                catch (Exception ex) { failures.Add($"{name}: {ex.Message}"); }
             }
         );
         Assert.True(failures.IsEmpty, string.Join("\n", failures.OrderBy(f => f)));
@@ -95,8 +92,7 @@ public class BenchmarkTests(ITestOutputHelper output) {
 
     [Fact]
     public void SingleCycle_Passes() =>
-        RunAllBenchmarks(
-            name => {
+        RunAllBenchmarks(name => {
                 (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
                 var train = new SingleCycleTrain(new Rv32Mechanism(), htifMem, entry);
                 train.Run(10_000_000);
@@ -108,8 +104,7 @@ public class BenchmarkTests(ITestOutputHelper output) {
 
     [Fact]
     public void FiveStage_Passes() =>
-        RunAllBenchmarks(
-            name => {
+        RunAllBenchmarks(name => {
                 (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
                 var train = new FiveStageTrain(new Rv32Mechanism(), htifMem, entry);
                 train.Run(20_000_000);
@@ -121,8 +116,7 @@ public class BenchmarkTests(ITestOutputHelper output) {
 
     [Fact]
     public void OoOE_Passes() =>
-        RunAllBenchmarks(
-            name => {
+        RunAllBenchmarks(name => {
                 (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
                 var train = new OooeTrain(new Rv32Mechanism(), htifMem, entry);
                 train.Run(20_000_000);

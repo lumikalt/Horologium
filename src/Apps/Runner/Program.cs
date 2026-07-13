@@ -320,7 +320,9 @@ if (scriptPath is not null) {
 
         if (checkpointSavePath is not null) {
             Task checkpointSave =
-                ArchitecturalCheckpoint.SaveAsync(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
+                ArchitecturalCheckpoint.SaveAsync(
+                    checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks
+                );
             Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
             await checkpointSave;
         }
@@ -339,7 +341,9 @@ if (scriptPath is not null) {
 
         if (checkpointSavePath is not null) {
             Task checkpointSave =
-                ArchitecturalCheckpoint.SaveAsync(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
+                ArchitecturalCheckpoint.SaveAsync(
+                    checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks
+                );
             Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
             await checkpointSave;
         }
