@@ -369,14 +369,16 @@ isa/rv64si-p-%.elf: riscv-tests/isa/rv64si/%.S env/si/riscv_test.h env/riscv_tes
 
 # ── riscv-tests benchmarks ───────────────────────────────────────────────────
 #
-# dhrystone: uses a retry loop guarded by read_csr(mcycle).  Our simulator
-#   keeps mcycle at 0, so the time check always fails, printf is called, and
-#   the benchmark spins forever waiting for an HTIF fromhost reply.  Excluded.
+# dhrystone / mm / spmv: originally excluded because mcycle stayed at 0 and the
+#   D extension was missing; both are implemented now (mcycle increments per
+#   retired instruction, RV32IMAFD), so all three build and pass.
 #
-# mm / spmv: use double-precision floating point (D extension); the simulator
-#   only supports single-precision (F).  Excluded.
+# mt-*: multi-threaded via thread_entry on several harts; the benchmark test
+#   harness drives a single hart.  Excluded.
 #
-# mt-* / vec-*: multi-threaded or vector; not supported.  Excluded.
+# vec-*: use the standard V-extension intrinsics/assembly written for RVV 1.0
+#   vector strip-mine loops; untested against our VLEN=128 implementation.
+#   Excluded for now.
 #
 # pmp: exercises PMP CSRs not implemented by the simulator.  Excluded.
 
@@ -395,10 +397,12 @@ BMARKS_INCS = -I$(BMARKS_DIR) -I$(BMARKS_DIR)/common \
               -I$(BMARKS_DIR)/vvadd  -I$(BMARKS_DIR)/memcpy \
               -I$(BMARKS_DIR)/multiply \
               -I$(BMARKS_DIR)/gcd    -I$(BMARKS_DIR)/treesum \
-              -I$(BMARKS_DIR)/pchase
+              -I$(BMARKS_DIR)/pchase \
+              -I$(BMARKS_DIR)/dhrystone -I$(BMARKS_DIR)/mm -I$(BMARKS_DIR)/spmv
 BMARKS_COMMON = $(BMARKS_DIR)/common/syscalls.c $(BMARKS_DIR)/common/crt.S
 
-BMARKS = median qsort rsort towers vvadd memcpy multiply gcd treesum pchase
+BMARKS = median qsort rsort towers vvadd memcpy multiply gcd treesum pchase \
+         dhrystone mm spmv
 
 BMARKS_SRCS_median   = $(BMARKS_DIR)/median/median_main.c   $(BMARKS_DIR)/median/median.c
 BMARKS_SRCS_qsort    = $(BMARKS_DIR)/qsort/qsort_main.c
@@ -410,11 +414,17 @@ BMARKS_SRCS_multiply = $(BMARKS_DIR)/multiply/multiply_main.c $(BMARKS_DIR)/mult
 BMARKS_SRCS_gcd      = $(BMARKS_DIR)/gcd/gcd_main.c
 BMARKS_SRCS_treesum  = $(BMARKS_DIR)/treesum/treesum_main.c
 BMARKS_SRCS_pchase   = $(BMARKS_DIR)/pchase/pchase_main.c
+BMARKS_SRCS_dhrystone = $(BMARKS_DIR)/dhrystone/dhrystone_main.c $(BMARKS_DIR)/dhrystone/dhrystone.c
+BMARKS_SRCS_mm       = $(BMARKS_DIR)/mm/mm_main.c $(BMARKS_DIR)/mm/mm.c
+BMARKS_SRCS_spmv     = $(BMARKS_DIR)/spmv/spmv_main.c
+
+# dhrystone is K&R C; GCC 15 defaults to C23, which removes unprototyped calls.
+BMARKS_EXTRA_dhrystone = -std=gnu11
 
 define bmark_template
 benchmarks/$(1).elf: $$(BMARKS_SRCS_$(1)) $$(BMARKS_COMMON) bmarks.ld
 	@mkdir -p benchmarks
-	$$(BMARKS_CC) $$(BMARKS_CFLAGS) $$(BMARKS_INCS) $$(BMARKS_LDFLAGS) \
+	$$(BMARKS_CC) $$(BMARKS_CFLAGS) $$(BMARKS_EXTRA_$(1)) $$(BMARKS_INCS) $$(BMARKS_LDFLAGS) \
 	    $$(BMARKS_SRCS_$(1)) $$(BMARKS_COMMON) -lgcc -o $$@
 endef
 

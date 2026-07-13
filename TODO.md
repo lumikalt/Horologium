@@ -36,6 +36,25 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] Memoization of instructions, results, and branches.
 - [ ] Structural stage-model rework for in-order trains: struct latches, fewer interface hops.
 
+## Benchmarks
+
+Measured feasibility (Release, single thread): ~1M instr/s functional (single-cycle), ~0.1M cycles/s
+detailed (OoO). SPEC-class ref inputs (~10¹² instructions) are therefore only reachable via sampling;
+free embedded suites are runnable in full today.
+
+- [ ] CoreMark port (EEMBC, freely licensed): bare-metal `core_portme.c` against HTIF console + mcycle
+  timer; the standard embedded core benchmark, 2–3 orders of magnitude more work than rsort.
+- [ ] Embench-IoT port (Patterson et al.): the modern academic replacement for Dhrystone; designed for
+  bare-metal RISC-V, fits the existing crt0/HTIF pattern.
+- [ ] HTIF syscall proxy (fesvr magic-mem protocol): decode the 8-word syscall struct at tohost and
+  service open/read/write/fstat/exit against the host FS, so newlib-linked binaries with file I/O run
+  bare-metal (current HtifMemory only auto-ACKs).
+- [ ] Linux syscall-emulation mode (gem5 SE-style): ECALL shim implementing the ~40 syscalls needed by
+  statically linked musl binaries — unlocks MiBench and arbitrary self-built C programs.
+- [ ] SPEC CPU2006/2017 harness (user-supplied install; SPEC is licensed and non-redistributable):
+  RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction
+  intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint)
+
 ## Face
 
 - [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS

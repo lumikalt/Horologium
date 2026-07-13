@@ -29,12 +29,18 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } = [
         new("Built-in demo  (100-iter countdown loop)", null),
+        new("Benchmark — dhrystone", "dhrystone.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — gcd", "gcd.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — median", "median.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — memcpy", "memcpy.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — mm", "mm.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — multiply", "multiply.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — pchase", "pchase.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — qsort", "qsort.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — rsort", "rsort.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — spmv", "spmv.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — towers", "towers.elf", MainWindowViewModel.BenchmarkMemoryBytes),
+        new("Benchmark — treesum", "treesum.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — vvadd", "vvadd.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Custom ELF…", ""),
     ];
