@@ -42,7 +42,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   subprocess.
   - Also a C compiler…
 - [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes.
-- [ ] Waveform/signal viewer: plot pipeline signals (IPC, cache hit rate, branch mispredictions) over simulation time.
+- [x] Waveform/signal viewer: plot pipeline signals (IPC, cache hit rate, branch mispredictions) over simulation time.
 - [ ] Vector operation visualization.
   - Gotta think of how this should be done.
 - [ ] gem5-style architecture configurator: UI surface for the scripting host and pipeline builder — edit `.csx` scripts

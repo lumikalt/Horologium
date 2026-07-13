@@ -1182,6 +1182,49 @@
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto" />
                         </TabItem>
+                        <TabItem Header="Waveform">
+                            <Grid ColumnDefinitions="260,*">
+
+                                <!-- Signal picker -->
+                                <Border Grid.Column="0"
+                                        BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                        BorderThickness="0,0,1,0">
+                                    <Grid RowDefinitions="Auto,Auto,*" Margin="12,8">
+                                        <TextBlock Grid.Row="0" Text="SIGNALS"
+                                                   FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                                        <CheckBox Grid.Row="1"
+                                                  Content="Cumulative counters"
+                                                  IsChecked="{Binding WaveformCumulative}"
+                                                  ToolTip.Tip="Plot raw cumulative counter values instead of per-window deltas."
+                                                  Margin="0,6,0,4" />
+                                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl ItemsSource="{Binding AvailableSignals}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:SignalToggle">
+                                                        <CheckBox IsChecked="{Binding IsSelected}"
+                                                                  Content="{Binding Name}"
+                                                                  FontSize="12"
+                                                                  Margin="0,1" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Plot -->
+                                <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                                    <Border Grid.Row="0" Padding="12,7"
+                                            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                            BorderThickness="0,0,0,1">
+                                        <TextBlock Text="{Binding WaveformStatusText}"
+                                                   Opacity="0.75" FontSize="12" />
+                                    </Border>
+                                    <sp:AvaPlot x:Name="WaveformView" Grid.Row="1" />
+                                </Grid>
+
+                            </Grid>
+                        </TabItem>
                     </TabControl>
                 </TabItem>
 

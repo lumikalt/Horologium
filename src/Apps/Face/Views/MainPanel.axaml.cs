@@ -18,6 +18,7 @@ namespace Face.Views;
 
 public partial class MainPanel : UserControl {
     private AvaPlot? _chartView;
+    private AvaPlot? _waveformView;
     private DataGrid? _resultsGrid;
     private WaterfallRow? _lastHoveredRow;
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
@@ -27,9 +28,11 @@ public partial class MainPanel : UserControl {
 
         Loaded += (_, _) => {
             _chartView = this.FindControl<AvaPlot>("ChartView");
+            _waveformView = this.FindControl<AvaPlot>("WaveformView");
             _resultsGrid = this.FindControl<DataGrid>("ResultsGrid");
             if (Vm is not null) {
                 Vm.ResultsUpdated += () => Dispatcher.UIThread.Post(OnResultsUpdated);
+                Vm.WaveformUpdated += () => Dispatcher.UIThread.Post(RefreshWaveform);
                 Vm.PropertyChanged += (_, e) => {
                     if (e.PropertyName == nameof(MainWindowViewModel.IsDarkTheme)) OnResultsUpdated();
                 };
@@ -195,6 +198,7 @@ public partial class MainPanel : UserControl {
     private void OnResultsUpdated() {
         RefreshChart();
         RebuildTable();
+        RefreshWaveform();
     }
 
     private void RebuildTable() {
@@ -213,23 +217,34 @@ public partial class MainPanel : UserControl {
     }
 
     private void ApplyChartStyle() {
-        if (_chartView is null) return;
+        ApplyPlotStyle(_chartView);
+        ApplyPlotStyle(_waveformView);
+    }
+
+    private void ApplyPlotStyle(AvaPlot? plotView) {
+        if (plotView is null) return;
         bool dark = Vm?.IsDarkTheme ?? true;
-        Plot plt = _chartView.Plot;
+        Plot plt = plotView.Plot;
         if (dark) {
             plt.FigureBackground.Color = Color.FromHex("#1C1C28");
             plt.DataBackground.Color = Color.FromHex("#1C1C28");
             plt.Grid.MajorLineColor = Color.FromHex("#3A3A52");
             plt.Axes.Color(Colors.White);
+            plt.Legend.BackgroundColor = Color.FromHex("#252535");
+            plt.Legend.OutlineColor = Color.FromHex("#5A5A80");
+            plt.Legend.FontColor = Colors.White;
         }
         else {
             plt.FigureBackground.Color = Color.FromHex("#F5F5F5");
             plt.DataBackground.Color = Color.FromHex("#FFFFFF");
             plt.Grid.MajorLineColor = Color.FromHex("#CCCCDD");
             plt.Axes.Color(Colors.Black);
+            plt.Legend.BackgroundColor = Color.FromHex("#FFFFFF");
+            plt.Legend.OutlineColor = Color.FromHex("#CCCCDD");
+            plt.Legend.FontColor = Colors.Black;
         }
 
-        _chartView.Refresh();
+        plotView.Refresh();
     }
 
     private void RefreshChart() {
@@ -238,7 +253,7 @@ public partial class MainPanel : UserControl {
 
         Plot plt = _chartView.Plot;
         plt.Clear();
-        ApplyChartStyle();
+        ApplyPlotStyle(_chartView);
 
         if (names.Length == 0) {
             _chartView.Refresh();
@@ -263,5 +278,33 @@ public partial class MainPanel : UserControl {
         plt.Axes.Margins(left: 0);
 
         _chartView.Refresh();
+    }
+
+    private void RefreshWaveform() {
+        if (_waveformView is null || Vm is null) return;
+        IReadOnlyList<(string Label, double[] Ticks, double[] Values)> series = Vm.GetWaveformSeries();
+
+        Plot plt = _waveformView.Plot;
+        plt.Clear();
+        ApplyPlotStyle(_waveformView);
+
+        if (series.Count == 0) {
+            plt.Legend.IsVisible = false;
+            _waveformView.Refresh();
+            return;
+        }
+
+        foreach ((string label, double[] ticks, double[] values) in series) {
+            Scatter scatter = plt.Add.Scatter(ticks, values);
+            scatter.LegendText = label;
+            scatter.LineWidth = 2;
+            scatter.MarkerSize = ticks.Length <= 200 ? 4 : 0;
+        }
+
+        plt.ShowLegend(Alignment.UpperRight);
+        plt.Axes.Bottom.Label.Text = "tick";
+        plt.Axes.AutoScale();
+
+        _waveformView.Refresh();
     }
 }

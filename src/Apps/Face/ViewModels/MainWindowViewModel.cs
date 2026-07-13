@@ -69,6 +69,18 @@ public partial class MainWindowViewModel : ObservableObject {
 
     [ObservableProperty] public partial WaterfallData? CurrentWaterfall { get; set; } = null;
 
+    [ObservableProperty] public partial bool WaveformCumulative { get; set; } = false;
+
+    [ObservableProperty]
+    public partial string WaveformStatusText { get; set; } =
+        "Run with Snapshot interval > 0 to record time-series signals.";
+
+    public ObservableCollection<SignalToggle> AvailableSignals { get; } = [];
+
+    public event Action? WaveformUpdated;
+
+    partial void OnWaveformCumulativeChanged(bool value) => WaveformUpdated?.Invoke();
+
     [ObservableProperty]
     public partial string PEventStatusText { get; set; } = "Select a configuration and click Trace.";
 
@@ -202,6 +214,7 @@ public partial class MainWindowViewModel : ObservableObject {
             _lastResult = result;
             UpdateMetrics(result);
             PopulateTable(result);
+            UpdateSignals(result);
             HasResults = true;
             StatusText = $"Done — {result.Runs.Count} run(s), {maxTicks:N0} max ticks each.";
             ResultsUpdated?.Invoke();
@@ -376,6 +389,50 @@ public partial class MainWindowViewModel : ObservableObject {
         }
 
         return ([..names,], [..values,]);
+    }
+
+    public IReadOnlyList<(string Label, double[] Ticks, double[] Values)> GetWaveformSeries() {
+        if (_lastResult is null) return [];
+        List<string> selected = AvailableSignals.Where(s => s.IsSelected).Select(s => s.Name).ToList();
+        if (selected.Count == 0) return [];
+
+        bool multiRun = _lastResult.Runs.Count > 1;
+        var series = new List<(string, double[], double[])>();
+        foreach (RunRecord run in _lastResult.Runs)
+        foreach (string name in selected) {
+            Signal? sig = SignalExtractor.Extract(run.Result, name, WaveformCumulative);
+            if (sig is null) continue;
+            series.Add((multiRun ? $"{run.Name} · {name}" : name, sig.Ticks, sig.Values));
+        }
+
+        return series;
+    }
+
+    private void UpdateSignals(ExperimentResult result) {
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (RunRecord run in result.Runs)
+        foreach (string s in SignalExtractor.ListSignals(run.Result))
+            names.Add(s);
+
+        var previous = AvailableSignals.Where(s => s.IsSelected).Select(s => s.Name).ToHashSet();
+        AvailableSignals.Clear();
+        foreach (string name in names) {
+            var toggle = new SignalToggle(name, previous.Contains(name));
+            toggle.PropertyChanged += (_, _) => WaveformUpdated?.Invoke();
+            AvailableSignals.Add(toggle);
+        }
+
+        // Preselect windowed IPC on a fresh result so the tab isn't empty.
+        if (AvailableSignals.Count > 0 && AvailableSignals.All(s => !s.IsSelected)) {
+            SignalToggle def = AvailableSignals.FirstOrDefault(s => s.Name.EndsWith(".ipc (windowed)"))
+                            ?? AvailableSignals[0];
+            def.IsSelected = true;
+        }
+
+        WaveformStatusText = names.Count == 0
+            ? "No time series recorded — set Snapshot interval > 0 and re-run."
+            : $"{names.Count} signal(s) available across {result.Runs.Count} run(s).";
+        WaveformUpdated?.Invoke();
     }
 
     private void UpdateMetrics(ExperimentResult result) {
