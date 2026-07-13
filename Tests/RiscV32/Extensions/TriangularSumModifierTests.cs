@@ -8,27 +8,27 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Lower-triangular sum of an N×N float matrix — the same kernel as
-/// <see cref="LowerTriangularSumTests"/>, but idiomatic UVE: the triangle is
-/// described by a single stream configured once, using a static dimension
-/// modifier (ss.app.mod) that grows the inner count by 1 each time the row
-/// dimension wraps.
-/// <para>
-/// The existing example rebuilds the stream from scalar code on every row
-/// (~10 scalar instructions per outer iteration). Here the whole kernel after
-/// configuration is two instructions:
-/// </para>
-/// <para>
-///   loop: so.a.add.fp u2, u1, u2   ; acc += next triangle element
+///     Lower-triangular sum of an N×N float matrix — the same kernel as
+///     <see cref="LowerTriangularSumTests" />, but idiomatic UVE: the triangle is
+///     described by a single stream configured once, using a static dimension
+///     modifier (ss.app.mod) that grows the inner count by 1 each time the row
+///     dimension wraps.
+///     <para>
+///         The existing example rebuilds the stream from scalar code on every row
+///         (~10 scalar instructions per outer iteration). Here the whole kernel after
+///         configuration is two instructions:
+///     </para>
+///     <para>
+///         loop: so.a.add.fp u2, u1, u2   ; acc += next triangle element
 ///         so.b.nc     u1, loop     ; until the stream is exhausted
-/// </para>
-/// <para>
-/// Stream shape (configured outermost-first): rows: count=N, stride=N (elements); row
-/// elements (innermost, added by ss.end): count=1 initially, stride=1 (element), with
-/// modifier {Size, Inc, +1} → rows deliver 1, 2, 3, …, N elements. This is
-/// precisely the pattern the UVE paper cites as motivation for descriptor
-/// modifiers.
-/// </para>
+///     </para>
+///     <para>
+///         Stream shape (configured outermost-first): rows: count=N, stride=N (elements); row
+///         elements (innermost, added by ss.end): count=1 initially, stride=1 (element), with
+///         modifier {Size, Inc, +1} → rows deliver 1, 2, 3, …, N elements. This is
+///         precisely the pattern the UVE paper cites as motivation for descriptor
+///         modifiers.
+///     </para>
 /// </summary>
 public class TriangularSumModifierTests {
     // ── Encode helpers ────────────────────────────────────────────────────────

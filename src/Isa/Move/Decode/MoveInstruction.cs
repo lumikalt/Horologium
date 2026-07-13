@@ -3,18 +3,6 @@ using Mechanism;
 namespace Move.Decode;
 
 public sealed class MoveInstruction : ITooth {
-    public ulong Pc { get; }
-    public uint RawEncoding { get; }
-    public int SizeBytes => 4;
-    public int DestinationRegister => -1;
-    public IReadOnlyList<int> SourceRegisters => [];
-    public object? Payload => null;
-
-    public byte Dst { get; }
-    public byte Src { get; }
-    public ushort Imm { get; }
-    public ToothClass Class { get; }
-
     public MoveInstruction(ulong pc, byte dst, byte src, ushort imm) {
         Pc = pc;
         Dst = dst;
@@ -29,4 +17,15 @@ public sealed class MoveInstruction : ITooth {
             _    => ToothClass.IntegerAlu,
         };
     }
+
+    public byte Dst { get; }
+    public byte Src { get; }
+    public ushort Imm { get; }
+    public ulong Pc { get; }
+    public uint RawEncoding { get; }
+    public int SizeBytes => 4;
+    public int DestinationRegister => -1;
+    public IReadOnlyList<int> SourceRegisters => [];
+    public object? Payload => null;
+    public ToothClass Class { get; }
 }

@@ -10,6 +10,9 @@ public partial class Rv32Executor {
     // RISC-V canonical NaN for float16 (positive, quiet NaN with the top mantissa bit set).
     private const ushort RvCanonicalNaNh = 0x7E00;
 
+    // Half16 minimum normal magnitude (2^-14).
+    private static readonly Half MinNormalH = (Half)6.103515625e-05;
+
     // Wrap an ExecuteResult (e.g., from Load) to NaN-box the 16-bit half value.
     private static ExecuteResult NanBoxH(ExecuteResult r) =>
         r.RegisterResult.HasValue
@@ -33,9 +36,6 @@ public partial class Rv32Executor {
         return new ExecuteResult
             { RegisterResult = (nanBoxed, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
     }
-
-    // Half16 minimum normal magnitude (2^-14).
-    private static readonly Half MinNormalH = (Half)6.103515625e-05;
 
     // Signaling NaN check for half: exponent bits[14:10]=0x1F, fraction!=0, quiet bit (bit 9)=0.
     private static bool IsHNan(ushort bits) =>

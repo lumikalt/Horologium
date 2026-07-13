@@ -3,24 +3,24 @@ using System.Text;
 namespace Orrery.Observation;
 
 /// <summary>
-/// The collection of all observable metrics on a Gear.
-/// <para>
-/// A DialBoard owns a Gear's Counters and Dials, and exposes them
-/// for querying by name. At the end of a Revolution, the Train calls
-/// Snapshot() to capture a point-in-time reading of all values.
-/// </para>
+///     The collection of all observable metrics on a Gear.
+///     <para>
+///         A DialBoard owns a Gear's Counters and Dials, and exposes them
+///         for querying by name. At the end of a Revolution, the Train calls
+///         Snapshot() to capture a point-in-time reading of all values.
+///     </para>
 /// </summary>
 public sealed class DialBoard {
     private readonly Dictionary<string, Counter> _counters = new();
     private readonly Dictionary<string, Dial> _dials = new();
     private readonly Dictionary<string, Histogram> _histograms = new();
 
-    public string OwnerPath { get; }
-
     public DialBoard(string ownerPath) {
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerPath);
         OwnerPath = ownerPath;
     }
+
+    public string OwnerPath { get; }
 
     // ── Registration ──────────────────────────────────────────────────────────
 
@@ -86,8 +86,8 @@ public sealed class DialBoard {
     // ── Snapshot ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Captures a point-in-time snapshot of all counters and dials.
-    /// Called by the Train at the end of a Revolution.
+    ///     Captures a point-in-time snapshot of all counters and dials.
+    ///     Called by the Train at the end of a Revolution.
     /// </summary>
     public DialBoardSnapshot Snapshot() =>
         new(
@@ -109,8 +109,8 @@ public sealed class DialBoard {
 }
 
 /// <summary>
-/// An immutable point-in-time reading of a DialBoard.
-/// Returned by the Train at the end of each Revolution.
+///     An immutable point-in-time reading of a DialBoard.
+///     Returned by the Train at the end of each Revolution.
 /// </summary>
 public sealed record DialBoardSnapshot(
     string OwnerPath,
@@ -119,10 +119,10 @@ public sealed record DialBoardSnapshot(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> Histograms
 ) {
     /// <summary>
-    /// Returns a new snapshot whose counter and histogram values are
-    /// <c>this − baseline</c>. Dials (which are rates, not totals) are
-    /// kept from <c>this</c>. Used to extract measurement-phase stats
-    /// from a run that included a warmup phase.
+    ///     Returns a new snapshot whose counter and histogram values are
+    ///     <c>this − baseline</c>. Dials (which are rates, not totals) are
+    ///     kept from <c>this</c>. Used to extract measurement-phase stats
+    ///     from a run that included a warmup phase.
     /// </summary>
     public DialBoardSnapshot Subtract(DialBoardSnapshot baseline) =>
         new(

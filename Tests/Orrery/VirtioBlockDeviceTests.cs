@@ -4,18 +4,17 @@ using RiscV32.Memory;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for <see cref="VirtioMmioDevice"/>.
-/// Tests drive the device entirely through its MMIO register interface,
-/// planting descriptor tables and rings directly in a <see cref="FlatMemory"/>,
-/// and verify the used ring and DMA buffers after QueueNotify.
-///
-/// Memory layout used by all tests (base 0x1000):
-///   0x1000  Descriptor table  (QueueNum=4, 4×16 = 64 bytes)
-///   0x1040  Available ring    (2+2+4×2 = 12 bytes)
-///   0x1060  Used ring         (2+2+4×8 = 36 bytes)
-///   0x1100  Request header    (16 bytes: type/reserved/sector)
-///   0x1110  Status byte       (1 byte, device-writable)
-///   0x1200  Data buffer       (1 or more 512-byte sectors)
+///     Unit tests for <see cref="VirtioMmioDevice" />.
+///     Tests drive the device entirely through its MMIO register interface,
+///     planting descriptor tables and rings directly in a <see cref="FlatMemory" />,
+///     and verify the used ring and DMA buffers after QueueNotify.
+///     Memory layout used by all tests (base 0x1000):
+///     0x1000  Descriptor table  (QueueNum=4, 4×16 = 64 bytes)
+///     0x1040  Available ring    (2+2+4×2 = 12 bytes)
+///     0x1060  Used ring         (2+2+4×8 = 36 bytes)
+///     0x1100  Request header    (16 bytes: type/reserved/sector)
+///     0x1110  Status byte       (1 byte, device-writable)
+///     0x1200  Data buffer       (1 or more 512-byte sectors)
 /// </summary>
 public class VirtioBlockDeviceTests {
     private const ulong RamBase = 0x1000UL;

@@ -6,11 +6,6 @@ namespace Pdp8;
 public sealed class Pdp8ArchState : IArchState {
     private readonly Pdp8RegisterFile _regs = new();
 
-    public ulong Pc { get; set; }
-    public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
-    public IRegisterFile IntegerRegisters => _regs;
-    public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
-
     public ulong Ac {
         get => _regs.Read(0);
         set => _regs.Write(0, value);
@@ -20,6 +15,11 @@ public sealed class Pdp8ArchState : IArchState {
         get => _regs.Read(1);
         set => _regs.Write(1, value);
     }
+
+    public ulong Pc { get; set; }
+    public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
+    public IRegisterFile IntegerRegisters => _regs;
+    public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
 
     public IArchState Snapshot() {
         var s = new Pdp8ArchState { Pc = Pc, PrivilegeLevel = PrivilegeLevel, };

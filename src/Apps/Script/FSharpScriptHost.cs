@@ -9,10 +9,10 @@ using static FSharp.Compiler.Interactive.Shell;
 namespace Script;
 
 /// <summary>
-/// Evaluates a <c>.fsx</c> file whose last expression is a <see cref="MachineSpec"/>.
-/// A fresh FSI session is created per evaluation with all project assemblies pre-referenced
-/// and all Spec namespaces pre-opened — the script needs no <c>#r</c> or <c>open</c>.
-/// <para>Convention: the last top-level expression (not a <c>let</c> binding) is the return value.</para>
+///     Evaluates a <c>.fsx</c> file whose last expression is a <see cref="MachineSpec" />.
+///     A fresh FSI session is created per evaluation with all project assemblies pre-referenced
+///     and all Spec namespaces pre-opened — the script needs no <c>#r</c> or <c>open</c>.
+///     <para>Convention: the last top-level expression (not a <c>let</c> binding) is the return value.</para>
 /// </summary>
 internal static class FSharpScriptHost {
     private static readonly string[] PreOpenedNamespaces = [

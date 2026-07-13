@@ -8,12 +8,12 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// V-extension coverage on RV64. Decode and most execution fall straight through to the
-/// inherited RV32 implementation (VectorRegisterFile and the vtype/vl CSRs are XLEN-agnostic —
-/// see Rv32Executor.V.cs), so this focuses on the one path that genuinely differs: vlse/vsse
-/// strided load/store, whose stride register must be read as a full 64-bit signed value on
-/// RV64 instead of the RV32 32-bit-sign-extend path (Rv32Executor.ReadStride /
-/// Rv64Executor.ReadStride).
+///     V-extension coverage on RV64. Decode and most execution fall straight through to the
+///     inherited RV32 implementation (VectorRegisterFile and the vtype/vl CSRs are XLEN-agnostic —
+///     see Rv32Executor.V.cs), so this focuses on the one path that genuinely differs: vlse/vsse
+///     strided load/store, whose stride register must be read as a full 64-bit signed value on
+///     RV64 instead of the RV32 32-bit-sign-extend path (Rv32Executor.ReadStride /
+///     Rv64Executor.ReadStride).
 /// </summary>
 /// <summary>Byte-dictionary-backed IMemory for tests that need addresses spanning &gt; 32 bits.</summary>
 internal sealed class SparseMemory : IMemory {
@@ -35,6 +35,8 @@ internal sealed class SparseMemory : IMemory {
 }
 
 public class Rv64VectorTests {
+    // vtypei for e32,m1,ta,ma
+    private const int VtypeiE32M1Tama = (1 << 7) | (1 << 6) | (2 << 3);
     private readonly Rv64Decoder _dec = new();
     private readonly Rv64Executor _exe = new();
     private readonly FlatMemory _mem = new(0x100000);
@@ -65,9 +67,6 @@ public class Rv64VectorTests {
     private static uint Vssseg(int nf, int vs3, int rs1, int rs2, int funct3Width) =>
         (uint)(((nf - 1) << 29) | (2 << 26) | (1 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3Width << 12) |
                (vs3 << 7) | 0x27);
-
-    // vtypei for e32,m1,ta,ma
-    private const int VtypeiE32M1Tama = (1 << 7) | (1 << 6) | (2 << 3);
 
     private Rv64ArchState MakeState() => new();
 

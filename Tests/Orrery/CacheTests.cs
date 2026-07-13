@@ -5,8 +5,8 @@ using RiscV32.Memory;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for SetAssociativeCache.
-/// All configurations use blockSize=16, sets computed from capacity/ways/block.
+///     Unit tests for SetAssociativeCache.
+///     All configurations use blockSize=16, sets computed from capacity/ways/block.
 /// </summary>
 public class CacheTests {
     // 4-way, 64-byte capacity → 64/(4*16) = 1 set (fully-associative in effect).
@@ -611,7 +611,7 @@ public class CacheTests {
     public void Mshr_Unlimited_LegacyBehavior() {
         // MshrCount == 0 means unlimited: every miss charges MissLatency exactly as before.
         var mem = new FlatMemory(256);
-        var cache = MakeFullyAssoc(mem, missLatency: 10);
+        SetAssociativeCache cache = MakeFullyAssoc(mem);
 
         cache.Read(0, 1);
         Assert.Equal(10, cache.ConsumePendingStalls());
@@ -624,7 +624,7 @@ public class CacheTests {
     [Fact]
     public void Mshr_PrimaryMiss_AllocatesSlot_SlotFreedByTick() {
         var mem = new FlatMemory(256);
-        var cache = MakeMshr(mem, mshrCount: 2, missLatency: 10);
+        SetAssociativeCache cache = MakeMshr(mem, 2);
 
         // Cold miss: allocates MSHR slot, charges MissLatency.
         cache.Read(0, 1);
@@ -632,7 +632,7 @@ public class CacheTests {
         Assert.Equal(1, cache.MshrOccupancy);
 
         // TickMshr 9 times: slot still occupied.
-        for (int i = 0; i < 9; i++) cache.TickMshr();
+        for (var i = 0; i < 9; i++) cache.TickMshr();
         Assert.Equal(1, cache.MshrOccupancy);
 
         // One more tick: slot freed.
@@ -643,7 +643,7 @@ public class CacheTests {
     [Fact]
     public void Mshr_HitOnInFlightLine_ChargesRemainingAndFreesSlot() {
         var mem = new FlatMemory(256);
-        var cache = MakeMshr(mem, mshrCount: 2, missLatency: 10);
+        SetAssociativeCache cache = MakeMshr(mem, 2);
 
         // Miss on line 0: MSHR[0] = 10.
         cache.Read(0, 1);
@@ -651,7 +651,7 @@ public class CacheTests {
         Assert.Equal(1, cache.MshrOccupancy);
 
         // Advance 3 ticks: MSHR[0] = 7.
-        for (int i = 0; i < 3; i++) cache.TickMshr();
+        for (var i = 0; i < 3; i++) cache.TickMshr();
 
         // Hit on the same line (byte 5 is within the 16-byte block starting at 0).
         // Should charge the remaining 7 cycles and free the slot.
@@ -667,13 +667,13 @@ public class CacheTests {
         // After 4 ticks (remaining=6), miss B (unique line) cannot get a slot:
         // stall = 6 + 10 = 16; MshrCapacityStalls++ and slot is NOT allocated for B.
         var mem = new FlatMemory(256);
-        var cache = MakeMshr(mem, mshrCount: 1, missLatency: 10);
+        SetAssociativeCache cache = MakeMshr(mem, 1);
 
-        cache.Read(0, 1);                // Miss A: slot → MSHR[0] = 10
+        cache.Read(0, 1); // Miss A: slot → MSHR[0] = 10
         cache.ConsumePendingStalls();
         Assert.Equal(1, cache.MshrOccupancy);
 
-        for (int i = 0; i < 4; i++) cache.TickMshr(); // MSHR[0] = 6
+        for (var i = 0; i < 4; i++) cache.TickMshr(); // MSHR[0] = 6
 
         // Miss B (line 16): all slots full. Stall = 6 + 10 = 16.
         cache.Read(16, 1);
@@ -686,15 +686,15 @@ public class CacheTests {
     [Fact]
     public void Mshr_TwoIndependentSlots_BothTracked() {
         var mem = new FlatMemory(256);
-        var cache = MakeMshr(mem, mshrCount: 2, missLatency: 10);
+        SetAssociativeCache cache = MakeMshr(mem, 2);
 
-        cache.Read(0, 1);   // Miss A: MSHR[0] = 10
+        cache.Read(0, 1); // Miss A: MSHR[0] = 10
         cache.ConsumePendingStalls();
-        cache.Read(16, 1);  // Miss B: MSHR[1] = 10
+        cache.Read(16, 1); // Miss B: MSHR[1] = 10
         cache.ConsumePendingStalls();
         Assert.Equal(2, cache.MshrOccupancy);
 
-        for (int i = 0; i < 5; i++) cache.TickMshr(); // both at 5
+        for (var i = 0; i < 5; i++) cache.TickMshr(); // both at 5
 
         // Hit on line A: pays remaining 5.
         cache.Read(0, 1);

@@ -3,17 +3,17 @@ using System.Numerics;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Tree-PLRU (Pseudo-LRU) replacement policy. Each set holds a complete binary
-/// tree of <c>ways−1</c> bits. On every access (hit or install) the bits on the
-/// root-to-leaf path are set to point <em>away</em> from the accessed subtree,
-/// making its sibling subtree the replacement candidate. Victim selection follows
-/// bits root-to-leaf. Exact LRU for 2-way; a hardware-friendly approximation
-/// for higher associativity (as used in Intel P6 and later designs).
+///     Tree-PLRU (Pseudo-LRU) replacement policy. Each set holds a complete binary
+///     tree of <c>ways−1</c> bits. On every access (hit or install) the bits on the
+///     root-to-leaf path are set to point <em>away</em> from the accessed subtree,
+///     making its sibling subtree the replacement candidate. Victim selection follows
+///     bits root-to-leaf. Exact LRU for 2-way; a hardware-friendly approximation
+///     for higher associativity (as used in Intel P6 and later designs).
 /// </summary>
 public sealed class PlruPolicy : IReplacementPolicy {
-    private readonly int _ways;
-    private readonly int _depth;     // log2(ways)
     private readonly bool[][] _bits; // [set][ways-1 nodes], indexed as complete binary tree
+    private readonly int _depth;     // log2(ways)
+    private readonly int _ways;
 
     public PlruPolicy(int sets, int ways) {
         if (!BitOperations.IsPow2(ways) || ways < 2)

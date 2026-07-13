@@ -7,13 +7,13 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Tests for Zawrs, Zicbom, Zicboz, and Zimop NOP/minor-effect extensions.
-/// <para>
-/// Zawrs: wrs.nto / wrs.sto — NOP in single-core simulation.
-/// Zicbom: cbo.inval / cbo.clean / cbo.flush — NOP (no coherence model).
-/// Zicboz: cbo.zero — zeros a 64-byte cache-line-aligned block.
-/// Zimop: mop.r.N / mop.rr.N — always write 0 to rd.
-/// </para>
+///     Tests for Zawrs, Zicbom, Zicboz, and Zimop NOP/minor-effect extensions.
+///     <para>
+///         Zawrs: wrs.nto / wrs.sto — NOP in single-core simulation.
+///         Zicbom: cbo.inval / cbo.clean / cbo.flush — NOP (no coherence model).
+///         Zicboz: cbo.zero — zeros a 64-byte cache-line-aligned block.
+///         Zimop: mop.r.N / mop.rr.N — always write 0 to rd.
+///     </para>
 /// </summary>
 public class ZawrsZicbomZicbozZimopTests {
     private const ulong CodeBase = 0x1000u;

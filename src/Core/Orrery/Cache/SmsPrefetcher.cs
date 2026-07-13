@@ -3,85 +3,61 @@ using System.Numerics;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Spatial Memory Streaming (SMS) prefetcher (Somogyi et al., ISCA 2006).
-/// <para>
-/// SMS learns spatial access patterns over fixed 2 KB address regions and predicts
-/// which cache blocks will be accessed, indexed by the PC and block offset of the
-/// <em>trigger</em> (first) access to each region.
-/// </para>
-/// <para>
-/// <strong>Active Generation Table (AGT):</strong> two fully-associative FIFO tables.
-/// The <em>filter table</em> (32 entries) holds single-access generations; on the
-/// second distinct block access the entry is promoted to the <em>accumulation table</em>
-/// (64 entries), which accumulates a bit-vector spatial pattern.  On AGT capacity
-/// pressure the oldest accumulation entry is retired into the PHT; evicted filter
-/// entries (single-access generations) are silently discarded.
-/// </para>
-/// <para>
-/// <strong>Pattern History Table (PHT):</strong> 16 K entries, 16-way set-associative,
-/// LRU replacement, indexed by a Knuth hash of the trigger PC and block offset.
-/// </para>
-/// <para>
-/// Because <see cref="IPrefetcher"/> receives no eviction callbacks, generation
-/// termination relies solely on AGT capacity pressure, which the paper explicitly
-/// supports: "if either table is full when a new entry must be allocated, a victim
-/// entry is selected and the corresponding generation is terminated."
-/// </para>
-/// <para>
-/// With a 2 KB region and 32 B blocks there are exactly 64 blocks per region,
-/// fitting the spatial pattern in a <see cref="ulong"/> bitmask.
-/// <c>blockBytes</c> must therefore be ≥ 32.
-/// </para>
+///     Spatial Memory Streaming (SMS) prefetcher (Somogyi et al., ISCA 2006).
+///     <para>
+///         SMS learns spatial access patterns over fixed 2 KB address regions and predicts
+///         which cache blocks will be accessed, indexed by the PC and block offset of the
+///         <em>trigger</em> (first) access to each region.
+///     </para>
+///     <para>
+///         <strong>Active Generation Table (AGT):</strong> two fully-associative FIFO tables.
+///         The <em>filter table</em> (32 entries) holds single-access generations; on the
+///         second distinct block access the entry is promoted to the <em>accumulation table</em>
+///         (64 entries), which accumulates a bit-vector spatial pattern.  On AGT capacity
+///         pressure the oldest accumulation entry is retired into the PHT; evicted filter
+///         entries (single-access generations) are silently discarded.
+///     </para>
+///     <para>
+///         <strong>Pattern History Table (PHT):</strong> 16 K entries, 16-way set-associative,
+///         LRU replacement, indexed by a Knuth hash of the trigger PC and block offset.
+///     </para>
+///     <para>
+///         Because <see cref="IPrefetcher" /> receives no eviction callbacks, generation
+///         termination relies solely on AGT capacity pressure, which the paper explicitly
+///         supports: "if either table is full when a new entry must be allocated, a victim
+///         entry is selected and the corresponding generation is terminated."
+///     </para>
+///     <para>
+///         With a 2 KB region and 32 B blocks there are exactly 64 blocks per region,
+///         fitting the spatial pattern in a <see cref="ulong" /> bitmask.
+///         <c>blockBytes</c> must therefore be ≥ 32.
+///     </para>
 /// </summary>
 public sealed class SmsPrefetcher : IPrefetcher {
     // ── Geometry ──────────────────────────────────────────────────────────────
     private const int RegionBytes = 2048;
     private const int MaxBlocksPerRegion = 64; // pattern must fit in ulong
 
-    private readonly int _blockBits;
-    private readonly int _blocksPerRegion;
-    private readonly ulong _regionMask; // ~(RegionBytes - 1)
-
     // ── Filter Table: 32-entry FA FIFO ────────────────────────────────────────
     private const int FilterSize = 32;
 
-    private struct FilterEntry {
-        public ulong RegionBase;
-        public ulong TriggerPc;
-        public int TriggerOffset;
-        public int Age;
-        public bool Valid;
-    }
-
-    private readonly FilterEntry[] _filter = new FilterEntry[SmsPrefetcher.FilterSize];
-
     // ── Accumulation Table: 64-entry FA FIFO ─────────────────────────────────
     private const int AccumSize = 64;
-
-    private struct AccumEntry {
-        public ulong RegionBase;
-        public ulong TriggerPc;
-        public int TriggerOffset;
-        public ulong Pattern;
-        public int Age;
-        public bool Valid;
-    }
-
-    private readonly AccumEntry[] _accum = new AccumEntry[SmsPrefetcher.AccumSize];
 
     // ── Pattern History Table: 16 K entries, 16-way SA, LRU ──────────────────
     private const int PhtTotalEntries = 16384;
     private const int PhtWays = 16;
     private const int PhtSets = SmsPrefetcher.PhtTotalEntries / SmsPrefetcher.PhtWays; // 1024
 
-    private struct PhtEntry {
-        public ulong Tag;
-        public ulong Pattern;
-        public int LruAge;
-        public bool Valid;
-    }
+    private readonly AccumEntry[] _accum = new AccumEntry[SmsPrefetcher.AccumSize];
+
+    private readonly int _blockBits;
+    private readonly int _blocksPerRegion;
+
+    private readonly FilterEntry[] _filter = new FilterEntry[SmsPrefetcher.FilterSize];
 
     private readonly PhtEntry[,] _pht = new PhtEntry[SmsPrefetcher.PhtSets, SmsPrefetcher.PhtWays];
+    private readonly ulong _regionMask; // ~(RegionBytes - 1)
 
     // ── Monotone counters ─────────────────────────────────────────────────────
     private int _age;
@@ -255,5 +231,29 @@ public sealed class SmsPrefetcher : IPrefetcher {
         }
 
         return victim;
+    }
+
+    private struct FilterEntry {
+        public ulong RegionBase;
+        public ulong TriggerPc;
+        public int TriggerOffset;
+        public int Age;
+        public bool Valid;
+    }
+
+    private struct AccumEntry {
+        public ulong RegionBase;
+        public ulong TriggerPc;
+        public int TriggerOffset;
+        public ulong Pattern;
+        public int Age;
+        public bool Valid;
+    }
+
+    private struct PhtEntry {
+        public ulong Tag;
+        public ulong Pattern;
+        public int LruAge;
+        public bool Valid;
     }
 }

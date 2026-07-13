@@ -3,37 +3,43 @@ using Orrery.Train;
 namespace Orrery.Observation;
 
 /// <summary>
-/// A named signal sampled over simulation time, extracted from a Revolution's
-/// periodic time-series snapshots. <see cref="Ticks"/> are relative to the start
-/// of the measurement phase; <see cref="Values"/> holds one sample per snapshot.
+///     A named signal sampled over simulation time, extracted from a Revolution's
+///     periodic time-series snapshots. <see cref="Ticks" /> are relative to the start
+///     of the measurement phase; <see cref="Values" /> holds one sample per snapshot.
 /// </summary>
 public sealed record Signal(string Name, double[] Ticks, double[] Values);
 
 /// <summary>
-/// Turns the cumulative <see cref="RevolutionResult.TimeSeries"/> snapshots into
-/// plottable per-window signals for a waveform viewer.
-/// <para>
-/// Three kinds of signal are offered, distinguished by a suffix in the name:
-/// <list type="bullet">
-/// <item><c>{gear}.{counter}</c> — the counter's per-window delta
-///   (or its raw cumulative value when requested)</item>
-/// <item><c>{gear}.{metric} (windowed)</c> — a ratio computed over each window:
-///   <c>ipc</c> from <c>retired</c>/<c>cycles</c>, and <c>{x}_hit_rate</c> from any
-///   <c>{x}_hits</c>/<c>{x}_misses</c> counter pair on the same gear</item>
-/// <item><c>{gear}.{dial} (cumulative)</c> — the dial's value at each snapshot,
-///   which is cumulative from run start by construction</item>
-/// </list>
-/// Windows with no activity (zero denominator) carry the previous window's ratio
-/// forward so halted gears plot as a flat line rather than a dip to zero.
-/// </para>
+///     Turns the cumulative <see cref="RevolutionResult.TimeSeries" /> snapshots into
+///     plottable per-window signals for a waveform viewer.
+///     <para>
+///         Three kinds of signal are offered, distinguished by a suffix in the name:
+///         <list type="bullet">
+///             <item>
+///                 <c>{gear}.{counter}</c> — the counter's per-window delta
+///                 (or its raw cumulative value when requested)
+///             </item>
+///             <item>
+///                 <c>{gear}.{metric} (windowed)</c> — a ratio computed over each window:
+///                 <c>ipc</c> from <c>retired</c>/<c>cycles</c>, and <c>{x}_hit_rate</c> from any
+///                 <c>{x}_hits</c>/<c>{x}_misses</c> counter pair on the same gear
+///             </item>
+///             <item>
+///                 <c>{gear}.{dial} (cumulative)</c> — the dial's value at each snapshot,
+///                 which is cumulative from run start by construction
+///             </item>
+///         </list>
+///         Windows with no activity (zero denominator) carry the previous window's ratio
+///         forward so halted gears plot as a flat line rather than a dip to zero.
+///     </para>
 /// </summary>
 public static class SignalExtractor {
     private const string WindowedSuffix = " (windowed)";
     private const string CumulativeSuffix = " (cumulative)";
 
     /// <summary>
-    /// Lists every signal name extractable from the result's time series.
-    /// Returns an empty list when no time series was recorded.
+    ///     Lists every signal name extractable from the result's time series.
+    ///     Returns an empty list when no time series was recorded.
     /// </summary>
     public static IReadOnlyList<string> ListSignals(RevolutionResult result) {
         if (result.TimeSeries is not { Count: > 0, } ts) return [];
@@ -60,13 +66,13 @@ public static class SignalExtractor {
     }
 
     /// <summary>
-    /// Extracts one signal by a name obtained from <see cref="ListSignals"/>.
-    /// Returns null when the result has no time series or the name is unknown.
+    ///     Extracts one signal by a name obtained from <see cref="ListSignals" />.
+    ///     Returns null when the result has no time series or the name is unknown.
     /// </summary>
     /// <param name="cumulativeCounters">
-    /// When true, plain counter signals keep their raw cumulative values instead
-    /// of being differenced into per-window deltas. Windowed and dial signals
-    /// are unaffected.
+    ///     When true, plain counter signals keep their raw cumulative values instead
+    ///     of being differenced into per-window deltas. Windowed and dial signals
+    ///     are unaffected.
     /// </param>
     public static Signal? Extract(RevolutionResult result, string name, bool cumulativeCounters = false) {
         if (result.TimeSeries is not { Count: > 0, } ts) return null;

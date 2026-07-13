@@ -5,25 +5,25 @@ namespace Mechanism.BranchPredictModels;
 /// shared Pattern History Table (PHT) of n-bit saturating counters.
 /// Distinct from Gselect/Gshare because history is local, not global.
 public sealed class CorrelatedPredictor : IBranchPredictor {
-    private readonly int _satMax;
-    private readonly int _satThreshold;
     private readonly int _bhtMask;
+    private readonly ulong[] _btb;
     private readonly SpeculativeLocalHistory _local; // per-branch history registers
     private readonly byte[] _pht;                    // shared pattern history table (2^m entries)
-    private readonly ulong[] _btb;
+    private readonly int _satMax;
+    private readonly int _satThreshold;
 
     /// <summary>
-    /// Constructs a CorrelatedPredictor with the given history length.
+    ///     Constructs a CorrelatedPredictor with the given history length.
     /// </summary>
     /// <param name="m">
-    /// Bits in the BHR.
+    ///     Bits in the BHR.
     /// </param>
     /// <param name="n"></param>
     /// Bits in the PHT.
     /// <param name="bhtSize">
-    /// Entries in the BHT.
+    ///     Entries in the BHT.
     /// </param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="m"/>, <paramref name="n"/> ≤ 0.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="m" />, <paramref name="n" /> ≤ 0.</exception>
     public CorrelatedPredictor(int m = 2, int n = 2, int bhtSize = 1024) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(m);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(n);
@@ -91,24 +91,24 @@ public sealed class CorrelatedPredictor : IBranchPredictor {
 /// Gselect: global history register; PHT index = concat(GHR, lower PC bits).
 /// PHT size = 2^(historyBits + pcBits). Each dimension contributes independently.
 public sealed class GselectPredictor : IBranchPredictor {
-    private readonly int _pcBits;
-    private readonly int _ghrMask;
-    private readonly int _pcMask;
-    private readonly int _satThreshold;
-    private readonly int _satMax;
-    private readonly byte[] _pht;
     private readonly ulong[] _btb;
+    private readonly int _ghrMask;
     private readonly SpeculativeGlobalHistory _hist;
+    private readonly int _pcBits;
+    private readonly int _pcMask;
+    private readonly byte[] _pht;
+    private readonly int _satMax;
+    private readonly int _satThreshold;
 
     /// <summary>
-    /// Constructs a Gselect predictor with the given history and PC lengths.
+    ///     Constructs a Gselect predictor with the given history and PC lengths.
     /// </summary>
     /// <param name="historyBits">History length.</param>
     /// <param name="pcBits">
-    /// Bits in the lower PC.
+    ///     Bits in the lower PC.
     /// </param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="historyBits"/>, <paramref name="pcBits"/> ≤ 0.
+    ///     <paramref name="historyBits" />, <paramref name="pcBits" /> ≤ 0.
     /// </exception>
     public GselectPredictor(int historyBits = 4, int pcBits = 4) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(historyBits);
@@ -167,18 +167,18 @@ public sealed class GselectPredictor : IBranchPredictor {
 /// Gshare: global history register; PHT index = GHR XOR lower PC bits.
 /// XOR spreads aliasing more evenly than concatenation.
 public sealed class GsharePredictor : IBranchPredictor {
-    private readonly int _ghrMask;
-    private readonly int _satThreshold;
-    private readonly int _satMax;
-    private readonly byte[] _pht;
     private readonly ulong[] _btb;
+    private readonly int _ghrMask;
     private readonly SpeculativeGlobalHistory _hist;
+    private readonly byte[] _pht;
+    private readonly int _satMax;
+    private readonly int _satThreshold;
 
     /// <summary>
-    /// Constructs a Gshare predictor with the given history length.
+    ///     Constructs a Gshare predictor with the given history length.
     /// </summary>
     /// <param name="historyBits">History length.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="historyBits"/> ≤ 0</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="historyBits" /> ≤ 0</exception>
     public GsharePredictor(int historyBits = 8) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(historyBits);
         int phtSize = 1 << historyBits;

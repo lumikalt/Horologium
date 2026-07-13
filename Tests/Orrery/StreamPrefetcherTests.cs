@@ -5,7 +5,7 @@ using RiscV32.Memory;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for StreamPrefetcher (Jouppi, ISCA 1990).
+///     Unit tests for StreamPrefetcher (Jouppi, ISCA 1990).
 /// </summary>
 public sealed class StreamPrefetcherTests {
     private static int Fire(StreamPrefetcher p, ulong addr, bool wasHit, Span<ulong> buf)

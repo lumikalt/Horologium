@@ -12,8 +12,8 @@ using RiscV32.State;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Tests for the UVE extension: stream setup, scalar broadcast, arithmetic ops, and branches.
-/// Also includes a SAXPY-style integration test through the OoO pipeline.
+///     Tests for the UVE extension: stream setup, scalar broadcast, arithmetic ops, and branches.
+///     Also includes a SAXPY-style integration test through the OoO pipeline.
 /// </summary>
 public class UveTests {
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -936,21 +936,21 @@ public class UveTests {
     // ── Integration test: SAXPY via OoO pipeline ──────────────────────────────
 
     /// <summary>
-    /// Runs a SAXPY computation (Y = A*X + Y) through the OoO pipeline using UVE streams.
-    /// <para>
-    /// Memory layout:
-    ///   [0x0000..0x003F]  source X array: 8 floats
-    ///   [0x0040..0x007F]  destination Y array: 8 floats (output overwrites in-place)
-    ///   [0x1000..]        code
-    /// </para>
-    /// <para>
-    /// Register assignments in setup ADDI sequence:
-    ///   x1 = 0x0000   (base of X)
-    ///   x2 = 0x0040   (base of Y)
-    ///   x3 = 8        (element count)
-    ///   x4 = 4        (stride in bytes, = element width)
-    ///   x5 = bits (A) (scalar multiplier, as float32 raw bits)
-    /// </para>
+    ///     Runs a SAXPY computation (Y = A*X + Y) through the OoO pipeline using UVE streams.
+    ///     <para>
+    ///         Memory layout:
+    ///         [0x0000..0x003F]  source X array: 8 floats
+    ///         [0x0040..0x007F]  destination Y array: 8 floats (output overwrites in-place)
+    ///         [0x1000..]        code
+    ///     </para>
+    ///     <para>
+    ///         Register assignments in setup ADDI sequence:
+    ///         x1 = 0x0000   (base of X)
+    ///         x2 = 0x0040   (base of Y)
+    ///         x3 = 8        (element count)
+    ///         x4 = 4        (stride in bytes, = element width)
+    ///         x5 = bits (A) (scalar multiplier, as float32 raw bits)
+    ///     </para>
     /// </summary>
     [Fact]
     public void Pipeline_Saxpy_CorrectResult() {
@@ -1015,30 +1015,30 @@ public class UveTests {
     // ── Integration test: 2D strided load via OoO pipeline ────────────────────
 
     /// <summary>
-    /// Verifies multidimensional stream access and so.b.ndc.D loop control.
-    /// <para>
-    /// Memory layout (data region at 0x0000):
-    ///   A 3×4 matrix stored in row-major order in an 8-float-wide (32 byte) row buffer.
-    ///   Only the first 4 floats of each row are part of the matrix; the trailing 4 are padding.
-    ///   Row 0: A[0][0..3] at 0x0000 - 0x000F, padding 0x0010 - 0x001F
-    ///   Row 1: A[1][0..3] at 0x0020 - 0x002F, padding 0x0030 - 0x003F
-    ///   Row 2: A[2][0..3] at 0x0040 - 0x004F, padding 0x0050 - 0x005F
-    ///   Output: 12 floats at 0x0200 (linearized, row-major).
-    /// </para>
-    /// <para>
-    /// Stream u1 configured as a 2D load stream (config order outermost-first, Spike style):
-    ///   ss.sta.ld.w u1, x1            — base=0x0000
-    ///   ss.app      u1, x0, x5, x6    — outer dim: count=3 rows, stride=32
-    ///   ss.end      u1, x0, x3, x4    — inner dim: count=4 cols, stride=4; activate
-    /// </para>
-    /// <para>
-    /// Loop structure:
-    ///   outer: so.b.ndc.1 u1, outer  — outer dim (dim1) loop
-    ///     inner: so.a.mul.fp u2, u1, u4   — u2 = elem * scalar
-    ///            so.b.ndc.0 u1, inner     — inner dim (dim0) loop
-    ///   ebreak
-    /// </para>
-    /// <para>Expected output[i*4+j] = A[i][j] * scalar.</para>
+    ///     Verifies multidimensional stream access and so.b.ndc.D loop control.
+    ///     <para>
+    ///         Memory layout (data region at 0x0000):
+    ///         A 3×4 matrix stored in row-major order in an 8-float-wide (32 byte) row buffer.
+    ///         Only the first 4 floats of each row are part of the matrix; the trailing 4 are padding.
+    ///         Row 0: A[0][0..3] at 0x0000 - 0x000F, padding 0x0010 - 0x001F
+    ///         Row 1: A[1][0..3] at 0x0020 - 0x002F, padding 0x0030 - 0x003F
+    ///         Row 2: A[2][0..3] at 0x0040 - 0x004F, padding 0x0050 - 0x005F
+    ///         Output: 12 floats at 0x0200 (linearized, row-major).
+    ///     </para>
+    ///     <para>
+    ///         Stream u1 configured as a 2D load stream (config order outermost-first, Spike style):
+    ///         ss.sta.ld.w u1, x1            — base=0x0000
+    ///         ss.app      u1, x0, x5, x6    — outer dim: count=3 rows, stride=32
+    ///         ss.end      u1, x0, x3, x4    — inner dim: count=4 cols, stride=4; activate
+    ///     </para>
+    ///     <para>
+    ///         Loop structure:
+    ///         outer: so.b.ndc.1 u1, outer  — outer dim (dim1) loop
+    ///         inner: so.a.mul.fp u2, u1, u4   — u2 = elem * scalar
+    ///         so.b.ndc.0 u1, inner     — inner dim (dim0) loop
+    ///         ebreak
+    ///     </para>
+    ///     <para>Expected output[i*4+j] = A[i][j] * scalar.</para>
     /// </summary>
     [Fact]
     public void Pipeline_2D_StridedLoad_CorrectResult() {
@@ -1116,10 +1116,10 @@ public class UveTests {
     }
 
     /// <summary>
-    /// Copies 12 floats from a 1D source to a 3×4 matrix stored with padded rows (8 floats wide
-    /// = 32 bytes per row). Uses a 1D load stream (ss.ld.w) as a source and a 2D store stream
-    /// (ss.sta.st.w → ss.end) as destination. Verifies that UveStoreStream advances its inner/outer
-    /// indices correctly, skipping the 4-element padding gap between rows.
+    ///     Copies 12 floats from a 1D source to a 3×4 matrix stored with padded rows (8 floats wide
+    ///     = 32 bytes per row). Uses a 1D load stream (ss.ld.w) as a source and a 2D store stream
+    ///     (ss.sta.st.w → ss.end) as destination. Verifies that UveStoreStream advances its inner/outer
+    ///     indices correctly, skipping the 4-element padding gap between rows.
     /// </summary>
     [Fact]
     public void Pipeline_2D_StridedStore_CorrectResult() {

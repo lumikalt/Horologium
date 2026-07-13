@@ -3,11 +3,11 @@ using Mechanism;
 namespace RiscV32.Memory;
 
 /// <summary>
-/// Sv32 two-level page table walker for RV32.
-/// Reference: RISC-V Privileged Specification §4.3.
-/// A/D bits are not set on access (fault-on-access model): A=0 or (store and D=0) raises a page fault.
-/// SUM (sstatus bit 18): when set, S-mode data accesses to U-pages are permitted; instruction fetches
-/// are never subject to SUM — S-mode can never execute from U-pages regardless.
+///     Sv32 two-level page table walker for RV32.
+///     Reference: RISC-V Privileged Specification §4.3.
+///     A/D bits are not set on access (fault-on-access model): A=0 or (store and D=0) raises a page fault.
+///     SUM (sstatus bit 18): when set, S-mode data accesses to U-pages are permitted; instruction fetches
+///     are never subject to SUM — S-mode can never execute from U-pages regardless.
 /// </summary>
 internal static class Sv32Walker {
     private const uint PageSize = 4096;
@@ -20,9 +20,9 @@ internal static class Sv32Walker {
     private const uint PteD = 1u << 7;
 
     /// <summary>
-    /// Translates a virtual address to physical via a two-level Sv32 walk.
-    /// Returns (paddr, 0) on success, (0, faultCause) on page fault.
-    /// When satp.MODE=0 (bare), returns (vaddr, 0) immediately with no walk.
+    ///     Translates a virtual address to physical via a two-level Sv32 walk.
+    ///     Returns (paddr, 0) on success, (0, faultCause) on page fault.
+    ///     When satp.MODE=0 (bare), returns (vaddr, 0) immediately with no walk.
     /// </summary>
     public static (ulong paddr, int faultCause) Translate(
         IMemory memory,

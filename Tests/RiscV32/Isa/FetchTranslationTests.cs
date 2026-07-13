@@ -8,9 +8,9 @@ using RiscV32.State;
 namespace Tests.RiscV32.Isa;
 
 /// <summary>
-/// End-to-end tests for instruction fetch address translation (Sv32).
-/// Verifies that InstructionPageFault (cause 12) is raised through all four
-/// pipeline types when a fetch hits a page with X=0 or an invalid PTE.
+///     End-to-end tests for instruction fetch address translation (Sv32).
+///     Verifies that InstructionPageFault (cause 12) is raised through all four
+///     pipeline types when a fetch hits a page with X=0 or an invalid PTE.
 /// </summary>
 public class FetchTranslationTests {
     // ── Sv32 memory builder ────────────────────────────────────────────────────

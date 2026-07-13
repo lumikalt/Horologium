@@ -4,13 +4,13 @@ using RiscV32.Decode;
 namespace RiscV64.Decode;
 
 /// <summary>
-/// Instruction decoder for RV64I — extends Rv32Decoder with:
-///   • OP-32 (opcode=0x3B): ADDW/SUBW/SLLW/SRLW/SRAW, plus RV64M MULW/DIVW/DIVUW/REMW/REMUW
-///   • OP-IMM-32 (opcode=0x1B): ADDIW/SLLIW/SRLIW/SRAIW
-///   • LOAD (opcode=0x03) funct3=3 (LD), funct3=6 (LWU)
-///   • STORE (opcode=0x23) funct3=3 (SD)
-///   • OP-IMM (opcode=0x13) shifts with 6-bit shamt instead of 5-bit
-///   • OP-FP (opcode=0x53): RV64F/D 64-bit integer conversions/moves (FCVT.L/LU.S/D,
+///     Instruction decoder for RV64I — extends Rv32Decoder with:
+///     • OP-32 (opcode=0x3B): ADDW/SUBW/SLLW/SRLW/SRAW, plus RV64M MULW/DIVW/DIVUW/REMW/REMUW
+///     • OP-IMM-32 (opcode=0x1B): ADDIW/SLLIW/SRLIW/SRAIW
+///     • LOAD (opcode=0x03) funct3=3 (LD), funct3=6 (LWU)
+///     • STORE (opcode=0x23) funct3=3 (SD)
+///     • OP-IMM (opcode=0x13) shifts with 6-bit shamt instead of 5-bit
+///     • OP-FP (opcode=0x53): RV64F/D 64-bit integer conversions/moves (FCVT.L/LU.S/D,
 ///     FCVT.S/D.L/LU, FMV.X.D, FMV.D.X) not present in RV32F/D; everything else on 0x53
 ///     falls through to the base RV32F/D decode table.
 /// </summary>

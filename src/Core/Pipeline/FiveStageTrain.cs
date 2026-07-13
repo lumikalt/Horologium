@@ -11,19 +11,8 @@ using Pipeline.Stages;
 namespace Pipeline;
 
 public sealed class FiveStageTrain : ISteppableTrain {
-    private readonly Train _train;
     private readonly PipelineCore _core;
-
-    public IArchState ArchState => _core.State;
-
-    public SetAssociativeCache? ICache => _core.ILayers.Cache;
-    public SetAssociativeCache? DCache => _core.DLayers.Cache;
-    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
-    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
-    public Tlb? ITlb => _core.ILayers.Tlb;
-    public Tlb? DTlb => _core.DLayers.Tlb;
-    public StoreBuffer? StoreBuffer => _core.StoreBuffer;
-    public PEventLog? PEventLog => _core.PEventLog;
+    private readonly Train _train;
 
     public FiveStageTrain(
         IMechanism mechanism,
@@ -78,86 +67,91 @@ public sealed class FiveStageTrain : ISteppableTrain {
         _train.Build();
     }
 
-    public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
-        _train.Run(maxTicks, warmupTicks, snapshotInterval);
+    public SetAssociativeCache? ICache => _core.ILayers.Cache;
+    public SetAssociativeCache? DCache => _core.DLayers.Cache;
+    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
+    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
+    public Tlb? ITlb => _core.ILayers.Tlb;
+    public Tlb? DTlb => _core.DLayers.Tlb;
+    public StoreBuffer? StoreBuffer => _core.StoreBuffer;
+    public PEventLog? PEventLog => _core.PEventLog;
 
     public long CurrentTick => _train.CurrentTick;
     public bool IsIdle => _train.IsIdle;
+
+    public IArchState ArchState => _core.State;
+
+    public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
+        _train.Run(maxTicks, warmupTicks, snapshotInterval);
+
     public void BeginStepping() => _train.BeginStepping();
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
 }
 
 internal sealed class PipelineCore : Gear {
-    private readonly IBranchPredictor _predictor;
-    private readonly HazardUnit _hazard;
     private readonly IDecoder _decoder;
-
-    private readonly FetchStage _if;
-    private readonly DecodeStage _id;
     private readonly ExecuteStage _ex;
-    private readonly MemoryStage _mem;
-    private readonly WritebackStage _wb;
-    private readonly LoadTracker _loadTracker;
-
-    // Counters
-    private Counter _cyclesCounter = null!;
-    private Counter _retiredCounter = null!;
-    private Counter _stallsCounter = null!;
-    private Counter _flushesCounter = null!;
-    private Counter _missesCounter = null!;
-    private Counter? _cacheMissStallsCounter;
-    private Counter? _icacheHitsCounter;
-    private Counter? _icacheMissesCounter;
-    private Counter? _l2IcacheHitsCounter;
-    private Counter? _l2IcacheMissesCounter;
-    private Counter? _l3IcacheHitsCounter;
-    private Counter? _l3IcacheMissesCounter;
-    private Counter? _dcacheHitsCounter;
-    private Counter? _dcacheMissesCounter;
-    private Counter? _l2DcacheHitsCounter;
-    private Counter? _l2DcacheMissesCounter;
-    private Counter? _l3DcacheHitsCounter;
-    private Counter? _l3DcacheMissesCounter;
-    private Counter? _itlbHitsCounter;
-    private Counter? _itlbMissesCounter;
-    private Counter? _dtlbHitsCounter;
-    private Counter? _dtlbMissesCounter;
-    private Counter? _storeForwardsCounter;
-
-    private long _lastRetired;
-    private long _missStallBudget;
 
     // Pre-allocated for per-cycle forwarding/hazard checks — avoids heap allocation every RunCycle.
     private readonly PipelineResident[] _fwdProviders = new PipelineResident[2];
+    private readonly HazardUnit _hazard;
     private readonly PipelineResident[] _hazardResidents = new PipelineResident[2];
+    private readonly DecodeStage _id;
 
-    // Cached delegate: a method-group conversion (RunCycle) allocates a fresh
-    // Action on every ScheduleNextTick call — once per simulated cycle. Cache it.
-    private Action? _runCycle;
-
-    private bool _anyCache;
+    private readonly FetchStage _if;
+    private readonly LoadTracker _loadTracker;
+    private readonly MemoryStage _mem;
 
     // PEvent recording — null means recording is disabled (zero overhead path)
-    private readonly PEventLog? _plog;
+    private readonly IBranchPredictor _predictor;
+    private readonly WritebackStage _wb;
+
+    private bool _anyCache;
+    private Counter? _cacheMissStallsCounter;
+
+    // Counters
+    private Counter _cyclesCounter = null!;
+    private Counter? _dcacheHitsCounter;
+    private Counter? _dcacheMissesCounter;
+    private Counter? _dtlbHitsCounter;
+    private Counter? _dtlbMissesCounter;
+    private Counter _flushesCounter = null!;
+    private Counter? _icacheHitsCounter;
+    private Counter? _icacheMissesCounter;
+    private Counter? _itlbHitsCounter;
+    private Counter? _itlbMissesCounter;
+    private Counter? _l2DcacheHitsCounter;
+    private Counter? _l2DcacheMissesCounter;
+    private Counter? _l2IcacheHitsCounter;
+    private Counter? _l2IcacheMissesCounter;
+    private Counter? _l3DcacheHitsCounter;
+    private Counter? _l3DcacheMissesCounter;
+    private Counter? _l3IcacheHitsCounter;
+    private Counter? _l3IcacheMissesCounter;
+    private long _lastDHits, _lastDMisses;
+    private long _lastDl2Hits, _lastDl2Misses;
+    private long _lastDl3Hits, _lastDl3Misses;
+    private long _lastDTlbHits, _lastDTlbMisses;
     private ulong _lastFetchedInstrId;
 
     // Delta tracking for cache/TLB stat counters
     private long _lastIHits, _lastIMisses;
     private long _lastIl2Hits, _lastIl2Misses;
     private long _lastIl3Hits, _lastIl3Misses;
-    private long _lastDHits, _lastDMisses;
-    private long _lastDl2Hits, _lastDl2Misses;
-    private long _lastDl3Hits, _lastDl3Misses;
     private long _lastITlbHits, _lastITlbMisses;
-    private long _lastDTlbHits, _lastDTlbMisses;
-    private long _lastStoreForwards;
 
-    public IArchState State { get; }
-    public MemoryLayers ILayers { get; }
-    public MemoryLayers DLayers { get; }
-    public StoreBuffer? StoreBuffer { get; }
-    public PEventLog? PEventLog => _plog;
+    private long _lastRetired;
+    private long _lastStoreForwards;
+    private Counter _missesCounter = null!;
+    private long _missStallBudget;
+    private Counter _retiredCounter = null!;
+
+    // Cached delegate: a method-group conversion (RunCycle) allocates a fresh
+    // Action on every ScheduleNextTick call — once per simulated cycle. Cache it.
+    private Action? _runCycle;
+    private Counter _stallsCounter = null!;
+    private Counter? _storeForwardsCounter;
 
     public PipelineCore(
         string name,
@@ -177,7 +171,7 @@ internal sealed class PipelineCore : Gear {
         bool rdipEnabled = false
     )
         : base(name, parent, esc) {
-        _plog = pEventLog;
+        PEventLog = pEventLog;
         _predictor = predictor;
         _hazard = new HazardUnit(forwardingEnabled);
         _decoder = mechanism.Decoder;
@@ -229,6 +223,12 @@ internal sealed class PipelineCore : Gear {
         _ex.Output.Bind(_mem.Input);
         _mem.Output.Bind(_wb.Input);
     }
+
+    public IArchState State { get; }
+    public MemoryLayers ILayers { get; }
+    public MemoryLayers DLayers { get; }
+    public StoreBuffer? StoreBuffer { get; }
+    public PEventLog? PEventLog { get; }
 
     public override void Initialize() {
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
@@ -469,23 +469,23 @@ internal sealed class PipelineCore : Gear {
 
         // PEvents: record DECODE/FLUSH for instruction in ID, EXECUTE/FLUSH for instruction in EX.
         // These checks happen after all stall/squash/flush flags are set.
-        if (_plog is not null) {
+        if (PEventLog is not null) {
             long cyc = _cyclesCounter.Value;
             switch (_if.Flush) {
                 case true when ifIdLast is { IsValid: true, InstrId: not 0, }:
-                    _plog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Flush);
+                    PEventLog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Flush);
                     break;
                 case false when ifIdLast is { IsValid: true, InstrId: not 0, }:
-                    _plog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Decode);
+                    PEventLog.Record(ifIdLast.InstrId, ifIdLast.Pc, cyc, PEventKind.Decode);
                     break;
             }
 
             switch (_ex.Squash) {
                 case true when idExLast is { IsValid: true, InstrId: not 0, }:
-                    _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Flush);
+                    PEventLog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Flush);
                     break;
                 case false when idExLast is { IsValid: true, InstrId: not 0, }:
-                    _plog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Execute);
+                    PEventLog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Execute);
                     if (idExLast.Instruction is { } execInstr && execInstr.SourceRegisters.Count > 0) {
                         int cnt = execInstr.SourceRegisters.Count;
                         var vals = new ulong[cnt];
@@ -494,7 +494,7 @@ internal sealed class PipelineCore : Gear {
                             vals[i] = r >= 0 ? State.IntegerRegisters.Read(r) : 0;
                         }
 
-                        _plog.RecordSourceValues(idExLast.InstrId, execInstr.SourceRegisters, vals);
+                        PEventLog.RecordSourceValues(idExLast.InstrId, execInstr.SourceRegisters, vals);
                     }
 
                     break;
@@ -506,11 +506,11 @@ internal sealed class PipelineCore : Gear {
         long preRetire = _wb.RetiredCount;
         _wb.Inject(memWbLast);
         _wb.Cycle();
-        if (_plog is not null && memWbLast is { IsValid: true, InstrId: not 0, } &&
+        if (PEventLog is not null && memWbLast is { IsValid: true, InstrId: not 0, } &&
             (_wb.RetiredCount > preRetire || _wb.Halted)) {
-            _plog.Record(memWbLast.InstrId, memWbLast.Pc, _cyclesCounter.Value, PEventKind.Retire);
+            PEventLog.Record(memWbLast.InstrId, memWbLast.Pc, _cyclesCounter.Value, PEventKind.Retire);
             if (memWbLast.Instruction is { DestinationRegister: > 0, } retireInstr)
-                _plog.RecordDestValue(
+                PEventLog.RecordDestValue(
                     memWbLast.InstrId, retireInstr.DestinationRegister,
                     State.IntegerRegisters.Read(retireInstr.DestinationRegister)
                 );
@@ -535,12 +535,12 @@ internal sealed class PipelineCore : Gear {
         _if.Cycle();
 
         // PEvent: record FETCH for the instruction just produced by IF this cycle.
-        if (_plog is not null) {
+        if (PEventLog is not null) {
             IfIdLatch ifSent = _if.LastSent;
             if (ifSent is { IsValid: true, InstrId: not 0, } && ifSent.InstrId != _lastFetchedInstrId) {
                 _lastFetchedInstrId = ifSent.InstrId;
-                _plog.Record(ifSent.InstrId, ifSent.Pc, _cyclesCounter.Value, PEventKind.Fetch);
-                _plog.RecordDisasm(ifSent.InstrId, _decoder.Disassemble(ifSent.Pc, ifSent.RawEncoding));
+                PEventLog.Record(ifSent.InstrId, ifSent.Pc, _cyclesCounter.Value, PEventKind.Fetch);
+                PEventLog.RecordDisasm(ifSent.InstrId, _decoder.Disassemble(ifSent.Pc, ifSent.RawEncoding));
             }
         }
 
@@ -648,8 +648,6 @@ internal sealed class PipelineCore : Gear {
         public ulong ReadAddress { get; private set; }
         public ulong RequestPc { get; private set; }
 
-        public void Reset() => HasRead = false;
-
         public ulong Read(ulong address, int bytes) {
             HasRead = true;
             ReadAddress = address;
@@ -667,5 +665,7 @@ internal sealed class PipelineCore : Gear {
         public void InvalidateLine(ulong address) => backing.InvalidateLine(address);
         public void CleanLine(ulong address) => backing.CleanLine(address);
         public void FlushLine(ulong address) => backing.FlushLine(address);
+
+        public void Reset() => HasRead = false;
     }
 }

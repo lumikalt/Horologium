@@ -3,8 +3,8 @@ using Orrery.Cache;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for PythiaPrefetcher (Bera et al., MICRO 2021).
-/// blockBytes=32 throughout; pageBytes=4096 unless stated otherwise.
+///     Unit tests for PythiaPrefetcher (Bera et al., MICRO 2021).
+///     blockBytes=32 throughout; pageBytes=4096 unless stated otherwise.
 /// </summary>
 public sealed class PythiaPrefetcherTests {
     // ── Constructor validation ────────────────────────────────────────────────

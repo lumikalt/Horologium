@@ -1,40 +1,40 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// Hashed / path-based perceptron predictor (Jimenez, 2005).
-/// <para>
-/// Extends the classic perceptron by spreading weights across multiple tables
-/// at geometrically increasing history lengths. Each table has one weight per
-/// entry, indexed by PC XOR XOR-folded history of that length (table 0 is a
-/// bias table indexed by PC only). Prediction is the sign of the sum of all
-/// looked-up weights. Training fires when wrong OR |sum| ≤ θ = ⌊1.93·H + 14⌋.
-/// </para>
-/// <para>
-/// Compared to the classic perceptron: no per-PC weight vector — different PCs
-/// that share the same history path contribute to the same table entries, giving
-/// better generalization across correlated branches with less storage.
-/// </para>
+///     Hashed / path-based perceptron predictor (Jimenez, 2005).
+///     <para>
+///         Extends the classic perceptron by spreading weights across multiple tables
+///         at geometrically increasing history lengths. Each table has one weight per
+///         entry, indexed by PC XOR XOR-folded history of that length (table 0 is a
+///         bias table indexed by PC only). Prediction is the sign of the sum of all
+///         looked-up weights. Training fires when wrong OR |sum| ≤ θ = ⌊1.93·H + 14⌋.
+///     </para>
+///     <para>
+///         Compared to the classic perceptron: no per-PC weight vector — different PCs
+///         that share the same history path contribute to the same table entries, giving
+///         better generalization across correlated branches with less storage.
+///     </para>
 /// </summary>
 public sealed class HashedPerceptronPredictor : IBranchPredictor {
     // Default: 8 tables with geometric history lengths.
     private static readonly int[] DefaultHistLengths = [0, 2, 4, 8, 11, 16, 23, 32,];
+    private readonly Dictionary<ulong, ulong> _btb = new();
+    private readonly SpeculativeGlobalHistory _hist;
 
     private readonly int[] _histLengths;
-    private readonly int _threshold;    // θ = floor(1.93·H + 14)
-    private readonly sbyte[][] _tables; // [numTables][tableSize]
-    private readonly int _tableMask;
     private readonly int _indexBits; // log2(tableSize), used for XOR-folding
-    private readonly SpeculativeGlobalHistory _hist;
-    private readonly Dictionary<ulong, ulong> _btb = new();
+    private readonly int _tableMask;
+    private readonly sbyte[][] _tables; // [numTables][tableSize]
+    private readonly int _threshold;    // θ = floor(1.93·H + 14)
 
     /// <summary>
-    /// Hashed / path-based perceptron predictor.
+    ///     Hashed / path-based perceptron predictor.
     /// </summary>
     /// <param name="tableSize">
-    /// Entries in each table. Must be a power of 2.
+    ///     Entries in each table. Must be a power of 2.
     /// </param>
     /// <param name="histLengths">
-    /// History lengths for each table. If null, the default geometric is used.
+    ///     History lengths for each table. If null, the default geometric is used.
     /// </param>
     public HashedPerceptronPredictor(int tableSize = 512, int[]? histLengths = null) {
         _histLengths = histLengths ?? HashedPerceptronPredictor.DefaultHistLengths;

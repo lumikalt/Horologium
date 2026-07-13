@@ -1,31 +1,25 @@
 namespace Pipeline.Ooo;
 
 /// <summary>
-/// Register Alias Table (RAT) paired with a free-physical-register list.
-/// <para>
-/// Maps each architectural register to the physical register holding its
-/// current speculative value. At Dispatch, each instruction's destination
-/// is renamed to a freshly-allocated physical register; the old mapping is
-/// stored in the ROB so it can be restored on a flush (walk-back recovery)
-/// or freed on commit (the old value is no longer live).
-/// </para>
+///     Register Alias Table (RAT) paired with a free-physical-register list.
+///     <para>
+///         Maps each architectural register to the physical register holding its
+///         current speculative value. At Dispatch, each instruction's destination
+///         is renamed to a freshly-allocated physical register; the old mapping is
+///         stored in the ROB so it can be restored on a flush (walk-back recovery)
+///         or freed on commit (the old value is no longer live).
+///     </para>
 /// </summary>
 public sealed class RenameMap {
-    private readonly int[] _rat;
     private readonly int _archCount;
-    private readonly int _physCount;
     private readonly Queue<int> _freeList;
-
-    /// <summary>True when at least one physical register is available for allocation.</summary>
-    public bool HasFree => _freeList.Count > 0;
-
-    /// <summary>Number of unallocated physical registers.</summary>
-    public int FreeCount => _freeList.Count;
+    private readonly int _physCount;
+    private readonly int[] _rat;
 
     /// <param name="archCount">Number of architectural registers (e.g. 64 for RV32F).</param>
     /// <param name="physCount">
-    /// Total physical registers. Must exceed <paramref name="archCount"/>;
-    /// the surplus forms the initial free list.
+    ///     Total physical registers. Must exceed <paramref name="archCount" />;
+    ///     the surplus forms the initial free list.
     /// </param>
     public RenameMap(int archCount, int physCount) {
         ArgumentOutOfRangeException.ThrowIfLessThan(physCount, archCount + 1);
@@ -39,6 +33,12 @@ public sealed class RenameMap {
         for (int i = archCount; i < physCount; i++) _freeList.Enqueue(i);
     }
 
+    /// <summary>True when at least one physical register is available for allocation.</summary>
+    public bool HasFree => _freeList.Count > 0;
+
+    /// <summary>Number of unallocated physical registers.</summary>
+    public int FreeCount => _freeList.Count;
+
     /// <summary>Returns the physical register currently mapped to an architectural register.</summary>
     public int Lookup(int arch) {
         ValidateArch(arch);
@@ -46,14 +46,14 @@ public sealed class RenameMap {
     }
 
     /// <summary>
-    /// Renames an architectural destination register: allocates a new physical register,
-    /// updates the RAT, and returns <c>(newPhys, oldPhys)</c>.
-    /// <para>
-    /// <c>oldPhys</c> is stored in the ROB entry so that on flush it can be
-    /// written back into the RAT (walk-back recovery), and on commit it can be
-    /// returned to the free list.
-    /// </para>
-    /// <para>Call only when <see cref="HasFree"/> is true.</para>
+    ///     Renames an architectural destination register: allocates a new physical register,
+    ///     updates the RAT, and returns <c>(newPhys, oldPhys)</c>.
+    ///     <para>
+    ///         <c>oldPhys</c> is stored in the ROB entry so that on flush it can be
+    ///         written back into the RAT (walk-back recovery), and on commit it can be
+    ///         returned to the free list.
+    ///     </para>
+    ///     <para>Call only when <see cref="HasFree" /> is true.</para>
     /// </summary>
     public (int NewPhys, int OldPhys) Rename(int arch) {
         ValidateArch(arch);
@@ -68,9 +68,9 @@ public sealed class RenameMap {
     }
 
     /// <summary>
-    /// Returns a physical register to the free list.
-    /// Called at commit once the instruction that previously occupied
-    /// the slot for this architectural register has committed.
+    ///     Returns a physical register to the free list.
+    ///     Called at commit once the instruction that previously occupied
+    ///     the slot for this architectural register has committed.
     /// </summary>
     public void FreePhysical(int phys) {
         if ((uint)phys >= (uint)_physCount) throw new ArgumentOutOfRangeException(nameof(phys));
@@ -78,9 +78,9 @@ public sealed class RenameMap {
     }
 
     /// <summary>
-    /// Directly writes the RAT for one architectural register.
-    /// Used during flush recovery: walk the ROB from youngest to oldest,
-    /// calling RestoreMapping for each entry that renamed a destination.
+    ///     Directly writes the RAT for one architectural register.
+    ///     Used during flush recovery: walk the ROB from youngest to oldest,
+    ///     calling RestoreMapping for each entry that renamed a destination.
     /// </summary>
     public void RestoreMapping(int arch, int phys) {
         ValidateArch(arch);

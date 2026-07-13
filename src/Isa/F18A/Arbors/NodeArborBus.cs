@@ -3,8 +3,8 @@ using F18A.MultiCore;
 namespace F18A.Arbors;
 
 /// <summary>
-/// Connects one F18A node to its four directional <see cref="RendezvousArbor"/>s.
-/// Maps port-space word-addresses to North/East/South/West channels.
+///     Connects one F18A node to its four directional <see cref="RendezvousArbor" />s.
+///     Maps port-space word-addresses to North/East/South/West channels.
 /// </summary>
 public sealed class NodeArborBus(F18ANode node) : IArborBus {
     // Port word-addresses (matching F18ANode constants)

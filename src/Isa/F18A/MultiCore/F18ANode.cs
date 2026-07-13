@@ -5,13 +5,13 @@ using F18A.Memory;
 namespace F18A.MultiCore;
 
 /// <summary>
-/// One F18A processing node with its own RAM+ROM, arch state, and four directional arbors.
-/// Stepped by <see cref="F18AGrid"/> which coordinates arbor rendezvous across nodes.
-/// <para>
-/// Constraint: at most one @b / !b port-op per instruction word, and no memory
-/// stores before a blocking arbor op in the same word.  Programs that violate this
-/// may observe non-deterministic behaviour on blocked-arbor retries.
-/// </para>
+///     One F18A processing node with its own RAM+ROM, arch state, and four directional arbors.
+///     Stepped by <see cref="F18AGrid" /> which coordinates arbor rendezvous across nodes.
+///     <para>
+///         Constraint: at most one @b / !b port-op per instruction word, and no memory
+///         stores before a blocking arbor op in the same word.  Programs that violate this
+///         may observe non-deterministic behaviour on blocked-arbor retries.
+///     </para>
 /// </summary>
 public sealed class F18ANode {
     // Port word-addresses visible via @b / !b when B is set to these values.
@@ -24,18 +24,6 @@ public sealed class F18ANode {
     public const uint PortAddrSouthWrite = 0x185;
     public const uint PortAddrWestRead = 0x141;
     public const uint PortAddrWestWrite = 0x145;
-
-    public int Row { get; }
-    public int Col { get; }
-
-    public F18AArchState State { get; }
-    public F18ANodeMemory Memory { get; }
-
-    // Arbors; null = no neighbour on that side
-    public RendezvousArbor? NorthArbor { get; set; }
-    public RendezvousArbor? EastArbor { get; set; }
-    public RendezvousArbor? SouthArbor { get; set; }
-    public RendezvousArbor? WestArbor { get; set; }
 
     public F18ANode(int row, int col, ReadOnlySpan<byte> rom) {
         Row = row;
@@ -50,9 +38,21 @@ public sealed class F18ANode {
         }
     }
 
+    public int Row { get; }
+    public int Col { get; }
+
+    public F18AArchState State { get; }
+    public F18ANodeMemory Memory { get; }
+
+    // Arbors; null = no neighbour on that side
+    public RendezvousArbor? NorthArbor { get; set; }
+    public RendezvousArbor? EastArbor { get; set; }
+    public RendezvousArbor? SouthArbor { get; set; }
+    public RendezvousArbor? WestArbor { get; set; }
+
     /// <summary>
-    /// Checks whether the current instruction will block on an arbor access.
-    /// The grid calls this before deciding to step the node.
+    ///     Checks whether the current instruction will block on an arbor access.
+    ///     The grid calls this before deciding to step the node.
     /// </summary>
     public bool WillBlock(F18ADecoder decoder) {
         var insn = (F18AInstruction)decoder.Decode(State.Pc, Memory);

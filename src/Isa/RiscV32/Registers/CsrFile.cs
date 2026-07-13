@@ -3,9 +3,9 @@ using Mechanism;
 namespace RiscV32.Registers;
 
 /// <summary>
-/// Machine-mode CSR file for RV32I.
-/// Implements the minimum set required for trap handling.
-/// CSR addresses from the RISC-V Privileged Specification.
+///     Machine-mode CSR file for RV32I.
+///     Implements the minimum set required for trap handling.
+///     CSR addresses from the RISC-V Privileged Specification.
 /// </summary>
 public sealed class CsrFile : ISystemRegisters {
     // ── CSR addresses ─────────────────────────────────────────────────────────
@@ -130,11 +130,6 @@ public sealed class CsrFile : ISystemRegisters {
     private readonly uint[] _csrs = new uint[CsrFile.CsrSpace];
     private readonly bool[] _present = new bool[CsrFile.CsrSpace];
 
-    private void Seed(uint address, uint value) {
-        _csrs[address] = value;
-        _present[address] = true;
-    }
-
     public CsrFile() {
         // Initialise to reset values
         Seed(CsrFile.Fflags, 0);
@@ -245,6 +240,11 @@ public sealed class CsrFile : ISystemRegisters {
                 break;
             default: _csrs[address] = (uint)value; break;
         }
+    }
+
+    private void Seed(uint address, uint value) {
+        _csrs[address] = value;
+        _present[address] = true;
     }
 
     /// <summary>Direct read bypassing privilege checks — used internally by the trap controller.</summary>

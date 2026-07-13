@@ -5,11 +5,11 @@ using RiscV64;
 namespace Tests.RiscV64.System;
 
 /// <summary>
-/// RV64 counterpart of <see cref="Tests.RiscV32.System.RawBinaryWorkloadTests"/>.
-/// <c>RawBinaryWorkload</c> and <c>VirtDtb</c> are already ISA-agnostic and fully
-/// covered by the RV32 suite — this file only exercises the one case that needs a
-/// live mechanism, deliberately with a DTB address above 4 GiB (a case the RV32
-/// version, whose address space tops out under 4 GiB, could never exercise).
+///     RV64 counterpart of <see cref="Tests.RiscV32.System.RawBinaryWorkloadTests" />.
+///     <c>RawBinaryWorkload</c> and <c>VirtDtb</c> are already ISA-agnostic and fully
+///     covered by the RV32 suite — this file only exercises the one case that needs a
+///     live mechanism, deliberately with a DTB address above 4 GiB (a case the RV32
+///     version, whose address space tops out under 4 GiB, could never exercise).
 /// </summary>
 public class RawBinaryWorkloadTests {
     // Base address itself sits above 4 GiB — a1 must carry a full 64-bit DTB

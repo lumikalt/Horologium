@@ -3,8 +3,8 @@ using Mechanism;
 namespace RiscV32.Registers;
 
 /// <summary>
-/// RV32I integer register file. 32 registers, 32 bits wide.
-/// x0 is hardwired to zero — writes are silently ignored.
+///     RV32I integer register file. 32 registers, 32 bits wide.
+///     x0 is hardwired to zero — writes are silently ignored.
 /// </summary>
 public sealed class Rv32IntegerRegisterFile : IRegisterFile {
     private readonly uint[] _regs = new uint[32];

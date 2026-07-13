@@ -15,10 +15,18 @@ using RiscV32.State;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Unit tests for the RISC-V V extension (decoder + executor).
-/// All raw encodings are hand-assembled using the V spec 1.0 encoding tables.
+///     Unit tests for the RISC-V V extension (decoder + executor).
+///     All raw encodings are hand-assembled using the V spec 1.0 encoding tables.
 /// </summary>
 public class VectorTests {
+    // vtypei for e32, m1, ta, ma: vma=bit7, vta=bit6, vsew[5:3]=010, vlmul[2:0]=000 → 0xD0
+    private const int VtypeiE32M1Tama = (1 << 7) | (1 << 6) | (2 << 3);
+
+    // vtypei for e8,m1,ta,ma: vma=bit7, vta=bit6, vsew[5:3]=000, vlmul[2:0]=000 → 0xC0
+    private const int VtypeiE8M1Tama = (1 << 7) | (1 << 6);
+
+    // vtypei for e16,m1,ta,ma: vsew[2:0]=001
+    private const int VtypeiE16M1Tama = (1 << 7) | (1 << 6) | (1 << 3);
     private readonly Rv32Decoder _dec = new();
     private readonly Rv32Executor _exe = new();
     private readonly FlatMemory _mem = new(0x10000);
@@ -125,9 +133,6 @@ public class VectorTests {
     private static uint VopFvUnary(int funct6, int vd, int vs2, int vs1Sel, bool masked = false) =>
         (uint)(((funct6 & 0x3F) << 26) | ((masked ? 0 : 1) << 25) |
                ((vs2 & 0x1F) << 20) | ((vs1Sel & 0x1F) << 15) | (1 << 12) | ((vd & 0x1F) << 7) | 0x57);
-
-    // vtypei for e32, m1, ta, ma: vma=bit7, vta=bit6, vsew[5:3]=010, vlmul[2:0]=000 → 0xD0
-    private const int VtypeiE32M1Tama = (1 << 7) | (1 << 6) | (2 << 3);
 
     // ── Decoder tests ─────────────────────────────────────────────────────────
 
@@ -317,12 +322,6 @@ public class VectorTests {
         uint raw = Vsetvli(10, 0, VectorTests.VtypeiE32M1Tama); // vsetvli a0, x0, e32,m1,ta,ma
         Exec(raw, s);                                           // side-effect: updates vl and vtype in state
     }
-
-    // vtypei for e8,m1,ta,ma: vma=bit7, vta=bit6, vsew[5:3]=000, vlmul[2:0]=000 → 0xC0
-    private const int VtypeiE8M1Tama = (1 << 7) | (1 << 6);
-
-    // vtypei for e16,m1,ta,ma: vsew[2:0]=001
-    private const int VtypeiE16M1Tama = (1 << 7) | (1 << 6) | (1 << 3);
 
     private void ConfigVl4E8(Rv32ArchState s) => Exec(Vsetivli(10, 4, VectorTests.VtypeiE8M1Tama), s);
     private void ConfigVl4E16(Rv32ArchState s) => Exec(Vsetivli(10, 4, VectorTests.VtypeiE16M1Tama), s);

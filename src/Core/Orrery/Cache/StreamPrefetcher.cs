@@ -3,31 +3,21 @@ using System.Numerics;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Multi-way sequential stream buffer prefetcher (Jouppi, ISCA 1990).
-/// Maintains <see cref="StreamCount"/> independent stream buffers in parallel.
-/// When a cache miss hits the head of a stream, that stream advances its
-/// prefetch frontier; when no stream matches, the LRU stream is evicted and
-/// restarted at the missed address.  On a new stream creation, <see cref="Depth"/>
-/// lines are issued at once to fill the conceptual buffer; on each subsequent
-/// sequential access, one more line is issued to keep the frontier at exactly
-/// <see cref="Depth"/> lines ahead of the demand pointer.
+///     Multi-way sequential stream buffer prefetcher (Jouppi, ISCA 1990).
+///     Maintains <see cref="StreamCount" /> independent stream buffers in parallel.
+///     When a cache miss hits the head of a stream, that stream advances its
+///     prefetch frontier; when no stream matches, the LRU stream is evicted and
+///     restarted at the missed address.  On a new stream creation, <see cref="Depth" />
+///     lines are issued at once to fill the conceptual buffer; on each subsequent
+///     sequential access, one more line is issued to keep the frontier at exactly
+///     <see cref="Depth" /> lines ahead of the demand pointer.
 /// </summary>
 public sealed class StreamPrefetcher : IPrefetcher {
-    private struct StreamEntry {
-        public ulong DemandLine;    // last accessed (hit or miss) line base address
-        public ulong PrefetchFront; // next line base to issue as a prefetch
-        public int LruAge;
-        public bool Valid;
-    }
-
-    private readonly StreamEntry[] _streams;
-    private readonly int _depth;
     private readonly ulong _blockBytes;
     private readonly ulong _blockMask;
-    private int _tick;
 
-    public int StreamCount => _streams.Length;
-    public int Depth => _depth;
+    private readonly StreamEntry[] _streams;
+    private int _tick;
 
     public StreamPrefetcher(int streamCount = 4, int depth = 8, int blockBytes = 32) {
         if (!BitOperations.IsPow2(blockBytes))
@@ -35,13 +25,16 @@ public sealed class StreamPrefetcher : IPrefetcher {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(streamCount);
         ArgumentOutOfRangeException.ThrowIfNegative(depth);
         _streams = new StreamEntry[streamCount];
-        _depth = depth;
+        Depth = depth;
         _blockBytes = (ulong)blockBytes;
         _blockMask = ~(_blockBytes - 1);
     }
 
+    public int StreamCount => _streams.Length;
+    public int Depth { get; }
+
     public int OnAccess(ulong pc, ulong address, bool wasHit, Span<ulong> targets) {
-        if (_depth == 0) return 0;
+        if (Depth == 0) return 0;
         ulong lineBase = address & _blockMask;
 
         // Check all stream buffers for a sequential match.  We advance on both
@@ -58,7 +51,7 @@ public sealed class StreamPrefetcher : IPrefetcher {
 
             // Issue one prefetch to keep the frontier exactly Depth lines ahead.
             ulong front = _streams[i].PrefetchFront;
-            if (front <= lineBase + (ulong)_depth * _blockBytes && !targets.IsEmpty) {
+            if (front <= lineBase + (ulong)Depth * _blockBytes && !targets.IsEmpty) {
                 targets[0] = front;
                 _streams[i].PrefetchFront = front + _blockBytes;
                 return 1;
@@ -79,7 +72,7 @@ public sealed class StreamPrefetcher : IPrefetcher {
 
         var count = 0;
         ulong next = lineBase + _blockBytes;
-        while (count < _depth && count < targets.Length) {
+        while (count < Depth && count < targets.Length) {
             targets[count++] = next;
             next += _blockBytes;
         }
@@ -97,5 +90,12 @@ public sealed class StreamPrefetcher : IPrefetcher {
             if (_streams[i].LruAge < _streams[oldest].LruAge)
                 oldest = i;
         return oldest;
+    }
+
+    private struct StreamEntry {
+        public ulong DemandLine;    // last accessed (hit or miss) line base address
+        public ulong PrefetchFront; // next line base to issue as a prefetch
+        public int LruAge;
+        public bool Valid;
     }
 }

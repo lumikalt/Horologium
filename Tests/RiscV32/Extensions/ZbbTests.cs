@@ -7,9 +7,9 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Unit tests for the Zbb (basic bit manipulation) extension.
-/// Each test runs the target instruction in isolation on a SingleCycleTrain,
-/// verifying the result register value.
+///     Unit tests for the Zbb (basic bit manipulation) extension.
+///     Each test runs the target instruction in isolation on a SingleCycleTrain,
+///     verifying the result register value.
 /// </summary>
 public class ZbbTests {
     // ── Encode helpers ────────────────────────────────────────────────────────

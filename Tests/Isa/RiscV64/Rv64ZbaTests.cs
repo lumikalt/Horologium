@@ -7,9 +7,9 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for RV64-only Zba ops — ADD.UW, SH1ADD.UW/SH2ADD.UW/SH3ADD.UW (OP-32), and
-/// SLLI.UW (OP-IMM-32). These operate on the zero-extended low 32 bits of rs1 and have
-/// no RV32 counterpart to inherit from.
+///     Tests for RV64-only Zba ops — ADD.UW, SH1ADD.UW/SH2ADD.UW/SH3ADD.UW (OP-32), and
+///     SLLI.UW (OP-IMM-32). These operate on the zero-extended low 32 bits of rs1 and have
+///     no RV32 counterpart to inherit from.
 /// </summary>
 public class Rv64ZbaTests {
     private readonly Rv64Decoder _dec = new();

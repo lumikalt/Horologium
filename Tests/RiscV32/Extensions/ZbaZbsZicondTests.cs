@@ -7,9 +7,9 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Tests for Zba (address generation), Zbs (single-bit ops), and Zicond
-/// (integer conditional ops). Each test loads x1/x2, runs one instruction
-/// that writes x3, then reads the result via a SW to a known address.
+///     Tests for Zba (address generation), Zbs (single-bit ops), and Zicond
+///     (integer conditional ops). Each test loads x1/x2, runs one instruction
+///     that writes x3, then reads the result via a SW to a known address.
 /// </summary>
 public class ZbaZbsZicondTests {
     // ── Encode helpers ────────────────────────────────────────────────────────

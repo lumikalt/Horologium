@@ -12,15 +12,18 @@ using RiscV32.State;
 namespace RiscV32.Execute;
 
 /// <summary>
-/// Executes a single decoded RV32I instruction.
-/// Reads from IArchState, returns an ExecuteResult — never writes back directly.
+///     Executes a single decoded RV32I instruction.
+///     Reads from IArchState, returns an ExecuteResult — never writes back directly.
 /// </summary>
 public partial class Rv32Executor : IExecutor {
+    // Single-hart fallback: used when ReservationTable is null.
+    protected ulong? Reservation;
+
     /// <summary>
-    /// Address of the HTIF <c>tohost</c> register, if this workload uses HTIF.
-    /// A 4-byte store of an odd value here is a tohost exit code: the executor
-    /// flags it with <see cref="ExecuteResult.RequestHalt"/> so the engine
-    /// terminates at the exit write. Null disables the check.
+    ///     Address of the HTIF <c>tohost</c> register, if this workload uses HTIF.
+    ///     A 4-byte store of an odd value here is a tohost exit code: the executor
+    ///     flags it with <see cref="ExecuteResult.RequestHalt" /> so the engine
+    ///     terminates at the exit write. Null disables the check.
     /// </summary>
     public ulong? HtifTohostAddress { get; init; }
 
@@ -28,46 +31,43 @@ public partial class Rv32Executor : IExecutor {
     public ClintDevice? Clint { get; init; }
 
     /// <summary>
-    /// Shared reservation table for multi-hart LR/SC.  When set, LR.W registers
-    /// this hart's reservation in the table, and SC.W consults it; a write from
-    /// any other hart to the same granule will cancel the reservation before SC
-    /// even executes.  Null = single-hart mode (private <see cref="Reservation"/>
-    /// field is used instead, preserving backward compatibility).
+    ///     Shared reservation table for multi-hart LR/SC.  When set, LR.W registers
+    ///     this hart's reservation in the table, and SC.W consults it; a write from
+    ///     any other hart to the same granule will cancel the reservation before SC
+    ///     even executes.  Null = single-hart mode (private <see cref="Reservation" />
+    ///     field is used instead, preserving backward compatibility).
     /// </summary>
     public ReservationTable? ReservationTable { get; init; }
 
     /// <summary>
-    /// Hart identifier used as the key in <see cref="ReservationTable"/>.
-    /// Ignored when <see cref="ReservationTable"/> is null.
+    ///     Hart identifier used as the key in <see cref="ReservationTable" />.
+    ///     Ignored when <see cref="ReservationTable" /> is null.
     /// </summary>
     public int HartId { get; init; }
 
     /// <summary>
-    /// When true, EBREAK always halts the simulation, even if mtvec is non-zero.
-    /// The default (false) routes EBREAK through mtvec as a real Breakpoint trap
-    /// whenever a handler is installed, matching OpenSBI's semihosting probe.
-    /// Horologium's own ISA-conformance test environment (env/riscv_test*.h) installs
-    /// its own mtvec handler for unrelated traps but still expects its own terminating
-    /// EBREAK (RVTEST_PASS/RVTEST_FAIL) to halt unconditionally — set this for that case.
+    ///     When true, EBREAK always halts the simulation, even if mtvec is non-zero.
+    ///     The default (false) routes EBREAK through mtvec as a real Breakpoint trap
+    ///     whenever a handler is installed, matching OpenSBI's semihosting probe.
+    ///     Horologium's own ISA-conformance test environment (env/riscv_test*.h) installs
+    ///     its own mtvec handler for unrelated traps but still expects its own terminating
+    ///     EBREAK (RVTEST_PASS/RVTEST_FAIL) to halt unconditionally — set this for that case.
     /// </summary>
     public bool EbreakAlwaysHalts { get; init; }
 
     /// <summary>
-    /// When true, WFI never halts the simulation — it degrades to a NOP whenever there
-    /// is no pending-and-enabled interrupt to wake it (mirrors Spike's functional-only
-    /// WFI semantics). The default (false) halts the simulation on an unwakeable WFI,
-    /// which system-boot tests use as a deliberate "idle loop reached" stop signal.
+    ///     When true, WFI never halts the simulation — it degrades to a NOP whenever there
+    ///     is no pending-and-enabled interrupt to wake it (mirrors Spike's functional-only
+    ///     WFI semantics). The default (false) halts the simulation on an unwakeable WFI,
+    ///     which system-boot tests use as a deliberate "idle loop reached" stop signal.
     /// </summary>
     public bool WfiNeverHalts { get; init; }
 
     /// <summary>
-    /// When non-null, ECALL instructions are routed to this handler instead of
-    /// generating a trap, enabling Linux syscall-emulation (gem5 SE) mode.
+    ///     When non-null, ECALL instructions are routed to this handler instead of
+    ///     generating a trap, enabling Linux syscall-emulation (gem5 SE) mode.
     /// </summary>
     public ISyscallHandler? SyscallHandler { get; init; }
-
-    // Single-hart fallback: used when ReservationTable is null.
-    protected ulong? Reservation;
 
     public virtual ExecuteResult Execute(ITooth instruction, IArchState state, IMemory memory) {
         if (instruction.Payload is not RvOp op)

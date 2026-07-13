@@ -1,22 +1,22 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// Local predictor with a single counter per PC.
+///     Local predictor with a single counter per PC.
 /// </summary>
 public sealed class NBitPredictor : IBranchPredictor {
+    private readonly ulong[] _btb;
+    private readonly byte[] _counters;
     private readonly int _satMax;
     private readonly int _satThreshold;
-    private readonly byte[] _counters;
-    private readonly ulong[] _btb;
 
     /// <summary>
-    /// Constructs a predictor with the given number of states and BTB size.
+    ///     Constructs a predictor with the given number of states and BTB size.
     /// </summary>
     /// <param name="bits">
-    /// Number of states.
+    ///     Number of states.
     /// </param>
     /// <param name="tableSize">
-    /// Entries in the BTB.
+    ///     Entries in the BTB.
     /// </param>
     public NBitPredictor(int bits = 2, int tableSize = 1024) {
         _satMax = (1 << bits) - 1;

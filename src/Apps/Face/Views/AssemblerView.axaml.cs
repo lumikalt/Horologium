@@ -16,11 +16,11 @@ using ScottPlot.Plottables;
 namespace Face.Views;
 
 public partial class AssemblerView : UserControl {
-    private AssemblerViewModel? _vm;
-    private Timer? _debounce;
     private readonly CurrentLineHighlighter _lineHighlighter = new();
     private AvaPlot? _cacheChartView;
     private TextBox? _consoleBox;
+    private Timer? _debounce;
+    private AssemblerViewModel? _vm;
 
     public AssemblerView() {
         InitializeComponent();
@@ -32,14 +32,6 @@ public partial class AssemblerView : UserControl {
         Loaded += OnLoaded;
     }
 
-    private void OnLoaded(object? sender, RoutedEventArgs e) {
-        _cacheChartView = this.FindControl<AvaPlot>("CacheChartView");
-        _consoleBox = this.FindControl<TextBox>("ConsoleBox");
-        ApplyCacheChartStyle();
-        if (this.FindControl<TabControl>("MainTabControl") is { } tc)
-            tc.SelectionChanged += (_, _) => RefreshCacheChart();
-    }
-
     private bool IsDark =>
         Application.Current?.ActualThemeVariant != ThemeVariant.Light;
 
@@ -47,6 +39,14 @@ public partial class AssemblerView : UserControl {
         _vm?.IsCMode == true ? CHighlighting.GetDefinition(IsDark) : RvHighlighting.GetDefinition(IsDark);
 
     private string ActiveSource => _vm?.IsCMode == true ? _vm.CSourceCode : _vm?.SourceCode ?? "";
+
+    private void OnLoaded(object? sender, RoutedEventArgs e) {
+        _cacheChartView = this.FindControl<AvaPlot>("CacheChartView");
+        _consoleBox = this.FindControl<TextBox>("ConsoleBox");
+        ApplyCacheChartStyle();
+        if (this.FindControl<TabControl>("MainTabControl") is { } tc)
+            tc.SelectionChanged += (_, _) => RefreshCacheChart();
+    }
 
     private void OnThemeVariantChanged(object? sender, EventArgs e) {
         Editor.SyntaxHighlighting = ActiveHighlighting;

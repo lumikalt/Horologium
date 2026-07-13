@@ -9,13 +9,13 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-/// End-to-end tests for OooeTrain: superscalar out-of-order pipeline.
-/// <para>
-/// Hand-assembled RV32I programs are loaded into FlatMemory and run through
-/// the train. Final register values are compared against expected results
-/// identical to what SingleCycleTrain produces, verifying that OoO execution
-/// produces correct outputs despite scheduling instructions out of order.
-/// </para>
+///     End-to-end tests for OooeTrain: superscalar out-of-order pipeline.
+///     <para>
+///         Hand-assembled RV32I programs are loaded into FlatMemory and run through
+///         the train. Final register values are compared against expected results
+///         identical to what SingleCycleTrain produces, verifying that OoO execution
+///         produces correct outputs despite scheduling instructions out of order.
+///     </para>
 /// </summary>
 public class OoOPipelineTests {
     private static (OooeTrain train, FlatMemory mem) Make(

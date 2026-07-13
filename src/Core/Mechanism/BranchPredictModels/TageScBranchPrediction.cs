@@ -1,27 +1,27 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// TAGE-SC-L: TAGE + Statistical Corrector + Loop predictor.
-/// <para>
-/// The Statistical Corrector keeps several small tables indexed by PC XOR
-/// folded-history at a set of history lengths. Each table holds sbyte-valued
-/// signed weights. During prediction the SC sums TAGE's signed confidence
-/// score with all SC table weights; if the magnitude exceeds ScThreshold AND
-/// the sign disagrees with TAGE it overrides TAGE's direction.
-/// The loop predictor (inherited from LTagePredictor) is still the final hard
-/// override and is applied after SC.
-/// </para>
+///     TAGE-SC-L: TAGE + Statistical Corrector + Loop predictor.
+///     <para>
+///         The Statistical Corrector keeps several small tables indexed by PC XOR
+///         folded-history at a set of history lengths. Each table holds sbyte-valued
+///         signed weights. During prediction the SC sums TAGE's signed confidence
+///         score with all SC table weights; if the magnitude exceeds ScThreshold AND
+///         the sign disagrees with TAGE it overrides TAGE's direction.
+///         The loop predictor (inherited from LTagePredictor) is still the final hard
+///         override and is applied after SC.
+///     </para>
 /// </summary>
 public class TageScLPredictor : LTagePredictor {
-    private static readonly int[] ScHistLengths = [0, 8, 16, 24,];
     private const int ScTableSize = 128;
     private const int ScThreshold = 10;
+    private static readonly int[] ScHistLengths = [0, 8, 16, 24,];
 
     // SC tables: one per history length; indexed by (pc >> 2) XOR folded history.
     private readonly sbyte[][] _sc;
 
     /// <summary>
-    /// Constructs a TAGE-SC-L predictor.
+    ///     Constructs a TAGE-SC-L predictor.
     /// </summary>
     public TageScLPredictor() {
         _sc = new sbyte[TageScLPredictor.ScHistLengths.Length][];

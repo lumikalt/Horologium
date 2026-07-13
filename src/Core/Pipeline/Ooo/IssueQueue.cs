@@ -3,14 +3,14 @@ using Mechanism;
 namespace Pipeline.Ooo;
 
 /// <summary>
-/// One entry (reservation station) in the Issue Queue.
-/// <para>
-/// Each source operand is described by a tag (the physical register index)
-/// and a ready/value pair. A tag of -1 means that source is not used by this
-/// instruction. When the CDB broadcasts a result, all entries whose tag
-/// matches the broadcasting register have their Ready bit set and Value filled.
-/// </para>
-/// <para>An entry becomes eligible for issue once all needed sources are ready.</para>
+///     One entry (reservation station) in the Issue Queue.
+///     <para>
+///         Each source operand is described by a tag (the physical register index)
+///         and a ready/value pair. A tag of -1 means that source is not used by this
+///         instruction. When the CDB broadcasts a result, all entries whose tag
+///         matches the broadcasting register have their Ready bit set and Value filled.
+///     </para>
+///     <para>An entry becomes eligible for issue once all needed sources are ready.</para>
 /// </summary>
 public sealed class RsEntry {
     public bool Busy { get; set; }
@@ -64,26 +64,21 @@ public sealed class RsEntry {
 }
 
 /// <summary>
-/// Unified Issue Queue (reservation stations).
-/// <para>
-/// Instructions wait here after Dispatch until all their source operands are
-/// ready. At Issue, the scheduler scans for ready entries and selects up to
-/// <c>issueWidth</c> per cycle (one per distinct functional-unit class, or
-/// simply the oldest-first policy for a single-port design).
-/// </para>
-/// <para>
-/// CDB broadcasts (<see cref="Broadcast"/>) propagate results to all waiting
-/// entries in O(capacity) time — the issue queue size should be kept small
-/// (16–32 entries) so this is cheap.
-/// </para>
+///     Unified Issue Queue (reservation stations).
+///     <para>
+///         Instructions wait here after Dispatch until all their source operands are
+///         ready. At Issue, the scheduler scans for ready entries and selects up to
+///         <c>issueWidth</c> per cycle (one per distinct functional-unit class, or
+///         simply the oldest-first policy for a single-port design).
+///     </para>
+///     <para>
+///         CDB broadcasts (<see cref="Broadcast" />) propagate results to all waiting
+///         entries in O(capacity) time — the issue queue size should be kept small
+///         (16–32 entries) so this is cheap.
+///     </para>
 /// </summary>
 public sealed class IssueQueue {
     private readonly RsEntry[] _slots;
-
-    public int Capacity { get; }
-    public int Count { get; private set; }
-    public bool IsFull => Count == Capacity;
-    public bool IsEmpty => Count == 0;
 
     public IssueQueue(int capacity) {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
@@ -92,12 +87,17 @@ public sealed class IssueQueue {
         for (var i = 0; i < capacity; i++) _slots[i] = new RsEntry();
     }
 
+    public int Capacity { get; }
+    public int Count { get; private set; }
+    public bool IsFull => Count == Capacity;
+    public bool IsEmpty => Count == 0;
+
     /// <summary>Returns the entry at the given slot index.</summary>
     public RsEntry At(int index) => _slots[index];
 
     /// <summary>
-    /// Finds a free slot, marks it Busy, and returns its index.
-    /// Returns -1 if the queue is full (check <see cref="IsFull"/> first).
+    ///     Finds a free slot, marks it Busy, and returns its index.
+    ///     Returns -1 if the queue is full (check <see cref="IsFull" /> first).
     /// </summary>
     public int Allocate() {
         for (var i = 0; i < Capacity; i++) {
@@ -111,8 +111,8 @@ public sealed class IssueQueue {
     }
 
     /// <summary>
-    /// CDB broadcast: wakes every entry that is waiting for <paramref name="physReg"/>.
-    /// For each such entry, the corresponding source is marked ready and its value captured.
+    ///     CDB broadcast: wakes every entry that is waiting for <paramref name="physReg" />.
+    ///     For each such entry, the corresponding source is marked ready and its value captured.
     /// </summary>
     public void Broadcast(int physReg, ulong value) {
         foreach (RsEntry e in _slots) {
@@ -135,8 +135,8 @@ public sealed class IssueQueue {
     }
 
     /// <summary>
-    /// Returns the slot index of the first ready entry matching an optional
-    /// predicate (e.g., a specific functional-unit class), or -1 if none.
+    ///     Returns the slot index of the first ready entry matching an optional
+    ///     predicate (e.g., a specific functional-unit class), or -1 if none.
     /// </summary>
     public int FindReady(Func<RsEntry, bool>? filter = null) {
         for (var i = 0; i < Capacity; i++) {
@@ -148,9 +148,9 @@ public sealed class IssueQueue {
     }
 
     /// <summary>
-    /// Collects up to <paramref name="maxCount"/> ready entries into
-    /// <paramref name="results"/>, optionally filtering by functional-unit class.
-    /// Returns the number of entries collected.
+    ///     Collects up to <paramref name="maxCount" /> ready entries into
+    ///     <paramref name="results" />, optionally filtering by functional-unit class.
+    ///     Returns the number of entries collected.
     /// </summary>
     public int FindReadyBatch(Span<int> results, int maxCount, Func<RsEntry, bool>? filter = null) {
         var found = 0;
@@ -176,9 +176,9 @@ public sealed class IssueQueue {
     }
 
     /// <summary>
-    /// Squashes every busy entry younger than <paramref name="instrId"/> (i.e. with a strictly
-    /// greater InstrId). Used by an execute-time partial squash, which keeps the redirecting
-    /// branch and all older in-flight instructions live.
+    ///     Squashes every busy entry younger than <paramref name="instrId" /> (i.e. with a strictly
+    ///     greater InstrId). Used by an execute-time partial squash, which keeps the redirecting
+    ///     branch and all older in-flight instructions live.
     /// </summary>
     public void SquashYoungerThan(ulong instrId) {
         foreach (RsEntry e in _slots)

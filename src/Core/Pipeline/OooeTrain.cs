@@ -14,20 +14,8 @@ namespace Pipeline;
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 
 public sealed class OooeTrain : ISteppableTrain {
-    private readonly Train _train;
     private readonly OoOPipelineCore _core;
-
-    public IArchState ArchState => _core.State;
-
-    public SetAssociativeCache? ICache => _core.ILayers.Cache;
-    public RdipPrefetcher? Rdip => _core.Rdip;
-    public SetAssociativeCache? DCache => _core.DLayers.Cache;
-    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
-    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
-    public Tlb? ITlb => _core.ILayers.Tlb;
-    public Tlb? DTlb => _core.DLayers.Tlb;
-    public PEventLog? PEventLog => _core.PEventLog;
-    public StreamingEngine StreamingEngine => _core.StreamingEngine;
+    private readonly Train _train;
 
     public OooeTrain(
         IMechanism mechanism,
@@ -123,193 +111,98 @@ public sealed class OooeTrain : ISteppableTrain {
         _train.Build();
     }
 
-    public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
-        _train.Run(maxTicks, warmupTicks, snapshotInterval);
-
-    public DialBoardSnapshot SnapshotPipeline() => _core.Dials.Snapshot();
+    public SetAssociativeCache? ICache => _core.ILayers.Cache;
+    public RdipPrefetcher? Rdip => _core.Rdip;
+    public SetAssociativeCache? DCache => _core.DLayers.Cache;
+    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
+    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
+    public Tlb? ITlb => _core.ILayers.Tlb;
+    public Tlb? DTlb => _core.DLayers.Tlb;
+    public PEventLog? PEventLog => _core.PEventLog;
+    public StreamingEngine StreamingEngine => _core.StreamingEngine;
 
     public long CurrentTick => _train.CurrentTick;
     public bool IsIdle => _train.IsIdle;
+
+    public IArchState ArchState => _core.State;
+
+    public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
+        _train.Run(maxTicks, warmupTicks, snapshotInterval);
+
     public void BeginStepping() => _train.BeginStepping();
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
+
+    public DialBoardSnapshot SnapshotPipeline() => _core.Dials.Snapshot();
 }
 
 // ── Pipeline core Gear ─────────────────────────────────────────────────────────
 
 /// <summary>
-/// Superscalar out-of-order pipeline Gear using Tomasulo's algorithm.
-/// <para>
-/// Pipeline stages (cross-tick latches connect them):
-///   Fetch → [decodeQueue] → Dispatch → [IssueQueue] → Issue
-///     → [_execBuffer] → Execute → [_cdbBuffer] → Complete → [ROB] → Commit
-/// </para>
-/// <para>
-/// All six logical stages execute within a single RunCycle tick, reading from
-/// the latch populated by the previous tick. Minimum end-to-end latency for
-/// an independent instruction is ~4 ticks (Fetch, Dispatch, Execute, Complete+Commit).
-/// </para>
+///     Superscalar out-of-order pipeline Gear using Tomasulo's algorithm.
+///     <para>
+///         Pipeline stages (cross-tick latches connect them):
+///         Fetch → [decodeQueue] → Dispatch → [IssueQueue] → Issue
+///         → [_execBuffer] → Execute → [_cdbBuffer] → Complete → [ROB] → Commit
+///     </para>
+///     <para>
+///         All six logical stages execute within a single RunCycle tick, reading from
+///         the latch populated by the previous tick. Minimum end-to-end latency for
+///         an independent instruction is ~4 ticks (Fetch, Dispatch, Execute, Complete+Commit).
+///     </para>
 /// </summary>
 internal sealed class OoOPipelineCore : Gear {
-    // ── Nested helper types ────────────────────────────────────────────────────
-
-    private readonly record struct FetchedInstr(
-        ulong Pc,
-        ITooth? Decoded,
-        ulong PredictedNextPc,
-        ulong InstrId = 0,
-        TrapInfo? PreTrap = null,
-        BranchHistoryCheckpoint HistCheckpoint = default
-    );
-
-    // Instruction that has been renamed but not yet dispatched to ROB/IQ.
-    private readonly record struct RenameEntry(
-        ulong Pc,
-        ITooth? Decoded,
-        ulong PredictedNextPc,
-        ulong InstrId,
-        TrapInfo? PreTrap,
-        int ArchDest,     // -1 if no architectural destination
-        int PhysDest,     // -1 if no architectural destination
-        int PrevPhysDest, // -1 if no architectural destination
-        int P1,
-        int P2,
-        int P3, // physical source tags captured from RAT, -1 if unused
-        BranchHistoryCheckpoint HistCheckpoint = default
-    );
-
-    private readonly record struct IssuedInstr(
-        int RobIdx,
-        int PhysDest,
-        ITooth Instr,
-        ulong Pc,
-        ulong Src1,
-        ulong Src2,
-        ulong Src3,
-        ulong InstrId = 0
-    );
-
-    private readonly record struct ExecResult(
-        int RobIdx,
-        int PhysDest,
-        (ulong Value, bool HasValue) RegValue,
-        (ulong Value, bool HasValue) ResolvedNextPc,
-        TrapInfo? Trap,
-        bool IsReturnFromTrap,
-        PrivilegeLevel? ReturnPrivilege,
-        bool HasStoreCapture,
-        ulong StoreAddr,
-        ulong StoreVal,
-        int StoreBytes,
-        bool HasLoadAccess,
-        ulong LoadAddr,
-        int LoadBytes,
-        bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
-        bool RequestHalt = false, // true for an HTIF tohost-exit store: halt after commit
-        ulong InstrId = 0,        // per-instruction age, for pruning in-flight results on a partial squash
-        Action<IArchState>? SideEffect
-            = null // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
-    );
-
-    /// <summary>
-    /// Passes reads through to backing memory while recording the last read address;
-    /// captures writes instead of executing them. Used to defer store writes until
-    /// ROB commit and to capture load addresses for memory-ordering checks.
-    /// </summary>
-    private sealed class CapturingMemory(IMemory backing) : IMemory {
-        public bool HasWrite { get; private set; }
-        public ulong WriteAddress { get; private set; }
-        public ulong WriteValue { get; private set; }
-        public int WriteBytes { get; private set; }
-
-        public bool HasRead { get; private set; }
-        public ulong ReadAddress { get; private set; }
-        public int ReadBytes { get; private set; }
-
-        public void Reset() {
-            HasWrite = false;
-            HasRead = false;
-        }
-
-        public ulong Read(ulong address, int bytes) {
-            HasRead = true;
-            ReadAddress = address;
-            ReadBytes = bytes;
-            return backing.Read(address, bytes);
-        }
-
-        public void Load(ulong address, ReadOnlySpan<byte> data) => backing.Load(address, data);
-
-        public void InvalidateLine(ulong address) => backing.InvalidateLine(address);
-        public void CleanLine(ulong address) => backing.CleanLine(address);
-        public void FlushLine(ulong address) => backing.FlushLine(address);
-        public void SetRequestPc(ulong pc) => backing.SetRequestPc(pc);
-
-        public void Write(ulong address, ulong value, int bytes) {
-            HasWrite = true;
-            WriteAddress = address;
-            WriteValue = value;
-            WriteBytes = bytes;
-        }
-    }
-
-    // ISA services
-    private readonly IDecoder _decoder;
-    private readonly IExecutor _executor;
-    private readonly ITrapController _trapController;
-    private readonly IBranchPredictor _predictor;
-
-    private readonly ReturnAddressStack _ras = new();
+    // IQ index 0=INT(Alu/MulDiv/Sys/Fence/Halt), 1=FP, 2=BR, 3=VEC(Vector/UVE), 4=LSU
+    private const int IqCount = 5;
+    private readonly int _activeIqCount; // 1 when flat, IqCount when per-class
+    private readonly CapturingMemory _capMem;
+    private readonly List<ExecResult> _cdbBuffer = [];
+    private readonly ICommitObserver? _commitObserver;
 
     // Architectural RAS shadow: updated only when a call/return actually retires.
     // On a flush the speculative _ras is restored from this, discarding the wrong-path
     // push/pop corruption that would otherwise cascade into return mispredictions.
     private readonly ReturnAddressStack _committedRas = new();
+
+    // Cross-tick latches
+    private readonly Queue<FetchedInstr> _decodeQueue = new();
+
+    // ISA services
+    private readonly IDecoder _decoder;
+    private readonly List<IssuedInstr> _execBuffer = [];
+    private readonly IExecutor _executor;
+    private readonly FdipPrefetcher? _fdip;
     private readonly IFetchTranslator? _fetchTranslator;
-    private readonly CapturingMemory _capMem;
-    private readonly FuLatencyConfig _fuConfig;
-    private readonly ICommitObserver? _commitObserver;
-
-    // Streaming engine (architectural; survives pipeline flushes)
-    public StreamingEngine StreamingEngine { get; }
-
-    // Memory hierarchy layers
-    public MemoryLayers ILayers { get; }
-    public MemoryLayers DLayers { get; }
-
-    // IQ index 0=INT(Alu/MulDiv/Sys/Fence/Halt), 1=FP, 2=BR, 3=VEC(Vector/UVE), 4=LSU
-    private const int IqCount = 5;
 
     // In per-class mode each IQ has iqCapacity slots; in flat mode all instructions
     // go to IQ[0] which has IqCount×iqCapacity slots so total capacity is the same.
     private readonly bool _flatIq;
-    private readonly int _activeIqCount; // 1 when flat, IqCount when per-class
+    private readonly FuLatencyConfig _fuConfig;
+    private readonly List<(int Countdown, ExecResult Result, bool HoldsMshr)> _inFlight = [];
+    private readonly IssueQueue[] _iqs;
+    private readonly int _issueWidth;
+    private readonly LoadQueue _lq;
+    private readonly int _maxDecodeDepth;
 
-    private int IqIndex(ToothClass cls) => _flatIq
-        ? 0
-        : cls switch {
-            ToothClass.FloatingPoint or ToothClass.FloatDivSqrt      => 1,
-            ToothClass.Branch or ToothClass.ConditionalBranch        => 2,
-            ToothClass.Vector or ToothClass.Uve                      => 3,
-            ToothClass.Load or ToothClass.Store or ToothClass.Atomic => 4,
-            _                                                        => 0,
-        };
+    // MSHR (Miss Status Holding Register) capacity: limits the number of simultaneously
+    // outstanding load/atomic cache misses. Capacity 0 means unlimited (old behaviour).
+    private readonly int _mshrCapacity;
+    private readonly IBranchPredictor _predictor;
 
     // OoOE structures
     private readonly PhysicalRegisterFile _prf;
-    private readonly RenameMap _rat;
-    private readonly ReorderBuffer _rob;
-    private readonly IssueQueue[] _iqs;
-    private readonly LoadQueue _lq;
-    private readonly StoreQueue _sq;
-    private readonly int _issueWidth;
-    private readonly int _maxDecodeDepth;
 
-    // Monotonically increasing sequence number assigned at dispatch to each
-    // load/store/atomic. Shared between LQ and SQ so that program-order comparisons
-    // across the two queues don't rely on ROB index arithmetic (which wraps).
-    // Not reset on flush — entries are discarded by Flush(), the counter climbs.
-    private ulong _nextMemSeqNo;
+    private readonly ReturnAddressStack _ras = new();
+    private readonly RenameMap _rat;
+
+    // True when a D-prefetcher is configured with PrefetchLatency > 0: prefetched lines
+    // arrive after a countdown instead of instantly (realistic prefetch latency model).
+    private readonly bool _realisticPrefetch;
+    private readonly Queue<RenameEntry> _renameQueue = new();
+    private readonly ReorderBuffer _rob;
+    private readonly StoreQueue _sq;
+    private readonly StoreSetPredictor? _storeSets;
+    private readonly ITrapController _trapController;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
     // doesn't freeze for them. Each slot holds a countdown (in cycles) until the
@@ -317,30 +210,50 @@ internal sealed class OoOPipelineCore : Gear {
     // and falls back to lump-sum charging (old behaviour).
     private readonly int _wbCapacity;
     private readonly int[] _wbSlots; // per-slot miss countdown
-    private int _wbOccupied;         // number of slots currently counting down
 
-    // MSHR (Miss Status Holding Register) capacity: limits the number of simultaneously
-    // outstanding load/atomic cache misses. Capacity 0 means unlimited (old behaviour).
-    private readonly int _mshrCapacity;
-    private int _mshrUsed; // MSHR slots currently occupied
+    private bool _anyCache;
+    private Counter _branchMissCounter = null!;
+    private Counter? _cacheMissStallsCounter;
 
-    // In-flight prefetches also hold miss-tracking slots. A demand hit on an in-flight
-    // line retires the prefetch entry and transfers its remaining latency (and MSHR slot)
-    // to the load itself, so the two counts never overlap.
-    private int InFlightPrefetches => _realisticPrefetch ? DLayers.Cache!.InFlightPrefetchCount : 0;
-
-    // Cross-tick latches
-    private readonly Queue<FetchedInstr> _decodeQueue = new();
-    private readonly Queue<RenameEntry> _renameQueue = new();
-    private readonly List<IssuedInstr> _execBuffer = [];
-    private readonly List<(int Countdown, ExecResult Result, bool HoldsMshr)> _inFlight = [];
-    private readonly List<ExecResult> _cdbBuffer = [];
+    // Counters (initialised in Initialize)
+    private Counter _cyclesCounter = null!;
+    private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
+    private Counter? _dcacheLatePrefetchHitsCounter;
+    private Counter? _dcachePrefetchesCounter;
+    private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
+    private bool _fetchFaulted; // suppress repeated fault entries until flush clears
 
     // Runtime state
     private ulong _fetchPc;
-    private bool _halted;
+    private Counter _flushesCounter = null!;
     private bool _flushPending;
     private ulong _flushTarget;
+    private bool _halted;
+    private Counter? _icacheHitsCounter, _icacheMissesCounter;
+    private Counter? _itlbHitsCounter, _itlbMissesCounter;
+    private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
+    private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
+    private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
+    private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
+    private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
+    private long _lastDPrefetches, _lastDLatePrefetchHits;
+
+    // Delta tracking for hit/miss/prefetch counters
+    private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
+    private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
+    private Counter _memViolationsCounter = null!;
+    private Counter? _mshrStallsCounter;
+    private int _mshrUsed; // MSHR slots currently occupied
+
+    // PEvent recording
+    private ulong _nextInstrId = 1;
+
+    // Monotonically increasing sequence number assigned at dispatch to each
+    // load/store/atomic. Shared between LQ and SQ so that program-order comparisons
+    // across the two queues don't rely on ROB index arithmetic (which wraps).
+    // Not reset on flush — entries are discarded by Flush(), the counter climbs.
+    private ulong _nextMemSeqNo;
+    private int _pendingRollbackAbandonedPhys = -1;
 
     // Pending rename rollback for a trap/return-from-trap instruction that retires (leaves the
     // ROB) as part of raising the flush itself. StepFlush's walk-back only sees entries still in
@@ -350,60 +263,24 @@ internal sealed class OoOPipelineCore : Gear {
     // would overwrite this rollback if applied before them. Set to -1 when nothing is pending.
     private int _pendingRollbackArch = -1;
     private int _pendingRollbackPrevPhys = -1;
-    private int _pendingRollbackAbandonedPhys = -1;
+    private Counter _retiredCounter = null!;
+
+    // ── Main driver ────────────────────────────────────────────────────────────
+
+    // Cached to avoid a fresh Action allocation per simulated cycle.
+    private Action? _runCycle;
+    private ulong _squashInstrId;
 
     // Execute-time partial squash (branch mispredict resolved before the branch reaches the ROB
     // head). Detected in StepComplete, applied at the flush-check like a full flush but preserving
     // the redirecting branch and every older in-flight instruction. gem5 O3CPU redirects fetch at
     // execute (iew) the same way; this is the microarchitectural analogue.
     private bool _squashPending;
-    private ulong _squashInstrId;
-    private ulong _squashTarget;
     private bool _squashTaken;
-    private bool _fetchFaulted; // suppress repeated fault entries until flush clears
-
-    // PEvent recording
-    private ulong _nextInstrId = 1;
-    public PEventLog? PEventLog { get; }
-
-    // Counters (initialised in Initialize)
-    private Counter _cyclesCounter = null!;
-    private Counter _retiredCounter = null!;
-    private Counter _flushesCounter = null!;
-    private Counter _branchMissCounter = null!;
+    private ulong _squashTarget;
     private Counter _stallsCounter = null!;
-    private Counter _memViolationsCounter = null!;
-    private Counter? _cacheMissStallsCounter;
     private Counter? _wbAbsorbedStallsCounter;
-    private Counter? _mshrStallsCounter;
-    private Counter? _icacheHitsCounter, _icacheMissesCounter;
-    private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
-    private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
-    private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
-    private Counter? _dcachePrefetchesCounter;
-    private Counter? _dcacheLatePrefetchHitsCounter;
-    private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
-    private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
-    private Counter? _itlbHitsCounter, _itlbMissesCounter;
-    private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
-
-    private bool _anyCache;
-
-    // Delta tracking for hit/miss/prefetch counters
-    private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
-    private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
-    private long _lastDPrefetches, _lastDLatePrefetchHits;
-
-    // True when a D-prefetcher is configured with PrefetchLatency > 0: prefetched lines
-    // arrive after a countdown instead of instantly (realistic prefetch latency model).
-    private readonly bool _realisticPrefetch;
-    private readonly FdipPrefetcher? _fdip;
-    private readonly RdipPrefetcher? _rdip;
-    public RdipPrefetcher? Rdip => _rdip;
-    private readonly StoreSetPredictor? _storeSets;
-    private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
-
-    public IArchState State { get; }
+    private int _wbOccupied; // number of slots currently counting down
 
     public OoOPipelineCore(
         string name,
@@ -457,7 +334,7 @@ internal sealed class OoOPipelineCore : Gear {
             ? new FdipPrefetcher(predictor, _decoder, fdipBackingMemory, iLayers.Cache, entryPoint, fdipFtqCapacity)
             : null;
 
-        _rdip = rdipEnabled && iLayers.Cache is not null
+        Rdip = rdipEnabled && iLayers.Cache is not null
             ? new RdipPrefetcher(iLayers.Cache, _decoder)
             : null;
         _storeSets = enableStoreSets ? new StoreSetPredictor() : null;
@@ -485,6 +362,32 @@ internal sealed class OoOPipelineCore : Gear {
         _wbSlots = writeBufferCapacity > 0 ? new int[writeBufferCapacity] : [];
         _mshrCapacity = mshrCapacity;
     }
+
+    // Streaming engine (architectural; survives pipeline flushes)
+    public StreamingEngine StreamingEngine { get; }
+
+    // Memory hierarchy layers
+    public MemoryLayers ILayers { get; }
+    public MemoryLayers DLayers { get; }
+
+    // In-flight prefetches also hold miss-tracking slots. A demand hit on an in-flight
+    // line retires the prefetch entry and transfers its remaining latency (and MSHR slot)
+    // to the load itself, so the two counts never overlap.
+    private int InFlightPrefetches => _realisticPrefetch ? DLayers.Cache!.InFlightPrefetchCount : 0;
+    public PEventLog? PEventLog { get; }
+    public RdipPrefetcher? Rdip { get; }
+
+    public IArchState State { get; }
+
+    private int IqIndex(ToothClass cls) => _flatIq
+        ? 0
+        : cls switch {
+            ToothClass.FloatingPoint or ToothClass.FloatDivSqrt      => 1,
+            ToothClass.Branch or ToothClass.ConditionalBranch        => 2,
+            ToothClass.Vector or ToothClass.Uve                      => 3,
+            ToothClass.Load or ToothClass.Store or ToothClass.Atomic => 4,
+            _                                                        => 0,
+        };
 
     public override void Initialize() {
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
@@ -580,11 +483,6 @@ internal sealed class OoOPipelineCore : Gear {
 
     public override void Wind() =>
         Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
-
-    // ── Main driver ────────────────────────────────────────────────────────────
-
-    // Cached to avoid a fresh Action allocation per simulated cycle.
-    private Action? _runCycle;
 
     private void RunCycle() {
         if (_halted) return;
@@ -803,7 +701,7 @@ internal sealed class OoOPipelineCore : Gear {
             // Fires for both the normal and branch-mispredict retire paths below.
             if (head.Instruction is not null) {
                 _commitObserver?.OnCommit(head.Pc, head.Instruction.RawEncoding, State);
-                _rdip?.OnCommit(head.Pc, head.Instruction.RawEncoding);
+                Rdip?.OnCommit(head.Pc, head.Instruction.RawEncoding);
             }
 
             // Advance the architectural RAS shadow for a retiring call/return. Only jumps
@@ -1118,19 +1016,19 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// True if any not-yet-committed instruction (already dispatched to the ROB, or
-    /// still sitting in the rename queue) has a secondary destination register that
-    /// <paramref name="srcs"/> reads (RAW) or that equals <paramref name="destArch"/>
-    /// (WAW). See StepRename's dispatch stall for why this must block renaming
-    /// rather than just issue.
-    /// <para>
-    /// The WAW case matters because the secondary-dest write never goes through the
-    /// RAT: CommitRegisters syncs the PRF slot the RAT *currently* maps for that
-    /// architectural register. If a younger instruction were allowed to rename a new
-    /// physical register for it first, that sync would target the wrong slot (or race
-    /// the younger producer's own completion). Blocking here keeps the RAT mapping for
-    /// that register stable until the secondary-dest producer retires and syncs it.
-    /// </para>
+    ///     True if any not-yet-committed instruction (already dispatched to the ROB, or
+    ///     still sitting in the rename queue) has a secondary destination register that
+    ///     <paramref name="srcs" /> reads (RAW) or that equals <paramref name="destArch" />
+    ///     (WAW). See StepRename's dispatch stall for why this must block renaming
+    ///     rather than just issue.
+    ///     <para>
+    ///         The WAW case matters because the secondary-dest write never goes through the
+    ///         RAT: CommitRegisters syncs the PRF slot the RAT *currently* maps for that
+    ///         architectural register. If a younger instruction were allowed to rename a new
+    ///         physical register for it first, that sync would target the wrong slot (or race
+    ///         the younger producer's own completion). Blocking here keeps the RAT mapping for
+    ///         that register stable until the secondary-dest producer retires and syncs it.
+    ///     </para>
     /// </summary>
     private bool HasPendingSecondaryDest(IReadOnlyList<int> srcs, int destArch) {
         foreach ((_, RobEntry entry) in _rob.InOrder()) {
@@ -1147,11 +1045,11 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// True if any instruction older than <paramref name="loadRobIndex"/> is a vector store.
-    /// Vector stores write eagerly at execute time (bypassing CapturingMemory), so
-    /// younger loads must wait until the vector store has cleared the ROB.
-    /// Scalar stores no longer block loads here; they are handled by forwarding and
-    /// memory-order violation detection.
+    ///     True if any instruction older than <paramref name="loadRobIndex" /> is a vector store.
+    ///     Vector stores write eagerly at execute time (bypassing CapturingMemory), so
+    ///     younger loads must wait until the vector store has cleared the ROB.
+    ///     Scalar stores no longer block loads here; they are handled by forwarding and
+    ///     memory-order violation detection.
     /// </summary>
     private bool HasPrecedingVectorStore(int loadRobIndex) {
         foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
@@ -1165,11 +1063,11 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// True if any instruction older than <paramref name="loadRobIndex"/> is a
-    /// store→load fence still in the ROB. Younger loads must wait until the fence
-    /// retires; combined with the fence's own issue gate (ROB head + write buffer
-    /// drained) this gives TSO fence semantics: no post-fence load issues before
-    /// every pre-fence store's write-bus penalty has expired.
+    ///     True if any instruction older than <paramref name="loadRobIndex" /> is a
+    ///     store→load fence still in the ROB. Younger loads must wait until the fence
+    ///     retires; combined with the fence's own issue gate (ROB head + write buffer
+    ///     drained) this gives TSO fence semantics: no post-fence load issues before
+    ///     every pre-fence store's write-bus penalty has expired.
     /// </summary>
     private bool HasPrecedingStoreLoadFence(int loadRobIndex) {
         foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
@@ -1181,10 +1079,10 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// True if any SQ entry older than <paramref name="loadSeqNo"/> has not yet
-    /// resolved its effective address. Used to implement conservative load ordering
-    /// (FuLatencyConfig.ConservativeLoads), mirroring Olympia's
-    /// allow_speculative_load_exec = false.
+    ///     True if any SQ entry older than <paramref name="loadSeqNo" /> has not yet
+    ///     resolved its effective address. Used to implement conservative load ordering
+    ///     (FuLatencyConfig.ConservativeLoads), mirroring Olympia's
+    ///     allow_speculative_load_exec = false.
     /// </summary>
     private bool HasUnresolvedPrecedingStore(ulong loadSeqNo) {
         foreach (SqEntry sq in _sq.InOrder()) {
@@ -1196,9 +1094,9 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// True if the load's predicted dependent store is still in the SQ with an unresolved
-    /// address.  Returns false if the store is not found (committed, flushed, or never
-    /// assigned) or if the atomic guard fires (predStoreSeqNo >= loadSeqNo).
+    ///     True if the load's predicted dependent store is still in the SQ with an unresolved
+    ///     address.  Returns false if the store is not found (committed, flushed, or never
+    ///     assigned) or if the atomic guard fires (predStoreSeqNo >= loadSeqNo).
     /// </summary>
     private bool StoreSetStallLoad(ulong loadSeqNo, ulong predStoreSeqNo) {
         if (predStoreSeqNo == 0 || predStoreSeqNo >= loadSeqNo) return false;
@@ -1211,10 +1109,10 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// After a store's address resolves, scan LQ entries younger than the store's
-    /// sequence number for loads that have already executed against the same (or
-    /// overlapping) address. Those loads read a stale value and are flagged for
-    /// re-execution at the ROB head.
+    ///     After a store's address resolves, scan LQ entries younger than the store's
+    ///     sequence number for loads that have already executed against the same (or
+    ///     overlapping) address. Those loads read a stale value and are flagged for
+    ///     re-execution at the ROB head.
     /// </summary>
     private void CheckLoadViolations(ulong storeSeqNo, ulong storeAddr, int storeBytes, ulong storePc = 0) {
         foreach (LqEntry lq in _lq.InOrder()) {
@@ -1228,11 +1126,11 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// If any older SQ entry's byte range fully contains the load's byte range, return
-    /// the forwarded bytes extracted from the stored value.  Partial overlap (store
-    /// covers some but not all of the load's bytes) is not forwarded — the load goes
-    /// to memory and <see cref="CheckLoadViolations"/> will flag it on store resolution.
-    /// The youngest matching store wins (last seen in program order = head-to-tail).
+    ///     If any older SQ entry's byte range fully contains the load's byte range, return
+    ///     the forwarded bytes extracted from the stored value.  Partial overlap (store
+    ///     covers some but not all of the load's bytes) is not forwarded — the load goes
+    ///     to memory and <see cref="CheckLoadViolations" /> will flag it on store resolution.
+    ///     The youngest matching store wins (last seen in program order = head-to-tail).
     /// </summary>
     private (ulong Value, bool HasValue) TryForwardFromStore(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
         (ulong Value, bool HasValue) result = default;
@@ -1252,10 +1150,10 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// True if any SQ entry older than <paramref name="loadSeqNo"/> has a known address
-    /// that overlaps the load. Used at load-execute time to detect violations that
-    /// weren't caught by <see cref="CheckLoadViolations"/> (the store resolved before
-    /// the load executed; the converse ordering is caught when the store later resolves).
+    ///     True if any SQ entry older than <paramref name="loadSeqNo" /> has a known address
+    ///     that overlaps the load. Used at load-execute time to detect violations that
+    ///     weren't caught by <see cref="CheckLoadViolations" /> (the store resolved before
+    ///     the load executed; the converse ordering is caught when the store later resolves).
     /// </summary>
     private ulong? HasOlderConflictingStore(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
         ulong? conflict = null;
@@ -1520,7 +1418,7 @@ internal sealed class OoOPipelineCore : Gear {
                 break;
             }
 
-            if (_rdip is not null && ILayers.Cache?.LastAccessWasHit == false) _rdip.OnIcacheMiss(physPc);
+            if (Rdip is not null && ILayers.Cache?.LastAccessWasHit == false) Rdip.OnIcacheMiss(physPc);
 
             // Only branch/jump instructions consult the predictor; all others
             // continue sequentially to avoid corrupting the BTB.
@@ -1641,10 +1539,10 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// Execute-time partial squash: a branch resolved mispredicted before reaching the ROB head.
-    /// Redirects fetch now (as gem5 O3CPU's iew does) instead of waiting for commit, discarding
-    /// only the instructions younger than the redirecting branch while the branch and every older
-    /// in-flight instruction stay live and commit normally.
+    ///     Execute-time partial squash: a branch resolved mispredicted before reaching the ROB head.
+    ///     Redirects fetch now (as gem5 O3CPU's iew does) instead of waiting for commit, discarding
+    ///     only the instructions younger than the redirecting branch while the branch and every older
+    ///     in-flight instruction stay live and commit normally.
     /// </summary>
     private void StepPartialSquash() {
         _flushesCounter.Increment();
@@ -1742,10 +1640,10 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// True when an in-flight instruction older than <paramref name="instrId"/> will redirect or
-    /// halt the machine at commit (a halt, a trap, or a return-from-trap). Such an older entry makes
-    /// every younger instruction wrong-path, so an execute-time squash on a younger branch would act
-    /// on a doomed path the commit-time model never reaches.
+    ///     True when an in-flight instruction older than <paramref name="instrId" /> will redirect or
+    ///     halt the machine at commit (a halt, a trap, or a return-from-trap). Such an older entry makes
+    ///     every younger instruction wrong-path, so an execute-time squash on a younger branch would act
+    ///     on a doomed path the commit-time model never reaches.
     /// </summary>
     private bool AnyOlderHaltOrTrap(ulong instrId) {
         foreach ((_, RobEntry e) in _rob.InOrder()) {
@@ -1911,9 +1809,9 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// Retires the LQ entry (for loads/atomics) and/or SQ entry (for stores/atomics)
-    /// corresponding to a retiring ROB entry. Must be called before <c>_rob.Retire()</c>
-    /// since the LQ/SQ indices are read from the entry's fields.
+    ///     Retires the LQ entry (for loads/atomics) and/or SQ entry (for stores/atomics)
+    ///     corresponding to a retiring ROB entry. Must be called before <c>_rob.Retire()</c>
+    ///     since the LQ/SQ indices are read from the entry's fields.
     /// </summary>
     private void RetireMemQueues(RobEntry head) {
         if (head.LqIdx >= 0) _lq.Retire();
@@ -1921,8 +1819,8 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// Commits the destination register of a ROB entry: writes the PRF value
-    /// to the arch state, frees the old physical register, and advances State.Pc.
+    ///     Commits the destination register of a ROB entry: writes the PRF value
+    ///     to the arch state, frees the old physical register, and advances State.Pc.
     /// </summary>
     private void CommitRegisters(RobEntry head) {
         head.SideEffect?.Invoke(State);
@@ -1949,13 +1847,13 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// Write a committed store to memory and optionally absorb the write-miss stall
-    /// into the write buffer so the pipeline doesn't freeze for it.
-    /// <para>
-    /// Because the D-cache is write-through / no-write-allocate, data reaches memory
-    /// the instant Write() returns — forwarding correctness is never at risk regardless
-    /// of whether the stall is absorbed or charged to the clock.
-    /// </para>
+    ///     Write a committed store to memory and optionally absorb the write-miss stall
+    ///     into the write buffer so the pipeline doesn't freeze for it.
+    ///     <para>
+    ///         Because the D-cache is write-through / no-write-allocate, data reaches memory
+    ///         the instant Write() returns — forwarding correctness is never at risk regardless
+    ///         of whether the stall is absorbed or charged to the clock.
+    ///     </para>
     /// </summary>
     private void CommitStore(ulong address, ulong value, int width) {
         DLayers.Accessor.Write(address, value, width);
@@ -1975,9 +1873,9 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    /// Tick down all active write-buffer miss countdowns. Called every cycle (including
-    /// halt/flush cycles) because the buffer holds committed state, not speculation.
-    /// Slots whose countdown reaches zero are freed (the write bus penalty has expired).
+    ///     Tick down all active write-buffer miss countdowns. Called every cycle (including
+    ///     halt/flush cycles) because the buffer holds committed state, not speculation.
+    ///     Slots whose countdown reaches zero are freed (the write bus penalty has expired).
     /// </summary>
     private void StepWriteBuffer() {
         if (_wbOccupied == 0) return;
@@ -2054,5 +1952,106 @@ internal sealed class OoOPipelineCore : Gear {
         missesCounter!.IncrementBy(tlb.Misses - lastMisses);
         lastHits = tlb.Hits;
         lastMisses = tlb.Misses;
+    }
+    // ── Nested helper types ────────────────────────────────────────────────────
+
+    private readonly record struct FetchedInstr(
+        ulong Pc,
+        ITooth? Decoded,
+        ulong PredictedNextPc,
+        ulong InstrId = 0,
+        TrapInfo? PreTrap = null,
+        BranchHistoryCheckpoint HistCheckpoint = default
+    );
+
+    // Instruction that has been renamed but not yet dispatched to ROB/IQ.
+    private readonly record struct RenameEntry(
+        ulong Pc,
+        ITooth? Decoded,
+        ulong PredictedNextPc,
+        ulong InstrId,
+        TrapInfo? PreTrap,
+        int ArchDest,     // -1 if no architectural destination
+        int PhysDest,     // -1 if no architectural destination
+        int PrevPhysDest, // -1 if no architectural destination
+        int P1,
+        int P2,
+        int P3, // physical source tags captured from RAT, -1 if unused
+        BranchHistoryCheckpoint HistCheckpoint = default
+    );
+
+    private readonly record struct IssuedInstr(
+        int RobIdx,
+        int PhysDest,
+        ITooth Instr,
+        ulong Pc,
+        ulong Src1,
+        ulong Src2,
+        ulong Src3,
+        ulong InstrId = 0
+    );
+
+    private readonly record struct ExecResult(
+        int RobIdx,
+        int PhysDest,
+        (ulong Value, bool HasValue) RegValue,
+        (ulong Value, bool HasValue) ResolvedNextPc,
+        TrapInfo? Trap,
+        bool IsReturnFromTrap,
+        PrivilegeLevel? ReturnPrivilege,
+        bool HasStoreCapture,
+        ulong StoreAddr,
+        ulong StoreVal,
+        int StoreBytes,
+        bool HasLoadAccess,
+        ulong LoadAddr,
+        int LoadBytes,
+        bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
+        bool RequestHalt = false, // true for an HTIF tohost-exit store: halt after commit
+        ulong InstrId = 0,        // per-instruction age, for pruning in-flight results on a partial squash
+        Action<IArchState>? SideEffect
+            = null // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
+    );
+
+    /// <summary>
+    ///     Passes reads through to backing memory while recording the last read address;
+    ///     captures writes instead of executing them. Used to defer store writes until
+    ///     ROB commit and to capture load addresses for memory-ordering checks.
+    /// </summary>
+    private sealed class CapturingMemory(IMemory backing) : IMemory {
+        public bool HasWrite { get; private set; }
+        public ulong WriteAddress { get; private set; }
+        public ulong WriteValue { get; private set; }
+        public int WriteBytes { get; private set; }
+
+        public bool HasRead { get; private set; }
+        public ulong ReadAddress { get; private set; }
+        public int ReadBytes { get; private set; }
+
+        public ulong Read(ulong address, int bytes) {
+            HasRead = true;
+            ReadAddress = address;
+            ReadBytes = bytes;
+            return backing.Read(address, bytes);
+        }
+
+        public void Load(ulong address, ReadOnlySpan<byte> data) => backing.Load(address, data);
+
+        public void InvalidateLine(ulong address) => backing.InvalidateLine(address);
+        public void CleanLine(ulong address) => backing.CleanLine(address);
+        public void FlushLine(ulong address) => backing.FlushLine(address);
+        public void SetRequestPc(ulong pc) => backing.SetRequestPc(pc);
+
+        public void Write(ulong address, ulong value, int bytes) {
+            HasWrite = true;
+            WriteAddress = address;
+            WriteValue = value;
+            WriteBytes = bytes;
+        }
+
+        public void Reset() {
+            HasWrite = false;
+            HasRead = false;
+        }
     }
 }

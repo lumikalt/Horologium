@@ -8,6 +8,18 @@ namespace Orrery.Gears;
 public abstract class Gear {
     private readonly List<object> _settings = [];
 
+    // ── Construction ──────────────────────────────────────────────────────────
+
+    protected Gear(string name, SimNode parent, Escapement escapement) {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(escapement);
+
+        Node = new SimNode(name, parent);
+        Escapement = escapement;
+        Dials = new DialBoard(Node.Path);
+    }
+
     // ── Identity ──────────────────────────────────────────────────────────────
 
     public SimNode Node { get; }
@@ -20,18 +32,6 @@ public abstract class Gear {
 
     /// <summary>This gear's observable metrics.</summary>
     public DialBoard Dials { get; }
-
-    // ── Construction ──────────────────────────────────────────────────────────
-
-    protected Gear(string name, SimNode parent, Escapement escapement) {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(parent);
-        ArgumentNullException.ThrowIfNull(escapement);
-
-        Node = new SimNode(name, parent);
-        Escapement = escapement;
-        Dials = new DialBoard(Node.Path);
-    }
 
     // ── Arbor registration ────────────────────────────────────────────────────
 
@@ -48,8 +48,8 @@ public abstract class Gear {
     // ── Setting registration ──────────────────────────────────────────────────
 
     /// <summary>
-    /// Declares a typed configuration parameter with a default value.
-    /// Call from Initialize().
+    ///     Declares a typed configuration parameter with a default value.
+    ///     Call from Initialize().
     /// </summary>
     protected Setting<T> AddSetting<T>(string name, T defaultValue, string description = "") {
         Node.AssertLifecycle(SimLifecycle.Building, "add a Setting");
@@ -59,7 +59,7 @@ public abstract class Gear {
     }
 
     /// <summary>
-    /// Locks all settings on this gear. Called by the Train before BeginRunning().
+    ///     Locks all settings on this gear. Called by the Train before BeginRunning().
     /// </summary>
     public void LockSettings() {
         foreach (object s in _settings)

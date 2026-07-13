@@ -3,14 +3,14 @@ using Mechanism;
 namespace RiscV32.Registers;
 
 /// <summary>
-/// Unified 64-entry register file parameterized by word width.
-/// Indices 0-31: integer registers (x0 hardwired zero).
-/// Indices 32-63: floating-point registers (f0-f31, all writable).
-/// Values are stored as 64-bit words; writes are masked to <paramref name="width"/> bits.
+///     Unified 64-entry register file parameterized by word width.
+///     Indices 0-31: integer registers (x0 hardwired zero).
+///     Indices 32-63: floating-point registers (f0-f31, all writable).
+///     Values are stored as 64-bit words; writes are masked to <paramref name="width" /> bits.
 /// </summary>
 public sealed class RvUnifiedRegisterFile(int width) : IRegisterFile {
-    private readonly ulong[] _regs = new ulong[64];
     private readonly ulong _mask = width >= 64 ? ulong.MaxValue : (1UL << width) - 1UL;
+    private readonly ulong[] _regs = new ulong[64];
 
     public int Count => 64;
     public int Width => width;

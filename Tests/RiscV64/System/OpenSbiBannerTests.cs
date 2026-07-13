@@ -8,32 +8,32 @@ using RiscV64.Memory;
 namespace Tests.RiscV64.System;
 
 /// <summary>
-/// RV64 counterpart of <see cref="Tests.RiscV32.System.OpenSbiBannerTests"/> — boots
-/// OpenSBI generic platform (RV64, fw_jump) on a SingleCycleTrain and verifies that
-/// the banner "OpenSBI" appears on the ns16550a UART output.
-/// <para>
-/// Requires a pre-built <c>fw_jump.bin</c>. Build it with:
-/// <code>nix build .#opensbi-rv64 -o result-opensbi-rv64</code>
-/// The <c>-o</c> out-link name must differ from the RV32 test's default
-/// <c>result</c> — otherwise <c>nix build .#opensbi-rv32</c> and
-/// <c>nix build .#opensbi-rv64</c> clobber the same symlink and whichever ran
-/// last silently overwrites the other test's firmware image. This places the
-/// binary at <c>result-opensbi-rv64/share/opensbi/fw_jump.bin</c> relative
-/// to the repository root. The test also accepts a path via the environment
-/// variable <c>OPENSBI64_FW_JUMP_BIN</c>.
-/// </para>
-/// <para>
-/// Memory layout (base 0x80000000):
-///   0x80000000  OpenSBI fw_jump.bin (~270 KB)
-///   0x80100000  virt64.dtb (embedded in RiscV64 assembly)
-///   0x80200000  wfi — halts simulation once OpenSBI drops to S-mode
-///   Total RAM:  64 MiB (matches the RV32 test's headroom for OpenSBI scratch space)
-/// </para>
-/// <para>
-/// Peripheral bus:
-///   CLINT  0x02000000  64 KiB  — mtime, mtimecmp, msip
-///   UART   0x10000000  256 B   — ns16550a, output captured in a StringWriter
-/// </para>
+///     RV64 counterpart of <see cref="Tests.RiscV32.System.OpenSbiBannerTests" /> — boots
+///     OpenSBI generic platform (RV64, fw_jump) on a SingleCycleTrain and verifies that
+///     the banner "OpenSBI" appears on the ns16550a UART output.
+///     <para>
+///         Requires a pre-built <c>fw_jump.bin</c>. Build it with:
+///         <code>nix build .#opensbi-rv64 -o result-opensbi-rv64</code>
+///         The <c>-o</c> out-link name must differ from the RV32 test's default
+///         <c>result</c> — otherwise <c>nix build .#opensbi-rv32</c> and
+///         <c>nix build .#opensbi-rv64</c> clobber the same symlink and whichever ran
+///         last silently overwrites the other test's firmware image. This places the
+///         binary at <c>result-opensbi-rv64/share/opensbi/fw_jump.bin</c> relative
+///         to the repository root. The test also accepts a path via the environment
+///         variable <c>OPENSBI64_FW_JUMP_BIN</c>.
+///     </para>
+///     <para>
+///         Memory layout (base 0x80000000):
+///         0x80000000  OpenSBI fw_jump.bin (~270 KB)
+///         0x80100000  virt64.dtb (embedded in RiscV64 assembly)
+///         0x80200000  wfi — halts simulation once OpenSBI drops to S-mode
+///         Total RAM:  64 MiB (matches the RV32 test's headroom for OpenSBI scratch space)
+///     </para>
+///     <para>
+///         Peripheral bus:
+///         CLINT  0x02000000  64 KiB  — mtime, mtimecmp, msip
+///         UART   0x10000000  256 B   — ns16550a, output captured in a StringWriter
+///     </para>
 /// </summary>
 public class OpenSbiBannerTests {
     private const string RequireEnvVar = "HOROLOGIUM_REQUIRE_OPENSBI";

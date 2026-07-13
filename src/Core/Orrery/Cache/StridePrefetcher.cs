@@ -3,20 +3,14 @@ using System.Numerics;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Reference Prediction Table (RPT) stride prefetcher. Tracks (lastAddress, stride,
-/// confidence) per PC; issues a prefetch at address+stride once the stride is seen
-/// twice (confidence ≥ 2 on a 0–3 saturating counter).
+///     Reference Prediction Table (RPT) stride prefetcher. Tracks (lastAddress, stride,
+///     confidence) per PC; issues a prefetch at address+stride once the stride is seen
+///     twice (confidence ≥ 2 on a 0–3 saturating counter).
 /// </summary>
 public sealed class StridePrefetcher : IPrefetcher {
-    private struct RptEntry {
-        public ulong LastAddr;
-        public long Stride;
-        public int Confidence;   // 0–3; prefetch when ≥ 2
-        public bool Initialized; // false on first access → skip stride computation
-    }
+    private readonly int _mask;
 
     private readonly RptEntry[] _table;
-    private readonly int _mask;
 
     public StridePrefetcher(int tableSize = 64) {
         if (!BitOperations.IsPow2(tableSize))
@@ -54,5 +48,12 @@ public sealed class StridePrefetcher : IPrefetcher {
         }
 
         return 0;
+    }
+
+    private struct RptEntry {
+        public ulong LastAddr;
+        public long Stride;
+        public int Confidence;   // 0–3; prefetch when ≥ 2
+        public bool Initialized; // false on first access → skip stride computation
     }
 }

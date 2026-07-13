@@ -1,45 +1,46 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// Tournament branch predictor (Alpha 21264 style).
-/// <para>
-/// Combines a local predictor (per-branch 10-bit BHT → 3-bit local PHT) with
-/// a global gshare predictor (2-bit PHT indexed by GHR XOR PC). A 2-bit
-/// chooser table indexed by GHR selects between them; ≥2 → global, &lt;2 → local.
-/// Both predictors are updated on every branch; the chooser is updated only
-/// when they disagree.
-/// </para>
+///     Tournament branch predictor (Alpha 21264 style).
+///     <para>
+///         Combines a local predictor (per-branch 10-bit BHT → 3-bit local PHT) with
+///         a global gshare predictor (2-bit PHT indexed by GHR XOR PC). A 2-bit
+///         chooser table indexed by GHR selects between them; ≥2 → global, &lt;2 → local.
+///         Both predictors are updated on every branch; the chooser is updated only
+///         when they disagree.
+///     </para>
 /// </summary>
 public sealed class TournamentPredictor : IBranchPredictor {
-    // Local predictor
-    private readonly SpeculativeLocalHistory _local; // per-PC branch history shift register
-    private readonly byte[] _localPht;               // 3-bit counters; taken ≥ 4
     private readonly int _bhtMask;
-    private readonly int _localPhtMask;
 
-    // Global predictor (gshare)
-    private readonly byte[] _globalPht; // 2-bit counters; taken ≥ 2
-    private readonly int _globalPhtMask;
+    private readonly Dictionary<ulong, ulong> _btb = new();
 
     // Chooser
     private readonly byte[] _chooser; // 2-bit counters; ≥2 → prefer global
     private readonly int _chooserMask;
 
+    // Global predictor (gshare)
+    private readonly byte[] _globalPht; // 2-bit counters; taken ≥ 2
+    private readonly int _globalPhtMask;
+
     private readonly SpeculativeGlobalHistory _hist; // global history register
 
-    private readonly Dictionary<ulong, ulong> _btb = new();
+    // Local predictor
+    private readonly SpeculativeLocalHistory _local; // per-PC branch history shift register
+    private readonly byte[] _localPht;               // 3-bit counters; taken ≥ 4
+    private readonly int _localPhtMask;
 
     /// <summary>
-    /// Constructs a Tournament predictor.
+    ///     Constructs a Tournament predictor.
     /// </summary>
     /// <param name="localHistoryBits">
-    /// Bits in the local BHT.
+    ///     Bits in the local BHT.
     /// </param>
     /// <param name="localTableSize">
-    /// Entries in the local BHT.
+    ///     Entries in the local BHT.
     /// </param>
     /// <param name="globalHistoryBits">
-    /// Bits in the global PHT.
+    ///     Bits in the global PHT.
     /// </param>
     public TournamentPredictor(
         int localHistoryBits = 10,

@@ -6,38 +6,29 @@ using Mechanism;
 namespace RiscV32.CoSim;
 
 /// <summary>
-/// Online lock-step co-verification against Spike.
-/// 
-/// Launches Spike with <c>--log-commits</c> and keeps it running as a child
-/// process. Each call to <see cref="ICommitObserver.OnCommit"/> reads the
-/// next commit record from Spike's live stderr stream, waits (bounded by a
-/// watchdog timeout) until Spike has produced the matching instruction, and
-/// immediately compares PC, raw encoding, and any integer register write.
-/// 
-/// Divergence (PC out-of-order, encoding mismatch, wrong register value) is
-/// detected at the exact failing instruction and reported via
-/// <see cref="CoSimDivergenceException"/>. Boot-ROM commits (PC below
-/// <paramref>
-///     <name>baseAddress</name>
-/// </paramref>
-/// ) are skipped transparently.
-/// 
-/// Implements <see cref="IDisposable"/> — the caller must dispose to kill
-/// Spike when the simulation ends.
+///     Online lock-step co-verification against Spike.
+///     Launches Spike with <c>--log-commits</c> and keeps it running as a child
+///     process. Each call to <see cref="ICommitObserver.OnCommit" /> reads the
+///     next commit record from Spike's live stderr stream, waits (bounded by a
+///     watchdog timeout) until Spike has produced the matching instruction, and
+///     immediately compares PC, raw encoding, and any integer register write.
+///     Divergence (PC out-of-order, encoding mismatch, wrong register value) is
+///     detected at the exact failing instruction and reported via
+///     <see cref="CoSimDivergenceException" />. Boot-ROM commits (PC below
+///     <paramref>
+///         <name>baseAddress</name>
+///     </paramref>
+///     ) are skipped transparently.
+///     Implements <see cref="IDisposable" /> — the caller must dispose to kill
+///     Spike when the simulation ends.
 /// </summary>
 public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
-    private readonly record struct SpikeEntry(ulong Pc, uint RawEncoding, int RegIndex, ulong RegValue);
-
-    [GeneratedRegex(
-        @"core\s+\d+:\s+\d+\s+(0x[0-9a-f]+)\s+\((0x[0-9a-f]+)\)(?:\s+x(\d+)\s+(0x[0-9a-f]+))?", RegexOptions.Compiled
-    )]
-    private static partial Regex CommitLine { get; }
+    private readonly ulong _baseAddress;
+    private readonly BlockingCollection<string> _lines = new();
 
     private readonly Process _proc;
-    private readonly ulong _baseAddress;
-    private readonly TimeSpan _readTimeout;
-    private readonly BlockingCollection<string> _lines = new();
     private readonly Thread _reader;
+    private readonly TimeSpan _readTimeout;
     private int _committed;
 
     /// <param name="elfPath">Path to the ELF binary to run under Spike.</param>
@@ -45,10 +36,10 @@ public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
     /// <param name="memorySizeBytes">Spike <c>-m</c> region size in bytes.</param>
     /// <param name="isa">ISA string passed to Spike's <c>--isa=</c>.</param>
     /// <param name="readTimeout">
-    /// Watchdog limit on waiting for the next Spike commit record (default 30 s).
-    /// If Spike produces nothing within it — over-run past the workload's end, or a
-    /// stall — the wait fails with <see cref="CoSimDivergenceException"/> instead
-    /// of blocking forever.
+    ///     Watchdog limit on waiting for the next Spike commit record (default 30 s).
+    ///     If Spike produces nothing within it — over-run past the workload's end, or a
+    ///     stall — the wait fails with <see cref="CoSimDivergenceException" /> instead
+    ///     of blocking forever.
     /// </param>
     /// <param name="spikeExecutable">Spike binary to launch (name on PATH or explicit path).</param>
     public SpikeCoSimReference(
@@ -92,10 +83,15 @@ public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
         _reader.Start();
     }
 
+    [GeneratedRegex(
+        @"core\s+\d+:\s+\d+\s+(0x[0-9a-f]+)\s+\((0x[0-9a-f]+)\)(?:\s+x(\d+)\s+(0x[0-9a-f]+))?", RegexOptions.Compiled
+    )]
+    private static partial Regex CommitLine { get; }
+
     /// <summary>
-    /// Called by the pipeline for each committed instruction. Reads the next
-    /// ELF-range commit from Spike's live output (blocking until available),
-    /// then compares PC, encoding, and any integer register write.
+    ///     Called by the pipeline for each committed instruction. Reads the next
+    ///     ELF-range commit from Spike's live output (blocking until available),
+    ///     then compares PC, encoding, and any integer register write.
     /// </summary>
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
         SpikeEntry entry = ReadNextElfEntry(pc);
@@ -167,10 +163,10 @@ public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
     }
 
     /// <summary>
-    /// True when the Spike co-simulation toolchain can be located: the
-    /// <c>spike</c> simulator on PATH and the <c>dtc</c> device-tree compiler it
-    /// needs (on PATH or in the Nix store). Lets callers skip the co-sim tests
-    /// gracefully where the toolchain is absent. The Nix dev-shell provides both.
+    ///     True when the Spike co-simulation toolchain can be located: the
+    ///     <c>spike</c> simulator on PATH and the <c>dtc</c> device-tree compiler it
+    ///     needs (on PATH or in the Nix store). Lets callers skip the co-sim tests
+    ///     gracefully where the toolchain is absent. The Nix dev-shell provides both.
     /// </summary>
     public static bool IsAvailable() =>
         FindOnPath("spike") is not null && (FindOnPath("dtc") is not null || NixDtcBin() is not null);
@@ -202,4 +198,6 @@ public sealed partial class SpikeCoSimReference : ICommitObserver, IDisposable {
         }
         catch { return null; }
     }
+
+    private readonly record struct SpikeEntry(ulong Pc, uint RawEncoding, int RegIndex, ulong RegValue);
 }

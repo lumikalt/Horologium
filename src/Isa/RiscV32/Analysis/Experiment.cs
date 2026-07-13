@@ -10,34 +10,34 @@ using RiscV32.Trace;
 namespace RiscV32.Analysis;
 
 /// <summary>
-/// Runs the same workload under multiple hardware configurations and returns
-/// the aggregated results for comparison.
+///     Runs the same workload under multiple hardware configurations and returns
+///     the aggregated results for comparison.
 /// </summary>
 public static class Experiment {
     /// <summary>
-    /// Runs <paramref name="workload"/> once per entry in <paramref name="configurations"/>.
-    /// Each run gets a fresh <see cref="FlatMemory"/> and a fresh predictor instance.
+    ///     Runs <paramref name="workload" /> once per entry in <paramref name="configurations" />.
+    ///     Each run gets a fresh <see cref="FlatMemory" /> and a fresh predictor instance.
     /// </summary>
     /// <param name="warmupTicks">
-    /// Ticks to run before starting measurement. Warms up branch predictors and caches;
-    /// the returned counters and histograms reflect only the post-warmup phase.
+    ///     Ticks to run before starting measurement. Warms up branch predictors and caches;
+    ///     the returned counters and histograms reflect only the post-warmup phase.
     /// </param>
     /// <param name="snapshotInterval">
-    /// Ticks between periodic time-series snapshots. Pass -1 to auto-estimate from
-    /// <see cref="IWorkload.CodeSize"/> (targeting roughly 100 data points). Pass 0
-    /// (default) to disable time series.
+    ///     Ticks between periodic time-series snapshots. Pass -1 to auto-estimate from
+    ///     <see cref="IWorkload.CodeSize" /> (targeting roughly 100 data points). Pass 0
+    ///     (default) to disable time series.
     /// </param>
     /// <param name="workload">
-    /// The workload to run.
+    ///     The workload to run.
     /// </param>
     /// <param name="configurations">
-    /// The hardware configurations to run under.
+    ///     The hardware configurations to run under.
     /// </param>
     /// <param name="mechanismFactory">
-    /// Factory called once per configuration run to produce an independent mechanism instance.
+    ///     Factory called once per configuration run to produce an independent mechanism instance.
     /// </param>
     /// <param name="maxTicks">
-    /// The maximum number of ticks to run for each configuration.
+    ///     The maximum number of ticks to run for each configuration.
     /// </param>
     public static ExperimentResult Run(
         IWorkload workload,
@@ -60,23 +60,23 @@ public static class Experiment {
     }
 
     /// <summary>
-    /// Runs every combination of workload × configuration in parallel and returns one
-    /// <see cref="ExperimentResult"/> per workload, preserving the input order.
+    ///     Runs every combination of workload × configuration in parallel and returns one
+    ///     <see cref="ExperimentResult" /> per workload, preserving the input order.
     /// </summary>
     /// <param name="workloads">
-    /// The labelled workloads to simulate. Each label is used as a display name in output.
+    ///     The labelled workloads to simulate. Each label is used as a display name in output.
     /// </param>
     /// <param name="configurations">
-    /// The hardware configurations shared across all workloads.
+    ///     The hardware configurations shared across all workloads.
     /// </param>
     /// <param name="mechanismFactory">
-    /// Called once per (workload, config) pair. Receives the workload so callers can pass
-    /// a workload-specific HTIF tohost address to the mechanism constructor.
+    ///     Called once per (workload, config) pair. Receives the workload so callers can pass
+    ///     a workload-specific HTIF tohost address to the mechanism constructor.
     /// </param>
     /// <param name="maxTicks">Maximum ticks per (workload, config) run.</param>
     /// <param name="warmupTicks">Ticks before measurement starts.</param>
     /// <param name="snapshotInterval">
-    /// Ticks between time-series snapshots (-1 = auto per workload, 0 = off).
+    ///     Ticks between time-series snapshots (-1 = auto per workload, 0 = off).
     /// </param>
     public static IReadOnlyList<(string Label, ExperimentResult Result)> RunMany(
         IEnumerable<(string Label, IWorkload Workload)> workloads,
@@ -194,8 +194,8 @@ public static class Experiment {
     }
 
     /// <summary>
-    /// Runs <paramref name="workload"/> under a single <paramref name="config"/> with a
-    /// <see cref="PEventLog"/> attached and returns the log. Superscalar returns an empty log.
+    ///     Runs <paramref name="workload" /> under a single <paramref name="config" /> with a
+    ///     <see cref="PEventLog" /> attached and returns the log. Superscalar returns an empty log.
     /// </summary>
     public static PEventLog Trace(
         IWorkload workload,
@@ -250,11 +250,11 @@ public static class Experiment {
             : dCfg;
 
     /// <summary>
-    /// Runs <paramref name="workload"/> functionally on the single-cycle train and
-    /// writes an Olympia-compatible JSON instruction trace to <paramref name="output"/>.
-    /// Returns the number of instructions written. The single-cycle train is the
-    /// natural source: it retires exactly one instruction per commit, so the trace
-    /// is an exact functional instruction stream (the timing model is Olympia's job).
+    ///     Runs <paramref name="workload" /> functionally on the single-cycle train and
+    ///     writes an Olympia-compatible JSON instruction trace to <paramref name="output" />.
+    ///     Returns the number of instructions written. The single-cycle train is the
+    ///     natural source: it retires exactly one instruction per commit, so the trace
+    ///     is an exact functional instruction stream (the timing model is Olympia's job).
     /// </summary>
     public static int WriteOlympiaTrace(
         IWorkload workload,
@@ -272,9 +272,9 @@ public static class Experiment {
     }
 
     /// <summary>
-    /// Records a Horologium elastic DDG trace (HELF binary format) by running
-    /// <paramref name="workload"/> once on a <c>SingleCycleTrain</c> and observing
-    /// each committed instruction.
+    ///     Records a Horologium elastic DDG trace (HELF binary format) by running
+    ///     <paramref name="workload" /> once on a <c>SingleCycleTrain</c> and observing
+    ///     each committed instruction.
     /// </summary>
     public static int WriteElasticTrace(
         IWorkload workload,
@@ -292,8 +292,8 @@ public static class Experiment {
     }
 
     /// <summary>
-    /// Records an STF binary trace by running <paramref name="workload"/> once on a
-    /// <c>SingleCycleTrain</c> and observing each committed instruction.
+    ///     Records an STF binary trace by running <paramref name="workload" /> once on a
+    ///     <c>SingleCycleTrain</c> and observing each committed instruction.
     /// </summary>
     public static int WriteStfTrace(
         IWorkload workload,

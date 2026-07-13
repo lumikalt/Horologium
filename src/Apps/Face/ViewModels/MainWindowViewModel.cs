@@ -22,10 +22,19 @@ public enum AppPage {
 }
 
 public partial class MainWindowViewModel : ObservableObject {
+    private const int BenchmarkMemoryBytes = 4 * 1024 * 1024;
+
     private static readonly string BenchmarksDir =
         Path.Combine(AppContext.BaseDirectory, "benchmarks");
 
-    private const int BenchmarkMemoryBytes = 4 * 1024 * 1024;
+    private ExperimentResult? _lastResult;
+
+    public MainWindowViewModel() {
+        Chip8 = new Chip8ViewModel(() => CurrentPage = AppPage.Launcher);
+        foreach (NamedConfig nc in DefaultSweep()) Configs.Add(ConfigViewModel.FromNamedConfig(nc));
+        SelectedConfig = Configs.FirstOrDefault();
+        SelectedPreset = WorkloadPresets[0];
+    }
 
     public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } = [
         new("Built-in demo  (100-iter countdown loop)", null),
@@ -84,10 +93,6 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public ObservableCollection<SignalToggle> AvailableSignals { get; } = [];
 
-    public event Action? WaveformUpdated;
-
-    partial void OnWaveformCumulativeChanged(bool value) => WaveformUpdated?.Invoke();
-
     [ObservableProperty]
     public partial string PEventStatusText { get; set; } = "Select a configuration and click Trace.";
 
@@ -107,15 +112,6 @@ public partial class MainWindowViewModel : ObservableObject {
     public bool IsRiscVPage => CurrentPage == AppPage.RiscV;
     public bool IsChip8Page => CurrentPage == AppPage.Chip8;
 
-    [RelayCommand]
-    private void GoToRiscV() => CurrentPage = AppPage.RiscV;
-
-    [RelayCommand]
-    private void GoToChip8() => CurrentPage = AppPage.Chip8;
-
-    [RelayCommand]
-    private void GoToLauncher() => CurrentPage = AppPage.Launcher;
-
     public Chip8ViewModel Chip8 { get; }
 
     [ObservableProperty]
@@ -123,9 +119,6 @@ public partial class MainWindowViewModel : ObservableObject {
     public partial bool IsDarkTheme { get; set; } = true;
 
     public string ThemeLabel => IsDarkTheme ? "Dark" : "Light";
-
-    partial void OnIsDarkThemeChanged(bool value) =>
-        Application.Current!.RequestedThemeVariant = value ? ThemeVariant.Dark : ThemeVariant.Light;
 
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
@@ -138,16 +131,23 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public bool HasSelectedConfig => SelectedConfig is not null;
 
+    public event Action? WaveformUpdated;
+
+    partial void OnWaveformCumulativeChanged(bool value) => WaveformUpdated?.Invoke();
+
+    [RelayCommand]
+    private void GoToRiscV() => CurrentPage = AppPage.RiscV;
+
+    [RelayCommand]
+    private void GoToChip8() => CurrentPage = AppPage.Chip8;
+
+    [RelayCommand]
+    private void GoToLauncher() => CurrentPage = AppPage.Launcher;
+
+    partial void OnIsDarkThemeChanged(bool value) =>
+        Application.Current!.RequestedThemeVariant = value ? ThemeVariant.Dark : ThemeVariant.Light;
+
     public event Action? ResultsUpdated;
-
-    private ExperimentResult? _lastResult;
-
-    public MainWindowViewModel() {
-        Chip8 = new Chip8ViewModel(() => CurrentPage = AppPage.Launcher);
-        foreach (NamedConfig nc in DefaultSweep()) Configs.Add(ConfigViewModel.FromNamedConfig(nc));
-        SelectedConfig = Configs.FirstOrDefault();
-        SelectedPreset = WorkloadPresets[0];
-    }
 
     // ReSharper disable once PartialMethodParameterNameMismatch
     partial void OnSelectedMetricChanged(string? value) {

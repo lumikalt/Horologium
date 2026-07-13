@@ -1,31 +1,31 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// Perceptron branch predictor (Jimenez &amp; Lin, 2001).
-/// <para>
-/// Each of the <c>tableSize</c> entries holds a perceptron: a bias weight plus
-/// one weight per history bit. Prediction is the sign of the dot product of
-/// the weight vector with the history vector (history bits mapped to ±1).
-/// Training fires when the prediction was wrong OR the output magnitude is
-/// below threshold θ = ⌊1.93·H + 14⌋. Weights are clamped to [-128, 127].
-/// </para>
+///     Perceptron branch predictor (Jimenez &amp; Lin, 2001).
+///     <para>
+///         Each of the <c>tableSize</c> entries holds a perceptron: a bias weight plus
+///         one weight per history bit. Prediction is the sign of the dot product of
+///         the weight vector with the history vector (history bits mapped to ±1).
+///         Training fires when the prediction was wrong OR the output magnitude is
+///         below threshold θ = ⌊1.93·H + 14⌋. Weights are clamped to [-128, 127].
+///     </para>
 /// </summary>
 public sealed class PerceptronPredictor : IBranchPredictor {
-    private readonly int _historyLength;
-    private readonly int _threshold;                 // θ = floor(1.93·H + 14)
-    private readonly sbyte[][] _weights;             // [tableSize][H+1]; [i][0] = bias
-    private readonly int _tableMask;                 // tableSize must be a power of 2
-    private readonly SpeculativeGlobalHistory _hist; // bit history, LSB = most recent; 1=taken
     private readonly Dictionary<ulong, ulong> _btb = new();
+    private readonly SpeculativeGlobalHistory _hist; // bit history, LSB = most recent; 1=taken
+    private readonly int _historyLength;
+    private readonly int _tableMask;     // tableSize must be a power of 2
+    private readonly int _threshold;     // θ = floor(1.93·H + 14)
+    private readonly sbyte[][] _weights; // [tableSize][H+1]; [i][0] = bias
 
     /// <summary>
-    /// Constructs a Perceptron predictor.
+    ///     Constructs a Perceptron predictor.
     /// </summary>
     /// <param name="historyLength">
-    /// History length.
+    ///     History length.
     /// </param>
     /// <param name="tableSize">
-    /// Entries in the table. Must be a power of 2.
+    ///     Entries in the table. Must be a power of 2.
     /// </param>
     public PerceptronPredictor(int historyLength = 24, int tableSize = 256) {
         _historyLength = historyLength;

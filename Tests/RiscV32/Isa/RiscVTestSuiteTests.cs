@@ -9,14 +9,14 @@ using Xunit.Abstractions;
 namespace Tests.RiscV32.Isa;
 
 /// <summary>
-/// Runs the official RISC-V ISA test suite (rv32ui-p-* and rv32um-p-*)
-/// under all three pipeline configurations.
-/// <para>
-/// Each ELF uses a custom test environment (TestBinaries/env/riscv_test.h)
-/// that halts with EBREAK and leaves the result in gp (x3):
-///   gp == 1            → PASS
-///   gp == (N&lt;&lt;1) | 1  → FAIL at subtest N
-/// </para>
+///     Runs the official RISC-V ISA test suite (rv32ui-p-* and rv32um-p-*)
+///     under all three pipeline configurations.
+///     <para>
+///         Each ELF uses a custom test environment (TestBinaries/env/riscv_test.h)
+///         that halts with EBREAK and leaves the result in gp (x3):
+///         gp == 1            → PASS
+///         gp == (N&lt;&lt;1) | 1  → FAIL at subtest N
+///     </para>
 /// </summary>
 public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
     private static readonly string IsaDir =

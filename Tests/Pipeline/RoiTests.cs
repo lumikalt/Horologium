@@ -6,8 +6,8 @@ using RiscV32.Memory;
 namespace Tests.Pipeline;
 
 /// <summary>
-/// Region-of-Interest simulation: fast-forward to a symbol with SingleCycleTrain,
-/// then switch to a detailed pipeline for the measurement window.
+///     Region-of-Interest simulation: fast-forward to a symbol with SingleCycleTrain,
+///     then switch to a detailed pipeline for the measurement window.
 /// </summary>
 public class RoiTests {
     // Instruction layout (little-endian RISC-V):

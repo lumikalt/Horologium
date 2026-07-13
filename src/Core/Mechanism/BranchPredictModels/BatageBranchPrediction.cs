@@ -1,18 +1,18 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// BATAGE: Bimodal-Augmented TAGE.
-/// <para>
-/// Extends L-TAGE with a per-PC bias table (a single statistical-corrector
-/// table with no history folding). The bias table's signed weight is summed
-/// with TAGE's signed confidence score; if the combined magnitude exceeds
-/// BiasThreshold the combined sign overrides TAGE's direction prediction.
-/// </para>
-/// <para>
-/// Note: this is the per-PC SC-table interpretation. Michaud's original BATAGE
-/// paper uses a dual-counter bimodal structure; this simplified form follows
-/// the single-weight-per-entry pattern used in TAGE-SC-L.
-/// </para>
+///     BATAGE: Bimodal-Augmented TAGE.
+///     <para>
+///         Extends L-TAGE with a per-PC bias table (a single statistical-corrector
+///         table with no history folding). The bias table's signed weight is summed
+///         with TAGE's signed confidence score; if the combined magnitude exceeds
+///         BiasThreshold the combined sign overrides TAGE's direction prediction.
+///     </para>
+///     <para>
+///         Note: this is the per-PC SC-table interpretation. Michaud's original BATAGE
+///         paper uses a dual-counter bimodal structure; this simplified form follows
+///         the single-weight-per-entry pattern used in TAGE-SC-L.
+///     </para>
 /// </summary>
 public sealed class BatagePredictor : LTagePredictor {
     private const int BiasTableBits = 12; // 4096 entries

@@ -7,28 +7,28 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Sparse·dense dot product (one CSR row): result = Σ val[k] · x[col[k]].
-/// <para>
-/// The gather x[col[k]] is expressed entirely in stream descriptors via an
-/// indirect dimension modifier (ss.app.ind): an IndSource stream (u2) delivers
-/// the column byte-offsets, and each element of the gathered stream (u3) is
-/// fetched at xBase + offset with {Offset, Set} applied per inner-dim wrap.
-/// The scalar core never sees an index — no load of col[k], no shift, no add,
-/// no dependent load. The loop body is the same two instructions as any dense
-/// UVE kernel:
-/// </para>
-/// <para>
-///   loop: so.a.mac.fp u4, u1, u3   ; acc += val[k] * x[col[k]]
+///     Sparse·dense dot product (one CSR row): result = Σ val[k] · x[col[k]].
+///     <para>
+///         The gather x[col[k]] is expressed entirely in stream descriptors via an
+///         indirect dimension modifier (ss.app.ind): an IndSource stream (u2) delivers
+///         the column byte-offsets, and each element of the gathered stream (u3) is
+///         fetched at xBase + offset with {Offset, Set} applied per inner-dim wrap.
+///         The scalar core never sees an index — no load of col[k], no shift, no add,
+///         no dependent load. The loop body is the same two instructions as any dense
+///         UVE kernel:
+///     </para>
+///     <para>
+///         loop: so.a.mac.fp u4, u1, u3   ; acc += val[k] * x[col[k]]
 ///         so.b.nc     u1, loop
-/// </para>
-/// <para>
-/// This is the irregular-access pattern the UVE paper motivates indirect
-/// stream modifiers with: the memory-indirection chain (load index → compute
-/// address → load data) moves off the critical path into the streaming engine,
-/// which resolves it ahead of the consuming MAC.
-/// IndSource values are element indices; the engine scales them by the element
-/// width (col[k] · 4 bytes for floats), so the index array holds plain col[k].
-/// </para>
+///     </para>
+///     <para>
+///         This is the irregular-access pattern the UVE paper motivates indirect
+///         stream modifiers with: the memory-indirection chain (load index → compute
+///         address → load data) moves off the critical path into the streaming engine,
+///         which resolves it ahead of the consuming MAC.
+///         IndSource values are element indices; the engine scales them by the element
+///         width (col[k] · 4 bytes for floats), so the index array holds plain col[k].
+///     </para>
 /// </summary>
 public class SparseDotProductTests {
     // ── Encode helpers ────────────────────────────────────────────────────────

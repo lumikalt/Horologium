@@ -12,19 +12,19 @@ namespace Pipeline;
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 
 /// <summary>
-/// Simultaneous Multi-Threading (barrel-processor) Train: N independent hart
-/// contexts share a single issue window of width <c>issueWidth</c>.  Each tick
-/// the coordinator distributes available issue slots round-robin across active
-/// harts, rotating the starting hart every cycle for long-run fairness.
-/// <para>
-/// All harts share the same Escapement and therefore advance in lock-step.
-/// Each hart has its own <see cref="IArchState"/> and <see cref="MemoryLayers"/>
-/// (typically backed by per-hart caches sharing a <c>MoesifBus</c>), making MOESIF
-/// coherence effects observable at instruction granularity.
-/// </para>
-/// <para>
-/// Usage:
-/// <code>
+///     Simultaneous Multi-Threading (barrel-processor) Train: N independent hart
+///     contexts share a single issue window of width <c>issueWidth</c>.  Each tick
+///     the coordinator distributes available issue slots round-robin across active
+///     harts, rotating the starting hart every cycle for long-run fairness.
+///     <para>
+///         All harts share the same Escapement and therefore advance in lock-step.
+///         Each hart has its own <see cref="IArchState" /> and <see cref="MemoryLayers" />
+///         (typically backed by per-hart caches sharing a <c>MoesifBus</c>), making MOESIF
+///         coherence effects observable at instruction granularity.
+///     </para>
+///     <para>
+///         Usage:
+///         <code>
 ///   var smt = new SmtTrain(
 ///       new[] { new Rv32Mechanism(), new Rv32Mechanism() },
 ///       new IMemory[] { cache0, cache1 },
@@ -33,15 +33,11 @@ namespace Pipeline;
 ///   );
 ///   smt.Run(1_000_000);
 /// </code>
-/// </para>
+///     </para>
 /// </summary>
 public sealed class SmtTrain : ISteppableTrain {
-    private readonly Train _train;
     private readonly SmtCore _core;
-
-    public int HartCount => _core.HartCount;
-
-    public IArchState StateOf(int hartId) => _core.StateOf(hartId);
+    private readonly Train _train;
 
     public SmtTrain(
         IMechanism[] mechanisms,
@@ -65,23 +61,28 @@ public sealed class SmtTrain : ISteppableTrain {
         _train.Build();
     }
 
+    public int HartCount => _core.HartCount;
+
+    public bool IsIdle => _train.IsIdle;
+
     public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
         _train.Run(maxTicks, warmupTicks, snapshotInterval);
 
-    public bool IsIdle => _train.IsIdle;
     public void BeginStepping() => _train.BeginStepping();
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
+
+    public IArchState StateOf(int hartId) => _core.StateOf(hartId);
 }
 
 // ── Per-hart context ───────────────────────────────────────────────────────────
 
 internal sealed class HartContext {
-    public readonly IMechanism Mechanism;
     public readonly IArchState ArchState;
-    public readonly MemoryLayers ILayers;
     public readonly MemoryLayers DLayers;
     public readonly ulong EntryPoint;
+    public readonly MemoryLayers ILayers;
+    public readonly IMechanism Mechanism;
     public IFetchTranslator? FetchTranslator;
     public bool Halted;
 
@@ -97,13 +98,13 @@ internal sealed class HartContext {
 // ── Pipeline core Gear ─────────────────────────────────────────────────────────
 
 /// <summary>
-/// The SMT core Gear. Each tick it distributes up to <c>issueWidth</c> issue
-/// slots round-robin across the N hart contexts, skipping halted harts and harts
-/// that have been blocked by a branch or halt within the current cycle.
-/// <para>
-/// The starting hart rotates by 1 each cycle so every hart gets equal priority
-/// over time regardless of how <c>issueWidth</c> divides by N.
-/// </para>
+///     The SMT core Gear. Each tick it distributes up to <c>issueWidth</c> issue
+///     slots round-robin across the N hart contexts, skipping halted harts and harts
+///     that have been blocked by a branch or halt within the current cycle.
+///     <para>
+///         The starting hart rotates by 1 each cycle so every hart gets equal priority
+///         over time regardless of how <c>issueWidth</c> divides by N.
+///     </para>
 /// </summary>
 internal sealed class SmtCore(
     string name,
@@ -115,7 +116,14 @@ internal sealed class SmtCore(
     int issueWidth
 ) : Gear(name, parent, esc) {
     private readonly HartContext[] _harts = CreateHarts(mechanisms, memories, entryPoints);
+    [UsedImplicitly] private Counter _branchMissCounter = null!;
+
+    private Counter _cyclesCounter = null!;
     private int _nextIssueHart;
+    private Counter _retiredCounter = null!;
+
+    private Action? _runCycle;
+    private Counter _stallsCounter = null!;
 
     public int HartCount => _harts.Length;
     public IArchState StateOf(int i) => _harts[i].ArchState;
@@ -125,11 +133,6 @@ internal sealed class SmtCore(
         for (var i = 0; i < mechs.Length; i++) harts[i] = new HartContext(mechs[i], mems[i], eps[i]);
         return harts;
     }
-
-    private Counter _cyclesCounter = null!;
-    private Counter _retiredCounter = null!;
-    private Counter _stallsCounter = null!;
-    [UsedImplicitly] private Counter _branchMissCounter = null!;
 
     public override void Initialize() {
         foreach (HartContext ctx in _harts)
@@ -161,8 +164,6 @@ internal sealed class SmtCore(
 
         _nextIssueHart = 0;
     }
-
-    private Action? _runCycle;
 
     public override void Wind() {
         foreach (HartContext ctx in _harts) ctx.ArchState.Pc = ctx.EntryPoint;

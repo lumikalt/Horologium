@@ -3,31 +3,25 @@ using Mechanism;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Directory-based MOESIF coherence bus.  Maintains a per-cache-line sharer directory so
-/// that <see cref="IBus.BusReadInvalidate"/> and <see cref="IBus.BusLoad"/> snoop only
-/// the caches that actually hold each line — O(sharers) rather than O(all-caches).
-///
-/// <para>
-/// Directory entries are kept <em>precise</em>: caches notify the directory when they
-/// voluntarily evict or invalidate a line (via <see cref="IBus.Evicted"/>), so the
-/// sharer set never contains stale members and <see cref="IBus.BusRead"/> for a
-/// forwarder-less Shared line never needs to probe peers.  Reads that hit a remote
-/// M/O/E/F responder are filled cache-to-cache by that responder; a dirty owner keeps
-/// the line as Owned (backing memory is not written), while a clean supplier passes
-/// the Forward role to the requester.
-/// </para>
-///
-/// <para>
-/// This bus is designed for sequential multi-hart simulation
-/// (<c>MultiHartPipeline.Run</c>).  It cannot be wrapped by
-/// <see cref="DeferredBus"/> (which is hardcoded to <see cref="MoesifBus"/>).
-/// </para>
+///     Directory-based MOESIF coherence bus.  Maintains a per-cache-line sharer directory so
+///     that <see cref="IBus.BusReadInvalidate" /> and <see cref="IBus.BusLoad" /> snoop only
+///     the caches that actually hold each line — O(sharers) rather than O(all-caches).
+///     <para>
+///         Directory entries are kept <em>precise</em>: caches notify the directory when they
+///         voluntarily evict or invalidate a line (via <see cref="IBus.Evicted" />), so the
+///         sharer set never contains stale members and <see cref="IBus.BusRead" /> for a
+///         forwarder-less Shared line never needs to probe peers.  Reads that hit a remote
+///         M/O/E/F responder are filled cache-to-cache by that responder; a dirty owner keeps
+///         the line as Owned (backing memory is not written), while a clean supplier passes
+///         the Forward role to the requester.
+///     </para>
+///     <para>
+///         This bus is designed for sequential multi-hart simulation
+///         (<c>MultiHartPipeline.Run</c>).  It cannot be wrapped by
+///         <see cref="DeferredBus" /> (which is hardcoded to <see cref="MoesifBus" />).
+///     </para>
 /// </summary>
 public sealed class DirectoryBus : IBus {
-    private readonly IMemory _backing;
-    private readonly ReservationTable? _table;
-    private int _blockSize;
-
     // Absent key → Uncached.  Owner is the line's designated responder — the single
     // cache holding it in M, E, O, or F — and Sharers are plain S holders.
     // (owner≠null, sharers=null)  → owner holds M, E, or F; no other copies.
@@ -36,14 +30,16 @@ public sealed class DirectoryBus : IBus {
     // (owner≠null, sharers≠null)  → owner holds O (dirty) or F (clean), sharers hold S.
     // Invariant: a Sharers set is never empty (empty sets are collapsed immediately).
     private readonly Dictionary<ulong, (MoesifCache? Owner, HashSet<MoesifCache>? Sharers)> _dir = new();
-
-    public IMemory Backing => _backing;
+    private readonly ReservationTable? _table;
+    private int _blockSize;
 
     public DirectoryBus(IMemory backing, ReservationTable? table = null) {
         ArgumentNullException.ThrowIfNull(backing);
-        _backing = backing;
+        Backing = backing;
         _table = table;
     }
+
+    public IMemory Backing { get; }
 
     public void Register(MoesifCache cache) {
         if (_blockSize == 0) _blockSize = cache.BlockBytes;
@@ -161,7 +157,7 @@ public sealed class DirectoryBus : IBus {
     }
 
     public void Writeback(ulong lineBase, ReadOnlySpan<byte> block) =>
-        _backing.Load(lineBase, block);
+        Backing.Load(lineBase, block);
 
     public void Evicted(MoesifCache source, ulong lineBase) {
         if (!_dir.TryGetValue(lineBase, out (MoesifCache? Owner, HashSet<MoesifCache>? Sharers) entry)) return;

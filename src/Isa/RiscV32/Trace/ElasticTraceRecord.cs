@@ -5,10 +5,10 @@ public enum ElasticTraceType : byte {
 }
 
 /// <summary>
-/// One node in the dynamic dependence graph: an instruction together with its
-/// register RAW producers (<see cref="RobDeps"/>) and memory RAW producers
-/// (<see cref="AddrDeps"/>). Seqnos are dense, zero-based, and monotonically
-/// increasing in program order.
+///     One node in the dynamic dependence graph: an instruction together with its
+///     register RAW producers (<see cref="RobDeps" />) and memory RAW producers
+///     (<see cref="AddrDeps" />). Seqnos are dense, zero-based, and monotonically
+///     increasing in program order.
 /// </summary>
 public sealed class ElasticTraceRecord(
     ulong seqNo,

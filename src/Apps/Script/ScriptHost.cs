@@ -8,10 +8,10 @@ using RiscV32;
 namespace Script;
 
 /// <summary>
-/// Evaluates a <c>.csx</c> or <c>.fsx</c> file whose last expression is a <see cref="MachineSpec"/>.
-/// Dispatches to the Roslyn (C#) or FSI (F#) host based on file extension.
-/// In both cases all Spec namespaces are pre-imported and project assemblies pre-referenced —
-/// no <c>#r</c> directives or <c>using</c>/<c>open</c> statements needed in the script.
+///     Evaluates a <c>.csx</c> or <c>.fsx</c> file whose last expression is a <see cref="MachineSpec" />.
+///     Dispatches to the Roslyn (C#) or FSI (F#) host based on file extension.
+///     In both cases all Spec namespaces are pre-imported and project assemblies pre-referenced —
+///     no <c>#r</c> directives or <c>using</c>/<c>open</c> statements needed in the script.
 /// </summary>
 public static class ScriptHost {
     private static readonly ScriptOptions CSharpOptions = ScriptOptions.Default
@@ -32,9 +32,9 @@ public static class ScriptHost {
                                                                         );
 
     /// <summary>
-    /// Evaluates <paramref name="scriptPath"/> (.csx or .fsx) and returns the resulting <see cref="MachineSpec"/>.
+    ///     Evaluates <paramref name="scriptPath" /> (.csx or .fsx) and returns the resulting <see cref="MachineSpec" />.
     /// </summary>
-    /// <exception cref="ScriptException">Thrown when the script fails or does not return a <see cref="MachineSpec"/>.</exception>
+    /// <exception cref="ScriptException">Thrown when the script fails or does not return a <see cref="MachineSpec" />.</exception>
     public static Task<MachineSpec> EvaluateFileAsync(
         string scriptPath,
         CancellationToken ct = default
@@ -43,7 +43,7 @@ public static class ScriptHost {
         _      => EvaluateCsxFileAsync(scriptPath, ct),
     };
 
-    /// <summary>Evaluates a C# script string and returns the resulting <see cref="MachineSpec"/>.</summary>
+    /// <summary>Evaluates a C# script string and returns the resulting <see cref="MachineSpec" />.</summary>
     public static async Task<MachineSpec> EvaluateCsxAsync(
         string source,
         CancellationToken ct = default
@@ -56,7 +56,7 @@ public static class ScriptHost {
         return spec;
     }
 
-    /// <summary>Evaluates an F# script string and returns the resulting <see cref="MachineSpec"/>.</summary>
+    /// <summary>Evaluates an F# script string and returns the resulting <see cref="MachineSpec" />.</summary>
     public static Task<MachineSpec> EvaluateFsxAsync(
         string source,
         CancellationToken ct = default

@@ -7,11 +7,11 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for RV64 Zbb/Zbs immediate-form ops (CLZ/CTZ/CPOP/SEXT.B/SEXT.H/BSETI/BCLRI/
-/// BINVI/RORI/REV8/ORC.B/BEXTI) — reachability (Rv64Decoder's 6-bit-shamt OP-IMM override
-/// previously rejected every non-shift encoding as illegal) and 64-bit-width correctness
-/// (the inherited RV32 implementations hardcode (uint) truncation, which is wrong once
-/// regs.Read() returns a genuine 64-bit value under RV64).
+///     Tests for RV64 Zbb/Zbs immediate-form ops (CLZ/CTZ/CPOP/SEXT.B/SEXT.H/BSETI/BCLRI/
+///     BINVI/RORI/REV8/ORC.B/BEXTI) — reachability (Rv64Decoder's 6-bit-shamt OP-IMM override
+///     previously rejected every non-shift encoding as illegal) and 64-bit-width correctness
+///     (the inherited RV32 implementations hardcode (uint) truncation, which is wrong once
+///     regs.Read() returns a genuine 64-bit value under RV64).
 /// </summary>
 public class Rv64ZbbZbsTests {
     private readonly Rv64Decoder _dec = new();

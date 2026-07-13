@@ -10,14 +10,14 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Tests for Zcmop (compressed may-be-operations): c.mop.N, N ∈ {1,3,5,...,15}.
-/// Encoding: Q1 (bits[1:0]=01), funct3=011, nzimm=0, rd=even 0..14.
-/// All 8 variants are hint NOPs with no architectural effect.
-/// <para>
-/// Encodings (hex):
-///   c.mop.1  = 0x6081   c.mop.3  = 0x6181   c.mop.5  = 0x6281   c.mop.7  = 0x6381
-///   c.mop.9  = 0x6481   c.mop.11 = 0x6581   c.mop.13 = 0x6681   c.mop.15 = 0x6781
-/// </para>
+///     Tests for Zcmop (compressed may-be-operations): c.mop.N, N ∈ {1,3,5,...,15}.
+///     Encoding: Q1 (bits[1:0]=01), funct3=011, nzimm=0, rd=even 0..14.
+///     All 8 variants are hint NOPs with no architectural effect.
+///     <para>
+///         Encodings (hex):
+///         c.mop.1  = 0x6081   c.mop.3  = 0x6181   c.mop.5  = 0x6281   c.mop.7  = 0x6381
+///         c.mop.9  = 0x6481   c.mop.11 = 0x6581   c.mop.13 = 0x6681   c.mop.15 = 0x6781
+///     </para>
 /// </summary>
 public class ZcmopTests {
     private const ulong CodeBase = 0x1000u;

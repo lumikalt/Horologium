@@ -9,11 +9,6 @@ namespace Pipeline.Stages;
 public sealed class MemoryStage : Gear {
     private ExMemLatch _current = ExMemLatch.Bubble;
 
-    public MemWbLatch LastSent { get; private set; } = MemWbLatch.Bubble;
-
-    public InArbor<ExMemLatch> Input { get; }
-    public OutArbor<MemWbLatch> Output { get; }
-
     public MemoryStage(string name, SimNode parent, Escapement esc)
         : base(name, parent, esc) {
         Input = new InArbor<ExMemLatch>($"{name}.in");
@@ -21,6 +16,11 @@ public sealed class MemoryStage : Gear {
 
         Input.OnReceive = latch => _current = latch;
     }
+
+    public MemWbLatch LastSent { get; private set; } = MemWbLatch.Bubble;
+
+    public InArbor<ExMemLatch> Input { get; }
+    public OutArbor<MemWbLatch> Output { get; }
 
     internal void Inject(ExMemLatch latch) => _current = latch;
 

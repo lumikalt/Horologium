@@ -3,28 +3,26 @@ using System.Numerics;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Pythia: RL-based prefetcher using online SARSA with a tile-coded Q-value store
-/// (Bera et al., MICRO 2021).
-/// <para>
-/// For every demand request Pythia extracts two program features (PC+Delta and a
-/// rolling hash of the last-4 deltas), looks up the Q-value store (QVStore) to
-/// select a prefetch offset action, and issues one prefetch.  Rewards are assigned
-/// eagerly when the prefetched address is later demanded (RAT / RAL, depending on
-/// whether the demand was a cache hit) or on EQ eviction when the prefetch was never
-/// demanded (RIN).  The SARSA update fires once per EQ eviction, updating the
-/// winning vault's tile planes for the evicted state-action pair.
-/// </para>
-/// <para>
-/// Bandwidth feedback is approximated with the low-BW reward variants throughout —
-/// the simulation has no direct DRAM-BW monitor.  The <see cref="IPrefetcher"/>
-/// interface has no fill callback, so <c>wasHit=true</c> is used as a proxy for
-/// "prefetch was installed before the demand" (RAT); <c>wasHit=false</c> with a
-/// matching EQ entry is treated as a late prefetch (RAL).
-/// </para>
+///     Pythia: RL-based prefetcher using online SARSA with a tile-coded Q-value store
+///     (Bera et al., MICRO 2021).
+///     <para>
+///         For every demand request Pythia extracts two program features (PC+Delta and a
+///         rolling hash of the last-4 deltas), looks up the Q-value store (QVStore) to
+///         select a prefetch offset action, and issues one prefetch.  Rewards are assigned
+///         eagerly when the prefetched address is later demanded (RAT / RAL, depending on
+///         whether the demand was a cache hit) or on EQ eviction when the prefetch was never
+///         demanded (RIN).  The SARSA update fires once per EQ eviction, updating the
+///         winning vault's tile planes for the evicted state-action pair.
+///     </para>
+///     <para>
+///         Bandwidth feedback is approximated with the low-BW reward variants throughout —
+///         the simulation has no direct DRAM-BW monitor.  The <see cref="IPrefetcher" />
+///         interface has no fill callback, so <c>wasHit=true</c> is used as a proxy for
+///         "prefetch was installed before the demand" (RAT); <c>wasHit=false</c> with a
+///         matching EQ entry is treated as a late prefetch (RAL).
+///     </para>
 /// </summary>
 public sealed class PythiaPrefetcher : IPrefetcher {
-    // ── Action space (Table 2, pruned from [−63, 63]) ─────────────────────────
-    private static readonly int[] Offsets = [-6, -3, -1, 0, 1, 3, 4, 5, 10, 11, 12, 16, 22, 23, 30, 32,];
     private const int NumActions = 16;
     private const int NoPrefetchAction = 3; // Offsets[3] == 0
 
@@ -47,47 +45,33 @@ public sealed class PythiaPrefetcher : IPrefetcher {
     private const int Planes = 3;
     private const int FEntries = 128;
 
-    private readonly float[,,,] _qvs = new float[PythiaPrefetcher.Vaults, PythiaPrefetcher.Planes,
-        PythiaPrefetcher.FEntries, PythiaPrefetcher.NumActions];
+    // ── EQ (Evaluation Queue): 256-entry FIFO ─────────────────────────────────
+    private const int EqSize = 256;
+
+    private const int IpSize = 64;
+
+    private const int IpIndexBits = 6;
+
+    // ── Action space (Table 2, pruned from [−63, 63]) ─────────────────────────
+    private static readonly int[] Offsets = [-6, -3, -1, 0, 1, 3, 4, 5, 10, 11, 12, 16, 22, 23, 30, 32,];
 
     // Shift constants for tile coding (randomly fixed at design time — §4.2.1).
     private static readonly int[,] Shifts = { { 0, 3, 6, }, { 1, 4, 7, }, };
 
-    // ── EQ (Evaluation Queue): 256-entry FIFO ─────────────────────────────────
-    private const int EqSize = 256;
-
-    private struct EqEntry {
-        // Precomputed QVStore plane indices for the state at issue time.
-        public int V0P0, V0P1, V0P2; // vault 0, planes 0–2
-        public int V1P0, V1P1, V1P2; // vault 1, planes 0–2
-        public int Action;
-        public ulong PrefetchAddr; // byte-aligned line base address; 0 if none issued
-        public float Reward;
-        public bool HasReward;
-        public bool Valid;
-    }
-
-    private readonly EqEntry[] _eq = new EqEntry[PythiaPrefetcher.EqSize];
-    private int _eqHead; // index of oldest entry
-    private int _eqTail; // next-write slot
-    private int _eqCount;
-
-    // ── Per-IP state for delta computation (64-entry direct-mapped) ───────────
-    private struct IpState {
-        public ulong Tag;
-        public ulong LastLineAddr;
-        public int DeltaHistory; // rolling hash of recent deltas (vault 1 input)
-        public bool Valid;
-    }
-
-    private const int IpSize = 64;
-    private const int IpIndexBits = 6;
-    private readonly IpState[] _ip = new IpState[PythiaPrefetcher.IpSize];
-
     // ── Geometry ──────────────────────────────────────────────────────────────
     private readonly int _blockBytes;
+
+    private readonly EqEntry[] _eq = new EqEntry[PythiaPrefetcher.EqSize];
+    private readonly IpState[] _ip = new IpState[PythiaPrefetcher.IpSize];
     private readonly int _lineShift;
     private readonly int _pageShift;
+
+    private readonly float[,,,] _qvs = new float[PythiaPrefetcher.Vaults, PythiaPrefetcher.Planes,
+        PythiaPrefetcher.FEntries, PythiaPrefetcher.NumActions];
+
+    private int _eqCount;
+    private int _eqHead; // index of oldest entry
+    private int _eqTail; // next-write slot
 
     // ── XOR-shift RNG for ε-greedy exploration ────────────────────────────────
     private uint _rng = 0xDEADBEEFu;
@@ -266,5 +250,24 @@ public sealed class PythiaPrefetcher : IPrefetcher {
         _rng ^= _rng >> 17;
         _rng ^= _rng << 5;
         return _rng;
+    }
+
+    private struct EqEntry {
+        // Precomputed QVStore plane indices for the state at issue time.
+        public int V0P0, V0P1, V0P2; // vault 0, planes 0–2
+        public int V1P0, V1P1, V1P2; // vault 1, planes 0–2
+        public int Action;
+        public ulong PrefetchAddr; // byte-aligned line base address; 0 if none issued
+        public float Reward;
+        public bool HasReward;
+        public bool Valid;
+    }
+
+    // ── Per-IP state for delta computation (64-entry direct-mapped) ───────────
+    private struct IpState {
+        public ulong Tag;
+        public ulong LastLineAddr;
+        public int DeltaHistory; // rolling hash of recent deltas (vault 1 input)
+        public bool Valid;
     }
 }

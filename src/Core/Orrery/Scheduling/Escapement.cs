@@ -1,15 +1,15 @@
 namespace Orrery.Scheduling;
 
 /// <summary>
-/// The phase of an event within a single tick.
-/// Events at the same tick are executed in ascending phase order.
-/// This ordering is the contract — pipeline stages depend on it.
-/// <para>
-/// In-order pipelines use: Fetch, Execute, ArborUpdate, Writeback, Commit, Flush, Collection.
-/// Out-of-order pipelines additionally use: Dispatch (rename + ROB allocate),
-/// Issue (leave issue queue), and Complete (CDB broadcast / write physical RF).
-/// Unused phases are simply never scheduled.
-/// </para>
+///     The phase of an event within a single tick.
+///     Events at the same tick are executed in ascending phase order.
+///     This ordering is the contract — pipeline stages depend on it.
+///     <para>
+///         In-order pipelines use: Fetch, Execute, ArborUpdate, Writeback, Commit, Flush, Collection.
+///         Out-of-order pipelines additionally use: Dispatch (rename + ROB allocate),
+///         Issue (leave issue queue), and Complete (CDB broadcast / write physical RF).
+///         Unused phases are simply never scheduled.
+///     </para>
 /// </summary>
 public enum Phase {
     /// <summary>Instruction fetch logic.</summary>
@@ -44,7 +44,7 @@ public enum Phase {
 }
 
 /// <summary>
-/// A scheduled work item: a callback to invoke at a specific tick and phase.
+///     A scheduled work item: a callback to invoke at a specific tick and phase.
 /// </summary>
 internal readonly record struct SimEvent(long Tick, Phase Phase)
     : IComparable<SimEvent> {
@@ -55,13 +55,13 @@ internal readonly record struct SimEvent(long Tick, Phase Phase)
 }
 
 /// <summary>
-/// The Escapement — the discrete-event scheduler that drives time forward.
-/// <para>
-/// Like the escapement in a mechanical clock, it releases work in discrete,
-/// ordered steps. Nothing in the simulation happens except through the
-/// Escapement scheduling it.
-/// </para>
-/// <para>Thread safety: not thread-safe. The simulation runs on a single thread.</para>
+///     The Escapement — the discrete-event scheduler that drives time forward.
+///     <para>
+///         Like the escapement in a mechanical clock, it releases work in discrete,
+///         ordered steps. Nothing in the simulation happens except through the
+///         Escapement scheduling it.
+///     </para>
+///     <para>Thread safety: not thread-safe. The simulation runs on a single thread.</para>
 /// </summary>
 public sealed class Escapement {
     private readonly PriorityQueue<Action, SimEvent> _queue = new();
@@ -80,8 +80,8 @@ public sealed class Escapement {
     // ── Scheduling ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Schedules a callback at an absolute tick and phase.
-    /// May be called from within a running event callback.
+    ///     Schedules a callback at an absolute tick and phase.
+    ///     May be called from within a running event callback.
     /// </summary>
     public void Schedule(Action callback, long atTick, Phase phase) {
         ArgumentNullException.ThrowIfNull(callback);
@@ -105,7 +105,7 @@ public sealed class Escapement {
     }
 
     /// <summary>
-    /// Schedules a callback a given number of ticks from now, at the specified phase.
+    ///     Schedules a callback a given number of ticks from now, at the specified phase.
     /// </summary>
     public void ScheduleAfter(Action callback, long delay, Phase phase) {
         switch (delay) {
@@ -125,8 +125,8 @@ public sealed class Escapement {
     }
 
     /// <summary>
-    /// Schedules a callback at the next tick, at the specified phase.
-    /// Convenience wrapper for the common case of a one-cycle latency.
+    ///     Schedules a callback at the next tick, at the specified phase.
+    ///     Convenience wrapper for the common case of a one-cycle latency.
     /// </summary>
     public void ScheduleNextTick(Action callback, Phase phase) =>
         Schedule(callback, CurrentTick + 1, phase);
@@ -134,11 +134,11 @@ public sealed class Escapement {
     // ── Execution ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Runs the simulation until the queue is empty or the tick limit is reached.
+    ///     Runs the simulation until the queue is empty or the tick limit is reached.
     /// </summary>
     /// <param name="untilTick">
-    /// Inclusive upper bound on ticks to process.
-    /// Pass <see cref="long.MaxValue"/> to run until idle.
+    ///     Inclusive upper bound on ticks to process.
+    ///     Pass <see cref="long.MaxValue" /> to run until idle.
     /// </param>
     /// <returns>The number of events processed.</returns>
     public long Run(long untilTick = long.MaxValue) {
@@ -160,14 +160,14 @@ public sealed class Escapement {
     }
 
     /// <summary>
-    /// Runs exactly one tick (all events at <see cref="CurrentTick"/> + 1),
-    /// then stops. Useful for step-by-step debugging.
+    ///     Runs exactly one tick (all events at <see cref="CurrentTick" /> + 1),
+    ///     then stops. Useful for step-by-step debugging.
     /// </summary>
     public void Step() => Run(CurrentTick + 1);
 
     /// <summary>
-    /// Discards all pending events and resets the clock to zero.
-    /// Used between Revolution runs.
+    ///     Discards all pending events and resets the clock to zero.
+    ///     Used between Revolution runs.
     /// </summary>
     public void Reset() {
         _queue.Clear();

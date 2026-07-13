@@ -7,11 +7,13 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for RV64F/D — the int64 conversions (FCVT.L/LU.S/D, FCVT.S/D.L/LU) that don't exist
-/// under RV32, FMV.X.D/FMV.D.X (full 64-bit double↔int bit copy, impossible under RV32 where
-/// XLEN &lt; FLEN), and the RV64 sign-extension fix for the inherited FCVT.W/WU.S/D.
+///     Tests for RV64F/D — the int64 conversions (FCVT.L/LU.S/D, FCVT.S/D.L/LU) that don't exist
+///     under RV32, FMV.X.D/FMV.D.X (full 64-bit double↔int bit copy, impossible under RV32 where
+///     XLEN &lt; FLEN), and the RV64 sign-extension fix for the inherited FCVT.W/WU.S/D.
 /// </summary>
 public class Rv64FTests {
+    // Unified register-file index for f2 (raw fp number 2 + 32).
+    private const int F2 = 34;
     private readonly Rv64Decoder _dec = new();
     private readonly Rv64Executor _exe = new();
     private readonly FlatMemory _mem = new(65536);
@@ -37,9 +39,6 @@ public class Rv64FTests {
     private static float AFloat(ulong bits) => BitConverter.Int32BitsToSingle((int)(uint)bits);
     private static ulong Dbl(double d) => (ulong)BitConverter.DoubleToInt64Bits(d);
     private static double ADouble(ulong bits) => BitConverter.Int64BitsToDouble((long)bits);
-
-    // Unified register-file index for f2 (raw fp number 2 + 32).
-    private const int F2 = 34;
 
     // ── FCVT.L.S / FCVT.LU.S: float → int64 ────────────────────────────────────────
 

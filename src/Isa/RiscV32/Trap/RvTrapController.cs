@@ -6,9 +6,9 @@ using RiscV32.State;
 namespace RiscV32.Trap;
 
 /// <summary>
-/// Machine-mode trap controller for RV32I.
-/// Implements the trap entry and return sequences from the RISC-V
-/// Privileged Specification, Section 3.1.
+///     Machine-mode trap controller for RV32I.
+///     Implements the trap entry and return sequences from the RISC-V
+///     Privileged Specification, Section 3.1.
 /// </summary>
 public sealed class RvTrapController(ClintDevice? clint = null, PlicDevice? plic = null) : ITrapController {
     // Priority order per RISC-V spec §3.1.9: MEI > MSI > MTI > SEI > SSI > STI

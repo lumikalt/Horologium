@@ -3,9 +3,9 @@ using Orrery.Cache;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for IpcpPrefetcher (Pakalapati &amp; Panda, ISCA 2020).
-/// All tests use blockBytes=32, pageBytes=4096 (128 lines/page), regionBytes=2048 (64 lines/region).
-/// Dense threshold = ceil(75 % × 64) = 48.
+///     Unit tests for IpcpPrefetcher (Pakalapati &amp; Panda, ISCA 2020).
+///     All tests use blockBytes=32, pageBytes=4096 (128 lines/page), regionBytes=2048 (64 lines/region).
+///     Dense threshold = ceil(75 % × 64) = 48.
 /// </summary>
 public sealed class IpcpPrefetcherTests {
     // Convenience wrappers

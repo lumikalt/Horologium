@@ -4,24 +4,16 @@ using Orrery.Cache;
 namespace Pipeline;
 
 /// <summary>
-/// RAS-Directed Instruction Prefetching (Kolli, Saidi &amp; Wenisch, MICRO 2013).
-/// Associates I-cache miss sequences with signatures derived from the commit-time
-/// call stack; prefetches on call/return when a matching signature is found.
+///     RAS-Directed Instruction Prefetching (Kolli, Saidi &amp; Wenisch, MICRO 2013).
+///     Associates I-cache miss sequences with signatures derived from the commit-time
+///     call stack; prefetches on call/return when a matching signature is found.
 /// </summary>
 public sealed class RdipPrefetcher(SetAssociativeCache iCache, IDecoder decoder) {
     // ── RDIP commit-time RAS (4 entries, per paper sensitivity study) ──────────
     private const int RasDepth = 4;
-    private readonly ulong[] _ras = new ulong[RdipPrefetcher.RasDepth];
-    private int _rasSize;
-
-    // ── Signatures ─────────────────────────────────────────────────────────────
-    private uint _curSig;
-    private uint _prevSig;
 
     // ── Current Signature Misses — plain buffer, flushed on every sig change ───
     private const int CsmCapacity = 16;
-    private readonly ulong[] _csm = new ulong[RdipPrefetcher.CsmCapacity];
-    private int _csmCount;
 
     // ── Miss table: 1024 sets × 4 ways (= 4096 entries, matching paper) ────────
     private const int Sets = 1024;
@@ -29,15 +21,16 @@ public sealed class RdipPrefetcher(SetAssociativeCache iCache, IDecoder decoder)
     private const int MaxTriggers = 3;
     private const int TriggerWindow = 8; // blocks covered by each 8-bit trigger mask
 
-    // Entry fields (parallel arrays, row-major [set*Ways+way])
-    private readonly bool[] _entryValid = new bool[RdipPrefetcher.Sets * RdipPrefetcher.Ways];
-    private readonly uint[] _entryTag = new uint[RdipPrefetcher.Sets * RdipPrefetcher.Ways];
+    // ── Hardware references ───────────────────────────────────────────────────
+    private readonly int _blockBytes = iCache.BlockBytes;
+    private readonly ulong[] _csm = new ulong[RdipPrefetcher.CsmCapacity];
     private readonly int[] _entryLruAge = new int[RdipPrefetcher.Sets * RdipPrefetcher.Ways];
     private readonly int[] _entryNextTrigger = new int[RdipPrefetcher.Sets * RdipPrefetcher.Ways];
+    private readonly uint[] _entryTag = new uint[RdipPrefetcher.Sets * RdipPrefetcher.Ways];
 
-    // Trigger fields (parallel arrays, row-major [set*Ways*MaxTriggers + way*MaxTriggers + t])
-    private readonly bool[] _trigValid
-        = new bool[RdipPrefetcher.Sets * RdipPrefetcher.Ways * RdipPrefetcher.MaxTriggers];
+    // Entry fields (parallel arrays, row-major [set*Ways+way])
+    private readonly bool[] _entryValid = new bool[RdipPrefetcher.Sets * RdipPrefetcher.Ways];
+    private readonly ulong[] _ras = new ulong[RdipPrefetcher.RasDepth];
 
     private readonly ulong[] _trigBase
         = new ulong[RdipPrefetcher.Sets * RdipPrefetcher.Ways * RdipPrefetcher.MaxTriggers];
@@ -45,8 +38,16 @@ public sealed class RdipPrefetcher(SetAssociativeCache iCache, IDecoder decoder)
     private readonly byte[] _trigMask
         = new byte[RdipPrefetcher.Sets * RdipPrefetcher.Ways * RdipPrefetcher.MaxTriggers];
 
-    // ── Hardware references ───────────────────────────────────────────────────
-    private readonly int _blockBytes = iCache.BlockBytes;
+    // Trigger fields (parallel arrays, row-major [set*Ways*MaxTriggers + way*MaxTriggers + t])
+    private readonly bool[] _trigValid
+        = new bool[RdipPrefetcher.Sets * RdipPrefetcher.Ways * RdipPrefetcher.MaxTriggers];
+
+    private int _csmCount;
+
+    // ── Signatures ─────────────────────────────────────────────────────────────
+    private uint _curSig;
+    private uint _prevSig;
+    private int _rasSize;
 
     // ── Public interface ──────────────────────────────────────────────────────
 

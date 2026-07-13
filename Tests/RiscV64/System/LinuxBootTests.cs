@@ -9,33 +9,28 @@ using Xunit.Abstractions;
 namespace Tests.RiscV64.System;
 
 /// <summary>
-/// RV64 counterpart of <see cref="Tests.RiscV32.System.LinuxBootTests"/> — boots Linux
-/// 6.12 RV64 NOMMU on a SingleCycleTrain and verifies that the kernel version banner
-/// appears on the ns16550a UART output.
-///
-/// Prerequisites:
-///   nix build .#linux-rv64 -o result-linux-rv64   → result-linux-rv64/share/linux/Image
-/// The out-link name must differ from the RV32 test's `result-linux`/`result` — otherwise
-/// building one kernel clobbers the other test's discovery path (same collision class as
-/// the OpenSBI RV32/RV64 firmware images; see <see cref="OpenSbiBannerTests"/>).
-///
-/// The kernel is CONFIG_RISCV_M_MODE=y (nommu_virt_defconfig, no 32-bit.config fragment),
-/// so it runs entirely in M-mode. We boot it directly — no OpenSBI — by setting the
-/// initial PC to KernelAddr. The simulator already starts in M-mode.
-///
-/// Memory layout (base 0x80000000, 128 MiB RAM — matches Rv64VirtDtb memory node):
-///   0x80000000  Linux Image         — NOMMU kernel (PAGE_OFFSET = 0x80000000)
-///   0x80400000  Rv64VirtDtb.Bytes   — device tree blob (after ~2.5 MiB kernel)
-///
-/// Peripheral bus:
-///   CLINT   0x02000000   64 KiB
-///   PLIC    0x0C000000   64 MiB
-///   UART    0x10000000  256 B   (ns16550a, output captured in StringWriter)
-///
-/// The kernel cmdline (compiled-in, CMDLINE_FORCE) is:
-///   "earlycon=uart8250,mmio,0x10000000,115200n8 console=ttyS0"
-/// so UART output starts before any driver init.  The test catches
-/// "Linux version" which appears in the very first dmesg line.
+///     RV64 counterpart of <see cref="Tests.RiscV32.System.LinuxBootTests" /> — boots Linux
+///     6.12 RV64 NOMMU on a SingleCycleTrain and verifies that the kernel version banner
+///     appears on the ns16550a UART output.
+///     Prerequisites:
+///     nix build .#linux-rv64 -o result-linux-rv64   → result-linux-rv64/share/linux/Image
+///     The out-link name must differ from the RV32 test's `result-linux`/`result` — otherwise
+///     building one kernel clobbers the other test's discovery path (same collision class as
+///     the OpenSBI RV32/RV64 firmware images; see <see cref="OpenSbiBannerTests" />).
+///     The kernel is CONFIG_RISCV_M_MODE=y (nommu_virt_defconfig, no 32-bit.config fragment),
+///     so it runs entirely in M-mode. We boot it directly — no OpenSBI — by setting the
+///     initial PC to KernelAddr. The simulator already starts in M-mode.
+///     Memory layout (base 0x80000000, 128 MiB RAM — matches Rv64VirtDtb memory node):
+///     0x80000000  Linux Image         — NOMMU kernel (PAGE_OFFSET = 0x80000000)
+///     0x80400000  Rv64VirtDtb.Bytes   — device tree blob (after ~2.5 MiB kernel)
+///     Peripheral bus:
+///     CLINT   0x02000000   64 KiB
+///     PLIC    0x0C000000   64 MiB
+///     UART    0x10000000  256 B   (ns16550a, output captured in StringWriter)
+///     The kernel cmdline (compiled-in, CMDLINE_FORCE) is:
+///     "earlycon=uart8250,mmio,0x10000000,115200n8 console=ttyS0"
+///     so UART output starts before any driver init.  The test catches
+///     "Linux version" which appears in the very first dmesg line.
 /// </summary>
 public class LinuxBootTests(ITestOutputHelper testOutputHelper) {
     private const string RequireEnvVar = "HOROLOGIUM_REQUIRE_LINUX";

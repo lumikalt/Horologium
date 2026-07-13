@@ -7,27 +7,27 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.System;
 
 /// <summary>
-/// Boots OpenSBI generic platform (RV32, fw_jump) on a SingleCycleTrain and
-/// verifies that the banner "OpenSBI" appears on the ns16550a UART output.
-/// <para>
-/// Requires a pre-built <c>fw_jump.bin</c>. Build it with:
-/// <code>nix build .#opensbi-rv32</code>
-/// This places the binary at <c>result/share/opensbi/fw_jump.bin</c> relative
-/// to the repository root. The test also accepts a path via the environment
-/// variable <c>OPENSBI_FW_JUMP_BIN</c>.
-/// </para>
-/// <para>
-/// Memory layout (base 0x80000000):
-///   0x80000000  OpenSBI fw_jump.bin (~265 KB)
-///   0x80100000  virt.dtb (embedded in RiscV32 assembly)
-///   0x80200000  ebreak — stops simulation after OpenSBI drops to S-mode
-///   Total RAM:  6 MiB (enough for the above plus OpenSBI scratch space)
-/// </para>
-/// <para>
-/// Peripheral bus:
-///   CLINT  0x02000000  64 KiB  — mtime, mtimecmp, msip
-///   UART   0x10000000  256 B   — ns16550a, output captured in a StringWriter
-/// </para>
+///     Boots OpenSBI generic platform (RV32, fw_jump) on a SingleCycleTrain and
+///     verifies that the banner "OpenSBI" appears on the ns16550a UART output.
+///     <para>
+///         Requires a pre-built <c>fw_jump.bin</c>. Build it with:
+///         <code>nix build .#opensbi-rv32</code>
+///         This places the binary at <c>result/share/opensbi/fw_jump.bin</c> relative
+///         to the repository root. The test also accepts a path via the environment
+///         variable <c>OPENSBI_FW_JUMP_BIN</c>.
+///     </para>
+///     <para>
+///         Memory layout (base 0x80000000):
+///         0x80000000  OpenSBI fw_jump.bin (~265 KB)
+///         0x80100000  virt.dtb (embedded in RiscV32 assembly)
+///         0x80200000  ebreak — stops simulation after OpenSBI drops to S-mode
+///         Total RAM:  6 MiB (enough for the above plus OpenSBI scratch space)
+///     </para>
+///     <para>
+///         Peripheral bus:
+///         CLINT  0x02000000  64 KiB  — mtime, mtimecmp, msip
+///         UART   0x10000000  256 B   — ns16550a, output captured in a StringWriter
+///     </para>
 /// </summary>
 public class OpenSbiBannerTests {
     private const string RequireEnvVar = "HOROLOGIUM_REQUIRE_OPENSBI";

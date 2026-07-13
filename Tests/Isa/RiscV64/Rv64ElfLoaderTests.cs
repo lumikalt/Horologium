@@ -4,9 +4,9 @@ using RiscV64.Memory;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for the ELF64 loader. Unlike the RV32 loader tests, there is no RV64 cross-compiler
-/// in the project devshell (only riscv32-embedded), so these tests hand-craft minimal ELF64
-/// byte layouts rather than loading a pre-built binary.
+///     Tests for the ELF64 loader. Unlike the RV32 loader tests, there is no RV64 cross-compiler
+///     in the project devshell (only riscv32-embedded), so these tests hand-craft minimal ELF64
+///     byte layouts rather than loading a pre-built binary.
 /// </summary>
 public class Rv64ElfLoaderTests {
     // Builds a minimal well-formed ELF64 header + a single PT_LOAD program header describing

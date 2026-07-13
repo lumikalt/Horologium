@@ -4,14 +4,14 @@ using RiscV32.Memory;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Tests for <see cref="DirectoryBus"/> correctness.
-/// <para>
-/// Two cache configurations:
-///   "small" — capacityBytes=64, ways=1, block=64 → 1-set 1-way (direct-mapped).
-///             Any two distinct line addresses alias to set 0, so reading a second
-///             line always evicts the first.
-///   "std"   — capacityBytes=256, ways=2, block=64 → 2-set 2-way.
-/// </para>
+///     Tests for <see cref="DirectoryBus" /> correctness.
+///     <para>
+///         Two cache configurations:
+///         "small" — capacityBytes=64, ways=1, block=64 → 1-set 1-way (direct-mapped).
+///         Any two distinct line addresses alias to set 0, so reading a second
+///         line always evicts the first.
+///         "std"   — capacityBytes=256, ways=2, block=64 → 2-set 2-way.
+///     </para>
 /// </summary>
 public class DirectoryBusTests {
     private const int Block = 64;

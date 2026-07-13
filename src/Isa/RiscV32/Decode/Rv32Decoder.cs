@@ -3,19 +3,45 @@ using Mechanism;
 namespace RiscV32.Decode;
 
 /// <summary>
-/// Instruction decoder with a (PC, raw) keyed cache.
-/// Safe for all programs — keying on both PC and raw encoding avoids false hits when
-/// two different instructions happen to share the same PC (e.g., in unit tests).
+///     Instruction decoder with a (PC, raw) keyed cache.
+///     Safe for all programs — keying on both PC and raw encoding avoids false hits when
+///     two different instructions happen to share the same PC (e.g., in unit tests).
 /// </summary>
 public partial class Rv32Decoder : IDecoder {
-    protected readonly Dictionary<(ulong pc, uint raw), ITooth> Cache = new();
     private readonly Dictionary<(ulong pc, uint raw), FetchHint> _hintCache = new();
+    protected readonly Dictionary<(ulong pc, uint raw), ITooth> Cache = new();
 
     public FetchHint GetFetchHint(ulong pc, uint firstWord) {
         if (_hintCache.TryGetValue((pc, firstWord), out FetchHint cached)) return cached;
         FetchHint hint = ComputeFetchHint(pc, firstWord);
         _hintCache[(pc, firstWord)] = hint;
         return hint;
+    }
+
+    public virtual int InstructionSize(ulong pc, IMemory memory) {
+        var half = (ushort)memory.Read(pc, 2);
+        return (half & 0x3) != 0x3 ? 2 : 4;
+    }
+
+    public virtual ITooth Decode(ulong pc, IMemory memory) {
+        var half = (ushort)memory.Read(pc, 2);
+        if ((half & 0x3) != 0x3)
+            return Cache.TryGetValue((pc, half), out ITooth? c) ? c : DoCache(pc, half, DecodeCompressed(pc, half));
+
+        var raw = (uint)memory.Read(pc, 4);
+        return Cache.TryGetValue((pc, raw), out ITooth? cached) ? cached : DoCache(pc, raw, DecodeRaw(pc, raw));
+    }
+
+    public virtual ITooth Decode(ulong pc, uint raw) => Cache.TryGetValue((pc, raw), out ITooth? cached)
+        ? cached
+        : DoCache(pc, raw, DecodeRaw(pc, raw));
+
+    public string Disassemble(ulong pc, uint raw) {
+        try {
+            ITooth tooth = Decode(pc, raw);
+            return RvDisassembler.Disassemble(((RvInstruction)tooth).Payload, pc);
+        }
+        catch { return $"0x{raw:X8}"; }
     }
 
     protected virtual FetchHint ComputeFetchHint(ulong pc, uint firstWord) {
@@ -95,32 +121,6 @@ public partial class Rv32Decoder : IDecoder {
             IsUnconditional = isJal || isJalr,
             BranchTarget = branchTarget,
         };
-    }
-
-    public virtual int InstructionSize(ulong pc, IMemory memory) {
-        var half = (ushort)memory.Read(pc, 2);
-        return (half & 0x3) != 0x3 ? 2 : 4;
-    }
-
-    public virtual ITooth Decode(ulong pc, IMemory memory) {
-        var half = (ushort)memory.Read(pc, 2);
-        if ((half & 0x3) != 0x3)
-            return Cache.TryGetValue((pc, half), out ITooth? c) ? c : DoCache(pc, half, DecodeCompressed(pc, half));
-
-        var raw = (uint)memory.Read(pc, 4);
-        return Cache.TryGetValue((pc, raw), out ITooth? cached) ? cached : DoCache(pc, raw, DecodeRaw(pc, raw));
-    }
-
-    public virtual ITooth Decode(ulong pc, uint raw) => Cache.TryGetValue((pc, raw), out ITooth? cached)
-        ? cached
-        : DoCache(pc, raw, DecodeRaw(pc, raw));
-
-    public string Disassemble(ulong pc, uint raw) {
-        try {
-            ITooth tooth = Decode(pc, raw);
-            return RvDisassembler.Disassemble(((RvInstruction)tooth).Payload, pc);
-        }
-        catch { return $"0x{raw:X8}"; }
     }
 
     protected ITooth DoCache(ulong pc, uint raw, ITooth tooth) {

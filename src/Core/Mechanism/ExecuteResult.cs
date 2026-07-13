@@ -1,14 +1,14 @@
 namespace Mechanism;
 
 /// <summary>
-/// The result produced by IExecutor after executing one instruction.
-/// Immutable — the executor returns a new result, never mutates state directly.
-/// The pipeline applies the result to IArchState at the appropriate stage.
+///     The result produced by IExecutor after executing one instruction.
+///     Immutable — the executor returns a new result, never mutates state directly.
+///     The pipeline applies the result to IArchState at the appropriate stage.
 /// </summary>
 public sealed record ExecuteResult {
     /// <summary>
-    /// The value to write to the destination register,
-    /// or HasValue=false if this instruction does not write a register.
+    ///     The value to write to the destination register,
+    ///     or HasValue=false if this instruction does not write a register.
     /// </summary>
     public (ulong Value, bool HasValue) RegisterResult { get; init; }
 
@@ -16,14 +16,14 @@ public sealed record ExecuteResult {
     public bool BranchTaken { get; init; }
 
     /// <summary>
-    /// The branch target address, if a branch was taken or a jump was executed.
-    /// Null if control flow is sequential.
+    ///     The branch target address, if a branch was taken or a jump was executed.
+    ///     Null if control flow is sequential.
     /// </summary>
     public ulong? BranchTarget { get; init; }
 
     /// <summary>
-    /// The trap raised by this instruction, or null if execution was clean.
-    /// The pipeline passes this to ITrapController at commit.
+    ///     The trap raised by this instruction, or null if execution was clean.
+    ///     The pipeline passes this to ITrapController at commit.
     /// </summary>
     public TrapInfo? Trap { get; private init; }
 
@@ -32,6 +32,37 @@ public sealed record ExecuteResult {
 
     /// <summary>Convenience: a clean result with no register write and sequential flow.</summary>
     public static ExecuteResult Clean => new();
+
+    /// <summary>True if this instruction halts the simulation (e.g. EBREAK).</summary>
+    public bool IsHalt { get; init; }
+
+    /// <summary>
+    ///     True if the simulation should halt <em>after</em> this instruction commits
+    ///     (in contrast to <see cref="IsHalt" />, which halts without committing the
+    ///     instruction). Set by an HTIF tohost-exit store so the engine terminates at
+    ///     the exit write itself rather than the spin-loop that conventionally follows
+    ///     it. ISA-agnostic to the trains: they act on the flag without knowing why.
+    /// </summary>
+    public bool RequestHalt { get; init; }
+
+    /// <summary>True if this instruction returns from a trap (e.g. MRET).</summary>
+    public bool IsReturnFromTrap { get; init; }
+
+    /// <summary>The privilege level to return to when IsReturnFromTrap is true.</summary>
+    public PrivilegeLevel? ReturnPrivilege { get; init; }
+
+    /// <summary>
+    ///     Optional ISA-specific state mutation to apply at writeback (e.g. vector register write).
+    ///     Invoked by the pipeline after the standard register writeback.
+    /// </summary>
+    public Action<IArchState>? SideEffect { get; init; }
+
+    /// <summary>
+    ///     Stream configuration command emitted by a stream-setup instruction (ss.*).
+    ///     When non-null, the pipeline calls StreamingEngine.Configure with the given
+    ///     stream ID and descriptor. Null for all non-stream-setup instructions.
+    /// </summary>
+    public (int StreamId, StreamDescriptor Descriptor)? StreamConfig { get; init; }
 
     /// <summary>Convenience: a result that writes a register value.</summary>
     public static ExecuteResult WithResult(ulong value) =>
@@ -44,43 +75,12 @@ public sealed record ExecuteResult {
     /// <summary>Convenience: a result that raises a trap.</summary>
     public static ExecuteResult WithTrap(TrapInfo trap) =>
         new() { Trap = trap, };
-
-    /// <summary>True if this instruction halts the simulation (e.g. EBREAK).</summary>
-    public bool IsHalt { get; init; }
-
-    /// <summary>
-    /// True if the simulation should halt <em>after</em> this instruction commits
-    /// (in contrast to <see cref="IsHalt"/>, which halts without committing the
-    /// instruction). Set by an HTIF tohost-exit store so the engine terminates at
-    /// the exit write itself rather than the spin-loop that conventionally follows
-    /// it. ISA-agnostic to the trains: they act on the flag without knowing why.
-    /// </summary>
-    public bool RequestHalt { get; init; }
-
-    /// <summary>True if this instruction returns from a trap (e.g. MRET).</summary>
-    public bool IsReturnFromTrap { get; init; }
-
-    /// <summary>The privilege level to return to when IsReturnFromTrap is true.</summary>
-    public PrivilegeLevel? ReturnPrivilege { get; init; }
-
-    /// <summary>
-    /// Optional ISA-specific state mutation to apply at writeback (e.g. vector register write).
-    /// Invoked by the pipeline after the standard register writeback.
-    /// </summary>
-    public Action<IArchState>? SideEffect { get; init; }
-
-    /// <summary>
-    /// Stream configuration command emitted by a stream-setup instruction (ss.*).
-    /// When non-null, the pipeline calls StreamingEngine.Configure with the given
-    /// stream ID and descriptor. Null for all non-stream-setup instructions.
-    /// </summary>
-    public (int StreamId, StreamDescriptor Descriptor)? StreamConfig { get; init; }
 }
 
 /// <summary>
-/// Describes a trap (exception or interrupt) raised during execution.
-/// The numeric Cause value is ISA-defined; use ISA-specific constants (e.g. RvTrapCause)
-/// to construct and interpret it.
+///     Describes a trap (exception or interrupt) raised during execution.
+///     The numeric Cause value is ISA-defined; use ISA-specific constants (e.g. RvTrapCause)
+///     to construct and interpret it.
 /// </summary>
 public sealed record TrapInfo(
     int Cause,

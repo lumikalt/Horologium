@@ -3,18 +3,18 @@ using Mechanism;
 namespace RiscV32.Trace;
 
 /// <summary>
-/// Pass-through <see cref="IMemory"/> that records the most recent access since
-/// the last <see cref="Reset"/>. A trace writer uses this to recover the
-/// effective address of a load/store — which is <c>base_reg + imm</c>, computed
-/// at runtime and not derivable from the instruction encoding alone (and the
-/// base register may be overwritten by the instruction itself).
-/// <para>
-/// Unlike the OoO pipeline's CapturingMemory it does not defer writes; reads and
-/// writes pass straight through to <paramref name="inner"/>.
-/// </para>
+///     Pass-through <see cref="IMemory" /> that records the most recent access since
+///     the last <see cref="Reset" />. A trace writer uses this to recover the
+///     effective address of a load/store — which is <c>base_reg + imm</c>, computed
+///     at runtime and not derivable from the instruction encoding alone (and the
+///     base register may be overwritten by the instruction itself).
+///     <para>
+///         Unlike the OoO pipeline's CapturingMemory it does not defer writes; reads and
+///         writes pass straight through to <paramref name="inner" />.
+///     </para>
 /// </summary>
 public sealed class TracingMemory(IMemory inner) : IMemory {
-    /// <summary>True if any access has occurred since the last <see cref="Reset"/>.</summary>
+    /// <summary>True if any access has occurred since the last <see cref="Reset" />.</summary>
     public bool HasAccess { get; private set; }
 
     /// <summary>Address of the most recent access.</summary>
@@ -28,8 +28,6 @@ public sealed class TracingMemory(IMemory inner) : IMemory {
 
     /// <summary>Data value of the most recent access (value read for loads, value written for stores).</summary>
     public ulong Value { get; private set; }
-
-    public void Reset() => HasAccess = false;
 
     public ulong Read(ulong address, int bytes) {
         HasAccess = true;
@@ -50,4 +48,6 @@ public sealed class TracingMemory(IMemory inner) : IMemory {
     }
 
     public void Load(ulong address, ReadOnlySpan<byte> data) => inner.Load(address, data);
+
+    public void Reset() => HasAccess = false;
 }

@@ -2,14 +2,14 @@ using Mechanism;
 using Orrery.Cache;
 using Orrery.Devices;
 using Pipeline;
-using RiscV64;
 using RiscV32.Memory;
+using RiscV64;
 
 namespace Tests.RiscV64.System;
 
 /// <summary>
-/// Integration tests for UART MMIO: a hand-assembled RV32 program stores characters to the
-/// SiFive UART0 txdata register at 0x10013000 via a <see cref="PeripheralBus"/>.
+///     Integration tests for UART MMIO: a hand-assembled RV32 program stores characters to the
+///     SiFive UART0 txdata register at 0x10013000 via a <see cref="PeripheralBus" />.
 /// </summary>
 public class UartMmioTests {
     // lui  x5, 0x10013      → x5  = 0x10013000 (UART base)

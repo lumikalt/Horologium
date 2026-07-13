@@ -5,35 +5,12 @@ using RiscV32.Memory;
 namespace Tests.Isa.Move;
 
 /// <summary>
-/// TTA/MOVE unit tests. All instructions are 32-bit: [31:24]=dst [23:16]=src [15:0]=imm.
-/// Use Run(n) for exactly n ticks. The halt instruction (dst=0xFF) terminates early.
-/// Code placed at byte 0; data placed at DataBase (byte 0x200) to avoid overlap.
+///     TTA/MOVE unit tests. All instructions are 32-bit: [31:24]=dst [23:16]=src [15:0]=imm.
+///     Use Run(n) for exactly n ticks. The halt instruction (dst=0xFF) terminates early.
+///     Code placed at byte 0; data placed at DataBase (byte 0x200) to avoid overlap.
 /// </summary>
 public class MoveTests {
     private const int DataBase = 0x200;
-
-    private static (SingleCycleTrain Train, MoveArchState State, FlatMemory Mem) Make(int sizeBytes = 4096) {
-        var mem = new FlatMemory(sizeBytes);
-        var train = new SingleCycleTrain(new MoveMechanism(), mem);
-        return (train, (MoveArchState)train.ArchState, mem);
-    }
-
-    // Write a 4-byte instruction at the given byte address.
-    private static void I(FlatMemory m, int byteAddr, uint instr) =>
-        m.Write((ulong)byteAddr, instr, 4);
-
-    // Write a 16-bit word to data memory.
-    private static void D(FlatMemory m, int byteAddr, ushort value) =>
-        m.Write((ulong)byteAddr, value, 2);
-
-    // Read a 16-bit word from data memory.
-    private static ushort ReadD(FlatMemory m, int byteAddr) =>
-        (ushort)m.Read((ulong)byteAddr, 2);
-
-    // ── Instruction encoder ───────────────────────────────────────────────────
-
-    private static uint Mov(byte dst, byte src, ushort imm = 0) =>
-        (uint)((dst << 24) | (src << 16) | imm);
 
     // Destination port constants
     private const byte R0 = 0x00, R1 = 0x01, R2 = 0x02;
@@ -70,6 +47,29 @@ public class MoveTests {
     private const ushort AluInc = 0x0D;
     private const ushort AluDec = 0x0E;
     private const ushort AluCopy = 0x0F;
+
+    private static (SingleCycleTrain Train, MoveArchState State, FlatMemory Mem) Make(int sizeBytes = 4096) {
+        var mem = new FlatMemory(sizeBytes);
+        var train = new SingleCycleTrain(new MoveMechanism(), mem);
+        return (train, (MoveArchState)train.ArchState, mem);
+    }
+
+    // Write a 4-byte instruction at the given byte address.
+    private static void I(FlatMemory m, int byteAddr, uint instr) =>
+        m.Write((ulong)byteAddr, instr, 4);
+
+    // Write a 16-bit word to data memory.
+    private static void D(FlatMemory m, int byteAddr, ushort value) =>
+        m.Write((ulong)byteAddr, value, 2);
+
+    // Read a 16-bit word from data memory.
+    private static ushort ReadD(FlatMemory m, int byteAddr) =>
+        (ushort)m.Read((ulong)byteAddr, 2);
+
+    // ── Instruction encoder ───────────────────────────────────────────────────
+
+    private static uint Mov(byte dst, byte src, ushort imm = 0) =>
+        (uint)((dst << 24) | (src << 16) | imm);
 
     // ── Immediate to register ─────────────────────────────────────────────────
 

@@ -1,15 +1,15 @@
 namespace Orrery.Cache;
 
 /// <summary>
-/// Random replacement: evicts a uniformly random way on each miss.
-/// Hit promotion and install are no-ops — no recency tracking of any kind.
-/// A useful lower-bound baseline; occasionally competitive with LRU on
-/// heavily thrashing workloads where recency is uncorrelated with reuse.
-/// Seeded deterministically so simulation runs are reproducible.
+///     Random replacement: evicts a uniformly random way on each miss.
+///     Hit promotion and install are no-ops — no recency tracking of any kind.
+///     A useful lower-bound baseline; occasionally competitive with LRU on
+///     heavily thrashing workloads where recency is uncorrelated with reuse.
+///     Seeded deterministically so simulation runs are reproducible.
 /// </summary>
 public sealed class RandomPolicy : IReplacementPolicy {
-    private readonly int _ways;
     private readonly Random _rng;
+    private readonly int _ways;
 
     public RandomPolicy(int sets, int ways, int seed = 0) {
         _ways = ways;

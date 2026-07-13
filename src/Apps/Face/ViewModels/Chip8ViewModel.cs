@@ -13,9 +13,14 @@ namespace Face.ViewModels;
 public partial class Chip8ViewModel : ObservableObject {
     private readonly Chip8Memory _memory = new();
     private readonly Chip8Train _train;
-    private DispatcherTimer? _timer;
     private byte[]? _currentRom;
     private bool _interactive;
+    private DispatcherTimer? _timer;
+
+    public Chip8ViewModel(Action goToLauncher) {
+        GoToLauncherCommand = new RelayCommand(goToLauncher);
+        _train = new Chip8Train(new Chip8Mechanism(), _memory);
+    }
 
     public WriteableBitmap Bitmap { get; } = new(
         new PixelSize(64, 32),
@@ -35,11 +40,6 @@ public partial class Chip8ViewModel : ObservableObject {
     [ObservableProperty] public partial int InstructionsPerFrame { get; set; } = 10;
 
     public string StartPauseLabel => IsRunning ? "Pause" : "Start";
-
-    public Chip8ViewModel(Action goToLauncher) {
-        GoToLauncherCommand = new RelayCommand(goToLauncher);
-        _train = new Chip8Train(new Chip8Mechanism(), _memory);
-    }
 
     public void LoadRom(byte[] rom) {
         StopInteractive();

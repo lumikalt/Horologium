@@ -7,11 +7,11 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for RV64C quadrant reassignments — C.LD/C.SD replace C.FLW/C.FSW (quadrant 0,
-/// funct3 3/7), C.ADDIW replaces C.JAL (quadrant 1, funct3 1), C.LDSP/C.SDSP replace
-/// C.FLWSP/C.FSWSP (quadrant 2, funct3 3/7). Exercised through both decoder entry points:
-/// Decode(pc, uint) (DecodeRaw) and Decode(pc, IMemory) — the latter is the actual pipeline
-/// fetch path and bypasses DecodeRaw for compressed instructions, so it needs its own coverage.
+///     Tests for RV64C quadrant reassignments — C.LD/C.SD replace C.FLW/C.FSW (quadrant 0,
+///     funct3 3/7), C.ADDIW replaces C.JAL (quadrant 1, funct3 1), C.LDSP/C.SDSP replace
+///     C.FLWSP/C.FSWSP (quadrant 2, funct3 3/7). Exercised through both decoder entry points:
+///     Decode(pc, uint) (DecodeRaw) and Decode(pc, IMemory) — the latter is the actual pipeline
+///     fetch path and bypasses DecodeRaw for compressed instructions, so it needs its own coverage.
 /// </summary>
 public class Rv64CTests {
     private readonly Rv64Decoder _dec = new();

@@ -3,8 +3,8 @@ using Mechanism;
 namespace Pipeline;
 
 /// <summary>
-/// The IF/ID pipeline register.
-/// Carries a fetched instruction word into the Decode stage.
+///     The IF/ID pipeline register.
+///     Carries a fetched instruction word into the Decode stage.
 /// </summary>
 public sealed record IfIdLatch {
     public static readonly IfIdLatch Bubble = new();
@@ -24,8 +24,8 @@ public sealed record IfIdLatch {
 }
 
 /// <summary>
-/// The ID/EX pipeline register.
-/// Carries a fully decoded instruction into the Execute stage.
+///     The ID/EX pipeline register.
+///     Carries a fully decoded instruction into the Execute stage.
 /// </summary>
 public sealed record IdExLatch {
     public static readonly IdExLatch Bubble = new();
@@ -45,8 +45,8 @@ public sealed record IdExLatch {
 }
 
 /// <summary>
-/// The EX/MEM pipeline register.
-/// Carries an executed result into the Memory stage.
+///     The EX/MEM pipeline register.
+///     Carries an executed result into the Memory stage.
 /// </summary>
 public sealed record ExMemLatch {
     public static readonly ExMemLatch Bubble = new();
@@ -63,8 +63,8 @@ public sealed record ExMemLatch {
 }
 
 /// <summary>
-/// The MEM/WB pipeline register.
-/// Carries a memory result into the Writeback stage.
+///     The MEM/WB pipeline register.
+///     Carries a memory result into the Writeback stage.
 /// </summary>
 public sealed record MemWbLatch {
     public static readonly MemWbLatch Bubble = new();

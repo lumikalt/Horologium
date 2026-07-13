@@ -6,7 +6,7 @@ using RiscV32.Trace;
 namespace Tests.Pipeline;
 
 /// <summary>
-/// Elastic DDG trace: recording, binary round-trip, dependence detection, and replay.
+///     Elastic DDG trace: recording, binary round-trip, dependence detection, and replay.
 /// </summary>
 public class ElasticTraceTests {
     // ── Instruction encodings ─────────────────────────────────────────────────

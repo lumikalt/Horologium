@@ -1,19 +1,19 @@
 namespace Orrery.Cache;
 
 /// <summary>
-/// Shared base for SRRIP, BRRIP, and DRRIP.
-/// Holds the RRPV array and implements the two invariant operations:
-/// — hit promotion (RRIP-HP: RRPV ← 0)
-/// — victim selection (find first way with RRPV == max; if none, increment all and retry)
-/// Subclasses differ only in <see cref="RecordInstall"/>.
-/// — Jaleel et al., "High Performance Cache Replacement Using Re-Reference Interval
-///   Prediction (RRIP)", ISCA 2010.
+///     Shared base for SRRIP, BRRIP, and DRRIP.
+///     Holds the RRPV array and implements the two invariant operations:
+///     — hit promotion (RRIP-HP: RRPV ← 0)
+///     — victim selection (find first way with RRPV == max; if none, increment all and retry)
+///     Subclasses differ only in <see cref="RecordInstall" />.
+///     — Jaleel et al., "High Performance Cache Replacement Using Re-Reference Interval
+///     Prediction (RRIP)", ISCA 2010.
 /// </summary>
 public abstract class RripPolicyBase : IReplacementPolicy {
+    protected readonly int InsertionRrpv; // 2^M − 2  (= 2 for M=2, "long re-reference")
+    protected readonly int MaxRrpv;       // 2^M − 1  (= 3 for M=2)
     protected readonly int[][] Rrpv;
     protected readonly int Ways;
-    protected readonly int MaxRrpv;       // 2^M − 1  (= 3 for M=2)
-    protected readonly int InsertionRrpv; // 2^M − 2  (= 2 for M=2, "long re-reference")
 
     protected RripPolicyBase(int sets, int ways, int m = 2) {
         Ways = ways;
@@ -48,8 +48,8 @@ public abstract class RripPolicyBase : IReplacementPolicy {
 }
 
 /// <summary>
-/// Static RRIP (SRRIP-HP): all inserts at RRPV = 2^M−2 ("long re-reference interval").
-/// Scan-resistant: scan blocks cannot immediately evict the active working set.
+///     Static RRIP (SRRIP-HP): all inserts at RRPV = 2^M−2 ("long re-reference interval").
+///     Scan-resistant: scan blocks cannot immediately evict the active working set.
 /// </summary>
 public sealed class SrripPolicy : RripPolicyBase {
     public SrripPolicy(int sets, int ways, int m = 2) : base(sets, ways, m) { }
@@ -58,10 +58,10 @@ public sealed class SrripPolicy : RripPolicyBase {
 }
 
 /// <summary>
-/// Bimodal RRIP (BRRIP-HP): inserts at RRPV = 2^M−1 ("distant") with probability 1−ε,
-/// and at RRPV = 2^M−2 ("long") with probability ε = 1/bimodalDenominator (default 1/32).
-/// Thrash-resistant: when the working set exceeds capacity, most inserts are immediately
-/// evictable, preserving a fraction of the working set between thrashing waves.
+///     Bimodal RRIP (BRRIP-HP): inserts at RRPV = 2^M−1 ("distant") with probability 1−ε,
+///     and at RRPV = 2^M−2 ("long") with probability ε = 1/bimodalDenominator (default 1/32).
+///     Thrash-resistant: when the working set exceeds capacity, most inserts are immediately
+///     evictable, preserving a fraction of the working set between thrashing waves.
 /// </summary>
 public sealed class BrripPolicy : RripPolicyBase {
     private readonly int _denominator;
@@ -83,18 +83,17 @@ public sealed class BrripPolicy : RripPolicyBase {
 }
 
 /// <summary>
-/// Dynamic RRIP (DRRIP-HP): uses Set Dueling to choose between SRRIP and BRRIP.
-/// A small number of dedicated SDM sets permanently follow SRRIP or BRRIP; a 10-bit
-/// PSEL counter tracks which policy causes fewer misses; the remaining follower sets
-/// use whichever policy is currently winning.
-/// Parameters follow the paper: 32-entry SDMs, 10-bit PSEL, ε = 1/32.
+///     Dynamic RRIP (DRRIP-HP): uses Set Dueling to choose between SRRIP and BRRIP.
+///     A small number of dedicated SDM sets permanently follow SRRIP or BRRIP; a 10-bit
+///     PSEL counter tracks which policy causes fewer misses; the remaining follower sets
+///     use whichever policy is currently winning.
+///     Parameters follow the paper: 32-entry SDMs, 10-bit PSEL, ε = 1/32.
 /// </summary>
 public sealed class DrripPolicy : RripPolicyBase {
-    private readonly int _sdmSets;       // SDM sets per policy (sets [0, sdmSets) = SDM_SRRIP)
+    private readonly int _denominator;   // BRRIP bimodal denominator
     private readonly int _pselMax;       // 2^pselBits − 1  (= 1023 for 10-bit)
     private readonly int _pselThreshold; // pselMax/2 + 1   (= 512 for 10-bit)
-    private readonly int _denominator;   // BRRIP bimodal denominator
-    private int _psel;                   // policy selection counter
+    private readonly int _sdmSets;       // SDM sets per policy (sets [0, sdmSets) = SDM_SRRIP)
     private int _bimodalCounter;         // BRRIP insertion counter
 
     public DrripPolicy(int sets, int ways, int m = 2, int sdmSets = 32, int pselBits = 10, int bimodalDenominator = 32)
@@ -104,11 +103,11 @@ public sealed class DrripPolicy : RripPolicyBase {
         _pselMax = (1 << pselBits) - 1;
         _pselThreshold = _pselMax / 2 + 1; // 512 for 10-bit
         _denominator = bimodalDenominator;
-        _psel = _pselThreshold - 1; // start with SRRIP winning
+        Psel = _pselThreshold - 1; // start with SRRIP winning
     }
 
     /// <summary>Current PSEL value (0..pselMax). &lt; threshold → SRRIP wins; ≥ threshold → BRRIP wins.</summary>
-    public int Psel => _psel;
+    public int Psel { get; private set; }
 
     private bool IsSdmSrrip(int set) => set < _sdmSets;
     private bool IsSdmBrrip(int set) => set >= _sdmSets && set < _sdmSets * 2;
@@ -117,17 +116,17 @@ public sealed class DrripPolicy : RripPolicyBase {
         bool useSrrip;
         if (IsSdmSrrip(set)) {
             // SRRIP SDM missed → SRRIP loses a point → increment PSEL (votes for BRRIP).
-            if (_psel < _pselMax) _psel++;
+            if (Psel < _pselMax) Psel++;
             useSrrip = true;
         }
         else if (IsSdmBrrip(set)) {
             // BRRIP SDM missed → BRRIP loses a point → decrement PSEL (votes for SRRIP).
-            if (_psel > 0) _psel--;
+            if (Psel > 0) Psel--;
             useSrrip = false;
         }
         else {
             // Follower: use whichever policy is winning.
-            useSrrip = _psel < _pselThreshold;
+            useSrrip = Psel < _pselThreshold;
         }
 
         if (useSrrip) { Rrpv[set][way] = InsertionRrpv; }

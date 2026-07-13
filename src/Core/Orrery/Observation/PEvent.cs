@@ -20,15 +20,19 @@ public readonly record struct PEvent(
 );
 
 /// <summary>
-/// Accumulates per-instruction lifecycle events (Fetch/Dispatch/Issue/Execute/Retire/Flush)
-/// emitted by pipeline cores during simulation. Pass an instance to a pipeline train
-/// constructor to enable recording; null means zero overhead.
+///     Accumulates per-instruction lifecycle events (Fetch/Dispatch/Issue/Execute/Retire/Flush)
+///     emitted by pipeline cores during simulation. Pass an instance to a pipeline train
+///     constructor to enable recording; null means zero overhead.
 /// </summary>
 public sealed class PEventLog {
-    private readonly List<PEvent> _events = [];
-    private readonly Dictionary<ulong, string> _disasm = [];
-    private readonly Dictionary<ulong, (IReadOnlyList<int> RegIdxs, IReadOnlyList<ulong> Values)> _srcVals = [];
     private readonly Dictionary<ulong, (int RegIdx, ulong Value)> _destVals = [];
+    private readonly Dictionary<ulong, string> _disasm = [];
+    private readonly List<PEvent> _events = [];
+    private readonly Dictionary<ulong, (IReadOnlyList<int> RegIdxs, IReadOnlyList<ulong> Values)> _srcVals = [];
+
+    public IReadOnlyList<PEvent> Events => _events;
+
+    public IReadOnlyDictionary<ulong, string> Disassembly => _disasm;
 
     public void Record(ulong instrId, ulong pc, long cycle, PEventKind kind) =>
         _events.Add(new PEvent(instrId, pc, cycle, kind));
@@ -41,10 +45,6 @@ public sealed class PEventLog {
 
     public void RecordDestValue(ulong instrId, int regIdx, ulong value) =>
         _destVals[instrId] = (regIdx, value);
-
-    public IReadOnlyList<PEvent> Events => _events;
-
-    public IReadOnlyDictionary<ulong, string> Disassembly => _disasm;
 
     public bool TryGetSourceValues(ulong instrId, out IReadOnlyList<int> regIdxs, out IReadOnlyList<ulong> values) {
         if (_srcVals.TryGetValue(instrId, out (IReadOnlyList<int> RegIdxs, IReadOnlyList<ulong> Values) v)) {

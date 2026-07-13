@@ -3,9 +3,9 @@ using Mechanism;
 namespace RiscV32.Registers;
 
 /// <summary>
-/// Unified 64-entry register file for RV32F/D.
-/// Indices 0-31: integer registers (x0 hardwired zero, always 32-bit truncated).
-/// Indices 32-63: floating-point registers (f0-f31, 64-bit; NaN-boxing by executor).
+///     Unified 64-entry register file for RV32F/D.
+///     Indices 0-31: integer registers (x0 hardwired zero, always 32-bit truncated).
+///     Indices 32-63: floating-point registers (f0-f31, 64-bit; NaN-boxing by executor).
 /// </summary>
 public sealed class Rv32UnifiedRegisterFile : IRegisterFile {
     private readonly ulong[] _regs = new ulong[64];

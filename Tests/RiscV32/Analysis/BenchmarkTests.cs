@@ -10,38 +10,38 @@ using Xunit.Abstractions;
 namespace Tests.RiscV32.Analysis;
 
 /// <summary>
-/// Runs the riscv-tests benchmark suite under all three pipeline configurations.
-/// <para>
-/// Benchmarks use HTIF exit: tohost_exit(code) writes (code&lt;&lt;1)|1 to the
-/// 'tohost' symbol and then spins forever (infinite self-loop).  The simulator's
-/// existing halt detection catches the self-loop; the test then reads the
-/// 32-bit low word of 'tohost' from memory.
-/// </para>
-/// <para>
-/// Exit code 0  → tohost low word == 1  → PASS
-/// Exit code N≠0 → tohost low word == (N&lt;&lt;1)|1 → FAIL
-/// tohost == 0   → simulation timed out before halting
-/// </para>
-/// <para>
-/// Benchmarks also print performance counters via HTIF printstr (one char per
-/// HTIF write to tohost), polling fromhost (tohost+8) for acknowledgement.
-/// HtifMemory provides the minimal auto-ACK, so printstr returns instead of
-/// spinning forever, allowing the benchmark to reach tohost_exit normally.
-/// </para>
-/// <para>
-/// xUnit serializes every test case within a class onto one thread (test
-/// collections, not test methods, are the parallelism unit), so a plain
-/// <c>[Theory]</c> per ELF would run all binaries one after another. Each
-/// benchmark run builds its own memory image and train with no shared state,
-/// so <see cref="RunAllBenchmarks"/> fans them out itself via <c>Parallel.ForEach</c>
-/// instead of relying on xUnit's collection-level parallelism.
-/// </para>
+///     Runs the riscv-tests benchmark suite under all three pipeline configurations.
+///     <para>
+///         Benchmarks use HTIF exit: tohost_exit(code) writes (code&lt;&lt;1)|1 to the
+///         'tohost' symbol and then spins forever (infinite self-loop).  The simulator's
+///         existing halt detection catches the self-loop; the test then reads the
+///         32-bit low word of 'tohost' from memory.
+///     </para>
+///     <para>
+///         Exit code 0  → tohost low word == 1  → PASS
+///         Exit code N≠0 → tohost low word == (N&lt;&lt;1)|1 → FAIL
+///         tohost == 0   → simulation timed out before halting
+///     </para>
+///     <para>
+///         Benchmarks also print performance counters via HTIF printstr (one char per
+///         HTIF write to tohost), polling fromhost (tohost+8) for acknowledgement.
+///         HtifMemory provides the minimal auto-ACK, so printstr returns instead of
+///         spinning forever, allowing the benchmark to reach tohost_exit normally.
+///     </para>
+///     <para>
+///         xUnit serializes every test case within a class onto one thread (test
+///         collections, not test methods, are the parallelism unit), so a plain
+///         <c>[Theory]</c> per ELF would run all binaries one after another. Each
+///         benchmark run builds its own memory image and train with no shared state,
+///         so <see cref="RunAllBenchmarks" /> fans them out itself via <c>Parallel.ForEach</c>
+///         instead of relying on xUnit's collection-level parallelism.
+///     </para>
 /// </summary>
 public class BenchmarkTests(ITestOutputHelper output) {
+    private const int MemoryBytes = 4 * 1024 * 1024; // 4 MB: code + data + 128 KB stack
+
     private static readonly string BenchmarksDir =
         Path.Combine(AppContext.BaseDirectory, "benchmarks");
-
-    private const int MemoryBytes = 4 * 1024 * 1024; // 4 MB: code + data + 128 KB stack
 
     // ── Test data ─────────────────────────────────────────────────────────────
 
@@ -75,8 +75,10 @@ public class BenchmarkTests(ITestOutputHelper output) {
         }
     }
 
-    /// <summary>Runs <paramref name="runOne"/> for every benchmark ELF in parallel and
-    /// aggregates failures into a single assertion.</summary>
+    /// <summary>
+    ///     Runs <paramref name="runOne" /> for every benchmark ELF in parallel and
+    ///     aggregates failures into a single assertion.
+    /// </summary>
     private static void RunAllBenchmarks(Action<string> runOne) {
         var failures = new ConcurrentBag<string>();
         Parallel.ForEach(

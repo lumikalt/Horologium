@@ -5,8 +5,8 @@ using RiscV32.Memory;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for Tlb (direct-mapped, identity-mapping TLB wrapping IMemory).
-/// Uses a 4KB page size and 4-entry TLB unless otherwise specified.
+///     Unit tests for Tlb (direct-mapped, identity-mapping TLB wrapping IMemory).
+///     Uses a 4KB page size and 4-entry TLB unless otherwise specified.
 /// </summary>
 public class TlbTests {
     private const int PageSize = 4096;

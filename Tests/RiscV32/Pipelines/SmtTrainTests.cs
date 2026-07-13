@@ -6,17 +6,17 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-/// Integration tests for <see cref="SmtTrain"/>: barrel-processor SMT that
-/// distributes <c>issueWidth</c> issue slots round-robin across N hart contexts.
-/// <para>
-/// Encoded instructions:
-///   addi x1, x0, 10  = 0x00A00093
-///   addi x1, x0, 20  = 0x01400093
-///   addi x1, x0, 30  = 0x01E00093
-///   addi x1, x0, 42  = 0x02A00093
-///   addi x1, x0, 99  = 0x06300093
-///   ebreak            = 0x00100073
-/// </para>
+///     Integration tests for <see cref="SmtTrain" />: barrel-processor SMT that
+///     distributes <c>issueWidth</c> issue slots round-robin across N hart contexts.
+///     <para>
+///         Encoded instructions:
+///         addi x1, x0, 10  = 0x00A00093
+///         addi x1, x0, 20  = 0x01400093
+///         addi x1, x0, 30  = 0x01E00093
+///         addi x1, x0, 42  = 0x02A00093
+///         addi x1, x0, 99  = 0x06300093
+///         ebreak            = 0x00100073
+///     </para>
 /// </summary>
 public class SmtTrainTests {
     private const uint Ebreak = 0x00100073;

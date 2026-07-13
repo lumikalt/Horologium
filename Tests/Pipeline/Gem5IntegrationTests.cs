@@ -7,24 +7,14 @@ using RiscV32.Trace;
 namespace Tests.Pipeline;
 
 /// <summary>
-/// End-to-end gem5 TraceCPU integration tests.
-/// All tests are skipped when <c>gem5</c> is not available on PATH (same
-/// convention as the Spike co-simulation tests).
+///     End-to-end gem5 TraceCPU integration tests.
+///     All tests are skipped when <c>gem5</c> is not available on PATH (same
+///     convention as the Spike co-simulation tests).
 /// </summary>
 public class Gem5IntegrationTests {
     private static readonly bool Gem5Available =
         Environment.GetEnvironmentVariable("HOROLOGIUM_GEM5_COSIM") == "1" ||
         FindOnPath("gem5") is not null;
-
-    private static string? FindOnPath(string exe) {
-        string pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (string dir in pathVar.Split(Path.PathSeparator)) {
-            string full = Path.Combine(dir, exe);
-            if (File.Exists(full)) return full;
-        }
-
-        return null;
-    }
 
     private static readonly string ScriptPath =
         Path.Combine(
@@ -45,6 +35,16 @@ public class Gem5IntegrationTests {
         // ebreak            — 0x00100073
         0x73, 0x00, 0x10, 0x00,
     ];
+
+    private static string? FindOnPath(string exe) {
+        string pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (string dir in pathVar.Split(Path.PathSeparator)) {
+            string full = Path.Combine(dir, exe);
+            if (File.Exists(full)) return full;
+        }
+
+        return null;
+    }
 
     private static (string dataFile, string fetchFile) GenerateTraces(string tmpDir) {
         var mem = new FlatMemory(0x1000);

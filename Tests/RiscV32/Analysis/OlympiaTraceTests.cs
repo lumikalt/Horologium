@@ -9,19 +9,19 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Analysis;
 
 /// <summary>
-/// Self-validation for the Olympia JSON instruction-trace output (no Olympia
-/// build required): confirms the trace is well-formed and matches Olympia's
-/// schema (raw <c>opcode</c> + optional <c>mnemonic</c> + <c>vaddr</c> for
-/// loads/stores), and that it is an exact functional instruction stream (one
-/// entry per retired instruction).
+///     Self-validation for the Olympia JSON instruction-trace output (no Olympia
+///     build required): confirms the trace is well-formed and matches Olympia's
+///     schema (raw <c>opcode</c> + optional <c>mnemonic</c> + <c>vaddr</c> for
+///     loads/stores), and that it is an exact functional instruction stream (one
+///     entry per retired instruction).
 /// </summary>
 public class OlympiaTraceTests {
-    private static string ElfPath(string name) => Path.Combine(AppContext.BaseDirectory, name);
-
     // riscv mnemonics that carry an effective address in the Olympia schema.
     private static readonly HashSet<string> LoadStore = new(StringComparer.Ordinal) {
         "lb", "lh", "lw", "lbu", "lhu", "lwu", "ld", "sb", "sh", "sw", "sd", "flw", "fsw",
     };
+
+    private static string ElfPath(string name) => Path.Combine(AppContext.BaseDirectory, name);
 
     private static (string Json, int Count) Trace(string elf) {
         var workload = new Rv32ElfWorkload(ElfPath(elf));

@@ -3,10 +3,10 @@ using Mechanism;
 namespace RiscV64.Registers;
 
 /// <summary>
-/// Unified 64-entry register file for RV64F.
-/// Indices 0-31: integer registers (x0 hardwired zero).
-/// Indices 32-63: floating-point registers (f0-f31, all writable).
-/// Values are stored as full 64-bit words.
+///     Unified 64-entry register file for RV64F.
+///     Indices 0-31: integer registers (x0 hardwired zero).
+///     Indices 32-63: floating-point registers (f0-f31, all writable).
+///     Values are stored as full 64-bit words.
 /// </summary>
 public sealed class Rv64UnifiedRegisterFile : IRegisterFile {
     private readonly ulong[] _regs = new ulong[64];

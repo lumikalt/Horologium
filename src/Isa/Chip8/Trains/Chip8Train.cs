@@ -8,10 +8,8 @@ using Orrery.Tree;
 namespace Chip8.Trains;
 
 public sealed class Chip8Train {
-    private readonly Train _train;
     private readonly SingleCycleCore _core;
-
-    public IArchState ArchState => _core.ArchState;
+    private readonly Train _train;
 
     public Chip8Train(IMechanism mechanism, IMemory memory, ulong entryPoint = 0x200) {
         var esc = new Escapement();
@@ -22,6 +20,10 @@ public sealed class Chip8Train {
         _train.Build();
     }
 
+    public IArchState ArchState => _core.ArchState;
+
+    public bool IsHalted => _train.IsIdle;
+
     public RevolutionResult Run(long maxTicks = 100_000, long snapshotInterval = 0) =>
         _train.Run(maxTicks, snapshotInterval: snapshotInterval);
 
@@ -30,8 +32,6 @@ public sealed class Chip8Train {
     public void StepN(int n) {
         for (var i = 0; i < n && !_train.IsIdle; i++) _train.StepCycle();
     }
-
-    public bool IsHalted => _train.IsIdle;
 
     public void FinalizeInteractive() => _train.FinishStepping();
 
@@ -49,8 +49,8 @@ internal class SingleCycleCore(
     ulong entryPoint
 ) : Gear(name, parent, esc) {
     private Counter _cyclesCounter = null!;
-    private Counter _retiredCounter = null!;
     private Histogram _opcodeHistogram = null!;
+    private Counter _retiredCounter = null!;
 
     public IArchState ArchState { get; set; } = mechanism.CreateArchState();
 

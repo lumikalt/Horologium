@@ -7,14 +7,27 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Tests for Zbc (carry-less multiplication): clmul, clmulh, clmulr.
-/// <para>
-/// clmul(a,b)  = lower 32 bits of the GF(2)[x] product of a and b.
-/// clmulh(a,b) = upper 32 bits (bits [63:32]).
-/// clmulr(a,b) = bits [62:31] of the full 64-bit product.
-/// </para>
+///     Tests for Zbc (carry-less multiplication): clmul, clmulh, clmulr.
+///     <para>
+///         clmul(a,b)  = lower 32 bits of the GF(2)[x] product of a and b.
+///         clmulh(a,b) = upper 32 bits (bits [63:32]).
+///         clmulr(a,b) = bits [62:31] of the full 64-bit product.
+///     </para>
 /// </summary>
 public class ZbcTests {
+    // ── Property tests across diverse inputs ──────────────────────────────────
+
+    public static TheoryData<uint, uint> TestPairs => new() {
+        { 0u, 0u },
+        { 0xFFFFFFFFu, 0xFFFFFFFFu },
+        { 0xAAAAAAAAu, 0x55555555u },
+        { 0x12345678u, 0x9ABCDEF0u },
+        { 0x80000000u, 0x80000000u },
+        { 1u, 0xFFFFFFFFu },
+        { 0xFFFFFFFFu, 1u },
+        { 0xDEADBEEFu, 0xCAFEBABEu },
+        { 0x0000FFFFu, 0xFFFF0000u },
+    };
     // ── Encode helpers ────────────────────────────────────────────────────────
 
     private static uint RType(int funct7, int rs2, int rs1, int funct3, int rd) =>
@@ -76,20 +89,6 @@ public class ZbcTests {
     [InlineData(0b1010u, 0b1100u, 120u)]
     public void Clmul_FixedVectors(uint a, uint b, uint expected) =>
         Assert.Equal(expected, RunInstr(a, b, Clmul(3, 1, 2)));
-
-    // ── Property tests across diverse inputs ──────────────────────────────────
-
-    public static TheoryData<uint, uint> TestPairs => new() {
-        { 0u, 0u },
-        { 0xFFFFFFFFu, 0xFFFFFFFFu },
-        { 0xAAAAAAAAu, 0x55555555u },
-        { 0x12345678u, 0x9ABCDEF0u },
-        { 0x80000000u, 0x80000000u },
-        { 1u, 0xFFFFFFFFu },
-        { 0xFFFFFFFFu, 1u },
-        { 0xDEADBEEFu, 0xCAFEBABEu },
-        { 0x0000FFFFu, 0xFFFF0000u },
-    };
 
     [Theory]
     [MemberData(nameof(TestPairs))]

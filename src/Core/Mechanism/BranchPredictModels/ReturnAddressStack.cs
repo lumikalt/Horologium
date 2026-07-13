@@ -1,34 +1,34 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// Fixed-size circular LIFO stack for function return address prediction.
-/// <para>
-/// Speculative pushes/pops are not checkpointed — a pipeline flush leaves
-/// the stack transiently wrong. It self-corrects within a call depth.
-/// </para>
+///     Fixed-size circular LIFO stack for function return address prediction.
+///     <para>
+///         Speculative pushes/pops are not checkpointed — a pipeline flush leaves
+///         the stack transiently wrong. It self-corrects within a call depth.
+///     </para>
 /// </summary>
 public sealed class ReturnAddressStack {
     private readonly ulong[] _entries;
-    private int _top;   // index of most-recently-pushed entry
     private int _count; // number of valid entries
-
-    private int Depth { get; }
+    private int _top;   // index of most-recently-pushed entry
 
     /// <summary>
-    /// Creates a new stack with the given depth.
+    ///     Creates a new stack with the given depth.
     /// </summary>
     /// <param name="depth">
-    /// Maximum number of entries.
+    ///     Maximum number of entries.
     /// </param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> ≤ 0.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth" /> ≤ 0.</exception>
     public ReturnAddressStack(int depth = 16) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(depth);
         Depth = depth;
         _entries = new ulong[depth];
     }
 
+    private int Depth { get; }
+
     /// <summary>
-    /// Push a return address onto the stack.
+    ///     Push a return address onto the stack.
     /// </summary>
     /// <param name="returnAddress">Address to push.</param>
     public void Push(ulong returnAddress) {
@@ -38,11 +38,11 @@ public sealed class ReturnAddressStack {
     }
 
     /// <summary>
-    /// Tries to pop a return address from the stack.
+    ///     Tries to pop a return address from the stack.
     /// </summary>
     /// <param name="returnAddress">Address to pop.</param>
     /// <returns>
-    /// True if a return address was popped.
+    ///     True if a return address was popped.
     /// </returns>
     public bool TryPop(out ulong returnAddress) {
         if (_count == 0) {
@@ -57,10 +57,10 @@ public sealed class ReturnAddressStack {
     }
 
     /// <summary>
-    /// Overwrites this stack's contents with a copy of <paramref name="other"/>.
-    /// Used to restore the speculative stack from a committed (architectural) shadow
-    /// on a pipeline flush, discarding wrong-path corruption. Both stacks must share
-    /// the same depth.
+    ///     Overwrites this stack's contents with a copy of <paramref name="other" />.
+    ///     Used to restore the speculative stack from a committed (architectural) shadow
+    ///     on a pipeline flush, discarding wrong-path corruption. Both stacks must share
+    ///     the same depth.
     /// </summary>
     public void CopyFrom(ReturnAddressStack other) {
         Array.Copy(other._entries, _entries, Math.Min(_entries.Length, other._entries.Length));

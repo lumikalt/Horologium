@@ -8,26 +8,26 @@ using RiscV64.Memory;
 namespace Tests.RiscV64.CoSim;
 
 /// <summary>
-/// RV64 counterpart of <see cref="Tests.RiscV32.CoSim.TortureCoSimTests"/> — runs
-/// the pre-generated RV64 torture tests under Spike lock-step co-simulation.
-/// <para>
-/// Torture tests are random RV64IMAFD instruction sequences produced by
-/// <c>TestBinaries/gen_torture.py --xlen 64</c> (seed 42, 20 tests × 300
-/// instructions). The compiled ELFs live under <c>TestBinaries/torture64/</c> and
-/// are committed alongside their <c>.S</c> sources; rebuild with
-/// <c>make torture64</c> in that directory.
-/// </para>
-/// <para>
-/// Spike is the correctness oracle — the test compares every committed
-/// instruction (PC, encoding, register write) against Spike in lock step.
-/// A <see cref="CoSimDivergenceException"/> is thrown at the first divergence.
-/// </para>
-/// <para>
-/// These tests require <c>spike</c> and <c>dtc</c> on PATH (both provided by
-/// the Nix dev-shell). Without them the tests skip gracefully; set
-/// <c>HOROLOGIUM_REQUIRE_COSIM=1</c> to turn a missing toolchain into a hard
-/// failure for CI.
-/// </para>
+///     RV64 counterpart of <see cref="Tests.RiscV32.CoSim.TortureCoSimTests" /> — runs
+///     the pre-generated RV64 torture tests under Spike lock-step co-simulation.
+///     <para>
+///         Torture tests are random RV64IMAFD instruction sequences produced by
+///         <c>TestBinaries/gen_torture.py --xlen 64</c> (seed 42, 20 tests × 300
+///         instructions). The compiled ELFs live under <c>TestBinaries/torture64/</c> and
+///         are committed alongside their <c>.S</c> sources; rebuild with
+///         <c>make torture64</c> in that directory.
+///     </para>
+///     <para>
+///         Spike is the correctness oracle — the test compares every committed
+///         instruction (PC, encoding, register write) against Spike in lock step.
+///         A <see cref="CoSimDivergenceException" /> is thrown at the first divergence.
+///     </para>
+///     <para>
+///         These tests require <c>spike</c> and <c>dtc</c> on PATH (both provided by
+///         the Nix dev-shell). Without them the tests skip gracefully; set
+///         <c>HOROLOGIUM_REQUIRE_COSIM=1</c> to turn a missing toolchain into a hard
+///         failure for CI.
+///     </para>
 /// </summary>
 public class TortureCoSimTests {
     private const string RequireEnvVar = "HOROLOGIUM_REQUIRE_COSIM";

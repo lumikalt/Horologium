@@ -1,34 +1,18 @@
 namespace Orrery.Cache;
 
 /// <summary>
-/// Hawkeye cache replacement policy (Jain &amp; Lin, ISCA 2016 — "Back to the Future:
-/// Leveraging Belady's Algorithm for Improved Cache Replacement").
-///
-/// OPTgen reconstructs Belady's optimal decisions for the observed access stream and
-/// trains a PC-indexed 3-bit saturating-counter predictor. At insertion the predictor
-/// labels the line cache-friendly (RRPV=0) or cache-averse (RRPV=7). Hits decrement
-/// RRPV toward 0. ChooseVictim selects RRPV=7, aging all lines (SRRIP-style) if none.
-///
-/// OPTgen uses a circular occupancy vector of length 8×ways per set (absolute-time
-/// indexed) to reconstruct which accesses would have been OPT hits.
+///     Hawkeye cache replacement policy (Jain &amp; Lin, ISCA 2016 — "Back to the Future:
+///     Leveraging Belady's Algorithm for Improved Cache Replacement").
+///     OPTgen reconstructs Belady's optimal decisions for the observed access stream and
+///     trains a PC-indexed 3-bit saturating-counter predictor. At insertion the predictor
+///     labels the line cache-friendly (RRPV=0) or cache-averse (RRPV=7). Hits decrement
+///     RRPV toward 0. ChooseVictim selects RRPV=7, aging all lines (SRRIP-style) if none.
+///     OPTgen uses a circular occupancy vector of length 8×ways per set (absolute-time
+///     indexed) to reconstruct which accesses would have been OPT hits.
 /// </summary>
 public sealed class HawkeyePolicy : IReplacementPolicy {
     // ── RRPV state ───────────────────────────────────────────────────────────
     private const int MaxRrpv = 7; // 3-bit RRPV (0–7)
-    private readonly int _ways;
-    private readonly int[][] _rrpv; // [set][way]
-
-    // ── OPTgen ───────────────────────────────────────────────────────────────
-    // Circular occupancy vector: each slot counts how many lines are "live"
-    // (within their liveness interval) at that absolute time step.
-    // Length = 8×ways; an interval longer than this is treated as a cold miss.
-    private readonly int _optLen;     // = 8 * ways
-    private readonly int[][] _optOcc; // [set][slot] occupancy count
-    private readonly long[] _absTime; // [set] absolute access counter
-
-    // Per-way: absolute time of last install or hit (for liveness interval computation).
-    private readonly long[][] _absLineTime; // [set][way]; -1 = no history
-    private readonly ulong[][] _lineTag;    // [set][way] tag of current occupant
 
     // ── Hawkeye predictor ────────────────────────────────────────────────────
     // 8K-entry table of 3-bit saturating counters, indexed by load PC.
@@ -38,11 +22,25 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
     private const int PredictorMax = 7; // 3-bit saturation ceiling
     private const int Threshold = 4;    // ≥4 → cache-friendly
 
+    // Per-way: absolute time of last install or hit (for liveness interval computation).
+    private readonly long[][] _absLineTime; // [set][way]; -1 = no history
+    private readonly long[] _absTime;       // [set] absolute access counter
+    private readonly ulong[][] _lineTag;    // [set][way] tag of current occupant
+
+    // ── OPTgen ───────────────────────────────────────────────────────────────
+    // Circular occupancy vector: each slot counts how many lines are "live"
+    // (within their liveness interval) at that absolute time step.
+    // Length = 8×ways; an interval longer than this is treated as a cold miss.
+    private readonly int _optLen;     // = 8 * ways
+    private readonly int[][] _optOcc; // [set][slot] occupancy count
+
     private readonly byte[] _predictor;
+    private readonly int[][] _rrpv; // [set][way]
+    private readonly int _ways;
+    private ulong _pendingPc;
 
     // ── Pending install metadata ─────────────────────────────────────────────
     private ulong _pendingTag;
-    private ulong _pendingPc;
 
     public HawkeyePolicy(int sets, int ways) {
         _ways = ways;
@@ -67,54 +65,6 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
 
         _predictor = new byte[HawkeyePolicy.PredictorSize];
         for (var i = 0; i < HawkeyePolicy.PredictorSize; i++) _predictor[i] = HawkeyePolicy.Threshold;
-    }
-
-    // ── OPTgen ───────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Records one access at absolute time <c>now</c> in the OPTgen occupancy vector.
-    /// <paramref name="prevAbsTime"/> is the last time this tag was accessed in this set
-    /// (-1 = first access). Returns true if OPT would have been a hit (the cache had
-    /// room to keep the line from prevAbsTime to now). Advances the time pointer.
-    /// </summary>
-    private bool OpTgenAccess(int set, long prevAbsTime, out long now) {
-        now = _absTime[set]++;
-        int[] occ = _optOcc[set];
-
-        // Reset the slot being claimed for this time step.
-        occ[now % _optLen] = 0;
-
-        if (prevAbsTime < 0) return false; // cold access
-        long dist = now - prevAbsTime;
-        if (dist >= _optLen) return false; // interval too long → stale
-
-        // Check whether the cache had room to hold the line during this interval.
-        var len = (int)dist;
-        var maxOcc = 0;
-        for (var i = 0; i < len; i++) {
-            var slot = (int)((prevAbsTime + i) % _optLen);
-            if (occ[slot] > maxOcc) maxOcc = occ[slot];
-        }
-
-        bool hit = maxOcc < _ways;
-
-        if (hit)
-            // Line stayed live: mark its occupancy for each slot in the interval.
-            for (var i = 0; i < len; i++)
-                occ[(int)((prevAbsTime + i) % _optLen)]++;
-        return hit;
-    }
-
-    // ── Predictor training ───────────────────────────────────────────────────
-
-    private void Train(ulong pc, bool optHit) {
-        var idx = (int)(pc & HawkeyePolicy.PredictorMask);
-        if (optHit) {
-            if (_predictor[idx] < HawkeyePolicy.PredictorMax) _predictor[idx]++;
-        }
-        else {
-            if (_predictor[idx] > 0) _predictor[idx]--;
-        }
     }
 
     // ── IReplacementPolicy ───────────────────────────────────────────────────
@@ -170,4 +120,52 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
     }
 
     public int GetMetadata(int set, int way) => _rrpv[set][way];
+
+    // ── OPTgen ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    ///     Records one access at absolute time <c>now</c> in the OPTgen occupancy vector.
+    ///     <paramref name="prevAbsTime" /> is the last time this tag was accessed in this set
+    ///     (-1 = first access). Returns true if OPT would have been a hit (the cache had
+    ///     room to keep the line from prevAbsTime to now). Advances the time pointer.
+    /// </summary>
+    private bool OpTgenAccess(int set, long prevAbsTime, out long now) {
+        now = _absTime[set]++;
+        int[] occ = _optOcc[set];
+
+        // Reset the slot being claimed for this time step.
+        occ[now % _optLen] = 0;
+
+        if (prevAbsTime < 0) return false; // cold access
+        long dist = now - prevAbsTime;
+        if (dist >= _optLen) return false; // interval too long → stale
+
+        // Check whether the cache had room to hold the line during this interval.
+        var len = (int)dist;
+        var maxOcc = 0;
+        for (var i = 0; i < len; i++) {
+            var slot = (int)((prevAbsTime + i) % _optLen);
+            if (occ[slot] > maxOcc) maxOcc = occ[slot];
+        }
+
+        bool hit = maxOcc < _ways;
+
+        if (hit)
+            // Line stayed live: mark its occupancy for each slot in the interval.
+            for (var i = 0; i < len; i++)
+                occ[(int)((prevAbsTime + i) % _optLen)]++;
+        return hit;
+    }
+
+    // ── Predictor training ───────────────────────────────────────────────────
+
+    private void Train(ulong pc, bool optHit) {
+        var idx = (int)(pc & HawkeyePolicy.PredictorMask);
+        if (optHit) {
+            if (_predictor[idx] < HawkeyePolicy.PredictorMax) _predictor[idx]++;
+        }
+        else {
+            if (_predictor[idx] > 0) _predictor[idx]--;
+        }
+    }
 }

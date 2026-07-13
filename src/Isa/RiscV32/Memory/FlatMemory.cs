@@ -4,33 +4,29 @@ using Mechanism;
 namespace RiscV32.Memory;
 
 /// <summary>
-/// A simple flat byte-array memory. Sufficient for single-core simulation
-/// without caches or memory-mapped I/O. Little-endian.
-/// 
-/// <c> baseAddress </c> allows the backing array to start at an
-/// address other than 0 (e.g., 0x80000000 for Spike-compatible DRAM layout),
-/// so ELF images linked at high addresses do not require a multi-GB allocation.
-/// All public addresses are virtual; the implementation subtracts the base
-/// before indexing into the array.
+///     A simple flat byte-array memory. Sufficient for single-core simulation
+///     without caches or memory-mapped I/O. Little-endian.
+///     <c> baseAddress </c> allows the backing array to start at an
+///     address other than 0 (e.g., 0x80000000 for Spike-compatible DRAM layout),
+///     so ELF images linked at high addresses do not require a multi-GB allocation.
+///     All public addresses are virtual; the implementation subtracts the base
+///     before indexing into the array.
 /// </summary>
 public sealed class FlatMemory : ISnapshotableMemory {
     private readonly byte[] _data;
-    private readonly ulong _base;
-
-    public ulong BaseAddress => _base;
-    public int SizeBytes => _data.Length;
 
     public FlatMemory(int sizeBytes, ulong baseAddress = 0) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sizeBytes);
         _data = new byte[sizeBytes];
-        _base = baseAddress;
+        BaseAddress = baseAddress;
     }
+
+    public ulong BaseAddress { get; }
+
+    public int SizeBytes => _data.Length;
 
     public void CopyTo(Span<byte> dest) => _data.AsSpan().CopyTo(dest);
     public void LoadFrom(ReadOnlySpan<byte> data) => data.CopyTo(_data);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int Offset(ulong address) => (int)(address - _base);
 
     public void Load(ulong address, ReadOnlySpan<byte> data) {
         Span<byte> span = _data.AsSpan(Offset(address), data.Length);
@@ -61,6 +57,9 @@ public sealed class FlatMemory : ISnapshotableMemory {
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int Offset(ulong address) => (int)(address - BaseAddress);
+
     private ulong ReadSlow(ulong address, int bytes) {
         ulong result = 0;
         for (var i = 0; i < bytes; i++) result |= (ulong)_data[Offset(address) + i] << (i * 8);
@@ -73,9 +72,9 @@ public sealed class FlatMemory : ISnapshotableMemory {
     }
 
     private void ValidateAccess(ulong address, int bytes) {
-        if (address < _base || address - _base + (ulong)bytes > (ulong)_data.Length)
+        if (address < BaseAddress || address - BaseAddress + (ulong)bytes > (ulong)_data.Length)
             throw new AccessViolationException(
-                $"Memory access out of bounds: address=0x{address:X8}, bytes={bytes}, base=0x{_base:X8}, size={_data.Length}"
+                $"Memory access out of bounds: address=0x{address:X8}, bytes={bytes}, base=0x{BaseAddress:X8}, size={_data.Length}"
             );
     }
 }

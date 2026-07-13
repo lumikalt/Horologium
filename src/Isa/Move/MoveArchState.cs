@@ -4,18 +4,17 @@ using Move.Registers;
 namespace Move;
 
 public sealed class MoveArchState : IArchState {
+    private readonly MoveRegisterFile _regs;
     public readonly ushort[] R = new ushort[8];
+    public ushort AluIn1;
 
     public byte AluOp;
-    public ushort AluIn1;
     public ushort AluOut;
-
-    public ushort MemAddr;
-    public ushort MemOut;
 
     public ushort BrCond;
 
-    private readonly MoveRegisterFile _regs;
+    public ushort MemAddr;
+    public ushort MemOut;
 
     public MoveArchState() => _regs = new MoveRegisterFile(this);
 

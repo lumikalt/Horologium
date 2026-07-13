@@ -5,8 +5,8 @@ using RiscV32.Config;
 namespace RiscV32.Analysis;
 
 /// <summary>
-/// A named hardware configuration for use in a sweep.
-/// Serialises to / from JSON so sweeps can be described in files rather than code.
+///     A named hardware configuration for use in a sweep.
+///     Serialises to / from JSON so sweeps can be described in files rather than code.
 /// </summary>
 public sealed record NamedConfig(string Name, TrainConfig Config) {
     private static readonly JsonSerializerOptions Options = new() {

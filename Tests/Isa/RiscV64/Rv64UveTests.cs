@@ -7,20 +7,20 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// UVE-on-RV64 GPR-write width coverage. so.v.mvvs, so.a.adde (integer path), and so.c.getvl/setvl
-/// all move a 32-bit UVE lane/reduction/VL value into a destination GPR; Rv32Executor.Uve.cs does
-/// this via an implicit uint-&gt;ulong widen, i.e. zero-extension. Neither the UVE2 dissertation
-/// (~/dl/uve2.pdf — no XLEN/RV64 discussion at all) nor SPEC_NOTES.md say anything about RV64
-/// GPR-write width. The AnaBSF Spike fork's so_v_mvvs.h settles the one case it implements:
-/// WRITE_REG(destReg, value) with value typed uint32_t widens via an unsigned (zero-extending)
-/// conversion to Spike's 64-bit reg_t. so.c.getvl/setvl aren't implemented in that Spike fork at
-/// all, but the dissertation frames them as CSR-style (VLEN CSR read/write), and the Zicsr
-/// convention is that a CSR narrower than XLEN zero-extends into rd — same direction as the Spike
-/// evidence. so.a.adde's Spike implementation writes into the UVE stream-register bank rather than
-/// the integer file at all, so it doesn't bear on GPR width, but there's no evidence pointing away
-/// from zero-extension either. All three read the same way, so this locks in the existing
-/// zero-extension behaviour (inherited unmodified from Rv32Executor — no Rv64Executor override
-/// needed) rather than changing it.
+///     UVE-on-RV64 GPR-write width coverage. so.v.mvvs, so.a.adde (integer path), and so.c.getvl/setvl
+///     all move a 32-bit UVE lane/reduction/VL value into a destination GPR; Rv32Executor.Uve.cs does
+///     this via an implicit uint-&gt;ulong widen, i.e. zero-extension. Neither the UVE2 dissertation
+///     (~/dl/uve2.pdf — no XLEN/RV64 discussion at all) nor SPEC_NOTES.md say anything about RV64
+///     GPR-write width. The AnaBSF Spike fork's so_v_mvvs.h settles the one case it implements:
+///     WRITE_REG(destReg, value) with value typed uint32_t widens via an unsigned (zero-extending)
+///     conversion to Spike's 64-bit reg_t. so.c.getvl/setvl aren't implemented in that Spike fork at
+///     all, but the dissertation frames them as CSR-style (VLEN CSR read/write), and the Zicsr
+///     convention is that a CSR narrower than XLEN zero-extends into rd — same direction as the Spike
+///     evidence. so.a.adde's Spike implementation writes into the UVE stream-register bank rather than
+///     the integer file at all, so it doesn't bear on GPR width, but there's no evidence pointing away
+///     from zero-extension either. All three read the same way, so this locks in the existing
+///     zero-extension behaviour (inherited unmodified from Rv32Executor — no Rv64Executor override
+///     needed) rather than changing it.
 /// </summary>
 public class Rv64UveTests {
     private static ExecuteResult Exec(RvOp payload, Rv64ArchState state) {

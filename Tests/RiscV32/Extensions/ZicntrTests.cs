@@ -7,12 +7,12 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Tests for Zicntr (hardware performance counters):
-///   cycle/cycleh   (0xC00/0xC80) — shadow of mcycle/mcycleh
-///   time/timeh     (0xC01/0xC81) — no external CLINT; reads as 0
-///   instret/instreth (0xC02/0xC82) — shadow of minstret/minstreth
-///   mcycle/mcycleh   (0xB00/0xB80) — machine-level cycle counter
-///   minstret/minstreth (0xB02/0xB82) — machine-level retired-instruction counter
+///     Tests for Zicntr (hardware performance counters):
+///     cycle/cycleh   (0xC00/0xC80) — shadow of mcycle/mcycleh
+///     time/timeh     (0xC01/0xC81) — no external CLINT; reads as 0
+///     instret/instreth (0xC02/0xC82) — shadow of minstret/minstreth
+///     mcycle/mcycleh   (0xB00/0xB80) — machine-level cycle counter
+///     minstret/minstreth (0xB02/0xB82) — machine-level retired-instruction counter
 /// </summary>
 public class ZicntrTests {
     private const ulong CodeBase = 0x1000u;

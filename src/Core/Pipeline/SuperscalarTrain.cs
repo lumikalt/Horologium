@@ -12,28 +12,19 @@ namespace Pipeline;
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 
 /// <summary>
-/// Superscalar in-order Train: issues up to <c>issueWidth</c> instructions per
-/// cycle, executing them sequentially so intra-group RAW dependencies resolve
-/// naturally without any hazard detection logic.
-/// <para>
-/// There is no speculation across branches — the issue group stops at any
-/// branch or jump, paying a "group-cutoff" penalty instead of a flush penalty.
-/// This makes it straightforward to compare against <see cref="OooeTrain"/>:
-/// same issue width, same branch predictor absence, purely in-order semantics.
-/// </para>
+///     Superscalar in-order Train: issues up to <c>issueWidth</c> instructions per
+///     cycle, executing them sequentially so intra-group RAW dependencies resolve
+///     naturally without any hazard detection logic.
+///     <para>
+///         There is no speculation across branches — the issue group stops at any
+///         branch or jump, paying a "group-cutoff" penalty instead of a flush penalty.
+///         This makes it straightforward to compare against <see cref="OooeTrain" />:
+///         same issue width, same branch predictor absence, purely in-order semantics.
+///     </para>
 /// </summary>
 public sealed class SuperscalarTrain : ISteppableTrain {
-    private readonly Train _train;
     private readonly SuperscalarCore _core;
-
-    public IArchState ArchState => _core.ArchState;
-
-    public SetAssociativeCache? ICache => _core.ILayers.Cache;
-    public SetAssociativeCache? DCache => _core.DLayers.Cache;
-    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
-    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
-    public Tlb? ITlb => _core.ILayers.Tlb;
-    public Tlb? DTlb => _core.DLayers.Tlb;
+    private readonly Train _train;
 
     public SuperscalarTrain(
         IMechanism mechanism,
@@ -68,10 +59,20 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         _train.Build();
     }
 
+    public SetAssociativeCache? ICache => _core.ILayers.Cache;
+    public SetAssociativeCache? DCache => _core.DLayers.Cache;
+    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
+    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
+    public Tlb? ITlb => _core.ILayers.Tlb;
+    public Tlb? DTlb => _core.DLayers.Tlb;
+
+    public bool IsIdle => _train.IsIdle;
+
+    public IArchState ArchState => _core.ArchState;
+
     public RevolutionResult Run(long maxTicks = 1_000_000, long warmupTicks = 0, long snapshotInterval = 0) =>
         _train.Run(maxTicks, warmupTicks, snapshotInterval);
 
-    public bool IsIdle => _train.IsIdle;
     public void BeginStepping() => _train.BeginStepping();
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
@@ -80,14 +81,14 @@ public sealed class SuperscalarTrain : ISteppableTrain {
 // ── Pipeline core Gear ─────────────────────────────────────────────────────────
 
 /// <summary>
-/// The superscalar core Gear. Each tick it issues up to <c>issueWidth</c>
-/// instructions in program order.
-/// <para>
-/// Stalls are counted as cycles where the group ran shorter than the issue
-/// width (due to a branch, halt, or memory fault cutting the group short).
-/// Cache miss penalties are added as extra cycles after each issue group.
-/// branch_misses is always zero because there is no speculative fetch.
-/// </para>
+///     The superscalar core Gear. Each tick it issues up to <c>issueWidth</c>
+///     instructions in program order.
+///     <para>
+///         Stalls are counted as cycles where the group ran shorter than the issue
+///         width (due to a branch, halt, or memory fault cutting the group short).
+///         Cache miss penalties are added as extra cycles after each issue group.
+///         branch_misses is always zero because there is no speculative fetch.
+///     </para>
 /// </summary>
 internal sealed class SuperscalarCore(
     string name,
@@ -99,30 +100,32 @@ internal sealed class SuperscalarCore(
     ulong entryPoint,
     int issueWidth
 ) : Gear(name, parent, esc) {
-    public MemoryLayers ILayers { get; } = iLayers;
-    public MemoryLayers DLayers { get; } = dLayers;
-
-    private Counter _cyclesCounter = null!;
-    private Counter _retiredCounter = null!;
-    private Counter _stallsCounter = null!;
+    private bool _anyCache;
     [UsedImplicitly] private Counter _branchMissCounter = null!;
     private Counter? _cacheMissStallsCounter;
-    private Counter? _icacheHitsCounter, _icacheMissesCounter;
-    private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
-    private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
-    private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
-    private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
-    private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
-    private Counter? _itlbHitsCounter, _itlbMissesCounter;
-    private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
 
-    private bool _anyCache;
+    private Counter _cyclesCounter = null!;
+    private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
+    private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
     private IFetchTranslator? _fetchTranslator;
+    private Counter? _icacheHitsCounter, _icacheMissesCounter;
+    private Counter? _itlbHitsCounter, _itlbMissesCounter;
+    private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
+    private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
+    private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
+    private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
+    private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
 
     // Delta tracking for hit/miss counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
-    private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
+    private Counter _retiredCounter = null!;
+
+    // Cached to avoid a fresh Action allocation per simulated cycle.
+    private Action? _runCycle;
+    private Counter _stallsCounter = null!;
+    public MemoryLayers ILayers { get; } = iLayers;
+    public MemoryLayers DLayers { get; } = dLayers;
 
     public IArchState ArchState { get; } = mechanism.CreateArchState();
 
@@ -199,9 +202,6 @@ internal sealed class SuperscalarCore(
         ArchState.Reset();
         ArchState.Pc = entryPoint;
     }
-
-    // Cached to avoid a fresh Action allocation per simulated cycle.
-    private Action? _runCycle;
 
     public override void Wind() {
         ArchState.Pc = entryPoint;

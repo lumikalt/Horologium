@@ -1,17 +1,17 @@
 namespace Orrery.Cache;
 
 /// <summary>
-/// CLOCK (Second-Chance) replacement policy. Each way holds a single reference bit.
-/// On eviction the hand sweeps forward: if a way's bit is 1 it is cleared (second chance)
-/// and the hand advances; the first way encountered with bit 0 is the victim. On hit or
-/// install the bit is set to 1. The hand advances past the installed way so the next
-/// ChooseVictim starts from the next position.
-/// GetMetadata returns 0 for referenced (recently used) and 1 for unreferenced (candidate).
+///     CLOCK (Second-Chance) replacement policy. Each way holds a single reference bit.
+///     On eviction the hand sweeps forward: if a way's bit is 1 it is cleared (second chance)
+///     and the hand advances; the first way encountered with bit 0 is the victim. On hit or
+///     install the bit is set to 1. The hand advances past the installed way so the next
+///     ChooseVictim starts from the next position.
+///     GetMetadata returns 0 for referenced (recently used) and 1 for unreferenced (candidate).
 /// </summary>
 public sealed class ClockPolicy : IReplacementPolicy {
-    private readonly int _ways;
-    private readonly bool[][] _ref; // reference bits per [set][way]
     private readonly int[] _hand;   // per-set clock hand
+    private readonly bool[][] _ref; // reference bits per [set][way]
+    private readonly int _ways;
 
     public ClockPolicy(int sets, int ways) {
         _ways = ways;

@@ -7,11 +7,11 @@ using Pipeline.Ooo;
 namespace Pipeline.Spec;
 
 /// <summary>
-/// Structural description of a pipeline topology.
-/// Use one of the concrete subtypes: <see cref="SingleCycleSpec"/>,
-/// <see cref="FiveStageSpec"/>, <see cref="SuperscalarSpec"/>,
-/// or <see cref="OutOfOrderSpec"/>. Each carries only the parameters
-/// meaningful to its variant — no OoO fields on a single-cycle spec.
+///     Structural description of a pipeline topology.
+///     Use one of the concrete subtypes: <see cref="SingleCycleSpec" />,
+///     <see cref="FiveStageSpec" />, <see cref="SuperscalarSpec" />,
+///     or <see cref="OutOfOrderSpec" />. Each carries only the parameters
+///     meaningful to its variant — no OoO fields on a single-cycle spec.
 /// </summary>
 public abstract record PipelineSpec {
     public abstract ISteppableTrain Build(
@@ -90,7 +90,7 @@ public sealed record FiveStageSpec(
     );
 }
 
-/// <summary>Superscalar in-order: issues up to <see cref="IssueWidth"/> instructions per cycle.</summary>
+/// <summary>Superscalar in-order: issues up to <see cref="IssueWidth" /> instructions per cycle.</summary>
 public sealed record SuperscalarSpec(
     int IssueWidth = 2
 ) : PipelineSpec {
@@ -111,15 +111,15 @@ public sealed record SuperscalarSpec(
 }
 
 /// <summary>
-/// Simultaneous multi-threading: N hart contexts share a single issue window.
-/// <para>
-/// The base <see cref="Build(IMechanism,IMemory,ulong,MemoryConfig?,MemoryConfig?)"/> satisfies the
-/// <see cref="PipelineSpec"/> contract by building a 1-hart SMT. The <c>MemoryConfig</c> parameters
-/// are not forwarded — <see cref="SmtTrain"/> expects pre-configured <see cref="IMemory"/> objects
-/// (callers wrap caches into the memory before passing). For multi-hart construction use
-/// <see cref="Build(IMechanism[],IMemory[],ulong[])"/> which returns the concrete
-/// <see cref="SmtTrain"/> so callers can access per-hart state via <c>StateOf(i)</c>.
-/// </para>
+///     Simultaneous multi-threading: N hart contexts share a single issue window.
+///     <para>
+///         The base <see cref="Build(IMechanism,IMemory,ulong,MemoryConfig?,MemoryConfig?)" /> satisfies the
+///         <see cref="PipelineSpec" /> contract by building a 1-hart SMT. The <c>MemoryConfig</c> parameters
+///         are not forwarded — <see cref="SmtTrain" /> expects pre-configured <see cref="IMemory" /> objects
+///         (callers wrap caches into the memory before passing). For multi-hart construction use
+///         <see cref="Build(IMechanism[],IMemory[],ulong[])" /> which returns the concrete
+///         <see cref="SmtTrain" /> so callers can access per-hart state via <c>StateOf(i)</c>.
+///     </para>
 /// </summary>
 public sealed record SmtSpec(
     int IssueWidth = 2

@@ -8,20 +8,12 @@ using Orrery.Tree;
 namespace Pipeline.Stages;
 
 public sealed class WritebackStage : Gear {
-    private readonly IArchState _state;
-    private readonly ITrapController _trap;
     private readonly ICommitObserver? _commitObserver;
     private readonly RdipPrefetcher? _rdip;
+    private readonly IArchState _state;
+    private readonly ITrapController _trap;
 
     private MemWbLatch _current = MemWbLatch.Bubble;
-
-    public InArbor<MemWbLatch> Input { get; }
-
-    public bool Halted { get; private set; }
-    public (ulong Value, bool HasValue) TrapRedirect { get; private set; }
-    public long RetiredCount { get; private set; }
-
-    internal Histogram? OpcodeHistogram { get; set; }
 
     public WritebackStage(
         string name,
@@ -41,6 +33,14 @@ public sealed class WritebackStage : Gear {
             OnReceive = latch => _current = latch,
         };
     }
+
+    public InArbor<MemWbLatch> Input { get; }
+
+    public bool Halted { get; private set; }
+    public (ulong Value, bool HasValue) TrapRedirect { get; private set; }
+    public long RetiredCount { get; private set; }
+
+    internal Histogram? OpcodeHistogram { get; set; }
 
     internal void Inject(MemWbLatch latch) => _current = latch;
 

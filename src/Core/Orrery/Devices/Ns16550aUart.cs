@@ -3,24 +3,24 @@ using Mechanism;
 namespace Orrery.Devices;
 
 /// <summary>
-/// Memory-mapped UART modelled after the ns16550a (National Semiconductor 16550A),
-/// as used by the QEMU virt machine. This is the console device at 0x10000000 that
-/// OpenSBI and the Linux kernel use for early boot output.
-/// <para>
-/// Register offsets (base = device base address, stride = 1 byte at the given index
-/// assuming no DLAB unless noted):
-/// 0x00 RHR/THR  — receive holding / transmit holding register; DLAB=1: DLL (ignored)
-/// 0x01 IER      — interrupt enable register; DLAB=1: DLM (ignored)
-/// 0x02 IIR/FCR  — interrupt identification (read) / FIFO control (write)
-/// 0x03 LCR      — line control register (writable; DLAB bit ignored)
-/// 0x04 MCR      — modem control register (writable; ignored)
-/// 0x05 LSR      — line status register: THRE (bit 5) and TEMT (bit 6) always set
-/// 0x06 MSR      — modem status register (reads 0)
-/// 0x07 SCR      — scratch register (readable/writable)
-/// </para>
-/// The transmitter is always ready (LSR.THRE=1, LSR.TEMT=1).
-/// TX bytes flush immediately to <see cref="Output"/>.
-/// RX bytes are supplied via <see cref="Enqueue"/>; LSR.DR (bit 0) reflects queue depth.
+///     Memory-mapped UART modelled after the ns16550a (National Semiconductor 16550A),
+///     as used by the QEMU virt machine. This is the console device at 0x10000000 that
+///     OpenSBI and the Linux kernel use for early boot output.
+///     <para>
+///         Register offsets (base = device base address, stride = 1 byte at the given index
+///         assuming no DLAB unless noted):
+///         0x00 RHR/THR  — receive holding / transmit holding register; DLAB=1: DLL (ignored)
+///         0x01 IER      — interrupt enable register; DLAB=1: DLM (ignored)
+///         0x02 IIR/FCR  — interrupt identification (read) / FIFO control (write)
+///         0x03 LCR      — line control register (writable; DLAB bit ignored)
+///         0x04 MCR      — modem control register (writable; ignored)
+///         0x05 LSR      — line status register: THRE (bit 5) and TEMT (bit 6) always set
+///         0x06 MSR      — modem status register (reads 0)
+///         0x07 SCR      — scratch register (readable/writable)
+///     </para>
+///     The transmitter is always ready (LSR.THRE=1, LSR.TEMT=1).
+///     TX bytes flush immediately to <see cref="Output" />.
+///     RX bytes are supplied via <see cref="Enqueue" />; LSR.DR (bit 0) reflects queue depth.
 /// </summary>
 public sealed class Ns16550AUart(TextWriter output) : IMemory {
     public const ulong DefaultBase = 0x10000000UL;
@@ -37,9 +37,6 @@ public sealed class Ns16550AUart(TextWriter output) : IMemory {
     private uint _scr; // scratch
 
     public TextWriter Output { get; } = output;
-
-    /// <summary>Enqueues a byte to be returned by the next RHR read.</summary>
-    public void Enqueue(byte b) => _rx.Enqueue(b);
 
     public ulong Read(ulong address, int bytes) =>
         (address & 0xFF) switch {
@@ -67,4 +64,7 @@ public sealed class Ns16550AUart(TextWriter output) : IMemory {
     }
 
     public void Load(ulong address, ReadOnlySpan<byte> data) { }
+
+    /// <summary>Enqueues a byte to be returned by the next RHR read.</summary>
+    public void Enqueue(byte b) => _rx.Enqueue(b);
 }

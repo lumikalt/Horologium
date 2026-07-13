@@ -1,15 +1,15 @@
 namespace Orrery.Cache;
 
 /// <summary>
-/// MRU (Most-Recently-Used) replacement policy. The way most recently hit is chosen
-/// as the eviction candidate; newly installed lines are placed at the LRU position so
-/// they survive until first use. Useful for sequential-scan workloads where the
-/// just-accessed block is unlikely to be reused soon.
-/// Age convention: 0 = MRU (next eviction candidate), ways−1 = oldest (most protected).
+///     MRU (Most-Recently-Used) replacement policy. The way most recently hit is chosen
+///     as the eviction candidate; newly installed lines are placed at the LRU position so
+///     they survive until first use. Useful for sequential-scan workloads where the
+///     just-accessed block is unlikely to be reused soon.
+///     Age convention: 0 = MRU (next eviction candidate), ways−1 = oldest (most protected).
 /// </summary>
 public sealed class MruPolicy : IReplacementPolicy {
-    private readonly int _ways;
     private readonly int[][] _age;
+    private readonly int _ways;
 
     public MruPolicy(int sets, int ways) {
         _ways = ways;

@@ -5,33 +5,12 @@ using Mechanism;
 namespace RiscV32.Memory;
 
 /// <summary>
-/// An <see cref="IWorkload"/> that loads a bare-metal ELF32 RISC-V binary.
-/// Entry point and minimum memory size are derived from the ELF headers so
-/// callers need only supply the file path.
+///     An <see cref="IWorkload" /> that loads a bare-metal ELF32 RISC-V binary.
+///     Entry point and minimum memory size are derived from the ELF headers so
+///     callers need only supply the file path.
 /// </summary>
 public sealed class Rv32ElfWorkload : IWorkload {
     private readonly byte[] _elfBytes;
-
-    public ulong EntryPoint { get; }
-    public int MemorySize { get; }
-    public int CodeSize => _elfBytes.Length;
-
-    /// <summary>
-    /// The physical base address of the first PT_LOAD segment, e.g. 0x80000000
-    /// for Spike-compatible ELFs. Pass this to FlatMemory's constructor so that
-    /// the backing array covers only the actual code/data range.
-    /// </summary>
-    public ulong BaseAddress { get; }
-
-    /// <summary>The HTIF <c>tohost</c> exit register address if the ELF exports it; null otherwise.</summary>
-    public ulong? HtifTohostAddress { get; }
-
-    /// <summary>
-    /// Address just past the last PT_LOAD segment (i.e. the initial program break).
-    /// Pass to <see cref="RiscV32.Syscalls.LinuxSyscallEmulator"/> as <c>initialBreak</c>
-    /// so SYS_brk starts from the correct address.
-    /// </summary>
-    public ulong InitialBreak { get; }
 
     public Rv32ElfWorkload(string path, int? memorySizeBytes = null)
         : this(File.ReadAllBytes(path), memorySizeBytes) { }
@@ -45,18 +24,39 @@ public sealed class Rv32ElfWorkload : IWorkload {
         InitialBreak = ComputeInitialBreak(elfBytes);
     }
 
+    /// <summary>
+    ///     Address just past the last PT_LOAD segment (i.e. the initial program break).
+    ///     Pass to <see cref="RiscV32.Syscalls.LinuxSyscallEmulator" /> as <c>initialBreak</c>
+    ///     so SYS_brk starts from the correct address.
+    /// </summary>
+    public ulong InitialBreak { get; }
+
+    public ulong EntryPoint { get; }
+    public int MemorySize { get; }
+    public int CodeSize => _elfBytes.Length;
+
+    /// <summary>
+    ///     The physical base address of the first PT_LOAD segment, e.g. 0x80000000
+    ///     for Spike-compatible ELFs. Pass this to FlatMemory's constructor so that
+    ///     the backing array covers only the actual code/data range.
+    /// </summary>
+    public ulong BaseAddress { get; }
+
+    /// <summary>The HTIF <c>tohost</c> exit register address if the ELF exports it; null otherwise.</summary>
+    public ulong? HtifTohostAddress { get; }
+
     public void Load(IMemory memory) => Rv32ElfLoader.Load(memory, _elfBytes);
 
     /// <summary>
-    /// Wraps <paramref name="memory"/> with <see cref="HtifMemory"/> when the ELF contains
-    /// a <c>tohost</c> symbol, executing fesvr magic-mem syscalls and ACK-ing fromhost.
-    /// <paramref name="output"/> receives SYS_write output; when null, output is discarded.
+    ///     Wraps <paramref name="memory" /> with <see cref="HtifMemory" /> when the ELF contains
+    ///     a <c>tohost</c> symbol, executing fesvr magic-mem syscalls and ACK-ing fromhost.
+    ///     <paramref name="output" /> receives SYS_write output; when null, output is discarded.
     /// </summary>
     public IMemory WrapMemory(IMemory memory, TextWriter? output = null) =>
         TryFindSymbol("tohost", out ulong tohost) ? new HtifMemory(memory, tohost, output) : memory;
 
     /// <summary>
-    /// Returns the virtual address of a named ELF symbol, or throws if not found.
+    ///     Returns the virtual address of a named ELF symbol, or throws if not found.
     /// </summary>
     public ulong FindSymbol(string name) {
         ReadOnlySpan<byte> elf = _elfBytes;
@@ -91,7 +91,7 @@ public sealed class Rv32ElfWorkload : IWorkload {
         throw new KeyNotFoundException($"ELF symbol '{name}' not found");
     }
 
-    /// <summary>Like <see cref="FindSymbol"/> but returns false instead of throwing.</summary>
+    /// <summary>Like <see cref="FindSymbol" /> but returns false instead of throwing.</summary>
     public bool TryFindSymbol(string name, out ulong address) {
         try {
             address = FindSymbol(name);

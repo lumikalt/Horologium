@@ -1,9 +1,9 @@
 namespace Orrery.Cache;
 
 /// <summary>
-/// Standard LRU replacement. Age 0 = MRU; higher age = older. Victim is the way with the
-/// highest age. Extracted from the original <see cref="SetAssociativeCache"/> logic so the
-/// pluggable <see cref="IReplacementPolicy"/> interface preserves identical default behaviour.
+///     Standard LRU replacement. Age 0 = MRU; higher age = older. Victim is the way with the
+///     highest age. Extracted from the original <see cref="SetAssociativeCache" /> logic so the
+///     pluggable <see cref="IReplacementPolicy" /> interface preserves identical default behaviour.
 /// </summary>
 public sealed class LruPolicy : IReplacementPolicy {
     private readonly int[][] _age;

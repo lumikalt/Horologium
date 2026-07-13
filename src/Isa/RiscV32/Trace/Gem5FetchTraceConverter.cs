@@ -3,34 +3,51 @@ using System.Text;
 namespace RiscV32.Trace;
 
 /// <summary>
-/// Translates a Horologium HELF elastic trace to the gem5 instruction-fetch
-/// trace in the <c>Packet</c>/<c>PacketHeader</c> Protobuf format
-/// (<c>packet.proto</c>). This is the <c>instTraceFile</c> that gem5 TraceCPU
-/// requires alongside the elastic data trace (<c>dataTraceFile</c>).
-/// <para>
-/// File framing: identical to the elastic data trace — 4-byte LE magic
-/// <c>0x356d6567</c> followed by varint32-length-prefixed proto messages.
-/// </para>
-/// <para>
-/// <c>PacketHeader</c> field mapping:
-/// <list type="table">
-///   <item><term>obj_id    (1, string)</term><description>"gem5.fetch_trace"</description></item>
-///   <item><term>tick_freq (3, uint64)</term><description>HELF TickFreq or 1 GHz fallback</description></item>
-/// </list>
-/// </para>
-/// <para>
-/// <c>Packet</c> field mapping (one per committed instruction):
-/// <list type="table">
-///   <item><term>tick  (1, uint64)</term><description>monotonically increasing; spaced by <c>ticksPerInstr</c></description></item>
-///   <item><term>cmd   (2, uint32)</term><description>1 = MemCmd::ReadReq (instruction fetch)</description></item>
-///   <item><term>addr  (3, uint64)</term><description>HELF pc (no V→P translation)</description></item>
-///   <item><term>size  (4, uint32)</term><description>4 (RV32 fixed-width fetch)</description></item>
-///   <item><term>flags (5, uint32)</term><description>0x100 = Request::INST_FETCH</description></item>
-///   <item><term>pc    (7, uint64)</term><description>HELF pc (same as addr)</description></item>
-/// </list>
-/// Note: this is an approximation — one 4-byte ReadReq per committed instruction,
-/// not the cache-line-granular wrong-path fetches gem5's O3 CPU would generate.
-/// </para>
+///     Translates a Horologium HELF elastic trace to the gem5 instruction-fetch
+///     trace in the <c>Packet</c>/<c>PacketHeader</c> Protobuf format
+///     (<c>packet.proto</c>). This is the <c>instTraceFile</c> that gem5 TraceCPU
+///     requires alongside the elastic data trace (<c>dataTraceFile</c>).
+///     <para>
+///         File framing: identical to the elastic data trace — 4-byte LE magic
+///         <c>0x356d6567</c> followed by varint32-length-prefixed proto messages.
+///     </para>
+///     <para>
+///         <c>PacketHeader</c> field mapping:
+///         <list type="table">
+///             <item>
+///                 <term>obj_id    (1, string)</term><description>"gem5.fetch_trace"</description>
+///             </item>
+///             <item>
+///                 <term>tick_freq (3, uint64)</term><description>HELF TickFreq or 1 GHz fallback</description>
+///             </item>
+///         </list>
+///     </para>
+///     <para>
+///         <c>Packet</c> field mapping (one per committed instruction):
+///         <list type="table">
+///             <item>
+///                 <term>tick  (1, uint64)</term>
+///                 <description>monotonically increasing; spaced by <c>ticksPerInstr</c></description>
+///             </item>
+///             <item>
+///                 <term>cmd   (2, uint32)</term><description>1 = MemCmd::ReadReq (instruction fetch)</description>
+///             </item>
+///             <item>
+///                 <term>addr  (3, uint64)</term><description>HELF pc (no V→P translation)</description>
+///             </item>
+///             <item>
+///                 <term>size  (4, uint32)</term><description>4 (RV32 fixed-width fetch)</description>
+///             </item>
+///             <item>
+///                 <term>flags (5, uint32)</term><description>0x100 = Request::INST_FETCH</description>
+///             </item>
+///             <item>
+///                 <term>pc    (7, uint64)</term><description>HELF pc (same as addr)</description>
+///             </item>
+///         </list>
+///         Note: this is an approximation — one 4-byte ReadReq per committed instruction,
+///         not the cache-line-granular wrong-path fetches gem5's O3 CPU would generate.
+///     </para>
 /// </summary>
 public static class Gem5FetchTraceConverter {
     private const uint MagicNumber = 0x356d6567;
@@ -39,17 +56,17 @@ public static class Gem5FetchTraceConverter {
     private const uint FetchBytes = 4;        // RV32 fixed-width
 
     /// <summary>
-    /// Converts a HELF stream to a gem5 packet-proto fetch-trace stream.
-    /// Both streams are read/written sequentially; the caller owns both.
+    ///     Converts a HELF stream to a gem5 packet-proto fetch-trace stream.
+    ///     Both streams are read/written sequentially; the caller owns both.
     /// </summary>
     /// <param name="input">HELF elastic trace stream to read from.</param>
     /// <param name="output">gem5 proto stream to write to.</param>
     /// <param name="tickFreq">Tick frequency for the proto header; 0 uses the HELF header value (falling back to 1 GHz).</param>
     /// <param name="ticksPerInstr">
-    /// Tick delta between consecutive fetch packets. Defaults to 500 (≈ 500 ns
-    /// at 1 GHz), which is conservative but keeps ticks strictly increasing.
-    /// TraceCPU only needs a monotonic sequence; exact spacing does not affect
-    /// execution timing (driven by the elastic data trace).
+    ///     Tick delta between consecutive fetch packets. Defaults to 500 (≈ 500 ns
+    ///     at 1 GHz), which is conservative but keeps ticks strictly increasing.
+    ///     TraceCPU only needs a monotonic sequence; exact spacing does not affect
+    ///     execution timing (driven by the elastic data trace).
     /// </param>
     public static long Convert(
         Stream input,

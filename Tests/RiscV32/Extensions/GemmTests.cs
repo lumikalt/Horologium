@@ -8,33 +8,33 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Dense GEMM (C = A·B, all N×N) with every stream configured exactly once.
-/// <para>
-/// This is the flagship UVE idiom: the full three-deep loop nest lives in the
-/// stream descriptors, not in scalar code. All three induction variables (i, j, k)
-/// exist only inside the streaming engine — the loop body is five instructions with
-/// zero address arithmetic, zero loop counters, and zero per-iteration reconfiguration:
-/// </para>
-/// <para>
-///   acc:   so.v.dp.w   u3, x0        ; acc = 0
-///   kloop: so.a.mac.fp u3, u1, u2    ; acc += A[i][k] * B[k][j]
-///          so.b.ndc.3  u1, kloop     ; while the k-pass (innermost dim) is not complete
-///          so.a.add.fp u4, u3, u0    ; C[i][j] = acc   (u4 = store stream)
-///          so.b.nc     u1, acc       ; while A stream not exhausted
-/// </para>
-/// <para>
-/// The traversal orders are expressed with stride-0 "repeat" dimensions
-/// (configured outermost-first, Spike style; ss.end adds the innermost):
-///   u1 (A): i (count N, stride 4N) · j (count N, stride 0 — replay the row N times)
-///           · k (count N, stride 4, innermost)
-///   u2 (B): i (count N, stride 0 — replay the whole matrix) · j (count N, stride 4)
-///           · k (count N, stride 4N — walk a column, innermost)
-///   u4 (C): i (count N, stride 4N) · j (count N, stride 4, innermost), store stream
-/// </para>
-/// <para>
-/// Contrast with <see cref="TrisolvTests"/> / <see cref="LowerTriangularSumTests"/>,
-/// which rebuild their streams from scalar code on every outer iteration.
-/// </para>
+///     Dense GEMM (C = A·B, all N×N) with every stream configured exactly once.
+///     <para>
+///         This is the flagship UVE idiom: the full three-deep loop nest lives in the
+///         stream descriptors, not in scalar code. All three induction variables (i, j, k)
+///         exist only inside the streaming engine — the loop body is five instructions with
+///         zero address arithmetic, zero loop counters, and zero per-iteration reconfiguration:
+///     </para>
+///     <para>
+///         acc:   so.v.dp.w   u3, x0        ; acc = 0
+///         kloop: so.a.mac.fp u3, u1, u2    ; acc += A[i][k] * B[k][j]
+///         so.b.ndc.3  u1, kloop     ; while the k-pass (innermost dim) is not complete
+///         so.a.add.fp u4, u3, u0    ; C[i][j] = acc   (u4 = store stream)
+///         so.b.nc     u1, acc       ; while A stream not exhausted
+///     </para>
+///     <para>
+///         The traversal orders are expressed with stride-0 "repeat" dimensions
+///         (configured outermost-first, Spike style; ss.end adds the innermost):
+///         u1 (A): i (count N, stride 4N) · j (count N, stride 0 — replay the row N times)
+///         · k (count N, stride 4, innermost)
+///         u2 (B): i (count N, stride 0 — replay the whole matrix) · j (count N, stride 4)
+///         · k (count N, stride 4N — walk a column, innermost)
+///         u4 (C): i (count N, stride 4N) · j (count N, stride 4, innermost), store stream
+///     </para>
+///     <para>
+///         Contrast with <see cref="TrisolvTests" /> / <see cref="LowerTriangularSumTests" />,
+///         which rebuild their streams from scalar code on every outer iteration.
+///     </para>
 /// </summary>
 public class GemmTests {
     // ── Encode helpers ────────────────────────────────────────────────────────

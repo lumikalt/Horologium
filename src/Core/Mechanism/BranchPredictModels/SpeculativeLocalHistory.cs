@@ -1,22 +1,22 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// A table of per-branch (per-PC) local history shift registers with speculative and
-/// committed copies — the local-history analogue of <see cref="SpeculativeGlobalHistory"/>.
-/// <para>
-/// <see cref="Value"/> gives the working history for an entry, used for Predict-time
-/// indexing. In an out-of-order pipeline entries are advanced speculatively at fetch
-/// (<see cref="Speculate"/>) and the whole table is restored from the committed shadow on a
-/// flush (<see cref="Recover"/>). <see cref="Commit"/> advances one entry's committed shadow
-/// and trains against it (the branch's predict-time local history). A latch keeps the working
-/// copy in lock-step with the committed shadow until the pipeline first speculates, so
-/// in-order trains are bit-identical to a plain per-PC history table.
-/// </para>
+///     A table of per-branch (per-PC) local history shift registers with speculative and
+///     committed copies — the local-history analogue of <see cref="SpeculativeGlobalHistory" />.
+///     <para>
+///         <see cref="Value" /> gives the working history for an entry, used for Predict-time
+///         indexing. In an out-of-order pipeline entries are advanced speculatively at fetch
+///         (<see cref="Speculate" />) and the whole table is restored from the committed shadow on a
+///         flush (<see cref="Recover" />). <see cref="Commit" /> advances one entry's committed shadow
+///         and trains against it (the branch's predict-time local history). A latch keeps the working
+///         copy in lock-step with the committed shadow until the pipeline first speculates, so
+///         in-order trains are bit-identical to a plain per-PC history table.
+///     </para>
 /// </summary>
 internal sealed class SpeculativeLocalHistory {
+    private readonly ulong[] _committed;
     private readonly ulong _mask;
     private readonly ulong[] _working;
-    private readonly ulong[] _committed;
     private bool _speculative;
 
     /// <param name="entries">Number of per-PC history registers.</param>
@@ -27,10 +27,10 @@ internal sealed class SpeculativeLocalHistory {
         _committed = new ulong[entries];
     }
 
-    /// <summary>Working history for entry <paramref name="idx"/>, for Predict-time indexing.</summary>
+    /// <summary>Working history for entry <paramref name="idx" />, for Predict-time indexing.</summary>
     public ulong Value(int idx) => _working[idx];
 
-    /// <summary>Folds a predicted direction into entry <paramref name="idx"/> at fetch.</summary>
+    /// <summary>Folds a predicted direction into entry <paramref name="idx" /> at fetch.</summary>
     public void Speculate(int idx, bool taken) {
         _speculative = true;
         _working[idx] = ((_working[idx] << 1) | (taken ? 1UL : 0UL)) & _mask;
@@ -40,20 +40,20 @@ internal sealed class SpeculativeLocalHistory {
     public void Recover() => Array.Copy(_committed, _working, _working.Length);
 
     /// <summary>
-    /// The working history for entry <paramref name="idx"/>, captured (before this branch's
-    /// <see cref="Speculate"/>) as a per-branch checkpoint for an execute-time partial squash.
+    ///     The working history for entry <paramref name="idx" />, captured (before this branch's
+    ///     <see cref="Speculate" />) as a per-branch checkpoint for an execute-time partial squash.
     /// </summary>
     public ulong Capture(int idx) => _working[idx];
 
     /// <summary>
-    /// Rewinds entry <paramref name="idx"/> to a captured pre-branch value. Used when walking the
-    /// squashed branches youngest-to-oldest so each per-PC entry unwinds exactly.
+    ///     Rewinds entry <paramref name="idx" /> to a captured pre-branch value. Used when walking the
+    ///     squashed branches youngest-to-oldest so each per-PC entry unwinds exactly.
     /// </summary>
     public void RestoreEntry(int idx, ulong value) => _working[idx] = value;
 
     /// <summary>
-    /// Restores entry <paramref name="idx"/> to a captured value and folds the redirecting branch's
-    /// resolved direction — the local-history analogue of <see cref="SpeculativeGlobalHistory.RestoreTo"/>.
+    ///     Restores entry <paramref name="idx" /> to a captured value and folds the redirecting branch's
+    ///     resolved direction — the local-history analogue of <see cref="SpeculativeGlobalHistory.RestoreTo" />.
     /// </summary>
     public void RestoreEntryAndFold(int idx, ulong value, bool actualTaken) {
         _speculative = true;
@@ -61,10 +61,10 @@ internal sealed class SpeculativeLocalHistory {
     }
 
     /// <summary>
-    /// Runs <paramref name="train"/> with entry <paramref name="idx"/> swapped to its committed
-    /// (predict-time) history, then advances that entry's committed shadow and restores its
-    /// working value. In non-speculative mode the working value ends equal to the advanced
-    /// committed shadow (old behaviour).
+    ///     Runs <paramref name="train" /> with entry <paramref name="idx" /> swapped to its committed
+    ///     (predict-time) history, then advances that entry's committed shadow and restores its
+    ///     working value. In non-speculative mode the working value ends equal to the advanced
+    ///     committed shadow (old behaviour).
     /// </summary>
     public void Commit(int idx, bool taken, Action train) {
         ulong working = _working[idx];

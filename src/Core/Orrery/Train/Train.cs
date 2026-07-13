@@ -7,9 +7,9 @@ using Orrery.Tree;
 namespace Orrery.Train;
 
 /// <summary>
-/// A periodic snapshot taken during a Revolution for time-series analysis.
-/// <see cref="Tick"/> is relative to the start of the measurement phase (after warmup).
-/// Counter values are cumulative from measurement start.
+///     A periodic snapshot taken during a Revolution for time-series analysis.
+///     <see cref="Tick" /> is relative to the start of the measurement phase (after warmup).
+///     Counter values are cumulative from measurement start.
 /// </summary>
 public sealed record TimeSeriesPoint(
     long Tick,
@@ -17,8 +17,8 @@ public sealed record TimeSeriesPoint(
 );
 
 /// <summary>
-/// The result of a completed Revolution — a snapshot of every
-/// Gear's DialBoard at the moment the simulation finished.
+///     The result of a completed Revolution — a snapshot of every
+///     Gear's DialBoard at the moment the simulation finished.
 /// </summary>
 public sealed record RevolutionResult(
     long TotalTicks,
@@ -27,8 +27,8 @@ public sealed record RevolutionResult(
     IReadOnlyList<TimeSeriesPoint>? TimeSeries = null
 ) {
     /// <summary>
-    /// Finds a snapshot by the owning gear's full path.
-    /// Returns null if not found.
+    ///     Finds a snapshot by the owning gear's full path.
+    ///     Returns null if not found.
     /// </summary>
     public DialBoardSnapshot? Find(string ownerPath) =>
         Snapshots.FirstOrDefault(s => s.OwnerPath == ownerPath);
@@ -42,31 +42,40 @@ public sealed record RevolutionResult(
 }
 
 /// <summary>
-/// The Train — the topology builder and lifecycle orchestrator.
-/// <para>
-/// A Train owns a collection of Gears, wires them together through
-/// typed Arbor bindings, and drives the full simulation lifecycle:
-/// <list type="number">
-///   <item><description>AddGear() — register gears (Building phase)</description></item>
-///   <item><description>Build() — Initialize all gears, then transition to Finalizing,
-///     then Seal all gears, then lock all settings</description></item>
-///   <item><description>Run(ticks) — transition to Running, Wind all gears, run Escapement,
-///     transition to Finished, return RevolutionResult</description></item>
-///   <item><description>Reset() — reset Escapement and all gears for another Revolution</description></item>
-/// </list>
-/// </para>
-/// <para>
-/// The Train does not know about ISAs, pipelines, or instruction semantics.
-/// It is purely a lifecycle and topology manager.
-/// </para>
+///     The Train — the topology builder and lifecycle orchestrator.
+///     <para>
+///         A Train owns a collection of Gears, wires them together through
+///         typed Arbor bindings, and drives the full simulation lifecycle:
+///         <list type="number">
+///             <item>
+///                 <description>AddGear() — register gears (Building phase)</description>
+///             </item>
+///             <item>
+///                 <description>
+///                     Build() — Initialize all gears, then transition to Finalizing,
+///                     then Seal all gears, then lock all settings
+///                 </description>
+///             </item>
+///             <item>
+///                 <description>
+///                     Run(ticks) — transition to Running, Wind all gears, run Escapement,
+///                     transition to Finished, return RevolutionResult
+///                 </description>
+///             </item>
+///             <item>
+///                 <description>Reset() — reset Escapement and all gears for another Revolution</description>
+///             </item>
+///         </list>
+///     </para>
+///     <para>
+///         The Train does not know about ISAs, pipelines, or instruction semantics.
+///         It is purely a lifecycle and topology manager.
+///     </para>
 /// </summary>
 public sealed class Train {
-    private readonly List<Gear> _gears = new();
     private readonly Escapement _escapement;
+    private readonly List<Gear> _gears = new();
     private bool _built;
-
-    public string Name => Root.Name;
-    public SimNode Root { get; }
 
     public Train(string name, Escapement escapement) {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -76,13 +85,24 @@ public sealed class Train {
         Root = new SimNode(name);
     }
 
+    public string Name => Root.Name;
+    public SimNode Root { get; }
+
+    // ── Step-by-step API ─────────────────────────────────────────────────────
+
+    /// <summary>The current simulation tick (delegates to the Escapement).</summary>
+    public long CurrentTick => _escapement.CurrentTick;
+
+    /// <summary>True when no pending events remain — the simulation has halted.</summary>
+    public bool IsIdle => _escapement.IsIdle;
+
     // ── Gear registration ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Registers a pre-constructed Gear with this Train.
-    /// The Gear must have been constructed with this Train's root (or a
-    /// descendant) as its parent node.
-    /// Only valid before Build() is called.
+    ///     Registers a pre-constructed Gear with this Train.
+    ///     The Gear must have been constructed with this Train's root (or a
+    ///     descendant) as its parent node.
+    ///     Only valid before Build() is called.
     /// </summary>
     public T AddGear<T>(T gear) where T : Gear {
         ArgumentNullException.ThrowIfNull(gear);
@@ -97,8 +117,8 @@ public sealed class Train {
     }
 
     /// <summary>
-    /// Convenience factory: constructs a Gear of type T using the canonical
-    /// (name, parent, escapement) constructor and registers it.
+    ///     Convenience factory: constructs a Gear of type T using the canonical
+    ///     (name, parent, escapement) constructor and registers it.
     /// </summary>
     public T AddGear<T>(string name, SimNode parent) where T : Gear {
         if (_built)
@@ -113,7 +133,7 @@ public sealed class Train {
     }
 
     /// <summary>
-    /// Convenience factory that parents the new Gear directly to the Train root.
+    ///     Convenience factory that parents the new Gear directly to the Train root.
     /// </summary>
     public T AddGear<T>(string name) where T : Gear =>
         AddGear<T>(name, Root);
@@ -121,14 +141,22 @@ public sealed class Train {
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Runs the full build sequence:
-    /// <list type="number">
-    ///   <item><description>Initialize() all Gears (Building phase)</description></item>
-    ///   <item><description>Transition tree to Finalizing</description></item>
-    ///   <item><description>Seal() all Gears (Finalizing phase — bind arbors here)</description></item>
-    ///   <item><description>Lock all Settings</description></item>
-    /// </list>
-    /// <para>After Build(), the Train is ready for Run().</para>
+    ///     Runs the full build sequence:
+    ///     <list type="number">
+    ///         <item>
+    ///             <description>Initialize() all Gears (Building phase)</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Transition tree to Finalizing</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Seal() all Gears (Finalizing phase — bind arbors here)</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Lock all Settings</description>
+    ///         </item>
+    ///     </list>
+    ///     <para>After Build(), the Train is ready for Run().</para>
     /// </summary>
     public void Build() {
         if (_built)
@@ -152,33 +180,50 @@ public sealed class Train {
     }
 
     /// <summary>
-    /// Runs the simulation for up to <paramref name="maxTicks"/> ticks.
-    /// <list type="number">
-    ///   <item><description>Transition tree to Running</description></item>
-    ///   <item><description>Wind() all Gears (each gear schedules its first event)</description></item>
-    ///   <item><description>Run Escapement for warmupTicks (if any) — warms up caches / predictors</description></item>
-    ///   <item><description>Snapshot DialBoards as baseline (warmup phase only)</description></item>
-    ///   <item><description>Run Escapement for maxTicks — measurement phase</description></item>
-    ///   <item><description>Transition tree to Finished</description></item>
-    ///   <item><description>Snapshot all DialBoards; subtract baseline when warmup was used</description></item>
-    ///   <item><description>Return RevolutionResult</description></item>
-    /// </list>
-    /// <para>
-    /// When <paramref name="warmupTicks"/> &gt; 0 the returned counters and
-    /// histograms reflect only the measurement phase. Dials (which are rates)
-    /// are taken from the final snapshot and therefore approximate the full run;
-    /// this is acceptable for long measurements where warmup is a small fraction.
-    /// </para>
+    ///     Runs the simulation for up to <paramref name="maxTicks" /> ticks.
+    ///     <list type="number">
+    ///         <item>
+    ///             <description>Transition tree to Running</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Wind() all Gears (each gear schedules its first event)</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Run Escapement for warmupTicks (if any) — warms up caches / predictors</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Snapshot DialBoards as baseline (warmup phase only)</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Run Escapement for maxTicks — measurement phase</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Transition tree to Finished</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Snapshot all DialBoards; subtract baseline when warmup was used</description>
+    ///         </item>
+    ///         <item>
+    ///             <description>Return RevolutionResult</description>
+    ///         </item>
+    ///     </list>
+    ///     <para>
+    ///         When <paramref name="warmupTicks" /> &gt; 0 the returned counters and
+    ///         histograms reflect only the measurement phase. Dials (which are rates)
+    ///         are taken from the final snapshot and therefore approximate the full run;
+    ///         this is acceptable for long measurements where warmup is a small fraction.
+    ///     </para>
     /// </summary>
-    /// <param name="warmupTicks">Warmup phase duration in ticks.
+    /// <param name="warmupTicks">
+    ///     Warmup phase duration in ticks.
     /// </param>
     /// <param name="snapshotInterval">
-    /// Ticks between periodic time-series snapshots. 0 disables time series.
-    /// Snapshots are cumulative from measurement start and stored in
-    /// <see cref="RevolutionResult.TimeSeries"/>.
+    ///     Ticks between periodic time-series snapshots. 0 disables time series.
+    ///     Snapshots are cumulative from measurement start and stored in
+    ///     <see cref="RevolutionResult.TimeSeries" />.
     /// </param>
     /// <param name="maxTicks">
-    /// Maximum number of ticks to run.
+    ///     Maximum number of ticks to run.
     /// </param>
     public RevolutionResult Run(long maxTicks = long.MaxValue, long warmupTicks = 0, long snapshotInterval = 0) {
         if (!_built)
@@ -247,9 +292,9 @@ public sealed class Train {
     }
 
     /// <summary>
-    /// Resets the Train for another Revolution.
-    /// Clears the Escapement and resets all Gears.
-    /// The tree returns to Finalizing so Run() can be called again.
+    ///     Resets the Train for another Revolution.
+    ///     Clears the Escapement and resets all Gears.
+    ///     The tree returns to Finalizing so Run() can be called again.
     /// </summary>
     public void Reset() {
         if (!_built)
@@ -267,17 +312,9 @@ public sealed class Train {
         Root.ForceLifecycle(SimLifecycle.Finalizing);
     }
 
-    // ── Step-by-step API ─────────────────────────────────────────────────────
-
-    /// <summary>The current simulation tick (delegates to the Escapement).</summary>
-    public long CurrentTick => _escapement.CurrentTick;
-
-    /// <summary>True when no pending events remain — the simulation has halted.</summary>
-    public bool IsIdle => _escapement.IsIdle;
-
     /// <summary>
-    /// Transitions to Running and winds all Gears, readying the train for
-    /// <see cref="StepCycle"/>. Equivalent to the first two steps of <see cref="Run"/>.
+    ///     Transitions to Running and winds all Gears, readying the train for
+    ///     <see cref="StepCycle" />. Equivalent to the first two steps of <see cref="Run" />.
     /// </summary>
     public void BeginStepping() {
         if (!_built)
@@ -293,9 +330,9 @@ public sealed class Train {
     }
 
     /// <summary>
-    /// Advances the simulation by exactly one tick.
-    /// Returns <c>true</c> if the simulation is still running (more events pending),
-    /// or <c>false</c> if it has halted (no events remain after this step).
+    ///     Advances the simulation by exactly one tick.
+    ///     Returns <c>true</c> if the simulation is still running (more events pending),
+    ///     or <c>false</c> if it has halted (no events remain after this step).
     /// </summary>
     public bool StepCycle() {
         _escapement.Step();
@@ -303,8 +340,8 @@ public sealed class Train {
     }
 
     /// <summary>
-    /// Finalizes a step-by-step run, transitioning to Finished and returning the
-    /// accumulated statistics — equivalent to the tail of <see cref="Run"/>.
+    ///     Finalizes a step-by-step run, transitioning to Finished and returning the
+    ///     accumulated statistics — equivalent to the tail of <see cref="Run" />.
     /// </summary>
     public RevolutionResult FinishStepping() {
         Root.BeginFinished();

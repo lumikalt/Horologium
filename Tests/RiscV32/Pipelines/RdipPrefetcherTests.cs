@@ -6,24 +6,12 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-/// Tests for RAS-Directed Instruction Prefetching (RDIP, Kolli et al., MICRO 2013).
-/// Each pipeline type checks:
-///   (a) identical committed arch state — correctness;
-///   (b) ICache.Prefetches &gt; 0 — RDIP actually issues prefetches.
+///     Tests for RAS-Directed Instruction Prefetching (RDIP, Kolli et al., MICRO 2013).
+///     Each pipeline type checks:
+///     (a) identical committed arch state — correctness;
+///     (b) ICache.Prefetches &gt; 0 — RDIP actually issues prefetches.
 /// </summary>
 public class RdipPrefetcherTests {
-    private static void Load(FlatMemory mem, ulong address, params uint[] words) {
-        var bytes = new byte[words.Length * 4];
-        for (var i = 0; i < words.Length; i++) {
-            bytes[i * 4 + 0] = (byte)words[i];
-            bytes[i * 4 + 1] = (byte)(words[i] >> 8);
-            bytes[i * 4 + 2] = (byte)(words[i] >> 16);
-            bytes[i * 4 + 3] = (byte)(words[i] >> 24);
-        }
-
-        mem.Load(address, bytes);
-    }
-
     // Program layout (64-byte cache blocks, 4-way LRU, 256-byte = 4-block capacity):
     //
     //   Caller (0x000–0x03F, block B0):
@@ -83,6 +71,18 @@ public class RdipPrefetcherTests {
         for (var i = 0; i < 79; i++) callee.Add(RdipPrefetcherTests.Nop);
         callee.Add(RdipPrefetcherTests.JalrRet);
         RdipPrefetcherTests.CalleeWords = callee.ToArray();
+    }
+
+    private static void Load(FlatMemory mem, ulong address, params uint[] words) {
+        var bytes = new byte[words.Length * 4];
+        for (var i = 0; i < words.Length; i++) {
+            bytes[i * 4 + 0] = (byte)words[i];
+            bytes[i * 4 + 1] = (byte)(words[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(words[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(words[i] >> 24);
+        }
+
+        mem.Load(address, bytes);
     }
 
     // 256 bytes, 4-way, 64-byte blocks = 4 blocks capacity, 10-cycle miss latency.

@@ -7,8 +7,8 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for RV64I — the W-suffix instructions, new loads/stores, and
-/// corrected 64-bit semantics for shifts, comparisons, and LW.
+///     Tests for RV64I — the W-suffix instructions, new loads/stores, and
+///     corrected 64-bit semantics for shifts, comparisons, and LW.
 /// </summary>
 public class Rv64ITests {
     private readonly Rv64Decoder _dec = new();

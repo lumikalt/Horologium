@@ -5,25 +5,26 @@ using RiscV32.Memory;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for SRRIP, BRRIP, and DRRIP replacement policies.
-/// Policy internals are exercised through both the policy classes directly and
-/// through SetAssociativeCache to confirm end-to-end integration.
-///
-/// All RRIP tests use M=2 (2-bit RRPV; values 0–3) as the paper recommends.
-///   0 = near-immediate  (hit-promoted)
-///   2 = long            (SRRIP insertion, bimodal "lucky" insert)
-///   3 = distant         (victim target; BRRIP default insertion)
+///     Unit tests for SRRIP, BRRIP, and DRRIP replacement policies.
+///     Policy internals are exercised through both the policy classes directly and
+///     through SetAssociativeCache to confirm end-to-end integration.
+///     All RRIP tests use M=2 (2-bit RRPV; values 0–3) as the paper recommends.
+///     0 = near-immediate  (hit-promoted)
+///     2 = long            (SRRIP insertion, bimodal "lucky" insert)
+///     3 = distant         (victim target; BRRIP default insertion)
 /// </summary>
 public class CacheReplacementTests {
+    // Addresses that all map to set 0 (stride = 2*sets*blockSize = 32 for 1-set cache).
+    private const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30;
+    private const ulong B1 = 0x40, B2 = 0x50, B3 = 0x60;
+
+    // Tag constants reused by Hawkeye tests.
+    private const ulong TagA = 0x10UL;
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     // 4-way, 1-set SRRIP cache (64 B capacity / 4 ways / 16 B line = 1 set).
     private static SetAssociativeCache MakeSrrip1Set(IMemory backing) =>
         new(backing, 64, 4, 16, 10, 0, ReplacementPolicyKind.Srrip);
-
-    // Addresses that all map to set 0 (stride = 2*sets*blockSize = 32 for 1-set cache).
-    private const ulong A1 = 0x00, A2 = 0x10, A3 = 0x20, A4 = 0x30;
-    private const ulong B1 = 0x40, B2 = 0x50, B3 = 0x60;
 
     // ── SRRIP: insertion RRPV ────────────────────────────────────────────────
 
@@ -1046,7 +1047,4 @@ public class CacheReplacementTests {
         cache.Read(a, 1);
         Assert.Equal(missesNow + 1, cache.Misses);
     }
-
-    // Tag constants reused by Hawkeye tests.
-    private const ulong TagA = 0x10UL;
 }

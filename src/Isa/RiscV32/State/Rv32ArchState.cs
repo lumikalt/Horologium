@@ -4,26 +4,10 @@ using RiscV32.Registers;
 namespace RiscV32.State;
 
 /// <summary>
-/// The complete architectural state of one RV32IFV hart.
+///     The complete architectural state of one RV32IFV hart.
 /// </summary>
 public class Rv32ArchState : IArchState {
     protected readonly IRegisterFile IntRegs;
-
-    public ulong Pc { get; set; }
-    public PrivilegeLevel PrivilegeLevel { get; set; } = RvPrivilege.Machine;
-    public IRegisterFile IntegerRegisters => IntRegs;
-    public ISystemRegisters SystemRegisters => CsrFile;
-
-    /// <summary>Typed access to the concrete CSR file for internal use.</summary>
-    internal CsrFile CsrFile { get; }
-
-    /// <summary>Vector register file (v0-v31, VLEN=128 bits each).</summary>
-    public VectorRegisterFile VectorRegisters { get; }
-
-    /// <summary>UVE scalar accumulator registers and store-stream cursors (u0–u31).</summary>
-    public UveState UveState { get; } = new();
-
-    public IUveScalars UveScalars => UveState;
 
     public Rv32ArchState() : this(new Rv32UnifiedRegisterFile()) { }
 
@@ -65,6 +49,22 @@ public class Rv32ArchState : IArchState {
             CsrFile.DirectWrite(addr, source.CsrFile.DirectRead(addr));
     }
 
+    /// <summary>Typed access to the concrete CSR file for internal use.</summary>
+    internal CsrFile CsrFile { get; }
+
+    /// <summary>Vector register file (v0-v31, VLEN=128 bits each).</summary>
+    public VectorRegisterFile VectorRegisters { get; }
+
+    /// <summary>UVE scalar accumulator registers and store-stream cursors (u0–u31).</summary>
+    public UveState UveState { get; } = new();
+
+    public ulong Pc { get; set; }
+    public PrivilegeLevel PrivilegeLevel { get; set; } = RvPrivilege.Machine;
+    public IRegisterFile IntegerRegisters => IntRegs;
+    public ISystemRegisters SystemRegisters => CsrFile;
+
+    public IUveScalars UveScalars => UveState;
+
     public virtual IArchState Snapshot() => new Rv32ArchState(this, new Rv32UnifiedRegisterFile());
 
     public void Reset() {
@@ -91,8 +91,8 @@ public class Rv32ArchState : IArchState {
     }
 
     /// <summary>
-    /// Saves all present CSRs (via DirectRead), VRF (32 × 16 bytes), and UVE scalar state.
-    /// UVE store-stream cursors and pending config are transient mid-stream state and are not saved.
+    ///     Saves all present CSRs (via DirectRead), VRF (32 × 16 bytes), and UVE scalar state.
+    ///     UVE store-stream cursors and pending config are transient mid-stream state and are not saved.
     /// </summary>
     public virtual void WriteState(BinaryWriter w) {
         // CSRs: write count then (address, value) pairs for all present entries.
@@ -122,7 +122,7 @@ public class Rv32ArchState : IArchState {
         }
     }
 
-    /// <summary>Restores state written by <see cref="WriteState"/>.</summary>
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
     public virtual void ReadState(BinaryReader r) {
         int count = r.ReadInt32();
         for (var i = 0; i < count; i++) {

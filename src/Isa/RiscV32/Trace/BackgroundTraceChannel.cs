@@ -3,24 +3,24 @@ using System.Collections.Concurrent;
 namespace RiscV32.Trace;
 
 /// <summary>
-/// Bounded producer–consumer hand-off that moves trace formatting and I/O off the
-/// simulation thread. The simulation thread posts small captured records in commit
-/// order; a dedicated consumer thread applies the consume action to each record in
-/// that same order, so the resulting output is byte-identical to writing synchronously.
-/// <para>
-/// The queue is bounded: when the consumer falls behind, <see cref="Post"/> blocks
-/// instead of letting the backlog grow without limit. <see cref="Dispose"/> completes
-/// the stream, joins the consumer thread, and rethrows any consumer failure.
-/// </para>
-/// <para>
-/// On single-threaded runtimes (browser-wasm) records are consumed inline on the
-/// posting thread instead — same output, no thread.
-/// </para>
+///     Bounded producer–consumer hand-off that moves trace formatting and I/O off the
+///     simulation thread. The simulation thread posts small captured records in commit
+///     order; a dedicated consumer thread applies the consume action to each record in
+///     that same order, so the resulting output is byte-identical to writing synchronously.
+///     <para>
+///         The queue is bounded: when the consumer falls behind, <see cref="Post" /> blocks
+///         instead of letting the backlog grow without limit. <see cref="Dispose" /> completes
+///         the stream, joins the consumer thread, and rethrows any consumer failure.
+///     </para>
+///     <para>
+///         On single-threaded runtimes (browser-wasm) records are consumed inline on the
+///         posting thread instead — same output, no thread.
+///     </para>
 /// </summary>
 internal sealed class BackgroundTraceChannel<T> : IDisposable {
     private readonly Action<T> _consume;
-    private readonly BlockingCollection<T>? _queue;
     private readonly Thread? _consumer;
+    private readonly BlockingCollection<T>? _queue;
     private volatile Exception? _fault;
 
     public BackgroundTraceChannel(Action<T> consume, string name, int capacity = 1 << 16) {
@@ -34,6 +34,20 @@ internal sealed class BackgroundTraceChannel<T> : IDisposable {
         _consumer.Start();
     }
 
+    /// <summary>
+    ///     Completes the record stream, waits for the consumer to drain it, and
+    ///     propagates any consumer exception. Must be called before disposing the
+    ///     underlying output stream.
+    /// </summary>
+    public void Dispose() {
+        if (_queue is null) return;
+
+        _queue.CompleteAdding();
+        _consumer!.Join();
+        _queue.Dispose();
+        ThrowIfFaulted();
+    }
+
     /// <summary>Hands one record to the consumer; blocks when the queue is full (backpressure).</summary>
     public void Post(T item) {
         if (_queue is null) {
@@ -43,20 +57,6 @@ internal sealed class BackgroundTraceChannel<T> : IDisposable {
 
         ThrowIfFaulted();
         _queue.Add(item);
-    }
-
-    /// <summary>
-    /// Completes the record stream, waits for the consumer to drain it, and
-    /// propagates any consumer exception. Must be called before disposing the
-    /// underlying output stream.
-    /// </summary>
-    public void Dispose() {
-        if (_queue is null) return;
-
-        _queue.CompleteAdding();
-        _consumer!.Join();
-        _queue.Dispose();
-        ThrowIfFaulted();
     }
 
     private void ConsumeAll() {

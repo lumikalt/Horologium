@@ -173,8 +173,6 @@ public class ArborTests {
         Assert.Equal(packet, received);
     }
 
-    private record TestPacket([UsedImplicitly] int Id, double Value);
-
     // ── IsBound ───────────────────────────────────────────────────────────────
 
     [Fact]
@@ -257,4 +255,6 @@ public class ArborTests {
 
     [Fact]
     public void InArbor_EmptyName_Throws() { Assert.Throws<ArgumentException>(() => new InArbor<int>("")); }
+
+    private record TestPacket([UsedImplicitly] int Id, double Value);
 }

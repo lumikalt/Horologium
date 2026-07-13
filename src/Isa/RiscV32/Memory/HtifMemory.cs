@@ -4,17 +4,17 @@ using Mechanism;
 namespace RiscV32.Memory;
 
 /// <summary>
-/// Intercepts writes to the HTIF tohost register and executes fesvr magic-mem
-/// syscalls, writing the return value back to magic_mem[0] before ACK-ing fromhost.
-/// <para>
-/// HTIF protocol: tohost = (code&lt;&lt;1)|1 → exit (odd, passed through); tohost =
-/// even-nonzero ptr → magic_mem syscall request.  fromhost = 1 → ACK.
-/// </para>
-/// <para>
-/// magic_mem layout: 8×uint64_t (64-byte aligned). Slot i is at ptr + i*8; on
-/// RV32 the value is in the low 4 bytes, so each slot is read as 4 bytes.
-/// magic_mem[0] = syscall number (input) / return value (output); [1..3] = args.
-/// </para>
+///     Intercepts writes to the HTIF tohost register and executes fesvr magic-mem
+///     syscalls, writing the return value back to magic_mem[0] before ACK-ing fromhost.
+///     <para>
+///         HTIF protocol: tohost = (code&lt;&lt;1)|1 → exit (odd, passed through); tohost =
+///         even-nonzero ptr → magic_mem syscall request.  fromhost = 1 → ACK.
+///     </para>
+///     <para>
+///         magic_mem layout: 8×uint64_t (64-byte aligned). Slot i is at ptr + i*8; on
+///         RV32 the value is in the low 4 bytes, so each slot is read as 4 bytes.
+///         magic_mem[0] = syscall number (input) / return value (output); [1..3] = args.
+///     </para>
 /// </summary>
 public sealed class HtifMemory(IMemory inner, ulong tohostAddr, TextWriter? output = null) : IMemory {
     public ulong Read(ulong address, int bytes) => inner.Read(address, bytes);

@@ -11,13 +11,15 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for Sv39 address translation (loads, stores, and instruction fetch)
-/// on RV64. satp lives in <see cref="Rv64ArchState.Rv64Csrs"/> rather than the
-/// shared 32-bit CsrFile, so it is set here by actually executing a CSRRW
-/// instruction rather than by direct CSR-file writes — this also exercises
-/// the satp CSR-interception path in Rv64Executor.
+///     Tests for Sv39 address translation (loads, stores, and instruction fetch)
+///     on RV64. satp lives in <see cref="Rv64ArchState.Rv64Csrs" /> rather than the
+///     shared 32-bit CsrFile, so it is set here by actually executing a CSRRW
+///     instruction rather than by direct CSR-file writes — this also exercises
+///     the satp CSR-interception path in Rv64Executor.
 /// </summary>
 public class Rv64Sv39Tests {
+    // csrrw x0, satp, x1
+    private const uint CsrrwSatpX1 = (CsrFile.Satp << 20) | (1u << 15) | (0b001u << 12) | 0x73;
     private readonly Rv64Decoder _dec = new();
     private readonly Rv64Executor _exe = new();
 
@@ -31,9 +33,6 @@ public class Rv64Sv39Tests {
         ITooth instr = _dec.Decode(pc, raw);
         return _exe.Execute(instr, state, mem);
     }
-
-    // csrrw x0, satp, x1
-    private const uint CsrrwSatpX1 = (CsrFile.Satp << 20) | (1u << 15) | (0b001u << 12) | 0x73;
 
     // Sets satp by executing csrrw x0, satp, x1 while in Machine mode (the default),
     // then leaves the caller free to lower PrivilegeLevel for the actual test.

@@ -7,10 +7,10 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Tests for Zihpm (hardware performance monitor):
-///   hpmcounterN / hpmcounterNh  (N=3–31, 0xC03–0xC1F / 0xC83–0xC9F) — user-level read-only shadows, always 0
-///   mhpmcounterN / mhpmcounterNh (0xB03–0xB1F / 0xB83–0xB9F) — M-mode counters, always 0 (no event hardware)
-///   mhpmeventN  (N=3–31, 0x323–0x33F) — M-mode event selectors, writable, functionally ignored
+///     Tests for Zihpm (hardware performance monitor):
+///     hpmcounterN / hpmcounterNh  (N=3–31, 0xC03–0xC1F / 0xC83–0xC9F) — user-level read-only shadows, always 0
+///     mhpmcounterN / mhpmcounterNh (0xB03–0xB1F / 0xB83–0xB9F) — M-mode counters, always 0 (no event hardware)
+///     mhpmeventN  (N=3–31, 0x323–0x33F) — M-mode event selectors, writable, functionally ignored
 /// </summary>
 public class ZihpmTests {
     private const ulong CodeBase = 0x1000u;

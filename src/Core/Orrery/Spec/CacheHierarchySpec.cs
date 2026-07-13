@@ -4,13 +4,15 @@ using Orrery.Cache;
 namespace Orrery.Spec;
 
 /// <summary>
-/// Structural description of a core's full cache hierarchy.
-/// <para>Private levels are stored per named path in <see cref="Paths"/>;
-/// <see cref="SharedLevels"/> describes unified levels above all paths — L2, L3, … —
-/// innermost first. Use the <see cref="I"/> and <see cref="D"/> constants for the
-/// conventional split I/D names, or any string for additional paths (e.g. "vector").
-/// Each level's <see cref="CacheLevelSpec.SharedAcross"/> records sharing intent for
-/// the multicore assembler (Phase 3).</para>
+///     Structural description of a core's full cache hierarchy.
+///     <para>
+///         Private levels are stored per named path in <see cref="Paths" />;
+///         <see cref="SharedLevels" /> describes unified levels above all paths — L2, L3, … —
+///         innermost first. Use the <see cref="I" /> and <see cref="D" /> constants for the
+///         conventional split I/D names, or any string for additional paths (e.g. "vector").
+///         Each level's <see cref="CacheLevelSpec.SharedAcross" /> records sharing intent for
+///         the multicore assembler (Phase 3).
+///     </para>
 /// </summary>
 public sealed record CacheHierarchySpec(
     IReadOnlyDictionary<string, CachePathSpec>? Paths = null,

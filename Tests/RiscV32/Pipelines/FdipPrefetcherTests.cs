@@ -10,14 +10,24 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-/// Tests for Fetch Directed Instruction Prefetching (FDIP).
-/// Three invariants are checked on each pipeline type:
-///   (a) identical committed arch state — correctness;
-///   (b) identical branch_misses count — verifies lookahead Predict() calls
-///       do not corrupt predictor training state;
-///   (c) ICache.Prefetches > 0 — FDIP is actually issuing prefetches.
+///     Tests for Fetch Directed Instruction Prefetching (FDIP).
+///     Three invariants are checked on each pipeline type:
+///     (a) identical committed arch state — correctness;
+///     (b) identical branch_misses count — verifies lookahead Predict() calls
+///     do not corrupt predictor training state;
+///     (c) ICache.Prefetches > 0 — FDIP is actually issuing prefetches.
 /// </summary>
 public class FdipPrefetcherTests {
+    // Loop 10 times, taken branch on each iteration.
+    // addi x1, x0, 0 / addi x2, x0, 10 / addi x1, x1, 1 / blt x1, x2, -4 / ebreak
+    private static readonly uint[] LoopProgram = [
+        0x00000093, // addi x1, x0, 0
+        0x00A00113, // addi x2, x0, 10
+        0x00108093, // addi x1, x1, 1   ← loop body (addr 8)
+        0xFE20CEE3, // blt  x1, x2, -4  ← back-edge
+        0x00100073, // ebreak
+    ];
+
     private static void Load(FlatMemory mem, params uint[] words) {
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) {
@@ -29,16 +39,6 @@ public class FdipPrefetcherTests {
 
         mem.Load(0, bytes);
     }
-
-    // Loop 10 times, taken branch on each iteration.
-    // addi x1, x0, 0 / addi x2, x0, 10 / addi x1, x1, 1 / blt x1, x2, -4 / ebreak
-    private static readonly uint[] LoopProgram = [
-        0x00000093, // addi x1, x0, 0
-        0x00A00113, // addi x2, x0, 10
-        0x00108093, // addi x1, x1, 1   ← loop body (addr 8)
-        0xFE20CEE3, // blt  x1, x2, -4  ← back-edge
-        0x00100073, // ebreak
-    ];
 
     // I-cache: 256 bytes, 4-way, 64-byte blocks, 10-cycle miss latency.
     // The loop fits in 2 blocks; cold misses are charged per block.

@@ -3,8 +3,8 @@ using Orrery.Cache;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for BertiPrefetcher (Navarro-Torres et al., MICRO 2022).
-/// blockBytes=32 throughout unless stated otherwise.
+///     Unit tests for BertiPrefetcher (Navarro-Torres et al., MICRO 2022).
+///     blockBytes=32 throughout unless stated otherwise.
 /// </summary>
 public sealed class BertiPrefetcherTests {
     // ── Constructor validation ────────────────────────────────────────────────

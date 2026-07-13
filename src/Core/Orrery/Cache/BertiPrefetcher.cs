@@ -3,38 +3,38 @@ using System.Numerics;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Berti: per-IP timely local-delta L1D prefetcher (Navarro-Torres et al., MICRO 2022).
-/// <para>
-/// For each load IP Berti maintains a small History Table (HT, 8 sets × 16 ways, FIFO)
-/// of recent (line address, tick) pairs.  On a demand miss (<c>wasHit=false</c>) it
-/// searches that IP's HT set for entries whose tick satisfies
-/// <c>entry.Tick + latency ≤ current_tick</c> — i.e., a prefetch issued then would
-/// have arrived before the miss.  The signed line-count deltas from those "timely"
-/// entries to the miss address are accumulated in a per-IP Table of Deltas (ToD,
-/// 16-entry fully-associative, FIFO).
-/// </para>
-/// <para>
-/// The per-IP event counter increments once per training search.  When it reaches 16
-/// the accumulated coverage fractions drive status assignments:
-/// coverage &gt; 10/16 → <c>L1DPref</c>;  6–10/16 → <c>L2Pref</c>
-/// (or <c>L2PrefRepl</c> when coverage &lt; 8/16);  ≤ 5/16 → <c>NoPref</c>.
-/// At most 12 deltas may be L1DPref/L2Pref/L2PrefRepl combined; excess entries
-/// are downgraded to NoPref in ascending coverage order.
-/// </para>
-/// <para>
-/// On every L1D access all deltas whose status is L1DPref, L2Pref, or L2PrefRepl
-/// generate a prefetch target.  During warmup (before the first counter overflow)
-/// a delta is issued only when the epoch counter ≥ 8 <em>and</em> its coverage
-/// exceeds 80 % of the current counter value.
-/// </para>
-/// <para>
-/// The reference design measures fill latency via MSHR timestamps.  Here it is
-/// approximated by a fixed <c>latency</c> in ticks (one tick per
-/// <see cref="OnAccess"/> call), defaulting to 10.  The HT is updated on every
-/// access rather than only on misses/Hitp, which is a conservative superset of the
-/// paper's write condition.  No page-boundary guard is imposed; cross-page prefetching
-/// is allowed (the pipeline's uncacheable-region guard remains in force).
-/// </para>
+///     Berti: per-IP timely local-delta L1D prefetcher (Navarro-Torres et al., MICRO 2022).
+///     <para>
+///         For each load IP Berti maintains a small History Table (HT, 8 sets × 16 ways, FIFO)
+///         of recent (line address, tick) pairs.  On a demand miss (<c>wasHit=false</c>) it
+///         searches that IP's HT set for entries whose tick satisfies
+///         <c>entry.Tick + latency ≤ current_tick</c> — i.e., a prefetch issued then would
+///         have arrived before the miss.  The signed line-count deltas from those "timely"
+///         entries to the miss address are accumulated in a per-IP Table of Deltas (ToD,
+///         16-entry fully-associative, FIFO).
+///     </para>
+///     <para>
+///         The per-IP event counter increments once per training search.  When it reaches 16
+///         the accumulated coverage fractions drive status assignments:
+///         coverage &gt; 10/16 → <c>L1DPref</c>;  6–10/16 → <c>L2Pref</c>
+///         (or <c>L2PrefRepl</c> when coverage &lt; 8/16);  ≤ 5/16 → <c>NoPref</c>.
+///         At most 12 deltas may be L1DPref/L2Pref/L2PrefRepl combined; excess entries
+///         are downgraded to NoPref in ascending coverage order.
+///     </para>
+///     <para>
+///         On every L1D access all deltas whose status is L1DPref, L2Pref, or L2PrefRepl
+///         generate a prefetch target.  During warmup (before the first counter overflow)
+///         a delta is issued only when the epoch counter ≥ 8 <em>and</em> its coverage
+///         exceeds 80 % of the current counter value.
+///     </para>
+///     <para>
+///         The reference design measures fill latency via MSHR timestamps.  Here it is
+///         approximated by a fixed <c>latency</c> in ticks (one tick per
+///         <see cref="OnAccess" /> call), defaulting to 10.  The HT is updated on every
+///         access rather than only on misses/Hitp, which is a conservative superset of the
+///         paper's write condition.  No page-boundary guard is imposed; cross-page prefetching
+///         is allowed (the pipeline's uncacheable-region guard remains in force).
+///     </para>
 /// </summary>
 public sealed class BertiPrefetcher : IPrefetcher {
     // ── History Table: 8 sets × 16 ways, FIFO ────────────────────────────────
@@ -42,16 +42,6 @@ public sealed class BertiPrefetcher : IPrefetcher {
     private const int HtWays = 16;
     private const int HtSetBits = 3;    // log2(HtSets)
     private const int HtTagMask = 0x7F; // 7-bit tag
-
-    private struct HtEntry {
-        public byte Tag;
-        public ulong LineAddr;
-        public int Tick;
-        public bool Valid;
-    }
-
-    private readonly HtEntry[,] _ht = new HtEntry[BertiPrefetcher.HtSets, BertiPrefetcher.HtWays];
-    private readonly int[] _htFifo = new int[BertiPrefetcher.HtSets]; // next FIFO write slot per set
 
     // ── Table of Deltas (ToD): 16-entry fully-associative, FIFO ─────────────
     private const int TodSize = 16;
@@ -63,39 +53,23 @@ public sealed class BertiPrefetcher : IPrefetcher {
     private const byte Sl2Pref = 2;
     private const byte Sl1DPref = 3;
 
-    private struct DeltaSlot {
-        public int Delta;   // signed line-count offset
-        public byte Cov;    // coverage count within current epoch (0-15)
-        public byte Status; // SNoPref / SL2PrefRepl / SL2Pref / SL1DPref
-    }
-
-    private struct TodMeta {
-        public ushort IpTag; // 10-bit hash of IP
-        public byte Counter; // training-event counter; trips status update at 16
-        public int Age;      // monotone age for FIFO replacement
-        public bool Valid;
-        public bool HasStatus; // true after first counter overflow
-    }
-
-    private readonly TodMeta[] _todMeta = new TodMeta[BertiPrefetcher.TodSize];
-    private readonly DeltaSlot[,] _todDeltas = new DeltaSlot[BertiPrefetcher.TodSize, BertiPrefetcher.MaxDeltas];
-    private readonly int[] _todCount = new int[BertiPrefetcher.TodSize];
-    private int _todAge;
-
     // ── Scratch buffer for timely-delta collection (stack of HtEntry matches) ─
     private const int MaxTimelyPerSearch = 8;
 
-    private struct TimelyEntry {
-        public ulong LineAddr;
-        public int Tick;
-    }
-
-    private readonly TimelyEntry[] _tbuf = new TimelyEntry[BertiPrefetcher.HtWays];
+    private readonly HtEntry[,] _ht = new HtEntry[BertiPrefetcher.HtSets, BertiPrefetcher.HtWays];
+    private readonly int[] _htFifo = new int[BertiPrefetcher.HtSets]; // next FIFO write slot per set
+    private readonly int _latency;
 
     // ── Geometry and config ───────────────────────────────────────────────────
     private readonly int _lineShift;
-    private readonly int _latency;
+
+    private readonly TimelyEntry[] _tbuf = new TimelyEntry[BertiPrefetcher.HtWays];
+    private readonly int[] _todCount = new int[BertiPrefetcher.TodSize];
+    private readonly DeltaSlot[,] _todDeltas = new DeltaSlot[BertiPrefetcher.TodSize, BertiPrefetcher.MaxDeltas];
+
+    private readonly TodMeta[] _todMeta = new TodMeta[BertiPrefetcher.TodSize];
     private int _tick;
+    private int _todAge;
 
     public BertiPrefetcher(int blockBytes = 32, int latency = 10) {
         if (!BitOperations.IsPow2(blockBytes))
@@ -297,5 +271,31 @@ public sealed class BertiPrefetcher : IPrefetcher {
         _todCount[slot] = 0;
         _todMeta[slot] = new TodMeta { IpTag = tag, Age = ++_todAge, Valid = true, };
         return slot;
+    }
+
+    private struct HtEntry {
+        public byte Tag;
+        public ulong LineAddr;
+        public int Tick;
+        public bool Valid;
+    }
+
+    private struct DeltaSlot {
+        public int Delta;   // signed line-count offset
+        public byte Cov;    // coverage count within current epoch (0-15)
+        public byte Status; // SNoPref / SL2PrefRepl / SL2Pref / SL1DPref
+    }
+
+    private struct TodMeta {
+        public ushort IpTag; // 10-bit hash of IP
+        public byte Counter; // training-event counter; trips status update at 16
+        public int Age;      // monotone age for FIFO replacement
+        public bool Valid;
+        public bool HasStatus; // true after first counter overflow
+    }
+
+    private struct TimelyEntry {
+        public ulong LineAddr;
+        public int Tick;
     }
 }

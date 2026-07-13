@@ -7,16 +7,16 @@ using RiscV64.Memory;
 namespace Tests.RiscV64.Isa;
 
 /// <summary>
-/// Runs the official RISC-V ISA test suite (rv64ui-p-*, rv64um-p-*, rv64ua-p-*,
-/// rv64uc-p-*, rv64uf-p-*, rv64ud-p-*, rv64uzfh-p-*, rv64uzb*-p-*, rv64si-p-*)
-/// under all three pipeline configurations.
-/// <para>
-/// Each ELF uses the same custom test environment as the RV32 suite
-/// (TestBinaries/env/riscv_test.h) that halts with EBREAK and leaves the
-/// result in gp (x3):
-///   gp == 1            → PASS
-///   gp == (N&lt;&lt;1) | 1  → FAIL at subtest N
-/// </para>
+///     Runs the official RISC-V ISA test suite (rv64ui-p-*, rv64um-p-*, rv64ua-p-*,
+///     rv64uc-p-*, rv64uf-p-*, rv64ud-p-*, rv64uzfh-p-*, rv64uzb*-p-*, rv64si-p-*)
+///     under all three pipeline configurations.
+///     <para>
+///         Each ELF uses the same custom test environment as the RV32 suite
+///         (TestBinaries/env/riscv_test.h) that halts with EBREAK and leaves the
+///         result in gp (x3):
+///         gp == 1            → PASS
+///         gp == (N&lt;&lt;1) | 1  → FAIL at subtest N
+///     </para>
 /// </summary>
 public class RiscVTestSuiteTests {
     private static readonly string IsaDir =

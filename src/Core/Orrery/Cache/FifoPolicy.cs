@@ -1,14 +1,14 @@
 namespace Orrery.Cache;
 
 /// <summary>
-/// FIFO replacement: evicts the oldest-installed block, regardless of subsequent hits.
-/// Maintains a per-set circular pointer; RecordInstall advances it; RecordHit is a no-op.
-/// GetMetadata returns a pseudo-age compatible with the LRU convention: 0 = most recently
-/// installed, ways−1 = next to be evicted.
+///     FIFO replacement: evicts the oldest-installed block, regardless of subsequent hits.
+///     Maintains a per-set circular pointer; RecordInstall advances it; RecordHit is a no-op.
+///     GetMetadata returns a pseudo-age compatible with the LRU convention: 0 = most recently
+///     installed, ways−1 = next to be evicted.
 /// </summary>
 public sealed class FifoPolicy : IReplacementPolicy {
-    private readonly int _ways;
     private readonly int[] _ptr; // per-set next-evict pointer
+    private readonly int _ways;
 
     public FifoPolicy(int sets, int ways) {
         _ways = ways;

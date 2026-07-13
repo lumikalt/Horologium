@@ -9,7 +9,7 @@ using RiscV32.Memory;
 namespace Tests.Pipeline;
 
 /// <summary>
-/// Tests for <see cref="PipelineSpec"/> and its concrete subtypes.
+///     Tests for <see cref="PipelineSpec" /> and its concrete subtypes.
 /// </summary>
 public class PipelineSpecTests {
     // addi x1,x0,10 / addi x2,x0,32 / add x3,x1,x2 / sw x3,128(x0) / ebreak
@@ -43,11 +43,6 @@ public class PipelineSpecTests {
         while (ticks++ < maxTicks && train.StepCycle()) { }
 
         return train.FinishStepping();
-    }
-
-    private sealed class TrackingObserver : ICommitObserver {
-        public int Commits;
-        public void OnCommit(ulong pc, uint encoding, IArchState state) => Commits++;
     }
 
     // ── Per-variant smoke tests ────────────────────────────────────────────────
@@ -174,5 +169,10 @@ public class PipelineSpecTests {
         FlatMemory mem = MakeMemory(PipelineSpecTests.AddProgram);
         Run(new OutOfOrderSpec(PEventLog: log).Build(new Rv32Mechanism(), mem));
         Assert.NotEmpty(log.Events);
+    }
+
+    private sealed class TrackingObserver : ICommitObserver {
+        public int Commits;
+        public void OnCommit(ulong pc, uint encoding, IArchState state) => Commits++;
     }
 }

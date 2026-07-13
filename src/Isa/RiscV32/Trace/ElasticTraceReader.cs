@@ -3,15 +3,12 @@ using System.Text;
 namespace RiscV32.Trace;
 
 /// <summary>
-/// Reads a Horologium elastic DDG trace written by <see cref="ElasticTraceWriter"/>.
-/// Dispose when done; the stream is not closed (it is left open if
-/// <see cref="ElasticTraceReader(Stream)"/> was used).
+///     Reads a Horologium elastic DDG trace written by <see cref="ElasticTraceWriter" />.
+///     Dispose when done; the stream is not closed (it is left open if
+///     <see cref="ElasticTraceReader(Stream)" /> was used).
 /// </summary>
 public sealed class ElasticTraceReader : IDisposable {
     private readonly BinaryReader _in;
-
-    /// <summary>Tick frequency stored in the trace header (0 if not set by the recorder).</summary>
-    public ulong TickFreq { get; }
 
     public ElasticTraceReader(Stream input) {
         _in = new BinaryReader(input, Encoding.UTF8, true);
@@ -28,9 +25,14 @@ public sealed class ElasticTraceReader : IDisposable {
         _in.ReadUInt64(); // reserved
     }
 
+    /// <summary>Tick frequency stored in the trace header (0 if not set by the recorder).</summary>
+    public ulong TickFreq { get; }
+
+    public void Dispose() => _in.Dispose();
+
     /// <summary>
-    /// Lazily enumerates all records in the trace. Records are returned in seqno order.
-    /// Do not call <see cref="Dispose"/> until enumeration is complete.
+    ///     Lazily enumerates all records in the trace. Records are returned in seqno order.
+    ///     Do not call <see cref="Dispose" /> until enumeration is complete.
     /// </summary>
     public IEnumerable<ElasticTraceRecord> ReadAll() {
         while (_in.BaseStream.Position < _in.BaseStream.Length) {
@@ -54,6 +56,4 @@ public sealed class ElasticTraceReader : IDisposable {
             );
         }
     }
-
-    public void Dispose() => _in.Dispose();
 }

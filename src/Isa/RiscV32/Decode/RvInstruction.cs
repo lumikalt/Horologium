@@ -3,9 +3,9 @@ using Mechanism;
 namespace RiscV32.Decode;
 
 /// <summary>
-/// A decoded RV32I instruction.
-/// The Payload carries the pre-decoded operation so the executor
-/// doesn't need to re-decode from the raw encoding.
+///     A decoded RV32I instruction.
+///     The Payload carries the pre-decoded operation so the executor
+///     doesn't need to re-decode from the raw encoding.
 /// </summary>
 public sealed class RvInstruction(
     ulong pc,
@@ -335,8 +335,8 @@ public sealed class RvInstruction(
 }
 
 /// <summary>
-/// The decoded operation carried as Payload in RvInstruction.
-/// The executor pattern-matches on this.
+///     The decoded operation carried as Payload in RvInstruction.
+///     The executor pattern-matches on this.
 /// </summary>
 public abstract record RvOp;
 
@@ -445,15 +445,17 @@ public record RvSret : RvOp;
 public record RvWfi : RvOp;
 
 /// <summary>
-/// FENCE with its ordering sets. <paramref name="Pred"/>/<paramref name="Succ"/> are the
-/// 4-bit predecessor/successor masks (bit 3 = I, 2 = O, 1 = R, 0 = W); <paramref name="Fm"/>
-/// is the fence mode (0 = normal, 8 = FENCE.TSO). Architecturally a no-op in the executor;
-/// the pipeline enforces the timing ordering via <c>ITooth.IsStoreLoadFence</c>.
+///     FENCE with its ordering sets. <paramref name="Pred" />/<paramref name="Succ" /> are the
+///     4-bit predecessor/successor masks (bit 3 = I, 2 = O, 1 = R, 0 = W); <paramref name="Fm" />
+///     is the fence mode (0 = normal, 8 = FENCE.TSO). Architecturally a no-op in the executor;
+///     the pipeline enforces the timing ordering via <c>ITooth.IsStoreLoadFence</c>.
 /// </summary>
 public record RvFence(uint Pred, uint Succ, uint Fm) : RvOp;
 
-/// <summary>FENCE.I (Zifencei): instruction-stream synchronization. Executes as a no-op —
-/// I-cache invalidation on self-modifying code is not modeled.</summary>
+/// <summary>
+///     FENCE.I (Zifencei): instruction-stream synchronization. Executes as a no-op —
+///     I-cache invalidation on self-modifying code is not modeled.
+/// </summary>
 public record RvFenceI : RvOp;
 
 /// <summary>SFENCE.VMA: TLB shootdown. No-op in our NOMMU simulation.</summary>

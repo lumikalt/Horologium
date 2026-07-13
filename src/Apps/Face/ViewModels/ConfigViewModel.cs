@@ -133,9 +133,6 @@ public partial class ConfigViewModel : ObservableObject {
 
     public bool HasFdipFtqCapacity => FdipEnabled;
 
-    // ReSharper disable once PartialMethodParameterNameMismatch
-    partial void OnFdipEnabledChanged(bool value) => OnPropertyChanged(nameof(HasFdipFtqCapacity));
-
     public bool IsSingleCycle => Pipeline == "single_cycle";
     public bool IsFiveStage => Pipeline == "five_stage";
     public bool IsOoo => Pipeline == "ooo";
@@ -153,6 +150,43 @@ public partial class ConfigViewModel : ObservableObject {
     public bool HasDPrefetcherTableSize => DPrefetcher is "stride" or "stream";
     public bool HasDPrefetcherDepth => DPrefetcher == "stream";
     public bool HasDPrefetcherParams => DPrefetcher != "none";
+
+    public static string[] CacheReplacementPolicyOptions { get; } =
+        ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
+
+    public static string[] DPrefetcherOptions { get; } =
+        ["none", "next_line", "stride", "stream", "ipcp", "berti", "pythia", "sms",];
+
+    public static string[] WritePolicyOptions { get; } = ["write_through", "write_back",];
+    public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
+
+    public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo",];
+
+    public string[] PredictorOptions { get; } = [
+        "none",
+        "always_not_taken",
+        "always_taken",
+        "always_backward_not_forwards",
+        "n_bit",
+        "correlated",
+        "gselect",
+        "gshare",
+        "l_tage",
+        "perceptron",
+        "hashed_perceptron",
+        "tournament",
+        "tage_sc_l",
+        "ittage",
+        "batage",
+        "imli",
+        "llbp",
+        "llbp_x",
+        "vla_tage",
+        "true_oracle",
+    ];
+
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnFdipEnabledChanged(bool value) => OnPropertyChanged(nameof(HasFdipFtqCapacity));
 
     // ReSharper disable once PartialMethodParameterNameMismatch
     partial void OnPipelineChanged(string value) {
@@ -181,45 +215,11 @@ public partial class ConfigViewModel : ObservableObject {
         OnPropertyChanged(nameof(HasImliParams));
     }
 
-    public static string[] CacheReplacementPolicyOptions { get; } =
-        ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
-
-    public static string[] DPrefetcherOptions { get; } =
-        ["none", "next_line", "stride", "stream", "ipcp", "berti", "pythia", "sms",];
-
-    public static string[] WritePolicyOptions { get; } = ["write_through", "write_back",];
-    public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
-
     private static WritePolicyKind ParseWritePolicy(string s) =>
         s == "write_back" ? WritePolicyKind.WriteBack : WritePolicyKind.WriteThrough;
 
     private static WriteMissPolicyKind ParseWriteMissPolicy(string s) =>
         s == "write_allocate" ? WriteMissPolicyKind.WriteAllocate : WriteMissPolicyKind.NoWriteAllocate;
-
-    public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo",];
-
-    public string[] PredictorOptions { get; } = [
-        "none",
-        "always_not_taken",
-        "always_taken",
-        "always_backward_not_forwards",
-        "n_bit",
-        "correlated",
-        "gselect",
-        "gshare",
-        "l_tage",
-        "perceptron",
-        "hashed_perceptron",
-        "tournament",
-        "tage_sc_l",
-        "ittage",
-        "batage",
-        "imli",
-        "llbp",
-        "llbp_x",
-        "vla_tage",
-        "true_oracle",
-    ];
 
     public NamedConfig ToNamedConfig() {
         BranchPredictorConfig? predictor = PredictorType switch {

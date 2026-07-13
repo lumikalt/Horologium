@@ -11,9 +11,9 @@ public sealed class LqEntry {
     public ulong InstrId { get; set; }
 
     /// <summary>
-    /// Monotonic dispatch sequence number shared with the StoreQueue.
-    /// Used to determine program-order relationship between LQ and SQ entries
-    /// without relying on ROB index comparison (which wraps).
+    ///     Monotonic dispatch sequence number shared with the StoreQueue.
+    ///     Used to determine program-order relationship between LQ and SQ entries
+    ///     without relying on ROB index comparison (which wraps).
     /// </summary>
     public ulong SeqNo { get; set; }
 
@@ -27,20 +27,20 @@ public sealed class LqEntry {
     public int Bytes { get; set; }
 
     /// <summary>
-    /// Set when a younger-to-this-load store resolved with an overlapping address,
-    /// meaning the load may have read a stale value. Triggers re-execution at commit.
+    ///     Set when a younger-to-this-load store resolved with an overlapping address,
+    ///     meaning the load may have read a stale value. Triggers re-execution at commit.
     /// </summary>
     public bool Violated { get; set; }
 
     /// <summary>
-    /// PC of the store that caused the violation (set alongside Violated = true).
-    /// Used by the store-set predictor's RecordViolation at commit time.
+    ///     PC of the store that caused the violation (set alongside Violated = true).
+    ///     Used by the store-set predictor's RecordViolation at commit time.
     /// </summary>
     public ulong ViolatingStorePc { get; set; }
 
     /// <summary>
-    /// SeqNo of the predicted dependent store from the store-set predictor (0 = none).
-    /// Set at dispatch; the load stalls at issue until that store's address is known.
+    ///     SeqNo of the predicted dependent store from the store-set predictor (0 = none).
+    ///     Set at dispatch; the load stalls at issue until that store's address is known.
     /// </summary>
     public ulong PredStoreSeqNo { get; set; }
 
@@ -59,19 +59,14 @@ public sealed class LqEntry {
 }
 
 /// <summary>
-/// Circular Load Queue — tracks all in-flight speculative loads for memory-order
-/// violation detection. Entries are allocated at Dispatch (for Load and Atomic
-/// instructions) and retired at Commit, always in program order.
+///     Circular Load Queue — tracks all in-flight speculative loads for memory-order
+///     violation detection. Entries are allocated at Dispatch (for Load and Atomic
+///     instructions) and retired at Commit, always in program order.
 /// </summary>
 public sealed class LoadQueue {
     private readonly LqEntry[] _slots;
     private int _head;
     private int _tail;
-
-    public int Capacity { get; }
-    public int Count { get; private set; }
-    public bool IsFull => Count == Capacity;
-    public bool IsEmpty => Count == 0;
 
     public LoadQueue(int capacity) {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
@@ -80,9 +75,14 @@ public sealed class LoadQueue {
         for (var i = 0; i < capacity; i++) _slots[i] = new LqEntry();
     }
 
+    public int Capacity { get; }
+    public int Count { get; private set; }
+    public bool IsFull => Count == Capacity;
+    public bool IsEmpty => Count == 0;
+
     /// <summary>
-    /// Allocates a new slot at the tail and returns its LQ index.
-    /// The caller must set RobIdx and SeqNo on the returned entry.
+    ///     Allocates a new slot at the tail and returns its LQ index.
+    ///     The caller must set RobIdx and SeqNo on the returned entry.
     /// </summary>
     public int Allocate() {
         if (IsFull) throw new InvalidOperationException("LQ is full. Check IsFull before allocating.");
@@ -98,8 +98,8 @@ public sealed class LoadQueue {
     public LqEntry At(int index) => _slots[index % Capacity];
 
     /// <summary>
-    /// Retires the head entry (the oldest unretired load), advancing the head pointer.
-    /// Called at Commit when a load or atomic instruction retires from the ROB.
+    ///     Retires the head entry (the oldest unretired load), advancing the head pointer.
+    ///     Called at Commit when a load or atomic instruction retires from the ROB.
     /// </summary>
     public void Retire() {
         if (IsEmpty) throw new InvalidOperationException("LQ is empty; nothing to retire.");
@@ -117,10 +117,10 @@ public sealed class LoadQueue {
     }
 
     /// <summary>
-    /// Removes entries younger than <paramref name="instrId"/> from the tail (they are the most
-    /// recently allocated, so program-order youngest sit at the tail). Used by an execute-time
-    /// partial squash. Entries are contiguous in age, so this walks the tail back while the newest
-    /// entry's InstrId exceeds the threshold.
+    ///     Removes entries younger than <paramref name="instrId" /> from the tail (they are the most
+    ///     recently allocated, so program-order youngest sit at the tail). Used by an execute-time
+    ///     partial squash. Entries are contiguous in age, so this walks the tail back while the newest
+    ///     entry's InstrId exceeds the threshold.
     /// </summary>
     public void TruncateYoungerThan(ulong instrId) {
         while (Count > 0) {
@@ -133,8 +133,8 @@ public sealed class LoadQueue {
     }
 
     /// <summary>
-    /// Enumerates entries from oldest to youngest (head → tail).
-    /// SeqNo values are monotonically increasing in this order.
+    ///     Enumerates entries from oldest to youngest (head → tail).
+    ///     SeqNo values are monotonically increasing in this order.
     /// </summary>
     public IEnumerable<LqEntry> InOrder() {
         for (var i = 0; i < Count; i++) yield return _slots[(_head + i) % Capacity];

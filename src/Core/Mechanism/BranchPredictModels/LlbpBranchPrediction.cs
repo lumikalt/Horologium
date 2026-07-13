@@ -1,30 +1,30 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// LLBP: The Last-Level Branch Predictor — Schall et al., MICRO 2024.
-/// <para>
-/// Extends TAGE-SC-L with a context-addressed backing store keyed by the RCR
-/// (Rolling Context Register). The RCR hashes the PCs of the last W=8 taken
-/// branches (offset D=8 into the window) into a 14-bit context ID. Within each
-/// context, patterns are indexed by the same PC×GHR tag as the TAGE tables.
-/// When LLBP finds a match at history-table index t >= TAGE's current provider,
-/// it overrides TAGE's direction (the SC layer still applies on top).
-/// </para>
-/// <para>
-/// Branch-type distinction (unconditional vs conditional) is not surfaced by
-/// IBranchPredictor. RCR update therefore uses all taken branches (T=4 mode in
-/// the original paper's taxonomy).
-/// </para>
+///     LLBP: The Last-Level Branch Predictor — Schall et al., MICRO 2024.
+///     <para>
+///         Extends TAGE-SC-L with a context-addressed backing store keyed by the RCR
+///         (Rolling Context Register). The RCR hashes the PCs of the last W=8 taken
+///         branches (offset D=8 into the window) into a 14-bit context ID. Within each
+///         context, patterns are indexed by the same PC×GHR tag as the TAGE tables.
+///         When LLBP finds a match at history-table index t >= TAGE's current provider,
+///         it overrides TAGE's direction (the SC layer still applies on top).
+///     </para>
+///     <para>
+///         Branch-type distinction (unconditional vs conditional) is not surfaced by
+///         IBranchPredictor. RCR update therefore uses all taken branches (T=4 mode in
+///         the original paper's taxonomy).
+///     </para>
 /// </summary>
 public class LlbpPredictor : TageScLPredictor {
-    // Working RCR: advanced speculatively at fetch, used for Predict-time context lookups.
-    private protected readonly RollingContextReg Rcr = new();
-
     // Architectural RCR shadow: advanced only when a taken branch retires. By the in-order
     // invariant it equals a committing branch's predict-time context, so training keys off it
     // (dissolving the predict-time LlbpCtxKey raciness); the speculative RCR restores from it
     // on flush.
     private protected readonly RollingContextReg CommittedRcr = new();
+
+    // Working RCR: advanced speculatively at fetch, used for Predict-time context lookups.
+    private protected readonly RollingContextReg Rcr = new();
     private protected readonly LlbpStorage Storage = new();
 
     // Latches once the pipeline drives speculative history (out-of-order). Until then the
@@ -32,25 +32,25 @@ public class LlbpPredictor : TageScLPredictor {
     // exactly as a single commit-time RCR (bit-identical).
     private bool _rcrSpeculative;
 
-    /// <summary>True when LLBP (not TAGE) was the final prediction provider for the current branch.</summary>
-    protected bool LlbpIsProvider;
-
-    /// <summary>History-table index of the LLBP match, or -1 when LLBP had no entry.</summary>
-    protected int LlbpHistIdx = -1;
-
-    /// <summary>Pattern key used in the LLBP match, retained for training.</summary>
-    protected int LlbpPatternKey;
+    /// <summary>TAGE provider index from the most recent prediction (-1 if unset).</summary>
+    protected int LastProvider = -1;
 
     /// <summary>Context key used for the current LLBP lookup.</summary>
     protected uint LlbpCtxKey;
 
-    /// <summary>TAGE provider index from the most recent prediction (-1 if unset).</summary>
-    protected int LastProvider = -1;
+    /// <summary>History-table index of the LLBP match, or -1 when LLBP had no entry.</summary>
+    protected int LlbpHistIdx = -1;
+
+    /// <summary>True when LLBP (not TAGE) was the final prediction provider for the current branch.</summary>
+    protected bool LlbpIsProvider;
+
+    /// <summary>Pattern key used in the LLBP match, retained for training.</summary>
+    protected int LlbpPatternKey;
 
     /// <summary>Number of times LLBP overrode TAGE's direction.</summary>
     public int LlbpOverrides { get; private set; }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     protected override bool ResolvePrediction(ulong pc, int provider, bool tagePred) {
         LastProvider = provider;
         LlbpIsProvider = false;
@@ -65,7 +65,7 @@ public class LlbpPredictor : TageScLPredictor {
         return base.ResolvePrediction(pc, provider, tagePred);
     }
 
-    /// <summary>Searches the LLBP context store for a match at a history level ≥ <paramref name="provider"/>.</summary>
+    /// <summary>Searches the LLBP context store for a match at a history level ≥ <paramref name="provider" />.</summary>
     protected virtual bool TryLlbpPredict(ulong pc, int provider, out bool pred) {
         LlbpCtxKey = Rcr.ContextId;
         PatternMap? pm = Storage.Get(LlbpCtxKey);
@@ -87,7 +87,7 @@ public class LlbpPredictor : TageScLPredictor {
         return false;
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     protected override void OnAfterUpdate(ulong pc, bool taken, bool provPred, int preScore, bool loopWasConfident) {
         base.OnAfterUpdate(pc, taken, provPred, preScore, loopWasConfident);
         TrainLlbp(pc, taken, provPred);
@@ -99,20 +99,20 @@ public class LlbpPredictor : TageScLPredictor {
         }
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public override void SpeculativeHistoryUpdate(ulong pc, bool predictedTaken) {
         base.SpeculativeHistoryUpdate(pc, predictedTaken);
         _rcrSpeculative = true;
         if (predictedTaken) Rcr.Update(pc);
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     public override void RecoverSpeculativeHistory() {
         base.RecoverSpeculativeHistory();
         Rcr.CopyFrom(CommittedRcr);
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     // Ghr is checkpointed exactly (base LTage); the Rolling Context Register is not — it restores
     // to the committed shadow on a partial squash, the same documented residual as a full flush.
     // LLBP is a near-inert exotic predictor, so the RCR's per-branch fidelity is not worth carrying.
@@ -121,10 +121,12 @@ public class LlbpPredictor : TageScLPredictor {
         Rcr.CopyFrom(CommittedRcr);
     }
 
-    /// <summary>Updates LLBP counters or allocates a new entry on misprediction. Keys the
-    /// context off the committed RCR (the branch's predict-time context); which pattern within
-    /// the context is trained still uses the predict-time LlbpHistIdx/LastProvider, a residual
-    /// out-of-order imprecision that does not affect correctness.</summary>
+    /// <summary>
+    ///     Updates LLBP counters or allocates a new entry on misprediction. Keys the
+    ///     context off the committed RCR (the branch's predict-time context); which pattern within
+    ///     the context is trained still uses the predict-time LlbpHistIdx/LastProvider, a residual
+    ///     out-of-order imprecision that does not affect correctness.
+    /// </summary>
     protected virtual void TrainLlbp(ulong pc, bool taken, bool provPred) {
         if (LlbpIsProvider && LlbpHistIdx >= 0) {
             Storage.GetOrCreate(CommittedRcr.ContextId).SatUpdate(LlbpPatternKey, taken);
@@ -136,7 +138,7 @@ public class LlbpPredictor : TageScLPredictor {
         }
     }
 
-    /// <summary>Computes the LLBP pattern key for branch <paramref name="pc"/> at history-table index <paramref name="t"/>.</summary>
+    /// <summary>Computes the LLBP pattern key for branch <paramref name="pc" /> at history-table index <paramref name="t" />.</summary>
     protected int PatternKey(ulong pc, int t) => (TageTag(pc, t) << 2) | t;
 }
 
@@ -150,38 +152,37 @@ internal sealed class RollingContextReg {
     private const int CtWidth = 14;
 
     private readonly ulong[] _window = new ulong[RollingContextReg.MaxWindow];
-    private int _head;
     private int _count;
-    private uint _ccid;
-    private uint _cidShallow;
-    private uint _cidDeep;
+    private int _head;
 
-    public uint ContextId => _ccid;
-    public uint CidShallow => _cidShallow;
-    public uint CidDeep => _cidDeep;
+    public uint ContextId { get; private set; }
+
+    public uint CidShallow { get; private set; }
+
+    public uint CidDeep { get; private set; }
 
     public void Update(ulong pc) {
         _window[_head] = pc;
         _head = (_head + 1) % RollingContextReg.MaxWindow;
         if (_count < RollingContextReg.MaxWindow) _count++;
         if (_count == RollingContextReg.MaxWindow) {
-            _ccid = CalcHash(RollingContextReg.W, RollingContextReg.D);
-            _cidShallow = CalcHash(RollingContextReg.WShallow, RollingContextReg.D);
-            _cidDeep = CalcHash(RollingContextReg.WDeep, RollingContextReg.D);
+            ContextId = CalcHash(RollingContextReg.W, RollingContextReg.D);
+            CidShallow = CalcHash(RollingContextReg.WShallow, RollingContextReg.D);
+            CidDeep = CalcHash(RollingContextReg.WDeep, RollingContextReg.D);
         }
     }
 
     /// <summary>
-    /// Overwrites this register with a copy of <paramref name="other"/>. Used to restore the
-    /// speculative RCR from the committed shadow on a pipeline flush.
+    ///     Overwrites this register with a copy of <paramref name="other" />. Used to restore the
+    ///     speculative RCR from the committed shadow on a pipeline flush.
     /// </summary>
     public void CopyFrom(RollingContextReg other) {
         Array.Copy(other._window, _window, _window.Length);
         _head = other._head;
         _count = other._count;
-        _ccid = other._ccid;
-        _cidShallow = other._cidShallow;
-        _cidDeep = other._cidDeep;
+        ContextId = other.ContextId;
+        CidShallow = other.CidShallow;
+        CidDeep = other.CidDeep;
     }
 
     private uint CalcHash(int n, int start) {

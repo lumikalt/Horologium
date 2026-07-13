@@ -34,15 +34,15 @@ public enum StreamModifierBehavior {
 }
 
 /// <summary>
-/// Descriptor modifier (UVE2 semantics): when dimension <see cref="TriggerDim"/> wraps, update
-/// field <see cref="Target"/> of dimension <see cref="TargetDim"/>. When the dimension one level
-/// outside the trigger wraps (TriggerDim+1), the target dimension's modified fields are reset to
-/// their configured values. Both indices are engine order (innermost = 0).
-/// <para>
-/// Static modifiers (SourceStreamId &lt; 0): apply Behavior with Displacement; Offset displacements
-/// are scaled by the stream's element width. Indirect modifiers (SourceStreamId ≥ 0): consume one
-/// element from the IndSource stream and apply Behavior; Displacement is unused.
-/// </para>
+///     Descriptor modifier (UVE2 semantics): when dimension <see cref="TriggerDim" /> wraps, update
+///     field <see cref="Target" /> of dimension <see cref="TargetDim" />. When the dimension one level
+///     outside the trigger wraps (TriggerDim+1), the target dimension's modified fields are reset to
+///     their configured values. Both indices are engine order (innermost = 0).
+///     <para>
+///         Static modifiers (SourceStreamId &lt; 0): apply Behavior with Displacement; Offset displacements
+///         are scaled by the stream's element width. Indirect modifiers (SourceStreamId ≥ 0): consume one
+///         element from the IndSource stream and apply Behavior; Displacement is unused.
+///     </para>
 /// </summary>
 public readonly record struct StreamModifier(
     int TriggerDim,
@@ -54,10 +54,10 @@ public readonly record struct StreamModifier(
 );
 
 /// <summary>
-/// Describes an affine memory stream with one or more dimensions.
-/// Dimension[0] is the innermost (fastest-varying); higher indices are outer loops.
-/// Negative strides walk backward through memory.
-/// ElementBytes must be 1–8.
+///     Describes an affine memory stream with one or more dimensions.
+///     Dimension[0] is the innermost (fastest-varying); higher indices are outer loops.
+///     Negative strides walk backward through memory.
+///     ElementBytes must be 1–8.
 /// </summary>
 public readonly record struct StreamDescriptor(
     ulong BaseAddress,

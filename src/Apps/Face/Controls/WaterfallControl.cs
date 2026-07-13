@@ -16,9 +16,6 @@ public sealed class WaterfallControl : Control {
     private const double MaxCellW = 96;
     private const double DefaultRowH = 22;
     private const double TextThreshold = 14; // below this cellW, hide all text
-    private double _cellW = WaterfallControl.DefaultCellW;
-    private double _rowH = WaterfallControl.DefaultRowH;
-    private bool ShowText => _cellW >= WaterfallControl.TextThreshold;
     private const double HeaderH = 26;
     private const double BarPad = 2; // inset on each edge of a bar
     private const int MaxRows = 500;
@@ -77,6 +74,27 @@ public sealed class WaterfallControl : Control {
     public static readonly StyledProperty<WaterfallRow?> SelectedRowProperty =
         AvaloniaProperty.Register<WaterfallControl, WaterfallRow?>(nameof(SelectedRow));
 
+    private double _cellW = WaterfallControl.DefaultCellW;
+    private double _disasmColW = 160;
+
+    // Gutter column widths — computed in MeasureOverride. Collapsed when text is hidden.
+    private double _instrIdColW = 48;
+    private double _pcColW = 80;
+    private double _rowH = WaterfallControl.DefaultRowH;
+
+    static WaterfallControl() {
+        WaterfallControl.DataProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => {
+                c.InvalidateMeasure();
+                c.InvalidateVisual();
+            }
+        );
+        WaterfallControl.IsDarkProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => c.InvalidateVisual());
+        WaterfallControl.SelectedRowProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => c.InvalidateVisual());
+    }
+
+    public WaterfallControl() => Focusable = false;
+    private bool ShowText => _cellW >= WaterfallControl.TextThreshold;
+
     public WaterfallData? Data {
         get => GetValue(WaterfallControl.DataProperty);
         set => SetValue(WaterfallControl.DataProperty, value);
@@ -92,23 +110,7 @@ public sealed class WaterfallControl : Control {
         set => SetValue(WaterfallControl.SelectedRowProperty, value);
     }
 
-    // Gutter column widths — computed in MeasureOverride. Collapsed when text is hidden.
-    private double _instrIdColW = 48;
-    private double _pcColW = 80;
-    private double _disasmColW = 160;
     private double GutterW => ShowText ? _instrIdColW + _pcColW + _disasmColW : 0;
-
-    static WaterfallControl() {
-        WaterfallControl.DataProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => {
-                c.InvalidateMeasure();
-                c.InvalidateVisual();
-            }
-        );
-        WaterfallControl.IsDarkProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => c.InvalidateVisual());
-        WaterfallControl.SelectedRowProperty.Changed.AddClassHandler<WaterfallControl>((c, _) => c.InvalidateVisual());
-    }
-
-    public WaterfallControl() => Focusable = false;
 
     protected override Size MeasureOverride(Size availableSize) {
         WaterfallData? data = Data;

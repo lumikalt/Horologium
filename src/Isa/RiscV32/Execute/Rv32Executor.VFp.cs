@@ -7,6 +7,9 @@ using RiscV32.Registers;
 namespace RiscV32.Execute;
 
 public partial class Rv32Executor {
+    // ── V widening FP helpers ─────────────────────────────────────────────────
+
+    private const ulong RvCanonicalNaN64 = 0x7FF8_0000_0000_0000UL;
     // ── FP vector helpers ─────────────────────────────────────────────────────
 
     // Read element i of a vector register as a float32 (bit-exact).
@@ -272,10 +275,6 @@ public partial class Rv32Executor {
         WriteVFpElem(result, 0, acc);
         return VectorWrite(vd, result);
     }
-
-    // ── V widening FP helpers ─────────────────────────────────────────────────
-
-    private const ulong RvCanonicalNaN64 = 0x7FF8_0000_0000_0000UL;
 
     private static void WriteVFpElemD(byte[] data, int i, double value) {
         ulong bits = double.IsNaN(value) ? Rv32Executor.RvCanonicalNaN64 : (ulong)BitConverter.DoubleToInt64Bits(value);

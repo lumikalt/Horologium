@@ -9,13 +9,13 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.System;
 
 /// <summary>
-/// Integration tests for CLINT + RvTrapController timer interrupt delivery.
-/// A hand-assembled RV32 program:
-///   1. Configures the trap vector and enables MIE/MTIE.
-///   2. Sets mtimecmp to a small future value via MMIO writes to the CLINT.
-///   3. Spins in a tight loop (reading mtime) until the timer fires.
-///   4. The M-mode trap handler sets a flag and returns.
-///   5. After the first MRET the main loop sees the flag and ebreaks.
+///     Integration tests for CLINT + RvTrapController timer interrupt delivery.
+///     A hand-assembled RV32 program:
+///     1. Configures the trap vector and enables MIE/MTIE.
+///     2. Sets mtimecmp to a small future value via MMIO writes to the CLINT.
+///     3. Spins in a tight loop (reading mtime) until the timer fires.
+///     4. The M-mode trap handler sets a flag and returns.
+///     5. After the first MRET the main loop sees the flag and ebreaks.
 /// </summary>
 public class ClintInterruptTests {
     // Memory layout

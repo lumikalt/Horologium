@@ -11,6 +11,10 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Analysis;
 
 public class ExperimentTests {
+    // ── Rv32ElfWorkload ───────────────────────────────────────────────────────────
+
+    private static string TestElfPath =>
+        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test.elf");
     // ── BranchPredictorConfig JSON round-trips ────────────────────────────────
 
     [Fact]
@@ -145,11 +149,6 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(new byte[4], 0x200);
         Assert.Equal(0x200UL, workload.EntryPoint);
     }
-
-    // ── Rv32ElfWorkload ───────────────────────────────────────────────────────────
-
-    private static string TestElfPath =>
-        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test.elf");
 
     [Fact]
     public void ElfWorkload_EntryPointMatchesElfLoader() {

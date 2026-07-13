@@ -4,24 +4,20 @@ using Mechanism;
 namespace Orrery.Cache;
 
 /// <summary>
-/// Direct-mapped TLB wrapping an IMemory.
-/// For bare-metal use (VA = PA) it installs identity mappings on miss.
-/// A TLB miss charges MissLatency stall cycles recorded in PendingStalls.
+///     Direct-mapped TLB wrapping an IMemory.
+///     For bare-metal use (VA = PA) it installs identity mappings on miss.
+///     A TLB miss charges MissLatency stall cycles recorded in PendingStalls.
 /// </summary>
 public sealed class Tlb : IMemory {
-    private readonly IMemory _physical;
     private readonly int _indexMask;
     private readonly int _pageBits; // log2(pageSize)
     private readonly ulong _pageMask;
-
-    private readonly ulong?[] _vpns; // null = invalid
+    private readonly IMemory _physical;
     private readonly ulong[] _ppns;
 
-    private long _pendingStalls;
+    private readonly ulong?[] _vpns; // null = invalid
 
-    public int MissLatency { get; }
-    public long Hits { get; private set; }
-    public long Misses { get; private set; }
+    private long _pendingStalls;
 
     /// <param name="physical">Backing memory.</param>
     /// <param name="entries">Number of TLB entries. Must be a power of 2.</param>
@@ -42,6 +38,28 @@ public sealed class Tlb : IMemory {
 
         _vpns = new ulong?[entries];
         _ppns = new ulong[entries];
+    }
+
+    public int MissLatency { get; }
+    public long Hits { get; private set; }
+    public long Misses { get; private set; }
+
+    // ── IMemory ──────────────────────────────────────────────────────────────────
+
+    public ulong Read(ulong address, int bytes) => _physical.Read(Translate(address), bytes);
+    public void Write(ulong address, ulong value, int bytes) => _physical.Write(Translate(address), value, bytes);
+    public void SetRequestPc(ulong pc) => _physical.SetRequestPc(pc);
+
+    public void Load(ulong address, ReadOnlySpan<byte> data) {
+        // Invalidate TLB entries whose pages overlap the loaded region.
+        ulong end = address + (ulong)data.Length;
+        for (ulong a = address & _pageMask; a < end; a += 1UL << _pageBits) {
+            ulong vpn = a >> _pageBits;
+            var index = (int)(vpn & (ulong)_indexMask);
+            if (_vpns[index] == vpn) _vpns[index] = null;
+        }
+
+        _physical.Load(address, data);
     }
 
     /// <summary>Returns and clears the accumulated miss-penalty cycle count.</summary>
@@ -68,23 +86,5 @@ public sealed class Tlb : IMemory {
         _vpns[index] = vpn;
         _ppns[index] = vpn;
         return vAddress; // identity
-    }
-
-    // ── IMemory ──────────────────────────────────────────────────────────────────
-
-    public ulong Read(ulong address, int bytes) => _physical.Read(Translate(address), bytes);
-    public void Write(ulong address, ulong value, int bytes) => _physical.Write(Translate(address), value, bytes);
-    public void SetRequestPc(ulong pc) => _physical.SetRequestPc(pc);
-
-    public void Load(ulong address, ReadOnlySpan<byte> data) {
-        // Invalidate TLB entries whose pages overlap the loaded region.
-        ulong end = address + (ulong)data.Length;
-        for (ulong a = address & _pageMask; a < end; a += 1UL << _pageBits) {
-            ulong vpn = a >> _pageBits;
-            var index = (int)(vpn & (ulong)_indexMask);
-            if (_vpns[index] == vpn) _vpns[index] = null;
-        }
-
-        _physical.Load(address, data);
     }
 }

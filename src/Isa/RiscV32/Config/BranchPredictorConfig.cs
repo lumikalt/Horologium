@@ -31,8 +31,8 @@ public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
     /// <summary>
-    /// Builds a predictor with access to a functional pre-pass. Configs that need a workload
-    /// trace (e.g. <see cref="TrueOracleConfig"/>) override this; all others delegate to Build().
+    ///     Builds a predictor with access to a functional pre-pass. Configs that need a workload
+    ///     trace (e.g. <see cref="TrueOracleConfig" />) override this; all others delegate to Build().
     /// </summary>
     public virtual IBranchPredictor Build(IMechanism mechanism, IWorkload workload) => Build();
 

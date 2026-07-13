@@ -7,21 +7,21 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// PolyBench trisolv: solve L·x = b where L is lower-triangular.
-/// <para>
-/// Algorithm:
-///   for i in 0..N-1:
-///     x[i] = (b[i] - sum(L[i][j]*x[j] for j in 0..i-1)) / L[i][i]
-/// </para>
-/// <para>
-/// UVE mapping:
-///   Inner loop: u3 += u1[j] * u2[j]   (MAC; u1=L row, u2=x prefix)
-///   Final:      u6 = b[i] - u3;  x[i] = u6 / L[i][i]
-/// </para>
-/// <para>
-/// Tests that UVE store-stream writes to x[] are visible to subsequent load-stream
-/// prefetches (both use DLayers.Accessor, so writes in row i are seen in row i+1).
-/// </para>
+///     PolyBench trisolv: solve L·x = b where L is lower-triangular.
+///     <para>
+///         Algorithm:
+///         for i in 0..N-1:
+///         x[i] = (b[i] - sum(L[i][j]*x[j] for j in 0..i-1)) / L[i][i]
+///     </para>
+///     <para>
+///         UVE mapping:
+///         Inner loop: u3 += u1[j] * u2[j]   (MAC; u1=L row, u2=x prefix)
+///         Final:      u6 = b[i] - u3;  x[i] = u6 / L[i][i]
+///     </para>
+///     <para>
+///         Tests that UVE store-stream writes to x[] are visible to subsequent load-stream
+///         prefetches (both use DLayers.Accessor, so writes in row i are seen in row i+1).
+///     </para>
 /// </summary>
 public class TrisolvTests {
     // ── Encode helpers ────────────────────────────────────────────────────────

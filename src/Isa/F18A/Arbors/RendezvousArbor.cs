@@ -1,18 +1,18 @@
 namespace F18A.Arbors;
 
 /// <summary>
-/// A synchronous rendezvous channel between two adjacent F18A nodes.
-/// Neither side consumes the value until BOTH a writer and a reader are
-/// present in the same simulated tick — preventing double-delivery on retry.
+///     A synchronous rendezvous channel between two adjacent F18A nodes.
+///     Neither side consumes the value until BOTH a writer and a reader are
+///     present in the same simulated tick — preventing double-delivery on retry.
 /// </summary>
 public sealed class RendezvousArbor {
     private uint? _pending; // value written by sender, awaiting a reader
     private bool _reading;  // a reader declared intent this tick
 
     /// <summary>
-    /// Attempt a write. Returns true when a reader is simultaneously waiting
-    /// (transfer completes this tick). Returns false when no reader is present
-    /// yet; the value is buffered and the sender should retry next tick.
+    ///     Attempt a write. Returns true when a reader is simultaneously waiting
+    ///     (transfer completes this tick). Returns false when no reader is present
+    ///     yet; the value is buffered and the sender should retry next tick.
     /// </summary>
     public bool TryWrite(uint value) {
         _pending = value;
@@ -26,9 +26,9 @@ public sealed class RendezvousArbor {
     }
 
     /// <summary>
-    /// Attempt a read. Returns true when a writer's value is available
-    /// (transfer completes this tick). Returns false when no value is pending
-    /// yet; the receiver should retry next tick.
+    ///     Attempt a read. Returns true when a writer's value is available
+    ///     (transfer completes this tick). Returns false when no value is pending
+    ///     yet; the receiver should retry next tick.
     /// </summary>
     public bool TryRead(out uint value) {
         _reading = true;
@@ -44,14 +44,14 @@ public sealed class RendezvousArbor {
     }
 
     /// <summary>
-    /// Returns true when an access will complete without blocking:
-    /// read-side: a pending write exists; write-side: a reader is waiting.
+    ///     Returns true when an access will complete without blocking:
+    ///     read-side: a pending write exists; write-side: a reader is waiting.
     /// </summary>
     public bool HasPending(bool forRead) => forRead ? _pending.HasValue : _reading;
 
     /// <summary>
-    /// Clears stale state at the start of each tick (before nodes run).
-    /// Any un-matched pending/reading state from the previous tick is discarded.
+    ///     Clears stale state at the start of each tick (before nodes run).
+    ///     Any un-matched pending/reading state from the previous tick is discarded.
     /// </summary>
     public void BeginTick() {
         _pending = null;

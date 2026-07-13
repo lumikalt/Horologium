@@ -4,12 +4,12 @@ using RiscV32;
 namespace RiscV64.Memory;
 
 /// <summary>
-/// Sv39 three-level page table walker for RV64.
-/// Reference: RISC-V Privileged Specification §4.4.
-/// A/D bits are not set on access (fault-on-access model): A=0 or (store and D=0) raises a page fault.
-/// SUM (sstatus bit 18): when set, S-mode data accesses to U-pages are permitted; instruction fetches
-/// are never subject to SUM — S-mode can never execute from U-pages regardless.
-/// satp.MODE occupies bits 63:60 (0 = Bare, 8 = Sv39); only Bare and Sv39 are recognised here.
+///     Sv39 three-level page table walker for RV64.
+///     Reference: RISC-V Privileged Specification §4.4.
+///     A/D bits are not set on access (fault-on-access model): A=0 or (store and D=0) raises a page fault.
+///     SUM (sstatus bit 18): when set, S-mode data accesses to U-pages are permitted; instruction fetches
+///     are never subject to SUM — S-mode can never execute from U-pages regardless.
+///     satp.MODE occupies bits 63:60 (0 = Bare, 8 = Sv39); only Bare and Sv39 are recognised here.
 /// </summary>
 internal static class Sv39Walker {
     private const ulong PageSize = 4096;
@@ -23,9 +23,9 @@ internal static class Sv39Walker {
     private const ulong Satp44BitPpnMask = 0xFFFFFFFFFFFUL; // satp.PPN[43:0]
 
     /// <summary>
-    /// Translates a virtual address to physical via a three-level Sv39 walk.
-    /// Returns (paddr, 0) on success, (0, faultCause) on page fault.
-    /// When satp.MODE=0 (bare), returns (vaddr, 0) immediately with no walk.
+    ///     Translates a virtual address to physical via a three-level Sv39 walk.
+    ///     Returns (paddr, 0) on success, (0, faultCause) on page fault.
+    ///     When satp.MODE=0 (bare), returns (vaddr, 0) immediately with no walk.
     /// </summary>
     public static (ulong paddr, int faultCause) Translate(
         IMemory memory,

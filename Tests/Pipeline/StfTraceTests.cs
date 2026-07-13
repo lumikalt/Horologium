@@ -6,8 +6,8 @@ using RiscV32.Trace;
 namespace Tests.Pipeline;
 
 /// <summary>
-/// STF binary trace writer: header structure, register records, branch targets,
-/// and memory access records.
+///     STF binary trace writer: header structure, register records, branch targets,
+///     and memory access records.
 /// </summary>
 public class StfTraceTests {
     // ── Helpers ───────────────────────────────────────────────────────────────

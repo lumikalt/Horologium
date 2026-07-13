@@ -8,15 +8,15 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.MultiHart;
 
 /// <summary>
-/// TSO fence modeling. Under TSO the only reordering the OoO train performs is
-/// store→load: a committed store's write-miss penalty drains asynchronously through
-/// the write buffer while younger loads issue freely. A FENCE with W in the
-/// predecessor set and R in the successor set (<see cref="ITooth.IsStoreLoadFence"/>)
-/// closes that window: the fence issues only at the ROB head once the write buffer
-/// has fully drained, and younger loads may not issue while the fence is in the ROB.
-/// Fences without W→R ordering are timing no-ops, as TSO already provides their
-/// guarantees (loads and stores each retire in program order; stores write through
-/// the D-cache at commit).
+///     TSO fence modeling. Under TSO the only reordering the OoO train performs is
+///     store→load: a committed store's write-miss penalty drains asynchronously through
+///     the write buffer while younger loads issue freely. A FENCE with W in the
+///     predecessor set and R in the successor set (<see cref="ITooth.IsStoreLoadFence" />)
+///     closes that window: the fence issues only at the ROB head once the write buffer
+///     has fully drained, and younger loads may not issue while the fence is in the ROB.
+///     Fences without W→R ordering are timing no-ops, as TSO already provides their
+///     guarantees (loads and stores each retire in program order; stores write through
+///     the D-cache at commit).
 /// </summary>
 public class TsoFenceTests {
     private const uint Ebreak = 0x00100073;
@@ -33,10 +33,10 @@ public class TsoFenceTests {
     // ── Single hart: fence drains the write buffer before post-fence loads ────
 
     /// <summary>
-    /// Runs: sw (write miss absorbed into the write buffer) ; fence-or-nop ; lw
-    /// (independent address). Without the fence the load issues while the store's
-    /// write-bus penalty is still draining; with it, the fence holds at the ROB head
-    /// until the buffer empties and the load waits behind the fence.
+    ///     Runs: sw (write miss absorbed into the write buffer) ; fence-or-nop ; lw
+    ///     (independent address). Without the fence the load issues while the store's
+    ///     write-bus penalty is still draining; with it, the fence holds at the ROB head
+    ///     until the buffer empties and the load waits behind the fence.
     /// </summary>
     private static (long Cycles, ulong X3, ulong StoredWord) RunStoreFenceLoad(uint middle) {
         const uint addiX2 = 0x20000113; // addi x2, x0, 0x200  (store address)
@@ -81,9 +81,9 @@ public class TsoFenceTests {
     }
 
     /// <summary>
-    /// A fence without W→R ordering (here: fence r,r) must not drain the write buffer
-    /// — TSO already orders load→load, so it is a timing no-op and the run matches
-    /// the nop version exactly.
+    ///     A fence without W→R ordering (here: fence r,r) must not drain the write buffer
+    ///     — TSO already orders load→load, so it is a timing no-op and the run matches
+    ///     the nop version exactly.
     /// </summary>
     [Fact]
     public void OoO_NonStoreLoadFence_IsTimingNoOp() {
@@ -97,12 +97,12 @@ public class TsoFenceTests {
     // ── Multi-hart: message-passing litmus (MP) over MOESIF ─────────────────────
 
     /// <summary>
-    /// Classic MP litmus on two OoO harts with per-hart MOESIF caches:
-    ///   H0: data = 0xCAFE ; fence ; flag = 1
-    ///   H1: spin until flag != 0 ; fence ; read data
-    /// TSO guarantees H1 sees data = 0xCAFE once it observes flag = 1. Exercises the
-    /// fence end-to-end in the OoO issue path (head-serialization + load gating)
-    /// under cross-hart MOESIF invalidation of the spun-on flag line.
+    ///     Classic MP litmus on two OoO harts with per-hart MOESIF caches:
+    ///     H0: data = 0xCAFE ; fence ; flag = 1
+    ///     H1: spin until flag != 0 ; fence ; read data
+    ///     TSO guarantees H1 sees data = 0xCAFE once it observes flag = 1. Exercises the
+    ///     fence end-to-end in the OoO issue path (head-serialization + load gating)
+    ///     under cross-hart MOESIF invalidation of the spun-on flag line.
     /// </summary>
     [Fact]
     public void OoOHarts_MessagePassingLitmus_FencedDataIsVisibleWhenFlagIs() {

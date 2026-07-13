@@ -4,27 +4,25 @@ using Orrery.Train;
 namespace Pipeline;
 
 /// <summary>
-/// Coordinates N independent pipeline trains in round-robin cycle-interleaved order,
-/// analogous to <c>MultiHartKernel</c> but for full pipeline trains.
-/// <para>
-/// Each hart owns its own <see cref="ISteppableTrain"/> instance (and typically its
-/// own <c>MoesifCache</c> backed by a shared <c>MoesifBus</c>). The coordinator advances
-/// harts one tick at a time in hart-0 → hart-1 → … → hart-(N-1) order within each
-/// logical cycle, so cross-hart coherence effects are interleaved at instruction
-/// granularity just like <c>MultiHartKernel</c>.
-/// </para>
-/// <para>
-/// Usage:
-/// <code>
+///     Coordinates N independent pipeline trains in round-robin cycle-interleaved order,
+///     analogous to <c>MultiHartKernel</c> but for full pipeline trains.
+///     <para>
+///         Each hart owns its own <see cref="ISteppableTrain" /> instance (and typically its
+///         own <c>MoesifCache</c> backed by a shared <c>MoesifBus</c>). The coordinator advances
+///         harts one tick at a time in hart-0 → hart-1 → … → hart-(N-1) order within each
+///         logical cycle, so cross-hart coherence effects are interleaved at instruction
+///         granularity just like <c>MultiHartKernel</c>.
+///     </para>
+///     <para>
+///         Usage:
+///         <code>
 ///   var pipeline = new MultiHartPipeline(train0, train1);
 ///   RevolutionResult[] results = pipeline.Run(maxTicks: 100_000);
 /// </code>
-/// </para>
+///     </para>
 /// </summary>
 public sealed class MultiHartPipeline {
     private readonly ISteppableTrain[] _trains;
-
-    public int HartCount => _trains.Length;
 
     public MultiHartPipeline(params ISteppableTrain[] trains) {
         ArgumentNullException.ThrowIfNull(trains);
@@ -32,12 +30,14 @@ public sealed class MultiHartPipeline {
         _trains = trains;
     }
 
+    public int HartCount => _trains.Length;
+
     /// <summary>
-    /// Runs all trains for up to <paramref name="maxTicks"/> ticks in round-robin
-    /// order.  Stops when every train has halted (IsIdle) or the tick limit is
-    /// reached, whichever comes first.
+    ///     Runs all trains for up to <paramref name="maxTicks" /> ticks in round-robin
+    ///     order.  Stops when every train has halted (IsIdle) or the tick limit is
+    ///     reached, whichever comes first.
     /// </summary>
-    /// <returns>One <see cref="RevolutionResult"/> per hart, in hart-index order.</returns>
+    /// <returns>One <see cref="RevolutionResult" /> per hart, in hart-index order.</returns>
     public RevolutionResult[] Run(long maxTicks = long.MaxValue) {
         foreach (ISteppableTrain t in _trains) t.BeginStepping();
 
@@ -65,22 +65,22 @@ public sealed class MultiHartPipeline {
     }
 
     /// <summary>
-    /// Runs all trains for up to <paramref name="maxTicks"/> ticks with per-tick two-phase
-    /// parallelism: phase 1 advances every hart's <see cref="ISteppableTrain.StepCycle"/> in
-    /// parallel threads; phase 2 drains <paramref name="buses"/> in hart-0 → hart-N order,
-    /// applying deferred bus operations and correcting cache-coherence state.
-    /// <para>
-    /// Results are bit-identical to <see cref="Run"/> for well-synchronized programs — those
-    /// where no hart reads a cache line in the same outer tick that another hart writes it
-    /// (guaranteed by correct use of LR/SC or memory fences).  Same-tick cross-hart
-    /// write-then-read is a data race with undefined behavior in this mode; use <see cref="Run"/>
-    /// as the correctness reference for any program that requires that ordering.
-    /// </para>
+    ///     Runs all trains for up to <paramref name="maxTicks" /> ticks with per-tick two-phase
+    ///     parallelism: phase 1 advances every hart's <see cref="ISteppableTrain.StepCycle" /> in
+    ///     parallel threads; phase 2 drains <paramref name="buses" /> in hart-0 → hart-N order,
+    ///     applying deferred bus operations and correcting cache-coherence state.
+    ///     <para>
+    ///         Results are bit-identical to <see cref="Run" /> for well-synchronized programs — those
+    ///         where no hart reads a cache line in the same outer tick that another hart writes it
+    ///         (guaranteed by correct use of LR/SC or memory fences).  Same-tick cross-hart
+    ///         write-then-read is a data race with undefined behavior in this mode; use <see cref="Run" />
+    ///         as the correctness reference for any program that requires that ordering.
+    ///     </para>
     /// </summary>
     /// <param name="buses">
-    /// One <see cref="DeferredBus"/> per hart, in hart-index order.
-    /// Each hart's <see cref="MoesifCache"/> must have been constructed with the corresponding
-    /// <see cref="DeferredBus"/> as its <c>IBus</c> argument.
+    ///     One <see cref="DeferredBus" /> per hart, in hart-index order.
+    ///     Each hart's <see cref="MoesifCache" /> must have been constructed with the corresponding
+    ///     <see cref="DeferredBus" /> as its <c>IBus</c> argument.
     /// </param>
     /// <param name="maxTicks">Max ticks to run for.</param>
     public RevolutionResult[] RunConcurrent(DeferredBus[] buses, long maxTicks = long.MaxValue) {

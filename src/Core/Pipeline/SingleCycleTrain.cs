@@ -9,22 +9,13 @@ using Orrery.Tree;
 namespace Pipeline;
 
 /// <summary>
-/// The simplest possible Train: one Gear that fetches, decodes, executes,
-/// and writes back one instruction per tick. No pipeline, no hazards.
-/// Used to validate the Mechanism before any pipeline complexity is added.
+///     The simplest possible Train: one Gear that fetches, decodes, executes,
+///     and writes back one instruction per tick. No pipeline, no hazards.
+///     Used to validate the Mechanism before any pipeline complexity is added.
 /// </summary>
 public sealed class SingleCycleTrain : ISteppableTrain {
-    private readonly Train _train;
     private readonly SingleCycleCore _core;
-
-    public IArchState ArchState => _core.ArchState;
-
-    public SetAssociativeCache? ICache => _core.ILayers.Cache;
-    public SetAssociativeCache? DCache => _core.DLayers.Cache;
-    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
-    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
-    public Tlb? ITlb => _core.ILayers.Tlb;
-    public Tlb? DTlb => _core.DLayers.Tlb;
+    private readonly Train _train;
 
     public SingleCycleTrain(
         IMechanism mechanism,
@@ -59,10 +50,20 @@ public sealed class SingleCycleTrain : ISteppableTrain {
         _train.Build();
     }
 
+    public SetAssociativeCache? ICache => _core.ILayers.Cache;
+    public SetAssociativeCache? DCache => _core.DLayers.Cache;
+    public SetAssociativeCache? L2Cache => _core.ILayers.L2Cache; // unified; same config on I and D paths
+    public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
+    public Tlb? ITlb => _core.ILayers.Tlb;
+    public Tlb? DTlb => _core.DLayers.Tlb;
+
+    public bool IsIdle => _train.IsIdle;
+
+    public IArchState ArchState => _core.ArchState;
+
     public RevolutionResult Run(long maxTicks = 100_000, long warmupTicks = 0, long snapshotInterval = 0) =>
         _train.Run(maxTicks, warmupTicks, snapshotInterval);
 
-    public bool IsIdle => _train.IsIdle;
     public void BeginStepping() => _train.BeginStepping();
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
@@ -71,10 +72,10 @@ public sealed class SingleCycleTrain : ISteppableTrain {
 }
 
 /// <summary>
-/// The single-cycle core Gear. Each tick: fetch → decode → execute → writeback.
-/// Stops scheduling when it encounters a halt condition (infinite loop to self,
-/// or explicit EBREAK).
-/// Cache miss penalties are charged as extra cycles appended to the retiring instruction.
+///     The single-cycle core Gear. Each tick: fetch → decode → execute → writeback.
+///     Stops scheduling when it encounters a halt condition (infinite loop to self,
+///     or explicit EBREAK).
+///     Cache miss penalties are charged as extra cycles appended to the retiring instruction.
 /// </summary>
 internal sealed class SingleCycleCore(
     string name,
@@ -87,30 +88,29 @@ internal sealed class SingleCycleCore(
     ICommitObserver? commitObserver = null
 )
     : Gear(name, parent, esc) {
-    public MemoryLayers ILayers { get; } = iLayers;
-    public MemoryLayers DLayers { get; } = dLayers;
+    private bool _anyCache;
+    private Counter? _cacheMissStallsCounter;
 
     private Counter _cyclesCounter = null!;
-    private Counter _retiredCounter = null!;
-    private Counter _stallsCounter = null!;
-    private Histogram _opcodeHistogram = null!;
-    private Counter? _cacheMissStallsCounter;
-    private Counter? _icacheHitsCounter, _icacheMissesCounter;
-    private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
-    private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
-    private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
-    private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
-    private Counter? _itlbHitsCounter, _itlbMissesCounter;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
-
-    private bool _anyCache;
     private IFetchTranslator? _fetchTranslator;
+    private Counter? _icacheHitsCounter, _icacheMissesCounter;
+    private Counter? _itlbHitsCounter, _itlbMissesCounter;
+    private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
+    private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
+    private Counter? _l3DcacheHitsCounter, _l3DcacheMissesCounter;
+    private Counter? _l3IcacheHitsCounter, _l3IcacheMissesCounter;
+    private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
 
     // Delta tracking for hit/miss counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
-    private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
+    private Histogram _opcodeHistogram = null!;
+    private Counter _retiredCounter = null!;
+    private Counter _stallsCounter = null!;
+    public MemoryLayers ILayers { get; } = iLayers;
+    public MemoryLayers DLayers { get; } = dLayers;
 
     public IArchState ArchState { get; } = mechanism.CreateArchState();
 

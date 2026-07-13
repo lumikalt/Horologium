@@ -7,25 +7,33 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.System;
 
 /// <summary>
-/// Verifies HTIF tohost-exit termination across all three trains <em>without</em>
-/// Spike, so the halt paths stay covered in CI where the co-sim harness can't run.
-/// <para>
-/// htif.elf does real RV32IM work, then exits via the tohost register (writing
-/// (0 &lt;&lt; 1) | 1 == 1 for a clean exit-0) and spins in <c>j .</c>:
-/// <list type="bullet">
-///   <item><description><b>RequestHalt</b> (tohost address configured): the executor flags the exit
-///     store with <see cref="ExecuteResult.RequestHalt"/> and the train
-///     stops at the store itself — the first-class HTIF terminator.</description></item>
-///   <item><description><b>Jump-to-self</b> (tohost not configured): the train falls back to the
-///     unconditional jump-to-self halt on the following spin.</description></item>
-/// </list>
-/// </para>
-/// <para>Both must terminate well before maxTicks and leave the tohost low word == 1.</para>
+///     Verifies HTIF tohost-exit termination across all three trains <em>without</em>
+///     Spike, so the halt paths stay covered in CI where the co-sim harness can't run.
+///     <para>
+///         htif.elf does real RV32IM work, then exits via the tohost register (writing
+///         (0 &lt;&lt; 1) | 1 == 1 for a clean exit-0) and spins in <c>j .</c>:
+///         <list type="bullet">
+///             <item>
+///                 <description>
+///                     <b>RequestHalt</b> (tohost address configured): the executor flags the exit
+///                     store with <see cref="ExecuteResult.RequestHalt" /> and the train
+///                     stops at the store itself — the first-class HTIF terminator.
+///                 </description>
+///             </item>
+///             <item>
+///                 <description>
+///                     <b>Jump-to-self</b> (tohost not configured): the train falls back to the
+///                     unconditional jump-to-self halt on the following spin.
+///                 </description>
+///             </item>
+///         </list>
+///     </para>
+///     <para>Both must terminate well before maxTicks and leave the tohost low word == 1.</para>
 /// </summary>
 public class HtifExitTests {
-    private static string HtifElf => Path.Combine(AppContext.BaseDirectory, "htif.elf");
     private const int MemoryBytes = 0x100000;
     private const long MaxTicks = 1_000_000;
+    private static string HtifElf => Path.Combine(AppContext.BaseDirectory, "htif.elf");
 
     public static IEnumerable<object[]> Trains() => [
         ["single_cycle",], ["five_stage",], ["ooo",],
@@ -40,12 +48,12 @@ public class HtifExitTests {
     public void JumpToSelf_StopsAtSpinLoop(string train) => RunAndAssert(train, false);
 
     /// <summary>
-    /// Proves <c>RequestHalt</c> actually fires rather than being dead code masked
-    /// by the jump-to-self backstop. With tohost configured the train halts AT the
-    /// exit store, so the following spin <c>j</c> never retires; without it the
-    /// train falls through to jump-to-self, retiring that <c>j</c> exactly once.
-    /// The two paths therefore retire identically up to the store, differing by the
-    /// single spin jump.
+    ///     Proves <c>RequestHalt</c> actually fires rather than being dead code masked
+    ///     by the jump-to-self backstop. With tohost configured the train halts AT the
+    ///     exit store, so the following spin <c>j</c> never retires; without it the
+    ///     train falls through to jump-to-self, retiring that <c>j</c> exactly once.
+    ///     The two paths therefore retire identically up to the store, differing by the
+    ///     single spin jump.
     /// </summary>
     [Theory]
     [MemberData(nameof(Trains))]

@@ -3,31 +3,25 @@ using Mechanism;
 namespace RiscV32.MultiCore;
 
 /// <summary>
-/// Drives N RISC-V harts round-robin against a shared physical memory.
-/// Each call to <see cref="Step"/> advances every non-halted hart by one instruction.
-/// <para>
-/// Callers are responsible for wrapping the shared backing memory in
-/// <c>ReservationAwareMemory</c> and wiring each mechanism (<c>Rv32Mechanism</c>,
-/// <c>Rv64Mechanism</c>, ...) with the same <c>ReservationTable</c> so that LR/SC
-/// sequences are correctly cross-invalidated across harts.
-/// </para>
-/// <para>
-/// This kernel operates entirely in physical address space. It does not apply
-/// any fetch translation or cache hierarchy — it is suited for bare-metal
-/// multi-hart workloads where harts share a flat physical memory.
-/// </para>
+///     Drives N RISC-V harts round-robin against a shared physical memory.
+///     Each call to <see cref="Step" /> advances every non-halted hart by one instruction.
+///     <para>
+///         Callers are responsible for wrapping the shared backing memory in
+///         <c>ReservationAwareMemory</c> and wiring each mechanism (<c>Rv32Mechanism</c>,
+///         <c>Rv64Mechanism</c>, ...) with the same <c>ReservationTable</c> so that LR/SC
+///         sequences are correctly cross-invalidated across harts.
+///     </para>
+///     <para>
+///         This kernel operates entirely in physical address space. It does not apply
+///         any fetch translation or cache hierarchy — it is suited for bare-metal
+///         multi-hart workloads where harts share a flat physical memory.
+///     </para>
 /// </summary>
 public sealed class MultiHartKernel {
+    private readonly bool[] _halted;
+    private readonly IMemory[] _hartMemory;
     private readonly IMechanism[] _mechanisms;
     private readonly IArchState[] _states;
-    private readonly IMemory[] _hartMemory;
-    private readonly bool[] _halted;
-
-    public long Ticks { get; private set; }
-    public int HartCount => _mechanisms.Length;
-
-    /// <summary>Returns the live architectural state of the given hart.</summary>
-    public IArchState StateOf(int hartId) => _states[hartId];
 
     public MultiHartKernel(IMemory sharedMemory, params IMechanism[] mechanisms) {
         ArgumentNullException.ThrowIfNull(sharedMemory);
@@ -43,9 +37,9 @@ public sealed class MultiHartKernel {
     }
 
     /// <summary>
-    /// Per-hart memory overload: each hart fetches and accesses its own <see cref="IMemory"/>
-    /// (e.g. a <see cref="Orrery.Cache.MoesifCache"/> backed by a shared <see cref="Orrery.Cache.MoesifBus"/>).
-    /// <paramref name="perHartMemory"/> must have the same length as <paramref name="mechanisms"/>.
+    ///     Per-hart memory overload: each hart fetches and accesses its own <see cref="IMemory" />
+    ///     (e.g. a <see cref="Orrery.Cache.MoesifCache" /> backed by a shared <see cref="Orrery.Cache.MoesifBus" />).
+    ///     <paramref name="perHartMemory" /> must have the same length as <paramref name="mechanisms" />.
     /// </summary>
     public MultiHartKernel(IMemory[] perHartMemory, params IMechanism[] mechanisms) {
         ArgumentNullException.ThrowIfNull(perHartMemory);
@@ -61,12 +55,18 @@ public sealed class MultiHartKernel {
         for (var i = 0; i < mechanisms.Length; i++) _states[i] = mechanisms[i].CreateArchState();
     }
 
+    public long Ticks { get; private set; }
+    public int HartCount => _mechanisms.Length;
+
+    /// <summary>Returns the live architectural state of the given hart.</summary>
+    public IArchState StateOf(int hartId) => _states[hartId];
+
     public void SetEntryPoint(int hartId, ulong entryPoint) =>
         _states[hartId].Pc = entryPoint;
 
     /// <summary>
-    /// Advance every non-halted hart by one instruction.
-    /// Returns the number of harts that remain active after this tick.
+    ///     Advance every non-halted hart by one instruction.
+    ///     Returns the number of harts that remain active after this tick.
     /// </summary>
     public int Step() {
         var active = 0;
@@ -80,7 +80,7 @@ public sealed class MultiHartKernel {
         return active;
     }
 
-    /// <summary>Step until all harts are halted or <paramref name="maxTicks"/> is reached.</summary>
+    /// <summary>Step until all harts are halted or <paramref name="maxTicks" /> is reached.</summary>
     public void Run(long maxTicks = 1_000_000) {
         while (Ticks < maxTicks && Step() > 0) { }
     }

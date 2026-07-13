@@ -4,8 +4,8 @@ using System.Text;
 namespace Orrery.Tree;
 
 /// <summary>
-/// The lifecycle of a node in the simulation tree.
-/// Transitions are one-way and enforced — you cannot go backwards.
+///     The lifecycle of a node in the simulation tree.
+///     Transitions are one-way and enforced — you cannot go backwards.
 /// </summary>
 public enum SimLifecycle {
     /// <summary>The node is being constructed. Children may be added.</summary>
@@ -22,12 +22,27 @@ public enum SimLifecycle {
 }
 
 /// <summary>
-/// The universal base for every named object in the simulation.
-/// Every Gear, port collection, stat group, and parameter set lives
-/// as a node in this tree, addressable by its full path.
+///     The universal base for every named object in the simulation.
+///     Every Gear, port collection, stat group, and parameter set lives
+///     as a node in this tree, addressable by its full path.
 /// </summary>
 public class SimNode {
     private readonly List<SimNode> _children = [];
+
+    // ── Construction ─────────────────────────────────────────────────────────
+
+    /// <summary>Creates a root node with the given name.</summary>
+    public SimNode(string name) {
+        ValidateName(name);
+        Name = name;
+    }
+
+    /// <summary>Creates a child node and attaches it to the given parent.</summary>
+    public SimNode(string name, SimNode parent) {
+        ValidateName(name);
+        Name = name;
+        AttachTo(parent);
+    }
 
     // ── Identity ────────────────────────────────────────────────────────────
 
@@ -46,9 +61,9 @@ public class SimNode {
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The current lifecycle state of this node.
-    /// Getting the lifecycle always reflects the root's state —
-    /// the whole tree moves together.
+    ///     The current lifecycle state of this node.
+    ///     Getting the lifecycle always reflects the root's state —
+    ///     the whole tree moves together.
     /// </summary>
     public SimLifecycle Lifecycle {
         // ReSharper disable once FunctionRecursiveOnAllPaths
@@ -63,26 +78,13 @@ public class SimNode {
         }
     } = SimLifecycle.Building;
 
-    // ── Construction ─────────────────────────────────────────────────────────
-
-    /// <summary>Creates a root node with the given name.</summary>
-    public SimNode(string name) {
-        ValidateName(name);
-        Name = name;
-    }
-
-    /// <summary>Creates a child node and attaches it to the given parent.</summary>
-    public SimNode(string name, SimNode parent) {
-        ValidateName(name);
-        Name = name;
-        AttachTo(parent);
-    }
+    private bool IsRoot => Parent is null;
 
     // ── Tree Manipulation ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Adds a child node to this node.
-    /// Only valid during <see cref="SimLifecycle.Building"/>.
+    ///     Adds a child node to this node.
+    ///     Only valid during <see cref="SimLifecycle.Building" />.
     /// </summary>
     public void AddChild(SimNode child) {
         AssertLifecycle(SimLifecycle.Building, "add children");
@@ -105,8 +107,8 @@ public class SimNode {
     // ── Navigation ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Finds a descendant node by dot-separated relative path.
-    /// Returns null if not found.
+    ///     Finds a descendant node by dot-separated relative path.
+    ///     Returns null if not found.
     /// </summary>
     public SimNode? Find(string relativePath) {
         if (string.IsNullOrWhiteSpace(relativePath)) return null;
@@ -120,8 +122,8 @@ public class SimNode {
     }
 
     /// <summary>
-    /// Finds a descendant node by dot-separated relative path.
-    /// Throws if not found.
+    ///     Finds a descendant node by dot-separated relative path.
+    ///     Throws if not found.
     /// </summary>
     public SimNode Require(string relativePath) =>
         Find(relativePath) ??
@@ -130,7 +132,7 @@ public class SimNode {
         );
 
     /// <summary>
-    /// Returns this node and all descendants in breadth-first order.
+    ///     Returns this node and all descendants in breadth-first order.
     /// </summary>
     public IEnumerable<SimNode> Descendants() {
         yield return this;
@@ -140,8 +142,8 @@ public class SimNode {
     // ── Lifecycle Transitions (root only) ────────────────────────────────────
 
     /// <summary>
-    /// Advances the whole tree to <see cref="SimLifecycle.Finalizing"/>.
-    /// Call this on the root once all nodes have been added.
+    ///     Advances the whole tree to <see cref="SimLifecycle.Finalizing" />.
+    ///     Call this on the root once all nodes have been added.
     /// </summary>
     public void BeginFinalizing() {
         AssertIsRoot();
@@ -150,8 +152,8 @@ public class SimNode {
     }
 
     /// <summary>
-    /// Advances the whole tree to <see cref="SimLifecycle.Running"/>.
-    /// Call this on the root once all arbors have been bound.
+    ///     Advances the whole tree to <see cref="SimLifecycle.Running" />.
+    ///     Call this on the root once all arbors have been bound.
     /// </summary>
     public void BeginRunning() {
         AssertIsRoot();
@@ -160,8 +162,8 @@ public class SimNode {
     }
 
     /// <summary>
-    /// Advances the whole tree to <see cref="SimLifecycle.Finished"/>.
-    /// Call this on the root when the revolution is complete.
+    ///     Advances the whole tree to <see cref="SimLifecycle.Finished" />.
+    ///     Call this on the root when the revolution is complete.
     /// </summary>
     public void BeginFinished() {
         AssertIsRoot();
@@ -172,7 +174,7 @@ public class SimNode {
     // ── Diagnostics ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Returns a human-readable tree dump, useful for debugging topology.
+    ///     Returns a human-readable tree dump, useful for debugging topology.
     /// </summary>
     public string DumpTree(int indent = 0) {
         var prefix = new string(' ', indent * 2);
@@ -188,8 +190,6 @@ public class SimNode {
 
     private void AttachTo(SimNode parent) { parent.AddChild(this); }
 
-    private bool IsRoot => Parent is null;
-
     private void AssertIsRoot() {
         if (!IsRoot)
             throw new InvalidOperationException(
@@ -199,8 +199,8 @@ public class SimNode {
     }
 
     /// <summary>
-    /// Asserts the current lifecycle matches the expected state.
-    /// Uses the root's lifecycle (the whole tree moves together).
+    ///     Asserts the current lifecycle matches the expected state.
+    ///     Uses the root's lifecycle (the whole tree moves together).
     /// </summary>
     protected internal void AssertLifecycle(SimLifecycle expected, string action) {
         if (Lifecycle != expected)
@@ -223,9 +223,9 @@ public class SimNode {
     }
 
     /// <summary>
-    /// Forces the lifecycle to a specific state without transition validation.
-    /// Only the Train may call this — it is used to reset between Revolutions.
-    /// Do not call this from anywhere else.
+    ///     Forces the lifecycle to a specific state without transition validation.
+    ///     Only the Train may call this — it is used to reset between Revolutions.
+    ///     Do not call this from anywhere else.
     /// </summary>
     internal void ForceLifecycle(SimLifecycle state) {
         if (Parent is not null)

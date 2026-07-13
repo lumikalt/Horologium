@@ -9,12 +9,11 @@ using RiscV32.Memory;
 namespace Tests.Isa.F18A;
 
 /// <summary>
-/// F18A unit tests. Memory is word-addressed (4 bytes per word).
-///
-/// Encoding note: F18A slots are 5+5+5+3 bits. The 3-bit slot-3 has NO nop opcode —
-/// F18AOp.Nop (26) would truncate to 2 = Jump(0) in that slot, corrupting slot-2 too.
-/// Tests avoid slot-3 by using the Op1/FP helpers that put Jump(next) in slot-1,
-/// so control flow exits before slot-2 or slot-3 are reached.
+///     F18A unit tests. Memory is word-addressed (4 bytes per word).
+///     Encoding note: F18A slots are 5+5+5+3 bits. The 3-bit slot-3 has NO nop opcode —
+///     F18AOp.Nop (26) would truncate to 2 = Jump(0) in that slot, corrupting slot-2 too.
+///     Tests avoid slot-3 by using the Op1/FP helpers that put Jump(next) in slot-1,
+///     so control flow exits before slot-2 or slot-3 are reached.
 /// </summary>
 public class F18ATests {
     private static (SingleCycleTrain Train, F18AArchState State, FlatMemory Mem) Make(int sizeBytes = 4096) {

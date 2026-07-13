@@ -1,22 +1,22 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// ITTAGE: Indirect Target predictor using Tagged tables with Geometric History lengths
-/// (Michaud 2011, refined by Seznec).
-/// <para>
-/// Applies the TAGE philosophy to indirect-branch target prediction. N tagged tables
-/// at geometrically increasing history lengths each store a full predicted target
-/// address. The longest-matching history entry wins; on a target misprediction a new
-/// entry is allocated in the next eligible longer-history table. If no table slot is
-/// free, usefulness counters are decayed to open one on the next miss.
-/// </para>
-/// <para>
-/// Direction is predicted from a bimodal base (2-bit saturating counters). Real
-/// deployments overlay ITTAGE on top of a direction predictor; here the bimodal is
-/// bundled so this class satisfies IBranchPredictor standalone. ITTAGE's primary
-/// advantage is distinguishing different targets for the same PC based on execution
-/// history (e.g. virtual dispatch, computed gotos).
-/// </para>
+///     ITTAGE: Indirect Target predictor using Tagged tables with Geometric History lengths
+///     (Michaud 2011, refined by Seznec).
+///     <para>
+///         Applies the TAGE philosophy to indirect-branch target prediction. N tagged tables
+///         at geometrically increasing history lengths each store a full predicted target
+///         address. The longest-matching history entry wins; on a target misprediction a new
+///         entry is allocated in the next eligible longer-history table. If no table slot is
+///         free, usefulness counters are decayed to open one on the next miss.
+///     </para>
+///     <para>
+///         Direction is predicted from a bimodal base (2-bit saturating counters). Real
+///         deployments overlay ITTAGE on top of a direction predictor; here the bimodal is
+///         bundled so this class satisfies IBranchPredictor standalone. ITTAGE's primary
+///         advantage is distinguishing different targets for the same PC based on execution
+///         history (e.g. virtual dispatch, computed gotos).
+///     </para>
 /// </summary>
 public sealed class IttagePredictor : IBranchPredictor {
     private const int NumTables = 5;
@@ -27,13 +27,13 @@ public sealed class IttagePredictor : IBranchPredictor {
 
     private static readonly int[] HistLengths = [8, 13, 21, 34, 55,];
 
-    private readonly byte[] _base;            // 2-bit bimodal for direction (taken ≥ 2)
-    private readonly IttageEntry[][] _tables; // target-storing ITTAGE tables
+    private readonly byte[] _base; // 2-bit bimodal for direction (taken ≥ 2)
     private readonly Dictionary<ulong, ulong> _btb = new();
     private readonly SpeculativeGlobalHistory _hist;
+    private readonly IttageEntry[][] _tables; // target-storing ITTAGE tables
 
     /// <summary>
-    /// Constructs an ITTAGE predictor.
+    ///     Constructs an ITTAGE predictor.
     /// </summary>
     public IttagePredictor() {
         _base = new byte[1 << IttagePredictor.BaseIndexBits];

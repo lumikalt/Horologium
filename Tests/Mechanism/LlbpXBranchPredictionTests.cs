@@ -55,9 +55,9 @@ public class LlbpXBranchPredictionTests {
     }
 
     /// <summary>
-    /// Runs TageScL, LLBP, and LLBP-X on the same synthetic branch trace and
-    /// verifies that LLBP-X matches or improves upon LLBP's override count.
-    /// This serves as a regression baseline for benchmark comparisons.
+    ///     Runs TageScL, LLBP, and LLBP-X on the same synthetic branch trace and
+    ///     verifies that LLBP-X matches or improves upon LLBP's override count.
+    ///     This serves as a regression baseline for benchmark comparisons.
     /// </summary>
     [Fact]
     public void BenchmarkComparison_LlbpX_AtLeastAsGoodAsLlbp() {

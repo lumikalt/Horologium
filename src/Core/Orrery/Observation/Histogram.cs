@@ -3,18 +3,15 @@ using System.Runtime.InteropServices;
 namespace Orrery.Observation;
 
 /// <summary>
-/// A named set of accumulating per-key counts.
-/// Typical use: retired-instruction counts keyed by instruction type name.
+///     A named set of accumulating per-key counts.
+///     Typical use: retired-instruction counts keyed by instruction type name.
 /// </summary>
 public sealed class Histogram {
-    // Fast path for instruction-type counting — avoids per-call string hashing.
-    private readonly Dictionary<Type, long> _typeBuckets = new();
-
     // Legacy path for callers that key by string (and for tests).
     private readonly Dictionary<string, long> _stringBuckets = new();
 
-    public string Name { get; }
-    public string Description { get; }
+    // Fast path for instruction-type counting — avoids per-call string hashing.
+    private readonly Dictionary<Type, long> _typeBuckets = new();
 
     public Histogram(string name, string description = "") {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -22,17 +19,8 @@ public sealed class Histogram {
         Description = description;
     }
 
-    /// <summary>Increments the count for <paramref name="key"/> using type-identity hashing.</summary>
-    public void Observe(Type key) {
-        // Single hash lookup instead of GetValueOrDefault + indexer-set (two lookups);
-        // runs once per retired instruction.
-        ref long count = ref CollectionsMarshal.GetValueRefOrAddDefault(_typeBuckets, key, out _);
-        count++;
-    }
-
-    /// <summary>Increments the count for <paramref name="key"/> by string.</summary>
-    public void Observe(string key) =>
-        _stringBuckets[key] = _stringBuckets.GetValueOrDefault(key) + 1;
+    public string Name { get; }
+    public string Description { get; }
 
     /// <summary>Point-in-time snapshot of all bucket counts, keyed by name.</summary>
     public IReadOnlyDictionary<string, long> Buckets {
@@ -44,6 +32,18 @@ public sealed class Histogram {
             return merged;
         }
     }
+
+    /// <summary>Increments the count for <paramref name="key" /> using type-identity hashing.</summary>
+    public void Observe(Type key) {
+        // Single hash lookup instead of GetValueOrDefault + indexer-set (two lookups);
+        // runs once per retired instruction.
+        ref long count = ref CollectionsMarshal.GetValueRefOrAddDefault(_typeBuckets, key, out _);
+        count++;
+    }
+
+    /// <summary>Increments the count for <paramref name="key" /> by string.</summary>
+    public void Observe(string key) =>
+        _stringBuckets[key] = _stringBuckets.GetValueOrDefault(key) + 1;
 
     internal void Reset() {
         _typeBuckets.Clear();

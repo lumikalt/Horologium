@@ -1,36 +1,36 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// VLA-TAGE: Vector-Loop-Aware TAGE — Zhang et al., IEEE CAL 2026.
-/// <para>
-/// Extends TAGE-SC-L with a power-gating mechanism that bypasses the tagged
-/// history tables (T1–T3) and the Statistical Corrector when the innermost
-/// vector loop has sufficiently many remaining iterations.  Only the bimodal
-/// T0 and the inherited loop predictor remain active while gating.
-/// </para>
-/// <para>
-/// A Vector Loop Table (VLT) with eight entries tracks backward branches.
-/// The pipeline calls <see cref="NotifyVectorInstruction"/> at every vector
-/// instruction's execute time, and <see cref="NotifyLoopBranchExecute"/> at
-/// every taken backward-branch's execute time with the two comparison-register
-/// values.  The Loop Monitor (LM) uses those register values to estimate
-/// remaining iterations without expensive division: it compares the current
-/// induction variable against the loop bound after applying the step size.
-/// </para>
-/// <para>
-/// The PEN latch for a given backward branch is asserted when estimated
-/// remaining iterations ≥ MinIterThreshold (32) and the loop body has
-/// contained at least one vector instruction.  PEN is deasserted early when
-/// remaining ≤ LoopTermThreshold (5), anticipating the loop exit branch
-/// prediction by the pipeline latency between Issue and Fetch (per the paper).
-/// </para>
-/// <para>
-/// Unlike the global history register (which the base <see cref="LTagePredictor"/> now keeps
-/// speculative), the VLT is intentionally <em>not</em> fetch-speculative: it is driven by
-/// register operand values delivered at execute (<see cref="NotifyLoopBranchExecute"/>), which
-/// are unknown at fetch, so there is no predicted direction to fold in speculatively. The
-/// inherited speculative <c>Ghr</c> is all the fetch-time history VLA-TAGE carries.
-/// </para>
+///     VLA-TAGE: Vector-Loop-Aware TAGE — Zhang et al., IEEE CAL 2026.
+///     <para>
+///         Extends TAGE-SC-L with a power-gating mechanism that bypasses the tagged
+///         history tables (T1–T3) and the Statistical Corrector when the innermost
+///         vector loop has sufficiently many remaining iterations.  Only the bimodal
+///         T0 and the inherited loop predictor remain active while gating.
+///     </para>
+///     <para>
+///         A Vector Loop Table (VLT) with eight entries tracks backward branches.
+///         The pipeline calls <see cref="NotifyVectorInstruction" /> at every vector
+///         instruction's execute time, and <see cref="NotifyLoopBranchExecute" /> at
+///         every taken backward-branch's execute time with the two comparison-register
+///         values.  The Loop Monitor (LM) uses those register values to estimate
+///         remaining iterations without expensive division: it compares the current
+///         induction variable against the loop bound after applying the step size.
+///     </para>
+///     <para>
+///         The PEN latch for a given backward branch is asserted when estimated
+///         remaining iterations ≥ MinIterThreshold (32) and the loop body has
+///         contained at least one vector instruction.  PEN is deasserted early when
+///         remaining ≤ LoopTermThreshold (5), anticipating the loop exit branch
+///         prediction by the pipeline latency between Issue and Fetch (per the paper).
+///     </para>
+///     <para>
+///         Unlike the global history register (which the base <see cref="LTagePredictor" /> now keeps
+///         speculative), the VLT is intentionally <em>not</em> fetch-speculative: it is driven by
+///         register operand values delivered at execute (<see cref="NotifyLoopBranchExecute" />), which
+///         are unknown at fetch, so there is no predicted direction to fold in speculatively. The
+///         inherited speculative <c>Ghr</c> is all the fetch-time history VLA-TAGE carries.
+///     </para>
 /// </summary>
 public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredictor {
     private const int VltSize = 8;
@@ -40,8 +40,8 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
     private readonly VltEntry[] _vlt = new VltEntry[VlaTagePredictor.VltSize];
 
     /// <summary>
-    /// Number of predictions made under the PEN gating signal
-    /// (history tables and SC bypassed).  Useful as a proxy for power savings.
+    ///     Number of predictions made under the PEN gating signal
+    ///     (history tables and SC bypassed).  Useful as a proxy for power savings.
     /// </summary>
     public int GatedPredictions { get; private set; }
 
@@ -116,9 +116,15 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
             e.PenLatch = false;
     }
 
+    /// <inheritdoc />
+    public override void Update(ulong pc, bool taken, ulong actualTarget) {
+        UpdateVlt(pc, taken, actualTarget);
+        base.Update(pc, taken, actualTarget);
+    }
+
     // ── IBranchPredictor overrides ────────────────────────────────────────────
 
-    /// <inheritdoc/>
+    /// <inheritdoc />
     protected override bool ResolvePrediction(ulong pc, int provider, bool tagePred) {
         if (IsPenActive(pc)) {
             GatedPredictions++;
@@ -126,12 +132,6 @@ public sealed class VlaTagePredictor : TageScLPredictor, IVectorAwareBranchPredi
         }
 
         return base.ResolvePrediction(pc, provider, tagePred);
-    }
-
-    /// <inheritdoc/>
-    public override void Update(ulong pc, bool taken, ulong actualTarget) {
-        UpdateVlt(pc, taken, actualTarget);
-        base.Update(pc, taken, actualTarget);
     }
 
     // ── VLT internals ─────────────────────────────────────────────────────────

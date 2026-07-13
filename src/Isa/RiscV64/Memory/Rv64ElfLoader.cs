@@ -5,9 +5,9 @@ using RiscV32.Memory;
 namespace RiscV64.Memory;
 
 /// <summary>
-/// Minimal ELF64 loader for bare-metal RV64 executables.
-/// Loads all PT_LOAD segments into an IMemory and returns the entry point.
-/// Only little-endian ELF64 with machine type EM_RISCV (0xF3) is accepted.
+///     Minimal ELF64 loader for bare-metal RV64 executables.
+///     Loads all PT_LOAD segments into an IMemory and returns the entry point.
+///     Only little-endian ELF64 with machine type EM_RISCV (0xF3) is accepted.
 /// </summary>
 public static class Rv64ElfLoader {
     private const uint PtLoad = 1;

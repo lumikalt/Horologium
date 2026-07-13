@@ -1,8 +1,8 @@
 namespace Mechanism;
 
 /// <summary>
-/// An <see cref="IWorkload"/> backed by a raw byte array.
-/// The bytes are loaded at <paramref name="loadAddress"/>; execution starts at <paramref name="entryPoint"/>.
+///     An <see cref="IWorkload" /> backed by a raw byte array.
+///     The bytes are loaded at <paramref name="loadAddress" />; execution starts at <paramref name="entryPoint" />.
 /// </summary>
 public sealed class ByteArrayWorkload(
     byte[] program,

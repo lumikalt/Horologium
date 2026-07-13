@@ -1,29 +1,28 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// LLBP-X: The Last-Level Branch Predictor Revisited — Schall et al., HPCA 2026.
-/// <para>
-/// Extends LLBP with dynamic context-depth adaptation driven by a Context Tracking
-/// Table (CTT). Each context starts shallow (W=2 hashed PCs, tables 0–1 in our
-/// 4-table TAGE). When the 16-slot pattern set fills and the running history-length
-/// average saturates at 7, the CTT promotes the context to deep (W=64, tables 2–3).
-/// Deep contexts revert to shallow once the average drains back to 0.
-/// </para>
-/// <para>
-/// Shallow contexts index only TAGE tables 0–1 (histories 8, 13); deep contexts
-/// index only tables 2–3 (histories 21, 34). This mirrors the paper's short/long
-/// history split across LLBP-X's 21-entry history range.
-/// </para>
-/// <para>
-/// Branch-type distinction (unconditional vs conditional) is not surfaced by
-/// IBranchPredictor, so RCR update uses all taken branches — identical to LLBP.
-/// </para>
+///     LLBP-X: The Last-Level Branch Predictor Revisited — Schall et al., HPCA 2026.
+///     <para>
+///         Extends LLBP with dynamic context-depth adaptation driven by a Context Tracking
+///         Table (CTT). Each context starts shallow (W=2 hashed PCs, tables 0–1 in our
+///         4-table TAGE). When the 16-slot pattern set fills and the running history-length
+///         average saturates at 7, the CTT promotes the context to deep (W=64, tables 2–3).
+///         Deep contexts revert to shallow once the average drains back to 0.
+///     </para>
+///     <para>
+///         Shallow contexts index only TAGE tables 0–1 (histories 8, 13); deep contexts
+///         index only tables 2–3 (histories 21, 34). This mirrors the paper's short/long
+///         history split across LLBP-X's 21-entry history range.
+///     </para>
+///     <para>
+///         Branch-type distinction (unconditional vs conditional) is not surfaced by
+///         IBranchPredictor, so RCR update uses all taken branches — identical to LLBP.
+///     </para>
 /// </summary>
 public sealed class LlbpXPredictor : LlbpPredictor {
-    private readonly Ctt _ctt = new();
-
     // Tables 0-1 = short history (8, 13 bits); tables 2-3 = long history (21, 34 bits).
     private const int DeepTableThreshold = 2;
+    private readonly Ctt _ctt = new();
 
     private bool _usedDeep;
 
@@ -89,8 +88,8 @@ public sealed class LlbpXPredictor : LlbpPredictor {
 }
 
 /// <summary>
-/// Context Tracking Table: monitors contended pattern sets and promotes/demotes
-/// contexts between shallow (W=2) and deep (W=64) history depth.
+///     Context Tracking Table: monitors contended pattern sets and promotes/demotes
+///     contexts between shallow (W=2) and deep (W=64) history depth.
 /// </summary>
 internal sealed class Ctt {
     private const int Capacity = 6144;

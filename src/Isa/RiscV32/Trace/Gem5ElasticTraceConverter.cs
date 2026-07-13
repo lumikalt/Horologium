@@ -3,41 +3,70 @@ using System.Text;
 namespace RiscV32.Trace;
 
 /// <summary>
-/// Translates a Horologium HELF elastic trace to the gem5
-/// <c>inst_dep_record.proto</c> length-delimited binary stream.
-/// <para>
-/// File framing (from <c>gem5/src/proto/protoio.cc</c>):
-/// <list type="number">
-///   <item>4-byte little-endian magic <c>0x356d6567</c> ("gem5") written once at start.</item>
-///   <item>Each message: protobuf varint32 byte-count followed by the serialised proto bytes.</item>
-/// </list>
-/// The first message is an <c>InstDepRecordHeader</c>; the remainder are
-/// <c>InstDepRecord</c> messages (both defined in <c>inst_dep_record.proto</c>).
-/// </para>
-/// <para>
-/// <c>InstDepRecordHeader</c> field mapping:
-/// <list type="table">
-///   <item><term>obj_id    (1, string)</term><description>"gem5.elastic_data_trace"</description></item>
-///   <item><term>tick_freq (3, uint64)</term><description>HELF TickFreq or 1 GHz fallback</description></item>
-/// </list>
-/// </para>
-/// <para>
-/// <c>InstDepRecord</c> field mapping (verified against <c>gem5/src/proto/inst_dep_record.proto</c>
-/// and <c>gem5/src/cpu/o3/probe/elastic_trace.cc</c>):
-/// <list type="table">
-///   <item><term>seq_num   (1,  uint64)         </term><description>HELF seqno</description></item>
-///   <item><term>type      (2,  enum)            </term><description>LOAD=1, STORE=2, COMP=3</description></item>
-///   <item><term>p_addr    (3,  uint64)          </term><description>HELF vAddr (no physical translation)</description></item>
-///   <item><term>size      (4,  uint32)          </term><description>HELF accessSize</description></item>
-///   <item><term>flags     (5,  uint32)          </term><description>omitted (optional)</description></item>
-///   <item><term>rob_dep   (6,  repeated uint64) </term><description>HELF addrDeps (memory/commit-order deps)</description></item>
-///   <item><term>comp_delay(7,  uint64)          </term><description>HELF compDelay</description></item>
-///   <item><term>reg_dep   (8,  repeated uint64) </term><description>HELF robDeps (register data deps)</description></item>
-///   <item><term>weight    (9,  uint32)          </term><description>omitted (optional)</description></item>
-///   <item><term>pc        (10, uint64)          </term><description>HELF pc</description></item>
-///   <item><term>v_addr    (11, uint64)          </term><description>omitted (optional)</description></item>
-/// </list>
-/// </para>
+///     Translates a Horologium HELF elastic trace to the gem5
+///     <c>inst_dep_record.proto</c> length-delimited binary stream.
+///     <para>
+///         File framing (from <c>gem5/src/proto/protoio.cc</c>):
+///         <list type="number">
+///             <item>4-byte little-endian magic <c>0x356d6567</c> ("gem5") written once at start.</item>
+///             <item>Each message: protobuf varint32 byte-count followed by the serialised proto bytes.</item>
+///         </list>
+///         The first message is an <c>InstDepRecordHeader</c>; the remainder are
+///         <c>InstDepRecord</c> messages (both defined in <c>inst_dep_record.proto</c>).
+///     </para>
+///     <para>
+///         <c>InstDepRecordHeader</c> field mapping:
+///         <list type="table">
+///             <item>
+///                 <term>obj_id    (1, string)</term><description>"gem5.elastic_data_trace"</description>
+///             </item>
+///             <item>
+///                 <term>tick_freq (3, uint64)</term><description>HELF TickFreq or 1 GHz fallback</description>
+///             </item>
+///         </list>
+///     </para>
+///     <para>
+///         <c>InstDepRecord</c> field mapping (verified against <c>gem5/src/proto/inst_dep_record.proto</c>
+///         and <c>gem5/src/cpu/o3/probe/elastic_trace.cc</c>):
+///         <list type="table">
+///             <item>
+///                 <term>seq_num   (1,  uint64)         </term><description>HELF seqno</description>
+///             </item>
+///             <item>
+///                 <term>type      (2,  enum)            </term><description>LOAD=1, STORE=2, COMP=3</description>
+///             </item>
+///             <item>
+///                 <term>p_addr    (3,  uint64)          </term>
+///                 <description>HELF vAddr (no physical translation)</description>
+///             </item>
+///             <item>
+///                 <term>size      (4,  uint32)          </term><description>HELF accessSize</description>
+///             </item>
+///             <item>
+///                 <term>flags     (5,  uint32)          </term><description>omitted (optional)</description>
+///             </item>
+///             <item>
+///                 <term>rob_dep   (6,  repeated uint64) </term>
+///                 <description>HELF addrDeps (memory/commit-order deps)</description>
+///             </item>
+///             <item>
+///                 <term>comp_delay(7,  uint64)          </term><description>HELF compDelay</description>
+///             </item>
+///             <item>
+///                 <term>reg_dep   (8,  repeated uint64) </term>
+///                 <description>HELF robDeps (register data deps)</description>
+///             </item>
+///             <item>
+///                 <term>weight    (9,  uint32)          </term><description>omitted (optional)</description>
+///             </item>
+///             <item>
+///                 <term>pc        (10, uint64)          </term><description>HELF pc</description>
+///             </item>
+///             <item>
+///                 <term>v_addr    (11, uint64)          </term><description>omitted (optional)</description>
+///             </item>
+///         </list>
+///     </para>
 /// </summary>
 public static class Gem5ElasticTraceConverter {
     // gem5 ProtoStream magic number (ASCII "gem5", little-endian uint32)
@@ -49,15 +78,15 @@ public static class Gem5ElasticTraceConverter {
     private const uint Gem5Comp = 3;
 
     /// <summary>
-    /// Converts a HELF stream to a gem5 inst_dep_record proto stream.
-    /// Both streams are read/written sequentially; the caller owns both streams.
+    ///     Converts a HELF stream to a gem5 inst_dep_record proto stream.
+    ///     Both streams are read/written sequentially; the caller owns both streams.
     /// </summary>
     /// <param name="input">HELF elastic trace stream to read from.</param>
     /// <param name="output">gem5 proto stream to write to.</param>
     /// <param name="tickFreq">
-    /// Tick frequency written into the <c>InstDepRecordHeader</c>. Use the
-    /// recorder's frequency if known, or 0 to use the HELF header value
-    /// (falling back to 1 GHz if unset).
+    ///     Tick frequency written into the <c>InstDepRecordHeader</c>. Use the
+    ///     recorder's frequency if known, or 0 to use the HELF header value
+    ///     (falling back to 1 GHz if unset).
     /// </param>
     public static long Convert(Stream input, Stream output, ulong tickFreq = 0) {
         using var reader = new ElasticTraceReader(input);

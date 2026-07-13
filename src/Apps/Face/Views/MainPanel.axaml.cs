@@ -18,10 +18,9 @@ namespace Face.Views;
 
 public partial class MainPanel : UserControl {
     private AvaPlot? _chartView;
-    private AvaPlot? _waveformView;
-    private DataGrid? _resultsGrid;
     private WaterfallRow? _lastHoveredRow;
-    private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
+    private DataGrid? _resultsGrid;
+    private AvaPlot? _waveformView;
 
     public MainPanel() {
         InitializeComponent();
@@ -49,6 +48,8 @@ public partial class MainPanel : UserControl {
                      );
         };
     }
+
+    private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
 
     // ── Zoom via keyboard (tunnel from TopLevel — no focus dependency) ─────────
     private void OnGlobalKeyDown(object? sender, KeyEventArgs e) {

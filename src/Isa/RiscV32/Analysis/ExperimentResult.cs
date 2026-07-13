@@ -6,21 +6,20 @@ using RiscV32.Config;
 namespace RiscV32.Analysis;
 
 /// <summary>
-/// The collected result of one named simulation run.
+///     The collected result of one named simulation run.
 /// </summary>
 public sealed record RunRecord(string Name, TrainConfig Config, RevolutionResult Result);
 
 /// <summary>
-/// Aggregated results from an <see cref="Experiment"/> across multiple hardware configurations.
+///     Aggregated results from an <see cref="Experiment" /> across multiple hardware configurations.
 /// </summary>
 public sealed class ExperimentResult {
+    internal ExperimentResult(IReadOnlyList<RunRecord> runs) => Runs = runs;
     public IReadOnlyList<RunRecord> Runs { get; }
 
-    internal ExperimentResult(IReadOnlyList<RunRecord> runs) => Runs = runs;
-
     /// <summary>
-    /// Emits a CSV table with one row per run. Columns are drawn from the union of all
-    /// counter/dial names across every gear snapshot in every run.
+    ///     Emits a CSV table with one row per run. Columns are drawn from the union of all
+    ///     counter/dial names across every gear snapshot in every run.
     /// </summary>
     public string ToCsv() {
         (List<string> counterCols, List<string> dialCols) = CollectColumns();
@@ -54,7 +53,7 @@ public sealed class ExperimentResult {
     }
 
     /// <summary>
-    /// Emits a GitHub-flavoured Markdown table with the same columns as <see cref="ToCsv"/>.
+    ///     Emits a GitHub-flavoured Markdown table with the same columns as <see cref="ToCsv" />.
     /// </summary>
     public string ToMarkdownTable() {
         (List<string> counterCols, List<string> dialCols) = CollectColumns();
@@ -94,9 +93,9 @@ public sealed class ExperimentResult {
     }
 
     /// <summary>
-    /// Emits a CSV table with one row per (run, time-series point). Returns an empty
-    /// string if no run has time-series data.
-    /// Columns: name, tick, then the same counter/dial columns as <see cref="ToCsv"/>.
+    ///     Emits a CSV table with one row per (run, time-series point). Returns an empty
+    ///     string if no run has time-series data.
+    ///     Columns: name, tick, then the same counter/dial columns as <see cref="ToCsv" />.
     /// </summary>
     public string ToTimeSeriesCsv() {
         // Only include runs that have time series.

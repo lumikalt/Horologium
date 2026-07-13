@@ -3,8 +3,8 @@ using Orrery.Cache;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Unit tests for SmsPrefetcher (Somogyi et al., ISCA 2006).
-/// blockBytes=32 throughout (2 KB region = 64 blocks, fitting a ulong pattern).
+///     Unit tests for SmsPrefetcher (Somogyi et al., ISCA 2006).
+///     blockBytes=32 throughout (2 KB region = 64 blocks, fitting a ulong pattern).
 /// </summary>
 public sealed class SmsPrefetcherTests {
     // ── Constructor validation ────────────────────────────────────────────────

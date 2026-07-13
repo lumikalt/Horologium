@@ -1,19 +1,19 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-/// L-TAGE: TAGE branch predictor with a loop predictor overlay.
-/// <para>
-/// TAGE uses a bimodal base and N tagged tables with geometrically increasing
-/// history lengths, each entry holding a partial tag, a 3-bit saturating
-/// prediction counter, and a 2-bit usefulness counter. Longest-matching-history
-/// wins. On misprediction an entry is allocated in the shortest longer-history
-/// table with u=0; if none is available, usefulness bits are decayed.
-/// </para>
-/// <para>
-/// The loop predictor tracks branches with a stable trip count. Once a branch
-/// has exited a loop the same number of times on LoopConfThreshold consecutive
-/// invocations, it takes over from TAGE and predicts taken/not-taken exactly.
-/// </para>
+///     L-TAGE: TAGE branch predictor with a loop predictor overlay.
+///     <para>
+///         TAGE uses a bimodal base and N tagged tables with geometrically increasing
+///         history lengths, each entry holding a partial tag, a 3-bit saturating
+///         prediction counter, and a 2-bit usefulness counter. Longest-matching-history
+///         wins. On misprediction an entry is allocated in the shortest longer-history
+///         table with u=0; if none is available, usefulness bits are decayed.
+///     </para>
+///     <para>
+///         The loop predictor tracks branches with a stable trip count. Once a branch
+///         has exited a loop the same number of times on LoopConfThreshold consecutive
+///         invocations, it takes over from TAGE and predicts taken/not-taken exactly.
+///     </para>
 /// </summary>
 public class LTagePredictor : IBranchPredictor {
     // ── TAGE parameters ───────────────────────────────────────────────────────
@@ -28,27 +28,20 @@ public class LTagePredictor : IBranchPredictor {
 
     private const int MaxHist = 34;
 
-    // Geometrically increasing history lengths (~1.6×)
-    private static readonly int[] HistLengths = [8, 13, 21, 34,];
-
     // ── Loop predictor parameters ─────────────────────────────────────────────
     private const int LoopIndexBits = 5; // 32-entry loop table
     private const int LoopTagWidth = 10;
     private const int LoopConfidence = 4; // consistent exits before confident
 
-    // ── Storage ───────────────────────────────────────────────────────────────
-    private readonly byte[] _base;        // 2-bit counters (taken ≥ 2)
-    private readonly TageEntry[][] _tage; // [NumTables][1 << TableIndexBits]
-    private readonly LoopEntry[] _loop;   // [1 << LoopIndexBits]
+    // Geometrically increasing history lengths (~1.6×)
+    private static readonly int[] HistLengths = [8, 13, 21, 34,];
 
-    /// <summary>
-    /// Working global history register used for indexing at Predict time. In an
-    /// out-of-order pipeline this is the *speculative* history: advanced at fetch by
-    /// <see cref="SpeculativeHistoryUpdate"/> with predicted directions, and restored from
-    /// <see cref="_committedGhr"/> on a flush. When no speculative updates arrive (in-order
-    /// pipelines) it stays in lock-step with <see cref="_committedGhr"/>.
-    /// </summary>
-    protected ulong Ghr; // global history, LSB = most recent
+    // ── Storage ───────────────────────────────────────────────────────────────
+    private readonly byte[] _base; // 2-bit counters (taken ≥ 2)
+
+    private readonly Dictionary<ulong, ulong> _btb = new();
+    private readonly LoopEntry[] _loop;   // [1 << LoopIndexBits]
+    private readonly TageEntry[][] _tage; // [NumTables][1 << TableIndexBits]
 
     // Architectural history shadow: advanced only when a branch retires (in Update, with the
     // true outcome). Because commit and fetch are in-order, a branch that commits had every
@@ -60,10 +53,17 @@ public class LTagePredictor : IBranchPredictor {
     // Update keeps Ghr == _committedGhr so the commit-time-history behaviour is bit-identical.
     private bool _speculative;
 
-    private readonly Dictionary<ulong, ulong> _btb = new();
+    /// <summary>
+    ///     Working global history register used for indexing at Predict time. In an
+    ///     out-of-order pipeline this is the *speculative* history: advanced at fetch by
+    ///     <see cref="SpeculativeHistoryUpdate" /> with predicted directions, and restored from
+    ///     <see cref="_committedGhr" /> on a flush. When no speculative updates arrive (in-order
+    ///     pipelines) it stays in lock-step with <see cref="_committedGhr" />.
+    /// </summary>
+    protected ulong Ghr; // global history, LSB = most recent
 
     /// <summary>
-    /// Constructs an L-TAGE predictor.
+    ///     Constructs an L-TAGE predictor.
     /// </summary>
     public LTagePredictor() {
         _base = new byte[1 << LTagePredictor.BaseIndexBits];
@@ -141,11 +141,11 @@ public class LTagePredictor : IBranchPredictor {
     // ── Extension points for subclasses ──────────────────────────────────────
 
     /// <summary>
-    /// Returns the score of the prediction for the given PC.
+    ///     Returns the score of the prediction for the given PC.
     /// </summary>
     /// <param name="pc">Program counter.</param>
     /// <param name="provider">
-    /// Index of the provider table, or -1 if the PC is in the base table.
+    ///     Index of the provider table, or -1 if the PC is in the base table.
     /// </param>
     /// <returns></returns>
     protected int TageScore(ulong pc, int provider) {
@@ -159,33 +159,33 @@ public class LTagePredictor : IBranchPredictor {
     }
 
     /// <summary>
-    /// Returns the prediction for the given PC.
+    ///     Returns the prediction for the given PC.
     /// </summary>
     /// <param name="pc">
-    /// Program counter.
+    ///     Program counter.
     /// </param>
     /// <param name="provider">
-    /// Index of the provider table, or -1 if the PC is in the base table.
+    ///     Index of the provider table, or -1 if the PC is in the base table.
     /// </param>
     /// <param name="tagePred">
-    /// TAGE prediction, or false if the PC is in the base table.
+    ///     TAGE prediction, or false if the PC is in the base table.
     /// </param>
     /// <returns></returns>
     protected virtual bool ResolvePrediction(ulong pc, int provider, bool tagePred) => tagePred;
 
     /// <summary>
-    /// Called after a branch update.
+    ///     Called after a branch update.
     /// </summary>
     /// <param name="pc">Program counter.</param>
     /// <param name="taken">Branch was taken.</param>
     /// <param name="provPred">
-    /// TAGE prediction, or false if the PC is in the base table.
+    ///     TAGE prediction, or false if the PC is in the base table.
     /// </param>
     /// <param name="preScore">
-    /// Score of the prediction before the update.
+    ///     Score of the prediction before the update.
     /// </param>
     /// <param name="loopWasConfident">
-    /// True if the loop predictor was confident before the update.
+    ///     True if the loop predictor was confident before the update.
     /// </param>
     protected virtual void OnAfterUpdate(
         ulong pc,
@@ -306,7 +306,7 @@ public class LTagePredictor : IBranchPredictor {
     private static int BaseIdx(ulong pc) =>
         (int)((pc >> 2) & ((1u << LTagePredictor.BaseIndexBits) - 1));
 
-    /// <summary>Returns the bimodal (T0) prediction for <paramref name="pc"/>.</summary>
+    /// <summary>Returns the bimodal (T0) prediction for <paramref name="pc" />.</summary>
     protected bool BimodalPrediction(ulong pc) => _base[BaseIdx(pc)] >= 2;
 
     private int TageIdx(ulong pc, int t) {
@@ -316,7 +316,7 @@ public class LTagePredictor : IBranchPredictor {
 
     // Two independent folds of different history lengths produce two tag halves,
     // reducing aliasing between branches that share the same PC index.
-    /// <summary>Computes the partial TAGE tag for branch <paramref name="pc"/> in table <paramref name="t"/>.</summary>
+    /// <summary>Computes the partial TAGE tag for branch <paramref name="pc" /> in table <paramref name="t" />.</summary>
     protected int TageTag(ulong pc, int t) {
         int f1 = FoldHist(LTagePredictor.HistLengths[t], LTagePredictor.TagWidth);
         int f2 = FoldHist(LTagePredictor.HistLengths[t] - 1, LTagePredictor.TagWidth - 1);

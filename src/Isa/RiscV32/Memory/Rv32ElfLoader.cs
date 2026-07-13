@@ -4,9 +4,9 @@ using Mechanism;
 namespace RiscV32.Memory;
 
 /// <summary>
-/// Minimal ELF32 loader for bare-metal RISC-V executables.
-/// Loads all PT_LOAD segments into an IMemory and returns the entry point.
-/// Only little-endian ELF32 with machine type EM_RISCV (0xF3) is accepted.
+///     Minimal ELF32 loader for bare-metal RISC-V executables.
+///     Loads all PT_LOAD segments into an IMemory and returns the entry point.
+///     Only little-endian ELF32 with machine type EM_RISCV (0xF3) is accepted.
 /// </summary>
 public static class Rv32ElfLoader {
     private const uint PtLoad = 1;

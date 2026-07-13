@@ -6,8 +6,8 @@ using Pipeline.Ooo;
 namespace RiscV32.Config;
 
 /// <summary>
-/// DoCache configuration for one memory port (instruction or data).
-/// null means the cache layer is disabled.
+///     DoCache configuration for one memory port (instruction or data).
+///     null means the cache layer is disabled.
 /// </summary>
 public sealed record CacheHardwareConfig(
     int CapacityBytes,
@@ -22,8 +22,8 @@ public sealed record CacheHardwareConfig(
 );
 
 /// <summary>
-/// TLB configuration for one memory port.
-/// null means the TLB layer is disabled.
+///     TLB configuration for one memory port.
+///     null means the TLB layer is disabled.
 /// </summary>
 public sealed record TlbHardwareConfig(
     int Entries,
@@ -32,9 +32,9 @@ public sealed record TlbHardwareConfig(
 );
 
 /// <summary>
-/// Fully-serialisable description of one hardware configuration.
-/// Covers both <c>FiveStageTrain</c> and <c>OooeTrain</c>; the active pipeline
-/// is selected by <see cref="Pipeline"/>.
+///     Fully-serialisable description of one hardware configuration.
+///     Covers both <c>FiveStageTrain</c> and <c>OooeTrain</c>; the active pipeline
+///     is selected by <see cref="Pipeline" />.
 /// </summary>
 public sealed record TrainConfig(
     // ── Pipeline selector ─────────────────────────────────────────────────────

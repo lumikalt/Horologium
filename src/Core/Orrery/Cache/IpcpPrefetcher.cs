@@ -3,56 +3,19 @@ using System.Numerics;
 namespace Orrery.Cache;
 
 /// <summary>
-/// IP Classifier-based Spatial Prefetcher (Pakalapati &amp; Panda, ISCA 2020).
-/// Classifies each load PC into one of three classes and issues spatially-targeted prefetches:
-/// <list type="bullet">
-///   <item><b>CS (Constant Stride)</b> — repeated stride detected via per-IP confidence.</item>
-///   <item><b>CPLX (Complex Stride)</b> — rolling-signature history indexes a CSPT table.</item>
-///   <item><b>GS (Global Stream)</b> — 2 KB region density tracked in an 8-entry RST; dense
-///     regions trigger a stream-direction prefetch.</item>
-/// </list>
-/// Priority: GS &gt; CS &gt; CPLX. No prefetch crosses a page boundary.
+///     IP Classifier-based Spatial Prefetcher (Pakalapati &amp; Panda, ISCA 2020).
+///     Classifies each load PC into one of three classes and issues spatially-targeted prefetches:
+///     <list type="bullet">
+///         <item><b>CS (Constant Stride)</b> — repeated stride detected via per-IP confidence.</item>
+///         <item><b>CPLX (Complex Stride)</b> — rolling-signature history indexes a CSPT table.</item>
+///         <item>
+///             <b>GS (Global Stream)</b> — 2 KB region density tracked in an 8-entry RST; dense
+///             regions trigger a stream-direction prefetch.
+///         </item>
+///     </list>
+///     Priority: GS &gt; CS &gt; CPLX. No prefetch crosses a page boundary.
 /// </summary>
 public sealed class IpcpPrefetcher : IPrefetcher {
-    // ── IP Table entry (shared by all three classifiers) ───────────────────────
-    private struct IpEntry {
-        public ulong Tag;          // PC >> (IpIndexBits + 2)
-        public ulong LastPage;     // page of last access
-        public int LastLineInPage; // line-in-page of last access (0..linesPerPage-1)
-        public int CsStride;       // CS stride in lines (signed)
-        public int CsConf;         // 0–3 saturating counter; prefetch when ≥ 2
-        public byte CplxSig;       // 7-bit rolling signature for CPLX
-        public bool Valid;
-        public bool LastRegionDense; // was the IP's last region dense? (GS tentative)
-        public ulong LastRegion;     // last accessed region number
-    }
-
-    // ── Complex Stride Prediction Table entry ──────────────────────────────────
-    private struct CsptEntry {
-        public int Stride;     // predicted next stride (lines)
-        public int Confidence; // 0–3 saturating; prefetch when ≥ 1
-    }
-
-    // ── Region Stream Table entry ──────────────────────────────────────────────
-    private struct RstEntry {
-        public ulong Region;
-        public ulong Bitvector;      // one bit per cache-line slot in the 2 KB region
-        public int Direction;        // net direction counter (+→forward, -→backward)
-        public int PrevLineInRegion; // last newly-seen line (for direction tracking)
-        public int LruAge;
-        public bool Valid;
-        public bool Dense;
-    }
-
-    // ── Geometry ───────────────────────────────────────────────────────────────
-    private readonly int _lineShift;
-    private readonly int _pageShift;
-    private readonly int _regionShift;
-    private readonly int _linesPerPage;
-    private readonly int _linesPerRegion;
-    private readonly int _denseThreshold; // ceil(75% of linesPerRegion)
-    private readonly int _blockBytes;
-
     // ── Hardware tables ────────────────────────────────────────────────────────
     private const int IpTableSize = 64;
     private const int IpIndexBits = 6; // log2(IpTableSize)
@@ -60,18 +23,27 @@ public sealed class IpcpPrefetcher : IPrefetcher {
     private const int RstSize = 8;
     private const int RrSize = 32; // recent-request filter to suppress duplicate prefetches
 
-    private readonly IpEntry[] _ip = new IpEntry[IpcpPrefetcher.IpTableSize];
-    private readonly CsptEntry[] _cspt = new CsptEntry[IpcpPrefetcher.CsptSize];
-    private readonly RstEntry[] _rst = new RstEntry[IpcpPrefetcher.RstSize];
-    private readonly ulong[] _rr = new ulong[IpcpPrefetcher.RrSize]; // stores line addresses
-
-    private int _tick;
-    private int _rrHead;
-
     // ── Per-class prefetch degrees (paper §3 defaults) ─────────────────────────
     private const int DegreeCs = 3;
     private const int DegreeCplx = 3;
     private const int DegreeGs = 6;
+    private readonly int _blockBytes;
+    private readonly CsptEntry[] _cspt = new CsptEntry[IpcpPrefetcher.CsptSize];
+    private readonly int _denseThreshold; // ceil(75% of linesPerRegion)
+
+    private readonly IpEntry[] _ip = new IpEntry[IpcpPrefetcher.IpTableSize];
+
+    // ── Geometry ───────────────────────────────────────────────────────────────
+    private readonly int _lineShift;
+    private readonly int _linesPerPage;
+    private readonly int _linesPerRegion;
+    private readonly int _pageShift;
+    private readonly int _regionShift;
+    private readonly ulong[] _rr = new ulong[IpcpPrefetcher.RrSize]; // stores line addresses
+    private readonly RstEntry[] _rst = new RstEntry[IpcpPrefetcher.RstSize];
+    private int _rrHead;
+
+    private int _tick;
 
     public IpcpPrefetcher(int blockBytes = 32, int pageBytes = 4096, int regionBytes = 2048) {
         if (!BitOperations.IsPow2(blockBytes))
@@ -274,5 +246,35 @@ public sealed class IpcpPrefetcher : IPrefetcher {
             if (_rst[i].LruAge < _rst[oldest].LruAge)
                 oldest = i;
         return oldest;
+    }
+
+    // ── IP Table entry (shared by all three classifiers) ───────────────────────
+    private struct IpEntry {
+        public ulong Tag;          // PC >> (IpIndexBits + 2)
+        public ulong LastPage;     // page of last access
+        public int LastLineInPage; // line-in-page of last access (0..linesPerPage-1)
+        public int CsStride;       // CS stride in lines (signed)
+        public int CsConf;         // 0–3 saturating counter; prefetch when ≥ 2
+        public byte CplxSig;       // 7-bit rolling signature for CPLX
+        public bool Valid;
+        public bool LastRegionDense; // was the IP's last region dense? (GS tentative)
+        public ulong LastRegion;     // last accessed region number
+    }
+
+    // ── Complex Stride Prediction Table entry ──────────────────────────────────
+    private struct CsptEntry {
+        public int Stride;     // predicted next stride (lines)
+        public int Confidence; // 0–3 saturating; prefetch when ≥ 1
+    }
+
+    // ── Region Stream Table entry ──────────────────────────────────────────────
+    private struct RstEntry {
+        public ulong Region;
+        public ulong Bitvector;      // one bit per cache-line slot in the 2 KB region
+        public int Direction;        // net direction counter (+→forward, -→backward)
+        public int PrevLineInRegion; // last newly-seen line (for direction tracking)
+        public int LruAge;
+        public bool Valid;
+        public bool Dense;
     }
 }

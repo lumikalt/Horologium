@@ -7,11 +7,17 @@ using Avalonia.Styling;
 namespace Face.Controls;
 
 /// <summary>
-/// Renders a Ripes-style address decomposition strip showing how a 32-bit cache
-/// address splits into Tag / Index / Offset bit fields, with colored bands,
-/// bit-range annotations, decoded values, and arrows pointing to field labels.
+///     Renders a Ripes-style address decomposition strip showing how a 32-bit cache
+///     address splits into Tag / Index / Offset bit fields, with colored bands,
+///     bit-range annotations, decoded values, and arrows pointing to field labels.
 /// </summary>
 public sealed class CacheAddressDecoder : Control {
+    // ── Layout constants ────────────────────────────────────────────────────
+
+    private const double AddrH = 22; // address header + badge row height
+    private const double BarH = 32;  // colored bar height
+
+    private const double StemH = 16; // vertical connector height
     // ── Styled properties ────────────────────────────────────────────────────
 
     public static readonly StyledProperty<ulong?> AddressProperty =
@@ -28,6 +34,19 @@ public sealed class CacheAddressDecoder : Control {
 
     public static readonly StyledProperty<int> OffsetBitsProperty =
         AvaloniaProperty.Register<CacheAddressDecoder, int>(nameof(OffsetBits), 5);
+
+    // ── Static brushes/pens (allocated once) ────────────────────────────────
+
+    private static readonly IBrush STagBrush = new SolidColorBrush(Color.FromRgb(0x35, 0x66, 0xB8));    // blue
+    private static readonly IBrush SIndexBrush = new SolidColorBrush(Color.FromRgb(0x27, 0x7F, 0x40));  // green
+    private static readonly IBrush SOffsetBrush = new SolidColorBrush(Color.FromRgb(0xC0, 0x6A, 0x00)); // amber
+    private static readonly IBrush SHitBrush = new SolidColorBrush(Color.FromRgb(0x28, 0x9A, 0x3E));    // green badge
+    private static readonly IBrush SMissBrush = new SolidColorBrush(Color.FromRgb(0xC0, 0x3A, 0x2A));   // red badge
+    private static readonly IBrush SWhiteBrush = Brushes.White;
+    private static readonly IPen SDivPen = new Pen(Brushes.White, 1.5, lineCap: PenLineCap.Round);
+
+    private static readonly Typeface SMono = new("Consolas,Cascadia Code,Courier New,monospace");
+    private static readonly Typeface SSans = new("Inter,Segoe UI,Arial,sans-serif");
 
     static CacheAddressDecoder() {
         AffectsRender<CacheAddressDecoder>(
@@ -62,19 +81,6 @@ public sealed class CacheAddressDecoder : Control {
         set => SetValue(CacheAddressDecoder.OffsetBitsProperty, value);
     }
 
-    // ── Static brushes/pens (allocated once) ────────────────────────────────
-
-    private static readonly IBrush STagBrush = new SolidColorBrush(Color.FromRgb(0x35, 0x66, 0xB8));    // blue
-    private static readonly IBrush SIndexBrush = new SolidColorBrush(Color.FromRgb(0x27, 0x7F, 0x40));  // green
-    private static readonly IBrush SOffsetBrush = new SolidColorBrush(Color.FromRgb(0xC0, 0x6A, 0x00)); // amber
-    private static readonly IBrush SHitBrush = new SolidColorBrush(Color.FromRgb(0x28, 0x9A, 0x3E));    // green badge
-    private static readonly IBrush SMissBrush = new SolidColorBrush(Color.FromRgb(0xC0, 0x3A, 0x2A));   // red badge
-    private static readonly IBrush SWhiteBrush = Brushes.White;
-    private static readonly IPen SDivPen = new Pen(Brushes.White, 1.5, lineCap: PenLineCap.Round);
-
-    private static readonly Typeface SMono = new("Consolas,Cascadia Code,Courier New,monospace");
-    private static readonly Typeface SSans = new("Inter,Segoe UI,Arial,sans-serif");
-
     // ── Theme awareness ──────────────────────────────────────────────────────
 
     private static IBrush FgBrush => Application.Current?.ActualThemeVariant == ThemeVariant.Light
@@ -92,12 +98,6 @@ public sealed class CacheAddressDecoder : Control {
     }
 
     private void OnThemeChanged(object? sender, EventArgs e) => InvalidateVisual();
-
-    // ── Layout constants ────────────────────────────────────────────────────
-
-    private const double AddrH = 22; // address header + badge row height
-    private const double BarH = 32;  // colored bar height
-    private const double StemH = 16; // vertical connector height
     // barY = AddrH + 4, stemY = barY + BarH, labelY = stemY + StemH
 
     // ── Rendering ────────────────────────────────────────────────────────────

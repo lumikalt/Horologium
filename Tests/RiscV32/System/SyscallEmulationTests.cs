@@ -7,18 +7,22 @@ using RiscV32.Syscalls;
 namespace Tests.RiscV32.System;
 
 /// <summary>
-/// Tests for the two new syscall-execution paths:
-/// <list type="bullet">
-///   <item><description>
-///     <b>HTIF proxy</b> — <see cref="HtifMemory"/> decodes the fesvr magic-mem
-///     struct written to tohost and services SYS_write instead of auto-ACK-ing.
-///   </description></item>
-///   <item><description>
-///     <b>SE mode</b> — <see cref="LinuxSyscallEmulator"/> intercepts ECALL
-///     instructions so bare-metal RISC-V programs can call Linux syscalls
-///     without a kernel.
-///   </description></item>
-/// </list>
+///     Tests for the two new syscall-execution paths:
+///     <list type="bullet">
+///         <item>
+///             <description>
+///                 <b>HTIF proxy</b> — <see cref="HtifMemory" /> decodes the fesvr magic-mem
+///                 struct written to tohost and services SYS_write instead of auto-ACK-ing.
+///             </description>
+///         </item>
+///         <item>
+///             <description>
+///                 <b>SE mode</b> — <see cref="LinuxSyscallEmulator" /> intercepts ECALL
+///                 instructions so bare-metal RISC-V programs can call Linux syscalls
+///                 without a kernel.
+///             </description>
+///         </item>
+///     </list>
 /// </summary>
 public class SyscallEmulationTests {
     private static string SeHelloElf => Path.Combine(AppContext.BaseDirectory, "se_hello.elf");
@@ -26,10 +30,10 @@ public class SyscallEmulationTests {
     // ── HTIF syscall proxy ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Constructs a HtifMemory over a flat backing store, writes a magic_mem
-    /// syscall struct (SYS_write, fd=1, buf, len=13) to a 64-byte-aligned
-    /// address, then writes that address to tohost.  Verifies the handler
-    /// executes the write and captures output.
+    ///     Constructs a HtifMemory over a flat backing store, writes a magic_mem
+    ///     syscall struct (SYS_write, fd=1, buf, len=13) to a 64-byte-aligned
+    ///     address, then writes that address to tohost.  Verifies the handler
+    ///     executes the write and captures output.
     /// </summary>
     [Fact]
     public void HtifProxy_ServesWriteSyscall_OutputCaptured() {

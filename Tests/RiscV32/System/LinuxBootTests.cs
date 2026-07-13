@@ -8,29 +8,24 @@ using Xunit.Abstractions;
 namespace Tests.RiscV32.System;
 
 /// <summary>
-/// Boots Linux 6.12 RV32 NOMMU on a SingleCycleTrain and verifies that the kernel
-/// version banner appears on the ns16550a UART output.
-///
-/// Prerequisites:
-///   nix build .#linux-rv32      → result-linux/share/linux/Image
-///
-/// The kernel is CONFIG_RISCV_M_MODE=y (nommu_virt_defconfig + 32-bit.config),
-/// so it runs entirely in M-mode. We boot it directly — no OpenSBI — by setting
-/// the initial PC to KernelAddr. The simulator already starts in M-mode.
-///
-/// Memory layout (base 0x80000000, 128 MiB RAM — matches VirtDtb memory node):
-///   0x80000000  Linux Image         — NOMMU kernel (PAGE_OFFSET = 0x80000000)
-///   0x80400000  VirtDtb.Bytes       — device tree blob (after ~2.4 MiB kernel)
-///
-/// Peripheral bus:
-///   CLINT   0x02000000   64 KiB
-///   PLIC    0x0C000000   64 MiB
-///   UART    0x10000000  256 B   (ns16550a, output captured in StringWriter)
-///
-/// The kernel cmdline (compiled-in, CMDLINE_FORCE) is:
-///   "earlycon=uart8250,mmio,0x10000000,115200n8 console=ttyS0"
-/// so UART output starts before any driver init.  The test catches
-/// "Linux version" which appears in the very first dmesg line.
+///     Boots Linux 6.12 RV32 NOMMU on a SingleCycleTrain and verifies that the kernel
+///     version banner appears on the ns16550a UART output.
+///     Prerequisites:
+///     nix build .#linux-rv32      → result-linux/share/linux/Image
+///     The kernel is CONFIG_RISCV_M_MODE=y (nommu_virt_defconfig + 32-bit.config),
+///     so it runs entirely in M-mode. We boot it directly — no OpenSBI — by setting
+///     the initial PC to KernelAddr. The simulator already starts in M-mode.
+///     Memory layout (base 0x80000000, 128 MiB RAM — matches VirtDtb memory node):
+///     0x80000000  Linux Image         — NOMMU kernel (PAGE_OFFSET = 0x80000000)
+///     0x80400000  VirtDtb.Bytes       — device tree blob (after ~2.4 MiB kernel)
+///     Peripheral bus:
+///     CLINT   0x02000000   64 KiB
+///     PLIC    0x0C000000   64 MiB
+///     UART    0x10000000  256 B   (ns16550a, output captured in StringWriter)
+///     The kernel cmdline (compiled-in, CMDLINE_FORCE) is:
+///     "earlycon=uart8250,mmio,0x10000000,115200n8 console=ttyS0"
+///     so UART output starts before any driver init.  The test catches
+///     "Linux version" which appears in the very first dmesg line.
 /// </summary>
 public class LinuxBootTests(ITestOutputHelper testOutputHelper) {
     private const string RequireEnvVar = "HOROLOGIUM_REQUIRE_LINUX";

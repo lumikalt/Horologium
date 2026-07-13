@@ -7,9 +7,9 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for RV64A — LR.D/SC.D/AMO*.D doubleword atomics (opcode=0x2F, funct3=0x3),
-/// undecoded on the base RV32 AMO table (which only handles funct3=0x2 word AMOs and
-/// the Zabha .b/.h forms).
+///     Tests for RV64A — LR.D/SC.D/AMO*.D doubleword atomics (opcode=0x2F, funct3=0x3),
+///     undecoded on the base RV32 AMO table (which only handles funct3=0x2 word AMOs and
+///     the Zabha .b/.h forms).
 /// </summary>
 public class Rv64ATests {
     private readonly Rv64Decoder _dec = new();

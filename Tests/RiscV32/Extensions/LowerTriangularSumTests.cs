@@ -7,16 +7,15 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Extensions;
 
 /// <summary>
-/// Computes the lower-triangular sum of an N×N float matrix using UVE streams.
-/// The UVE paper cites triangular matrix access as a first-class motivation for
-/// per-row stream reconfiguration: the outer loop reconfigures the load stream
-/// with count = r+1 on each iteration so only the live triangle is streamed.
-///
-/// Program structure:
-///   outer (r = 0..N-1):
+///     Computes the lower-triangular sum of an N×N float matrix using UVE streams.
+///     The UVE paper cites triangular matrix access as a first-class motivation for
+///     per-row stream reconfiguration: the outer loop reconfigures the load stream
+///     with count = r+1 on each iteration so only the live triangle is streamed.
+///     Program structure:
+///     outer (r = 0..N-1):
 ///     ss.ld.w u1, &amp;matrix[r][0], count=(r+1), stride=4   — reconfigure per row
 ///     inner: so.a.add.fp u2, u1, u2 ; so.b.nc u1, -4         — accumulate into u2
-///   final: write u2 to resultAddr via a 1-element store stream
+///     final: write u2 to resultAddr via a 1-element store stream
 /// </summary>
 public class LowerTriangularSumTests {
     // ── Encode helpers ────────────────────────────────────────────────────────

@@ -3,56 +3,41 @@ using Mechanism;
 namespace RiscV32.Memory;
 
 /// <summary>
-/// An <see cref="IWorkload"/> that loads a flat binary (e.g., an OpenSBI fw_payload.bin)
-/// at a fixed physical address. Optionally embeds a Device Tree Blob (DTB) at a separate
-/// physical address so that M-mode firmware can locate the hardware description.
-/// <para>
-/// RISC-V boot convention: the previous firmware stage (the simulator) passes
-/// <c>a0 = hartid</c> and <c>a1 = DTB physical address</c> in registers before jumping
-/// to the firmware entry point. These registers are NOT set by this workload — the caller
-/// must write them to the train's <see cref="IArchState.IntegerRegisters"/> after construction
-/// and before calling <c>Run()</c>:
-/// </para>
-/// <code>
+///     An <see cref="IWorkload" /> that loads a flat binary (e.g., an OpenSBI fw_payload.bin)
+///     at a fixed physical address. Optionally embeds a Device Tree Blob (DTB) at a separate
+///     physical address so that M-mode firmware can locate the hardware description.
+///     <para>
+///         RISC-V boot convention: the previous firmware stage (the simulator) passes
+///         <c>a0 = hartid</c> and <c>a1 = DTB physical address</c> in registers before jumping
+///         to the firmware entry point. These registers are NOT set by this workload — the caller
+///         must write them to the train's <see cref="IArchState.IntegerRegisters" /> after construction
+///         and before calling <c>Run()</c>:
+///     </para>
+///     <code>
 /// var train = new SingleCycleTrain(mechanism, bus, workload.EntryPoint);
 /// train.ArchState.IntegerRegisters.Write(10, 0);                 // a0 = hartid
 /// train.ArchState.IntegerRegisters.Write(11, workload.DtbAddress); // a1 = DTB
 /// train.Run(maxTicks);
 /// </code>
-/// <para>
-/// This works because the train's <c>Wind()</c> method only overwrites <c>Pc</c>,
-/// leaving all other registers intact.
-/// </para>
+///     <para>
+///         This works because the train's <c>Wind()</c> method only overwrites <c>Pc</c>,
+///         leaving all other registers intact.
+///     </para>
 /// </summary>
 public sealed class RawBinaryWorkload : IWorkload {
     private readonly byte[] _binary;
     private readonly byte[]? _dtb;
 
-    /// <inheritdoc/>
-    public ulong EntryPoint { get; }
-
-    /// <inheritdoc/>
-    public ulong BaseAddress { get; }
-
-    /// <inheritdoc/>
-    public int MemorySize { get; }
-
-    /// <summary>
-    /// Physical address where the DTB is loaded, or 0 when no DTB was provided.
-    /// Write this to <c>a1</c> (register 11) before calling <c>Run()</c>.
-    /// </summary>
-    public ulong DtbAddress { get; }
-
     /// <param name="binary">The raw binary image to load (e.g., OpenSBI fw_payload.bin).</param>
-    /// <param name="baseAddress">Physical address to load <paramref name="binary"/> at (default 0x80000000).</param>
-    /// <param name="entryPoint">Initial PC; defaults to <paramref name="baseAddress"/>.</param>
+    /// <param name="baseAddress">Physical address to load <paramref name="binary" /> at (default 0x80000000).</param>
+    /// <param name="entryPoint">Initial PC; defaults to <paramref name="baseAddress" />.</param>
     /// <param name="dtb">Optional Device Tree Blob bytes to embed in memory.</param>
     /// <param name="dtbAddress">
-    /// Physical address for the DTB. Defaults to the next 4 KiB-aligned address after
-    /// the binary image, leaving 4 KiB of guard space.
+    ///     Physical address for the DTB. Defaults to the next 4 KiB-aligned address after
+    ///     the binary image, leaving 4 KiB of guard space.
     /// </param>
     /// <param name="memorySizeBytes">
-    /// Explicit memory size. Defaults to enough to hold binary + DTB plus 256 KiB headroom.
+    ///     Explicit memory size. Defaults to enough to hold binary + DTB plus 256 KiB headroom.
     /// </param>
     public RawBinaryWorkload(
         byte[] binary,
@@ -72,7 +57,22 @@ public sealed class RawBinaryWorkload : IWorkload {
         MemorySize = memorySizeBytes ?? ComputeMemorySize(baseAddress, binary.Length, DtbAddress, dtb?.Length ?? 0);
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    ///     Physical address where the DTB is loaded, or 0 when no DTB was provided.
+    ///     Write this to <c>a1</c> (register 11) before calling <c>Run()</c>.
+    /// </summary>
+    public ulong DtbAddress { get; }
+
+    /// <inheritdoc />
+    public ulong EntryPoint { get; }
+
+    /// <inheritdoc />
+    public ulong BaseAddress { get; }
+
+    /// <inheritdoc />
+    public int MemorySize { get; }
+
+    /// <inheritdoc />
     public void Load(IMemory memory) {
         memory.Load(BaseAddress, _binary);
         if (_dtb is not null) memory.Load(DtbAddress, _dtb);

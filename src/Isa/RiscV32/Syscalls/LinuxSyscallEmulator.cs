@@ -4,14 +4,14 @@ using Mechanism;
 namespace RiscV32.Syscalls;
 
 /// <summary>
-/// gem5 SE-style Linux syscall emulator for statically linked RV32 binaries.
-/// Wire into <see cref="Rv32Mechanism"/> via the <c>syscallHandler</c> parameter;
-/// the executor will intercept every ECALL and route it here instead of trapping.
-/// <para>
-/// Syscall ABI: a7 (x17) = syscall number; a0–a5 (x10–x15) = args.
-/// Return value written to a0 via <see cref="ExecuteResult.SideEffect"/>.
-/// SYS_exit / SYS_exit_group set <see cref="ExecuteResult.RequestHalt"/> instead.
-/// </para>
+///     gem5 SE-style Linux syscall emulator for statically linked RV32 binaries.
+///     Wire into <see cref="Rv32Mechanism" /> via the <c>syscallHandler</c> parameter;
+///     the executor will intercept every ECALL and route it here instead of trapping.
+///     <para>
+///         Syscall ABI: a7 (x17) = syscall number; a0–a5 (x10–x15) = args.
+///         Return value written to a0 via <see cref="ExecuteResult.SideEffect" />.
+///         SYS_exit / SYS_exit_group set <see cref="ExecuteResult.RequestHalt" /> instead.
+///     </para>
 /// </summary>
 public sealed class LinuxSyscallEmulator(ulong initialBreak, TextWriter? output = null) : ISyscallHandler {
     private ulong _brk = initialBreak;

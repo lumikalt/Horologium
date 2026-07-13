@@ -5,13 +5,19 @@ using RiscV32.Memory;
 namespace Tests.Isa.Pdp8;
 
 /// <summary>
-/// PDP-8 unit tests.
-/// Convention: word n lives at byte address n*2. Instructions start at word 0.
-/// Data words are placed at word 64 (byte 128) to avoid overlap with code.
-/// Each instruction is 12 bits wide stored in 2 bytes (LE, high nibble unused).
+///     PDP-8 unit tests.
+///     Convention: word n lives at byte address n*2. Instructions start at word 0.
+///     Data words are placed at word 64 (byte 128) to avoid overlap with code.
+///     Each instruction is 12 bits wide stored in 2 bytes (LE, high nibble unused).
 /// </summary>
 public class Pdp8Tests {
     private const int DataWord = 64; // first data word address
+
+    // HLT = 7402 octal = Group 2 + bit1
+    private static int HltWord => Opr2(0x02);
+
+    // NOP = 7000
+    private static int NopWord => Opr1(0);
 
     private static (SingleCycleTrain Train, FlatMemory Mem) Make(int wordCount = 256) {
         var mem = new FlatMemory(wordCount * 2);
@@ -36,12 +42,6 @@ public class Pdp8Tests {
 
     // OPR Group 2: opcode=7, bit8=1
     private static int Opr2(int bits) => (7 << 9) | 0x100 | (bits & 0xFF);
-
-    // HLT = 7402 octal = Group 2 + bit1
-    private static int HltWord => Opr2(0x02);
-
-    // NOP = 7000
-    private static int NopWord => Opr1(0);
 
     // ── AND (opcode 0) ────────────────────────────────────────────────────────
 

@@ -4,16 +4,16 @@ using Mechanism;
 namespace RiscV32.Trace;
 
 /// <summary>
-/// Writes a Simulation Trace Format (STF) binary trace by observing a functional run.
-/// Attach as the <see cref="ICommitObserver"/> of a <c>SingleCycleTrain</c> (which
-/// executes exactly one instruction per commit) wrapping a <see cref="TracingMemory"/>.
-/// <para>
-/// The output is compatible with the Sparcians stf_lib and can be replayed through
-/// Olympia or any other STF-aware timing model. Register operand values are included
-/// (STF_CONTAIN_OPERAND_VALUE). FP registers are tracked via the unified integer+FP
-/// register file (indices 32–63 = f0–f31). Vector register records are omitted since
-/// VRF values are not accessible through <see cref="IArchState"/>.
-/// </para>
+///     Writes a Simulation Trace Format (STF) binary trace by observing a functional run.
+///     Attach as the <see cref="ICommitObserver" /> of a <c>SingleCycleTrain</c> (which
+///     executes exactly one instruction per commit) wrapping a <see cref="TracingMemory" />.
+///     <para>
+///         The output is compatible with the Sparcians stf_lib and can be replayed through
+///         Olympia or any other STF-aware timing model. Register operand values are included
+///         (STF_CONTAIN_OPERAND_VALUE). FP registers are tracked via the unified integer+FP
+///         register file (indices 32–63 = f0–f31). Vector register records are omitted since
+///         VRF values are not accessible through <see cref="IArchState" />.
+///     </para>
 /// </summary>
 public sealed class StfTraceWriter : ICommitObserver, IDisposable {
     // STF record descriptor bytes (stf_descriptor.hpp encoded::Descriptor)
@@ -46,33 +46,11 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
 
     // STF_CONTAIN_OPERAND_VALUE feature flag (stf_enums.hpp)
     private const ulong FeatureOperandValue = 0x04UL;
+    private readonly BackgroundTraceChannel<Record> _channel;
 
     private readonly IDecoder _decoder;
     private readonly TracingMemory _mem;
     private readonly BinaryWriter _out;
-    private readonly BackgroundTraceChannel<Record> _channel;
-
-    // Captured on the simulation thread at commit — register values and next-PC
-    // must be read there because the architectural state is live and mutates as
-    // soon as the next instruction commits. Serialization happens on the consumer
-    // thread. SrcValues holds one value per qualifying (index > 0) source register,
-    // in SourceRegisters order.
-    private readonly record struct Record(
-        ITooth Instr,
-        ulong Pc,
-        uint Raw,
-        ulong NextPc,
-        ulong[] SrcValues,
-        ulong DestValue,
-        bool HasMem,
-        ulong MemAddr,
-        ushort MemBytes,
-        bool MemIsWrite,
-        ulong MemValue
-    );
-
-    /// <summary>Number of instructions recorded.</summary>
-    public int Count { get; private set; }
 
     public StfTraceWriter(IDecoder decoder, TracingMemory mem, Stream output, ulong initialPc) {
         _decoder = decoder;
@@ -80,6 +58,53 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
         _out = new BinaryWriter(output, Encoding.UTF8, true);
         WriteHeader(initialPc);
         _channel = new BackgroundTraceChannel<Record>(Emit, "stf-trace-writer");
+    }
+
+    /// <summary>Number of instructions recorded.</summary>
+    public int Count { get; private set; }
+
+    public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
+        // Decode stays on the simulation thread: the decoder cache is shared with
+        // the running train and is not thread-safe.
+        ITooth instr = _decoder.Decode(pc, rawEncoding);
+
+        // Source register values (integer and FP; skip x0 = hardwired zero).
+        IReadOnlyList<int> srcs = instr.SourceRegisters;
+        var srcCount = 0;
+        for (var i = 0; i < srcs.Count; i++)
+            if (srcs[i] > 0)
+                srcCount++;
+        ulong[] srcValues = srcCount == 0 ? [] : new ulong[srcCount];
+        var k = 0;
+        for (var i = 0; i < srcs.Count; i++)
+            if (srcs[i] > 0)
+                srcValues[k++] = state.IntegerRegisters.Read(srcs[i]);
+
+        int rd = instr.DestinationRegister;
+        ulong destValue = rd > 0 ? state.IntegerRegisters.Read(rd) : 0;
+
+        bool isMem = instr.Class is ToothClass.Load or ToothClass.Store or ToothClass.Atomic;
+        bool hasMem = isMem && _mem.HasAccess;
+
+        // SingleCycleTrain updates state.Pc before calling OnCommit, so state.Pc
+        // is already the next-PC for this instruction.
+        _channel.Post(
+            new Record(
+                instr, pc, rawEncoding, state.Pc, srcValues, destValue,
+                hasMem,
+                hasMem ? _mem.Address : 0,
+                hasMem ? (ushort)_mem.Bytes : (ushort)0,
+                hasMem && _mem.IsWrite,
+                hasMem ? _mem.Value : 0
+            )
+        );
+        Count++;
+        _mem.Reset();
+    }
+
+    public void Dispose() {
+        _channel.Dispose(); // drain and join before releasing the writer
+        _out.Dispose();
     }
 
     private void WriteHeader(ulong initialPc) {
@@ -121,45 +146,6 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
 
         // END_HEADER: no payload
         _out.Write(StfTraceWriter.DescEndHeader);
-    }
-
-    public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
-        // Decode stays on the simulation thread: the decoder cache is shared with
-        // the running train and is not thread-safe.
-        ITooth instr = _decoder.Decode(pc, rawEncoding);
-
-        // Source register values (integer and FP; skip x0 = hardwired zero).
-        IReadOnlyList<int> srcs = instr.SourceRegisters;
-        var srcCount = 0;
-        for (var i = 0; i < srcs.Count; i++)
-            if (srcs[i] > 0)
-                srcCount++;
-        ulong[] srcValues = srcCount == 0 ? [] : new ulong[srcCount];
-        var k = 0;
-        for (var i = 0; i < srcs.Count; i++)
-            if (srcs[i] > 0)
-                srcValues[k++] = state.IntegerRegisters.Read(srcs[i]);
-
-        int rd = instr.DestinationRegister;
-        ulong destValue = rd > 0 ? state.IntegerRegisters.Read(rd) : 0;
-
-        bool isMem = instr.Class is ToothClass.Load or ToothClass.Store or ToothClass.Atomic;
-        bool hasMem = isMem && _mem.HasAccess;
-
-        // SingleCycleTrain updates state.Pc before calling OnCommit, so state.Pc
-        // is already the next-PC for this instruction.
-        _channel.Post(
-            new Record(
-                instr, pc, rawEncoding, state.Pc, srcValues, destValue,
-                hasMem,
-                hasMem ? _mem.Address : 0,
-                hasMem ? (ushort)_mem.Bytes : (ushort)0,
-                hasMem && _mem.IsWrite,
-                hasMem ? _mem.Value : 0
-            )
-        );
-        Count++;
-        _mem.Reset();
     }
 
     private void Emit(Record r) {
@@ -224,8 +210,22 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
         _out.Write(value);    // uint64 register value
     }
 
-    public void Dispose() {
-        _channel.Dispose(); // drain and join before releasing the writer
-        _out.Dispose();
-    }
+    // Captured on the simulation thread at commit — register values and next-PC
+    // must be read there because the architectural state is live and mutates as
+    // soon as the next instruction commits. Serialization happens on the consumer
+    // thread. SrcValues holds one value per qualifying (index > 0) source register,
+    // in SourceRegisters order.
+    private readonly record struct Record(
+        ITooth Instr,
+        ulong Pc,
+        uint Raw,
+        ulong NextPc,
+        ulong[] SrcValues,
+        ulong DestValue,
+        bool HasMem,
+        ulong MemAddr,
+        ushort MemBytes,
+        bool MemIsWrite,
+        ulong MemValue
+    );
 }

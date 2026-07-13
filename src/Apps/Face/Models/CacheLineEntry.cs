@@ -3,15 +3,6 @@ using Orrery.Cache;
 namespace Face.Models;
 
 public sealed class CacheLineEntry {
-    public string Set { get; }
-    public string Way { get; }
-    public string Valid { get; }
-    public string Dirty { get; }
-    public string Tag { get; }
-    public string Lru { get; }
-    public string Bytes { get; }
-    public bool IsLastAccessed { get; }
-
     public CacheLineEntry(CacheLine line, bool isLastAccessed = false) {
         Set = line.Set.ToString();
         Way = line.Way.ToString();
@@ -35,4 +26,13 @@ public sealed class CacheLineEntry {
             Bytes = string.Join("  ", parts);
         }
     }
+
+    public string Set { get; }
+    public string Way { get; }
+    public string Valid { get; }
+    public string Dirty { get; }
+    public string Tag { get; }
+    public string Lru { get; }
+    public string Bytes { get; }
+    public bool IsLastAccessed { get; }
 }

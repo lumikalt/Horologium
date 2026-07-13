@@ -8,24 +8,12 @@ namespace Pipeline.Stages;
 
 public sealed class ExecuteStage : Gear {
     private readonly IExecutor _executor;
-    private readonly IArchState _state;
-    private readonly IMemory _memory;
     private readonly HazardUnit _hazard;
+    private readonly IMemory _memory;
+    private readonly IArchState _state;
 
     private IdExLatch _current = IdExLatch.Bubble;
     private IReadOnlyList<PipelineResident> _forwardProviders = [];
-
-    public InArbor<IdExLatch> Input { get; }
-    public OutArbor<ExMemLatch> Output { get; }
-
-    public ExMemLatch LastSent { get; private set; } = ExMemLatch.Bubble;
-
-    // Set for one cycle when a branch resolves taken: the instruction currently
-    // in EX is on the wrong path (fetched after the branch) and must be killed.
-    public bool Squash { get; set; }
-
-    // The pipeline controller pushes forwarding providers each tick (oldest-first).
-    public void SetForwardingContext(IReadOnlyList<PipelineResident> providers) { _forwardProviders = providers; }
 
     public ExecuteStage(
         string name,
@@ -47,6 +35,18 @@ public sealed class ExecuteStage : Gear {
 
         Input.OnReceive = latch => _current = latch;
     }
+
+    public InArbor<IdExLatch> Input { get; }
+    public OutArbor<ExMemLatch> Output { get; }
+
+    public ExMemLatch LastSent { get; private set; } = ExMemLatch.Bubble;
+
+    // Set for one cycle when a branch resolves taken: the instruction currently
+    // in EX is on the wrong path (fetched after the branch) and must be killed.
+    public bool Squash { get; set; }
+
+    // The pipeline controller pushes forwarding providers each tick (oldest-first).
+    public void SetForwardingContext(IReadOnlyList<PipelineResident> providers) { _forwardProviders = providers; }
 
     internal void Inject(IdExLatch latch) => _current = latch;
 

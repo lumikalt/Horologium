@@ -1,28 +1,28 @@
 using Orrery.Cache;
 using Pipeline;
-using RiscV64;
 using RiscV32.Memory;
+using RiscV64;
 
 namespace Tests.RiscV64.MultiHart;
 
 /// <summary>
-/// Integration tests for <see cref="MultiHartPipeline"/>: two independent trains
-/// stepped round-robin, and coherent read via shared MoesifBus.
-/// <para>
-/// Encoded instructions:
-///   addi x1, x0, 42  = 0x02A00093
-///   addi x1, x0, 99  = 0x06300093
-///   sw   x1, 0(x2)   = 0x00112023
-///   lw   x3, 0(x4)   = 0x00022183
-///   ebreak            = 0x00100073
-/// </para>
-/// <para>
-/// MOESIF timing guarantee: MultiHartPipeline steps H0 before H1 in every outer tick.
-/// For single-Gear trains (SingleCycle, Superscalar) the write and read both happen
-/// in the same outer tick — H0 first. For the five-stage pipeline both trains reach
-/// EX at the same outer tick (tick 3) and H0's EX fires before H1's, so H0's store
-/// writes to cache0 (→ M) before H1's load issues a BusRead.
-/// </para>
+///     Integration tests for <see cref="MultiHartPipeline" />: two independent trains
+///     stepped round-robin, and coherent read via shared MoesifBus.
+///     <para>
+///         Encoded instructions:
+///         addi x1, x0, 42  = 0x02A00093
+///         addi x1, x0, 99  = 0x06300093
+///         sw   x1, 0(x2)   = 0x00112023
+///         lw   x3, 0(x4)   = 0x00022183
+///         ebreak            = 0x00100073
+///     </para>
+///     <para>
+///         MOESIF timing guarantee: MultiHartPipeline steps H0 before H1 in every outer tick.
+///         For single-Gear trains (SingleCycle, Superscalar) the write and read both happen
+///         in the same outer tick — H0 first. For the five-stage pipeline both trains reach
+///         EX at the same outer tick (tick 3) and H0's EX fires before H1's, so H0's store
+///         writes to cache0 (→ M) before H1's load issues a BusRead.
+///     </para>
 /// </summary>
 public class MultiHartPipelineTests {
     private const uint Ebreak = 0x00100073;

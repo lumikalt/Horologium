@@ -8,6 +8,17 @@ using RiscV32.State;
 namespace RiscV32.Execute;
 
 public partial class Rv32Executor {
+    // RISC-V canonical NaN for float32 (positive, quiet NaN with one mantissa bit set).
+    private const uint RvCanonicalNaN = 0x7FC00000u;
+
+    // Double result + OR flags into fflags via SideEffect.
+    private const ulong RvCanonicalNaNd = 0x7FF8000000000000UL;
+
+    // ── Float32 minimum normal magnitude (2^-126) ─────────────────────────────
+    private const float MinNormalF = 1.1754944e-38f;
+
+    // ── Float64 minimum normal magnitude (2^-1022) ────────────────────────────
+    private const double MinNormalD = 2.2250738585072014E-308;
     // ── FP helpers ────────────────────────────────────────────────────────────
 
     // Wrap an ExecuteResult (e.g., from Load) to NaN-box the 32-bit float value.
@@ -29,9 +40,6 @@ public partial class Rv32Executor {
     protected static double DBits(IRegisterFile regs, int rs) =>
         BitConverter.Int64BitsToDouble((long)regs.Read(rs));
 
-    // RISC-V canonical NaN for float32 (positive, quiet NaN with one mantissa bit set).
-    private const uint RvCanonicalNaN = 0x7FC00000u;
-
     // Float result + OR flags into fflags via SideEffect.
     // Writes NaN-boxed value (upper 32 bits = 0xFFFFFFFF) per spec §11.3.
     protected static ExecuteResult FloatRegF(float value, uint flags) {
@@ -41,9 +49,6 @@ public partial class Rv32Executor {
         return new ExecuteResult
             { RegisterResult = (nanBoxed, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
     }
-
-    // Double result + OR flags into fflags via SideEffect.
-    private const ulong RvCanonicalNaNd = 0x7FF8000000000000UL;
 
     protected static ExecuteResult FloatRegD(double value, uint flags) {
         ulong bits = double.IsNaN(value) ? Rv32Executor.RvCanonicalNaNd : (ulong)BitConverter.DoubleToInt64Bits(value);
@@ -70,9 +75,6 @@ public partial class Rv32Executor {
         return new ExecuteResult
             { RegisterResult = (value, true), SideEffect = s => VState(s).CsrFile.OrFflags(flags), };
     }
-
-    // ── Float32 minimum normal magnitude (2^-126) ─────────────────────────────
-    private const float MinNormalF = 1.1754944e-38f;
 
     // Detect FP exception flags for binary arithmetic op by comparing the float
     // result against double-precision arithmetic (which is exact for 24-bit mantissa ops).
@@ -314,9 +316,6 @@ public partial class Rv32Executor {
         (raw & 0x7FF0000000000000UL) == 0x7FF0000000000000UL &&
         (raw & 0x000FFFFFFFFFFFFFUL) != 0 &&
         (raw & 0x0008000000000000UL) == 0;
-
-    // ── Float64 minimum normal magnitude (2^-1022) ────────────────────────────
-    private const double MinNormalD = 2.2250738585072014E-308;
 
     // Decompose a finite double into (mantissa, exp2) such that the exact real
     // value is mantissa * 2^exp2, with mantissa a signed BigInteger. This lets

@@ -3,36 +3,21 @@ using System.Text;
 namespace Mechanism;
 
 /// <summary>
-/// Architectural-state-only checkpoint: PC, privilege, integer registers, memory, and
-/// an ISA-specific blob (CSRs, VRF, UVE — whatever <see cref="IArchState.WriteState"/> captures).
-/// <para>
-/// Save after a run completes (all instructions committed) for a precise restart point.
-/// Use to implement fast-forward→detailed handoffs: fast-forward with a lightweight pipeline,
-/// save, then reload and run with a detailed OoO model.
-/// </para>
+///     Architectural-state-only checkpoint: PC, privilege, integer registers, memory, and
+///     an ISA-specific blob (CSRs, VRF, UVE — whatever <see cref="IArchState.WriteState" /> captures).
+///     <para>
+///         Save after a run completes (all instructions committed) for a precise restart point.
+///         Use to implement fast-forward→detailed handoffs: fast-forward with a lightweight pipeline,
+///         save, then reload and run with a detailed OoO model.
+///     </para>
 /// </summary>
 public sealed class ArchitecturalCheckpoint {
     private const uint Magic = 0x4F524F48; // "HORO" little-endian
     private const int Version = 1;
 
-    /// <summary>Elapsed ticks at the time of the checkpoint.</summary>
-    public ulong Tick { get; }
-
-    /// <summary>Program counter (commit-boundary value).</summary>
-    public ulong Pc { get; }
-
-    /// <summary>Privilege level value at the time of the checkpoint.</summary>
-    public int PrivilegeLevelValue { get; }
-
-    /// <summary>Base address of the memory snapshot.</summary>
-    public ulong MemoryBaseAddress { get; }
-
-    /// <summary>Size of the memory snapshot in bytes.</summary>
-    public int MemorySizeBytes { get; }
-
     private readonly ulong[] _intRegs;
-    private readonly byte[] _memoryData;
     private readonly byte[] _isaBlob;
+    private readonly byte[] _memoryData;
 
     private ArchitecturalCheckpoint(
         ulong tick,
@@ -54,17 +39,32 @@ public sealed class ArchitecturalCheckpoint {
         MemorySizeBytes = memSize;
     }
 
-    /// <summary>Saves the current architectural state to <paramref name="path"/>.</summary>
+    /// <summary>Elapsed ticks at the time of the checkpoint.</summary>
+    public ulong Tick { get; }
+
+    /// <summary>Program counter (commit-boundary value).</summary>
+    public ulong Pc { get; }
+
+    /// <summary>Privilege level value at the time of the checkpoint.</summary>
+    public int PrivilegeLevelValue { get; }
+
+    /// <summary>Base address of the memory snapshot.</summary>
+    public ulong MemoryBaseAddress { get; }
+
+    /// <summary>Size of the memory snapshot in bytes.</summary>
+    public int MemorySizeBytes { get; }
+
+    /// <summary>Saves the current architectural state to <paramref name="path" />.</summary>
     public static void Save(string path, IArchState state, ISnapshotableMemory memory, ulong tick) {
         using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
         Save(fs, state, memory, tick);
     }
 
     /// <summary>
-    /// Captures the current architectural state synchronously (registers, memory, and the
-    /// ISA blob are copied before this call returns, so it is safe even if the caller keeps
-    /// mutating <paramref name="state"/> or <paramref name="memory"/> afterwards), then writes
-    /// the serialized checkpoint to <paramref name="path"/> on a worker thread.
+    ///     Captures the current architectural state synchronously (registers, memory, and the
+    ///     ISA blob are copied before this call returns, so it is safe even if the caller keeps
+    ///     mutating <paramref name="state" /> or <paramref name="memory" /> afterwards), then writes
+    ///     the serialized checkpoint to <paramref name="path" /> on a worker thread.
     /// </summary>
     /// <returns>A task that completes once the file write finishes.</returns>
     public static Task SaveAsync(string path, IArchState state, ISnapshotableMemory memory, ulong tick) {
@@ -74,7 +74,7 @@ public sealed class ArchitecturalCheckpoint {
         return Task.Run(() => File.WriteAllBytes(path, data));
     }
 
-    /// <summary>Saves the current architectural state to <paramref name="stream"/>.</summary>
+    /// <summary>Saves the current architectural state to <paramref name="stream" />.</summary>
     public static void Save(Stream stream, IArchState state, ISnapshotableMemory memory, ulong tick) {
         using var w = new BinaryWriter(stream, Encoding.UTF8, true);
 
@@ -107,8 +107,8 @@ public sealed class ArchitecturalCheckpoint {
     }
 
     /// <summary>
-    /// Loads a checkpoint from <paramref name="path"/>.
-    /// Does not modify any live state — call <see cref="RestoreInto"/> to apply.
+    ///     Loads a checkpoint from <paramref name="path" />.
+    ///     Does not modify any live state — call <see cref="RestoreInto" /> to apply.
     /// </summary>
     /// <exception cref="CheckpointException">Thrown when the file is invalid or the version is unsupported.</exception>
     public static ArchitecturalCheckpoint Load(string path) {
@@ -117,8 +117,8 @@ public sealed class ArchitecturalCheckpoint {
     }
 
     /// <summary>
-    /// Loads a checkpoint from <paramref name="stream"/>.
-    /// Does not modify any live state — call <see cref="RestoreInto"/> to apply.
+    ///     Loads a checkpoint from <paramref name="stream" />.
+    ///     Does not modify any live state — call <see cref="RestoreInto" /> to apply.
     /// </summary>
     /// <exception cref="CheckpointException">Thrown when the stream data is invalid.</exception>
     public static ArchitecturalCheckpoint Load(Stream stream) => Load(stream, "<stream>");
@@ -153,9 +153,9 @@ public sealed class ArchitecturalCheckpoint {
     }
 
     /// <summary>
-    /// Restores this checkpoint into <paramref name="state"/> and <paramref name="memory"/>.
-    /// The memory must have the same <see cref="ISnapshotableMemory.BaseAddress"/> and
-    /// <see cref="ISnapshotableMemory.SizeBytes"/> as when the checkpoint was saved.
+    ///     Restores this checkpoint into <paramref name="state" /> and <paramref name="memory" />.
+    ///     The memory must have the same <see cref="ISnapshotableMemory.BaseAddress" /> and
+    ///     <see cref="ISnapshotableMemory.SizeBytes" /> as when the checkpoint was saved.
     /// </summary>
     /// <exception cref="CheckpointException">Thrown when the memory geometry does not match.</exception>
     public void RestoreInto(IArchState state, ISnapshotableMemory memory) {

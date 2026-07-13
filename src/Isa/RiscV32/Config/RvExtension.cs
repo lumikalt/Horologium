@@ -53,8 +53,8 @@ public static class RvExtensionMethods {
     ];
 
     /// <summary>
-    /// ISA string for GAS <c>-march=</c> or Spike <c>--isa=</c>.
-    /// Format: <c>rv32i[m][a][f][c][v][_z...]</c>
+    ///     ISA string for GAS <c>-march=</c> or Spike <c>--isa=</c>.
+    ///     Format: <c>rv32i[m][a][f][c][v][_z...]</c>
     /// </summary>
     public static string ToIsaString(this RvExtension ext) {
         var sb = new StringBuilder("rv32i");

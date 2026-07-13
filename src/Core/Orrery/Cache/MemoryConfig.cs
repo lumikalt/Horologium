@@ -48,32 +48,48 @@ public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate, }
 /// <param name="TlbEntries">0 = disabled.</param>
 /// <param name="TlbPageBytes">Page size in bytes. Ignored when TlbEntries = 0.</param>
 /// <param name="TlbMissLatency">Extra cycles per TLB miss.</param>
-/// <param name="UncacheableBase">Start of a memory-mapped-I/O region that bypasses all
-/// caches (0 with <see cref="UncacheableSize"/> = 0 disables it). Such a region <em>must</em>
-/// be uncacheable: a device's side effects (e.g. an HTIF <c>fromhost</c> ACK written to the
-/// backing below the cache) are otherwise masked by stale cached lines, hanging the run.</param>
+/// <param name="UncacheableBase">
+///     Start of a memory-mapped-I/O region that bypasses all
+///     caches (0 with <see cref="UncacheableSize" /> = 0 disables it). Such a region <em>must</em>
+///     be uncacheable: a device's side effects (e.g. an HTIF <c>fromhost</c> ACK written to the
+///     backing below the cache) are otherwise masked by stale cached lines, hanging the run.
+/// </param>
 /// <param name="UncacheableSize">Size of the uncacheable MMIO region in bytes (0 = disabled).</param>
-/// <param name="Prefetcher">Prefetch strategy for this memory port. Ignored when no L1 cache
-/// is configured. Prefetches respect the uncacheable region.</param>
-/// <param name="PrefetcherTableSize">RPT table entries for <see cref="PrefetcherKind.Stride"/> and
-/// stream-buffer count for <see cref="PrefetcherKind.Stream"/>; must be a power of 2.
-/// Ignored for other prefetcher kinds.</param>
-/// <param name="PrefetcherDepth">Stream-buffer depth (lines prefetched ahead per stream) for
-/// <see cref="PrefetcherKind.Stream"/>. Ignored for other prefetcher kinds.</param>
-/// <param name="PrefetchLatency">Cycles until a prefetched line is usable (0 = instant/free,
-/// the idealized model). A demand hit on a line whose prefetch is still in flight pays the
-/// remaining countdown instead of zero, and in-flight prefetches count against MSHR capacity.</param>
-/// <param name="CacheTagLatency">L1 tag-array lookup cycles. Hit latency = max(CacheTagLatency, CacheDataLatency);
-/// the OoO pipeline sources load result timing from this rather than FuLatencyConfig.LoadHitLatency when non-zero.</param>
+/// <param name="Prefetcher">
+///     Prefetch strategy for this memory port. Ignored when no L1 cache
+///     is configured. Prefetches respect the uncacheable region.
+/// </param>
+/// <param name="PrefetcherTableSize">
+///     RPT table entries for <see cref="PrefetcherKind.Stride" /> and
+///     stream-buffer count for <see cref="PrefetcherKind.Stream" />; must be a power of 2.
+///     Ignored for other prefetcher kinds.
+/// </param>
+/// <param name="PrefetcherDepth">
+///     Stream-buffer depth (lines prefetched ahead per stream) for
+///     <see cref="PrefetcherKind.Stream" />. Ignored for other prefetcher kinds.
+/// </param>
+/// <param name="PrefetchLatency">
+///     Cycles until a prefetched line is usable (0 = instant/free,
+///     the idealized model). A demand hit on a line whose prefetch is still in flight pays the
+///     remaining countdown instead of zero, and in-flight prefetches count against MSHR capacity.
+/// </param>
+/// <param name="CacheTagLatency">
+///     L1 tag-array lookup cycles. Hit latency = max(CacheTagLatency, CacheDataLatency);
+///     the OoO pipeline sources load result timing from this rather than FuLatencyConfig.LoadHitLatency when non-zero.
+/// </param>
 /// <param name="CacheDataLatency">L1 data-array read cycles (parallel with tag in the default gem5 mode).</param>
 /// <param name="L2TagLatency">L2 tag-array lookup cycles.</param>
 /// <param name="L2DataLatency">L2 data-array read cycles.</param>
 /// <param name="L3TagLatency">L3 tag-array lookup cycles.</param>
 /// <param name="L3DataLatency">L3 data-array read cycles.</param>
-/// <param name="CacheWritePolicy">L1 write-hit policy: WriteThrough (store goes to backing immediately) or
-/// WriteBack (store stays in cache until eviction; requires dirty tracking).</param>
-/// <param name="CacheWriteMissPolicy">L1 write-miss policy: NoWriteAllocate (write directly to backing, no line install)
-/// or WriteAllocate (install line then write into it). Write-allocate + WriteBack is the typical pairing.</param>
+/// <param name="CacheWritePolicy">
+///     L1 write-hit policy: WriteThrough (store goes to backing immediately) or
+///     WriteBack (store stays in cache until eviction; requires dirty tracking).
+/// </param>
+/// <param name="CacheWriteMissPolicy">
+///     L1 write-miss policy: NoWriteAllocate (write directly to backing, no line install)
+///     or WriteAllocate (install line then write into it). Write-allocate + WriteBack is the typical pairing.
+/// </param>
 /// <param name="L2WritePolicy">L2 write-hit policy (same semantics as L1).</param>
 /// <param name="L2WriteMissPolicy">L2 write-miss policy.</param>
 /// <param name="L3WritePolicy">L3 write-hit policy.</param>
@@ -81,17 +97,19 @@ public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate, }
 /// <param name="CacheWbCapacity">L1 write-back buffer capacity in lines (0 = disabled).</param>
 /// <param name="L2WbCapacity">L2 write-back buffer capacity in lines (0 = disabled).</param>
 /// <param name="L3WbCapacity">L3 write-back buffer capacity in lines (0 = disabled).</param>
-/// <param name="ReplacementPolicy">Cache replacement policy applied to every cache level.
-/// Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling
-/// (Jaleel et al., ISCA 2010). SHiP uses per-signature reuse history to predict insertion
-/// RRPV: SHiP-Mem (Ship) indexes the SHCT by upper address bits; SHiP-PC (ShipPc) indexes
-/// by load PC, requiring <see cref="IMemory.SetRequestPc"/> to be called before each access
-/// (Wu et al., MICRO 2011). Tree-PLRU (Plru) is a hardware-friendly approximation using
-/// a binary tree of bits per set; exact LRU for 2-way, approximation for wider associativity
-/// (as used in Intel P6 and later designs). Hawkeye uses OPTgen to reconstruct Belady's
-/// optimal decisions for the observed PC/address stream and trains a PC-indexed 3-bit
-/// saturating-counter predictor; cache-friendly lines insert at RRPV=0, cache-averse at
-/// RRPV=7 (Jain &amp; Lin, ISCA 2016).</param>
+/// <param name="ReplacementPolicy">
+///     Cache replacement policy applied to every cache level.
+///     Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling
+///     (Jaleel et al., ISCA 2010). SHiP uses per-signature reuse history to predict insertion
+///     RRPV: SHiP-Mem (Ship) indexes the SHCT by upper address bits; SHiP-PC (ShipPc) indexes
+///     by load PC, requiring <see cref="IMemory.SetRequestPc" /> to be called before each access
+///     (Wu et al., MICRO 2011). Tree-PLRU (Plru) is a hardware-friendly approximation using
+///     a binary tree of bits per set; exact LRU for 2-way, approximation for wider associativity
+///     (as used in Intel P6 and later designs). Hawkeye uses OPTgen to reconstruct Belady's
+///     optimal decisions for the observed PC/address stream and trains a PC-indexed 3-bit
+///     saturating-counter predictor; cache-friendly lines insert at RRPV=0, cache-averse at
+///     RRPV=7 (Jain &amp; Lin, ISCA 2016).
+/// </param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,
@@ -138,10 +156,10 @@ public sealed record MemoryConfig(
 }
 
 /// <summary>
-/// The resolved memory access chain for one port (I or D).
-/// Accessor is always non-null — it is the top of the chain.
-/// Cache, L2Cache, L3Cache, and Tlb are non-null only when the corresponding layer is enabled.
-/// Access order from processor: Accessor → [Tlb] → [L1 Cache] → [L2 Cache] → [L3 Cache] → backing.
+///     The resolved memory access chain for one port (I or D).
+///     Accessor is always non-null — it is the top of the chain.
+///     Cache, L2Cache, L3Cache, and Tlb are non-null only when the corresponding layer is enabled.
+///     Access order from processor: Accessor → [Tlb] → [L1 Cache] → [L2 Cache] → [L3 Cache] → backing.
 /// </summary>
 public sealed record MemoryLayers(
     IMemory Accessor,
@@ -154,8 +172,8 @@ public sealed record MemoryLayers(
     ulong UncacheableSize
 ) {
     /// <summary>
-    /// Build a layer stack: backing → [L3] → [L2] → [L1] → [TLB].
-    /// The caller always uses Accessor; stats come from Cache, L2Cache, L3Cache, and Tlb.
+    ///     Build a layer stack: backing → [L3] → [L2] → [L1] → [TLB].
+    ///     The caller always uses Accessor; stats come from Cache, L2Cache, L3Cache, and Tlb.
     /// </summary>
     public static MemoryLayers Build(IMemory backing, MemoryConfig cfg) {
         IMemory current = backing;
@@ -219,11 +237,11 @@ public sealed record MemoryLayers(
     }
 
     /// <summary>
-    /// Build a layer stack from a <see cref="CachePathSpec"/> and optional shared levels list.
-    /// Levels are stacked from outermost (farthest from CPU) to innermost; each level uses its
-    /// own replacement policy. The first three caches in the resulting stack are surfaced as the
-    /// named <see cref="Cache"/>, <see cref="L2Cache"/>, and <see cref="L3Cache"/> stat fields
-    /// (innermost first); deeper levels are accessible only through the <see cref="Accessor"/> chain.
+    ///     Build a layer stack from a <see cref="CachePathSpec" /> and optional shared levels list.
+    ///     Levels are stacked from outermost (farthest from CPU) to innermost; each level uses its
+    ///     own replacement policy. The first three caches in the resulting stack are surfaced as the
+    ///     named <see cref="Cache" />, <see cref="L2Cache" />, and <see cref="L3Cache" /> stat fields
+    ///     (innermost first); deeper levels are accessible only through the <see cref="Accessor" /> chain.
     /// </summary>
     public static MemoryLayers Build(
         IMemory backing,
@@ -322,12 +340,12 @@ public sealed record MemoryLayers(
     }
 
     /// <summary>
-    /// Prefetches the L1 line covering <paramref name="address"/> without any stall penalty
-    /// at install time (with <see cref="MemoryConfig.PrefetchLatency"/> &gt; 0 the line is in
-    /// flight and a demand hit pays the remaining countdown). Guards against the uncacheable
-    /// MMIO region: any prefetch that would land on (or overlap) an uncacheable line is
-    /// silently dropped, preventing re-caching of HTIF registers. No-ops when no prefetcher
-    /// is configured or no L1 is present.
+    ///     Prefetches the L1 line covering <paramref name="address" /> without any stall penalty
+    ///     at install time (with <see cref="MemoryConfig.PrefetchLatency" /> &gt; 0 the line is in
+    ///     flight and a demand hit pays the remaining countdown). Guards against the uncacheable
+    ///     MMIO region: any prefetch that would land on (or overlap) an uncacheable line is
+    ///     silently dropped, preventing re-caching of HTIF registers. No-ops when no prefetcher
+    ///     is configured or no L1 is present.
     /// </summary>
     public void TryPrefetch(ulong address) {
         if (Cache is null || Prefetcher is null) return;

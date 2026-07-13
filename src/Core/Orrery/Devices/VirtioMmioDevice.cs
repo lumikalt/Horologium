@@ -3,46 +3,46 @@ using Mechanism;
 namespace Orrery.Devices;
 
 /// <summary>
-/// VirtIO 1.2 MMIO transport for a block device (device type 2).
-/// <para>
-/// Register layout (offsets from device base, §4.2.2 of the VirtIO 1.2 spec):
-///   0x000  MagicValue         R   0x74726976 ("virt")
-///   0x004  Version            R   2
-///   0x008  DeviceID           R   2 (block)
-///   0x00C  VendorID           R   0x554D4551 ("QEMU")
-///   0x010  DeviceFeatures     R   word 0 or 1 (indexed by DeviceFeaturesSel)
-///   0x014  DeviceFeaturesSel  W
-///   0x020  DriverFeatures     W   word 0 or 1 (indexed by DriverFeaturesSel)
-///   0x024  DriverFeaturesSel  W
-///   0x030  QueueSel           W
-///   0x034  QueueNumMax        R   64
-///   0x038  QueueNum           W
-///   0x044  QueueReady         RW
-///   0x050  QueueNotify        W   triggers I/O
-///   0x060  InterruptStatus    R
-///   0x064  InterruptACK       W
-///   0x070  Status             RW
-///   0x080  QueueDescLow       W
-///   0x084  QueueDescHigh      W
-///   0x090  QueueAvailLow      W
-///   0x094  QueueAvailHigh     W
-///   0x0A0  QueueUsedLow       W
-///   0x0A4  QueueUsedHigh      W
-///   0x0FC  ConfigGeneration   R
-///   0x100+ Config             R   block device config (capacity, blk_size, ...)
-/// </para>
-/// <para>
-/// Block device config space (§5.2.4):
-///   +0x00  capacity   (le64)  total sectors (512-byte each)
-///   +0x14  blk_size   (le32)  512
-/// </para>
-/// <para>
-/// I/O is synchronous: on QueueNotify the device drains the entire available
-/// ring before returning control.  <c>guestRam</c> must be the raw
-/// backing memory (e.g. <c>FlatMemory</c>), not the
-/// <see cref="PeripheralBus"/>, so that <c>Load()</c> can be used for bulk
-/// DMA writes.
-/// </para>
+///     VirtIO 1.2 MMIO transport for a block device (device type 2).
+///     <para>
+///         Register layout (offsets from device base, §4.2.2 of the VirtIO 1.2 spec):
+///         0x000  MagicValue         R   0x74726976 ("virt")
+///         0x004  Version            R   2
+///         0x008  DeviceID           R   2 (block)
+///         0x00C  VendorID           R   0x554D4551 ("QEMU")
+///         0x010  DeviceFeatures     R   word 0 or 1 (indexed by DeviceFeaturesSel)
+///         0x014  DeviceFeaturesSel  W
+///         0x020  DriverFeatures     W   word 0 or 1 (indexed by DriverFeaturesSel)
+///         0x024  DriverFeaturesSel  W
+///         0x030  QueueSel           W
+///         0x034  QueueNumMax        R   64
+///         0x038  QueueNum           W
+///         0x044  QueueReady         RW
+///         0x050  QueueNotify        W   triggers I/O
+///         0x060  InterruptStatus    R
+///         0x064  InterruptACK       W
+///         0x070  Status             RW
+///         0x080  QueueDescLow       W
+///         0x084  QueueDescHigh      W
+///         0x090  QueueAvailLow      W
+///         0x094  QueueAvailHigh     W
+///         0x0A0  QueueUsedLow       W
+///         0x0A4  QueueUsedHigh      W
+///         0x0FC  ConfigGeneration   R
+///         0x100+ Config             R   block device config (capacity, blk_size, ...)
+///     </para>
+///     <para>
+///         Block device config space (§5.2.4):
+///         +0x00  capacity   (le64)  total sectors (512-byte each)
+///         +0x14  blk_size   (le32)  512
+///     </para>
+///     <para>
+///         I/O is synchronous: on QueueNotify the device drains the entire available
+///         ring before returning control.  <c>guestRam</c> must be the raw
+///         backing memory (e.g. <c>FlatMemory</c>), not the
+///         <see cref="PeripheralBus" />, so that <c>Load()</c> can be used for bulk
+///         DMA writes.
+///     </para>
 /// </summary>
 public sealed class VirtioMmioDevice : IMemory {
     public const ulong DefaultBase = 0x10001000UL;
@@ -96,32 +96,29 @@ public sealed class VirtioMmioDevice : IMemory {
     private const byte BlkSOk = 0;
     private const byte BlkSIoerr = 1;
     private const byte BlkSUnsupp = 2;
-
-    // MMIO register state
-    private uint _deviceFeatsSel;
-    private uint _queueNum;
-    private uint _queueReady;
-    private ulong _queueDescAddr;
-    private ulong _queueAvailAddr;
-    private ulong _queueUsedAddr;
-    private uint _interruptStatus;
-    private uint _status;
-    private ushort _lastAvailIdx;
+    private readonly ulong _base;
+    private readonly byte[] _config;
 
     private readonly Stream _disk;
     private readonly IMemory _guestRam;
-    private readonly ulong _base;
-    private readonly byte[] _config;
     private readonly PlicDevice? _plic;
     private readonly int _sourceId;
 
-    /// <summary>True while <c>InterruptACK</c> has not cleared the used-buffer interrupt.</summary>
-    public bool InterruptPending => _interruptStatus != 0;
+    // MMIO register state
+    private uint _deviceFeatsSel;
+    private uint _interruptStatus;
+    private ushort _lastAvailIdx;
+    private ulong _queueAvailAddr;
+    private ulong _queueDescAddr;
+    private uint _queueNum;
+    private uint _queueReady;
+    private ulong _queueUsedAddr;
+    private uint _status;
 
     /// <param name="disk">Host stream backing the virtual disk.</param>
     /// <param name="guestRam">Guest physical memory — used for DMA reads/writes.</param>
     /// <param name="base">MMIO base address.</param>
-    /// <param name="plic">Optional PLIC; when provided, I/O completions assert <paramref name="sourceId"/>.</param>
+    /// <param name="plic">Optional PLIC; when provided, I/O completions assert <paramref name="sourceId" />.</param>
     /// <param name="sourceId">PLIC source ID to assert on completion (matches the DTS interrupts property).</param>
     public VirtioMmioDevice(
         Stream disk,
@@ -142,6 +139,9 @@ public sealed class VirtioMmioDevice : IMemory {
         WriteLeBytes(_config, 0, sectors, 8);
         WriteLeBytes(_config, 0x14, 512, 4);
     }
+
+    /// <summary>True while <c>InterruptACK</c> has not cleared the used-buffer interrupt.</summary>
+    public bool InterruptPending => _interruptStatus != 0;
 
     // ── IMemory ───────────────────────────────────────────────────────────────
 

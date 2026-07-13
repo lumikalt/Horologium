@@ -4,14 +4,9 @@ using Mechanism;
 namespace Chip8;
 
 public sealed class Chip8ArchState : IArchState {
-    private readonly DataRegisterFile _vRegs = new();
     private readonly ProgramRegisterFile _programRegs = new();
     private readonly Stack<ushort> _stack = new();
-
-    public ulong Pc { get; set; } = 0x200;
-    public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
-    public IRegisterFile IntegerRegisters => _vRegs;
-    public ISystemRegisters SystemRegisters => _programRegs;
+    private readonly DataRegisterFile _vRegs = new();
 
     public bool[] Display { get; } = new bool[64 * 32];
     public bool[] Keys { get; } = new bool[16];
@@ -31,19 +26,10 @@ public sealed class Chip8ArchState : IArchState {
         set => _programRegs.Write(ProgramRegisterFile.SoundTimer, value, PrivilegeLevel.User);
     }
 
-    public void PushStack(ushort addr) => _stack.Push(addr);
-    public ushort PopStack() => _stack.Pop();
-
-    public bool TryGetPressedKey(out int key) {
-        for (var i = 0; i < 16; i++) {
-            if (!Keys[i]) continue;
-            key = i;
-            return true;
-        }
-
-        key = -1;
-        return false;
-    }
+    public ulong Pc { get; set; } = 0x200;
+    public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
+    public IRegisterFile IntegerRegisters => _vRegs;
+    public ISystemRegisters SystemRegisters => _programRegs;
 
     public IArchState Snapshot() {
         var snap = new Chip8ArchState { Pc = Pc, PrivilegeLevel = PrivilegeLevel, };
@@ -66,5 +52,19 @@ public sealed class Chip8ArchState : IArchState {
         _stack.Clear();
         Array.Clear(Display);
         Array.Clear(Keys);
+    }
+
+    public void PushStack(ushort addr) => _stack.Push(addr);
+    public ushort PopStack() => _stack.Pop();
+
+    public bool TryGetPressedKey(out int key) {
+        for (var i = 0; i < 16; i++) {
+            if (!Keys[i]) continue;
+            key = i;
+            return true;
+        }
+
+        key = -1;
+        return false;
     }
 }

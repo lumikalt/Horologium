@@ -13,11 +13,6 @@ public sealed class F18AArchState : IArchState {
 
     public F18AArchState() => IntegerRegisters = new F18ARegisterFile(this);
 
-    public ulong Pc { get; set; }
-    public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
-    public IRegisterFile IntegerRegisters { get; }
-    public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
-
     public uint T {
         get => _dstack[_dsp & (F18AArchState.Depth - 1)];
         set => _dstack[_dsp & (F18AArchState.Depth - 1)] = value;
@@ -32,6 +27,28 @@ public sealed class F18AArchState : IArchState {
 
     public uint A { get; set; }
     public uint B { get; set; }
+
+    public ulong Pc { get; set; }
+    public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
+    public IRegisterFile IntegerRegisters { get; }
+    public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
+
+    public IArchState Snapshot() {
+        var s = new F18AArchState();
+        s.CopyFrom(this);
+        return s;
+    }
+
+    public void Reset() {
+        Pc = 0;
+        PrivilegeLevel = PrivilegeLevel.User;
+        _dsp = 0;
+        _rsp = 0;
+        A = 0;
+        B = 0;
+        Array.Clear(_dstack);
+        Array.Clear(_rstack);
+    }
 
     public void DPush(uint value) {
         _dsp++;
@@ -64,22 +81,5 @@ public sealed class F18AArchState : IArchState {
         B = src.B;
         src._dstack.CopyTo(_dstack, 0);
         src._rstack.CopyTo(_rstack, 0);
-    }
-
-    public IArchState Snapshot() {
-        var s = new F18AArchState();
-        s.CopyFrom(this);
-        return s;
-    }
-
-    public void Reset() {
-        Pc = 0;
-        PrivilegeLevel = PrivilegeLevel.User;
-        _dsp = 0;
-        _rsp = 0;
-        A = 0;
-        B = 0;
-        Array.Clear(_dstack);
-        Array.Clear(_rstack);
     }
 }

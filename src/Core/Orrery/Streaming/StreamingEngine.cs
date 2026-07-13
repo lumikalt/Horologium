@@ -3,18 +3,18 @@ using Mechanism;
 namespace Orrery.Streaming;
 
 /// <summary>
-/// ISA-agnostic streaming prefetch engine.
-/// <para>
-/// Manages up to <see cref="MaxStreams"/> independently configured affine memory streams.
-/// Each call to <see cref="Step"/> advances every active stream by one prefetch step,
-/// filling each stream's buffer up to the configured <c>prefetchDepth</c>. Software (or
-/// executor SideEffects) configures streams; compute instructions consume elements via
-/// <see cref="Consume"/>.
-/// </para>
-/// <para>
-/// Streams are architectural state: they survive pipeline flushes. The pipeline should
-/// call <see cref="Step"/> unconditionally every cycle, even during flush cycles.
-/// </para>
+///     ISA-agnostic streaming prefetch engine.
+///     <para>
+///         Manages up to <see cref="MaxStreams" /> independently configured affine memory streams.
+///         Each call to <see cref="Step" /> advances every active stream by one prefetch step,
+///         filling each stream's buffer up to the configured <c>prefetchDepth</c>. Software (or
+///         executor SideEffects) configures streams; compute instructions consume elements via
+///         <see cref="Consume" />.
+///     </para>
+///     <para>
+///         Streams are architectural state: they survive pipeline flushes. The pipeline should
+///         call <see cref="Step" /> unconditionally every cycle, even during flush cycles.
+///     </para>
 /// </summary>
 public sealed class StreamingEngine {
     public const int MaxStreams = 8;
@@ -31,8 +31,8 @@ public sealed class StreamingEngine {
     }
 
     /// <summary>
-    /// Configures and activates a stream. Replaces any existing configuration on
-    /// <paramref name="streamId"/> and resets the read position to the first element.
+    ///     Configures and activates a stream. Replaces any existing configuration on
+    ///     <paramref name="streamId" /> and resets the read position to the first element.
     /// </summary>
     public void Configure(int streamId, StreamDescriptor descriptor) {
         Validate(streamId);
@@ -68,9 +68,9 @@ public sealed class StreamingEngine {
     }
 
     /// <summary>
-    /// Returns true when dimension <paramref name="dim"/> wrapped during the most recent
-    /// <see cref="Consume"/> call on this stream (consume-side odometer, not fetch-side).
-    /// False if the stream is inactive or <paramref name="dim"/> is out of range.
+    ///     Returns true when dimension <paramref name="dim" /> wrapped during the most recent
+    ///     <see cref="Consume" /> call on this stream (consume-side odometer, not fetch-side).
+    ///     False if the stream is inactive or <paramref name="dim" /> is out of range.
     /// </summary>
     public bool IsDimPassComplete(int streamId, int dim) {
         Validate(streamId);
@@ -116,10 +116,10 @@ public sealed class StreamingEngine {
     }
 
     /// <summary>
-    /// Advances each active stream by one prefetch step. Scalar streams read one element;
-    /// vector-mode streams read up to <paramref name="vectorLength"/> elements, stopping at
-    /// the vecCfgDim boundary so each Step delivers at most one complete vector slice.
-    /// Call once per pipeline cycle.
+    ///     Advances each active stream by one prefetch step. Scalar streams read one element;
+    ///     vector-mode streams read up to <paramref name="vectorLength" /> elements, stopping at
+    ///     the vecCfgDim boundary so each Step delivers at most one complete vector slice.
+    ///     Call once per pipeline cycle.
     /// </summary>
     public void Step(IMemory memory, int vectorLength = 1) {
         if (_activeCount == 0) return;
@@ -134,49 +134,48 @@ public sealed class StreamingEngine {
     // ── Per-stream state ───────────────────────────────────────────────────────
 
     private sealed class StreamState {
+        private readonly Queue<ulong> _buffer = new();
+        private long[] _consumeDimCounts = [];
+        private long[] _consumeIndices = [];
         private StreamDescriptor _desc;
 
-        // Per-dimension fetch and consume indices. Innermost = index 0.
-        private long[] _fetchIndices = [];
-        private long[] _consumeIndices = [];
+        // Set by Consume() for each dimension that wraps; cleared at the start of the next Consume().
+        private bool[] _dimPassComplete = [];
 
         // Mutable per-odometer copies of dimension counts; updated by modifiers as each dim wraps.
         private long[] _fetchDimCounts = [];
-        private long[] _consumeDimCounts = [];
-
-        // Mutable per-dimension strides for the fetch side; updated by Stride modifiers.
-        private long[] _fetchDimStrides = [];
 
         // Original configured values — base for Add/Sub indirect modifier calculations and
         // for modifier resets (fired when the dimension outside a modifier's trigger wraps).
         private long[] _fetchDimCountsBase = [];
-        private long[] _fetchDimStridesBase = [];
 
         // Per-dimension byte displacements; updated by Offset modifiers (configured value is 0).
         private long[] _fetchDimOffsets = [];
 
+        // Mutable per-dimension strides for the fetch side; updated by Stride modifiers.
+        private long[] _fetchDimStrides = [];
+        private long[] _fetchDimStridesBase = [];
+
         // True once the outermost fetch dimension has wrapped (all elements fetched).
         private bool _fetchDone;
 
-        // True when indirect modifiers need their initial application (before the first fetch).
-        private bool _needsInitialModApply;
-
-        // Set by Consume() for each dimension that wraps; cleared at the start of the next Consume().
-        private bool[] _dimPassComplete = [];
+        // Per-dimension fetch and consume indices. Innermost = index 0.
+        private long[] _fetchIndices = [];
 
         // Per-modifier queue for indirect Size modifiers: fetch side enqueues the new count
         // so the consume-side odometer can apply matching updates when the dimension wraps.
         // Null entries = static modifier or non-Size indirect modifier.
         private Queue<long>?[] _indModSizeQueues = [];
 
-        // Vector-mode coupling dimension. -1 = not vector mode; 0..N-1 = dimension that acts as the
-        // vector boundary (resolved from IsVectorMode/VecCfgDim at Configure time; innermost = 0).
-        private int _vecCfgDim = -1;
+        // True when indirect modifiers need their initial application (before the first fetch).
+        private bool _needsInitialModApply;
 
         // Scatter-gather modifier: fires per element before each address generation, targeting dim-0 Offset.
         private (int SourceStreamId, StreamModifierBehavior Behavior)? _sgiMod;
 
-        private readonly Queue<ulong> _buffer = new();
+        // Vector-mode coupling dimension. -1 = not vector mode; 0..N-1 = dimension that acts as the
+        // vector boundary (resolved from IsVectorMode/VecCfgDim at Configure time; innermost = 0).
+        private int _vecCfgDim = -1;
 
         public bool Active { get; private set; }
         public bool HasElement => _buffer.Count > 0;
@@ -186,10 +185,10 @@ public sealed class StreamingEngine {
 
         public bool IsExhausted => Active && _fetchDone && _buffer.Count == 0;
 
+        public int DimensionCount => Active ? _consumeDimCounts.Length : 0;
+
         public bool IsDimPassComplete(int dim) =>
             Active && (uint)dim < (uint)_dimPassComplete.Length && _dimPassComplete[dim];
-
-        public int DimensionCount => Active ? _consumeDimCounts.Length : 0;
 
         public void Configure(StreamDescriptor desc) {
             _desc = desc;

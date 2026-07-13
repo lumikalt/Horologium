@@ -1,18 +1,16 @@
 namespace Pipeline.Ooo;
 
 /// <summary>
-/// Holds speculative register values for OoOE execution.
-/// <para>
-/// Each slot has a ready bit: cleared at Dispatch when an instruction claims
-/// the register as its destination; set again at Complete when the CDB
-/// broadcasts the result. Waiting RS entries check IsReady before issuing.
-/// </para>
+///     Holds speculative register values for OoOE execution.
+///     <para>
+///         Each slot has a ready bit: cleared at Dispatch when an instruction claims
+///         the register as its destination; set again at Complete when the CDB
+///         broadcasts the result. Waiting RS entries check IsReady before issuing.
+///     </para>
 /// </summary>
 public sealed class PhysicalRegisterFile {
-    private readonly ulong[] _values;
     private readonly bool[] _ready;
-
-    public int Count { get; }
+    private readonly ulong[] _values;
 
     public PhysicalRegisterFile(int count) {
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
@@ -21,6 +19,8 @@ public sealed class PhysicalRegisterFile {
         _ready = new bool[count];
         Array.Fill(_ready, true); // all arch regs start with a valid zero value
     }
+
+    public int Count { get; }
 
     public ulong Read(int phys) {
         Validate(phys);

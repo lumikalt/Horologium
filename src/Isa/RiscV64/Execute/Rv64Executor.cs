@@ -12,18 +12,18 @@ using RiscV64.State;
 namespace RiscV64.Execute;
 
 /// <summary>
-/// Executes RV64I instructions — extends Rv32Executor with:
-///   • W-suffix instructions (ADDW, SUBW, …, ADDIW, SLLIW, …): operate on lower 32 bits,
+///     Executes RV64I instructions — extends Rv32Executor with:
+///     • W-suffix instructions (ADDW, SUBW, …, ADDIW, SLLIW, …): operate on lower 32 bits,
 ///     sign-extend the 32-bit result to 64 bits.
-///   • New loads/stores: LWU (zero-extend), LD (64-bit), SD (64-bit).
-///   • Override of Reg() to return the full 64-bit value (no truncation).
-///   • Override of Load() for 64-bit sign/zero extension.
-///   • Semantic fixes for RV64: 6-bit shift amounts, 64-bit signed comparisons, LW sign-extension.
-///   • RV64M: MULW/DIVW/DIVUW/REMW/REMUW (32-bit operands, sign-extended result), plus 64-bit-native
+///     • New loads/stores: LWU (zero-extend), LD (64-bit), SD (64-bit).
+///     • Override of Reg() to return the full 64-bit value (no truncation).
+///     • Override of Load() for 64-bit sign/zero extension.
+///     • Semantic fixes for RV64: 6-bit shift amounts, 64-bit signed comparisons, LW sign-extension.
+///     • RV64M: MULW/DIVW/DIVUW/REMW/REMUW (32-bit operands, sign-extended result), plus 64-bit-native
 ///     overrides of MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU — the inherited RV32 versions operate on the
 ///     lower 32 bits only (via (int)/(uint) casts), which is wrong once regs.Read() returns a genuine
 ///     64-bit value under RV64.
-///   • RV64F/D: FCVT.L/LU.S/D (float/double→int64), FCVT.S/D.L/LU (int64→float/double), FMV.X.D/FMV.D.X
+///     • RV64F/D: FCVT.L/LU.S/D (float/double→int64), FCVT.S/D.L/LU (int64→float/double), FMV.X.D/FMV.D.X
 ///     (full 64-bit double↔int bit copy — RV32D has no FMV.X.D since XLEN &lt; FLEN there). FCVT.W/WU.S/D/H
 ///     need no override: the inherited IntRegF already sign-extends its 32-bit result to XLEN.
 /// </summary>

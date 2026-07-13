@@ -23,6 +23,14 @@ public sealed class FetchStage(
 )
     : Gear(name, parent, esc) {
     private readonly ReturnAddressStack _ras = new(rasDepth);
+
+    // Suppress repeated fault latches: set when a fetch page-fault latch has
+    // been sent; cleared on flush when the trap redirect arrives.
+    private bool _fetchFaulted;
+
+    // The last real instruction sent downstream — re-sent on stall so the
+    // Decode stage retains the instruction it is holding.
+    private IfIdLatch _held = IfIdLatch.Bubble;
     private ulong _nextInstrId = 1;
 
     public ulong Pc { get; set; }
@@ -36,14 +44,6 @@ public sealed class FetchStage(
     // Decode stage will consume next cycle. The pipeline controller reads it
     // to detect hazards against the instruction about to enter Decode.
     public IfIdLatch LastSent { get; private set; } = IfIdLatch.Bubble;
-
-    // The last real instruction sent downstream — re-sent on stall so the
-    // Decode stage retains the instruction it is holding.
-    private IfIdLatch _held = IfIdLatch.Bubble;
-
-    // Suppress repeated fault latches: set when a fetch page-fault latch has
-    // been sent; cleared on flush when the trap redirect arrives.
-    private bool _fetchFaulted;
 
     public void Cycle() {
         if (Flush) {

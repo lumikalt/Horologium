@@ -4,25 +4,20 @@ using Orrery.Scheduling;
 namespace Orrery.Ports;
 
 /// <summary>
-/// The sending end of a typed communication channel between Gears.
-/// <para>
-/// Sending data does not deliver it immediately — it schedules delivery
-/// on the Escapement at (currentTick + latency), at phase ArborUpdate.
-/// This models the pipeline register delay, wire delay, and bus latency uniformly.
-/// </para>
+///     The sending end of a typed communication channel between Gears.
+///     <para>
+///         Sending data does not deliver it immediately — it schedules delivery
+///         on the Escapement at (currentTick + latency), at phase ArborUpdate.
+///         This models the pipeline register delay, wire delay, and bus latency uniformly.
+///     </para>
 /// </summary>
 public sealed class OutArbor<T> {
-    private readonly Escapement _escapement;
     private readonly Action _deliverAction;
+    private readonly Escapement _escapement;
+    private readonly Queue<T> _queue = new(4);
 
     private InArbor<T>? _bound;
     private int _latency;
-    private readonly Queue<T> _queue = new(4);
-
-    public string Name { get; }
-
-    /// <summary>True if this arbor has been bound to an InArbor.</summary>
-    public bool IsBound => _bound is not null;
 
     public OutArbor(string name, Escapement escapement) {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -32,11 +27,16 @@ public sealed class OutArbor<T> {
         _deliverAction = Deliver;
     }
 
+    public string Name { get; }
+
+    /// <summary>True if this arbor has been bound to an InArbor.</summary>
+    public bool IsBound => _bound is not null;
+
     /// <summary>
-    /// Binds this output to a target input with a given latency in ticks.
-    /// Latency must be at least 1 — zero-latency ports collapse the
-    /// distinction between sender and receiver within a tick, which
-    /// breaks phase ordering guarantees.
+    ///     Binds this output to a target input with a given latency in ticks.
+    ///     Latency must be at least 1 — zero-latency ports collapse the
+    ///     distinction between sender and receiver within a tick, which
+    ///     breaks phase ordering guarantees.
     /// </summary>
     public void Bind(InArbor<T> target, int latency = 1) {
         ArgumentNullException.ThrowIfNull(target);
@@ -59,9 +59,9 @@ public sealed class OutArbor<T> {
     }
 
     /// <summary>
-    /// Sends data through this arbor. Delivery is scheduled on the Escapement
-    /// at (currentTick + latency), phase ArborUpdate.
-    /// <para>The sender continues executing immediately — this is not a blocking call.</para>
+    ///     Sends data through this arbor. Delivery is scheduled on the Escapement
+    ///     at (currentTick + latency), phase ArborUpdate.
+    ///     <para>The sender continues executing immediately — this is not a blocking call.</para>
     /// </summary>
     public void Send(T data) {
         if (_bound is null)

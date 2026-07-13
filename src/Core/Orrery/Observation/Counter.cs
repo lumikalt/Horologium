@@ -1,22 +1,22 @@
 namespace Orrery.Observation;
 
 /// <summary>
-/// A monotonically increasing integer statistic.
-/// Counters may only be incremented — never decremented or reset mid-revolution.
-/// This constraint makes them safe to snapshot at any point in time.
+///     A monotonically increasing integer statistic.
+///     Counters may only be incremented — never decremented or reset mid-revolution.
+///     This constraint makes them safe to snapshot at any point in time.
 /// </summary>
 public sealed class Counter {
-    public string Name { get; }
-    public string Description { get; }
-
-    /// <summary>The current value of this counter.</summary>
-    public long Value { get; private set; }
-
     public Counter(string name, string description = "") {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Name = name;
         Description = description;
     }
+
+    public string Name { get; }
+    public string Description { get; }
+
+    /// <summary>The current value of this counter.</summary>
+    public long Value { get; private set; }
 
     /// <summary>Increments the counter by 1.</summary>
     public void Increment() => Value++;
@@ -32,8 +32,8 @@ public sealed class Counter {
     }
 
     /// <summary>
-    /// Resets the counter to zero. Only valid between Revolutions —
-    /// the Train calls this during its Reset pass, never mid-run.
+    ///     Resets the counter to zero. Only valid between Revolutions —
+    ///     the Train calls this during its Reset pass, never mid-run.
     /// </summary>
     internal void Reset() => Value = 0;
 

@@ -7,9 +7,9 @@ using RiscV64.State;
 namespace Tests.Isa.RiscV64;
 
 /// <summary>
-/// Tests for RV64M — MULW/DIVW/DIVUW/REMW/REMUW (32-bit operands, sign-extended result),
-/// and the 64-bit-native overrides of MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU that replace the
-/// RV32 versions inherited from Rv32Executor (which truncate to 32 bits).
+///     Tests for RV64M — MULW/DIVW/DIVUW/REMW/REMUW (32-bit operands, sign-extended result),
+///     and the 64-bit-native overrides of MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU that replace the
+///     RV32 versions inherited from Rv32Executor (which truncate to 32 bits).
 /// </summary>
 public class Rv64MTests {
     private readonly Rv64Decoder _dec = new();

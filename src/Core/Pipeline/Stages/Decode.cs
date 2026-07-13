@@ -10,16 +10,8 @@ public sealed class DecodeStage : Gear {
     private readonly IDecoder _decoder;
     private readonly IArchState _state;
 
-    public bool Stall { get; set; }
-    public bool Flush { get; set; }
-
     // Latch received from IF — set by InArbor callback
     private IfIdLatch _current = IfIdLatch.Bubble;
-
-    public IdExLatch LastSent { get; private set; } = IdExLatch.Bubble;
-
-    public InArbor<IfIdLatch> Input { get; }
-    public OutArbor<IdExLatch> Output { get; }
 
     public DecodeStage(
         string name,
@@ -37,6 +29,14 @@ public sealed class DecodeStage : Gear {
 
         Input.OnReceive = latch => _current = latch;
     }
+
+    public bool Stall { get; set; }
+    public bool Flush { get; set; }
+
+    public IdExLatch LastSent { get; private set; } = IdExLatch.Bubble;
+
+    public InArbor<IfIdLatch> Input { get; }
+    public OutArbor<IdExLatch> Output { get; }
 
     internal void Inject(IfIdLatch latch) => _current = latch;
 

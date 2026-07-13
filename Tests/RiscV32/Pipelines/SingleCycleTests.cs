@@ -7,9 +7,9 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-/// End-to-end tests: hand-assembled RV32I programs run through the
-/// SingleCycleTrain. These validate the full fetch → decode → execute →
-/// writeback loop against known-correct results.
+///     End-to-end tests: hand-assembled RV32I programs run through the
+///     SingleCycleTrain. These validate the full fetch → decode → execute →
+///     writeback loop against known-correct results.
 /// </summary>
 public class SingleCycleTests {
     private static (SingleCycleTrain train, FlatMemory mem) Make(int memSize = 4096) {

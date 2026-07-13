@@ -6,17 +6,17 @@ using RiscV32.MultiCore;
 namespace Tests.RiscV32.MultiHart;
 
 /// <summary>
-/// Integration tests for <see cref="MultiHartKernel"/>: round-robin scheduling,
-/// independent execution, and LR/SC cross-hart invalidation end-to-end.
-/// <para>
-/// Encoded instructions used below:
-///   addi x1, x0, 42      = 0x02A00093
-///   addi x1, x0, 99      = 0x06300093
-///   lr.w  x1, (x2)       = 0x100120AF
-///   sc.w  x4, x3, (x2)   = 0x1831222F
-///   sw    x5, 0(x6)      = 0x00532023
-///   ebreak                = 0x00100073
-/// </para>
+///     Integration tests for <see cref="MultiHartKernel" />: round-robin scheduling,
+///     independent execution, and LR/SC cross-hart invalidation end-to-end.
+///     <para>
+///         Encoded instructions used below:
+///         addi x1, x0, 42      = 0x02A00093
+///         addi x1, x0, 99      = 0x06300093
+///         lr.w  x1, (x2)       = 0x100120AF
+///         sc.w  x4, x3, (x2)   = 0x1831222F
+///         sw    x5, 0(x6)      = 0x00532023
+///         ebreak                = 0x00100073
+///     </para>
 /// </summary>
 public class MultiHartKernelTests {
     private const uint Ebreak = 0x00100073;

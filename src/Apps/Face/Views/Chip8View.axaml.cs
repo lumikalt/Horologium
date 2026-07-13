@@ -7,7 +7,6 @@ using Face.ViewModels;
 namespace Face.Views;
 
 public partial class Chip8View : UserControl {
-    private Chip8ViewModel? Vm => DataContext as Chip8ViewModel;
     private Chip8ViewModel? _subscribedVm;
 
     public Chip8View() {
@@ -15,6 +14,8 @@ public partial class Chip8View : UserControl {
         Loaded += (_, _) => Focus();
         DataContextChanged += OnDataContextChanged;
     }
+
+    private Chip8ViewModel? Vm => DataContext as Chip8ViewModel;
 
     private void OnDataContextChanged(object? sender, EventArgs e) {
         if (_subscribedVm is not null) {

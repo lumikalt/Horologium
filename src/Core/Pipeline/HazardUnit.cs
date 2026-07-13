@@ -3,9 +3,9 @@ using Mechanism;
 namespace Pipeline;
 
 /// <summary>
-/// Compact view of an in-flight instruction used by the hazard unit.
-/// Ordered from newest (index 0, closest to EX) to oldest for stall detection;
-/// oldest to newest for forwarding so that the newest source wins.
+///     Compact view of an in-flight instruction used by the hazard unit.
+///     Ordered from newest (index 0, closest to EX) to oldest for stall detection;
+///     oldest to newest for forwarding so that the newest source wins.
 /// </summary>
 /// <param name="IsValid">Whether this slot contains a real instruction.</param>
 /// <param name="DestReg">Destination register, or ≤0 for none.</param>
@@ -19,33 +19,39 @@ public readonly record struct PipelineResident(
 );
 
 /// <summary>
-/// Detects data and control hazards for a linear in-order pipeline of any depth.
-/// <para>
-/// Data hazards:
-/// <list type="bullet">
-///   <item><description>RAW (Read After Write): a stage needs a value not yet written back.
-///     Without forwarding: stall until the producing instruction reaches WB.
-///     With forwarding: forward from any later stage that has the value ready.</description></item>
-/// </list>
-/// </para>
-/// <para>
-/// Control hazards:
-/// <list type="bullet">
-///   <item><description>Branch/jump resolved in EX: the caller flushes IF and ID (2-cycle penalty).</description></item>
-/// </list>
-/// </para>
+///     Detects data and control hazards for a linear in-order pipeline of any depth.
+///     <para>
+///         Data hazards:
+///         <list type="bullet">
+///             <item>
+///                 <description>
+///                     RAW (Read After Write): a stage needs a value not yet written back.
+///                     Without forwarding: stall until the producing instruction reaches WB.
+///                     With forwarding: forward from any later stage that has the value ready.
+///                 </description>
+///             </item>
+///         </list>
+///     </para>
+///     <para>
+///         Control hazards:
+///         <list type="bullet">
+///             <item>
+///                 <description>Branch/jump resolved in EX: the caller flushes IF and ID (2-cycle penalty).</description>
+///             </item>
+///         </list>
+///     </para>
 /// </summary>
 public sealed class HazardUnit(bool forwardingEnabled) {
     /// <summary>
-    /// Determines whether the instruction about to enter Decode must stall.
-    /// A stall freezes IF and ID and inserts a bubble into EX.
+    ///     Determines whether the instruction about to enter Decode must stall.
+    ///     A stall freezes IF and ID and inserts a bubble into EX.
     /// </summary>
     /// <param name="incomingSources">
-    /// Source registers of the instruction about to enter Decode.
+    ///     Source registers of the instruction about to enter Decode.
     /// </param>
     /// <param name="residents">
-    /// In-flight instructions ordered newest-first (index 0 = currently in EX,
-    /// index 1 = currently in MEM, etc.).
+    ///     In-flight instructions ordered newest-first (index 0 = currently in EX,
+    ///     index 1 = currently in MEM, etc.).
     /// </param>
     public bool MustStall(IReadOnlyList<int> incomingSources, IReadOnlyList<PipelineResident> residents) {
         int srcCount = incomingSources.Count;
@@ -76,15 +82,15 @@ public sealed class HazardUnit(bool forwardingEnabled) {
     }
 
     /// <summary>
-    /// Computes forwarded Rs1, Rs2, Rs3 values for the instruction entering EX.
+    ///     Computes forwarded Rs1, Rs2, Rs3 values for the instruction entering EX.
     /// </summary>
     /// <param name="rs1">Current Rs1 value (from the register file).</param>
     /// <param name="rs2">Current Rs2 value.</param>
     /// <param name="rs3">Rs3 for R4-type instructions (FMADD family); 0 otherwise.</param>
     /// <param name="sources">Source register indices of the instruction entering EX.</param>
     /// <param name="providers">
-    /// Forwarding candidates ordered oldest-first (index 0 = closest to WB, lowest
-    /// priority). Iterating oldest-to-newest ensures the most-recent result wins.
+    ///     Forwarding candidates ordered oldest-first (index 0 = closest to WB, lowest
+    ///     priority). Iterating oldest-to-newest ensures the most-recent result wins.
     /// </param>
     public (ulong rs1, ulong rs2, ulong rs3) Forward(
         ulong rs1,

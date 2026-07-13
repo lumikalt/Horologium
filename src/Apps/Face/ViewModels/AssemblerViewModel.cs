@@ -23,6 +23,51 @@ using RiscV32.State;
 namespace Face.ViewModels;
 
 public partial class AssemblerViewModel : ObservableObject {
+    // Startup stub for C mode: place the stack at the top of the 1 MiB FlatMemory,
+    // run main, then halt. Linked first so _start sits at PC 0.
+    private const string CStartStub =
+        """
+            .text
+            .globl _start
+        _start:
+            li   sp, 0x100000
+            call main
+            ebreak
+        """;
+
+    private const long MaxPipelineCycles = 500_000;
+    private readonly List<(long Cycle, double HitRate)> _dCacheHitHistory = [];
+
+    private readonly Rv32Decoder _decoder = new();
+    private readonly Rv32Executor _executor = new();
+
+    // DoCache hit-rate history — one sample per StepCycle call
+    private readonly List<(long Cycle, double HitRate)> _iCacheHitHistory = [];
+
+    // Pipeline stepping
+    private readonly PEventLog _pEventLog = new();
+    private Rv32ArchState? _archState;
+    private byte[]? _binaryData;
+    private int _binarySize;
+    private long _currentCycle;
+    private byte[]? _elfBytes;
+    private FiveStageTrain? _fiveStageTrain;
+    private IMemory? _memory;
+    private OooeTrain? _oooeTrain;
+    private Dictionary<ulong, int> _pcToLine = [];
+    private CancellationTokenSource? _runCts;
+    private int _stepCount;
+    private StringWriter? _uartSw;
+
+    public AssemblerViewModel() {
+        InitRegisterEntries();
+        foreach (ExtensionToggle ext in AvailableExtensions)
+            ext.PropertyChanged += (_, _) => {
+                OnPropertyChanged(nameof(GasArchString));
+                if (Instructions.Count > 0 && !IsAssembling) _ = AssembleCommand.ExecuteAsync(null);
+            };
+    }
+
     [GeneratedRegex(@"^[^ \t]+horologium_asm\.s:", RegexOptions.Multiline)]
     private static partial Regex AsmErrPrefix { get; }
 
@@ -39,28 +84,6 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [GeneratedRegex(@"^\s+(?<addr>[0-9a-fA-F]+):\s")]
     private static partial Regex ObjdumpInsnRx { get; }
-
-    private readonly Rv32Decoder _decoder = new();
-    private readonly Rv32Executor _executor = new();
-    private IMemory? _memory;
-    private Rv32ArchState? _archState;
-    private byte[]? _binaryData;
-    private byte[]? _elfBytes;
-    private int _binarySize;
-    private int _stepCount;
-    private Dictionary<ulong, int> _pcToLine = [];
-    private CancellationTokenSource? _runCts;
-    private StringWriter? _uartSw;
-
-    // Pipeline stepping
-    private readonly PEventLog _pEventLog = new();
-    private FiveStageTrain? _fiveStageTrain;
-    private OooeTrain? _oooeTrain;
-    private long _currentCycle;
-
-    // DoCache hit-rate history — one sample per StepCycle call
-    private readonly List<(long Cycle, double HitRate)> _iCacheHitHistory = [];
-    private readonly List<(long Cycle, double HitRate)> _dCacheHitHistory = [];
 
     [ObservableProperty]
     public partial string SourceCode { get; set; } =
@@ -345,8 +368,6 @@ public partial class AssemblerViewModel : ObservableObject {
     public ObservableCollection<RegEntry> FloatRegisters { get; } = [];
     public ObservableCollection<CacheLineEntry> CacheRows { get; } = [];
 
-    public event Action? CacheUpdated;
-
     public bool IsPipelineMode => CurrentMode != PipelineMode.SingleCycle;
 
     public IReadOnlyList<RegFormat> IntFormatOptions { get; } = [
@@ -393,14 +414,7 @@ public partial class AssemblerViewModel : ObservableObject {
     public string DecodeTitle => SelectedInstruction is { } r ? $"{r.Offset:X}: {r.HexEncoding}  {r.Mnemonic}" : "";
     public IReadOnlyList<InstrField> DecodeFields => SelectedInstruction?.Fields ?? [];
 
-    public AssemblerViewModel() {
-        InitRegisterEntries();
-        foreach (ExtensionToggle ext in AvailableExtensions)
-            ext.PropertyChanged += (_, _) => {
-                OnPropertyChanged(nameof(GasArchString));
-                if (Instructions.Count > 0 && !IsAssembling) _ = AssembleCommand.ExecuteAsync(null);
-            };
-    }
+    public event Action? CacheUpdated;
 
     private void InitRegisterEntries() {
         for (var i = 0; i < 32; i++) IntRegisters.Add(new RegEntry($"x{i}"));
@@ -682,18 +696,6 @@ public partial class AssemblerViewModel : ObservableObject {
         }
     }
 
-    // Startup stub for C mode: place the stack at the top of the 1 MiB FlatMemory,
-    // run main, then halt. Linked first so _start sits at PC 0.
-    private const string CStartStub =
-        """
-            .text
-            .globl _start
-        _start:
-            li   sp, 0x100000
-            call main
-            ebreak
-        """;
-
     [UnsupportedOSPlatform("browser")]
     private async Task CompileC(string prefix) {
         string tmpDir = Path.GetTempPath();
@@ -935,8 +937,6 @@ public partial class AssemblerViewModel : ObservableObject {
             StatusText = $"Error at 0x{pc:X}: {ex.Message}";
         }
     }
-
-    private const long MaxPipelineCycles = 500_000;
 
     private void SampleCacheHistory() {
         SetAssociativeCache? ic = _fiveStageTrain?.ICache ?? _oooeTrain?.ICache;

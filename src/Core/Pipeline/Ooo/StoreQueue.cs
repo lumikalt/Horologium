@@ -11,8 +11,8 @@ public sealed class SqEntry {
     public ulong InstrId { get; set; }
 
     /// <summary>
-    /// Monotonic dispatch sequence number shared with the LoadQueue.
-    /// An Atomic instruction receives the same SeqNo in both its LQ and SQ entry.
+    ///     Monotonic dispatch sequence number shared with the LoadQueue.
+    ///     An Atomic instruction receives the same SeqNo in both its LQ and SQ entry.
     /// </summary>
     public ulong SeqNo { get; set; }
 
@@ -45,20 +45,15 @@ public sealed class SqEntry {
 }
 
 /// <summary>
-/// Circular Store Queue — tracks all in-flight stores (and the write-half of atomics)
-/// for memory-order violation detection and store-to-load forwarding.
-/// Entries are allocated at Dispatch (for Store and Atomic instructions) and retired
-/// at Commit after the memory write has been performed, always in program order.
+///     Circular Store Queue — tracks all in-flight stores (and the write-half of atomics)
+///     for memory-order violation detection and store-to-load forwarding.
+///     Entries are allocated at Dispatch (for Store and Atomic instructions) and retired
+///     at Commit after the memory write has been performed, always in program order.
 /// </summary>
 public sealed class StoreQueue {
     private readonly SqEntry[] _slots;
     private int _head;
     private int _tail;
-
-    public int Capacity { get; }
-    public int Count { get; private set; }
-    public bool IsFull => Count == Capacity;
-    public bool IsEmpty => Count == 0;
 
     public StoreQueue(int capacity) {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
@@ -67,9 +62,14 @@ public sealed class StoreQueue {
         for (var i = 0; i < capacity; i++) _slots[i] = new SqEntry();
     }
 
+    public int Capacity { get; }
+    public int Count { get; private set; }
+    public bool IsFull => Count == Capacity;
+    public bool IsEmpty => Count == 0;
+
     /// <summary>
-    /// Allocates a new slot at the tail and returns its SQ index.
-    /// The caller must set RobIdx and SeqNo on the returned entry.
+    ///     Allocates a new slot at the tail and returns its SQ index.
+    ///     The caller must set RobIdx and SeqNo on the returned entry.
     /// </summary>
     public int Allocate() {
         if (IsFull) throw new InvalidOperationException("SQ is full. Check IsFull before allocating.");
@@ -85,8 +85,8 @@ public sealed class StoreQueue {
     public SqEntry At(int index) => _slots[index % Capacity];
 
     /// <summary>
-    /// Retires the head entry (the oldest unretired store/atomic), advancing the head pointer.
-    /// Called at Commit after the memory write has been performed and the instruction retires.
+    ///     Retires the head entry (the oldest unretired store/atomic), advancing the head pointer.
+    ///     Called at Commit after the memory write has been performed and the instruction retires.
     /// </summary>
     public void Retire() {
         if (IsEmpty) throw new InvalidOperationException("SQ is empty; nothing to retire.");
@@ -104,8 +104,8 @@ public sealed class StoreQueue {
     }
 
     /// <summary>
-    /// Removes entries younger than <paramref name="instrId"/> from the tail. Used by an
-    /// execute-time partial squash; the newest (highest-InstrId) entries sit at the tail.
+    ///     Removes entries younger than <paramref name="instrId" /> from the tail. Used by an
+    ///     execute-time partial squash; the newest (highest-InstrId) entries sit at the tail.
     /// </summary>
     public void TruncateYoungerThan(ulong instrId) {
         while (Count > 0) {
@@ -118,8 +118,8 @@ public sealed class StoreQueue {
     }
 
     /// <summary>
-    /// Enumerates entries from oldest to youngest (head → tail).
-    /// SeqNo values are monotonically increasing in this order.
+    ///     Enumerates entries from oldest to youngest (head → tail).
+    ///     SeqNo values are monotonically increasing in this order.
     /// </summary>
     public IEnumerable<SqEntry> InOrder() {
         for (var i = 0; i < Count; i++) yield return _slots[(_head + i) % Capacity];

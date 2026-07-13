@@ -4,20 +4,20 @@ using RiscV32.Memory;
 namespace Tests.Orrery;
 
 /// <summary>
-/// Tests for <see cref="MoesifCache"/> coherence correctness.
-/// <para>
-/// DoCache configuration used throughout:
-///   capacityBytes=256, ways=2, blockSize=64 → 2 sets
-///   set = (address >> 6) &amp; 1
-///   Addresses mapping to set 0: 0x000, 0x080, 0x100, 0x180, 0x200, …
-///   Addresses mapping to set 1: 0x040, 0x0C0, 0x140, 0x1C0, …
-/// </para>
-/// <para>
-/// IMPORTANT: assertions on dirty data must go through a cache read (or Flush()),
-/// never directly against backing — the authoritative copy lives in the M- or O-state
-/// cache, and MOESIF cache-to-cache supply means backing stays stale while an Owned
-/// copy exists.
-/// </para>
+///     Tests for <see cref="MoesifCache" /> coherence correctness.
+///     <para>
+///         DoCache configuration used throughout:
+///         capacityBytes=256, ways=2, blockSize=64 → 2 sets
+///         set = (address >> 6) &amp; 1
+///         Addresses mapping to set 0: 0x000, 0x080, 0x100, 0x180, 0x200, …
+///         Addresses mapping to set 1: 0x040, 0x0C0, 0x140, 0x1C0, …
+///     </para>
+///     <para>
+///         IMPORTANT: assertions on dirty data must go through a cache read (or Flush()),
+///         never directly against backing — the authoritative copy lives in the M- or O-state
+///         cache, and MOESIF cache-to-cache supply means backing stays stale while an Owned
+///         copy exists.
+///     </para>
 /// </summary>
 public class MoesifCacheTests {
     private const int Capacity = 256;

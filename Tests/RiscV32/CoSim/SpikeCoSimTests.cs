@@ -7,30 +7,55 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.CoSim;
 
 /// <summary>
-/// Lock-step co-simulation tests against Spike — the project's correctness
-/// contract for the ISA datapath (see the "Co-simulation contract" section of
-/// the README).
-/// <para>
-/// These tests require the <c>spike</c> simulator and the <c>dtc</c> device-tree
-/// compiler. The Nix dev-shell provides both; outside the shell run
-/// <c>direnv reload</c> first. When the toolchain is absent the tests
-/// <em>skip</em> (via <see cref="SkippableFactAttribute"/>) rather than fail —
-/// unless <c>HOROLOGIUM_REQUIRE_COSIM</c> is set, in which case a missing
-/// toolchain is a hard failure so a CI job that enforces the contract cannot
-/// silently pass with the checks skipped.
-/// </para>
-/// <para>
-/// Each test runs one of the three trains against an ELF with Spike attached
-/// as a live <see cref="ICommitObserver"/>; a <see cref="CoSimDivergenceException"/>
-/// is thrown at the first commit that disagrees with Spike. <c>test.elf</c> is
-/// the simple RV32I golden path; <c>rich.elf</c> (RV32IM) adds multiply/divide,
-/// an insertion sort, and heavy data-dependent branching to exercise the
-/// multi-cycle functional units, store-to-load forwarding, and flush paths.
-/// </para>
+///     Lock-step co-simulation tests against Spike — the project's correctness
+///     contract for the ISA datapath (see the "Co-simulation contract" section of
+///     the README).
+///     <para>
+///         These tests require the <c>spike</c> simulator and the <c>dtc</c> device-tree
+///         compiler. The Nix dev-shell provides both; outside the shell run
+///         <c>direnv reload</c> first. When the toolchain is absent the tests
+///         <em>skip</em> (via <see cref="SkippableFactAttribute" />) rather than fail —
+///         unless <c>HOROLOGIUM_REQUIRE_COSIM</c> is set, in which case a missing
+///         toolchain is a hard failure so a CI job that enforces the contract cannot
+///         silently pass with the checks skipped.
+///     </para>
+///     <para>
+///         Each test runs one of the three trains against an ELF with Spike attached
+///         as a live <see cref="ICommitObserver" />; a <see cref="CoSimDivergenceException" />
+///         is thrown at the first commit that disagrees with Spike. <c>test.elf</c> is
+///         the simple RV32I golden path; <c>rich.elf</c> (RV32IM) adds multiply/divide,
+///         an insertion sort, and heavy data-dependent branching to exercise the
+///         multi-cycle functional units, store-to-load forwarding, and flush paths.
+///     </para>
 /// </summary>
 public class SpikeCoSimTests {
     /// <summary>Set to 1/true to turn a missing Spike toolchain into a hard failure.</summary>
     private const string RequireEnvVar = "HOROLOGIUM_REQUIRE_COSIM";
+
+    // ── htif.elf: RV32IM workload that exits via the HTIF tohost register ────────
+    //
+    // Spike exits cleanly (no EBREAK debug-stub hang) and logs the post-exit
+    // self-loop an indeterminate number of times; each train commits the exit
+    // store and a single self-loop jump, then halts, so its stream is a clean
+    // prefix of Spike's. A 1 MB region covers the fixture's reserved stack.
+
+    private const int HtifMemoryBytes = 0x100000;
+
+    // ── Official riscv-tests conformance suite ────────────────────────────────
+    //
+    // Co-simulates every conformance ELF under TestBinaries/isa/.  Run on the
+    // single-cycle train: this validates the decoder/executor against Spike
+    // across the whole suite; the per-train datapaths are covered by the
+    // test/rich/htif fixtures on all three trains.  rv32si (supervisor) tests
+    // are excluded — their trap-handler control flow is a separate concern.
+    //
+    // ma_data is excluded by design: Spike traps misaligned data access while
+    // Horologium's FlatMemory permits it directly, so co-sim cannot apply.
+    //
+    // rv32uz* (bit-manipulation, Zicond) need extended ISA strings — handled by
+    // separate theories below.
+
+    private static readonly string IsaDir = Path.Combine(AppContext.BaseDirectory, "isa");
 
     private static string ElfPath(string name) => Path.Combine(AppContext.BaseDirectory, name);
 
@@ -116,15 +141,6 @@ public class SpikeCoSimTests {
     [SkippableFact]
     public void Oooe_RichElf_MatchesSpike() => RunCoSim("rich.elf", Oooe);
 
-    // ── htif.elf: RV32IM workload that exits via the HTIF tohost register ────────
-    //
-    // Spike exits cleanly (no EBREAK debug-stub hang) and logs the post-exit
-    // self-loop an indeterminate number of times; each train commits the exit
-    // store and a single self-loop jump, then halts, so its stream is a clean
-    // prefix of Spike's. A 1 MB region covers the fixture's reserved stack.
-
-    private const int HtifMemoryBytes = 0x100000;
-
     [SkippableFact]
     public void SingleCycle_HtifElf_MatchesSpike() =>
         RunCoSim("htif.elf", SingleCycle, SpikeCoSimTests.HtifMemoryBytes);
@@ -134,22 +150,6 @@ public class SpikeCoSimTests {
 
     [SkippableFact]
     public void Oooe_HtifElf_MatchesSpike() => RunCoSim("htif.elf", Oooe, SpikeCoSimTests.HtifMemoryBytes);
-
-    // ── Official riscv-tests conformance suite ────────────────────────────────
-    //
-    // Co-simulates every conformance ELF under TestBinaries/isa/.  Run on the
-    // single-cycle train: this validates the decoder/executor against Spike
-    // across the whole suite; the per-train datapaths are covered by the
-    // test/rich/htif fixtures on all three trains.  rv32si (supervisor) tests
-    // are excluded — their trap-handler control flow is a separate concern.
-    //
-    // ma_data is excluded by design: Spike traps misaligned data access while
-    // Horologium's FlatMemory permits it directly, so co-sim cannot apply.
-    //
-    // rv32uz* (bit-manipulation, Zicond) need extended ISA strings — handled by
-    // separate theories below.
-
-    private static readonly string IsaDir = Path.Combine(AppContext.BaseDirectory, "isa");
 
     // rv32ui / rv32um / rv32ua / rv32uc / rv32uf — all covered by rv32imafcv.
     public static IEnumerable<object[]> ConformanceElfs() =>

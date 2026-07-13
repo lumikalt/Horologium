@@ -5,10 +5,10 @@ using RiscV32.Memory;
 namespace Tests.Isa.J1;
 
 /// <summary>
-/// J1 Forth CPU unit tests.
-/// PC is a byte address; J1 word n lives at byte 2n. Code starts at word 0.
-/// Data placed at DataWord (word 64, byte 128) to avoid overlap with code.
-/// Use Run(n) for exactly n instruction ticks; no HLT exists in the J1 ISA.
+///     J1 Forth CPU unit tests.
+///     PC is a byte address; J1 word n lives at byte 2n. Code starts at word 0.
+///     Data placed at DataWord (word 64, byte 128) to avoid overlap with code.
+///     Use Run(n) for exactly n instruction ticks; no HLT exists in the J1 ISA.
 /// </summary>
 public class J1Tests {
     private const int DataWord = 64;

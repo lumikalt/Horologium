@@ -10,8 +10,8 @@ namespace RiscV32.Analysis;
 // returns the counter-subtracted snapshot with ipc/cpi recomputed from the delta.
 internal sealed class SetStatsObserver(ulong setStatsPc, Func<DialBoardSnapshot> snapshotFunc)
     : ICommitObserver {
-    private int _callCount;
     private DialBoardSnapshot? _baseline;
+    private int _callCount;
     private DialBoardSnapshot? _kernelEnd;
 
     public DialBoardSnapshot? KernelDelta {

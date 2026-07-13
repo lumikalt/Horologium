@@ -345,9 +345,9 @@ public class TrainTests {
 
     private sealed class ConsumerGear(string name, SimNode parent, Escapement esc)
         : Gear(name, parent, esc) {
+        private Counter _received = null!;
         public InArbor<int>? In { get; private set; }
         public List<int> Received { get; } = [];
-        private Counter _received = null!;
 
         public override void Initialize() {
             In = AddInArbor<int>("in");

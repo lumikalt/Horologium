@@ -9,17 +9,17 @@ using RiscV64;
 namespace Tests.RiscV64.System;
 
 /// <summary>
-/// RV64 counterpart of <see cref="Tests.RiscV32.System.ClintInterruptTests"/>.
-/// <para>
-/// The RV32 hand-encoded absolute-address sequences (<c>lui</c>+<c>addi</c>) do
-/// <em>not</em> port unchanged: RV64's <c>lui</c> sign-extends its 32-bit result to
-/// 64 bits, so any address with bit 31 set (everything this test uses — RAM starts
-/// at 0x80000000) comes out as <c>0xFFFFFFFF8...</c> instead of
-/// <c>0x000000008...</c>. Each address load here is followed by
-/// <c>slli t0,t0,32</c> / <c>srli t0,t0,32</c> to zero-extend the low 32 bits back
-/// out, matching what the assembler's <c>li</c> pseudo-op emits for a 32-bit
-/// unsigned constant with the sign bit set.
-/// </para>
+///     RV64 counterpart of <see cref="Tests.RiscV32.System.ClintInterruptTests" />.
+///     <para>
+///         The RV32 hand-encoded absolute-address sequences (<c>lui</c>+<c>addi</c>) do
+///         <em>not</em> port unchanged: RV64's <c>lui</c> sign-extends its 32-bit result to
+///         64 bits, so any address with bit 31 set (everything this test uses — RAM starts
+///         at 0x80000000) comes out as <c>0xFFFFFFFF8...</c> instead of
+///         <c>0x000000008...</c>. Each address load here is followed by
+///         <c>slli t0,t0,32</c> / <c>srli t0,t0,32</c> to zero-extend the low 32 bits back
+///         out, matching what the assembler's <c>li</c> pseudo-op emits for a 32-bit
+///         unsigned constant with the sign bit set.
+///     </para>
 /// </summary>
 public class ClintInterruptTests {
     // Memory layout
