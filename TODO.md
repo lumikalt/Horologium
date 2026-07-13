@@ -9,6 +9,32 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] ~~Suspended-stream data exchange: `so.v.vload`/`so.v.vstor`~~ — **hold**: dissertation gives one sentence
   with no operand semantics; Spike has no instruction files for it. Skip until the spec is clarified.
 
+## Branch Prediction
+
+- [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
+- [ ] CBP-2025 front runner: correlate on register values rather than history.
+- [ ] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020
+- [ ] Multiperspective Perceptron. — Tarjan & Skadron, IEEE Trans. Computers 2005
+- [ ] Bullseye/SDM as H2P helpers.
+- [ ] Indirect branch predictor: VTAGE/iBMETA variant for computed jumps and virtual dispatch.
+
+## Out-of-Order Execution
+
+- [ ] Runahead execution: pre-execute past a full-window stall to generate prefetches; Precise Runahead and Vector
+  Runahead follow-ons (the latter targets memory-dependent vector/gather chains — relevant to UVE workloads). —
+  Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021
+- [ ] Critical-path prediction: token-passing criticality predictor to focus scheduling, steering, and value
+  prediction on critical instructions. — Fields, Rubin & Bodík, ISCA 2001
+- [ ] NoSQ: store-queue-free store-to-load forwarding via speculative memory bypassing (memory renaming). — Sha,
+  Martin & Roth, MICRO 2006; Tyson & Austin, MICRO 1997
+- [ ] Checkpoint processing and recovery (CPR) + continual flow pipelines (CFP): ROB-free large-window paradigm with
+  checkpoint-based recovery and slice-out of miss-dependent instructions. — Akkary et al., MICRO 2003; Srinivasan et
+  al., ASPLOS 2004
+- [ ] SMT fetch policies: ICOUNT and round-robin variants for per-hart fetch/issue arbitration in the SMT train. —
+  Tullsen et al., ISCA 1996
+- [ ] Decoupled access-execute (DAE): the classic access/execute processor split — the architectural ancestor of
+  UVE-style streaming. — Smith, ISCA 1982
+
 ## Performance
 
 - [ ] Memoization of instructions and decodings?

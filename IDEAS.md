@@ -66,15 +66,6 @@ the active thread.
 - [ ] µop decomposition for complex instructions: atomics, vector ops, and CSR accesses emit multi-µop sequences through
   the Tooth interface.
 
-## Branch Prediction
-
-- [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
-- [ ] CBP-2025 front runner: correlate on register values rather than history.
-- [ ] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020
-- [ ] Multiperspective Perceptron. — Tarjan & Skadron, IEEE Trans. Computers 2005
-- [ ] Bullseye/SDM as H2P helpers.
-- [ ] Indirect branch predictor: VTAGE/iBMETA variant for computed jumps and virtual dispatch.
-
 ## Front-End
 
 - [ ] Boomerang / Shotgun: metadata-free front-end prefetching that unifies BTB prefill and I-cache prefetch under the
@@ -102,23 +93,6 @@ the active thread.
   the DRAM access early, in parallel with cache lookup. — Bera et al., MICRO 2022
 - [ ] Voyager: hierarchical neural data prefetcher (offline-trained LSTM over page and offset vocabularies). — Shi et
   al., ASPLOS 2021
-
-## Out-of-Order Execution
-
-- [ ] Runahead execution: pre-execute past a full-window stall to generate prefetches; Precise Runahead and Vector
-  Runahead follow-ons (the latter targets memory-dependent vector/gather chains — relevant to UVE workloads). —
-  Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021
-- [ ] Critical-path prediction: token-passing criticality predictor to focus scheduling, steering, and value
-  prediction on critical instructions. — Fields, Rubin & Bodík, ISCA 2001
-- [ ] NoSQ: store-queue-free store-to-load forwarding via speculative memory bypassing (memory renaming). — Sha,
-  Martin & Roth, MICRO 2006; Tyson & Austin, MICRO 1997
-- [ ] Checkpoint processing and recovery (CPR) + continual flow pipelines (CFP): ROB-free large-window paradigm with
-  checkpoint-based recovery and slice-out of miss-dependent instructions. — Akkary et al., MICRO 2003; Srinivasan et
-  al., ASPLOS 2004
-- [ ] SMT fetch policies: ICOUNT and round-robin variants for per-hart fetch/issue arbitration in the SMT train. —
-  Tullsen et al., ISCA 1996
-- [ ] Decoupled access-execute (DAE): the classic access/execute processor split — the architectural ancestor of
-  UVE-style streaming. — Smith, ISCA 1982
 
 ## Memory System
 
@@ -157,7 +131,6 @@ the active thread.
 
 ## Co-simulation
 
-- [ ] gem5 timing co-simulation.
 - [ ] QEMU lock-step co-simulation: use QEMU as a fast functional oracle for full-system workloads, hand off to
   Horologium for timing.
 - [ ] dromajo co-simulation: WD's RISC-V checkpoint-based reference model; supports importing architectural state
@@ -174,7 +147,8 @@ the active thread.
   gem5 UVE branch from hpc-ulisboa. https://github.com/hpc-ulisboa/UVE
 - [ ] RTL functional-unit substitution: swap one pipeline FU (e.g. a custom ALU or accelerator) for cycle-accurate RTL
   via Verilator, so the surrounding pipeline drives real hardware instead of the C# functional/latency model for that
-  unit — useful for validating a custom-unit design against the rest of the system before tapeout/FPGA.
+  unit — useful for validating a custom-unit design against the rest of the system before tapeout/FPGA. See
+  `~/dl/citations.csv` for candidate references.
 
 ## Orrery
 
