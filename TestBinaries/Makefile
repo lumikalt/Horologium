@@ -452,6 +452,78 @@ $(foreach b,$(BMARKS),$(eval $(call bmark_template,$(b))))
 
 BMARKS_ELFS = $(patsubst %, benchmarks/%.elf, $(BMARKS))
 
+# ── Embench-IoT (Patterson et al., modern IoT benchmark suite) ───────────────
+#
+# 19 benchmarks compiled against the riscv-tests bare-metal environment
+# (crt.S + syscalls.c) with a local BSP (embench-iot/port/).
+#
+# -fno-tree-loop-distribute-patterns is required: without it GCC 15 converts
+# the byte-by-byte loop inside the syscalls.c memset into a recursive call to
+# memset itself, causing infinite recursion on any unaligned invocation.
+
+EMBENCH_DIR   = embench-iot
+EMBENCH_CC    = $(BMARKS_CC)
+EMBENCH_CFLAGS = $(BMARKS_CFLAGS) \
+                 -DGLOBAL_SCALE_FACTOR=1 -DWARMUP_HEAT=1
+EMBENCH_LDFLAGS = $(BMARKS_LDFLAGS)
+EMBENCH_COMMON = $(EMBENCH_DIR)/support/main.c \
+                 $(EMBENCH_DIR)/support/beebsc.c \
+                 $(EMBENCH_DIR)/port/boardsupport.c \
+                 $(BMARKS_COMMON)
+EMBENCH_INCS  = -I$(EMBENCH_DIR)/support \
+                -I$(EMBENCH_DIR)/port \
+                $(BMARKS_INCS)
+
+EMBENCHS = aha-mont64 crc32 depthconv edn huffbench matmult-int md5sum \
+           nettle-aes nettle-sha256 nsichneu picojpeg qrduino \
+           sglib-combined slre statemate tarfind ud wikisort xgboost
+
+EMBENCH_SRCS_aha-mont64    = $(EMBENCH_DIR)/src/aha-mont64/mont64.c
+EMBENCH_SRCS_crc32         = $(EMBENCH_DIR)/src/crc32/crc_32.c
+EMBENCH_SRCS_depthconv     = $(EMBENCH_DIR)/src/depthconv/depthconv.c
+EMBENCH_SRCS_edn           = $(EMBENCH_DIR)/src/edn/libedn.c
+EMBENCH_SRCS_huffbench     = $(EMBENCH_DIR)/src/huffbench/libhuffbench.c
+EMBENCH_SRCS_matmult-int   = $(EMBENCH_DIR)/src/matmult-int/matmult-int.c
+EMBENCH_SRCS_md5sum        = $(EMBENCH_DIR)/src/md5sum/md5.c
+EMBENCH_SRCS_nettle-aes    = $(EMBENCH_DIR)/src/nettle-aes/nettle-aes.c
+EMBENCH_SRCS_nettle-sha256 = $(EMBENCH_DIR)/src/nettle-sha256/nettle-sha256.c
+EMBENCH_SRCS_nsichneu      = $(EMBENCH_DIR)/src/nsichneu/libnsichneu.c
+EMBENCH_SRCS_picojpeg      = $(EMBENCH_DIR)/src/picojpeg/libpicojpeg.c \
+                              $(EMBENCH_DIR)/src/picojpeg/picojpeg_test.c
+EMBENCH_SRCS_qrduino       = $(EMBENCH_DIR)/src/qrduino/qrencode.c \
+                              $(EMBENCH_DIR)/src/qrduino/qrframe.c \
+                              $(EMBENCH_DIR)/src/qrduino/qrtest.c
+EMBENCH_SRCS_sglib-combined = $(EMBENCH_DIR)/src/sglib-combined/combined.c
+EMBENCH_SRCS_slre          = $(EMBENCH_DIR)/src/slre/libslre.c
+EMBENCH_SRCS_statemate     = $(EMBENCH_DIR)/src/statemate/libstatemate.c
+EMBENCH_SRCS_tarfind       = $(EMBENCH_DIR)/src/tarfind/tarfind.c
+EMBENCH_SRCS_ud            = $(EMBENCH_DIR)/src/ud/libud.c
+EMBENCH_SRCS_wikisort      = $(EMBENCH_DIR)/src/wikisort/libwikisort.c
+EMBENCH_SRCS_xgboost       = $(EMBENCH_DIR)/src/xgboost/testbench.c \
+                              $(EMBENCH_DIR)/src/xgboost/xgboost.c
+
+# Per-benchmark -I flags for benchmarks that have their own headers.
+EMBENCH_EXTRA_picojpeg     = -I$(EMBENCH_DIR)/src/picojpeg
+EMBENCH_EXTRA_qrduino      = -I$(EMBENCH_DIR)/src/qrduino
+EMBENCH_EXTRA_sglib-combined = -I$(EMBENCH_DIR)/src/sglib-combined
+EMBENCH_EXTRA_slre         = -I$(EMBENCH_DIR)/src/slre
+EMBENCH_EXTRA_xgboost      = -I$(EMBENCH_DIR)/src/xgboost
+# wikisort uses 'bool' as a typedef in C11 mode; suppress the C23 keyword clash.
+EMBENCH_EXTRA_wikisort     = -std=gnu11
+
+define embench_template
+benchmarks/embench-$(1).elf: $$(EMBENCH_SRCS_$(1)) $$(EMBENCH_COMMON) bmarks.ld
+	@mkdir -p benchmarks
+	$$(EMBENCH_CC) $$(EMBENCH_CFLAGS) $$(EMBENCH_EXTRA_$(1)) \
+	    $$(EMBENCH_INCS) -I$$(EMBENCH_DIR)/src/$(1) \
+	    $$(EMBENCH_LDFLAGS) \
+	    $$(EMBENCH_SRCS_$(1)) $$(EMBENCH_COMMON) -lgcc -o $$@
+endef
+
+$(foreach b,$(EMBENCHS),$(eval $(call embench_template,$(b))))
+
+EMBENCH_ELFS = $(patsubst %, benchmarks/embench-%.elf, $(EMBENCHS))
+
 # ── Torture tests (RV32/RV64 random sequences for Spike co-simulation) ────────
 #
 # Pre-generated .S files live in torture/ (RV32) and torture64/ (RV64).
@@ -500,7 +572,7 @@ rv64-isa-tests: $(RV64UI_ELFS) $(RV64UM_ELFS) $(RV64SI_ELFS) \
            $(RV64UZFH_ELFS) \
            $(RV64UZBA_ELFS) $(RV64UZBB_ELFS) $(RV64UZBC_ELFS) $(RV64UZBS_ELFS)
 
-benchmarks: $(BMARKS_ELFS)
+benchmarks: $(BMARKS_ELFS) $(EMBENCH_ELFS)
 
 torture: $(TORTURE_ELFS)
 
