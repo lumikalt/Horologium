@@ -55,6 +55,9 @@ public sealed class Rv32ElfWorkload : IWorkload {
     public IMemory WrapMemory(IMemory memory, TextWriter? output = null) =>
         TryFindSymbol("tohost", out ulong tohost) ? new HtifMemory(memory, tohost, output) : memory;
 
+    // The interface method has no output parameter; route it through the concrete overload.
+    IMemory IWorkload.WrapMemory(IMemory memory) => WrapMemory(memory);
+
     /// <summary>
     ///     Returns the virtual address of a named ELF symbol, or throws if not found.
     /// </summary>
