@@ -36,15 +36,6 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] Memoization of instructions, results, and branches.
 - [ ] Structural stage-model rework for in-order trains: struct latches, fewer interface hops.
 
-### Parallelism
-
-- [x] Deterministic parallel multi-hart tick: BSP-style barrier synchronization deferring every cross-hart-visible
-  coherence action (snoop state transitions included) into per-hart queues drained in fixed hart order — a
-  run-to-run-reproducible replacement for the racy two-phase concurrent mode.
-- [x] Parallelize the benchmark test suite across per-binary test collections; each run is fully independent.
-- [x] Background checkpoint and report serialization: write checkpoint files and result tables on a worker thread
-  after a synchronous state copy.
-
 ## Face
 
 - [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS
