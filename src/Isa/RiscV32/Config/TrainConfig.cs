@@ -67,7 +67,9 @@ public sealed record TrainConfig(
     int DPrefetchLatency = 0, // cycles until a prefetched line is usable; 0 = free/instant
     string? CacheReplacementPolicy
         = null, // null/"lru" | "mru" | "clock" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc" | "random" | "fifo" | "plru" | "hawkeye"
-    bool EnableStoreSets = false // Chrysos & Emer ISCA 1998 store-set memory dependence predictor
+    bool EnableStoreSets = false, // Chrysos & Emer ISCA 1998 store-set memory dependence predictor
+    int FdipFtqCapacity = 0, // 0 = disabled; fetch-directed I-cache prefetch (Reinman/Calder/Austin, MICRO 1999)
+    bool Rdip = false // RAS-directed I-cache prefetch (Kolli/Saidi/Wenisch, MICRO 2013)
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,

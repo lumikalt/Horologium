@@ -127,6 +127,15 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int MshrCapacity { get; set; } = 0;
 
+    [ObservableProperty] public partial bool FdipEnabled { get; set; }
+    [ObservableProperty] public partial int FdipFtqCapacity { get; set; } = 32;
+    [ObservableProperty] public partial bool RdipEnabled { get; set; }
+
+    public bool HasFdipFtqCapacity => FdipEnabled;
+
+    // ReSharper disable once PartialMethodParameterNameMismatch
+    partial void OnFdipEnabledChanged(bool value) => OnPropertyChanged(nameof(HasFdipFtqCapacity));
+
     public bool IsSingleCycle => Pipeline == "single_cycle";
     public bool IsFiveStage => Pipeline == "five_stage";
     public bool IsOoo => Pipeline == "ooo";
@@ -282,7 +291,9 @@ public partial class ConfigViewModel : ObservableObject {
                 DPrefetcherTableSize: DPrefetcherTableSize,
                 DPrefetcherDepth: DPrefetcherDepth,
                 DPrefetchLatency: DPrefetchLatency,
-                CacheReplacementPolicy: CacheReplacementPolicy == "lru" ? null : CacheReplacementPolicy
+                CacheReplacementPolicy: CacheReplacementPolicy == "lru" ? null : CacheReplacementPolicy,
+                FdipFtqCapacity: ICacheEnabled && FdipEnabled ? FdipFtqCapacity : 0,
+                Rdip: ICacheEnabled && RdipEnabled
             )
         );
     }
@@ -329,6 +340,9 @@ public partial class ConfigViewModel : ObservableObject {
             DPrefetcherTableSize = nc.Config.DPrefetcherTableSize,
             DPrefetcherDepth = nc.Config.DPrefetcherDepth,
             DPrefetchLatency = nc.Config.DPrefetchLatency,
+            FdipEnabled = nc.Config.FdipFtqCapacity > 0,
+            FdipFtqCapacity = nc.Config.FdipFtqCapacity > 0 ? nc.Config.FdipFtqCapacity : 32,
+            RdipEnabled = nc.Config.Rdip,
         };
 
         switch (nc.Config.Predictor) {

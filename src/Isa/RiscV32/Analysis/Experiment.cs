@@ -157,7 +157,9 @@ public static class Experiment {
                 writeBufferCapacity: config.StoreBufferCapacity,
                 mshrCapacity: config.MshrCapacity,
                 flatIq: config.FlatIq,
-                enableStoreSets: config.EnableStoreSets
+                enableStoreSets: config.EnableStoreSets,
+                fdipFtqCapacity: config.FdipFtqCapacity,
+                rdip: config.Rdip
             );
 
             result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
@@ -181,7 +183,9 @@ public static class Experiment {
                     config.Predictor?.Build(mechanism, workload),
                     config.ToIMemoryConfig(),
                     dCfg,
-                    config.StoreBufferCapacity
+                    config.StoreBufferCapacity,
+                    fdipFtqCapacity: config.FdipFtqCapacity,
+                    rdip: config.Rdip
                 ).Run(maxTicks, warmupTicks, snapshotInterval),
             };
         }
@@ -215,7 +219,9 @@ public static class Experiment {
                     cfg.FuLatency, plog,
                     writeBufferCapacity: cfg.StoreBufferCapacity,
                     mshrCapacity: cfg.MshrCapacity,
-                    flatIq: cfg.FlatIq
+                    flatIq: cfg.FlatIq,
+                    fdipFtqCapacity: cfg.FdipFtqCapacity,
+                    rdip: cfg.Rdip
                 ).Run(maxTicks);
                 break;
             case "superscalar": break;
@@ -225,7 +231,9 @@ public static class Experiment {
                     cfg.ForwardingEnabled,
                     cfg.Predictor?.Build(mechanism, workload),
                     cfg.ToIMemoryConfig(), dCfg,
-                    cfg.StoreBufferCapacity, plog
+                    cfg.StoreBufferCapacity, plog,
+                    fdipFtqCapacity: cfg.FdipFtqCapacity,
+                    rdip: cfg.Rdip
                 ).Run(maxTicks);
                 break;
         }

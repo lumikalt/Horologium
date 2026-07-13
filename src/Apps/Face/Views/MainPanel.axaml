@@ -175,6 +175,19 @@
                             <NumericUpDown Grid.Row="8" Grid.Column="1" Value="{Binding ICacheWbCapacity}"
                                            Minimum="0" Maximum="32" />
                         </Grid>
+                        <StackPanel Margin="12,0,0,0" Spacing="4"
+                                    IsVisible="{Binding ICacheEnabled}">
+                            <CheckBox IsChecked="{Binding FdipEnabled}"
+                                      Content="FDIP (fetch-directed prefetch)" />
+                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                  IsVisible="{Binding HasFdipFtqCapacity}">
+                                <TextBlock Grid.Column="0" Text="FTQ capacity" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1" Value="{Binding FdipFtqCapacity}"
+                                               Minimum="1" Maximum="256" />
+                            </Grid>
+                            <CheckBox IsChecked="{Binding RdipEnabled}"
+                                      Content="RDIP (RAS-directed prefetch)" />
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- five_stage + ooo: D-cache -->
