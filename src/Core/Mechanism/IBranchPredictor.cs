@@ -85,6 +85,42 @@ public interface IBranchPredictor {
 }
 
 /// <summary>
+///     Optional extension for predictors that distinguish branch kinds — conditional vs.
+///     unconditional, call, return, register-indirect — beyond the taken/target outcome
+///     <see cref="IBranchPredictor.Update" /> provides. The pipeline checks for this interface
+///     and calls <see cref="NotifyBranchKind" /> immediately before <see cref="IBranchPredictor.Update" />,
+///     at commit, in program order, so an implementation can cache the kind and consume it
+///     when <c>Update</c> fires for the same PC.
+/// </summary>
+public interface IBranchKindAwareBranchPredictor : IBranchPredictor {
+    /// <summary>Notifies the predictor of the structural kind of the branch about to be updated.</summary>
+    void NotifyBranchKind(ulong pc, BranchKind kind);
+}
+
+/// <summary>
+///     The structural kind of a branch instruction, as classified from <see cref="FetchHint" />
+///     and <see cref="ToothClass" /> at commit time. A branch may be several of these at once
+///     (e.g. an indirect call).
+/// </summary>
+[Flags]
+public enum BranchKind {
+    /// <summary>Unconditional direct branch/jump — none of the other flags apply.</summary>
+    None = 0,
+
+    /// <summary>Conditional branch (<see cref="ToothClass.ConditionalBranch" />).</summary>
+    Conditional = 1 << 0,
+
+    /// <summary>Call that pushes a return address (RAS push).</summary>
+    Call = 1 << 1,
+
+    /// <summary>Return that pops a return address (RAS pop).</summary>
+    Return = 1 << 2,
+
+    /// <summary>Register-indirect target (unknown at fetch time).</summary>
+    Indirect = 1 << 3,
+}
+
+/// <summary>
 ///     A value-type snapshot of a predictor's speculative history at one branch's fetch, stored per
 ///     in-flight branch for exact recovery on an execute-time partial squash. <see cref="Global" />
 ///     is the global shift-register value before the branch folded its direction; <see cref="LocalIdx" />

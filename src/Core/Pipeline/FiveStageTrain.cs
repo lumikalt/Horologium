@@ -409,6 +409,8 @@ internal sealed class PipelineCore : Gear {
             ulong actualNext = taken
                 ? exMemLast.Result.BranchTarget!.Value
                 : exMemLast.Pc + (ulong)(exMemLast.Instruction?.SizeBytes ?? 4);
+            if (_predictor is IBranchKindAwareBranchPredictor kindAware)
+                kindAware.NotifyBranchKind(exMemLast.Pc, ClassifyBranchKind(exMemLast.Instruction));
             _predictor.Update(exMemLast.Pc, taken, actualNext);
 
             // Notify vector-aware predictor of taken backward branch execution.
@@ -649,6 +651,21 @@ internal sealed class PipelineCore : Gear {
         if (producer is null || consumer is null) return false;
         if (producer.Class is not (ToothClass.FloatingPoint or ToothClass.FloatDivSqrt)) return false;
         return consumer.Class == ToothClass.System;
+    }
+
+    // Classifies a resolved branch for IBranchKindAwareBranchPredictor. Re-derives the
+    // FetchHint at commit rather than threading it through the pipeline latches, mirroring
+    // the same GetFetchHint(pc, rawEncoding) call FdipPrefetcher/RdipPrefetcher already do
+    // at other points.
+    private BranchKind ClassifyBranchKind(ITooth? instruction) {
+        if (instruction is null) return BranchKind.None;
+        var kind = BranchKind.None;
+        if (instruction.Class == ToothClass.ConditionalBranch) kind |= BranchKind.Conditional;
+        FetchHint hint = _decoder.GetFetchHint(instruction.Pc, instruction.RawEncoding);
+        if (hint.IsCall) kind |= BranchKind.Call;
+        if (hint.IsReturn) kind |= BranchKind.Return;
+        if (!hint.BranchTarget.HasValue) kind |= BranchKind.Indirect;
+        return kind;
     }
 
     // Sits between DLayers.Accessor and the StoreBuffer so the prefetcher sees

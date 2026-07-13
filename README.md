@@ -144,9 +144,14 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   branch's compare operands through retired instructions to discover its producer dependence chain, which is then
   correlated online, in place of the paper's literal slice re-execution (not expressible in the ISA-agnostic `Mechanism`
   layer), via a permanently-retiring correlation table keyed on chain-producer PC/value pairs; Deshmukh, Cai &amp; Patt,
-  MICRO 2024), and `CbpFfiPredictor` (loads a CBP-3/CBP-5, 2016-era `class PREDICTOR` submission compiled to a native
+  MICRO 2024), `CbpFfiPredictor` (loads a CBP-3/CBP-5, 2016-era `class PREDICTOR` submission compiled to a native
   shared library via `native/CbpShim/build.sh`, driven through `GetPrediction`/`UpdatePredictor` over a P/Invoke ABI
-  — desktop-only, since `NativeLibrary` loading is unsupported under browser-wasm), plus a `ReturnAddressStack`
+  — desktop-only, since `NativeLibrary` loading is unsupported under browser-wasm), and `CbpNgFfiPredictor` (loads a
+  CBP2025/CBP-NG, AmpereComputing/cbp-ng submission — a templated harcom struct, not a fixed `class PREDICTOR` —
+  compiled to a native shared library via `native/CbpNgShim/build.sh`; drives `predict1`/`predict2`/`update_condbr`/
+  `update_cycle` through the harcom clocked-register hardware-timing-modeling DSL one prediction block at a time;
+  desktop-only, and scoped to in-order/shallow pipelines since harcom predictors keep per-block state in shared
+  registers that a second outstanding prediction would clobber), plus a `ReturnAddressStack`
   wrapper for call/return prediction, and a `TrueOraclePredictor` that runs a
   `SingleCycleTrain` functional pre-pass to collect the complete branch trace and replay it with zero mispredictions (
   useful as an IPC upper bound). Both instruction and data memory support optional set-associative caches and TLBs. A

@@ -755,6 +755,8 @@ internal sealed class OoOPipelineCore : Gear {
                 int instrSize = head.Instruction?.SizeBytes ?? 4;
 
                 bool taken = resolvedPc != instrPc + (ulong)instrSize;
+                if (_predictor is IBranchKindAwareBranchPredictor kindAware)
+                    kindAware.NotifyBranchKind(instrPc, ClassifyBranchKind(head.Instruction));
                 _predictor.Update(instrPc, taken, resolvedPc);
 
                 if (resolvedPc != predictedPc) {
@@ -1032,6 +1034,20 @@ internal sealed class OoOPipelineCore : Gear {
     ///         that register stable until the secondary-dest producer retires and syncs it.
     ///     </para>
     /// </summary>
+    // Classifies a resolved branch for IBranchKindAwareBranchPredictor. Mirrors the
+    // committed-RAS classification just above (line ~714), re-deriving the FetchHint at
+    // retire rather than threading it through the ROB entry.
+    private BranchKind ClassifyBranchKind(ITooth? instruction) {
+        if (instruction is null) return BranchKind.None;
+        var kind = BranchKind.None;
+        if (instruction.Class == ToothClass.ConditionalBranch) kind |= BranchKind.Conditional;
+        FetchHint hint = _decoder.GetFetchHint(instruction.Pc, instruction.RawEncoding);
+        if (hint.IsCall) kind |= BranchKind.Call;
+        if (hint.IsReturn) kind |= BranchKind.Return;
+        if (!hint.BranchTarget.HasValue) kind |= BranchKind.Indirect;
+        return kind;
+    }
+
     private bool HasPendingSecondaryDest(IReadOnlyList<int> srcs, int destArch) {
         foreach ((_, RobEntry entry) in _rob.InOrder()) {
             int sd = entry.Instruction?.SecondaryDestinationRegister ?? -1;

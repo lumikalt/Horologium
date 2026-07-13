@@ -141,6 +141,12 @@
                             <TextBox Grid.Column="1" Text="{Binding CbpLibraryPath}"
                                      PlaceholderText="/path/to/predictor.so (native/CbpShim/build.sh output)" />
                         </Grid>
+                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                              IsVisible="{Binding HasCbpNgPluginParams}">
+                            <TextBlock Grid.Column="0" Text="Shim .so path" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" Text="{Binding CbpNgLibraryPath}"
+                                     PlaceholderText="/path/to/predictor.so (native/CbpNgShim/build.sh output)" />
+                        </Grid>
                     </StackPanel>
 
                     <!-- five_stage + ooo: I-cache -->

@@ -57,7 +57,7 @@ public sealed class BranchNetPredictor : IBranchPredictor {
     private const int MaxH2PBranches = 32;
     private const int MinSamplesToTrain = 16;
     private const int MaxSamplesPerBranch = 4000;
-    private static readonly ulong HistoryMask = (1UL << BranchNetPredictor.HistoryLength) - 1;
+    private const ulong HistoryMask = (1UL << BranchNetPredictor.HistoryLength) - 1;
 
     private readonly TageScLPredictor _baseline = new();
     private readonly Dictionary<ulong, ulong> _btb = new();
@@ -70,7 +70,7 @@ public sealed class BranchNetPredictor : IBranchPredictor {
     /// <summary>Constructs a BranchNet predictor with no trained models (pure TAGE-SC-L fallback).</summary>
     public BranchNetPredictor() : this(new Dictionary<ulong, BranchNetModel>()) { }
 
-    internal BranchNetPredictor(Dictionary<ulong, BranchNetModel> models) => _models = models;
+    private BranchNetPredictor(Dictionary<ulong, BranchNetModel> models) => _models = models;
 
     /// <summary>Number of static branches with a trained CNN model.</summary>
     public int TrainedModelCount => _models.Count;
@@ -128,7 +128,7 @@ public sealed class BranchNetPredictor : IBranchPredictor {
     ///     drives <see cref="BranchTraceRecorder" />).
     /// </summary>
     public static BranchNetPredictor FromProfile(BranchProfiler profiler) {
-        List<ulong> h2p = profiler.Stats
+        List<ulong> h2P = profiler.Stats
                                   .Where(kv => kv.Value.Occurrences >= BranchNetPredictor.MinOccurrences
                                             && (double)kv.Value.Mispredicts / kv.Value.Occurrences
                                             >= BranchNetPredictor.MinMispredictRate
@@ -140,7 +140,7 @@ public sealed class BranchNetPredictor : IBranchPredictor {
 
         var rng = new Random(0);
         var models = new Dictionary<ulong, BranchNetModel>();
-        foreach (ulong pc in h2p) {
+        foreach (ulong pc in h2P) {
             List<(bool[] History, bool Taken)> samples = profiler.Samples[pc];
             if (samples.Count < BranchNetPredictor.MinSamplesToTrain) continue;
             models[pc] = BranchNetModel.Train(samples, rng);
@@ -278,12 +278,10 @@ internal sealed class BranchNetModel {
         for (var p = 0; p < _numPositions; p++)
             pooled[f] += a[p, f];
 
-        var z1 = new float[BranchNetModel.HiddenSize];
         var a1 = new float[BranchNetModel.HiddenSize];
         for (var h = 0; h < BranchNetModel.HiddenSize; h++) {
             float sum = _fc1B[h];
             for (var f = 0; f < BranchNetModel.NumFilters; f++) sum += _fc1W[h][f] * pooled[f];
-            z1[h] = sum;
             a1[h] = MathF.Tanh(sum);
         }
 

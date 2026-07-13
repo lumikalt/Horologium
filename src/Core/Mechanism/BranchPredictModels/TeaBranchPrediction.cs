@@ -86,7 +86,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
     /// <summary>Constructs a TEA predictor with an empty Block Cache (pure TAGE-SC-L fallback).</summary>
     public TeaPredictor() : this(new Dictionary<ulong, ulong[]>()) { }
 
-    internal TeaPredictor(Dictionary<ulong, ulong[]> chains) {
+    private TeaPredictor(Dictionary<ulong, ulong[]> chains) {
         _chains = chains;
         foreach ((ulong branchPc, ulong[] chain) in chains)
         foreach (ulong producerPc in chain) {
@@ -173,7 +173,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
     private bool TryTeaPredict(ulong key, out bool dir) {
         ushort tag = CorrTag(key);
         ref CorrEntry e = ref _corr[CorrIdx(key)];
-        if (e.Valid && !e.DirChanged && e.Tag == tag && e.Conf >= TeaPredictor.ConfMax) {
+        if (e is { Valid: true, DirChanged: false } && e.Tag == tag && e.Conf >= TeaPredictor.ConfMax) {
             dir = e.Dir;
             return true;
         }
@@ -186,7 +186,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
         ushort tag = CorrTag(key);
         ref CorrEntry e = ref _corr[CorrIdx(key)];
 
-        if (e.Valid && !e.DirChanged && e.Tag == tag) {
+        if (e is { Valid: true, DirChanged: false } && e.Tag == tag) {
             if (e.Dir == taken) {
                 if (e.Conf < TeaPredictor.ConfMax) e.Conf++;
             }
@@ -237,7 +237,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
 
         private readonly TageScLPredictor _scratchBaseline = new();
 
-        internal Dictionary<ulong, BranchStats> Stats { get; } = new();
+        private Dictionary<ulong, BranchStats> Stats { get; } = new();
 
         /// <inheritdoc />
         public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
@@ -262,7 +262,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
 
         /// <summary>Selects H2P branches and builds their Block Cache dependence-chain entries.</summary>
         internal Dictionary<ulong, ulong[]> BuildBlockCache() {
-            List<ulong> h2p = Stats
+            List<ulong> h2P = Stats
                              .Where(kv => kv.Value.Occurrences >= TeaProfiler.MinOccurrences
                                        && (double)kv.Value.Mispredicts / kv.Value.Occurrences
                                        >= TeaProfiler.MinMispredictRate
@@ -273,7 +273,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
                              .ToList();
 
             var result = new Dictionary<ulong, ulong[]>();
-            foreach (ulong branchPc in h2p) {
+            foreach (ulong branchPc in h2P) {
                 if (!_occurrenceIndices.TryGetValue(branchPc, out List<int>? indices)) continue;
 
                 var producers = new List<ulong>();
@@ -301,7 +301,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
             }
         }
 
-        internal sealed class BranchStats {
+        private sealed class BranchStats {
             public int Mispredicts;
             public int Occurrences;
         }

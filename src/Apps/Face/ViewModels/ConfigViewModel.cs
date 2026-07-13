@@ -48,6 +48,8 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial string CbpLibraryPath { get; set; } = "";
 
+    [ObservableProperty] public partial string CbpNgLibraryPath { get; set; } = "";
+
     [ObservableProperty] public partial bool ICacheEnabled { get; set; } = false;
 
     [ObservableProperty] public partial int ICacheCapacityKb { get; set; } = 32;
@@ -149,6 +151,7 @@ public partial class ConfigViewModel : ObservableObject {
     public bool HasTournamentParams => PredictorType == "tournament";
     public bool HasImliParams => PredictorType == "imli";
     public bool HasCbpPluginParams => PredictorType == "cbp_plugin";
+    public bool HasCbpNgPluginParams => PredictorType == "cbp_ng_plugin";
 
     public bool HasDPrefetcherTableSize => DPrefetcher is "stride" or "stream";
     public bool HasDPrefetcherDepth => DPrefetcher == "stream";
@@ -191,6 +194,7 @@ public partial class ConfigViewModel : ObservableObject {
         "branchnet",
         "tea",
         "cbp_plugin",
+        "cbp_ng_plugin",
     ];
 
     // ReSharper disable once PartialMethodParameterNameMismatch
@@ -222,6 +226,7 @@ public partial class ConfigViewModel : ObservableObject {
         OnPropertyChanged(nameof(HasTournamentParams));
         OnPropertyChanged(nameof(HasImliParams));
         OnPropertyChanged(nameof(HasCbpPluginParams));
+        OnPropertyChanged(nameof(HasCbpNgPluginParams));
     }
 
     private static WritePolicyKind ParseWritePolicy(string s) =>
@@ -245,20 +250,21 @@ public partial class ConfigViewModel : ObservableObject {
             "tournament" => BranchPredictorConfig.Tournament(
                 TournamentLocalHistoryBits, TournamentLocalTableSize, TournamentGlobalHistoryBits
             ),
-            "tage_sc_l"   => BranchPredictorConfig.TageScL(),
-            "ittage"      => BranchPredictorConfig.Ittage(),
-            "batage"      => BranchPredictorConfig.Batage(),
-            "imli"        => BranchPredictorConfig.Imli(ImliPhtSize, ImliBtbSize),
-            "llbp"        => BranchPredictorConfig.Llbp(),
-            "llbp_x"      => BranchPredictorConfig.LlbpX(),
-            "vla_tage"    => BranchPredictorConfig.VlaTage(),
-            "true_oracle" => BranchPredictorConfig.TrueOracle(),
-            "runlts"      => BranchPredictorConfig.Runlts(),
-            "lvcp"        => BranchPredictorConfig.Lvcp(),
-            "branchnet"   => BranchPredictorConfig.BranchNet(),
-            "tea"         => BranchPredictorConfig.Tea(),
-            "cbp_plugin"  => BranchPredictorConfig.CbpPlugin(CbpLibraryPath),
-            _             => null,
+            "tage_sc_l"     => BranchPredictorConfig.TageScL(),
+            "ittage"        => BranchPredictorConfig.Ittage(),
+            "batage"        => BranchPredictorConfig.Batage(),
+            "imli"          => BranchPredictorConfig.Imli(ImliPhtSize, ImliBtbSize),
+            "llbp"          => BranchPredictorConfig.Llbp(),
+            "llbp_x"        => BranchPredictorConfig.LlbpX(),
+            "vla_tage"      => BranchPredictorConfig.VlaTage(),
+            "true_oracle"   => BranchPredictorConfig.TrueOracle(),
+            "runlts"        => BranchPredictorConfig.Runlts(),
+            "lvcp"          => BranchPredictorConfig.Lvcp(),
+            "branchnet"     => BranchPredictorConfig.BranchNet(),
+            "tea"           => BranchPredictorConfig.Tea(),
+            "cbp_plugin"    => BranchPredictorConfig.CbpPlugin(CbpLibraryPath),
+            "cbp_ng_plugin" => BranchPredictorConfig.CbpNgPlugin(CbpNgLibraryPath),
+            _               => null,
         };
 
         CacheHardwareConfig? iCache = ICacheEnabled
@@ -342,6 +348,7 @@ public partial class ConfigViewModel : ObservableObject {
                 BranchNetConfig                 => "branchnet",
                 TeaConfig                       => "tea",
                 CbpPluginConfig                 => "cbp_plugin",
+                CbpNgPluginConfig               => "cbp_ng_plugin",
                 _                               => "none",
             },
             StoreBufferCapacity = nc.Config.StoreBufferCapacity,
@@ -393,7 +400,8 @@ public partial class ConfigViewModel : ObservableObject {
                 vm.ImliPhtSize = imli.PhtSize;
                 vm.ImliBtbSize = imli.BtbSize;
                 break;
-            case CbpPluginConfig cbp: vm.CbpLibraryPath = cbp.LibraryPath; break;
+            case CbpPluginConfig cbp:     vm.CbpLibraryPath = cbp.LibraryPath; break;
+            case CbpNgPluginConfig cbpNg: vm.CbpNgLibraryPath = cbpNg.LibraryPath; break;
         }
 
         if (nc.Config.ICache is { } ic) {

@@ -110,7 +110,7 @@ public sealed class LvcpPredictor : TageScLPredictor, IValueAwareBranchPredictor
         _lastPredictedPc = pc;
         _havePredicted = true;
 
-        if (IsH2p(pc) && TryLvcpPredict(pc, out bool lvcpPred)) {
+        if (IsH2P(pc) && TryLvcpPredict(pc, out bool lvcpPred)) {
             LvcpOverrides++;
             return lvcpPred;
         }
@@ -130,7 +130,7 @@ public sealed class LvcpPredictor : TageScLPredictor, IValueAwareBranchPredictor
 
         bool baselineMispredicted = _havePredicted && pc == _lastPredictedPc && _lastBaselinePred != taken;
         TrainHbt(pc, baselineMispredicted);
-        if (IsH2p(pc)) TrainCorrTable(pc, taken, baselineMispredicted);
+        if (IsH2P(pc)) TrainCorrTable(pc, taken, baselineMispredicted);
     }
 
     // ── LVCP internals ────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ public sealed class LvcpPredictor : TageScLPredictor, IValueAwareBranchPredictor
             (ulong loadPc, ulong loadVal) = LtqAt(age);
             ushort tag = CorrTag(pc, loadPc, loadVal);
             ref CorrEntry e = ref _corr[CorrIdx(pc, loadPc, loadVal)];
-            if (e.Valid && !e.DirChanged && e.Tag == tag && e.Conf >= LvcpPredictor.ConfMax) {
+            if (e is { Valid: true, DirChanged: false, } && e.Tag == tag && e.Conf >= LvcpPredictor.ConfMax) {
                 dir = e.Dir;
                 return true;
             }
@@ -162,7 +162,7 @@ public sealed class LvcpPredictor : TageScLPredictor, IValueAwareBranchPredictor
         ushort tag = CorrTag(pc, loadPc, loadVal);
         ref CorrEntry e = ref _corr[CorrIdx(pc, loadPc, loadVal)];
 
-        if (e.Valid && !e.DirChanged && e.Tag == tag) {
+        if (e is { Valid: true, DirChanged: false, } && e.Tag == tag) {
             if (e.Dir == taken) {
                 if (e.Conf < LvcpPredictor.ConfMax) e.Conf++;
             }
@@ -214,13 +214,10 @@ public sealed class LvcpPredictor : TageScLPredictor, IValueAwareBranchPredictor
                     set[w].Ctr--;
     }
 
-    private bool IsH2p(ulong pc) {
+    private bool IsH2P(ulong pc) {
         HbtEntry[] set = _hbt[HbtIdx(pc)];
         byte tag = HbtTag(pc);
-        foreach (HbtEntry e in set)
-            if (e.Valid && e.Tag == tag)
-                return e.Ctr >= LvcpPredictor.HbtSatMax;
-        return false;
+        return (from e in set where e.Valid && e.Tag == tag select e.Ctr >= LvcpPredictor.HbtSatMax).FirstOrDefault();
     }
 
     private (ulong Pc, ulong Value) LtqAt(int ageFromNewest) {
