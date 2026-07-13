@@ -11,28 +11,9 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Branch Prediction
 
-- [x] Branch pre-computation (TEA). — Deshmukh, Cai & Patt, "Timely, Efficient, and Accurate Branch
-  Precomputation", MICRO 2024
-- [x] CBP-2025 front runners: correlate on register values rather than history. — Koizumi et al., "RUNLTS:
-  Register-value-aware Predictor Utilizing Nested Large Tables"; Man et al., "LVCP: A Load Value Correlated
-  Predictor for TAGE-SC-L", CBP 2025
-- [x] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020
-- [x] CBP-style pluggable predictor-submission API: FFI shim wrapping the CBP-3/CBP-5 (2016) `class PREDICTOR`
-  idiom (GetPrediction/UpdatePredictor), so third-party submissions run inside Horologium without hand-porting
-  like TEA/RUNLTS/LVCP/BranchNet were. Desktop-only (native shared library, P/Invoke).
-- [x] CBP2025/CBP-NG predictor integration: FFI shim (`native/CbpNgShim/`) driving the harcom
-  clocked-register hardware-timing-modeling DSL one prediction block at a time. Scoped to
-  in-order/shallow pipelines (SingleCycleTrain, FiveStageTrain).
 - [ ] Extend CBP2025/CBP-NG integration to OoOE: `OooeTrain` can have many outstanding unresolved predictions,
   which clobbers harcom predictors' per-block register state as above. Needs either per-predictor block-state
   snapshot/restore (not generic — differs per submission) or another reconciliation strategy.
-- [x] Multiperspective Perceptron (MPP): hashed perceptron over many history "perspectives" combined with
-  TAGE-SC-L. — Jiménez, "Multiperspective Perceptron Predictor", CBP 2025 (updates the CBP 2016 original)
-- [x] Bullseye/SDM as H2P helpers. — Behrendt, Pun & Nair, "Taming Wild Branches: Overcoming Hard-to-Predict
-  Branches using the Bullseye Predictor", CBP 2025; Vougioukas, Sandberg & Nikoleris, "Branch Predicting with
-  Sparse Distributed Memories", arXiv:2110.09166, 2021
-- [x] Indirect branch predictor: ITTAGE variant for computed jumps and virtual dispatch. — Seznec, "A 64-Kbytes
-  ITTAGE Indirect Branch Predictor", CBP-3/JWAC-2, 2007
 
 ## Out-of-Order Execution
 
@@ -62,16 +43,6 @@ Measured feasibility (Release, single thread): ~1M instr/s functional (single-cy
 detailed (OoO). SPEC-class ref inputs (~10¹² instructions) are therefore only reachable via sampling;
 free embedded suites are runnable in full today.
 
-- [x] CoreMark port (EEMBC, freely licensed): bare-metal `core_portme.c` against HTIF console + mcycle
-  timer; the standard embedded core benchmark, an order of magnitude more work than rsort at the
-  committed iteration count (compile-time scalable beyond).
-- [x] Embench-IoT port (Patterson et al.): the modern academic replacement for Dhrystone; designed for
-  bare-metal RISC-V, fits the existing crt0/HTIF pattern.
-- [x] HTIF syscall proxy (fesvr magic-mem protocol): decode the 8-word syscall struct at tohost and
-  service open/read/write/fstat/exit against the host FS, so newlib-linked binaries with file I/O run
-  bare-metal (current HtifMemory only auto-ACKs).
-- [x] Linux syscall-emulation mode (gem5 SE-style): ECALL shim implementing the ~40 syscalls needed by
-  statically linked musl binaries — unlocks MiBench and arbitrary self-built C programs.
 - [ ] SPEC CPU2006/2017 harness (user-supplied install; SPEC is licensed and non-redistributable):
   RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction
   intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint)
@@ -82,7 +53,6 @@ free embedded suites are runnable in full today.
   subprocess.
   - Also a C compiler…
 - [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes.
-- [x] Waveform/signal viewer: plot pipeline signals (IPC, cache hit rate, branch mispredictions) over simulation time.
 - [ ] Vector operation visualization.
   - Gotta think of how this should be done.
 - [ ] gem5-style architecture configurator: UI surface for the scripting host and pipeline builder — edit `.csx` scripts
