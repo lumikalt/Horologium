@@ -740,6 +740,22 @@
                                     <TextBlock Grid.Column="2" Text="ln"
                                                VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
                                 </Grid>
+                                <CheckBox IsChecked="{Binding Assembler.FdipEnabled}"
+                                          Content="FDIP (fetch-directed prefetch)" FontSize="11" />
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
+                                      IsVisible="{Binding Assembler.HasFdipFtqCapacity}">
+                                    <TextBlock Grid.Column="0" Text="FTQ"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding Assembler.FdipFtqCapacity}"
+                                                   Minimum="1" Maximum="256" Increment="1"
+                                                   FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+                                <CheckBox IsChecked="{Binding Assembler.RdipEnabled}"
+                                          Content="RDIP (RAS-directed prefetch)" FontSize="11" />
                             </StackPanel>
 
                             <!-- D-Cache -->

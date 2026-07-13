@@ -257,6 +257,12 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial string ICacheWritePolicy { get; set; } = "write_through";
     [ObservableProperty] public partial string ICacheWriteMissPolicy { get; set; } = "no_write_allocate";
     [ObservableProperty] public partial int ICacheWbCapacity { get; set; } = 0;
+    [ObservableProperty] public partial bool FdipEnabled { get; set; }
+    [ObservableProperty] public partial int FdipFtqCapacity { get; set; } = 32;
+    [ObservableProperty] public partial bool RdipEnabled { get; set; }
+
+    public bool HasFdipFtqCapacity => FdipEnabled;
+
     [ObservableProperty] public partial bool DCacheEnabled { get; set; }
     [ObservableProperty] public partial int DCacheCapacityKb { get; set; } = 4;
     [ObservableProperty] public partial int DCacheWays { get; set; } = 4;
@@ -437,6 +443,14 @@ public partial class AssemblerViewModel : ObservableObject {
     }
 
     partial void OnICacheEnabledChanged(bool value) => ApplyCacheConfigChange();
+
+    partial void OnFdipEnabledChanged(bool value) {
+        OnPropertyChanged(nameof(HasFdipFtqCapacity));
+        ApplyCacheConfigChange();
+    }
+
+    partial void OnFdipFtqCapacityChanged(int value) => ApplyCacheConfigChange();
+    partial void OnRdipEnabledChanged(bool value) => ApplyCacheConfigChange();
 
     partial void OnDCacheEnabledChanged(bool value) => ApplyCacheConfigChange();
 
@@ -1137,12 +1151,18 @@ public partial class AssemblerViewModel : ObservableObject {
         if (dCfg.CacheCapacityBytes > 0 || dCfg.L2CapacityBytes > 0)
             dCfg = dCfg with { UncacheableBase = UartDevice.DefaultBase, UncacheableSize = UartDevice.RegionSize, };
 
+        // FDIP prefetches into the L1 I-cache and RDIP hooks I-cache misses, so both
+        // are inert without ICacheEnabled — gate on it rather than fail silently.
+        int fdipFtqCapacity = ICacheEnabled && FdipEnabled ? FdipFtqCapacity : 0;
+        bool rdip = ICacheEnabled && RdipEnabled;
+
         switch (CurrentMode) {
             case PipelineMode.FiveStage when _binaryData != null: {
                 IMemory mem = BuildFreshMemory();
                 _fiveStageTrain = new FiveStageTrain(
                     new Rv32Mechanism(), mem,
-                    iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog
+                    iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog,
+                    fdipFtqCapacity: fdipFtqCapacity, rdip: rdip
                 );
                 _fiveStageTrain.BeginStepping();
                 break;
@@ -1157,7 +1177,9 @@ public partial class AssemblerViewModel : ObservableObject {
                     iqCapacity: OooIqCapacity,
                     extraPhysRegs: OooExtraPhysRegs,
                     flatIq: OooFlatIq,
-                    mshrCapacity: OooMshrCapacity
+                    mshrCapacity: OooMshrCapacity,
+                    fdipFtqCapacity: fdipFtqCapacity,
+                    rdip: rdip
                 );
                 _oooeTrain.BeginStepping();
                 break;
