@@ -104,7 +104,7 @@ public sealed class MoesifCache : IMemory {
 
     // ── IMemory cache-maintenance (cbo.inval / cbo.clean / cbo.flush) ───────
 
-    public void InvalidateLine(ulong address) => LocalInvalidate(LineBase(address));
+    public void InvalidateLine(ulong address) => LocalDiscard(LineBase(address));
 
     public void CleanLine(ulong address) {
         ulong lineBase = LineBase(address);
@@ -309,6 +309,18 @@ public sealed class MoesifCache : IMemory {
         int way = FindWay(set, tag);
         if (way < 0) return;
         if (IsDirty(_state[set][way])) WriteBackBlock(set, way);
+        _state[set][way] = MoesifState.Invalid;
+        _tags[set][way] = null;
+        _bus.Evicted(this, lineBase);
+    }
+
+    // True cbo.inval semantics: discards the line without writing back dirty data. Distinct
+    // from LocalInvalidate, which is also used internally for cross-boundary writes where
+    // dirty data must be flushed before the backing store is overwritten out-of-band.
+    private void LocalDiscard(ulong lineBase) {
+        Decompose(lineBase, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
         _state[set][way] = MoesifState.Invalid;
         _tags[set][way] = null;
         _bus.Evicted(this, lineBase);

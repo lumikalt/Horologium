@@ -13,6 +13,8 @@ public sealed record CacheLine(int Set, int Way, bool Valid, ulong Tag, int LruA
 /// </summary>
 public sealed class SetAssociativeCache : IMemory {
     private readonly IMemory _backing;
+    private readonly int[]? _bankReadUsage;  // non-null only when ReadPorts > 0
+    private readonly int[]? _bankWriteUsage; // non-null only when WritePorts > 0
     private readonly byte[][][] _blocks; // [set][way][offset]
     private readonly bool[][]? _dirty;   // non-null only in WriteBack mode
     private readonly int _indexMask;
@@ -25,6 +27,10 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly int _offsetMask;
     private readonly IReplacementPolicy _policy;
     private readonly bool _requirePcOnHit; // Hawkeye needs OPTgen fed on every hit
+
+    private readonly bool[][][]? _sectorDirty; // [set][way][sector]: non-null only when SectorBytes > 0 in WriteBack mode
+    private readonly bool[][][]? _sectorValid; // [set][way][sector]: non-null only when SectorBytes > 0
+    private readonly int _sectorsPerLine;      // 1 when sectoring is disabled
 
     private readonly ulong?[][] _tags; // [set][way]: null = invalid
     private readonly bool _usePcSignature;
@@ -92,6 +98,40 @@ public sealed class SetAssociativeCache : IMemory {
     ///     <see cref="AttachInner" />. No effect until a inner cache is attached. See
     ///     <see cref="InclusionPolicyKind" />.
     /// </param>
+    /// <param name="criticalWordLatency">
+    ///     Critical-word-first / early restart (0 = disabled, legacy behaviour: a miss charges the
+    ///     full <paramref name="missLatency" /> to the requester). When positive, a fresh demand
+    ///     miss charges only <paramref name="criticalWordLatency" /> to the requesting access — the
+    ///     demanded word is assumed to arrive first off the bus — while the MSHR entry keeps
+    ///     counting down the full <paramref name="missLatency" /> in the background, so a
+    ///     <em>different</em> access that hits the same in-flight line before the line fully
+    ///     arrives still pays the remaining full-line latency via the existing hit-under-miss path.
+    ///     Requires <paramref name="mshrCount" /> &gt; 0 (early restart needs the MSHR table to
+    ///     distinguish the requester from later accesses) and cannot exceed
+    ///     <paramref name="missLatency" />.
+    /// </param>
+    /// <param name="bankCount">
+    ///     Number of independent banks the cache is split into (default 1 = unbanked). The line
+    ///     address selects the bank; <paramref name="readPorts" />/<paramref name="writePorts" />
+    ///     apply per bank, so widening <paramref name="bankCount" /> spreads concurrent accesses
+    ///     across more independent port budgets.
+    /// </param>
+    /// <param name="readPorts">
+    ///     Read accesses one bank can service per cycle (0 = unlimited, legacy behaviour). An
+    ///     access to a bank already at capacity this cycle pays a 1-cycle structural-hazard stall.
+    ///     Call <see cref="TickPorts" /> once per simulated cycle to reset per-bank usage.
+    /// </param>
+    /// <param name="writePorts">Write accesses one bank can service per cycle (0 = unlimited). See <paramref name="readPorts" />.</param>
+    /// <param name="sectorBytes">
+    ///     Sector size in bytes (0 = disabled, legacy whole-line valid/dirty granularity). Must be a
+    ///     power of 2 dividing <paramref name="blockSizeBytes" /> evenly. When positive, a line's
+    ///     valid and (in <see cref="WritePolicyKind.WriteBack" />) dirty state is tracked per
+    ///     sector instead of per whole line: a fresh miss fetches only the sector covering the
+    ///     triggering address, leaving the rest of the line's sectors invalid until touched (each
+    ///     later access to an untouched sector on an otherwise-resident line pays
+    ///     <paramref name="missLatency" /> for that sector alone); evictions write back only dirty
+    ///     sectors instead of the whole line. Not currently combinable with <paramref name="wbCapacity" /> &gt; 0.
+    /// </param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
@@ -107,7 +147,12 @@ public sealed class SetAssociativeCache : IMemory {
         int wbCapacity = 0,
         int mshrCount = 0,
         CacheAccessModeKind accessMode = CacheAccessModeKind.Parallel,
-        InclusionPolicyKind inclusionPolicy = InclusionPolicyKind.Nine
+        InclusionPolicyKind inclusionPolicy = InclusionPolicyKind.Nine,
+        int criticalWordLatency = 0,
+        int bankCount = 1,
+        int readPorts = 0,
+        int writePorts = 0,
+        int sectorBytes = 0
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -116,10 +161,30 @@ public sealed class SetAssociativeCache : IMemory {
         ArgumentOutOfRangeException.ThrowIfNegative(prefetchLatency);
         ArgumentOutOfRangeException.ThrowIfNegative(tagLatency);
         ArgumentOutOfRangeException.ThrowIfNegative(dataLatency);
+        ArgumentOutOfRangeException.ThrowIfNegative(criticalWordLatency);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bankCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(readPorts);
+        ArgumentOutOfRangeException.ThrowIfNegative(writePorts);
+        ArgumentOutOfRangeException.ThrowIfNegative(sectorBytes);
         if (!BitOperations.IsPow2(capacityBytes) ||
             !BitOperations.IsPow2(ways) ||
             !BitOperations.IsPow2(blockSizeBytes))
             throw new ArgumentException("Cache dimensions must be powers of 2.");
+        if (criticalWordLatency > 0 && mshrCount <= 0)
+            throw new ArgumentException(
+                "criticalWordLatency requires mshrCount > 0 (early restart needs the MSHR table to " +
+                "track in-flight lines)."
+            );
+        if (criticalWordLatency > missLatency)
+            throw new ArgumentException("criticalWordLatency cannot exceed missLatency.");
+        if (sectorBytes > 0) {
+            if (!BitOperations.IsPow2(sectorBytes))
+                throw new ArgumentException("sectorBytes must be a power of 2.");
+            if (sectorBytes > blockSizeBytes || blockSizeBytes % sectorBytes != 0)
+                throw new ArgumentException("sectorBytes must evenly divide blockSizeBytes.");
+            if (wbCapacity > 0)
+                throw new ArgumentException("sectorBytes cannot currently be combined with wbCapacity > 0.");
+        }
 
         _backing = backing;
         Ways = ways;
@@ -134,6 +199,14 @@ public sealed class SetAssociativeCache : IMemory {
         WriteMissPolicy = writeMissPolicy;
         WbCapacity = writePolicy == WritePolicyKind.WriteBack ? Math.Max(0, wbCapacity) : 0;
         InclusionPolicy = inclusionPolicy;
+        CriticalWordLatency = criticalWordLatency;
+        BankCount = bankCount;
+        ReadPorts = readPorts;
+        WritePorts = writePorts;
+        _bankReadUsage = readPorts > 0 ? new int[bankCount] : null;
+        _bankWriteUsage = writePorts > 0 ? new int[bankCount] : null;
+        SectorBytes = sectorBytes;
+        _sectorsPerLine = sectorBytes > 0 ? blockSizeBytes / sectorBytes : 1;
 
         OffsetBits = BitOperations.Log2((uint)blockSizeBytes);
         IndexBits = BitOperations.Log2((uint)sets);
@@ -145,14 +218,23 @@ public sealed class SetAssociativeCache : IMemory {
 
         _tags = new ulong?[sets][];
         _blocks = new byte[sets][][];
-        _dirty = writePolicy == WritePolicyKind.WriteBack ? new bool[sets][] : null;
+        // Sectored write-back caches track dirty per sector instead of per line (see _sectorDirty).
+        _dirty = writePolicy == WritePolicyKind.WriteBack && sectorBytes == 0 ? new bool[sets][] : null;
+        _sectorValid = sectorBytes > 0 ? new bool[sets][][] : null;
+        _sectorDirty = sectorBytes > 0 && writePolicy == WritePolicyKind.WriteBack ? new bool[sets][][] : null;
         _wbBuffer = WbCapacity > 0 ? new WbEntry[WbCapacity] : null;
 
         for (var s = 0; s < sets; s++) {
             _tags[s] = new ulong?[Ways];
             _blocks[s] = new byte[Ways][];
             if (_dirty != null) _dirty[s] = new bool[Ways];
-            for (var w = 0; w < Ways; w++) _blocks[s][w] = new byte[BlockBytes];
+            if (_sectorValid != null) _sectorValid[s] = new bool[Ways][];
+            if (_sectorDirty != null) _sectorDirty[s] = new bool[Ways][];
+            for (var w = 0; w < Ways; w++) {
+                _blocks[s][w] = new byte[BlockBytes];
+                if (_sectorValid != null) _sectorValid[s][w] = new bool[_sectorsPerLine];
+                if (_sectorDirty != null) _sectorDirty[s][w] = new bool[_sectorsPerLine];
+            }
         }
 
         _policy = replacementPolicy switch {
@@ -217,6 +299,30 @@ public sealed class SetAssociativeCache : IMemory {
     public long MshrMerges { get; private set; }
     public long MshrCapacityStalls { get; private set; }
 
+    /// <summary>0 = disabled. See the constructor parameter of the same name.</summary>
+    public int CriticalWordLatency { get; }
+
+    /// <summary>Number of independent banks (1 = unbanked). See the constructor parameter of the same name.</summary>
+    public int BankCount { get; }
+
+    /// <summary>Read accesses one bank can service per cycle (0 = unlimited).</summary>
+    public int ReadPorts { get; }
+
+    /// <summary>Write accesses one bank can service per cycle (0 = unlimited).</summary>
+    public int WritePorts { get; }
+
+    /// <summary>Accesses that paid a 1-cycle structural-hazard stall because their bank was already at port capacity this cycle.</summary>
+    public long BankConflicts { get; private set; }
+
+    /// <summary>0 = disabled (whole-line valid/dirty granularity). See the constructor parameter of the same name.</summary>
+    public int SectorBytes { get; }
+
+    /// <summary>
+    ///     Sector-granularity fetches from backing: the initial sector of a fresh line install,
+    ///     plus every later on-demand fetch of a sector that was still invalid on an otherwise-resident line.
+    /// </summary>
+    public long SectorFills { get; private set; }
+
     public InclusionPolicyKind InclusionPolicy { get; }
 
     /// <summary>Lines dropped here because the attached outer level (Inclusive) evicted them.</summary>
@@ -266,6 +372,7 @@ public sealed class SetAssociativeCache : IMemory {
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + bytes > BlockBytes) return _backing.Read(address, bytes);
 
+        ChargePort(address, false);
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
         LastAccessAddress = address;
@@ -274,6 +381,7 @@ public sealed class SetAssociativeCache : IMemory {
             Hits++;
             if (_requirePcOnHit) _policy.RecordHitPc(set, way, tag, _lastRequestPc);
             _policy.RecordHit(set, way);
+            EnsureSectorResident(set, way, address);
             ChargeInFlightMshr(address);
             ChargeInFlightPrefetch(address);
             return ReadBytes(_blocks[set][way], offset, bytes);
@@ -325,6 +433,7 @@ public sealed class SetAssociativeCache : IMemory {
             return;
         }
 
+        ChargePort(address, true);
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
         LastAccessAddress = address;
@@ -333,10 +442,12 @@ public sealed class SetAssociativeCache : IMemory {
             Hits++;
             if (_requirePcOnHit) _policy.RecordHitPc(set, way, tag, _lastRequestPc);
             _policy.RecordHit(set, way);
+            EnsureSectorResident(set, way, address);
             ChargeInFlightMshr(address);
             ChargeInFlightPrefetch(address);
             WriteBytes(_blocks[set][way], offset, value, bytes);
             if (_dirty != null) _dirty[set][way] = true; // write-back: mark dirty on hit
+            if (_sectorDirty != null) _sectorDirty[set][way][SectorIndex(address)] = true;
         }
         else {
             LastAccessWasHit = false;
@@ -349,6 +460,7 @@ public sealed class SetAssociativeCache : IMemory {
                 FillBlock(set, evict, address); // flushes any dirty victim
                 WriteBytes(_blocks[set][evict], offset, value, bytes);
                 if (_dirty != null) _dirty[set][evict] = true;
+                if (_sectorDirty != null) _sectorDirty[set][evict][SectorIndex(address)] = true;
             }
             else {
                 // No-write-allocate: write to backing (if not already done) and skip line install.
@@ -411,6 +523,13 @@ public sealed class SetAssociativeCache : IMemory {
     // deferToBuffer: enqueue into the WB buffer instead of writing backing synchronously.
     //   Only FillBlock passes true; cross-boundary, NWA-miss, and Load pass false.
     private void FlushDirtyLine(int set, int way, ulong tag, bool chargeStall, bool deferToBuffer = false) {
+        // Sectored write-back: only dirty sectors move, never the whole line (wbCapacity is
+        // disallowed alongside sectorBytes, so deferToBuffer is always false here in practice).
+        if (_sectorDirty != null) {
+            FlushDirtySectors(set, way, tag, chargeStall);
+            return;
+        }
+
         if (_dirty == null || !_dirty[set][way]) return;
         ulong lineBase = (tag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
 
@@ -435,7 +554,27 @@ public sealed class SetAssociativeCache : IMemory {
         DirtyEvictions++;
     }
 
-    private void FillBlock(int set, int way, ulong address, bool chargeWritebackStall = true) {
+    // Writes back only the dirty sectors of a sectored line (bandwidth refinement over
+    // whole-line writeback), clearing each as it drains.
+    private void FlushDirtySectors(int set, int way, ulong tag, bool chargeStall) {
+        bool[] dirty = _sectorDirty![set][way];
+        ulong lineBase = (tag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
+        var any = false;
+        for (var sec = 0; sec < _sectorsPerLine; sec++) {
+            if (!dirty[sec]) continue;
+            any = true;
+            int blockOffset = sec * SectorBytes;
+            ulong sectorBase = lineBase + (ulong)blockOffset;
+            for (var i = 0; i < SectorBytes; i++) _backing.Write(sectorBase + (ulong)i, _blocks[set][way][blockOffset + i], 1);
+            dirty[sec] = false;
+        }
+
+        if (!any) return;
+        if (chargeStall) _pendingStalls += MissLatency;
+        DirtyEvictions++;
+    }
+
+    private void FillBlock(int set, int way, ulong address, bool chargeWritebackStall = true, bool fetchWholeLine = false) {
         if (_tags[set][way] is { } existingTag) {
             ulong evictedBase = (existingTag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
 
@@ -454,9 +593,26 @@ public sealed class SetAssociativeCache : IMemory {
 
         ulong lineBase = address & ~(ulong)_offsetMask;
         bool fromWb = _wbBuffer != null && TryForwardFromWbBuffer(lineBase, _blocks[set][way]);
-        if (!fromWb)
-            for (var i = 0; i < BlockBytes; i++)
-                _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
+        if (!fromWb) {
+            if (_sectorValid != null) {
+                // Sectored: start every sector invalid/clean, then fetch only what's needed now —
+                // an untouched sector arrives lazily via EnsureSectorResident on a later hit.
+                // fetchWholeLine (Prefetch) instead warms every sector immediately.
+                for (var i = 0; i < _sectorsPerLine; i++) {
+                    _sectorValid[set][way][i] = false;
+                    if (_sectorDirty != null) _sectorDirty[set][way][i] = false;
+                }
+
+                if (fetchWholeLine)
+                    for (var i = 0; i < _sectorsPerLine; i++) FetchSector(set, way, lineBase + (ulong)(i * SectorBytes));
+                else
+                    FetchSector(set, way, address);
+            }
+            else {
+                for (var i = 0; i < BlockBytes; i++)
+                    _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
+            }
+        }
 
         Decompose(address, out _, out ulong tag);
         if (_tags[set][way] is { } oldTag) {
@@ -660,6 +816,120 @@ public sealed class SetAssociativeCache : IMemory {
         DrainWbOldestSync();
     }
 
+    // ── Banking / port limits ────────────────────────────────────────────────
+
+    private int Bank(ulong address) => BankCount <= 1 ? 0 : (int)((address >> OffsetBits) % (ulong)BankCount);
+
+    // Charges a 1-cycle structural-hazard stall when the access's bank has already used up its
+    // read/write port budget this cycle. No-op for the op type when the corresponding port count
+    // is 0 (unlimited, legacy behaviour).
+    private void ChargePort(ulong address, bool isWrite) {
+        int[]? usage = isWrite ? _bankWriteUsage : _bankReadUsage;
+        if (usage == null) return;
+        int bank = Bank(address);
+        int limit = isWrite ? WritePorts : ReadPorts;
+        if (usage[bank] >= limit) {
+            _pendingStalls++;
+            BankConflicts++;
+        }
+
+        usage[bank]++;
+    }
+
+    /// <summary>
+    ///     Resets per-bank read/write port usage. Must be called once per simulated cycle when
+    ///     <see cref="ReadPorts" /> or <see cref="WritePorts" /> is nonzero; a no-op otherwise.
+    /// </summary>
+    public void TickPorts() {
+        if (_bankReadUsage != null) Array.Clear(_bankReadUsage);
+        if (_bankWriteUsage != null) Array.Clear(_bankWriteUsage);
+    }
+
+    // ── Sectored valid/dirty bits ────────────────────────────────────────────
+
+    private int SectorIndex(ulong address) => (int)((address & (ulong)_offsetMask) / (ulong)SectorBytes);
+
+    // Fetches the sector covering `address` from backing into the already-tagged (set, way) line
+    // and marks it valid. No stall charge here — callers charge whatever is appropriate for their
+    // context (a fresh line install's first sector rides on the miss stall already charged by the
+    // caller; a later on-demand sector fetch is charged by EnsureSectorResident).
+    private void FetchSector(int set, int way, ulong address) {
+        int sector = SectorIndex(address);
+        ulong sectorBase = address & ~(ulong)(SectorBytes - 1);
+        int blockOffset = sector * SectorBytes;
+        for (var i = 0; i < SectorBytes; i++)
+            _blocks[set][way][blockOffset + i] = (byte)_backing.Read(sectorBase + (ulong)i, 1);
+        _sectorValid![set][way][sector] = true;
+        SectorFills++;
+    }
+
+    // Called on every hit: if sectoring is disabled, or the sector is already resident, this is a
+    // no-op. Otherwise the accessed line is resident (tag hit) but this particular sector was never
+    // fetched — a sector miss — so fetch it now and charge MissLatency for that fetch alone.
+    private void EnsureSectorResident(int set, int way, ulong address) {
+        if (_sectorValid == null) return;
+        if (_sectorValid[set][way][SectorIndex(address)]) return;
+        FetchSector(set, way, address);
+        _pendingStalls += MissLatency;
+    }
+
+    /// <summary>
+    ///     True if the sector covering <paramref name="address" /> is resident (fetched from
+    ///     backing) in this cache. Always true when <see cref="SectorBytes" /> is 0 (sectoring
+    ///     disabled — a resident tag implies the whole line is resident) or when the line itself
+    ///     isn't resident at all is reported as false, matching "not yet available" either way.
+    /// </summary>
+    public bool IsSectorResident(ulong address) {
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return false;
+        return _sectorValid == null || _sectorValid[set][way][SectorIndex(address)];
+    }
+
+    // ── Cache maintenance (Zicbom: cbo.clean / cbo.flush / cbo.inval) ────────
+
+    /// <summary>
+    ///     cbo.clean: writes back the line covering <paramref name="address" /> to backing if
+    ///     dirty, leaving it resident and valid. No-op if the line is not present or already clean.
+    /// </summary>
+    public void CleanLine(ulong address) {
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
+        FlushDirtyLine(set, way, tag, false);
+    }
+
+    /// <summary>
+    ///     cbo.flush: writes back the line covering <paramref name="address" /> to backing if
+    ///     dirty, then invalidates it. No-op if the line is not present.
+    /// </summary>
+    public void FlushLine(ulong address) {
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
+        FlushDirtyLine(set, way, tag, false);
+        ulong lineBase = address & ~(ulong)_offsetMask;
+        _tags[set][way] = null;
+        DropInFlightPrefetch(lineBase);
+        DropInFlightMshr(lineBase);
+    }
+
+    /// <summary>
+    ///     cbo.inval: invalidates the line covering <paramref name="address" /> and discards any
+    ///     dirty data without writing it back to backing. No-op if the line is not present.
+    /// </summary>
+    public void InvalidateLine(ulong address) {
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way < 0) return;
+        ulong lineBase = address & ~(ulong)_offsetMask;
+        if (_dirty != null) _dirty[set][way] = false;
+        if (_sectorDirty != null) Array.Clear(_sectorDirty[set][way]);
+        _tags[set][way] = null;
+        DropInFlightPrefetch(lineBase);
+        DropInFlightMshr(lineBase);
+    }
+
     private static ulong ReadBytes(byte[] block, int offset, int bytes) {
         ulong result = 0;
         for (var i = 0; i < bytes; i++) result |= (ulong)block[offset + i] << (i * 8);
@@ -692,7 +962,7 @@ public sealed class SetAssociativeCache : IMemory {
         int evict = _policy.ChooseVictim(set);
         _policy.SetPendingSignature(address >> OffsetBits);
         try {
-            FillBlock(set, evict, address, false);
+            FillBlock(set, evict, address, false, fetchWholeLine: true);
             Prefetches++;
             if (PrefetchLatency > 0) _inFlightPrefetches.Add((address & ~(ulong)_offsetMask, PrefetchLatency));
         }
@@ -748,11 +1018,15 @@ public sealed class SetAssociativeCache : IMemory {
 
     /// <summary>
     ///     Allocates an MSHR slot for a demand miss on <paramref name="lineBase" /> and returns
-    ///     the stall to charge. When unlimited (<see cref="MshrCount" /> == 0) returns
-    ///     <see cref="MissLatency" /> unchanged (legacy path). When a slot is available allocates
-    ///     it and returns <see cref="MissLatency" />. When all slots are full returns
-    ///     <c>minRemaining + MissLatency</c> and increments <see cref="MshrCapacityStalls" />;
-    ///     the new fill is not tracked (the slot will be available after the stall expires).
+    ///     the stall to charge <em>to the requester</em>. When unlimited (<see cref="MshrCount" />
+    ///     == 0) returns <see cref="MissLatency" /> unchanged (legacy path). When a slot is
+    ///     available, allocates it — tracked for the full <see cref="MissLatency" /> regardless of
+    ///     early restart, since the line itself takes that long to fully arrive — and returns
+    ///     <see cref="CriticalWordLatency" /> when early restart is enabled (nonzero), else
+    ///     <see cref="MissLatency" />. When all slots are full returns
+    ///     <c>minRemaining + (early-restart-aware requester latency)</c> and increments
+    ///     <see cref="MshrCapacityStalls" />; the new fill is not tracked (the slot will be
+    ///     available after the stall expires).
     /// </summary>
     private int ChargeAndAllocateMshr(ulong lineBase) {
         if (_mshrs == null) return MissLatency;
@@ -768,13 +1042,14 @@ public sealed class SetAssociativeCache : IMemory {
             if (_mshrs[i].Remaining < minRemaining) minRemaining = _mshrs[i].Remaining;
         }
 
+        int requesterLatency = CriticalWordLatency > 0 ? CriticalWordLatency : MissLatency;
         if (freeIdx >= 0) {
             _mshrs[freeIdx] = new MshrEntry { LineBase = lineBase, Remaining = MissLatency, };
-            return MissLatency;
+            return requesterLatency;
         }
 
         MshrCapacityStalls++;
-        return minRemaining + MissLatency;
+        return minRemaining + requesterLatency;
     }
 
     /// <summary>
@@ -823,11 +1098,20 @@ public sealed class SetAssociativeCache : IMemory {
             ulong tag = _tags[s][w] ?? 0;
             var blockCopy = new byte[BlockBytes];
             Buffer.BlockCopy(_blocks[s][w], 0, blockCopy, 0, BlockBytes);
-            bool dirty = _dirty != null && _dirty[s][w];
+            bool dirty = valid && ((_dirty != null && _dirty[s][w]) || AnySectorDirty(s, w));
             lines[idx++] = new CacheLine(s, w, valid, tag, _policy.GetMetadata(s, w), blockCopy, dirty);
         }
 
         return lines;
+    }
+
+    private bool AnySectorDirty(int set, int way) {
+        if (_sectorDirty == null) return false;
+        bool[] dirty = _sectorDirty[set][way];
+        for (var i = 0; i < _sectorsPerLine; i++)
+            if (dirty[i])
+                return true;
+        return false;
     }
 
     // Write-back buffer: holds dirty-victim lines waiting to drain to backing.

@@ -134,6 +134,33 @@ public enum InclusionPolicyKind {
 /// <param name="L3WbCapacity">L3 write-back buffer capacity in lines (0 = disabled).</param>
 /// <param name="L2InclusionPolicy">L2's inclusion policy toward L1. Ignored when L2 is disabled.</param>
 /// <param name="L3InclusionPolicy">L3's inclusion policy toward L2. Ignored when L3 is disabled.</param>
+/// <param name="CacheCriticalWordLatency">
+///     L1 critical-word-first / early-restart latency (0 = disabled). A fresh demand miss charges
+///     the requester this instead of <see cref="CacheMissLatency" />, while the line still takes
+///     the full miss latency to arrive in the background for later accesses. Requires
+///     <see cref="CacheMshrCount" /> &gt; 0.
+/// </param>
+/// <param name="L2CriticalWordLatency">L2 critical-word-first latency (same semantics as L1; requires <see cref="L2MshrCount" /> &gt; 0).</param>
+/// <param name="L3CriticalWordLatency">L3 critical-word-first latency (same semantics as L1; requires <see cref="L3MshrCount" /> &gt; 0).</param>
+/// <param name="CacheBankCount">L1 bank count (1 = unbanked). See <see cref="CacheReadPorts" />.</param>
+/// <param name="CacheReadPorts">
+///     L1 read accesses one bank can service per cycle (0 = unlimited). A conflicting access to a
+///     saturated bank pays a 1-cycle structural-hazard stall.
+/// </param>
+/// <param name="CacheWritePorts">L1 write accesses one bank can service per cycle (0 = unlimited). See <see cref="CacheReadPorts" />.</param>
+/// <param name="L2BankCount">L2 bank count (same semantics as L1).</param>
+/// <param name="L2ReadPorts">L2 read port count per bank (same semantics as L1).</param>
+/// <param name="L2WritePorts">L2 write port count per bank (same semantics as L1).</param>
+/// <param name="L3BankCount">L3 bank count (same semantics as L1).</param>
+/// <param name="L3ReadPorts">L3 read port count per bank (same semantics as L1).</param>
+/// <param name="L3WritePorts">L3 write port count per bank (same semantics as L1).</param>
+/// <param name="CacheSectorBytes">
+///     L1 sector size in bytes (0 = disabled). Splits each line into independently valid/dirty
+///     sectors: a fresh miss fetches only the triggering sector, and evictions write back only
+///     dirty sectors. Not combinable with <see cref="CacheWbCapacity" /> &gt; 0.
+/// </param>
+/// <param name="L2SectorBytes">L2 sector size in bytes (same semantics as L1). Not combinable with <see cref="L2WbCapacity" /> &gt; 0.</param>
+/// <param name="L3SectorBytes">L3 sector size in bytes (same semantics as L1). Not combinable with <see cref="L3WbCapacity" /> &gt; 0.</param>
 /// <param name="ReplacementPolicy">
 ///     Cache replacement policy applied to every cache level.
 ///     Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling
@@ -192,7 +219,22 @@ public sealed record MemoryConfig(
     int L2MshrCount = 0,
     int L3MshrCount = 0,
     InclusionPolicyKind L2InclusionPolicy = InclusionPolicyKind.Nine,
-    InclusionPolicyKind L3InclusionPolicy = InclusionPolicyKind.Nine
+    InclusionPolicyKind L3InclusionPolicy = InclusionPolicyKind.Nine,
+    int CacheCriticalWordLatency = 0,
+    int L2CriticalWordLatency = 0,
+    int L3CriticalWordLatency = 0,
+    int CacheBankCount = 1,
+    int CacheReadPorts = 0,
+    int CacheWritePorts = 0,
+    int L2BankCount = 1,
+    int L2ReadPorts = 0,
+    int L2WritePorts = 0,
+    int L3BankCount = 1,
+    int L3ReadPorts = 0,
+    int L3WritePorts = 0,
+    int CacheSectorBytes = 0,
+    int L2SectorBytes = 0,
+    int L3SectorBytes = 0
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -227,7 +269,8 @@ public sealed record MemoryLayers(
                 current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
                 0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency,
                 cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode,
-                cfg.L3InclusionPolicy
+                cfg.L3InclusionPolicy, cfg.L3CriticalWordLatency, cfg.L3BankCount, cfg.L3ReadPorts, cfg.L3WritePorts,
+                cfg.L3SectorBytes
             );
             current = l3;
         }
@@ -237,7 +280,8 @@ public sealed record MemoryLayers(
                 current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
                 0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency,
                 cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode,
-                cfg.L2InclusionPolicy
+                cfg.L2InclusionPolicy, cfg.L2CriticalWordLatency, cfg.L2BankCount, cfg.L2ReadPorts, cfg.L2WritePorts,
+                cfg.L2SectorBytes
             );
             l3?.AttachInner(l2);
             current = l2;
@@ -249,7 +293,8 @@ public sealed record MemoryLayers(
                 cfg.Prefetcher != PrefetcherKind.None ? cfg.PrefetchLatency : 0,
                 cfg.ReplacementPolicy, cfg.CacheTagLatency, cfg.CacheDataLatency,
                 cfg.CacheWritePolicy, cfg.CacheWriteMissPolicy, cfg.CacheWbCapacity, cfg.CacheMshrCount,
-                cfg.CacheAccessMode
+                cfg.CacheAccessMode, InclusionPolicyKind.Nine, cfg.CacheCriticalWordLatency,
+                cfg.CacheBankCount, cfg.CacheReadPorts, cfg.CacheWritePorts, cfg.CacheSectorBytes
             );
             (l2 ?? l3)?.AttachInner(l1);
             current = l1;
@@ -312,7 +357,8 @@ public sealed record MemoryLayers(
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
-                s.AccessMode, s.InclusionPolicy
+                s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
+                s.SectorBytes
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -325,7 +371,8 @@ public sealed record MemoryLayers(
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
-                s.AccessMode, s.InclusionPolicy
+                s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
+                s.SectorBytes
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -389,6 +436,13 @@ public sealed record MemoryLayers(
         Cache?.TickMshr();
         L2Cache?.TickMshr();
         L3Cache?.TickMshr();
+    }
+
+    /// <summary>Resets per-bank read/write port usage by one cycle across all cache levels.</summary>
+    public void TickPorts() {
+        Cache?.TickPorts();
+        L2Cache?.TickPorts();
+        L3Cache?.TickPorts();
     }
 
     /// <summary>

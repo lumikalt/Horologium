@@ -21,13 +21,13 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Inclusion policy per level pair: inclusive (Intel-style — lower-level eviction back-invalidates the line in
   upper levels), exclusive (AMD-style — lower levels act as victim caches for the level above), or NINE
   (non-inclusive non-exclusive, the current behavior).
-- [ ] Critical-word-first / early restart: a miss fill returns the demanded word first so the load resumes after the
+- [x] Critical-word-first / early restart: a miss fill returns the demanded word first so the load resumes after the
   leading edge while the rest of the line streams in; matters when block size is large relative to miss latency.
-- [ ] Banked caches and port limits: N banks with conflict stalls on same-bank concurrent accesses; configurable
+- [x] Banked caches and port limits: N banks with conflict stalls on same-bank concurrent accesses; configurable
   read/write port counts (the OoO train currently has unlimited D-cache bandwidth).
-- [ ] Per-sector dirty/valid bits: sectored lines so writebacks transfer only dirty sectors and fills can be partial;
+- [x] Per-sector dirty/valid bits: sectored lines so writebacks transfer only dirty sectors and fills can be partial;
   bandwidth refinement over whole-line granularity.
-- [ ] Zicbom write-back semantics: wire cbo.clean/cbo.flush/cbo.inval into dirty-line state now that write-back
+- [x] Zicbom write-back semantics: wire cbo.clean/cbo.flush/cbo.inval into dirty-line state now that write-back
   caches track it (clean = writeback and keep, flush = writeback and invalidate, inval = discard without writeback).
 - [ ] Victim cache: small fully-associative buffer to absorb conflict misses. — Jouppi, ISCA 1990
 

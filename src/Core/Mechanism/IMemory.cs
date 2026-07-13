@@ -21,8 +21,8 @@ public interface IMemory {
     void Load(ulong address, ReadOnlySpan<byte> data);
 
     /// <summary>
-    ///     Invalidates the cache block containing <paramref name="address" />, writing it
-    ///     back to backing first if it is dirty (conservative interpretation of cbo.inval).
+    ///     Invalidates the cache block containing <paramref name="address" />, discarding any
+    ///     dirty data without writing it back to backing (cbo.inval).
     ///     No-op on non-cache implementations.
     /// </summary>
     void InvalidateLine(ulong address) { }

@@ -301,6 +301,8 @@ internal sealed class SingleCycleCore(
         long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
         ILayers.TickMshr();
         DLayers.TickMshr();
+        ILayers.TickPorts();
+        DLayers.TickPorts();
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
         UpdateCacheStat(
             ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses

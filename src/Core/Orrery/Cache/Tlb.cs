@@ -50,6 +50,13 @@ public sealed class Tlb : IMemory {
     public void Write(ulong address, ulong value, int bytes) => _physical.Write(Translate(address), value, bytes);
     public void SetRequestPc(ulong pc) => _physical.SetRequestPc(pc);
 
+    // Pass cache-maintenance ops through translation to the physical chain — otherwise a TLB
+    // sitting above the D-cache in MemoryLayers.Accessor would silently swallow cbo.* calls
+    // via IMemory's default no-op bodies before they ever reach the cache.
+    public void InvalidateLine(ulong address) => _physical.InvalidateLine(Translate(address));
+    public void CleanLine(ulong address) => _physical.CleanLine(Translate(address));
+    public void FlushLine(ulong address) => _physical.FlushLine(Translate(address));
+
     public void Load(ulong address, ReadOnlySpan<byte> data) {
         // Invalidate TLB entries whose pages overlap the loaded region.
         ulong end = address + (ulong)data.Length;

@@ -317,6 +317,8 @@ internal sealed class PipelineCore : Gear {
             DLayers.TickWb();
             ILayers.TickMshr();
             DLayers.TickMshr();
+            ILayers.TickPorts();
+            DLayers.TickPorts();
         }
 
         // Reflect retirements produced by last cycle's Writeback.

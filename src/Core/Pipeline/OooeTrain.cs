@@ -519,6 +519,8 @@ internal sealed class OoOPipelineCore : Gear {
             DLayers.TickWb();
             ILayers.TickMshr();
             DLayers.TickMshr();
+            ILayers.TickPorts();
+            DLayers.TickPorts();
         }
 
         if (_halted || _flushPending || _squashPending) {

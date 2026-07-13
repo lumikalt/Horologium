@@ -14,6 +14,23 @@ namespace Orrery.Spec;
 ///         see <see cref="InclusionPolicyKind" />. Ignored on the innermost level, since nothing
 ///         sits inside it.
 ///     </para>
+///     <para>
+///         <see cref="CriticalWordLatency" /> (0 = disabled) enables critical-word-first / early
+///         restart: a fresh demand miss charges the requester this latency instead of the full
+///         <see cref="MissLatency" />, while the line still takes the full <see cref="MissLatency" />
+///         to arrive in the background. Requires <see cref="MshrCount" /> &gt; 0.
+///     </para>
+///     <para>
+///         <see cref="BankCount" /> splits the cache into independent banks by line address;
+///         <see cref="ReadPorts" />/<see cref="WritePorts" /> (0 = unlimited) cap accesses per
+///         bank per cycle, charging a 1-cycle structural-hazard stall on conflict.
+///     </para>
+///     <para>
+///         <see cref="SectorBytes" /> (0 = disabled) splits each line into independently
+///         valid/dirty sectors: a fresh miss fetches only the triggering sector, and evictions
+///         write back only dirty sectors instead of the whole line. Not combinable with
+///         <see cref="WbCapacity" /> &gt; 0.
+///     </para>
 /// </summary>
 public sealed record CacheLevelSpec(
     int CapacityBytes,
@@ -33,7 +50,12 @@ public sealed record CacheLevelSpec(
     int WbCapacity = 0,
     int MshrCount = 0,
     CacheAccessModeKind AccessMode = CacheAccessModeKind.Parallel,
-    InclusionPolicyKind InclusionPolicy = InclusionPolicyKind.Nine
+    InclusionPolicyKind InclusionPolicy = InclusionPolicyKind.Nine,
+    int CriticalWordLatency = 0,
+    int BankCount = 1,
+    int ReadPorts = 0,
+    int WritePorts = 0,
+    int SectorBytes = 0
 ) {
     public int HitLatency => AccessMode == CacheAccessModeKind.Sequential
         ? TagLatency + DataLatency

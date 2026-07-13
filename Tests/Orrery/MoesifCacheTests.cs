@@ -406,8 +406,8 @@ public class MoesifCacheTests {
     }
 
     [Fact]
-    public void InvalidateLine_ModifiedLine_WritesBackAndInvalidates() {
-        // Conservative: cbo.inval writes back dirty data before invalidating.
+    public void InvalidateLine_ModifiedLine_DiscardsWithoutWritingBack() {
+        // True cbo.inval semantics: dirty data is discarded, not written back.
         (MoesifBus bus, FlatMemory backing) = MakeBus();
         MoesifCache cache = MakeCache(bus);
 
@@ -415,7 +415,7 @@ public class MoesifCacheTests {
         cache.InvalidateLine(0x00);
 
         Assert.Equal(MoesifState.Invalid, cache.StateOf(0x00));
-        Assert.Equal(0xDEADUL, backing.Read(0x00, 4));
+        Assert.Equal(0UL, backing.Read(0x00, 4));
     }
 
     [Fact]

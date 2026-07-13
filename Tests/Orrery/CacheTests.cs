@@ -703,6 +703,77 @@ public class CacheTests {
         Assert.Equal(1, cache.MshrMerges);
     }
 
+    // ── Critical-word-first / early restart ─────────────────────────────────────
+
+    // Helper: 1-set fully-associative cache with MSHRs and early restart.
+    private static SetAssociativeCache MakeCwf(IMemory backing, int mshrCount, int missLatency, int cwl) =>
+        new(backing, 64, 4, 16, missLatency, mshrCount: mshrCount, criticalWordLatency: cwl);
+
+    [Fact]
+    public void CriticalWordLatency_DefaultsToZero_Disabled() {
+        SetAssociativeCache cache = MakeFullyAssoc(new FlatMemory(256));
+        Assert.Equal(0, cache.CriticalWordLatency);
+    }
+
+    [Fact]
+    public void CriticalWordLatency_FreshMiss_ChargesReducedLatencyToRequester() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeCwf(mem, 2, 10, 3);
+
+        cache.Read(0, 1);
+        Assert.Equal(3, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.MshrOccupancy);
+    }
+
+    [Fact]
+    public void CriticalWordLatency_SecondaryHitOnSameInFlightLine_PaysFullRemaining() {
+        // The requester gets the reduced critical-word latency, but the MSHR entry still tracks
+        // the full MissLatency in the background — a different access to the same in-flight line
+        // (before it fully arrives) must pay the full remaining latency, not the critical-word one.
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeCwf(mem, 2, 10, 3);
+
+        cache.Read(0, 1); // requester: charged 3
+        cache.ConsumePendingStalls();
+        Assert.Equal(1, cache.MshrOccupancy);
+
+        cache.Read(5, 1); // same line, no ticks elapsed: merges and pays full remaining (10)
+        Assert.Equal(10, cache.ConsumePendingStalls());
+        Assert.Equal(0, cache.MshrOccupancy);
+        Assert.Equal(1, cache.MshrMerges);
+    }
+
+    [Fact]
+    public void CriticalWordLatency_CapacityStall_UsesReducedLatencyPlusMinRemaining() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeCwf(mem, 1, 10, 3);
+
+        cache.Read(0, 1); // Miss A: slot → MSHR[0] = 10, requester charged 3
+        cache.ConsumePendingStalls();
+
+        for (var i = 0; i < 4; i++) cache.TickMshr(); // MSHR[0] = 6
+
+        cache.Read(16, 1); // Miss B: all slots full. Stall = 6 + 3 = 9.
+        Assert.Equal(9, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.MshrCapacityStalls);
+    }
+
+    [Fact]
+    public void CriticalWordLatency_RequiresMshrCount_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentException>(
+            () => new SetAssociativeCache(mem, 64, 4, 16, 10, criticalWordLatency: 3)
+        );
+    }
+
+    [Fact]
+    public void CriticalWordLatency_CannotExceedMissLatency_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentException>(
+            () => new SetAssociativeCache(mem, 64, 4, 16, 10, mshrCount: 2, criticalWordLatency: 11)
+        );
+    }
+
     // ── Sequential tag/data access mode ─────────────────────────────────────────
 
     [Fact]
@@ -731,5 +802,229 @@ public class CacheTests {
     public void HitLatency_DefaultsToParallel() {
         SetAssociativeCache cache = MakeFullyAssoc(new FlatMemory(256));
         Assert.Equal(CacheAccessModeKind.Parallel, cache.AccessMode);
+    }
+
+    // ── Banked caches and port limits ────────────────────────────────────────
+
+    // 4-way, 64-byte capacity, 16-byte blocks → 1 set (all lines coexist), split into banks.
+    private static SetAssociativeCache MakeBanked(
+        IMemory backing, int bankCount, int readPorts = 0, int writePorts = 0, int missLatency = 10
+    ) => new(backing, 64, 4, 16, missLatency, bankCount: bankCount, readPorts: readPorts, writePorts: writePorts);
+
+    [Fact]
+    public void Banking_DefaultsToUnbankedUnlimited() {
+        SetAssociativeCache cache = MakeFullyAssoc(new FlatMemory(256));
+        Assert.Equal(1, cache.BankCount);
+        Assert.Equal(0, cache.ReadPorts);
+        Assert.Equal(0, cache.WritePorts);
+    }
+
+    [Fact]
+    public void Banking_DifferentBanksConcurrentHits_NoConflict() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeBanked(mem, bankCount: 2, readPorts: 1);
+
+        cache.Read(0, 1); // line 0 -> bank 0
+        cache.ConsumePendingStalls();
+        cache.TickPorts();
+        cache.Read(16, 1); // line 1 -> bank 1
+        cache.ConsumePendingStalls();
+        cache.TickPorts();
+
+        cache.Read(0, 1); // bank 0 hit, first this cycle
+        cache.ConsumePendingStalls();
+        cache.Read(16, 1); // bank 1 hit, same cycle as the bank-0 access above: no conflict
+        Assert.Equal(0, cache.ConsumePendingStalls());
+        Assert.Equal(0, cache.BankConflicts);
+    }
+
+    [Fact]
+    public void Banking_SameBankConcurrentHits_SecondPaysConflictStall() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeBanked(mem, bankCount: 2, readPorts: 1);
+
+        cache.Read(0, 1); // line 0 -> bank 0
+        cache.ConsumePendingStalls();
+        cache.TickPorts();
+        cache.Read(32, 1); // line 2 -> bank 0 too (2 % 2 == 0)
+        cache.ConsumePendingStalls();
+        cache.TickPorts();
+
+        cache.Read(0, 1); // bank 0 hit, uses the one read port this cycle
+        cache.ConsumePendingStalls();
+        cache.Read(32, 1); // bank 0 hit, same cycle: port already used, pays 1-cycle conflict stall
+        Assert.Equal(1, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.BankConflicts);
+    }
+
+    [Fact]
+    public void Banking_TickPorts_ResetsUsageEachCycle() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeBanked(mem, bankCount: 1, readPorts: 1);
+
+        cache.Read(0, 1);
+        cache.ConsumePendingStalls();
+        cache.TickPorts();
+        cache.Read(4, 1); // new cycle, same (only) bank: no conflict
+        Assert.Equal(0, cache.ConsumePendingStalls());
+        Assert.Equal(0, cache.BankConflicts);
+    }
+
+    [Fact]
+    public void Banking_ReadAndWritePorts_AreIndependentPools() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeBanked(mem, bankCount: 1, readPorts: 1, writePorts: 1);
+
+        cache.Read(0, 1); // consumes the one read port
+        cache.ConsumePendingStalls();
+        cache.Write(0, 0xAB, 1); // consumes the one write port: separate pool, no conflict
+        Assert.Equal(0, cache.ConsumePendingStalls());
+        Assert.Equal(0, cache.BankConflicts);
+    }
+
+    [Fact]
+    public void Banking_WritePortConflict_ChargesStallAndCounts() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeBanked(mem, bankCount: 1, writePorts: 1);
+
+        cache.Write(0, 1, 1); // uses the one write port this cycle
+        cache.ConsumePendingStalls();
+        cache.Write(4, 2, 1); // same (only) bank, same cycle: conflict
+        cache.ConsumePendingStalls();
+        Assert.Equal(1, cache.BankConflicts);
+    }
+
+    [Fact]
+    public void Banking_ZeroBankCount_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SetAssociativeCache(mem, 64, 4, 16, 10, bankCount: 0));
+    }
+
+    [Fact]
+    public void Banking_NegativeReadPorts_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SetAssociativeCache(mem, 64, 4, 16, 10, readPorts: -1));
+    }
+
+    [Fact]
+    public void Banking_NegativeWritePorts_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SetAssociativeCache(mem, 64, 4, 16, 10, writePorts: -1));
+    }
+
+    // ── Per-sector dirty/valid bits ──────────────────────────────────────────
+
+    // 4-way, 64-byte capacity, 16-byte blocks → 1 set, split into 2 sectors of 8 bytes each.
+    private static SetAssociativeCache MakeSectored(IMemory backing, int sectorBytes, int missLatency = 10) =>
+        new(backing, 64, 4, 16, missLatency, sectorBytes: sectorBytes);
+
+    private static SetAssociativeCache MakeSectoredWriteBack(IMemory backing, int sectorBytes, int missLatency = 10) =>
+        new(
+            backing, 64, 4, 16, missLatency, writePolicy: WritePolicyKind.WriteBack,
+            writeMissPolicy: WriteMissPolicyKind.WriteAllocate, sectorBytes: sectorBytes
+        );
+
+    [Fact]
+    public void Sectoring_DefaultsToDisabled() {
+        SetAssociativeCache cache = MakeFullyAssoc(new FlatMemory(256));
+        Assert.Equal(0, cache.SectorBytes);
+    }
+
+    [Fact]
+    public void Sectoring_Disabled_IsSectorResidentMatchesTagResidency() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeFullyAssoc(mem);
+
+        Assert.False(cache.IsSectorResident(0)); // line not resident at all yet
+        cache.Read(0, 1);
+        cache.ConsumePendingStalls();
+        Assert.True(cache.IsSectorResident(0));
+        Assert.True(cache.IsSectorResident(8)); // same line, no sector granularity when disabled
+    }
+
+    [Fact]
+    public void Sectoring_ColdMiss_OnlyFetchesTouchedSector() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeSectored(mem, sectorBytes: 8);
+
+        cache.Read(0, 1); // fresh miss: fetches sector 0 [0..7] only
+        cache.ConsumePendingStalls();
+
+        Assert.True(cache.IsSectorResident(0));
+        Assert.False(cache.IsSectorResident(8)); // sector 1 left untouched
+        Assert.Equal(1, cache.SectorFills);
+    }
+
+    [Fact]
+    public void Sectoring_LaterAccessToUntouchedSector_PaysMissLatencyAgain() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeSectored(mem, sectorBytes: 8, missLatency: 10);
+
+        cache.Read(0, 1); // full miss: tag install + sector 0 fetch
+        Assert.Equal(10, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.Misses);
+        Assert.Equal(1, cache.SectorFills);
+
+        cache.Read(8, 1); // tag hit, but sector 1 was never fetched: a sector miss
+        Assert.Equal(10, cache.ConsumePendingStalls()); // pays MissLatency again, for the sector alone
+        Assert.Equal(1, cache.Hits); // tag-level hit/miss counters are unaffected by sector misses
+        Assert.Equal(1, cache.Misses);
+        Assert.Equal(2, cache.SectorFills);
+        Assert.True(cache.IsSectorResident(8));
+    }
+
+    [Fact]
+    public void Sectoring_DirtyWriteback_OnlyFlushesDirtySectors() {
+        var mem = new FlatMemory(256);
+        for (ulong a = 0; a < 16; a++) mem.Write(a, 0xEE, 1); // seed line 0 with a known pattern
+
+        SetAssociativeCache cache = MakeSectoredWriteBack(mem, sectorBytes: 8);
+
+        cache.Write(0, 0x11, 1); // write-allocate miss: fetches + dirties sector 0 only
+        cache.ConsumePendingStalls();
+
+        // 4-way, 1 set: fill the remaining 3 ways, then a 5th distinct line evicts line 0 (LRU).
+        cache.Read(16, 1);
+        cache.Read(32, 1);
+        cache.Read(48, 1);
+        cache.ConsumePendingStalls();
+        cache.Read(64, 1);
+        cache.ConsumePendingStalls();
+
+        Assert.Equal(0x11UL, mem.Read(0, 1)); // dirty sector 0 written back
+        Assert.Equal(0xEEUL, mem.Read(8, 1)); // sector 1 was never touched: backing untouched
+    }
+
+    [Fact]
+    public void Sectoring_Prefetch_WarmsWholeLine() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeSectored(mem, sectorBytes: 8);
+
+        cache.Prefetch(0);
+
+        Assert.True(cache.IsSectorResident(0));
+        Assert.True(cache.IsSectorResident(8));
+    }
+
+    [Fact]
+    public void Sectoring_NonPowerOfTwoSectorBytes_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentException>(() => new SetAssociativeCache(mem, 64, 4, 16, 10, sectorBytes: 6));
+    }
+
+    [Fact]
+    public void Sectoring_SectorBytesExceedingBlockBytes_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentException>(() => new SetAssociativeCache(mem, 64, 4, 16, 10, sectorBytes: 32));
+    }
+
+    [Fact]
+    public void Sectoring_CombinedWithWbCapacity_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentException>(
+            () => new SetAssociativeCache(
+                mem, 64, 4, 16, 10, writePolicy: WritePolicyKind.WriteBack, wbCapacity: 4, sectorBytes: 8
+            )
+        );
     }
 }

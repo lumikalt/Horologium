@@ -1,3 +1,4 @@
+using Orrery.Cache;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
@@ -10,7 +11,10 @@ namespace Tests.RiscV32.Extensions;
 ///     Tests for Zawrs, Zicbom, Zicboz, and Zimop NOP/minor-effect extensions.
 ///     <para>
 ///         Zawrs: wrs.nto / wrs.sto — NOP in single-core simulation.
-///         Zicbom: cbo.inval / cbo.clean / cbo.flush — NOP (no coherence model).
+///         Zicbom: cbo.inval / cbo.clean / cbo.flush — NOP on an uncached memory chain (nothing to
+///         maintain); against a configured write-back D-cache they drive real dirty-line state
+///         (clean = writeback and keep, flush = writeback and invalidate, inval = discard without
+///         writeback) — see the cache-backed tests below.
 ///         Zicboz: cbo.zero — zeros a 64-byte cache-line-aligned block.
 ///         Zimop: mop.r.N / mop.rr.N — always write 0 to rd.
 ///     </para>
@@ -145,6 +149,67 @@ public class ZawrsZicbomZicbozZimopTests {
         ];
         byte[] after = RunAndReadMemory(prog, sentinel, 4, m => { m.Load(sentinel, before); });
         Assert.Equal(before, after);
+    }
+
+    // ── Zicbom cache-backed tests ────────────────────────────────────────────
+
+    private static MemoryConfig WriteBackDCacheConfig() => new(
+        CacheCapacityBytes: 64, CacheWays: 4, CacheBlockBytes: 16, CacheMissLatency: 5,
+        CacheWritePolicy: WritePolicyKind.WriteBack, CacheWriteMissPolicy: WriteMissPolicyKind.WriteAllocate
+    );
+
+    private static SingleCycleTrain RunWithDCache(uint[] instructions, out FlatMemory mem) {
+        mem = new FlatMemory(0x4000);
+        for (var i = 0; i < instructions.Length; i++)
+            mem.Load(CodeBase + (ulong)(i * 4), BitConverter.GetBytes(instructions[i]));
+        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, CodeBase, dMemConfig: WriteBackDCacheConfig());
+        train.Run(200);
+        return train;
+    }
+
+    [Fact]
+    public void CboClean_DirtyLine_WritesBackAndStaysResident() {
+        uint[] prog = [
+            Addi(1, 0, 0x40), // x1 = 0x40 (cache-line-aligned)
+            Addi(3, 0, 0x2A), // x3 = 42
+            Sw(1, 3, 0),      // mem[0x40] = 42 (write-allocate miss: dirties the line in cache)
+            CboClean(1),      // cbo.clean(x1): writeback, stays resident
+            EBreak(),
+        ];
+        SingleCycleTrain train = RunWithDCache(prog, out FlatMemory mem);
+
+        Assert.True(train.DCache!.IsSectorResident(0x40)); // still resident after clean
+        Assert.Equal(42UL, mem.Read(0x40, 4)); // dirty data written back to backing
+    }
+
+    [Fact]
+    public void CboFlush_DirtyLine_WritesBackAndInvalidates() {
+        uint[] prog = [
+            Addi(1, 0, 0x40),
+            Addi(3, 0, 0x2A),
+            Sw(1, 3, 0),
+            CboFlush(1), // cbo.flush(x1): writeback, then invalidate
+            EBreak(),
+        ];
+        SingleCycleTrain train = RunWithDCache(prog, out FlatMemory mem);
+
+        Assert.False(train.DCache!.IsSectorResident(0x40)); // invalidated
+        Assert.Equal(42UL, mem.Read(0x40, 4)); // dirty data written back before invalidate
+    }
+
+    [Fact]
+    public void CboInval_DirtyLine_DiscardsWithoutWritingBack() {
+        uint[] prog = [
+            Addi(1, 0, 0x40),
+            Addi(3, 0, 0x2A),
+            Sw(1, 3, 0),
+            CboInval(1), // cbo.inval(x1): discard dirty data, invalidate
+            EBreak(),
+        ];
+        SingleCycleTrain train = RunWithDCache(prog, out FlatMemory mem);
+
+        Assert.False(train.DCache!.IsSectorResident(0x40)); // invalidated
+        Assert.Equal(0UL, mem.Read(0x40, 4)); // dirty data discarded, never reached backing
     }
 
     // ── Zicboz tests ─────────────────────────────────────────────────────────
