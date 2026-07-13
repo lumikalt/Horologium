@@ -11,9 +11,15 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Branch Prediction
 
-- [ ] Branch pre-computation (TEA): https://hps.ece.utexas.edu/pub/TEA.pdf
-- [ ] CBP-2025 front runner: correlate on register values rather than history.
-- [ ] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020
+- [x] Branch pre-computation (TEA). — Deshmukh, Cai & Patt, "Timely, Efficient, and Accurate Branch
+  Precomputation", MICRO 2024
+- [x] CBP-2025 front runners: correlate on register values rather than history. — Koizumi et al., "RUNLTS:
+  Register-value-aware Predictor Utilizing Nested Large Tables"; Man et al., "LVCP: A Load Value Correlated
+  Predictor for TAGE-SC-L", CBP 2025
+- [x] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020
+- [ ] CBP-style pluggable predictor-submission API: a stable interface (register file/PC/history snapshot in,
+  taken/not-taken out) so third-party CBP submissions can be dropped into Horologium with minimal glue, rather
+  than hand-ported one at a time as with TEA/RUNLTS/LVCP/BranchNet.
 - [ ] Multiperspective Perceptron. — Tarjan & Skadron, IEEE Trans. Computers 2005
 - [ ] Bullseye/SDM as H2P helpers.
 - [ ] Indirect branch predictor: VTAGE/iBMETA variant for computed jumps and virtual dispatch.

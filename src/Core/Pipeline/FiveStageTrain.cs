@@ -432,6 +432,14 @@ internal sealed class PipelineCore : Gear {
          && _predictor is IVectorAwareBranchPredictor vbpV)
             vbpV.NotifyVectorInstruction(exMemLast.Pc);
 
+        // Notify value-aware predictor of the register value this instruction produced.
+        if (exMemLast is { IsValid: true, Result.RegisterResult.HasValue: true, DestinationRegister: >= 0, }
+         && _predictor is IValueAwareBranchPredictor vabp)
+            vabp.NotifyRegisterResult(
+                exMemLast.Pc, exMemLast.DestinationRegister, exMemLast.Result.RegisterResult.Value,
+                exMemLast.Instruction?.Class == ToothClass.Load
+            );
+
         _if.Stall = stall;
         _id.Stall = stall;
         _if.Flush = flush;

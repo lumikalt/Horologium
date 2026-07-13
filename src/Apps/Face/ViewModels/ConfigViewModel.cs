@@ -183,6 +183,10 @@ public partial class ConfigViewModel : ObservableObject {
         "llbp_x",
         "vla_tage",
         "true_oracle",
+        "runlts",
+        "lvcp",
+        "branchnet",
+        "tea",
     ];
 
     // ReSharper disable once PartialMethodParameterNameMismatch
@@ -244,6 +248,10 @@ public partial class ConfigViewModel : ObservableObject {
             "llbp_x"      => BranchPredictorConfig.LlbpX(),
             "vla_tage"    => BranchPredictorConfig.VlaTage(),
             "true_oracle" => BranchPredictorConfig.TrueOracle(),
+            "runlts"      => BranchPredictorConfig.Runlts(),
+            "lvcp"        => BranchPredictorConfig.Lvcp(),
+            "branchnet"   => BranchPredictorConfig.BranchNet(),
+            "tea"         => BranchPredictorConfig.Tea(),
             _             => null,
         };
 
@@ -323,6 +331,10 @@ public partial class ConfigViewModel : ObservableObject {
                 LlbpXConfig                     => "llbp_x",
                 VlaTageConfig                   => "vla_tage",
                 TrueOracleConfig                => "true_oracle",
+                RunltsConfig                    => "runlts",
+                LvcpConfig                      => "lvcp",
+                BranchNetConfig                 => "branchnet",
+                TeaConfig                       => "tea",
                 _                               => "none",
             },
             StoreBufferCapacity = nc.Config.StoreBufferCapacity,

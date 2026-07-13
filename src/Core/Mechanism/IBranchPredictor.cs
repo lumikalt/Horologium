@@ -119,6 +119,28 @@ public interface IVectorAwareBranchPredictor : IBranchPredictor {
 }
 
 /// <summary>
+///     Optional extension for predictors that correlate branch outcomes with
+///     register or load values produced by other instructions, rather than
+///     (or in addition to) branch history. The pipeline checks for this
+///     interface and calls it when available.
+/// </summary>
+public interface IValueAwareBranchPredictor : IBranchPredictor {
+    /// <summary>
+    ///     Called at execute time for every instruction that writes an integer
+    ///     destination register, giving the architectural register index and
+    ///     the produced value. <paramref name="isLoad" /> distinguishes values
+    ///     that came from memory (a load) from values computed by ALU/branch/etc.,
+    ///     since some predictors correlate specifically on load values.
+    ///     <para>
+    ///         Fires for every dynamic instance, including ones that later turn out
+    ///         to be on the wrong (mispredicted) path — real hardware cannot tell the
+    ///         difference at execute time either.
+    ///     </para>
+    /// </summary>
+    void NotifyRegisterResult(ulong pc, int destReg, ulong value, bool isLoad);
+}
+
+/// <summary>
 ///     The prediction made for a branch instruction.
 /// </summary>
 public readonly record struct BranchPrediction(

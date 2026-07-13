@@ -27,6 +27,10 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(LlbpConfig), "llbp")]
 [JsonDerivedType(typeof(LlbpXConfig), "llbp_x")]
 [JsonDerivedType(typeof(VlaTageConfig), "vla_tage")]
+[JsonDerivedType(typeof(RunltsConfig), "runlts")]
+[JsonDerivedType(typeof(LvcpConfig), "lvcp")]
+[JsonDerivedType(typeof(BranchNetConfig), "branchnet")]
+[JsonDerivedType(typeof(TeaConfig), "tea")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
@@ -76,6 +80,10 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig Llbp() => new LlbpConfig();
     public static BranchPredictorConfig LlbpX() => new LlbpXConfig();
     public static BranchPredictorConfig VlaTage() => new VlaTageConfig();
+    public static BranchPredictorConfig Runlts() => new RunltsConfig();
+    public static BranchPredictorConfig Lvcp() => new LvcpConfig();
+    public static BranchPredictorConfig BranchNet() => new BranchNetConfig();
+    public static BranchPredictorConfig Tea() => new TeaConfig();
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -174,5 +182,49 @@ public sealed record TrueOracleConfig : BranchPredictorConfig {
             commitObserver: recorder
         ).Run(long.MaxValue);
         return new TrueOraclePredictor(recorder.Trace);
+    }
+}
+
+public sealed record RunltsConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new RunltsPredictor();
+}
+
+public sealed record LvcpConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new LvcpPredictor();
+}
+
+public sealed record BranchNetConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() =>
+        throw new InvalidOperationException(
+            "BranchNetConfig requires a functional pre-pass. Call Build(mechanism, workload) instead."
+        );
+
+    public override IBranchPredictor Build(IMechanism mechanism, IWorkload workload) {
+        var preMemory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(preMemory);
+        var profiler = new BranchNetPredictor.BranchProfiler(mechanism.Decoder);
+        new SingleCycleTrain(
+            mechanism, workload.WrapMemory(preMemory), workload.EntryPoint,
+            commitObserver: profiler
+        ).Run(long.MaxValue);
+        return BranchNetPredictor.FromProfile(profiler);
+    }
+}
+
+public sealed record TeaConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() =>
+        throw new InvalidOperationException(
+            "TeaConfig requires a functional pre-pass. Call Build(mechanism, workload) instead."
+        );
+
+    public override IBranchPredictor Build(IMechanism mechanism, IWorkload workload) {
+        var preMemory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(preMemory);
+        var profiler = new TeaPredictor.TeaProfiler(mechanism.Decoder);
+        new SingleCycleTrain(
+            mechanism, workload.WrapMemory(preMemory), workload.EntryPoint,
+            commitObserver: profiler
+        ).Run(long.MaxValue);
+        return TeaPredictor.FromProfile(profiler);
     }
 }

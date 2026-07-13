@@ -1798,6 +1798,15 @@ internal sealed class OoOPipelineCore : Gear {
             }
         }
 
+        // Notify value-aware predictor of the register value this instruction produced.
+        if (_predictor is IValueAwareBranchPredictor vabp
+         && issued.Instr.DestinationRegister >= 0
+         && regValue.HasValue)
+            vabp.NotifyRegisterResult(
+                issued.Pc, issued.Instr.DestinationRegister, regValue.Value,
+                issued.Instr.Class == ToothClass.Load
+            );
+
         return new ExecResult(
             issued.RobIdx, issued.PhysDest,
             regValue, resolvedNextPc, er.Trap,
