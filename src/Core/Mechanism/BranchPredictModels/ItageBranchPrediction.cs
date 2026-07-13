@@ -1,14 +1,20 @@
 namespace Mechanism.BranchPredictModels;
 
 /// <summary>
-///     ITTAGE: Indirect Target predictor using Tagged tables with Geometric History lengths
-///     (Michaud 2011, refined by Seznec).
+///     ITTAGE: Indirect Target predictor using Tagged tables with Geometric History lengths.
+///     — Seznec, "A 64-Kbytes ITTAGE Indirect Branch Predictor", CBP-3/JWAC-2, 2007.
 ///     <para>
 ///         Applies the TAGE philosophy to indirect-branch target prediction. N tagged tables
 ///         at geometrically increasing history lengths each store a full predicted target
-///         address. The longest-matching history entry wins; on a target misprediction a new
-///         entry is allocated in the next eligible longer-history table. If no table slot is
-///         free, usefulness counters are decayed to open one on the next miss.
+///         address plus a 2-bit confidence counter (Ctr) and a 2-bit usefulness counter (U).
+///         The longest-matching history entry provides the target. On a misprediction the
+///         provider entry's Ctr is decremented first (hysteresis); only once Ctr reaches zero
+///         does a further miss overwrite the stored Target. A new entry is allocated in the
+///         next eligible longer-history table (U == 0 or invalid) with Ctr weak and U cleared;
+///         if no table slot is free, usefulness counters are decayed to open one on a future
+///         miss. U is incremented when the provider's target beat the alternate (shorter- or
+///         un-tagged-history) prediction, decremented when it lost — same discipline as
+///         <see cref="LTagePredictor" />'s usefulness bits.
 ///     </para>
 ///     <para>
 ///         Direction is predicted from a bimodal base (2-bit saturating counters). Real
@@ -51,7 +57,8 @@ public sealed class IttagePredictor : IBranchPredictor {
     /// <inheritdoc />
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         bool dir = _base[BaseIdx(pc)] >= 2;
-        ulong target = knownTarget.HasValue ? knownTarget.Value : PredictTarget(pc);
+        if (knownTarget.HasValue) return new BranchPrediction(dir, knownTarget.Value);
+        IttageLookup(pc, out _, out ulong target, out _);
         return new BranchPrediction(dir, target);
     }
 
@@ -60,21 +67,28 @@ public sealed class IttagePredictor : IBranchPredictor {
         _hist.Commit(
             taken, () => {
                 // Capture state before any writes.
-                int provider = FindProvider(pc);
-                ulong prevTarget = provider >= 0
-                    ? _tables[provider][TableIdx(pc, provider)].Target
-                    : _btb.TryGetValue(pc, out ulong bt)
-                        ? bt
-                        : pc + 4;
-                bool targetCorrect = prevTarget == actualTarget;
+                IttageLookup(pc, out int provider, out ulong providerTarget, out ulong altTarget);
+                bool targetCorrect = providerTarget == actualTarget;
+                bool providerBeatAlt = providerTarget != altTarget;
 
                 if (taken) _btb[pc] = actualTarget;
                 Sat2(ref _base[BaseIdx(pc)], taken);
 
                 if (provider >= 0) {
                     ref IttageEntry e = ref _tables[provider][TableIdx(pc, provider)];
-                    e.Target = actualTarget;
-                    if (!targetCorrect && e.U > 0) e.U--;
+                    if (targetCorrect) {
+                        if (e.Ctr < 3) e.Ctr++;
+                        if (providerBeatAlt && e.U < 3) e.U++;
+                    }
+                    else {
+                        // Hysteresis: weaken confidence first; only overwrite the stored
+                        // target once confidence is exhausted (Seznec 2007, §1.1.2).
+                        if (e.Ctr > 0)
+                            e.Ctr--;
+                        else
+                            e.Target = actualTarget;
+                        if (providerBeatAlt && e.U > 0) e.U--;
+                    }
                 }
 
                 if (!targetCorrect) AllocateOrDecay(pc, actualTarget, provider + 1);
@@ -89,24 +103,21 @@ public sealed class IttagePredictor : IBranchPredictor {
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
-    private ulong PredictTarget(ulong pc) {
-        ulong target = _btb.TryGetValue(pc, out ulong t) ? t : pc + 4;
-        for (var i = 0; i < IttagePredictor.NumTables; i++) {
-            ref IttageEntry e = ref _tables[i][TableIdx(pc, i)];
-            if (e.Valid && e.Tag == (ushort)TableTag(pc, i)) target = e.Target; // longer history overrides shorter
-        }
+    // Scan tables shortest→longest; the longest tag match is the provider, the
+    // second-longest is the alternate (mirrors LTagePredictor.TageLookup).
+    private void IttageLookup(ulong pc, out int provider, out ulong providerTarget, out ulong altTarget) {
+        ulong baseTarget = _btb.TryGetValue(pc, out ulong bt) ? bt : pc + 4;
+        provider = -1;
+        providerTarget = baseTarget;
+        altTarget = baseTarget;
 
-        return target;
-    }
-
-    private int FindProvider(ulong pc) {
-        int provider = -1;
         for (var t = 0; t < IttagePredictor.NumTables; t++) {
             ref IttageEntry e = ref _tables[t][TableIdx(pc, t)];
-            if (e.Valid && e.Tag == (ushort)TableTag(pc, t)) provider = t;
+            if (!e.Valid || e.Tag != (ushort)TableTag(pc, t)) continue;
+            altTarget = providerTarget;
+            provider = t;
+            providerTarget = e.Target;
         }
-
-        return provider;
     }
 
     private void AllocateOrDecay(ulong pc, ulong target, int startTable) {
@@ -115,6 +126,7 @@ public sealed class IttagePredictor : IBranchPredictor {
             if (!e.Valid || e.U == 0) {
                 e.Tag = (ushort)TableTag(pc, t);
                 e.Target = target;
+                e.Ctr = 1; // weak confidence (Seznec 2007, §1.1.2: "confidence counter is set to weak")
                 e.U = 0;
                 e.Valid = true;
                 return;
@@ -164,7 +176,8 @@ public sealed class IttagePredictor : IBranchPredictor {
     private struct IttageEntry {
         public ushort Tag;
         public ulong Target;
-        public byte U; // 2-bit usefulness
+        public byte Ctr; // 2-bit confidence in Target (hysteresis before overwrite)
+        public byte U;   // 2-bit usefulness (provider beat alternate)
         public bool Valid;
     }
 }

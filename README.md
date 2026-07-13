@@ -120,7 +120,10 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   `HazardUnit` handles RAW stall detection and register forwarding (controlled by a `forwardingEnabled` flag). Branch
   handling uses a pluggable `IBranchPredictor`; built-in implementations include static predictors (`AlwaysNotTaken`,
   `AlwaysTaken`, `AlwaysBackwardNotForwards`), 1-bit and 2-bit saturating counter predictors, correlated (m,n), Gselect,
-  Gshare, L-TAGE (TAGE with a loop predictor overlay), IMLI (Inter-Mediated Loop Iteration — single shared
+  Gshare, L-TAGE (TAGE with a loop predictor overlay), ITTAGE (Indirect Target TAGE — tagged geometric-history
+  tables store predicted *target addresses* instead of counters, each entry with a confidence counter for
+  update hysteresis and a usefulness bit for allocation, so the same indirect-branch PC can resolve to different
+  targets depending on execution history, e.g. virtual dispatch; Seznec, CBP-3/JWAC-2, 2007), IMLI (Inter-Mediated Loop Iteration — single shared
   loop-iteration counter indexes the PHT so body-branch predictions are iteration-specific; Jiménez, IEEE CAL 2018),
   LLBP (Last-Level Branch Predictor — context-addressed backing store over TAGE-SC-L; Rolling Context Register hashes
   recent taken-branch PCs into a context ID, patterns indexed by TAGE's PC×GHR tags; Schall et al., MICRO 2024),
@@ -151,7 +154,21 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   compiled to a native shared library via `native/CbpNgShim/build.sh`; drives `predict1`/`predict2`/`update_condbr`/
   `update_cycle` through the harcom clocked-register hardware-timing-modeling DSL one prediction block at a time;
   desktop-only, and scoped to in-order/shallow pipelines since harcom predictors keep per-block state in shared
-  registers that a second outstanding prediction would clobber), plus a `ReturnAddressStack`
+  registers that a second outstanding prediction would clobber), Bullseye (H2P-branch subsystem layered on TAGE-SC-L
+  via a HIT — H2P Identification Table — that admits branches past adaptive execution/misprediction thresholds, then
+  arbitrates between TAGE-SC-L and a dual local/global perceptron pair trained with Seznec's O-GEHL dynamic-threshold
+  rule, filtering TAGE's own update after sustained perceptron-only wins; Behrendt, Pun &amp; Nair, "Taming Wild
+  Branches: Overcoming Hard-to-Predict Branches using the Bullseye Predictor", CBP 2025), and HYPRE (a
+  hyperdimensional-computing / sparse-distributed-memory predictor: per-history-length HyperVector accumulators
+  (Taken/Not-Taken) keyed on a deterministic hash of PC and folded history, longest-match-wins by Hamming-distance
+  threshold against an HD-bimodal fallback, trained one-shot-learning style — reinforced only when not already
+  confidently correct; Vougioukas, Sandberg &amp; Nikoleris, "Branch Predicting with Sparse Distributed Memories",
+  arXiv:2110.09166, 2021), and MPP (Multiperspective Perceptron — five hashed "perspective" feature
+  tables (BlurryPath, RecencyPos, GhistModPath, and backward/forward IMLI taken-streak counters,
+  matching gem5's `MultiperspectivePerceptronTAGE8KB` reference configuration) whose weighted sum is
+  folded additively into TAGE-SC-L's own statistical-corrector total before the existing threshold
+  decision, trained whenever that combined total disagrees with or is under-confident about the
+  outcome; Jiménez, "Multiperspective Perceptron Predictor", CBP 2025), plus a `ReturnAddressStack`
   wrapper for call/return prediction, and a `TrueOraclePredictor` that runs a
   `SingleCycleTrain` functional pre-pass to collect the complete branch trace and replay it with zero mispredictions (
   useful as an IPC upper bound). Both instruction and data memory support optional set-associative caches and TLBs. A

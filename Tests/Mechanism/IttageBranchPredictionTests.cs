@@ -49,6 +49,38 @@ public class IttageBranchPredictionTests {
     }
 
     [Fact]
+    public void IndirectTarget_TwoHistoryContexts_LearnDistinctTargets() {
+        // ITTAGE's whole point: the same PC resolves to different targets depending on
+        // execution history (e.g. virtual dispatch). Prime two distinct global-history
+        // contexts with different not-taken branches, then train the shared indirect PC
+        // with a different target under each context; both must be predicted correctly,
+        // which is only possible via tagged-table entries (the tagless BTB alone can't
+        // distinguish them since it's overwritten on every taken update).
+        var p = new IttagePredictor();
+        ulong pc = 0x2100, targetA = 0xBEEF_0000, targetB = 0xFEED_0000;
+
+        void ContextA() {
+            for (var i = 0; i < 24; i++) p.Update(0x100, false, 0x104);
+        }
+
+        void ContextB() {
+            for (var i = 0; i < 24; i++) p.Update(0x200, true, 0x204);
+        }
+
+        for (var i = 0; i < 64; i++) {
+            ContextA();
+            p.Update(pc, true, targetA);
+            ContextB();
+            p.Update(pc, true, targetB);
+        }
+
+        ContextA();
+        Assert.Equal(targetA, p.Predict(pc).PredictedTarget);
+        ContextB();
+        Assert.Equal(targetB, p.Predict(pc).PredictedTarget);
+    }
+
+    [Fact]
     public void Config_RoundTrip() {
         var cfg = new IttageConfig();
         string json = JsonSerializer.Serialize<BranchPredictorConfig>(cfg);

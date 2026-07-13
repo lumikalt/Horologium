@@ -14,7 +14,10 @@ namespace Mechanism.BranchPredictModels;
 /// </summary>
 public class TageScLPredictor : LTagePredictor {
     private const int ScTableSize = 128;
-    private const int ScThreshold = 10;
+
+    /// <summary>Magnitude beyond which the statistical corrector overrides TAGE's direction.</summary>
+    protected const int ScThreshold = 10;
+
     private static readonly int[] ScHistLengths = [0, 8, 16, 24,];
 
     // SC tables: one per history length; indexed by (pc >> 2) XOR folded history.
@@ -46,7 +49,8 @@ public class TageScLPredictor : LTagePredictor {
         int preScore,
         bool loopWasConfident
     ) {
-        if (loopWasConfident) return; // loop result was authoritative; SC doesn't train on it
+        if (SuppressTageUpdate(pc)) return; // TAGE substrate frozen for this PC (e.g. Bullseye filtering)
+        if (loopWasConfident) return;       // loop result was authoritative; SC doesn't train on it
 
         int preTotal = preScore + ScSum(pc);
         bool scPred = Math.Abs(preTotal) > TageScLPredictor.ScThreshold ? preTotal >= 0 : provPred;
@@ -56,7 +60,8 @@ public class TageScLPredictor : LTagePredictor {
 
     // ── SC internals ──────────────────────────────────────────────────────────
 
-    private int ScSum(ulong pc) {
+    /// <summary>Sum of all statistical-corrector table weights for <paramref name="pc" />.</summary>
+    protected int ScSum(ulong pc) {
         var sum = 0;
         for (var i = 0; i < TageScLPredictor.ScHistLengths.Length; i++) sum += _sc[i][ScIdx(pc, i)];
         return sum;

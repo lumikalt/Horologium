@@ -33,6 +33,9 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(TeaConfig), "tea")]
 [JsonDerivedType(typeof(CbpPluginConfig), "cbp_plugin")]
 [JsonDerivedType(typeof(CbpNgPluginConfig), "cbp_ng_plugin")]
+[JsonDerivedType(typeof(BullseyeConfig), "bullseye")]
+[JsonDerivedType(typeof(HypreConfig), "hypre")]
+[JsonDerivedType(typeof(MultiperspectivePerceptronConfig), "multiperspective_perceptron")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
@@ -90,6 +93,10 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig CbpPlugin(string libraryPath) => new CbpPluginConfig(libraryPath);
 
     public static BranchPredictorConfig CbpNgPlugin(string libraryPath) => new CbpNgPluginConfig(libraryPath);
+
+    public static BranchPredictorConfig Bullseye() => new BullseyeConfig();
+    public static BranchPredictorConfig Hypre() => new HypreConfig();
+    public static BranchPredictorConfig MultiperspectivePerceptron() => new MultiperspectivePerceptronConfig();
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -251,4 +258,16 @@ public sealed record CbpPluginConfig(string LibraryPath) : BranchPredictorConfig
 /// </summary>
 public sealed record CbpNgPluginConfig(string LibraryPath) : BranchPredictorConfig {
     public override IBranchPredictor Build() => new CbpNgFfiPredictor(LibraryPath);
+}
+
+public sealed record BullseyeConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new BullseyePredictor();
+}
+
+public sealed record HypreConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new HyprePredictor();
+}
+
+public sealed record MultiperspectivePerceptronConfig : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new MultiperspectivePerceptronPredictor();
 }

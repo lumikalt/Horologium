@@ -26,7 +26,8 @@ public class LTagePredictor : IBranchPredictor {
     /// <summary>Bit width of the partial tag stored in each TAGE entry.</summary>
     protected const int TagWidth = 9; // bits of partial tag per entry
 
-    private const int MaxHist = 34;
+    /// <summary>Width, in bits, of the global history register.</summary>
+    protected const int MaxHist = 34;
 
     // ── Loop predictor parameters ─────────────────────────────────────────────
     private const int LoopIndexBits = 5; // 32-entry loop table
@@ -108,8 +109,11 @@ public class LTagePredictor : IBranchPredictor {
         TageLookup(pc, out int provider, out bool provPred, out bool altPred);
         int preScore = TageScore(pc, provider);
         bool preLoopConfident = _loop[LoopIdx(pc)].Tag == (ushort)LoopTag(pc) && _loop[LoopIdx(pc)].Confident;
-        UpdateTage(pc, taken, provider, provPred, altPred);
-        UpdateLoop(pc, taken);
+        if (!SuppressTageUpdate(pc)) {
+            UpdateTage(pc, taken, provider, provPred, altPred);
+            UpdateLoop(pc, taken);
+        }
+
         OnAfterUpdate(pc, taken, provPred, preScore, preLoopConfident);
 
         _committedGhr = ((_committedGhr << 1) | (taken ? 1UL : 0UL)) & ((1UL << LTagePredictor.MaxHist) - 1);
@@ -194,6 +198,24 @@ public class LTagePredictor : IBranchPredictor {
         int preScore,
         bool loopWasConfident
     ) { }
+
+    /// <summary>
+    ///     When true, skips the TAGE table and loop table writes (and, transitively, any
+    ///     subclass's <see cref="OnAfterUpdate" /> training that itself checks this hook — see
+    ///     <see cref="TageScLPredictor.OnAfterUpdate" />) for this branch, while global history
+    ///     still advances normally. Used by <see cref="BullseyePredictor" /> to stop polluting
+    ///     the TAGE-SC-L substrate for branches its perceptron layer has taken over, without
+    ///     breaking history-based indexing for every other branch. Default false.
+    /// </summary>
+    protected virtual bool SuppressTageUpdate(ulong pc) => false;
+
+    /// <summary>
+    ///     Usefulness counter of the given PC's provider-table entry, or 0 if the PC resolved to
+    ///     the untagged base predictor. Exposed for subclasses (e.g. <see cref="BullseyePredictor" />'s
+    ///     TAGE confidence gate) that need the raw usefulness bit, not just <see cref="TageScore" />.
+    /// </summary>
+    protected byte TageUsefulness(ulong pc, int provider) =>
+        provider >= 0 ? _tage[provider][TageIdx(pc, provider)].U : (byte)0;
 
     // ── TAGE internals ────────────────────────────────────────────────────────
 

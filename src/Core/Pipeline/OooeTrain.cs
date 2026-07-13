@@ -185,7 +185,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly int _maxDecodeDepth;
 
     // MSHR (Miss Status Holding Register) capacity: limits the number of simultaneously
-    // outstanding load/atomic cache misses. Capacity 0 means unlimited (old behaviour).
+    // outstanding load/atomic cache misses. Capacity 0 means unlimited (old behavior).
     private readonly int _mshrCapacity;
     private readonly IBranchPredictor _predictor;
 
@@ -207,7 +207,7 @@ internal sealed class OoOPipelineCore : Gear {
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
     // doesn't freeze for them. Each slot holds a countdown (in cycles) until the
     // corresponding write bus penalty expires. Capacity 0 disables the feature
-    // and falls back to lump-sum charging (old behaviour).
+    // and falls back to lump-sum charging (old behavior).
     private readonly int _wbCapacity;
     private readonly int[] _wbSlots; // per-slot miss countdown
 
@@ -215,7 +215,7 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _branchMissCounter = null!;
     private Counter? _cacheMissStallsCounter;
 
-    // Counters (initialised in Initialize)
+    // Counters (initialized in Initialize)
     private Counter _cyclesCounter = null!;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
     private Counter? _dcacheLatePrefetchHitsCounter;
@@ -607,7 +607,7 @@ internal sealed class OoOPipelineCore : Gear {
         // identical outcome, nothing older to overlap), or when an older in-flight halt/trap will
         // redirect or stop the machine at commit: that makes this branch definitively wrong-path,
         // and the commit-time model never counts such a mispredict because the older halt/trap
-        // retires first (e.g. speculative fetch of a loop branch past a program-terminating ebreak).
+        // retires first (e.g., speculative fetch of a loop branch past a program-terminating ebreak).
         if (haveMispredict && _rob.Head.InstrId != oldestMispredId && !AnyOlderHaltOrTrap(oldestMispredId)) {
             RobEntry b = FindRobByInstrId(oldestMispredId);
             ulong resolvedPc = b.ResolvedNextPc.Value;
@@ -678,7 +678,7 @@ internal sealed class OoOPipelineCore : Gear {
             // ROB head, all older instructions (including the store) have committed
             // and written memory, so re-executing the load from its own PC is safe.
             // Check LQ violation before the store-write below (matters for atomics).
-            if (head.IsLoad && head.LqIdx >= 0 && _lq.At(head.LqIdx).Violated) {
+            if (head is { IsLoad: true, LqIdx: >= 0, } && _lq.At(head.LqIdx).Violated) {
                 _memViolationsCounter.Increment();
                 _storeSets?.RecordViolation(_lq.At(head.LqIdx).ViolatingStorePc, head.Pc);
                 SetFlush(head.Pc); // re-executes from the load's PC; flush clears the ROB+LQ+SQ
@@ -850,7 +850,7 @@ internal sealed class OoOPipelineCore : Gear {
             // state left by this access. Fires only for demand loads (not store-forwarded).
             // The predictor is always trained; the fill itself is dropped when every MSHR
             // slot is busy (prefetches share the miss-tracking slots with demand loads).
-            if (result.HasLoadAccess && !result.LoadWasForwarded && DLayers.Prefetcher is not null) {
+            if (result is { HasLoadAccess: true, LoadWasForwarded: false, } && DLayers.Prefetcher is not null) {
                 bool wasHit = DLayers.Cache?.LastAccessWasHit ?? true;
                 int prefCount = DLayers.Prefetcher.OnAccess(issued.Pc, result.LoadAddr, wasHit, prefBuf);
                 for (var k = 0; k < prefCount; k++) {
@@ -911,12 +911,13 @@ internal sealed class OoOPipelineCore : Gear {
                     // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
                     // Scalar store-to-load ordering is maintained through forwarding and, when
                     // necessary, memory-order violation detection and squash at the ROB head.
-                    case ToothClass.Load when HasPrecedingVectorStore(rs.RobIndex): continue;
+                    case ToothClass.Load when HasPrecedingVectorStore(rs.RobIndex):
                     // TSO fence: a load may not issue while an older store→load fence is
                     // still in the ROB — the fence itself only issues (and then retires)
                     // once the write buffer has drained, so this gate delays post-fence
                     // loads until every pre-fence store's write-bus penalty has expired.
-                    case ToothClass.Load when HasPrecedingStoreLoadFence(rs.RobIndex): continue;
+                    case ToothClass.Load when HasPrecedingStoreLoadFence(rs.RobIndex):
+                        continue;
                     // Conservative load ordering (FuLatencyConfig.ConservativeLoads): a load
                     // may not issue while any older SQ entry still has an unresolved address.
                     // Models Olympia's allow_speculative_load_exec = false.
@@ -951,7 +952,7 @@ internal sealed class OoOPipelineCore : Gear {
                     // Vector serialization: vector register renaming is not implemented.
                     // Head-gating ensures VRF writes are applied in program order.
                     case ToothClass.Vector when rs.RobIndex != _rob.HeadIndex:
-                    // Secondary-destination serialization (e.g. RV32 amocas.d's register
+                    // Secondary-destination serialization (e.g., RV32 amocas.d's register
                     // pair): the high half is delivered through SideEffect straight into
                     // architectural state, not through the PRF, so it is never renamed.
                     // Head-gating guarantees State.IntegerRegisters already reflects every
@@ -959,7 +960,6 @@ internal sealed class OoOPipelineCore : Gear {
                     // the only thing that makes its direct regs.Read() of the pair correct.
                     case ToothClass.Atomic when rs.Instruction?.SecondaryDestinationRegister >= 0
                                              && rs.RobIndex != _rob.HeadIndex:
-                        continue;
                     // SC.W serialization: the reservation check (TryConsume) must see a
                     // coherent view of the ReservationTable — all older intra-hart stores
                     // must have committed (so their MoesifCache writes, which cancel cross-hart
@@ -967,7 +967,6 @@ internal sealed class OoOPipelineCore : Gear {
                     // guarantees this without needing a commit-time re-check.
                     case ToothClass.Atomic when rs.Instruction?.IsStoreConditional == true
                                              && rs.RobIndex != _rob.HeadIndex:
-                        continue;
                     // TSO fence serialization: a store→load fence issues only at the ROB
                     // head (all older stores committed) and once the write buffer has fully
                     // drained, so every pre-fence store's write-bus penalty has expired
@@ -1146,7 +1145,7 @@ internal sealed class OoOPipelineCore : Gear {
     /// <summary>
     ///     If any older SQ entry's byte range fully contains the load's byte range, return
     ///     the forwarded bytes extracted from the stored value.  Partial overlap (store
-    ///     covers some but not all of the load's bytes) is not forwarded — the load goes
+    ///     covers some but not all the load's bytes) is not forwarded — the load goes
     ///     to memory and <see cref="CheckLoadViolations" /> will flag it on store resolution.
     ///     The youngest matching store wins (last seen in program order = head-to-tail).
     /// </summary>
@@ -1332,7 +1331,7 @@ internal sealed class OoOPipelineCore : Gear {
             if (destArch > 0 && !_rat.HasFree) break; // stall: no free physical registers
 
             // Secondary-destination RAW/WAW hazard: an older, uncommitted instruction
-            // (e.g. an RV32 amocas.d) will write one of this instruction's sources — or
+            // (e.g., an RV32 amocas.d) will write one of this instruction's sources — or
             // this instruction's own destination — through SideEffect straight into
             // architectural state, bypassing the RAT/PRF entirely. Renaming now would
             // either bind a source to the stale physical register, or (WAW) let this
@@ -1344,7 +1343,7 @@ internal sealed class OoOPipelineCore : Gear {
             // ── Source lookup BEFORE destination rename ────────────────────────
             // Tomasulo invariant: sources must be resolved against the RAT state
             // as it exists just before this instruction's rename, so that an
-            // instruction whose source == destination (e.g. addi x1,x1,1) reads
+            // instruction whose source == destination (e.g., addi x1,x1,1) reads
             // the producer's physical register, not its own pending output.
             IReadOnlyList<int> srcs = instr.SourceRegisters;
             int p1 = srcs.Count > 0 ? _rat.Lookup(srcs[0]) : -1;
@@ -1406,8 +1405,8 @@ internal sealed class OoOPipelineCore : Gear {
                 // Enqueue a pre-trap so the fault propagates through the ROB and
                 // commits in-order. Without this, _fetchFaulted=true with nothing
                 // in the ROB permanently wedges the fetcher until a flush arrives.
-                // On a wrong speculative path the PreTrap entry is squashed by the
-                // flush just like any other in-flight instruction.
+                // On a wrong speculative path the flush squashes the PreTrap entry
+                // just like any other in-flight instruction.
                 ulong faultId = _nextInstrId++;
                 _decodeQueue.Enqueue(
                     new FetchedInstr(
@@ -1421,7 +1420,7 @@ internal sealed class OoOPipelineCore : Gear {
             }
             catch (AccessViolationException) {
                 // Fetch address out of bounds. On the correct path this is a genuine instruction
-                // access fault; on a wrong path (e.g. an execute-time squash redirected fetch to a
+                // access fault; on a wrong path (e.g., an execute-time squash redirected fetch to a
                 // wrong-path branch's garbage target) the pre-trap is squashed before it commits,
                 // exactly like the illegal-instruction case above. Either way, never crash the sim.
                 ulong faultId = _nextInstrId++;
@@ -1452,7 +1451,7 @@ internal sealed class OoOPipelineCore : Gear {
                 BranchPrediction pred;
                 if (hint.IsReturn && _ras.TryPop(out ulong ret))
                     pred = BranchPrediction.Taken(ret);
-                else if (hint.IsUnconditional && hint.BranchTarget.HasValue)
+                else if (hint is { IsUnconditional: true, BranchTarget.HasValue: true, })
                     // Direct unconditional jump/call: always taken to the known target.
                     // No direction predictor needed (mirrors gem5, which never
                     // direction-predicts unconditional branches).
@@ -1496,9 +1495,8 @@ internal sealed class OoOPipelineCore : Gear {
             foreach ((_, RobEntry entry) in _rob.InOrder())
                 if (entry.InstrId != 0)
                     PEventLog.Record(entry.InstrId, entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
-            foreach (RenameEntry ri in _renameQueue)
-                if (ri.InstrId != 0)
-                    PEventLog.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Flush);
+            foreach (RenameEntry ri in _renameQueue.Where(ri => ri.InstrId != 0))
+                PEventLog.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Flush);
         }
 
         // Rename queue instructions are younger than any ROB entry. Undo them newest-first
@@ -1722,9 +1720,7 @@ internal sealed class OoOPipelineCore : Gear {
             foreach (int uid in issued.Instr.UveBranchStreams)
                 if (uid >= 0)
                     uvs.SetStreamDone(
-                        uid, StreamingEngine.IsActive(uid)
-                            ? StreamingEngine.IsExhausted(uid)
-                            : true
+                        uid, !StreamingEngine.IsActive(uid) || StreamingEngine.IsExhausted(uid)
                     ); // inactive = deactivated = done
             // so.b.ndc.D encodes the dimension as funct3 = D-1, counting from the
             // OUTERMOST dimension (Spike: EODTable.at(funct3), dimensions[0] = outermost).

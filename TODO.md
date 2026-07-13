@@ -26,9 +26,13 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] Extend CBP2025/CBP-NG integration to OoOE: `OooeTrain` can have many outstanding unresolved predictions,
   which clobbers harcom predictors' per-block register state as above. Needs either per-predictor block-state
   snapshot/restore (not generic — differs per submission) or another reconciliation strategy.
-- [ ] Multiperspective Perceptron. — Tarjan & Skadron, IEEE Trans. Computers 2005
-- [ ] Bullseye/SDM as H2P helpers.
-- [ ] Indirect branch predictor: VTAGE/iBMETA variant for computed jumps and virtual dispatch.
+- [x] Multiperspective Perceptron (MPP): hashed perceptron over many history "perspectives" combined with
+  TAGE-SC-L. — Jiménez, "Multiperspective Perceptron Predictor", CBP 2025 (updates the CBP 2016 original)
+- [x] Bullseye/SDM as H2P helpers. — Behrendt, Pun & Nair, "Taming Wild Branches: Overcoming Hard-to-Predict
+  Branches using the Bullseye Predictor", CBP 2025; Vougioukas, Sandberg & Nikoleris, "Branch Predicting with
+  Sparse Distributed Memories", arXiv:2110.09166, 2021
+- [x] Indirect branch predictor: ITTAGE variant for computed jumps and virtual dispatch. — Seznec, "A 64-Kbytes
+  ITTAGE Indirect Branch Predictor", CBP-3/JWAC-2, 2007
 
 ## Out-of-Order Execution
 

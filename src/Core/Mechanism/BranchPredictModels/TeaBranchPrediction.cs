@@ -173,7 +173,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
     private bool TryTeaPredict(ulong key, out bool dir) {
         ushort tag = CorrTag(key);
         ref CorrEntry e = ref _corr[CorrIdx(key)];
-        if (e is { Valid: true, DirChanged: false } && e.Tag == tag && e.Conf >= TeaPredictor.ConfMax) {
+        if (e is { Valid: true, DirChanged: false, } && e.Tag == tag && e.Conf >= TeaPredictor.ConfMax) {
             dir = e.Dir;
             return true;
         }
@@ -186,7 +186,7 @@ public sealed class TeaPredictor : TageScLPredictor, IValueAwareBranchPredictor 
         ushort tag = CorrTag(key);
         ref CorrEntry e = ref _corr[CorrIdx(key)];
 
-        if (e is { Valid: true, DirChanged: false } && e.Tag == tag) {
+        if (e is { Valid: true, DirChanged: false, } && e.Tag == tag) {
             if (e.Dir == taken) {
                 if (e.Conf < TeaPredictor.ConfMax) e.Conf++;
             }

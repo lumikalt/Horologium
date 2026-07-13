@@ -71,7 +71,7 @@ public static class SignalExtractor {
     /// </summary>
     /// <param name="cumulativeCounters">
     ///     When true, plain counter signals keep their raw cumulative values instead
-    ///     of being differenced into per-window deltas. Windowed and dial signals
+    ///     of being split into per-window deltas. Windowed and dial signals
     ///     are unaffected.
     /// </param>
     public static Signal? Extract(RevolutionResult result, string name, bool cumulativeCounters = false) {
