@@ -33,6 +33,15 @@ public enum WritePolicyKind { WriteThrough, WriteBack, }
 
 public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate, }
 
+/// <summary>
+///     Tag/data array access ordering, gem5's third timing knob alongside tag/data latency.
+///     <see cref="Parallel" /> probes tag and data arrays simultaneously (hit latency =
+///     max(tag, data)) — the current default, typical of small/fast L1 caches. <see cref="Sequential" />
+///     probes tags first and reads only the matching way (hit latency = tag + data) — typical of
+///     large lower-level caches where reading all ways in parallel would cost too much power.
+/// </summary>
+public enum CacheAccessModeKind { Parallel, Sequential, }
+
 /// <param name="CacheCapacityBytes">0 = disabled.</param>
 /// <param name="CacheWays">Associativity. Ignored when CacheCapacityBytes = 0.</param>
 /// <param name="CacheBlockBytes">Cache line size. Ignored when CacheCapacityBytes = 0.</param>
@@ -82,6 +91,13 @@ public enum WriteMissPolicyKind { NoWriteAllocate, WriteAllocate, }
 /// <param name="L2DataLatency">L2 data-array read cycles.</param>
 /// <param name="L3TagLatency">L3 tag-array lookup cycles.</param>
 /// <param name="L3DataLatency">L3 data-array read cycles.</param>
+/// <param name="CacheAccessMode">
+///     L1 tag/data access ordering. Parallel (default) computes hit latency as
+///     max(CacheTagLatency, CacheDataLatency); Sequential probes tags first, then only the matching
+///     way, computing hit latency as CacheTagLatency + CacheDataLatency.
+/// </param>
+/// <param name="L2AccessMode">L2 tag/data access ordering (same semantics as <see cref="CacheAccessMode" />).</param>
+/// <param name="L3AccessMode">L3 tag/data access ordering (same semantics as <see cref="CacheAccessMode" />).</param>
 /// <param name="CacheWritePolicy">
 ///     L1 write-hit policy: WriteThrough (store goes to backing immediately) or
 ///     WriteBack (store stays in cache until eviction; requires dirty tracking).
@@ -139,6 +155,9 @@ public sealed record MemoryConfig(
     int L2DataLatency = 0,
     int L3TagLatency = 0,
     int L3DataLatency = 0,
+    CacheAccessModeKind CacheAccessMode = CacheAccessModeKind.Parallel,
+    CacheAccessModeKind L2AccessMode = CacheAccessModeKind.Parallel,
+    CacheAccessModeKind L3AccessMode = CacheAccessModeKind.Parallel,
     WritePolicyKind CacheWritePolicy = WritePolicyKind.WriteThrough,
     WriteMissPolicyKind CacheWriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
     WritePolicyKind L2WritePolicy = WritePolicyKind.WriteThrough,
@@ -184,7 +203,7 @@ public sealed record MemoryLayers(
             l3 = new SetAssociativeCache(
                 current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
                 0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency,
-                cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount
+                cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode
             );
             current = l3;
         }
@@ -193,7 +212,7 @@ public sealed record MemoryLayers(
             l2 = new SetAssociativeCache(
                 current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
                 0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency,
-                cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount
+                cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode
             );
             current = l2;
         }
@@ -203,7 +222,8 @@ public sealed record MemoryLayers(
                 current, cfg.CacheCapacityBytes, cfg.CacheWays, cfg.CacheBlockBytes, cfg.CacheMissLatency,
                 cfg.Prefetcher != PrefetcherKind.None ? cfg.PrefetchLatency : 0,
                 cfg.ReplacementPolicy, cfg.CacheTagLatency, cfg.CacheDataLatency,
-                cfg.CacheWritePolicy, cfg.CacheWriteMissPolicy, cfg.CacheWbCapacity, cfg.CacheMshrCount
+                cfg.CacheWritePolicy, cfg.CacheWriteMissPolicy, cfg.CacheWbCapacity, cfg.CacheMshrCount,
+                cfg.CacheAccessMode
             );
             current = l1;
         }
@@ -264,7 +284,8 @@ public sealed record MemoryLayers(
             int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
-                s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount
+                s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
+                s.AccessMode
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -276,7 +297,8 @@ public sealed record MemoryLayers(
             int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
-                s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount
+                s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
+                s.AccessMode
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);

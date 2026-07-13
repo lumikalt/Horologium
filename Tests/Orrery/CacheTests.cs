@@ -702,4 +702,34 @@ public class CacheTests {
         Assert.Equal(1, cache.MshrOccupancy); // B still in-flight
         Assert.Equal(1, cache.MshrMerges);
     }
+
+    // ── Sequential tag/data access mode ─────────────────────────────────────────
+
+    [Fact]
+    public void HitLatency_ParallelMode_IsMaxOfTagAndData() {
+        var mem = new FlatMemory(256);
+        var cache = new SetAssociativeCache(
+            mem, 64, 4, 16, 10, tagLatency: 2, dataLatency: 5, accessMode: CacheAccessModeKind.Parallel
+        );
+
+        Assert.Equal(CacheAccessModeKind.Parallel, cache.AccessMode);
+        Assert.Equal(5, cache.HitLatency);
+    }
+
+    [Fact]
+    public void HitLatency_SequentialMode_IsSumOfTagAndData() {
+        var mem = new FlatMemory(256);
+        var cache = new SetAssociativeCache(
+            mem, 64, 4, 16, 10, tagLatency: 2, dataLatency: 5, accessMode: CacheAccessModeKind.Sequential
+        );
+
+        Assert.Equal(CacheAccessModeKind.Sequential, cache.AccessMode);
+        Assert.Equal(7, cache.HitLatency);
+    }
+
+    [Fact]
+    public void HitLatency_DefaultsToParallel() {
+        SetAssociativeCache cache = MakeFullyAssoc(new FlatMemory(256));
+        Assert.Equal(CacheAccessModeKind.Parallel, cache.AccessMode);
+    }
 }

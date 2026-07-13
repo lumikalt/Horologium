@@ -15,7 +15,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   a secondary miss to a line already in flight merges into the existing MSHR entry instead of paying a second full
   miss, and the cache continues serving hits while misses are outstanding. Makes L2/L3 non-blocking too. — Kroft,
   ISCA 1981
-- [ ] Sequential tag/data access mode: gem5's third timing knob alongside tag/data latency — hit latency
+- [x] Sequential tag/data access mode: gem5's third timing knob alongside tag/data latency — hit latency
   = tag + data (probe tags first, then read only the matching way) instead of max(tag, data); typical for large
   lower-level caches.
 - [ ] Inclusion policy per level pair: inclusive (Intel-style — lower-level eviction back-invalidates the line in

@@ -25,7 +25,10 @@ public sealed record CacheLevelSpec(
     WritePolicyKind WritePolicy = WritePolicyKind.WriteThrough,
     WriteMissPolicyKind WriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
     int WbCapacity = 0,
-    int MshrCount = 0
+    int MshrCount = 0,
+    CacheAccessModeKind AccessMode = CacheAccessModeKind.Parallel
 ) {
-    public int HitLatency => Math.Max(TagLatency, DataLatency);
+    public int HitLatency => AccessMode == CacheAccessModeKind.Sequential
+        ? TagLatency + DataLatency
+        : Math.Max(TagLatency, DataLatency);
 }

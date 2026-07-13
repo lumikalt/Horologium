@@ -51,8 +51,8 @@ public sealed class SetAssociativeCache : IMemory {
     ///     to compute hit latency; does not affect <see cref="_pendingStalls" />).
     /// </param>
     /// <param name="dataLatency">
-    ///     Cycles to read the data array (informational — hit latency is
-    ///     <c>max(tagLatency, dataLatency)</c>, matching gem5's parallel-access mode).
+    ///     Cycles to read the data array (informational — combined with
+    ///     <paramref name="accessMode" /> to compute <see cref="HitLatency" />).
     /// </param>
     /// <param name="writePolicy">
     ///     Write-hit policy: <see cref="WritePolicyKind.WriteThrough" /> stores
@@ -77,6 +77,12 @@ public sealed class SetAssociativeCache : IMemory {
     ///     countdown plus <see cref="MissLatency" />. Call <see cref="TickMshr" /> once per simulated cycle
     ///     to advance the countdowns.
     /// </param>
+    /// <param name="accessMode">
+    ///     Tag/data access ordering: <see cref="CacheAccessModeKind.Parallel" /> (default) computes
+    ///     <see cref="HitLatency" /> as <c>max(tagLatency, dataLatency)</c>; <see cref="CacheAccessModeKind.Sequential" />
+    ///     probes tags first and reads only the matching way, computing <see cref="HitLatency" /> as
+    ///     <c>tagLatency + dataLatency</c> — typical of large lower-level caches.
+    /// </param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
@@ -90,7 +96,8 @@ public sealed class SetAssociativeCache : IMemory {
         WritePolicyKind writePolicy = WritePolicyKind.WriteThrough,
         WriteMissPolicyKind writeMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
         int wbCapacity = 0,
-        int mshrCount = 0
+        int mshrCount = 0,
+        CacheAccessModeKind accessMode = CacheAccessModeKind.Parallel
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -110,6 +117,7 @@ public sealed class SetAssociativeCache : IMemory {
         int sets = capacityBytes / (ways * blockSizeBytes);
         TagLatency = tagLatency;
         DataLatency = dataLatency;
+        AccessMode = accessMode;
         MissLatency = missLatency;
         PrefetchLatency = prefetchLatency;
         WritePolicy = writePolicy;
@@ -156,7 +164,12 @@ public sealed class SetAssociativeCache : IMemory {
 
     public int TagLatency { get; }
     public int DataLatency { get; }
-    public int HitLatency => Math.Max(TagLatency, DataLatency);
+    public CacheAccessModeKind AccessMode { get; }
+
+    public int HitLatency => AccessMode == CacheAccessModeKind.Sequential
+        ? TagLatency + DataLatency
+        : Math.Max(TagLatency, DataLatency);
+
     public int MissLatency { get; }
     public int PrefetchLatency { get; }
     public WritePolicyKind WritePolicy { get; }

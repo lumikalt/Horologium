@@ -351,4 +351,36 @@ public class CacheHierarchySpecTests {
         Assert.Null(layers.L3Cache);
         Assert.Equal(99UL, layers.Accessor.Read(99, 1));
     }
+
+    // ── Sequential tag/data access mode ─────────────────────────────────────────
+
+    [Fact]
+    public void CacheLevelSpec_HitLatency_ParallelIsMaxOfTagAndData() {
+        var spec = new CacheLevelSpec(256, 4, 16, 8, TagLatency: 2, DataLatency: 5);
+        Assert.Equal(5, spec.HitLatency);
+    }
+
+    [Fact]
+    public void CacheLevelSpec_HitLatency_SequentialIsSumOfTagAndData() {
+        var spec = new CacheLevelSpec(
+            256, 4, 16, 8, TagLatency: 2, DataLatency: 5, AccessMode: CacheAccessModeKind.Sequential
+        );
+        Assert.Equal(7, spec.HitLatency);
+    }
+
+    [Fact]
+    public void Build_SequentialAccessMode_PropagatesToCache() {
+        FlatMemory backing = MakeBacking();
+        var path = new CachePathSpec(
+            [
+                new CacheLevelSpec(
+                    256, 4, 16, 8, TagLatency: 2, DataLatency: 5, AccessMode: CacheAccessModeKind.Sequential
+                ),
+            ]
+        );
+        var layers = MemoryLayers.Build(backing, path);
+
+        Assert.Equal(CacheAccessModeKind.Sequential, layers.Cache!.AccessMode);
+        Assert.Equal(7, layers.Cache.HitLatency);
+    }
 }
