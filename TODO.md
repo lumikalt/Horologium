@@ -38,11 +38,11 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ### Parallelism
 
-- [ ] Deterministic parallel multi-hart tick: BSP-style barrier synchronization deferring every cross-hart-visible
+- [x] Deterministic parallel multi-hart tick: BSP-style barrier synchronization deferring every cross-hart-visible
   coherence action (snoop state transitions included) into per-hart queues drained in fixed hart order — a
   run-to-run-reproducible replacement for the racy two-phase concurrent mode.
-- [ ] Parallelize the benchmark test suite across per-binary test collections; each run is fully independent.
-- [ ] Background checkpoint and report serialization: write checkpoint files and result tables on a worker thread
+- [x] Parallelize the benchmark test suite across per-binary test collections; each run is fully independent.
+- [x] Background checkpoint and report serialization: write checkpoint files and result tables on a worker thread
   after a synchronous state copy.
 
 ## Face

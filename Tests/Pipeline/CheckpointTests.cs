@@ -156,6 +156,48 @@ public class CheckpointTests {
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public async Task SaveAsync_WritesCompleteFile_AfterAwait() {
+        FlatMemory mem = MakeMem(CheckpointTests.SimpleProgram);
+        MachineHandle handle = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem);
+        handle.Run(1_000);
+
+        string path = Path.GetTempFileName();
+        try {
+            await ArchitecturalCheckpoint.SaveAsync(path, handle.ArchState!, mem, 99UL);
+            ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(path);
+            Assert.Equal(handle.ArchState!.Pc, chk.Pc);
+            Assert.Equal(99UL, chk.Tick);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task SaveAsync_MutatingMemoryAfterCall_DoesNotAffectCheckpoint() {
+        // The state copy must happen synchronously inside SaveAsync, before it returns —
+        // mutating memory afterwards (while the background write is in flight) must not
+        // be visible in the checkpoint.
+        byte[] prog = Encode(0x02a00093u, 0x10102023u, 0x00100073u); // addi x1,x0,42; sw x1,256(x0); ebreak
+        FlatMemory mem = MakeMem(prog);
+        MachineHandle handle = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem);
+        handle.Run(1_000);
+        Assert.Equal(42uL, mem.Read(256, 4));
+
+        string path = Path.GetTempFileName();
+        try {
+            Task save = ArchitecturalCheckpoint.SaveAsync(path, handle.ArchState!, mem, 0UL);
+            mem.Write(256, 7, 4); // mutate after the call returns — must not leak into the checkpoint
+            await save;
+
+            ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(path);
+            var mem2 = new FlatMemory(mem.SizeBytes, mem.BaseAddress);
+            MachineHandle handle2 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem2);
+            chk.RestoreInto(handle2.ArchState!, mem2);
+            Assert.Equal(42uL, mem2.Read(256, 4));
+        }
+        finally { File.Delete(path); }
+    }
+
     // ── Cross-pipeline checkpoint handoff ────────────────────────────────────
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Mechanism;
 using Orrery.Observation;
 using Orrery.Train;
@@ -27,6 +28,14 @@ namespace Tests.RiscV32.Analysis;
 /// HtifMemory provides the minimal auto-ACK, so printstr returns instead of
 /// spinning forever, allowing the benchmark to reach tohost_exit normally.
 /// </para>
+/// <para>
+/// xUnit serializes every test case within a class onto one thread (test
+/// collections, not test methods, are the parallelism unit), so a plain
+/// <c>[Theory]</c> per ELF would run all binaries one after another. Each
+/// benchmark run builds its own memory image and train with no shared state,
+/// so <see cref="RunAllBenchmarks"/> fans them out itself via <c>Parallel.ForEach</c>
+/// instead of relying on xUnit's collection-level parallelism.
+/// </para>
 /// </summary>
 public class BenchmarkTests(ITestOutputHelper output) {
     private static readonly string BenchmarksDir =
@@ -36,20 +45,20 @@ public class BenchmarkTests(ITestOutputHelper output) {
 
     // ── Test data ─────────────────────────────────────────────────────────────
 
-    public static IEnumerable<object[]> AllBenchmarks() =>
+    private static IEnumerable<string> AllBenchmarkNames() =>
         Directory
-           .EnumerateFiles(BenchmarkTests.BenchmarksDir, "*.elf")
+           .EnumerateFiles(BenchmarksDir, "*.elf")
            .OrderBy(p => p)
-           .Select(p => new object[] { Path.GetFileNameWithoutExtension(p), });
+           .Select(p => Path.GetFileNameWithoutExtension(p)!);
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static string ElfPath(string name) =>
-        Path.Combine(BenchmarkTests.BenchmarksDir, name + ".elf");
+        Path.Combine(BenchmarksDir, name + ".elf");
 
     private static (FlatMemory Mem, IMemory HtifMem, ulong EntryPoint, ulong TohostAddr) Load(string name) {
-        var wl = new Rv32ElfWorkload(ElfPath(name), BenchmarkTests.MemoryBytes);
-        var mem = new FlatMemory(BenchmarkTests.MemoryBytes, wl.BaseAddress);
+        var wl = new Rv32ElfWorkload(ElfPath(name), MemoryBytes);
+        var mem = new FlatMemory(MemoryBytes, wl.BaseAddress);
         wl.Load(mem);
         ulong tohost = wl.FindSymbol("tohost");
         return (mem, new HtifMemory(mem, tohost), wl.EntryPoint, tohost);
@@ -66,38 +75,60 @@ public class BenchmarkTests(ITestOutputHelper output) {
         }
     }
 
+    /// <summary>Runs <paramref name="runOne"/> for every benchmark ELF in parallel and
+    /// aggregates failures into a single assertion.</summary>
+    private static void RunAllBenchmarks(Action<string> runOne) {
+        var failures = new ConcurrentBag<string>();
+        Parallel.ForEach(
+            AllBenchmarkNames(), name => {
+                try {
+                    runOne(name);
+                } catch (Exception ex) {
+                    failures.Add($"{name}: {ex.Message}");
+                }
+            }
+        );
+        Assert.True(failures.IsEmpty, string.Join("\n", failures.OrderBy(f => f)));
+    }
+
     // ── SingleCycleTrain ──────────────────────────────────────────────────────
 
-    [Theory]
-    [MemberData(nameof(AllBenchmarks))]
-    public void SingleCycle_Passes(string name) {
-        (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
-        var train = new SingleCycleTrain(new Rv32Mechanism(), htifMem, entry);
-        train.Run(10_000_000);
-        AssertPass(ReadTohostLow(mem, tohost), name);
-    }
+    [Fact]
+    public void SingleCycle_Passes() =>
+        RunAllBenchmarks(
+            name => {
+                (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
+                var train = new SingleCycleTrain(new Rv32Mechanism(), htifMem, entry);
+                train.Run(10_000_000);
+                AssertPass(ReadTohostLow(mem, tohost), name);
+            }
+        );
 
     // ── FiveStageTrain ────────────────────────────────────────────────────────
 
-    [Theory]
-    [MemberData(nameof(AllBenchmarks))]
-    public void FiveStage_Passes(string name) {
-        (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
-        var train = new FiveStageTrain(new Rv32Mechanism(), htifMem, entry);
-        train.Run(20_000_000);
-        AssertPass(ReadTohostLow(mem, tohost), name);
-    }
+    [Fact]
+    public void FiveStage_Passes() =>
+        RunAllBenchmarks(
+            name => {
+                (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
+                var train = new FiveStageTrain(new Rv32Mechanism(), htifMem, entry);
+                train.Run(20_000_000);
+                AssertPass(ReadTohostLow(mem, tohost), name);
+            }
+        );
 
     // ── OooeTrain ─────────────────────────────────────────────────────────────
 
-    [Theory]
-    [MemberData(nameof(AllBenchmarks))]
-    public void OoOE_Passes(string name) {
-        (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
-        var train = new OooeTrain(new Rv32Mechanism(), htifMem, entry);
-        train.Run(20_000_000);
-        AssertPass(ReadTohostLow(mem, tohost), name);
-    }
+    [Fact]
+    public void OoOE_Passes() =>
+        RunAllBenchmarks(
+            name => {
+                (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
+                var train = new OooeTrain(new Rv32Mechanism(), htifMem, entry);
+                train.Run(20_000_000);
+                AssertPass(ReadTohostLow(mem, tohost), name);
+            }
+        );
 
     // ── Performance summary ───────────────────────────────────────────────────
     //
@@ -107,20 +138,21 @@ public class BenchmarkTests(ITestOutputHelper output) {
 
     [Fact]
     public void BenchmarkPerfSummary() {
-        var rows = new List<(string Name, long Cycles, long Retired, double Ipc)>();
+        var rows = new ConcurrentBag<(string Name, long Cycles, long Retired, double Ipc)>();
 
-        foreach (object[] row in AllBenchmarks()) {
-            var name = (string)row[0];
-            (FlatMemory _, IMemory htifMem, ulong entry, ulong _) = Load(name);
-            var train = new OooeTrain(new Rv32Mechanism(), htifMem, entry);
-            RevolutionResult result = train.Run(20_000_000);
+        Parallel.ForEach(
+            AllBenchmarkNames(), name => {
+                (FlatMemory _, IMemory htifMem, ulong entry, ulong _) = Load(name);
+                var train = new OooeTrain(new Rv32Mechanism(), htifMem, entry);
+                RevolutionResult result = train.Run(20_000_000);
 
-            DialBoardSnapshot? snap = result.Find("ooo.pipeline");
-            long cycles = snap?.Counters.GetValueOrDefault("cycles") ?? 0;
-            long retired = snap?.Counters.GetValueOrDefault("retired") ?? 0;
-            double ipc = cycles > 0 ? retired / (double)cycles : 0.0;
-            rows.Add((name, cycles, retired, ipc));
-        }
+                DialBoardSnapshot? snap = result.Find("ooo.pipeline");
+                long cycles = snap?.Counters.GetValueOrDefault("cycles") ?? 0;
+                long retired = snap?.Counters.GetValueOrDefault("retired") ?? 0;
+                double ipc = cycles > 0 ? retired / (double)cycles : 0.0;
+                rows.Add((name, cycles, retired, ipc));
+            }
+        );
 
         output.WriteLine("| Benchmark | Cycles | Retired | IPC |");
         output.WriteLine("|-----------|-------:|--------:|----:|");

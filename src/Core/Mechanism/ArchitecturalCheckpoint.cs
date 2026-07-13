@@ -60,6 +60,20 @@ public sealed class ArchitecturalCheckpoint {
         Save(fs, state, memory, tick);
     }
 
+    /// <summary>
+    /// Captures the current architectural state synchronously (registers, memory, and the
+    /// ISA blob are copied before this call returns, so it is safe even if the caller keeps
+    /// mutating <paramref name="state"/> or <paramref name="memory"/> afterwards), then writes
+    /// the serialized checkpoint to <paramref name="path"/> on a worker thread.
+    /// </summary>
+    /// <returns>A task that completes once the file write finishes.</returns>
+    public static Task SaveAsync(string path, IArchState state, ISnapshotableMemory memory, ulong tick) {
+        using var ms = new MemoryStream();
+        Save(ms, state, memory, tick);
+        byte[] data = ms.ToArray();
+        return Task.Run(() => File.WriteAllBytes(path, data));
+    }
+
     /// <summary>Saves the current architectural state to <paramref name="stream"/>.</summary>
     public static void Save(Stream stream, IArchState state, ISnapshotableMemory memory, ulong tick) {
         using var w = new BinaryWriter(stream, Encoding.UTF8, true);

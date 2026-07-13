@@ -296,10 +296,11 @@ if (scriptPath is not null) {
         PrintLayerStats(detHandle);
 
         if (checkpointSavePath is not null) {
-            ArchitecturalCheckpoint.Save(
+            Task checkpointSave = ArchitecturalCheckpoint.SaveAsync(
                 checkpointSavePath, detHandle.Train.ArchState!, flatMem, (ulong)(ffTicks + roiTicks)
             );
             Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
+            await checkpointSave;
         }
     }
     else if (checkpointLoadPath is not null) {
@@ -318,8 +319,10 @@ if (scriptPath is not null) {
         PrintLayerStats(handle);
 
         if (checkpointSavePath is not null) {
-            ArchitecturalCheckpoint.Save(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
+            Task checkpointSave =
+                ArchitecturalCheckpoint.SaveAsync(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
             Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
+            await checkpointSave;
         }
     }
     else {
@@ -335,8 +338,10 @@ if (scriptPath is not null) {
         PrintLayerStats(handle);
 
         if (checkpointSavePath is not null) {
-            ArchitecturalCheckpoint.Save(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
+            Task checkpointSave =
+                ArchitecturalCheckpoint.SaveAsync(checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks);
             Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
+            await checkpointSave;
         }
     }
 
