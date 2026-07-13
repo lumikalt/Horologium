@@ -135,6 +135,12 @@
                             <NumericUpDown Grid.Column="1" Value="{Binding ImliBtbSize}"
                                            Minimum="64" Maximum="65536" Increment="256" />
                         </Grid>
+                        <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                              IsVisible="{Binding HasCbpPluginParams}">
+                            <TextBlock Grid.Column="0" Text="Shim .so path" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" Text="{Binding CbpLibraryPath}"
+                                     PlaceholderText="/path/to/predictor.so (native/CbpShim/build.sh output)" />
+                        </Grid>
                     </StackPanel>
 
                     <!-- five_stage + ooo: I-cache -->

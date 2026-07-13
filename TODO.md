@@ -17,9 +17,12 @@ off here until a periodic cleanup removes them; the durable record is git histor
   Register-value-aware Predictor Utilizing Nested Large Tables"; Man et al., "LVCP: A Load Value Correlated
   Predictor for TAGE-SC-L", CBP 2025
 - [x] BranchNet: CNN predictor. — Zangeneh et al., MICRO 2020
-- [ ] CBP-style pluggable predictor-submission API: a stable interface (register file/PC/history snapshot in,
-  taken/not-taken out) so third-party CBP submissions can be dropped into Horologium with minimal glue, rather
-  than hand-ported one at a time as with TEA/RUNLTS/LVCP/BranchNet.
+- [x] CBP-style pluggable predictor-submission API: FFI shim wrapping the CBP-3/CBP-5 (2016) `class PREDICTOR`
+  idiom (GetPrediction/UpdatePredictor), so third-party submissions run inside Horologium without hand-porting
+  like TEA/RUNLTS/LVCP/BranchNet were. Desktop-only (native shared library, P/Invoke).
+- [ ] CBP2025/CBP-NG predictor integration: the current competition harness (AmpereComputing/cbp-ng) uses a
+  clocked-register hardware-timing-modeling DSL (harcom), not a plain predict/update call — needs its own
+  simulation-loop-driven adapter, distinct from the CBP-3/5 FFI shim above.
 - [ ] Multiperspective Perceptron. — Tarjan & Skadron, IEEE Trans. Computers 2005
 - [ ] Bullseye/SDM as H2P helpers.
 - [ ] Indirect branch predictor: VTAGE/iBMETA variant for computed jumps and virtual dispatch.

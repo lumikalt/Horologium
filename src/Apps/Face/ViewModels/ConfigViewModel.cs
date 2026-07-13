@@ -46,6 +46,8 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int ImliBtbSize { get; set; } = 1024;
 
+    [ObservableProperty] public partial string CbpLibraryPath { get; set; } = "";
+
     [ObservableProperty] public partial bool ICacheEnabled { get; set; } = false;
 
     [ObservableProperty] public partial int ICacheCapacityKb { get; set; } = 32;
@@ -146,6 +148,7 @@ public partial class ConfigViewModel : ObservableObject {
     public bool HasHashedPerceptronParams => PredictorType == "hashed_perceptron";
     public bool HasTournamentParams => PredictorType == "tournament";
     public bool HasImliParams => PredictorType == "imli";
+    public bool HasCbpPluginParams => PredictorType == "cbp_plugin";
 
     public bool HasDPrefetcherTableSize => DPrefetcher is "stride" or "stream";
     public bool HasDPrefetcherDepth => DPrefetcher == "stream";
@@ -187,6 +190,7 @@ public partial class ConfigViewModel : ObservableObject {
         "lvcp",
         "branchnet",
         "tea",
+        "cbp_plugin",
     ];
 
     // ReSharper disable once PartialMethodParameterNameMismatch
@@ -217,6 +221,7 @@ public partial class ConfigViewModel : ObservableObject {
         OnPropertyChanged(nameof(HasHashedPerceptronParams));
         OnPropertyChanged(nameof(HasTournamentParams));
         OnPropertyChanged(nameof(HasImliParams));
+        OnPropertyChanged(nameof(HasCbpPluginParams));
     }
 
     private static WritePolicyKind ParseWritePolicy(string s) =>
@@ -252,6 +257,7 @@ public partial class ConfigViewModel : ObservableObject {
             "lvcp"        => BranchPredictorConfig.Lvcp(),
             "branchnet"   => BranchPredictorConfig.BranchNet(),
             "tea"         => BranchPredictorConfig.Tea(),
+            "cbp_plugin"  => BranchPredictorConfig.CbpPlugin(CbpLibraryPath),
             _             => null,
         };
 
@@ -335,6 +341,7 @@ public partial class ConfigViewModel : ObservableObject {
                 LvcpConfig                      => "lvcp",
                 BranchNetConfig                 => "branchnet",
                 TeaConfig                       => "tea",
+                CbpPluginConfig                 => "cbp_plugin",
                 _                               => "none",
             },
             StoreBufferCapacity = nc.Config.StoreBufferCapacity,
@@ -386,6 +393,7 @@ public partial class ConfigViewModel : ObservableObject {
                 vm.ImliPhtSize = imli.PhtSize;
                 vm.ImliBtbSize = imli.BtbSize;
                 break;
+            case CbpPluginConfig cbp: vm.CbpLibraryPath = cbp.LibraryPath; break;
         }
 
         if (nc.Config.ICache is { } ic) {

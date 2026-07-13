@@ -31,6 +31,7 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(LvcpConfig), "lvcp")]
 [JsonDerivedType(typeof(BranchNetConfig), "branchnet")]
 [JsonDerivedType(typeof(TeaConfig), "tea")]
+[JsonDerivedType(typeof(CbpPluginConfig), "cbp_plugin")]
 public abstract record BranchPredictorConfig {
     public abstract IBranchPredictor Build();
 
@@ -84,6 +85,8 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig Lvcp() => new LvcpConfig();
     public static BranchPredictorConfig BranchNet() => new BranchNetConfig();
     public static BranchPredictorConfig Tea() => new TeaConfig();
+
+    public static BranchPredictorConfig CbpPlugin(string libraryPath) => new CbpPluginConfig(libraryPath);
 }
 
 public sealed record AlwaysNotTakenConfig : BranchPredictorConfig {
@@ -227,4 +230,12 @@ public sealed record TeaConfig : BranchPredictorConfig {
         ).Run(long.MaxValue);
         return TeaPredictor.FromProfile(profiler);
     }
+}
+
+/// <summary>
+///     Loads a CBP-3/CBP-5-style third-party predictor from a native shared library built via
+///     <c>native/CbpShim/build.sh</c>. Desktop-only — see <see cref="CbpFfiPredictor" />.
+/// </summary>
+public sealed record CbpPluginConfig(string LibraryPath) : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new CbpFfiPredictor(LibraryPath);
 }
