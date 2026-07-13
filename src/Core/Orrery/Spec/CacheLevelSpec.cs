@@ -31,6 +31,17 @@ namespace Orrery.Spec;
 ///         write back only dirty sectors instead of the whole line. Not combinable with
 ///         <see cref="WbCapacity" /> &gt; 0.
 ///     </para>
+///     <para>
+///         <see cref="VictimCacheEntries" /> (0 = disabled) attaches a small fully-associative
+///         FIFO buffer beside the main array that captures conflict-miss evictions instead of
+///         flushing/discarding them immediately (Jouppi, ISCA 1990). A later miss that hits in
+///         the buffer swaps the line back into the main array, charging
+///         <see cref="VictimCacheHitLatency" /> instead of the full miss latency, with no MSHR
+///         allocation. Distinct from the unrelated <c>ChooseVictim</c>/<c>InsertVictim</c>/
+///         <c>VictimInserts</c> symbols (generic replacement-policy eviction selection and
+///         Exclusive-inclusion-policy hand-off). Not currently combinable with
+///         <see cref="SectorBytes" /> &gt; 0.
+///     </para>
 /// </summary>
 public sealed record CacheLevelSpec(
     int CapacityBytes,
@@ -55,7 +66,9 @@ public sealed record CacheLevelSpec(
     int BankCount = 1,
     int ReadPorts = 0,
     int WritePorts = 0,
-    int SectorBytes = 0
+    int SectorBytes = 0,
+    int VictimCacheEntries = 0,
+    int VictimCacheHitLatency = 1
 ) {
     public int HitLatency => AccessMode == CacheAccessModeKind.Sequential
         ? TagLatency + DataLatency

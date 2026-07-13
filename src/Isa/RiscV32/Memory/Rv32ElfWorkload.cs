@@ -47,6 +47,9 @@ public sealed class Rv32ElfWorkload : IWorkload {
 
     public void Load(IMemory memory) => Rv32ElfLoader.Load(memory, _elfBytes);
 
+    // The interface method has no output parameter; route it through the concrete overload.
+    IMemory IWorkload.WrapMemory(IMemory memory) => WrapMemory(memory);
+
     /// <summary>
     ///     Wraps <paramref name="memory" /> with <see cref="HtifMemory" /> when the ELF contains
     ///     a <c>tohost</c> symbol, executing fesvr magic-mem syscalls and ACK-ing fromhost.
@@ -54,9 +57,6 @@ public sealed class Rv32ElfWorkload : IWorkload {
     /// </summary>
     public IMemory WrapMemory(IMemory memory, TextWriter? output = null) =>
         TryFindSymbol("tohost", out ulong tohost) ? new HtifMemory(memory, tohost, output) : memory;
-
-    // The interface method has no output parameter; route it through the concrete overload.
-    IMemory IWorkload.WrapMemory(IMemory memory) => WrapMemory(memory);
 
     /// <summary>
     ///     Returns the virtual address of a named ELF symbol, or throws if not found.

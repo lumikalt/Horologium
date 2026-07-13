@@ -15,8 +15,8 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly IMemory _backing;
     private readonly int[]? _bankReadUsage;  // non-null only when ReadPorts > 0
     private readonly int[]? _bankWriteUsage; // non-null only when WritePorts > 0
-    private readonly byte[][][] _blocks; // [set][way][offset]
-    private readonly bool[][]? _dirty;   // non-null only in WriteBack mode
+    private readonly byte[][][] _blocks;     // [set][way][offset]
+    private readonly bool[][]? _dirty;       // non-null only in WriteBack mode
     private readonly int _indexMask;
 
     // Realistic prefetch latency: lines installed by Prefetch() that have not yet
@@ -28,21 +28,31 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly IReplacementPolicy _policy;
     private readonly bool _requirePcOnHit; // Hawkeye needs OPTgen fed on every hit
 
-    private readonly bool[][][]? _sectorDirty; // [set][way][sector]: non-null only when SectorBytes > 0 in WriteBack mode
-    private readonly bool[][][]? _sectorValid; // [set][way][sector]: non-null only when SectorBytes > 0
+    private readonly bool[][][]?
+        _sectorDirty; // [set][way][sector]: non-null only when SectorBytes > 0 in WriteBack mode
+
     private readonly int _sectorsPerLine;      // 1 when sectoring is disabled
+    private readonly bool[][][]? _sectorValid; // [set][way][sector]: non-null only when SectorBytes > 0
 
     private readonly ulong?[][] _tags; // [set][way]: null = invalid
     private readonly bool _usePcSignature;
 
+    // Jouppi victim cache (ISCA 1990): a small fully-associative FIFO buffer beside the main
+    // array that captures lines evicted due to conflict misses instead of flushing/discarding
+    // them immediately. Distinct from InsertVictim/VictimInserts (the Exclusive-inclusion-policy
+    // hand-off, an unrelated pre-existing mechanism) and IReplacementPolicy.ChooseVictim (generic
+    // "pick a way to evict", also unrelated). Null when disabled (VictimCacheEntries == 0).
+    private readonly VictimBufferEntry[]? _victimBuffer;
+
     private readonly WbEntry[]? _wbBuffer;
-    private ulong _lastRequestPc;
 
     // The cache directly inside this one (closer to the CPU), if any has been attached via
     // AttachInner. Used to enforce InclusionPolicy toward that level.
     private SetAssociativeCache? _innerCache;
+    private ulong _lastRequestPc;
 
     private long _pendingStalls;
+    private int _victimHead; // physical index of the oldest (next FIFO-overflow) entry
 
     /// <param name="backing">Backing memory.</param>
     /// <param name="capacityBytes">Total cache size in bytes. Must be a power of 2.</param>
@@ -121,7 +131,10 @@ public sealed class SetAssociativeCache : IMemory {
     ///     access to a bank already at capacity this cycle pays a 1-cycle structural-hazard stall.
     ///     Call <see cref="TickPorts" /> once per simulated cycle to reset per-bank usage.
     /// </param>
-    /// <param name="writePorts">Write accesses one bank can service per cycle (0 = unlimited). See <paramref name="readPorts" />.</param>
+    /// <param name="writePorts">
+    ///     Write accesses one bank can service per cycle (0 = unlimited). See
+    ///     <paramref name="readPorts" />.
+    /// </param>
     /// <param name="sectorBytes">
     ///     Sector size in bytes (0 = disabled, legacy whole-line valid/dirty granularity). Must be a
     ///     power of 2 dividing <paramref name="blockSizeBytes" /> evenly. When positive, a line's
@@ -131,6 +144,29 @@ public sealed class SetAssociativeCache : IMemory {
     ///     later access to an untouched sector on an otherwise-resident line pays
     ///     <paramref name="missLatency" /> for that sector alone); evictions write back only dirty
     ///     sectors instead of the whole line. Not currently combinable with <paramref name="wbCapacity" /> &gt; 0.
+    /// </param>
+    /// <param name="victimCacheEntries">
+    ///     Capacity, in lines, of a small fully-associative FIFO buffer beside the main array (0 =
+    ///     disabled) that captures lines evicted by a conflict miss instead of flushing/discarding
+    ///     them immediately (Jouppi, ISCA 1990). A later miss that hits in the buffer performs a
+    ///     full swap: the hit line installs into the main array via the normal replacement policy
+    ///     (charging <paramref name="victimCacheHitLatency" />, no MSHR allocation), and the line it
+    ///     displaces takes the vacated buffer slot — so both levels stay populated with the working
+    ///     set rather than stranding a line permanently in the small buffer. A victim-buffer hit
+    ///     counts as a demand hit, not a miss. Captures are free (no writeback at capture time); a
+    ///     line that eventually leaves the buffer via FIFO overflow while still dirty is billed
+    ///     exactly like an ordinary write-back-mode eviction (deferred into the write-back buffer if
+    ///     configured, else a synchronous <paramref name="missLatency" /> stall), or handed off to
+    ///     the backing cache if it is itself configured <see cref="InclusionPolicyKind.Exclusive" />.
+    ///     Not currently combinable with <paramref name="sectorBytes" /> &gt; 0. Distinct from the
+    ///     unrelated pre-existing <c>InsertVictim</c>/<c>VictimInserts</c>/<c>ChooseVictim</c>
+    ///     symbols (Exclusive-inclusion-policy hand-off and generic replacement-policy eviction
+    ///     selection, respectively).
+    /// </param>
+    /// <param name="victimCacheHitLatency">
+    ///     Cycles charged to a demand access that hits in the victim buffer instead of the main
+    ///     array. Only meaningful when <paramref name="victimCacheEntries" /> &gt; 0. Cannot exceed
+    ///     <paramref name="missLatency" />.
     /// </param>
     public SetAssociativeCache(
         IMemory backing,
@@ -152,7 +188,9 @@ public sealed class SetAssociativeCache : IMemory {
         int bankCount = 1,
         int readPorts = 0,
         int writePorts = 0,
-        int sectorBytes = 0
+        int sectorBytes = 0,
+        int victimCacheEntries = 0,
+        int victimCacheHitLatency = 1
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -166,6 +204,8 @@ public sealed class SetAssociativeCache : IMemory {
         ArgumentOutOfRangeException.ThrowIfNegative(readPorts);
         ArgumentOutOfRangeException.ThrowIfNegative(writePorts);
         ArgumentOutOfRangeException.ThrowIfNegative(sectorBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(victimCacheEntries);
+        ArgumentOutOfRangeException.ThrowIfNegative(victimCacheHitLatency);
         if (!BitOperations.IsPow2(capacityBytes) ||
             !BitOperations.IsPow2(ways) ||
             !BitOperations.IsPow2(blockSizeBytes))
@@ -178,13 +218,17 @@ public sealed class SetAssociativeCache : IMemory {
         if (criticalWordLatency > missLatency)
             throw new ArgumentException("criticalWordLatency cannot exceed missLatency.");
         if (sectorBytes > 0) {
-            if (!BitOperations.IsPow2(sectorBytes))
-                throw new ArgumentException("sectorBytes must be a power of 2.");
+            if (!BitOperations.IsPow2(sectorBytes)) throw new ArgumentException("sectorBytes must be a power of 2.");
             if (sectorBytes > blockSizeBytes || blockSizeBytes % sectorBytes != 0)
                 throw new ArgumentException("sectorBytes must evenly divide blockSizeBytes.");
             if (wbCapacity > 0)
                 throw new ArgumentException("sectorBytes cannot currently be combined with wbCapacity > 0.");
+            if (victimCacheEntries > 0)
+                throw new ArgumentException("sectorBytes cannot currently be combined with victimCacheEntries > 0.");
         }
+
+        if (victimCacheHitLatency > missLatency)
+            throw new ArgumentException("victimCacheHitLatency cannot exceed missLatency.");
 
         _backing = backing;
         Ways = ways;
@@ -223,6 +267,9 @@ public sealed class SetAssociativeCache : IMemory {
         _sectorValid = sectorBytes > 0 ? new bool[sets][][] : null;
         _sectorDirty = sectorBytes > 0 && writePolicy == WritePolicyKind.WriteBack ? new bool[sets][][] : null;
         _wbBuffer = WbCapacity > 0 ? new WbEntry[WbCapacity] : null;
+        VictimCacheEntries = victimCacheEntries;
+        VictimCacheHitLatency = victimCacheHitLatency;
+        _victimBuffer = VictimCacheEntries > 0 ? new VictimBufferEntry[VictimCacheEntries] : null;
 
         for (var s = 0; s < sets; s++) {
             _tags[s] = new ulong?[Ways];
@@ -311,7 +358,10 @@ public sealed class SetAssociativeCache : IMemory {
     /// <summary>Write accesses one bank can service per cycle (0 = unlimited).</summary>
     public int WritePorts { get; }
 
-    /// <summary>Accesses that paid a 1-cycle structural-hazard stall because their bank was already at port capacity this cycle.</summary>
+    /// <summary>
+    ///     Accesses that paid a 1-cycle structural-hazard stall because their bank was already at port capacity this
+    ///     cycle.
+    /// </summary>
     public long BankConflicts { get; private set; }
 
     /// <summary>0 = disabled (whole-line valid/dirty granularity). See the constructor parameter of the same name.</summary>
@@ -332,19 +382,23 @@ public sealed class SetAssociativeCache : IMemory {
     public long VictimInserts { get; private set; }
 
     /// <summary>
-    ///     Registers <paramref name="inner" /> as the cache directly inside this one (closer to
-    ///     the CPU) for the purposes of <see cref="InclusionPolicy" />. Call after constructing
-    ///     both caches, once the chain is fully wired.
+    ///     0 = disabled. Capacity of the local Jouppi victim buffer (see the constructor parameter
+    ///     of the same name). Unrelated to <see cref="VictimInserts" />/<see cref="InsertVictim" />
+    ///     (the Exclusive-inclusion-policy hand-off).
     /// </summary>
-    public void AttachInner(SetAssociativeCache inner) {
-        if (InclusionPolicy == InclusionPolicyKind.Exclusive && BlockBytes != inner.BlockBytes)
-            throw new ArgumentException(
-                "Exclusive inclusion policy requires equal block sizes between the two levels " +
-                $"(this level: {BlockBytes}, inner level: {inner.BlockBytes})."
-            );
+    public int VictimCacheEntries { get; }
 
-        _innerCache = inner;
-    }
+    /// <summary>Cycles charged to a demand access that hits in the victim buffer instead of the main array.</summary>
+    public int VictimCacheHitLatency { get; }
+
+    /// <summary>Current occupancy of the victim buffer.</summary>
+    public int VictimCacheOccupancy { get; private set; }
+
+    /// <summary>Demand accesses serviced by a victim-buffer hit-and-swap rather than the main array or backing.</summary>
+    public long VictimCacheHits { get; private set; }
+
+    /// <summary>Lines captured into the victim buffer on a main-array conflict eviction.</summary>
+    public long VictimCacheCaptures { get; private set; }
 
     /// <summary>Number of prefetched lines still in flight (counts against MSHR capacity).</summary>
     public int InFlightPrefetchCount => _inFlightPrefetches.Count;
@@ -387,6 +441,12 @@ public sealed class SetAssociativeCache : IMemory {
             return ReadBytes(_blocks[set][way], offset, bytes);
         }
 
+        if (_victimBuffer != null && TryVictimBufferSwap(set, tag, address, out int vWay)) {
+            LastAccessWasHit = true;
+            Hits++;
+            return ReadBytes(_blocks[set][vWay], offset, bytes);
+        }
+
         LastAccessWasHit = false;
         Misses++;
         ulong readLineBase = address & ~(ulong)_offsetMask;
@@ -414,6 +474,11 @@ public sealed class SetAssociativeCache : IMemory {
                     for (var w = 0; w < Ways; w++)
                         if (_tags[s][w] == t)
                             FlushDirtyLine(s, w, t, true); // deferToBuffer=false
+                    if (_victimBuffer != null) {
+                        int vSlot = FindVictimBufferSlot(s, t);
+                        if (vSlot >= 0 && _victimBuffer[vSlot].Dirty)
+                            WritebackOrBuffer(a, _victimBuffer[vSlot].Data!, true, false);
+                    }
                 }
 
                 _backing.Write(address, value, bytes);
@@ -428,6 +493,11 @@ public sealed class SetAssociativeCache : IMemory {
                         DropInFlightMshr(a);
                         PropagateInvalidate(a, BlockBytes);
                     }
+
+                if (_victimBuffer != null) {
+                    int vSlot = FindVictimBufferSlot(s, t);
+                    if (vSlot >= 0) RemoveVictimBufferSlot(vSlot);
+                }
             }
 
             return;
@@ -448,6 +518,13 @@ public sealed class SetAssociativeCache : IMemory {
             WriteBytes(_blocks[set][way], offset, value, bytes);
             if (_dirty != null) _dirty[set][way] = true; // write-back: mark dirty on hit
             if (_sectorDirty != null) _sectorDirty[set][way][SectorIndex(address)] = true;
+        }
+        else if (_victimBuffer != null && WriteMissPolicy == WriteMissPolicyKind.WriteAllocate &&
+                 TryVictimBufferSwap(set, tag, address, out int vWay)) {
+            LastAccessWasHit = true;
+            Hits++;
+            WriteBytes(_blocks[set][vWay], offset, value, bytes);
+            if (_dirty != null) _dirty[set][vWay] = true;
         }
         else {
             LastAccessWasHit = false;
@@ -492,7 +569,101 @@ public sealed class SetAssociativeCache : IMemory {
                     DropInFlightMshr(a);
                     PropagateInvalidate(a, BlockBytes);
                 }
+
+            if (_victimBuffer != null) {
+                int vSlot = FindVictimBufferSlot(set, tag);
+                if (vSlot >= 0)
+                    RemoveVictimBufferSlot(vSlot); // dirty data discarded, matches main-array semantics above
+            }
         }
+    }
+
+    // ── Cache maintenance (Zicbom: cbo.clean / cbo.flush / cbo.inval) ────────
+
+    /// <summary>
+    ///     cbo.clean: writes back the line covering <paramref name="address" /> to backing if
+    ///     dirty, leaving it resident and valid. No-op if the line is not present or already clean.
+    /// </summary>
+    public void CleanLine(ulong address) {
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way >= 0) {
+            FlushDirtyLine(set, way, tag, false);
+            return;
+        }
+
+        if (_victimBuffer == null) return;
+        int vSlot = FindVictimBufferSlot(set, tag);
+        if (vSlot < 0 || !_victimBuffer[vSlot].Dirty) return;
+        ulong lineBase = address & ~(ulong)_offsetMask;
+        WritebackOrBuffer(lineBase, _victimBuffer[vSlot].Data!, false, false);
+        VictimBufferEntry e = _victimBuffer[vSlot];
+        e.Dirty = false;
+        _victimBuffer[vSlot] = e;
+    }
+
+    /// <summary>
+    ///     cbo.flush: writes back the line covering <paramref name="address" /> to backing if
+    ///     dirty, then invalidates it. No-op if the line is not present.
+    /// </summary>
+    public void FlushLine(ulong address) {
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way >= 0) {
+            FlushDirtyLine(set, way, tag, false);
+            ulong lineBase0 = address & ~(ulong)_offsetMask;
+            _tags[set][way] = null;
+            DropInFlightPrefetch(lineBase0);
+            DropInFlightMshr(lineBase0);
+            return;
+        }
+
+        if (_victimBuffer == null) return;
+        int vSlot = FindVictimBufferSlot(set, tag);
+        if (vSlot < 0) return;
+        if (_victimBuffer[vSlot].Dirty) {
+            ulong lineBase = address & ~(ulong)_offsetMask;
+            WritebackOrBuffer(lineBase, _victimBuffer[vSlot].Data!, false, false);
+        }
+
+        RemoveVictimBufferSlot(vSlot);
+    }
+
+    /// <summary>
+    ///     cbo.inval: invalidates the line covering <paramref name="address" /> and discards any
+    ///     dirty data without writing it back to backing. No-op if the line is not present.
+    /// </summary>
+    public void InvalidateLine(ulong address) {
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way >= 0) {
+            ulong lineBase = address & ~(ulong)_offsetMask;
+            if (_dirty != null) _dirty[set][way] = false;
+            if (_sectorDirty != null) Array.Clear(_sectorDirty[set][way]);
+            _tags[set][way] = null;
+            DropInFlightPrefetch(lineBase);
+            DropInFlightMshr(lineBase);
+            return;
+        }
+
+        if (_victimBuffer == null) return;
+        int vSlot = FindVictimBufferSlot(set, tag);
+        if (vSlot >= 0) RemoveVictimBufferSlot(vSlot); // discard, no writeback
+    }
+
+    /// <summary>
+    ///     Registers <paramref name="inner" /> as the cache directly inside this one (closer to
+    ///     the CPU) for the purposes of <see cref="InclusionPolicy" />. Call after constructing
+    ///     both caches, once the chain is fully wired.
+    /// </summary>
+    public void AttachInner(SetAssociativeCache inner) {
+        if (InclusionPolicy == InclusionPolicyKind.Exclusive && BlockBytes != inner.BlockBytes)
+            throw new ArgumentException(
+                "Exclusive inclusion policy requires equal block sizes between the two levels " +
+                $"(this level: {BlockBytes}, inner level: {inner.BlockBytes})."
+            );
+
+        _innerCache = inner;
     }
 
     /// <summary>Returns and clears the accumulated miss-penalty cycle count.</summary>
@@ -532,26 +703,31 @@ public sealed class SetAssociativeCache : IMemory {
 
         if (_dirty == null || !_dirty[set][way]) return;
         ulong lineBase = (tag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
+        WritebackOrBuffer(lineBase, _blocks[set][way], chargeStall, deferToBuffer && _wbBuffer != null);
+        _dirty[set][way] = false;
+        DirtyEvictions++;
+    }
 
-        if (deferToBuffer && _wbBuffer != null) {
+    // Writes a line to backing synchronously, or defers it into the WB buffer (draining the
+    // oldest entry first, with a stall, if the buffer is full). Shared by FlushDirtyLine's
+    // main-array path and the victim buffer's FIFO-overflow disposal path.
+    private void WritebackOrBuffer(ulong lineBase, byte[] data, bool chargeStall, bool deferToBuffer) {
+        if (deferToBuffer) {
             // Buffer full: synchronous drain of oldest entry, charge stall for the wait.
             if (WbOccupancy >= WbCapacity) {
                 DrainWbOldestSync();
                 if (chargeStall) _pendingStalls += MissLatency;
             }
 
-            var data = new byte[BlockBytes];
-            Buffer.BlockCopy(_blocks[set][way], 0, data, 0, BlockBytes);
-            _wbBuffer[FindFreeWbSlot()] = new WbEntry { LineBase = lineBase, Data = data, };
+            var copy = new byte[BlockBytes];
+            Buffer.BlockCopy(data, 0, copy, 0, BlockBytes);
+            _wbBuffer![FindFreeWbSlot()] = new WbEntry { LineBase = lineBase, Data = copy, };
             WbOccupancy++;
         }
         else {
-            for (var i = 0; i < BlockBytes; i++) _backing.Write(lineBase + (ulong)i, _blocks[set][way][i], 1);
+            for (var i = 0; i < BlockBytes; i++) _backing.Write(lineBase + (ulong)i, data[i], 1);
             if (chargeStall) _pendingStalls += MissLatency;
         }
-
-        _dirty[set][way] = false;
-        DirtyEvictions++;
     }
 
     // Writes back only the dirty sectors of a sectored line (bandwidth refinement over
@@ -565,7 +741,8 @@ public sealed class SetAssociativeCache : IMemory {
             any = true;
             int blockOffset = sec * SectorBytes;
             ulong sectorBase = lineBase + (ulong)blockOffset;
-            for (var i = 0; i < SectorBytes; i++) _backing.Write(sectorBase + (ulong)i, _blocks[set][way][blockOffset + i], 1);
+            for (var i = 0; i < SectorBytes; i++)
+                _backing.Write(sectorBase + (ulong)i, _blocks[set][way][blockOffset + i], 1);
             dirty[sec] = false;
         }
 
@@ -574,7 +751,13 @@ public sealed class SetAssociativeCache : IMemory {
         DirtyEvictions++;
     }
 
-    private void FillBlock(int set, int way, ulong address, bool chargeWritebackStall = true, bool fetchWholeLine = false) {
+    private void FillBlock(
+        int set,
+        int way,
+        ulong address,
+        bool chargeWritebackStall = true,
+        bool fetchWholeLine = false
+    ) {
         if (_tags[set][way] is { } existingTag) {
             ulong evictedBase = (existingTag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
 
@@ -583,9 +766,13 @@ public sealed class SetAssociativeCache : IMemory {
             // copy before we flush/hand it off below. No-op unless InclusionPolicy is Inclusive.
             BackInvalidateInner(set, way, evictedBase);
 
+            // Jouppi victim cache: capture the evicted line locally instead of flushing/handing it
+            // off immediately — a later access that hits in the buffer avoids the round trip.
+            if (_victimBuffer != null)
+                CaptureIntoVictimBuffer(set, way, existingTag);
             // Exclusive: the level below acts as our victim cache, so the evicted line (clean or
             // dirty) is handed off there instead of just flushed/discarded.
-            if (_backing is SetAssociativeCache { InclusionPolicy: InclusionPolicyKind.Exclusive, } outer)
+            else if (_backing is SetAssociativeCache { InclusionPolicy: InclusionPolicyKind.Exclusive, } outer)
                 outer.InsertVictim(evictedBase, _blocks[set][way], _dirty != null && _dirty[set][way]);
             else
                 FlushDirtyLine(set, way, existingTag, chargeWritebackStall, true);
@@ -604,13 +791,13 @@ public sealed class SetAssociativeCache : IMemory {
                 }
 
                 if (fetchWholeLine)
-                    for (var i = 0; i < _sectorsPerLine; i++) FetchSector(set, way, lineBase + (ulong)(i * SectorBytes));
+                    for (var i = 0; i < _sectorsPerLine; i++)
+                        FetchSector(set, way, lineBase + (ulong)(i * SectorBytes));
                 else
                     FetchSector(set, way, address);
             }
             else {
-                for (var i = 0; i < BlockBytes; i++)
-                    _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
+                for (var i = 0; i < BlockBytes; i++) _blocks[set][way][i] = (byte)_backing.Read(lineBase + (ulong)i, 1);
             }
         }
 
@@ -650,7 +837,29 @@ public sealed class SetAssociativeCache : IMemory {
         for (ulong a = rangeBase; a < rangeBase + (ulong)BlockBytes; a += (ulong)inner.BlockBytes) {
             inner.Decompose(a, out int iSet, out ulong iTag);
             int iWay = inner.FindWay(iSet, iTag);
-            if (iWay < 0) continue;
+            if (iWay < 0) {
+                // Not in the inner cache's main array — check its Jouppi victim buffer too, so an
+                // Inclusive cascade can't miss a line just because it happens to be sitting there.
+                if (inner._victimBuffer == null) continue;
+                int vSlot = inner.FindVictimBufferSlot(iSet, iTag);
+                if (vSlot < 0) continue;
+
+                VictimBufferEntry entry = inner.RemoveVictimBufferSlot(vSlot);
+                if (entry.Dirty) {
+                    var offset = (int)(a - rangeBase);
+                    Buffer.BlockCopy(entry.Data!, 0, _blocks[set][way], offset, inner.BlockBytes);
+                    if (_dirty != null)
+                        _dirty[set][way] = true;
+                    else
+                        for (var i = 0; i < inner.BlockBytes; i++)
+                            _backing.Write(a + (ulong)i, entry.Data![i], 1);
+                }
+
+                inner.BackInvalidations++;
+                // No further cascade here: this line was already evicted from inner's main array
+                // once (into its victim buffer), and BackInvalidateInner already ran at that time.
+                continue;
+            }
 
             if (inner._dirty != null && inner._dirty[iSet][iWay]) {
                 var offset = (int)(a - rangeBase);
@@ -689,7 +898,10 @@ public sealed class SetAssociativeCache : IMemory {
             if (_tags[set][way] is { } existingTag) {
                 ulong evictedBase = (existingTag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
                 BackInvalidateInner(set, way, evictedBase);
-                FlushDirtyLine(set, way, existingTag, false, true);
+                if (_victimBuffer != null)
+                    CaptureIntoVictimBuffer(set, way, existingTag);
+                else
+                    FlushDirtyLine(set, way, existingTag, false, true);
                 Evictions++;
                 DropInFlightPrefetch(evictedBase);
                 DropInFlightMshr(evictedBase);
@@ -713,11 +925,21 @@ public sealed class SetAssociativeCache : IMemory {
     private void RemoveResident(ulong lineBase) {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        if (way < 0) return;
-        if (_dirty != null && _dirty[set][way]) FlushDirtyLine(set, way, tag, false);
-        _tags[set][way] = null;
-        DropInFlightPrefetch(lineBase);
-        DropInFlightMshr(lineBase);
+        if (way >= 0) {
+            if (_dirty != null && _dirty[set][way]) FlushDirtyLine(set, way, tag, false);
+            _tags[set][way] = null;
+            DropInFlightPrefetch(lineBase);
+            DropInFlightMshr(lineBase);
+            return;
+        }
+
+        if (_victimBuffer == null) return;
+        int vSlot = FindVictimBufferSlot(set, tag);
+        if (vSlot < 0) return;
+        VictimBufferEntry entry = RemoveVictimBufferSlot(vSlot);
+        if (entry.Dirty)
+            for (var i = 0; i < BlockBytes; i++)
+                _backing.Write(lineBase + (ulong)i, entry.Data![i], 1);
     }
 
     /// <summary>
@@ -738,11 +960,20 @@ public sealed class SetAssociativeCache : IMemory {
     private void DropIfPresent(ulong lineBase) {
         Decompose(lineBase, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        if (way < 0) return;
-        _tags[set][way] = null;
-        if (_dirty != null) _dirty[set][way] = false;
-        DropInFlightPrefetch(lineBase);
-        DropInFlightMshr(lineBase);
+        if (way >= 0) {
+            _tags[set][way] = null;
+            if (_dirty != null) _dirty[set][way] = false;
+            DropInFlightPrefetch(lineBase);
+            DropInFlightMshr(lineBase);
+            BackInvalidations++;
+            PropagateInvalidate(lineBase, BlockBytes);
+            return;
+        }
+
+        if (_victimBuffer == null) return;
+        int vSlot = FindVictimBufferSlot(set, tag);
+        if (vSlot < 0) return;
+        RemoveVictimBufferSlot(vSlot); // discard, no writeback — matches the main-array path above
         BackInvalidations++;
         PropagateInvalidate(lineBase, BlockBytes);
     }
@@ -886,50 +1117,6 @@ public sealed class SetAssociativeCache : IMemory {
         return _sectorValid == null || _sectorValid[set][way][SectorIndex(address)];
     }
 
-    // ── Cache maintenance (Zicbom: cbo.clean / cbo.flush / cbo.inval) ────────
-
-    /// <summary>
-    ///     cbo.clean: writes back the line covering <paramref name="address" /> to backing if
-    ///     dirty, leaving it resident and valid. No-op if the line is not present or already clean.
-    /// </summary>
-    public void CleanLine(ulong address) {
-        Decompose(address, out int set, out ulong tag);
-        int way = FindWay(set, tag);
-        if (way < 0) return;
-        FlushDirtyLine(set, way, tag, false);
-    }
-
-    /// <summary>
-    ///     cbo.flush: writes back the line covering <paramref name="address" /> to backing if
-    ///     dirty, then invalidates it. No-op if the line is not present.
-    /// </summary>
-    public void FlushLine(ulong address) {
-        Decompose(address, out int set, out ulong tag);
-        int way = FindWay(set, tag);
-        if (way < 0) return;
-        FlushDirtyLine(set, way, tag, false);
-        ulong lineBase = address & ~(ulong)_offsetMask;
-        _tags[set][way] = null;
-        DropInFlightPrefetch(lineBase);
-        DropInFlightMshr(lineBase);
-    }
-
-    /// <summary>
-    ///     cbo.inval: invalidates the line covering <paramref name="address" /> and discards any
-    ///     dirty data without writing it back to backing. No-op if the line is not present.
-    /// </summary>
-    public void InvalidateLine(ulong address) {
-        Decompose(address, out int set, out ulong tag);
-        int way = FindWay(set, tag);
-        if (way < 0) return;
-        ulong lineBase = address & ~(ulong)_offsetMask;
-        if (_dirty != null) _dirty[set][way] = false;
-        if (_sectorDirty != null) Array.Clear(_sectorDirty[set][way]);
-        _tags[set][way] = null;
-        DropInFlightPrefetch(lineBase);
-        DropInFlightMshr(lineBase);
-    }
-
     private static ulong ReadBytes(byte[] block, int offset, int bytes) {
         ulong result = 0;
         for (var i = 0; i < bytes; i++) result |= (ulong)block[offset + i] << (i * 8);
@@ -954,7 +1141,7 @@ public sealed class SetAssociativeCache : IMemory {
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + 1 > BlockBytes) return;
         Decompose(address, out int set, out ulong tag);
-        if (FindWay(set, tag) >= 0) {
+        if (FindWay(set, tag) >= 0 || (_victimBuffer != null && FindVictimBufferSlot(set, tag) >= 0)) {
             PrefetchRedundant++;
             return;
         } // already present
@@ -962,7 +1149,7 @@ public sealed class SetAssociativeCache : IMemory {
         int evict = _policy.ChooseVictim(set);
         _policy.SetPendingSignature(address >> OffsetBits);
         try {
-            FillBlock(set, evict, address, false, fetchWholeLine: true);
+            FillBlock(set, evict, address, false, true);
             Prefetches++;
             if (PrefetchLatency > 0) _inFlightPrefetches.Add((address & ~(ulong)_offsetMask, PrefetchLatency));
         }
@@ -1088,6 +1275,126 @@ public sealed class SetAssociativeCache : IMemory {
                 _mshrs[i].Remaining--;
     }
 
+    // ── Jouppi victim cache ──────────────────────────────────────────────────
+
+    /// <summary>
+    ///     Looks up (set, tag) in the victim buffer. On hit, performs the full Jouppi swap:
+    ///     removes the entry from the FIFO buffer, chooses a main-array way via the normal
+    ///     replacement policy, moves whatever currently occupies that way into the vacated buffer
+    ///     slot (folding any Inclusive inner-cache copy first, exactly as an ordinary eviction
+    ///     would), and installs the hit data at that way — using the same
+    ///     SetPendingSignature/ChooseVictim/SetPendingAddress/RecordInstall sequence an ordinary
+    ///     fill uses, so replacement-policy bookkeeping (LRU age, SRRIP RRPV, SHiP SHCT) stays
+    ///     consistent. No MSHR is allocated: the data is already fully resident on-chip. Charges
+    ///     VictimCacheHitLatency to _pendingStalls. Caller is responsible for Hits/LastAccessWasHit.
+    /// </summary>
+    private bool TryVictimBufferSwap(int set, ulong tag, ulong address, out int way) {
+        way = -1;
+        int slot = FindVictimBufferSlot(set, tag);
+        if (slot < 0) return false;
+
+        VictimBufferEntry hitEntry = RemoveVictimBufferSlot(slot);
+
+        _policy.SetPendingSignature(_usePcSignature ? _lastRequestPc : address >> OffsetBits);
+        way = _policy.ChooseVictim(set);
+
+        if (_tags[set][way] is { } existingTag) {
+            ulong evictedBase = (existingTag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
+            BackInvalidateInner(set, way, evictedBase);
+            Evictions++;
+            DropInFlightPrefetch(evictedBase);
+            DropInFlightMshr(evictedBase);
+
+            var displacedData = new byte[BlockBytes];
+            Buffer.BlockCopy(_blocks[set][way], 0, displacedData, 0, BlockBytes);
+            InsertVictimBufferEntry(set, existingTag, displacedData, _dirty != null && _dirty[set][way]);
+        }
+
+        Buffer.BlockCopy(hitEntry.Data!, 0, _blocks[set][way], 0, BlockBytes);
+        _tags[set][way] = tag;
+        if (_dirty != null) _dirty[set][way] = hitEntry.Dirty;
+        _policy.SetPendingAddress(tag, _lastRequestPc);
+        _policy.RecordInstall(set, way);
+
+        VictimCacheHits++;
+        _pendingStalls += VictimCacheHitLatency;
+
+        // Exclusive: this line just became resident here, so it must not also remain resident in
+        // the level below (mirrors FillBlock's own Exclusive-removal call).
+        if (_backing is SetAssociativeCache { InclusionPolicy: InclusionPolicyKind.Exclusive, } exclusiveOuter)
+            exclusiveOuter.RemoveResident((tag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits));
+
+        return true;
+    }
+
+    // Captures the line currently at (set, way) — about to be overwritten by a fill, or already
+    // being handed elsewhere — into the victim buffer. No writeback here: the dirty bit travels
+    // with the data; avoiding this exact round trip at capture time is the whole point.
+    private void CaptureIntoVictimBuffer(int set, int way, ulong tag) {
+        var data = new byte[BlockBytes];
+        Buffer.BlockCopy(_blocks[set][way], 0, data, 0, BlockBytes);
+        InsertVictimBufferEntry(set, tag, data, _dirty != null && _dirty[set][way]);
+        VictimCacheCaptures++;
+    }
+
+    // Inserts a captured entry, evicting the oldest (FIFO) entry first if the buffer is full. Used
+    // both by CaptureIntoVictimBuffer (main-array eviction) and TryVictimBufferSwap (the line
+    // displaced by a swap-in takes the vacated slot).
+    private void InsertVictimBufferEntry(int set, ulong tag, byte[] data, bool dirty) {
+        if (VictimCacheOccupancy >= VictimCacheEntries) {
+            DisposeVictimBufferEntry(_victimBuffer![_victimHead], true);
+            _victimHead = (_victimHead + 1) % VictimCacheEntries;
+            VictimCacheOccupancy--;
+        }
+
+        int insertIdx = (_victimHead + VictimCacheOccupancy) % VictimCacheEntries;
+        _victimBuffer![insertIdx] = new VictimBufferEntry { Set = set, Tag = tag, Data = data, Dirty = dirty, };
+        VictimCacheOccupancy++;
+    }
+
+    // FIFO overflow / final disposal of a line leaving the victim buffer entirely: mirrors
+    // FillBlock's own eviction-completion logic (Exclusive hand-off to a configured backing cache,
+    // else flush-if-dirty to backing/WB buffer), so a buffered line is billed identically to an
+    // ordinary write-back-mode eviction once it actually leaves the chip.
+    private void DisposeVictimBufferEntry(VictimBufferEntry e, bool chargeStall) {
+        ulong lineBase = (e.Tag << (OffsetBits + IndexBits)) | ((ulong)e.Set << OffsetBits);
+        if (_backing is SetAssociativeCache { InclusionPolicy: InclusionPolicyKind.Exclusive, } outer) {
+            outer.InsertVictim(lineBase, e.Data!, e.Dirty);
+            return;
+        }
+
+        if (!e.Dirty) return;
+        WritebackOrBuffer(lineBase, e.Data!, chargeStall, _wbBuffer != null);
+        DirtyEvictions++;
+    }
+
+    // Scans the occupied logical window [_victimHead, _victimHead + _victimCount) for (set, tag).
+    // O(VictimCacheEntries) — fine, matches the linear-scan style already used for MSHR/WB lookups.
+    private int FindVictimBufferSlot(int set, ulong tag) {
+        if (_victimBuffer == null) return -1;
+        for (var i = 0; i < VictimCacheOccupancy; i++) {
+            int idx = (_victimHead + i) % VictimCacheEntries;
+            if (_victimBuffer[idx].Set == set && _victimBuffer[idx].Tag == tag) return idx;
+        }
+
+        return -1;
+    }
+
+    // Removes the entry at physical index idx, shifting later logical entries back one slot to
+    // keep the remaining entries' FIFO order intact. Buffer is small, so an O(n) shift is fine.
+    private VictimBufferEntry RemoveVictimBufferSlot(int idx) {
+        VictimBufferEntry removed = _victimBuffer![idx];
+        int logicalPos = (idx - _victimHead + VictimCacheEntries) % VictimCacheEntries;
+        for (int i = logicalPos; i < VictimCacheOccupancy - 1; i++) {
+            int cur = (_victimHead + i) % VictimCacheEntries;
+            int next = (_victimHead + i + 1) % VictimCacheEntries;
+            _victimBuffer[cur] = _victimBuffer[next];
+        }
+
+        VictimCacheOccupancy--;
+        return removed;
+    }
+
     public CacheLine[] GetSnapshot() {
         int sets = _tags.Length;
         var lines = new CacheLine[sets * Ways];
@@ -1119,6 +1426,16 @@ public sealed class SetAssociativeCache : IMemory {
     private struct WbEntry {
         public ulong LineBase;
         public byte[]? Data;
+    }
+
+    // Jouppi victim buffer entry. Only the logical window [_victimHead, _victimHead+_victimCount)
+    // of _victimBuffer is ever read — occupancy is tracked by _victimHead/_victimCount rather than
+    // a null-Data sentinel scanned over the full array (unlike WbEntry/MshrEntry).
+    private struct VictimBufferEntry {
+        public int Set;
+        public ulong Tag;
+        public byte[]? Data;
+        public bool Dirty;
     }
 
     // MSHRs: tracks in-flight demand fills (filled synchronously but timing window still open).

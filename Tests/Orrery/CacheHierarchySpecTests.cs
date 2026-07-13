@@ -477,6 +477,65 @@ public class CacheHierarchySpecTests {
     }
 
     [Fact]
+    public void Inclusive_OuterEvictionCapturedInVictimBuffer_StillBackInvalidatesInner() {
+        // L2 (2-way, Inclusive) also has its own local victim buffer: an L2 eviction is captured
+        // rather than discarded, but the inner (L1) back-invalidation must still happen — the
+        // cascade doesn't get skipped just because the outer level happens to have a soft landing
+        // spot for the line it evicted.
+        FlatMemory backing = MakeBacking();
+        var l1 = new CacheLevelSpec(64, 4, 16, 5); // 1 set, 4-way
+        var l2 = new CacheLevelSpec(
+            32, 2, 16, 20, InclusionPolicy: InclusionPolicyKind.Inclusive, VictimCacheEntries: 2
+        ); // 1 set, 2-way
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]), [l2,]);
+
+        layers.Accessor.Read(0, 1);  // L1 + L2 install line 0
+        layers.Accessor.Read(16, 1); // L1 + L2 install line 16; L2 now full (2/2)
+        layers.ConsumeAllStalls();
+
+        layers.Accessor.Read(32, 1); // L2 evicts line 0, captures it locally, still back-invalidates L1
+        layers.ConsumeAllStalls();
+
+        Assert.Equal(1, layers.L2Cache!.Evictions);
+        Assert.Equal(1, layers.L2Cache.VictimCacheCaptures);
+        Assert.Equal(1, layers.Cache!.BackInvalidations);
+
+        long l1MissesBefore = layers.Cache.Misses;
+        layers.Accessor.Read(0, 1); // gone from L1 → miss; L2's main array doesn't have it either
+        Assert.Equal(l1MissesBefore + 1, layers.Cache.Misses);
+        Assert.True(layers.L2Cache.VictimCacheHits >= 1); // ...but L2's victim buffer still has it
+    }
+
+    [Fact]
+    public void Exclusive_LocalVictimBufferOverflow_HandsOffToOuterExclusiveCache() {
+        // L1 has its own local victim buffer AND its backing (L2) is Exclusive-configured: a line
+        // leaving L1's main array is captured locally first; only once that local buffer overflows
+        // does the line get handed off to L2 as an Exclusive victim, exactly like an L1 without a
+        // local buffer would do immediately.
+        FlatMemory backing = MakeBacking();
+        var l1 = new CacheLevelSpec(32, 2, 16, 5, VictimCacheEntries: 1);                           // 1 set, 2-way
+        var l2 = new CacheLevelSpec(16, 1, 16, 20, InclusionPolicy: InclusionPolicyKind.Exclusive); // 1 line
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]), [l2,]);
+
+        layers.Accessor.Read(0, 1);  // L1 installs line 0
+        layers.Accessor.Read(16, 1); // L1 installs line 16 (2/2 full)
+        layers.ConsumeAllStalls();
+
+        layers.Accessor.Read(32, 1); // L1 evicts line 0 → captured in L1's own victim buffer, not L2
+        layers.ConsumeAllStalls();
+        Assert.Equal(0, layers.L2Cache!.VictimInserts);
+        Assert.Equal(1, layers.Cache!.VictimCacheCaptures);
+
+        layers.Accessor.Read(48, 1); // L1 evicts line 16 → L1's buffer overflows, hands line 0 off to L2
+        layers.ConsumeAllStalls();
+        Assert.True(layers.L2Cache.VictimInserts >= 1);
+
+        long l2HitsBefore = layers.L2Cache.Hits;
+        layers.Accessor.Read(0, 1); // gone from L1's main array and its own buffer → falls through to L2
+        Assert.True(layers.L2Cache.Hits > l2HitsBefore);
+    }
+
+    [Fact]
     public void Exclusive_MismatchedBlockSizes_ThrowsOnAttach() {
         var l1Cache = new SetAssociativeCache(new FlatMemory(256), 32, 2, 16, 5);
         var l2Cache = new SetAssociativeCache(

@@ -140,14 +140,23 @@ public enum InclusionPolicyKind {
 ///     the full miss latency to arrive in the background for later accesses. Requires
 ///     <see cref="CacheMshrCount" /> &gt; 0.
 /// </param>
-/// <param name="L2CriticalWordLatency">L2 critical-word-first latency (same semantics as L1; requires <see cref="L2MshrCount" /> &gt; 0).</param>
-/// <param name="L3CriticalWordLatency">L3 critical-word-first latency (same semantics as L1; requires <see cref="L3MshrCount" /> &gt; 0).</param>
+/// <param name="L2CriticalWordLatency">
+///     L2 critical-word-first latency (same semantics as L1; requires
+///     <see cref="L2MshrCount" /> &gt; 0).
+/// </param>
+/// <param name="L3CriticalWordLatency">
+///     L3 critical-word-first latency (same semantics as L1; requires
+///     <see cref="L3MshrCount" /> &gt; 0).
+/// </param>
 /// <param name="CacheBankCount">L1 bank count (1 = unbanked). See <see cref="CacheReadPorts" />.</param>
 /// <param name="CacheReadPorts">
 ///     L1 read accesses one bank can service per cycle (0 = unlimited). A conflicting access to a
 ///     saturated bank pays a 1-cycle structural-hazard stall.
 /// </param>
-/// <param name="CacheWritePorts">L1 write accesses one bank can service per cycle (0 = unlimited). See <see cref="CacheReadPorts" />.</param>
+/// <param name="CacheWritePorts">
+///     L1 write accesses one bank can service per cycle (0 = unlimited). See
+///     <see cref="CacheReadPorts" />.
+/// </param>
 /// <param name="L2BankCount">L2 bank count (same semantics as L1).</param>
 /// <param name="L2ReadPorts">L2 read port count per bank (same semantics as L1).</param>
 /// <param name="L2WritePorts">L2 write port count per bank (same semantics as L1).</param>
@@ -159,8 +168,41 @@ public enum InclusionPolicyKind {
 ///     sectors: a fresh miss fetches only the triggering sector, and evictions write back only
 ///     dirty sectors. Not combinable with <see cref="CacheWbCapacity" /> &gt; 0.
 /// </param>
-/// <param name="L2SectorBytes">L2 sector size in bytes (same semantics as L1). Not combinable with <see cref="L2WbCapacity" /> &gt; 0.</param>
-/// <param name="L3SectorBytes">L3 sector size in bytes (same semantics as L1). Not combinable with <see cref="L3WbCapacity" /> &gt; 0.</param>
+/// <param name="L2SectorBytes">
+///     L2 sector size in bytes (same semantics as L1). Not combinable with
+///     <see cref="L2WbCapacity" /> &gt; 0.
+/// </param>
+/// <param name="L3SectorBytes">
+///     L3 sector size in bytes (same semantics as L1). Not combinable with
+///     <see cref="L3WbCapacity" /> &gt; 0.
+/// </param>
+/// <param name="CacheVictimCacheEntries">
+///     L1 Jouppi victim buffer capacity in lines (0 = disabled). A small fully-associative FIFO
+///     buffer beside the main array that captures conflict-miss evictions instead of
+///     flushing/discarding them immediately; a later hit swaps the line back in, charging
+///     <see cref="CacheVictimCacheHitLatency" /> instead of the full miss latency. Not combinable
+///     with <see cref="CacheSectorBytes" /> &gt; 0.
+/// </param>
+/// <param name="L2VictimCacheEntries">
+///     L2 victim buffer capacity (same semantics as L1). Not combinable with
+///     <see cref="L2SectorBytes" /> &gt; 0.
+/// </param>
+/// <param name="L3VictimCacheEntries">
+///     L3 victim buffer capacity (same semantics as L1). Not combinable with
+///     <see cref="L3SectorBytes" /> &gt; 0.
+/// </param>
+/// <param name="CacheVictimCacheHitLatency">
+///     Cycles charged on an L1 victim-buffer hit. Only meaningful when
+///     <see cref="CacheVictimCacheEntries" /> &gt; 0.
+/// </param>
+/// <param name="L2VictimCacheHitLatency">
+///     Cycles charged on an L2 victim-buffer hit. Only meaningful when
+///     <see cref="L2VictimCacheEntries" /> &gt; 0.
+/// </param>
+/// <param name="L3VictimCacheHitLatency">
+///     Cycles charged on an L3 victim-buffer hit. Only meaningful when
+///     <see cref="L3VictimCacheEntries" /> &gt; 0.
+/// </param>
 /// <param name="ReplacementPolicy">
 ///     Cache replacement policy applied to every cache level.
 ///     Defaults to LRU. SRRIP is scan-resistant; DRRIP adds thrash-resistance via Set Dueling
@@ -234,7 +276,13 @@ public sealed record MemoryConfig(
     int L3WritePorts = 0,
     int CacheSectorBytes = 0,
     int L2SectorBytes = 0,
-    int L3SectorBytes = 0
+    int L3SectorBytes = 0,
+    int CacheVictimCacheEntries = 0,
+    int L2VictimCacheEntries = 0,
+    int L3VictimCacheEntries = 0,
+    int CacheVictimCacheHitLatency = 1,
+    int L2VictimCacheHitLatency = 1,
+    int L3VictimCacheHitLatency = 1
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -270,7 +318,7 @@ public sealed record MemoryLayers(
                 0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency,
                 cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode,
                 cfg.L3InclusionPolicy, cfg.L3CriticalWordLatency, cfg.L3BankCount, cfg.L3ReadPorts, cfg.L3WritePorts,
-                cfg.L3SectorBytes
+                cfg.L3SectorBytes, cfg.L3VictimCacheEntries, cfg.L3VictimCacheHitLatency
             );
             current = l3;
         }
@@ -281,7 +329,7 @@ public sealed record MemoryLayers(
                 0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency,
                 cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode,
                 cfg.L2InclusionPolicy, cfg.L2CriticalWordLatency, cfg.L2BankCount, cfg.L2ReadPorts, cfg.L2WritePorts,
-                cfg.L2SectorBytes
+                cfg.L2SectorBytes, cfg.L2VictimCacheEntries, cfg.L2VictimCacheHitLatency
             );
             l3?.AttachInner(l2);
             current = l2;
@@ -294,7 +342,8 @@ public sealed record MemoryLayers(
                 cfg.ReplacementPolicy, cfg.CacheTagLatency, cfg.CacheDataLatency,
                 cfg.CacheWritePolicy, cfg.CacheWriteMissPolicy, cfg.CacheWbCapacity, cfg.CacheMshrCount,
                 cfg.CacheAccessMode, InclusionPolicyKind.Nine, cfg.CacheCriticalWordLatency,
-                cfg.CacheBankCount, cfg.CacheReadPorts, cfg.CacheWritePorts, cfg.CacheSectorBytes
+                cfg.CacheBankCount, cfg.CacheReadPorts, cfg.CacheWritePorts, cfg.CacheSectorBytes,
+                cfg.CacheVictimCacheEntries, cfg.CacheVictimCacheHitLatency
             );
             (l2 ?? l3)?.AttachInner(l1);
             current = l1;
@@ -358,7 +407,7 @@ public sealed record MemoryLayers(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
                 s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
-                s.SectorBytes
+                s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -372,7 +421,7 @@ public sealed record MemoryLayers(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
                 s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
-                s.SectorBytes
+                s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);

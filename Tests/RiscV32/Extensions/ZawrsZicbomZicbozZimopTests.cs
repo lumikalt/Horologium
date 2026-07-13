@@ -154,15 +154,17 @@ public class ZawrsZicbomZicbozZimopTests {
     // ── Zicbom cache-backed tests ────────────────────────────────────────────
 
     private static MemoryConfig WriteBackDCacheConfig() => new(
-        CacheCapacityBytes: 64, CacheWays: 4, CacheBlockBytes: 16, CacheMissLatency: 5,
+        64, 4, 16, 5,
         CacheWritePolicy: WritePolicyKind.WriteBack, CacheWriteMissPolicy: WriteMissPolicyKind.WriteAllocate
     );
 
     private static SingleCycleTrain RunWithDCache(uint[] instructions, out FlatMemory mem) {
         mem = new FlatMemory(0x4000);
         for (var i = 0; i < instructions.Length; i++)
-            mem.Load(CodeBase + (ulong)(i * 4), BitConverter.GetBytes(instructions[i]));
-        var train = new SingleCycleTrain(new Rv32Mechanism(), mem, CodeBase, dMemConfig: WriteBackDCacheConfig());
+            mem.Load(ZawrsZicbomZicbozZimopTests.CodeBase + (ulong)(i * 4), BitConverter.GetBytes(instructions[i]));
+        var train = new SingleCycleTrain(
+            new Rv32Mechanism(), mem, ZawrsZicbomZicbozZimopTests.CodeBase, dMemConfig: WriteBackDCacheConfig()
+        );
         train.Run(200);
         return train;
     }
@@ -179,7 +181,7 @@ public class ZawrsZicbomZicbozZimopTests {
         SingleCycleTrain train = RunWithDCache(prog, out FlatMemory mem);
 
         Assert.True(train.DCache!.IsSectorResident(0x40)); // still resident after clean
-        Assert.Equal(42UL, mem.Read(0x40, 4)); // dirty data written back to backing
+        Assert.Equal(42UL, mem.Read(0x40, 4));             // dirty data written back to backing
     }
 
     [Fact]
@@ -194,7 +196,7 @@ public class ZawrsZicbomZicbozZimopTests {
         SingleCycleTrain train = RunWithDCache(prog, out FlatMemory mem);
 
         Assert.False(train.DCache!.IsSectorResident(0x40)); // invalidated
-        Assert.Equal(42UL, mem.Read(0x40, 4)); // dirty data written back before invalidate
+        Assert.Equal(42UL, mem.Read(0x40, 4));              // dirty data written back before invalidate
     }
 
     [Fact]
@@ -209,7 +211,7 @@ public class ZawrsZicbomZicbozZimopTests {
         SingleCycleTrain train = RunWithDCache(prog, out FlatMemory mem);
 
         Assert.False(train.DCache!.IsSectorResident(0x40)); // invalidated
-        Assert.Equal(0UL, mem.Read(0x40, 4)); // dirty data discarded, never reached backing
+        Assert.Equal(0UL, mem.Read(0x40, 4));               // dirty data discarded, never reached backing
     }
 
     // ── Zicboz tests ─────────────────────────────────────────────────────────

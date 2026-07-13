@@ -502,7 +502,7 @@ public class CacheTests {
         Assert.Equal(0xDDUL, val);
         Assert.Equal(0, cache.WbOccupancy); // consumed from buffer
         // Reinstalled line should be dirty (data hasn't hit backing yet).
-        Assert.Contains(cache.GetSnapshot(), l => l.Valid && l.Dirty);
+        Assert.Contains(cache.GetSnapshot(), l => l is { Valid: true, Dirty: true, });
     }
 
     [Fact]
@@ -761,16 +761,16 @@ public class CacheTests {
     [Fact]
     public void CriticalWordLatency_RequiresMshrCount_Throws() {
         var mem = new FlatMemory(256);
-        Assert.Throws<ArgumentException>(
-            () => new SetAssociativeCache(mem, 64, 4, 16, 10, criticalWordLatency: 3)
+        Assert.Throws<ArgumentException>(() => new SetAssociativeCache(mem, 64, 4, 16, 10, criticalWordLatency: 3)
         );
     }
 
     [Fact]
     public void CriticalWordLatency_CannotExceedMissLatency_Throws() {
         var mem = new FlatMemory(256);
-        Assert.Throws<ArgumentException>(
-            () => new SetAssociativeCache(mem, 64, 4, 16, 10, mshrCount: 2, criticalWordLatency: 11)
+        Assert.Throws<ArgumentException>(() => new SetAssociativeCache(
+                                             mem, 64, 4, 16, 10, mshrCount: 2, criticalWordLatency: 11
+                                         )
         );
     }
 
@@ -808,7 +808,11 @@ public class CacheTests {
 
     // 4-way, 64-byte capacity, 16-byte blocks → 1 set (all lines coexist), split into banks.
     private static SetAssociativeCache MakeBanked(
-        IMemory backing, int bankCount, int readPorts = 0, int writePorts = 0, int missLatency = 10
+        IMemory backing,
+        int bankCount,
+        int readPorts = 0,
+        int writePorts = 0,
+        int missLatency = 10
     ) => new(backing, 64, 4, 16, missLatency, bankCount: bankCount, readPorts: readPorts, writePorts: writePorts);
 
     [Fact]
@@ -822,7 +826,7 @@ public class CacheTests {
     [Fact]
     public void Banking_DifferentBanksConcurrentHits_NoConflict() {
         var mem = new FlatMemory(256);
-        SetAssociativeCache cache = MakeBanked(mem, bankCount: 2, readPorts: 1);
+        SetAssociativeCache cache = MakeBanked(mem, 2, 1);
 
         cache.Read(0, 1); // line 0 -> bank 0
         cache.ConsumePendingStalls();
@@ -841,7 +845,7 @@ public class CacheTests {
     [Fact]
     public void Banking_SameBankConcurrentHits_SecondPaysConflictStall() {
         var mem = new FlatMemory(256);
-        SetAssociativeCache cache = MakeBanked(mem, bankCount: 2, readPorts: 1);
+        SetAssociativeCache cache = MakeBanked(mem, 2, 1);
 
         cache.Read(0, 1); // line 0 -> bank 0
         cache.ConsumePendingStalls();
@@ -860,7 +864,7 @@ public class CacheTests {
     [Fact]
     public void Banking_TickPorts_ResetsUsageEachCycle() {
         var mem = new FlatMemory(256);
-        SetAssociativeCache cache = MakeBanked(mem, bankCount: 1, readPorts: 1);
+        SetAssociativeCache cache = MakeBanked(mem, 1, 1);
 
         cache.Read(0, 1);
         cache.ConsumePendingStalls();
@@ -873,7 +877,7 @@ public class CacheTests {
     [Fact]
     public void Banking_ReadAndWritePorts_AreIndependentPools() {
         var mem = new FlatMemory(256);
-        SetAssociativeCache cache = MakeBanked(mem, bankCount: 1, readPorts: 1, writePorts: 1);
+        SetAssociativeCache cache = MakeBanked(mem, 1, 1, 1);
 
         cache.Read(0, 1); // consumes the one read port
         cache.ConsumePendingStalls();
@@ -885,7 +889,7 @@ public class CacheTests {
     [Fact]
     public void Banking_WritePortConflict_ChargesStallAndCounts() {
         var mem = new FlatMemory(256);
-        SetAssociativeCache cache = MakeBanked(mem, bankCount: 1, writePorts: 1);
+        SetAssociativeCache cache = MakeBanked(mem, 1, writePorts: 1);
 
         cache.Write(0, 1, 1); // uses the one write port this cycle
         cache.ConsumePendingStalls();
@@ -945,7 +949,7 @@ public class CacheTests {
     [Fact]
     public void Sectoring_ColdMiss_OnlyFetchesTouchedSector() {
         var mem = new FlatMemory(256);
-        SetAssociativeCache cache = MakeSectored(mem, sectorBytes: 8);
+        SetAssociativeCache cache = MakeSectored(mem, 8);
 
         cache.Read(0, 1); // fresh miss: fetches sector 0 [0..7] only
         cache.ConsumePendingStalls();
@@ -958,16 +962,16 @@ public class CacheTests {
     [Fact]
     public void Sectoring_LaterAccessToUntouchedSector_PaysMissLatencyAgain() {
         var mem = new FlatMemory(256);
-        SetAssociativeCache cache = MakeSectored(mem, sectorBytes: 8, missLatency: 10);
+        SetAssociativeCache cache = MakeSectored(mem, 8);
 
         cache.Read(0, 1); // full miss: tag install + sector 0 fetch
         Assert.Equal(10, cache.ConsumePendingStalls());
         Assert.Equal(1, cache.Misses);
         Assert.Equal(1, cache.SectorFills);
 
-        cache.Read(8, 1); // tag hit, but sector 1 was never fetched: a sector miss
+        cache.Read(8, 1);                               // tag hit, but sector 1 was never fetched: a sector miss
         Assert.Equal(10, cache.ConsumePendingStalls()); // pays MissLatency again, for the sector alone
-        Assert.Equal(1, cache.Hits); // tag-level hit/miss counters are unaffected by sector misses
+        Assert.Equal(1, cache.Hits);                    // tag-level hit/miss counters are unaffected by sector misses
         Assert.Equal(1, cache.Misses);
         Assert.Equal(2, cache.SectorFills);
         Assert.True(cache.IsSectorResident(8));
@@ -978,7 +982,7 @@ public class CacheTests {
         var mem = new FlatMemory(256);
         for (ulong a = 0; a < 16; a++) mem.Write(a, 0xEE, 1); // seed line 0 with a known pattern
 
-        SetAssociativeCache cache = MakeSectoredWriteBack(mem, sectorBytes: 8);
+        SetAssociativeCache cache = MakeSectoredWriteBack(mem, 8);
 
         cache.Write(0, 0x11, 1); // write-allocate miss: fetches + dirties sector 0 only
         cache.ConsumePendingStalls();
@@ -998,7 +1002,7 @@ public class CacheTests {
     [Fact]
     public void Sectoring_Prefetch_WarmsWholeLine() {
         var mem = new FlatMemory(256);
-        SetAssociativeCache cache = MakeSectored(mem, sectorBytes: 8);
+        SetAssociativeCache cache = MakeSectored(mem, 8);
 
         cache.Prefetch(0);
 
@@ -1021,10 +1025,286 @@ public class CacheTests {
     [Fact]
     public void Sectoring_CombinedWithWbCapacity_Throws() {
         var mem = new FlatMemory(256);
-        Assert.Throws<ArgumentException>(
-            () => new SetAssociativeCache(
-                mem, 64, 4, 16, 10, writePolicy: WritePolicyKind.WriteBack, wbCapacity: 4, sectorBytes: 8
-            )
+        Assert.Throws<ArgumentException>(() => new SetAssociativeCache(
+                                             mem, 64, 4, 16, 10, writePolicy: WritePolicyKind.WriteBack, wbCapacity: 4,
+                                             sectorBytes: 8
+                                         )
         );
+    }
+
+    // ── Victim cache (Jouppi) ─────────────────────────────────────────────────
+
+    // 1-way, 32-byte capacity, 16-byte blocks → 2 sets, 1 way each: a second distinct tag in the
+    // same set is always a conflict eviction (no spare ways to absorb it). Addresses 0/32/64/96/128
+    // all decompose to set 0 (index = (addr >> 4) & 1); address 16 lands in the other set.
+    private static SetAssociativeCache MakeVictimCache(
+        IMemory backing,
+        int victimCacheEntries,
+        int victimCacheHitLatency = 1,
+        int missLatency = 10,
+        int mshrCount = 0
+    ) =>
+        new(
+            backing, 32, 1, 16, missLatency, mshrCount: mshrCount,
+            victimCacheEntries: victimCacheEntries, victimCacheHitLatency: victimCacheHitLatency
+        );
+
+    private static SetAssociativeCache MakeVictimCacheWriteBack(
+        IMemory backing,
+        int victimCacheEntries,
+        int victimCacheHitLatency = 1,
+        int missLatency = 10
+    ) =>
+        new(
+            backing, 32, 1, 16, missLatency, writePolicy: WritePolicyKind.WriteBack,
+            writeMissPolicy: WriteMissPolicyKind.WriteAllocate,
+            victimCacheEntries: victimCacheEntries, victimCacheHitLatency: victimCacheHitLatency
+        );
+
+    [Fact]
+    public void VictimCache_DefaultsToDisabled() {
+        SetAssociativeCache cache = MakeFullyAssoc(new FlatMemory(256));
+        Assert.Equal(0, cache.VictimCacheEntries);
+        Assert.Equal(0, cache.VictimCacheOccupancy);
+    }
+
+    [Fact]
+    public void VictimCache_ConflictMiss_CapturesEvictedLine() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeVictimCache(mem, 2);
+
+        cache.Read(0, 1); // cold miss, installs tag(0)
+        cache.ConsumePendingStalls();
+        cache.Read(32, 1); // conflict miss: evicts tag(0), captures it instead of discarding
+        cache.ConsumePendingStalls();
+
+        Assert.Equal(1, cache.VictimCacheCaptures);
+        Assert.Equal(1, cache.VictimCacheOccupancy);
+    }
+
+    [Fact]
+    public void VictimCache_SubsequentAccessToEvictedLine_HitsInBuffer() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, [11,]);
+        SetAssociativeCache cache = MakeVictimCache(mem, 2);
+
+        cache.Read(0, 1);
+        cache.ConsumePendingStalls();
+        cache.Read(32, 1); // evicts+captures line 0
+        cache.ConsumePendingStalls();
+
+        ulong val = cache.Read(0, 1); // victim-buffer hit
+        Assert.Equal(11UL, val);
+        Assert.Equal(1, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.VictimCacheHits);
+        Assert.Equal(1, cache.Hits);   // counts as a Hit, not a Miss
+        Assert.Equal(2, cache.Misses); // unchanged by the victim-buffer hit
+    }
+
+    [Fact]
+    public void VictimCache_HitSwapsDisplacedLineBackIntoBuffer() {
+        var mem = new FlatMemory(256);
+        mem.Load(0, [11,]);
+        mem.Load(32, [22,]);
+        SetAssociativeCache cache = MakeVictimCache(mem, 2);
+
+        cache.Read(0, 1);
+        cache.ConsumePendingStalls();
+        cache.Read(32, 1); // evicts+captures line 0; line 32 now resident
+        cache.ConsumePendingStalls();
+        cache.Read(0, 1); // victim-buffer hit: swaps line 32 out into the buffer
+        cache.ConsumePendingStalls();
+
+        // Line 32 was displaced by the swap, not discarded — it should now be a cheap
+        // victim-buffer hit too, proving the full bidirectional swap.
+        ulong val = cache.Read(32, 1);
+        Assert.Equal(22UL, val);
+        Assert.Equal(1, cache.ConsumePendingStalls());
+        Assert.Equal(2, cache.VictimCacheHits);
+    }
+
+    [Fact]
+    public void VictimCache_NoMshrAllocatedOnHit() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeVictimCache(mem, 2, mshrCount: 2);
+
+        cache.Read(0, 1);
+        cache.ConsumePendingStalls();
+        cache.Read(32, 1); // evicts+captures line 0
+        cache.ConsumePendingStalls();
+        for (var i = 0; i < 10; i++) cache.TickMshr(); // drain any in-flight MSHR slots
+        Assert.Equal(0, cache.MshrOccupancy);
+
+        cache.Read(0, 1); // victim-buffer hit
+        cache.ConsumePendingStalls();
+
+        Assert.Equal(0, cache.MshrOccupancy);
+        Assert.Equal(0, cache.MshrMerges);
+    }
+
+    [Fact]
+    public void VictimCache_FifoOverflow_EvictsOldestEntryFirst() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeVictimCache(mem, 2, missLatency: 10);
+
+        cache.Read(0, 1);
+        cache.ConsumePendingStalls();
+        cache.Read(32, 1); // evicts+captures tag(0) → buffer=[0]
+        cache.ConsumePendingStalls();
+        cache.Read(64, 1); // evicts+captures tag(32) → buffer=[0,32]
+        cache.ConsumePendingStalls();
+        cache.Read(96, 1); // evicts tag(64); buffer full → overflow disposes oldest (tag 0) → buffer=[32,64]
+        cache.ConsumePendingStalls();
+
+        // Newer entry (32) survived the overflow: still a cheap victim-buffer hit.
+        cache.Read(32, 1);
+        Assert.Equal(1, cache.ConsumePendingStalls());
+        Assert.Equal(1, cache.VictimCacheHits);
+
+        // Oldest entry (0) was evicted by the FIFO overflow: pays the full miss latency again.
+        cache.Read(0, 1);
+        Assert.Equal(10, cache.ConsumePendingStalls());
+    }
+
+    [Fact]
+    public void VictimCache_CapturedDirtyLine_NoWritebackAtCaptureTime() {
+        var mem = new FlatMemory(256);
+        for (ulong a = 0; a < 128; a++) mem.Write(a, 0xEE, 1);
+        SetAssociativeCache cache = MakeVictimCacheWriteBack(mem, 2);
+
+        cache.Write(0, 0x11, 1); // write-allocate miss, dirties line 0
+        cache.ConsumePendingStalls();
+        cache.Write(32, 0x22, 1); // evicts+captures dirty line 0 — no writeback should occur yet
+        cache.ConsumePendingStalls();
+
+        Assert.Equal(1, cache.VictimCacheCaptures);
+        Assert.Equal(0xEEUL, mem.Read(0, 1)); // backing untouched: dirty bit travels with the data
+    }
+
+    [Fact]
+    public void VictimCache_FifoOverflow_DirtyLine_WritesBackToBacking() {
+        var mem = new FlatMemory(256);
+        for (ulong a = 0; a < 128; a++) mem.Write(a, 0xEE, 1);
+        SetAssociativeCache cache = MakeVictimCacheWriteBack(mem, 1);
+
+        cache.Write(0, 0x11, 1); // dirty tag(0)
+        cache.ConsumePendingStalls();
+        cache.Write(32, 0x22, 1); // evicts+captures dirty tag(0) → buffer=[0]
+        cache.ConsumePendingStalls();
+        cache.Write(64, 0x33, 1); // evicts tag(32); buffer full(1) → overflow disposes tag(0), writing it back
+        cache.ConsumePendingStalls();
+
+        Assert.Equal(0x11UL, mem.Read(0, 1));
+    }
+
+    [Fact]
+    public void VictimCache_DirtyBitTravelsThroughSwap() {
+        var mem = new FlatMemory(256);
+        for (ulong a = 0; a < 160; a++) mem.Write(a, 0xEE, 1);
+        SetAssociativeCache cache = MakeVictimCacheWriteBack(mem, 1);
+
+        cache.Write(0, 0x11, 1); // dirty tag(0)
+        cache.ConsumePendingStalls();
+        cache.Write(32, 0x22, 1); // evicts+captures dirty tag(0) → buffer=[0(dirty)]
+        cache.ConsumePendingStalls();
+        cache.Read(0, 1); // victim-buffer hit: swaps tag(0) back in, displaces dirty tag(32) → buffer=[32(dirty)]
+        cache.ConsumePendingStalls();
+        cache.Write(64, 0x44, 1); // evicts tag(0) again; buffer full(1) → overflow disposes tag(32), writing 0x22 back
+        cache.ConsumePendingStalls();
+        cache.Write(96, 0x55, 1); // evicts tag(64); buffer full(1) → overflow disposes tag(0) — still dirty
+        cache.ConsumePendingStalls();
+
+        Assert.Equal(0x11UL, mem.Read(0, 1)); // the original dirty write survived two captures and a swap
+    }
+
+    [Fact]
+    public void VictimCache_CombinedWithSectorBytes_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentException>(() => new SetAssociativeCache(
+                                             mem, 64, 4, 16, 10, sectorBytes: 8, victimCacheEntries: 2
+                                         )
+        );
+    }
+
+    [Fact]
+    public void VictimCache_NegativeEntries_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SetAssociativeCache(
+                                                       mem, 64, 4, 16, 10, victimCacheEntries: -1
+                                                   )
+        );
+    }
+
+    [Fact]
+    public void VictimCache_NegativeHitLatency_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SetAssociativeCache(
+                                                       mem, 64, 4, 16, 10, victimCacheHitLatency: -1
+                                                   )
+        );
+    }
+
+    [Fact]
+    public void VictimCache_HitLatencyExceedingMissLatency_Throws() {
+        var mem = new FlatMemory(256);
+        Assert.Throws<ArgumentException>(() => new SetAssociativeCache(
+                                             mem, 64, 4, 16, 10, victimCacheEntries: 2, victimCacheHitLatency: 11
+                                         )
+        );
+    }
+
+    [Fact]
+    public void VictimCache_CleanLine_OnBufferedEntry_FlushesButKeepsResident() {
+        var mem = new FlatMemory(256);
+        for (ulong a = 0; a < 64; a++) mem.Write(a, 0xEE, 1);
+        SetAssociativeCache cache = MakeVictimCacheWriteBack(mem, 2);
+
+        cache.Write(0, 0x11, 1);
+        cache.ConsumePendingStalls();
+        cache.Write(32, 0x22, 1); // evicts+captures dirty tag(0) into the buffer
+        cache.ConsumePendingStalls();
+
+        cache.CleanLine(0);
+
+        Assert.Equal(0x11UL, mem.Read(0, 1));        // written back
+        Assert.Equal(1, cache.VictimCacheOccupancy); // still resident in the buffer
+
+        ulong val = cache.Read(0, 1); // still hits in the buffer after cleaning
+        Assert.Equal(0x11UL, val);
+        Assert.Equal(1, cache.VictimCacheHits);
+    }
+
+    [Fact]
+    public void VictimCache_FlushLine_OnBufferedEntry_FlushesAndRemoves() {
+        var mem = new FlatMemory(256);
+        for (ulong a = 0; a < 64; a++) mem.Write(a, 0xEE, 1);
+        SetAssociativeCache cache = MakeVictimCacheWriteBack(mem, 2);
+
+        cache.Write(0, 0x11, 1);
+        cache.ConsumePendingStalls();
+        cache.Write(32, 0x22, 1); // evicts+captures dirty tag(0) into the buffer
+        cache.ConsumePendingStalls();
+
+        cache.FlushLine(0);
+
+        Assert.Equal(0x11UL, mem.Read(0, 1));        // written back
+        Assert.Equal(0, cache.VictimCacheOccupancy); // removed from the buffer
+    }
+
+    [Fact]
+    public void VictimCache_InvalidateLine_OnBufferedEntry_DiscardsWithoutWriteback() {
+        var mem = new FlatMemory(256);
+        for (ulong a = 0; a < 64; a++) mem.Write(a, 0xEE, 1);
+        SetAssociativeCache cache = MakeVictimCacheWriteBack(mem, 2);
+
+        cache.Write(0, 0x11, 1);
+        cache.ConsumePendingStalls();
+        cache.Write(32, 0x22, 1); // evicts+captures dirty tag(0) into the buffer
+        cache.ConsumePendingStalls();
+
+        cache.InvalidateLine(0);
+
+        Assert.Equal(0xEEUL, mem.Read(0, 1));        // discarded, not written back
+        Assert.Equal(0, cache.VictimCacheOccupancy); // removed from the buffer
     }
 }

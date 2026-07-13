@@ -9,28 +9,6 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] ~~Suspended-stream data exchange: `so.v.vload`/`so.v.vstor`~~ — **hold**: dissertation gives one sentence
   with no operand semantics; Spike has no instruction files for it. Skip until the spec is clarified.
 
-## Cache Model Realism
-
-- [x] Cache-level MSHRs with hit-under-miss: move outstanding-miss tracking from the pipeline into each cache level;
-  a secondary miss to a line already in flight merges into the existing MSHR entry instead of paying a second full
-  miss, and the cache continues serving hits while misses are outstanding. Makes L2/L3 non-blocking too. — Kroft,
-  ISCA 1981
-- [x] Sequential tag/data access mode: gem5's third timing knob alongside tag/data latency — hit latency
-  = tag + data (probe tags first, then read only the matching way) instead of max(tag, data); typical for large
-  lower-level caches.
-- [x] Inclusion policy per level pair: inclusive (Intel-style — lower-level eviction back-invalidates the line in
-  upper levels), exclusive (AMD-style — lower levels act as victim caches for the level above), or NINE
-  (non-inclusive non-exclusive, the current behavior).
-- [x] Critical-word-first / early restart: a miss fill returns the demanded word first so the load resumes after the
-  leading edge while the rest of the line streams in; matters when block size is large relative to miss latency.
-- [x] Banked caches and port limits: N banks with conflict stalls on same-bank concurrent accesses; configurable
-  read/write port counts (the OoO train currently has unlimited D-cache bandwidth).
-- [x] Per-sector dirty/valid bits: sectored lines so writebacks transfer only dirty sectors and fills can be partial;
-  bandwidth refinement over whole-line granularity.
-- [x] Zicbom write-back semantics: wire cbo.clean/cbo.flush/cbo.inval into dirty-line state now that write-back
-  caches track it (clean = writeback and keep, flush = writeback and invalidate, inval = discard without writeback).
-- [ ] Victim cache: small fully-associative buffer to absorb conflict misses. — Jouppi, ISCA 1990
-
 ## Performance
 
 - [ ] Memoization of instructions and decodings?
