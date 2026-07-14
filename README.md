@@ -763,8 +763,8 @@ pipeline-train analogue of `MultiHartKernel`. Each hart owns its own train insta
 `MoesifCache`); the coordinator advances every non-halted train by one tick per logical cycle.
 
 `ISteppableTrain` (`src/Core/Orrery/Train/`) is a minimal interface: `BeginStepping()`, `StepCycle() → bool`, `IsIdle`,
-`FinishStepping() → RevolutionResult`. All five train types implement it: `SingleCycleTrain`, `FiveStageTrain`,
-`SuperscalarTrain`, `OooeTrain`, `SmtTrain`.
+`FinishStepping() → RevolutionResult`. All pipeline train types implement it: `SingleCycleTrain`, `FiveStageTrain`,
+`SuperscalarTrain`, `OooeTrain`, `CprTrain`, `SmtTrain`.
 
 ```csharp
 var flat   = new FlatMemory(0x10000);
@@ -791,9 +791,13 @@ the decode stream before the load's source-register computation.
 ### SmtTrain (src/Core/Pipeline/)
 
 `SmtTrain` is a barrel-processor SMT train: N independent hart contexts share a single issue window of width
-`issueWidth`. Each tick the coordinator distributes the available slots round-robin across active harts, rotating the
-starting hart every cycle for long-run fairness. This interleaves hart instructions at issue-slot granularity rather
-than the whole-tick round-robin of `MultiHartPipeline`.
+`issueWidth`. Each tick the coordinator distributes the available slots across active harts via a pluggable
+`ISmtFetchPolicy` (src/Core/Mechanism, implementations under `Mechanism.SmtFetchPolicies`): `RoundRobinFetchPolicy`
+(default) rotates the starting hart every cycle for long-run fairness; `IcountFetchPolicy` implements Tullsen et al.'s
+ICOUNT (ISCA 1996), prioritizing harts with fewer recent cache/TLB stall cycles as a fetch/decode/queue-occupancy proxy
+— the barrel core's atomic per-slot fetch+decode+execute has no literal queue depth to count, unlike the multi-stage
+front end ICOUNT was designed for. This interleaves hart instructions at issue-slot granularity rather than the
+whole-tick round-robin of `MultiHartPipeline`.
 
 Each hart has its own `IArchState` and `MemoryLayers` (typically backed by per-hart `MoesifCache` instances sharing a
 `MoesifBus`). All harts share the same `Escapement` and advance in lock-step. A hart that hits a branch, halt, trap, or

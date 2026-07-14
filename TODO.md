@@ -20,7 +20,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Checkpoint processing and recovery (CPR) + continual flow pipelines (CFP): ROB-free large-window paradigm with
   checkpoint-based recovery and slice-out of miss-dependent instructions. — Akkary et al., MICRO 2003; Srinivasan et
   al., ASPLOS 2004
-- [ ] SMT fetch policies: ICOUNT and round-robin variants for per-hart fetch/issue arbitration in the SMT train. —
+- [x] SMT fetch policies: ICOUNT and round-robin variants for per-hart fetch/issue arbitration in the SMT train. —
   Tullsen et al., ISCA 1996
 - [ ] Decoupled access-execute (DAE): the classic access/execute processor split — the architectural ancestor of
   UVE-style streaming. — Smith, ISCA 1982

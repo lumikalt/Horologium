@@ -1,5 +1,6 @@
 using JetBrains.Annotations;
 using Mechanism;
+using Mechanism.SmtFetchPolicies;
 using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
@@ -14,8 +15,9 @@ namespace Pipeline;
 /// <summary>
 ///     Simultaneous Multi-Threading (barrel-processor) Train: N independent hart
 ///     contexts share a single issue window of width <c>issueWidth</c>.  Each tick
-///     the coordinator distributes available issue slots round-robin across active
-///     harts, rotating the starting hart every cycle for long-run fairness.
+///     the coordinator distributes available issue slots across active harts using a
+///     pluggable <see cref="ISmtFetchPolicy" /> — <see cref="RoundRobinFetchPolicy" /> by
+///     default, or <see cref="IcountFetchPolicy" /> for Tullsen et al.'s ICOUNT policy.
 ///     <para>
 ///         All harts share the same Escapement and therefore advance in lock-step.
 ///         Each hart has its own <see cref="IArchState" /> and <see cref="MemoryLayers" />
@@ -43,7 +45,8 @@ public sealed class SmtTrain : ISteppableTrain {
         IMechanism[] mechanisms,
         IMemory[] perHartMemory,
         ulong[]? entryPoints = null,
-        int issueWidth = 2
+        int issueWidth = 2,
+        ISmtFetchPolicy? fetchPolicy = null
     ) {
         ArgumentNullException.ThrowIfNull(mechanisms);
         ArgumentNullException.ThrowIfNull(perHartMemory);
@@ -57,7 +60,12 @@ public sealed class SmtTrain : ISteppableTrain {
 
         var esc = new Escapement();
         _train = new Train("smt", esc);
-        _core = _train.AddGear(new SmtCore("pipeline", _train.Root, esc, mechanisms, perHartMemory, eps, issueWidth));
+        _core = _train.AddGear(
+            new SmtCore(
+                "pipeline", _train.Root, esc, mechanisms, perHartMemory, eps, issueWidth,
+                fetchPolicy ?? new RoundRobinFetchPolicy()
+            )
+        );
         _train.Build();
     }
 
@@ -98,13 +106,9 @@ internal sealed class HartContext {
 // ── Pipeline core Gear ─────────────────────────────────────────────────────────
 
 /// <summary>
-///     The SMT core Gear. Each tick it distributes up to <c>issueWidth</c> issue
-///     slots round-robin across the N hart contexts, skipping halted harts and harts
-///     that have been blocked by a branch or halt within the current cycle.
-///     <para>
-///         The starting hart rotates by 1 each cycle so every hart gets equal priority
-///         over time regardless of how <c>issueWidth</c> divides by N.
-///     </para>
+///     The SMT core Gear. Each tick it distributes up to <c>issueWidth</c> issue slots
+///     across the N hart contexts via <c>fetchPolicy</c>, skipping halted harts
+///     and harts that have been blocked by a branch or halt within the current cycle.
 /// </summary>
 internal sealed class SmtCore(
     string name,
@@ -113,13 +117,13 @@ internal sealed class SmtCore(
     IMechanism[] mechanisms,
     IMemory[] memories,
     ulong[] entryPoints,
-    int issueWidth
+    int issueWidth,
+    ISmtFetchPolicy fetchPolicy
 ) : Gear(name, parent, esc) {
     private readonly HartContext[] _harts = CreateHarts(mechanisms, memories, entryPoints);
     [UsedImplicitly] private Counter _branchMissCounter = null!;
 
     private Counter _cyclesCounter = null!;
-    private int _nextIssueHart;
     private Counter _retiredCounter = null!;
 
     private Action? _runCycle;
@@ -161,8 +165,6 @@ internal sealed class SmtCore(
             ctx.ArchState.Pc = ctx.EntryPoint;
             ctx.Halted = false;
         }
-
-        _nextIssueHart = 0;
     }
 
     public override void Wind() {
@@ -172,33 +174,35 @@ internal sealed class SmtCore(
 
     private void RunCycle() {
         int n = _harts.Length;
-        var blocked = new bool[n];
+        var available = new bool[n];
+        var issuedThisCycle = new bool[n];
+        for (var i = 0; i < n; i++) available[i] = !_harts[i].Halted;
+
         var issued = 0;
-        int cursor = _nextIssueHart;
+        long cacheStalls = 0;
+
+        fetchPolicy.BeginCycle(n);
 
         while (issued < issueWidth) {
-            // Find next available (non-halted, non-blocked) hart in round-robin order.
-            int found = -1;
-            for (var t = 0; t < n; t++) {
-                int h = (cursor + t) % n;
-                if (!_harts[h].Halted && !blocked[h]) {
-                    found = h;
-                    break;
-                }
-            }
-
+            int found = fetchPolicy.SelectHart(available);
             if (found < 0) break;
 
-            cursor = (found + 1) % n;
-            bool cut = IssueOne(_harts[found]);
-            blocked[found] = cut;
+            HartContext ctx = _harts[found];
+            bool cut = IssueOne(ctx);
+            issuedThisCycle[found] = true;
+
+            long hartStalls = ctx.ILayers.ConsumeAllStalls() + ctx.DLayers.ConsumeAllStalls();
+            cacheStalls += hartStalls;
+            fetchPolicy.OnIssued(found, hartStalls);
+
+            available[found] = !cut;
             issued++;
         }
 
-        // Drain accumulated cache stall penalties from all hart memory layers.
-        long cacheStalls = 0;
-        foreach (HartContext ctx in _harts)
-            cacheStalls += ctx.ILayers.ConsumeAllStalls() + ctx.DLayers.ConsumeAllStalls();
+        // Drain accumulated cache stall penalties from harts that didn't get an issue slot.
+        for (var i = 0; i < n; i++)
+            if (!issuedThisCycle[i])
+                cacheStalls += _harts[i].ILayers.ConsumeAllStalls() + _harts[i].DLayers.ConsumeAllStalls();
 
         _cyclesCounter.Increment();
         if (cacheStalls > 0) {
@@ -207,8 +211,6 @@ internal sealed class SmtCore(
         }
 
         if (issued < issueWidth) _stallsCounter.Increment();
-
-        _nextIssueHart = (_nextIssueHart + 1) % n;
 
         var anyActive = false;
         foreach (HartContext ctx in _harts)

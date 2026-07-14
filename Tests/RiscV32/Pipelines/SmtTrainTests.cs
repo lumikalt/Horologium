@@ -1,3 +1,4 @@
+using Mechanism.SmtFetchPolicies;
 using Orrery.Cache;
 using Pipeline;
 using RiscV32;
@@ -151,5 +152,53 @@ public class SmtTrainTests {
 
         Assert.Equal(3UL, smt.StateOf(0).IntegerRegisters.Read(1));
         Assert.Equal(7UL, smt.StateOf(1).IntegerRegisters.Read(1));
+    }
+
+    [Fact]
+    public void ExplicitRoundRobinPolicy_MatchesDefaultBehavior() {
+        const uint addi42 = 0x02A00093; // addi x1, x0, 42
+        const uint addi99 = 0x06300093; // addi x1, x0, 99
+
+        var mem0 = new FlatMemory(0x100);
+        var mem1 = new FlatMemory(0x100);
+        mem0.Load(0x00, ToBytes(addi42, SmtTrainTests.Ebreak));
+        mem1.Load(0x00, ToBytes(addi99, SmtTrainTests.Ebreak));
+
+        var smt = new SmtTrain(
+            [new Rv32Mechanism(), new Rv32Mechanism(),],
+            [mem0, mem1,],
+            issueWidth: 2,
+            fetchPolicy: new RoundRobinFetchPolicy()
+        );
+        smt.Run(1_000);
+
+        Assert.Equal(42UL, smt.StateOf(0).IntegerRegisters.Read(1));
+        Assert.Equal(99UL, smt.StateOf(1).IntegerRegisters.Read(1));
+    }
+
+    [Fact]
+    public void IcountPolicy_ThreeHarts_AllProduceCorrectResult() {
+        const uint addi10 = 0x00A00093; // addi x1, x0, 10
+        const uint addi20 = 0x01400093; // addi x1, x0, 20
+        const uint addi30 = 0x01E00093; // addi x1, x0, 30
+
+        var mem0 = new FlatMemory(0x100);
+        var mem1 = new FlatMemory(0x100);
+        var mem2 = new FlatMemory(0x100);
+        mem0.Load(0x00, ToBytes(addi10, SmtTrainTests.Ebreak));
+        mem1.Load(0x00, ToBytes(addi20, SmtTrainTests.Ebreak));
+        mem2.Load(0x00, ToBytes(addi30, SmtTrainTests.Ebreak));
+
+        var smt = new SmtTrain(
+            [new Rv32Mechanism(), new Rv32Mechanism(), new Rv32Mechanism(),],
+            [mem0, mem1, mem2,],
+            issueWidth: 2,
+            fetchPolicy: new IcountFetchPolicy()
+        );
+        smt.Run(1_000);
+
+        Assert.Equal(10UL, smt.StateOf(0).IntegerRegisters.Read(1));
+        Assert.Equal(20UL, smt.StateOf(1).IntegerRegisters.Read(1));
+        Assert.Equal(30UL, smt.StateOf(2).IntegerRegisters.Read(1));
     }
 }
