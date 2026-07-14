@@ -49,7 +49,9 @@ public sealed class CorrelatedPredictor : IBranchPredictor {
     /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         int idx = BhtIndex(pc);
-        _btb[idx] = actualTarget;
+        // Only taken outcomes carry a real target; a not-taken "next ip" is just the fallthrough
+        // address and would clobber the BTB entry a later taken prediction at this index relies on.
+        if (taken) _btb[idx] = actualTarget;
         _local.Commit(
             idx, taken, () => {
                 var history = (int)_local.Value(idx);
@@ -138,7 +140,7 @@ public sealed class GselectPredictor : IBranchPredictor {
         _hist.Commit(
             taken, () => {
                 int idx = PhtIndex(pc);
-                _btb[idx] = actualTarget;
+                if (taken) _btb[idx] = actualTarget;
                 switch (taken) {
                     case true when _pht[idx] < _satMax: _pht[idx]++; break;
                     case false when _pht[idx] > 0:      _pht[idx]--; break;
@@ -204,7 +206,7 @@ public sealed class GsharePredictor : IBranchPredictor {
         _hist.Commit(
             taken, () => {
                 int idx = PhtIndex(pc);
-                _btb[idx] = actualTarget;
+                if (taken) _btb[idx] = actualTarget;
                 switch (taken) {
                     case true when _pht[idx] < _satMax: _pht[idx]++; break;
                     case false when _pht[idx] > 0:      _pht[idx]--; break;

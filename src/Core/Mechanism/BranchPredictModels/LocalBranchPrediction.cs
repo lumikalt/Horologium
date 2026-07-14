@@ -36,7 +36,10 @@ public sealed class NBitPredictor : IBranchPredictor {
     /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) {
         int idx = Index(pc);
-        _btb[idx] = actualTarget;
+        // Only taken outcomes carry a real target; a not-taken outcome's "next ip" is just the
+        // fallthrough address, and recording it here would clobber the BTB entry a subsequent
+        // taken prediction at the same PC relies on.
+        if (taken) _btb[idx] = actualTarget;
         switch (taken) {
             case true when _counters[idx] < _satMax: _counters[idx]++; break;
             case false when _counters[idx] > 0:      _counters[idx]--; break;

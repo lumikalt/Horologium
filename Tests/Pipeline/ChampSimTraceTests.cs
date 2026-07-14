@@ -263,8 +263,8 @@ public class ChampSimTraceTests {
     // branch — including the trace's very last one — is resolved. Simple and highly regular on
     // purpose: this checks that the replay wiring works for every predictor, not predictor accuracy.
     // tripCount is kept below gshare's default 8-bit history length: a period >= the history length
-    // makes even a perfectly-learned gshare alias two loop positions onto the same history bucket
-    // (e.g. period 10 aliases the 9th and 10th iteration's "all taken so far" histories), which is
+    // makes even a perfectly learned gshare alias two loop positions onto the same history bucket
+    // (e.g., period 10 aliases the 9th and 10th iteration's "all taken so far" histories), which is
     // an inherent capacity limit of that predictor, not something this test should be probing.
     private static ChampSimTraceRecord[] LoopTrace(int invocations = 30, int tripCount = 5) {
         const ulong loopPc = 0x2000;
@@ -303,16 +303,13 @@ public class ChampSimTraceTests {
 
         ChampSimReplayResult result = ChampSimTraceReplayer.Replay(recs, predictor);
 
-        // Loose bound rather than a tight convergence target: some of these predictors have simple
-        // shared-slot BTB designs (e.g. NBitPredictor.Update overwrites its one target slot on every
-        // outcome, taken or not) that make a single self-looping branch PC with two distinct actual
-        // targets a legitimately harder case than the direction-only pattern suggests — asserting a
-        // tight numeric threshold here would be testing 14 different architectures' quirks rather
-        // than the ChampSim replay wiring. This only checks that the predictor is doing *something*
-        // adaptive, well below the naive ~80% (wrong on all 4 taken branches every cycle) that a
-        // static not-taken predictor gets on this trace.
+        // Most of these architectures converge to near-zero (l_tage/tage_sc_l/batage ~2%, well under
+        // history-length capacity), but several settle at a "one miss per loop exit" floor (~20.7%:
+        // n_bit, correlated, ittage, imli) since a single-PC BTB/counter can't fully disambiguate the
+        // repeated taken outcomes from the one-per-cycle not-taken exit without extra context. 30% is
+        // a safe ceiling above that floor while staying well below the ~80% a static predictor gets.
         Assert.True(
-            result.MispredictionRate < 0.5,
+            result.MispredictionRate < 0.3,
             $"{name}: misprediction rate {result.MispredictionRate:P1} too high for a simple repeating loop"
         );
     }

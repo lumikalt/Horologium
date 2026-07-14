@@ -123,7 +123,7 @@ if (elasticReplayPath is not null) {
 // ── ChampSim trace replay (standalone — no workload needed) ──────────────────
 
 if (champsimTracePath is not null) {
-    IBranchPredictor? predictor = champsimCbpLib is not null
+    IBranchPredictor predictor = champsimCbpLib is not null
         ? new CbpFfiPredictor(champsimCbpLib)
         : ResolveChampSimPredictor(champsimPredictor);
 
