@@ -2,6 +2,7 @@ using System.IO.Compression;
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using Orrery.Cache;
+using RiscV32.Config;
 using RiscV32.Trace;
 
 namespace Tests.Pipeline;
@@ -223,5 +224,96 @@ public class ChampSimTraceTests {
 
         Assert.Equal(0, result.Loads);
         Assert.Equal(1, result.Stores);
+    }
+
+    // ── Coverage of every built-in --champsim-predictor ─────────────────────────
+
+    public static TheoryData<string> AllChampSimPredictorNames => [
+        "always_taken", "always_not_taken", "n_bit", "correlated", "gselect", "gshare", "l_tage",
+        "perceptron", "tournament", "tage_sc_l", "hashed_perceptron", "ittage", "batage", "imli",
+    ];
+
+    public static TheoryData<string> AdaptiveChampSimPredictorNames => [
+        "n_bit", "correlated", "gselect", "gshare", "l_tage", "perceptron", "tournament",
+        "tage_sc_l", "hashed_perceptron", "ittage", "batage", "imli",
+    ];
+
+    // Mirrors src/Apps/Runner/Program.cs's ResolveChampSimPredictor mapping for --champsim-predictor;
+    // kept in sync manually since Program.cs's top-level-statement local function isn't a public API.
+    private static IBranchPredictor ResolveChampSimPredictor(string name) => (name switch {
+        "always_taken"      => BranchPredictorConfig.AlwaysTaken(),
+        "always_not_taken"  => BranchPredictorConfig.AlwaysNotTaken(),
+        "n_bit"             => BranchPredictorConfig.NBit(),
+        "correlated"        => BranchPredictorConfig.Correlated(),
+        "gselect"           => BranchPredictorConfig.Gselect(),
+        "gshare"            => BranchPredictorConfig.Gshare(),
+        "l_tage"            => BranchPredictorConfig.LTage(),
+        "perceptron"        => BranchPredictorConfig.Perceptron(),
+        "tournament"        => BranchPredictorConfig.Tournament(),
+        "tage_sc_l"         => BranchPredictorConfig.TageScL(),
+        "hashed_perceptron" => BranchPredictorConfig.HashedPerceptron(),
+        "ittage"            => BranchPredictorConfig.Ittage(),
+        "batage"            => BranchPredictorConfig.Batage(),
+        "imli"              => BranchPredictorConfig.Imli(),
+        _                   => throw new ArgumentException($"Unknown predictor '{name}'."),
+    }).Build();
+
+    // A single-instruction countdown loop (branch at a fixed PC, taken tripCount-1 times then not
+    // taken to exit), repeated `invocations` times with a non-branch filler after each exit so every
+    // branch — including the trace's very last one — is resolved. Simple and highly regular on
+    // purpose: this checks that the replay wiring works for every predictor, not predictor accuracy.
+    // tripCount is kept below gshare's default 8-bit history length: a period >= the history length
+    // makes even a perfectly-learned gshare alias two loop positions onto the same history bucket
+    // (e.g. period 10 aliases the 9th and 10th iteration's "all taken so far" histories), which is
+    // an inherent capacity limit of that predictor, not something this test should be probing.
+    private static ChampSimTraceRecord[] LoopTrace(int invocations = 30, int tripCount = 5) {
+        const ulong loopPc = 0x2000;
+        const ulong exitPc = 0x2004;
+        var recs = new List<ChampSimTraceRecord>();
+        for (var inv = 0; inv < invocations; inv++) {
+            for (var i = 0; i < tripCount - 1; i++)
+                recs.Add(new ChampSimTraceRecord(loopPc, true, true, [], [], [], []));
+            recs.Add(new ChampSimTraceRecord(loopPc, true, false, [], [], [], []));
+            recs.Add(new ChampSimTraceRecord(exitPc, false, false, [], [], [], []));
+        }
+
+        return [.. recs,];
+    }
+
+    [Theory]
+    [MemberData(nameof(AllChampSimPredictorNames))]
+    public void Replay_AllChampSimPredictors_ProduceWellFormedStats(string name) {
+        IBranchPredictor predictor = ResolveChampSimPredictor(name);
+        ChampSimTraceRecord[] recs = LoopTrace();
+
+        ChampSimReplayResult result = ChampSimTraceReplayer.Replay(recs, predictor);
+
+        Assert.Equal(recs.Length, result.Instructions);
+        Assert.Equal(150, result.Branches); // 30 invocations * 5 branches/invocation
+        Assert.InRange(result.Mispredictions, 0, result.Branches);
+        Assert.InRange(result.MispredictionRate, 0.0, 1.0);
+        Assert.True(double.IsFinite(result.Mpki) && result.Mpki >= 0.0);
+    }
+
+    [Theory]
+    [MemberData(nameof(AdaptiveChampSimPredictorNames))]
+    public void Replay_AdaptiveChampSimPredictors_LearnSimpleLoopPattern(string name) {
+        IBranchPredictor predictor = ResolveChampSimPredictor(name);
+        ChampSimTraceRecord[] recs = LoopTrace();
+
+        ChampSimReplayResult result = ChampSimTraceReplayer.Replay(recs, predictor);
+
+        // Loose bound rather than a tight convergence target: some of these predictors have simple
+        // shared-slot BTB designs (e.g. NBitPredictor.Update overwrites its one target slot on every
+        // outcome, taken or not) that make a single self-looping branch PC with two distinct actual
+        // targets a legitimately harder case than the direction-only pattern suggests — asserting a
+        // tight numeric threshold here would be testing 14 different architectures' quirks rather
+        // than the ChampSim replay wiring. This only checks that the predictor is doing *something*
+        // adaptive, well below the naive ~80% (wrong on all 4 taken branches every cycle) that a
+        // static not-taken predictor gets on this trace.
+        Assert.True(
+            result.MispredictionRate < 0.5,
+            $"{name}: misprediction rate {result.MispredictionRate:P1} too high for a simple repeating loop"
+        );
     }
 }
