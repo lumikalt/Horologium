@@ -98,4 +98,62 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
 
         Assert.True(p.Predict(branch).PredictedTaken);
     }
+
+    [SkippableFact]
+    public void CommitDriven_SurvivesManyOutstandingFetchPredictionsBeforeAnyCommit() {
+        // Simulates OoOE's actual hazard: many branches fetched (Predict, which only ever
+        // touches the internal fetch-side predictor) before any of them commits (Update, the
+        // only place the wrapped native predictor is ever touched). Raw CbpNgFfiPredictor would
+        // corrupt harcom's per-block registers if driven this way — a violation harcom itself
+        // enforces by calling std::terminate() (see reg/ram "single access per cycle" and
+        // "storage lifetime" checks in vendor/harcom.hpp) — so a burst of Predict() calls with no
+        // matching Update() reaching the process alive, followed by Update() calls succeeding
+        // cleanly, demonstrates the native predictor was never reentered.
+        Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
+        using var p = new CbpNgCommitDrivenPredictor(_libraryPath!);
+        ulong branch = 0x6000, target = 0x6100;
+
+        // Fetch (speculatively) far more predictions than have resolved — the ROB-window pattern.
+        for (var i = 0; i < 16; i++) p.Predict(branch);
+
+        // Resolve in program order, each Update() driving exactly one harcom predict+update pair.
+        p.Update(branch, true, target);
+        p.Update(branch, false, branch + 4);
+        p.Update(branch, true, target);
+
+        // A second burst after resolution must still work — the adapter never accumulates
+        // unresolved native state to begin with, so there's nothing to leak across bursts.
+        for (var i = 0; i < 16; i++) p.Predict(branch);
+        p.Update(branch, false, branch + 4);
+    }
+
+    [SkippableFact]
+    public void CommitDriven_FetchPredictionIsIndependentOfHarcomState() {
+        // Predict() must come from the internal fetch-side predictor, never from harcom
+        // directly — verified by never calling Update and confirming Predict is still callable
+        // repeatedly without ever touching the (never-resolved) native predictor unsafely.
+        Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
+        using var p = new CbpNgCommitDrivenPredictor(_libraryPath!);
+        ulong branch = 0x7000;
+
+        BranchPrediction first = p.Predict(branch);
+        for (var i = 0; i < 8; i++) p.Predict(branch);
+        BranchPrediction last = p.Predict(branch);
+
+        // The fetch-side predictor (Gshare) is deterministic given no Update calls at all —
+        // repeated cold Predict()s at the same PC must return the same not-taken prediction.
+        Assert.Equal(first.PredictedTaken, last.PredictedTaken);
+        Assert.False(last.PredictedTaken);
+    }
+
+    [SkippableFact]
+    public void CommitDriven_NotifyBranchKind_IsThreadedThroughToHarcomUpdate() {
+        Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
+        using var p = new CbpNgCommitDrivenPredictor(_libraryPath!);
+        ulong branch = 0x8000, target = 0x8100;
+
+        p.Predict(branch);
+        p.NotifyBranchKind(branch, BranchKind.Conditional | BranchKind.Call);
+        p.Update(branch, true, target); // must not throw — kind must reach _harcom.Update
+    }
 }

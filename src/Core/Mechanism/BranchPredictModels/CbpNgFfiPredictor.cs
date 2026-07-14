@@ -10,11 +10,16 @@ namespace Mechanism.BranchPredictModels;
 ///         Unlike the CBP-3/5 shim (<see cref="CbpFfiPredictor" />), cbp-ng's harcom-based
 ///         predictors keep per-block state in native registers written by <c>predict1</c>/
 ///         <c>predict2</c> and read back by <c>update_cycle</c>. A second prediction block
-///         started before the first one's <see cref="Update" /> fires clobbers that state — see
-///         TODO.md "CBP2025/CBP-NG predictor integration". This adapter does not defend against
-///         that itself; it is only ever wired into in-order/shallow trains
-///         (<c>SingleCycleTrain</c>, <c>FiveStageTrain</c>), which resolve one branch's
-///         <see cref="Update" /> before the next one's <see cref="Predict" /> can occur.
+///         started before the first one's <see cref="Update" /> fires clobbers that state. This
+///         adapter does not defend against that itself — it is safe only when the caller
+///         guarantees a branch's <see cref="Update" /> fires before the next branch's
+///         <see cref="Predict" /> is issued, which holds for <c>SingleCycleTrain</c> (no branch
+///         prediction at all — instructions resolve one at a time) but not <c>FiveStageTrain</c>
+///         (IF/ID/EX can each hold an unresolved branch simultaneously) or <c>OooeTrain</c>/
+///         <c>CprTrain</c> (many outstanding predictions). Use
+///         <see cref="CbpNgCommitDrivenPredictor" /> for any pipeline that overlaps fetch with
+///         commit — see README.md "CBP2025/CBP-NG predictor integration" for why a generic
+///         snapshot/restore isn't possible instead.
 ///     </para>
 ///     <para>
 ///         The shim's C ABI has no target field — cbp-ng predictors only report taken/not-taken.

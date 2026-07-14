@@ -151,7 +151,7 @@ public partial class ConfigViewModel : ObservableObject {
     public bool HasTournamentParams => PredictorType == "tournament";
     public bool HasImliParams => PredictorType == "imli";
     public bool HasCbpPluginParams => PredictorType == "cbp_plugin";
-    public bool HasCbpNgPluginParams => PredictorType == "cbp_ng_plugin";
+    public bool HasCbpNgPluginParams => PredictorType is "cbp_ng_plugin" or "cbp_ng_ooo_plugin";
 
     public bool HasDPrefetcherTableSize => DPrefetcher is "stride" or "stream";
     public bool HasDPrefetcherDepth => DPrefetcher == "stream";
@@ -195,6 +195,7 @@ public partial class ConfigViewModel : ObservableObject {
         "tea",
         "cbp_plugin",
         "cbp_ng_plugin",
+        "cbp_ng_ooo_plugin",
     ];
 
     // ReSharper disable once PartialMethodParameterNameMismatch
@@ -250,21 +251,22 @@ public partial class ConfigViewModel : ObservableObject {
             "tournament" => BranchPredictorConfig.Tournament(
                 TournamentLocalHistoryBits, TournamentLocalTableSize, TournamentGlobalHistoryBits
             ),
-            "tage_sc_l"     => BranchPredictorConfig.TageScL(),
-            "ittage"        => BranchPredictorConfig.Ittage(),
-            "batage"        => BranchPredictorConfig.Batage(),
-            "imli"          => BranchPredictorConfig.Imli(ImliPhtSize, ImliBtbSize),
-            "llbp"          => BranchPredictorConfig.Llbp(),
-            "llbp_x"        => BranchPredictorConfig.LlbpX(),
-            "vla_tage"      => BranchPredictorConfig.VlaTage(),
-            "true_oracle"   => BranchPredictorConfig.TrueOracle(),
-            "runlts"        => BranchPredictorConfig.Runlts(),
-            "lvcp"          => BranchPredictorConfig.Lvcp(),
-            "branchnet"     => BranchPredictorConfig.BranchNet(),
-            "tea"           => BranchPredictorConfig.Tea(),
-            "cbp_plugin"    => BranchPredictorConfig.CbpPlugin(CbpLibraryPath),
-            "cbp_ng_plugin" => BranchPredictorConfig.CbpNgPlugin(CbpNgLibraryPath),
-            _               => null,
+            "tage_sc_l"         => BranchPredictorConfig.TageScL(),
+            "ittage"            => BranchPredictorConfig.Ittage(),
+            "batage"            => BranchPredictorConfig.Batage(),
+            "imli"              => BranchPredictorConfig.Imli(ImliPhtSize, ImliBtbSize),
+            "llbp"              => BranchPredictorConfig.Llbp(),
+            "llbp_x"            => BranchPredictorConfig.LlbpX(),
+            "vla_tage"          => BranchPredictorConfig.VlaTage(),
+            "true_oracle"       => BranchPredictorConfig.TrueOracle(),
+            "runlts"            => BranchPredictorConfig.Runlts(),
+            "lvcp"              => BranchPredictorConfig.Lvcp(),
+            "branchnet"         => BranchPredictorConfig.BranchNet(),
+            "tea"               => BranchPredictorConfig.Tea(),
+            "cbp_plugin"        => BranchPredictorConfig.CbpPlugin(CbpLibraryPath),
+            "cbp_ng_plugin"     => BranchPredictorConfig.CbpNgPlugin(CbpNgLibraryPath),
+            "cbp_ng_ooo_plugin" => BranchPredictorConfig.CbpNgOoOePlugin(CbpNgLibraryPath),
+            _                   => null,
         };
 
         CacheHardwareConfig? iCache = ICacheEnabled
@@ -349,6 +351,7 @@ public partial class ConfigViewModel : ObservableObject {
                 TeaConfig                       => "tea",
                 CbpPluginConfig                 => "cbp_plugin",
                 CbpNgPluginConfig               => "cbp_ng_plugin",
+                CbpNgOoOePluginConfig           => "cbp_ng_ooo_plugin",
                 _                               => "none",
             },
             StoreBufferCapacity = nc.Config.StoreBufferCapacity,
@@ -400,8 +403,9 @@ public partial class ConfigViewModel : ObservableObject {
                 vm.ImliPhtSize = imli.PhtSize;
                 vm.ImliBtbSize = imli.BtbSize;
                 break;
-            case CbpPluginConfig cbp:     vm.CbpLibraryPath = cbp.LibraryPath; break;
-            case CbpNgPluginConfig cbpNg: vm.CbpNgLibraryPath = cbpNg.LibraryPath; break;
+            case CbpPluginConfig cbp:          vm.CbpLibraryPath = cbp.LibraryPath; break;
+            case CbpNgPluginConfig cbpNg:      vm.CbpNgLibraryPath = cbpNg.LibraryPath; break;
+            case CbpNgOoOePluginConfig cbpNgO: vm.CbpNgLibraryPath = cbpNgO.LibraryPath; break;
         }
 
         if (nc.Config.ICache is { } ic) {

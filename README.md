@@ -149,12 +149,19 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   layer), via a permanently-retiring correlation table keyed on chain-producer PC/value pairs; Deshmukh, Cai &amp; Patt,
   MICRO 2024), `CbpFfiPredictor` (loads a CBP-3/CBP-5, 2016-era `class PREDICTOR` submission compiled to a native
   shared library via `native/CbpShim/build.sh`, driven through `GetPrediction`/`UpdatePredictor` over a P/Invoke ABI
-  — desktop-only, since `NativeLibrary` loading is unsupported under browser-wasm), and `CbpNgFfiPredictor` (loads a
+  — desktop-only, since `NativeLibrary` loading is unsupported under browser-wasm), `CbpNgFfiPredictor` (loads a
   CBP2025/CBP-NG, AmpereComputing/cbp-ng submission — a templated harcom struct, not a fixed `class PREDICTOR` —
   compiled to a native shared library via `native/CbpNgShim/build.sh`; drives `predict1`/`predict2`/`update_condbr`/
   `update_cycle` through the harcom clocked-register hardware-timing-modeling DSL one prediction block at a time;
-  desktop-only, and scoped to in-order/shallow pipelines since harcom predictors keep per-block state in shared
-  registers that a second outstanding prediction would clobber), Bullseye (H2P-branch subsystem layered on TAGE-SC-L
+  desktop-only, and safe only for `SingleCycleTrain`, since harcom predictors keep per-block state in shared registers
+  that a second outstanding prediction — anything with unresolved fetch overlapping commit — would clobber) and
+  `CbpNgCommitDrivenPredictor` (wraps `CbpNgFfiPredictor` so the same harcom submissions run safely on `FiveStageTrain`
+  and `OooeTrain`: fetch-time steering comes from an ordinary reentrant-safe C# predictor, `GsharePredictor` by
+  default, while the native predictor is only ever touched inside `Update`, which the `IBranchPredictor` contract
+  guarantees fires at commit in program order — so harcom's own `predict1`/`predict2`/`update_condbr`/`update_cycle`
+  run back to back for one already-resolved branch at a time, exactly matching how CBP itself replays a trace; not
+  suitable for `CprTrain`, which trains predictors out of program order at execute), Bullseye (H2P-branch subsystem
+  layered on TAGE-SC-L
   via a HIT — H2P Identification Table — that admits branches past adaptive execution/misprediction thresholds, then
   arbitrates between TAGE-SC-L and a dual local/global perceptron pair trained with Seznec's O-GEHL dynamic-threshold
   rule, filtering TAGE's own update after sustained perceptron-only wins; Behrendt, Pun &amp; Nair, "Taming Wild

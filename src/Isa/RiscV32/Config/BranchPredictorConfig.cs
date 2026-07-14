@@ -33,6 +33,7 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(TeaConfig), "tea")]
 [JsonDerivedType(typeof(CbpPluginConfig), "cbp_plugin")]
 [JsonDerivedType(typeof(CbpNgPluginConfig), "cbp_ng_plugin")]
+[JsonDerivedType(typeof(CbpNgOoOePluginConfig), "cbp_ng_ooo_plugin")]
 [JsonDerivedType(typeof(BullseyeConfig), "bullseye")]
 [JsonDerivedType(typeof(HypreConfig), "hypre")]
 [JsonDerivedType(typeof(MultiperspectivePerceptronConfig), "multiperspective_perceptron")]
@@ -93,6 +94,9 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig CbpPlugin(string libraryPath) => new CbpPluginConfig(libraryPath);
 
     public static BranchPredictorConfig CbpNgPlugin(string libraryPath) => new CbpNgPluginConfig(libraryPath);
+
+    public static BranchPredictorConfig CbpNgOoOePlugin(string libraryPath) =>
+        new CbpNgOoOePluginConfig(libraryPath);
 
     public static BranchPredictorConfig Bullseye() => new BullseyeConfig();
     public static BranchPredictorConfig Hypre() => new HypreConfig();
@@ -252,12 +256,24 @@ public sealed record CbpPluginConfig(string LibraryPath) : BranchPredictorConfig
 
 /// <summary>
 ///     Loads a CBP2025/CBP-NG (AmpereComputing/cbp-ng) predictor from a native shared library
-///     built via <c>native/CbpNgShim/build.sh</c>. Desktop-only — see <see cref="CbpNgFfiPredictor" />.
-///     Scoped to in-order/shallow pipelines (<c>SingleCycleTrain</c>, <c>FiveStageTrain</c>) —
-///     see TODO.md "CBP2025/CBP-NG predictor integration".
+///     built via <c>native/CbpNgShim/build.sh</c>, driven live at fetch time. Desktop-only — see
+///     <see cref="CbpNgFfiPredictor" />. Only safe for <c>SingleCycleTrain</c>, which never
+///     overlaps an unresolved branch's <c>Predict</c>/<c>Update</c> with another branch's; use
+///     <see cref="CbpNgOoOePluginConfig" /> for any other pipeline.
 /// </summary>
 public sealed record CbpNgPluginConfig(string LibraryPath) : BranchPredictorConfig {
     public override IBranchPredictor Build() => new CbpNgFfiPredictor(LibraryPath);
+}
+
+/// <summary>
+///     Loads a CBP2025/CBP-NG predictor the same way as <see cref="CbpNgPluginConfig" />, but
+///     wrapped in <see cref="CbpNgCommitDrivenPredictor" /> so it is safe with pipelines that keep
+///     multiple unresolved predictions in flight (<c>FiveStageTrain</c>, <c>OooeTrain</c>) — see
+///     README.md "CBP2025/CBP-NG predictor integration". Not suitable for <c>CprTrain</c> (trains
+///     predictors out of program order at execute).
+/// </summary>
+public sealed record CbpNgOoOePluginConfig(string LibraryPath) : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new CbpNgCommitDrivenPredictor(LibraryPath);
 }
 
 public sealed record BullseyeConfig : BranchPredictorConfig {

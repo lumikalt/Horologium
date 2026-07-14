@@ -11,7 +11,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Branch Prediction
 
-- [ ] Extend CBP2025/CBP-NG integration to OoOE: `OooeTrain` can have many outstanding unresolved predictions,
+- [x] Extend CBP2025/CBP-NG integration to OoOE: `OooeTrain` can have many outstanding unresolved predictions,
   which clobbers harcom predictors' per-block register state as above. Needs either per-predictor block-state
   snapshot/restore (not generic — differs per submission) or another reconciliation strategy.
 

@@ -12,6 +12,18 @@ namespace Tests.Pipeline;
 ///     cache replay.
 /// </summary>
 public class ChampSimTraceTests {
+    // ── Coverage of every built-in --champsim-predictor ─────────────────────────
+
+    public static TheoryData<string> AllChampSimPredictorNames => [
+        "always_taken", "always_not_taken", "n_bit", "correlated", "gselect", "gshare", "l_tage",
+        "perceptron", "tournament", "tage_sc_l", "hashed_perceptron", "ittage", "batage", "imli",
+    ];
+
+    public static TheoryData<string> AdaptiveChampSimPredictorNames => [
+        "n_bit", "correlated", "gselect", "gshare", "l_tage", "perceptron", "tournament",
+        "tage_sc_l", "hashed_perceptron", "ittage", "batage", "imli",
+    ];
+
     // Builds one raw 64-byte ChampSim `input_instr` record.
     private static byte[] RawRecord(
         ulong ip,
@@ -171,13 +183,6 @@ public class ChampSimTraceTests {
         Assert.Equal(0.0, result.MispredictionRate);
     }
 
-    private sealed class FixedTargetPredictor(ulong target) : IBranchPredictor {
-        public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) =>
-            BranchPrediction.Taken(target);
-
-        public void Update(ulong pc, bool taken, ulong actualTarget) { }
-    }
-
     // ── Cache replay ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -225,18 +230,6 @@ public class ChampSimTraceTests {
         Assert.Equal(0, result.Loads);
         Assert.Equal(1, result.Stores);
     }
-
-    // ── Coverage of every built-in --champsim-predictor ─────────────────────────
-
-    public static TheoryData<string> AllChampSimPredictorNames => [
-        "always_taken", "always_not_taken", "n_bit", "correlated", "gselect", "gshare", "l_tage",
-        "perceptron", "tournament", "tage_sc_l", "hashed_perceptron", "ittage", "batage", "imli",
-    ];
-
-    public static TheoryData<string> AdaptiveChampSimPredictorNames => [
-        "n_bit", "correlated", "gselect", "gshare", "l_tage", "perceptron", "tournament",
-        "tage_sc_l", "hashed_perceptron", "ittage", "batage", "imli",
-    ];
 
     // Mirrors src/Apps/Runner/Program.cs's ResolveChampSimPredictor mapping for --champsim-predictor;
     // kept in sync manually since Program.cs's top-level-statement local function isn't a public API.
@@ -312,5 +305,12 @@ public class ChampSimTraceTests {
             result.MispredictionRate < 0.3,
             $"{name}: misprediction rate {result.MispredictionRate:P1} too high for a simple repeating loop"
         );
+    }
+
+    private sealed class FixedTargetPredictor(ulong target) : IBranchPredictor {
+        public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) =>
+            BranchPrediction.Taken(target);
+
+        public void Update(ulong pc, bool taken, ulong actualTarget) { }
     }
 }
