@@ -31,6 +31,14 @@ public sealed class SqEntry {
     /// <summary>PC of the store instruction (used by the store-set predictor).</summary>
     public ulong Pc { get; set; }
 
+    /// <summary>
+    ///     Static, address-independent access width (<see cref="Mechanism.ITooth.MemoryAccessBytes" />)
+    ///     known at dispatch, before the store's address/value are known. Used by the SMB predictor
+    ///     (<see cref="SmbPredictor" />, NoSQ) to check a candidate producing store's width against a
+    ///     bypassing load's width without needing either instruction's address.
+    /// </summary>
+    public int StaticBytes { get; set; }
+
     internal void Clear() {
         Valid = false;
         RobIdx = -1;
@@ -41,6 +49,7 @@ public sealed class SqEntry {
         Value = 0;
         Width = 0;
         Pc = 0;
+        StaticBytes = 0;
     }
 }
 

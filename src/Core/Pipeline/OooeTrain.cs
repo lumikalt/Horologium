@@ -40,7 +40,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int fdipFtqCapacity = 0,
         bool rdip = false,
         bool enableStoreSets = false,
-        bool enableCriticalityPrediction = false
+        bool enableCriticalityPrediction = false,
+        bool enableSmbBypass = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -65,7 +66,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 fdipFtqCapacity,
                 rdip,
                 enableStoreSets,
-                enableCriticalityPrediction
+                enableCriticalityPrediction,
+                enableSmbBypass
             )
         );
         _train.Build();
@@ -205,6 +207,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly StoreQueue _sq;
     private readonly StoreSetPredictor? _storeSets;
     private readonly ICriticalityPredictor? _criticalityPredictor;
+    private readonly SmbPredictor? _smbPredictor;
     private readonly ITrapController _trapController;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
@@ -245,6 +248,7 @@ internal sealed class OoOPipelineCore : Gear {
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
     private Counter _memViolationsCounter = null!;
+    private Counter? _smbBypassesCounter, _smbMispredictsCounter;
     private Counter? _mshrStallsCounter;
     private int _mshrUsed; // MSHR slots currently occupied
 
@@ -320,7 +324,8 @@ internal sealed class OoOPipelineCore : Gear {
         int fdipFtqCapacity = 0,
         bool rdipEnabled = false,
         bool enableStoreSets = false,
-        bool enableCriticalityPrediction = false
+        bool enableCriticalityPrediction = false,
+        bool enableSmbBypass = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -354,6 +359,7 @@ internal sealed class OoOPipelineCore : Gear {
         _criticalityPredictor = enableCriticalityPrediction
             ? new TokenPassingCriticalityPredictor(robCapacity)
             : null;
+        _smbPredictor = enableSmbBypass ? new SmbPredictor() : null;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -416,6 +422,14 @@ internal sealed class OoOPipelineCore : Gear {
         _memViolationsCounter = Dials.AddCounter(
             "mem_order_violations", "Memory-order violations: speculative load read stale data"
         );
+        if (_smbPredictor is not null) {
+            _smbBypassesCounter = Dials.AddCounter(
+                "smb_bypasses", "NoSQ speculative memory bypasses attempted at dispatch"
+            );
+            _smbMispredictsCounter = Dials.AddCounter(
+                "smb_mispredicts", "NoSQ speculative memory bypasses that mispredicted"
+            );
+        }
 
         Dials.AddDial(
             "cpi",
@@ -604,6 +618,7 @@ internal sealed class OoOPipelineCore : Gear {
                 // load has already executed against the same address with a stale value.
                 CheckLoadViolations(sq.SeqNo, r.StoreAddr, r.StoreBytes, sq.Pc);
                 _storeSets?.OnStoreIssued(sq.Pc, sq.SeqNo);
+                if (_smbPredictor is not null) CheckBypassLoads(sq);
             }
 
             // Load disambiguation state (LQ.Executed/Address + violation check) is
@@ -613,6 +628,35 @@ internal sealed class OoOPipelineCore : Gear {
             // store resolved and committed, so the load broadcast a stale value.
 
             if (!r.RegValue.HasValue || r.PhysDest < 0) continue;
+
+            // SMB (NoSQ) verification: this load's own (shadow) execution just produced the
+            // ground-truth value. Compare it against whatever the early bypass broadcast
+            // already wrote — a mismatch is caught here and squashed at commit (StepCommit),
+            // same recovery path as an ordinary memory-order Violated load.
+            if (rob is { IsLoad: true, LqIdx: >= 0, }) {
+                LqEntry lq = _lq.At(rob.LqIdx);
+                if (lq.SpeculativelyCompleted) {
+                    if (_prf.Read(r.PhysDest) != r.RegValue.Value) {
+                        lq.BypassMispredicted = true;
+                        // Capture the true producer now — by the time this load reaches commit,
+                        // the actual producing store may have already retired out of the SQ.
+                        ulong? actualProducer = FindForwardingProducerSeqNo(lq.SeqNo, lq.Address, lq.Bytes);
+                        lq.HasActualProducer = actualProducer.HasValue;
+                        lq.ActualProducerSeqNo = actualProducer ?? 0;
+                    }
+                }
+                else if (_smbPredictor is not null && !lq.Bypassed) {
+                    // Cold-start / ongoing seeding: TryPredict never fires until Train has
+                    // been called once for a PC, and Train was otherwise only reachable via
+                    // an already-successful bypass. An ordinary load that forwarded from an
+                    // in-flight store here teaches SmbPredictor the observed SSN distance so
+                    // later dynamic instances of this load's PC can bypass.
+                    ulong? producer = FindForwardingProducerSeqNo(lq.SeqNo, lq.Address, lq.Bytes);
+                    if (producer.HasValue && lq.SeqNo > producer.Value)
+                        _smbPredictor.Train(rob.Pc, lq.SeqNo - producer.Value);
+                }
+            }
+
             _prf.Write(r.PhysDest, r.RegValue.Value);
             foreach (IssueQueue iq in _iqs) iq.Broadcast(r.PhysDest, r.RegValue.Value, r.InstrId);
         }
@@ -698,11 +742,31 @@ internal sealed class OoOPipelineCore : Gear {
             // ROB head, all older instructions (including the store) have committed
             // and written memory, so re-executing the load from its own PC is safe.
             // Check LQ violation before the store-write below (matters for atomics).
-            if (head is { IsLoad: true, LqIdx: >= 0, } && _lq.At(head.LqIdx).Violated) {
-                _memViolationsCounter.Increment();
-                _storeSets?.RecordViolation(_lq.At(head.LqIdx).ViolatingStorePc, head.Pc);
-                SetFlush(head.Pc); // re-executes from the load's PC; flush clears the ROB+LQ+SQ
-                return;
+            if (head is { IsLoad: true, LqIdx: >= 0, }) {
+                LqEntry lq = _lq.At(head.LqIdx);
+                if (lq.Violated) {
+                    _memViolationsCounter.Increment();
+                    _storeSets?.RecordViolation(lq.ViolatingStorePc, head.Pc);
+                    SetFlush(head.Pc); // re-executes from the load's PC; flush clears the ROB+LQ+SQ
+                    return;
+                }
+
+                // SMB (NoSQ) bypass verification failed during the load's shadow execution —
+                // same recovery path as an ordinary violation, but retrains SmbPredictor with
+                // the real producer distance found during verification (or decays confidence
+                // if no in-flight store produced the value at all).
+                if (lq.BypassMispredicted) {
+                    _smbMispredictsCounter?.Increment();
+                    if (lq.HasActualProducer && lq.SeqNo > lq.ActualProducerSeqNo)
+                        _smbPredictor?.Train(head.Pc, lq.SeqNo - lq.ActualProducerSeqNo);
+                    else
+                        _smbPredictor?.TrainNoBypass(head.Pc);
+                    SetFlush(head.Pc);
+                    return;
+                }
+
+                // A bypass that reached commit unmispredicted was correct — reinforce.
+                if (lq.SpeculativelyCompleted) _smbPredictor?.Train(head.Pc, lq.SeqNo - lq.PredictedProducerSeqNo);
             }
 
             // Write deferred store/atomic data to memory at commit time.
@@ -1261,6 +1325,45 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
+    ///     SMB (NoSQ, Sha/Martin/Roth MICRO 2006) early bypass: <paramref name="producer" />'s
+    ///     value/width just became known (its address doesn't need to — a bypassing load only
+    ///     needed the value). Wake every LQ entry the dispatch-time predictor matched to this
+    ///     store with an early PRF write + CDB broadcast, so dependents don't wait for the
+    ///     load's own (still-pending) execution. The load's own shadow execution still runs
+    ///     normally afterward and is the sole thing that gates its commit — see
+    ///     <see cref="LqEntry.SpeculativelyCompleted" /> and the verification in
+    ///     <see cref="StepExecute" />/<see cref="StepComplete" />.
+    /// </summary>
+    private void CheckBypassLoads(SqEntry producer) {
+        foreach (LqEntry lq in _lq.InOrder()) {
+            if (!lq.Bypassed || lq.SpeculativelyCompleted) continue;
+            if (lq.PredictedProducerSeqNo != producer.SeqNo) continue;
+
+            RobEntry loadRob = _rob.At(lq.RobIdx);
+            int width = loadRob.Instruction?.MemoryAccessBytes ?? 0;
+            if (loadRob.PhysDestination < 0 || width is <= 0 or > 8) {
+                lq.SpeculativelyCompleted = true; // nothing sane to broadcast; shadow execution verifies
+                continue;
+            }
+
+            ulong mask = width >= 8 ? ulong.MaxValue : (1UL << (width * 8)) - 1;
+            ulong value = producer.Value & mask;
+
+            int signExtBytes = loadRob.Instruction?.LoadSignExtendBytes ?? 0;
+            if (signExtBytes > 0) {
+                ulong signBit = 1UL << (signExtBytes * 8 - 1);
+                if ((value & signBit) != 0) value |= ~((1UL << (signExtBytes * 8)) - 1);
+            }
+
+            if (loadRob.Instruction?.NanBoxLoadResult == true) value = 0xFFFFFFFF00000000UL | (value & 0xFFFFFFFF);
+
+            _prf.Write(loadRob.PhysDestination, value);
+            foreach (IssueQueue iq in _iqs) iq.Broadcast(loadRob.PhysDestination, value, loadRob.InstrId);
+            lq.SpeculativelyCompleted = true;
+        }
+    }
+
+    /// <summary>
     ///     If any older SQ entry's byte range fully contains the load's byte range, return
     ///     the forwarded bytes extracted from the stored value.  Partial overlap (store
     ///     covers some but not all the load's bytes) is not forwarded — the load goes
@@ -1282,6 +1385,26 @@ internal sealed class OoOPipelineCore : Gear {
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Same match rule as <see cref="TryForwardFromStore" /> (youngest fully-containing older
+    ///     store wins) but returns the producing store's SeqNo instead of its value. Used by SMB
+    ///     bypass-mispredict recovery to retrain <see cref="SmbPredictor" /> with the true SSN
+    ///     distance — called from <see cref="StepComplete" /> while the producing SQ entry is
+    ///     still guaranteed live (it may already have retired by the time the load reaches commit).
+    /// </summary>
+    private ulong? FindForwardingProducerSeqNo(ulong loadSeqNo, ulong loadAddr, int loadBytes) {
+        ulong loadEnd = loadAddr + (ulong)loadBytes;
+        ulong? producerSeqNo = null;
+        foreach (SqEntry sq in _sq.InOrder()) {
+            if (sq.SeqNo >= loadSeqNo) break;
+            if (!sq.AddressKnown) continue;
+            if (sq.Address > loadAddr || loadEnd > sq.Address + (ulong)sq.Width) continue;
+            producerSeqNo = sq.SeqNo;
+        }
+
+        return producerSeqNo;
     }
 
     /// <summary>
@@ -1380,6 +1503,27 @@ internal sealed class OoOPipelineCore : Gear {
                 lq.SeqNo = memSeqNo;
                 if (_storeSets is not null && instr.Class == ToothClass.Load)
                     lq.PredStoreSeqNo = _storeSets.OnLoadDispatch(ri.Pc);
+
+                // SMB (NoSQ, Sha/Martin/Roth MICRO 2006): full-word/zero-offset bypass only —
+                // gated on ToothClass.Load (not Atomic, which has RMW semantics this doesn't model)
+                // and on the predicted producer's static width matching this load's, so no
+                // address is needed on either side to trust the prediction.
+                if (_smbPredictor is not null && instr.Class == ToothClass.Load
+                                               && _smbPredictor.TryPredict(ri.Pc, out ulong distance)
+                                               && distance > 0 && distance <= memSeqNo) {
+                    ulong predictedProducerSeqNo = memSeqNo - distance;
+                    foreach (SqEntry candidate in _sq.InOrder()) {
+                        if (candidate.SeqNo != predictedProducerSeqNo) continue;
+                        if (candidate.StaticBytes == instr.MemoryAccessBytes) {
+                            lq.Bypassed = true;
+                            lq.PredictedProducerSeqNo = predictedProducerSeqNo;
+                            _smbBypassesCounter?.Increment();
+                        }
+
+                        break;
+                    }
+                }
+
                 rob.LqIdx = lqIdx;
             }
 
@@ -1390,6 +1534,7 @@ internal sealed class OoOPipelineCore : Gear {
                 sq.InstrId = ri.InstrId;
                 sq.SeqNo = memSeqNo;
                 sq.Pc = ri.Pc;
+                sq.StaticBytes = instr.MemoryAccessBytes;
                 _storeSets?.OnStoreDispatch(ri.Pc, memSeqNo);
                 rob.SqIdx = sqIdx;
             }

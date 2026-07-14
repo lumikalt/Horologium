@@ -44,6 +44,37 @@ public sealed class LqEntry {
     /// </summary>
     public ulong PredStoreSeqNo { get; set; }
 
+    /// <summary>
+    ///     Set at Dispatch when the SMB predictor (<see cref="SmbPredictor" />, NoSQ — Sha,
+    ///     Martin &amp; Roth, MICRO 2006) matched a live, width-compatible producing store in
+    ///     the SQ. Distinct from <see cref="PredStoreSeqNo" />: that field is the store-set
+    ///     predictor's stall hint; this one drives an early speculative completion.
+    /// </summary>
+    public bool Bypassed { get; set; }
+
+    /// <summary>SeqNo of the store <see cref="Bypassed" /> predicts as this load's producer.</summary>
+    public ulong PredictedProducerSeqNo { get; set; }
+
+    /// <summary>True once the early SMB write-back/broadcast has been issued for this load.</summary>
+    public bool SpeculativelyCompleted { get; set; }
+
+    /// <summary>
+    ///     Set when the load's own (shadow) execution disagrees with the value already
+    ///     speculatively broadcast. Triggers the same commit-time squash as <see cref="Violated" />.
+    /// </summary>
+    public bool BypassMispredicted { get; set; }
+
+    /// <summary>
+    ///     True if the shadow execution that discovered <see cref="BypassMispredicted" /> found a
+    ///     real producing store at all (as opposed to the load's value coming from memory/no
+    ///     in-flight store). Set alongside <see cref="ActualProducerSeqNo" />, consumed by
+    ///     <see cref="SmbPredictor" /> retraining at commit.
+    /// </summary>
+    public bool HasActualProducer { get; set; }
+
+    /// <summary>SeqNo of the store the shadow execution found actually produced this load's value.</summary>
+    public ulong ActualProducerSeqNo { get; set; }
+
     internal void Clear() {
         Valid = false;
         RobIdx = -1;
@@ -55,6 +86,12 @@ public sealed class LqEntry {
         Violated = false;
         ViolatingStorePc = 0;
         PredStoreSeqNo = 0;
+        Bypassed = false;
+        PredictedProducerSeqNo = 0;
+        SpeculativelyCompleted = false;
+        HasActualProducer = false;
+        ActualProducerSeqNo = 0;
+        BypassMispredicted = false;
     }
 }
 

@@ -22,7 +22,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021
 - [x] Critical-path prediction: token-passing criticality predictor to focus scheduling, steering, and value
   prediction on critical instructions. — Fields, Rubin & Bodík, ISCA 2001
-- [ ] NoSQ: store-queue-free store-to-load forwarding via speculative memory bypassing (memory renaming). — Sha,
+- [x] NoSQ: store-queue-free store-to-load forwarding via speculative memory bypassing (memory renaming). — Sha,
   Martin & Roth, MICRO 2006; Tyson & Austin, MICRO 1997
 - [ ] Checkpoint processing and recovery (CPR) + continual flow pipelines (CFP): ROB-free large-window paradigm with
   checkpoint-based recovery and slice-out of miss-dependent instructions. — Akkary et al., MICRO 2003; Srinivasan et

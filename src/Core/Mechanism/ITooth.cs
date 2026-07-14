@@ -101,6 +101,16 @@ public interface ITooth {
     bool NanBoxLoadResult => false;
 
     /// <summary>
+    ///     Static, address-independent access width in bytes for a scalar integer or
+    ///     floating-point load/store (1/2/4/8). Known purely from the decoded opcode, unlike
+    ///     <see cref="LoadSignExtendBytes" /> this covers stores and unsigned/wide loads too.
+    ///     Used by the OoO pipeline to check a speculative-memory-bypass predictor's producing
+    ///     store against the consuming load without needing either instruction's address.
+    ///     Returns 0 for non-memory instructions, atomics, and vector/UVE memory ops.
+    /// </summary>
+    int MemoryAccessBytes => 0;
+
+    /// <summary>
     ///     True for integer divide and remainder instructions (DIV/DIVU/REM/REMU and
     ///     their variants). Used by the pipeline to apply a separate <c>DivLatency</c>
     ///     when modelling the higher-latency division unit independently from multiply.

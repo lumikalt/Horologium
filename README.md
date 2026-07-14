@@ -192,7 +192,21 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   conflict permanently merges every future dynamic instance of that load/store PC pair — costly for recursive/generic
   functions that reuse one PC pair across many independent addresses. Both tables are cleared every 4096 load
   dispatches (`clearPeriod`) to bound that cost; the value was chosen by sweeping the full gem5-compare benchmark
-  suite (see `docs/gem5-comparison.md`). A **critical-path predictor** (`TokenPassingCriticalityPredictor`,
+  suite (see `docs/gem5-comparison.md`). A **speculative memory bypassing predictor** (NoSQ, `SmbPredictor`,
+  enable with `enableSmbBypass: true`) lets a load short-circuit straight to an early result instead of waiting
+  for its own execution: a PC-indexed, confidence-gated table predicts the SSN distance (shared LQ/SQ dispatch
+  sequence number) back to the producing store, and if a store with that exact distance is live in the SQ at
+  dispatch with a static access width matching the load's, the load is marked `Bypassed` and gets an early PRF
+  write + CDB broadcast the moment that store's value resolves — without needing anyone's address. The load's
+  own shadow execution still runs the ordinary pipeline afterward and is the sole thing that gates its commit;
+  a mismatch marks it `BypassMispredicted`, triggering the same flush + retrain recovery as an ordinary
+  memory-order violation. Ordinary (non-bypassed) loads that forward from a live store also train the
+  predictor, so the very first prediction for a PC doesn't have to wait for a successful bypass to seed it.
+  v1 scope reductions (Sha, Martin &amp; Roth, MICRO 2006; Tyson &amp; Austin, MICRO 1997): the predictor is
+  path-insensitive (PC-indexed only, no history register); bypass is full-word/zero-offset only (the predicted
+  producer's static width must equal the load's, so no address is ever needed to trust a prediction); and the
+  `LoadQueue` is retained unconditionally as the verification backstop rather than eliminated, exactly as the
+  papers themselves treat LQ elimination as an optional, performance-neutral extension. A **critical-path predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each
   instruction is modeled as a 3-node dependence graph (dispatch/execute/commit); the pipeline resolves,
