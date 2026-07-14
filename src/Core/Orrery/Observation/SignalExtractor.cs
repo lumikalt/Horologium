@@ -69,6 +69,8 @@ public static class SignalExtractor {
     ///     Extracts one signal by a name obtained from <see cref="ListSignals" />.
     ///     Returns null when the result has no time series or the name is unknown.
     /// </summary>
+    /// <param name="result">The revolution result to extract a time series from.</param>
+    /// <param name="name">A signal name obtained from <see cref="ListSignals" />.</param>
     /// <param name="cumulativeCounters">
     ///     When true, plain counter signals keep their raw cumulative values instead
     ///     of being split into per-window deltas. Windowed and dial signals

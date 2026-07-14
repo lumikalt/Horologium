@@ -45,7 +45,8 @@ public sealed class OooeTrain : ISteppableTrain {
         bool enableRunahead = false,
         int runaheadBudget = 200,
         bool enableVectorRunahead = false,
-        int runaheadVectorWidth = 8
+        int runaheadVectorWidth = 8,
+        int runaheadUnrollLength = 8
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -75,7 +76,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 enableRunahead,
                 runaheadBudget,
                 enableVectorRunahead,
-                runaheadVectorWidth
+                runaheadVectorWidth,
+                runaheadUnrollLength
             )
         );
         _train.Build();
@@ -183,6 +185,20 @@ internal sealed class OoOPipelineCore : Gear {
         ToothClass.Branch, ToothClass.ConditionalBranch,
     ];
 
+    /// <summary>
+    ///     PC-indexed, direct-mapped, untagged stride table for Vector Runahead (Naithani et al.,
+    ///     ISCA 2021) — mirrors <see cref="StridePrefetcher" />'s RPT plus a learned chain-terminator
+    ///     PC. Trained only from the real (non-shadow) demand-load stream; consulted by the shadow
+    ///     lane to decide whether a load's PC is confirmed-striding and safe to vectorize.
+    /// </summary>
+    private struct VrStrideEntry {
+        public ulong LastAddr;
+        public long Stride;
+        public int Confidence;   // 0-3 saturating; vectorization requires ==3
+        public ulong Terminator; // PC where the chain historically stops; 0 = not yet learned
+        public bool Initialized;
+    }
+
     private readonly int _activeIqCount; // 1 when flat, IqCount when per-class
     private readonly CapturingMemory _capMem;
     private readonly List<ExecResult> _cdbBuffer = [];
@@ -206,16 +222,6 @@ internal sealed class OoOPipelineCore : Gear {
     // history — only the RAT (snapshotted and restored), the PRF, and the real data-cache
     // accessor (which is what actually delivers the prefetch benefit).
     private readonly bool _enableRunahead;
-
-    // Vector Runahead (Naithani, Ainsworth, Jones & Eeckhout, ISCA 2021): extends the scalar
-    // shadow lane above with (1) a termination-condition change that keeps the episode running
-    // until a detected dependent-load chain fully issues, not just until the real blocking load
-    // resolves, and (2) N-wide lane replication of the shadow body once a load's PC is confirmed
-    // striding by a small RPT-style stride table. No real VRF/vector-rename state is used —
-    // "vectorization" is modeled purely as running the existing scalar shadow body N times with
-    // different per-lane values, tracked by _runaheadVectorLanes/_runaheadVectorized. v1 omits
-    // the paper's vector unrolling/pipelining (VRAT + register-deallocation queue).
-    private readonly bool _enableVectorRunahead;
     private readonly List<IssuedInstr> _execBuffer = [];
     private readonly IExecutor _executor;
     private readonly FdipPrefetcher? _fdip;
@@ -250,14 +256,37 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly int _runaheadBudget;
     private readonly Dictionary<ulong, (ulong Value, int Bytes)> _runaheadStoreBuffer = [];
     private readonly HashSet<int> _runaheadTainted = [];
-    private readonly HashSet<int> _runaheadVectorized = [];
-    private readonly Dictionary<int, ulong[]> _runaheadVectorLanes = [];
+
+    // Vector Runahead (Naithani, Ainsworth, Jones & Eeckhout, ISCA 2021): extends the scalar
+    // shadow lane above with (1) a termination-condition change that keeps the episode running
+    // until a detected dependent-load chain fully issues, not just until the real blocking load
+    // resolves, and (2) N-wide lane replication of the shadow body once a load's PC is confirmed
+    // striding by a small RPT-style stride table. No real VRF/vector-rename state is used —
+    // "vectorization" is modeled purely as running the existing scalar shadow body N times with
+    // different per-lane values, tracked by _runaheadVectorLanes (a physical register carries a
+    // vector-lane set iff it's a key in that dictionary). Vector unrolling (repeated N-wide
+    // rounds, bounded by _runaheadUnrollLength) is implemented below; the paper's vector
+    // pipelining (P overlapped in-flight rounds via a VRAT) is deliberately not modeled — see
+    // the README paragraph for why (round issuance is serialized behind the shadow PC's walk
+    // through the loop body, not because reordering would be free). Physical-register pressure
+    // from deep unrolling is instead managed by freeing a shadow-allocated physical register
+    // immediately when its architectural register is re-renamed (see the free-on-rename comment
+    // at the Rename() call sites) — a simplification of the paper's register-deallocation queue
+    // that is exact, not approximate, because the shadow lane issues strictly in program order.
+    private readonly bool _enableVectorRunahead;
     private readonly int _runaheadVectorWidth;
+    private readonly int _runaheadUnrollLength;
+    private readonly VrStrideEntry[] _vrStrideTable;
+    private readonly Dictionary<int, ulong[]> _runaheadVectorLanes = [];
+
+    // Physical registers allocated by THIS shadow episode's own Rename() calls — distinguishes
+    // them from pre-episode (real) registers, which must never be freed mid-episode. See
+    // FreeShadowRename.
+    private readonly HashSet<int> _runaheadOwnedPhys = [];
     private readonly SmbPredictor? _smbPredictor;
     private readonly StoreQueue _sq;
     private readonly StoreSetPredictor? _storeSets;
     private readonly ITrapController _trapController;
-    private readonly VrStrideEntry[] _vrStrideTable;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
     // doesn't freeze for them. Each slot holds a countdown (in cycles) until the
@@ -330,11 +359,20 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _retiredCounter = null!;
     private bool _runaheadActive;
     private bool _runaheadChainActive;
+    private int _runaheadChainRound; // 0-based round count within the active chain (vector unrolling)
     private ulong _runaheadChainOrigin;
     private ulong _runaheadChainTerminator;
+
+    // Origin PCs whose unroll-round budget (_runaheadUnrollLength) was fully spent this episode —
+    // see TerminateOrUnroll. Without this, the very next shadow-lane pass through the same origin
+    // (the common case: a tight loop revisiting it) would re-enter the "start new chain" branch in
+    // TryVectorizeTaintedLoad/TryVectorizeShadowStep and silently reset the round counter, so the
+    // cap would never actually stick.
+    private readonly HashSet<ulong> _runaheadCappedOrigins = [];
     private Counter? _runaheadEpisodesCounter, _runaheadInstructionsCounter;
     private int _runaheadInstrCount;
     private RenameMapSnapshot _runaheadRatSnapshot;
+    private ulong _runaheadRoundBaseAddr; // current unroll round's base address for stride-lane computation
     private Counter? _runaheadVectorChainsCounter, _runaheadVectorLaneAccessesCounter;
 
     // ── Main driver ────────────────────────────────────────────────────────────
@@ -387,7 +425,8 @@ internal sealed class OoOPipelineCore : Gear {
         bool enableRunahead = false,
         int runaheadBudget = 200,
         bool enableVectorRunahead = false,
-        int runaheadVectorWidth = 8
+        int runaheadVectorWidth = 8,
+        int runaheadUnrollLength = 8
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -426,6 +465,7 @@ internal sealed class OoOPipelineCore : Gear {
         _runaheadBudget = runaheadBudget;
         _enableVectorRunahead = enableRunahead && enableVectorRunahead;
         _runaheadVectorWidth = runaheadVectorWidth;
+        _runaheadUnrollLength = runaheadUnrollLength;
         _vrStrideTable = _enableVectorRunahead ? new VrStrideEntry[256] : [];
 
         int archRegs = State.IntegerRegisters.Count;
@@ -1303,6 +1343,20 @@ internal sealed class OoOPipelineCore : Gear {
         return true;
     }
 
+    // Classifies a resolved branch for IBranchKindAwareBranchPredictor. Mirrors the
+    // committed-RAS classification just above (line ~714), re-deriving the FetchHint at
+    // retire rather than threading it through the ROB entry.
+    private BranchKind ClassifyBranchKind(ITooth? instruction) {
+        if (instruction is null) return BranchKind.None;
+        var kind = BranchKind.None;
+        if (instruction.Class == ToothClass.ConditionalBranch) kind |= BranchKind.Conditional;
+        FetchHint hint = _decoder.GetFetchHint(instruction.Pc, instruction.RawEncoding);
+        if (hint.IsCall) kind |= BranchKind.Call;
+        if (hint.IsReturn) kind |= BranchKind.Return;
+        if (!hint.BranchTarget.HasValue) kind |= BranchKind.Indirect;
+        return kind;
+    }
+
     /// <summary>
     ///     True if any not-yet-committed instruction (already dispatched to the ROB, or
     ///     still sitting in the rename queue) has a secondary destination register that
@@ -1318,20 +1372,6 @@ internal sealed class OoOPipelineCore : Gear {
     ///         that register stable until the secondary-dest producer retires and syncs it.
     ///     </para>
     /// </summary>
-    // Classifies a resolved branch for IBranchKindAwareBranchPredictor. Mirrors the
-    // committed-RAS classification just above (line ~714), re-deriving the FetchHint at
-    // retire rather than threading it through the ROB entry.
-    private BranchKind ClassifyBranchKind(ITooth? instruction) {
-        if (instruction is null) return BranchKind.None;
-        var kind = BranchKind.None;
-        if (instruction.Class == ToothClass.ConditionalBranch) kind |= BranchKind.Conditional;
-        FetchHint hint = _decoder.GetFetchHint(instruction.Pc, instruction.RawEncoding);
-        if (hint.IsCall) kind |= BranchKind.Call;
-        if (hint.IsReturn) kind |= BranchKind.Return;
-        if (!hint.BranchTarget.HasValue) kind |= BranchKind.Indirect;
-        return kind;
-    }
-
     private bool HasPendingSecondaryDest(IReadOnlyList<int> srcs, int destArch) {
         foreach ((_, RobEntry entry) in _rob.InOrder()) {
             int sd = entry.Instruction?.SecondaryDestinationRegister ?? -1;
@@ -1386,14 +1426,8 @@ internal sealed class OoOPipelineCore : Gear {
     ///     (FuLatencyConfig.ConservativeLoads), mirroring Olympia's
     ///     allow_speculative_load_exec = false.
     /// </summary>
-    private bool HasUnresolvedPrecedingStore(ulong loadSeqNo) {
-        foreach (SqEntry sq in _sq.InOrder()) {
-            if (sq.SeqNo >= loadSeqNo) break; // past the load — done
-            if (!sq.AddressKnown) return true;
-        }
-
-        return false;
-    }
+    private bool HasUnresolvedPrecedingStore(ulong loadSeqNo) =>
+        _sq.InOrder().TakeWhile(sq => sq.SeqNo < loadSeqNo).Any(sq => !sq.AddressKnown);
 
     /// <summary>
     ///     True if the load's predicted dependent store is still in the SQ with an unresolved
@@ -1933,8 +1967,11 @@ internal sealed class OoOPipelineCore : Gear {
         _runaheadChainActive = false;
         _runaheadChainOrigin = 0;
         _runaheadChainTerminator = 0;
+        _runaheadChainRound = 0;
+        _runaheadRoundBaseAddr = 0;
         _runaheadVectorLanes.Clear();
-        _runaheadVectorized.Clear();
+        _runaheadOwnedPhys.Clear();
+        _runaheadCappedOrigins.Clear();
 
         // Seed taint with every arch register whose live mapping isn't ready yet — the blocking
         // load's own destination, plus anything else still in flight behind it.
@@ -1954,8 +1991,34 @@ internal sealed class OoOPipelineCore : Gear {
         _runaheadChainActive = false;
         _runaheadChainOrigin = 0;
         _runaheadChainTerminator = 0;
+        _runaheadChainRound = 0;
+        _runaheadRoundBaseAddr = 0;
         _runaheadVectorLanes.Clear();
-        _runaheadVectorized.Clear();
+        _runaheadOwnedPhys.Clear();
+        _runaheadCappedOrigins.Clear();
+    }
+
+    /// <summary>
+    ///     Register-pressure management for Vector Runahead (Naithani et al., ISCA 2021, "Managing
+    ///     Pipeline Resources During Runahead"): frees a physical register as soon as its
+    ///     architectural register is renamed again, instead of waiting for <see cref="ExitRunahead" />
+    ///     's wholesale RAT restore. This is what lets vector unrolling issue many rounds without
+    ///     exhausting <see cref="_rat" />'s free list. The paper needs an explicit in-order register
+    ///     deallocation queue (RDQ) for this because its vector-pipelined issue can have several
+    ///     rounds' instructions in flight out of program order; Horologium's shadow lane issues
+    ///     strictly one instruction at a time along a single <see cref="_shadowPc" />, so any
+    ///     instruction that could still read the old value has, by construction, already executed
+    ///     by the time we reach the instruction that redefines it — an RDQ's ordering guarantee for
+    ///     free, with no queue needed. Only registers this same episode allocated
+    ///     (<see cref="_runaheadOwnedPhys" />) are ever freed this way; a pre-episode (real)
+    ///     physical register is left untouched and only ever restored via the RAT snapshot.
+    /// </summary>
+    private void FreeShadowRename(int newPhys, int oldPhys) {
+        _runaheadOwnedPhys.Add(newPhys);
+        if (oldPhys < 0 || !_runaheadOwnedPhys.Remove(oldPhys)) return;
+        _runaheadVectorLanes.Remove(oldPhys);
+        _runaheadTainted.Remove(oldPhys);
+        _rat.FreePhysical(oldPhys);
     }
 
     /// <summary>
@@ -1965,18 +2028,42 @@ internal sealed class OoOPipelineCore : Gear {
     ///     resolves. A chain ends when the shadow PC loops back to the load that started it
     ///     (backfilling the stride table's learned terminator for future episodes, since the
     ///     terminator can't be observed from the real, non-shadow instruction stream alone) or
-    ///     reaches a previously learned terminator directly.
+    ///     reaches a previously learned terminator directly — subject to <see cref="TerminateOrUnroll" />.
     /// </summary>
     private void UpdateChainTermination() {
         if (_shadowPc != _runaheadChainOrigin) {
-            if (_runaheadChainTerminator != 0 && _shadowPc == _runaheadChainTerminator) _runaheadChainActive = false;
+            if (_runaheadChainTerminator != 0 && _shadowPc == _runaheadChainTerminator) TerminateOrUnroll();
             return;
         }
 
         ref VrStrideEntry e
             = ref _vrStrideTable[(int)((_runaheadChainOrigin >> 2) & (uint)(_vrStrideTable.Length - 1))];
         if (e.Terminator == 0) e.Terminator = _shadowPc;
+        TerminateOrUnroll();
+    }
+
+    /// <summary>
+    ///     Vector unrolling (Naithani et al., ISCA 2021 §III-G): a chain that has just reached one
+    ///     of the two termination points above does not necessarily end the episode — instead it
+    ///     issues another N-wide round from the same chain origin (advancing
+    ///     <see cref="_runaheadRoundBaseAddr" />, see <see cref="TryVectorizeTaintedLoad" />/
+    ///     <see cref="TryVectorizeShadowStep" />) until <see cref="_runaheadUnrollLength" /> total
+    ///     rounds have been issued for this chain, matching the paper's default of U=8 rounds of
+    ///     N=8 lanes (64 scalar-equivalent loop iterations) before returning to normal mode.
+    /// </summary>
+    private void TerminateOrUnroll() {
+        if (_runaheadChainRound + 1 < _runaheadUnrollLength) {
+            _runaheadChainRound++;
+            return; // stay chain-active: the next pass through the origin PC starts the next round
+        }
+
         _runaheadChainActive = false;
+
+        // Without this, the very next visit to _runaheadChainOrigin (the common case — a tight
+        // loop revisiting it) would look identical to a cold "start new chain" to
+        // TryVectorizeTaintedLoad/TryVectorizeShadowStep and reset the round counter, so the cap
+        // above would never actually take effect.
+        _runaheadCappedOrigins.Add(_runaheadChainOrigin);
     }
 
     /// <summary>Runs up to issueWidth shadow instructions this cycle, or exits the episode.</summary>
@@ -2060,9 +2147,10 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             if (destArch > 0) {
-                (int newPhys, _) = _rat.Rename(destArch);
+                (int newPhys, int oldPhys) = _rat.Rename(destArch);
                 _prf.Write(newPhys, 0UL);
                 _runaheadTainted.Add(newPhys);
+                FreeShadowRename(newPhys, oldPhys);
             }
 
             _shadowPc += (ulong)instr.SizeBytes;
@@ -2094,11 +2182,12 @@ internal sealed class OoOPipelineCore : Gear {
         if (er.HasTrap) return false; // a shadow instruction that would fault ends the episode
 
         if (destArch > 0) {
-            (int newPhys, _) = _rat.Rename(destArch);
+            (int newPhys, int oldPhys) = _rat.Rename(destArch);
             _prf.Write(newPhys, er.RegisterResult.HasValue ? er.RegisterResult.Value : 0UL);
             if (anyTainted)
                 _runaheadTainted.Add(newPhys);
             else if (_enableVectorRunahead) TryVectorizeShadowStep(instr, srcs, newPhys, p0, p1, mem, er);
+            FreeShadowRename(newPhys, oldPhys);
         }
 
         _shadowPc += (ulong)instr.SizeBytes;
@@ -2122,24 +2211,34 @@ internal sealed class OoOPipelineCore : Gear {
         if (!e.Initialized || e.Confidence < 3 || e.Stride == 0) return false;
 
         if (!_runaheadChainActive) {
+            if (_runaheadCappedOrigins.Contains(_shadowPc)) return false; // already used up its unroll budget
             _runaheadChainActive = true;
             _runaheadChainOrigin = _shadowPc;
             _runaheadChainTerminator = e.Terminator;
+            _runaheadChainRound = 0;
+            _runaheadRoundBaseAddr = e.LastAddr;
         }
 
+        // Vector unrolling (Naithani et al., ISCA 2021 §III-G): each round's lanes are computed
+        // from _runaheadRoundBaseAddr, which this method itself advances by N*Stride afterwards —
+        // not from e.LastAddr directly, which never changes mid-episode (it is trained only from
+        // the real demand-load stream). Without this, a second round through the same tainted
+        // chain-origin load would re-fetch the exact same N addresses as the first.
         var mem = new RunaheadMemory(DLayers.Accessor, _runaheadStoreBuffer);
         var lanes = new ulong[_runaheadVectorWidth];
         int bytes = instr.MemoryAccessBytes;
         for (var i = 0; i < _runaheadVectorWidth; i++) {
-            var laneAddr = (ulong)((long)e.LastAddr + (i + 1) * e.Stride);
+            var laneAddr = (ulong)((long)_runaheadRoundBaseAddr + (i + 1) * e.Stride);
             try { lanes[i] = mem.Read(laneAddr, bytes); }
             catch (AccessViolationException) { lanes[i] = 0UL; }
         }
 
-        (int newPhys, _) = _rat.Rename(destArch);
+        _runaheadRoundBaseAddr = (ulong)((long)_runaheadRoundBaseAddr + _runaheadVectorWidth * e.Stride);
+
+        (int newPhys, int oldPhys) = _rat.Rename(destArch);
         _prf.Write(newPhys, lanes[0]);
         _runaheadVectorLanes[newPhys] = lanes;
-        _runaheadVectorized.Add(newPhys);
+        FreeShadowRename(newPhys, oldPhys);
         _runaheadInstrCount += _runaheadVectorWidth - 1;
         _runaheadInstructionsCounter?.IncrementBy(_runaheadVectorWidth - 1);
         _runaheadVectorLaneAccessesCounter?.IncrementBy(_runaheadVectorWidth);
@@ -2182,9 +2281,15 @@ internal sealed class OoOPipelineCore : Gear {
             if (!e.Initialized || e.Confidence < 3 || e.Stride == 0 || !mem.HasRead) return;
 
             if (!_runaheadChainActive) {
+                if (_runaheadCappedOrigins.Contains(_shadowPc)) return; // already used up its unroll budget
                 _runaheadChainActive = true;
                 _runaheadChainOrigin = _shadowPc;
                 _runaheadChainTerminator = e.Terminator;
+                _runaheadChainRound = 0;
+                // This path's lane addresses are derived from mem.LastReadAddress (the real
+                // re-executed read), not _runaheadRoundBaseAddr, so it's left at 0/unused here —
+                // set only for consistency with TryVectorizeTaintedLoad's parallel init.
+                _runaheadRoundBaseAddr = 0;
             }
 
             var lanes = new ulong[_runaheadVectorWidth];
@@ -2196,7 +2301,6 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             _runaheadVectorLanes[newPhys] = lanes;
-            _runaheadVectorized.Add(newPhys);
             _runaheadInstrCount += _runaheadVectorWidth - 1;
             _runaheadInstructionsCounter?.IncrementBy(_runaheadVectorWidth - 1);
             _runaheadVectorLaneAccessesCounter?.IncrementBy(_runaheadVectorWidth);
@@ -2248,7 +2352,6 @@ internal sealed class OoOPipelineCore : Gear {
         regs.Write(srcArch, saved);
 
         _runaheadVectorLanes[newPhys] = lanes;
-        _runaheadVectorized.Add(newPhys);
         _runaheadInstrCount += _runaheadVectorWidth - 1;
         _runaheadInstructionsCounter?.IncrementBy(_runaheadVectorWidth - 1);
         _runaheadVectorLaneAccessesCounter?.IncrementBy(_runaheadVectorWidth);
@@ -2750,20 +2853,6 @@ internal sealed class OoOPipelineCore : Gear {
         missesCounter!.IncrementBy(tlb.Misses - lastMisses);
         lastHits = tlb.Hits;
         lastMisses = tlb.Misses;
-    }
-
-    /// <summary>
-    ///     PC-indexed, direct-mapped, untagged stride table for Vector Runahead (Naithani et al.,
-    ///     ISCA 2021) — mirrors <see cref="StridePrefetcher" />'s RPT plus a learned chain-terminator
-    ///     PC. Trained only from the real (non-shadow) demand-load stream; consulted by the shadow
-    ///     lane to decide whether a load's PC is confirmed-striding and safe to vectorize.
-    /// </summary>
-    private struct VrStrideEntry {
-        public ulong LastAddr;
-        public long Stride;
-        public int Confidence;   // 0-3 saturating; vectorization requires ==3
-        public ulong Terminator; // PC where the chain historically stops; 0 = not yet learned
-        public bool Initialized;
     }
     // ── Nested helper types ────────────────────────────────────────────────────
 

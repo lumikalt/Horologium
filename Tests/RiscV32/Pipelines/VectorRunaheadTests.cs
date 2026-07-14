@@ -113,7 +113,7 @@ public class VectorRunaheadTests {
         Load(memOff, program);
         Load(memOn, program);
 
-        RevolutionResult offResult = off.Run();
+        off.Run();
         RevolutionResult onResult = on.Run();
 
         AssertIdenticalArchState(off, on);
@@ -134,8 +134,7 @@ public class VectorRunaheadTests {
     }
 
     /// <summary>
-    ///     Same ROB-filling shape as
-    ///     <see cref="RunaheadTests.FullRobStallBehindMissingLoad_ArchStateIdenticalToWithout_AndEpisodeOccurs" />
+    ///     Same ROB-filling shape as <see cref="RunaheadTests.FullRobStallBehindMissingLoad_ArchStateIdenticalToWithout_AndEpisodeOccurs" />
     ///     — a single cold-miss load with no repeated PC history — but with
     ///     <c>enableVectorRunahead: true</c>. The stride table is cold for every PC the shadow
     ///     lane ever reaches, so no vectorization should fire; this guards against a false-positive

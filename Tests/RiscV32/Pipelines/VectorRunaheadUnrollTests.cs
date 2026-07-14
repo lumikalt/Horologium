@@ -101,8 +101,8 @@ public class VectorRunaheadUnrollTests {
     public void LargerUnrollCap_ProducesMoreVectorLaneWorkThanSmallCap() {
         uint[] program = StridedChainProgram();
 
-        (OooeTrain capped, FlatMemory memCapped) = Make(true, true, 8, 1);
-        (OooeTrain uncapped, FlatMemory memUncapped) = Make(true, true, 8, 8);
+        (OooeTrain capped, FlatMemory memCapped) = Make(true, true, runaheadUnrollLength: 1);
+        (OooeTrain uncapped, FlatMemory memUncapped) = Make(true, true);
         Load(memCapped, program);
         Load(memUncapped, program);
 
@@ -165,7 +165,7 @@ public class VectorRunaheadUnrollTests {
         uint[] program = StridedChainProgram();
 
         (OooeTrain off, FlatMemory memOff) = Make(false, robCapacity: 4);
-        (OooeTrain on, FlatMemory memOn) = Make(true, true, 8, 8, extraPhysRegs: 16, robCapacity: 4);
+        (OooeTrain on, FlatMemory memOn) = Make(true, true, extraPhysRegs: 16, robCapacity: 4);
         Load(memOff, program);
         Load(memOn, program);
 

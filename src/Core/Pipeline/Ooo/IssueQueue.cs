@@ -53,7 +53,7 @@ public sealed class RsEntry {
 
     /// <summary>
     ///     Number of source tags still not-ready at Dispatch (0 if all sources were ready by
-    ///     dispatch time — see <see cref="ReorderBuffer.RobEntry.ESourceIsOwnD" />). Decremented
+    ///     dispatch time — see <see cref="RobEntry.ESourceIsOwnD" />). Decremented
     ///     by <see cref="IssueQueue.Broadcast" /> as each pending source resolves.
     /// </summary>
     public int PendingSourceCount { get; set; }
