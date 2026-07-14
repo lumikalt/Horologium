@@ -3,6 +3,8 @@ using Orrery.Train;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
+using RiscV32.Registers;
+using RiscV32.State;
 
 namespace Tests.RiscV32.Pipelines;
 
@@ -180,5 +182,79 @@ public class DaeTrainTests {
         Assert.Equal(10UL, dae.ArchState.IntegerRegisters.Read(11));
         Assert.Equal(10L, Counter(result, "access_issued"));  // the 10 loads
         Assert.Equal(11L, Counter(result, "execute_issued")); // base addi + 10 independent increments
+    }
+
+    /// <summary>
+    ///     Precise-exception rollback. RV32 has no misalignment checking, so the only fault
+    ///     reachable from a lane-class instruction is an Sv32 page fault. A faulting Access-lane
+    ///     load is preceded by five independent same-lane filler loads that delay it reaching the
+    ///     Access queue head; meanwhile the decoupled Execute lane dispatches and retires an
+    ///     unrelated, program-order-younger <c>addi</c> long before the fault is even detected.
+    ///     Once detected, <see cref="DaeTrain" /> must roll back that already-committed younger
+    ///     write via the undo log before raising the trap — proving precise exceptions rather
+    ///     than the old hard-halt-on-trap behavior. Assembled from:
+    ///     <c>
+    ///         lui x2,3; lui x1,4; lw x10,0(x2); lw x11,0(x2); lw x12,0(x2); lw x13,0(x2);
+    ///         lw x14,0(x2); lw x3,0(x1); addi x5,x0,42; ebreak
+    ///     </c>
+    ///     . x2=0x3000 is a mapped filler-data page; x1=0x4000 is deliberately left unmapped.
+    /// </summary>
+    [Fact]
+    public void FaultingAccessLoad_RollsBackYoungerExecuteLaneWrite() {
+        uint[] program = [
+            0x00003137, // lui  x2, 3      -> x2 = 0x3000 (mapped filler-data page)
+            0x000040B7, // lui  x1, 4      -> x1 = 0x4000 (unmapped -> page fault)
+            0x00012503, // lw   x10, 0(x2) -- Access-lane filler #1
+            0x00012583, // lw   x11, 0(x2) -- Access-lane filler #2
+            0x00012603, // lw   x12, 0(x2) -- Access-lane filler #3
+            0x00012683, // lw   x13, 0(x2) -- Access-lane filler #4
+            0x00012703, // lw   x14, 0(x2) -- Access-lane filler #5
+            0x0000A183, // lw   x3, 0(x1)  -- FAULTS: LoadPageFault (unmapped VA 0x4000)
+            0x02A00293, // addi x5, x0, 42 -- younger, Execute-lane, must be rolled back
+            DaeTrainTests.Ebreak,
+        ];
+
+        var mem = new FlatMemory(0x10000);
+        var dae = new DaeTrain(new Rv32Mechanism(), mem, laneQueueDepth: 8);
+        Load(mem, 0, program);
+
+        // Sv32: root PT (PPN=1) entry 0 -> level-1 PT (PPN=2).
+        mem.Write(0x1000UL, 0x801u, 4);
+        // Level-1 entry 0 (VA 0x0000, code): identity-mapped, executable, A|U|X|W|R|V.
+        mem.Write(0x2000UL, 0x5Fu, 4);
+        // Level-1 entry 3 (VA 0x3000, filler data): identity-mapped, D|A|U|W|R|V.
+        mem.Write(0x200CUL, (3u << 10) | 0b1101_0111u, 4);
+        // Level-1 entry 4 (VA 0x4000) intentionally left unmapped (V=0) -> the fault target.
+        Load(mem, 0x3000, 0xABCD1234u);
+
+        // Trap handler: an unconditional self-jump at a PA the M-mode trap entry fetches
+        // untranslated. (A nonzero mtvec makes ebreak raise a real Breakpoint trap rather than
+        // halt — see Rv32Executor's OpenSBI semihosting-probe comment — so use the self-loop
+        // halt convention instead, same as the HTIF tohost-exit convention benchmarks rely on.
+        // Must be `jal`, not `beq`: the self-loop halt check only matches ToothClass.Branch,
+        // which is unconditional jumps — conditional branches are ToothClass.ConditionalBranch.)
+        Load(mem, 0x8000, 0x0000006Fu); // jal x0, 0
+
+        dae.ArchState.SystemRegisters.Write(CsrFile.Satp, 0x80000001u, RvPrivilege.Machine);
+        dae.ArchState.SystemRegisters.Write(CsrFile.Mtvec, 0x8000u, RvPrivilege.Machine);
+        dae.ArchState.PrivilegeLevel = RvPrivilege.User;
+
+        RevolutionResult result = dae.Run(10_000);
+
+        Assert.True(dae.IsIdle);
+        // The younger Execute-lane write must be undone: it retired before the older,
+        // program-order-earlier fault was detected, but is rolled back once it is.
+        Assert.Equal(0UL, dae.ArchState.IntegerRegisters.Read(5));
+        // Older, already-permanently-retired writes are untouched by the rollback.
+        Assert.Equal(0xABCD1234UL, dae.ArchState.IntegerRegisters.Read(10));
+        Assert.Equal(0x4000UL, dae.ArchState.IntegerRegisters.Read(1));
+
+        Assert.Equal(
+            (ulong)RvTrapCause.LoadPageFault,
+            dae.ArchState.SystemRegisters.Read(CsrFile.Mcause, RvPrivilege.Machine)
+        );
+        Assert.Equal(0x1CUL, dae.ArchState.SystemRegisters.Read(CsrFile.Mepc, RvPrivilege.Machine));
+        Assert.Equal(0x4000UL, dae.ArchState.SystemRegisters.Read(CsrFile.Mtval, RvPrivilege.Machine));
+        Assert.Equal(1L, Counter(result, "precise_traps"));
     }
 }

@@ -848,10 +848,16 @@ sequence-number scoreboard): a consumer in the other lane reads the exact produc
 program order, so the producer has always already written the live register file by the time a same-lane consumer
 executes.
 
-**Known v1 limitation:** precise exceptions from a lane instruction (a misaligned or faulting load/store, most
-notably) are not supported — the other lane may already be ahead in program order with no rollback mechanism, so a
-lane-instruction trap halts the simulation rather than risk silently producing imprecise architectural state. Barrier
-instructions are unaffected, since they only ever execute once both lanes are fully drained.
+**Precise exceptions** from a lane instruction (a faulting load/store, most notably) are handled without halting:
+every lane-instruction register write is logged to an undo list tagged with its dispatch-order sequence number, and
+every memory write goes through an `UndoLoggingMemory` decorator that logs the prior value the same way. When a lane
+instruction traps, the front end pauses and both lanes keep draining — but only instructions strictly older, in
+program order, than the trap — until nothing older remains in flight (cross-lane read dependencies only ever point
+backward in program order, so this always terminates). At that point every logged write younger than the trap is
+unwound in reverse order, both lane queues and any stale pending barrier are flushed, and the trap is raised against
+now-precise architectural state. The undo log is cleared whenever a trap resolves or a barrier drains both lanes,
+since those are exactly the points at which nothing still in flight can ever be older — bounding undo-log growth
+without fine-grained incremental pruning.
 
 ```csharp
 var dae = new DaeTrain(new Rv32Mechanism(), memory, entryPoint: 0x00, laneQueueDepth: 8);

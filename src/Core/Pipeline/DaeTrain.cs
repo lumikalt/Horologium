@@ -39,13 +39,19 @@ namespace Pipeline;
 ///         already written the live register file by the time a same-lane consumer executes.
 ///     </para>
 ///     <para>
-///         <b>Known v1 limitation:</b> precise exceptions from a lane instruction (a misaligned
-///         or faulting load/store, most notably) are not supported — the other lane may already
-///         be ahead in program order with no rollback mechanism, so a lane-instruction trap
-///         simply halts the simulation rather than risk silently producing imprecise
-///         architectural state. Barrier instructions (which include all traps from branches,
-///         ECALL, etc.) are unaffected since they only ever execute once both lanes are fully
-///         drained.
+///         <b>Precise exceptions from lane instructions</b> (a faulting load/store, most
+///         notably) are handled without ever halting: every lane-instruction register write is
+///         logged to an undo list tagged with its dispatch-order sequence number, and every
+///         memory write goes through <see cref="UndoLoggingMemory" />, which logs the prior
+///         value the same way. When a lane instruction traps, the front end pauses and both
+///         lanes are allowed to keep draining — but only instructions strictly older, in program
+///         order, than the trap — until nothing older remains in flight (cross-lane read
+///         dependencies only ever point backward in program order, so this always terminates).
+///         At that point every logged write younger than the trap is unwound in reverse order,
+///         both lane queues and any stale pending barrier are flushed, and the trap is raised
+///         against now-precise architectural state. The undo log is cleared (not just the
+///         rolled-back suffix) whenever a trap resolves or a barrier drains both lanes, since
+///         those are exactly the points at which nothing still in flight can ever be older.
 ///     </para>
 /// </summary>
 public sealed class DaeTrain : ISteppableTrain {
@@ -113,7 +119,78 @@ internal sealed class DaeInstruction {
     public Dictionary<int, HandoffSlot>? CrossLaneReads;
 
     public required ulong Pc;
+
+    /// <summary>Monotonic dispatch-order index — the program-order tiebreaker used to resolve precise exceptions.</summary>
+    public required ulong Seq;
+
     public required ITooth Tooth;
+}
+
+/// <summary>
+///     One undone-able architectural mutation: either a register write (<see cref="IsMemory" /> =
+///     false) or a memory write (<see cref="IsMemory" /> = true), tagged with the dispatch-order
+///     <see cref="Seq" /> of the instruction that made it. Used to unwind writes made by
+///     instructions that turn out to be younger, in program order, than a lane instruction that
+///     later traps.
+/// </summary>
+internal readonly struct UndoEntry {
+    public UndoEntry(ulong seq, int register, ulong prevValue) {
+        Seq = seq;
+        IsMemory = false;
+        Register = register;
+        PrevValue = prevValue;
+        Address = 0;
+        Bytes = 0;
+    }
+
+    public UndoEntry(ulong seq, ulong address, int bytes, ulong prevValue) {
+        Seq = seq;
+        IsMemory = true;
+        Register = -1;
+        PrevValue = prevValue;
+        Address = address;
+        Bytes = bytes;
+    }
+
+    public ulong Seq { get; }
+    public bool IsMemory { get; }
+    public int Register { get; }
+    public ulong Address { get; }
+    public int Bytes { get; }
+    public ulong PrevValue { get; }
+}
+
+/// <summary>
+///     Wraps the shared data memory accessor and logs the prior value of every write into
+///     <paramref name="log" />, tagged with <see cref="CurrentSeq" /> (set by the caller before
+///     each <see cref="IExecutor.Execute" /> call). Only lane-instruction writes need to be
+///     undo-able — barrier instructions execute once both lanes are fully drained and write
+///     straight to the unwrapped accessor.
+/// </summary>
+internal sealed class UndoLoggingMemory(IMemory inner, List<UndoEntry> log) : IMemory {
+    public ulong CurrentSeq;
+
+    public ulong Read(ulong address, int bytes) => inner.Read(address, bytes);
+
+    public void Write(ulong address, ulong value, int bytes) {
+        log.Add(new UndoEntry(CurrentSeq, address, bytes, inner.Read(address, bytes)));
+        inner.Write(address, value, bytes);
+    }
+
+    public void Load(ulong address, ReadOnlySpan<byte> data) => inner.Load(address, data);
+    public void InvalidateLine(ulong address) => inner.InvalidateLine(address);
+    public void CleanLine(ulong address) => inner.CleanLine(address);
+    public void FlushLine(ulong address) => inner.FlushLine(address);
+    public void SetRequestPc(ulong pc) => inner.SetRequestPc(pc);
+}
+
+/// <summary>
+///     A lane trap awaiting resolution: the dispatch-order <see cref="Seq" /> of the trapping instruction and its
+///     captured <see cref="Trap" /> info.
+/// </summary>
+internal readonly struct PendingTrap(ulong seq, TrapInfo trap) {
+    public ulong Seq { get; } = seq;
+    public TrapInfo Trap { get; } = trap;
 }
 
 /// <summary>
@@ -170,6 +247,7 @@ internal sealed class DaeCore(
 ) : Gear(name, parent, esc) {
     private readonly Queue<DaeInstruction> _accessQueue = new();
     private readonly Queue<DaeInstruction> _executeQueue = new();
+    private readonly List<UndoEntry> _undoLog = [];
     private Counter _accessIssuedCounter = null!;
 
     private bool[] _addressTaint = [];
@@ -181,11 +259,15 @@ internal sealed class DaeCore(
     private IFetchTranslator? _fetchTranslator;
     private bool _halted;
     private (Lane Lane, HandoffSlot Slot)?[] _lastWriter = [];
+    private ulong _nextSeq;
     private ITooth? _pendingBarrier;
     private ulong _pendingBarrierPc;
+    private PendingTrap? _pendingTrap;
+    private Counter _preciseTrapsCounter = null!;
     private Counter _retiredCounter = null!;
     private Action? _runCycle;
     private Counter _stallsCounter = null!;
+    private UndoLoggingMemory _undoMemory = null!;
 
     public IArchState State { get; } = CreateInitialState(mechanism, entryPoint);
 
@@ -197,6 +279,7 @@ internal sealed class DaeCore(
 
     public override void Initialize() {
         _fetchTranslator = mechanism.CreateFetchTranslator(State, iLayers.Accessor);
+        _undoMemory = new UndoLoggingMemory(dLayers.Accessor, _undoLog);
 
         int regCount = State.IntegerRegisters.Count;
         _addressTaint = new bool[regCount];
@@ -210,6 +293,9 @@ internal sealed class DaeCore(
         );
         _accessIssuedCounter = Dials.AddCounter("access_issued", "Instructions dispatched to the Access lane");
         _executeIssuedCounter = Dials.AddCounter("execute_issued", "Instructions dispatched to the Execute lane");
+        _preciseTrapsCounter = Dials.AddCounter(
+            "precise_traps", "Lane-instruction traps resolved via undo-log rollback"
+        );
         Dials.AddDial(
             "ipc",
             () => _cyclesCounter.Value == 0 ? 0.0 : _retiredCounter.Value / (double)_cyclesCounter.Value,
@@ -228,7 +314,10 @@ internal sealed class DaeCore(
         _accessQueue.Clear();
         _executeQueue.Clear();
         _pendingBarrier = null;
+        _pendingTrap = null;
         _halted = false;
+        _nextSeq = 0;
+        _undoLog.Clear();
         Array.Clear(_addressTaint);
         Array.Clear(_lastWriter);
         Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
@@ -239,7 +328,12 @@ internal sealed class DaeCore(
         bool executeAdvanced = TryExecuteLaneHead(Lane.Execute);
 
         var dispatched = false;
-        if (_pendingBarrier is not null) {
+        if (_pendingTrap is { } trap) {
+            bool accessClear = _accessQueue.Count == 0 || _accessQueue.Peek().Seq > trap.Seq;
+            bool executeClear = _executeQueue.Count == 0 || _executeQueue.Peek().Seq > trap.Seq;
+            if (accessClear && executeClear) ResolveTrap(trap);
+        }
+        else if (_pendingBarrier is not null) {
             if (_accessQueue.Count == 0 && _executeQueue.Count == 0) ExecuteBarrier();
         }
         else if (!_halted) { dispatched = TryDispatchOne(); }
@@ -254,7 +348,8 @@ internal sealed class DaeCore(
             _cyclesCounter.IncrementBy(cacheStalls);
         }
 
-        bool idleCycle = !accessAdvanced && !executeAdvanced && !dispatched && _pendingBarrier is null && !_halted;
+        bool idleCycle = !accessAdvanced && !executeAdvanced && !dispatched
+                      && _pendingBarrier is null && _pendingTrap is null && !_halted;
         if (idleCycle) _stallsCounter.Increment();
 
         if (!_halted) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
@@ -326,7 +421,9 @@ internal sealed class DaeCore(
         UpdateTaint(instr, lane);
 
         queue.Enqueue(
-            new DaeInstruction { Tooth = instr, Pc = pc, CrossLaneReads = crossLaneReads, CaptureWrite = captureWrite, }
+            new DaeInstruction {
+                Tooth = instr, Pc = pc, Seq = _nextSeq++, CrossLaneReads = crossLaneReads, CaptureWrite = captureWrite,
+            }
         );
         (lane == Lane.Access ? _accessIssuedCounter : _executeIssuedCounter).Increment();
 
@@ -380,6 +477,7 @@ internal sealed class DaeCore(
         if (queue.Count == 0) return false;
 
         DaeInstruction inst = queue.Peek();
+        if (_pendingTrap is { } trap && inst.Seq > trap.Seq) return false;
         if (inst.CrossLaneReads is not null)
             foreach (HandoffSlot slot in inst.CrossLaneReads.Values)
                 if (!slot.Ready)
@@ -396,19 +494,35 @@ internal sealed class DaeCore(
             ? State
             : new OverrideArchState(State, new OverrideRegisterFile(State.IntegerRegisters, inst.CrossLaneReads));
 
-        dLayers.Accessor.SetRequestPc(inst.Pc);
-        ExecuteResult result = mechanism.Executor.Execute(instr, execState, dLayers.Accessor);
+        _undoMemory.SetRequestPc(inst.Pc);
+        _undoMemory.CurrentSeq = inst.Seq;
+        ExecuteResult result = mechanism.Executor.Execute(instr, execState, _undoMemory);
         _retiredCounter.Increment();
 
-        if (result.IsHalt || result.RequestHalt || result.HasTrap || result.IsReturnFromTrap) {
-            // See class doc: precise exceptions from a lane instruction are not supported in v1.
+        if (result.HasTrap) {
+            // A faulting Load/Store never reaches its RegisterResult/SideEffect/memory-write
+            // stage, so there is nothing to undo for this instruction itself. Stage the trap;
+            // RunCycle resolves it (rolling back any younger writes already made by the other
+            // lane) once both lanes have drained down to program-order-older instructions only.
+            _pendingTrap = new PendingTrap(inst.Seq, result.Trap!);
+            _preciseTrapsCounter.Increment();
+            return;
+        }
+
+        if (result.IsHalt || result.RequestHalt || result.IsReturnFromTrap) {
+            // Unreachable for lane-class instructions (IntegerAlu/IntegerMulDiv/Load/Store never
+            // halt or return-from-trap — those are System-class barriers) but kept as a defensive
+            // fallback rather than silently mishandling an assumption violation.
             _halted = true;
             return;
         }
 
         result.SideEffect?.Invoke(execState);
-        if (result.RegisterResult.HasValue && instr.DestinationRegister >= 0)
+        if (result.RegisterResult.HasValue && instr.DestinationRegister >= 0) {
+            ulong prevValue = State.IntegerRegisters.Read(instr.DestinationRegister);
+            _undoLog.Add(new UndoEntry(inst.Seq, instr.DestinationRegister, prevValue));
             State.IntegerRegisters.Write(instr.DestinationRegister, result.RegisterResult.Value);
+        }
 
         if (inst.CaptureWrite is not null) {
             inst.CaptureWrite.Value = instr.DestinationRegister >= 0
@@ -418,6 +532,38 @@ internal sealed class DaeCore(
         }
     }
 
+    // Rolls back every logged write younger than the trapping instruction (in reverse
+    // application order, so chains of writes to the same register/address unwind correctly),
+    // flushes both lanes (everything remaining in them is younger than the trap by
+    // construction — RunCycle only calls this once both queue heads clear trap.Seq), discards
+    // the now-stale pending barrier (barriers are always staged after every currently-queued
+    // lane instruction, so they are unconditionally younger than any lane trap), and redirects
+    // to the trap handler. Clearing the whole undo log is safe here, not just the rolled-back
+    // suffix: RunCycle only resolves a trap once nothing older remains in-flight, so everything
+    // at or before trap.Seq has already permanently retired and can never need to be undone.
+    private void ResolveTrap(PendingTrap trap) {
+        _pendingTrap = null;
+        _pendingBarrier = null;
+
+        for (int i = _undoLog.Count - 1; i >= 0; i--) {
+            UndoEntry e = _undoLog[i];
+            if (e.Seq <= trap.Seq) continue;
+            if (e.IsMemory)
+                dLayers.Accessor.Write(e.Address, e.PrevValue, e.Bytes);
+            else
+                State.IntegerRegisters.Write(e.Register, e.PrevValue);
+        }
+
+        _undoLog.Clear();
+        _accessQueue.Clear();
+        _executeQueue.Clear();
+        Array.Clear(_lastWriter);
+        Array.Clear(_addressTaint);
+
+        State.Pc = mechanism.TrapController.RaiseTrap(trap.Trap, State);
+        _fetchPc = State.Pc;
+    }
+
     // Executes a staged control-flow/system/multi-cycle-class instruction directly against the
     // live architectural state. Only called once both lanes have fully drained, so PC
     // redirection is always precise.
@@ -425,6 +571,10 @@ internal sealed class DaeCore(
         ITooth instr = _pendingBarrier!;
         ulong pc = _pendingBarrierPc;
         _pendingBarrier = null;
+
+        // Both lanes are fully drained here, so everything retired so far is permanent — no
+        // future trap can ever be older than this point. Bounds undo-log growth.
+        _undoLog.Clear();
 
         dLayers.Accessor.SetRequestPc(pc);
         ExecuteResult result = mechanism.Executor.Execute(instr, State, dLayers.Accessor);

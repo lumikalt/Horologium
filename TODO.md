@@ -15,20 +15,6 @@ off here until a periodic cleanup removes them; the durable record is git histor
   which clobbers harcom predictors' per-block register state as above. Needs either per-predictor block-state
   snapshot/restore (not generic — differs per submission) or another reconciliation strategy.
 
-## Out-of-Order Execution
-
-- [x] Checkpoint processing and recovery (CPR) + continual flow pipelines (CFP): ROB-free large-window paradigm with
-  checkpoint-based recovery and slice-out of miss-dependent instructions. — Akkary et al., MICRO 2003; Srinivasan et
-  al., ASPLOS 2004
-- [x] SMT fetch policies: ICOUNT and round-robin variants for per-hart fetch/issue arbitration in the SMT train. —
-  Tullsen et al., ISCA 1996
-- [x] Decoupled access-execute (DAE): the classic access/execute processor split — the architectural ancestor of
-  UVE-style streaming. — Smith, ISCA 1982
-- [ ] DAE precise exceptions: `DaeTrain` currently halts the simulation on a trapping Access/Execute-lane
-  instruction (e.g., a misaligned load) rather than recovering, since the other lane may already be ahead in
-  program order with no rollback path. Needs a checkpoint/rollback scheme (or a narrower one restricted to the
-  trapping lane) before faulting workloads can run to completion under DAE.
-
 ## Performance
 
 - [ ] Memoization of instructions and decodings?
