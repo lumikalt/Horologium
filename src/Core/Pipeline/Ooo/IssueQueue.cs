@@ -131,8 +131,15 @@ public sealed class IssueQueue {
     ///     on any entry whose last pending source this broadcast resolves — see
     ///     <see cref="RsEntry.PendingSourceCount" />, consumed for critical-path prediction (Fields,
     ///     Rubin &amp; Bodík, ISCA 2001) at Issue.
+    ///     <para>
+    ///         Returns the number of source operands that captured the value — each capture is a
+    ///         "register read" in CPR's aggressive-reclamation accounting (MICRO 2003 §4.3), so
+    ///         <c>CprTrain</c> decrements the register's use counter by this amount. Other trains
+    ///         ignore the return value.
+    ///     </para>
     /// </summary>
-    public void Broadcast(int physReg, ulong value, ulong producerInstrId) {
+    public int Broadcast(int physReg, ulong value, ulong producerInstrId) {
+        var captured = 0;
         foreach (RsEntry e in _slots) {
             if (!e.Busy) continue;
             var resolvedCount = 0;
@@ -155,9 +162,12 @@ public sealed class IssueQueue {
             }
 
             if (resolvedCount == 0) continue;
+            captured += resolvedCount;
             e.PendingSourceCount -= resolvedCount;
             if (e.PendingSourceCount <= 0) e.LastArrivingProducerInstrId = producerInstrId;
         }
+
+        return captured;
     }
 
     /// <summary>

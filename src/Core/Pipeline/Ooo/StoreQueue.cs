@@ -39,6 +39,14 @@ public sealed class SqEntry {
     /// </summary>
     public int StaticBytes { get; set; }
 
+    /// <summary>
+    ///     CFP NAV bit (Srinivasan et al., ASPLOS 2004 §4.2.1): set when the store drained into
+    ///     the Slice Data Buffer with its address/data miss-dependent. Loads the memory dependence
+    ///     predictor matches to a NAV store join the slice instead of stalling on the unknown
+    ///     address. Unused by <see cref="StoreQueue" />-based trains.
+    /// </summary>
+    public bool IsNav { get; set; }
+
     internal void Clear() {
         Valid = false;
         RobIdx = -1;
@@ -50,6 +58,7 @@ public sealed class SqEntry {
         Width = 0;
         Pc = 0;
         StaticBytes = 0;
+        IsNav = false;
     }
 }
 

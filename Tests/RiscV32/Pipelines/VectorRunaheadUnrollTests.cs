@@ -118,9 +118,9 @@ public class VectorRunaheadUnrollTests {
 
         Assert.True(
             Counter(uncappedResult, "runahead_vector_lane_accesses")
-            > Counter(cappedResult, "runahead_vector_lane_accesses"),
+          > Counter(cappedResult, "runahead_vector_lane_accesses"),
             $"expected cap=8 ({Counter(uncappedResult, "runahead_vector_lane_accesses")}) to out-work "
-            + $"cap=1 ({Counter(cappedResult, "runahead_vector_lane_accesses")})"
+          + $"cap=1 ({Counter(cappedResult, "runahead_vector_lane_accesses")})"
         );
     }
 
@@ -137,20 +137,22 @@ public class VectorRunaheadUnrollTests {
     [Fact]
     public void RoundCap_StaysBoundedAcrossRepeatedOriginRevisits() {
         uint[] program = StridedChainProgram();
-        (OooeTrain on, FlatMemory memOn) = Make(true, true, 8, 2, runaheadBudget: 400);
+        (OooeTrain on, FlatMemory memOn) = Make(true, true, 8, 2);
         Load(memOn, program);
 
         RevolutionResult onResult = on.Run();
 
         long chains = Counter(onResult, "runahead_vector_chains");
         Assert.True(chains > 0, "expected at least one vectorized round");
-        Assert.True(chains <= 4, $"expected the 2-round cap (x2 possible origins) to bound total chain events, got {chains}");
+        Assert.True(
+            chains <= 4, $"expected the 2-round cap (x2 possible origins) to bound total chain events, got {chains}"
+        );
     }
 
     /// <summary>
     ///     Immediate free-on-rename reclamation (<c>FreeShadowRename</c>) is what lets deep
     ///     unrolling proceed without exhausting the RAT free list: the loop body touches ~5
-    ///     architectural registers, so an un-reclaimed episode issuing many rounds would need a
+    ///     architectural registers, so an unreclaimed episode issuing many rounds would need a
     ///     fresh physical register per round per touched register (tens of registers for just a
     ///     few rounds), while reclamation keeps the concurrent working set roughly constant — only
     ///     the handful of registers live at any one instant, not one per round ever issued. A small
@@ -176,8 +178,8 @@ public class VectorRunaheadUnrollTests {
         Assert.True(
             Counter(onResult, "runahead_vector_chains") >= 4,
             $"expected multiple rounds under a tiny extraPhysRegs budget, got "
-            + $"{Counter(onResult, "runahead_vector_chains")} — register reclamation should prevent "
-            + "phys-reg exhaustion from cutting the episode short after just one round"
+          + $"{Counter(onResult, "runahead_vector_chains")} — register reclamation should prevent "
+          + "phys-reg exhaustion from cutting the episode short after just one round"
         );
     }
 }

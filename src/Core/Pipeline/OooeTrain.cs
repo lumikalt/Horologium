@@ -185,20 +185,6 @@ internal sealed class OoOPipelineCore : Gear {
         ToothClass.Branch, ToothClass.ConditionalBranch,
     ];
 
-    /// <summary>
-    ///     PC-indexed, direct-mapped, untagged stride table for Vector Runahead (Naithani et al.,
-    ///     ISCA 2021) — mirrors <see cref="StridePrefetcher" />'s RPT plus a learned chain-terminator
-    ///     PC. Trained only from the real (non-shadow) demand-load stream; consulted by the shadow
-    ///     lane to decide whether a load's PC is confirmed-striding and safe to vectorize.
-    /// </summary>
-    private struct VrStrideEntry {
-        public ulong LastAddr;
-        public long Stride;
-        public int Confidence;   // 0-3 saturating; vectorization requires ==3
-        public ulong Terminator; // PC where the chain historically stops; 0 = not yet learned
-        public bool Initialized;
-    }
-
     private readonly int _activeIqCount; // 1 when flat, IqCount when per-class
     private readonly CapturingMemory _capMem;
     private readonly List<ExecResult> _cdbBuffer = [];
@@ -222,6 +208,24 @@ internal sealed class OoOPipelineCore : Gear {
     // history — only the RAT (snapshotted and restored), the PRF, and the real data-cache
     // accessor (which is what actually delivers the prefetch benefit).
     private readonly bool _enableRunahead;
+
+    // Vector Runahead (Naithani, Ainsworth, Jones & Eeckhout, ISCA 2021): extends the scalar
+    // shadow lane above with (1) a termination-condition change that keeps the episode running
+    // until a detected dependent-load chain fully issues, not just until the real blocking load
+    // resolves, and (2) N-wide lane replication of the shadow body once a load's PC is confirmed
+    // striding by a small RPT-style stride table. No real VRF/vector-rename state is used —
+    // "vectorization" is modeled purely as running the existing scalar shadow body N times with
+    // different per-lane values, tracked by _runaheadVectorLanes (a physical register carries a
+    // vector-lane set iff it's a key in that dictionary). Vector unrolling (repeated N-wide
+    // rounds, bounded by _runaheadUnrollLength) is implemented below; the paper's vector
+    // pipelining (P overlapped in-flight rounds via a VRAT) is deliberately not modeled — see
+    // the README paragraph for why (round issuance is serialized behind the shadow PC's walk
+    // through the loop body, not because reordering would be free). Physical-register pressure
+    // from deep unrolling is instead managed by freeing a shadow-allocated physical register
+    // immediately when its architectural register is re-renamed (see the free-on-rename comment
+    // at the Rename() call sites) — a simplification of the paper's register-deallocation queue
+    // that is exact, not approximate, because the shadow lane issues strictly in program order.
+    private readonly bool _enableVectorRunahead;
     private readonly List<IssuedInstr> _execBuffer = [];
     private readonly IExecutor _executor;
     private readonly FdipPrefetcher? _fdip;
@@ -254,39 +258,28 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly Queue<RenameEntry> _renameQueue = new();
     private readonly ReorderBuffer _rob;
     private readonly int _runaheadBudget;
-    private readonly Dictionary<ulong, (ulong Value, int Bytes)> _runaheadStoreBuffer = [];
-    private readonly HashSet<int> _runaheadTainted = [];
 
-    // Vector Runahead (Naithani, Ainsworth, Jones & Eeckhout, ISCA 2021): extends the scalar
-    // shadow lane above with (1) a termination-condition change that keeps the episode running
-    // until a detected dependent-load chain fully issues, not just until the real blocking load
-    // resolves, and (2) N-wide lane replication of the shadow body once a load's PC is confirmed
-    // striding by a small RPT-style stride table. No real VRF/vector-rename state is used —
-    // "vectorization" is modeled purely as running the existing scalar shadow body N times with
-    // different per-lane values, tracked by _runaheadVectorLanes (a physical register carries a
-    // vector-lane set iff it's a key in that dictionary). Vector unrolling (repeated N-wide
-    // rounds, bounded by _runaheadUnrollLength) is implemented below; the paper's vector
-    // pipelining (P overlapped in-flight rounds via a VRAT) is deliberately not modeled — see
-    // the README paragraph for why (round issuance is serialized behind the shadow PC's walk
-    // through the loop body, not because reordering would be free). Physical-register pressure
-    // from deep unrolling is instead managed by freeing a shadow-allocated physical register
-    // immediately when its architectural register is re-renamed (see the free-on-rename comment
-    // at the Rename() call sites) — a simplification of the paper's register-deallocation queue
-    // that is exact, not approximate, because the shadow lane issues strictly in program order.
-    private readonly bool _enableVectorRunahead;
-    private readonly int _runaheadVectorWidth;
-    private readonly int _runaheadUnrollLength;
-    private readonly VrStrideEntry[] _vrStrideTable;
-    private readonly Dictionary<int, ulong[]> _runaheadVectorLanes = [];
+    // Origin PCs whose unroll-round budget (_runaheadUnrollLength) was fully spent this episode —
+    // see TerminateOrUnroll. Without this, the very next shadow-lane pass through the same origin
+    // (the common case: a tight loop revisiting it) would re-enter the "start new chain" branch in
+    // TryVectorizeTaintedLoad/TryVectorizeShadowStep and silently reset the round counter, so the
+    // cap would never actually stick.
+    private readonly HashSet<ulong> _runaheadCappedOrigins = [];
 
     // Physical registers allocated by THIS shadow episode's own Rename() calls — distinguishes
     // them from pre-episode (real) registers, which must never be freed mid-episode. See
     // FreeShadowRename.
     private readonly HashSet<int> _runaheadOwnedPhys = [];
+    private readonly Dictionary<ulong, (ulong Value, int Bytes)> _runaheadStoreBuffer = [];
+    private readonly HashSet<int> _runaheadTainted = [];
+    private readonly int _runaheadUnrollLength;
+    private readonly Dictionary<int, ulong[]> _runaheadVectorLanes = [];
+    private readonly int _runaheadVectorWidth;
     private readonly SmbPredictor? _smbPredictor;
     private readonly StoreQueue _sq;
     private readonly StoreSetPredictor? _storeSets;
     private readonly ITrapController _trapController;
+    private readonly VrStrideEntry[] _vrStrideTable;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
     // doesn't freeze for them. Each slot holds a countdown (in cycles) until the
@@ -359,16 +352,9 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _retiredCounter = null!;
     private bool _runaheadActive;
     private bool _runaheadChainActive;
-    private int _runaheadChainRound; // 0-based round count within the active chain (vector unrolling)
     private ulong _runaheadChainOrigin;
+    private int _runaheadChainRound; // 0-based round count within the active chain (vector unrolling)
     private ulong _runaheadChainTerminator;
-
-    // Origin PCs whose unroll-round budget (_runaheadUnrollLength) was fully spent this episode —
-    // see TerminateOrUnroll. Without this, the very next shadow-lane pass through the same origin
-    // (the common case: a tight loop revisiting it) would re-enter the "start new chain" branch in
-    // TryVectorizeTaintedLoad/TryVectorizeShadowStep and silently reset the round counter, so the
-    // cap would never actually stick.
-    private readonly HashSet<ulong> _runaheadCappedOrigins = [];
     private Counter? _runaheadEpisodesCounter, _runaheadInstructionsCounter;
     private int _runaheadInstrCount;
     private RenameMapSnapshot _runaheadRatSnapshot;
@@ -2853,6 +2839,20 @@ internal sealed class OoOPipelineCore : Gear {
         missesCounter!.IncrementBy(tlb.Misses - lastMisses);
         lastHits = tlb.Hits;
         lastMisses = tlb.Misses;
+    }
+
+    /// <summary>
+    ///     PC-indexed, direct-mapped, untagged stride table for Vector Runahead (Naithani et al.,
+    ///     ISCA 2021) — mirrors <see cref="StridePrefetcher" />'s RPT plus a learned chain-terminator
+    ///     PC. Trained only from the real (non-shadow) demand-load stream; consulted by the shadow
+    ///     lane to decide whether a load's PC is confirmed-striding and safe to vectorize.
+    /// </summary>
+    private struct VrStrideEntry {
+        public ulong LastAddr;
+        public long Stride;
+        public int Confidence;   // 0-3 saturating; vectorization requires ==3
+        public ulong Terminator; // PC where the chain historically stops; 0 = not yet learned
+        public bool Initialized;
     }
     // ── Nested helper types ────────────────────────────────────────────────────
 

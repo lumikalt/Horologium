@@ -17,18 +17,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Out-of-Order Execution
 
-- [x] Runahead execution: pre-execute past a full-window stall to generate prefetches. — Mutlu et al., HPCA 2003;
-  Naithani et al., HPCA 2020
-- [x] Vector Runahead: vectorize the runahead shadow instruction stream to chase long dependent (pointer-chasing)
-  gather/scatter chains — relevant to UVE workloads. — Naithani, Ainsworth, Jones & Eeckhout, ISCA 2021
-- [x] Vector Runahead unrolling: U unroll rounds from the same chain origin, with immediate free-on-rename register
-  reclamation substituting for the paper's VRAT + register-deallocation queue — deeper MLP exploitation beyond v1's
-  single round. — Naithani, Ainsworth, Jones & Eeckhout, ISCA 2021
-- [x] Critical-path prediction: token-passing criticality predictor to focus scheduling, steering, and value
-  prediction on critical instructions. — Fields, Rubin & Bodík, ISCA 2001
-- [x] NoSQ: store-queue-free store-to-load forwarding via speculative memory bypassing (memory renaming). — Sha,
-  Martin & Roth, MICRO 2006; Tyson & Austin, MICRO 1997
-- [ ] Checkpoint processing and recovery (CPR) + continual flow pipelines (CFP): ROB-free large-window paradigm with
+- [x] Checkpoint processing and recovery (CPR) + continual flow pipelines (CFP): ROB-free large-window paradigm with
   checkpoint-based recovery and slice-out of miss-dependent instructions. — Akkary et al., MICRO 2003; Srinivasan et
   al., ASPLOS 2004
 - [ ] SMT fetch policies: ICOUNT and round-robin variants for per-hart fetch/issue arbitration in the SMT train. —
@@ -53,12 +42,12 @@ free embedded suites are runnable in full today.
 
 ## Face
 
-- [ ] Browser assembly support: pure C# RV32 two-pass assembler so the Assemble command works in FaceWeb without a GAS
+- [ ] Browser assembly support: pure C# RV32 two-pass assembler, so the Assemble command works in FaceWeb without a GAS
   subprocess.
   - Also a C compiler…
 - [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes.
 - [ ] Vector operation visualization.
-  - Gotta think of how this should be done.
+  - I've got to think of how this should be done.
 - [ ] gem5-style architecture configurator: UI surface for the scripting host and pipeline builder — edit `.csx` scripts
   in-app and hot-reload the resulting pipeline, cache hierarchy, branch predictor, and FU configuration without
   restarting. (Phase 5 UI of the architecture builder: AvaloniaEdit code editor, hot-reload on file change via

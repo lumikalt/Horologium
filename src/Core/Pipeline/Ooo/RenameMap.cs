@@ -74,6 +74,20 @@ public sealed class RenameMap {
     }
 
     /// <summary>
+    ///     Allocates a physical register without touching the RAT — CFP back-end renaming
+    ///     (Srinivasan et al., ASPLOS 2004 §4.1.3): the slice remapper maps physical names to
+    ///     physical names, so re-inserted slice instructions acquire fresh destination registers
+    ///     that no architectural register ever points at. Call only when <see cref="HasFree" />.
+    /// </summary>
+    public int AllocatePhysical() {
+        if (!HasFree)
+            throw new InvalidOperationException(
+                "No physical registers available. Check HasFree before calling AllocatePhysical."
+            );
+        return _freeList.Dequeue();
+    }
+
+    /// <summary>
     ///     Returns a physical register to the free list.
     ///     Called at commit once the instruction that previously occupied
     ///     the slot for this architectural register has committed.
@@ -102,6 +116,27 @@ public sealed class RenameMap {
 
     /// <summary>Captures the current RAT mapping and free list so they can be perfectly restored later.</summary>
     public RenameMapSnapshot Snapshot() => new() { Rat = (int[])_rat.Clone(), FreeList = _freeList.ToArray(), };
+
+    /// <summary>
+    ///     Captures only the RAT array — a CPR map-table checkpoint (Akkary, Rajwar &amp;
+    ///     Srinivasan, MICRO 2003 §4.1). Deliberately excludes the free list: under CPR's
+    ///     aggressive reclamation the free list at recovery time is <em>not</em> the free list at
+    ///     checkpoint-creation time (registers were reclaimed and re-allocated in between);
+    ///     recovery restores the mapping via <see cref="RestoreRat" /> and rebuilds register
+    ///     availability from use counters instead.
+    /// </summary>
+    public int[] SnapshotRat() => (int[])_rat.Clone();
+
+    /// <summary>Restores the RAT array from a <see cref="SnapshotRat" /> capture, leaving the free list untouched.</summary>
+    public void RestoreRat(int[] rat) => Array.Copy(rat, _rat, _rat.Length);
+
+    /// <summary>True if any architectural register currently maps to <paramref name="phys" />.</summary>
+    public bool IsMapped(int phys) {
+        foreach (int p in _rat)
+            if (p == phys)
+                return true;
+        return false;
+    }
 
     /// <summary>
     ///     Overwrites the RAT and free list from a prior <see cref="Snapshot" />, discarding every
