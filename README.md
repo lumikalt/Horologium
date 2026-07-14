@@ -192,7 +192,17 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   conflict permanently merges every future dynamic instance of that load/store PC pair — costly for recursive/generic
   functions that reuse one PC pair across many independent addresses. Both tables are cleared every 4096 load
   dispatches (`clearPeriod`) to bound that cost; the value was chosen by sweeping the full gem5-compare benchmark
-  suite (see `docs/gem5-comparison.md`). Control-flow speculation follows gem5: direct unconditional jumps (`jal`/`j`,
+  suite (see `docs/gem5-comparison.md`). A **critical-path predictor** (`TokenPassingCriticalityPredictor`,
+  enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
+  instructions when several ready instructions compete for the same functional-unit/port slot. Each
+  instruction is modeled as a 3-node dependence graph (dispatch/execute/commit); the pipeline resolves,
+  at commit, which of seven edge types (ROB-stall, branch-redirect, last-arriving-operand producer, etc.)
+  fed each node, and a token-passing predictor plants a token at a seed instruction's execute node,
+  propagates it forward along those edges, and trains a 16K-entry PC-indexed hysteresis table on whether
+  the token survives `500 + robCapacity` commits (Fields, Rubin &amp; Bodík, "Focusing Processor Policies
+  via Critical-Path Prediction", ISCA 2001). Purely a scheduling-priority hint — disabled by default and,
+  when enabled, never changes committed architectural results, only issue order among already-ready
+  instructions. Control-flow speculation follows gem5: direct unconditional jumps (`jal`/`j`,
   flagged by `FetchHint.IsUnconditional`) are resolved straight to their statically known target at fetch instead of
   being routed through the direction predictor; every direct branch (conditional included) takes its taken-target from
   the decode hint (`FetchHint.BranchTarget`) rather than a possibly-cold predictor BTB, so a stale/aliased BTB entry can

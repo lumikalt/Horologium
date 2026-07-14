@@ -20,7 +20,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] Runahead execution: pre-execute past a full-window stall to generate prefetches; Precise Runahead and Vector
   Runahead follow-ons (the latter targets memory-dependent vector/gather chains — relevant to UVE workloads). —
   Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021
-- [ ] Critical-path prediction: token-passing criticality predictor to focus scheduling, steering, and value
+- [x] Critical-path prediction: token-passing criticality predictor to focus scheduling, steering, and value
   prediction on critical instructions. — Fields, Rubin & Bodík, ISCA 2001
 - [ ] NoSQ: store-queue-free store-to-load forwarding via speculative memory bypassing (memory renaming). — Sha,
   Martin & Roth, MICRO 2006; Tyson & Austin, MICRO 1997

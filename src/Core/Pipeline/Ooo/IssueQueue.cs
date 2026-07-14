@@ -49,6 +49,18 @@ public sealed class RsEntry {
         (Src2Tag < 0 || Src2Ready) &&
         (Src3Tag < 0 || Src3Ready);
 
+    // ── Critical-path prediction (Fields, Rubin & Bodík, ISCA 2001) ─────────────────────────
+
+    /// <summary>
+    ///     Number of source tags still not-ready at Dispatch (0 if all sources were ready by
+    ///     dispatch time — see <see cref="ReorderBuffer.RobEntry.ESourceIsOwnD" />). Decremented
+    ///     by <see cref="IssueQueue.Broadcast" /> as each pending source resolves.
+    /// </summary>
+    public int PendingSourceCount { get; set; }
+
+    /// <summary>InstrId of the producer whose broadcast resolved this entry's last pending source.</summary>
+    public ulong LastArrivingProducerInstrId { get; set; }
+
     internal void Clear() {
         Busy = false;
         RobIndex = 0;
@@ -60,6 +72,8 @@ public sealed class RsEntry {
         Src1Ready = Src2Ready = Src3Ready = false;
         Src1Value = Src2Value = Src3Value = 0;
         PhysDestination = -1;
+        PendingSourceCount = 0;
+        LastArrivingProducerInstrId = 0;
     }
 }
 
@@ -113,24 +127,36 @@ public sealed class IssueQueue {
     /// <summary>
     ///     CDB broadcast: wakes every entry that is waiting for <paramref name="physReg" />.
     ///     For each such entry, the corresponding source is marked ready and its value captured.
+    ///     <paramref name="producerInstrId" /> is staged as <see cref="RsEntry.LastArrivingProducerInstrId" />
+    ///     on any entry whose last pending source this broadcast resolves — see
+    ///     <see cref="RsEntry.PendingSourceCount" />, consumed for critical-path prediction (Fields,
+    ///     Rubin &amp; Bodík, ISCA 2001) at Issue.
     /// </summary>
-    public void Broadcast(int physReg, ulong value) {
+    public void Broadcast(int physReg, ulong value, ulong producerInstrId) {
         foreach (RsEntry e in _slots) {
             if (!e.Busy) continue;
+            var resolvedCount = 0;
             if (e.Src1Tag == physReg && !e.Src1Ready) {
                 e.Src1Value = value;
                 e.Src1Ready = true;
+                resolvedCount++;
             }
 
             if (e.Src2Tag == physReg && !e.Src2Ready) {
                 e.Src2Value = value;
                 e.Src2Ready = true;
+                resolvedCount++;
             }
 
             if (e.Src3Tag == physReg && !e.Src3Ready) {
                 e.Src3Value = value;
                 e.Src3Ready = true;
+                resolvedCount++;
             }
+
+            if (resolvedCount == 0) continue;
+            e.PendingSourceCount -= resolvedCount;
+            if (e.PendingSourceCount <= 0) e.LastArrivingProducerInstrId = producerInstrId;
         }
     }
 

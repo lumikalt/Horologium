@@ -39,7 +39,8 @@ public sealed class OooeTrain : ISteppableTrain {
         bool flatIq = false,
         int fdipFtqCapacity = 0,
         bool rdip = false,
-        bool enableStoreSets = false
+        bool enableStoreSets = false,
+        bool enableCriticalityPrediction = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -63,7 +64,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 memory,
                 fdipFtqCapacity,
                 rdip,
-                enableStoreSets
+                enableStoreSets,
+                enableCriticalityPrediction
             )
         );
         _train.Build();
@@ -202,6 +204,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly ReorderBuffer _rob;
     private readonly StoreQueue _sq;
     private readonly StoreSetPredictor? _storeSets;
+    private readonly ICriticalityPredictor? _criticalityPredictor;
     private readonly ITrapController _trapController;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
@@ -282,6 +285,15 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter? _wbAbsorbedStallsCounter;
     private int _wbOccupied; // number of slots currently counting down
 
+    // Critical-path prediction (Fields, Rubin & Bodík, ISCA 2001): D-source bookkeeping.
+    // _dispatchStalledPrevCycle mirrors the condition already used for _stallsCounter (CD edge).
+    // _pendingRedirectInstrId is latched by a branch misprediction (execute-time partial squash
+    // or commit-time flush) and consumed by the very next dispatched instruction (ED edge) —
+    // only branch mispredictions set it; traps/halts are not modeled by the paper's ED rule.
+    private bool _dispatchStalledPrevCycle;
+    private bool _pendingRedirect;
+    private ulong _pendingRedirectInstrId;
+
     public OoOPipelineCore(
         string name,
         SimNode parent,
@@ -307,7 +319,8 @@ internal sealed class OoOPipelineCore : Gear {
         IMemory? fdipBackingMemory = null,
         int fdipFtqCapacity = 0,
         bool rdipEnabled = false,
-        bool enableStoreSets = false
+        bool enableStoreSets = false,
+        bool enableCriticalityPrediction = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -338,6 +351,9 @@ internal sealed class OoOPipelineCore : Gear {
             ? new RdipPrefetcher(iLayers.Cache, _decoder)
             : null;
         _storeSets = enableStoreSets ? new StoreSetPredictor() : null;
+        _criticalityPredictor = enableCriticalityPrediction
+            ? new TokenPassingCriticalityPredictor(robCapacity)
+            : null;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -561,6 +577,7 @@ internal sealed class OoOPipelineCore : Gear {
         foreach (ExecResult r in _cdbBuffer) {
             RobEntry rob = _rob.At(r.RobIdx);
             rob.IsComplete = true;
+            rob.CompletedTick = (ulong)Escapement.CurrentTick;
             rob.ResolvedNextPc = r.ResolvedNextPc;
             rob.HasTrap = r.Trap is not null;
             rob.Trap = r.Trap;
@@ -597,7 +614,7 @@ internal sealed class OoOPipelineCore : Gear {
 
             if (!r.RegValue.HasValue || r.PhysDest < 0) continue;
             _prf.Write(r.PhysDest, r.RegValue.Value);
-            foreach (IssueQueue iq in _iqs) iq.Broadcast(r.PhysDest, r.RegValue.Value);
+            foreach (IssueQueue iq in _iqs) iq.Broadcast(r.PhysDest, r.RegValue.Value, r.InstrId);
         }
 
         _cdbBuffer.Clear();
@@ -628,6 +645,7 @@ internal sealed class OoOPipelineCore : Gear {
             switch (head) {
                 case { IsHalt: true, }: {
                     CommitRegisters(head);
+                    TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     RetireMemQueues(head);
                     _rob.Retire();
@@ -652,6 +670,7 @@ internal sealed class OoOPipelineCore : Gear {
                         _pendingRollbackAbandonedPhys = head.PhysDestination;
                     }
 
+                    TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     RetireMemQueues(head);
                     _rob.Retire();
@@ -663,6 +682,7 @@ internal sealed class OoOPipelineCore : Gear {
                 case { IsReturnFromTrap: true, ReturnPrivilege: not null, }: {
                     ulong target = _trapController.ReturnFromTrap(head.ReturnPrivilege.Value, State);
                     CommitRegisters(head);
+                    TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     RetireMemQueues(head);
                     _rob.Retire();
@@ -721,6 +741,7 @@ internal sealed class OoOPipelineCore : Gear {
             // it, and halt.
             if (head.RequestHalt) {
                 State.Pc = head.PredictedNextPc;
+                TrainCriticality(head);
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                 RetireMemQueues(head);
                 _rob.Retire();
@@ -738,6 +759,7 @@ internal sealed class OoOPipelineCore : Gear {
             if (head.Instruction?.Class == ToothClass.Branch
              && head.ResolvedNextPc is { HasValue: true, Value: var selfPc, } && selfPc == head.Pc) {
                 State.Pc = selfPc;
+                TrainCriticality(head);
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                 RetireMemQueues(head);
                 _rob.Retire();
@@ -762,6 +784,14 @@ internal sealed class OoOPipelineCore : Gear {
                 if (resolvedPc != predictedPc) {
                     _branchMissCounter.Increment();
                     State.Pc = resolvedPc;
+                    // Critical-path prediction ED edge (Table 2): the very next dispatched
+                    // instruction's D-source is this mispredicting branch's E-node.
+                    if (_criticalityPredictor is not null) {
+                        _pendingRedirect = true;
+                        _pendingRedirectInstrId = head.InstrId;
+                    }
+
+                    TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     RetireMemQueues(head);
                     _rob.Retire();
@@ -773,6 +803,7 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             State.Pc = head.PredictedNextPc;
+            TrainCriticality(head);
             PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
             RetireMemQueues(head);
             _rob.Retire();
@@ -786,6 +817,54 @@ internal sealed class OoOPipelineCore : Gear {
             TrapInfo? interrupt = _trapController.PeekInterrupt(State);
             if (interrupt is not null) SetFlush(_trapController.RaiseTrap(interrupt, State));
         }
+    }
+
+    /// <summary>
+    ///     Resolves <paramref name="head" />'s three dependence-graph source edges (Table 2 of
+    ///     Fields, Rubin &amp; Bodík, ISCA 2001) from state accumulated at Dispatch/Issue/Execute,
+    ///     and trains the critical-path predictor. Called for every instruction that reaches a
+    ///     genuine commit (i.e., immediately before each <c>_rob.Retire()</c> in StepCommit) —
+    ///     not for the load-violation path, which re-executes rather than commits.
+    /// </summary>
+    private void TrainCriticality(RobEntry head) {
+        if (_criticalityPredictor is null) return;
+
+        ulong w = (ulong)_rob.Capacity;
+
+        CpNode dNode;
+        ulong dSource;
+        if (head.DGatedByRedirect) {
+            dNode = CpNode.E;
+            dSource = head.DRedirectSourceInstrId;
+        }
+        else if (head.DGatedByStall) {
+            dNode = CpNode.C;
+            dSource = head.InstrId >= w ? head.InstrId - w : 0;
+        }
+        else {
+            dNode = CpNode.D;
+            dSource = head.InstrId - 1;
+        }
+
+        CpNode eNode = head.ESourceIsOwnD ? CpNode.D : CpNode.E;
+        ulong eSource = head.ESourceIsOwnD ? head.InstrId : head.ESourceProducerInstrId;
+
+        bool cSourceIsOwnE = head.CompletedTick == (ulong)Escapement.CurrentTick;
+        CpNode cNode = cSourceIsOwnE ? CpNode.E : CpNode.C;
+        ulong cSource = cSourceIsOwnE ? head.InstrId : head.InstrId - 1;
+
+        _criticalityPredictor.OnCommit(
+            new CriticalityCommitInfo {
+                InstrId = head.InstrId,
+                Pc = head.Pc,
+                DSourceNode = dNode,
+                DSourceInstrId = dSource,
+                ESourceNode = eNode,
+                ESourceInstrId = eSource,
+                CSourceNode = cNode,
+                CSourceInstrId = cSource,
+            }
+        );
     }
 
     /// <summary>Execute instructions issued last tick, filling the CDB buffer.</summary>
@@ -896,126 +975,165 @@ internal sealed class OoOPipelineCore : Gear {
         // class can be issued in a single cycle.
         Span<int> classIssued = stackalloc int[16]; // one slot per ToothClass value; sized for current + future growth
         var issued = 0;
+
+        // Critical-path prediction (Fields, Rubin & Bodík, ISCA 2001): a first pass gives
+        // predicted-critical instructions priority for scarce FU/port slots. All existing
+        // gating logic (below, in TryIssueSlot) is untouched and shared by both passes —
+        // gating state (ROB head, MSHR count, SQ addresses) never changes mid-StepIssue, so
+        // an entry that fails pass 1 would fail identically if retried in pass 2, and is
+        // skipped there rather than re-evaluated. When disabled, only the second pass runs,
+        // which is exactly the original single-pass behavior.
+        if (_criticalityPredictor is { } cp) {
+            for (var iqIdx = 0; iqIdx < _activeIqCount && issued < _issueWidth; iqIdx++) {
+                IssueQueue iq = _iqs[iqIdx];
+                for (var slot = 0; slot < iq.Capacity && issued < _issueWidth; slot++) {
+                    RsEntry rs = iq.At(slot);
+                    if (!rs.Busy || !rs.IsReady || !cp.PredictCritical(rs.Pc)) continue;
+                    if (TryIssueSlot(iq, slot, classIssued)) issued++;
+                }
+            }
+        }
+
         for (var iqIdx = 0; iqIdx < _activeIqCount && issued < _issueWidth; iqIdx++) {
             IssueQueue iq = _iqs[iqIdx];
             for (var slot = 0; slot < iq.Capacity && issued < _issueWidth; slot++) {
                 RsEntry rs = iq.At(slot);
                 if (!rs.Busy || !rs.IsReady) continue;
-
-                ToothClass cls = rs.Instruction?.Class ?? ToothClass.IntegerAlu;
-                int fuSlot = FuLatencyConfig.BudgetSlot(cls);
-                if (classIssued[fuSlot] >= _fuConfig.CountFor(cls)) continue;
-
-                switch (cls) {
-                    // Loads issue speculatively; only block on preceding vector stores (which
-                    // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
-                    // Scalar store-to-load ordering is maintained through forwarding and, when
-                    // necessary, memory-order violation detection and squash at the ROB head.
-                    case ToothClass.Load when HasPrecedingVectorStore(rs.RobIndex):
-                    // TSO fence: a load may not issue while an older store→load fence is
-                    // still in the ROB — the fence itself only issues (and then retires)
-                    // once the write buffer has drained, so this gate delays post-fence
-                    // loads until every pre-fence store's write-bus penalty has expired.
-                    case ToothClass.Load when HasPrecedingStoreLoadFence(rs.RobIndex):
-                        continue;
-                    // Conservative load ordering (FuLatencyConfig.ConservativeLoads): a load
-                    // may not issue while any older SQ entry still has an unresolved address.
-                    // Models Olympia's allow_speculative_load_exec = false.
-                    case ToothClass.Load when _fuConfig.ConservativeLoads: {
-                        int lqIdx = _rob.At(rs.RobIndex).LqIdx;
-                        if (lqIdx >= 0 && HasUnresolvedPrecedingStore(_lq.At(lqIdx).SeqNo)) continue;
-                        break;
-                    }
-                    case ToothClass.Load when _storeSets is not null: {
-                        int lqIdx = _rob.At(rs.RobIndex).LqIdx;
-                        if (lqIdx >= 0) {
-                            LqEntry lq = _lq.At(lqIdx);
-                            if (StoreSetStallLoad(lq.SeqNo, lq.PredStoreSeqNo)) continue;
-                        }
-
-                        break;
-                    }
-                }
-
-                switch (cls) {
-                    // MSHR capacity: if all miss-tracking slots are occupied (by demand loads
-                    // or in-flight prefetches), this load/atomic cannot start yet — it stays
-                    // in the IQ and retries next cycle.
-                    case ToothClass.Load or ToothClass.Atomic
-                        when _mshrCapacity > 0 && _mshrUsed + InFlightPrefetches >= _mshrCapacity:
-                        _mshrStallsCounter?.Increment();
-                        continue;
-                    // CSR serialization: a System instruction may only issue when it is
-                    // at the ROB head (all older instructions have committed). This prevents
-                    // out-of-order CSR reads from seeing stale state written by earlier CSR ops.
-                    case ToothClass.System when rs.RobIndex != _rob.HeadIndex:
-                    // Vector serialization: vector register renaming is not implemented.
-                    // Head-gating ensures VRF writes are applied in program order.
-                    case ToothClass.Vector when rs.RobIndex != _rob.HeadIndex:
-                    // Secondary-destination serialization (e.g., RV32 amocas.d's register
-                    // pair): the high half is delivered through SideEffect straight into
-                    // architectural state, not through the PRF, so it is never renamed.
-                    // Head-gating guarantees State.IntegerRegisters already reflects every
-                    // older instruction's commit by the time this one executes, which is
-                    // the only thing that makes its direct regs.Read() of the pair correct.
-                    case ToothClass.Atomic when rs.Instruction?.SecondaryDestinationRegister >= 0
-                                             && rs.RobIndex != _rob.HeadIndex:
-                    // SC.W serialization: the reservation check (TryConsume) must see a
-                    // coherent view of the ReservationTable — all older intra-hart stores
-                    // must have committed (so their MoesifCache writes, which cancel cross-hart
-                    // reservations via BusReadInvalidate, have already fired).  Head-gating
-                    // guarantees this without needing a commit-time re-check.
-                    case ToothClass.Atomic when rs.Instruction?.IsStoreConditional == true
-                                             && rs.RobIndex != _rob.HeadIndex:
-                    // TSO fence serialization: a store→load fence issues only at the ROB
-                    // head (all older stores committed) and once the write buffer has fully
-                    // drained, so every pre-fence store's write-bus penalty has expired
-                    // before the fence completes and post-fence loads unblock. Fences
-                    // without W→R ordering are timing no-ops and issue unrestricted.
-                    case ToothClass.Fence when rs.Instruction?.IsStoreLoadFence == true
-                                            && (rs.RobIndex != _rob.HeadIndex || _wbOccupied > 0):
-                        continue;
-                    // UVE serialization: stream state is not renamed; head-gating preserves order.
-                    // Additionally stall until every load-stream source has a buffered element.
-                    case ToothClass.Uve: {
-                        if (rs.RobIndex != _rob.HeadIndex) continue;
-                        var streamStall = false;
-                        if (rs.Instruction is not null)
-                            foreach (int uid in rs.Instruction.UveStreamSources)
-                                if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
-                                    streamStall = true;
-                                    break;
-                                }
-
-                        if (streamStall) continue;
-                        break;
-                    }
-                }
-
-                ulong issuedInstrId = _rob.At(rs.RobIndex).InstrId;
-                _execBuffer.Add(
-                    new IssuedInstr(
-                        rs.RobIndex, rs.PhysDestination, rs.Instruction!, rs.Pc,
-                        rs.Src1Value, rs.Src2Value, rs.Src3Value, issuedInstrId
-                    )
-                );
-                PEventLog?.Record(issuedInstrId, rs.Pc, _cyclesCounter.Value, PEventKind.Issue);
-                if (PEventLog is not null && rs.Instruction is { } issuedInstr) {
-                    IReadOnlyList<int> srcRegs = issuedInstr.SourceRegisters;
-                    if (srcRegs.Count > 0) {
-                        var srcVals = new ulong[srcRegs.Count];
-                        if (srcRegs.Count > 0) srcVals[0] = rs.Src1Value;
-                        if (srcRegs.Count > 1) srcVals[1] = rs.Src2Value;
-                        if (srcRegs.Count > 2) srcVals[2] = rs.Src3Value;
-                        PEventLog.RecordSourceValues(issuedInstrId, srcRegs, srcVals);
-                    }
-                }
-
-                iq.Free(slot);
-                classIssued[fuSlot]++;
-                issued++;
+                if (_criticalityPredictor?.PredictCritical(rs.Pc) == true) continue; // tried in pass 1
+                if (TryIssueSlot(iq, slot, classIssued)) issued++;
             }
         }
+    }
+
+    /// <summary>
+    ///     Attempts to issue the instruction in <paramref name="iq" />'s <paramref name="slot" />,
+    ///     applying every functional-unit/ordering gate. Returns false (leaving the entry busy,
+    ///     to be retried next cycle) without side effects if any gate blocks it.
+    /// </summary>
+    private bool TryIssueSlot(IssueQueue iq, int slot, Span<int> classIssued) {
+        RsEntry rs = iq.At(slot);
+
+        ToothClass cls = rs.Instruction?.Class ?? ToothClass.IntegerAlu;
+        int fuSlot = FuLatencyConfig.BudgetSlot(cls);
+        if (classIssued[fuSlot] >= _fuConfig.CountFor(cls)) return false;
+
+        switch (cls) {
+            // Loads issue speculatively; only block on preceding vector stores (which
+            // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
+            // Scalar store-to-load ordering is maintained through forwarding and, when
+            // necessary, memory-order violation detection and squash at the ROB head.
+            case ToothClass.Load when HasPrecedingVectorStore(rs.RobIndex):
+            // TSO fence: a load may not issue while an older store→load fence is
+            // still in the ROB — the fence itself only issues (and then retires)
+            // once the write buffer has drained, so this gate delays post-fence
+            // loads until every pre-fence store's write-bus penalty has expired.
+            case ToothClass.Load when HasPrecedingStoreLoadFence(rs.RobIndex):
+                return false;
+            // Conservative load ordering (FuLatencyConfig.ConservativeLoads): a load
+            // may not issue while any older SQ entry still has an unresolved address.
+            // Models Olympia's allow_speculative_load_exec = false.
+            case ToothClass.Load when _fuConfig.ConservativeLoads: {
+                int lqIdx = _rob.At(rs.RobIndex).LqIdx;
+                if (lqIdx >= 0 && HasUnresolvedPrecedingStore(_lq.At(lqIdx).SeqNo)) return false;
+                break;
+            }
+            case ToothClass.Load when _storeSets is not null: {
+                int lqIdx = _rob.At(rs.RobIndex).LqIdx;
+                if (lqIdx >= 0) {
+                    LqEntry lq = _lq.At(lqIdx);
+                    if (StoreSetStallLoad(lq.SeqNo, lq.PredStoreSeqNo)) return false;
+                }
+
+                break;
+            }
+        }
+
+        switch (cls) {
+            // MSHR capacity: if all miss-tracking slots are occupied (by demand loads
+            // or in-flight prefetches), this load/atomic cannot start yet — it stays
+            // in the IQ and retries next cycle.
+            case ToothClass.Load or ToothClass.Atomic
+                when _mshrCapacity > 0 && _mshrUsed + InFlightPrefetches >= _mshrCapacity:
+                _mshrStallsCounter?.Increment();
+                return false;
+            // CSR serialization: a System instruction may only issue when it is
+            // at the ROB head (all older instructions have committed). This prevents
+            // out-of-order CSR reads from seeing stale state written by earlier CSR ops.
+            case ToothClass.System when rs.RobIndex != _rob.HeadIndex:
+            // Vector serialization: vector register renaming is not implemented.
+            // Head-gating ensures VRF writes are applied in program order.
+            case ToothClass.Vector when rs.RobIndex != _rob.HeadIndex:
+            // Secondary-destination serialization (e.g., RV32 amocas.d's register
+            // pair): the high half is delivered through SideEffect straight into
+            // architectural state, not through the PRF, so it is never renamed.
+            // Head-gating guarantees State.IntegerRegisters already reflects every
+            // older instruction's commit by the time this one executes, which is
+            // the only thing that makes its direct regs.Read() of the pair correct.
+            case ToothClass.Atomic when rs.Instruction?.SecondaryDestinationRegister >= 0
+                                     && rs.RobIndex != _rob.HeadIndex:
+            // SC.W serialization: the reservation check (TryConsume) must see a
+            // coherent view of the ReservationTable — all older intra-hart stores
+            // must have committed (so their MoesifCache writes, which cancel cross-hart
+            // reservations via BusReadInvalidate, have already fired).  Head-gating
+            // guarantees this without needing a commit-time re-check.
+            case ToothClass.Atomic when rs.Instruction?.IsStoreConditional == true
+                                     && rs.RobIndex != _rob.HeadIndex:
+            // TSO fence serialization: a store→load fence issues only at the ROB
+            // head (all older stores committed) and once the write buffer has fully
+            // drained, so every pre-fence store's write-bus penalty has expired
+            // before the fence completes and post-fence loads unblock. Fences
+            // without W→R ordering are timing no-ops and issue unrestricted.
+            case ToothClass.Fence when rs.Instruction?.IsStoreLoadFence == true
+                                    && (rs.RobIndex != _rob.HeadIndex || _wbOccupied > 0):
+                return false;
+            // UVE serialization: stream state is not renamed; head-gating preserves order.
+            // Additionally stall until every load-stream source has a buffered element.
+            case ToothClass.Uve: {
+                if (rs.RobIndex != _rob.HeadIndex) return false;
+                var streamStall = false;
+                if (rs.Instruction is not null)
+                    foreach (int uid in rs.Instruction.UveStreamSources)
+                        if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
+                            streamStall = true;
+                            break;
+                        }
+
+                if (streamStall) return false;
+                break;
+            }
+        }
+
+        // Critical-path prediction EE edge (Table 2): now that this instruction has actually
+        // issued, stage the last-arriving producer captured by IssueQueue.Broadcast — a no-op
+        // ("own D") entry never had PendingSourceCount > 0, so LastArrivingProducerInstrId was
+        // never written for it.
+        if (_criticalityPredictor is not null) {
+            RobEntry rob = _rob.At(rs.RobIndex);
+            if (!rob.ESourceIsOwnD) rob.ESourceProducerInstrId = rs.LastArrivingProducerInstrId;
+        }
+
+        ulong issuedInstrId = _rob.At(rs.RobIndex).InstrId;
+        _execBuffer.Add(
+            new IssuedInstr(
+                rs.RobIndex, rs.PhysDestination, rs.Instruction!, rs.Pc,
+                rs.Src1Value, rs.Src2Value, rs.Src3Value, issuedInstrId
+            )
+        );
+        PEventLog?.Record(issuedInstrId, rs.Pc, _cyclesCounter.Value, PEventKind.Issue);
+        if (PEventLog is not null && rs.Instruction is { } issuedInstr) {
+            IReadOnlyList<int> srcRegs = issuedInstr.SourceRegisters;
+            if (srcRegs.Count > 0) {
+                var srcVals = new ulong[srcRegs.Count];
+                if (srcRegs.Count > 0) srcVals[0] = rs.Src1Value;
+                if (srcRegs.Count > 1) srcVals[1] = rs.Src2Value;
+                if (srcRegs.Count > 2) srcVals[2] = rs.Src3Value;
+                PEventLog.RecordSourceValues(issuedInstrId, srcRegs, srcVals);
+            }
+        }
+
+        iq.Free(slot);
+        classIssued[fuSlot]++;
+        return true;
     }
 
     /// <summary>
@@ -1236,6 +1354,17 @@ internal sealed class OoOPipelineCore : Gear {
             rob.IsHalt = instr.Class == ToothClass.Halt;
             PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
 
+            // Critical-path prediction D-source (Table 2): ED (post-misprediction redirect)
+            // takes priority, then CD (ROB stalled last cycle), else the DD default (D_{i-1}).
+            if (_criticalityPredictor is not null) {
+                if (_pendingRedirect) {
+                    rob.DGatedByRedirect = true;
+                    rob.DRedirectSourceInstrId = _pendingRedirectInstrId;
+                    _pendingRedirect = false;
+                }
+                else if (_dispatchStalledPrevCycle) { rob.DGatedByStall = true; }
+            }
+
             // ── Allocate LQ/SQ entries ─────────────────────────────────────────
             // Each memory instruction gets a shared SeqNo so that cross-queue
             // program-order comparisons don't need ROB index arithmetic (which wraps).
@@ -1301,11 +1430,22 @@ internal sealed class OoOPipelineCore : Gear {
                 else { rs.Src3Tag = ri.P3; }
             }
 
+            // Critical-path prediction E-source (Table 2, DE/EE): if every source was already
+            // ready at dispatch, E_i's source is D_i itself; otherwise it's the producer of
+            // whichever source resolves last (staged via IssueQueue.Broadcast, copied in at Issue).
+            if (_criticalityPredictor is not null) {
+                rs.PendingSourceCount = (rs.Src1Tag >= 0 ? 1 : 0) + (rs.Src2Tag >= 0 ? 1 : 0)
+                                                                   + (rs.Src3Tag >= 0 ? 1 : 0);
+                rob.ESourceIsOwnD = rs.PendingSourceCount == 0;
+            }
+
             _renameQueue.Dequeue();
         }
 
         // Count cycles where the rename queue had work but dispatch was structurally blocked.
-        if (_renameQueue.Count > 0) _stallsCounter.Increment();
+        bool stalled = _renameQueue.Count > 0;
+        if (stalled) _stallsCounter.Increment();
+        _dispatchStalledPrevCycle = stalled;
     }
 
     /// <summary>Drain up to issueWidth decoded instructions through the RAT/PRF rename stage.</summary>
@@ -1641,6 +1781,13 @@ internal sealed class OoOPipelineCore : Gear {
         // resolved target. Training (_predictor.Update) and the committed RAS/GHR shadows still
         // advance normally at B's commit.
         b.PredictedNextPc = b.ResolvedNextPc.Value;
+
+        // Critical-path prediction ED edge (Table 2): the very next dispatched instruction's
+        // D-source is B's E-node.
+        if (_criticalityPredictor is not null) {
+            _pendingRedirect = true;
+            _pendingRedirectInstrId = bId;
+        }
 
         _fetchPc = _squashTarget;
         _fetchFaulted = false;

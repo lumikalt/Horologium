@@ -377,7 +377,7 @@ public class IssueQueueTests {
         iq.At(slot).Src1Tag = 10;
         iq.At(slot).Src2Tag = 11;
 
-        iq.Broadcast(10, 42);
+        iq.Broadcast(10, 42, 1);
         Assert.True(iq.At(slot).Src1Ready);
         Assert.Equal(42UL, iq.At(slot).Src1Value);
         Assert.False(iq.At(slot).Src2Ready); // not yet — still waiting for phys 11
@@ -391,7 +391,7 @@ public class IssueQueueTests {
         iq.At(slot).Src1Ready = true;
         iq.At(slot).Src1Value = 99;
 
-        iq.Broadcast(5, 0); // already ready → should not overwrite
+        iq.Broadcast(5, 0, 1); // already ready → should not overwrite
         Assert.Equal(99UL, iq.At(slot).Src1Value);
     }
 
@@ -402,9 +402,9 @@ public class IssueQueueTests {
         iq.At(slot).Src1Tag = 7;
         iq.At(slot).Src2Tag = 8;
 
-        iq.Broadcast(7, 1);
+        iq.Broadcast(7, 1, 1);
         Assert.False(iq.At(slot).IsReady); // src2 still pending
-        iq.Broadcast(8, 2);
+        iq.Broadcast(8, 2, 2);
         Assert.True(iq.At(slot).IsReady); // both ready now
     }
 
@@ -490,7 +490,7 @@ public class IssueQueueTests {
         int slot = iq.Allocate();
         iq.At(slot).Src3Tag = 20;
 
-        iq.Broadcast(20, 777);
+        iq.Broadcast(20, 777, 1);
         Assert.True(iq.At(slot).Src3Ready);
         Assert.Equal(777UL, iq.At(slot).Src3Value);
     }

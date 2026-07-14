@@ -108,6 +108,26 @@ public sealed class RobEntry {
     /// </summary>
     public Action<IArchState>? SideEffect { get; set; }
 
+    // ── Critical-path prediction (Fields, Rubin & Bodík, ISCA 2001) ─────────────────────────
+
+    /// <summary>True if this was the first instruction dispatched since a mispredicted branch (ED edge).</summary>
+    public bool DGatedByRedirect { get; set; }
+
+    /// <summary>InstrId of the mispredicting branch, valid only when <see cref="DGatedByRedirect" />.</summary>
+    public ulong DRedirectSourceInstrId { get; set; }
+
+    /// <summary>True if the ROB was full and stalled dispatch the previous cycle (CD edge).</summary>
+    public bool DGatedByStall { get; set; }
+
+    /// <summary>True if all source operands were ready by dispatch time (DE edge, "own D").</summary>
+    public bool ESourceIsOwnD { get; set; }
+
+    /// <summary>InstrId of the producer of the last-arriving source operand (EE edge), if not <see cref="ESourceIsOwnD" />.</summary>
+    public ulong ESourceProducerInstrId { get; set; }
+
+    /// <summary>Tick this entry completed (broadcast on the CDB); used to resolve the EC/CC commit-source rule.</summary>
+    public ulong CompletedTick { get; set; }
+
     internal void Clear() {
         Valid = false;
         Pc = 0;
@@ -132,6 +152,12 @@ public sealed class RobEntry {
         IsReturnFromTrap = false;
         ReturnPrivilege = null;
         SideEffect = null;
+        DGatedByRedirect = false;
+        DRedirectSourceInstrId = 0;
+        DGatedByStall = false;
+        ESourceIsOwnD = false;
+        ESourceProducerInstrId = 0;
+        CompletedTick = 0;
     }
 }
 
