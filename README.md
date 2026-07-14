@@ -272,11 +272,30 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   integer `RenameMap` free list. Vectorization is instead pure N-wide replication of the existing scalar
   shadow body against new scratch, physical-register-indexed lane state (`_runaheadVectorLanes`,
   `_runaheadVectorized`), discarded on exit exactly like `_runaheadTainted`/`_runaheadStoreBuffer` already
-  are. v1 scope reductions: no vector unrolling/pipelining (the paper's U-rounds × P-pipelined-rounds
-  innovation #3, which needs a VRAT and register-deallocation queue, is deferred — see TODO.md); no per-lane
-  divergence/masking (an invalid lane is simply marked tainted rather than modeled with a real predicate
-  mask); fixed lane width, not tied to the real `VLEN=128` architectural setting; and only one live chain is
-  tracked at a time. Control-flow
+  are. **Vector unrolling** (§III-G of the paper, bounded by `runaheadUnrollLength`, default 8) extends a
+  chain past its first termination point: instead of ending the moment the shadow lane loops back to the
+  chain's origin PC or reaches the learned terminator, `TerminateOrUnroll` issues another
+  `runaheadVectorWidth`-wide round from the same origin (advancing a round base address by
+  `runaheadVectorWidth × Stride` each time) until `runaheadUnrollLength` total rounds have run, matching
+  the paper's default of U=8 rounds of N=8 lanes (64 scalar-equivalent iterations) before falling back to
+  normal shadow stepping. A `_runaheadCappedOrigins` set records which origin PCs have spent their round
+  budget so a later revisit of the same PC in the same episode does not silently restart a fresh chain.
+  Physical-register pressure from many rounds is handled by immediate free-on-rename reclamation
+  (`FreeShadowRename`) rather than the paper's VRAT plus in-order register-deallocation queue: because the
+  shadow lane issues strictly one instruction at a time along a single PC (never the paper's overlapped,
+  out-of-program-order pipelined issue), any shadow instruction that could still read a register's old value
+  has, by construction, already executed before the instruction that redefines it, so a physical register
+  can be freed the instant its architectural register is renamed again — an RDQ's ordering guarantee for
+  free, with no queue needed. True **vector pipelining** (the paper's P overlapped in-flight rounds,
+  reordering loads across rounds to increase MLP/MSHR utilization) is deliberately not modeled: since
+  `SetAssociativeCache.Read()` installs data synchronously on every call rather than through an asynchronous
+  fill, reordering the same total instruction stream into interleaved rounds versus sequential rounds
+  produces identical real-cycle cost and identical cache-warming coverage in this simulator — the paper's
+  MLP benefit from pipelining is a cycle-accurate-memory-system phenomenon this shadow lane's execution model
+  cannot express, so building the VRAT/interleaved-issue machinery for it would add complexity with no
+  observable effect. v1/v2 scope reductions: no per-lane divergence/masking (an invalid lane is simply
+  marked tainted rather than modeled with a real predicate mask); fixed lane width, not tied to the real
+  `VLEN=128` architectural setting; and only one live chain is tracked at a time. Control-flow
   speculation follows gem5: direct unconditional jumps (`jal`/`j`,
   flagged by `FetchHint.IsUnconditional`) are resolved straight to their statically known target at fetch instead of
   being routed through the direction predictor; every direct branch (conditional included) takes its taken-target from

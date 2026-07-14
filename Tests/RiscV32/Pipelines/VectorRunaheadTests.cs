@@ -109,7 +109,7 @@ public class VectorRunaheadTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true, true, 8);
+        (OooeTrain on, FlatMemory memOn) = Make(true, true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -134,7 +134,8 @@ public class VectorRunaheadTests {
     }
 
     /// <summary>
-    ///     Same ROB-filling shape as <see cref="RunaheadTests.FullRobStallBehindMissingLoad_ArchStateIdenticalToWithout_AndEpisodeOccurs" />
+    ///     Same ROB-filling shape as
+    ///     <see cref="RunaheadTests.FullRobStallBehindMissingLoad_ArchStateIdenticalToWithout_AndEpisodeOccurs" />
     ///     — a single cold-miss load with no repeated PC history — but with
     ///     <c>enableVectorRunahead: true</c>. The stride table is cold for every PC the shadow
     ///     lane ever reaches, so no vectorization should fire; this guards against a false-positive
@@ -200,7 +201,7 @@ public class VectorRunaheadTests {
         ];
 
         (OooeTrain scalar, FlatMemory memScalar) = Make(true);
-        (OooeTrain vector, FlatMemory memVector) = Make(true, true, 8);
+        (OooeTrain vector, FlatMemory memVector) = Make(true, true);
         Load(memScalar, program);
         Load(memVector, program);
 
