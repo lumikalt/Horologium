@@ -287,13 +287,21 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   has, by construction, already executed before the instruction that redefines it, so a physical register
   can be freed the instant its architectural register is renamed again — an RDQ's ordering guarantee for
   free, with no queue needed. True **vector pipelining** (the paper's P overlapped in-flight rounds,
-  reordering loads across rounds to increase MLP/MSHR utilization) is deliberately not modeled: since
-  `SetAssociativeCache.Read()` installs data synchronously on every call rather than through an asynchronous
-  fill, reordering the same total instruction stream into interleaved rounds versus sequential rounds
-  produces identical real-cycle cost and identical cache-warming coverage in this simulator — the paper's
-  MLP benefit from pipelining is a cycle-accurate-memory-system phenomenon this shadow lane's execution model
-  cannot express, so building the VRAT/interleaved-issue machinery for it would add complexity with no
-  observable effect. v1/v2 scope reductions: no per-lane divergence/masking (an invalid lane is simply
+  reordering loads across rounds to increase MLP/MSHR utilization) is deliberately not modeled, but not
+  because the effect would be unobservable — `SetAssociativeCache` has real finite MSHR capacity
+  (`MshrCount`, per-cycle countdown via `TickMshr`, capacity-stall charging when every slot is busy), and
+  shadow-lane reads share the same cache instance and `_pendingStalls` accumulator as real loads, so a
+  round's miss cost genuinely is charged onto the real cycle count (picked up by the following cycle's
+  `DrainAndChargeStalls`, since `RunaheadStep` itself never drains it) — reordering rounds would change
+  what MSHR contention they see. The actual blocker is that today a round's addresses aren't computed
+  until the shadow PC walks back through the loop body to the chain origin again (`TerminateOrUnroll`
+  only starts the next round on that revisit), gated by `issueWidth` real shadow instructions per cycle —
+  even though for a stride-confirmed chain, all U rounds' addresses are knowable from the trained stride
+  alone, with no data dependency forcing that wait. Pipelining would mean decoupling round issuance from
+  that single-PC walk (computing and issuing all U rounds' lane reads back-to-back) to actually exploit
+  the real MSHR's overlap capacity, which is a genuine restructuring of the round-issue loop, not a
+  reordering of otherwise-equivalent work — deferred; see IDEAS.md. v1/v2 scope reductions: no per-lane
+  divergence/masking (an invalid lane is simply
   marked tainted rather than modeled with a real predicate mask); fixed lane width, not tied to the real
   `VLEN=128` architectural setting; and only one live chain is tracked at a time. Control-flow
   speculation follows gem5: direct unconditional jumps (`jal`/`j`,

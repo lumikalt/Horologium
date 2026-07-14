@@ -104,6 +104,14 @@ the active thread.
   caches; concrete design for the memory-side-cache item. — Qureshi & Loh, MICRO 2012
 - [ ] MMU translation research: page-walk caches / translation caching ("skip, don't walk") and TLB prefetching;
   builds on the Sv32 walker. — Barr, Cox & Rixner, ISCA 2010; Kandiraju & Sivasubramaniam, ISCA 2002
+- [ ] Vector Runahead true pipelining: decouple the shadow lane's unroll-round issuance from its single-PC
+  walk through the loop body. Today `TerminateOrUnroll` only starts round N+1 once the shadow PC revisits
+  the chain origin, even though a stride-confirmed chain's round addresses are all knowable up front with
+  no data dependency forcing that wait — the real `SetAssociativeCache` MSHR model (finite `MshrCount`,
+  per-cycle countdown, capacity-stall accounting) already has overlap capacity to exploit, it's just not
+  being fed concurrent requests. Would need a round-issue loop independent of normal shadow stepping,
+  computing and issuing all U rounds' lane reads back-to-back. — Naithani, Ainsworth, Jones & Eeckhout,
+  ISCA 2021 (§III-G, P overlapped in-flight rounds)
 
 ## Security
 
