@@ -243,12 +243,40 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   `DLayers.Accessor` — which is what actually warms the real cache for the real pipeline to find hot once
   it resumes. v1 scope reductions: the shadow stream is scalar-only (`IntegerAlu`, `IntegerMulDiv`, `Load`,
   `Store`, `Branch`, `ConditionalBranch` — anything else, including `Vector`/`Uve`, exits the episode
-  cleanly rather than modeling side effects; Vector Runahead's actual vectorized-chasing point is therefore
-  not implemented here, see TODO.md); shadow branches call `IBranchPredictor.Predict()` for direction but
+  cleanly rather than modeling side effects); shadow branches call `IBranchPredictor.Predict()` for direction but
   never train predictor history or touch the RAS; runahead is disabled whenever fetch is not effectively
   bare-metal (active Sv32 paging resolves a non-identity physical address for the fetch PC); and shadow
   throughput is capped at `issueWidth` instructions per real cycle, bounded per-episode by
-  `runaheadBudget`. The LQ, SQ, and RAS are never touched by any runahead code path. Control-flow
+  `runaheadBudget`. The LQ, SQ, and RAS are never touched by any runahead code path. **Vector Runahead**
+  (enable with `enableVectorRunahead: true`, lane width via `runaheadVectorWidth`, default 8; requires
+  `enableRunahead`) extends the shadow lane to chase long dependent (pointer-chasing) gather/scatter
+  chains instead of exiting the instant the real blocking load resolves (Naithani, Ainsworth, Jones &amp;
+  Eeckhout, "Vector Runahead", ISCA 2021). A PC-indexed, direct-mapped stride table (`LastAddr`/`Stride`/
+  2-bit saturating `Confidence`/learned `Terminator`, sized like `StridePrefetcher`'s RPT) is trained only
+  from the real (non-shadow) demand-load stream at the existing prefetcher hook. Once a load's own PC
+  reaches saturated confidence, the shadow lane replicates its own instruction stream `runaheadVectorWidth`-
+  wide instead of stepping one iteration at a time, and that vectorized state propagates through dependent
+  arithmetic and indirect loads exactly the way `_runaheadTainted` already propagates the invalid-bit —
+  membership in `_runaheadVectorized` is the paper's vectorize-bit, membership in `_runaheadTainted` is its
+  invalid-bit. Per the paper's termination-condition change (innovation #1), the shadow lane keeps running
+  past the point a scalar-only episode would exit as long as a chain is actively vectorizing, stopping only
+  when the chain loops back to its own origin PC (backfilling the learned terminator) or reaches a
+  previously-learned terminator. A chain-origin load whose address operand is itself tainted — typically
+  because the front end has renamed several loop iterations ahead of a stalled dispatch, not because it
+  truly depends on the stalled load's value — can still vectorize directly off the trained `LastAddr`/
+  `Stride` sequence rather than requiring the live operand; this RPT-driven bypass is what lets Vector
+  Runahead chase a simple strided loop-induction address in practice. As with the scalar feature, no real
+  state is ever put at risk: the real `RiscV32.VectorRegisterFile` and RVV gather/scatter encodings are
+  never touched, since a shadow episode must stay perfectly discardable and there is no physical VRF or
+  vector rename table to safely draw scratch registers from the way scalar runahead draws from the live
+  integer `RenameMap` free list. Vectorization is instead pure N-wide replication of the existing scalar
+  shadow body against new scratch, physical-register-indexed lane state (`_runaheadVectorLanes`,
+  `_runaheadVectorized`), discarded on exit exactly like `_runaheadTainted`/`_runaheadStoreBuffer` already
+  are. v1 scope reductions: no vector unrolling/pipelining (the paper's U-rounds × P-pipelined-rounds
+  innovation #3, which needs a VRAT and register-deallocation queue, is deferred — see TODO.md); no per-lane
+  divergence/masking (an invalid lane is simply marked tainted rather than modeled with a real predicate
+  mask); fixed lane width, not tied to the real `VLEN=128` architectural setting; and only one live chain is
+  tracked at a time. Control-flow
   speculation follows gem5: direct unconditional jumps (`jal`/`j`,
   flagged by `FetchHint.IsUnconditional`) are resolved straight to their statically known target at fetch instead of
   being routed through the direction predictor; every direct branch (conditional included) takes its taken-target from

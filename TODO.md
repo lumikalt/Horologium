@@ -19,9 +19,11 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 - [x] Runahead execution: pre-execute past a full-window stall to generate prefetches. — Mutlu et al., HPCA 2003;
   Naithani et al., HPCA 2020
-- [ ] Vector Runahead: vectorize the runahead shadow instruction stream to chase long dependent (pointer-chasing)
-  gather/scatter chains — relevant to UVE workloads; the current scalar-only shadow lane exits on any Vector/Uve
-  instruction rather than modeling it. — Naithani et al., ISCA 2021
+- [x] Vector Runahead: vectorize the runahead shadow instruction stream to chase long dependent (pointer-chasing)
+  gather/scatter chains — relevant to UVE workloads. — Naithani, Ainsworth, Jones & Eeckhout, ISCA 2021
+- [ ] Vector Runahead unrolling/pipelining: U unroll rounds x P overlapped in-flight rounds, backed by a VRAT +
+  register-deallocation queue — deeper MLP exploitation beyond v1's single-chain, N-wide replication. — Naithani,
+  Ainsworth, Jones & Eeckhout, ISCA 2021
 - [x] Critical-path prediction: token-passing criticality predictor to focus scheduling, steering, and value
   prediction on critical instructions. — Fields, Rubin & Bodík, ISCA 2001
 - [x] NoSQ: store-queue-free store-to-load forwarding via speculative memory bypassing (memory renaming). — Sha,
