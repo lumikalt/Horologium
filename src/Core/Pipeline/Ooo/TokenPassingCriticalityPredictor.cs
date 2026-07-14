@@ -16,7 +16,7 @@ namespace Pipeline.Ooo;
 ///     </para>
 ///     <para>
 ///         Token array: <c>robCapacity</c> slots (indexed by <c>InstrId % robCapacity</c>, valid
-///         because the model guarantees no critical-path edge spans more instructions than the
+///         because the model guarantees no critical-path-edge spans more instructions than the
 ///         ROB — Section 2) × 3 nodes × <c>tokenCount</c> simultaneous tokens, one bit each
 ///         (Figure 6, Table 3 defaults: 8 tokens). A token freed (trained or newly planted) is
 ///         replanted at a random delay of 0–9 further commits, seeded for determinism.
@@ -25,12 +25,11 @@ namespace Pipeline.Ooo;
 public sealed class TokenPassingCriticalityPredictor : ICriticalityPredictor {
     private readonly byte[] _cpTable; // PC-indexed 6-bit hysteresis (0-63); critical if > 8
     private readonly int _cpTableMask;
-    private readonly ulong[] _plantedAt; // commit counter value when this token was (re)planted
+    private readonly ulong[] _plantedAt;         // commit counter value when this token was (re)planted
     private readonly ulong _propagationDistance; // 500 + robCapacity (paper's formula)
+    private readonly ulong[] _replantAt;         // commit counter value at which a free token replants
     private readonly Random _rng;
     private readonly int _robCapacity;
-    private readonly ulong[] _replantAt; // commit counter value at which a free token replants
-    private readonly ulong[] _seedInstrId;
     private readonly ulong[] _seedPc;
     private readonly bool[] _tokenInUse;
     private readonly byte[,] _tokens; // [slot, (int)CpNode] -> bitmask of tokens present
@@ -53,7 +52,6 @@ public sealed class TokenPassingCriticalityPredictor : ICriticalityPredictor {
 
         _tokens = new byte[robCapacity, 3];
         _tokenInUse = new bool[tokenCount];
-        _seedInstrId = new ulong[tokenCount];
         _seedPc = new ulong[tokenCount];
         _plantedAt = new ulong[tokenCount];
         _replantAt = new ulong[tokenCount];
@@ -83,7 +81,6 @@ public sealed class TokenPassingCriticalityPredictor : ICriticalityPredictor {
             if (!_tokenInUse[k]) {
                 if (_commitCount < _replantAt[k]) continue;
                 _tokenInUse[k] = true;
-                _seedInstrId[k] = info.InstrId;
                 _seedPc[k] = info.Pc;
                 _plantedAt[k] = _commitCount;
                 _tokens[slot, (int)CpNode.E] |= (byte)(1 << k);
@@ -106,9 +103,9 @@ public sealed class TokenPassingCriticalityPredictor : ICriticalityPredictor {
     private bool IsTokenLive(int token) {
         var bit = (byte)(1 << token);
         for (var slot = 0; slot < _robCapacity; slot++)
-            for (var node = 0; node < 3; node++)
-                if ((_tokens[slot, node] & bit) != 0)
-                    return true;
+        for (var node = 0; node < 3; node++)
+            if ((_tokens[slot, node] & bit) != 0)
+                return true;
         return false;
     }
 

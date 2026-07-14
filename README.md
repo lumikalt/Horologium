@@ -216,7 +216,40 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   the token survives `500 + robCapacity` commits (Fields, Rubin &amp; Bodík, "Focusing Processor Policies
   via Critical-Path Prediction", ISCA 2001). Purely a scheduling-priority hint — disabled by default and,
   when enabled, never changes committed architectural results, only issue order among already-ready
-  instructions. Control-flow speculation follows gem5: direct unconditional jumps (`jal`/`j`,
+  instructions. **Runahead execution** (enable with `enableRunahead: true`, budget via `runaheadBudget`,
+  default 200) pre-executes past a full-window stall to generate prefetches (Mutlu et al., "Runahead
+  Execution: An Alternative to Very Large Instruction Windows for Out-of-order Processors", HPCA 2003;
+  Naithani, Roelandts &amp; Eeckhout, "Precise Runahead Execution", HPCA 2020). A literal port of either
+  paper's release-and-refetch or elastic-ROB-release mechanism doesn't fit: `ReorderBuffer` retires
+  strictly from the head with no out-of-order release, and dispatch is already unconditionally stalled
+  the instant the ROB is full — there is no free ROB/IQ capacity to run inside during the stall the way
+  PRE's target microarchitecture has. What Horologium builds instead is a self-contained shadow execution
+  lane, entered only when dispatch is stalled behind a full ROB whose head is an incomplete load. Because
+  real commit and real dispatch are already frozen for the whole stall, the shadow lane can safely draw
+  fresh physical registers from the same live `RenameMap` free list with zero collision risk (nothing else
+  is renaming during the stall) and undo everything on exit by restoring a `RenameMapSnapshot` of just the
+  RAT — no ROB/IQ/LQ/SQ involvement needed. Since `SetAssociativeCache.Read()` installs data functionally
+  and immediately on every call (hit or miss; miss cost is a separately-accounted stall-cycle count, not
+  an async fill), no runahead cache or INV-bit array is needed either: the only genuinely unavailable value
+  during an episode is the blocking load's own not-yet-written physical register and anything that
+  transitively reads it, tracked by a small tainted-physical-register set seeded at entry from every
+  not-ready live RAT mapping. A tainted source blocks a shadow load/store's real memory access entirely —
+  broadened from the papers' narrower "tainted address" framing because identifying which specific source
+  is the address is not exposed generically by `ITooth` and would require ISA-specific operand-ordering
+  knowledge, which the pipeline/ISA isolation boundary forbids; the broadened rule is strictly more
+  conservative (it may occasionally forgo a safe prefetch, never a correctness risk, since nothing shadow-
+  computed is ever committed). Shadow stores write only into a scratch dictionary keyed by exact
+  `(address, bytes)`; shadow loads check that dictionary first, then fall through to the real
+  `DLayers.Accessor` — which is what actually warms the real cache for the real pipeline to find hot once
+  it resumes. v1 scope reductions: the shadow stream is scalar-only (`IntegerAlu`, `IntegerMulDiv`, `Load`,
+  `Store`, `Branch`, `ConditionalBranch` — anything else, including `Vector`/`Uve`, exits the episode
+  cleanly rather than modeling side effects; Vector Runahead's actual vectorized-chasing point is therefore
+  not implemented here, see TODO.md); shadow branches call `IBranchPredictor.Predict()` for direction but
+  never train predictor history or touch the RAS; runahead is disabled whenever fetch is not effectively
+  bare-metal (active Sv32 paging resolves a non-identity physical address for the fetch PC); and shadow
+  throughput is capped at `issueWidth` instructions per real cycle, bounded per-episode by
+  `runaheadBudget`. The LQ, SQ, and RAS are never touched by any runahead code path. Control-flow
+  speculation follows gem5: direct unconditional jumps (`jal`/`j`,
   flagged by `FetchHint.IsUnconditional`) are resolved straight to their statically known target at fetch instead of
   being routed through the direction predictor; every direct branch (conditional included) takes its taken-target from
   the decode hint (`FetchHint.BranchTarget`) rather than a possibly-cold predictor BTB, so a stale/aliased BTB entry can

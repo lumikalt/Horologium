@@ -1,7 +1,6 @@
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
-using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
 
@@ -66,7 +65,7 @@ public class CriticalityPredictionTests {
             0x00318133, // add  x2, x3, x3   -- depends on x3 (chain A continues)
             0x00420293, // addi x5, x4, 4    -- depends on x4 (chain B continues)
             0x00518337, // add  x6, x3, x5   -- joins both chains
-            0x00100073  // ebreak
+            0x00100073, // ebreak
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(false);
@@ -93,7 +92,7 @@ public class CriticalityPredictionTests {
             0x00021463, // 16: bne  x4, x0, +8   -- mispredicted taken
             0x3E700293, // 20: addi x5, x0, 999  -- wrong path
             0x02A00313, // 24: addi x6, x0, 42   -- correct-path target
-            0x00100073  // 28: ebreak
+            0x00100073, // 28: ebreak
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(false);
@@ -126,7 +125,7 @@ public class CriticalityPredictionTests {
             0x00500193, // addr 20: addi x3, x0, 5
             0x00110113, // addr 24: addi x2, x2, 1
             0xFE314EE3, // addr 28: blt  x2, x3, -4
-            0x00008067  // addr 32: jalr x0, x1, 0
+            0x00008067, // addr 32: jalr x0, x1, 0
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(false);

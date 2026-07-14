@@ -14,13 +14,13 @@ public class TokenPassingCriticalityPredictorTests {
 
     // propagationDistance = 500 + robCapacity (paper's formula); a training cycle (plant -> die
     // or plant -> survive -> train) never takes more than that plus the 0-9 replant jitter.
-    private const ulong CycleUpperBound = 500 + RobCapacity + 10;
+    private const ulong CycleUpperBound = 500 + TokenPassingCriticalityPredictorTests.RobCapacity + 10;
 
     // A single token (tokenCount=1) is guaranteed to plant on the very first commit ever fed to
     // a fresh predictor (initial _replantAt[0] == 0), which keeps these tests independent of the
     // predictor's internal RNG.
     private static TokenPassingCriticalityPredictor NewPredictor() =>
-        new(RobCapacity, tokenCount: 1);
+        new(TokenPassingCriticalityPredictorTests.RobCapacity, tokenCount: 1);
 
     private static CriticalityCommitInfo Commit(
         ulong instrId,
@@ -60,34 +60,33 @@ public class TokenPassingCriticalityPredictorTests {
     ///     <see cref="RobCapacity" /> commits) and then dies, training non-critical.
     /// </summary>
     private static void RunDeadChain(TokenPassingCriticalityPredictor p, ulong pc, ulong totalCommits) {
-        for (ulong id = 0; id < totalCommits; id++)
-            p.OnCommit(Commit(id, pc));
+        for (ulong id = 0; id < totalCommits; id++) p.OnCommit(Commit(id, pc));
     }
 
     [Fact]
     public void ColdPc_PredictsNotCritical() {
-        var p = NewPredictor();
+        TokenPassingCriticalityPredictor p = NewPredictor();
         Assert.False(p.PredictCritical(0x1000));
     }
 
     [Fact]
     public void TokenChain_SurvivesToPropagationDistance_TrainsSeedCritical() {
-        var p = NewPredictor();
+        TokenPassingCriticalityPredictor p = NewPredictor();
         ulong seedPc = 0x1000;
 
         // Long enough for at least two full plant -> survive -> train cycles: a single +8 from a
         // cold hysteresis of 0 lands exactly at 8, which does not clear the ">8" threshold.
-        RunCriticalChain(p, seedPc, CycleUpperBound * 3);
+        RunCriticalChain(p, seedPc, TokenPassingCriticalityPredictorTests.CycleUpperBound * 3);
 
         Assert.True(p.PredictCritical(seedPc));
     }
 
     [Fact]
     public void TokenChain_DiesImmediately_TrainsSeedNonCritical() {
-        var p = NewPredictor();
+        TokenPassingCriticalityPredictor p = NewPredictor();
         ulong seedPc = 0x1000;
 
-        RunDeadChain(p, seedPc, CycleUpperBound);
+        RunDeadChain(p, seedPc, TokenPassingCriticalityPredictorTests.CycleUpperBound);
 
         // Hysteresis starts at the floor (0) and non-critical training decrements via
         // Math.Max(0, x - 1), so it remains 0 — never crosses the >8 threshold.
@@ -96,34 +95,34 @@ public class TokenPassingCriticalityPredictorTests {
 
     [Fact]
     public void Hysteresis_SaturatesAtSixtyThree() {
-        var p = NewPredictor();
+        TokenPassingCriticalityPredictor p = NewPredictor();
         ulong seedPc = 0x1000;
 
         // Comfortably more than 63/8 = ~8 training cycles' worth of commits.
-        RunCriticalChain(p, seedPc, CycleUpperBound * 12);
+        RunCriticalChain(p, seedPc, TokenPassingCriticalityPredictorTests.CycleUpperBound * 12);
 
         Assert.True(p.PredictCritical(seedPc));
     }
 
     [Fact]
     public void Hysteresis_FloorsAtZero_NeverGoesNegative() {
-        var p = NewPredictor();
+        TokenPassingCriticalityPredictor p = NewPredictor();
         ulong seedPc = 0x1000;
 
         // Several dead-chain cycles back to back must not underflow the hysteresis counter.
-        RunDeadChain(p, seedPc, CycleUpperBound * 5);
+        RunDeadChain(p, seedPc, TokenPassingCriticalityPredictorTests.CycleUpperBound * 5);
 
         Assert.False(p.PredictCritical(seedPc));
     }
 
     [Fact]
     public void DifferentPcs_TrainIndependently() {
-        var p = NewPredictor();
+        TokenPassingCriticalityPredictor p = NewPredictor();
         ulong criticalPc = 0x1000;
         ulong nonCriticalPc = 0x4000;
 
-        RunCriticalChain(p, criticalPc, CycleUpperBound * 3);
-        RunDeadChain(p, nonCriticalPc, CycleUpperBound * 3);
+        RunCriticalChain(p, criticalPc, TokenPassingCriticalityPredictorTests.CycleUpperBound * 3);
+        RunDeadChain(p, nonCriticalPc, TokenPassingCriticalityPredictorTests.CycleUpperBound * 3);
 
         Assert.True(p.PredictCritical(criticalPc));
         Assert.False(p.PredictCritical(nonCriticalPc));

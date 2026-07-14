@@ -150,11 +150,11 @@ public sealed class RvInstruction(
     public bool NanBoxLoadResult { get; } = payload is RvFlw;
 
     public int MemoryAccessBytes { get; } = payload switch {
-        RvLb or RvLbu or RvSb => 1,
+        RvLb or RvLbu or RvSb                   => 1,
         RvLh or RvLhu or RvSh or RvFlh or RvFsh => 2,
         RvLw or RvSw or RvLwu or RvFlw or RvFsw => 4,
-        RvLd or RvSd or RvFld or RvFsd => 8,
-        _ => 0,
+        RvLd or RvSd or RvFld or RvFsd          => 8,
+        _                                       => 0,
     };
 
     public bool IsDiv { get; } = payload is RvDiv or RvDivu or RvRem or RvRemu;

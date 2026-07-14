@@ -41,7 +41,9 @@ public sealed class OooeTrain : ISteppableTrain {
         bool rdip = false,
         bool enableStoreSets = false,
         bool enableCriticalityPrediction = false,
-        bool enableSmbBypass = false
+        bool enableSmbBypass = false,
+        bool enableRunahead = false,
+        int runaheadBudget = 200
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -67,7 +69,9 @@ public sealed class OooeTrain : ISteppableTrain {
                 rdip,
                 enableStoreSets,
                 enableCriticalityPrediction,
-                enableSmbBypass
+                enableSmbBypass,
+                enableRunahead,
+                runaheadBudget
             )
         );
         _train.Build();
@@ -158,6 +162,23 @@ public sealed class OooeTrain : ISteppableTrain {
 internal sealed class OoOPipelineCore : Gear {
     // IQ index 0=INT(Alu/MulDiv/Sys/Fence/Halt), 1=FP, 2=BR, 3=VEC(Vector/UVE), 4=LSU
     private const int IqCount = 5;
+
+    // ── Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021) ──
+    //
+    // A self-contained shadow execution lane entered only when dispatch is stalled behind a
+    // full ROB whose head is an incomplete load. Real commit/dispatch are already frozen in
+    // that state (commit can't retire past an incomplete head; dispatch can't allocate into a
+    // full ROB), so the shadow lane can safely draw fresh physical registers from the same live
+    // RenameMap free list with zero collision risk, and undo everything on exit by restoring a
+    // RAT snapshot. It never touches the real ROB/IQ/LQ/SQ/RAS/predictor history — only the
+    // RAT, the PRF, and the real data-cache accessor, which is what delivers the prefetch
+    // benefit (Horologium's cache installs data synchronously on every access, hit or miss).
+
+    private static readonly HashSet<ToothClass> RunaheadSupportedClasses = [
+        ToothClass.IntegerAlu, ToothClass.IntegerMulDiv, ToothClass.Load, ToothClass.Store,
+        ToothClass.Branch, ToothClass.ConditionalBranch,
+    ];
+
     private readonly int _activeIqCount; // 1 when flat, IqCount when per-class
     private readonly CapturingMemory _capMem;
     private readonly List<ExecResult> _cdbBuffer = [];
@@ -167,12 +188,20 @@ internal sealed class OoOPipelineCore : Gear {
     // On a flush the speculative _ras is restored from this, discarding the wrong-path
     // push/pop corruption that would otherwise cascade into return mispredictions.
     private readonly ReturnAddressStack _committedRas = new();
+    private readonly ICriticalityPredictor? _criticalityPredictor;
 
     // Cross-tick latches
     private readonly Queue<FetchedInstr> _decodeQueue = new();
 
     // ISA services
     private readonly IDecoder _decoder;
+
+    // Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021):
+    // a self-contained shadow execution lane entered when dispatch is stalled behind a full
+    // ROB whose head is an incomplete load. Never touches the real ROB/IQ/LQ/SQ/RAS/predictor
+    // history — only the RAT (snapshotted and restored), the PRF, and the real data-cache
+    // accessor (which is what actually delivers the prefetch benefit).
+    private readonly bool _enableRunahead;
     private readonly List<IssuedInstr> _execBuffer = [];
     private readonly IExecutor _executor;
     private readonly FdipPrefetcher? _fdip;
@@ -204,10 +233,12 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly bool _realisticPrefetch;
     private readonly Queue<RenameEntry> _renameQueue = new();
     private readonly ReorderBuffer _rob;
+    private readonly int _runaheadBudget;
+    private readonly Dictionary<ulong, (ulong Value, int Bytes)> _runaheadStoreBuffer = [];
+    private readonly HashSet<int> _runaheadTainted = [];
+    private readonly SmbPredictor? _smbPredictor;
     private readonly StoreQueue _sq;
     private readonly StoreSetPredictor? _storeSets;
-    private readonly ICriticalityPredictor? _criticalityPredictor;
-    private readonly SmbPredictor? _smbPredictor;
     private readonly ITrapController _trapController;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
@@ -226,6 +257,13 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
     private Counter? _dcacheLatePrefetchHitsCounter;
     private Counter? _dcachePrefetchesCounter;
+
+    // Critical-path prediction (Fields, Rubin & Bodík, ISCA 2001): D-source bookkeeping.
+    // _dispatchStalledPrevCycle mirrors the condition already used for _stallsCounter (CD edge).
+    // _pendingRedirectInstrId is latched by a branch misprediction (execute-time partial squash
+    // or commit-time flush) and consumed by the very next dispatched instruction (ED edge) —
+    // only branch mispredictions set it; traps/halts are not modeled by the paper's ED rule.
+    private bool _dispatchStalledPrevCycle;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
     private bool _fetchFaulted; // suppress repeated fault entries until flush clears
 
@@ -248,7 +286,6 @@ internal sealed class OoOPipelineCore : Gear {
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
     private Counter _memViolationsCounter = null!;
-    private Counter? _smbBypassesCounter, _smbMispredictsCounter;
     private Counter? _mshrStallsCounter;
     private int _mshrUsed; // MSHR slots currently occupied
 
@@ -260,6 +297,8 @@ internal sealed class OoOPipelineCore : Gear {
     // across the two queues don't rely on ROB index arithmetic (which wraps).
     // Not reset on flush — entries are discarded by Flush(), the counter climbs.
     private ulong _nextMemSeqNo;
+    private bool _pendingRedirect;
+    private ulong _pendingRedirectInstrId;
     private int _pendingRollbackAbandonedPhys = -1;
 
     // Pending rename rollback for a trap/return-from-trap instruction that retires (leaves the
@@ -271,11 +310,17 @@ internal sealed class OoOPipelineCore : Gear {
     private int _pendingRollbackArch = -1;
     private int _pendingRollbackPrevPhys = -1;
     private Counter _retiredCounter = null!;
+    private bool _runaheadActive;
+    private Counter? _runaheadEpisodesCounter, _runaheadInstructionsCounter;
+    private int _runaheadInstrCount;
+    private RenameMapSnapshot _runaheadRatSnapshot;
 
     // ── Main driver ────────────────────────────────────────────────────────────
 
     // Cached to avoid a fresh Action allocation per simulated cycle.
     private Action? _runCycle;
+    private ulong _shadowPc;
+    private Counter? _smbBypassesCounter, _smbMispredictsCounter;
     private ulong _squashInstrId;
 
     // Execute-time partial squash (branch mispredict resolved before the branch reaches the ROB
@@ -288,15 +333,6 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _stallsCounter = null!;
     private Counter? _wbAbsorbedStallsCounter;
     private int _wbOccupied; // number of slots currently counting down
-
-    // Critical-path prediction (Fields, Rubin & Bodík, ISCA 2001): D-source bookkeeping.
-    // _dispatchStalledPrevCycle mirrors the condition already used for _stallsCounter (CD edge).
-    // _pendingRedirectInstrId is latched by a branch misprediction (execute-time partial squash
-    // or commit-time flush) and consumed by the very next dispatched instruction (ED edge) —
-    // only branch mispredictions set it; traps/halts are not modeled by the paper's ED rule.
-    private bool _dispatchStalledPrevCycle;
-    private bool _pendingRedirect;
-    private ulong _pendingRedirectInstrId;
 
     public OoOPipelineCore(
         string name,
@@ -325,7 +361,9 @@ internal sealed class OoOPipelineCore : Gear {
         bool rdipEnabled = false,
         bool enableStoreSets = false,
         bool enableCriticalityPrediction = false,
-        bool enableSmbBypass = false
+        bool enableSmbBypass = false,
+        bool enableRunahead = false,
+        int runaheadBudget = 200
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -360,6 +398,8 @@ internal sealed class OoOPipelineCore : Gear {
             ? new TokenPassingCriticalityPredictor(robCapacity)
             : null;
         _smbPredictor = enableSmbBypass ? new SmbPredictor() : null;
+        _enableRunahead = enableRunahead;
+        _runaheadBudget = runaheadBudget;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -428,6 +468,15 @@ internal sealed class OoOPipelineCore : Gear {
             );
             _smbMispredictsCounter = Dials.AddCounter(
                 "smb_mispredicts", "NoSQ speculative memory bypasses that mispredicted"
+            );
+        }
+
+        if (_enableRunahead) {
+            _runaheadEpisodesCounter = Dials.AddCounter(
+                "runahead_episodes", "Runahead shadow-execution episodes entered"
+            );
+            _runaheadInstructionsCounter = Dials.AddCounter(
+                "runahead_instructions", "Shadow instructions executed across all runahead episodes"
             );
         }
 
@@ -554,6 +603,10 @@ internal sealed class OoOPipelineCore : Gear {
         }
 
         if (_halted || _flushPending || _squashPending) {
+            // Restore the RAT to its pre-episode baseline before the real flush/squash's own
+            // walk-back runs, so the walk-back's absolute writes start from a correct base
+            // regardless of how far the shadow lane had progressed.
+            if (_runaheadActive) ExitRunahead();
             if (_flushPending)
                 StepFlush();
             else if (_squashPending) StepPartialSquash();
@@ -575,6 +628,13 @@ internal sealed class OoOPipelineCore : Gear {
 
         // Fetch: fill the decode queue with new speculative instructions.
         StepFetch();
+
+        // Runahead: on a full-window stall behind an incomplete load, pre-execute past it in
+        // a self-contained shadow lane to generate prefetches (Mutlu et al., HPCA 2003).
+        if (_enableRunahead) {
+            if (!_runaheadActive && NeedsRunahead()) EnterRunahead();
+            if (_runaheadActive) RunaheadStep();
+        }
 
         Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
     }
@@ -893,7 +953,7 @@ internal sealed class OoOPipelineCore : Gear {
     private void TrainCriticality(RobEntry head) {
         if (_criticalityPredictor is null) return;
 
-        ulong w = (ulong)_rob.Capacity;
+        var w = (ulong)_rob.Capacity;
 
         CpNode dNode;
         ulong dSource;
@@ -1047,7 +1107,7 @@ internal sealed class OoOPipelineCore : Gear {
         // an entry that fails pass 1 would fail identically if retried in pass 2, and is
         // skipped there rather than re-evaluated. When disabled, only the second pass runs,
         // which is exactly the original single-pass behavior.
-        if (_criticalityPredictor is { } cp) {
+        if (_criticalityPredictor is { } cp)
             for (var iqIdx = 0; iqIdx < _activeIqCount && issued < _issueWidth; iqIdx++) {
                 IssueQueue iq = _iqs[iqIdx];
                 for (var slot = 0; slot < iq.Capacity && issued < _issueWidth; slot++) {
@@ -1056,7 +1116,6 @@ internal sealed class OoOPipelineCore : Gear {
                     if (TryIssueSlot(iq, slot, classIssued)) issued++;
                 }
             }
-        }
 
         for (var iqIdx = 0; iqIdx < _activeIqCount && issued < _issueWidth; iqIdx++) {
             IssueQueue iq = _iqs[iqIdx];
@@ -1509,8 +1568,8 @@ internal sealed class OoOPipelineCore : Gear {
                 // and on the predicted producer's static width matching this load's, so no
                 // address is needed on either side to trust the prediction.
                 if (_smbPredictor is not null && instr.Class == ToothClass.Load
-                                               && _smbPredictor.TryPredict(ri.Pc, out ulong distance)
-                                               && distance > 0 && distance <= memSeqNo) {
+                                              && _smbPredictor.TryPredict(ri.Pc, out ulong distance)
+                                              && distance > 0 && distance <= memSeqNo) {
                     ulong predictedProducerSeqNo = memSeqNo - distance;
                     foreach (SqEntry candidate in _sq.InOrder()) {
                         if (candidate.SeqNo != predictedProducerSeqNo) continue;
@@ -1580,7 +1639,7 @@ internal sealed class OoOPipelineCore : Gear {
             // whichever source resolves last (staged via IssueQueue.Broadcast, copied in at Issue).
             if (_criticalityPredictor is not null) {
                 rs.PendingSourceCount = (rs.Src1Tag >= 0 ? 1 : 0) + (rs.Src2Tag >= 0 ? 1 : 0)
-                                                                   + (rs.Src3Tag >= 0 ? 1 : 0);
+                                                                  + (rs.Src3Tag >= 0 ? 1 : 0);
                 rob.ESourceIsOwnD = rs.PendingSourceCount == 0;
             }
 
@@ -1769,6 +1828,158 @@ internal sealed class OoOPipelineCore : Gear {
             _fetchPc = predictedNext;
             fetched++;
         }
+    }
+
+    /// <summary>
+    ///     True when instruction fetch is effectively bare-metal at the current fetch PC: either
+    ///     no translator exists at all, or the one that does resolves this PC as an identity
+    ///     mapping (e.g. RvFetchTranslator in M-mode, or with Sv32 paging disabled). The shadow
+    ///     lane reads <see cref="_shadowPc" /> straight through <see cref="ILayers" />.Accessor
+    ///     with no translation step of its own, so active paging (a non-identity result) must
+    ///     disable runahead entirely — modeling speculative TLB/page-walk behavior in the shadow
+    ///     lane is not worth the complexity for v1.
+    /// </summary>
+    private bool IsBareMetalFetch() {
+        if (_fetchTranslator is null) return true;
+        (ulong physAddr, int faultCause) = _fetchTranslator.Translate(_fetchPc);
+        return faultCause == 0 && physAddr == _fetchPc;
+    }
+
+    private bool NeedsRunahead() =>
+        _enableRunahead && IsBareMetalFetch() && _rob is { IsFull: true, Head: { IsLoad: true, IsComplete: false, }, };
+
+    private void EnterRunahead() {
+        _runaheadActive = true;
+        _runaheadRatSnapshot = _rat.Snapshot();
+        _shadowPc = _fetchPc;
+        _runaheadInstrCount = 0;
+        _runaheadTainted.Clear();
+        _runaheadStoreBuffer.Clear();
+
+        // Seed taint with every arch register whose live mapping isn't ready yet — the blocking
+        // load's own destination, plus anything else still in flight behind it.
+        for (var a = 0; a < State.IntegerRegisters.Count; a++) {
+            int phys = _rat.Lookup(a);
+            if (!_prf.IsReady(phys)) _runaheadTainted.Add(phys);
+        }
+
+        _runaheadEpisodesCounter?.Increment();
+    }
+
+    private void ExitRunahead() {
+        _rat.Restore(_runaheadRatSnapshot);
+        _runaheadActive = false;
+        _runaheadTainted.Clear();
+        _runaheadStoreBuffer.Clear();
+    }
+
+    /// <summary>Runs up to issueWidth shadow instructions this cycle, or exits the episode.</summary>
+    private void RunaheadStep() {
+        for (var i = 0; i < _issueWidth; i++) {
+            if (!NeedsRunahead()) {
+                ExitRunahead();
+                return;
+            } // real head resolved, or ROB no longer full
+
+            if (_runaheadInstrCount >= _runaheadBudget || !_rat.HasFree) {
+                ExitRunahead();
+                return;
+            }
+
+            if (!TryShadowStep()) {
+                ExitRunahead();
+                return;
+            } // unsupported class / fault / trap
+
+            _runaheadInstrCount++;
+            _runaheadInstructionsCounter?.Increment();
+        }
+    }
+
+    /// <summary>Fetches, renames, and executes exactly one shadow instruction at <see cref="_shadowPc" />.</summary>
+    private bool TryShadowStep() {
+        uint raw;
+        ITooth instr;
+        try {
+            raw = (uint)ILayers.Accessor.Read(_shadowPc, 4);
+            instr = _decoder.Decode(_shadowPc, raw);
+        }
+        catch (IllegalInstructionException) { return false; }
+        catch (AccessViolationException) { return false; }
+
+        if (!OoOPipelineCore.RunaheadSupportedClasses.Contains(instr.Class)) return false;
+
+        IReadOnlyList<int> srcs = instr.SourceRegisters;
+        int p0 = srcs.Count > 0 ? _rat.Lookup(srcs[0]) : -1;
+        int p1 = srcs.Count > 1 ? _rat.Lookup(srcs[1]) : -1;
+        int p2 = srcs.Count > 2 ? _rat.Lookup(srcs[2]) : -1;
+        bool Tainted(int phys) => phys >= 0 && _runaheadTainted.Contains(phys);
+        bool anyTainted = Tainted(p0) || Tainted(p1) || Tainted(p2);
+
+        // Branches never dereference memory and don't need real operand values (prediction is
+        // PC/history-indexed) — taint never blocks them. No RAS/history mutation: shadow
+        // speculation stays invisible to real predictor and return-address-stack state.
+        if (instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch) {
+            FetchHint hint = _decoder.GetFetchHint(_shadowPc, raw);
+            BranchPrediction pred = hint is { IsUnconditional: true, BranchTarget.HasValue: true, }
+                ? BranchPrediction.Taken(hint.BranchTarget.Value)
+                : _predictor.Predict(_shadowPc, hint.BranchTarget);
+            ulong fallThrough = _shadowPc + (ulong)instr.SizeBytes;
+            ulong takenTarget = hint.BranchTarget.HasValue ? hint.BranchTarget.Value : pred.PredictedTarget;
+            _shadowPc = pred.PredictedTaken && takenTarget != 0 ? takenTarget : fallThrough;
+            return true;
+        }
+
+        int destArch = instr.DestinationRegister;
+        if (destArch > 0 && !_rat.HasFree) return false;
+
+        // A tainted operand feeding a load/store is never dereferenced — real reads/writes only
+        // happen once every feeding source is known-good, avoiding garbage addresses and false
+        // aliasing in the shadow store buffer.
+        bool isMemOp = instr.Class is ToothClass.Load or ToothClass.Store;
+        if (isMemOp && anyTainted) {
+            if (destArch > 0) {
+                (int newPhys, _) = _rat.Rename(destArch);
+                _prf.Write(newPhys, 0UL);
+                _runaheadTainted.Add(newPhys);
+            }
+
+            _shadowPc += (ulong)instr.SizeBytes;
+            return true;
+        }
+
+        IRegisterFile regs = State.IntegerRegisters;
+        ulong save0 = srcs.Count > 0 ? regs.Read(srcs[0]) : 0;
+        ulong save1 = srcs.Count > 1 ? regs.Read(srcs[1]) : 0;
+        ulong save2 = srcs.Count > 2 ? regs.Read(srcs[2]) : 0;
+        if (srcs.Count > 0) regs.Write(srcs[0], Tainted(p0) ? 0UL : _prf.Read(p0));
+        if (srcs.Count > 1) regs.Write(srcs[1], Tainted(p1) ? 0UL : _prf.Read(p1));
+        if (srcs.Count > 2) regs.Write(srcs[2], Tainted(p2) ? 0UL : _prf.Read(p2));
+
+        var mem = new RunaheadMemory(DLayers.Accessor, _runaheadStoreBuffer);
+        ExecuteResult er;
+        try { er = _executor.Execute(instr, State, mem); }
+        catch (AccessViolationException) {
+            if (srcs.Count > 0) regs.Write(srcs[0], save0);
+            if (srcs.Count > 1) regs.Write(srcs[1], save1);
+            if (srcs.Count > 2) regs.Write(srcs[2], save2);
+            return false;
+        }
+
+        if (srcs.Count > 0) regs.Write(srcs[0], save0);
+        if (srcs.Count > 1) regs.Write(srcs[1], save1);
+        if (srcs.Count > 2) regs.Write(srcs[2], save2);
+
+        if (er.HasTrap) return false; // a shadow instruction that would fault ends the episode
+
+        if (destArch > 0) {
+            (int newPhys, _) = _rat.Rename(destArch);
+            _prf.Write(newPhys, er.RegisterResult.HasValue ? er.RegisterResult.Value : 0UL);
+            if (anyTainted) _runaheadTainted.Add(newPhys);
+        }
+
+        _shadowPc += (ulong)instr.SizeBytes;
+        return true;
     }
 
     // ── Flush (misprediction / trap) ───────────────────────────────────────────
@@ -2368,5 +2579,25 @@ internal sealed class OoOPipelineCore : Gear {
             HasWrite = false;
             HasRead = false;
         }
+    }
+
+    /// <summary>
+    ///     Memory view for the runahead shadow lane. Writes never reach real memory — they land only
+    ///     in a scratch buffer keyed by exact (address, bytes), discarded when the episode ends. Reads
+    ///     check that buffer first (full-word/zero-offset store-to-load forwarding within an episode),
+    ///     then fall through to the real backing accessor — which is what actually warms the real
+    ///     cache for the real pipeline to find hot once it resumes.
+    /// </summary>
+    private sealed class RunaheadMemory(IMemory backing, Dictionary<ulong, (ulong Value, int Bytes)> storeBuffer)
+        : IMemory {
+        public ulong Read(ulong address, int bytes) =>
+            storeBuffer.TryGetValue(address, out (ulong Value, int Bytes) e) && e.Bytes == bytes
+                ? e.Value
+                : backing.Read(address, bytes);
+
+        public void Write(ulong address, ulong value, int bytes) => storeBuffer[address] = (value, bytes);
+
+        public void Load(ulong address, ReadOnlySpan<byte> data) { }
+        public void SetRequestPc(ulong pc) => backing.SetRequestPc(pc);
     }
 }

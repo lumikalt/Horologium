@@ -10,7 +10,7 @@ namespace Pipeline.Ooo;
 ///         instruction. When the CDB broadcasts a result, all entries whose tag
 ///         matches the broadcasting register have their Ready bit set and Value filled.
 ///     </para>
-///     <para>An entry becomes eligible for issue once all needed sources are ready.</para>
+///     <para>An entry becomes eligible for issue once all necessary sources are ready.</para>
 /// </summary>
 public sealed class RsEntry {
     public bool Busy { get; set; }

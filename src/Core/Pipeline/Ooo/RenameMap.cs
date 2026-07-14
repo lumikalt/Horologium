@@ -1,5 +1,11 @@
 namespace Pipeline.Ooo;
 
+/// <summary>A point-in-time capture of a <see cref="RenameMap" />'s RAT array and free list.</summary>
+public readonly struct RenameMapSnapshot {
+    public required int[] Rat { get; init; }
+    public required int[] FreeList { get; init; }
+}
+
 /// <summary>
 ///     Register Alias Table (RAT) paired with a free-physical-register list.
 ///     <para>
@@ -92,6 +98,21 @@ public sealed class RenameMap {
         for (var i = 0; i < _archCount; i++) _rat[i] = i;
         _freeList.Clear();
         for (int i = _archCount; i < _physCount; i++) _freeList.Enqueue(i);
+    }
+
+    /// <summary>Captures the current RAT mapping and free list so they can be perfectly restored later.</summary>
+    public RenameMapSnapshot Snapshot() => new() { Rat = (int[])_rat.Clone(), FreeList = _freeList.ToArray(), };
+
+    /// <summary>
+    ///     Overwrites the RAT and free list from a prior <see cref="Snapshot" />, discarding every
+    ///     rename performed since. Used by runahead execution to undo a shadow episode's allocations:
+    ///     because this replaces state wholesale rather than undoing deltas, it is safe to call even
+    ///     when the caller doesn't know exactly how far a speculative episode progressed.
+    /// </summary>
+    public void Restore(RenameMapSnapshot snapshot) {
+        Array.Copy(snapshot.Rat, _rat, _rat.Length);
+        _freeList.Clear();
+        foreach (int phys in snapshot.FreeList) _freeList.Enqueue(phys);
     }
 
     private void ValidateArch(int arch) {

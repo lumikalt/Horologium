@@ -63,8 +63,11 @@ public class SmbBypassTests {
 
     /// <summary>
     ///     Store/reload loop at a fixed SSN distance every iteration (assembled from:
-    ///     <c>addi x1,x0,100; addi x2,x0,0; addi x3,x0,20; loop: sw x2,0(x1); lw x4,0(x1);
-    ///     addi x2,x4,1; addi x3,x3,-1; bne x3,x0,loop; ebreak</c>). The predictor is cold at
+    ///     <c>
+    ///         addi x1,x0,100; addi x2,x0,0; addi x3,x0,20; loop: sw x2,0(x1); lw x4,0(x1);
+    ///         addi x2,x4,1; addi x3,x3,-1; bne x3,x0,loop; ebreak
+    ///     </c>
+    ///     ). The predictor is cold at
     ///     first (no prediction has ever been trained), so the first couple of iterations
     ///     forward ordinarily and teach it the distance; once confident, later iterations
     ///     take the early-bypass path. Every bypass here is address- and width-consistent
@@ -81,7 +84,7 @@ public class SmbBypassTests {
             0x00120113, // addi x2, x4, 1
             0xFFF18193, // addi x3, x3, -1
             0xFE0198E3, // bne x3, x0, loop
-            0x00100073  // ebreak
+            0x00100073, // ebreak
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(false);
@@ -134,7 +137,7 @@ public class SmbBypassTests {
             0x06800293, // do_redirect: addi x5, x0, 104
             0xFFF18193, // cont: addi x3, x3, -1
             0xFE0192E3, // bne x3, x0, loop
-            0x00100073  // ebreak
+            0x00100073, // ebreak
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(false);
@@ -154,8 +157,11 @@ public class SmbBypassTests {
 
     /// <summary>
     ///     Store word / load byte from the same address every iteration (assembled from:
-    ///     <c>addi x1,x0,100; addi x2,x0,0; addi x3,x0,20; loop: sw x2,0(x1); lb x4,0(x1);
-    ///     addi x2,x4,1; addi x3,x3,-1; bne x3,x0,loop; ebreak</c>). The store fully
+    ///     <c>
+    ///         addi x1,x0,100; addi x2,x0,0; addi x3,x0,20; loop: sw x2,0(x1); lb x4,0(x1);
+    ///         addi x2,x4,1; addi x3,x3,-1; bne x3,x0,loop; ebreak
+    ///     </c>
+    ///     ). The store fully
     ///     contains the load's byte range, so ordinary store-to-load forwarding succeeds and
     ///     trains the predictor with a real distance — but the v1 full-word/zero-offset
     ///     restriction (predicted producer's static width must equal the load's) must still
@@ -173,7 +179,7 @@ public class SmbBypassTests {
             0x00120113, // addi x2, x4, 1
             0xFFF18193, // addi x3, x3, -1
             0xFE0198E3, // bne x3, x0, loop
-            0x00100073  // ebreak
+            0x00100073, // ebreak
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(false);
