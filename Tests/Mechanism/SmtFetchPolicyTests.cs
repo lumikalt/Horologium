@@ -65,8 +65,8 @@ public class SmtFetchPolicyTests {
 
         // Hart 0 stalls heavily (cache misses), hart 1 stays clean.
         p.BeginCycle(2);
-        p.OnIssued(0, stallCycles: 100);
-        p.OnIssued(1, stallCycles: 0);
+        p.OnIssued(0, 100);
+        p.OnIssued(1, 0);
 
         p.BeginCycle(2);
         bool[] available = [true, true,];
@@ -80,14 +80,14 @@ public class SmtFetchPolicyTests {
         var p = new IcountFetchPolicy();
 
         p.BeginCycle(2);
-        p.OnIssued(0, stallCycles: 100);
-        p.OnIssued(1, stallCycles: 0);
+        p.OnIssued(0, 100);
+        p.OnIssued(1, 0);
 
         // Hart 1 then stalls repeatedly while hart 0's old penalty decays away.
         for (var i = 0; i < 10; i++) {
             p.BeginCycle(2);
-            p.OnIssued(0, stallCycles: 0);
-            p.OnIssued(1, stallCycles: 20);
+            p.OnIssued(0, 0);
+            p.OnIssued(1, 20);
         }
 
         p.BeginCycle(2);
@@ -101,9 +101,9 @@ public class SmtFetchPolicyTests {
     public void Icount_SkipsUnavailableHarts() {
         var p = new IcountFetchPolicy();
         p.BeginCycle(3);
-        p.OnIssued(0, stallCycles: 0);
-        p.OnIssued(1, stallCycles: 0);
-        p.OnIssued(2, stallCycles: 50);
+        p.OnIssued(0, 0);
+        p.OnIssued(1, 0);
+        p.OnIssued(2, 50);
 
         p.BeginCycle(3);
         bool[] available = [false, true, true,];

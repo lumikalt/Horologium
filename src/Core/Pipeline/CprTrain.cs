@@ -919,7 +919,7 @@ internal sealed class CprPipelineCore : Gear {
             for (var b = 0; b < loadBytes; b++) {
                 ulong abs = loadAddr + (ulong)b;
                 if (abs < sq.Address || abs >= sqEnd) continue;
-                var storeByte = (sq.Value >> (int)((abs - sq.Address) * 8)) & 0xFF;
+                ulong storeByte = (sq.Value >> (int)((abs - sq.Address) * 8)) & 0xFF;
                 value = (value & ~(0xFFUL << (b * 8))) | (storeByte << (b * 8));
             }
 
@@ -1415,7 +1415,7 @@ internal sealed class CprPipelineCore : Gear {
             // instruction this is) already checkpoints exactly this point: its snapshot was taken
             // at the current RAT state and nothing has renamed since. Reuse it instead of opening
             // a duplicate — opening one would orphan the empty checkpoint at the FIFO head.
-            bool tailEmpty = _cpList is { IsEmpty: false, Tail.Entries.Count: 0 };
+            bool tailEmpty = _cpList is { IsEmpty: false, Tail.Entries.Count: 0, };
             bool mustOpen = !tailEmpty
                          && (_cpList.IsEmpty
                           || serialized

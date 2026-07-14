@@ -29,7 +29,7 @@ public sealed class IcountFetchPolicy : ISmtFetchPolicy {
     /// <inheritdoc />
     public int SelectHart(ReadOnlySpan<bool> available) {
         int n = available.Length;
-        var best = -1;
+        int best = -1;
         for (var t = 0; t < n; t++) {
             int h = (_tieBreakCursor + t) % n;
             if (!available[h]) continue;
@@ -42,6 +42,6 @@ public sealed class IcountFetchPolicy : ISmtFetchPolicy {
 
     /// <inheritdoc />
     public void OnIssued(int hart, long stallCycles) {
-        _score[hart] = (_score[hart] * DecayFactor) + stallCycles;
+        _score[hart] = _score[hart] * IcountFetchPolicy.DecayFactor + stallCycles;
     }
 }

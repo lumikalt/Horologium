@@ -22,8 +22,12 @@ off here until a periodic cleanup removes them; the durable record is git histor
   al., ASPLOS 2004
 - [x] SMT fetch policies: ICOUNT and round-robin variants for per-hart fetch/issue arbitration in the SMT train. —
   Tullsen et al., ISCA 1996
-- [ ] Decoupled access-execute (DAE): the classic access/execute processor split — the architectural ancestor of
+- [x] Decoupled access-execute (DAE): the classic access/execute processor split — the architectural ancestor of
   UVE-style streaming. — Smith, ISCA 1982
+- [ ] DAE precise exceptions: `DaeTrain` currently halts the simulation on a trapping Access/Execute-lane
+  instruction (e.g., a misaligned load) rather than recovering, since the other lane may already be ahead in
+  program order with no rollback path. Needs a checkpoint/rollback scheme (or a narrower one restricted to the
+  trapping lane) before faulting workloads can run to completion under DAE.
 
 ## Performance
 
