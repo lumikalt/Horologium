@@ -15,6 +15,13 @@ off here until a periodic cleanup removes them; the durable record is git histor
   which clobbers harcom predictors' per-block register state as above. Needs either per-predictor block-state
   snapshot/restore (not generic — differs per submission) or another reconciliation strategy.
 
+## Analysis
+
+- [x] ChampSim trace import: parse ChampSim's binary trace format (`input_instr`, the input to CBP branch-predictor
+  and CRC cache-replacement-championship submissions) and replay it through Horologium's `IBranchPredictor` and
+  `IReplacementPolicy` plug-in surfaces, so those implementations can be validated against real trace corpuses
+  instead of only Horologium-generated workloads. https://github.com/ChampSim/ChampSim
+
 ## Performance
 
 - [ ] Memoization of instructions and decodings?

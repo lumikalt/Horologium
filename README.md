@@ -1085,6 +1085,34 @@ Format details: version 1.5, ISA=RISCV, IEM=RV32. Per-instruction record group (
 FP registers are tracked via the unified integer+FP register file (indices 32–63 = f0–f31). Vector register records are
 omitted since VRF values are not accessible through `IArchState`. Generator: `STF_GEN_RESERVED` (0).
 
+### ChampSim trace replay (RiscV32/Trace)
+
+`ChampSimTraceReader`/`ChampSimTraceReplayer` replay a [ChampSim](https://github.com/ChampSim/ChampSim) binary trace —
+the baseline format for the CBP (branch prediction) and CRC (cache replacement) competitions — through Horologium's
+`IBranchPredictor` and `IReplacementPolicy` surfaces, so competition submissions can be cross-checked against real
+trace corpuses rather than only Horologium-generated workloads. This is a standalone replay: it needs no ELF workload,
+since a ChampSim trace already carries the full dynamic instruction/branch/memory stream.
+
+```bash
+# Evaluate a built-in predictor and cache policy against a trace (raw or gzip)
+dotnet run --project src/Apps/Runner -- --champsim-trace bzip2.trace.gz \
+    --champsim-predictor tage_sc_l --champsim-cache-policy Ship
+
+# Evaluate a native CBP-3/5 plugin instead (see native/CbpShim)
+dotnet run --project src/Apps/Runner -- --champsim-trace bzip2.trace.gz --champsim-cbp-lib ./libpredictor.so
+
+# Skip cache evaluation
+dotnet run --project src/Apps/Runner -- --champsim-trace bzip2.trace.gz --champsim-cache-policy none
+```
+
+Format details: a dense stream of 64-byte `input_instr` records (`inc/trace_instruction.h`) — `ip` (u64), `is_branch`/
+`branch_taken` (u8 each), 2 destination + 4 source register indices (u8 each), then 2 destination + 4 source memory
+addresses (u64 each, 0 = unused slot). Little-endian, no header; `.gz`-compressed streams are decompressed
+transparently, `.xz` must be decompressed externally first. ChampSim traces carry no static decode information, so a
+branch's actual target is taken to be the next record's `ip` — the same inference ChampSim's own `tracereader.h` uses
+— meaning the final branch in a trace is unscored. Cache replay runs against a synthetic `ChampSimBackingMemory` (data
+is irrelevant to hit/miss accounting); loads come from `source_memory` slots, stores from `destination_memory` slots.
+
 ## Co-simulation contract
 
 Spike is the reference of record for ISA correctness. The contract: **every change to the decoder, executor,

@@ -1,4 +1,6 @@
 using Mechanism;
+using Mechanism.BranchPredictModels;
+using Orrery.Cache;
 using Orrery.Train;
 using Pipeline.Spec;
 using RiscV32;
@@ -29,7 +31,14 @@ string? elasticToGem5In = null;    // --elastic-to-gem5 <in> <out>: translate HE
 string? elasticToGem5Out = null;
 string? fetchToGem5In = null; // --fetch-to-gem5 <in> <out>: translate HELF → gem5 packet (fetch) proto
 string? fetchToGem5Out = null;
-string? stfRecordPath = null; // --stf-record <path>: record STF binary trace and exit
+string? stfRecordPath = null;     // --stf-record <path>: record STF binary trace and exit
+string? champsimTracePath = null; // --champsim-trace <path>: replay a ChampSim binary trace and exit
+var champsimPredictor = "n_bit";  // --champsim-predictor <name>: built-in predictor to evaluate
+string? champsimCbpLib = null;    // --champsim-cbp-lib <path>: evaluate a CBP-3/5 native plugin instead
+var champsimCachePolicy = "Lru";  // --champsim-cache-policy <name|none>: replacement policy to evaluate
+var champsimCacheSets = 2048;     // --champsim-cache-sets <n>
+var champsimCacheWays = 16;       // --champsim-cache-ways <n>
+var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -57,7 +66,14 @@ for (var i = 0; i < args.Length; i++)
             fetchToGem5In = args[++i];
             fetchToGem5Out = args[++i];
             break;
-        case "--stf-record": stfRecordPath = args[++i]; break;
+        case "--stf-record":            stfRecordPath = args[++i]; break;
+        case "--champsim-trace":        champsimTracePath = args[++i]; break;
+        case "--champsim-predictor":    champsimPredictor = args[++i]; break;
+        case "--champsim-cbp-lib":      champsimCbpLib = args[++i]; break;
+        case "--champsim-cache-policy": champsimCachePolicy = args[++i]; break;
+        case "--champsim-cache-sets":   champsimCacheSets = int.Parse(args[++i]); break;
+        case "--champsim-cache-ways":   champsimCacheWays = int.Parse(args[++i]); break;
+        case "--champsim-cache-block":  champsimCacheBlock = int.Parse(args[++i]); break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -101,6 +117,48 @@ if (elasticReplayPath is not null) {
         $"{replayResult.TotalCycles:N0} cycles (critical path), " +
         $"IPC upper bound = {replayResult.Ipc:F3}"
     );
+    return;
+}
+
+// ── ChampSim trace replay (standalone — no workload needed) ──────────────────
+
+if (champsimTracePath is not null) {
+    IBranchPredictor? predictor = champsimCbpLib is not null
+        ? new CbpFfiPredictor(champsimCbpLib)
+        : ResolveChampSimPredictor(champsimPredictor);
+
+    SetAssociativeCache? cache = null;
+    if (!string.Equals(champsimCachePolicy, "none", StringComparison.OrdinalIgnoreCase)) {
+        if (!Enum.TryParse(champsimCachePolicy, true, out ReplacementPolicyKind policyKind)) {
+            Console.Error.WriteLine($"Unknown --champsim-cache-policy '{champsimCachePolicy}'.");
+            return;
+        }
+
+        int capacityBytes = champsimCacheSets * champsimCacheWays * champsimCacheBlock;
+        cache = new SetAssociativeCache(
+            new ChampSimBackingMemory(), capacityBytes, champsimCacheWays, champsimCacheBlock, 1,
+            replacementPolicy: policyKind
+        );
+    }
+
+    await using var champsimFs = new FileStream(champsimTracePath, FileMode.Open, FileAccess.Read);
+    using var champsimReader = new ChampSimTraceReader(champsimFs);
+    ChampSimReplayResult replay = ChampSimTraceReplayer.Replay(champsimReader.ReadAll(), predictor, cache);
+
+    Console.Error.WriteLine($"ChampSim replay: {replay.Instructions:N0} instructions");
+    if (replay.Branches > 0)
+        Console.Error.WriteLine(
+            $"  Predictor ({(champsimCbpLib is not null ? $"cbp:{champsimCbpLib}" : champsimPredictor)}) — " +
+            $"{replay.Branches:N0} branches, {replay.Mispredictions:N0} mispredicts " +
+            $"({replay.MispredictionRate:P2}), MPKI = {replay.Mpki:F3}"
+        );
+    if (cache is not null)
+        Console.Error.WriteLine(
+            $"  Cache ({champsimCachePolicy}, {champsimCacheSets}x{champsimCacheWays}x{champsimCacheBlock}B) — " +
+            $"{replay.Loads:N0} loads, {replay.Stores:N0} stores, " +
+            $"{replay.CacheHits:N0} hits, {replay.CacheMisses:N0} misses ({replay.CacheHitRate:P2} hit rate)"
+        );
+
     return;
 }
 
@@ -415,6 +473,26 @@ return;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+static IBranchPredictor ResolveChampSimPredictor(string name) => (name switch {
+    "always_taken"      => BranchPredictorConfig.AlwaysTaken(),
+    "always_not_taken"  => BranchPredictorConfig.AlwaysNotTaken(),
+    "n_bit"             => BranchPredictorConfig.NBit(),
+    "correlated"        => BranchPredictorConfig.Correlated(),
+    "gselect"           => BranchPredictorConfig.Gselect(),
+    "gshare"            => BranchPredictorConfig.Gshare(),
+    "l_tage"            => BranchPredictorConfig.LTage(),
+    "perceptron"        => BranchPredictorConfig.Perceptron(),
+    "tournament"        => BranchPredictorConfig.Tournament(),
+    "tage_sc_l"         => BranchPredictorConfig.TageScL(),
+    "hashed_perceptron" => BranchPredictorConfig.HashedPerceptron(),
+    "ittage"            => BranchPredictorConfig.Ittage(),
+    "batage"            => BranchPredictorConfig.Batage(),
+    "imli"              => BranchPredictorConfig.Imli(),
+    _ => throw new ArgumentException(
+        $"Unknown --champsim-predictor '{name}'. Use --champsim-cbp-lib for a native CBP plugin instead."
+    ),
+}).Build();
+
 static IReadOnlyList<NamedConfig> DefaultSweep() => [
     new("always_not_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysNotTaken())),
     new("always_taken", new TrainConfig(Predictor: BranchPredictorConfig.AlwaysTaken())),
@@ -491,6 +569,24 @@ static void PrintUsage() {
                                         registers), memory addresses and data, and taken-branch
                                         targets. Replay with Olympia or any stf_lib-based tool.
                                         Single workload only.
+          --champsim-trace <path>       Replay a ChampSim binary trace (raw or gzip; `input_instr`
+                                        records — see inc/trace_instruction.h in ChampSim) through
+                                        a branch predictor and/or cache replacement policy and print
+                                        misprediction/hit-rate stats. No workload needed.
+          --champsim-predictor <name>   Built-in predictor to evaluate (default: n_bit). One of:
+                                        always_taken, always_not_taken, n_bit, correlated, gselect,
+                                        gshare, l_tage, perceptron, tournament, tage_sc_l,
+                                        hashed_perceptron, ittage, batage, imli.
+          --champsim-cbp-lib <path>     Evaluate a CBP-3/5 native plugin (native/CbpShim) instead of
+                                        a built-in predictor. Overrides --champsim-predictor.
+          --champsim-cache-policy <name|none>
+                                        Replacement policy to evaluate (default: Lru; case-
+                                        insensitive Orrery.Cache.ReplacementPolicyKind name — Lru,
+                                        Srrip, Brrip, Drrip, Ship, ShipPc, Random, Fifo, Plru, Mru,
+                                        Clock, Hawkeye). "none" skips cache evaluation.
+          --champsim-cache-sets <n>     Cache set count (default: 2048).
+          --champsim-cache-ways <n>     Cache associativity (default: 16).
+          --champsim-cache-block <n>    Cache line size in bytes (default: 64).
           --help                        Show this message.
 
         Sweep file format (JSON array):

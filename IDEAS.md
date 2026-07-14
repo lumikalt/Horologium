@@ -34,8 +34,6 @@ the active thread.
   accounting computed from dial values. — Yasin, ISPASS 2014
 - [ ] CPI stacks via interval analysis: per-miss-event cycle accounting for OoO cores (as in Sniper), attributing
   stall cycles to branch mispredictions, cache misses, and dependences. — Eyerman et al., ASPLOS 2006 / ACM TOCS 2009
-- [ ] ChampSim trace import: run CBP/CRC competition branch predictor and cache replacement plug-ins against Horologium
-  workloads.
 - [ ] Intel PT (Processor Trace) binary format import: decode hardware-captured execution traces into the elastic replay
   path.
 - [ ] RISC-V-PAPI integration: cross-validate Horologium's Zicntr/Zihpm counter output against hardware readings
@@ -267,9 +265,6 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 
 ### Simulators and trace frameworks
 
-- **ChampSim** — trace-based µarch simulator; the baseline infrastructure for CBP and CRC (cache replacement)
-  competitions. Useful for validating Horologium's branch predictor and cache replacement implementations against
-  competition submissions. https://github.com/ChampSim/ChampSim
 - **Snipersim** — interval-simulation model driven by a Pin front-end; fast parallel simulation for many-core
   studies. https://snipersim.org
 - **ZSim** — fast x86 simulation with interval timing and detailed cache/coherence models. — Sanchez & Kozyrakis, ISCA
