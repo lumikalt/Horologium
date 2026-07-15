@@ -15,8 +15,14 @@ public interface IArchState {
     /// <summary>The privilege level the hart is currently executing at.</summary>
     PrivilegeLevel PrivilegeLevel { get; set; }
 
-    /// <summary>The integer register file.</summary>
-    IRegisterFile IntegerRegisters { get; }
+    /// <summary>
+    ///     The integer register file. Settable so the pipeline can temporarily substitute a
+    ///     forwarding overlay around one <see cref="IExecutor.Execute" /> call without replacing
+    ///     this <see cref="IArchState" /> instance itself — ISA executors that downcast
+    ///     <c>IArchState</c> to their concrete state type (for CSR/vector/UVE access) still see the
+    ///     real object.
+    /// </summary>
+    IRegisterFile IntegerRegisters { get; set; }
 
     /// <summary>
     ///     The system register file. Null if the ISA does not define system registers.

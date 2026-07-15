@@ -29,8 +29,12 @@ public sealed class F18AArchState : IArchState {
     public uint B { get; set; }
 
     public ulong Pc { get; set; }
+
     public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
-    public IRegisterFile IntegerRegisters { get; }
+
+    // F18A only ever runs on SingleCycleTrain, which has no forwarding overlay to swap this
+    // property for; the setter exists solely to satisfy IArchState.
+    public IRegisterFile IntegerRegisters { get; set; }
     public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
 
     public IArchState Snapshot() {

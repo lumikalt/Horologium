@@ -171,7 +171,12 @@ public class TeaBranchPredictionTests {
     private sealed class FakeArchState : IArchState {
         public ulong Pc { get; set; }
         public PrivilegeLevel PrivilegeLevel { get; set; }
-        public IRegisterFile IntegerRegisters => throw new NotImplementedException();
+
+        public IRegisterFile IntegerRegisters {
+            get => throw new NotImplementedException();
+            set => throw new NotImplementedException();
+        }
+
         public ISystemRegisters SystemRegisters => throw new NotImplementedException();
         public IArchState Snapshot() => throw new NotImplementedException();
         public void Reset() { }

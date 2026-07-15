@@ -24,11 +24,11 @@ the active thread.
   Gear's internal state (ROB, LSQ, issue queues, pipeline latches, cache/TLB line arrays, branch predictor
   tables) so simulation can be suspended and resumed with microarchitectural fidelity — mirrors gem5's
   `serialize`/`unserialize` Checkpoint interface. Requires each `Gear` to implement a serialization contract.
-- [ ] SimPoint phase analysis: basic-block vector (BBV) profiling + k-means clustering for representative sampling. —
+- [ ] SimPoint phase analysis: basic-block vector (BBV) profiling and k-means clustering for representative sampling. —
   Sherwood et al., ASPLOS 2002
 - [ ] SMARTS: systematic statistical sampling with functional warming between detailed sample windows. — Wunderlich
   et al., ISCA 2003
-- [ ] LoopPoint: checkpoint-driven sampling methodology for multi-threaded workloads; the multi-hart counterpart to
+- [ ] LoopPoint: checkpoint-driven sampling methodology for multithreaded workloads; the multi-hart counterpart to
   SimPoint. — Sabu et al., HPCA 2022
 - [ ] Top-Down Microarchitecture Analysis (TMA): frontend-bound / backend-bound / bad-speculation / retiring slot
   accounting computed from dial values. — Yasin, ISPASS 2014
@@ -51,7 +51,7 @@ the active thread.
 
 ## Performance
 
-- [ ] Value prediction: predict ALU/load results to break dependence chains; commit only if prediction correct. —
+- [ ] Value prediction: predict ALU/load results to break dependence chains; commit only if the prediction is correct. —
   Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, MICRO 2014 (VTAGE/EOLE)
 
 ## µops
@@ -75,7 +75,7 @@ the active thread.
 
 - [ ] Spatio-temporal memory streaming (STeMS) extending SMS with temporal miss-sequence recording. — Somogyi et al.,
   ISCA 2009
-- [ ] Best-Offset Prefetcher (BOP): offset-selection tournament with timeliness scoring; DPC-2 winner. — Michaud,
+- [ ] Best-Offset Prefetcher (BOP): offset-selection tournament with timeliness scoring; the DPC-2 winner. — Michaud,
   HPCA 2016
 - [ ] Signature Path Prefetcher (SPP): compressed access-pattern signatures with path-confidence lookahead; optional
   perceptron prefetch filter (PPF) on top. — Kim et al., MICRO 2016; Bhatia et al., ISCA 2019
@@ -102,14 +102,14 @@ the active thread.
   caches; concrete design for the memory-side-cache item. — Qureshi & Loh, MICRO 2012
 - [ ] MMU translation research: page-walk caches / translation caching ("skip, don't walk") and TLB prefetching;
   builds on the Sv32 walker. — Barr, Cox & Rixner, ISCA 2010; Kandiraju & Sivasubramaniam, ISCA 2002
-- [ ] Vector Runahead true pipelining: decouple the shadow lane's unroll-round issuance from its single-PC
-  walk through the loop body. Today `TerminateOrUnroll` only starts round N+1 once the shadow PC revisits
-  the chain origin, even though a stride-confirmed chain's round addresses are all knowable up front with
-  no data dependency forcing that wait — the real `SetAssociativeCache` MSHR model (finite `MshrCount`,
-  per-cycle countdown, capacity-stall accounting) already has overlap capacity to exploit, it's just not
-  being fed concurrent requests. Would need a round-issue loop independent of normal shadow stepping,
-  computing and issuing all U rounds' lane reads back-to-back. — Naithani, Ainsworth, Jones & Eeckhout,
-  ISCA 2021 (§III-G, P overlapped in-flight rounds)
+  - [ ] Vector Runahead true pipelining: decouple the shadow lane's unroll-round issuance from its single-PC
+    walk through the loop body. Today `TerminateOrUnroll` only starts round N+1 once the shadow PC revisits
+    the chain origin, even though a stride-confirmed chain's round addresses are all knowable up front with
+    no data dependency forcing that wait. The real `SetAssociativeCache` MSHR model (finite `MshrCount`,
+    per-cycle countdown, capacity-stall accounting) already has overlap capacity to exploit; it's just not
+    being fed concurrent requests. Would need a round-issue loop independent of normal shadow stepping,
+    computing, and issuing all U rounds' lane reads back-to-back. — Naithani, Ainsworth, Jones & Eeckhout,
+    ISCA 2021 (§III-G, P overlapped in-flight rounds)
 
 ## Security
 
@@ -146,12 +146,13 @@ the active thread.
 - [ ] riscv-formal: SymbiYosys-based bounded model checking of ISA-compliance properties against the decoder/executor.
 - [ ] FireSim: FPGA-accelerated cycle-exact simulation for large-scale multicore validation against RTL.
 - [ ] Snipersim co-comparison: interval-simulation IPC model as a lightweight cross-check. — Carlson et al., ISCA 2011
-- [ ] UVE-patched Spike co-simulation: use the INESC-ID/HPCAS Spike fork (Baptista MSc 2023) as a functional oracle for
+- [ ] UVE-patched Spike co-simulation: use the INESC-ID/HPCAS Spike fork (Baptista M.Sc. 2023) as a functional oracle
+  for
   UVE streaming instructions, the same way scalar Spike is used
   today. https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
 - [ ] UVE gem5 model cross-check: compare Horologium's UVE timing (issue latency, stream-engine fill cycles) against the
   gem5 UVE branch from hpc-ulisboa. https://github.com/hpc-ulisboa/UVE
-- [ ] RTL functional-unit substitution: swap one pipeline FU (e.g. a custom ALU or accelerator) for cycle-accurate RTL
+- [ ] RTL functional-unit substitution: swap one pipeline FU (e.g., a custom ALU or accelerator) for cycle-accurate RTL
   via Verilator, so the surrounding pipeline drives real hardware instead of the C# functional/latency model for that
   unit — useful for validating a custom-unit design against the rest of the system before tapeout/FPGA. See
   `~/dl/citations.csv` for candidate references.
@@ -161,12 +162,12 @@ the active thread.
 - [ ] Generic definition for a parser.
 - [ ] Clock domain crossing: model multiple frequency domains (e.g., core at 3 GHz, uncore/LLC at 1.5 GHz) with
   synchronization FIFOs.
-- [ ] APLIC (Advanced Interrupt Architecture PLC): MSI delivery, domain model, direct and MSI modes. — RISC-V AIA Spec
+- [ ] APLIC (Advanced Interrupt Architecture PLC): MSI delivery, domain model, direct, and MSI modes. — RISC-V AIA Spec
 
 ## Face
 
 - [ ] Work with other ISAs, not just RISC-V.
-- [ ] Power/energy estimation display alongside performance (McPAT-style: dynamic + leakage per unit).
+- [ ] Power/energy estimation display alongside performance (McPAT-style: dynamic and leakage per unit).
 
 ## Open Questions
 
@@ -178,10 +179,10 @@ the active thread.
   accelerator on the fabric; validate timing against SCALE-Sim. — Jouppi et al., ISCA 2017 (TPU); Samajdar et al.,
   ISPASS 2020 (SCALE-Sim)
 - [ ] Dataflow accelerator design space: row-stationary dataflow (Eyeriss) and flexible reduction interconnects
-  (MAERI); STONNE as reference simulator. — Chen et al., ISCA 2016; Kwon et al., ASPLOS 2018; Muñoz-Martínez et al.,
+  (MAERI); STONNE as a reference simulator. — Chen et al., ISCA 2016; Kwon et al., ASPLOS 2018; Muñoz-Martínez et al.,
   IISWC 2021
 - [ ] RISC-V matrix extension: integrated (IME) or attached (AME) matrix-multiply ISA proposals as a decoder/executor
-  plugin; Gemmini as the reference tightly-coupled accelerator design. — RISC-V AME task group; Genc et al., DAC 2021
+  plugin; Gemmini as the reference tightly coupled accelerator design. — RISC-V AME task group; Genc et al., DAC 2021
 - [ ] Processing-in-memory (PIM): UPMEM-style general-purpose DRAM processing units with explicit host offload;
   PrIM benchmark suite for workload characterization. — Gómez-Luna et al., IEEE Access 2022; Mutlu et al., "A Modern
   Primer on Processing in Memory", 2022
@@ -261,7 +262,7 @@ the active thread.
 
 ## Tools
 
-External tools worth evaluating for integration, co-sim, or methodology comparison.
+External tools that are worth evaluating for integration, co-sim, or methodology comparison.
 
 ### Simulators and trace frameworks
 
@@ -300,7 +301,7 @@ External tools worth evaluating for integration, co-sim, or methodology comparis
 - **UVE2 spec** — C reference implementation of the UVE 2 extension (predicates, scatter/gather, widening/narrowing);
   the authoritative source for the UVE 2 backlog item. https://github.com/hpc-ulisboa/UVE2
 - **Spike UVE patch** — INESC-ID's Spike fork adding UVE decode and functional execution; the co-simulation oracle for
-  UVE instructions (Baptista MSc 2023). https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
+  UVE instructions (Baptista M.Sc. 2023). https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
 - **RISC-V-PAPI** — PAPI hardware-counter backend for RISC-V; use to cross-validate Horologium's Zicntr/Zihpm dial
   values against measurements on real cores (CVA6, SiFive). https://github.com/hpc-ulisboa/RISC-V-PAPI
 - **NDPmulator** — gem5-based Near-Data Processing simulation framework; reference design for NDP compute units attached

@@ -6,7 +6,7 @@ namespace Pipeline;
 ///     The IF/ID pipeline register.
 ///     Carries a fetched instruction word into the Decode stage.
 /// </summary>
-public sealed record IfIdLatch {
+public readonly record struct IfIdLatch {
     public static readonly IfIdLatch Bubble = new();
 
     public bool IsValid { get; init; }
@@ -27,8 +27,13 @@ public sealed record IfIdLatch {
 ///     The ID/EX pipeline register.
 ///     Carries a fully decoded instruction into the Execute stage.
 /// </summary>
-public sealed record IdExLatch {
+public readonly record struct IdExLatch {
     public static readonly IdExLatch Bubble = new();
+
+    // Required because DestinationRegister below has a field initializer: a struct with
+    // field initializers must declare its parameterless constructor explicitly, otherwise
+    // `default(IdExLatch)` and `new IdExLatch()` would silently disagree on its value.
+    public IdExLatch() { }
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
@@ -48,8 +53,11 @@ public sealed record IdExLatch {
 ///     The EX/MEM pipeline register.
 ///     Carries an executed result into the Memory stage.
 /// </summary>
-public sealed record ExMemLatch {
+public readonly record struct ExMemLatch {
     public static readonly ExMemLatch Bubble = new();
+
+    // See IdExLatch — required by the DestinationRegister field initializer below.
+    public ExMemLatch() { }
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }
@@ -66,8 +74,11 @@ public sealed record ExMemLatch {
 ///     The MEM/WB pipeline register.
 ///     Carries a memory result into the Writeback stage.
 /// </summary>
-public sealed record MemWbLatch {
+public readonly record struct MemWbLatch {
     public static readonly MemWbLatch Bubble = new();
+
+    // See IdExLatch — required by the DestinationRegister field initializer below.
+    public MemWbLatch() { }
 
     public bool IsValid { get; init; }
     public ulong Pc { get; init; }

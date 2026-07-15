@@ -8,11 +8,13 @@ public sealed class J1ArchState : IArchState {
 
     private readonly ushort[] _dstack = new ushort[J1ArchState.StackDepth];
 
-    private readonly J1RegisterFile _regs;
     private readonly ushort[] _rstack = new ushort[J1ArchState.StackDepth];
     private int _rsp;
 
-    public J1ArchState() => _regs = new J1RegisterFile(this);
+    public J1ArchState() {
+        var regs = new J1RegisterFile(this);
+        IntegerRegisters = regs;
+    }
 
     public ushort T {
         get => _dstack[Dsp & (J1ArchState.StackDepth - 1)];
@@ -32,8 +34,12 @@ public sealed class J1ArchState : IArchState {
     }
 
     public ulong Pc { get; set; }
+
     public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
-    public IRegisterFile IntegerRegisters => _regs;
+
+    // J1 only ever runs on SingleCycleTrain, which has no forwarding overlay to swap this
+    // property for; the setter exists solely to satisfy IArchState.
+    public IRegisterFile IntegerRegisters { get; set; }
     public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
 
     public IArchState Snapshot() {
@@ -58,20 +64,12 @@ public sealed class J1ArchState : IArchState {
         _dstack[Dsp] = value;
     }
 
-    public ushort DPop() {
-        ushort v = T;
-        Dsp = (Dsp - 1) & (J1ArchState.StackDepth - 1);
-        return v;
-    }
+    public void DPop() => Dsp = (Dsp - 1) & (J1ArchState.StackDepth - 1);
 
     public void RPush(ushort value) {
         _rsp = (_rsp + 1) & (J1ArchState.StackDepth - 1);
         _rstack[_rsp] = value;
     }
 
-    public ushort RPop() {
-        ushort v = R;
-        _rsp = (_rsp - 1) & (J1ArchState.StackDepth - 1);
-        return v;
-    }
+    public void RPop() => _rsp = (_rsp - 1) & (J1ArchState.StackDepth - 1);
 }

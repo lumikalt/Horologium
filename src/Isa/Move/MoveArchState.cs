@@ -4,7 +4,6 @@ using Move.Registers;
 namespace Move;
 
 public sealed class MoveArchState : IArchState {
-    private readonly MoveRegisterFile _regs;
     public readonly ushort[] R = new ushort[8];
     public ushort AluIn1;
 
@@ -16,11 +15,17 @@ public sealed class MoveArchState : IArchState {
     public ushort MemAddr;
     public ushort MemOut;
 
-    public MoveArchState() => _regs = new MoveRegisterFile(this);
+    public MoveArchState() {
+        var regs = new MoveRegisterFile(this);
+        IntegerRegisters = regs;
+    }
 
     public ulong Pc { get; set; }
     public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
-    public IRegisterFile IntegerRegisters => _regs;
+
+    // Move only ever runs on SingleCycleTrain, which has no forwarding overlay to swap this
+    // property for; the setter exists solely to satisfy IArchState.
+    public IRegisterFile IntegerRegisters { get; set; }
     public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
 
     public IArchState Snapshot() {

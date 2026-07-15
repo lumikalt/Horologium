@@ -8,6 +8,7 @@ namespace Pipeline.Stages;
 
 public sealed class ExecuteStage : Gear {
     private readonly IExecutor _executor;
+    private readonly ForwardingOverlay _forwardOverlay = new();
     private readonly HazardUnit _hazard;
     private readonly IMemory _memory;
     private readonly IArchState _state;
@@ -86,26 +87,20 @@ public sealed class ExecuteStage : Gear {
             latch.Rs1Value, latch.Rs2Value, latch.Rs3Value, instr.SourceRegisters, _forwardProviders
         );
 
-        // The executor reads operands from the register file, so inject the
-        // forwarded values, then restore — otherwise a forwarded operand would
-        // clobber a value the Writeback stage just committed this cycle.
         int s0 = instr.SourceRegisters.Count > 0 ? instr.SourceRegisters[0] : -1;
         int s1 = instr.SourceRegisters.Count > 1 ? instr.SourceRegisters[1] : -1;
         int s2 = instr.SourceRegisters.Count > 2 ? instr.SourceRegisters[2] : -1;
-        ulong save0 = s0 >= 0 ? regs.Read(s0) : 0;
-        ulong save1 = s1 >= 0 ? regs.Read(s1) : 0;
-        ulong save2 = s2 >= 0 ? regs.Read(s2) : 0;
 
-        if (s0 >= 0) regs.Write(s0, rs1);
-        if (s1 >= 0) regs.Write(s1, rs2);
-        if (s2 >= 0) regs.Write(s2, rs3);
-
+        // Shadow the forwarded operands over the real register file for the duration of this
+        // Execute call, rather than physically writing them in and clobber-restoring afterward.
+        // The real regfile is never mutated for forwarding bookkeeping — Writeback still owns
+        // the only real write, later, at commit.
+        _forwardOverlay.Rewire(regs, s0, rs1, s1, rs2, s2, rs3);
+        _state.IntegerRegisters = _forwardOverlay;
         _memory.SetRequestPc(latch.Pc);
-        ExecuteResult result = _executor.Execute(instr, _state, _memory);
-
-        if (s0 >= 0) regs.Write(s0, save0);
-        if (s1 >= 0) regs.Write(s1, save1);
-        if (s2 >= 0) regs.Write(s2, save2);
+        ExecuteResult result;
+        try { result = _executor.Execute(instr, _state, _memory); }
+        finally { _state.IntegerRegisters = regs; }
 
         var newLatch = new ExMemLatch {
             IsValid = true,
@@ -119,5 +114,40 @@ public sealed class ExecuteStage : Gear {
             PredictedNextPc = latch.PredictedNextPc,
         };
         LastSent = newLatch;
+    }
+
+    /// <summary>
+    ///     Redirects reads of up to three register indices to captured forwarded values for the
+    ///     duration of one <see cref="IExecutor.Execute" /> call. Writes always pass through to
+    ///     the real register file untouched (the executor never writes registers directly — see
+    ///     <see cref="IExecutor" />). Reused across cycles via <see cref="Rewire" /> rather than
+    ///     reallocated, since it replaces a per-cycle save/write/execute/restore dance rather than
+    ///     adding one.
+    /// </summary>
+    private sealed class ForwardingOverlay : IRegisterFile {
+        private IRegisterFile _inner = null!;
+        private int _r0 = -1;
+        private int _r1 = -1;
+        private int _r2 = -1;
+        private ulong _v0;
+        private ulong _v1;
+        private ulong _v2;
+
+        public int Count => _inner.Count;
+        public int Width => _inner.Width;
+
+        // Checked highest-index-first so that a repeated register index (e.g. `add x1, x1, x1`,
+        // or a repeated R4-type FMADD source) resolves the same way the old write-in-order
+        // clobber did: the last write wins.
+        public ulong Read(int index) =>
+            index == _r2 ? _v2 : index == _r1 ? _v1 : index == _r0 ? _v0 : _inner.Read(index);
+
+        public void Write(int index, ulong value) => _inner.Write(index, value);
+        public void Reset() => _inner.Reset();
+
+        public void Rewire(IRegisterFile inner, int r0, ulong v0, int r1, ulong v1, int r2, ulong v2) {
+            _inner = inner;
+            (_r0, _v0, _r1, _v1, _r2, _v2) = (r0, v0, r1, v1, r2, v2);
+        }
     }
 }

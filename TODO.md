@@ -24,8 +24,21 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Performance
 
-- [ ] Memoization of instructions and decodings?
-- [ ] Structural stage-model rework for in-order trains: struct latches, fewer interface hops.
+- [x] Struct latches: `IfIdLatch`/`IdExLatch`/`ExMemLatch`/`MemWbLatch` (`PipelineRegisters.cs`) are now
+  `readonly record struct`, one fewer heap allocation per stage per instruction. Behaviorally transparent
+  (all 3565 tests pass) — not separately measured against the perf playbook in `docs/references.md`-adjacent
+  notes; GC pressure was previously ruled out as a bottleneck, so treat this as a tidiness win, not a proven
+  speedup, until measured.
+- [x] Fewer interface hops: `ExecuteStage`'s forward-then-restore dance through `IRegisterFile` (`Execute.cs`)
+  is replaced by a reused `ForwardingOverlay : IRegisterFile` that shadows up to 3 register reads for one
+  `IExecutor.Execute` call. The real regfile is never mutated for forwarding bookkeeping — no more
+  save/write/execute/restore. Wrapping `IArchState` itself was ruled out: `Rv32Executor` downcasts `IArchState`
+  to `Rv32ArchState` (CSR/vector/UVE access), so any decorator around the whole state breaks that cast. Instead
+  `IArchState.IntegerRegisters` was widened to a settable property, so `_state` keeps its real identity and only
+  its register-file reference is swapped for the duration of the call (restored in a `finally`, closing a
+  latent exception-safety gap the old restore-on-the-happy-path code had). All 7 ISA `ArchState`s updated for
+  interface compliance; only RV32/64 actually rely on the swap being correct (verified: `VectorTests` pass under
+  `FiveStageTrain`), the other 6 ISAs never run through this path.
 
 ## Benchmarks
 

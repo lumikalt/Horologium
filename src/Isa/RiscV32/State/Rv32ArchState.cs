@@ -7,7 +7,7 @@ namespace RiscV32.State;
 ///     The complete architectural state of one RV32IFV hart.
 /// </summary>
 public class Rv32ArchState : IArchState {
-    protected readonly IRegisterFile IntRegs;
+    protected IRegisterFile IntRegs;
 
     public Rv32ArchState() : this(new Rv32UnifiedRegisterFile()) { }
 
@@ -60,7 +60,12 @@ public class Rv32ArchState : IArchState {
 
     public ulong Pc { get; set; }
     public PrivilegeLevel PrivilegeLevel { get; set; } = RvPrivilege.Machine;
-    public IRegisterFile IntegerRegisters => IntRegs;
+
+    public IRegisterFile IntegerRegisters {
+        get => IntRegs;
+        set => IntRegs = value;
+    }
+
     public ISystemRegisters SystemRegisters => CsrFile;
 
     public IUveScalars UveScalars => UveState;

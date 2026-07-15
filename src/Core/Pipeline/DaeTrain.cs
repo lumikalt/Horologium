@@ -221,7 +221,7 @@ internal sealed class OverrideArchState(IArchState inner, IRegisterFile register
         set => inner.PrivilegeLevel = value;
     }
 
-    public IRegisterFile IntegerRegisters => registers;
+    public IRegisterFile IntegerRegisters { get; set; } = registers;
     public ISystemRegisters SystemRegisters => inner.SystemRegisters;
     public IArchState Snapshot() => inner.Snapshot();
     public void Reset() => inner.Reset();

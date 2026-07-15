@@ -6,6 +6,8 @@ namespace Pdp8;
 public sealed class Pdp8ArchState : IArchState {
     private readonly Pdp8RegisterFile _regs = new();
 
+    public Pdp8ArchState() => IntegerRegisters = _regs;
+
     public ulong Ac {
         get => _regs.Read(0);
         set => _regs.Write(0, value);
@@ -17,8 +19,12 @@ public sealed class Pdp8ArchState : IArchState {
     }
 
     public ulong Pc { get; set; }
+
     public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
-    public IRegisterFile IntegerRegisters => _regs;
+
+    // Pdp8 only ever runs on SingleCycleTrain, which has no forwarding overlay to swap this
+    // property for; the setter exists solely to satisfy IArchState.
+    public IRegisterFile IntegerRegisters { get; set; }
     public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
 
     public IArchState Snapshot() {

@@ -8,6 +8,8 @@ public sealed class Chip8ArchState : IArchState {
     private readonly Stack<ushort> _stack = new();
     private readonly DataRegisterFile _vRegs = new();
 
+    public Chip8ArchState() => IntegerRegisters = _vRegs;
+
     public bool[] Display { get; } = new bool[64 * 32];
     public bool[] Keys { get; } = new bool[16];
 
@@ -27,8 +29,12 @@ public sealed class Chip8ArchState : IArchState {
     }
 
     public ulong Pc { get; set; } = 0x200;
+
     public PrivilegeLevel PrivilegeLevel { get; set; } = PrivilegeLevel.User;
-    public IRegisterFile IntegerRegisters => _vRegs;
+
+    // Chip8 only ever runs on SingleCycleTrain, which has no forwarding overlay to swap this
+    // property for; the setter exists solely to satisfy IArchState.
+    public IRegisterFile IntegerRegisters { get; set; }
     public ISystemRegisters SystemRegisters => _programRegs;
 
     public IArchState Snapshot() {
