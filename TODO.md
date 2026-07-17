@@ -84,9 +84,11 @@ free embedded suites are runnable in full today.
   loop predictor) mirroring the C# `LTagePredictor` bit-for-bit, behind a new speculative-history shim ABI
   (`rtl_hbp_shim.cpp`: spec-update/recover/capture/restore ports; the checkpoint is the working-GHR value).
   `RtlBranchPredictorLoader` auto-detects the shim ABI so `--rtl-bp-lib`/`rtl_bp_plugin` serve both kinds.
-- [ ] RTL substitution follow-ups: further Chisel units (pipelined multiplier, FP div/sqrt, a set-dueling
-  DRRIP, a multi-degree stream prefetcher) exercising multi-issue, PSEL, and multi-target-per-access port
-  contracts.
+- [x] RTL set-dueling DRRIP: Chisel DRRIP (SDM leader sets, 10-bit PSEL, 1/32 bimodal BRRIP inserts)
+  mirroring the C# `DrripPolicy` bit-for-bit through the unchanged `rtl_rp_shim` ABI — global cross-set
+  state (PSEL duel, shared bimodal counter) inside the model.
+- [ ] RTL substitution follow-ups: further Chisel units (pipelined multiplier, FP div/sqrt, a multi-degree
+  stream prefetcher) exercising multi-issue and multi-target-per-access port contracts.
 
 ## Face
 

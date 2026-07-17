@@ -35,6 +35,7 @@ kinds so far:
 | `GshareBp.scala` | Chisel source: gshare predictor (8-bit GHR, 256×2-bit PHT + BTB) mirroring the C# `GsharePredictor` bit-for-bit so differential tests can demand identical predictions |
 | `LTageBp.scala` | Chisel source: L-TAGE (4096-entry bimodal + 4×512 tagged tables with 8/13/21/34-bit folded histories + 32-entry loop predictor) mirroring the C# `LTagePredictor`; manages its own speculative GHR with capture/restore ports |
 | `SrripRp.scala` | Chisel source: SRRIP replacement policy (2-bit RRPVs, combinational victim + unrolled aging) mirroring the C# `SrripPolicy`; default geometry 64 sets × 4 ways |
+| `DrripRp.scala` | Chisel source: DRRIP (SRRIP base + Set Dueling: SDM leader sets, 10-bit PSEL, 1/32 bimodal BRRIP inserts) mirroring the C# `DrripPolicy`; carries global cross-set state through the same shim ABI |
 | `StridePf.scala` | Chisel source: RPT stride prefetcher (64 PC-indexed entries, 64-bit datapath, 2-bit confidence) mirroring the C# `StridePrefetcher` |
 | `generated/*.sv` | Committed firtool output — consumers never need a JVM |
 | `generate.sh` | Chisel → SystemVerilog (`nix-shell -p scala-cli circt`); rerun after editing the Chisel |
@@ -137,6 +138,7 @@ native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/LTageBp.sv LTageBp /tmp/rtl_ltage.so rtl_hbp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp
+native/RtlFu/build.sh native/RtlFu/generated/DrripRp.sv DrripRp /tmp/rtl_drrip.so rtl_rp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/StridePf.sv StridePf /tmp/rtl_stride.so rtl_pf_shim.cpp
 dotnet run --project src/Apps/Runner -- prog.elf \
     --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so \

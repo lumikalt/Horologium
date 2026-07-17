@@ -1154,9 +1154,12 @@ tapeout/FPGA. Two unit kinds so far:
   attaches only to cache levels whose sets×ways match, others keep the configured C# policy kind. The first policy is
   a Chisel SRRIP (`native/RtlFu/SrripRp.scala`, default 64 sets × 4 ways) mirroring the C# `SrripPolicy` bit-for-bit —
   the differential test demands identical victims and RRPV metadata, and a cache-level test demands identical hit/miss
-  counts from `SetAssociativeCache` under either policy. Selectable per sweep config (`"rtl_cache_policy_lib"`),
-  globally via `--rtl-rp-lib`, or as the evaluated policy of a `--champsim-trace` replay (strict geometry check
-  against the `--champsim-cache-*` flags).
+  counts from `SetAssociativeCache` under either policy. The second is a Chisel DRRIP (`native/RtlFu/DrripRp.scala`):
+  the SRRIP base plus Set Dueling — SDM leader sets, a 10-bit PSEL duel, and 1/32 bimodal BRRIP inserts — mirroring
+  the C# `DrripPolicy`, demonstrating global cross-set state (PSEL, shared bimodal counter) through the unchanged shim
+  ABI; its differential stream phases between SDM-heavy and follower-heavy set biases so the duel swings both ways.
+  Selectable per sweep config (`"rtl_cache_policy_lib"`), globally via `--rtl-rp-lib`, or as the evaluated policy of
+  a `--champsim-trace` replay (strict geometry check against the `--champsim-cache-*` flags).
 - **Cache prefetchers**: `RtlFfiPrefetcher` implements `IPrefetcher` over a verilated prefetcher — each demand access
   is presented to the model once, the prefetch decision is read combinationally (post-update semantics live in the
   model), and the prediction-table update commits on one clock edge. The first prefetcher is a Chisel RPT stride
