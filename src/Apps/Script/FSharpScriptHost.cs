@@ -17,10 +17,13 @@ namespace Script;
 internal static class FSharpScriptHost {
     private static readonly string[] PreOpenedNamespaces = [
         "Mechanism",
+        "Mechanism.BranchPredictModels",
+        "Mechanism.RtlFu",
         "Pipeline.Spec",
         "Orrery.Spec",
         "Orrery.Cache",
         "RiscV32",
+        "RiscV32.Execute",
     ];
 
     private static readonly string[] AssemblyPaths = [

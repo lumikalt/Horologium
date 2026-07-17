@@ -429,12 +429,15 @@ public sealed record MemoryLayers(
 
         for (int i = sharedList.Count - 1; i >= 0; i--) {
             CacheLevelSpec s = sharedList[i];
-            int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
+            int prefLat = s.Prefetcher != PrefetcherKind.None || s.PrefetcherFactory is not null
+                ? s.PrefetchLatency
+                : 0;
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
                 s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
-                s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency
+                s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency,
+                customPolicy: s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -443,12 +446,15 @@ public sealed record MemoryLayers(
 
         for (int i = privLevels.Count - 1; i >= 0; i--) {
             CacheLevelSpec s = privLevels[i];
-            int prefLat = s.Prefetcher != PrefetcherKind.None ? s.PrefetchLatency : 0;
+            int prefLat = s.Prefetcher != PrefetcherKind.None || s.PrefetcherFactory is not null
+                ? s.PrefetchLatency
+                : 0;
             var cache = new SetAssociativeCache(
                 current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
                 s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
-                s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency
+                s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency,
+                customPolicy: s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -470,8 +476,9 @@ public sealed record MemoryLayers(
 
         // MemoryLayers.Prefetcher corresponds to allCaches[0] (the innermost cache = Cache).
         // TryPrefetch targets Cache, so only the innermost level's strategy is activated by the pipeline.
-        IPrefetcher? prefetcher = null;
-        if (allSpecs.Count > 0 && allSpecs[0] is { Prefetcher: not PrefetcherKind.None, } s0)
+        // A caller-supplied prefetcher instance (e.g. RtlFfiPrefetcher) overrides the kind.
+        IPrefetcher? prefetcher = allSpecs.Count > 0 ? allSpecs[0].PrefetcherFactory?.Invoke() : null;
+        if (prefetcher is null && allSpecs.Count > 0 && allSpecs[0] is { Prefetcher: not PrefetcherKind.None, } s0)
             prefetcher = s0.Prefetcher switch {
                 PrefetcherKind.NextLine => new NextLinePrefetcher(s0.BlockBytes),
                 PrefetcherKind.Stride   => new StridePrefetcher(s0.PrefetcherTableSize),

@@ -25,10 +25,13 @@ public static class ScriptHost {
                                                                        .AddImports(
                                                                             "System",
                                                                             "Mechanism",
+                                                                            "Mechanism.BranchPredictModels",
+                                                                            "Mechanism.RtlFu",
                                                                             "Pipeline.Spec",
                                                                             "Orrery.Spec",
                                                                             "Orrery.Cache",
-                                                                            "RiscV32"
+                                                                            "RiscV32",
+                                                                            "RiscV32.Execute"
                                                                         );
 
     /// <summary>

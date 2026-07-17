@@ -104,6 +104,12 @@ io_prefValid, io_prefAddr                         (combinational prefetch decisi
 
 ## Usage
 
+From the CLI (flags below) or from a `.csx`/`.fsx` architecture script — the script hosts
+pre-import `Mechanism.RtlFu`, `Orrery.Cache`, and `RiscV32.Execute`, so scripts can attach
+RTL units directly: `BranchPredictorFactory` on a pipeline spec, `RtlBackedExecutor` around
+the mechanism's executor, and `PolicyFactory`/`PrefetcherFactory` on a `CacheLevelSpec`.
+See `scripts/example-rtl.csx` for a machine with all four surfaces substituted.
+
 ```bash
 native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp

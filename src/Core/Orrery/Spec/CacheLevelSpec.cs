@@ -32,6 +32,15 @@ namespace Orrery.Spec;
 ///         <see cref="WbCapacity" /> &gt; 0.
 ///     </para>
 ///     <para>
+///         <see cref="PolicyFactory" /> and <see cref="PrefetcherFactory" /> supply caller-built
+///         instances (e.g. the RTL-backed <see cref="RtlFfiReplacementPolicy" /> /
+///         <see cref="RtlFfiPrefetcher" /> from <c>native/RtlFu</c>) in place of the
+///         <see cref="ReplacementPolicy" /> / <see cref="Prefetcher" /> kinds. The policy factory
+///         is invoked with this level's (sets, ways); a null return falls back to the kind, so a
+///         geometry-fixed RTL policy attaches only when it matches. The prefetcher factory is only
+///         consulted on the innermost level (the one the pipeline drives).
+///     </para>
+///     <para>
 ///         <see cref="VictimCacheEntries" /> (0 = disabled) attaches a small fully-associative
 ///         FIFO buffer beside the main array that captures conflict-miss evictions instead of
 ///         flushing/discarding them immediately (Jouppi, ISCA 1990). A later miss that hits in
@@ -68,7 +77,9 @@ public sealed record CacheLevelSpec(
     int WritePorts = 0,
     int SectorBytes = 0,
     int VictimCacheEntries = 0,
-    int VictimCacheHitLatency = 1
+    int VictimCacheHitLatency = 1,
+    Func<int, int, IReplacementPolicy?>? PolicyFactory = null,
+    Func<IPrefetcher?>? PrefetcherFactory = null
 ) {
     public int HitLatency => AccessMode == CacheAccessModeKind.Sequential
         ? TagLatency + DataLatency

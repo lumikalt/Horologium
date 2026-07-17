@@ -77,10 +77,12 @@ free embedded suites are runnable in full today.
 - [x] RTL prefetcher substitution: verilated Chisel prefetcher behind `IPrefetcher` (combinational
   prefetch decision, clocked table update); first unit is an RPT stride prefetcher mirroring the C#
   `StridePrefetcher` bit-for-bit. Sweep-config field `rtl_prefetcher_lib`, `--rtl-pf-lib` flag.
-- [ ] RTL substitution follow-ups: script-host (`.csx` `MachineSpec`) wiring so architecture scripts can attach
-  RTL-backed units; further Chisel units (pipelined multiplier, FP div/sqrt, a TAGE-class predictor, a
-  set-dueling DRRIP, a multi-degree stream prefetcher) exercising multi-issue, speculative-history, PSEL,
-  and multi-target-per-access port contracts.
+- [x] RTL script-host wiring: `.csx`/`.fsx` architecture scripts can attach all four RTL unit kinds —
+  `CacheLevelSpec` gained per-level `PolicyFactory`/`PrefetcherFactory`, and both script hosts pre-import
+  the RTL namespaces (`scripts/example-rtl.csx` shows a fully RTL-substituted machine).
+- [ ] RTL substitution follow-ups: further Chisel units (pipelined multiplier, FP div/sqrt, a TAGE-class
+  predictor, a set-dueling DRRIP, a multi-degree stream prefetcher) exercising multi-issue,
+  speculative-history, PSEL, and multi-target-per-access port contracts.
 
 ## Face
 

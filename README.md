@@ -1159,7 +1159,10 @@ tapeout/FPGA. Two unit kinds so far:
   globally via `--rtl-pf-lib` (replaces every sweep config's D-cache prefetcher).
 
 Port contracts and C ABIs for wrapping further units are documented in `native/RtlFu/README.md`. Desktop-only
-(`NativeLibrary`), like the CBP FFI predictors.
+(`NativeLibrary`), like the CBP FFI predictors. All four surfaces are also reachable from `.csx`/`.fsx` architecture
+scripts (the script hosts pre-import the RTL namespaces): `BranchPredictorFactory` on a pipeline spec,
+`RtlBackedExecutor` around the mechanism factory's executor, and per-level `PolicyFactory`/`PrefetcherFactory` on
+`CacheLevelSpec` — see `scripts/example-rtl.csx`.
 
 ```bash
 # Verilate the Chisel divider + gshare + SRRIP + stride prefetcher, then drive all four from the pipeline
