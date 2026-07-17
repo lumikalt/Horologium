@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-# Verilates an RTL functional unit and links it with rtl_fu_shim.cpp into a
-# native shared library that RtlFfiFunctionalUnit (C#) can load at runtime.
+# Verilates an RTL unit and links it with an FFI shim into a native shared
+# library that the C# side (Mechanism/RtlFu) can load at runtime.
 #
-# Usage: build.sh <verilog-file> <top-module> <output-shared-library-path>
+# Usage: build.sh <verilog-file> <top-module> <output-shared-library-path> [shim.cpp]
 #
-# Example:
+# The shim defaults to rtl_fu_shim.cpp (functional units; RtlFfiFunctionalUnit).
+# Pass rtl_bp_shim.cpp for branch predictors (RtlFfiBranchPredictor).
+#
+# Examples:
 #   native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
+#   native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
 #
 # Requires verilator + g++. On NixOS, re-execs itself under nix-shell when
 # verilator is not already on PATH.
 
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-    echo "Usage: $0 <verilog-file> <top-module> <output-shared-library-path>" >&2
+if [[ $# -lt 3 || $# -gt 4 ]]; then
+    echo "Usage: $0 <verilog-file> <top-module> <output-shared-library-path> [shim.cpp]" >&2
     exit 1
 fi
 
@@ -29,6 +33,7 @@ SV_FILE="$(realpath "$1")"
 TOP="$2"
 OUTPUT="$3"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHIM="$SCRIPT_DIR/${4:-rtl_fu_shim.cpp}"
 OBJ_DIR="$(mktemp -d)"
 trap 'rm -rf "$OBJ_DIR"' EXIT
 
@@ -41,9 +46,9 @@ g++ -O2 -fPIC -shared -std=c++17 -pthread \
     -I "$OBJ_DIR" \
     -I "$VERILATOR_ROOT/include" \
     -I "$VERILATOR_ROOT/include/vltstd" \
-    -DRTL_FU_HEADER="\"V${TOP}.h\"" \
-    -DRTL_FU_MODEL="V${TOP}" \
-    "$SCRIPT_DIR/rtl_fu_shim.cpp" \
+    -DRTL_MODEL_HEADER="\"V${TOP}.h\"" \
+    -DRTL_MODEL="V${TOP}" \
+    "$SHIM" \
     "$OBJ_DIR"/*.o \
     -o "$OUTPUT"
 

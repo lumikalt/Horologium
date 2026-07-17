@@ -1120,23 +1120,36 @@ branch's actual target is taken to be the next record's `ip` — the same infere
 — meaning the final branch in a trace is unscored. Cache replay runs against a synthetic `ChampSimBackingMemory` (data
 is irrelevant to hit/miss accounting); loads come from `source_memory` slots, stores from `destination_memory` slots.
 
-### RTL functional-unit substitution (native/RtlFu, Mechanism/RtlFu)
+### RTL unit substitution (native/RtlFu, Mechanism/RtlFu)
 
-One pipeline functional unit can be swapped for cycle-accurate RTL driven through
-[Verilator](https://www.veripool.org/verilator/): `RtlBackedExecutor` decorates the ISA executor, and instructions an
-ISA-side selector claims (currently `RvRtlDiv`: RV32M DIV/DIVU/REM/REMU) execute on the verilated model instead of the
-C# functional model — the RTL result becomes the register write, and the model's observed cycle count becomes the
-instruction's FU latency (`ExecuteResult.LatencyOverride`, honored by the `ooo` and `cpr` pipelines in place of the
-static `FuLatencyConfig` entry). The first unit is a Chisel sequential restoring divider with early termination
-(`native/RtlFu/DivUnit.scala`; generated SystemVerilog committed), so div latency is data-dependent: 1 cycle for the
-RISC-V special cases, up to 33 for a full-width dividend. Useful for validating a custom-unit design against the rest
-of the system before tapeout/FPGA; the port contract and C ABI for wrapping further units are documented in
-`native/RtlFu/README.md`. Desktop-only (`NativeLibrary`), like the CBP FFI predictors.
+Individual pipeline units can be swapped for cycle-accurate RTL driven through
+[Verilator](https://www.veripool.org/verilator/), so the surrounding pipeline exercises a synthesizable design instead
+of the C# model for that unit — useful for validating a custom design against the rest of the system before
+tapeout/FPGA. Two unit kinds so far:
+
+- **Functional units**: `RtlBackedExecutor` decorates the ISA executor, and instructions an ISA-side selector claims
+  (currently `RvRtlDiv`: RV32M DIV/DIVU/REM/REMU) execute on the verilated model — the RTL result becomes the register
+  write, and the model's observed cycle count becomes the instruction's FU latency (`ExecuteResult.LatencyOverride`,
+  honored by the `ooo` and `cpr` pipelines in place of the static `FuLatencyConfig` entry). The first unit is a Chisel
+  sequential restoring divider with early termination (`native/RtlFu/DivUnit.scala`; generated SystemVerilog
+  committed), so div latency is data-dependent: 1 cycle for the RISC-V special cases, up to 33 for a full-width
+  dividend.
+- **Branch predictors**: `RtlFfiBranchPredictor` implements `IBranchPredictor` over a verilated predictor —
+  combinational predict at fetch, one-clock-edge update at commit; speculative-history hooks stay at their interface
+  defaults (committed history only, like `CbpFfiPredictor`). The first predictor is a Chisel gshare
+  (`native/RtlFu/GshareBp.scala`) mirroring the C# `GsharePredictor` bit-for-bit, which the differential test exploits
+  to demand identical predictions on identical streams. Selectable per sweep config (`{"type": "rtl_bp_plugin",
+  "library_path": ...}`), globally via `--rtl-bp-lib` (replaces every sweep config's predictor), or as the evaluated
+  predictor of a `--champsim-trace` replay.
+
+Port contracts and C ABIs for wrapping further units are documented in `native/RtlFu/README.md`. Desktop-only
+(`NativeLibrary`), like the CBP FFI predictors.
 
 ```bash
-# Verilate the Chisel divider into a shared library, then drive it from the pipeline
+# Verilate the Chisel divider + gshare into shared libraries, then drive both from the pipeline
 native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
-dotnet run --project src/Apps/Runner -- prog.elf --rtl-div-lib /tmp/rtl_div.so
+native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
+dotnet run --project src/Apps/Runner -- prog.elf --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so
 ```
 
 ## Co-simulation contract

@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Mechanism;
 using Mechanism.BranchPredictModels;
+using Mechanism.RtlFu;
 using Pipeline;
 using RiscV32.Memory;
 
@@ -32,6 +33,7 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(BranchNetConfig), "branchnet")]
 [JsonDerivedType(typeof(TeaConfig), "tea")]
 [JsonDerivedType(typeof(CbpPluginConfig), "cbp_plugin")]
+[JsonDerivedType(typeof(RtlBpPluginConfig), "rtl_bp_plugin")]
 [JsonDerivedType(typeof(CbpNgPluginConfig), "cbp_ng_plugin")]
 [JsonDerivedType(typeof(CbpNgOoOePluginConfig), "cbp_ng_ooo_plugin")]
 [JsonDerivedType(typeof(BullseyeConfig), "bullseye")]
@@ -252,6 +254,15 @@ public sealed record TeaConfig : BranchPredictorConfig {
 /// </summary>
 public sealed record CbpPluginConfig(string LibraryPath) : BranchPredictorConfig {
     public override IBranchPredictor Build() => new CbpFfiPredictor(LibraryPath);
+}
+
+/// <summary>
+///     Loads a Verilator-compiled RTL branch predictor from a native shared library built via
+///     <c>native/RtlFu/build.sh &lt;sv&gt; &lt;top&gt; &lt;out.so&gt; rtl_bp_shim.cpp</c>.
+///     Desktop-only — see <see cref="RtlFfiBranchPredictor" />.
+/// </summary>
+public sealed record RtlBpPluginConfig(string LibraryPath) : BranchPredictorConfig {
+    public override IBranchPredictor Build() => new RtlFfiBranchPredictor(LibraryPath);
 }
 
 /// <summary>

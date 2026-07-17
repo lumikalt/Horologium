@@ -3,7 +3,7 @@
 // native/CbpShim for branch predictors.
 //
 // The model to wrap is selected at build time via
-//   -DRTL_FU_HEADER="\"VDivUnit.h\"" -DRTL_FU_MODEL=VDivUnit
+//   -DRTL_MODEL_HEADER="\"VDivUnit.h\"" -DRTL_MODEL=VDivUnit
 // (see build.sh) and must expose this port contract (a Chisel module with
 // io.req = Flipped(Decoupled(op/a/b)) and io.resp = Valid(UInt) produces it):
 //
@@ -18,11 +18,11 @@
 // serialization, not the latency a pipelined wrapper would expose.
 
 #include "verilated.h"
-#include RTL_FU_HEADER
+#include RTL_MODEL_HEADER
 
 namespace {
 
-void tick(RTL_FU_MODEL* m) {
+void tick(RTL_MODEL* m) {
     m->clock = 0;
     m->eval();
     m->clock = 1;
@@ -34,7 +34,7 @@ void tick(RTL_FU_MODEL* m) {
 extern "C" {
 
 void* rtl_create() {
-    auto* m = new RTL_FU_MODEL();
+    auto* m = new RTL_MODEL();
     m->io_req_valid = 0;
     m->reset = 1;
     tick(m);
@@ -45,7 +45,7 @@ void* rtl_create() {
 }
 
 void rtl_destroy(void* handle) {
-    auto* m = static_cast<RTL_FU_MODEL*>(handle);
+    auto* m = static_cast<RTL_MODEL*>(handle);
     m->final();
     delete m;
 }
@@ -60,7 +60,7 @@ int rtl_execute(
     unsigned* result,
     int* cycles
 ) {
-    auto* m = static_cast<RTL_FU_MODEL*>(handle);
+    auto* m = static_cast<RTL_MODEL*>(handle);
 
     m->eval();
     for (int guard = 0; !m->io_req_ready; guard++) {

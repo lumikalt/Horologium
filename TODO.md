@@ -66,9 +66,14 @@ free embedded suites are runnable in full today.
   - [x] Co-sim validation harness: same instruction stream through the C# functional model and the RTL-backed
     model, diff results and latencies (same pattern as the CBP FFI predictor tests).
   - [x] CLI wiring: `--rtl-div-lib <path>` in Runner.
-- [ ] RTL FU substitution follow-ups: script-host (`.csx` `MachineSpec`) wiring so architecture scripts can attach
-  RTL-backed units; further Chisel units (pipelined multiplier, FP div/sqrt) exercising a multi-issue port
-  contract.
+- [x] RTL branch-predictor substitution: verilated Chisel predictor behind `IBranchPredictor`
+  (combinational predict, clocked commit-time update); first unit is a gshare mirroring the C#
+  `GsharePredictor` bit-for-bit for differential validation. Sweep-config type `rtl_bp_plugin`,
+  `--rtl-bp-lib` flag, ChampSim-trace replay support.
+- [ ] RTL substitution follow-ups: script-host (`.csx` `MachineSpec`) wiring so architecture scripts can attach
+  RTL-backed units; further Chisel units (pipelined multiplier, FP div/sqrt, a TAGE-class predictor) exercising
+  multi-issue and speculative-history port contracts; RTL cache/replacement-policy substitution behind
+  `IReplacementPolicy`.
 
 ## Face
 

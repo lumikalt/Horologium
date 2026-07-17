@@ -42,6 +42,7 @@ var champsimCacheSets = 2048;     // --champsim-cache-sets <n>
 var champsimCacheWays = 16;       // --champsim-cache-ways <n>
 var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
 string? rtlDivLib = null;         // --rtl-div-lib <path>: run DIV/DIVU/REM/REMU on an RTL divider (native/RtlFu)
+string? rtlBpLib = null;          // --rtl-bp-lib <path>: predict branches with an RTL predictor (native/RtlFu)
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -78,6 +79,7 @@ for (var i = 0; i < args.Length; i++)
         case "--champsim-cache-ways":   champsimCacheWays = int.Parse(args[++i]); break;
         case "--champsim-cache-block":  champsimCacheBlock = int.Parse(args[++i]); break;
         case "--rtl-div-lib":           rtlDivLib = args[++i]; break;
+        case "--rtl-bp-lib":            rtlBpLib = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -127,9 +129,11 @@ if (elasticReplayPath is not null) {
 // ── ChampSim trace replay (standalone — no workload needed) ──────────────────
 
 if (champsimTracePath is not null) {
-    IBranchPredictor predictor = champsimCbpLib is not null
-        ? new CbpFfiPredictor(champsimCbpLib)
-        : ResolveChampSimPredictor(champsimPredictor);
+    IBranchPredictor predictor = rtlBpLib is not null
+        ? new RtlFfiBranchPredictor(rtlBpLib)
+        : champsimCbpLib is not null
+            ? new CbpFfiPredictor(champsimCbpLib)
+            : ResolveChampSimPredictor(champsimPredictor);
 
     SetAssociativeCache? cache = null;
     if (!string.Equals(champsimCachePolicy, "none", StringComparison.OrdinalIgnoreCase)) {
@@ -427,6 +431,13 @@ IReadOnlyList<NamedConfig> configs = sweepPath is not null
     ? NamedConfig.LoadFile(sweepPath)
     : DefaultSweep();
 
+// --rtl-bp-lib replaces every config's predictor with the RTL model; each config's
+// Build() constructs its own RtlFfiBranchPredictor (one verilated model per run/thread).
+if (rtlBpLib is not null)
+    configs = configs
+        .Select(c => c with { Config = c.Config with { Predictor = new RtlBpPluginConfig(rtlBpLib), }, })
+        .ToList();
+
 // ── Run ───────────────────────────────────────────────────────────────────────
 
 Console.Error.WriteLine($"Workloads: {workloads.Count} ({string.Join(", ", workloads.Select(w => w.Label))})");
@@ -608,6 +619,11 @@ static void PrintUsage() {
                                         divider (build with native/RtlFu/build.sh); its result
                                         replaces the C# model's and its per-operand cycle count
                                         becomes the instruction's FU latency in ooo/cpr pipelines.
+          --rtl-bp-lib <path>           Predict branches with a Verilator-compiled RTL predictor
+                                        (build with native/RtlFu/build.sh ... rtl_bp_shim.cpp).
+                                        Replaces every sweep config's predictor for ELF runs, or
+                                        the evaluated predictor for --champsim-trace replay; also
+                                        available in sweep JSON as {"type": "rtl_bp_plugin"}.
           --help                        Show this message.
 
         Sweep file format (JSON array):
