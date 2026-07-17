@@ -8,9 +8,15 @@ kinds so far:
   the RTL result for the register write and reports the model's observed cycle count as
   the instruction's FU latency (`ExecuteResult.LatencyOverride`), which the `ooo` and
   `cpr` pipelines use in place of the static `FuLatencyConfig` entry.
-- **Branch predictors** — `RtlFfiBranchPredictor` implements `IBranchPredictor` on top of
-  a verilated predictor: combinational predict at fetch, one-clock-edge update at commit.
-  Selectable per sweep config (`{"type": "rtl_bp_plugin"}`) or globally via `--rtl-bp-lib`.
+- **Branch predictors** — two shim ABIs, auto-detected by `RtlBranchPredictorLoader` so one
+  flag/config serves both. `rtl_bp_shim.cpp` wraps a plain predictor (combinational predict,
+  one-edge commit update; e.g. the gshare) behind `RtlFfiBranchPredictor`. `rtl_hbp_shim.cpp`
+  wraps a predictor that manages its own speculative global history (e.g. the L-TAGE) behind
+  `RtlFfiHistoryBranchPredictor`, carrying the full `IBranchPredictor` contract across the
+  FFI: fetch-time history folds, flush recovery, and per-branch checkpoints for partial
+  squashes (the checkpoint is the model's working-history value — TAGE folds derive from it,
+  so no checkpoint RAM). Selectable per sweep config (`{"type": "rtl_bp_plugin"}`) or
+  globally via `--rtl-bp-lib`.
 - **Cache replacement policies** — `RtlFfiReplacementPolicy` (in `src/Core/Orrery/Cache/`)
   implements `IReplacementPolicy` on top of a verilated policy; geometry is fixed at Chisel
   elaboration and exposed via `io_cfgSets`/`io_cfgWays`, and the policy attaches only to
@@ -27,12 +33,14 @@ kinds so far:
 |---|---|
 | `DivUnit.scala` | Chisel source: RV32M DIV/DIVU/REM/REMU, sequential restoring divider with early termination (latency = significant-bits(dividend) + 1; RISC-V special cases resolve in 1 cycle) |
 | `GshareBp.scala` | Chisel source: gshare predictor (8-bit GHR, 256×2-bit PHT + BTB) mirroring the C# `GsharePredictor` bit-for-bit so differential tests can demand identical predictions |
+| `LTageBp.scala` | Chisel source: L-TAGE (4096-entry bimodal + 4×512 tagged tables with 8/13/21/34-bit folded histories + 32-entry loop predictor) mirroring the C# `LTagePredictor`; manages its own speculative GHR with capture/restore ports |
 | `SrripRp.scala` | Chisel source: SRRIP replacement policy (2-bit RRPVs, combinational victim + unrolled aging) mirroring the C# `SrripPolicy`; default geometry 64 sets × 4 ways |
 | `StridePf.scala` | Chisel source: RPT stride prefetcher (64 PC-indexed entries, 64-bit datapath, 2-bit confidence) mirroring the C# `StridePrefetcher` |
 | `generated/*.sv` | Committed firtool output — consumers never need a JVM |
 | `generate.sh` | Chisel → SystemVerilog (`nix-shell -p scala-cli circt`); rerun after editing the Chisel |
 | `rtl_fu_shim.cpp` | Verilator harness for functional units; model-agnostic via `-DRTL_MODEL` |
-| `rtl_bp_shim.cpp` | Verilator harness for branch predictors (`rtl_bp_predict`/`rtl_bp_update`) |
+| `rtl_bp_shim.cpp` | Verilator harness for plain branch predictors (`rtl_bp_predict`/`rtl_bp_update`) |
+| `rtl_hbp_shim.cpp` | Verilator harness for speculative-history branch predictors (`rtl_hbp_*`: predict/update/spec_update/recover/history/restore) |
 | `rtl_rp_shim.cpp` | Verilator harness for replacement policies (`rtl_rp_choose_victim`/`rtl_rp_record_hit`/`rtl_rp_record_install` + geometry query) |
 | `rtl_pf_shim.cpp` | Verilator harness for prefetchers (`rtl_pf_access`) |
 | `build.sh <sv> <top> <out.so> [shim]` | Verilates + links the shared library (`nix-shell -p verilator python3` fallback); shim defaults to `rtl_fu_shim.cpp` |
@@ -73,12 +81,26 @@ io_req_ready, io_req_valid, io_req_bits_op, io_req_bits_a, io_req_bits_b
 io_resp_valid, io_resp_bits
 ```
 
-A branch predictor must expose:
+A plain branch predictor must expose:
 
 ```
 clock, reset
 io_predPc, io_predTaken, io_predTarget            (combinational lookup)
 io_updValid, io_updPc, io_updTaken, io_updTarget  (applied on one clock edge)
+```
+
+A speculative-history branch predictor must expose (direction only — targets live in
+the C# wrapper's BTB):
+
+```
+clock, reset
+io_predPc, io_predTaken                  (combinational lookup)
+io_updValid, io_updPc, io_updTaken       (commit-time training, one clock edge)
+io_specValid, io_specTaken               (fold predicted direction at fetch, one edge)
+io_recoverValid                          (flush: restore committed history, one edge)
+io_histOut                               (combinational working-history read = capture)
+io_restValid, io_restHist, io_restTaken  (partial squash: restore checkpoint + resolved
+                                          direction, one edge)
 ```
 
 A replacement policy must expose:
@@ -113,6 +135,7 @@ See `scripts/example-rtl.csx` for a machine with all four surfaces substituted.
 ```bash
 native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
+native/RtlFu/build.sh native/RtlFu/generated/LTageBp.sv LTageBp /tmp/rtl_ltage.so rtl_hbp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/StridePf.sv StridePf /tmp/rtl_stride.so rtl_pf_shim.cpp
 dotnet run --project src/Apps/Runner -- prog.elf \

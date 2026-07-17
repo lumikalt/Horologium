@@ -258,11 +258,13 @@ public sealed record CbpPluginConfig(string LibraryPath) : BranchPredictorConfig
 
 /// <summary>
 ///     Loads a Verilator-compiled RTL branch predictor from a native shared library built via
-///     <c>native/RtlFu/build.sh &lt;sv&gt; &lt;top&gt; &lt;out.so&gt; rtl_bp_shim.cpp</c>.
-///     Desktop-only — see <see cref="RtlFfiBranchPredictor" />.
+///     <c>native/RtlFu/build.sh &lt;sv&gt; &lt;top&gt; &lt;out.so&gt; rtl_bp_shim.cpp</c> (plain
+///     predictor) or <c>… rtl_hbp_shim.cpp</c> (speculative-history predictor, e.g. the L-TAGE);
+///     the shim ABI is auto-detected. Desktop-only — see <see cref="RtlFfiBranchPredictor" /> and
+///     <see cref="RtlFfiHistoryBranchPredictor" />.
 /// </summary>
 public sealed record RtlBpPluginConfig(string LibraryPath) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new RtlFfiBranchPredictor(LibraryPath);
+    public override IBranchPredictor Build() => RtlBranchPredictorLoader.Load(LibraryPath);
 }
 
 /// <summary>

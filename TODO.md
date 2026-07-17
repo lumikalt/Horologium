@@ -80,9 +80,13 @@ free embedded suites are runnable in full today.
 - [x] RTL script-host wiring: `.csx`/`.fsx` architecture scripts can attach all four RTL unit kinds —
   `CacheLevelSpec` gained per-level `PolicyFactory`/`PrefetcherFactory`, and both script hosts pre-import
   the RTL namespaces (`scripts/example-rtl.csx` shows a fully RTL-substituted machine).
-- [ ] RTL substitution follow-ups: further Chisel units (pipelined multiplier, FP div/sqrt, a TAGE-class
-  predictor, a set-dueling DRRIP, a multi-degree stream prefetcher) exercising multi-issue,
-  speculative-history, PSEL, and multi-target-per-access port contracts.
+- [x] RTL TAGE-class predictor: Chisel L-TAGE (bimodal + 4 tagged tables with folded geometric histories +
+  loop predictor) mirroring the C# `LTagePredictor` bit-for-bit, behind a new speculative-history shim ABI
+  (`rtl_hbp_shim.cpp`: spec-update/recover/capture/restore ports; the checkpoint is the working-GHR value).
+  `RtlBranchPredictorLoader` auto-detects the shim ABI so `--rtl-bp-lib`/`rtl_bp_plugin` serve both kinds.
+- [ ] RTL substitution follow-ups: further Chisel units (pipelined multiplier, FP div/sqrt, a set-dueling
+  DRRIP, a multi-degree stream prefetcher) exercising multi-issue, PSEL, and multi-target-per-access port
+  contracts.
 
 ## Face
 

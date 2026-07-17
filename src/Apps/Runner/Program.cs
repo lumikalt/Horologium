@@ -134,7 +134,7 @@ if (elasticReplayPath is not null) {
 
 if (champsimTracePath is not null) {
     IBranchPredictor predictor = rtlBpLib is not null
-        ? new RtlFfiBranchPredictor(rtlBpLib)
+        ? RtlBranchPredictorLoader.Load(rtlBpLib)
         : champsimCbpLib is not null
             ? new CbpFfiPredictor(champsimCbpLib)
             : ResolveChampSimPredictor(champsimPredictor);

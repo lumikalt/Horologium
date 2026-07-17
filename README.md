@@ -1134,13 +1134,20 @@ tapeout/FPGA. Two unit kinds so far:
   sequential restoring divider with early termination (`native/RtlFu/DivUnit.scala`; generated SystemVerilog
   committed), so div latency is data-dependent: 1 cycle for the RISC-V special cases, up to 33 for a full-width
   dividend.
-- **Branch predictors**: `RtlFfiBranchPredictor` implements `IBranchPredictor` over a verilated predictor —
-  combinational predict at fetch, one-clock-edge update at commit; speculative-history hooks stay at their interface
-  defaults (committed history only, like `CbpFfiPredictor`). The first predictor is a Chisel gshare
-  (`native/RtlFu/GshareBp.scala`) mirroring the C# `GsharePredictor` bit-for-bit, which the differential test exploits
-  to demand identical predictions on identical streams. Selectable per sweep config (`{"type": "rtl_bp_plugin",
-  "library_path": ...}`), globally via `--rtl-bp-lib` (replaces every sweep config's predictor), or as the evaluated
-  predictor of a `--champsim-trace` replay.
+- **Branch predictors**: two shim ABIs, auto-detected by `RtlBranchPredictorLoader` so one flag/config serves both.
+  `RtlFfiBranchPredictor` wraps a plain predictor — combinational predict at fetch, one-clock-edge update at commit;
+  speculative-history hooks stay at their interface defaults (committed history only, like `CbpFfiPredictor`); the
+  first is a Chisel gshare (`native/RtlFu/GshareBp.scala`) mirroring the C# `GsharePredictor` bit-for-bit.
+  `RtlFfiHistoryBranchPredictor` wraps a predictor that manages its own speculative global history in RTL, carrying
+  the full `IBranchPredictor` contract across the FFI — fetch-time history folds, flush recovery, and per-branch
+  checkpoints for OoO partial squashes, where the checkpoint is the model's working-history value itself (TAGE-family
+  folded indices derive from it, so a single value is a complete snapshot and no checkpoint RAM is needed); the first
+  is a Chisel L-TAGE (`native/RtlFu/LTageBp.scala`: bimodal base, four tagged tables with geometric 8/13/21/34-bit
+  folded histories, and a loop-predictor overlay) mirroring the C# `LTagePredictor` bit-for-bit — the differential
+  test replays fetch/commit/flush/partial-squash sequences demanding identical predictions and identical checkpoints,
+  and an OoO nested-loop run is cycle-for-cycle identical to the C# predictor. Selectable per sweep config
+  (`{"type": "rtl_bp_plugin", "library_path": ...}`), globally via `--rtl-bp-lib` (replaces every sweep config's
+  predictor), or as the evaluated predictor of a `--champsim-trace` replay.
 - **Cache replacement policies**: `RtlFfiReplacementPolicy` implements `IReplacementPolicy` over a verilated policy —
   combinational victim selection with the aging write-back, hit promotion, and fill insertion each consuming one clock
   edge. Geometry is fixed at Chisel elaboration and exposed through the model (`io_cfgSets`/`io_cfgWays`); the policy
