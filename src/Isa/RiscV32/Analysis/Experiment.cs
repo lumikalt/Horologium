@@ -125,6 +125,9 @@ public static class Experiment {
         long snapshotInterval
     ) {
         TrainConfig config = named.Config;
+        // RTL functional units are named per config (rtl_div_lib etc.); wrap this run's
+        // mechanism here, where both are in hand — one verilated model set per run/thread.
+        if (mechanism is Rv32Mechanism rv32) config.ApplyRtlUnits(rv32);
         var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(memory);
         IMemory runMemory = workload.WrapMemory(memory);

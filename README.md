@@ -1136,8 +1136,8 @@ tapeout/FPGA. Two unit kinds so far:
   for the RISC-V special cases, up to 33 for a full-width dividend. The second is a fully pipelined 3-stage 33×33
   multiplier (`native/RtlFu/MulUnit.scala`, selector `RvRtlMul`: MUL/MULH/MULHSU/MULHU) under the same port contract
   with `req.ready` constantly high; its constant 3-cycle latency equals the `MulDivLatency` default, so an RTL-mul
-  run is cycle-identical to the static model. `--rtl-div-lib` and `--rtl-mul-lib` chain to substitute the whole
-  M extension. The third is an FP divide/square-root unit (`native/RtlFu/FDivSqrtUnit.scala`, `--rtl-fdiv-lib`):
+  run is cycle-identical to the static model. `rtl_div_lib` and `rtl_mul_lib` (sweep JSON) chain to substitute the whole
+  M extension. The third is an FP divide/square-root unit (`native/RtlFu/FDivSqrtUnit.scala`, `rtl_fdiv_lib`):
   iterative IEEE binary32 FDIV.S/FSQRT.S with full subnormal support, round-to-nearest-even, canonical NaNs, and
   exception flags — carried across the FFI by a flags-reporting shim variant (`rtl_fpu_shim.cpp`,
   `rtl_execute_flags`) and delivered by the ISA-side `RvRtlFpExecutor` decorator, which replicates the §11.3
@@ -1158,8 +1158,8 @@ tapeout/FPGA. Two unit kinds so far:
   folded histories, and a loop-predictor overlay) mirroring the C# `LTagePredictor` bit-for-bit — the differential
   test replays fetch/commit/flush/partial-squash sequences demanding identical predictions and identical checkpoints,
   and an OoO nested-loop run is cycle-for-cycle identical to the C# predictor. Selectable per sweep config
-  (`{"type": "rtl_bp_plugin", "library_path": ...}`), globally via `--rtl-bp-lib` (replaces every sweep config's
-  predictor), or as the evaluated predictor of a `--champsim-trace` replay.
+  (`{"type": "rtl_bp_plugin", "library_path": ...}`) or as the evaluated predictor of a `--champsim-trace` replay
+  (`--champsim-rtl-bp-lib`).
 - **Cache replacement policies**: `RtlFfiReplacementPolicy` implements `IReplacementPolicy` over a verilated policy —
   combinational victim selection with the aging write-back, hit promotion, and fill insertion each consuming one clock
   edge. Geometry is fixed at Chisel elaboration and exposed through the model (`io_cfgSets`/`io_cfgWays`); the policy
@@ -1170,8 +1170,8 @@ tapeout/FPGA. Two unit kinds so far:
   the SRRIP base plus Set Dueling — SDM leader sets, a 10-bit PSEL duel, and 1/32 bimodal BRRIP inserts — mirroring
   the C# `DrripPolicy`, demonstrating global cross-set state (PSEL, shared bimodal counter) through the unchanged shim
   ABI; its differential stream phases between SDM-heavy and follower-heavy set biases so the duel swings both ways.
-  Selectable per sweep config (`"rtl_cache_policy_lib"`), globally via `--rtl-rp-lib`, or as the evaluated policy of
-  a `--champsim-trace` replay (strict geometry check against the `--champsim-cache-*` flags).
+  Selectable per sweep config (`"rtl_cache_policy_lib"`) or as the evaluated policy of a `--champsim-trace` replay
+  (`--champsim-rtl-rp-lib`; strict geometry check against the `--champsim-cache-*` flags).
 - **Cache prefetchers**: `RtlFfiPrefetcher` implements `IPrefetcher` over a verilated prefetcher, with two shim
   shapes sharing one C ABI. Single-target models (`rtl_pf_shim.cpp`): each demand access is presented once, the
   prefetch decision is read combinationally (post-update semantics live in the model), and the prediction-table
@@ -1181,8 +1181,7 @@ tapeout/FPGA. Two unit kinds so far:
   first is a Chisel Jouppi stream-buffer prefetcher (`native/RtlFu/StreamPf.scala`, 4 streams × depth 8 with LRU
   allocation) mirroring the C# `StreamPrefetcher`, whose allocation burst issues 8 lines from a single access; its
   differential test interleaves more sequential walkers than there are stream buffers so LRU eviction is exercised,
-  demanding identical counts and target sequences. Selectable per sweep config (`"rtl_prefetcher_lib"`) or globally
-  via `--rtl-pf-lib` (replaces every sweep config's D-cache prefetcher).
+  demanding identical counts and target sequences. Selectable per sweep config (`"rtl_prefetcher_lib"`).
 
 Port contracts and C ABIs for wrapping further units are documented in `native/RtlFu/README.md`. Desktop-only
 (`NativeLibrary`), like the CBP FFI predictors. All four surfaces are also reachable from `.csx`/`.fsx` architecture
@@ -1197,9 +1196,11 @@ native/RtlFu/build.sh native/RtlFu/generated/MulUnit.sv MulUnit /tmp/rtl_mul.so
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/StridePf.sv StridePf /tmp/rtl_stride.so rtl_pf_shim.cpp
-dotnet run --project src/Apps/Runner -- prog.elf \
-    --rtl-div-lib /tmp/rtl_div.so --rtl-mul-lib /tmp/rtl_mul.so --rtl-bp-lib /tmp/rtl_gshare.so \
-    --rtl-rp-lib /tmp/rtl_srrip.so --rtl-pf-lib /tmp/rtl_stride.so
+# ...then name them per sweep config in the JSON spec:
+#   {"predictor": {"type": "rtl_bp_plugin", "library_path": "/tmp/rtl_gshare.so"},
+#    "rtl_cache_policy_lib": "/tmp/rtl_srrip.so", "rtl_prefetcher_lib": "/tmp/rtl_stride.so",
+#    "rtl_div_lib": "/tmp/rtl_div.so", "rtl_mul_lib": "/tmp/rtl_mul.so", "rtl_fdiv_lib": "/tmp/rtl_fdiv.so"}
+dotnet run --project src/Apps/Runner -- prog.elf --sweep rtl.json
 ```
 
 ## Co-simulation contract

@@ -16,20 +16,19 @@ kinds so far:
   FFI: fetch-time history folds, flush recovery, and per-branch checkpoints for partial
   squashes (the checkpoint is the model's working-history value — TAGE folds derive from it,
   so no checkpoint RAM). Selectable per sweep config (`{"type": "rtl_bp_plugin"}`) or
-  globally via `--rtl-bp-lib`.
+  via `--champsim-rtl-bp-lib` for trace replay.
 - **Cache replacement policies** — `RtlFfiReplacementPolicy` (in `src/Core/Orrery/Cache/`)
   implements `IReplacementPolicy` on top of a verilated policy; geometry is fixed at Chisel
   elaboration and exposed via `io_cfgSets`/`io_cfgWays`, and the policy attaches only to
   cache levels whose sets×ways match (others keep the configured C# policy). Selectable per
-  sweep config (`"rtl_cache_policy_lib"`) or globally via `--rtl-rp-lib`.
+  sweep config (`"rtl_cache_policy_lib"`) or via `--champsim-rtl-rp-lib` for trace replay.
 - **Cache prefetchers** — `RtlFfiPrefetcher` (in `src/Core/Orrery/Cache/`) implements
   `IPrefetcher` on top of a verilated prefetcher. Two shim shapes share the same
   `rtl_pf_*` C ABI, so the C# side is identical for both: `rtl_pf_shim.cpp` for
   single-target models (decision read combinationally, table update on one edge — the
   stride prefetcher), and `rtl_mpf_shim.cpp` for multi-degree models (the access edge
   loads an internal drain queue; the shim pops one address per clock — the stream
-  prefetcher's allocation burst). Selectable per sweep config (`"rtl_prefetcher_lib"`)
-  or globally via `--rtl-pf-lib`.
+  prefetcher's allocation burst). Selectable per sweep config (`"rtl_prefetcher_lib"`).
 
 ## Files
 
@@ -173,9 +172,24 @@ native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.s
 native/RtlFu/build.sh native/RtlFu/generated/DrripRp.sv DrripRp /tmp/rtl_drrip.so rtl_rp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/StridePf.sv StridePf /tmp/rtl_stride.so rtl_pf_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/StreamPf.sv StreamPf /tmp/rtl_stream.so rtl_mpf_shim.cpp
-dotnet run --project src/Apps/Runner -- prog.elf \
-    --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so \
-    --rtl-rp-lib /tmp/rtl_srrip.so --rtl-pf-lib /tmp/rtl_stride.so
+```
+
+For ELF runs the libraries are named per sweep config in the JSON spec:
+
+```bash
+cat > rtl.json <<'EOF'
+[{"name": "rtl", "config": {
+  "pipeline": "ooo",
+  "d_cache": {"capacity_bytes": 8192, "ways": 4, "block_bytes": 32, "miss_latency": 10},
+  "predictor": {"type": "rtl_bp_plugin", "library_path": "/tmp/rtl_gshare.so"},
+  "rtl_cache_policy_lib": "/tmp/rtl_srrip.so",
+  "rtl_prefetcher_lib": "/tmp/rtl_stride.so",
+  "rtl_div_lib": "/tmp/rtl_div.so",
+  "rtl_mul_lib": "/tmp/rtl_mul.so",
+  "rtl_fdiv_lib": "/tmp/rtl_fdiv.so"
+}}]
+EOF
+dotnet run --project src/Apps/Runner -- prog.elf --sweep rtl.json
 ```
 
 Thread-safety: one verilated model per `RtlFfiFunctionalUnit`, one unit per

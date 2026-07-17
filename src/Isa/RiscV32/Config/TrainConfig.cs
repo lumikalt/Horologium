@@ -1,7 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Mechanism.RtlFu;
 using Orrery.Cache;
 using Pipeline.Ooo;
+using RiscV32.Execute;
 
 namespace RiscV32.Config;
 
@@ -74,7 +76,13 @@ public sealed record TrainConfig(
         = null, // Verilator-compiled RTL replacement policy (native/RtlFu); applies to cache levels whose
                 // geometry matches the model's elaborated sets×ways, others keep CacheReplacementPolicy
     string? RtlPrefetcherLib
-        = null // Verilator-compiled RTL D-cache prefetcher (native/RtlFu); overrides DPrefetcher
+        = null, // Verilator-compiled RTL D-cache prefetcher (native/RtlFu); overrides DPrefetcher
+    string? RtlDivLib
+        = null, // Verilator-compiled RTL divider for DIV/DIVU/REM/REMU (native/RtlFu)
+    string? RtlMulLib
+        = null, // Verilator-compiled RTL multiplier for MUL/MULH/MULHSU/MULHU (native/RtlFu)
+    string? RtlFdivLib
+        = null // Verilator-compiled flag-reporting RTL FP unit for FDIV.S/FSQRT.S (native/RtlFu)
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,
@@ -120,6 +128,30 @@ public sealed record TrainConfig(
         RtlCachePolicyLib is null
             ? null
             : (sets, ways) => RtlFfiReplacementPolicy.TryCreate(RtlCachePolicyLib, sets, ways);
+
+    /// <summary>
+    ///     Wraps <paramref name="mechanism" />'s executor with the RTL functional units this
+    ///     config names (<c>rtl_div_lib</c> / <c>rtl_mul_lib</c> / <c>rtl_fdiv_lib</c>).
+    ///     Called once per run by <c>Experiment.RunOne</c> on the worker thread that owns the
+    ///     mechanism, so each run gets its own verilated model instances (they are not
+    ///     thread-safe). RTL predictors, replacement policies, and prefetchers are configured
+    ///     through <see cref="Predictor" /> (<c>rtl_bp_plugin</c>),
+    ///     <see cref="RtlCachePolicyLib" />, and <see cref="RtlPrefetcherLib" /> instead.
+    /// </summary>
+    public void ApplyRtlUnits(Rv32Mechanism mechanism) {
+        if (RtlDivLib is not null)
+            mechanism.Executor = new RtlBackedExecutor(
+                mechanism.Executor, new RtlFfiFunctionalUnit(RtlDivLib), RvRtlDiv.Select
+            );
+        if (RtlMulLib is not null)
+            mechanism.Executor = new RtlBackedExecutor(
+                mechanism.Executor, new RtlFfiFunctionalUnit(RtlMulLib), RvRtlMul.Select
+            );
+        if (RtlFdivLib is not null)
+            mechanism.Executor = new RvRtlFpExecutor(
+                mechanism.Executor, new RtlFfiFunctionalUnit(RtlFdivLib)
+            );
+    }
 
     private ReplacementPolicyKind ParseReplacementPolicy() =>
         CacheReplacementPolicy?.ToLowerInvariant() switch {

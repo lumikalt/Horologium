@@ -7,7 +7,6 @@ using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
-using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.Trace;
 using Script;
@@ -41,12 +40,12 @@ var champsimCachePolicy = "Lru";  // --champsim-cache-policy <name|none>: replac
 var champsimCacheSets = 2048;     // --champsim-cache-sets <n>
 var champsimCacheWays = 16;       // --champsim-cache-ways <n>
 var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
-string? rtlDivLib = null;         // --rtl-div-lib <path>: run DIV/DIVU/REM/REMU on an RTL divider (native/RtlFu)
-string? rtlMulLib = null;         // --rtl-mul-lib <path>: run MUL/MULH/MULHSU/MULHU on an RTL multiplier (native/RtlFu)
-string? rtlFdivLib = null;        // --rtl-fdiv-lib <path>: run FDIV.S/FSQRT.S on an RTL FP unit (native/RtlFu)
-string? rtlBpLib = null;          // --rtl-bp-lib <path>: predict branches with an RTL predictor (native/RtlFu)
-string? rtlRpLib = null;          // --rtl-rp-lib <path>: RTL cache replacement policy (native/RtlFu)
-string? rtlPfLib = null;          // --rtl-pf-lib <path>: RTL D-cache prefetcher (native/RtlFu)
+// RTL unit substitution for ELF runs is configured per sweep config in the JSON spec
+// (rtl_div_lib, rtl_mul_lib, rtl_fdiv_lib, rtl_cache_policy_lib, rtl_prefetcher_lib,
+// and predictor {"type": "rtl_bp_plugin"}) — see TrainConfig. The standalone ChampSim
+// replay has no JSON spec, so it keeps champsim-scoped flags:
+string? champsimRtlBpLib = null; // --champsim-rtl-bp-lib <path>: RTL predictor to evaluate
+string? champsimRtlRpLib = null; // --champsim-rtl-rp-lib <path>: RTL replacement policy to evaluate
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -82,12 +81,8 @@ for (var i = 0; i < args.Length; i++)
         case "--champsim-cache-sets":   champsimCacheSets = int.Parse(args[++i]); break;
         case "--champsim-cache-ways":   champsimCacheWays = int.Parse(args[++i]); break;
         case "--champsim-cache-block":  champsimCacheBlock = int.Parse(args[++i]); break;
-        case "--rtl-div-lib":           rtlDivLib = args[++i]; break;
-        case "--rtl-mul-lib":           rtlMulLib = args[++i]; break;
-        case "--rtl-fdiv-lib":          rtlFdivLib = args[++i]; break;
-        case "--rtl-bp-lib":            rtlBpLib = args[++i]; break;
-        case "--rtl-rp-lib":            rtlRpLib = args[++i]; break;
-        case "--rtl-pf-lib":            rtlPfLib = args[++i]; break;
+        case "--champsim-rtl-bp-lib":   champsimRtlBpLib = args[++i]; break;
+        case "--champsim-rtl-rp-lib":   champsimRtlRpLib = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -137,8 +132,8 @@ if (elasticReplayPath is not null) {
 // ── ChampSim trace replay (standalone — no workload needed) ──────────────────
 
 if (champsimTracePath is not null) {
-    IBranchPredictor predictor = rtlBpLib is not null
-        ? RtlBranchPredictorLoader.Load(rtlBpLib)
+    IBranchPredictor predictor = champsimRtlBpLib is not null
+        ? RtlBranchPredictorLoader.Load(champsimRtlBpLib)
         : champsimCbpLib is not null
             ? new CbpFfiPredictor(champsimCbpLib)
             : ResolveChampSimPredictor(champsimPredictor);
@@ -156,8 +151,8 @@ if (champsimTracePath is not null) {
             replacementPolicy: policyKind,
             // Strict geometry check: the replay cache is sized by CLI flags, so a mismatch
             // with the model's elaboration is a user error, not a fallback case.
-            customPolicy: rtlRpLib is not null
-                ? new RtlFfiReplacementPolicy(rtlRpLib, champsimCacheSets, champsimCacheWays)
+            customPolicy: champsimRtlRpLib is not null
+                ? new RtlFfiReplacementPolicy(champsimRtlRpLib, champsimCacheSets, champsimCacheWays)
                 : null
         );
     }
@@ -444,26 +439,6 @@ IReadOnlyList<NamedConfig> configs = sweepPath is not null
     ? NamedConfig.LoadFile(sweepPath)
     : DefaultSweep();
 
-// --rtl-bp-lib replaces every config's predictor with the RTL model; each config's
-// Build() constructs its own RtlFfiBranchPredictor (one verilated model per run/thread).
-if (rtlBpLib is not null)
-    configs = configs
-        .Select(c => c with { Config = c.Config with { Predictor = new RtlBpPluginConfig(rtlBpLib), }, })
-        .ToList();
-
-// --rtl-rp-lib routes each config's cache builds through an RTL policy factory; levels
-// whose geometry doesn't match the model's elaboration keep the configured C# policy.
-if (rtlRpLib is not null)
-    configs = configs
-        .Select(c => c with { Config = c.Config with { RtlCachePolicyLib = rtlRpLib, }, })
-        .ToList();
-
-// --rtl-pf-lib replaces each config's D-cache prefetcher with the RTL model.
-if (rtlPfLib is not null)
-    configs = configs
-        .Select(c => c with { Config = c.Config with { RtlPrefetcherLib = rtlPfLib, }, })
-        .ToList();
-
 // ── Run ───────────────────────────────────────────────────────────────────────
 
 Console.Error.WriteLine($"Workloads: {workloads.Count} ({string.Join(", ", workloads.Select(w => w.Label))})");
@@ -472,29 +447,10 @@ if (warmupTicks > 0) Console.Error.WriteLine($"Warmup   : {warmupTicks:N0} ticks
 Console.Error.WriteLine($"Max ticks: {maxTicks:N0}");
 Console.Error.WriteLine();
 
-// One verilated model per mechanism: Experiment runs the config sweep in parallel and
-// invokes the factory on each worker thread, so a shared model instance would have its
-// state machine interleaved across threads. Per-mechanism instances also land on
-// Verilator's thread-local default context.
-Rv32Mechanism MakeMechanism(IWorkload w) {
-    var mech = new Rv32Mechanism(w.HtifTohostAddress);
-    if (rtlDivLib is not null)
-        mech.Executor = new RtlBackedExecutor(
-            mech.Executor, new RtlFfiFunctionalUnit(rtlDivLib), RvRtlDiv.Select
-        );
-    if (rtlMulLib is not null)
-        mech.Executor = new RtlBackedExecutor(
-            mech.Executor, new RtlFfiFunctionalUnit(rtlMulLib), RvRtlMul.Select
-        );
-    if (rtlFdivLib is not null)
-        mech.Executor = new RvRtlFpExecutor(mech.Executor, new RtlFfiFunctionalUnit(rtlFdivLib));
-    return mech;
-}
-
 if (workloads.Count == 1) {
     IWorkload workload = workloads[0].Workload;
     ExperimentResult result = Experiment.Run(
-        workload, configs, () => MakeMechanism(workload),
+        workload, configs, () => new Rv32Mechanism(workload.HtifTohostAddress),
         maxTicks, warmupTicks, snapshotInterval
     );
 
@@ -506,7 +462,7 @@ if (workloads.Count == 1) {
 }
 else {
     IReadOnlyList<(string Label, ExperimentResult Result)> results = Experiment.RunMany(
-        workloads, configs, MakeMechanism,
+        workloads, configs, w => new Rv32Mechanism(w.HtifTohostAddress),
         maxTicks, warmupTicks, snapshotInterval
     );
 
@@ -647,35 +603,23 @@ static void PrintUsage() {
           --champsim-cache-sets <n>     Cache set count (default: 2048).
           --champsim-cache-ways <n>     Cache associativity (default: 16).
           --champsim-cache-block <n>    Cache line size in bytes (default: 64).
-          --rtl-div-lib <path>          Execute DIV/DIVU/REM/REMU on a Verilator-compiled RTL
-                                        divider (build with native/RtlFu/build.sh); its result
-                                        replaces the C# model's and its per-operand cycle count
-                                        becomes the instruction's FU latency in ooo/cpr pipelines.
-          --rtl-mul-lib <path>          Execute MUL/MULH/MULHSU/MULHU on a Verilator-compiled
-                                        pipelined RTL multiplier; composes with --rtl-div-lib to
-                                        substitute the whole M extension.
-          --rtl-fdiv-lib <path>         Execute FDIV.S/FSQRT.S on a Verilator-compiled RTL FP
-                                        unit (build.sh ... rtl_fpu_shim.cpp); IEEE results and
-                                        exception flags come from the RTL, and its data-dependent
-                                        cycle count (1 special / ~30 iterative) becomes the FU
-                                        latency.
-          --rtl-bp-lib <path>           Predict branches with a Verilator-compiled RTL predictor
-                                        (build with native/RtlFu/build.sh ... rtl_bp_shim.cpp).
-                                        Replaces every sweep config's predictor for ELF runs, or
-                                        the evaluated predictor for --champsim-trace replay; also
-                                        available in sweep JSON as {"type": "rtl_bp_plugin"}.
-          --rtl-rp-lib <path>           Replace the cache replacement policy with a Verilator-
-                                        compiled RTL policy (build.sh ... rtl_rp_shim.cpp). For
-                                        ELF runs it applies to cache levels whose sets×ways match
-                                        the model's elaborated geometry (others keep the
-                                        configured policy; sweep JSON: "rtl_cache_policy_lib");
-                                        for --champsim-trace it replaces the evaluated policy and
-                                        the geometry must match the --champsim-cache-* flags.
-          --rtl-pf-lib <path>           Replace the D-cache prefetcher with a Verilator-compiled
-                                        RTL prefetcher (build.sh ... rtl_pf_shim.cpp). Replaces
-                                        every sweep config's DPrefetcher for ELF runs; sweep
-                                        JSON: "rtl_prefetcher_lib".
+          --champsim-rtl-bp-lib <path>  Evaluate a Verilator-compiled RTL branch predictor
+                                        (native/RtlFu; shim ABI auto-detected) against the trace.
+          --champsim-rtl-rp-lib <path>  Evaluate a Verilator-compiled RTL replacement policy;
+                                        its elaborated geometry must match --champsim-cache-*.
           --help                        Show this message.
+
+        RTL unit substitution for ELF runs is configured per sweep config in the JSON spec
+        (see native/RtlFu/README.md for building the libraries):
+          "rtl_div_lib":  <path>    DIV/DIVU/REM/REMU on an RTL divider; its per-operand cycle
+                                    count becomes the FU latency in ooo/cpr pipelines.
+          "rtl_mul_lib":  <path>    MUL/MULH/MULHSU/MULHU on a pipelined RTL multiplier.
+          "rtl_fdiv_lib": <path>    FDIV.S/FSQRT.S on a flag-reporting RTL FP unit.
+          "rtl_cache_policy_lib":   RTL replacement policy for cache levels whose sets×ways
+                                    match the model's elaborated geometry.
+          "rtl_prefetcher_lib":     RTL D-cache prefetcher.
+          "predictor": {"type": "rtl_bp_plugin", "library_path": <path>}
+                                    RTL branch predictor (shim ABI auto-detected).
 
         Sweep file format (JSON array):
           [
