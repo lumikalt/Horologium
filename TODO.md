@@ -90,8 +90,12 @@ free embedded suites are runnable in full today.
 - [x] RTL multi-degree stream prefetcher: Chisel Jouppi stream buffers (4 streams × depth 8, LRU
   allocation, burst issue) mirroring the C# `StreamPrefetcher` bit-for-bit; new drain-queue port
   contract (`rtl_mpf_shim.cpp`) carries multiple targets per access over the unchanged `rtl_pf_*` C ABI.
-- [ ] RTL substitution follow-ups: further Chisel FUs (pipelined multiplier, FP div/sqrt) exercising a
-  multi-issue port contract.
+- [x] RTL pipelined multiplier: Chisel 3-stage fully pipelined 33×33 RV32M multiplier
+  (MUL/MULH/MULHSU/MULHU) under the unchanged FU port contract (`req.ready` constantly high); constant
+  3-cycle latency matches the `MulDivLatency` default, so RTL-mul runs are cycle-identical to the static
+  model. `--rtl-mul-lib` composes with `--rtl-div-lib` for the whole M extension.
+- [ ] RTL FP div/sqrt unit: Chisel iterative FDIV/FSQRT behind `RtlBackedExecutor` — needs IEEE 754
+  rounding/flags parity with the C# soft-float model to pass a differential sweep.
 
 ## Face
 

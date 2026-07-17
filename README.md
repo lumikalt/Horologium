@@ -1128,12 +1128,16 @@ of the C# model for that unit — useful for validating a custom design against 
 tapeout/FPGA. Two unit kinds so far:
 
 - **Functional units**: `RtlBackedExecutor` decorates the ISA executor, and instructions an ISA-side selector claims
-  (currently `RvRtlDiv`: RV32M DIV/DIVU/REM/REMU) execute on the verilated model — the RTL result becomes the register
-  write, and the model's observed cycle count becomes the instruction's FU latency (`ExecuteResult.LatencyOverride`,
-  honored by the `ooo` and `cpr` pipelines in place of the static `FuLatencyConfig` entry). The first unit is a Chisel
-  sequential restoring divider with early termination (`native/RtlFu/DivUnit.scala`; generated SystemVerilog
-  committed), so div latency is data-dependent: 1 cycle for the RISC-V special cases, up to 33 for a full-width
-  dividend.
+  execute on the verilated model — the RTL result becomes the register write, and the model's observed cycle count
+  becomes the instruction's FU latency (`ExecuteResult.LatencyOverride`, honored by the `ooo` and `cpr` pipelines in
+  place of the static `FuLatencyConfig` entry). Decorators compose, so multiple selectors can each claim their
+  instruction class. The first unit is a Chisel sequential restoring divider with early termination
+  (`native/RtlFu/DivUnit.scala`, selector `RvRtlDiv`: DIV/DIVU/REM/REMU), so div latency is data-dependent — 1 cycle
+  for the RISC-V special cases, up to 33 for a full-width dividend. The second is a fully pipelined 3-stage 33×33
+  multiplier (`native/RtlFu/MulUnit.scala`, selector `RvRtlMul`: MUL/MULH/MULHSU/MULHU) under the same port contract
+  with `req.ready` constantly high; its constant 3-cycle latency equals the `MulDivLatency` default, so an RTL-mul
+  run is cycle-identical to the static model. `--rtl-div-lib` and `--rtl-mul-lib` chain to substitute the whole
+  M extension.
 - **Branch predictors**: two shim ABIs, auto-detected by `RtlBranchPredictorLoader` so one flag/config serves both.
   `RtlFfiBranchPredictor` wraps a plain predictor — combinational predict at fetch, one-clock-edge update at commit;
   speculative-history hooks stay at their interface defaults (committed history only, like `CbpFfiPredictor`); the
@@ -1179,13 +1183,14 @@ scripts (the script hosts pre-import the RTL namespaces): `BranchPredictorFactor
 `CacheLevelSpec` — see `scripts/example-rtl.csx`.
 
 ```bash
-# Verilate the Chisel divider + gshare + SRRIP + stride prefetcher, then drive all four from the pipeline
+# Verilate the Chisel units, then drive all four surfaces from the pipeline
 native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
+native/RtlFu/build.sh native/RtlFu/generated/MulUnit.sv MulUnit /tmp/rtl_mul.so
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/StridePf.sv StridePf /tmp/rtl_stride.so rtl_pf_shim.cpp
 dotnet run --project src/Apps/Runner -- prog.elf \
-    --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so \
+    --rtl-div-lib /tmp/rtl_div.so --rtl-mul-lib /tmp/rtl_mul.so --rtl-bp-lib /tmp/rtl_gshare.so \
     --rtl-rp-lib /tmp/rtl_srrip.so --rtl-pf-lib /tmp/rtl_stride.so
 ```
 

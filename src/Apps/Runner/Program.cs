@@ -42,6 +42,7 @@ var champsimCacheSets = 2048;     // --champsim-cache-sets <n>
 var champsimCacheWays = 16;       // --champsim-cache-ways <n>
 var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
 string? rtlDivLib = null;         // --rtl-div-lib <path>: run DIV/DIVU/REM/REMU on an RTL divider (native/RtlFu)
+string? rtlMulLib = null;         // --rtl-mul-lib <path>: run MUL/MULH/MULHSU/MULHU on an RTL multiplier (native/RtlFu)
 string? rtlBpLib = null;          // --rtl-bp-lib <path>: predict branches with an RTL predictor (native/RtlFu)
 string? rtlRpLib = null;          // --rtl-rp-lib <path>: RTL cache replacement policy (native/RtlFu)
 string? rtlPfLib = null;          // --rtl-pf-lib <path>: RTL D-cache prefetcher (native/RtlFu)
@@ -81,6 +82,7 @@ for (var i = 0; i < args.Length; i++)
         case "--champsim-cache-ways":   champsimCacheWays = int.Parse(args[++i]); break;
         case "--champsim-cache-block":  champsimCacheBlock = int.Parse(args[++i]); break;
         case "--rtl-div-lib":           rtlDivLib = args[++i]; break;
+        case "--rtl-mul-lib":           rtlMulLib = args[++i]; break;
         case "--rtl-bp-lib":            rtlBpLib = args[++i]; break;
         case "--rtl-rp-lib":            rtlRpLib = args[++i]; break;
         case "--rtl-pf-lib":            rtlPfLib = args[++i]; break;
@@ -478,6 +480,10 @@ Rv32Mechanism MakeMechanism(IWorkload w) {
         mech.Executor = new RtlBackedExecutor(
             mech.Executor, new RtlFfiFunctionalUnit(rtlDivLib), RvRtlDiv.Select
         );
+    if (rtlMulLib is not null)
+        mech.Executor = new RtlBackedExecutor(
+            mech.Executor, new RtlFfiFunctionalUnit(rtlMulLib), RvRtlMul.Select
+        );
     return mech;
 }
 
@@ -641,6 +647,9 @@ static void PrintUsage() {
                                         divider (build with native/RtlFu/build.sh); its result
                                         replaces the C# model's and its per-operand cycle count
                                         becomes the instruction's FU latency in ooo/cpr pipelines.
+          --rtl-mul-lib <path>          Execute MUL/MULH/MULHSU/MULHU on a Verilator-compiled
+                                        pipelined RTL multiplier; composes with --rtl-div-lib to
+                                        substitute the whole M extension.
           --rtl-bp-lib <path>           Predict branches with a Verilator-compiled RTL predictor
                                         (build with native/RtlFu/build.sh ... rtl_bp_shim.cpp).
                                         Replaces every sweep config's predictor for ELF runs, or

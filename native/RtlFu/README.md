@@ -36,6 +36,7 @@ kinds so far:
 | File | Role |
 |---|---|
 | `DivUnit.scala` | Chisel source: RV32M DIV/DIVU/REM/REMU, sequential restoring divider with early termination (latency = significant-bits(dividend) + 1; RISC-V special cases resolve in 1 cycle) |
+| `MulUnit.scala` | Chisel source: RV32M MUL/MULH/MULHSU/MULHU, fully pipelined 3-stage 33×33 multiplier (`io.req.ready` constantly high; constant 3-cycle latency = the `MulDivLatency` default) |
 | `GshareBp.scala` | Chisel source: gshare predictor (8-bit GHR, 256×2-bit PHT + BTB) mirroring the C# `GsharePredictor` bit-for-bit so differential tests can demand identical predictions |
 | `LTageBp.scala` | Chisel source: L-TAGE (4096-entry bimodal + 4×512 tagged tables with 8/13/21/34-bit folded histories + 32-entry loop predictor) mirroring the C# `LTagePredictor`; manages its own speculative GHR with capture/restore ports |
 | `SrripRp.scala` | Chisel source: SRRIP replacement policy (2-bit RRPVs, combinational victim + unrolled aging) mirroring the C# `SrripPolicy`; default geometry 64 sets × 4 ways |
@@ -152,6 +153,7 @@ See `scripts/example-rtl.csx` for a machine with all four surfaces substituted.
 
 ```bash
 native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
+native/RtlFu/build.sh native/RtlFu/generated/MulUnit.sv MulUnit /tmp/rtl_mul.so
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/LTageBp.sv LTageBp /tmp/rtl_ltage.so rtl_hbp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp
