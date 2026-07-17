@@ -70,10 +70,13 @@ free embedded suites are runnable in full today.
   (combinational predict, clocked commit-time update); first unit is a gshare mirroring the C#
   `GsharePredictor` bit-for-bit for differential validation. Sweep-config type `rtl_bp_plugin`,
   `--rtl-bp-lib` flag, ChampSim-trace replay support.
+- [x] RTL replacement-policy substitution: verilated Chisel policy behind `IReplacementPolicy`
+  (combinational victim + clocked aging/hit/install; elaboration-time geometry validated per cache
+  level); first unit is an SRRIP mirroring the C# `SrripPolicy` bit-for-bit. Sweep-config field
+  `rtl_cache_policy_lib`, `--rtl-rp-lib` flag, ChampSim-trace replay support.
 - [ ] RTL substitution follow-ups: script-host (`.csx` `MachineSpec`) wiring so architecture scripts can attach
-  RTL-backed units; further Chisel units (pipelined multiplier, FP div/sqrt, a TAGE-class predictor) exercising
-  multi-issue and speculative-history port contracts; RTL cache/replacement-policy substitution behind
-  `IReplacementPolicy`.
+  RTL-backed units; further Chisel units (pipelined multiplier, FP div/sqrt, a TAGE-class predictor, a
+  set-dueling DRRIP) exercising multi-issue, speculative-history, and PSEL port contracts.
 
 ## Face
 

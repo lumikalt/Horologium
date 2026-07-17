@@ -1141,15 +1141,26 @@ tapeout/FPGA. Two unit kinds so far:
   to demand identical predictions on identical streams. Selectable per sweep config (`{"type": "rtl_bp_plugin",
   "library_path": ...}`), globally via `--rtl-bp-lib` (replaces every sweep config's predictor), or as the evaluated
   predictor of a `--champsim-trace` replay.
+- **Cache replacement policies**: `RtlFfiReplacementPolicy` implements `IReplacementPolicy` over a verilated policy —
+  combinational victim selection with the aging write-back, hit promotion, and fill insertion each consuming one clock
+  edge. Geometry is fixed at Chisel elaboration and exposed through the model (`io_cfgSets`/`io_cfgWays`); the policy
+  attaches only to cache levels whose sets×ways match, others keep the configured C# policy kind. The first policy is
+  a Chisel SRRIP (`native/RtlFu/SrripRp.scala`, default 64 sets × 4 ways) mirroring the C# `SrripPolicy` bit-for-bit —
+  the differential test demands identical victims and RRPV metadata, and a cache-level test demands identical hit/miss
+  counts from `SetAssociativeCache` under either policy. Selectable per sweep config (`"rtl_cache_policy_lib"`),
+  globally via `--rtl-rp-lib`, or as the evaluated policy of a `--champsim-trace` replay (strict geometry check
+  against the `--champsim-cache-*` flags).
 
 Port contracts and C ABIs for wrapping further units are documented in `native/RtlFu/README.md`. Desktop-only
 (`NativeLibrary`), like the CBP FFI predictors.
 
 ```bash
-# Verilate the Chisel divider + gshare into shared libraries, then drive both from the pipeline
+# Verilate the Chisel divider + gshare + SRRIP into shared libraries, then drive all three from the pipeline
 native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
-dotnet run --project src/Apps/Runner -- prog.elf --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so
+native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp
+dotnet run --project src/Apps/Runner -- prog.elf \
+    --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so --rtl-rp-lib /tmp/rtl_srrip.so
 ```
 
 ## Co-simulation contract

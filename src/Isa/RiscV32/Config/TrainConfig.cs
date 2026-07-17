@@ -69,7 +69,10 @@ public sealed record TrainConfig(
         = null, // null/"lru" | "mru" | "clock" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc" | "random" | "fifo" | "plru" | "hawkeye"
     bool EnableStoreSets = false, // Chrysos & Emer ISCA 1998 store-set memory dependence predictor
     int FdipFtqCapacity = 0, // 0 = disabled; fetch-directed I-cache prefetch (Reinman/Calder/Austin, MICRO 1999)
-    bool Rdip = false // RAS-directed I-cache prefetch (Kolli/Saidi/Wenisch, MICRO 2013)
+    bool Rdip = false, // RAS-directed I-cache prefetch (Kolli/Saidi/Wenisch, MICRO 2013)
+    string? RtlCachePolicyLib
+        = null // Verilator-compiled RTL replacement policy (native/RtlFu); applies to cache levels whose
+               // geometry matches the model's elaborated sets×ways, others keep CacheReplacementPolicy
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,
@@ -78,7 +81,10 @@ public sealed record TrainConfig(
     };
 
     public MemoryConfig ToIMemoryConfig() =>
-        ToMemoryConfig(ICache, L2Cache, L3Cache, ITlb) with { ReplacementPolicy = ParseReplacementPolicy(), };
+        ToMemoryConfig(ICache, L2Cache, L3Cache, ITlb) with {
+            ReplacementPolicy = ParseReplacementPolicy(),
+            PolicyFactory = MakePolicyFactory(),
+        };
 
     public MemoryConfig ToDMemoryConfig() {
         MemoryConfig mc = ToMemoryConfig(DCache, L2Cache, L3Cache, DTlb);
@@ -98,8 +104,17 @@ public sealed record TrainConfig(
             PrefetcherDepth = DPrefetcherDepth,
             PrefetchLatency = DPrefetchLatency,
             ReplacementPolicy = ParseReplacementPolicy(),
+            PolicyFactory = MakePolicyFactory(),
         };
     }
+
+    // Each invocation loads its own verilated model (one per cache, on the worker thread
+    // building the train); TryCreate returns null on geometry mismatch so non-matching
+    // hierarchy levels keep the configured C# policy kind.
+    private Func<int, int, IReplacementPolicy?>? MakePolicyFactory() =>
+        RtlCachePolicyLib is null
+            ? null
+            : (sets, ways) => RtlFfiReplacementPolicy.TryCreate(RtlCachePolicyLib, sets, ways);
 
     private ReplacementPolicyKind ParseReplacementPolicy() =>
         CacheReplacementPolicy?.ToLowerInvariant() switch {

@@ -43,6 +43,7 @@ var champsimCacheWays = 16;       // --champsim-cache-ways <n>
 var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
 string? rtlDivLib = null;         // --rtl-div-lib <path>: run DIV/DIVU/REM/REMU on an RTL divider (native/RtlFu)
 string? rtlBpLib = null;          // --rtl-bp-lib <path>: predict branches with an RTL predictor (native/RtlFu)
+string? rtlRpLib = null;          // --rtl-rp-lib <path>: RTL cache replacement policy (native/RtlFu)
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -80,6 +81,7 @@ for (var i = 0; i < args.Length; i++)
         case "--champsim-cache-block":  champsimCacheBlock = int.Parse(args[++i]); break;
         case "--rtl-div-lib":           rtlDivLib = args[++i]; break;
         case "--rtl-bp-lib":            rtlBpLib = args[++i]; break;
+        case "--rtl-rp-lib":            rtlRpLib = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -145,7 +147,12 @@ if (champsimTracePath is not null) {
         int capacityBytes = champsimCacheSets * champsimCacheWays * champsimCacheBlock;
         cache = new SetAssociativeCache(
             new ChampSimBackingMemory(), capacityBytes, champsimCacheWays, champsimCacheBlock, 1,
-            replacementPolicy: policyKind
+            replacementPolicy: policyKind,
+            // Strict geometry check: the replay cache is sized by CLI flags, so a mismatch
+            // with the model's elaboration is a user error, not a fallback case.
+            customPolicy: rtlRpLib is not null
+                ? new RtlFfiReplacementPolicy(rtlRpLib, champsimCacheSets, champsimCacheWays)
+                : null
         );
     }
 
@@ -438,6 +445,13 @@ if (rtlBpLib is not null)
         .Select(c => c with { Config = c.Config with { Predictor = new RtlBpPluginConfig(rtlBpLib), }, })
         .ToList();
 
+// --rtl-rp-lib routes each config's cache builds through an RTL policy factory; levels
+// whose geometry doesn't match the model's elaboration keep the configured C# policy.
+if (rtlRpLib is not null)
+    configs = configs
+        .Select(c => c with { Config = c.Config with { RtlCachePolicyLib = rtlRpLib, }, })
+        .ToList();
+
 // ── Run ───────────────────────────────────────────────────────────────────────
 
 Console.Error.WriteLine($"Workloads: {workloads.Count} ({string.Join(", ", workloads.Select(w => w.Label))})");
@@ -624,6 +638,13 @@ static void PrintUsage() {
                                         Replaces every sweep config's predictor for ELF runs, or
                                         the evaluated predictor for --champsim-trace replay; also
                                         available in sweep JSON as {"type": "rtl_bp_plugin"}.
+          --rtl-rp-lib <path>           Replace the cache replacement policy with a Verilator-
+                                        compiled RTL policy (build.sh ... rtl_rp_shim.cpp). For
+                                        ELF runs it applies to cache levels whose sets×ways match
+                                        the model's elaborated geometry (others keep the
+                                        configured policy; sweep JSON: "rtl_cache_policy_lib");
+                                        for --champsim-trace it replaces the evaluated policy and
+                                        the geometry must match the --champsim-cache-* flags.
           --help                        Show this message.
 
         Sweep file format (JSON array):

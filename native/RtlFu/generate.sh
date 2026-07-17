@@ -12,6 +12,7 @@ nix-shell -p scala-cli circt --run '
     export CHISEL_FIRTOOL_PATH="$(dirname "$(command -v firtool)")"
     scala-cli run . --main-class rtlfu.Generate
     scala-cli run . --main-class rtlfu.GenerateBp
+    scala-cli run . --main-class rtlfu.GenerateRp
 '
 
 echo "Regenerated generated/*.sv"

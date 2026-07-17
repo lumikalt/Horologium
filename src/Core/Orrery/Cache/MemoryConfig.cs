@@ -216,6 +216,13 @@ public enum InclusionPolicyKind {
 ///     saturating-counter predictor; cache-friendly lines insert at RRPV=0, cache-averse at
 ///     RRPV=7 (Jain &amp; Lin, ISCA 2016).
 /// </param>
+/// <param name="PolicyFactory">
+///     Optional factory for a caller-supplied <see cref="IReplacementPolicy" /> instance
+///     (e.g. <see cref="RtlFfiReplacementPolicy" />), invoked per cache level with that
+///     level's (sets, ways). A non-null return overrides <see cref="ReplacementPolicy" />
+///     for that level; null falls back to the configured kind — so an RTL policy
+///     elaborated for one geometry applies only to the matching level(s).
+/// </param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,
@@ -282,7 +289,8 @@ public sealed record MemoryConfig(
     int L3VictimCacheEntries = 0,
     int CacheVictimCacheHitLatency = 1,
     int L2VictimCacheHitLatency = 1,
-    int L3VictimCacheHitLatency = 1
+    int L3VictimCacheHitLatency = 1,
+    Func<int, int, IReplacementPolicy?>? PolicyFactory = null
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -318,7 +326,10 @@ public sealed record MemoryLayers(
                 0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency,
                 cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode,
                 cfg.L3InclusionPolicy, cfg.L3CriticalWordLatency, cfg.L3BankCount, cfg.L3ReadPorts, cfg.L3WritePorts,
-                cfg.L3SectorBytes, cfg.L3VictimCacheEntries, cfg.L3VictimCacheHitLatency
+                cfg.L3SectorBytes, cfg.L3VictimCacheEntries, cfg.L3VictimCacheHitLatency,
+                customPolicy: cfg.PolicyFactory?.Invoke(
+                    cfg.L3CapacityBytes / (cfg.L3Ways * cfg.L3BlockBytes), cfg.L3Ways
+                )
             );
             current = l3;
         }
@@ -329,7 +340,10 @@ public sealed record MemoryLayers(
                 0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency,
                 cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode,
                 cfg.L2InclusionPolicy, cfg.L2CriticalWordLatency, cfg.L2BankCount, cfg.L2ReadPorts, cfg.L2WritePorts,
-                cfg.L2SectorBytes, cfg.L2VictimCacheEntries, cfg.L2VictimCacheHitLatency
+                cfg.L2SectorBytes, cfg.L2VictimCacheEntries, cfg.L2VictimCacheHitLatency,
+                customPolicy: cfg.PolicyFactory?.Invoke(
+                    cfg.L2CapacityBytes / (cfg.L2Ways * cfg.L2BlockBytes), cfg.L2Ways
+                )
             );
             l3?.AttachInner(l2);
             current = l2;
@@ -343,7 +357,10 @@ public sealed record MemoryLayers(
                 cfg.CacheWritePolicy, cfg.CacheWriteMissPolicy, cfg.CacheWbCapacity, cfg.CacheMshrCount,
                 cfg.CacheAccessMode, InclusionPolicyKind.Nine, cfg.CacheCriticalWordLatency,
                 cfg.CacheBankCount, cfg.CacheReadPorts, cfg.CacheWritePorts, cfg.CacheSectorBytes,
-                cfg.CacheVictimCacheEntries, cfg.CacheVictimCacheHitLatency
+                cfg.CacheVictimCacheEntries, cfg.CacheVictimCacheHitLatency,
+                customPolicy: cfg.PolicyFactory?.Invoke(
+                    cfg.CacheCapacityBytes / (cfg.CacheWays * cfg.CacheBlockBytes), cfg.CacheWays
+                )
             );
             (l2 ?? l3)?.AttachInner(l1);
             current = l1;

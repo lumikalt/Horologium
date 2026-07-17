@@ -190,7 +190,8 @@ public sealed class SetAssociativeCache : IMemory {
         int writePorts = 0,
         int sectorBytes = 0,
         int victimCacheEntries = 0,
-        int victimCacheHitLatency = 1
+        int victimCacheHitLatency = 1,
+        IReplacementPolicy? customPolicy = null
     ) {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ways);
@@ -284,7 +285,8 @@ public sealed class SetAssociativeCache : IMemory {
             }
         }
 
-        _policy = replacementPolicy switch {
+        // A caller-supplied policy instance (e.g. RtlFfiReplacementPolicy) overrides the kind.
+        _policy = customPolicy ?? replacementPolicy switch {
             ReplacementPolicyKind.Srrip   => new SrripPolicy(sets, ways),
             ReplacementPolicyKind.Brrip   => new BrripPolicy(sets, ways),
             ReplacementPolicyKind.Drrip   => new DrripPolicy(sets, ways),
