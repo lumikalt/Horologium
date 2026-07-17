@@ -44,6 +44,7 @@ var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
 string? rtlDivLib = null;         // --rtl-div-lib <path>: run DIV/DIVU/REM/REMU on an RTL divider (native/RtlFu)
 string? rtlBpLib = null;          // --rtl-bp-lib <path>: predict branches with an RTL predictor (native/RtlFu)
 string? rtlRpLib = null;          // --rtl-rp-lib <path>: RTL cache replacement policy (native/RtlFu)
+string? rtlPfLib = null;          // --rtl-pf-lib <path>: RTL D-cache prefetcher (native/RtlFu)
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -82,6 +83,7 @@ for (var i = 0; i < args.Length; i++)
         case "--rtl-div-lib":           rtlDivLib = args[++i]; break;
         case "--rtl-bp-lib":            rtlBpLib = args[++i]; break;
         case "--rtl-rp-lib":            rtlRpLib = args[++i]; break;
+        case "--rtl-pf-lib":            rtlPfLib = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -452,6 +454,12 @@ if (rtlRpLib is not null)
         .Select(c => c with { Config = c.Config with { RtlCachePolicyLib = rtlRpLib, }, })
         .ToList();
 
+// --rtl-pf-lib replaces each config's D-cache prefetcher with the RTL model.
+if (rtlPfLib is not null)
+    configs = configs
+        .Select(c => c with { Config = c.Config with { RtlPrefetcherLib = rtlPfLib, }, })
+        .ToList();
+
 // ── Run ───────────────────────────────────────────────────────────────────────
 
 Console.Error.WriteLine($"Workloads: {workloads.Count} ({string.Join(", ", workloads.Select(w => w.Label))})");
@@ -645,6 +653,10 @@ static void PrintUsage() {
                                         configured policy; sweep JSON: "rtl_cache_policy_lib");
                                         for --champsim-trace it replaces the evaluated policy and
                                         the geometry must match the --champsim-cache-* flags.
+          --rtl-pf-lib <path>           Replace the D-cache prefetcher with a Verilator-compiled
+                                        RTL prefetcher (build.sh ... rtl_pf_shim.cpp). Replaces
+                                        every sweep config's DPrefetcher for ELF runs; sweep
+                                        JSON: "rtl_prefetcher_lib".
           --help                        Show this message.
 
         Sweep file format (JSON array):

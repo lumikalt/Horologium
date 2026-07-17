@@ -1150,17 +1150,26 @@ tapeout/FPGA. Two unit kinds so far:
   counts from `SetAssociativeCache` under either policy. Selectable per sweep config (`"rtl_cache_policy_lib"`),
   globally via `--rtl-rp-lib`, or as the evaluated policy of a `--champsim-trace` replay (strict geometry check
   against the `--champsim-cache-*` flags).
+- **Cache prefetchers**: `RtlFfiPrefetcher` implements `IPrefetcher` over a verilated prefetcher — each demand access
+  is presented to the model once, the prefetch decision is read combinationally (post-update semantics live in the
+  model), and the prediction-table update commits on one clock edge. The first prefetcher is a Chisel RPT stride
+  prefetcher (`native/RtlFu/StridePf.scala`, 64 PC-indexed entries with a 64-bit datapath) mirroring the C#
+  `StridePrefetcher` bit-for-bit — the differential test demands identical prefetch decisions and targets across
+  strided, stride-churning, and scattered access streams. Selectable per sweep config (`"rtl_prefetcher_lib"`) or
+  globally via `--rtl-pf-lib` (replaces every sweep config's D-cache prefetcher).
 
 Port contracts and C ABIs for wrapping further units are documented in `native/RtlFu/README.md`. Desktop-only
 (`NativeLibrary`), like the CBP FFI predictors.
 
 ```bash
-# Verilate the Chisel divider + gshare + SRRIP into shared libraries, then drive all three from the pipeline
+# Verilate the Chisel divider + gshare + SRRIP + stride prefetcher, then drive all four from the pipeline
 native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp
+native/RtlFu/build.sh native/RtlFu/generated/StridePf.sv StridePf /tmp/rtl_stride.so rtl_pf_shim.cpp
 dotnet run --project src/Apps/Runner -- prog.elf \
-    --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so --rtl-rp-lib /tmp/rtl_srrip.so
+    --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so \
+    --rtl-rp-lib /tmp/rtl_srrip.so --rtl-pf-lib /tmp/rtl_stride.so
 ```
 
 ## Co-simulation contract

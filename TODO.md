@@ -74,9 +74,13 @@ free embedded suites are runnable in full today.
   (combinational victim + clocked aging/hit/install; elaboration-time geometry validated per cache
   level); first unit is an SRRIP mirroring the C# `SrripPolicy` bit-for-bit. Sweep-config field
   `rtl_cache_policy_lib`, `--rtl-rp-lib` flag, ChampSim-trace replay support.
+- [x] RTL prefetcher substitution: verilated Chisel prefetcher behind `IPrefetcher` (combinational
+  prefetch decision, clocked table update); first unit is an RPT stride prefetcher mirroring the C#
+  `StridePrefetcher` bit-for-bit. Sweep-config field `rtl_prefetcher_lib`, `--rtl-pf-lib` flag.
 - [ ] RTL substitution follow-ups: script-host (`.csx` `MachineSpec`) wiring so architecture scripts can attach
   RTL-backed units; further Chisel units (pipelined multiplier, FP div/sqrt, a TAGE-class predictor, a
-  set-dueling DRRIP) exercising multi-issue, speculative-history, and PSEL port contracts.
+  set-dueling DRRIP, a multi-degree stream prefetcher) exercising multi-issue, speculative-history, PSEL,
+  and multi-target-per-access port contracts.
 
 ## Face
 

@@ -71,8 +71,10 @@ public sealed record TrainConfig(
     int FdipFtqCapacity = 0, // 0 = disabled; fetch-directed I-cache prefetch (Reinman/Calder/Austin, MICRO 1999)
     bool Rdip = false, // RAS-directed I-cache prefetch (Kolli/Saidi/Wenisch, MICRO 2013)
     string? RtlCachePolicyLib
-        = null // Verilator-compiled RTL replacement policy (native/RtlFu); applies to cache levels whose
-               // geometry matches the model's elaborated sets×ways, others keep CacheReplacementPolicy
+        = null, // Verilator-compiled RTL replacement policy (native/RtlFu); applies to cache levels whose
+                // geometry matches the model's elaborated sets×ways, others keep CacheReplacementPolicy
+    string? RtlPrefetcherLib
+        = null // Verilator-compiled RTL D-cache prefetcher (native/RtlFu); overrides DPrefetcher
 ) {
     [JsonIgnore] private static readonly JsonSerializerOptions JsonOptions = new() {
         WriteIndented = true,
@@ -105,6 +107,9 @@ public sealed record TrainConfig(
             PrefetchLatency = DPrefetchLatency,
             ReplacementPolicy = ParseReplacementPolicy(),
             PolicyFactory = MakePolicyFactory(),
+            PrefetcherFactory = RtlPrefetcherLib is null
+                ? null
+                : () => new RtlFfiPrefetcher(RtlPrefetcherLib),
         };
     }
 

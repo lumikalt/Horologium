@@ -223,6 +223,12 @@ public enum InclusionPolicyKind {
 ///     for that level; null falls back to the configured kind — so an RTL policy
 ///     elaborated for one geometry applies only to the matching level(s).
 /// </param>
+/// <param name="PrefetcherFactory">
+///     Optional factory for a caller-supplied <see cref="IPrefetcher" /> instance
+///     (e.g. <see cref="RtlFfiPrefetcher" />). A non-null return overrides
+///     <see cref="Prefetcher" />; prefetching (and <see cref="PrefetchLatency" />)
+///     is considered enabled whenever the factory is set.
+/// </param>
 public sealed record MemoryConfig(
     int CacheCapacityBytes = 0,
     int CacheWays = 4,
@@ -290,7 +296,8 @@ public sealed record MemoryConfig(
     int CacheVictimCacheHitLatency = 1,
     int L2VictimCacheHitLatency = 1,
     int L3VictimCacheHitLatency = 1,
-    Func<int, int, IReplacementPolicy?>? PolicyFactory = null
+    Func<int, int, IReplacementPolicy?>? PolicyFactory = null,
+    Func<IPrefetcher?>? PrefetcherFactory = null
 ) {
     public static readonly MemoryConfig None = new();
 }
@@ -352,7 +359,9 @@ public sealed record MemoryLayers(
         if (cfg.CacheCapacityBytes > 0) {
             l1 = new SetAssociativeCache(
                 current, cfg.CacheCapacityBytes, cfg.CacheWays, cfg.CacheBlockBytes, cfg.CacheMissLatency,
-                cfg.Prefetcher != PrefetcherKind.None ? cfg.PrefetchLatency : 0,
+                cfg.Prefetcher != PrefetcherKind.None || cfg.PrefetcherFactory is not null
+                    ? cfg.PrefetchLatency
+                    : 0,
                 cfg.ReplacementPolicy, cfg.CacheTagLatency, cfg.CacheDataLatency,
                 cfg.CacheWritePolicy, cfg.CacheWriteMissPolicy, cfg.CacheWbCapacity, cfg.CacheMshrCount,
                 cfg.CacheAccessMode, InclusionPolicyKind.Nine, cfg.CacheCriticalWordLatency,
@@ -376,8 +385,9 @@ public sealed record MemoryLayers(
         if (cfg.UncacheableSize > 0 && (l1 ?? l2 ?? l3) is not null)
             current = new UncacheableMemory(current, backing, cfg.UncacheableBase, cfg.UncacheableSize);
 
+        // A caller-supplied prefetcher instance (e.g. RtlFfiPrefetcher) overrides the kind.
         IPrefetcher? prefetcher = l1 is not null
-            ? cfg.Prefetcher switch {
+            ? cfg.PrefetcherFactory?.Invoke() ?? cfg.Prefetcher switch {
                 PrefetcherKind.NextLine => new NextLinePrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Stride   => new StridePrefetcher(cfg.PrefetcherTableSize),
                 PrefetcherKind.Stream => new StreamPrefetcher(
