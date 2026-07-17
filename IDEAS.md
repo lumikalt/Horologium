@@ -152,10 +152,6 @@ the active thread.
   today. https://hpcas.inesc-id.pt/~unify/papers/MSc_JoaoBaptista23.pdf
 - [ ] UVE gem5 model cross-check: compare Horologium's UVE timing (issue latency, stream-engine fill cycles) against the
   gem5 UVE branch from hpc-ulisboa. https://github.com/hpc-ulisboa/UVE
-- [ ] RTL functional-unit substitution: swap one pipeline FU (e.g., a custom ALU or accelerator) for cycle-accurate RTL
-  via Verilator, so the surrounding pipeline drives real hardware instead of the C# functional/latency model for that
-  unit — useful for validating a custom-unit design against the rest of the system before tapeout/FPGA. See
-  `~/dl/citations.csv` for candidate references.
 
 ## Orrery
 

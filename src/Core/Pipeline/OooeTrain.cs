@@ -1132,7 +1132,9 @@ internal sealed class OoOPipelineCore : Gear {
                 }
             }
 
-            int fuLatency = _fuConfig.LatencyFor(issued.Instr);
+            int fuLatency = result.LatencyOverride > 0
+                ? result.LatencyOverride
+                : _fuConfig.LatencyFor(issued.Instr);
             if (issued.Instr.Class == ToothClass.Load) {
                 int cacheHit = DLayers.Cache?.HitLatency ?? 0;
                 if (cacheHit > 0) fuLatency = cacheHit;
@@ -2691,7 +2693,8 @@ internal sealed class OoOPipelineCore : Gear {
             _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes, loadForwarded,
             er.RequestHalt, issued.InstrId,
             // Vec/UVE already applied their SideEffect immediately above; don't reapply at commit.
-            isVec || isUve ? null : er.SideEffect
+            isVec || isUve ? null : er.SideEffect,
+            er.LatencyOverride ?? 0
         );
     }
 
@@ -2911,7 +2914,8 @@ internal sealed class OoOPipelineCore : Gear {
         bool RequestHalt = false, // true for an HTIF tohost-exit store: halt after commit
         ulong InstrId = 0,        // per-instruction age, for pruning in-flight results on a partial squash
         Action<IArchState>? SideEffect
-            = null // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
+            = null, // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
+        int LatencyOverride = 0 // per-instruction FU latency from ExecuteResult.LatencyOverride; 0 = use FuLatencyConfig
     );
 
     /// <summary>

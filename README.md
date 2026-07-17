@@ -1120,6 +1120,25 @@ branch's actual target is taken to be the next record's `ip` — the same infere
 — meaning the final branch in a trace is unscored. Cache replay runs against a synthetic `ChampSimBackingMemory` (data
 is irrelevant to hit/miss accounting); loads come from `source_memory` slots, stores from `destination_memory` slots.
 
+### RTL functional-unit substitution (native/RtlFu, Mechanism/RtlFu)
+
+One pipeline functional unit can be swapped for cycle-accurate RTL driven through
+[Verilator](https://www.veripool.org/verilator/): `RtlBackedExecutor` decorates the ISA executor, and instructions an
+ISA-side selector claims (currently `RvRtlDiv`: RV32M DIV/DIVU/REM/REMU) execute on the verilated model instead of the
+C# functional model — the RTL result becomes the register write, and the model's observed cycle count becomes the
+instruction's FU latency (`ExecuteResult.LatencyOverride`, honored by the `ooo` and `cpr` pipelines in place of the
+static `FuLatencyConfig` entry). The first unit is a Chisel sequential restoring divider with early termination
+(`native/RtlFu/DivUnit.scala`; generated SystemVerilog committed), so div latency is data-dependent: 1 cycle for the
+RISC-V special cases, up to 33 for a full-width dividend. Useful for validating a custom-unit design against the rest
+of the system before tapeout/FPGA; the port contract and C ABI for wrapping further units are documented in
+`native/RtlFu/README.md`. Desktop-only (`NativeLibrary`), like the CBP FFI predictors.
+
+```bash
+# Verilate the Chisel divider into a shared library, then drive it from the pipeline
+native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
+dotnet run --project src/Apps/Runner -- prog.elf --rtl-div-lib /tmp/rtl_div.so
+```
+
 ## Co-simulation contract
 
 Spike is the reference of record for ISA correctness. The contract: **every change to the decoder, executor,

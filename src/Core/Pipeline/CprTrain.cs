@@ -776,7 +776,9 @@ internal sealed class CprPipelineCore : Gear {
                 lq.Bytes = result.LoadBytes;
             }
 
-            int fuLatency = _fuConfig.LatencyFor(issued.Instr);
+            int fuLatency = result.LatencyOverride > 0
+                ? result.LatencyOverride
+                : _fuConfig.LatencyFor(issued.Instr);
             if (issued.Instr.Class == ToothClass.Load) {
                 int cacheHit = DLayers.Cache?.HitLatency ?? 0;
                 if (cacheHit > 0) fuLatency = cacheHit;
@@ -892,7 +894,8 @@ internal sealed class CprPipelineCore : Gear {
                     er.IsReturnFromTrap, er.ReturnPrivilege,
                     _capMem.HasWrite, _capMem.WriteAddress, _capMem.WriteValue, _capMem.WriteBytes,
                     _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes,
-                    er.RequestHalt, er.SideEffect
+                    er.RequestHalt, er.SideEffect,
+                    er.LatencyOverride ?? 0
                 ), forwardPenalty);
     }
 
@@ -1859,7 +1862,8 @@ internal sealed class CprPipelineCore : Gear {
         ulong LoadAddr,
         int LoadBytes,
         bool RequestHalt = false,
-        Action<IArchState>? SideEffect = null
+        Action<IArchState>? SideEffect = null,
+        int LatencyOverride = 0 // per-instruction FU latency from ExecuteResult.LatencyOverride; 0 = use FuLatencyConfig
     );
 
     /// <summary>

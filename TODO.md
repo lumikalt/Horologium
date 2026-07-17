@@ -50,6 +50,26 @@ free embedded suites are runnable in full today.
   RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction
   intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint)
 
+## Co-simulation
+
+- [x] RTL functional-unit substitution: swap one pipeline FU (e.g., a custom ALU or accelerator) for cycle-accurate
+  RTL via Verilator, so the surrounding pipeline drives real hardware instead of the C# functional/latency model
+  for that unit — validates a custom-unit design against the rest of the system before tapeout/FPGA.
+  - [x] Verilate a first target FU (Chisel RV32M divider, `native/RtlFu`) into a native shim exposing a C ABI,
+    following `native/CbpShim`'s layout and build.
+  - [x] P/Invoke wrapper mirroring `CbpFfiPredictor`: load the shim, marshal operands in, step the model's clock,
+    read back result + cycle count.
+  - [x] Hook the wrapper into `IExecutor` (decorator + ISA-side op selector), replacing the C# functional result
+    with the RTL model's output.
+  - [x] Dynamic latency: per-instruction cycle count from the RTL model (`ExecuteResult.LatencyOverride`)
+    overrides the static `FuLatencyConfig` entry in the ooo/cpr pipelines.
+  - [x] Co-sim validation harness: same instruction stream through the C# functional model and the RTL-backed
+    model, diff results and latencies (same pattern as the CBP FFI predictor tests).
+  - [x] CLI wiring: `--rtl-div-lib <path>` in Runner.
+- [ ] RTL FU substitution follow-ups: script-host (`.csx` `MachineSpec`) wiring so architecture scripts can attach
+  RTL-backed units; further Chisel units (pipelined multiplier, FP div/sqrt) exercising a multi-issue port
+  contract.
+
 ## Face
 
 - [ ] Browser assembly support: pure C# RV32 two-pass assembler, so the Assemble command works in FaceWeb without a GAS
@@ -57,7 +77,7 @@ free embedded suites are runnable in full today.
   - Also a C compiler…
 - [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes.
 - [ ] Vector operation visualization.
-  - I've got to think of how this should be done.
+  - Need to think of how this should be done.
 - [ ] gem5-style architecture configurator: UI surface for the scripting host and pipeline builder — edit `.csx` scripts
   in-app and hot-reload the resulting pipeline, cache hierarchy, branch predictor, and FU configuration without
   restarting. (Phase 5 UI of the architecture builder: AvaloniaEdit code editor, hot-reload on file change via

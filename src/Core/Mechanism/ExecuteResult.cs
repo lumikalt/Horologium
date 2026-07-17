@@ -64,6 +64,15 @@ public sealed record ExecuteResult {
     /// </summary>
     public (int StreamId, StreamDescriptor Descriptor)? StreamConfig { get; init; }
 
+    /// <summary>
+    ///     Per-instruction FU latency in cycles, reported by the unit that executed the
+    ///     instruction — set by units with data-dependent timing (e.g. an RTL-backed
+    ///     divider via <see cref="RtlFu.RtlBackedExecutor" />). When non-null, timing
+    ///     pipelines use this instead of the static per-class FuLatencyConfig entry.
+    ///     Null for units whose latency is fully described by the static config.
+    /// </summary>
+    public int? LatencyOverride { get; init; }
+
     /// <summary>Convenience: a result that writes a register value.</summary>
     public static ExecuteResult WithResult(ulong value) =>
         new() { RegisterResult = (value, true), };

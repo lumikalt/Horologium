@@ -70,7 +70,13 @@ public sealed class Rv32Mechanism : IMechanism {
 
     public string Name => "RV32I";
     public IDecoder Decoder { get; } = new Rv32Decoder();
-    public IExecutor Executor { get; }
+
+    /// <summary>
+    ///     Settable so a decorator can replace the executor after construction —
+    ///     e.g. <c>RtlBackedExecutor</c> substituting an RTL functional unit for
+    ///     one instruction class while delegating the rest to <see cref="Rv32Executor" />.
+    /// </summary>
+    public IExecutor Executor { get; set; }
     public IImpulseCracker? UopCracker => null;
     public ITrapController TrapController { get; }
 

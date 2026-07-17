@@ -1,11 +1,13 @@
 using Mechanism;
 using Mechanism.BranchPredictModels;
+using Mechanism.RtlFu;
 using Orrery.Cache;
 using Orrery.Train;
 using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
+using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.Trace;
 using Script;
@@ -39,6 +41,7 @@ var champsimCachePolicy = "Lru";  // --champsim-cache-policy <name|none>: replac
 var champsimCacheSets = 2048;     // --champsim-cache-sets <n>
 var champsimCacheWays = 16;       // --champsim-cache-ways <n>
 var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
+string? rtlDivLib = null;         // --rtl-div-lib <path>: run DIV/DIVU/REM/REMU on an RTL divider (native/RtlFu)
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -74,6 +77,7 @@ for (var i = 0; i < args.Length; i++)
         case "--champsim-cache-sets":   champsimCacheSets = int.Parse(args[++i]); break;
         case "--champsim-cache-ways":   champsimCacheWays = int.Parse(args[++i]); break;
         case "--champsim-cache-block":  champsimCacheBlock = int.Parse(args[++i]); break;
+        case "--rtl-div-lib":           rtlDivLib = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -431,10 +435,23 @@ if (warmupTicks > 0) Console.Error.WriteLine($"Warmup   : {warmupTicks:N0} ticks
 Console.Error.WriteLine($"Max ticks: {maxTicks:N0}");
 Console.Error.WriteLine();
 
+// One verilated model per mechanism: Experiment runs the config sweep in parallel and
+// invokes the factory on each worker thread, so a shared model instance would have its
+// state machine interleaved across threads. Per-mechanism instances also land on
+// Verilator's thread-local default context.
+Rv32Mechanism MakeMechanism(IWorkload w) {
+    var mech = new Rv32Mechanism(w.HtifTohostAddress);
+    if (rtlDivLib is not null)
+        mech.Executor = new RtlBackedExecutor(
+            mech.Executor, new RtlFfiFunctionalUnit(rtlDivLib), RvRtlDiv.Select
+        );
+    return mech;
+}
+
 if (workloads.Count == 1) {
     IWorkload workload = workloads[0].Workload;
     ExperimentResult result = Experiment.Run(
-        workload, configs, () => new Rv32Mechanism(workload.HtifTohostAddress),
+        workload, configs, () => MakeMechanism(workload),
         maxTicks, warmupTicks, snapshotInterval
     );
 
@@ -446,7 +463,7 @@ if (workloads.Count == 1) {
 }
 else {
     IReadOnlyList<(string Label, ExperimentResult Result)> results = Experiment.RunMany(
-        workloads, configs, w => new Rv32Mechanism(w.HtifTohostAddress),
+        workloads, configs, MakeMechanism,
         maxTicks, warmupTicks, snapshotInterval
     );
 
@@ -587,6 +604,10 @@ static void PrintUsage() {
           --champsim-cache-sets <n>     Cache set count (default: 2048).
           --champsim-cache-ways <n>     Cache associativity (default: 16).
           --champsim-cache-block <n>    Cache line size in bytes (default: 64).
+          --rtl-div-lib <path>          Execute DIV/DIVU/REM/REMU on a Verilator-compiled RTL
+                                        divider (build with native/RtlFu/build.sh); its result
+                                        replaces the C# model's and its per-operand cycle count
+                                        becomes the instruction's FU latency in ooo/cpr pipelines.
           --help                        Show this message.
 
         Sweep file format (JSON array):
