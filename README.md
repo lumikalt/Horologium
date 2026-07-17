@@ -1187,7 +1187,9 @@ Port contracts and C ABIs for wrapping further units are documented in `native/R
 (`NativeLibrary`), like the CBP FFI predictors. All four surfaces are also reachable from `.csx`/`.fsx` architecture
 scripts (the script hosts pre-import the RTL namespaces): `BranchPredictorFactory` on a pipeline spec,
 `RtlBackedExecutor` around the mechanism factory's executor, and per-level `PolicyFactory`/`PrefetcherFactory` on
-`CacheLevelSpec` — see `scripts/example-rtl.csx`.
+`CacheLevelSpec` — see `scripts/example-rtl.csx`, and `examples/rtl-machine/` for a self-contained
+bring-your-own-RTL project: a custom Chisel ALU and branch predictor wired into an OoO train by an F# script whose
+inline selector defines the instruction→opcode mapping, with no C#-side changes.
 
 ```bash
 # Verilate the Chisel units, then drive all four surfaces from the pipeline
