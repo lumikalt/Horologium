@@ -1160,13 +1160,17 @@ tapeout/FPGA. Two unit kinds so far:
   ABI; its differential stream phases between SDM-heavy and follower-heavy set biases so the duel swings both ways.
   Selectable per sweep config (`"rtl_cache_policy_lib"`), globally via `--rtl-rp-lib`, or as the evaluated policy of
   a `--champsim-trace` replay (strict geometry check against the `--champsim-cache-*` flags).
-- **Cache prefetchers**: `RtlFfiPrefetcher` implements `IPrefetcher` over a verilated prefetcher — each demand access
-  is presented to the model once, the prefetch decision is read combinationally (post-update semantics live in the
-  model), and the prediction-table update commits on one clock edge. The first prefetcher is a Chisel RPT stride
-  prefetcher (`native/RtlFu/StridePf.scala`, 64 PC-indexed entries with a 64-bit datapath) mirroring the C#
-  `StridePrefetcher` bit-for-bit — the differential test demands identical prefetch decisions and targets across
-  strided, stride-churning, and scattered access streams. Selectable per sweep config (`"rtl_prefetcher_lib"`) or
-  globally via `--rtl-pf-lib` (replaces every sweep config's D-cache prefetcher).
+- **Cache prefetchers**: `RtlFfiPrefetcher` implements `IPrefetcher` over a verilated prefetcher, with two shim
+  shapes sharing one C ABI. Single-target models (`rtl_pf_shim.cpp`): each demand access is presented once, the
+  prefetch decision is read combinationally (post-update semantics live in the model), and the prediction-table
+  update commits on one clock edge — the first is a Chisel RPT stride prefetcher (`native/RtlFu/StridePf.scala`,
+  64 PC-indexed entries with a 64-bit datapath) mirroring the C# `StridePrefetcher` bit-for-bit. Multi-degree models
+  (`rtl_mpf_shim.cpp`): the access edge loads an internal drain queue and the shim pops one address per clock — the
+  first is a Chisel Jouppi stream-buffer prefetcher (`native/RtlFu/StreamPf.scala`, 4 streams × depth 8 with LRU
+  allocation) mirroring the C# `StreamPrefetcher`, whose allocation burst issues 8 lines from a single access; its
+  differential test interleaves more sequential walkers than there are stream buffers so LRU eviction is exercised,
+  demanding identical counts and target sequences. Selectable per sweep config (`"rtl_prefetcher_lib"`) or globally
+  via `--rtl-pf-lib` (replaces every sweep config's D-cache prefetcher).
 
 Port contracts and C ABIs for wrapping further units are documented in `native/RtlFu/README.md`. Desktop-only
 (`NativeLibrary`), like the CBP FFI predictors. All four surfaces are also reachable from `.csx`/`.fsx` architecture

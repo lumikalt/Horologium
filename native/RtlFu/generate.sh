@@ -16,6 +16,7 @@ nix-shell -p scala-cli circt --run '
     scala-cli run . --main-class rtlfu.GeneratePf
     scala-cli run . --main-class rtlfu.GenerateLTage
     scala-cli run . --main-class rtlfu.GenerateDrrip
+    scala-cli run . --main-class rtlfu.GenerateStream
 '
 
 echo "Regenerated generated/*.sv"

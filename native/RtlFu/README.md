@@ -23,9 +23,13 @@ kinds so far:
   cache levels whose sets×ways match (others keep the configured C# policy). Selectable per
   sweep config (`"rtl_cache_policy_lib"`) or globally via `--rtl-rp-lib`.
 - **Cache prefetchers** — `RtlFfiPrefetcher` (in `src/Core/Orrery/Cache/`) implements
-  `IPrefetcher` on top of a verilated prefetcher: each demand access is presented once, the
-  prefetch decision is read combinationally, and the table update commits on one clock
-  edge. Selectable per sweep config (`"rtl_prefetcher_lib"`) or globally via `--rtl-pf-lib`.
+  `IPrefetcher` on top of a verilated prefetcher. Two shim shapes share the same
+  `rtl_pf_*` C ABI, so the C# side is identical for both: `rtl_pf_shim.cpp` for
+  single-target models (decision read combinationally, table update on one edge — the
+  stride prefetcher), and `rtl_mpf_shim.cpp` for multi-degree models (the access edge
+  loads an internal drain queue; the shim pops one address per clock — the stream
+  prefetcher's allocation burst). Selectable per sweep config (`"rtl_prefetcher_lib"`)
+  or globally via `--rtl-pf-lib`.
 
 ## Files
 
@@ -37,13 +41,15 @@ kinds so far:
 | `SrripRp.scala` | Chisel source: SRRIP replacement policy (2-bit RRPVs, combinational victim + unrolled aging) mirroring the C# `SrripPolicy`; default geometry 64 sets × 4 ways |
 | `DrripRp.scala` | Chisel source: DRRIP (SRRIP base + Set Dueling: SDM leader sets, 10-bit PSEL, 1/32 bimodal BRRIP inserts) mirroring the C# `DrripPolicy`; carries global cross-set state through the same shim ABI |
 | `StridePf.scala` | Chisel source: RPT stride prefetcher (64 PC-indexed entries, 64-bit datapath, 2-bit confidence) mirroring the C# `StridePrefetcher` |
+| `StreamPf.scala` | Chisel source: Jouppi stream-buffer prefetcher (4 streams × depth 8, LRU allocation, burst issue through a drain queue) mirroring the C# `StreamPrefetcher` |
 | `generated/*.sv` | Committed firtool output — consumers never need a JVM |
 | `generate.sh` | Chisel → SystemVerilog (`nix-shell -p scala-cli circt`); rerun after editing the Chisel |
 | `rtl_fu_shim.cpp` | Verilator harness for functional units; model-agnostic via `-DRTL_MODEL` |
 | `rtl_bp_shim.cpp` | Verilator harness for plain branch predictors (`rtl_bp_predict`/`rtl_bp_update`) |
 | `rtl_hbp_shim.cpp` | Verilator harness for speculative-history branch predictors (`rtl_hbp_*`: predict/update/spec_update/recover/history/restore) |
 | `rtl_rp_shim.cpp` | Verilator harness for replacement policies (`rtl_rp_choose_victim`/`rtl_rp_record_hit`/`rtl_rp_record_install` + geometry query) |
-| `rtl_pf_shim.cpp` | Verilator harness for prefetchers (`rtl_pf_access`) |
+| `rtl_pf_shim.cpp` | Verilator harness for single-target prefetchers (`rtl_pf_access`) |
+| `rtl_mpf_shim.cpp` | Verilator harness for multi-degree prefetchers (same `rtl_pf_*` ABI; drains the model's prefetch queue one address per clock) |
 | `build.sh <sv> <top> <out.so> [shim]` | Verilates + links the shared library (`nix-shell -p verilator python3` fallback); shim defaults to `rtl_fu_shim.cpp` |
 
 ## Functional-unit C ABI
@@ -115,7 +121,7 @@ io_victimValid, io_victimSet, io_victimWay        (victim combinational; state u
 io_metaSet, io_metaWay, io_metaRrpv               (combinational metadata read)
 ```
 
-A prefetcher must expose:
+A single-target prefetcher must expose:
 
 ```
 clock, reset
@@ -123,6 +129,17 @@ io_cfgTableSize                                   (elaboration-time size, consta
 io_accValid, io_accPc, io_accAddr, io_accHit      (one demand access)
 io_prefValid, io_prefAddr                         (combinational prefetch decision;
                                                    table update commits on the edge)
+```
+
+A multi-degree prefetcher must expose:
+
+```
+clock, reset
+io_cfgTableSize                                   (elaboration-time size, constant)
+io_accValid, io_accPc, io_accAddr, io_accHit      (one demand access, one clock edge;
+                                                   loads the drain queue)
+io_drainValid, io_drainAddr, io_drainPop          (queue head; drainPop pops one entry
+                                                   per clock edge)
 ```
 
 ## Usage
@@ -140,6 +157,7 @@ native/RtlFu/build.sh native/RtlFu/generated/LTageBp.sv LTageBp /tmp/rtl_ltage.s
 native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/DrripRp.sv DrripRp /tmp/rtl_drrip.so rtl_rp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/StridePf.sv StridePf /tmp/rtl_stride.so rtl_pf_shim.cpp
+native/RtlFu/build.sh native/RtlFu/generated/StreamPf.sv StreamPf /tmp/rtl_stream.so rtl_mpf_shim.cpp
 dotnet run --project src/Apps/Runner -- prog.elf \
     --rtl-div-lib /tmp/rtl_div.so --rtl-bp-lib /tmp/rtl_gshare.so \
     --rtl-rp-lib /tmp/rtl_srrip.so --rtl-pf-lib /tmp/rtl_stride.so

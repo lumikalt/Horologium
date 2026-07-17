@@ -87,8 +87,11 @@ free embedded suites are runnable in full today.
 - [x] RTL set-dueling DRRIP: Chisel DRRIP (SDM leader sets, 10-bit PSEL, 1/32 bimodal BRRIP inserts)
   mirroring the C# `DrripPolicy` bit-for-bit through the unchanged `rtl_rp_shim` ABI — global cross-set
   state (PSEL duel, shared bimodal counter) inside the model.
-- [ ] RTL substitution follow-ups: further Chisel units (pipelined multiplier, FP div/sqrt, a multi-degree
-  stream prefetcher) exercising multi-issue and multi-target-per-access port contracts.
+- [x] RTL multi-degree stream prefetcher: Chisel Jouppi stream buffers (4 streams × depth 8, LRU
+  allocation, burst issue) mirroring the C# `StreamPrefetcher` bit-for-bit; new drain-queue port
+  contract (`rtl_mpf_shim.cpp`) carries multiple targets per access over the unchanged `rtl_pf_*` C ABI.
+- [ ] RTL substitution follow-ups: further Chisel FUs (pipelined multiplier, FP div/sqrt) exercising a
+  multi-issue port contract.
 
 ## Face
 
