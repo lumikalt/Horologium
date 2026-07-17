@@ -28,23 +28,37 @@ namespace Mechanism.RtlFu;
 public sealed unsafe class RtlFfiFunctionalUnit : IDisposable {
     private readonly delegate* unmanaged[Cdecl]<void*, void> _destroy;
     private readonly delegate* unmanaged[Cdecl]<void*, uint, uint, uint, uint*, int*, int> _execute;
+    private readonly delegate* unmanaged[Cdecl]<void*, uint, uint, uint, uint*, uint*, int*, int> _executeFlags;
     private readonly void* _handle;
     private readonly nint _library;
     private bool _disposed;
 
     /// <summary>
     ///     Loads the native shim library at <paramref name="libraryPath" /> and constructs
-    ///     (and resets) the wrapped verilated model.
+    ///     (and resets) the wrapped verilated model. A library exposes <c>rtl_execute</c>
+    ///     (plain units, rtl_fu_shim), <c>rtl_execute_flags</c> (flag-reporting FP units,
+    ///     rtl_fpu_shim), or both.
     /// </summary>
     /// <exception cref="DllNotFoundException">The library could not be loaded.</exception>
+    /// <exception cref="ArgumentException">The library exposes neither execute export.</exception>
     public RtlFfiFunctionalUnit(string libraryPath) {
         _library = NativeLibrary.Load(libraryPath);
         var create = (delegate* unmanaged[Cdecl]<void*>)NativeLibrary.GetExport(_library, "rtl_create");
         _destroy = (delegate* unmanaged[Cdecl]<void*, void>)NativeLibrary.GetExport(_library, "rtl_destroy");
-        _execute =
-            (delegate* unmanaged[Cdecl]<void*, uint, uint, uint, uint*, int*, int>)NativeLibrary.GetExport(
-                _library, "rtl_execute"
+        _execute = NativeLibrary.TryGetExport(_library, "rtl_execute", out nint plain)
+            ? (delegate* unmanaged[Cdecl]<void*, uint, uint, uint, uint*, int*, int>)plain
+            : null;
+        _executeFlags = NativeLibrary.TryGetExport(_library, "rtl_execute_flags", out nint flagged)
+            ? (delegate* unmanaged[Cdecl]<void*, uint, uint, uint, uint*, uint*, int*, int>)flagged
+            : null;
+        if (_execute is null && _executeFlags is null) {
+            NativeLibrary.Free(_library);
+            throw new ArgumentException(
+                $"'{libraryPath}' exposes neither rtl_execute nor rtl_execute_flags — "
+              + "not an RTL functional-unit library (see native/RtlFu/README.md)."
             );
+        }
+
         _handle = create();
     }
 
@@ -59,8 +73,14 @@ public sealed unsafe class RtlFfiFunctionalUnit : IDisposable {
     ///     Runs one operation on the RTL model and returns its result together with the
     ///     cycle count from request acceptance until the result was valid.
     /// </summary>
-    /// <exception cref="InvalidOperationException">The model hung (never became ready or never produced a result).</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The library has no <c>rtl_execute</c> export, or the model hung.
+    /// </exception>
     public (uint Result, int Cycles) Execute(uint op, uint a, uint b) {
+        if (_execute is null)
+            throw new InvalidOperationException(
+                "This RTL unit only exposes rtl_execute_flags — use ExecuteWithFlags."
+            );
         uint result;
         int cycles;
         int rc = _execute(_handle, op, a, b, &result, &cycles);
@@ -69,5 +89,28 @@ public sealed unsafe class RtlFfiFunctionalUnit : IDisposable {
                 $"RTL functional unit did not complete (op={op}, a=0x{a:X8}, b=0x{b:X8})."
             );
         return (result, cycles);
+    }
+
+    /// <summary>
+    ///     Runs one operation on a flag-reporting RTL model (rtl_fpu_shim), returning the
+    ///     result, the IEEE exception flags it raised (fflags bit layout: NV|DZ|OF|UF|NX),
+    ///     and the cycle count.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     The library has no <c>rtl_execute_flags</c> export, or the model hung.
+    /// </exception>
+    public (uint Result, uint Flags, int Cycles) ExecuteWithFlags(uint op, uint a, uint b) {
+        if (_executeFlags is null)
+            throw new InvalidOperationException(
+                "This RTL unit does not expose rtl_execute_flags — use Execute."
+            );
+        uint result, flags;
+        int cycles;
+        int rc = _executeFlags(_handle, op, a, b, &result, &flags, &cycles);
+        if (rc != 0)
+            throw new InvalidOperationException(
+                $"RTL functional unit did not complete (op={op}, a=0x{a:X8}, b=0x{b:X8})."
+            );
+        return (result, flags, cycles);
     }
 }

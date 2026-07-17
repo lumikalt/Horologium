@@ -1137,7 +1137,15 @@ tapeout/FPGA. Two unit kinds so far:
   multiplier (`native/RtlFu/MulUnit.scala`, selector `RvRtlMul`: MUL/MULH/MULHSU/MULHU) under the same port contract
   with `req.ready` constantly high; its constant 3-cycle latency equals the `MulDivLatency` default, so an RTL-mul
   run is cycle-identical to the static model. `--rtl-div-lib` and `--rtl-mul-lib` chain to substitute the whole
-  M extension.
+  M extension. The third is an FP divide/square-root unit (`native/RtlFu/FDivSqrtUnit.scala`, `--rtl-fdiv-lib`):
+  iterative IEEE binary32 FDIV.S/FSQRT.S with full subnormal support, round-to-nearest-even, canonical NaNs, and
+  exception flags — carried across the FFI by a flags-reporting shim variant (`rtl_fpu_shim.cpp`,
+  `rtl_execute_flags`) and delivered by the ISA-side `RvRtlFpExecutor` decorator, which replicates the §11.3
+  NaN-boxing check and ORs the RTL's flags into the fflags CSR through the same SideEffect path the C# model uses.
+  The differential sweep demands bit-identical NaN-boxed results *and* bit-identical fflags across IEEE specials,
+  subnormals, rounding edges, and random bit patterns — including the C# model's flag quirks (overflow raises OF
+  without NX; UF requires an inexact nonzero subnormal). Latency is data-dependent: 1 cycle for special cases, ~30
+  for the iterative paths, vs. the static `FloatDivSqrtLatency` default of 16.
 - **Branch predictors**: two shim ABIs, auto-detected by `RtlBranchPredictorLoader` so one flag/config serves both.
   `RtlFfiBranchPredictor` wraps a plain predictor — combinational predict at fetch, one-clock-edge update at commit;
   speculative-history hooks stay at their interface defaults (committed history only, like `CbpFfiPredictor`); the

@@ -18,6 +18,7 @@ nix-shell -p scala-cli circt --run '
     scala-cli run . --main-class rtlfu.GenerateDrrip
     scala-cli run . --main-class rtlfu.GenerateStream
     scala-cli run . --main-class rtlfu.GenerateMul
+    scala-cli run . --main-class rtlfu.GenerateFDivSqrt
 '
 
 echo "Regenerated generated/*.sv"

@@ -37,6 +37,7 @@ kinds so far:
 |---|---|
 | `DivUnit.scala` | Chisel source: RV32M DIV/DIVU/REM/REMU, sequential restoring divider with early termination (latency = significant-bits(dividend) + 1; RISC-V special cases resolve in 1 cycle) |
 | `MulUnit.scala` | Chisel source: RV32M MUL/MULH/MULHSU/MULHU, fully pipelined 3-stage 33×33 multiplier (`io.req.ready` constantly high; constant 3-cycle latency = the `MulDivLatency` default) |
+| `FDivSqrtUnit.scala` | Chisel source: RV32F FDIV.S/FSQRT.S — iterative IEEE binary32 with full subnormal support, RNE, canonical NaNs, and exception flags mirroring the C# soft-float model's quirks (OF without NX; UF only for inexact nonzero subnormals) |
 | `GshareBp.scala` | Chisel source: gshare predictor (8-bit GHR, 256×2-bit PHT + BTB) mirroring the C# `GsharePredictor` bit-for-bit so differential tests can demand identical predictions |
 | `LTageBp.scala` | Chisel source: L-TAGE (4096-entry bimodal + 4×512 tagged tables with 8/13/21/34-bit folded histories + 32-entry loop predictor) mirroring the C# `LTagePredictor`; manages its own speculative GHR with capture/restore ports |
 | `SrripRp.scala` | Chisel source: SRRIP replacement policy (2-bit RRPVs, combinational victim + unrolled aging) mirroring the C# `SrripPolicy`; default geometry 64 sets × 4 ways |
@@ -46,6 +47,7 @@ kinds so far:
 | `generated/*.sv` | Committed firtool output — consumers never need a JVM |
 | `generate.sh` | Chisel → SystemVerilog (`nix-shell -p scala-cli circt`); rerun after editing the Chisel |
 | `rtl_fu_shim.cpp` | Verilator harness for functional units; model-agnostic via `-DRTL_MODEL` |
+| `rtl_fpu_shim.cpp` | Verilator harness for flag-reporting FP units (`rtl_execute_flags`: result + fflags + cycles) |
 | `rtl_bp_shim.cpp` | Verilator harness for plain branch predictors (`rtl_bp_predict`/`rtl_bp_update`) |
 | `rtl_hbp_shim.cpp` | Verilator harness for speculative-history branch predictors (`rtl_hbp_*`: predict/update/spec_update/recover/history/restore) |
 | `rtl_rp_shim.cpp` | Verilator harness for replacement policies (`rtl_rp_choose_victim`/`rtl_rp_record_hit`/`rtl_rp_record_install` + geometry query) |
@@ -60,6 +62,10 @@ void* rtl_create();                 // construct + reset the verilated model
 void  rtl_destroy(void*);
 int   rtl_execute(void*, unsigned op, unsigned a, unsigned b,
                   unsigned* result, int* cycles);  // 0 = ok, -1 = model hung
+// Flag-reporting FP units (rtl_fpu_shim) export this instead; RtlFfiFunctionalUnit
+// detects which export is present:
+int   rtl_execute_flags(void*, unsigned op, unsigned a, unsigned b,
+                        unsigned* result, unsigned* flags, int* cycles);
 ```
 
 `cycles` counts clock edges from request acceptance until `io_resp_valid` — the FU
@@ -87,6 +93,12 @@ and `io.resp = Valid(UInt)` produces exactly this):
 clock, reset
 io_req_ready, io_req_valid, io_req_bits_op, io_req_bits_a, io_req_bits_b
 io_resp_valid, io_resp_bits
+```
+
+A flag-reporting FP unit replaces the response with a result/flags bundle:
+
+```
+io_resp_valid, io_resp_bits_result, io_resp_bits_flags
 ```
 
 A plain branch predictor must expose:
@@ -154,6 +166,7 @@ See `scripts/example-rtl.csx` for a machine with all four surfaces substituted.
 ```bash
 native/RtlFu/build.sh native/RtlFu/generated/DivUnit.sv DivUnit /tmp/rtl_div.so
 native/RtlFu/build.sh native/RtlFu/generated/MulUnit.sv MulUnit /tmp/rtl_mul.so
+native/RtlFu/build.sh native/RtlFu/generated/FDivSqrtUnit.sv FDivSqrtUnit /tmp/rtl_fdiv.so rtl_fpu_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/GshareBp.sv GshareBp /tmp/rtl_gshare.so rtl_bp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/LTageBp.sv LTageBp /tmp/rtl_ltage.so rtl_hbp_shim.cpp
 native/RtlFu/build.sh native/RtlFu/generated/SrripRp.sv SrripRp /tmp/rtl_srrip.so rtl_rp_shim.cpp

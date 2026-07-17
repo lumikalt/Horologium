@@ -43,6 +43,7 @@ var champsimCacheWays = 16;       // --champsim-cache-ways <n>
 var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
 string? rtlDivLib = null;         // --rtl-div-lib <path>: run DIV/DIVU/REM/REMU on an RTL divider (native/RtlFu)
 string? rtlMulLib = null;         // --rtl-mul-lib <path>: run MUL/MULH/MULHSU/MULHU on an RTL multiplier (native/RtlFu)
+string? rtlFdivLib = null;        // --rtl-fdiv-lib <path>: run FDIV.S/FSQRT.S on an RTL FP unit (native/RtlFu)
 string? rtlBpLib = null;          // --rtl-bp-lib <path>: predict branches with an RTL predictor (native/RtlFu)
 string? rtlRpLib = null;          // --rtl-rp-lib <path>: RTL cache replacement policy (native/RtlFu)
 string? rtlPfLib = null;          // --rtl-pf-lib <path>: RTL D-cache prefetcher (native/RtlFu)
@@ -83,6 +84,7 @@ for (var i = 0; i < args.Length; i++)
         case "--champsim-cache-block":  champsimCacheBlock = int.Parse(args[++i]); break;
         case "--rtl-div-lib":           rtlDivLib = args[++i]; break;
         case "--rtl-mul-lib":           rtlMulLib = args[++i]; break;
+        case "--rtl-fdiv-lib":          rtlFdivLib = args[++i]; break;
         case "--rtl-bp-lib":            rtlBpLib = args[++i]; break;
         case "--rtl-rp-lib":            rtlRpLib = args[++i]; break;
         case "--rtl-pf-lib":            rtlPfLib = args[++i]; break;
@@ -484,6 +486,8 @@ Rv32Mechanism MakeMechanism(IWorkload w) {
         mech.Executor = new RtlBackedExecutor(
             mech.Executor, new RtlFfiFunctionalUnit(rtlMulLib), RvRtlMul.Select
         );
+    if (rtlFdivLib is not null)
+        mech.Executor = new RvRtlFpExecutor(mech.Executor, new RtlFfiFunctionalUnit(rtlFdivLib));
     return mech;
 }
 
@@ -650,6 +654,11 @@ static void PrintUsage() {
           --rtl-mul-lib <path>          Execute MUL/MULH/MULHSU/MULHU on a Verilator-compiled
                                         pipelined RTL multiplier; composes with --rtl-div-lib to
                                         substitute the whole M extension.
+          --rtl-fdiv-lib <path>         Execute FDIV.S/FSQRT.S on a Verilator-compiled RTL FP
+                                        unit (build.sh ... rtl_fpu_shim.cpp); IEEE results and
+                                        exception flags come from the RTL, and its data-dependent
+                                        cycle count (1 special / ~30 iterative) becomes the FU
+                                        latency.
           --rtl-bp-lib <path>           Predict branches with a Verilator-compiled RTL predictor
                                         (build with native/RtlFu/build.sh ... rtl_bp_shim.cpp).
                                         Replaces every sweep config's predictor for ELF runs, or

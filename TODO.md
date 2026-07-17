@@ -94,8 +94,10 @@ free embedded suites are runnable in full today.
   (MUL/MULH/MULHSU/MULHU) under the unchanged FU port contract (`req.ready` constantly high); constant
   3-cycle latency matches the `MulDivLatency` default, so RTL-mul runs are cycle-identical to the static
   model. `--rtl-mul-lib` composes with `--rtl-div-lib` for the whole M extension.
-- [ ] RTL FP div/sqrt unit: Chisel iterative FDIV/FSQRT behind `RtlBackedExecutor` — needs IEEE 754
-  rounding/flags parity with the C# soft-float model to pass a differential sweep.
+- [x] RTL FP div/sqrt unit: Chisel iterative IEEE binary32 FDIV.S/FSQRT.S (restoring division /
+  digit-recurrence sqrt, full subnormal support, RNE, canonical NaNs) with exception-flag parity against
+  the C# soft-float model, via a flags-reporting shim ABI (`rtl_execute_flags`) and the ISA-side
+  `RvRtlFpExecutor` decorator (NaN-boxing + fflags SideEffect). `--rtl-fdiv-lib`.
 
 ## Face
 
