@@ -57,7 +57,7 @@ public sealed class RtlFfiReplacementPolicyTests {
         Assert.Equal(64, policy.Sets);
         Assert.Equal(4, policy.Ways);
 
-        Assert.Throws<ArgumentException>(() => new RtlFfiReplacementPolicy(RtlRpLibrary.Path!, 128, 8));
+        Assert.Throws<ArgumentException>(() => new RtlFfiReplacementPolicy(RtlRpLibrary.Path, 128, 8));
         Assert.Null(RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path!, 128, 8));
         RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path!, 64, 4)?.Dispose();
     }

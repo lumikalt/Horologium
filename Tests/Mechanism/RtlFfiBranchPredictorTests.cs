@@ -51,7 +51,7 @@ public static class RtlBpLibrary {
 public sealed class RtlFfiBranchPredictorTests {
     private static RtlFfiBranchPredictor Open() {
         Skip.If(RtlBpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        return new RtlFfiBranchPredictor(RtlBpLibrary.Path!);
+        return new RtlFfiBranchPredictor(RtlBpLibrary.Path);
     }
 
     [SkippableFact]
@@ -80,7 +80,7 @@ public sealed class RtlFfiBranchPredictorTests {
     [SkippableFact]
     public void DifferentialStream_MatchesCSharpGshare() {
         Skip.If(RtlBpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var rtl = new RtlFfiBranchPredictor(RtlBpLibrary.Path!);
+        using var rtl = new RtlFfiBranchPredictor(RtlBpLibrary.Path);
         var reference = new GsharePredictor(); // historyBits = 8 = the Chisel default
 
         // Branch pool with mixed biases: always-taken, always-not, loop-periodic,

@@ -62,7 +62,7 @@ public sealed class RtlMulCoSimTests {
         Skip.If(RtlMulLibrary.Path is null, "verilator toolchain unavailable — skipping.");
         var mech = new Rv32Mechanism();
         IExecutor plain = mech.Executor;
-        using var unit = new RtlFfiFunctionalUnit(RtlMulLibrary.Path!);
+        using var unit = new RtlFfiFunctionalUnit(RtlMulLibrary.Path);
         var rtl = new RtlBackedExecutor(plain, unit, RvRtlMul.Select);
 
         IArchState state = mech.CreateArchState();
@@ -96,7 +96,7 @@ public sealed class RtlMulCoSimTests {
     [SkippableFact]
     public void OooeTrain_FullMExtension_RtlMulAndDivChained() {
         Skip.If(
-            RtlMulLibrary.Path is null || Tests.Mechanism.RtlDivLibrary.Path is null,
+            RtlMulLibrary.Path is null || Mechanism.RtlDivLibrary.Path is null,
             "verilator toolchain unavailable — skipping."
         );
 
@@ -116,8 +116,8 @@ public sealed class RtlMulCoSimTests {
         mem.Load(0, bytes);
 
         var mech = new Rv32Mechanism();
-        using var divUnit = new RtlFfiFunctionalUnit(Tests.Mechanism.RtlDivLibrary.Path!);
-        using var mulUnit = new RtlFfiFunctionalUnit(RtlMulLibrary.Path!);
+        using var divUnit = new RtlFfiFunctionalUnit(Mechanism.RtlDivLibrary.Path);
+        using var mulUnit = new RtlFfiFunctionalUnit(RtlMulLibrary.Path);
         mech.Executor = new RtlBackedExecutor(mech.Executor, divUnit, RvRtlDiv.Select);
         mech.Executor = new RtlBackedExecutor(mech.Executor, mulUnit, RvRtlMul.Select);
 

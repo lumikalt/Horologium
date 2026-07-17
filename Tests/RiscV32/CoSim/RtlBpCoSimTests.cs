@@ -17,7 +17,7 @@ public sealed class RtlBpCoSimTests {
     [SkippableFact]
     public void OooeTrain_LoopProgram_CorrectWithRtlPredictor() {
         Skip.If(RtlBpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var predictor = new RtlFfiBranchPredictor(RtlBpLibrary.Path!);
+        using var predictor = new RtlFfiBranchPredictor(RtlBpLibrary.Path);
 
         var mem = new FlatMemory(4096);
         uint[] words = [
@@ -69,7 +69,7 @@ public sealed class RtlBpCoSimTests {
         }
 
         long csCycles = Run(() => new global::Mechanism.BranchPredictModels.LTagePredictor(), out uint csX2);
-        long rtlCycles = Run(() => new RtlFfiHistoryBranchPredictor(RtlTageLibrary.Path!), out uint rtlX2);
+        long rtlCycles = Run(() => new RtlFfiHistoryBranchPredictor(RtlTageLibrary.Path), out uint rtlX2);
 
         Assert.Equal(24u, csX2); // 6 × 4 inner iterations
         Assert.Equal(csX2, rtlX2);

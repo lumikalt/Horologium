@@ -30,6 +30,7 @@ public sealed class RtlBackedExecutor(
     RtlFfiFunctionalUnit unit,
     Func<ITooth, IArchState, RtlRequest?> selector
 ) : IExecutor {
+    /// <inheritdoc />
     public ExecuteResult Execute(
         ITooth instruction,
         IArchState state,

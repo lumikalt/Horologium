@@ -51,7 +51,7 @@ public sealed class RtlFfiFunctionalUnitTests {
 
     private static RtlFfiFunctionalUnit Open() {
         Skip.If(RtlDivLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        return new RtlFfiFunctionalUnit(RtlDivLibrary.Path!);
+        return new RtlFfiFunctionalUnit(RtlDivLibrary.Path);
     }
 
     [SkippableTheory]

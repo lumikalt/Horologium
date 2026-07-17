@@ -50,6 +50,7 @@ public sealed unsafe class RtlFfiBranchPredictor : IBranchPredictor, IDisposable
         _handle = create();
     }
 
+    /// <summary>Destroys the verilated model and unloads the native library.</summary>
     public void Dispose() {
         if (_disposed) return;
         _disposed = true;

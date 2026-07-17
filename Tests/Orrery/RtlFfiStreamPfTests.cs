@@ -51,7 +51,7 @@ public sealed class RtlFfiStreamPfTests {
     [SkippableFact]
     public void AllocationBurst_IssuesDepthLinesAtOnce() {
         Skip.If(RtlStreamPfLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var pf = new RtlFfiPrefetcher(RtlStreamPfLibrary.Path!);
+        using var pf = new RtlFfiPrefetcher(RtlStreamPfLibrary.Path);
         Span<ulong> targets = stackalloc ulong[16];
 
         // Cold miss allocates a stream and bursts 8 sequential lines.
@@ -68,7 +68,7 @@ public sealed class RtlFfiStreamPfTests {
     [SkippableFact]
     public void NonSequentialHit_IssuesNothing() {
         Skip.If(RtlStreamPfLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var pf = new RtlFfiPrefetcher(RtlStreamPfLibrary.Path!);
+        using var pf = new RtlFfiPrefetcher(RtlStreamPfLibrary.Path);
         Span<ulong> targets = stackalloc ulong[16];
 
         pf.OnAccess(0, 0x8000, wasHit: false, targets);
@@ -78,7 +78,7 @@ public sealed class RtlFfiStreamPfTests {
     [SkippableFact]
     public void DifferentialStream_MatchesCSharpStreamPrefetcher() {
         Skip.If(RtlStreamPfLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var rtl = new RtlFfiPrefetcher(RtlStreamPfLibrary.Path!);
+        using var rtl = new RtlFfiPrefetcher(RtlStreamPfLibrary.Path);
         var reference = new StreamPrefetcher(); // 4 streams × depth 8 × 32 B = the Chisel default
 
         // Six interleaved sequential walkers (more than the 4 stream buffers, forcing

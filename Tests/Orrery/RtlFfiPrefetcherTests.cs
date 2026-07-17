@@ -50,7 +50,7 @@ public sealed class RtlFfiPrefetcherTests {
     [SkippableFact]
     public void StrideTraining_PrefetchesAfterTwoConfirmations() {
         Skip.If(RtlPfLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var pf = new RtlFfiPrefetcher(RtlPfLibrary.Path!);
+        using var pf = new RtlFfiPrefetcher(RtlPfLibrary.Path);
         Span<ulong> targets = stackalloc ulong[4];
 
         // Access 1: initializes the entry. Access 2: learns stride 64 (confidence 0).

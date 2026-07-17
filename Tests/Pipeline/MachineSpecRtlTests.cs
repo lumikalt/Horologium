@@ -1,4 +1,3 @@
-using Mechanism;
 using Mechanism.RtlFu;
 using Orrery.Cache;
 using Orrery.Spec;
@@ -28,7 +27,7 @@ public sealed class MachineSpecRtlTests {
         (int Sets, int Ways)? policyArgs = null;
 
         var level = new CacheLevelSpec(
-            8192, 4, 32, 10,
+            8192,
             PolicyFactory: (sets, ways) => {
                 policyArgs = (sets, ways);
                 return new SrripPolicy(sets, ways);
@@ -39,7 +38,7 @@ public sealed class MachineSpecRtlTests {
             new OutOfOrderSpec(),
             () => new Rv32Mechanism(),
             CacheHierarchySpec.SplitId(
-                new CachePathSpec([new CacheLevelSpec(4096, 4, 32, 10),]),
+                new CachePathSpec([new CacheLevelSpec(4096),]),
                 new CachePathSpec([level,])
             )
         ).Build(new FlatMemory(0x1000));
@@ -52,7 +51,7 @@ public sealed class MachineSpecRtlTests {
     public void CacheLevelSpec_NullPolicyFactoryResult_FallsBackToKind() {
         // A factory that declines (geometry mismatch) must leave the configured kind active.
         var level = new CacheLevelSpec(
-            8192, 4, 32, 10,
+            8192,
             ReplacementPolicy: ReplacementPolicyKind.Srrip,
             PolicyFactory: (_, _) => null
         );
@@ -91,24 +90,24 @@ public sealed class MachineSpecRtlTests {
         for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), words[i]);
         mem.Load(0, bytes);
 
-        using var divUnit = new RtlFfiFunctionalUnit(RtlDivLibrary.Path!);
+        // Built eagerly (the factory just hands it over) so the using-scoped FFI unit is
+        // not captured by a lambda that could, in principle, outlive it.
+        using var divUnit = new RtlFfiFunctionalUnit(RtlDivLibrary.Path);
+        var mech = new Rv32Mechanism();
+        mech.Executor = new RtlBackedExecutor(mech.Executor, divUnit, RvRtlDiv.Select);
         MachineHandle handle = new MachineSpec(
             new OutOfOrderSpec(
-                BranchPredictorFactory: () => new RtlFfiBranchPredictor(RtlBpLibrary.Path!)
+                BranchPredictorFactory: () => new RtlFfiBranchPredictor(RtlBpLibrary.Path)
             ),
-            () => {
-                var mech = new Rv32Mechanism();
-                mech.Executor = new RtlBackedExecutor(mech.Executor, divUnit, RvRtlDiv.Select);
-                return mech;
-            },
+            () => mech,
             CacheHierarchySpec.SplitId(
-                new CachePathSpec([new CacheLevelSpec(8192, 4, 32, 10),]),
+                new CachePathSpec([new CacheLevelSpec(8192),]),
                 new CachePathSpec([
                     new CacheLevelSpec(
-                        8192, 4, 32, 10,
+                        8192,
                         PolicyFactory: (sets, ways) =>
-                            RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path!, sets, ways),
-                        PrefetcherFactory: () => new RtlFfiPrefetcher(RtlPfLibrary.Path!)
+                            RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path, sets, ways),
+                        PrefetcherFactory: () => new RtlFfiPrefetcher(RtlPfLibrary.Path)
                     ),
                 ])
             )

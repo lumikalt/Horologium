@@ -53,7 +53,7 @@ public sealed class RtlFfiDrripTests {
     [SkippableFact]
     public void SetDuelingInsertion_SdmSetsFollowTheirPolicy() {
         Skip.If(RtlDrripLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var policy = new RtlFfiReplacementPolicy(RtlDrripLibrary.Path!);
+        using var policy = new RtlFfiReplacementPolicy(RtlDrripLibrary.Path);
         Assert.Equal(64, policy.Sets);
         Assert.Equal(4, policy.Ways);
 
@@ -75,7 +75,7 @@ public sealed class RtlFfiDrripTests {
     [SkippableFact]
     public void DifferentialStream_MatchesCSharpDrrip() {
         Skip.If(RtlDrripLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var rtl = new RtlFfiReplacementPolicy(RtlDrripLibrary.Path!);
+        using var rtl = new RtlFfiReplacementPolicy(RtlDrripLibrary.Path);
         var reference = new DrripPolicy(64, 4);
 
         var rng = new Random(20260717);
@@ -134,6 +134,6 @@ public sealed class RtlFfiDrripTests {
 
         Assert.Equal(csCache.Hits, rtlCache.Hits);
         Assert.Equal(csCache.Misses, rtlCache.Misses);
-        Assert.True(csCache.Hits > 0 && csCache.Misses > 0);
+        Assert.True(csCache is { Hits: > 0, Misses: > 0 });
     }
 }

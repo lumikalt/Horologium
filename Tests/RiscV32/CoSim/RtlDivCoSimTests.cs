@@ -26,7 +26,7 @@ public sealed class RtlDivCoSimTests {
         Skip.If(RtlDivLibrary.Path is null, "verilator toolchain unavailable — skipping.");
         var mech = new Rv32Mechanism();
         IExecutor plain = mech.Executor;
-        using var unit = new RtlFfiFunctionalUnit(RtlDivLibrary.Path!);
+        using var unit = new RtlFfiFunctionalUnit(RtlDivLibrary.Path);
         var rtl = new RtlBackedExecutor(plain, unit, RvRtlDiv.Select);
 
         IArchState state = mech.CreateArchState();
@@ -61,7 +61,7 @@ public sealed class RtlDivCoSimTests {
     public void NonDivInstructions_FallThroughToWrappedExecutor() {
         Skip.If(RtlDivLibrary.Path is null, "verilator toolchain unavailable — skipping.");
         var mech = new Rv32Mechanism();
-        using var unit = new RtlFfiFunctionalUnit(RtlDivLibrary.Path!);
+        using var unit = new RtlFfiFunctionalUnit(RtlDivLibrary.Path);
         var rtl = new RtlBackedExecutor(mech.Executor, unit, RvRtlDiv.Select);
 
         IArchState state = mech.CreateArchState();

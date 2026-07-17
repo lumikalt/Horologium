@@ -70,6 +70,7 @@ public sealed unsafe class RtlFfiHistoryBranchPredictor : IBranchPredictor, IDis
         _handle = create();
     }
 
+    /// <summary>Destroys the verilated model and unloads the native library.</summary>
     public void Dispose() {
         if (_disposed) return;
         _disposed = true;
@@ -112,9 +113,10 @@ public sealed unsafe class RtlFfiHistoryBranchPredictor : IBranchPredictor, IDis
 ///     <c>rtl_bp_*</c> (plain predictor, e.g. the gshare) →
 ///     <see cref="RtlFfiBranchPredictor" />; <c>rtl_hbp_*</c> (speculative-history
 ///     predictor, e.g. the L-TAGE) → <see cref="RtlFfiHistoryBranchPredictor" />.
-///     Lets one <c>--rtl-bp-lib</c> flag / <c>rtl_bp_plugin</c> config serve both kinds.
+///     Lets one <c>rtl_bp_plugin</c> config entry serve both kinds.
 /// </summary>
 public static class RtlBranchPredictorLoader {
+    /// <summary>Loads and wraps the predictor library at <paramref name="libraryPath" />.</summary>
     /// <exception cref="ArgumentException">The library exposes neither predictor ABI.</exception>
     public static IBranchPredictor Load(string libraryPath) {
         nint lib = NativeLibrary.Load(libraryPath);

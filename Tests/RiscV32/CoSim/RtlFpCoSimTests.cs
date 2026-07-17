@@ -96,7 +96,7 @@ public sealed class RtlFpCoSimTests {
         Skip.If(RtlFpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
         var mech = new Rv32Mechanism();
         IExecutor plain = mech.Executor;
-        using var unit = new RtlFfiFunctionalUnit(RtlFpLibrary.Path!);
+        using var unit = new RtlFfiFunctionalUnit(RtlFpLibrary.Path);
         var rtl = new RvRtlFpExecutor(plain, unit);
 
         List<uint> ops = [.. RtlFpCoSimTests.Corpus,];
@@ -105,16 +105,16 @@ public sealed class RtlFpCoSimTests {
 
         foreach (uint a in ops) {
             // sqrt over the whole corpus
-            (ulong expBits, uint expFlags) = RtlFpCoSimTests.Run(plain, mech, RtlFpCoSimTests.FsqrtEnc, a, 0);
-            (ulong gotBits, uint gotFlags) = RtlFpCoSimTests.Run(rtl, mech, RtlFpCoSimTests.FsqrtEnc, a, 0);
+            (ulong expBits, uint expFlags) = Run(plain, mech, RtlFpCoSimTests.FsqrtEnc, a, 0);
+            (ulong gotBits, uint gotFlags) = Run(rtl, mech, RtlFpCoSimTests.FsqrtEnc, a, 0);
             Assert.True(
                 expBits == gotBits && expFlags == gotFlags,
                 $"fsqrt(0x{a:X8}): C#=0x{expBits:X16}/fl={expFlags:X} RTL=0x{gotBits:X16}/fl={gotFlags:X}"
             );
 
             foreach (uint b in ops) {
-                (expBits, expFlags) = RtlFpCoSimTests.Run(plain, mech, RtlFpCoSimTests.FdivEnc, a, b);
-                (gotBits, gotFlags) = RtlFpCoSimTests.Run(rtl, mech, RtlFpCoSimTests.FdivEnc, a, b);
+                (expBits, expFlags) = Run(plain, mech, RtlFpCoSimTests.FdivEnc, a, b);
+                (gotBits, gotFlags) = Run(rtl, mech, RtlFpCoSimTests.FdivEnc, a, b);
                 Assert.True(
                     expBits == gotBits && expFlags == gotFlags,
                     $"fdiv(0x{a:X8}, 0x{b:X8}): C#=0x{expBits:X16}/fl={expFlags:X} "
@@ -127,7 +127,7 @@ public sealed class RtlFpCoSimTests {
     [SkippableFact]
     public void Latency_SpecialCasesFast_IterativeSlow() {
         Skip.If(RtlFpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var unit = new RtlFfiFunctionalUnit(RtlFpLibrary.Path!);
+        using var unit = new RtlFfiFunctionalUnit(RtlFpLibrary.Path);
         (_, _, int special) = unit.ExecuteWithFlags(0, 0x3F800000, 0x00000000); // 1/0 → Inf+DZ
         (_, _, int iterative) = unit.ExecuteWithFlags(0, 0x3F800000, 0x40400000); // 1/3
         Assert.Equal(1, special);
@@ -153,7 +153,7 @@ public sealed class RtlFpCoSimTests {
         mem.Load(0, bytes);
 
         var mech = new Rv32Mechanism();
-        using var unit = new RtlFfiFunctionalUnit(RtlFpLibrary.Path!);
+        using var unit = new RtlFfiFunctionalUnit(RtlFpLibrary.Path);
         mech.Executor = new RvRtlFpExecutor(mech.Executor, unit);
 
         var train = new OooeTrain(mech, mem);

@@ -55,7 +55,7 @@ public sealed class RtlFfiHistoryBranchPredictorTests {
     public void Loader_DetectsShimAbi() {
         Skip.If(RtlTageLibrary.Path is null || RtlBpLibrary.Path is null,
                 "verilator toolchain unavailable — skipping.");
-        IBranchPredictor tage = RtlBranchPredictorLoader.Load(RtlTageLibrary.Path!);
+        IBranchPredictor tage = RtlBranchPredictorLoader.Load(RtlTageLibrary.Path);
         IBranchPredictor gshare = RtlBranchPredictorLoader.Load(RtlBpLibrary.Path!);
         Assert.IsType<RtlFfiHistoryBranchPredictor>(tage);
         Assert.IsType<RtlFfiBranchPredictor>(gshare);

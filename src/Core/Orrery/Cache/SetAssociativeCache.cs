@@ -168,6 +168,11 @@ public sealed class SetAssociativeCache : IMemory {
     ///     array. Only meaningful when <paramref name="victimCacheEntries" /> &gt; 0. Cannot exceed
     ///     <paramref name="missLatency" />.
     /// </param>
+    /// <param name="customPolicy">
+    ///     Caller-built replacement-policy instance (e.g. <see cref="RtlFfiReplacementPolicy" />)
+    ///     that overrides <paramref name="replacementPolicy" /> when non-null. The caller owns its
+    ///     lifetime; the cache never disposes it.
+    /// </param>
     public SetAssociativeCache(
         IMemory backing,
         int capacityBytes,
