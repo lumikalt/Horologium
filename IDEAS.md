@@ -62,6 +62,16 @@ the active thread.
 
 ## Cache Prefetching
 
+- [ ] Real prefetch-eviction feedback: `SetAssociativeCache` has no notion of `IPrefetcher` today and no per-line
+  "resident via prefetch, never demand-touched" bit, so nothing can tell a prefetcher when one of its lines got
+  evicted unused. `PpfPrefetcher` needs exactly this signal (the paper's third training trigger) and currently
+  approximates it via its own 1024-entry Prefetch Table's slot-overwrite — table pressure standing in for real
+  cache-capacity pressure, documented as a fidelity limit in the class docs. A lighter-weight real version: an
+  optional `Action<ulong>?` eviction callback on `SetAssociativeCache` (default null, near-zero cost when unset),
+  wired up in `MemoryLayers.Build` only for configs that actually attach a prefetcher wanting it, rather than
+  threading `IPrefetcher` through the (already long) cache constructor. Revisit if the table-pressure proxy is ever
+  shown to mispredict in a case that matters — `SetAssociativeCache` is shared by every ISA/cache level/RTL policy,
+  and PPF would be the only one of ten prefetchers consuming it, so it's not worth the blast radius speculatively.
 - [ ] Spatio-temporal memory streaming (STeMS) extending SMS with temporal miss-sequence recording. — Somogyi et al.,
   ISCA 2009
 - [ ] MLOP (multi-lookahead offset prefetcher): BOP generalized to score offsets at multiple lookahead depths; DPC-3
