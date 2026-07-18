@@ -317,7 +317,7 @@ public sealed class SetAssociativeCache : IMemory {
         ? TagLatency + DataLatency
         : Math.Max(TagLatency, DataLatency);
 
-    private int MissLatency { get; }
+    public int MissLatency { get; }
     public int PrefetchLatency { get; }
     private WritePolicyKind WritePolicy { get; }
 

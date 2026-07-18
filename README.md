@@ -961,6 +961,23 @@ paper's ExecutionStalls heuristic). All ten `td_*` dials flow through `Experimen
 `TopDownBreakdown.FromSnapshot(snapshot)` computes the same breakdown from any (warmup-subtracted) pipeline
 `DialBoardSnapshot`, and its `ToString()` renders the hierarchy as a small tree.
 
+### CPI stacks via interval analysis (Pipeline/CpiStackAnalysis)
+
+`OooeTrain` also builds interval-analysis CPI stacks (Eyerman, Eeckhout, Karkhanis & Smith, ASPLOS 2006 — the
+counter architecture Sniper's CPI stacks build on; interval model in their ACM TOCS 2009 paper). Total CPI decomposes
+additively into a **base** plus per-miss-event components (`cpi_*_cycles` counters, `cpi_*` dials): L1/L2/L3 I-cache
+and I-TLB miss delays, the branch misprediction penalty, L1/L2/L3 D-cache and D-TLB long-miss stalls, store
+write stalls, and long-latency/dependence resource stalls. The mechanisms follow the paper adapted to this simulator:
+I-side penalties accumulate provisionally and post to the globals only when an instruction carrying the sFMT
+'I-cache miss' bit retires (wrong-path fetch penalties are discarded on flush, absorbed into the branch penalty);
+a mispredicted branch's penalty is its ROB residency (dispatch → redirect, minus cycles already claimed by backend
+components) plus dispatch-empty refill cycles; and backend completion stalls are counted when the backend
+backpressures dispatch while an incomplete instruction blocks the ROB head, classified by the deepest level the
+blocking load missed (recorded per-load at execute) or as a resource stall for non-loads — the paper's "ROB full"
+trigger is widened to include IQ/LQ/SQ backpressure since this machine's per-class issue queues are the binding
+window resource for serialized chains. `CpiStack.FromSnapshot(snapshot)` computes the stack from any pipeline
+snapshot (counter-based, so warmup/ROI-window accurate); base + components equals total CPI by construction.
+
 ### Architecture scripting and checkpointing (Script/)
 
 `ScriptHost.EvaluateFileAsync(path)` compiles and evaluates a `.csx` (Roslyn C#) or `.fsx` (F# Interactive) script file

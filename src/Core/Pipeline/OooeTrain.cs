@@ -292,6 +292,35 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _branchMissCounter = null!;
     private Counter? _cacheMissStallsCounter;
 
+    // ── CPI-stack accounting (Eyerman et al., ASPLOS 2006); see CpiStack for the model ──
+    private Counter _cpiBpredCounter = null!;
+
+    // Post-mispredict refill: charge dispatch-empty cycles to the branch misprediction
+    // component until the first correct-path instruction dispatches (the paper's "global
+    // branch misprediction cycle counter is incremented every cycle until new instructions
+    // enter the ROB").
+    private bool _cpiBpredRefill;
+    private Counter _cpiDTlbCounter = null!;
+    private Counter _cpiITlbCounter = null!;
+    private Counter _cpiL1DCounter = null!;
+    private Counter _cpiL1ICounter = null!;
+    private Counter _cpiL2DCounter = null!;
+    private Counter _cpiL2ICounter = null!;
+    private Counter _cpiL3DCounter = null!;
+    private Counter _cpiL3ICounter = null!;
+
+    // Provisional I-side miss cycles (the sFMT local counters): accumulated when fetch-stall
+    // cycles drain, posted to the global counters when a miss-flagged instruction retires
+    // (proving the stalled fetch was correct-path), discarded on any flush/squash.
+    private long _cpiPendingItlb, _cpiPendingL1I, _cpiPendingL2I, _cpiPendingL3I;
+    private Counter _cpiResourceCounter = null!;
+
+    // Cumulative cycles classified to backend/store components; branch penalty windows
+    // subtract the delta of this across the branch's ROB residency (the paper's rule of not
+    // counting full-ROB cycles in the FMT branch penalty counters).
+    private long _cpiStolenCycles;
+    private Counter _cpiStoreCounter = null!;
+
     // Counters (initialized in Initialize)
     private Counter _cyclesCounter = null!;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
@@ -639,6 +668,52 @@ internal sealed class OoOPipelineCore : Gear {
             "TMA level 2: execution-stall cycles / cycles, minus memory bound"
         );
 
+        // ── CPI stack via interval analysis (Eyerman et al., ASPLOS 2006) ──────────
+        _cpiL1ICounter = Dials.AddCounter(CpiStack.L1ICounter, "CPI stack: correct-path L1 I-cache miss cycles");
+        _cpiL2ICounter = Dials.AddCounter(CpiStack.L2ICounter, "CPI stack: correct-path L2 I-cache miss cycles");
+        _cpiL3ICounter = Dials.AddCounter(CpiStack.L3ICounter, "CPI stack: correct-path L3 I-cache miss cycles");
+        _cpiITlbCounter = Dials.AddCounter(CpiStack.ITlbCounter, "CPI stack: correct-path I-TLB miss cycles");
+        _cpiBpredCounter = Dials.AddCounter(
+            CpiStack.BpredCounter,
+            "CPI stack: branch misprediction cycles (ROB residency of the mispredicted branch + refill)"
+        );
+        _cpiL1DCounter = Dials.AddCounter(
+            CpiStack.L1DCounter, "CPI stack: full-ROB cycles blocked on a head load that missed only L1D"
+        );
+        _cpiL2DCounter = Dials.AddCounter(
+            CpiStack.L2DCounter, "CPI stack: full-ROB cycles blocked on a head load that missed through L2D"
+        );
+        _cpiL3DCounter = Dials.AddCounter(
+            CpiStack.L3DCounter, "CPI stack: full-ROB cycles blocked on a head load that missed through L3D"
+        );
+        _cpiDTlbCounter = Dials.AddCounter(
+            CpiStack.DTlbCounter, "CPI stack: full-ROB cycles blocked on a head load that missed the D-TLB"
+        );
+        _cpiStoreCounter = Dials.AddCounter(
+            CpiStack.StoreCounter, "CPI stack: cycles frozen on post-commit store write misses"
+        );
+        _cpiResourceCounter = Dials.AddCounter(
+            CpiStack.ResourceCounter,
+            "CPI stack: full-ROB cycles blocked on a long-latency / dependence-stalled head (resource stalls)"
+        );
+        Dials.AddDial("cpi_base", () => ComputeCpiStack().Base, "CPI stack: base (steady-state) CPI");
+        Dials.AddDial("cpi_l1i", () => ComputeCpiStack().L1ICache, "CPI stack: L1 I-cache miss component");
+        Dials.AddDial("cpi_l2i", () => ComputeCpiStack().L2ICache, "CPI stack: L2 I-cache miss component");
+        Dials.AddDial("cpi_l3i", () => ComputeCpiStack().L3ICache, "CPI stack: L3 I-cache miss component");
+        Dials.AddDial("cpi_itlb", () => ComputeCpiStack().ITlb, "CPI stack: I-TLB miss component");
+        Dials.AddDial(
+            "cpi_bpred", () => ComputeCpiStack().BranchMisprediction, "CPI stack: branch misprediction component"
+        );
+        Dials.AddDial("cpi_l1d", () => ComputeCpiStack().L1DCache, "CPI stack: L1 D-cache miss component");
+        Dials.AddDial("cpi_l2d", () => ComputeCpiStack().L2DCache, "CPI stack: L2 D-cache miss component");
+        Dials.AddDial("cpi_l3d", () => ComputeCpiStack().L3DCache, "CPI stack: L3 D-cache miss component");
+        Dials.AddDial("cpi_dtlb", () => ComputeCpiStack().DTlb, "CPI stack: D-TLB miss component");
+        Dials.AddDial("cpi_store", () => ComputeCpiStack().Store, "CPI stack: store write-stall component");
+        Dials.AddDial(
+            "cpi_resource", () => ComputeCpiStack().ResourceStall,
+            "CPI stack: long-latency unit / dependence stall component"
+        );
+
         _anyCache = ILayers.Cache is not null || DLayers.Cache is not null
                                               || ILayers.L2Cache is not null || DLayers.L2Cache is not null
                                               || ILayers.L3Cache is not null || DLayers.L3Cache is not null
@@ -737,12 +812,38 @@ internal sealed class OoOPipelineCore : Gear {
             if (dStalls > 0) {
                 _tdExecStallCyclesCounter.IncrementBy(dStalls);
                 _tdMemStallStoreCyclesCounter.IncrementBy(dStalls);
+                _cpiStoreCounter.IncrementBy(dStalls);
+                _cpiStolenCycles += dStalls;
             }
         }
 
         _cyclesCounter.Increment();
         _tdTotalSlotsCounter.IncrementBy(_issueWidth);
         State.OnCycle();
+
+        // CPI stack (ASPLOS 2006, sections 4.2/4.3): a cycle where the backend is exerting
+        // backpressure (dispatch structurally blocked — ROB/IQ/LQ/SQ full — or the ROB
+        // outright full) while an incomplete instruction blocks the ROB head is a backend
+        // completion stall, classified by the deepest cache level the blocking load missed —
+        // or as a long-latency/dependence resource stall for non-loads and loads that hit.
+        // The paper uses "ROB full" alone; in this machine the per-class issue queues are
+        // the binding window resource for serialized chains, so IQ/LQ/SQ backpressure
+        // (_dispatchStalledPrevCycle) must count as well. These cycles are excluded from any
+        // in-flight branch's misprediction penalty window via _cpiStolenCycles.
+        if ((_rob.IsFull || _dispatchStalledPrevCycle)
+         && !_rob.IsEmpty && _rob.Head is { IsComplete: false, } blockedHead) {
+            Counter blocked = blockedHead.IsLoad
+                ? blockedHead.DMissClass switch {
+                    CpiMissClass.L1D  => _cpiL1DCounter,
+                    CpiMissClass.L2D  => _cpiL2DCounter,
+                    CpiMissClass.L3D  => _cpiL3DCounter,
+                    CpiMissClass.DTlb => _cpiDTlbCounter,
+                    _                 => _cpiResourceCounter,
+                }
+                : _cpiResourceCounter;
+            blocked.Increment();
+            _cpiStolenCycles++;
+        }
 
         // Complete: broadcast last tick's execution results onto CDB.
         StepComplete();
@@ -771,6 +872,12 @@ internal sealed class OoOPipelineCore : Gear {
             // TMA RecoveryBubbles: the issue pipeline delivers nothing this cycle because the
             // machine is recovering from a flush/squash (Bad Speculation, Table 1).
             if (_flushPending || _squashPending) _tdRecoveryBubblesCounter.IncrementBy(_issueWidth);
+            // CPI stack: discard provisional I-side miss cycles — the flush proves the stalled
+            // fetches were wrong-path. Their frozen cycles stay inside the mispredicted
+            // branch's penalty window (the ASPLOS 2006 policy of absorbing wrong-path
+            // frontend misses into the branch misprediction component).
+            if (_flushPending || _squashPending)
+                _cpiPendingL1I = _cpiPendingL2I = _cpiPendingL3I = _cpiPendingItlb = 0;
             // Restore the RAT to its pre-episode baseline before the real flush/squash's own
             // walk-back runs, so the walk-back's absolute writes start from a correct base
             // regardless of how far the shadow lane had progressed.
@@ -919,7 +1026,8 @@ internal sealed class OoOPipelineCore : Gear {
                     CommitRegisters(head);
                     TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
-                    RetireMemQueues(head);
+                    if (head.IcacheMiss) PostIcachePendings();
+                RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -944,7 +1052,8 @@ internal sealed class OoOPipelineCore : Gear {
 
                     TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
-                    RetireMemQueues(head);
+                    if (head.IcacheMiss) PostIcachePendings();
+                RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -956,7 +1065,8 @@ internal sealed class OoOPipelineCore : Gear {
                     CommitRegisters(head);
                     TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
-                    RetireMemQueues(head);
+                    if (head.IcacheMiss) PostIcachePendings();
+                RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -1035,6 +1145,7 @@ internal sealed class OoOPipelineCore : Gear {
                 State.Pc = head.PredictedNextPc;
                 TrainCriticality(head);
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                if (head.IcacheMiss) PostIcachePendings();
                 RetireMemQueues(head);
                 _rob.Retire();
                 _retiredCounter.Increment();
@@ -1053,6 +1164,7 @@ internal sealed class OoOPipelineCore : Gear {
                 State.Pc = selfPc;
                 TrainCriticality(head);
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                if (head.IcacheMiss) PostIcachePendings();
                 RetireMemQueues(head);
                 _rob.Retire();
                 _retiredCounter.Increment();
@@ -1075,6 +1187,7 @@ internal sealed class OoOPipelineCore : Gear {
 
                 if (resolvedPc != predictedPc) {
                     _branchMissCounter.Increment();
+                    PostBpredWindow(head);
                     State.Pc = resolvedPc;
                     // Critical-path prediction ED edge (Table 2): the very next dispatched
                     // instruction's D-source is this mispredicting branch's E-node.
@@ -1085,7 +1198,8 @@ internal sealed class OoOPipelineCore : Gear {
 
                     TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
-                    RetireMemQueues(head);
+                    if (head.IcacheMiss) PostIcachePendings();
+                RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -1097,6 +1211,7 @@ internal sealed class OoOPipelineCore : Gear {
             State.Pc = head.PredictedNextPc;
             TrainCriticality(head);
             PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+            if (head.IcacheMiss) PostIcachePendings();
             RetireMemQueues(head);
             _rob.Retire();
             _retiredCounter.Increment();
@@ -1184,6 +1299,8 @@ internal sealed class OoOPipelineCore : Gear {
                 ChargeStallCycles(storeStalls);
                 _tdExecStallCyclesCounter.IncrementBy(storeStalls);
                 _tdMemStallStoreCyclesCounter.IncrementBy(storeStalls);
+                _cpiStoreCounter.IncrementBy(storeStalls);
+                _cpiStolenCycles += storeStalls;
             }
         }
 
@@ -1196,7 +1313,29 @@ internal sealed class OoOPipelineCore : Gear {
             RobEntry issuedRob = _rob.At(issued.RobIdx);
             ulong lqSeqNo = issuedRob.LqIdx >= 0 ? _lq.At(issuedRob.LqIdx).SeqNo : 0;
 
+            // CPI stack: snapshot D-side miss counts around a load/atomic's execution so the
+            // access can be classified by the deepest level it missed (ASPLOS 2006 short L1
+            // vs long L2/TLB backend misses). Consulted when this entry later blocks the
+            // head of a full ROB.
+            bool classifyDMiss = _anyCache && issued.Instr.Class is ToothClass.Load or ToothClass.Atomic;
+            long dm1 = 0, dm2 = 0, dm3 = 0, dmt = 0;
+            if (classifyDMiss) {
+                dm1 = DLayers.Cache?.Misses ?? 0;
+                dm2 = DLayers.L2Cache?.Misses ?? 0;
+                dm3 = DLayers.L3Cache?.Misses ?? 0;
+                dmt = DLayers.Tlb?.Misses ?? 0;
+            }
+
             ExecResult result = ExecuteOne(issued, lqSeqNo);
+
+            if (classifyDMiss)
+                issuedRob.DMissClass =
+                    DLayers.Tlb is { } dTlb && dTlb.Misses > dmt ? CpiMissClass.DTlb :
+                    DLayers.L3Cache is { } dl3 && dl3.Misses > dm3 ? CpiMissClass.L3D :
+                    DLayers.L2Cache is { } dl2 && dl2.Misses > dm2 ? CpiMissClass.L2D :
+                    DLayers.Cache is { } dl1 && dl1.Misses > dm1 ? CpiMissClass.L1D :
+                    CpiMissClass.None;
+
             PEventLog?.Record(issued.InstrId, issued.Pc, _cyclesCounter.Value, PEventKind.Execute);
 
             // Register load disambiguation state at EXECUTE time (not at CDB broadcast).
@@ -1707,6 +1846,8 @@ internal sealed class OoOPipelineCore : Gear {
                 robFault.IsComplete = true;
                 robFault.ArchDestination = -1;
                 robFault.PhysDestination = -1;
+                robFault.DispatchCycle = _cyclesCounter.Value;
+                robFault.CpiStolenAtDispatch = _cpiStolenCycles;
                 PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
                 _renameQueue.Dequeue();
                 dispatched++;
@@ -1735,6 +1876,9 @@ internal sealed class OoOPipelineCore : Gear {
             rob.IsStore = instr.Class == ToothClass.Store;
             rob.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             rob.IsHalt = instr.Class == ToothClass.Halt;
+            rob.DispatchCycle = _cyclesCounter.Value;
+            rob.CpiStolenAtDispatch = _cpiStolenCycles;
+            rob.IcacheMiss = ri.IcacheMiss;
             PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
 
             // Critical-path prediction D-source (Table 2): ED (post-misprediction redirect)
@@ -1865,6 +2009,14 @@ internal sealed class OoOPipelineCore : Gear {
             _tdFetchBubblesCounter.IncrementBy(_issueWidth - dispatched);
             if (dispatched == 0) _tdFetchLatencyCyclesCounter.Increment();
         }
+
+        // CPI stack: after a mispredicted-branch redirect, dispatch-empty cycles are the
+        // pipeline refill part of the misprediction penalty; charging stops at the first
+        // correct-path dispatch (ASPLOS 2006, section 4.1).
+        if (_cpiBpredRefill) {
+            if (dispatched > 0) { _cpiBpredRefill = false; }
+            else if (!stalled && !_rob.IsFull) { _cpiBpredCounter.Increment(); }
+        }
     }
 
     /// <summary>Drain up to issueWidth decoded instructions through the RAT/PRF rename stage.</summary>
@@ -1887,7 +2039,7 @@ internal sealed class OoOPipelineCore : Gear {
                 _renameQueue.Enqueue(
                     new RenameEntry(
                         fi.Pc, fi.Decoded, fi.PredictedNextPc, fi.InstrId, fi.PreTrap,
-                        -1, -1, -1, -1, -1, -1
+                        -1, -1, -1, -1, -1, -1, IcacheMiss: fi.IcacheMiss
                     )
                 );
                 _decodeQueue.Dequeue();
@@ -1929,7 +2081,8 @@ internal sealed class OoOPipelineCore : Gear {
             _renameQueue.Enqueue(
                 new RenameEntry(
                     fi.Pc, instr, fi.PredictedNextPc, fi.InstrId, null,
-                    destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3, fi.HistCheckpoint
+                    destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3, fi.HistCheckpoint,
+                    fi.IcacheMiss
                 )
             );
             _decodeQueue.Dequeue();
@@ -1943,6 +2096,16 @@ internal sealed class OoOPipelineCore : Gear {
 
         var fetched = 0;
         while (fetched < _issueWidth && _decodeQueue.Count < _maxDecodeDepth) {
+            // CPI stack: snapshot I-side miss counts around this fetch (translation + read)
+            // so the fetched instruction can carry the sFMT 'I-cache/I-TLB miss' bit.
+            long im1 = 0, im2 = 0, im3 = 0, imt = 0;
+            if (_anyCache) {
+                im1 = ILayers.Cache?.Misses ?? 0;
+                im2 = ILayers.L2Cache?.Misses ?? 0;
+                im3 = ILayers.L3Cache?.Misses ?? 0;
+                imt = ILayers.Tlb?.Misses ?? 0;
+            }
+
             // Translate virtual PC to physical (Sv32 or bare mode).
             ulong physPc = _fetchPc;
             if (_fetchTranslator is not null) {
@@ -2043,9 +2206,17 @@ internal sealed class OoOPipelineCore : Gear {
             }
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
+            bool icacheMiss = _anyCache && ((ILayers.Cache?.Misses ?? 0) > im1
+                                         || (ILayers.L2Cache?.Misses ?? 0) > im2
+                                         || (ILayers.L3Cache?.Misses ?? 0) > im3
+                                         || (ILayers.Tlb?.Misses ?? 0) > imt);
+
             ulong instrId = _nextInstrId++;
             _decodeQueue.Enqueue(
-                new FetchedInstr(_fetchPc, decoded, predictedNext, instrId, HistCheckpoint: histCheckpoint)
+                new FetchedInstr(
+                    _fetchPc, decoded, predictedNext, instrId, HistCheckpoint: histCheckpoint,
+                    IcacheMiss: icacheMiss
+                )
             );
             PEventLog?.Record(instrId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
             PEventLog?.RecordDisasm(instrId, _decoder.Disassemble(_fetchPc, decoded.RawEncoding));
@@ -2573,6 +2744,7 @@ internal sealed class OoOPipelineCore : Gear {
         _branchMissCounter.Increment(); // a partial squash is one branch misprediction, resolved at execute
         ulong bId = _squashInstrId;
         RobEntry b = FindRobByInstrId(bId);
+        PostBpredWindow(b);
 
         if (PEventLog is not null) {
             foreach ((_, RobEntry entry) in _rob.InOrder())
@@ -2942,6 +3114,26 @@ internal sealed class OoOPipelineCore : Gear {
     private (long IStalls, long DStalls) DrainStalls() {
         long iStalls = ILayers.ConsumeAllStalls();
         long dStalls = DLayers.ConsumeAllStalls();
+
+        // CPI stack: split the fetch-stall cycles across I-side hierarchy levels in
+        // proportion to (new misses × miss latency) per level, into the provisional
+        // (sFMT-local) counters. Posted at the flagged instruction's retirement.
+        if (iStalls > 0) {
+            long wL1 = ILayers.Cache is { } l1 ? (l1.Misses - _lastIMisses) * l1.MissLatency : 0;
+            long wL2 = ILayers.L2Cache is { } l2 ? (l2.Misses - _lastIl2Misses) * l2.MissLatency : 0;
+            long wL3 = ILayers.L3Cache is { } l3 ? (l3.Misses - _lastIl3Misses) * l3.MissLatency : 0;
+            long wTlb = ILayers.Tlb is { } tlb ? (tlb.Misses - _lastITlbMisses) * tlb.MissLatency : 0;
+            long wSum = wL1 + wL2 + wL3 + wTlb;
+            if (wSum <= 0) { _cpiPendingL1I += iStalls; }
+            else {
+                _cpiPendingL2I += iStalls * wL2 / wSum;
+                _cpiPendingL3I += iStalls * wL3 / wSum;
+                _cpiPendingItlb += iStalls * wTlb / wSum;
+                // L1 takes its share plus the integer-division remainder.
+                _cpiPendingL1I += iStalls - iStalls * wL2 / wSum - iStalls * wL3 / wSum - iStalls * wTlb / wSum;
+            }
+        }
+
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
         UpdateCacheStat(
             ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
@@ -2969,6 +3161,52 @@ internal sealed class OoOPipelineCore : Gear {
         UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);
         return (iStalls, dStalls);
     }
+
+    // ── CPI-stack helpers (Eyerman et al., ASPLOS 2006) ───────────────────────
+
+    /// <summary>
+    ///     Posts a resolved branch misprediction's penalty window to the global counter:
+    ///     the branch's ROB residency (dispatch → now), excluding cycles already claimed by
+    ///     backend/store components in between, and arms refill charging until the first
+    ///     correct-path instruction dispatches.
+    /// </summary>
+    private void PostBpredWindow(RobEntry branch) {
+        long window = _cyclesCounter.Value - branch.DispatchCycle
+                    - (_cpiStolenCycles - branch.CpiStolenAtDispatch);
+        if (window > 0) _cpiBpredCounter.IncrementBy(window);
+        _cpiBpredRefill = true;
+    }
+
+    /// <summary>
+    ///     Posts the provisional I-side miss cycles to the global CPI-stack counters — called
+    ///     when an instruction carrying the sFMT miss bit retires, proving the stalled fetch
+    ///     was on the correct path. Wrong-path pendings are instead discarded on flush.
+    /// </summary>
+    private void PostIcachePendings() {
+        if (_cpiPendingL1I > 0) _cpiL1ICounter.IncrementBy(_cpiPendingL1I);
+        if (_cpiPendingL2I > 0) _cpiL2ICounter.IncrementBy(_cpiPendingL2I);
+        if (_cpiPendingL3I > 0) _cpiL3ICounter.IncrementBy(_cpiPendingL3I);
+        if (_cpiPendingItlb > 0) _cpiITlbCounter.IncrementBy(_cpiPendingItlb);
+        _cpiPendingL1I = _cpiPendingL2I = _cpiPendingL3I = _cpiPendingItlb = 0;
+    }
+
+    /// <summary>Live CPI stack (Eyerman et al., ASPLOS 2006) from the current counter values.</summary>
+    private CpiStack ComputeCpiStack() =>
+        CpiStack.Compute(
+            _cyclesCounter.Value,
+            _retiredCounter.Value,
+            _cpiL1ICounter.Value,
+            _cpiL2ICounter.Value,
+            _cpiL3ICounter.Value,
+            _cpiITlbCounter.Value,
+            _cpiBpredCounter.Value,
+            _cpiL1DCounter.Value,
+            _cpiL2DCounter.Value,
+            _cpiL3DCounter.Value,
+            _cpiDTlbCounter.Value,
+            _cpiStoreCounter.Value,
+            _cpiResourceCounter.Value
+        );
 
     /// <summary>Live Top-Down breakdown (Yasin, ISPASS 2014) from the current counter values.</summary>
     private TopDownBreakdown ComputeTopDown() =>
@@ -3036,7 +3274,8 @@ internal sealed class OoOPipelineCore : Gear {
         ulong PredictedNextPc,
         ulong InstrId = 0,
         TrapInfo? PreTrap = null,
-        BranchHistoryCheckpoint HistCheckpoint = default
+        BranchHistoryCheckpoint HistCheckpoint = default,
+        bool IcacheMiss = false // fetch access missed the I-cache/I-TLB (sFMT miss bit)
     );
 
     // Instruction that has been renamed but not yet dispatched to ROB/IQ.
@@ -3052,7 +3291,8 @@ internal sealed class OoOPipelineCore : Gear {
         int P1,
         int P2,
         int P3, // physical source tags captured from RAT, -1 if unused
-        BranchHistoryCheckpoint HistCheckpoint = default
+        BranchHistoryCheckpoint HistCheckpoint = default,
+        bool IcacheMiss = false // fetch access missed the I-cache/I-TLB (sFMT miss bit)
     );
 
     private readonly record struct IssuedInstr(

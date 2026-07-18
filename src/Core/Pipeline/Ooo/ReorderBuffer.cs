@@ -128,6 +128,29 @@ public sealed class RobEntry {
     /// <summary>Tick this entry completed (broadcast on the CDB); used to resolve the EC/CC commit-source rule.</summary>
     public ulong CompletedTick { get; set; }
 
+    // ── CPI-stack accounting (Eyerman et al., ASPLOS 2006) ───────────────────────────────
+
+    /// <summary>Cycle this entry was dispatched (entered the ROB); anchors the branch misprediction penalty window.</summary>
+    public long DispatchCycle { get; set; }
+
+    /// <summary>
+    ///     Snapshot of the train's cumulative backend/store-classified cycle count at dispatch.
+    ///     A mispredicted branch's penalty window is its ROB residency minus the cycles that
+    ///     were classified to backend components in between (the paper's "unless the ROB is
+    ///     full" rule), computed as the delta of this counter.
+    /// </summary>
+    public long CpiStolenAtDispatch { get; set; }
+
+    /// <summary>Deepest memory-hierarchy level this load/atomic missed at execute time.</summary>
+    public CpiMissClass DMissClass { get; set; }
+
+    /// <summary>
+    ///     True when this instruction's fetch suffered an I-cache/I-TLB miss (the sFMT miss
+    ///     bit): its retirement proves the stalled fetch was on the correct path and posts the
+    ///     train's pending I-side miss cycles to the global CPI-stack counters.
+    /// </summary>
+    public bool IcacheMiss { get; set; }
+
     internal void Clear() {
         Valid = false;
         Pc = 0;
@@ -158,6 +181,10 @@ public sealed class RobEntry {
         ESourceIsOwnD = false;
         ESourceProducerInstrId = 0;
         CompletedTick = 0;
+        DispatchCycle = 0;
+        CpiStolenAtDispatch = 0;
+        DMissClass = CpiMissClass.None;
+        IcacheMiss = false;
     }
 }
 
