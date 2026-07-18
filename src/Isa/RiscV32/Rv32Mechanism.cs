@@ -77,6 +77,7 @@ public sealed class Rv32Mechanism : IMechanism {
     ///     one instruction class while delegating the rest to <see cref="Rv32Executor" />.
     /// </summary>
     public IExecutor Executor { get; set; }
+
     public IImpulseCracker? UopCracker => null;
     public ITrapController TrapController { get; }
 

@@ -1863,7 +1863,8 @@ internal sealed class CprPipelineCore : Gear {
         int LoadBytes,
         bool RequestHalt = false,
         Action<IArchState>? SideEffect = null,
-        int LatencyOverride = 0 // per-instruction FU latency from ExecuteResult.LatencyOverride; 0 = use FuLatencyConfig
+        int LatencyOverride
+            = 0 // per-instruction FU latency from ExecuteResult.LatencyOverride; 0 = use FuLatencyConfig
     );
 
     /// <summary>

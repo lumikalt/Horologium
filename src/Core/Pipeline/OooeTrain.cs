@@ -2915,7 +2915,8 @@ internal sealed class OoOPipelineCore : Gear {
         ulong InstrId = 0,        // per-instruction age, for pruning in-flight results on a partial squash
         Action<IArchState>? SideEffect
             = null, // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
-        int LatencyOverride = 0 // per-instruction FU latency from ExecuteResult.LatencyOverride; 0 = use FuLatencyConfig
+        int LatencyOverride
+            = 0 // per-instruction FU latency from ExecuteResult.LatencyOverride; 0 = use FuLatencyConfig
     );
 
     /// <summary>

@@ -128,7 +128,7 @@ public sealed class RtlFpCoSimTests {
     public void Latency_SpecialCasesFast_IterativeSlow() {
         Skip.If(RtlFpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
         using var unit = new RtlFfiFunctionalUnit(RtlFpLibrary.Path);
-        (_, _, int special) = unit.ExecuteWithFlags(0, 0x3F800000, 0x00000000); // 1/0 → Inf+DZ
+        (_, _, int special) = unit.ExecuteWithFlags(0, 0x3F800000, 0x00000000);   // 1/0 → Inf+DZ
         (_, _, int iterative) = unit.ExecuteWithFlags(0, 0x3F800000, 0x40400000); // 1/3
         Assert.Equal(1, special);
         Assert.InRange(iterative, 28, 31);
@@ -139,13 +139,13 @@ public sealed class RtlFpCoSimTests {
         Skip.If(RtlFpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
         // x1=84 → f1; x2=2 → f2; f3 = f1/f2 = 42.0; x5 = (int)f3.
         uint[] words = [
-            0x05400093, // addi x1, x0, 84
-            0x00200113, // addi x2, x0, 2
-            0xD00080D3, // fcvt.s.w f1, x1
-            0xD0010153, // fcvt.s.w f2, x2
+            0x05400093,              // addi x1, x0, 84
+            0x00200113,              // addi x2, x0, 2
+            0xD00080D3,              // fcvt.s.w f1, x1
+            0xD0010153,              // fcvt.s.w f2, x2
             RtlFpCoSimTests.FdivEnc, // fdiv.s f3, f1, f2
-            0xC00192D3, // fcvt.w.s x5, f3, rtz
-            0x00100073, // ebreak
+            0xC00192D3,              // fcvt.w.s x5, f3, rtz
+            0x00100073,              // ebreak
         ];
         var mem = new FlatMemory(4096);
         var bytes = new byte[words.Length * 4];

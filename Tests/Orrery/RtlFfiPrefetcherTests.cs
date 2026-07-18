@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Orrery.Cache;
+using RiscV32.Memory;
 
 namespace Tests.Orrery;
 
@@ -65,7 +66,7 @@ public sealed class RtlFfiPrefetcherTests {
     [SkippableFact]
     public void NegativeStride_PrefetchesBackward() {
         Skip.If(RtlPfLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var pf = new RtlFfiPrefetcher(RtlPfLibrary.Path!);
+        using var pf = new RtlFfiPrefetcher(RtlPfLibrary.Path);
         Span<ulong> targets = stackalloc ulong[4];
 
         pf.OnAccess(0x800, 0x2000, false, targets);
@@ -78,7 +79,7 @@ public sealed class RtlFfiPrefetcherTests {
     [SkippableFact]
     public void DifferentialStream_MatchesCSharpStridePrefetcher() {
         Skip.If(RtlPfLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var rtl = new RtlFfiPrefetcher(RtlPfLibrary.Path!);
+        using var rtl = new RtlFfiPrefetcher(RtlPfLibrary.Path);
         var reference = new StridePrefetcher(); // tableSize = 64 = the Chisel default
 
         // Mixed access patterns over more PCs than the table has entries (aliasing
@@ -98,8 +99,8 @@ public sealed class RtlFfiPrefetcherTests {
                 _ => (ulong)rng.Next(1 << 20),                 // scatter
             };
 
-            int expected = reference.OnAccess(pcs[p], addr, wasHit: true, expBuf);
-            int got = rtl.OnAccess(pcs[p], addr, wasHit: true, gotBuf);
+            int expected = reference.OnAccess(pcs[p], addr, true, expBuf);
+            int got = rtl.OnAccess(pcs[p], addr, true, gotBuf);
             Assert.True(
                 expected == got && (expected == 0 || expBuf[0] == gotBuf[0]),
                 $"step {i} pc=0x{pcs[p]:X} addr=0x{addr:X}: "
@@ -112,10 +113,10 @@ public sealed class RtlFfiPrefetcherTests {
     public void MemoryConfigFactory_WiresRtlPrefetcherIntoLayers() {
         Skip.If(RtlPfLibrary.Path is null, "verilator toolchain unavailable — skipping.");
         var cfg = new MemoryConfig(
-            CacheCapacityBytes: 8192, CacheWays: 4, CacheBlockBytes: 32,
-            PrefetcherFactory: () => new RtlFfiPrefetcher(RtlPfLibrary.Path!)
+            8192,
+            PrefetcherFactory: () => new RtlFfiPrefetcher(RtlPfLibrary.Path)
         );
-        MemoryLayers layers = MemoryLayers.Build(new global::RiscV32.Memory.FlatMemory(1 << 16), cfg);
+        var layers = MemoryLayers.Build(new FlatMemory(1 << 16), cfg);
         Assert.IsType<RtlFfiPrefetcher>(layers.Prefetcher);
         (layers.Prefetcher as IDisposable)?.Dispose();
     }

@@ -50,14 +50,6 @@ public sealed unsafe class RtlFfiBranchPredictor : IBranchPredictor, IDisposable
         _handle = create();
     }
 
-    /// <summary>Destroys the verilated model and unloads the native library.</summary>
-    public void Dispose() {
-        if (_disposed) return;
-        _disposed = true;
-        _destroy(_handle);
-        NativeLibrary.Free(_library);
-    }
-
     /// <inheritdoc />
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         int taken;
@@ -71,4 +63,12 @@ public sealed unsafe class RtlFfiBranchPredictor : IBranchPredictor, IDisposable
     /// <inheritdoc />
     public void Update(ulong pc, bool taken, ulong actualTarget) =>
         _update(_handle, pc, taken ? 1 : 0, actualTarget);
+
+    /// <summary>Destroys the verilated model and unloads the native library.</summary>
+    public void Dispose() {
+        if (_disposed) return;
+        _disposed = true;
+        _destroy(_handle);
+        NativeLibrary.Free(_library);
+    }
 }

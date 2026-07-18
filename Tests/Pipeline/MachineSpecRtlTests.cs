@@ -17,10 +17,6 @@ namespace Tests.Pipeline;
 ///     needed); the last builds a machine with all four RTL substitutions live and runs it.
 /// </summary>
 public sealed class MachineSpecRtlTests {
-    private sealed class MarkerPrefetcher : IPrefetcher {
-        public int OnAccess(ulong pc, ulong address, bool wasHit, Span<ulong> targets) => 0;
-    }
-
     [Fact]
     public void CacheLevelSpec_FactoriesReachBuiltLayers() {
         var marker = new MarkerPrefetcher();
@@ -69,7 +65,7 @@ public sealed class MachineSpecRtlTests {
     public void AllFourRtlSubstitutions_BuildAndRunThroughSpec() {
         Skip.If(
             RtlDivLibrary.Path is null || RtlBpLibrary.Path is null
-         || RtlRpLibrary.Path is null || RtlPfLibrary.Path is null,
+                                       || RtlRpLibrary.Path is null || RtlPfLibrary.Path is null,
             "verilator toolchain unavailable — skipping."
         );
 
@@ -102,19 +98,25 @@ public sealed class MachineSpecRtlTests {
             () => mech,
             CacheHierarchySpec.SplitId(
                 new CachePathSpec([new CacheLevelSpec(8192),]),
-                new CachePathSpec([
-                    new CacheLevelSpec(
-                        8192,
-                        PolicyFactory: (sets, ways) =>
-                            RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path, sets, ways),
-                        PrefetcherFactory: () => new RtlFfiPrefetcher(RtlPfLibrary.Path)
-                    ),
-                ])
+                new CachePathSpec(
+                    [
+                        new CacheLevelSpec(
+                            8192,
+                            PolicyFactory: (sets, ways) =>
+                                RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path, sets, ways),
+                            PrefetcherFactory: () => new RtlFfiPrefetcher(RtlPfLibrary.Path)
+                        ),
+                    ]
+                )
             )
         ).Build(mem);
 
         Assert.IsType<RtlFfiPrefetcher>(handle.DLayers!.Prefetcher);
         handle.Run(100_000);
         Assert.Equal(228uL, mem.Read(256, 4));
+    }
+
+    private sealed class MarkerPrefetcher : IPrefetcher {
+        public int OnAccess(ulong pc, ulong address, bool wasHit, Span<ulong> targets) => 0;
     }
 }

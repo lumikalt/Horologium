@@ -6,13 +6,14 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Execute;
 using RiscV32.Memory;
+using Tests.Mechanism;
 
 namespace Tests.RiscV32.CoSim;
 
 /// <summary>
 ///     Builds <c>native/RtlFu/generated/MulUnit.sv</c> into a native shared library via
-///     <c>build.sh</c> (the standard FU shim — a fully pipelined unit is just a
-///     constantly-ready one under the same port contract), cached by input-content hash.
+///     <c>build.sh</c> (the standard FU shim — a fully pipelined unit is just
+///     constantly ready under the same port contract), cached by input-content hash.
 ///     Null (→ tests skip) when the toolchain is unavailable.
 /// </summary>
 public static class RtlMulLibrary {
@@ -48,7 +49,7 @@ public static class RtlMulLibrary {
 /// <summary>
 ///     Co-simulation of the verilated pipelined Chisel multiplier against
 ///     <see cref="Rv32Executor" />'s C# multiply model: bit-identical results across all
-///     four RV32M multiply ops, a constant 3-cycle pipeline latency, and — since 3
+///     four RV32M multiply ops, constant 3-cycle pipeline latency, and — since 3
 ///     equals the static <c>MulDivLatency</c> default — cycle-identical OoO runs.
 ///     <para>Requires verilator + g++ (via native/RtlFu/build.sh); skips if unavailable.</para>
 /// </summary>
@@ -96,7 +97,7 @@ public sealed class RtlMulCoSimTests {
     [SkippableFact]
     public void OooeTrain_FullMExtension_RtlMulAndDivChained() {
         Skip.If(
-            RtlMulLibrary.Path is null || Mechanism.RtlDivLibrary.Path is null,
+            RtlMulLibrary.Path is null || RtlDivLibrary.Path is null,
             "verilator toolchain unavailable — skipping."
         );
 
@@ -116,7 +117,7 @@ public sealed class RtlMulCoSimTests {
         mem.Load(0, bytes);
 
         var mech = new Rv32Mechanism();
-        using var divUnit = new RtlFfiFunctionalUnit(Mechanism.RtlDivLibrary.Path);
+        using var divUnit = new RtlFfiFunctionalUnit(RtlDivLibrary.Path);
         using var mulUnit = new RtlFfiFunctionalUnit(RtlMulLibrary.Path);
         mech.Executor = new RtlBackedExecutor(mech.Executor, divUnit, RvRtlDiv.Select);
         mech.Executor = new RtlBackedExecutor(mech.Executor, mulUnit, RvRtlMul.Select);
@@ -132,7 +133,7 @@ public sealed class RtlMulCoSimTests {
     [SkippableFact]
     public void OooeTrain_MulProgram_RtlLatencyMatchesStaticDefault() {
         Skip.If(RtlMulLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        // The pipeline reports 3 cycles per multiply — exactly FuLatencyConfig's default
+        // The pipeline reports 3 cycles per multiply operation — exactly FuLatencyConfig's default
         // MulDivLatency — so an RTL-mul run must be cycle-identical to the static model.
         uint[] words = [
             0x00600093, // addi x1, x0, 6
@@ -156,6 +157,6 @@ public sealed class RtlMulCoSimTests {
             return new OooeTrain(mech, mem).Run().Find("ooo.pipeline")!.Counters["cycles"];
         }
 
-        Assert.Equal(Run(rtl: false), Run(rtl: true));
+        Assert.Equal(Run(false), Run(true));
     }
 }

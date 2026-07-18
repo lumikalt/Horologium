@@ -53,21 +53,21 @@ public sealed class RtlFfiReplacementPolicyTests {
     [SkippableFact]
     public void Geometry_IsExposedAndValidated() {
         Skip.If(RtlRpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var policy = new RtlFfiReplacementPolicy(RtlRpLibrary.Path!);
+        using var policy = new RtlFfiReplacementPolicy(RtlRpLibrary.Path);
         Assert.Equal(64, policy.Sets);
         Assert.Equal(4, policy.Ways);
 
         Assert.Throws<ArgumentException>(() => new RtlFfiReplacementPolicy(RtlRpLibrary.Path, 128, 8));
-        Assert.Null(RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path!, 128, 8));
-        RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path!, 64, 4)?.Dispose();
+        Assert.Null(RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path, 128, 8));
+        RtlFfiReplacementPolicy.TryCreate(RtlRpLibrary.Path, 64, 4)?.Dispose();
     }
 
     [SkippableFact]
     public void SrripSemantics_InsertLong_HitPromote_VictimDistant() {
         Skip.If(RtlRpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var policy = new RtlFfiReplacementPolicy(RtlRpLibrary.Path!);
+        using var policy = new RtlFfiReplacementPolicy(RtlRpLibrary.Path);
 
-        // All ways start at RRPV 3 (distant) → first victim is way 0, no aging needed.
+        // All the ways start at RRPV 3 (distant) → first victim is way 0, no aging needed.
         Assert.Equal(0, policy.ChooseVictim(5));
         policy.RecordInstall(5, 0);
         Assert.Equal(2, policy.GetMetadata(5, 0)); // long re-reference
@@ -82,7 +82,7 @@ public sealed class RtlFfiReplacementPolicyTests {
     [SkippableFact]
     public void DifferentialStream_MatchesCSharpSrrip() {
         Skip.If(RtlRpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var rtl = new RtlFfiReplacementPolicy(RtlRpLibrary.Path!);
+        using var rtl = new RtlFfiReplacementPolicy(RtlRpLibrary.Path);
         var reference = new SrripPolicy(64, 4);
 
         var rng = new Random(20260717);
@@ -116,7 +116,7 @@ public sealed class RtlFfiReplacementPolicyTests {
         );
         var rtlCache = new SetAssociativeCache(
             new FlatMemory(1 << 20), 8192, 4, 32, 10,
-            customPolicy: new RtlFfiReplacementPolicy(RtlRpLibrary.Path!, 64, 4)
+            customPolicy: new RtlFfiReplacementPolicy(RtlRpLibrary.Path, 64, 4)
         );
 
         // Mixed working sets: sequential scans (thrash) over reused hot lines.
@@ -124,7 +124,7 @@ public sealed class RtlFfiReplacementPolicyTests {
         ulong[] hot = [.. Enumerable.Range(0, 96).Select(i => (ulong)(i * 32)),];
         for (var i = 0; i < 20000; i++) {
             ulong addr = rng.Next(4) == 0
-                ? (ulong)(rng.Next(1 << 14)) & ~31UL // scan over 16 KiB (2× capacity)
+                ? (ulong)rng.Next(1 << 14) & ~31UL // scan over 16 KiB (2× capacity)
                 : hot[rng.Next(hot.Length)];
             csCache.Read(addr, 4);
             rtlCache.Read(addr, 4);
@@ -132,6 +132,6 @@ public sealed class RtlFfiReplacementPolicyTests {
 
         Assert.Equal(csCache.Hits, rtlCache.Hits);
         Assert.Equal(csCache.Misses, rtlCache.Misses);
-        Assert.True(csCache.Hits > 0 && csCache.Misses > 0);
+        Assert.True(csCache is { Hits: > 0, Misses: > 0, });
     }
 }

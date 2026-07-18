@@ -70,14 +70,6 @@ public sealed unsafe class RtlFfiHistoryBranchPredictor : IBranchPredictor, IDis
         _handle = create();
     }
 
-    /// <summary>Destroys the verilated model and unloads the native library.</summary>
-    public void Dispose() {
-        if (_disposed) return;
-        _disposed = true;
-        _destroy(_handle);
-        NativeLibrary.Free(_library);
-    }
-
     /// <inheritdoc />
     public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
         bool taken = _predict(_handle, pc) != 0;
@@ -106,6 +98,14 @@ public sealed unsafe class RtlFfiHistoryBranchPredictor : IBranchPredictor, IDis
     /// <inheritdoc />
     public void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) =>
         _restore(_handle, checkpoint.Global, actualTaken ? 1 : 0);
+
+    /// <summary>Destroys the verilated model and unloads the native library.</summary>
+    public void Dispose() {
+        if (_disposed) return;
+        _disposed = true;
+        _destroy(_handle);
+        NativeLibrary.Free(_library);
+    }
 }
 
 /// <summary>
@@ -121,8 +121,7 @@ public static class RtlBranchPredictorLoader {
     public static IBranchPredictor Load(string libraryPath) {
         nint lib = NativeLibrary.Load(libraryPath);
         try {
-            if (NativeLibrary.TryGetExport(lib, "rtl_bp_create", out _))
-                return new RtlFfiBranchPredictor(libraryPath);
+            if (NativeLibrary.TryGetExport(lib, "rtl_bp_create", out _)) return new RtlFfiBranchPredictor(libraryPath);
             if (NativeLibrary.TryGetExport(lib, "rtl_hbp_create", out _))
                 return new RtlFfiHistoryBranchPredictor(libraryPath);
             throw new ArgumentException(

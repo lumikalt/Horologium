@@ -1,3 +1,5 @@
+using Mechanism;
+using Mechanism.BranchPredictModels;
 using Mechanism.RtlFu;
 using Pipeline;
 using RiscV32;
@@ -59,7 +61,7 @@ public sealed class RtlBpCoSimTests {
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), words[i]);
 
-        long Run(Func<global::Mechanism.IBranchPredictor> predictor, out uint x2) {
+        long Run(Func<IBranchPredictor> predictor, out uint x2) {
             var mem = new FlatMemory(4096);
             mem.Load(0, bytes);
             var train = new OooeTrain(new Rv32Mechanism(), mem, predictor: predictor());
@@ -68,7 +70,7 @@ public sealed class RtlBpCoSimTests {
             return cycles;
         }
 
-        long csCycles = Run(() => new global::Mechanism.BranchPredictModels.LTagePredictor(), out uint csX2);
+        long csCycles = Run(() => new LTagePredictor(), out uint csX2);
         long rtlCycles = Run(() => new RtlFfiHistoryBranchPredictor(RtlTageLibrary.Path), out uint rtlX2);
 
         Assert.Equal(24u, csX2); // 6 × 4 inner iterations

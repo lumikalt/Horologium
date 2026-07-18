@@ -44,7 +44,7 @@ public static class RtlBpLibrary {
 /// <summary>
 ///     Drives <see cref="RtlFfiBranchPredictor" /> against the verilated Chisel gshare.
 ///     The RTL module mirrors <see cref="GsharePredictor" /> bit-for-bit, so beyond basic
-///     train/predict behaviour the differential test demands identical predictions —
+///     train/predict behavior the differential test demands identical predictions —
 ///     direction and target — on an arbitrary branch stream.
 ///     <para>Requires verilator + g++ (via native/RtlFu/build.sh); skips if unavailable.</para>
 /// </summary>
@@ -65,7 +65,7 @@ public sealed class RtlFfiBranchPredictorTests {
     [SkippableFact]
     public void RepeatedTaken_TrainsToPredictTakenWithTarget() {
         using RtlFfiBranchPredictor p = Open();
-        ulong branch = 0x2000, target = 0x2100;
+        const ulong branch = 0x2000, target = 0x2100;
         // Repeated same-direction updates saturate every (pc ^ ghr) entry the loop touches.
         for (var i = 0; i < 20; i++) {
             p.Predict(branch);

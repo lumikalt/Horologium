@@ -20,8 +20,10 @@ let bpLib = "/tmp/rtl_example_bp.so"
 let aluSelector =
     System.Func<ITooth, IArchState, System.Nullable<RtlRequest>>(fun tooth state ->
         let regs = state.IntegerRegisters
+
         let req (op: uint32) (rs1: int) (rs2: int) =
             System.Nullable(RtlRequest(op, uint32 (regs.Read rs1), uint32 (regs.Read rs2)))
+
         match tooth.Payload with
         | :? RvAdd as i -> req 0u i.Rs1 i.Rs2
         | :? RvSub as i -> req 1u i.Rs1 i.Rs2
@@ -40,7 +42,4 @@ let mechanismFactory =
 let bpFactory =
     System.Func<IBranchPredictor>(fun () -> RtlFfiBranchPredictor(bpLib) :> IBranchPredictor)
 
-MachineSpec(
-    OutOfOrderSpec(IssueWidth = 2, RobCapacity = 32, BranchPredictorFactory = bpFactory),
-    mechanismFactory
-)
+MachineSpec(OutOfOrderSpec(IssueWidth = 2, RobCapacity = 32, BranchPredictorFactory = bpFactory), mechanismFactory)

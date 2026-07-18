@@ -334,7 +334,7 @@ public sealed record MemoryLayers(
                 cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode,
                 cfg.L3InclusionPolicy, cfg.L3CriticalWordLatency, cfg.L3BankCount, cfg.L3ReadPorts, cfg.L3WritePorts,
                 cfg.L3SectorBytes, cfg.L3VictimCacheEntries, cfg.L3VictimCacheHitLatency,
-                customPolicy: cfg.PolicyFactory?.Invoke(
+                cfg.PolicyFactory?.Invoke(
                     cfg.L3CapacityBytes / (cfg.L3Ways * cfg.L3BlockBytes), cfg.L3Ways
                 )
             );
@@ -348,7 +348,7 @@ public sealed record MemoryLayers(
                 cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode,
                 cfg.L2InclusionPolicy, cfg.L2CriticalWordLatency, cfg.L2BankCount, cfg.L2ReadPorts, cfg.L2WritePorts,
                 cfg.L2SectorBytes, cfg.L2VictimCacheEntries, cfg.L2VictimCacheHitLatency,
-                customPolicy: cfg.PolicyFactory?.Invoke(
+                cfg.PolicyFactory?.Invoke(
                     cfg.L2CapacityBytes / (cfg.L2Ways * cfg.L2BlockBytes), cfg.L2Ways
                 )
             );
@@ -367,7 +367,7 @@ public sealed record MemoryLayers(
                 cfg.CacheAccessMode, InclusionPolicyKind.Nine, cfg.CacheCriticalWordLatency,
                 cfg.CacheBankCount, cfg.CacheReadPorts, cfg.CacheWritePorts, cfg.CacheSectorBytes,
                 cfg.CacheVictimCacheEntries, cfg.CacheVictimCacheHitLatency,
-                customPolicy: cfg.PolicyFactory?.Invoke(
+                cfg.PolicyFactory?.Invoke(
                     cfg.CacheCapacityBytes / (cfg.CacheWays * cfg.CacheBlockBytes), cfg.CacheWays
                 )
             );
@@ -437,7 +437,7 @@ public sealed record MemoryLayers(
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
                 s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
                 s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency,
-                customPolicy: s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
+                s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);
@@ -454,7 +454,7 @@ public sealed record MemoryLayers(
                 s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
                 s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
                 s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency,
-                customPolicy: s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
+                s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
             );
             allCaches.Insert(0, cache);
             allSpecs.Insert(0, s);

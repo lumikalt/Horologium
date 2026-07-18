@@ -84,9 +84,9 @@ public sealed class RtlFfiDrripTests {
             // duel hard in each direction) and follower-heavy phases (exposes whichever
             // insertion policy PSEL currently selects).
             int set = (i / 1000 % 3) switch {
-                0 => rng.Next(16),       // SRRIP SDM sets → PSEL rises
-                1 => 16 + rng.Next(16),  // BRRIP SDM sets → PSEL falls
-                _ => 32 + rng.Next(32),  // followers → insertion depends on PSEL
+                0 => rng.Next(16),      // SRRIP SDM sets → PSEL rises
+                1 => 16 + rng.Next(16), // BRRIP SDM sets → PSEL falls
+                _ => 32 + rng.Next(32), // followers → insertion depends on PSEL
             };
 
             if (rng.Next(3) == 0) {
@@ -116,7 +116,7 @@ public sealed class RtlFfiDrripTests {
         );
         var rtlCache = new SetAssociativeCache(
             new FlatMemory(1 << 20), 8192, 4, 32, 10,
-            customPolicy: new RtlFfiReplacementPolicy(RtlDrripLibrary.Path!, 64, 4)
+            customPolicy: new RtlFfiReplacementPolicy(RtlDrripLibrary.Path, 64, 4)
         );
 
         // Thrash phases (working set > capacity, where BRRIP should win the duel)
@@ -126,7 +126,7 @@ public sealed class RtlFfiDrripTests {
         for (var i = 0; i < 20000; i++) {
             bool thrash = i / 2500 % 2 == 0;
             ulong addr = thrash
-                ? (ulong)(rng.Next(1 << 15)) & ~31UL // 32 KiB working set (4× capacity)
+                ? (ulong)rng.Next(1 << 15) & ~31UL // 32 KiB working set (4× capacity)
                 : hot[rng.Next(hot.Length)];
             csCache.Read(addr, 4);
             rtlCache.Read(addr, 4);
@@ -134,6 +134,6 @@ public sealed class RtlFfiDrripTests {
 
         Assert.Equal(csCache.Hits, rtlCache.Hits);
         Assert.Equal(csCache.Misses, rtlCache.Misses);
-        Assert.True(csCache is { Hits: > 0, Misses: > 0 });
+        Assert.True(csCache is { Hits: > 0, Misses: > 0, });
     }
 }

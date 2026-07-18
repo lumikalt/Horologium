@@ -7,7 +7,7 @@ public sealed record CacheLine(int Set, int Way, bool Valid, ulong Tag, int LruA
 
 /// <summary>
 ///     N-way set-associative cache implementing IMemory.
-///     Write policy and write-miss policy are configurable; default is write-through + no-write-allocate.
+///     Write policy and write-miss policy are configurable; default is write-through and no-write-allocate.
 ///     Cache miss does not block — it records a penalty in PendingStalls
 ///     that the caller drains to inject idle cycles into the pipeline.
 /// </summary>
@@ -37,7 +37,7 @@ public sealed class SetAssociativeCache : IMemory {
     private readonly ulong?[][] _tags; // [set][way]: null = invalid
     private readonly bool _usePcSignature;
 
-    // Jouppi victim cache (ISCA 1990): a small fully-associative FIFO buffer beside the main
+    // Jouppi victim cache (ISCA 1990): a small fully associative FIFO buffer beside the main
     // array that captures lines evicted due to conflict misses instead of flushing/discarding
     // them immediately. Distinct from InsertVictim/VictimInserts (the Exclusive-inclusion-policy
     // hand-off, an unrelated pre-existing mechanism) and IReplacementPolicy.ChooseVictim (generic
@@ -91,7 +91,7 @@ public sealed class SetAssociativeCache : IMemory {
     /// </param>
     /// <param name="mshrCount">
     ///     MSHR (Miss Status Holding Register) capacity in slots (0 = unlimited,
-    ///     legacy behaviour). Each demand miss allocates a slot for <see cref="MissLatency" /> cycles; a
+    ///     legacy behavior). Each demand miss allocates a slot for <see cref="MissLatency" /> cycles; a
     ///     subsequent demand hit on the same in-flight line charges only the remaining countdown (merge /
     ///     hit-under-miss). When all slots are occupied a new unique-line miss pays the minimum remaining
     ///     countdown plus <see cref="MissLatency" />. Call <see cref="TickMshr" /> once per simulated cycle
@@ -105,11 +105,11 @@ public sealed class SetAssociativeCache : IMemory {
     /// </param>
     /// <param name="inclusionPolicy">
     ///     This level's inclusion policy toward whatever cache is attached as its inner level via
-    ///     <see cref="AttachInner" />. No effect until a inner cache is attached. See
+    ///     <see cref="AttachInner" />. No effect until an inner cache is attached. See
     ///     <see cref="InclusionPolicyKind" />.
     /// </param>
     /// <param name="criticalWordLatency">
-    ///     Critical-word-first / early restart (0 = disabled, legacy behaviour: a miss charges the
+    ///     Critical-word-first / early restart (0 = disabled, legacy behavior: a miss charges the
     ///     full <paramref name="missLatency" /> to the requester). When positive, a fresh demand
     ///     miss charges only <paramref name="criticalWordLatency" /> to the requesting access — the
     ///     demanded word is assumed to arrive first off the bus — while the MSHR entry keeps
@@ -127,8 +127,8 @@ public sealed class SetAssociativeCache : IMemory {
     ///     across more independent port budgets.
     /// </param>
     /// <param name="readPorts">
-    ///     Read accesses one bank can service per cycle (0 = unlimited, legacy behaviour). An
-    ///     access to a bank already at capacity this cycle pays a 1-cycle structural-hazard stall.
+    ///     Read accesses one bank can service per cycle (0 = unlimited, legacy behavior). Access to a bank already at
+    ///     capacity this cycle pays a 1-cycle structural-hazard stall.
     ///     Call <see cref="TickPorts" /> once per simulated cycle to reset per-bank usage.
     /// </param>
     /// <param name="writePorts">
@@ -146,7 +146,7 @@ public sealed class SetAssociativeCache : IMemory {
     ///     sectors instead of the whole line. Not currently combinable with <paramref name="wbCapacity" /> &gt; 0.
     /// </param>
     /// <param name="victimCacheEntries">
-    ///     Capacity, in lines, of a small fully-associative FIFO buffer beside the main array (0 =
+    ///     Capacity, in lines, of a small fully associative FIFO buffer beside the main array (0 =
     ///     disabled) that captures lines evicted by a conflict miss instead of flushing/discarding
     ///     them immediately (Jouppi, ISCA 1990). A later miss that hits in the buffer performs a
     ///     full swap: the hit line installs into the main array via the normal replacement policy
@@ -171,7 +171,7 @@ public sealed class SetAssociativeCache : IMemory {
     /// <param name="customPolicy">
     ///     Caller-built replacement-policy instance (e.g. <see cref="RtlFfiReplacementPolicy" />)
     ///     that overrides <paramref name="replacementPolicy" /> when non-null. The caller owns its
-    ///     lifetime; the cache never disposes it.
+    ///     lifetime; the cache never disposes of it.
     /// </param>
     public SetAssociativeCache(
         IMemory backing,
@@ -280,17 +280,17 @@ public sealed class SetAssociativeCache : IMemory {
         for (var s = 0; s < sets; s++) {
             _tags[s] = new ulong?[Ways];
             _blocks[s] = new byte[Ways][];
-            if (_dirty != null) _dirty[s] = new bool[Ways];
-            if (_sectorValid != null) _sectorValid[s] = new bool[Ways][];
-            if (_sectorDirty != null) _sectorDirty[s] = new bool[Ways][];
+            _dirty?[s] = new bool[Ways];
+            _sectorValid?[s] = new bool[Ways][];
+            _sectorDirty?[s] = new bool[Ways][];
             for (var w = 0; w < Ways; w++) {
                 _blocks[s][w] = new byte[BlockBytes];
-                if (_sectorValid != null) _sectorValid[s][w] = new bool[_sectorsPerLine];
-                if (_sectorDirty != null) _sectorDirty[s][w] = new bool[_sectorsPerLine];
+                _sectorValid?[s][w] = new bool[_sectorsPerLine];
+                _sectorDirty?[s][w] = new bool[_sectorsPerLine];
             }
         }
 
-        // A caller-supplied policy instance (e.g. RtlFfiReplacementPolicy) overrides the kind.
+        // A caller-supplied policy instance (e.g., RtlFfiReplacementPolicy) overrides the kind.
         _policy = customPolicy ?? replacementPolicy switch {
             ReplacementPolicyKind.Srrip   => new SrripPolicy(sets, ways),
             ReplacementPolicyKind.Brrip   => new BrripPolicy(sets, ways),
@@ -309,31 +309,31 @@ public sealed class SetAssociativeCache : IMemory {
         _requirePcOnHit = replacementPolicy == ReplacementPolicyKind.Hawkeye;
     }
 
-    public int TagLatency { get; }
-    public int DataLatency { get; }
+    private int TagLatency { get; }
+    private int DataLatency { get; }
     public CacheAccessModeKind AccessMode { get; }
 
     public int HitLatency => AccessMode == CacheAccessModeKind.Sequential
         ? TagLatency + DataLatency
         : Math.Max(TagLatency, DataLatency);
 
-    public int MissLatency { get; }
+    private int MissLatency { get; }
     public int PrefetchLatency { get; }
-    public WritePolicyKind WritePolicy { get; }
+    private WritePolicyKind WritePolicy { get; }
 
-    public WriteMissPolicyKind WriteMissPolicy { get; }
+    private WriteMissPolicyKind WriteMissPolicy { get; }
 
     public long Hits { get; private set; }
     public long Misses { get; private set; }
     public long Evictions { get; private set; }
     public long DirtyEvictions { get; private set; }
     public long WbDrains { get; private set; }
-    public int WbCapacity { get; }
+    private int WbCapacity { get; }
 
     public int WbOccupancy { get; private set; }
 
     public long Prefetches { get; private set; }
-    public long PrefetchRedundant { get; private set; }
+    private long PrefetchRedundant { get; set; }
     public long LatePrefetchHits { get; private set; }
     public ulong? LastAccessAddress { get; private set; }
     public bool LastAccessWasHit { get; private set; }
@@ -375,12 +375,12 @@ public sealed class SetAssociativeCache : IMemory {
     public int SectorBytes { get; }
 
     /// <summary>
-    ///     Sector-granularity fetches from backing: the initial sector of a fresh line install,
+    ///     Sector-granularity fetches from backing: the initial sector of a fresh line installation,
     ///     plus every later on-demand fetch of a sector that was still invalid on an otherwise-resident line.
     /// </summary>
     public long SectorFills { get; private set; }
 
-    public InclusionPolicyKind InclusionPolicy { get; }
+    private InclusionPolicyKind InclusionPolicy { get; }
 
     /// <summary>Lines dropped here because the attached outer level (Inclusive) evicted them.</summary>
     public long BackInvalidations { get; private set; }
@@ -396,7 +396,7 @@ public sealed class SetAssociativeCache : IMemory {
     public int VictimCacheEntries { get; }
 
     /// <summary>Cycles charged to a demand access that hits in the victim buffer instead of the main array.</summary>
-    public int VictimCacheHitLatency { get; }
+    private int VictimCacheHitLatency { get; }
 
     /// <summary>Current occupancy of the victim buffer.</summary>
     public int VictimCacheOccupancy { get; private set; }
@@ -412,8 +412,7 @@ public sealed class SetAssociativeCache : IMemory {
 
     // ── Inspection ───────────────────────────────────────────────────────────
 
-    public int Sets => _tags.Length;
-    public int Ways { get; }
+    private int Ways { get; }
 
     public int BlockBytes { get; }
 
@@ -471,7 +470,7 @@ public sealed class SetAssociativeCache : IMemory {
         if (offset + bytes > BlockBytes) {
             // Cross-boundary write bypasses the cache entirely.
             // For write-back: flush dirty overlapping lines AND any WB buffer entries first
-            // (both synchronously, without defer — a deferred drain after the backing write
+            // (both synchronously, without deferring — a deferred drain after the backing write
             // would overwrite the store's bytes), then write to backing, then invalidate.
             ulong end = address + (ulong)bytes;
             if (WritePolicy == WritePolicyKind.WriteBack) {
@@ -699,7 +698,7 @@ public sealed class SetAssociativeCache : IMemory {
     // Flushes a dirty line to backing storage or into the write-back buffer.
     // chargeStall: add MissLatency to _pendingStalls (demand paths; prefetch passes false).
     // deferToBuffer: enqueue into the WB buffer instead of writing backing synchronously.
-    //   Only FillBlock passes true; cross-boundary, NWA-miss, and Load pass false.
+    //   Only FillBlock passes true; cross-boundary, NWA-miss, and <c>Load</c>s pass false.
     private void FlushDirtyLine(int set, int way, ulong tag, bool chargeStall, bool deferToBuffer = false) {
         // Sectored write-back: only dirty sectors move, never the whole line (wbCapacity is
         // disallowed alongside sectorBytes, so deferToBuffer is always false here in practice).
@@ -716,7 +715,7 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     // Writes a line to backing synchronously, or defers it into the WB buffer (draining the
-    // oldest entry first, with a stall, if the buffer is full). Shared by FlushDirtyLine's
+    // oldest entry first, with a stall if the buffer is full). Shared by FlushDirtyLine's
     // main-array path and the victim buffer's FIFO-overflow disposal path.
     private void WritebackOrBuffer(ulong lineBase, byte[] data, bool chargeStall, bool deferToBuffer) {
         if (deferToBuffer) {
@@ -774,7 +773,7 @@ public sealed class SetAssociativeCache : IMemory {
             BackInvalidateInner(set, way, evictedBase);
 
             // Jouppi victim cache: capture the evicted line locally instead of flushing/handing it
-            // off immediately — a later access that hits in the buffer avoids the round trip.
+            // off immediately — later access that hits in the buffer avoids the round trip.
             if (_victimBuffer != null)
                 CaptureIntoVictimBuffer(set, way, existingTag);
             // Exclusive: the level below acts as our victim cache, so the evicted line (clean or
@@ -875,7 +874,7 @@ public sealed class SetAssociativeCache : IMemory {
                     _dirty[set][way] = true;
                 else
                     // We're write-through ourselves, so there's no deferred-dirty slot to mark —
-                    // the folded data must go straight to backing now or it's lost.
+                    // the folded data must go straight to backing now, or it's lost.
                     for (var i = 0; i < inner.BlockBytes; i++)
                         _backing.Write(a + (ulong)i, inner._blocks[iSet][iWay][i], 1);
             }
@@ -884,7 +883,7 @@ public sealed class SetAssociativeCache : IMemory {
             inner.DropInFlightPrefetch(a);
             inner.DropInFlightMshr(a);
             inner.BackInvalidations++;
-            // Cascade further inward (e.g. L3 evicting invalidates L2, which — if L2 is itself
+            // Cascade further inward (e.g., L3 evicting invalidates L2, which — if L2 is itself
             // Inclusive over L1 — must in turn invalidate L1).
             inner.BackInvalidateInner(iSet, iWay, a);
         }
@@ -1060,7 +1059,7 @@ public sealed class SetAssociativeCache : IMemory {
 
     // Charges a 1-cycle structural-hazard stall when the access's bank has already used up its
     // read/write port budget this cycle. No-op for the op type when the corresponding port count
-    // is 0 (unlimited, legacy behaviour).
+    // is 0 (unlimited, legacy behavior).
     private void ChargePort(ulong address, bool isWrite) {
         int[]? usage = isWrite ? _bankWriteUsage : _bankReadUsage;
         if (usage == null) return;
@@ -1089,7 +1088,7 @@ public sealed class SetAssociativeCache : IMemory {
 
     // Fetches the sector covering `address` from backing into the already-tagged (set, way) line
     // and marks it valid. No stall charge here — callers charge whatever is appropriate for their
-    // context (a fresh line install's first sector rides on the miss stall already charged by the
+    // context (a fresh line installation's first sector rides on the miss stall already charged by the
     // caller; a later on-demand sector fetch is charged by EnsureSectorResident).
     private void FetchSector(int set, int way, ulong address) {
         int sector = SectorIndex(address);
@@ -1102,7 +1101,7 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     // Called on every hit: if sectoring is disabled, or the sector is already resident, this is a
-    // no-op. Otherwise the accessed line is resident (tag hit) but this particular sector was never
+    // no-op. Otherwise, the accessed line is resident (tag hit), but this particular sector was never
     // fetched — a sector miss — so fetch it now and charge MissLatency for that fetch alone.
     private void EnsureSectorResident(int set, int way, ulong address) {
         if (_sectorValid == null) return;
@@ -1138,7 +1137,7 @@ public sealed class SetAssociativeCache : IMemory {
 
     /// <summary>
     ///     Installs the cache line covering <paramref name="address" /> without charging any stall
-    ///     penalty at install time. No-ops if the line is already present. Used by prefetchers to
+    ///     penalty at installation time. No-ops if the line is already present. Used by prefetchers to
     ///     warm the cache ahead of demand accesses; callers are responsible for ensuring the
     ///     address is not in an uncacheable MMIO region. With <see cref="PrefetchLatency" /> &gt; 0
     ///     the line is marked in flight for that many cycles; a demand hit arriving earlier pays
@@ -1247,7 +1246,7 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     /// <summary>
-    ///     If a demand access hits a line whose fill is still in-flight (tracked in the MSHR
+    ///     If demand access hits a line whose fill is still in-flight (tracked in the MSHR
     ///     table), charges the remaining countdown to <see cref="ConsumePendingStalls" /> and
     ///     frees the slot. This is the hit-under-miss / MSHR-merge path.
     /// </summary>
@@ -1375,7 +1374,7 @@ public sealed class SetAssociativeCache : IMemory {
         DirtyEvictions++;
     }
 
-    // Scans the occupied logical window [_victimHead, _victimHead + _victimCount) for (set, tag).
+    // Scans the occupied logical window [_victimHead, _victimHead + _victimCount) for a (set, tag).
     // O(VictimCacheEntries) — fine, matches the linear-scan style already used for MSHR/WB lookups.
     private int FindVictimBufferSlot(int set, ulong tag) {
         if (_victimBuffer == null) return -1;
@@ -1445,8 +1444,8 @@ public sealed class SetAssociativeCache : IMemory {
         public bool Dirty;
     }
 
-    // MSHRs: tracks in-flight demand fills (filled synchronously but timing window still open).
-    // null = unlimited (legacy behaviour, MshrCount == 0).
+    // MSHRs: tracks in-flight demand fills (filled synchronously but the timing window still open).
+    // null = unlimited (legacy behavior, MshrCount == 0).
     // A miss allocates a slot; a demand hit on the in-flight line charges the remaining
     // countdown (merge / hit-under-miss). TickMshr() decrements all countdowns each cycle.
     private struct MshrEntry {

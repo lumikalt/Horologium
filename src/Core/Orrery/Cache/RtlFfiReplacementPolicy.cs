@@ -91,18 +91,6 @@ public sealed unsafe class RtlFfiReplacementPolicy : IReplacementPolicy, IDispos
         NativeLibrary.Free(_library);
     }
 
-    /// <summary>
-    ///     Loads the model and returns it only when its elaborated geometry matches the
-    ///     given cache geometry; otherwise disposes it and returns null so the caller can
-    ///     fall back to a configured C# policy (used for non-matching hierarchy levels).
-    /// </summary>
-    public static RtlFfiReplacementPolicy? TryCreate(string libraryPath, int sets, int ways) {
-        var policy = new RtlFfiReplacementPolicy(libraryPath);
-        if (policy.Sets == sets && policy.Ways == ways) return policy;
-        policy.Dispose();
-        return null;
-    }
-
     /// <inheritdoc />
     public void RecordHit(int set, int way) => _hit(_handle, set, way);
 
@@ -114,4 +102,16 @@ public sealed unsafe class RtlFfiReplacementPolicy : IReplacementPolicy, IDispos
 
     /// <inheritdoc />
     public int GetMetadata(int set, int way) => _metadata(_handle, set, way);
+
+    /// <summary>
+    ///     Loads the model and returns it only when its elaborated geometry matches the
+    ///     given cache geometry; otherwise disposes it and returns null so the caller can
+    ///     fall back to a configured C# policy (used for non-matching hierarchy levels).
+    /// </summary>
+    public static RtlFfiReplacementPolicy? TryCreate(string libraryPath, int sets, int ways) {
+        var policy = new RtlFfiReplacementPolicy(libraryPath);
+        if (policy.Sets == sets && policy.Ways == ways) return policy;
+        policy.Dispose();
+        return null;
+    }
 }

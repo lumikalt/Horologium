@@ -36,8 +36,7 @@ public sealed class RtlBackedExecutor(
         IArchState state,
         IMemory memory
     ) {
-        if (selector(instruction, state) is not { } req)
-            return inner.Execute(instruction, state, memory);
+        if (selector(instruction, state) is not { } req) return inner.Execute(instruction, state, memory);
 
         (uint result, int cycles) = unit.Execute(req.Op, req.A, req.B);
         return new ExecuteResult {

@@ -55,12 +55,12 @@ public sealed class RtlFfiStreamPfTests {
         Span<ulong> targets = stackalloc ulong[16];
 
         // Cold miss allocates a stream and bursts 8 sequential lines.
-        int n = pf.OnAccess(0x100, 0x8000, wasHit: false, targets);
+        int n = pf.OnAccess(0x100, 0x8000, false, targets);
         Assert.Equal(8, n);
         for (var k = 0; k < 8; k++) Assert.Equal(0x8020UL + (ulong)(k * 32), targets[k]);
 
         // Sequential advance issues exactly one line to hold the frontier depth ahead.
-        n = pf.OnAccess(0x100, 0x8020, wasHit: true, targets);
+        n = pf.OnAccess(0x100, 0x8020, true, targets);
         Assert.Equal(1, n);
         Assert.Equal(0x8120UL, targets[0]); // front = lineBase(0x8020) + 8*32
     }
@@ -71,8 +71,8 @@ public sealed class RtlFfiStreamPfTests {
         using var pf = new RtlFfiPrefetcher(RtlStreamPfLibrary.Path);
         Span<ulong> targets = stackalloc ulong[16];
 
-        pf.OnAccess(0, 0x8000, wasHit: false, targets);
-        Assert.Equal(0, pf.OnAccess(0, 0xF000, wasHit: true, targets)); // no match, hit → nothing
+        pf.OnAccess(0, 0x8000, false, targets);
+        Assert.Equal(0, pf.OnAccess(0, 0xF000, true, targets)); // no match, hit → nothing
     }
 
     [SkippableFact]

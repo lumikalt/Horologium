@@ -43,7 +43,7 @@ public static class RtlDivLibrary {
 /// <summary>
 ///     Drives <see cref="RtlFfiFunctionalUnit" /> against the verilated Chisel DivUnit —
 ///     the real FFI path end-to-end, mirroring <see cref="CbpFfiBranchPredictionTests" />.
-///     Ops follow the DivUnit encoding: 0=DIV, 1=DIVU, 2=REM, 3=REMU.
+///     Operations follow the DivUnit encoding: 0=DIV, 1=DIVU, 2=REM, 3=REMU.
 ///     <para>Requires verilator + g++ (via native/RtlFu/build.sh); skips if unavailable.</para>
 /// </summary>
 public sealed class RtlFfiFunctionalUnitTests {
@@ -55,16 +55,16 @@ public sealed class RtlFfiFunctionalUnitTests {
     }
 
     [SkippableTheory]
-    [InlineData(Div, 100u, 7u, 14u)]
-    [InlineData(Rem, 100u, 7u, 2u)]
-    [InlineData(Div, unchecked((uint)-100), 7u, unchecked((uint)-14))]
-    [InlineData(Rem, unchecked((uint)-100), 7u, unchecked((uint)-2))]
-    [InlineData(Div, 100u, unchecked((uint)-7), unchecked((uint)-14))]
-    [InlineData(Rem, 100u, unchecked((uint)-7), 2u)]
-    [InlineData(Div, unchecked((uint)-100), unchecked((uint)-7), 14u)]
-    [InlineData(Rem, unchecked((uint)-100), unchecked((uint)-7), unchecked((uint)-2))]
-    [InlineData(Divu, 0x0FFFFFFFu, 3u, 0x05555555u)]
-    [InlineData(Remu, 10u, 3u, 1u)]
+    [InlineData(RtlFfiFunctionalUnitTests.Div, 100u, 7u, 14u)]
+    [InlineData(RtlFfiFunctionalUnitTests.Rem, 100u, 7u, 2u)]
+    [InlineData(RtlFfiFunctionalUnitTests.Div, unchecked((uint)-100), 7u, unchecked((uint)-14))]
+    [InlineData(RtlFfiFunctionalUnitTests.Rem, unchecked((uint)-100), 7u, unchecked((uint)-2))]
+    [InlineData(RtlFfiFunctionalUnitTests.Div, 100u, unchecked((uint)-7), unchecked((uint)-14))]
+    [InlineData(RtlFfiFunctionalUnitTests.Rem, 100u, unchecked((uint)-7), 2u)]
+    [InlineData(RtlFfiFunctionalUnitTests.Div, unchecked((uint)-100), unchecked((uint)-7), 14u)]
+    [InlineData(RtlFfiFunctionalUnitTests.Rem, unchecked((uint)-100), unchecked((uint)-7), unchecked((uint)-2))]
+    [InlineData(RtlFfiFunctionalUnitTests.Divu, 0x0FFFFFFFu, 3u, 0x05555555u)]
+    [InlineData(RtlFfiFunctionalUnitTests.Remu, 10u, 3u, 1u)]
     public void SignedAndUnsignedResults(uint op, uint a, uint b, uint expected) {
         using RtlFfiFunctionalUnit fu = Open();
         (uint result, int cycles) = fu.Execute(op, a, b);
@@ -73,12 +73,12 @@ public sealed class RtlFfiFunctionalUnitTests {
     }
 
     [SkippableTheory]
-    [InlineData(Div, 7u, 0u, 0xFFFFFFFFu)]  // div-by-zero → -1
-    [InlineData(Divu, 7u, 0u, 0xFFFFFFFFu)] // div-by-zero → 2^32-1
-    [InlineData(Rem, 7u, 0u, 7u)]           // div-by-zero → dividend
-    [InlineData(Remu, 7u, 0u, 7u)]
-    [InlineData(Div, 0x80000000u, 0xFFFFFFFFu, 0x80000000u)] // INT_MIN/-1 → INT_MIN
-    [InlineData(Rem, 0x80000000u, 0xFFFFFFFFu, 0u)]          // INT_MIN%-1 → 0
+    [InlineData(RtlFfiFunctionalUnitTests.Div, 7u, 0u, 0xFFFFFFFFu)]  // div-by-zero → -1
+    [InlineData(RtlFfiFunctionalUnitTests.Divu, 7u, 0u, 0xFFFFFFFFu)] // div-by-zero → 2^32-1
+    [InlineData(RtlFfiFunctionalUnitTests.Rem, 7u, 0u, 7u)]           // div-by-zero → dividend
+    [InlineData(RtlFfiFunctionalUnitTests.Remu, 7u, 0u, 7u)]
+    [InlineData(RtlFfiFunctionalUnitTests.Div, 0x80000000u, 0xFFFFFFFFu, 0x80000000u)] // INT_MIN/-1 → INT_MIN
+    [InlineData(RtlFfiFunctionalUnitTests.Rem, 0x80000000u, 0xFFFFFFFFu, 0u)]          // INT_MIN%-1 → 0
     public void RiscVSpecialCases_ResolveInOneCycle(uint op, uint a, uint b, uint expected) {
         using RtlFfiFunctionalUnit fu = Open();
         (uint result, int cycles) = fu.Execute(op, a, b);
@@ -90,9 +90,9 @@ public sealed class RtlFfiFunctionalUnitTests {
     public void Latency_IsDataDependent_OnDividendMagnitude() {
         using RtlFfiFunctionalUnit fu = Open();
         // significant-bits(|dividend|) + 1: early termination skips leading zeros.
-        (_, int small) = fu.Execute(Divu, 3, 2);
-        (_, int mid) = fu.Execute(Divu, 0xFFFF, 2);
-        (_, int big) = fu.Execute(Divu, 0xFFFFFFFF, 2);
+        (_, int small) = fu.Execute(RtlFfiFunctionalUnitTests.Divu, 3, 2);
+        (_, int mid) = fu.Execute(RtlFfiFunctionalUnitTests.Divu, 0xFFFF, 2);
+        (_, int big) = fu.Execute(RtlFfiFunctionalUnitTests.Divu, 0xFFFFFFFF, 2);
         Assert.Equal(3, small);
         Assert.Equal(17, mid);
         Assert.Equal(33, big);
@@ -101,9 +101,9 @@ public sealed class RtlFfiFunctionalUnitTests {
     [SkippableFact]
     public void BackToBackOperations_AreIndependent() {
         using RtlFfiFunctionalUnit fu = Open();
-        (uint first, _) = fu.Execute(Div, 100, 7);
-        (uint second, _) = fu.Execute(Remu, 100, 7);
-        (uint third, _) = fu.Execute(Div, 100, 7);
+        (uint first, _) = fu.Execute(RtlFfiFunctionalUnitTests.Div, 100, 7);
+        (uint second, _) = fu.Execute(RtlFfiFunctionalUnitTests.Remu, 100, 7);
+        (uint third, _) = fu.Execute(RtlFfiFunctionalUnitTests.Div, 100, 7);
         Assert.Equal(14u, first);
         Assert.Equal(2u, second);
         Assert.Equal(first, third); // unit returns to idle: same inputs, same result

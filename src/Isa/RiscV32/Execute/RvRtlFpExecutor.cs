@@ -37,8 +37,8 @@ public sealed class RvRtlFpExecutor(IExecutor inner, RtlFfiFunctionalUnit unit) 
         if (op == uint.MaxValue) return inner.Execute(instruction, state, memory);
 
         IRegisterFile regs = state.IntegerRegisters; // unified int/fp file, like FBits
-        uint a32 = RvRtlFpExecutor.FpBits(regs, rs1);
-        uint b32 = op == 0u ? RvRtlFpExecutor.FpBits(regs, rs2) : 0u;
+        uint a32 = FpBits(regs, rs1);
+        uint b32 = op == 0u ? FpBits(regs, rs2) : 0u;
         (uint result, uint flags, int cycles) = unit.ExecuteWithFlags(op, a32, b32);
 
         return new ExecuteResult {

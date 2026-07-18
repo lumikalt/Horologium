@@ -53,10 +53,12 @@ public static class RtlTageLibrary {
 public sealed class RtlFfiHistoryBranchPredictorTests {
     [SkippableFact]
     public void Loader_DetectsShimAbi() {
-        Skip.If(RtlTageLibrary.Path is null || RtlBpLibrary.Path is null,
-                "verilator toolchain unavailable — skipping.");
+        Skip.If(
+            RtlTageLibrary.Path is null || RtlBpLibrary.Path is null,
+            "verilator toolchain unavailable — skipping."
+        );
         IBranchPredictor tage = RtlBranchPredictorLoader.Load(RtlTageLibrary.Path);
-        IBranchPredictor gshare = RtlBranchPredictorLoader.Load(RtlBpLibrary.Path!);
+        IBranchPredictor gshare = RtlBranchPredictorLoader.Load(RtlBpLibrary.Path);
         Assert.IsType<RtlFfiHistoryBranchPredictor>(tage);
         Assert.IsType<RtlFfiBranchPredictor>(gshare);
         (tage as IDisposable)!.Dispose();
@@ -66,8 +68,8 @@ public sealed class RtlFfiHistoryBranchPredictorTests {
     [SkippableFact]
     public void LoopBranch_LearnedByLoopPredictor() {
         Skip.If(RtlTageLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var p = new RtlFfiHistoryBranchPredictor(RtlTageLibrary.Path!);
-        ulong pc = 0x1000, target = 0x0F00;
+        using var p = new RtlFfiHistoryBranchPredictor(RtlTageLibrary.Path);
+        const ulong pc = 0x1000, target = 0x0F00;
 
         // Period-4 loop: taken ×3, not-taken ×1. After the loop predictor gains
         // confidence (4 consistent exits), every prediction in the pattern is exact.
@@ -86,70 +88,83 @@ public sealed class RtlFfiHistoryBranchPredictorTests {
     [SkippableFact]
     public void DifferentialOooSequence_MatchesCSharpLTage() {
         Skip.If(RtlTageLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var rtl = new RtlFfiHistoryBranchPredictor(RtlTageLibrary.Path!);
+        using var rtl = new RtlFfiHistoryBranchPredictor(RtlTageLibrary.Path);
         var reference = new LTagePredictor();
 
         var rng = new Random(20260717);
         ulong[] pcs = [.. Enumerable.Range(0, 24).Select(i => 0x4000UL + (ulong)(i * 4)),];
         var occurrence = new int[pcs.Length];
 
-        // Mixed behaviours: loops of differing trip counts, biased-random, history-correlated.
-        bool Outcome(int p) {
-            occurrence[p]++;
-            return (p % 4) switch {
-                0 => occurrence[p] % 5 != 0,             // loop, trip count 5
-                1 => occurrence[p] % 3 != 0,             // loop, trip count 3
-                2 => rng.Next(8) != 0,                   // strongly biased taken
-                _ => (occurrence[p] & 2) != 0,           // period-4 alternating
-            };
-        }
-
         var inflight = new Queue<(int P, bool Predicted, BranchHistoryCheckpoint RefChk,
             BranchHistoryCheckpoint RtlChk)>();
 
         for (var step = 0; step < 6000; step++) {
             int op = rng.Next(10);
-            if (op < 6 && inflight.Count < 12) {
-                // Fetch: predict, checkpoint, fold predicted direction into spec history.
-                int p = rng.Next(pcs.Length);
-                BranchPrediction expected = reference.Predict(pcs[p]);
-                BranchPrediction got = rtl.Predict(pcs[p]);
-                Assert.True(
-                    expected.PredictedTaken == got.PredictedTaken
-                 && expected.PredictedTarget == got.PredictedTarget,
-                    $"step {step} pc=0x{pcs[p]:X}: C#=({expected.PredictedTaken},0x{expected.PredictedTarget:X}) "
-                  + $"RTL=({got.PredictedTaken},0x{got.PredictedTarget:X})"
-                );
+            switch (op) {
+                case < 6 when inflight.Count < 12: {
+                    // Fetch: predict, checkpoint, fold predicted direction into spec history.
+                    int p = rng.Next(pcs.Length);
+                    BranchPrediction expected = reference.Predict(pcs[p]);
+                    BranchPrediction got = rtl.Predict(pcs[p]);
+                    Assert.True(
+                        expected.PredictedTaken == got.PredictedTaken
+                     && expected.PredictedTarget == got.PredictedTarget,
+                        $"step {step} pc=0x{pcs[p]:X}: C#=({expected.PredictedTaken},0x{expected.PredictedTarget:X}) "
+                      + $"RTL=({got.PredictedTaken},0x{got.PredictedTarget:X})"
+                    );
 
-                BranchHistoryCheckpoint refChk = reference.CaptureHistory(pcs[p]);
-                BranchHistoryCheckpoint rtlChk = rtl.CaptureHistory(pcs[p]);
-                Assert.True(refChk.Global == rtlChk.Global,
-                            $"step {step}: checkpoint mismatch C#=0x{refChk.Global:X} RTL=0x{rtlChk.Global:X}");
+                    BranchHistoryCheckpoint refChk = reference.CaptureHistory(pcs[p]);
+                    BranchHistoryCheckpoint rtlChk = rtl.CaptureHistory(pcs[p]);
+                    Assert.True(
+                        refChk.Global == rtlChk.Global,
+                        $"step {step}: checkpoint mismatch C#=0x{refChk.Global:X} RTL=0x{rtlChk.Global:X}"
+                    );
 
-                reference.SpeculativeHistoryUpdate(pcs[p], expected.PredictedTaken);
-                rtl.SpeculativeHistoryUpdate(pcs[p], got.PredictedTaken);
-                inflight.Enqueue((p, expected.PredictedTaken, refChk, rtlChk));
-            }
-            else if (op < 9 && inflight.Count > 0) {
-                // Commit oldest; on mispredict, partial-squash: restore the branch's
-                // checkpoint folding the resolved direction, and discard younger.
-                (int p, bool predicted, BranchHistoryCheckpoint refChk, BranchHistoryCheckpoint rtlChk)
-                    = inflight.Dequeue();
-                bool actual = Outcome(p);
-                reference.Update(pcs[p], actual, actual ? pcs[p] + 0x40 : pcs[p] + 4);
-                rtl.Update(pcs[p], actual, actual ? pcs[p] + 0x40 : pcs[p] + 4);
-                if (predicted != actual) {
-                    reference.RestoreHistory(in refChk, pcs[p], actual);
-                    rtl.RestoreHistory(in rtlChk, pcs[p], actual);
-                    inflight.Clear();
+                    reference.SpeculativeHistoryUpdate(pcs[p], expected.PredictedTaken);
+                    rtl.SpeculativeHistoryUpdate(pcs[p], got.PredictedTaken);
+                    inflight.Enqueue((p, expected.PredictedTaken, refChk, rtlChk));
+                    break;
+                }
+                case < 9 when inflight.Count > 0: {
+                    // Commit oldest; on mispredict, partial-squash: restore the branch's
+                    // checkpoint folding the resolved direction, and discard younger.
+                    (int p, bool predicted, BranchHistoryCheckpoint refChk, BranchHistoryCheckpoint rtlChk)
+                        = inflight.Dequeue();
+                    bool actual = Outcome(p);
+                    reference.Update(pcs[p], actual, actual ? pcs[p] + 0x40 : pcs[p] + 4);
+                    rtl.Update(pcs[p], actual, actual ? pcs[p] + 0x40 : pcs[p] + 4);
+                    if (predicted != actual) {
+                        reference.RestoreHistory(in refChk, pcs[p], actual);
+                        rtl.RestoreHistory(in rtlChk, pcs[p], actual);
+                        inflight.Clear();
+                    }
+
+                    break;
+                }
+                default: {
+                    if (inflight.Count > 0) {
+                        // Full flush: drop wrong-path history, discard in-flight branches.
+                        reference.RecoverSpeculativeHistory();
+                        rtl.RecoverSpeculativeHistory();
+                        inflight.Clear();
+                    }
+
+                    break;
                 }
             }
-            else if (inflight.Count > 0) {
-                // Full flush: drop wrong-path history, discard in-flight branches.
-                reference.RecoverSpeculativeHistory();
-                rtl.RecoverSpeculativeHistory();
-                inflight.Clear();
-            }
+        }
+
+        return;
+
+        // Mixed behaviors: loops of differing trip counts, biased-random, history-correlated.
+        bool Outcome(int p) {
+            occurrence[p]++;
+            return (p % 4) switch {
+                0 => occurrence[p] % 5 != 0,   // loop, trip count 5
+                1 => occurrence[p] % 3 != 0,   // loop, trip count 3
+                2 => rng.Next(8) != 0,         // strongly biased taken
+                _ => (occurrence[p] & 2) != 0, // period-4 alternating
+            };
         }
     }
 }

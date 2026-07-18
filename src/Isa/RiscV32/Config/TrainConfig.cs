@@ -74,7 +74,7 @@ public sealed record TrainConfig(
     bool Rdip = false, // RAS-directed I-cache prefetch (Kolli/Saidi/Wenisch, MICRO 2013)
     string? RtlCachePolicyLib
         = null, // Verilator-compiled RTL replacement policy (native/RtlFu); applies to cache levels whose
-                // geometry matches the model's elaborated sets×ways, others keep CacheReplacementPolicy
+    // geometry matches the model's elaborated sets×ways, others keep CacheReplacementPolicy
     string? RtlPrefetcherLib
         = null, // Verilator-compiled RTL D-cache prefetcher (native/RtlFu); overrides DPrefetcher
     string? RtlDivLib

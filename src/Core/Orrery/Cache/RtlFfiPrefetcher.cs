@@ -52,8 +52,6 @@ public sealed unsafe class RtlFfiPrefetcher : IPrefetcher, IDisposable {
 
     /// <inheritdoc />
     public int OnAccess(ulong pc, ulong address, bool wasHit, Span<ulong> targets) {
-        fixed (ulong* p = targets) {
-            return _access(_handle, pc, address, wasHit ? 1 : 0, p, targets.Length);
-        }
+        fixed (ulong* p = targets) { return _access(_handle, pc, address, wasHit ? 1 : 0, p, targets.Length); }
     }
 }
