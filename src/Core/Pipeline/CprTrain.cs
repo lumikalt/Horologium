@@ -199,6 +199,8 @@ internal sealed class CprPipelineCore : Gear {
     private Counter? _cacheMissStallsCounter;
     private Counter? _cfpReinsertionsCounter, _cfpSlicesCounter;
     private Counter _checkpointsCreatedCounter = null!;
+    private Counter _checkpointsRetiredCounter = null!;
+    private Counter _covhdCounter = null!;
 
     // ── CPI-stack accounting (Eyerman et al., ASPLOS 2006); mirrors OoOPipelineCore ──
     private Counter _cpiBpredCounter = null!;
@@ -215,8 +217,6 @@ internal sealed class CprPipelineCore : Gear {
     private Counter _cpiResourceCounter = null!;
     private long _cpiStolenCycles;
     private Counter _cpiStoreCounter = null!;
-    private Counter _checkpointsRetiredCounter = null!;
-    private Counter _covhdCounter = null!;
     private Counter _cyclesCounter = null!;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
 
@@ -229,16 +229,16 @@ internal sealed class CprPipelineCore : Gear {
     private ulong _fetchPc;
     private Counter _flushesCounter = null!;
 
-    // Forced checkpoint at the first branch after a recovery, irrespective of confidence
-    // (MICRO 2003 §4.1.1 forward-progress rule).
-    private bool _forceCheckpointAtNextBranch;
-
     // Forced checkpoint at the instruction after a serialized one, so a serialized
     // instruction sits alone in its epoch. Without this, a fence and a younger load can
     // share a checkpoint and deadlock: the load's issue is gated on the fence committing
     // (HasPrecedingStoreLoadFence), but the fence only bulk-commits when the whole
     // checkpoint — including that load — completes.
     private bool _forceCheckpointAfterSerialized;
+
+    // Forced checkpoint at the first branch after a recovery, irrespective of confidence
+    // (MICRO 2003 §4.1.1 forward-progress rule).
+    private bool _forceCheckpointAtNextBranch;
     private bool _fullFlushPending;
     private ulong _fullFlushTarget;
     private bool _halted;
@@ -271,16 +271,6 @@ internal sealed class CprPipelineCore : Gear {
     // backend backpressure that starves dispatch through no fault of the frontend.
     private bool _renameBlockedPrevCycle;
 
-    // Load/store entries appended to the current tail checkpoint. A checkpoint holding more
-    // loads (stores) than the LQ (HSQ) can hold at once could never bulk-commit — its excess
-    // memory instructions could not dispatch until the checkpoint retires, which requires
-    // them to complete: a deadlock on branch-free memory-heavy code. Rename forces a new
-    // checkpoint before that point (a resource-bound analogue of the paper's
-    // completion-counter-overflow bound on checkpoint size).
-    private int _tailLoadEntries;
-    private ulong _tailSeqForCounts;
-    private int _tailStoreEntries;
-
     // Recorded-outcome replay after a branch recovery (MICRO 2003 §4.1.1): the b-th branch
     // fetched after the restart takes the previously resolved target instead of a prediction.
     private int _replayBranchesRemaining;
@@ -290,6 +280,16 @@ internal sealed class CprPipelineCore : Gear {
     // Cached to avoid a fresh Action allocation per simulated cycle.
     private Action? _runCycle;
     private Counter _stallsCounter = null!;
+
+    // Load/store entries appended to the current tail checkpoint. A checkpoint holding more
+    // loads (stores) than the LQ (HSQ) can hold at once could never bulk-commit — its excess
+    // memory instructions could not dispatch until the checkpoint retires, which requires
+    // them to complete: a deadlock on branch-free memory-heavy code. Rename forces a new
+    // checkpoint before that point (a resource-bound analogue of the paper's
+    // completion-counter-overflow bound on checkpoint size).
+    private int _tailLoadEntries;
+    private ulong _tailSeqForCounts;
+    private int _tailStoreEntries;
 
     // Top-Down Microarchitecture Analysis slot accounting (Yasin, ISPASS 2014); see
     // TopDownBreakdown for the metric formulas these feed.
@@ -932,11 +932,11 @@ internal sealed class CprPipelineCore : Gear {
 
             if (classifyDMiss)
                 entry.DMissClass =
-                    DLayers.Tlb is { } dTlb && dTlb.Misses > dmt ? CpiMissClass.DTlb :
+                    DLayers.Tlb is { } dTlb && dTlb.Misses > dmt   ? CpiMissClass.DTlb :
                     DLayers.L3Cache is { } dl3 && dl3.Misses > dm3 ? CpiMissClass.L3D :
                     DLayers.L2Cache is { } dl2 && dl2.Misses > dm2 ? CpiMissClass.L2D :
-                    DLayers.Cache is { } dl1 && dl1.Misses > dm1 ? CpiMissClass.L1D :
-                    CpiMissClass.None;
+                    DLayers.Cache is { } dl1 && dl1.Misses > dm1   ? CpiMissClass.L1D :
+                                                                     CpiMissClass.None;
 
             // Register load disambiguation state at execute time so a later-resolving older store
             // can flag this load while its miss is still in flight.
@@ -1564,8 +1564,9 @@ internal sealed class CprPipelineCore : Gear {
         // pipeline refill part of the misprediction penalty; charging stops at the first
         // correct-path dispatch (ASPLOS 2006, section 4.1).
         if (_cpiBpredRefill) {
-            if (dispatched > 0) { _cpiBpredRefill = false; }
-            else if (!stalled && !_renameBlockedPrevCycle) { _cpiBpredCounter.Increment(); }
+            if (dispatched > 0)
+                _cpiBpredRefill = false;
+            else if (!stalled && !_renameBlockedPrevCycle) _cpiBpredCounter.Increment();
         }
     }
 
@@ -1662,12 +1663,12 @@ internal sealed class CprPipelineCore : Gear {
                           || serialized
                           || _forceCheckpointAfterSerialized
                           || _cpList.Tail.Entries.Count >= _checkpointMaxInstructions
-                          // Never append behind a commit cursor: a fully-committed lone tail
-                          // can neither retire (no successor) nor be a valid recovery target
-                          // for entries appended after its instructions became architectural.
+                             // Never append behind a commit cursor: a fully-committed lone tail
+                             // can neither retire (no successor) nor be a valid recovery target
+                             // for entries appended after its instructions became architectural.
                           || _cpList.Tail.CommittedCount > 0
-                          // Liveness bound: a checkpoint must never hold more loads (stores)
-                          // than the LQ (HSQ) capacity — see _tailLoadEntries.
+                             // Liveness bound: a checkpoint must never hold more loads (stores)
+                             // than the LQ (HSQ) capacity — see _tailLoadEntries.
                           || (needsLq && _tailLoadEntries >= _lq.Capacity)
                           || (needsSq && _tailStoreEntries >= _hsq.Capacity)
                           || (isBranch && _forceCheckpointAtNextBranch));
@@ -1906,7 +1907,7 @@ internal sealed class CprPipelineCore : Gear {
         // refill charging. The entry is still alive here; the squash below removes it.
         if (_recoveryIsBranch && _entryByInstrId.TryGetValue(_recoveryKeyInstrId, out CheckpointEntry? mispredicted)) {
             long window = _cyclesCounter.Value - mispredicted.DispatchCycle
-                        - (_cpiStolenCycles - mispredicted.CpiStolenAtDispatch);
+                                               - (_cpiStolenCycles - mispredicted.CpiStolenAtDispatch);
             if (window > 0) _cpiBpredCounter.IncrementBy(window);
             _cpiBpredRefill = true;
         }

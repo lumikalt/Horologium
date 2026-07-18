@@ -782,8 +782,7 @@ internal sealed class OoOPipelineCore : Gear {
             // fetches were wrong-path. Their frozen cycles stay inside the mispredicted
             // branch's penalty window (the ASPLOS 2006 policy of absorbing wrong-path
             // frontend misses into the branch misprediction component).
-            if (_flushPending || _squashPending)
-                _cpiPendingL1I = _cpiPendingL2I = _cpiPendingL3I = _cpiPendingItlb = 0;
+            if (_flushPending || _squashPending) _cpiPendingL1I = _cpiPendingL2I = _cpiPendingL3I = _cpiPendingItlb = 0;
             // Restore the RAT to its pre-episode baseline before the real flush/squash's own
             // walk-back runs, so the walk-back's absolute writes start from a correct base
             // regardless of how far the shadow lane had progressed.
@@ -933,7 +932,7 @@ internal sealed class OoOPipelineCore : Gear {
                     TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     if (head.IcacheMiss) PostIcachePendings();
-                RetireMemQueues(head);
+                    RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -959,7 +958,7 @@ internal sealed class OoOPipelineCore : Gear {
                     TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     if (head.IcacheMiss) PostIcachePendings();
-                RetireMemQueues(head);
+                    RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -972,7 +971,7 @@ internal sealed class OoOPipelineCore : Gear {
                     TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     if (head.IcacheMiss) PostIcachePendings();
-                RetireMemQueues(head);
+                    RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -1105,7 +1104,7 @@ internal sealed class OoOPipelineCore : Gear {
                     TrainCriticality(head);
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     if (head.IcacheMiss) PostIcachePendings();
-                RetireMemQueues(head);
+                    RetireMemQueues(head);
                     _rob.Retire();
                     _retiredCounter.Increment();
                     State.OnRetire();
@@ -1236,11 +1235,11 @@ internal sealed class OoOPipelineCore : Gear {
 
             if (classifyDMiss)
                 issuedRob.DMissClass =
-                    DLayers.Tlb is { } dTlb && dTlb.Misses > dmt ? CpiMissClass.DTlb :
+                    DLayers.Tlb is { } dTlb && dTlb.Misses > dmt   ? CpiMissClass.DTlb :
                     DLayers.L3Cache is { } dl3 && dl3.Misses > dm3 ? CpiMissClass.L3D :
                     DLayers.L2Cache is { } dl2 && dl2.Misses > dm2 ? CpiMissClass.L2D :
-                    DLayers.Cache is { } dl1 && dl1.Misses > dm1 ? CpiMissClass.L1D :
-                    CpiMissClass.None;
+                    DLayers.Cache is { } dl1 && dl1.Misses > dm1   ? CpiMissClass.L1D :
+                                                                     CpiMissClass.None;
 
             PEventLog?.Record(issued.InstrId, issued.Pc, _cyclesCounter.Value, PEventKind.Execute);
 
@@ -1920,8 +1919,9 @@ internal sealed class OoOPipelineCore : Gear {
         // pipeline refill part of the misprediction penalty; charging stops at the first
         // correct-path dispatch (ASPLOS 2006, section 4.1).
         if (_cpiBpredRefill) {
-            if (dispatched > 0) { _cpiBpredRefill = false; }
-            else if (!stalled && !_rob.IsFull) { _cpiBpredCounter.Increment(); }
+            if (dispatched > 0)
+                _cpiBpredRefill = false;
+            else if (!stalled && !_rob.IsFull) _cpiBpredCounter.Increment();
         }
     }
 
@@ -3078,7 +3078,7 @@ internal sealed class OoOPipelineCore : Gear {
     /// </summary>
     private void PostBpredWindow(RobEntry branch) {
         long window = _cyclesCounter.Value - branch.DispatchCycle
-                    - (_cpiStolenCycles - branch.CpiStolenAtDispatch);
+                                           - (_cpiStolenCycles - branch.CpiStolenAtDispatch);
         if (window > 0) _cpiBpredCounter.IncrementBy(window);
         _cpiBpredRefill = true;
     }

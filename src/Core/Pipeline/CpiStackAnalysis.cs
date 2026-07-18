@@ -101,8 +101,7 @@ public sealed record CpiStack(
         long storeCycles,
         long resourceCycles
     ) {
-        if (cycles <= 0 || retired <= 0)
-            return new CpiStack(cycles, retired, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        if (cycles <= 0 || retired <= 0) return new CpiStack(cycles, retired, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
         double PerInstr(long c) => c / (double)retired;
 
@@ -138,7 +137,7 @@ public sealed record CpiStack(
 
         long Get(string name) => snapshot.Counters.GetValueOrDefault(name);
 
-        return CpiStack.Compute(
+        return Compute(
             Get("cycles"),
             Get("retired"),
             Get(CpiStack.L1ICounter),
@@ -183,7 +182,9 @@ public sealed record CpiStack(
             DTlb = dials.AddCounter(
                 CpiStack.DTlbCounter, "CPI stack: backend-blocked cycles on a head load that missed the D-TLB"
             ),
-            Store = dials.AddCounter(CpiStack.StoreCounter, "CPI stack: cycles frozen on post-commit store write misses"),
+            Store = dials.AddCounter(
+                CpiStack.StoreCounter, "CPI stack: cycles frozen on post-commit store write misses"
+            ),
             Resource = dials.AddCounter(
                 CpiStack.ResourceCounter,
                 "CPI stack: backend-blocked cycles on a long-latency / dependence-stalled head (resource stalls)"
@@ -210,6 +211,7 @@ public sealed record CpiStack(
     public override string ToString() {
         var sb = new StringBuilder();
         sb.AppendLine($"CPI stack ({RetiredInstructions:N0} instructions, {TotalCycles:N0} cycles, CPI {Total:F3})");
+
         void Row(string name, double value) {
             if (value > 0) sb.AppendLine($"  {name,-12} {value,8:F4}");
         }

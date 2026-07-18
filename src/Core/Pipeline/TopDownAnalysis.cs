@@ -70,8 +70,7 @@ public sealed record TopDownBreakdown(
         long branchMispredicts,
         long flushes
     ) {
-        if (totalSlots <= 0 || cycles <= 0)
-            return new TopDownBreakdown(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        if (totalSlots <= 0 || cycles <= 0) return new TopDownBreakdown(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
         double slots = totalSlots;
         double frontend = fetchBubbles / slots;
@@ -118,12 +117,11 @@ public sealed record TopDownBreakdown(
     ///     because it reads only counters, never the run-lifetime dial values.
     /// </summary>
     public static TopDownBreakdown? FromSnapshot(DialBoardSnapshot snapshot) {
-        if (!snapshot.Counters.TryGetValue(TopDownBreakdown.TotalSlotsCounter, out long totalSlots))
-            return null;
+        if (!snapshot.Counters.TryGetValue(TopDownBreakdown.TotalSlotsCounter, out long totalSlots)) return null;
 
         long Get(string name) => snapshot.Counters.GetValueOrDefault(name);
 
-        return TopDownBreakdown.Compute(
+        return Compute(
             totalSlots,
             Get(TopDownBreakdown.SlotsIssuedCounter),
             Get("retired"),

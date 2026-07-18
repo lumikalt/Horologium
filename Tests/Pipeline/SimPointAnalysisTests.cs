@@ -15,16 +15,14 @@ public class SimPointAnalysisTests {
     // Two clearly distinct phases: intervals dominated by block set A, then by block set B.
     private static List<IReadOnlyDictionary<ulong, long>> TwoPhaseIntervals(int perPhase) {
         var intervals = new List<IReadOnlyDictionary<ulong, long>>();
-        for (var i = 0; i < perPhase; i++)
-            intervals.Add(Bbv((0x1000, 800 + i), (0x1040, 200)));
-        for (var i = 0; i < perPhase; i++)
-            intervals.Add(Bbv((0x2000, 900 + i), (0x2080, 100)));
+        for (var i = 0; i < perPhase; i++) intervals.Add(Bbv((0x1000, 800 + i), (0x1040, 200)));
+        for (var i = 0; i < perPhase; i++) intervals.Add(Bbv((0x2000, 900 + i), (0x2080, 100)));
         return intervals;
     }
 
     [Fact]
     public void TwoPhases_FoundWithContiguousAssignment() {
-        List<IReadOnlyDictionary<ulong, long>> intervals = TwoPhaseIntervals(perPhase: 10);
+        List<IReadOnlyDictionary<ulong, long>> intervals = TwoPhaseIntervals(10);
         SimPointResult r = SimPointAnalysis.Analyze(intervals);
 
         Assert.Equal(2, r.K);
@@ -37,7 +35,7 @@ public class SimPointAnalysisTests {
 
     [Fact]
     public void SimulationPoints_OnePerPhase_WeightsSumToOne() {
-        List<IReadOnlyDictionary<ulong, long>> intervals = TwoPhaseIntervals(perPhase: 10);
+        List<IReadOnlyDictionary<ulong, long>> intervals = TwoPhaseIntervals(10);
         SimPointResult r = SimPointAnalysis.Analyze(intervals);
 
         Assert.Equal(r.K, r.Points.Count);
@@ -70,7 +68,7 @@ public class SimPointAnalysisTests {
 
     [Fact]
     public void Deterministic_ForFixedSeed() {
-        List<IReadOnlyDictionary<ulong, long>> intervals = TwoPhaseIntervals(perPhase: 8);
+        List<IReadOnlyDictionary<ulong, long>> intervals = TwoPhaseIntervals(8);
         SimPointResult a = SimPointAnalysis.Analyze(intervals, seed: 7);
         SimPointResult b = SimPointAnalysis.Analyze(intervals, seed: 7);
         Assert.Equal(a.Phases, b.Phases);

@@ -11,11 +11,11 @@ public class CpiStackAnalysisTests {
     [Fact]
     public void Compute_ComponentsArePerRetiredInstruction_AndBaseIsResidual() {
         CpiStack s = CpiStack.Compute(
-            cycles: 1000, retired: 500,
-            l1ICycles: 50, l2ICycles: 10, l3ICycles: 0, iTlbCycles: 5,
-            bpredCycles: 100,
-            l1DCycles: 20, l2DCycles: 200, l3DCycles: 0, dTlbCycles: 15,
-            storeCycles: 30, resourceCycles: 70
+            1000, 500,
+            50, 10, 0, 5,
+            100,
+            20, 200, 0, 15,
+            30, 70
         );
 
         Assert.Equal(2.0, s.Total, 12); // 1000 / 500
@@ -33,11 +33,11 @@ public class CpiStackAnalysisTests {
     [Fact]
     public void Compute_ComponentsExceedingCycles_ClampBaseAtZero() {
         CpiStack s = CpiStack.Compute(
-            cycles: 100, retired: 10,
-            l1ICycles: 80, l2ICycles: 0, l3ICycles: 0, iTlbCycles: 0,
-            bpredCycles: 40,
-            l1DCycles: 0, l2DCycles: 0, l3DCycles: 0, dTlbCycles: 0,
-            storeCycles: 0, resourceCycles: 0
+            100, 10,
+            80, 0, 0, 0,
+            40,
+            0, 0, 0, 0,
+            0, 0
         );
         Assert.Equal(0.0, s.Base);
     }

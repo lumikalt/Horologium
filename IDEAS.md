@@ -206,10 +206,10 @@ the active thread.
 | Architecture       | Paradigm to test                                                                       | Level |
 |--------------------|----------------------------------------------------------------------------------------|-------|
 | ~~SUBLEQ~~         | OISC, no opcode field                                                                  | 1     |
+| Nintendo CIC (SM5) | 4-bit copy-protection MCU; minimal accumulator, external ROM, hardware handshake loop  | 1     |
 | ~~PDP-8~~          | Accumulator, 12b, minimal opcodes                                                      | 2     |
 | ~~J1 Forth~~       | Stack machine, packed opcodes                                                          | 2     |
 | LGP-30             | Drum memory, bit-serial arithmetic, rotational latency scheduling                      | 2     |
-| Nintendo CIC (SM5) | 4-bit copy-protection MCU; minimal accumulator, external ROM, hardware handshake loop  | 1     |
 | MN101              | Panasonic 8-bit MCU; conventional accumulator with bit-manipulation and multiply ops   | 2     |
 | RL78               | Renesas 16-bit Harvard MCU; CISC addressing modes and bit-addressable I/O registers    | 2     |
 | ~~TTA/MOVE~~       | Triggered side-effect execution                                                        | 3     |

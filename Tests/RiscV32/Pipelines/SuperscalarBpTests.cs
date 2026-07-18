@@ -16,21 +16,6 @@ namespace Tests.RiscV32.Pipelines;
 ///     frontend whose refill is the emergent misprediction penalty, and PEvent tracing.
 /// </summary>
 public class SuperscalarBpTests {
-    private static void Load(FlatMemory mem, params uint[] words) {
-        var bytes = new byte[words.Length * 4];
-        for (var i = 0; i < words.Length; i++) {
-            bytes[i * 4 + 0] = (byte)words[i];
-            bytes[i * 4 + 1] = (byte)(words[i] >> 8);
-            bytes[i * 4 + 2] = (byte)(words[i] >> 16);
-            bytes[i * 4 + 3] = (byte)(words[i] >> 24);
-        }
-
-        mem.Load(0, bytes);
-    }
-
-    private static uint Addi(int rd, int rs1, int imm) =>
-        (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
-
     private const uint Ebreak = 0x00100073;
 
     // 200-iteration countdown loop with a 3-instruction body — short enough that a
@@ -48,12 +33,27 @@ public class SuperscalarBpTests {
         0x00100073, // ebreak
     ];
 
+    private static void Load(FlatMemory mem, params uint[] words) {
+        var bytes = new byte[words.Length * 4];
+        for (var i = 0; i < words.Length; i++) {
+            bytes[i * 4 + 0] = (byte)words[i];
+            bytes[i * 4 + 1] = (byte)(words[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(words[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(words[i] >> 24);
+        }
+
+        mem.Load(0, bytes);
+    }
+
+    private static uint Addi(int rd, int rs1, int imm) =>
+        (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
+
     private static (long Cycles, long BranchMisses, uint X2) RunLoop(
         IBranchPredictor? predictor,
         PEventLog? plog = null
     ) {
         var mem = new FlatMemory(4096);
-        Load(mem, LoopProgram);
+        Load(mem, SuperscalarBpTests.LoopProgram);
         var train = new SuperscalarTrain(
             new Rv32Mechanism(), mem, issueWidth: 4, predictor: predictor, pEventLog: plog
         );
@@ -94,7 +94,7 @@ public class SuperscalarBpTests {
     [Fact]
     public void Predictor_LearnsLoop_GroupsSpanTheBranch() {
         (long cyclesNotTaken, _, _) = RunLoop(null);
-        (long cyclesNBit, long misses, uint x2) = RunLoop(new NBitPredictor(2, 1024));
+        (long cyclesNBit, long misses, uint x2) = RunLoop(new NBitPredictor());
 
         Assert.Equal(200u, x2); // architectural result unchanged
         // A trained predicted-taken branch keeps the frontend on the loop path: no refill
@@ -113,10 +113,10 @@ public class SuperscalarBpTests {
     public void DependentChain_IssuesOnePerCycle() {
         // 32 chained addis on x1: RAW interlock limits issue to one per cycle even at
         // width 4 (a 1-cycle producer feeds a consumer issuing the next cycle).
-        uint[] program = new uint[34];
-        program[0] = Addi(rd: 1, rs1: 0, imm: 1);
-        for (var i = 1; i < 33; i++) program[i] = Addi(rd: 1, rs1: 1, imm: 1);
-        program[33] = Ebreak;
+        var program = new uint[34];
+        program[0] = Addi(1, 0, 1);
+        for (var i = 1; i < 33; i++) program[i] = Addi(1, 1, 1);
+        program[33] = SuperscalarBpTests.Ebreak;
 
         (DialBoardSnapshot snap, _, SuperscalarTrain train) = RunProgram(program);
         Assert.Equal(33u, (uint)train.ArchState.IntegerRegisters.Read(1));
@@ -127,12 +127,12 @@ public class SuperscalarBpTests {
     [Fact]
     public void IndependentAlu_IssuesFullWidth() {
         // 40 independent addis at width 4 with 4 ALU ports → ~10 issue cycles.
-        uint[] program = new uint[41];
-        for (var i = 0; i < 40; i++) program[i] = Addi(rd: 1 + i % 8, rs1: 0, imm: i);
-        program[40] = Ebreak;
+        var program = new uint[41];
+        for (var i = 0; i < 40; i++) program[i] = Addi(1 + i % 8, 0, i);
+        program[40] = SuperscalarBpTests.Ebreak;
 
         (DialBoardSnapshot snap, _, _) = RunProgram(
-            program, fuLatency: new FuLatencyConfig(IntAluCount: 4)
+            program, fuLatency: new FuLatencyConfig(4)
         );
         Assert.InRange(snap.Counters["cycles"], 10, 18);
     }
@@ -141,13 +141,13 @@ public class SuperscalarBpTests {
     public void MulDivPort_LimitsIssueToOnePerCycle() {
         // 16 independent muls: MulDivCount = 1 makes the single multiplier port the
         // bottleneck regardless of the 4-wide issue width.
-        uint[] program = new uint[19];
-        program[0] = Addi(rd: 1, rs1: 0, imm: 7);
-        program[1] = Addi(rd: 2, rs1: 0, imm: 9);
+        var program = new uint[19];
+        program[0] = Addi(1, 0, 7);
+        program[1] = Addi(2, 0, 9);
         for (var i = 0; i < 16; i++)
             program[2 + i] = (uint)((0b0000001 << 25) | (2 << 20) | (1 << 15) | (0b000 << 12)
                                   | ((3 + i % 8) << 7) | 0b0110011); // mul x{3+i%8}, x1, x2
-        program[18] = Ebreak;
+        program[18] = SuperscalarBpTests.Ebreak;
 
         (DialBoardSnapshot snap, _, _) = RunProgram(program);
         Assert.True(snap.Counters["cycles"] >= 16, $"cycles {snap.Counters["cycles"]}");
@@ -158,10 +158,10 @@ public class SuperscalarBpTests {
         // lw x2, 0(x1) with LoadHitLatency 3, then a dependent add: the consumer's issue
         // cycle must trail the load's by exactly the load latency (stall-on-use).
         uint[] program = [
-            Addi(rd: 1, rs1: 0, imm: 0x100), // addi x1, x0, 0x100
-            0x0000A103,                      // lw x2, 0(x1)
-            0x002101B3,                      // add x3, x2, x2
-            Ebreak,
+            Addi(1, 0, 0x100), // addi x1, x0, 0x100
+            0x0000A103,        // lw x2, 0(x1)
+            0x002101B3,        // add x3, x2, x2
+            SuperscalarBpTests.Ebreak,
         ];
 
         (_, PEventLog plog, _) = RunProgram(program, fuLatency: new FuLatencyConfig(LoadHitLatency: 3));
@@ -175,7 +175,7 @@ public class SuperscalarBpTests {
     [Fact]
     public void PEventLog_RecordsLifecycle_AndWrongPathFlushes() {
         var plog = new PEventLog();
-        (_, _, uint x2) = RunLoop(new NBitPredictor(2, 1024), plog);
+        (_, _, uint x2) = RunLoop(new NBitPredictor(), plog);
         Assert.Equal(200u, x2);
 
         // Every correct-path instruction carries Fetch → Execute → Retire.
@@ -195,12 +195,12 @@ public class SuperscalarBpTests {
 
     [Fact]
     public void Trace_SuperscalarConfig_ProducesEvents() {
-        var bytes = new byte[LoopProgram.Length * 4];
-        for (var i = 0; i < LoopProgram.Length; i++) {
-            bytes[i * 4 + 0] = (byte)LoopProgram[i];
-            bytes[i * 4 + 1] = (byte)(LoopProgram[i] >> 8);
-            bytes[i * 4 + 2] = (byte)(LoopProgram[i] >> 16);
-            bytes[i * 4 + 3] = (byte)(LoopProgram[i] >> 24);
+        var bytes = new byte[SuperscalarBpTests.LoopProgram.Length * 4];
+        for (var i = 0; i < SuperscalarBpTests.LoopProgram.Length; i++) {
+            bytes[i * 4 + 0] = (byte)SuperscalarBpTests.LoopProgram[i];
+            bytes[i * 4 + 1] = (byte)(SuperscalarBpTests.LoopProgram[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(SuperscalarBpTests.LoopProgram[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(SuperscalarBpTests.LoopProgram[i] >> 24);
         }
 
         var config = new NamedConfig(
@@ -213,12 +213,12 @@ public class SuperscalarBpTests {
 
     [Fact]
     public void ExperimentRun_DaeAndCprConfigs_ExecuteTheWorkload() {
-        var bytes = new byte[LoopProgram.Length * 4];
-        for (var i = 0; i < LoopProgram.Length; i++) {
-            bytes[i * 4 + 0] = (byte)LoopProgram[i];
-            bytes[i * 4 + 1] = (byte)(LoopProgram[i] >> 8);
-            bytes[i * 4 + 2] = (byte)(LoopProgram[i] >> 16);
-            bytes[i * 4 + 3] = (byte)(LoopProgram[i] >> 24);
+        var bytes = new byte[SuperscalarBpTests.LoopProgram.Length * 4];
+        for (var i = 0; i < SuperscalarBpTests.LoopProgram.Length; i++) {
+            bytes[i * 4 + 0] = (byte)SuperscalarBpTests.LoopProgram[i];
+            bytes[i * 4 + 1] = (byte)(SuperscalarBpTests.LoopProgram[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(SuperscalarBpTests.LoopProgram[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(SuperscalarBpTests.LoopProgram[i] >> 24);
         }
 
         NamedConfig[] configs = [

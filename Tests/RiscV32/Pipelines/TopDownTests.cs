@@ -18,6 +18,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class TopDownTests {
+    private const uint Ebreak = 0x00100073;
+
     private static (OooeTrain train, FlatMemory mem) Make(
         int issueWidth = 2,
         int robCapacity = 32,
@@ -60,16 +62,14 @@ public class TopDownTests {
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
-    private const uint Ebreak = 0x00100073;
-
     // ── Slot-accounting invariants ─────────────────────────────────────────────
 
     [Fact]
     public void Level1_FractionsSumToOne_AndCountersAreConsistent() {
         (OooeTrain train, FlatMemory mem) = Make();
-        uint[] program = new uint[65];
-        for (var i = 0; i < 64; i++) program[i] = Addi(rd: 1 + i % 8, rs1: 0, imm: i);
-        program[64] = Ebreak;
+        var program = new uint[65];
+        for (var i = 0; i < 64; i++) program[i] = Addi(1 + i % 8, 0, i);
+        program[64] = TopDownTests.Ebreak;
         Load(mem, program);
 
         TopDownBreakdown breakdown = RunAndAnalyze(train);
@@ -100,9 +100,9 @@ public class TopDownTests {
         // 256 independent single-cycle ALU ops on a 2-wide machine with 2 ALU ports:
         // the machine sustains full width, so Retiring should dwarf every stall category.
         (OooeTrain train, FlatMemory mem) = Make();
-        uint[] program = new uint[257];
-        for (var i = 0; i < 256; i++) program[i] = Addi(rd: 1 + i % 8, rs1: 0, imm: i % 512);
-        program[256] = Ebreak;
+        var program = new uint[257];
+        for (var i = 0; i < 256; i++) program[i] = Addi(1 + i % 8, 0, i % 512);
+        program[256] = TopDownTests.Ebreak;
         Load(mem, program);
 
         TopDownBreakdown breakdown = RunAndAnalyze(train);
@@ -121,10 +121,10 @@ public class TopDownTests {
         (OooeTrain train, FlatMemory mem) = Make();
         Load(
             mem,
-            Addi(rd: 1, rs1: 0, imm: 200), // addi x1, x0, 200
-            Addi(rd: 1, rs1: 1, imm: -1),  // loop: addi x1, x1, -1
-            0xFE009EE3,                    // bne x1, x0, -4
-            Ebreak
+            Addi(1, 0, 200), // addi x1, x0, 200
+            Addi(1, 1, -1),  // loop: addi x1, x1, -1
+            0xFE009EE3,      // bne x1, x0, -4
+            TopDownTests.Ebreak
         );
 
         TopDownBreakdown breakdown = RunAndAnalyze(train);
@@ -142,11 +142,11 @@ public class TopDownTests {
         // 20-cycle miss penalty: fetch starvation dominates, and since every starved
         // cycle delivers zero uops it lands under Fetch Latency, not Fetch Bandwidth.
         (OooeTrain train, FlatMemory mem) = Make(
-            iMemConfig: new MemoryConfig(CacheCapacityBytes: 256, CacheBlockBytes: 32, CacheMissLatency: 20)
+            iMemConfig: new MemoryConfig(256, CacheBlockBytes: 32, CacheMissLatency: 20)
         );
-        uint[] program = new uint[513];
-        for (var i = 0; i < 512; i++) program[i] = Addi(rd: 1 + i % 8, rs1: 0, imm: i % 512);
-        program[512] = Ebreak;
+        var program = new uint[513];
+        for (var i = 0; i < 512; i++) program[i] = Addi(1 + i % 8, 0, i % 512);
+        program[512] = TopDownTests.Ebreak;
         Load(mem, program);
 
         TopDownBreakdown breakdown = RunAndAnalyze(train);
@@ -165,11 +165,11 @@ public class TopDownTests {
         // one uop every 20 cycles → Backend Bound, attributed to the core (no loads at
         // all, so Memory Bound must stay at zero).
         (OooeTrain train, FlatMemory mem) = Make(fuLatency: new FuLatencyConfig(DivLatency: 20));
-        uint[] program = new uint[23];
-        program[0] = Addi(rd: 1, rs1: 0, imm: 1000);
-        program[1] = Addi(rd: 2, rs1: 0, imm: 3);
+        var program = new uint[23];
+        program[0] = Addi(1, 0, 1000);
+        program[1] = Addi(2, 0, 3);
         for (var i = 0; i < 20; i++) program[2 + i] = 0x0220C0B3; // div x1, x1, x2
-        program[22] = Ebreak;
+        program[22] = TopDownTests.Ebreak;
         Load(mem, program);
 
         TopDownBreakdown breakdown = RunAndAnalyze(train);
@@ -191,7 +191,7 @@ public class TopDownTests {
         // stays asserted; a shorter chain would let dispatch drain early and count the
         // idle slots as fetch bubbles instead.
         (OooeTrain train, FlatMemory mem) = Make(
-            dMemConfig: new MemoryConfig(CacheCapacityBytes: 512, CacheBlockBytes: 32, CacheMissLatency: 50)
+            dMemConfig: new MemoryConfig(512, CacheBlockBytes: 32, CacheMissLatency: 50)
         );
 
         // Seed the pointer chain: word at 0x1000 + 64i points to 0x1000 + 64(i+1).
@@ -201,11 +201,11 @@ public class TopDownTests {
             mem.Load(address, [(byte)next, (byte)(next >> 8), (byte)(next >> 16), (byte)(next >> 24),]);
         }
 
-        uint[] program = new uint[67];
+        var program = new uint[67];
         program[0] = 0x00001097; // auipc x1, 0x1  → x1 = pc + 0x1000 = 0x1000
-        program[1] = Addi(rd: 1, rs1: 1, imm: 0);
+        program[1] = Addi(1, 1, 0);
         for (var i = 0; i < 64; i++) program[2 + i] = 0x0000A083; // lw x1, 0(x1)
-        program[66] = Ebreak;
+        program[66] = TopDownTests.Ebreak;
         Load(mem, program);
 
         TopDownBreakdown breakdown = RunAndAnalyze(train);

@@ -11,18 +11,18 @@ public class TopDownAnalysisTests {
     [Fact]
     public void Compute_AppliesTable2Formulas() {
         TopDownBreakdown b = TopDownBreakdown.Compute(
-            totalSlots: 1000,
-            slotsIssued: 400,
-            slotsRetired: 380,
-            fetchBubbles: 100,
-            recoveryBubbles: 40,
-            cycles: 500,
-            fetchLatencyCycles: 30,
-            execStallCycles: 200,
-            memStallLoadCycles: 120,
-            memStallStoreCycles: 10,
-            branchMispredicts: 5,
-            flushes: 8
+            1000,
+            400,
+            380,
+            100,
+            40,
+            500,
+            30,
+            200,
+            120,
+            10,
+            5,
+            8
         );
 
         Assert.Equal(0.10, b.FrontendBound, 12);
@@ -30,7 +30,7 @@ public class TopDownAnalysisTests {
         Assert.Equal(0.38, b.Retiring, 12);
         Assert.Equal(0.46, b.BackendBound, 12); // residual
 
-        Assert.Equal(0.06, b.FetchLatencyBound, 12); // 30 / 500
+        Assert.Equal(0.06, b.FetchLatencyBound, 12);   // 30 / 500
         Assert.Equal(0.04, b.FetchBandwidthBound, 12); // frontend − latency
 
         // 5 mispredicts + (8 − 5) machine clears → 5/8 of Bad Speculation is branches.
@@ -44,11 +44,11 @@ public class TopDownAnalysisTests {
     [Fact]
     public void Compute_Level1SumsToOne() {
         TopDownBreakdown b = TopDownBreakdown.Compute(
-            totalSlots: 2000, slotsIssued: 900, slotsRetired: 850,
-            fetchBubbles: 300, recoveryBubbles: 60,
-            cycles: 1000, fetchLatencyCycles: 100, execStallCycles: 400,
-            memStallLoadCycles: 250, memStallStoreCycles: 0,
-            branchMispredicts: 10, flushes: 12
+            2000, 900, 850,
+            300, 60,
+            1000, 100, 400,
+            250, 0,
+            10, 12
         );
         Assert.Equal(1.0, b.FrontendBound + b.BadSpeculation + b.Retiring + b.BackendBound, 12);
     }

@@ -1,5 +1,4 @@
 using Mechanism;
-using Mechanism.BranchPredictModels;
 using Orrery.Cache;
 using Orrery.Observation;
 using Pipeline;
@@ -17,6 +16,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     backpressure residual.
 /// </summary>
 public class SuperscalarTopDownTests {
+    private const uint Ebreak = 0x00100073;
+
     private static void Load(FlatMemory mem, params uint[] words) {
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) {
@@ -31,8 +32,6 @@ public class SuperscalarTopDownTests {
 
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
-
-    private const uint Ebreak = 0x00100073;
 
     private static (TopDownBreakdown Td, DialBoardSnapshot Snap) RunAndAnalyze(
         uint[] program,
@@ -63,12 +62,12 @@ public class SuperscalarTopDownTests {
 
     [Fact]
     public void Retiring_DominatesOnIndependentAluCode() {
-        uint[] program = new uint[257];
-        for (var i = 0; i < 256; i++) program[i] = Addi(rd: 1 + i % 8, rs1: 0, imm: i % 512);
-        program[256] = Ebreak;
+        var program = new uint[257];
+        for (var i = 0; i < 256; i++) program[i] = Addi(1 + i % 8, 0, i % 512);
+        program[256] = SuperscalarTopDownTests.Ebreak;
 
         (TopDownBreakdown td, DialBoardSnapshot snap) = RunAndAnalyze(
-            program, fuLatency: new FuLatencyConfig(IntAluCount: 4)
+            program, fuLatency: new FuLatencyConfig(4)
         );
         Assert.True(td.Retiring > 0.5, $"Retiring {td.Retiring:P1}");
         // The paper's cross-check: Retiring == IPC / width, exactly, from the same snapshot.
@@ -80,10 +79,10 @@ public class SuperscalarTopDownTests {
     public void BackendBound_FlagsDependentChain() {
         // 64 chained addis at width 4: the RAW interlock at the queue head is backend
         // backpressure — three of four slots lost every cycle to the scoreboard.
-        uint[] program = new uint[66];
-        program[0] = Addi(rd: 1, rs1: 0, imm: 1);
-        for (var i = 1; i < 65; i++) program[i] = Addi(rd: 1, rs1: 1, imm: 1);
-        program[65] = Ebreak;
+        var program = new uint[66];
+        program[0] = Addi(1, 0, 1);
+        for (var i = 1; i < 65; i++) program[i] = Addi(1, 1, 1);
+        program[65] = SuperscalarTopDownTests.Ebreak;
 
         (TopDownBreakdown td, _) = RunAndAnalyze(program);
         Assert.True(td.BackendBound > 0.5, $"Backend {td.BackendBound:P1}");
@@ -97,11 +96,11 @@ public class SuperscalarTopDownTests {
         // flushes the frontend, so the refill slots dominate as Bad Speculation, and
         // with no traps in the loop it is attributed to branches, not machine clears.
         uint[] program = [
-            Addi(rd: 1, rs1: 0, imm: 200),
-            Addi(rd: 2, rs1: 2, imm: 1),
-            Addi(rd: 1, rs1: 1, imm: -1),
+            Addi(1, 0, 200),
+            Addi(2, 2, 1),
+            Addi(1, 1, -1),
             0xFE009CE3, // bne x1, x0, -8
-            Ebreak,
+            SuperscalarTopDownTests.Ebreak,
         ];
 
         (TopDownBreakdown td, _) = RunAndAnalyze(program);
@@ -115,14 +114,14 @@ public class SuperscalarTopDownTests {
         // 512 straight-line instructions through a 256-byte I-cache with a 20-cycle miss
         // penalty: fetch starves the issue stage while lines are fetched — whole-cycle
         // starvation, so Fetch Latency rather than Fetch Bandwidth.
-        uint[] program = new uint[513];
-        for (var i = 0; i < 512; i++) program[i] = Addi(rd: 1 + i % 8, rs1: 0, imm: i % 512);
-        program[512] = Ebreak;
+        var program = new uint[513];
+        for (var i = 0; i < 512; i++) program[i] = Addi(1 + i % 8, 0, i % 512);
+        program[512] = SuperscalarTopDownTests.Ebreak;
 
         (TopDownBreakdown td, _) = RunAndAnalyze(
             program,
-            iMemConfig: new MemoryConfig(CacheCapacityBytes: 256, CacheBlockBytes: 32, CacheMissLatency: 20),
-            fuLatency: new FuLatencyConfig(IntAluCount: 4)
+            iMemConfig: new MemoryConfig(256, CacheBlockBytes: 32, CacheMissLatency: 20),
+            fuLatency: new FuLatencyConfig(4)
         );
         Assert.True(td.FrontendBound > 0.5, $"Frontend {td.FrontendBound:P1}");
         Assert.True(td.FetchLatencyBound > td.FetchBandwidthBound);
@@ -140,16 +139,16 @@ public class SuperscalarTopDownTests {
             mem.Load(address, [(byte)next, (byte)(next >> 8), (byte)(next >> 16), (byte)(next >> 24),]);
         }
 
-        uint[] program = new uint[35];
+        var program = new uint[35];
         program[0] = 0x00001097; // auipc x1, 0x1 → x1 = 0x1000
-        program[1] = Addi(rd: 1, rs1: 1, imm: 0);
+        program[1] = Addi(1, 1, 0);
         for (var i = 0; i < 32; i++) program[2 + i] = 0x0000A083; // lw x1, 0(x1)
-        program[34] = Ebreak;
+        program[34] = SuperscalarTopDownTests.Ebreak;
         Load(mem, program);
 
         var train = new SuperscalarTrain(
             new Rv32Mechanism(), mem, issueWidth: 4,
-            dMemConfig: new MemoryConfig(CacheCapacityBytes: 512, CacheBlockBytes: 32, CacheMissLatency: 50)
+            dMemConfig: new MemoryConfig(512, CacheBlockBytes: 32, CacheMissLatency: 50)
         );
         train.Run();
         TopDownBreakdown? td = TopDownBreakdown.FromSnapshot(train.SnapshotPipeline());

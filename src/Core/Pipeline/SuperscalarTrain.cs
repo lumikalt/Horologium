@@ -6,6 +6,7 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
+using Pipeline.Ooo;
 
 namespace Pipeline;
 
@@ -44,7 +45,7 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         MemoryConfig? dMemConfig = null,
         IBranchPredictor? predictor = null,
         PEventLog? pEventLog = null,
-        Ooo.FuLatencyConfig? fuLatency = null,
+        FuLatencyConfig? fuLatency = null,
         int frontendDepth = 2
     ) {
         var esc = new Escapement();
@@ -55,7 +56,7 @@ public sealed class SuperscalarTrain : ISteppableTrain {
             new SuperscalarCore(
                 "pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth,
                 predictor ?? new AlwaysNotTakenPredictor(),
-                fuLatency ?? Ooo.FuLatencyConfig.Default,
+                fuLatency ?? FuLatencyConfig.Default,
                 frontendDepth,
                 pEventLog
             )
@@ -71,7 +72,7 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         int issueWidth = 2,
         IBranchPredictor? predictor = null,
         PEventLog? pEventLog = null,
-        Ooo.FuLatencyConfig? fuLatency = null,
+        FuLatencyConfig? fuLatency = null,
         int frontendDepth = 2
     ) {
         var esc = new Escapement();
@@ -80,7 +81,7 @@ public sealed class SuperscalarTrain : ISteppableTrain {
             new SuperscalarCore(
                 "pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth,
                 predictor ?? new AlwaysNotTakenPredictor(),
-                fuLatency ?? Ooo.FuLatencyConfig.Default,
+                fuLatency ?? FuLatencyConfig.Default,
                 frontendDepth,
                 pEventLog
             )
@@ -134,7 +135,7 @@ internal sealed class SuperscalarCore(
     ulong entryPoint,
     int issueWidth,
     IBranchPredictor predictor,
-    Ooo.FuLatencyConfig fuConfig,
+    FuLatencyConfig fuConfig,
     int frontendDepth,
     PEventLog? pEventLog = null
 ) : Gear(name, parent, esc) {
@@ -154,7 +155,6 @@ internal sealed class SuperscalarCore(
     private Counter _cyclesCounter = null!;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
-    private Counter _flushesCounter = null!;
 
     // True after fetching a faulting/undecodable instruction: fetch waits until the fault
     // reaches issue in program order (where it traps if it was correct-path) or a flush
@@ -165,6 +165,7 @@ internal sealed class SuperscalarCore(
     // Fetch blocked until this cycle while an I-cache/I-TLB miss is serviced.
     private long _fetchStallUntil;
     private IFetchTranslator? _fetchTranslator;
+    private Counter _flushesCounter = null!;
     private Counter? _icacheHitsCounter, _icacheMissesCounter;
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
     private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
@@ -177,13 +178,13 @@ internal sealed class SuperscalarCore(
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
 
-    // Blocking data cache: the LSU accepts no new memory operation until this cycle while
-    // a miss is outstanding (no hit-under-miss). Independent ALU work continues.
-    private long _lsuBusyUntil;
-
     // True when the current LSU-busy window was opened by a store miss (TMA MemStalls
     // attribution: loads vs stores).
     private bool _lsuBusyIsStore;
+
+    // Blocking data cache: the LSU accepts no new memory operation until this cycle while
+    // a miss is outstanding (no hit-under-miss). Independent ALU work continues.
+    private long _lsuBusyUntil;
     private ulong _nextInstrId = 1;
 
     // Latest cycle at which an issued load's result lands — "a load is in flight" for the
@@ -290,8 +291,7 @@ internal sealed class SuperscalarCore(
     public override void Reset() {
         base.Reset();
         ArchState.Reset();
-        ArchState.Pc = entryPoint;
-        _fetchPc = entryPoint;
+        ArchState.Pc = _fetchPc;
         _fetchQueue.Clear();
         _fetchFaulted = false;
         _fetchStallUntil = 0;
@@ -303,8 +303,7 @@ internal sealed class SuperscalarCore(
     }
 
     public override void Wind() {
-        ArchState.Pc = entryPoint;
-        _fetchPc = entryPoint;
+        ArchState.Pc = _fetchPc;
         Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Execute);
     }
 
@@ -382,7 +381,7 @@ internal sealed class SuperscalarCore(
             ToothClass cls = instr.Class;
             bool isMem = cls is ToothClass.Load or ToothClass.Store or ToothClass.Atomic;
             if (isMem && now < _lsuBusyUntil) break;
-            int fuSlot = Ooo.FuLatencyConfig.BudgetSlot(cls);
+            int fuSlot = FuLatencyConfig.BudgetSlot(cls);
             if (classIssued[fuSlot] >= fuConfig.CountFor(cls)) break;
 
             // Execute functionally at issue — exact for an in-order machine, since every
@@ -514,8 +513,9 @@ internal sealed class SuperscalarCore(
         if (issued * 2 < issueWidth) {
             _td.ExecStallCycles.Increment();
             if (issued == 0) {
-                if (now < _pendingLoadReadyCycle) { _td.MemStallLoadCycles.Increment(); }
-                else if (_lsuBusyIsStore && now < _lsuBusyUntil) { _td.MemStallStoreCycles.Increment(); }
+                if (now < _pendingLoadReadyCycle)
+                    _td.MemStallLoadCycles.Increment();
+                else if (_lsuBusyIsStore && now < _lsuBusyUntil) _td.MemStallStoreCycles.Increment();
             }
         }
 

@@ -73,8 +73,8 @@ public sealed record TrainConfig(
 
     // ── DaeTrain parameters ───────────────────────────────────────────────────
     int DaeLaneQueueDepth = 8, // per-lane instruction queue depth (Access / Execute lanes)
-    int FdipFtqCapacity = 0, // 0 = disabled; fetch-directed I-cache prefetch (Reinman/Calder/Austin, MICRO 1999)
-    bool Rdip = false, // RAS-directed I-cache prefetch (Kolli/Saidi/Wenisch, MICRO 2013)
+    int FdipFtqCapacity = 0,   // 0 = disabled; fetch-directed I-cache prefetch (Reinman/Calder/Austin, MICRO 1999)
+    bool Rdip = false,         // RAS-directed I-cache prefetch (Kolli/Saidi/Wenisch, MICRO 2013)
     string? RtlCachePolicyLib
         = null, // Verilator-compiled RTL replacement policy (native/RtlFu); applies to cache levels whose
     // geometry matches the model's elaborated sets×ways, others keep CacheReplacementPolicy

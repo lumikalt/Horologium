@@ -84,7 +84,10 @@ public sealed class CheckpointEntry {
     /// <summary>Cycle this entry was appended (entered the window); anchors the branch misprediction penalty.</summary>
     public long DispatchCycle { get; set; }
 
-    /// <summary>Snapshot of the train's backend/store-classified cycle count at append; see <see cref="RobEntry.CpiStolenAtDispatch" />.</summary>
+    /// <summary>
+    ///     Snapshot of the train's backend/store-classified cycle count at append; see
+    ///     <see cref="RobEntry.CpiStolenAtDispatch" />.
+    /// </summary>
     public long CpiStolenAtDispatch { get; set; }
 
     /// <summary>Deepest memory-hierarchy level this load/atomic missed at execute time.</summary>

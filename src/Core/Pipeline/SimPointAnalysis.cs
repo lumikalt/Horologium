@@ -11,11 +11,11 @@ namespace Pipeline;
 ///         Attached to a (typically functional single-cycle) train as an
 ///         <see cref="ICommitObserver" />, it partitions the committed instruction stream
 ///         into fixed-length intervals and records, per interval, how many instructions ran
-///         inside each basic block (block-entry count × block length, accumulated directly
-///         as instructions — the paper's length weighting). Blocks are identified
+///         inside each basic block. (Block-entry count × block length, accumulated directly
+///         as instructions — the paper's length weighting.) Blocks are identified
 ///         dynamically: a block starts at the first instruction after a control-flow
 ///         instruction or a discontinuous PC (trap redirect), is keyed by its start PC, and
-///         ends at the next control-flow instruction. Static decode information is memoised
+///         ends at the next control-flow instruction. Static decode information is memoized
 ///         per PC, so profiling overhead stays negligible.
 ///     </para>
 /// </summary>
@@ -30,7 +30,7 @@ public sealed class BbvProfiler(IDecoder decoder, long intervalSize) : ICommitOb
     private long _intervalInstructions;
 
     /// <summary>Committed instructions per interval (the paper uses 100 M; tests use small values).</summary>
-    public long IntervalSize { get; } = intervalSize > 0
+    private long IntervalSize { get; } = intervalSize > 0
         ? intervalSize
         : throw new ArgumentOutOfRangeException(nameof(intervalSize));
 
@@ -126,8 +126,7 @@ public sealed record SimPointResult(
     int K,
     IReadOnlyList<int> Phases,
     IReadOnlyList<SimulationPoint> Points,
-    int SingleSimulationPoint,
-    IReadOnlyList<double> BicByK
+    int SingleSimulationPoint
 ) {
     public override string ToString() {
         var sb = new StringBuilder();
@@ -155,7 +154,7 @@ public static class SimPointAnalysis {
     ///     Pick the smallest k whose BIC reaches this fraction of the spread between the
     ///     worst and best score seen (paper: 0.9).
     /// </param>
-    /// <param name="seed">Seed for the projection matrix and k-means initialisation.</param>
+    /// <param name="seed">Seed for the projection matrix and k-means initialization.</param>
     public static SimPointResult Analyze(
         IReadOnlyList<IReadOnlyDictionary<ulong, long>> intervalBbvs,
         int dimensions = 15,
@@ -214,7 +213,7 @@ public static class SimPointAnalysis {
         // the projected space); weight = cluster share of all intervals.
         var points = new List<SimulationPoint>();
         for (var c = 0; c < chosenK; c++) {
-            var bestIdx = -1;
+            int bestIdx = -1;
             double bestDist = double.PositiveInfinity;
             var members = 0;
             for (var i = 0; i < n; i++) {
@@ -245,12 +244,12 @@ public static class SimPointAnalysis {
             }
         }
 
-        return new SimPointResult(n, chosenK, phases, points, single, bic[1..(kLimit + 1)]);
+        return new SimPointResult(n, chosenK, phases, points, single);
     }
 
-    // Normalizes each BBV to sum 1 (the paper's proportion-of-time normalisation) and
+    // Normalizes each BBV to sum 1 (the paper's proportion-of-time normalization) and
     // projects it through a random matrix with entries uniform in [-1, 1]. The matrix is
-    // never materialised: entry (block, dim) is derived from a stable hash of the block's
+    // never materialized: entry (block, dim) is derived from a stable hash of the block's
     // start PC, the dimension, and the seed, so arbitrarily many static blocks cost nothing.
     private static double[][] Project(
         IReadOnlyList<IReadOnlyDictionary<ulong, long>> intervals,
@@ -260,8 +259,7 @@ public static class SimPointAnalysis {
         var projected = new double[intervals.Count][];
         for (var i = 0; i < intervals.Count; i++) {
             var v = new double[dimensions];
-            double total = 0;
-            foreach (long weight in intervals[i].Values) total += weight;
+            double total = intervals[i].Values.Aggregate<long, double>(0, (current, weight) => current + weight);
             if (total > 0)
                 foreach ((ulong block, long weight) in intervals[i]) {
                     double share = weight / total;
@@ -276,14 +274,14 @@ public static class SimPointAnalysis {
 
     // SplitMix64 over (block, dimension, seed) → uniform double in [-1, 1].
     private static double ProjectionEntry(ulong block, int dimension, int seed) {
-        ulong z = block + 0x9E3779B97F4A7C15UL * ((ulong)(uint)dimension + 1) + (ulong)(uint)seed;
+        ulong z = block + 0x9E3779B97F4A7C15UL * ((ulong)(uint)dimension + 1) + (uint)seed;
         z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
         z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
         z ^= z >> 31;
         return z / (double)ulong.MaxValue * 2.0 - 1.0;
     }
 
-    // Standard k-means (paper section 4.2.2): centers initialised to k distinct random data
+    // Standard k-means (paper section 4.2.2): centers initialized to k distinct random data
     // points, then alternate membership assignment and centroid update until stable.
     private static (int[] Assignment, double[][] Centroids) KMeans(double[][] data, int k, Random rng) {
         int n = data.Length, d = data[0].Length;
@@ -371,13 +369,6 @@ public static class SimPointAnalysis {
         return likelihood - parameters / 2.0 * Math.Log(n);
     }
 
-    private static double SquaredDistance(double[] a, double[] b) {
-        double sum = 0;
-        for (var i = 0; i < a.Length; i++) {
-            double diff = a[i] - b[i];
-            sum += diff * diff;
-        }
-
-        return sum;
-    }
+    private static double SquaredDistance(double[] a, double[] b) =>
+        a.Select((t, i) => t - b[i]).Sum(diff => diff * diff);
 }
