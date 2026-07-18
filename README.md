@@ -386,7 +386,16 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   rename (v1 is scalar-only); the per-checkpoint entry list with captured result values is simulator bookkeeping
   the hardware wouldn't need — under aggressive reclamation the PRF slot may be legally reused before its
   checkpoint retires, so bulk commit syncs the separate `IArchState` mirror from captured values instead. Dials:
-  `checkpoints_created/retired`, `recoveries`, `covhd_squashed`, `cfp_slice_instructions`, `cfp_reinsertions`.
+  `checkpoints_created/retired`, `recoveries`, `covhd_squashed`, `cfp_slice_instructions`, `cfp_reinsertions`, plus
+  the full TMA (`td_*`) and CPI-stack (`cpi_*`) sets described in the analysis sections. Three liveness rules keep
+  bulk commit deadlock-free on real workloads: a checkpoint never holds more loads (stores) than the LQ (HSQ)
+  capacity, never accepts appends behind a started commit cursor (checkpoint opening also precedes the
+  free-register stall, so a fully-committed lone checkpoint can always gain the successor it needs to retire and
+  release its snapshot's register references), and a serializing instruction sits alone in its epoch (a fence
+  sharing a checkpoint with a younger load would deadlock: the load's issue gates on the fence committing, which
+  requires the load to complete). Store sets should stay enabled: violation recovery re-executes the whole
+  checkpoint, so without memory-dependence learning the same load can re-violate forever. Sweeps select the train
+  with `"pipeline": "cpr"` (shared OoO knobs: width, IQ, physical registers, predictor, caches, FU latencies).
 
 The five-stage pipeline timing: an instruction is fetched at cycle T, decoded at T+1, executed at T+2, accesses memory
 at T+3, and writes back at T+4. Writeback is scheduled at `Phase.Writeback` (6) before Decode runs at `Phase.Commit` (
@@ -948,8 +957,8 @@ flag.
 
 ### Top-Down Microarchitecture Analysis (Pipeline/TopDownAnalysis)
 
-`OooeTrain` records the Top-Down Analysis slot-accounting events (Yasin, ISPASS 2014) at its dispatch stage — the
-frontend/backend border: `td_total_slots` (issueWidth × cycles), `td_slots_issued`, `td_fetch_bubbles` (unutilized
+`OooeTrain` and `CprTrain` record the Top-Down Analysis slot-accounting events (Yasin, ISPASS 2014) at their
+dispatch stage — the frontend/backend border: `td_total_slots` (issueWidth × cycles), `td_slots_issued`, `td_fetch_bubbles` (unutilized
 dispatch slots with no backend stall; I-fetch miss stall cycles count width slots each), `td_recovery_bubbles`
 (flush/squash recovery cycles), plus cycle-denominated level-2 events (`td_fetch_latency_cycles`,
 `td_exec_stall_cycles`, `td_memstall_load_cycles`, `td_memstall_store_cycles`). Level-1 dials classify every issue
@@ -963,7 +972,7 @@ paper's ExecutionStalls heuristic). All ten `td_*` dials flow through `Experimen
 
 ### CPI stacks via interval analysis (Pipeline/CpiStackAnalysis)
 
-`OooeTrain` also builds interval-analysis CPI stacks (Eyerman, Eeckhout, Karkhanis & Smith, ASPLOS 2006 — the
+`OooeTrain` and `CprTrain` also build interval-analysis CPI stacks (Eyerman, Eeckhout, Karkhanis & Smith, ASPLOS 2006 — the
 counter architecture Sniper's CPI stacks build on; interval model in their ACM TOCS 2009 paper). Total CPI decomposes
 additively into a **base** plus per-miss-event components (`cpi_*_cycles` counters, `cpi_*` dials): L1/L2/L3 I-cache
 and I-TLB miss delays, the branch misprediction penalty, L1/L2/L3 D-cache and D-TLB long-miss stalls, store
@@ -975,8 +984,12 @@ components) plus dispatch-empty refill cycles; and backend completion stalls are
 backpressures dispatch while an incomplete instruction blocks the ROB head, classified by the deepest level the
 blocking load missed (recorded per-load at execute) or as a resource stall for non-loads — the paper's "ROB full"
 trigger is widened to include IQ/LQ/SQ backpressure since this machine's per-class issue queues are the binding
-window resource for serialized chains. `CpiStack.FromSnapshot(snapshot)` computes the stack from any pipeline
-snapshot (counter-based, so warmup/ROI-window accurate); base + components equals total CPI by construction.
+window resource for serialized chains. On `CprTrain` the same accounting maps onto checkpoints: window-entry
+stamps are taken when rename appends the checkpoint entry, the "blocked head" is the head checkpoint's oldest
+*incomplete* entry (bulk commit waits on the slowest member, unlike a ROB head), the branch penalty window posts
+at checkpoint rollback, and non-branch rollbacks (memory-order violations) plus full flushes count as machine
+clears. `CpiStack.FromSnapshot(snapshot)` computes the stack from any pipeline snapshot (counter-based, so
+warmup/ROI-window accurate); base + components equals total CPI by construction.
 
 ### Architecture scripting and checkpointing (Script/)
 

@@ -155,6 +155,58 @@ public sealed record CpiStack(
         );
     }
 
+    /// <summary>
+    ///     Registers the eleven CPI-stack lost-cycle counters and twelve derived dials on a
+    ///     train's DialBoard. <paramref name="stack" /> is the train's live computation over
+    ///     those counters; it is evaluated lazily at dial read time, so it may safely
+    ///     reference the returned holder.
+    /// </summary>
+    public static CpiStackCounters RegisterCounters(DialBoard dials, Func<CpiStack> stack) {
+        var counters = new CpiStackCounters {
+            L1I = dials.AddCounter(CpiStack.L1ICounter, "CPI stack: correct-path L1 I-cache miss cycles"),
+            L2I = dials.AddCounter(CpiStack.L2ICounter, "CPI stack: correct-path L2 I-cache miss cycles"),
+            L3I = dials.AddCounter(CpiStack.L3ICounter, "CPI stack: correct-path L3 I-cache miss cycles"),
+            ITlb = dials.AddCounter(CpiStack.ITlbCounter, "CPI stack: correct-path I-TLB miss cycles"),
+            Bpred = dials.AddCounter(
+                CpiStack.BpredCounter,
+                "CPI stack: branch misprediction cycles (window residency of the mispredicted branch + refill)"
+            ),
+            L1D = dials.AddCounter(
+                CpiStack.L1DCounter, "CPI stack: backend-blocked cycles on a head load that missed only L1D"
+            ),
+            L2D = dials.AddCounter(
+                CpiStack.L2DCounter, "CPI stack: backend-blocked cycles on a head load that missed through L2D"
+            ),
+            L3D = dials.AddCounter(
+                CpiStack.L3DCounter, "CPI stack: backend-blocked cycles on a head load that missed through L3D"
+            ),
+            DTlb = dials.AddCounter(
+                CpiStack.DTlbCounter, "CPI stack: backend-blocked cycles on a head load that missed the D-TLB"
+            ),
+            Store = dials.AddCounter(CpiStack.StoreCounter, "CPI stack: cycles frozen on post-commit store write misses"),
+            Resource = dials.AddCounter(
+                CpiStack.ResourceCounter,
+                "CPI stack: backend-blocked cycles on a long-latency / dependence-stalled head (resource stalls)"
+            ),
+        };
+
+        dials.AddDial("cpi_base", () => stack().Base, "CPI stack: base (steady-state) CPI");
+        dials.AddDial("cpi_l1i", () => stack().L1ICache, "CPI stack: L1 I-cache miss component");
+        dials.AddDial("cpi_l2i", () => stack().L2ICache, "CPI stack: L2 I-cache miss component");
+        dials.AddDial("cpi_l3i", () => stack().L3ICache, "CPI stack: L3 I-cache miss component");
+        dials.AddDial("cpi_itlb", () => stack().ITlb, "CPI stack: I-TLB miss component");
+        dials.AddDial("cpi_bpred", () => stack().BranchMisprediction, "CPI stack: branch misprediction component");
+        dials.AddDial("cpi_l1d", () => stack().L1DCache, "CPI stack: L1 D-cache miss component");
+        dials.AddDial("cpi_l2d", () => stack().L2DCache, "CPI stack: L2 D-cache miss component");
+        dials.AddDial("cpi_l3d", () => stack().L3DCache, "CPI stack: L3 D-cache miss component");
+        dials.AddDial("cpi_dtlb", () => stack().DTlb, "CPI stack: D-TLB miss component");
+        dials.AddDial("cpi_store", () => stack().Store, "CPI stack: store write-stall component");
+        dials.AddDial(
+            "cpi_resource", () => stack().ResourceStall, "CPI stack: long-latency unit / dependence stall component"
+        );
+        return counters;
+    }
+
     public override string ToString() {
         var sb = new StringBuilder();
         sb.AppendLine($"CPI stack ({RetiredInstructions:N0} instructions, {TotalCycles:N0} cycles, CPI {Total:F3})");
@@ -176,4 +228,22 @@ public sealed record CpiStack(
         Row("resource", ResourceStall);
         return sb.ToString().TrimEnd();
     }
+}
+
+/// <summary>
+///     The eleven CPI-stack lost-cycle counters a train records; created by
+///     <see cref="CpiStack.RegisterCounters" />.
+/// </summary>
+public sealed class CpiStackCounters {
+    public required Counter L1I { get; init; }
+    public required Counter L2I { get; init; }
+    public required Counter L3I { get; init; }
+    public required Counter ITlb { get; init; }
+    public required Counter Bpred { get; init; }
+    public required Counter L1D { get; init; }
+    public required Counter L2D { get; init; }
+    public required Counter L3D { get; init; }
+    public required Counter DTlb { get; init; }
+    public required Counter Store { get; init; }
+    public required Counter Resource { get; init; }
 }

@@ -135,8 +135,88 @@ public sealed record TopDownBreakdown(
             Get(TopDownBreakdown.MemStallLoadCyclesCounter),
             Get(TopDownBreakdown.MemStallStoreCyclesCounter),
             Get("branch_misses"),
-            Get("flushes")
+            // CprTrain counts mispredict/violation rollbacks as "recoveries" and reserves
+            // "flushes" for trap/interrupt/mret; OooeTrain has no "recoveries" counter.
+            Get("flushes") + Get("recoveries")
         );
+    }
+
+    /// <summary>
+    ///     Registers the eight TMA event counters and ten derived dials on a train's DialBoard.
+    ///     <paramref name="breakdown" /> is the train's live computation over those counters
+    ///     (plus its own cycles/retired/branch/flush counters); it is evaluated lazily at dial
+    ///     read time, so it may safely reference the returned holder.
+    /// </summary>
+    public static TopDownCounters RegisterCounters(DialBoard dials, Func<TopDownBreakdown> breakdown) {
+        var counters = new TopDownCounters {
+            TotalSlots = dials.AddCounter(
+                TopDownBreakdown.TotalSlotsCounter, "TMA TotalSlots: issue-pipeline slots (issueWidth × cycles)"
+            ),
+            SlotsIssued = dials.AddCounter(
+                TopDownBreakdown.SlotsIssuedCounter,
+                "TMA SlotsIssued: slots that dispatched a uop into the backend (wrong-path included)"
+            ),
+            FetchBubbles = dials.AddCounter(
+                TopDownBreakdown.FetchBubblesCounter,
+                "TMA FetchBubbles: unutilized dispatch slots while there was no backend stall"
+            ),
+            RecoveryBubbles = dials.AddCounter(
+                TopDownBreakdown.RecoveryBubblesCounter,
+                "TMA RecoveryBubbles: dispatch slots blocked while recovering from a flush/squash"
+            ),
+            FetchLatencyCycles = dials.AddCounter(
+                TopDownBreakdown.FetchLatencyCyclesCounter,
+                "TMA FetchBubbles[>=W]: cycles with zero uops delivered and no backend stall"
+            ),
+            ExecStallCycles = dials.AddCounter(
+                TopDownBreakdown.ExecStallCyclesCounter,
+                "TMA ExecutionStalls: cycles with fewer than issueWidth/2 uops starting execution"
+            ),
+            MemStallLoadCycles = dials.AddCounter(
+                TopDownBreakdown.MemStallLoadCyclesCounter,
+                "TMA MemStalls.AnyLoad: no-execute cycles with at least one in-flight incomplete load"
+            ),
+            MemStallStoreCycles = dials.AddCounter(
+                TopDownBreakdown.MemStallStoreCyclesCounter,
+                "TMA MemStalls.Stores: cycles frozen on store-commit write misses"
+            ),
+        };
+
+        dials.AddDial("td_frontend_bound", () => breakdown().FrontendBound, "TMA level 1: fetch bubbles / total slots");
+        dials.AddDial(
+            "td_bad_speculation", () => breakdown().BadSpeculation,
+            "TMA level 1: wrong-path issued slots + recovery bubbles / total slots"
+        );
+        dials.AddDial("td_retiring", () => breakdown().Retiring, "TMA level 1: retired slots / total slots");
+        dials.AddDial(
+            "td_backend_bound", () => breakdown().BackendBound,
+            "TMA level 1: residual slots (backend-stalled dispatch)"
+        );
+        dials.AddDial(
+            "td_fetch_latency_bound", () => breakdown().FetchLatencyBound,
+            "TMA level 2: whole-cycle fetch starvation / cycles"
+        );
+        dials.AddDial(
+            "td_fetch_bandwidth_bound", () => breakdown().FetchBandwidthBound,
+            "TMA level 2: frontend bound minus fetch latency bound"
+        );
+        dials.AddDial(
+            "td_branch_mispredicts", () => breakdown().BranchMispredicts,
+            "TMA level 2: bad-speculation share attributed to branch mispredictions"
+        );
+        dials.AddDial(
+            "td_machine_clears", () => breakdown().MachineClears,
+            "TMA level 2: bad-speculation share attributed to non-branch flushes"
+        );
+        dials.AddDial(
+            "td_memory_bound", () => breakdown().MemoryBound,
+            "TMA level 2: execution-stall cycles pending on loads/stores / cycles"
+        );
+        dials.AddDial(
+            "td_core_bound", () => breakdown().CoreBound,
+            "TMA level 2: execution-stall cycles / cycles, minus memory bound"
+        );
+        return counters;
     }
 
     public override string ToString() {
@@ -154,4 +234,19 @@ public sealed record TopDownBreakdown(
         sb.Append($"    Core Bound       {CoreBound,7:P1} (of cycles)");
         return sb.ToString();
     }
+}
+
+/// <summary>
+///     The eight TMA event counters a train records; created by
+///     <see cref="TopDownBreakdown.RegisterCounters" />.
+/// </summary>
+public sealed class TopDownCounters {
+    public required Counter TotalSlots { get; init; }
+    public required Counter SlotsIssued { get; init; }
+    public required Counter FetchBubbles { get; init; }
+    public required Counter RecoveryBubbles { get; init; }
+    public required Counter FetchLatencyCycles { get; init; }
+    public required Counter ExecStallCycles { get; init; }
+    public required Counter MemStallLoadCycles { get; init; }
+    public required Counter MemStallStoreCycles { get; init; }
 }

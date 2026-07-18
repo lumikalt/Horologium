@@ -596,123 +596,29 @@ internal sealed class OoOPipelineCore : Gear {
 
         // ── Top-Down Microarchitecture Analysis (Yasin, ISPASS 2014) ──────────────
         // Slot accounting at the dispatch stage, this machine's frontend/backend border.
-        _tdTotalSlotsCounter = Dials.AddCounter(
-            TopDownBreakdown.TotalSlotsCounter, "TMA TotalSlots: issue-pipeline slots (issueWidth × cycles)"
-        );
-        _tdSlotsIssuedCounter = Dials.AddCounter(
-            TopDownBreakdown.SlotsIssuedCounter,
-            "TMA SlotsIssued: slots that dispatched a uop into the backend (wrong-path included)"
-        );
-        _tdFetchBubblesCounter = Dials.AddCounter(
-            TopDownBreakdown.FetchBubblesCounter,
-            "TMA FetchBubbles: unutilized dispatch slots while there was no backend stall"
-        );
-        _tdRecoveryBubblesCounter = Dials.AddCounter(
-            TopDownBreakdown.RecoveryBubblesCounter,
-            "TMA RecoveryBubbles: dispatch slots blocked while recovering from a flush/squash"
-        );
-        _tdFetchLatencyCyclesCounter = Dials.AddCounter(
-            TopDownBreakdown.FetchLatencyCyclesCounter,
-            "TMA FetchBubbles[>=W]: cycles with zero uops delivered and no backend stall"
-        );
-        _tdExecStallCyclesCounter = Dials.AddCounter(
-            TopDownBreakdown.ExecStallCyclesCounter,
-            "TMA ExecutionStalls: cycles with fewer than issueWidth/2 uops starting execution"
-        );
-        _tdMemStallLoadCyclesCounter = Dials.AddCounter(
-            TopDownBreakdown.MemStallLoadCyclesCounter,
-            "TMA MemStalls.AnyLoad: no-execute cycles with at least one in-flight incomplete load"
-        );
-        _tdMemStallStoreCyclesCounter = Dials.AddCounter(
-            TopDownBreakdown.MemStallStoreCyclesCounter,
-            "TMA MemStalls.Stores: cycles frozen on store-commit write misses"
-        );
-        Dials.AddDial(
-            "td_frontend_bound", () => ComputeTopDown().FrontendBound,
-            "TMA level 1: fetch bubbles / total slots"
-        );
-        Dials.AddDial(
-            "td_bad_speculation", () => ComputeTopDown().BadSpeculation,
-            "TMA level 1: wrong-path issued slots + recovery bubbles / total slots"
-        );
-        Dials.AddDial(
-            "td_retiring", () => ComputeTopDown().Retiring,
-            "TMA level 1: retired slots / total slots"
-        );
-        Dials.AddDial(
-            "td_backend_bound", () => ComputeTopDown().BackendBound,
-            "TMA level 1: residual slots (backend-stalled dispatch)"
-        );
-        Dials.AddDial(
-            "td_fetch_latency_bound", () => ComputeTopDown().FetchLatencyBound,
-            "TMA level 2: whole-cycle fetch starvation / cycles"
-        );
-        Dials.AddDial(
-            "td_fetch_bandwidth_bound", () => ComputeTopDown().FetchBandwidthBound,
-            "TMA level 2: frontend bound minus fetch latency bound"
-        );
-        Dials.AddDial(
-            "td_branch_mispredicts", () => ComputeTopDown().BranchMispredicts,
-            "TMA level 2: bad-speculation share attributed to branch mispredictions"
-        );
-        Dials.AddDial(
-            "td_machine_clears", () => ComputeTopDown().MachineClears,
-            "TMA level 2: bad-speculation share attributed to non-branch flushes"
-        );
-        Dials.AddDial(
-            "td_memory_bound", () => ComputeTopDown().MemoryBound,
-            "TMA level 2: execution-stall cycles pending on loads/stores / cycles"
-        );
-        Dials.AddDial(
-            "td_core_bound", () => ComputeTopDown().CoreBound,
-            "TMA level 2: execution-stall cycles / cycles, minus memory bound"
-        );
+        TopDownCounters td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
+        _tdTotalSlotsCounter = td.TotalSlots;
+        _tdSlotsIssuedCounter = td.SlotsIssued;
+        _tdFetchBubblesCounter = td.FetchBubbles;
+        _tdRecoveryBubblesCounter = td.RecoveryBubbles;
+        _tdFetchLatencyCyclesCounter = td.FetchLatencyCycles;
+        _tdExecStallCyclesCounter = td.ExecStallCycles;
+        _tdMemStallLoadCyclesCounter = td.MemStallLoadCycles;
+        _tdMemStallStoreCyclesCounter = td.MemStallStoreCycles;
 
         // ── CPI stack via interval analysis (Eyerman et al., ASPLOS 2006) ──────────
-        _cpiL1ICounter = Dials.AddCounter(CpiStack.L1ICounter, "CPI stack: correct-path L1 I-cache miss cycles");
-        _cpiL2ICounter = Dials.AddCounter(CpiStack.L2ICounter, "CPI stack: correct-path L2 I-cache miss cycles");
-        _cpiL3ICounter = Dials.AddCounter(CpiStack.L3ICounter, "CPI stack: correct-path L3 I-cache miss cycles");
-        _cpiITlbCounter = Dials.AddCounter(CpiStack.ITlbCounter, "CPI stack: correct-path I-TLB miss cycles");
-        _cpiBpredCounter = Dials.AddCounter(
-            CpiStack.BpredCounter,
-            "CPI stack: branch misprediction cycles (ROB residency of the mispredicted branch + refill)"
-        );
-        _cpiL1DCounter = Dials.AddCounter(
-            CpiStack.L1DCounter, "CPI stack: full-ROB cycles blocked on a head load that missed only L1D"
-        );
-        _cpiL2DCounter = Dials.AddCounter(
-            CpiStack.L2DCounter, "CPI stack: full-ROB cycles blocked on a head load that missed through L2D"
-        );
-        _cpiL3DCounter = Dials.AddCounter(
-            CpiStack.L3DCounter, "CPI stack: full-ROB cycles blocked on a head load that missed through L3D"
-        );
-        _cpiDTlbCounter = Dials.AddCounter(
-            CpiStack.DTlbCounter, "CPI stack: full-ROB cycles blocked on a head load that missed the D-TLB"
-        );
-        _cpiStoreCounter = Dials.AddCounter(
-            CpiStack.StoreCounter, "CPI stack: cycles frozen on post-commit store write misses"
-        );
-        _cpiResourceCounter = Dials.AddCounter(
-            CpiStack.ResourceCounter,
-            "CPI stack: full-ROB cycles blocked on a long-latency / dependence-stalled head (resource stalls)"
-        );
-        Dials.AddDial("cpi_base", () => ComputeCpiStack().Base, "CPI stack: base (steady-state) CPI");
-        Dials.AddDial("cpi_l1i", () => ComputeCpiStack().L1ICache, "CPI stack: L1 I-cache miss component");
-        Dials.AddDial("cpi_l2i", () => ComputeCpiStack().L2ICache, "CPI stack: L2 I-cache miss component");
-        Dials.AddDial("cpi_l3i", () => ComputeCpiStack().L3ICache, "CPI stack: L3 I-cache miss component");
-        Dials.AddDial("cpi_itlb", () => ComputeCpiStack().ITlb, "CPI stack: I-TLB miss component");
-        Dials.AddDial(
-            "cpi_bpred", () => ComputeCpiStack().BranchMisprediction, "CPI stack: branch misprediction component"
-        );
-        Dials.AddDial("cpi_l1d", () => ComputeCpiStack().L1DCache, "CPI stack: L1 D-cache miss component");
-        Dials.AddDial("cpi_l2d", () => ComputeCpiStack().L2DCache, "CPI stack: L2 D-cache miss component");
-        Dials.AddDial("cpi_l3d", () => ComputeCpiStack().L3DCache, "CPI stack: L3 D-cache miss component");
-        Dials.AddDial("cpi_dtlb", () => ComputeCpiStack().DTlb, "CPI stack: D-TLB miss component");
-        Dials.AddDial("cpi_store", () => ComputeCpiStack().Store, "CPI stack: store write-stall component");
-        Dials.AddDial(
-            "cpi_resource", () => ComputeCpiStack().ResourceStall,
-            "CPI stack: long-latency unit / dependence stall component"
-        );
+        CpiStackCounters cpi = CpiStack.RegisterCounters(Dials, ComputeCpiStack);
+        _cpiL1ICounter = cpi.L1I;
+        _cpiL2ICounter = cpi.L2I;
+        _cpiL3ICounter = cpi.L3I;
+        _cpiITlbCounter = cpi.ITlb;
+        _cpiBpredCounter = cpi.Bpred;
+        _cpiL1DCounter = cpi.L1D;
+        _cpiL2DCounter = cpi.L2D;
+        _cpiL3DCounter = cpi.L3D;
+        _cpiDTlbCounter = cpi.DTlb;
+        _cpiStoreCounter = cpi.Store;
+        _cpiResourceCounter = cpi.Resource;
 
         _anyCache = ILayers.Cache is not null || DLayers.Cache is not null
                                               || ILayers.L2Cache is not null || DLayers.L2Cache is not null

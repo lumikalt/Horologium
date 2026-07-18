@@ -79,6 +79,20 @@ public sealed class CheckpointEntry {
     public int LqIdx { get; set; } = -1;
     public int SqIdx { get; set; } = -1;
 
+    // ── CPI-stack accounting (Eyerman et al., ASPLOS 2006); mirrors RobEntry ─────────────
+
+    /// <summary>Cycle this entry was appended (entered the window); anchors the branch misprediction penalty.</summary>
+    public long DispatchCycle { get; set; }
+
+    /// <summary>Snapshot of the train's backend/store-classified cycle count at append; see <see cref="RobEntry.CpiStolenAtDispatch" />.</summary>
+    public long CpiStolenAtDispatch { get; set; }
+
+    /// <summary>Deepest memory-hierarchy level this load/atomic missed at execute time.</summary>
+    public CpiMissClass DMissClass { get; set; }
+
+    /// <summary>sFMT miss bit: this instruction's fetch suffered an I-cache/I-TLB miss.</summary>
+    public bool IcacheMiss { get; set; }
+
     internal void Clear() {
         Valid = false;
         Pc = 0;
@@ -105,6 +119,10 @@ public sealed class CheckpointEntry {
         IsStore = false;
         LqIdx = -1;
         SqIdx = -1;
+        DispatchCycle = 0;
+        CpiStolenAtDispatch = 0;
+        DMissClass = CpiMissClass.None;
+        IcacheMiss = false;
     }
 }
 

@@ -44,7 +44,10 @@ namespace Pipeline;
 ///             are released — and re-enter later through back-end (physical→physical) renaming.
 ///         </item>
 ///     </list>
-///     Scalar ISAs only in v1: vector/UVE instructions are rejected at rename.
+///     Scalar ISAs only in v1: vector/UVE instructions are rejected at rename. Store sets
+///     (<c>enableStoreSets</c>) should stay enabled on workloads with store-to-load traffic:
+///     violation recovery re-executes the whole checkpoint, so without memory-dependence
+///     learning the same load can re-violate indefinitely.
 /// </summary>
 public sealed class CprTrain : ISteppableTrain {
     private readonly CprPipelineCore _core;
@@ -196,10 +199,31 @@ internal sealed class CprPipelineCore : Gear {
     private Counter? _cacheMissStallsCounter;
     private Counter? _cfpReinsertionsCounter, _cfpSlicesCounter;
     private Counter _checkpointsCreatedCounter = null!;
+
+    // ── CPI-stack accounting (Eyerman et al., ASPLOS 2006); mirrors OoOPipelineCore ──
+    private Counter _cpiBpredCounter = null!;
+    private bool _cpiBpredRefill;
+    private Counter _cpiDTlbCounter = null!;
+    private Counter _cpiITlbCounter = null!;
+    private Counter _cpiL1DCounter = null!;
+    private Counter _cpiL1ICounter = null!;
+    private Counter _cpiL2DCounter = null!;
+    private Counter _cpiL2ICounter = null!;
+    private Counter _cpiL3DCounter = null!;
+    private Counter _cpiL3ICounter = null!;
+    private long _cpiPendingItlb, _cpiPendingL1I, _cpiPendingL2I, _cpiPendingL3I;
+    private Counter _cpiResourceCounter = null!;
+    private long _cpiStolenCycles;
+    private Counter _cpiStoreCounter = null!;
     private Counter _checkpointsRetiredCounter = null!;
     private Counter _covhdCounter = null!;
     private Counter _cyclesCounter = null!;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
+
+    // Backend backpressure flags from the previous cycle, consulted by the TMA/CPI-stack
+    // accounting at the top of RunCycle and in StepDispatch (dispatch and rename run later
+    // in the same tick, so their current-cycle state is not yet known there).
+    private bool _dispatchStalledPrevCycle;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
     private bool _fetchFaulted;
     private ulong _fetchPc;
@@ -208,6 +232,13 @@ internal sealed class CprPipelineCore : Gear {
     // Forced checkpoint at the first branch after a recovery, irrespective of confidence
     // (MICRO 2003 §4.1.1 forward-progress rule).
     private bool _forceCheckpointAtNextBranch;
+
+    // Forced checkpoint at the instruction after a serialized one, so a serialized
+    // instruction sits alone in its epoch. Without this, a fence and a younger load can
+    // share a checkpoint and deadlock: the load's issue is gated on the fence committing
+    // (HasPrecedingStoreLoadFence), but the fence only bulk-commits when the whole
+    // checkpoint — including that load — completes.
+    private bool _forceCheckpointAfterSerialized;
     private bool _fullFlushPending;
     private ulong _fullFlushTarget;
     private bool _halted;
@@ -235,6 +266,21 @@ internal sealed class CprPipelineCore : Gear {
     private ulong _recoveryReplayTarget;
     private ulong _recoveryTargetSeq;
 
+    // True when last cycle's StepRename was blocked mid-work (no free registers, checkpoint
+    // buffer full on a must-open, secondary-dest stall, or an active CFP slice drain) —
+    // backend backpressure that starves dispatch through no fault of the frontend.
+    private bool _renameBlockedPrevCycle;
+
+    // Load/store entries appended to the current tail checkpoint. A checkpoint holding more
+    // loads (stores) than the LQ (HSQ) can hold at once could never bulk-commit — its excess
+    // memory instructions could not dispatch until the checkpoint retires, which requires
+    // them to complete: a deadlock on branch-free memory-heavy code. Rename forces a new
+    // checkpoint before that point (a resource-bound analogue of the paper's
+    // completion-counter-overflow bound on checkpoint size).
+    private int _tailLoadEntries;
+    private ulong _tailSeqForCounts;
+    private int _tailStoreEntries;
+
     // Recorded-outcome replay after a branch recovery (MICRO 2003 §4.1.1): the b-th branch
     // fetched after the restart takes the previously resolved target instead of a prediction.
     private int _replayBranchesRemaining;
@@ -244,6 +290,17 @@ internal sealed class CprPipelineCore : Gear {
     // Cached to avoid a fresh Action allocation per simulated cycle.
     private Action? _runCycle;
     private Counter _stallsCounter = null!;
+
+    // Top-Down Microarchitecture Analysis slot accounting (Yasin, ISPASS 2014); see
+    // TopDownBreakdown for the metric formulas these feed.
+    private Counter _tdExecStallCyclesCounter = null!;
+    private Counter _tdFetchBubblesCounter = null!;
+    private Counter _tdFetchLatencyCyclesCounter = null!;
+    private Counter _tdMemStallLoadCyclesCounter = null!;
+    private Counter _tdMemStallStoreCyclesCounter = null!;
+    private Counter _tdRecoveryBubblesCounter = null!;
+    private Counter _tdSlotsIssuedCounter = null!;
+    private Counter _tdTotalSlotsCounter = null!;
 
     public CprPipelineCore(
         string name,
@@ -364,6 +421,35 @@ internal sealed class CprPipelineCore : Gear {
             "Instructions per cycle"
         );
 
+        // Top-Down Microarchitecture Analysis (Yasin, ISPASS 2014) and interval-analysis CPI
+        // stacks (Eyerman et al., ASPLOS 2006), mirroring OoOPipelineCore. The slot-accounting
+        // border is the dispatch stage (rename queue → issue queues); CPR's window is the
+        // checkpoint entry list, so "window entry" stamps are taken when rename appends the
+        // checkpoint entry, and the "blocked head" is the head checkpoint's first uncommitted
+        // entry.
+        TopDownCounters td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
+        _tdTotalSlotsCounter = td.TotalSlots;
+        _tdSlotsIssuedCounter = td.SlotsIssued;
+        _tdFetchBubblesCounter = td.FetchBubbles;
+        _tdRecoveryBubblesCounter = td.RecoveryBubbles;
+        _tdFetchLatencyCyclesCounter = td.FetchLatencyCycles;
+        _tdExecStallCyclesCounter = td.ExecStallCycles;
+        _tdMemStallLoadCyclesCounter = td.MemStallLoadCycles;
+        _tdMemStallStoreCyclesCounter = td.MemStallStoreCycles;
+
+        CpiStackCounters cpi = CpiStack.RegisterCounters(Dials, ComputeCpiStack);
+        _cpiL1ICounter = cpi.L1I;
+        _cpiL2ICounter = cpi.L2I;
+        _cpiL3ICounter = cpi.L3I;
+        _cpiITlbCounter = cpi.ITlb;
+        _cpiBpredCounter = cpi.Bpred;
+        _cpiL1DCounter = cpi.L1D;
+        _cpiL2DCounter = cpi.L2D;
+        _cpiL3DCounter = cpi.L3D;
+        _cpiDTlbCounter = cpi.DTlb;
+        _cpiStoreCounter = cpi.Store;
+        _cpiResourceCounter = cpi.Resource;
+
         _anyCache = ILayers.Cache is not null || DLayers.Cache is not null
                                               || ILayers.L2Cache is not null || DLayers.L2Cache is not null
                                               || ILayers.L3Cache is not null || DLayers.L3Cache is not null
@@ -422,10 +508,51 @@ internal sealed class CprPipelineCore : Gear {
     private void RunCycle() {
         if (_halted) return;
 
-        if (_anyCache) ChargeStallCycles(DrainAndChargeStalls());
+        if (_anyCache) {
+            (long iStalls, long dStalls) = DrainStalls();
+            ChargeStallCycles(iStalls + dStalls);
+            // TMA/CPI: I-fetch miss freeze = whole-cycle fetch starvation (frontend); leftover
+            // D-side stalls are store-commit write misses (backend memory / store component).
+            if (iStalls > 0) {
+                _tdFetchBubblesCounter.IncrementBy(iStalls * _issueWidth);
+                _tdFetchLatencyCyclesCounter.IncrementBy(iStalls);
+            }
+
+            if (dStalls > 0) {
+                _tdExecStallCyclesCounter.IncrementBy(dStalls);
+                _tdMemStallStoreCyclesCounter.IncrementBy(dStalls);
+                _cpiStoreCounter.IncrementBy(dStalls);
+                _cpiStolenCycles += dStalls;
+            }
+        }
 
         _cyclesCounter.Increment();
+        _tdTotalSlotsCounter.IncrementBy(_issueWidth);
         State.OnCycle();
+
+        // CPI stack (ASPLOS 2006, sections 4.2/4.3): a cycle where the backend backpressures
+        // dispatch or rename while an incomplete instruction blocks bulk commit is a backend
+        // completion stall, classified by the deepest cache level the blocking load missed —
+        // or as a long-latency/dependence resource stall otherwise. Unlike a ROB (whose head
+        // is the oldest incomplete instruction by construction), a checkpoint bulk-commits
+        // only when every entry completes, so the blocking instruction is the head
+        // checkpoint's oldest *incomplete* entry, found by scanning past the completed
+        // prefix. These cycles are excluded from any in-flight branch's misprediction
+        // penalty window via _cpiStolenCycles.
+        if ((_dispatchStalledPrevCycle || _renameBlockedPrevCycle)
+         && OldestIncompleteHeadEntry() is { } blockedHead) {
+            Counter blocked = blockedHead.IsLoad
+                ? blockedHead.DMissClass switch {
+                    CpiMissClass.L1D  => _cpiL1DCounter,
+                    CpiMissClass.L2D  => _cpiL2DCounter,
+                    CpiMissClass.L3D  => _cpiL3DCounter,
+                    CpiMissClass.DTlb => _cpiDTlbCounter,
+                    _                 => _cpiResourceCounter,
+                }
+                : _cpiResourceCounter;
+            blocked.Increment();
+            _cpiStolenCycles++;
+        }
 
         StepComplete();
         StepCommit();
@@ -441,6 +568,16 @@ internal sealed class CprPipelineCore : Gear {
         }
 
         if (_halted || _fullFlushPending || _recoveryPending) {
+            if (_fullFlushPending || _recoveryPending) {
+                // TMA RecoveryBubbles: the issue pipeline delivers nothing this cycle while the
+                // machine unwinds a checkpoint rollback or full flush (Bad Speculation).
+                _tdRecoveryBubblesCounter.IncrementBy(_issueWidth);
+                // CPI stack: discard provisional I-side miss cycles — the rollback proves the
+                // stalled fetches were wrong-path (their frozen cycles stay inside the
+                // mispredicted branch's penalty window).
+                _cpiPendingL1I = _cpiPendingL2I = _cpiPendingL3I = _cpiPendingItlb = 0;
+            }
+
             if (_fullFlushPending)
                 ApplyFullFlush();
             else if (_recoveryPending) ApplyRecovery();
@@ -739,6 +876,9 @@ internal sealed class CprPipelineCore : Gear {
     private void RetireEntry(Checkpoint cp, CheckpointEntry e) {
         if (e.LqIdx >= 0) _lq.Retire();
         if (e.SqIdx >= 0) _hsq.Retire();
+        // CPI stack: retiring an instruction carrying the sFMT miss bit proves its stalled
+        // fetch was correct-path — post the pending I-side miss cycles to the globals.
+        if (e.IcacheMiss) PostIcachePendings();
         _entryByInstrId.Remove(e.InstrId);
         cp.CommittedCount++;
         _retiredCounter.Increment();
@@ -758,14 +898,45 @@ internal sealed class CprPipelineCore : Gear {
             else { _inFlight[i] = (countdown, result); }
         }
 
-        // Stalls pending here are store-commit write misses (StepCommit ran earlier this cycle).
-        if (_anyCache) ChargeStallCycles(DLayers.ConsumeAllStalls());
+        // Stalls pending here are store-commit write misses (StepCommit ran earlier this
+        // cycle). TMA/CPI: frozen store-commit cycles are execution stalls pending on stores.
+        if (_anyCache) {
+            long storeStalls = DLayers.ConsumeAllStalls();
+            if (storeStalls > 0) {
+                ChargeStallCycles(storeStalls);
+                _tdExecStallCyclesCounter.IncrementBy(storeStalls);
+                _tdMemStallStoreCyclesCounter.IncrementBy(storeStalls);
+                _cpiStoreCounter.IncrementBy(storeStalls);
+                _cpiStolenCycles += storeStalls;
+            }
+        }
 
+        int executing = _execBuffer.Count;
         foreach (IssuedInstr issued in _execBuffer) {
             if (!_entryByInstrId.TryGetValue(issued.InstrId, out CheckpointEntry? entry)) continue; // squashed
 
+            // CPI stack: snapshot D-side miss counts around a load/atomic's execution so the
+            // access can be classified by the deepest level it missed (short L1 vs long
+            // L2/TLB backend misses). Consulted when this entry later blocks bulk commit.
+            bool classifyDMiss = _anyCache && issued.Instr.Class is ToothClass.Load or ToothClass.Atomic;
+            long dm1 = 0, dm2 = 0, dm3 = 0, dmt = 0;
+            if (classifyDMiss) {
+                dm1 = DLayers.Cache?.Misses ?? 0;
+                dm2 = DLayers.L2Cache?.Misses ?? 0;
+                dm3 = DLayers.L3Cache?.Misses ?? 0;
+                dmt = DLayers.Tlb?.Misses ?? 0;
+            }
+
             ulong lqSeqNo = entry.LqIdx >= 0 ? _lq.At(entry.LqIdx).SeqNo : 0;
             (ExecResult result, bool forwardPenalty) = ExecuteOne(issued, lqSeqNo);
+
+            if (classifyDMiss)
+                entry.DMissClass =
+                    DLayers.Tlb is { } dTlb && dTlb.Misses > dmt ? CpiMissClass.DTlb :
+                    DLayers.L3Cache is { } dl3 && dl3.Misses > dm3 ? CpiMissClass.L3D :
+                    DLayers.L2Cache is { } dl2 && dl2.Misses > dm2 ? CpiMissClass.L2D :
+                    DLayers.Cache is { } dl1 && dl1.Misses > dm1 ? CpiMissClass.L1D :
+                    CpiMissClass.None;
 
             // Register load disambiguation state at execute time so a later-resolving older store
             // can flag this load while its miss is still in flight.
@@ -809,6 +980,40 @@ internal sealed class CprPipelineCore : Gear {
         }
 
         _execBuffer.Clear();
+
+        // TMA ExecutionStalls / MemStalls.AnyLoad (Table 1): a cycle starting fewer than
+        // half the machine width in uops is an execution stall; when nothing at all started
+        // and a load is still in flight (including CFP slice-head loads awaiting their miss
+        // return), the stall is pending on memory rather than the core.
+        if (executing * 2 < _issueWidth) {
+            _tdExecStallCyclesCounter.Increment();
+            if (executing == 0 && AnyInFlightLoad()) _tdMemStallLoadCyclesCounter.Increment();
+        }
+    }
+
+    /// <summary>
+    ///     The head checkpoint's oldest incomplete entry — the instruction blocking bulk
+    ///     commit — or null when the head's uncommitted entries are all complete (waiting on
+    ///     the store port or a successor checkpoint, not on execution).
+    /// </summary>
+    private CheckpointEntry? OldestIncompleteHeadEntry() {
+        if (_cpList.IsEmpty) return null;
+        Checkpoint head = _cpList.Head;
+        for (int i = head.CommittedCount; i < head.Entries.Count; i++)
+            if (!head.Entries[i].IsComplete)
+                return head.Entries[i];
+
+        return null;
+    }
+
+    /// <summary>True when any in-flight FU countdown belongs to a load/atomic, or a CFP slice miss is pending.</summary>
+    private bool AnyInFlightLoad() {
+        if (_pendingSlices.Count > 0) return true;
+        foreach ((_, ExecResult result) in _inFlight)
+            if (_entryByInstrId.TryGetValue(result.InstrId, out CheckpointEntry? e) && e.IsLoad)
+                return true;
+
+        return false;
     }
 
     private (ExecResult Result, bool ForwardPenalty) ExecuteOne(IssuedInstr issued, ulong loadSeqNo) {
@@ -1286,6 +1491,7 @@ internal sealed class CprPipelineCore : Gear {
     // ── Dispatch ───────────────────────────────────────────────────────────────
 
     private void StepDispatch() {
+        var dispatched = 0;
         while (_renameQueue.Count > 0) {
             CprRenameEntry ri = _renameQueue.Peek();
             ITooth instr = ri.Decoded;
@@ -1337,9 +1543,30 @@ internal sealed class CprPipelineCore : Gear {
             FillDispatchSource(rs, 2, ri.P3);
 
             _renameQueue.Dequeue();
+            dispatched++;
         }
 
-        if (_renameQueue.Count > 0) _stallsCounter.Increment();
+        bool stalled = _renameQueue.Count > 0;
+        if (stalled) _stallsCounter.Increment();
+        _dispatchStalledPrevCycle = stalled;
+
+        // TMA slot accounting at the issue point (Table 1). Unutilized slots count as
+        // FetchBubbles only when there was no backend stall — a non-empty rename queue
+        // (IQ/LQ/SQ full) or a blocked rename stage (no free registers, checkpoint buffer
+        // full, CFP slice drain) means the backend could not have accepted more uops.
+        _tdSlotsIssuedCounter.IncrementBy(dispatched);
+        if (!stalled && !_renameBlockedPrevCycle && dispatched < _issueWidth) {
+            _tdFetchBubblesCounter.IncrementBy(_issueWidth - dispatched);
+            if (dispatched == 0) _tdFetchLatencyCyclesCounter.Increment();
+        }
+
+        // CPI stack: after a mispredicted-branch rollback, dispatch-empty cycles are the
+        // pipeline refill part of the misprediction penalty; charging stops at the first
+        // correct-path dispatch (ASPLOS 2006, section 4.1).
+        if (_cpiBpredRefill) {
+            if (dispatched > 0) { _cpiBpredRefill = false; }
+            else if (!stalled && !_renameBlockedPrevCycle) { _cpiBpredCounter.Increment(); }
+        }
     }
 
     private void FillDispatchSource(RsEntry rs, int index, int phys) {
@@ -1382,7 +1609,10 @@ internal sealed class CprPipelineCore : Gear {
         // The front end waits while a slice is actively draining back into the pipeline —
         // re-inserted slice instructions must win the scheduler-entry and free-register races
         // to guarantee forward progress (ASPLOS 2004 §4.1.3).
-        if (SliceDrainActive) return;
+        if (SliceDrainActive) {
+            _renameBlockedPrevCycle = true; // backend backpressure, not a frontend bubble
+            return;
+        }
 
         while (_decodeQueue.Count > 0 && _renameQueue.Count < _maxDecodeDepth) {
             FetchedInstr fi = _decodeQueue.Peek();
@@ -1395,7 +1625,11 @@ internal sealed class CprPipelineCore : Gear {
                 faultEntry.HasTrap = true;
                 faultEntry.Trap = fi.PreTrap;
                 faultEntry.IsComplete = true;
+                faultEntry.IcacheMiss = fi.IcacheMiss;
                 _cpList.Tail.MarkEntryComplete();
+                // Pre-trap entries never pass through dispatch but do retire: count the slot
+                // here so SlotsIssued − SlotsRetired stays consistent.
+                _tdSlotsIssuedCounter.Increment();
                 _decodeQueue.Dequeue();
                 continue;
             }
@@ -1407,13 +1641,17 @@ internal sealed class CprPipelineCore : Gear {
                 );
 
             int destArch = instr.DestinationRegister;
-            int reserve = _enableCfp ? _cfpReservedRegs : 0;
-            if (destArch > 0 && _rat.FreeCount <= reserve) break; // free registers exhausted (minus CFP reserve)
-
-            if (HasPendingSecondaryDest(instr.SourceRegisters, destArch)) break;
-
             bool isBranch = instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch;
             bool serialized = IsSerialized(instr.Class);
+            bool needsLq = instr.Class is ToothClass.Load or ToothClass.Atomic;
+            bool needsSq = instr.Class is ToothClass.Store or ToothClass.Atomic;
+            // Track memory entries per tail checkpoint; a fresh tail resets the counts.
+            if (_cpList is { IsEmpty: false, } && _cpList.Tail.Seq != _tailSeqForCounts) {
+                _tailSeqForCounts = _cpList.Tail.Seq;
+                _tailLoadEntries = 0;
+                _tailStoreEntries = 0;
+            }
+
             // An empty tail checkpoint (freshly opened, or reopened by a recovery whose restart
             // instruction this is) already checkpoints exactly this point: its snapshot was taken
             // at the current RAT state and nothing has renamed since. Reuse it instead of opening
@@ -1422,11 +1660,31 @@ internal sealed class CprPipelineCore : Gear {
             bool mustOpen = !tailEmpty
                          && (_cpList.IsEmpty
                           || serialized
+                          || _forceCheckpointAfterSerialized
                           || _cpList.Tail.Entries.Count >= _checkpointMaxInstructions
+                          // Never append behind a commit cursor: a fully-committed lone tail
+                          // can neither retire (no successor) nor be a valid recovery target
+                          // for entries appended after its instructions became architectural.
+                          || _cpList.Tail.CommittedCount > 0
+                          // Liveness bound: a checkpoint must never hold more loads (stores)
+                          // than the LQ (HSQ) capacity — see _tailLoadEntries.
+                          || (needsLq && _tailLoadEntries >= _lq.Capacity)
+                          || (needsSq && _tailStoreEntries >= _hsq.Capacity)
                           || (isBranch && _forceCheckpointAtNextBranch));
             bool wantOpen = !tailEmpty && isBranch && fi.WantsCheckpoint;
+            // The open must precede the free-register stall below: retiring a fully-committed
+            // head (which releases its RAT-snapshot references, the reclaim path that refills
+            // the free list) requires a successor checkpoint to exist. Checking registers
+            // first would deadlock — no free register without retiring the head, no retiring
+            // the head without the successor this open creates. On the stalled retry the tail
+            // is empty, so no duplicate checkpoint is opened.
             if (!EnsureCheckpoint(fi.Pc, mustOpen, wantOpen)) break; // checkpoint buffer full on a must-open
             if (isBranch) _forceCheckpointAtNextBranch = false;
+
+            int reserve = _enableCfp ? _cfpReservedRegs : 0;
+            if (destArch > 0 && _rat.FreeCount <= reserve) break; // free registers exhausted (minus CFP reserve)
+
+            if (HasPendingSecondaryDest(instr.SourceRegisters, destArch)) break;
 
             // Source lookup before destination rename (Tomasulo invariant), adding one
             // use-counter reference per renamed reader (MICRO 2003 §4.3).
@@ -1453,10 +1711,28 @@ internal sealed class CprPipelineCore : Gear {
             entry.IsStore = instr.Class == ToothClass.Store;
             entry.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             entry.IsHalt = instr.Class == ToothClass.Halt;
+            entry.IcacheMiss = fi.IcacheMiss;
+
+            if (_cpList.Tail.Seq != _tailSeqForCounts) {
+                _tailSeqForCounts = _cpList.Tail.Seq;
+                _tailLoadEntries = 0;
+                _tailStoreEntries = 0;
+            }
+
+            if (needsLq) _tailLoadEntries++;
+            if (needsSq) _tailStoreEntries++;
+
+            // Refreshed on every successful rename: true only while the *previous* renamed
+            // instruction was serialized, so the one after it opens a fresh checkpoint.
+            _forceCheckpointAfterSerialized = serialized;
 
             _renameQueue.Enqueue(new CprRenameEntry(entry, instr, p1, p2, p3));
             _decodeQueue.Dequeue();
         }
+
+        // Rename exited with work left (no free registers, checkpoint buffer full on a
+        // must-open, or a secondary-dest stall) — backend backpressure for TMA/CPI purposes.
+        _renameBlockedPrevCycle = _decodeQueue.Count > 0 && _renameQueue.Count < _maxDecodeDepth;
     }
 
     /// <summary>
@@ -1481,6 +1757,10 @@ internal sealed class CprPipelineCore : Gear {
         entry.Instruction = instr;
         entry.CheckpointSeq = tail.Seq;
         entry.PredictedNextPc = predictedNextPc;
+        // CPI stack: appending the checkpoint entry is this machine's "enters the window"
+        // moment — anchor the branch misprediction penalty window here.
+        entry.DispatchCycle = _cyclesCounter.Value;
+        entry.CpiStolenAtDispatch = _cpiStolenCycles;
         _entryByInstrId[instrId] = entry;
         return entry;
     }
@@ -1507,6 +1787,16 @@ internal sealed class CprPipelineCore : Gear {
 
         var fetched = 0;
         while (fetched < _issueWidth && _decodeQueue.Count < _maxDecodeDepth) {
+            // CPI stack: snapshot I-side miss counts around this fetch (translation + read)
+            // so the fetched instruction can carry the sFMT 'I-cache/I-TLB miss' bit.
+            long im1 = 0, im2 = 0, im3 = 0, imt = 0;
+            if (_anyCache) {
+                im1 = ILayers.Cache?.Misses ?? 0;
+                im2 = ILayers.L2Cache?.Misses ?? 0;
+                im3 = ILayers.L3Cache?.Misses ?? 0;
+                imt = ILayers.Tlb?.Misses ?? 0;
+            }
+
             ulong physPc = _fetchPc;
             if (_fetchTranslator is not null) {
                 (ulong pa, int faultCause) = _fetchTranslator.Translate(_fetchPc);
@@ -1582,8 +1872,16 @@ internal sealed class CprPipelineCore : Gear {
             }
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
+            bool icacheMiss = _anyCache && ((ILayers.Cache?.Misses ?? 0) > im1
+                                         || (ILayers.L2Cache?.Misses ?? 0) > im2
+                                         || (ILayers.L3Cache?.Misses ?? 0) > im3
+                                         || (ILayers.Tlb?.Misses ?? 0) > imt);
+
             _decodeQueue.Enqueue(
-                new FetchedInstr(_fetchPc, decoded, predictedNext, _nextInstrId++, WantsCheckpoint: wantsCheckpoint)
+                new FetchedInstr(
+                    _fetchPc, decoded, predictedNext, _nextInstrId++, WantsCheckpoint: wantsCheckpoint,
+                    IcacheMiss: icacheMiss
+                )
             );
             _fetchPc = predictedNext;
             fetched++;
@@ -1602,6 +1900,16 @@ internal sealed class CprPipelineCore : Gear {
         _recoveryPending = false;
         _recoveriesCounter.Increment();
         _covhdCounter.IncrementBy(_recoveryCovhd);
+
+        // CPI stack: a branch rollback posts the mispredicted branch's penalty window —
+        // its window residency (append → now, minus backend-claimed cycles) — and arms
+        // refill charging. The entry is still alive here; the squash below removes it.
+        if (_recoveryIsBranch && _entryByInstrId.TryGetValue(_recoveryKeyInstrId, out CheckpointEntry? mispredicted)) {
+            long window = _cyclesCounter.Value - mispredicted.DispatchCycle
+                        - (_cpiStolenCycles - mispredicted.CpiStolenAtDispatch);
+            if (window > 0) _cpiBpredCounter.IncrementBy(window);
+            _cpiBpredRefill = true;
+        }
 
         Checkpoint? target = FindCheckpointBySeq(_recoveryTargetSeq);
         if (target is null || target.Entries.Count == 0) return; // already unwound by an older event
@@ -1648,6 +1956,12 @@ internal sealed class CprPipelineCore : Gear {
         SquashCheckpointEntries(target);
         target.ReopenForRecovery();
 
+        // The reopened target keeps its Seq, so the rename-side per-tail memory-entry
+        // counts must be reset explicitly (its entries were just squashed).
+        _tailSeqForCounts = target.Seq;
+        _tailLoadEntries = 0;
+        _tailStoreEntries = 0;
+
         // Restore the map table from the checkpoint — the one-shot recovery.
         _rat.RestoreRat(target.RatSnapshot);
         foreach (int p in target.RatSnapshot) _prf.MarkMapped(p);
@@ -1669,6 +1983,7 @@ internal sealed class CprPipelineCore : Gear {
 
         _fetchPc = target.RestartPc;
         _fetchFaulted = false;
+        _forceCheckpointAfterSerialized = false; // refetch re-derives it from the restart stream
         if (_recoveryIsBranch) {
             _branchMissCounter.Increment();
             _replayBranchesRemaining = _recoveryReplayDistance;
@@ -1731,6 +2046,7 @@ internal sealed class CprPipelineCore : Gear {
         _recoveryPending = false;
         _replayBranchesRemaining = 0;
         _forceCheckpointAtNextBranch = false;
+        _forceCheckpointAfterSerialized = false;
         _fetchPc = _fullFlushTarget;
         _fetchFaulted = false;
     }
@@ -1754,13 +2070,38 @@ internal sealed class CprPipelineCore : Gear {
     private void ChargeStallCycles(long n) {
         if (n <= 0) return;
         _cyclesCounter.IncrementBy(n);
+        _tdTotalSlotsCounter.IncrementBy(n * _issueWidth);
         _stallsCounter.IncrementBy(n);
         _cacheMissStallsCounter?.IncrementBy(n);
         for (long i = 0; i < n; i++) State.OnCycle();
     }
 
-    private long DrainAndChargeStalls() {
-        long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
+    // Collects pending lump-sum stall cycles, split by side so TMA can attribute I-fetch
+    // misses to the frontend and store-commit misses to the backend, and refreshes the
+    // per-level cache/TLB hit-miss counters.
+    private (long IStalls, long DStalls) DrainStalls() {
+        long iStalls = ILayers.ConsumeAllStalls();
+        long dStalls = DLayers.ConsumeAllStalls();
+
+        // CPI stack: split the fetch-stall cycles across I-side hierarchy levels in
+        // proportion to (new misses × miss latency) per level, into the provisional
+        // (sFMT-local) counters. Posted at the flagged instruction's retirement.
+        if (iStalls > 0) {
+            long wL1 = ILayers.Cache is { } l1 ? (l1.Misses - _lastIMisses) * l1.MissLatency : 0;
+            long wL2 = ILayers.L2Cache is { } l2 ? (l2.Misses - _lastIl2Misses) * l2.MissLatency : 0;
+            long wL3 = ILayers.L3Cache is { } l3 ? (l3.Misses - _lastIl3Misses) * l3.MissLatency : 0;
+            long wTlb = ILayers.Tlb is { } tlb ? (tlb.Misses - _lastITlbMisses) * tlb.MissLatency : 0;
+            long wSum = wL1 + wL2 + wL3 + wTlb;
+            if (wSum <= 0) { _cpiPendingL1I += iStalls; }
+            else {
+                _cpiPendingL2I += iStalls * wL2 / wSum;
+                _cpiPendingL3I += iStalls * wL3 / wSum;
+                _cpiPendingItlb += iStalls * wTlb / wSum;
+                // L1 takes its share plus the integer-division remainder.
+                _cpiPendingL1I += iStalls - iStalls * wL2 / wSum - iStalls * wL3 / wSum - iStalls * wTlb / wSum;
+            }
+        }
+
         UpdateCacheStat(
             ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses
         );
@@ -1785,8 +2126,58 @@ internal sealed class CprPipelineCore : Gear {
         UpdateTlbStat(
             DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses
         );
-        return stalls;
+        return (iStalls, dStalls);
     }
+
+    /// <summary>
+    ///     Posts the provisional I-side miss cycles to the global CPI-stack counters — called
+    ///     when an instruction carrying the sFMT miss bit retires, proving the stalled fetch
+    ///     was on the correct path. Wrong-path pendings are instead discarded on rollback/flush.
+    /// </summary>
+    private void PostIcachePendings() {
+        if (_cpiPendingL1I > 0) _cpiL1ICounter.IncrementBy(_cpiPendingL1I);
+        if (_cpiPendingL2I > 0) _cpiL2ICounter.IncrementBy(_cpiPendingL2I);
+        if (_cpiPendingL3I > 0) _cpiL3ICounter.IncrementBy(_cpiPendingL3I);
+        if (_cpiPendingItlb > 0) _cpiITlbCounter.IncrementBy(_cpiPendingItlb);
+        _cpiPendingL1I = _cpiPendingL2I = _cpiPendingL3I = _cpiPendingItlb = 0;
+    }
+
+    /// <summary>Live Top-Down breakdown (Yasin, ISPASS 2014) from the current counter values.</summary>
+    private TopDownBreakdown ComputeTopDown() =>
+        TopDownBreakdown.Compute(
+            _tdTotalSlotsCounter.Value,
+            _tdSlotsIssuedCounter.Value,
+            _retiredCounter.Value,
+            _tdFetchBubblesCounter.Value,
+            _tdRecoveryBubblesCounter.Value,
+            _cyclesCounter.Value,
+            _tdFetchLatencyCyclesCounter.Value,
+            _tdExecStallCyclesCounter.Value,
+            _tdMemStallLoadCyclesCounter.Value,
+            _tdMemStallStoreCyclesCounter.Value,
+            _branchMissCounter.Value,
+            // CPR splits "flushes" (trap/interrupt/mret) from "recoveries" (mispredict +
+            // violation rollbacks); the machine-clear split needs both.
+            _flushesCounter.Value + _recoveriesCounter.Value
+        );
+
+    /// <summary>Live CPI stack (Eyerman et al., ASPLOS 2006) from the current counter values.</summary>
+    private CpiStack ComputeCpiStack() =>
+        CpiStack.Compute(
+            _cyclesCounter.Value,
+            _retiredCounter.Value,
+            _cpiL1ICounter.Value,
+            _cpiL2ICounter.Value,
+            _cpiL3ICounter.Value,
+            _cpiITlbCounter.Value,
+            _cpiBpredCounter.Value,
+            _cpiL1DCounter.Value,
+            _cpiL2DCounter.Value,
+            _cpiL3DCounter.Value,
+            _cpiDTlbCounter.Value,
+            _cpiStoreCounter.Value,
+            _cpiResourceCounter.Value
+        );
 
     private static void UpdateCacheStat(
         SetAssociativeCache? cache,
@@ -1824,7 +2215,8 @@ internal sealed class CprPipelineCore : Gear {
         ulong PredictedNextPc,
         ulong InstrId = 0,
         TrapInfo? PreTrap = null,
-        bool WantsCheckpoint = false
+        bool WantsCheckpoint = false,
+        bool IcacheMiss = false // fetch access missed the I-cache/I-TLB (sFMT miss bit)
     );
 
     /// <summary>Renamed but not yet dispatched. The checkpoint entry already exists (appended at rename).</summary>

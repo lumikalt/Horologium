@@ -169,6 +169,26 @@ public static class Experiment {
 
             if (setStatsObs?.KernelDelta is { } kernelSnap) result = result with { Snapshots = [kernelSnap,], };
         }
+        else if (config.Pipeline == "cpr") {
+            // Checkpoint Processing and Recovery train: shares the OoO knobs it understands
+            // (width, IQ, physical registers, predictor, caches, FU latencies); checkpoint
+            // geometry and CFP stay at their constructor defaults. Store sets stay at the
+            // CprTrain default (enabled) rather than following config.EnableStoreSets:
+            // CPR's violation recovery re-executes the whole checkpoint, so without
+            // memory-dependence learning the same load re-violates forever (a livelock the
+            // OoO train cannot have — its violation path re-executes from the load itself).
+            result = new CprTrain(
+                mechanism, runMemory,
+                workload.EntryPoint,
+                config.IssueWidth,
+                config.IqCapacity,
+                config.ExtraPhysRegs,
+                predictor: config.Predictor?.Build(mechanism, workload),
+                iMemConfig: config.ToIMemoryConfig(),
+                dMemConfig: dCfg,
+                fuLatency: config.FuLatency
+            ).Run(maxTicks, warmupTicks, snapshotInterval);
+        }
         else {
             result = config.Pipeline switch {
                 "superscalar" => new SuperscalarTrain(
