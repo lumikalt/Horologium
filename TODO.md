@@ -16,10 +16,12 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Cache Prefetching
 
-- [ ] Best-Offset Prefetcher (BOP): offset-selection tournament with timeliness scoring; the DPC-2 winner. — Michaud,
+- [x] Best-Offset Prefetcher (BOP): offset-selection tournament with timeliness scoring; the DPC-2 winner. — Michaud,
   HPCA 2016
 - [ ] Signature Path Prefetcher (SPP): compressed access-pattern signatures with path-confidence lookahead; optional
-  perceptron prefetch filter (PPF) on top. — Kim et al., MICRO 2016; Bhatia et al., ISCA 2019
+  perceptron prefetch filter (PPF) on top. — Kim et al., MICRO 2016; Bhatia et al., ISCA 2019. **Blocked on the
+  MICRO 2016 PDF** (closed access, no live mirror found); the PPF paper (`~/dl/bhatia_isca19_ppf.pdf`) and its DPC3
+  companion (`~/dl/bhatia_dpc3_spp_ppf.pdf`) are already downloaded.
 
 ## Benchmarks
 

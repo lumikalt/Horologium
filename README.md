@@ -644,7 +644,7 @@ lookahead translation).
 
 `IPrefetcher.OnAccess(pc, address, wasHit, Span<ulong> targets)` writes zero or more prefetch addresses into the
 caller-provided span and returns the count; the `OooeTrain` execute stage drives it once per demand load and calls
-`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Seven prefetchers are implemented: **NextLine** —
+`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Eight prefetchers are implemented: **NextLine** —
 always prefetches the cache line immediately following the access; bandwidth-greedy but effective for sequential
 workloads. **Stride / RPT** — Reference Prediction Table (per-PC stride tracking with a 0–3 saturating confidence
 counter); issues a prefetch at `address + stride` once the stride is confirmed (confidence ≥ 2). **Stream** — multi-way
@@ -687,9 +687,19 @@ spatial pattern bitvector); accumulation entries are retired to the Pattern Hist
 matching the paper's explicit description of capacity-based generation termination. The PHT (16 K entries, 16-way
 set-associative, LRU) stores one pattern bitvector per (trigger PC, block offset) hash key; on a trigger access the PHT
 is consulted first and matching predicted blocks (excluding the trigger block itself) are immediately emitted as
-prefetch targets. Select with `Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms}` on
-`MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher: "next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"` in
-`TrainConfig` JSON.
+prefetch targets. **BOP** — Best-Offset prefetcher (Michaud, HPCA 2016; the DPC-2 winner): a degree-one offset
+prefetcher — on each eligible access to line X (demand miss or first demand touch of a prefetched line) it prefetches
+X + D, never crossing a page boundary. The offset D is re-selected by a scoring tournament that accounts for prefetch
+*timeliness*: a 256-entry direct-mapped Recent Requests (RR) table records the base address of each *completed*
+prefetch, and learning tests one candidate offset d per eligible access (round-robin over the paper's 52-entry list —
+all offsets 1–256 with prime factors ≤ 5, pruned to the page size in lines); if X − d hits in the RR table, a prefetch
+with offset d issued back then would have completed in time, so d scores. A phase ends at SCOREMAX (31) or after
+ROUNDMAX (100) rounds; the top scorer becomes D, and a winning score ≤ BADSCORE (1) turns prefetching off (learning
+continues against demand fills so it can re-enable). The L2 prefetch bit of the paper is tracked internally, and
+completion time is approximated by a configurable tick count (default 10), as in Berti. Select with
+`Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop}` on
+`MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher: "next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"`
+in `TrainConfig` JSON.
 
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 

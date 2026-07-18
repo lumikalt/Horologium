@@ -12,6 +12,7 @@ public enum PrefetcherKind {
     Pythia,
     Berti,
     Sms,
+    Bop,
 }
 
 public enum ReplacementPolicyKind {
@@ -397,6 +398,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Pythia => new PythiaPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Berti  => new BertiPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Sms    => new SmsPrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Bop    => new BopPrefetcher(cfg.CacheBlockBytes),
                 _                     => null,
             }
             : null;
@@ -489,6 +491,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Pythia => new PythiaPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Berti  => new BertiPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Sms    => new SmsPrefetcher(s0.BlockBytes),
+                PrefetcherKind.Bop    => new BopPrefetcher(s0.BlockBytes),
                 _                     => null,
             };
 

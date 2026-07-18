@@ -63,7 +63,7 @@ public sealed record TrainConfig(
     int ExtraPhysRegs = 32,
     FuLatencyConfig? FuLatency = null, // null → FuLatencyConfig.Default (all 1-cycle except MulDiv=3)
     int MshrCapacity = 0,              // 0 = unlimited outstanding misses
-    string? DPrefetcher = null,        // null | "next_line" | "stride" | "stream" | "ipcp" | "pythia" | "berti" | "sms"
+    string? DPrefetcher = null,        // null | "next_line" | "stride" | "stream" | "ipcp" | "pythia" | "berti" | "sms" | "bop"
     int DPrefetcherTableSize = 64,
     int DPrefetcherDepth = 8, // stream buffer depth (lines ahead); ignored for other prefetchers
     int DPrefetchLatency = 0, // cycles until a prefetched line is usable; 0 = free/instant
@@ -109,6 +109,7 @@ public sealed record TrainConfig(
             "pythia"    => PrefetcherKind.Pythia,
             "berti"     => PrefetcherKind.Berti,
             "sms"       => PrefetcherKind.Sms,
+            "bop"       => PrefetcherKind.Bop,
             _           => PrefetcherKind.None,
         };
         return mc with {

@@ -14,3 +14,4 @@ this file carries the full title so the paper can be found. Local PDFs live in `
 | Eyerman et al., ASPLOS 2006 | A Performance Counter Architecture for Computing Accurate CPI Components | S. Eyerman, L. Eeckhout, T. Karkhanis, J. E. Smith | ASPLOS-XII, 2006 | `~/dl/eyerman_asplos06_cpi_counters.pdf` |
 | Eyerman et al., ACM TOCS 2009 | A Mechanistic Performance Model for Superscalar Out-of-Order Processors | S. Eyerman, L. Eeckhout, T. Karkhanis, J. E. Smith | ACM TOCS 27(2), 2009 | `~/dl/eyerman_tocs09_mechanistic_model.pdf` |
 | Sherwood et al., ASPLOS 2002 | Automatically Characterizing Large Scale Program Behavior | T. Sherwood, E. Perelman, G. Hamerly, B. Calder | ASPLOS-X, 2002 | `~/dl/sherwood_asplos02_simpoint.pdf` |
+| Michaud, HPCA 2016 | Best-Offset Hardware Prefetching | P. Michaud | HPCA 2016 | `~/dl/michaud_hpca16_bop.pdf` |
