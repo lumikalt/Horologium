@@ -154,6 +154,7 @@ internal sealed class SuperscalarCore(
     private Counter _cyclesCounter = null!;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
+    private Counter _flushesCounter = null!;
 
     // True after fetching a faulting/undecodable instruction: fetch waits until the fault
     // reaches issue in program order (where it traps if it was correct-path) or a flush
@@ -179,7 +180,15 @@ internal sealed class SuperscalarCore(
     // Blocking data cache: the LSU accepts no new memory operation until this cycle while
     // a miss is outstanding (no hit-under-miss). Independent ALU work continues.
     private long _lsuBusyUntil;
+
+    // True when the current LSU-busy window was opened by a store miss (TMA MemStalls
+    // attribution: loads vs stores).
+    private bool _lsuBusyIsStore;
     private ulong _nextInstrId = 1;
+
+    // Latest cycle at which an issued load's result lands — "a load is in flight" for the
+    // TMA MemStalls.AnyLoad event.
+    private long _pendingLoadReadyCycle;
 
     // Scoreboard: cycle at which each architectural integer register's in-flight value
     // becomes readable through the bypass network (index 0 = x0, never pending).
@@ -189,6 +198,13 @@ internal sealed class SuperscalarCore(
     // Cached to avoid a fresh Action allocation per simulated cycle.
     private Action? _runCycle;
     private Counter _stallsCounter = null!;
+
+    // Top-Down Microarchitecture Analysis slot accounting (Yasin, ISPASS 2014), in-order
+    // flavor: issue never speculates past unresolved branches (branches resolve at issue),
+    // so SlotsIssued ≡ SlotsRetired and Bad Speculation consists purely of RecoveryBubbles —
+    // the frontend-refill slots after a flush, charged while _tdRefillPending.
+    private TopDownCounters _td = null!;
+    private bool _tdRefillPending;
     public MemoryLayers ILayers { get; } = iLayers;
     public MemoryLayers DLayers { get; } = dLayers;
     public PEventLog? PEventLog { get; } = pEventLog;
@@ -202,6 +218,9 @@ internal sealed class SuperscalarCore(
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
         _stallsCounter = Dials.AddCounter("stalls", "Cycles where the issue group ran short of issueWidth");
         _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions (frontend refill penalty)");
+        _flushesCounter = Dials.AddCounter(
+            "flushes", "Frontend flushes (mispredict + trap + interrupt + mret redirects)"
+        );
 
         Dials.AddDial(
             "cpi",
@@ -213,6 +232,10 @@ internal sealed class SuperscalarCore(
             () => _cyclesCounter.Value == 0 ? 0.0 : _retiredCounter.Value / (double)_cyclesCounter.Value,
             "Instructions per cycle"
         );
+
+        // Top-Down Microarchitecture Analysis (Yasin, ISPASS 2014): slot accounting at the
+        // issue stage. See the _td field for the in-order adaptations.
+        _td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
 
         _anyCache = ILayers.Cache is not null || DLayers.Cache is not null
                                               || ILayers.L2Cache is not null || DLayers.L2Cache is not null
@@ -273,6 +296,9 @@ internal sealed class SuperscalarCore(
         _fetchFaulted = false;
         _fetchStallUntil = 0;
         _lsuBusyUntil = 0;
+        _lsuBusyIsStore = false;
+        _pendingLoadReadyCycle = 0;
+        _tdRefillPending = false;
         Array.Clear(_regReadyCycle);
     }
 
@@ -301,6 +327,7 @@ internal sealed class SuperscalarCore(
         // ArchState.OnCycle advances the cycle CSR — self-timing workloads (rdcycle
         // calibration loops) never terminate without it.
         _cyclesCounter.Increment();
+        _td.TotalSlots.IncrementBy(issueWidth);
         ArchState.OnCycle();
 
         if (!halt) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Execute);
@@ -312,12 +339,21 @@ internal sealed class SuperscalarCore(
     private bool StepIssue(long now) {
         var issued = 0;
         var halt = false;
+        bool wasRefillPending = _tdRefillPending;
+        var frontendStarved = false;
         Span<int> classIssued = stackalloc int[16]; // one slot per ToothClass value
 
         while (issued < issueWidth) {
-            if (_fetchQueue.Count == 0) break;
+            if (_fetchQueue.Count == 0) {
+                frontendStarved = true;
+                break;
+            }
+
             FetchedEntry head = _fetchQueue.Peek();
-            if (head.ReadyAt > now) break; // still traversing the frontend pipeline
+            if (head.ReadyAt > now) {
+                frontendStarved = true; // still traversing the frontend pipeline
+                break;
+            }
 
             // A fetch fault that reaches issue is on the correct path: raise it.
             if (head.PreTrap is not null) {
@@ -373,9 +409,14 @@ internal sealed class SuperscalarCore(
                 if (miss > 0) {
                     latency += (int)miss;
                     _lsuBusyUntil = now + 1 + miss;
+                    _lsuBusyIsStore = cls == ToothClass.Store;
                     _cacheMissStallsCounter?.IncrementBy(miss);
                 }
             }
+
+            // TMA MemStalls.AnyLoad: a load is in flight until its result lands.
+            if (cls is ToothClass.Load or ToothClass.Atomic)
+                _pendingLoadReadyCycle = Math.Max(_pendingLoadReadyCycle, now + latency);
 
             if (PEventLog is not null) {
                 PEventLog.Record(head.InstrId, head.Pc, now, PEventKind.Execute);
@@ -450,6 +491,34 @@ internal sealed class SuperscalarCore(
 
         // A cycle where the group ran short counts as a stall cycle.
         if (issued < issueWidth) _stallsCounter.Increment();
+
+        // ── TMA slot accounting (Table 1, in-order flavor) ───────────────────────
+        // Every issued slot is a retired slot (no wrong-path issue), so Bad Speculation
+        // is exactly the recovery bubbles charged here. Unused slots classify by the
+        // blocking condition at the queue head: post-flush refill → RecoveryBubbles,
+        // frontend starvation → FetchBubbles, scoreboard/port/LSU backpressure → the
+        // Backend Bound residual.
+        _td.SlotsIssued.IncrementBy(issued);
+        bool flushedThisCycle = _tdRefillPending && !wasRefillPending;
+        if (issued > 0 && !flushedThisCycle) _tdRefillPending = false;
+        int leftover = issueWidth - issued;
+        if (leftover > 0 && !halt) {
+            if (_tdRefillPending) { _td.RecoveryBubbles.IncrementBy(leftover); }
+            else if (frontendStarved) {
+                _td.FetchBubbles.IncrementBy(leftover);
+                if (issued == 0) _td.FetchLatencyCycles.Increment();
+            }
+        }
+
+        // Level 2: ExecutionStalls / MemStalls (fewer than half the width started).
+        if (issued * 2 < issueWidth) {
+            _td.ExecStallCycles.Increment();
+            if (issued == 0) {
+                if (now < _pendingLoadReadyCycle) { _td.MemStallLoadCycles.Increment(); }
+                else if (_lsuBusyIsStore && now < _lsuBusyUntil) { _td.MemStallStoreCycles.Increment(); }
+            }
+        }
+
         return halt;
     }
 
@@ -549,7 +618,26 @@ internal sealed class SuperscalarCore(
         _fetchPc = target;
         _fetchFaulted = false;
         _fetchStallUntil = 0; // any in-flight I-miss belonged to the wrong path
+        _flushesCounter.Increment();
+        _tdRefillPending = true; // starved slots are recovery, not fetch, until issue resumes
     }
+
+    /// <summary>Live Top-Down breakdown (Yasin, ISPASS 2014) from the current counter values.</summary>
+    private TopDownBreakdown ComputeTopDown() =>
+        TopDownBreakdown.Compute(
+            _td.TotalSlots.Value,
+            _td.SlotsIssued.Value,
+            _retiredCounter.Value,
+            _td.FetchBubbles.Value,
+            _td.RecoveryBubbles.Value,
+            _cyclesCounter.Value,
+            _td.FetchLatencyCycles.Value,
+            _td.ExecStallCycles.Value,
+            _td.MemStallLoadCycles.Value,
+            _td.MemStallStoreCycles.Value,
+            _branchMissCounter.Value,
+            _flushesCounter.Value
+        );
 
     // Classifies a resolved branch for IBranchKindAwareBranchPredictor.
     private BranchKind ClassifyBranchKind(ITooth instruction) {

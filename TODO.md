@@ -18,7 +18,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 ## Pipelines
 
 - [ ] PEventLog support for `CprTrain` and `DaeTrain`, so the Face PEvents waterfall covers all single-hart trains.
-- [ ] TMA slot accounting for the scoreboarded `SuperscalarTrain`: it now has a speculative frontend and an
+- [x] TMA slot accounting for the scoreboarded `SuperscalarTrain`: it now has a speculative frontend and an
   issue-point border, so the Yasin level-1 breakdown applies (in-order flavor: no wrong-path issue slots, bad
   speculation is fetch-queue flushes only).
 

@@ -976,8 +976,11 @@ flag.
 
 ### Top-Down Microarchitecture Analysis (Pipeline/TopDownAnalysis)
 
-`OooeTrain` and `CprTrain` record the Top-Down Analysis slot-accounting events (Yasin, ISPASS 2014) at their
-dispatch stage — the frontend/backend border: `td_total_slots` (issueWidth × cycles), `td_slots_issued`, `td_fetch_bubbles` (unutilized
+`OooeTrain`, `CprTrain` and `SuperscalarTrain` record the Top-Down Analysis slot-accounting events (Yasin,
+ISPASS 2014) at their dispatch/issue stage — the frontend/backend border. On the in-order superscalar the flavor
+simplifies: issue never speculates past an unresolved branch, so SlotsIssued equals SlotsRetired, Bad Speculation
+consists purely of post-flush frontend-refill bubbles (split into branch mispredicts vs machine clears by cause),
+and Backend Bound is the scoreboard/FU-port/LSU backpressure residual. On the OoO trains: `td_total_slots` (issueWidth × cycles), `td_slots_issued`, `td_fetch_bubbles` (unutilized
 dispatch slots with no backend stall; I-fetch miss stall cycles count width slots each), `td_recovery_bubbles`
 (flush/squash recovery cycles), plus cycle-denominated level-2 events (`td_fetch_latency_cycles`,
 `td_exec_stall_cycles`, `td_memstall_load_cycles`, `td_memstall_store_cycles`). Level-1 dials classify every issue
