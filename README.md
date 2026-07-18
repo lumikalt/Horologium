@@ -946,6 +946,21 @@ and supports warmup ticks and periodic time-series snapshots. Results can be for
 or time-series CSV for graphing. `NamedConfig` sweep files are plain JSON arrays, readable by the Runner's `--sweep`
 flag.
 
+### Top-Down Microarchitecture Analysis (Pipeline/TopDownAnalysis)
+
+`OooeTrain` records the Top-Down Analysis slot-accounting events (Yasin, ISPASS 2014) at its dispatch stage — the
+frontend/backend border: `td_total_slots` (issueWidth × cycles), `td_slots_issued`, `td_fetch_bubbles` (unutilized
+dispatch slots with no backend stall; I-fetch miss stall cycles count width slots each), `td_recovery_bubbles`
+(flush/squash recovery cycles), plus cycle-denominated level-2 events (`td_fetch_latency_cycles`,
+`td_exec_stall_cycles`, `td_memstall_load_cycles`, `td_memstall_store_cycles`). Level-1 dials classify every issue
+slot into **Frontend Bound / Bad Speculation / Retiring / Backend Bound** per the paper's Table 2 formulas (summing
+to 1; Retiring cross-validates as IPC ÷ width); level-2 dials split frontend into fetch latency vs bandwidth,
+bad speculation into branch mispredicts vs machine clears (non-branch flushes: memory-order violations, traps,
+interrupts), and backend into memory vs core bound (execution-stall cycles with/without an in-flight load, per the
+paper's ExecutionStalls heuristic). All ten `td_*` dials flow through `ExperimentResult` sweep tables automatically;
+`TopDownBreakdown.FromSnapshot(snapshot)` computes the same breakdown from any (warmup-subtracted) pipeline
+`DialBoardSnapshot`, and its `ToString()` renders the hierarchy as a small tree.
+
 ### Architecture scripting and checkpointing (Script/)
 
 `ScriptHost.EvaluateFileAsync(path)` compiles and evaluates a `.csx` (Roslyn C#) or `.fsx` (F# Interactive) script file

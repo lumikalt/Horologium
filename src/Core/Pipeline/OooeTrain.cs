@@ -377,6 +377,17 @@ internal sealed class OoOPipelineCore : Gear {
     private bool _squashTaken;
     private ulong _squashTarget;
     private Counter _stallsCounter = null!;
+
+    // Top-Down Microarchitecture Analysis slot accounting (Yasin, ISPASS 2014); see
+    // TopDownBreakdown for the metric formulas these feed.
+    private Counter _tdExecStallCyclesCounter = null!;
+    private Counter _tdFetchBubblesCounter = null!;
+    private Counter _tdFetchLatencyCyclesCounter = null!;
+    private Counter _tdMemStallLoadCyclesCounter = null!;
+    private Counter _tdMemStallStoreCyclesCounter = null!;
+    private Counter _tdRecoveryBubblesCounter = null!;
+    private Counter _tdSlotsIssuedCounter = null!;
+    private Counter _tdTotalSlotsCounter = null!;
     private Counter? _wbAbsorbedStallsCounter;
     private int _wbOccupied; // number of slots currently counting down
 
@@ -554,6 +565,80 @@ internal sealed class OoOPipelineCore : Gear {
             "Instructions per cycle"
         );
 
+        // ── Top-Down Microarchitecture Analysis (Yasin, ISPASS 2014) ──────────────
+        // Slot accounting at the dispatch stage, this machine's frontend/backend border.
+        _tdTotalSlotsCounter = Dials.AddCounter(
+            TopDownBreakdown.TotalSlotsCounter, "TMA TotalSlots: issue-pipeline slots (issueWidth × cycles)"
+        );
+        _tdSlotsIssuedCounter = Dials.AddCounter(
+            TopDownBreakdown.SlotsIssuedCounter,
+            "TMA SlotsIssued: slots that dispatched a uop into the backend (wrong-path included)"
+        );
+        _tdFetchBubblesCounter = Dials.AddCounter(
+            TopDownBreakdown.FetchBubblesCounter,
+            "TMA FetchBubbles: unutilized dispatch slots while there was no backend stall"
+        );
+        _tdRecoveryBubblesCounter = Dials.AddCounter(
+            TopDownBreakdown.RecoveryBubblesCounter,
+            "TMA RecoveryBubbles: dispatch slots blocked while recovering from a flush/squash"
+        );
+        _tdFetchLatencyCyclesCounter = Dials.AddCounter(
+            TopDownBreakdown.FetchLatencyCyclesCounter,
+            "TMA FetchBubbles[>=W]: cycles with zero uops delivered and no backend stall"
+        );
+        _tdExecStallCyclesCounter = Dials.AddCounter(
+            TopDownBreakdown.ExecStallCyclesCounter,
+            "TMA ExecutionStalls: cycles with fewer than issueWidth/2 uops starting execution"
+        );
+        _tdMemStallLoadCyclesCounter = Dials.AddCounter(
+            TopDownBreakdown.MemStallLoadCyclesCounter,
+            "TMA MemStalls.AnyLoad: no-execute cycles with at least one in-flight incomplete load"
+        );
+        _tdMemStallStoreCyclesCounter = Dials.AddCounter(
+            TopDownBreakdown.MemStallStoreCyclesCounter,
+            "TMA MemStalls.Stores: cycles frozen on store-commit write misses"
+        );
+        Dials.AddDial(
+            "td_frontend_bound", () => ComputeTopDown().FrontendBound,
+            "TMA level 1: fetch bubbles / total slots"
+        );
+        Dials.AddDial(
+            "td_bad_speculation", () => ComputeTopDown().BadSpeculation,
+            "TMA level 1: wrong-path issued slots + recovery bubbles / total slots"
+        );
+        Dials.AddDial(
+            "td_retiring", () => ComputeTopDown().Retiring,
+            "TMA level 1: retired slots / total slots"
+        );
+        Dials.AddDial(
+            "td_backend_bound", () => ComputeTopDown().BackendBound,
+            "TMA level 1: residual slots (backend-stalled dispatch)"
+        );
+        Dials.AddDial(
+            "td_fetch_latency_bound", () => ComputeTopDown().FetchLatencyBound,
+            "TMA level 2: whole-cycle fetch starvation / cycles"
+        );
+        Dials.AddDial(
+            "td_fetch_bandwidth_bound", () => ComputeTopDown().FetchBandwidthBound,
+            "TMA level 2: frontend bound minus fetch latency bound"
+        );
+        Dials.AddDial(
+            "td_branch_mispredicts", () => ComputeTopDown().BranchMispredicts,
+            "TMA level 2: bad-speculation share attributed to branch mispredictions"
+        );
+        Dials.AddDial(
+            "td_machine_clears", () => ComputeTopDown().MachineClears,
+            "TMA level 2: bad-speculation share attributed to non-branch flushes"
+        );
+        Dials.AddDial(
+            "td_memory_bound", () => ComputeTopDown().MemoryBound,
+            "TMA level 2: execution-stall cycles pending on loads/stores / cycles"
+        );
+        Dials.AddDial(
+            "td_core_bound", () => ComputeTopDown().CoreBound,
+            "TMA level 2: execution-stall cycles / cycles, minus memory bound"
+        );
+
         _anyCache = ILayers.Cache is not null || DLayers.Cache is not null
                                               || ILayers.L2Cache is not null || DLayers.L2Cache is not null
                                               || ILayers.L3Cache is not null || DLayers.L3Cache is not null
@@ -637,9 +722,26 @@ internal sealed class OoOPipelineCore : Gear {
         // penalties. Load-miss penalties are NOT lump-summed here — StepExecute gives
         // each load its own in-flight latency so independent misses overlap
         // (memory-level parallelism); see StepExecute.
-        if (_anyCache) ChargeStallCycles(DrainAndChargeStalls());
+        if (_anyCache) {
+            (long iStalls, long dStalls) = DrainStalls();
+            ChargeStallCycles(iStalls + dStalls);
+            // TMA: an I-fetch miss freezes the whole machine with no uop delivery and no
+            // backend stall — whole-cycle fetch starvation (Frontend Latency Bound). The
+            // leftover D-side stalls here are store-commit write misses: execution stalls
+            // pending on stores (Backend Memory Bound).
+            if (iStalls > 0) {
+                _tdFetchBubblesCounter.IncrementBy(iStalls * _issueWidth);
+                _tdFetchLatencyCyclesCounter.IncrementBy(iStalls);
+            }
+
+            if (dStalls > 0) {
+                _tdExecStallCyclesCounter.IncrementBy(dStalls);
+                _tdMemStallStoreCyclesCounter.IncrementBy(dStalls);
+            }
+        }
 
         _cyclesCounter.Increment();
+        _tdTotalSlotsCounter.IncrementBy(_issueWidth);
         State.OnCycle();
 
         // Complete: broadcast last tick's execution results onto CDB.
@@ -666,6 +768,9 @@ internal sealed class OoOPipelineCore : Gear {
         }
 
         if (_halted || _flushPending || _squashPending) {
+            // TMA RecoveryBubbles: the issue pipeline delivers nothing this cycle because the
+            // machine is recovering from a flush/squash (Bad Speculation, Table 1).
+            if (_flushPending || _squashPending) _tdRecoveryBubblesCounter.IncrementBy(_issueWidth);
             // Restore the RAT to its pre-episode baseline before the real flush/squash's own
             // walk-back runs, so the walk-back's absolute writes start from a correct base
             // regardless of how far the shadow lane had progressed.
@@ -1071,10 +1176,19 @@ internal sealed class OoOPipelineCore : Gear {
         // Stalls already pending here are store-commit write misses (StepCommit ran
         // earlier this cycle). Stores are off the load critical path, so charge them
         // lump-sum — and clear the accumulator so each load below sees only its own
-        // miss penalty.
-        if (_anyCache) ChargeStallCycles(DLayers.ConsumeAllStalls());
+        // miss penalty. TMA: frozen store-commit cycles are execution stalls pending
+        // on stores (Backend Memory Bound).
+        if (_anyCache) {
+            long storeStalls = DLayers.ConsumeAllStalls();
+            if (storeStalls > 0) {
+                ChargeStallCycles(storeStalls);
+                _tdExecStallCyclesCounter.IncrementBy(storeStalls);
+                _tdMemStallStoreCyclesCounter.IncrementBy(storeStalls);
+            }
+        }
 
         // Start executing newly issued instructions.
+        int executing = _execBuffer.Count;
         Span<ulong> prefBuf = stackalloc ulong[32];
         foreach (IssuedInstr issued in _execBuffer) {
             // Look up the LQ SeqNo before calling ExecuteOne so TryForwardFromStore
@@ -1163,6 +1277,25 @@ internal sealed class OoOPipelineCore : Gear {
         }
 
         _execBuffer.Clear();
+
+        // TMA ExecutionStalls / MemStalls.AnyLoad (Table 1): a cycle starting fewer than
+        // half the machine width in uops is an execution stall (the paper's generalization
+        // of "no or few uops executed"; 0-or-1 for the 4-wide Appendix-1 machine). When
+        // nothing at all started and a load is still in flight, the stall is pending on
+        // memory rather than the core.
+        if (executing * 2 < _issueWidth) {
+            _tdExecStallCyclesCounter.Increment();
+            if (executing == 0 && AnyInFlightLoad()) _tdMemStallLoadCyclesCounter.Increment();
+        }
+    }
+
+    /// <summary>True when any in-flight FU countdown belongs to a load/atomic.</summary>
+    private bool AnyInFlightLoad() {
+        foreach ((_, ExecResult result, _) in _inFlight)
+            if (_rob.At(result.RobIdx).IsLoad)
+                return true;
+
+        return false;
     }
 
     /// <summary>Select up to issueWidth ready IQ entries and forward to execute.</summary>
@@ -1557,6 +1690,7 @@ internal sealed class OoOPipelineCore : Gear {
 
     /// <summary>Allocate ROB + IQ + LQ/SQ slots for instructions that have already been renamed.</summary>
     private void StepDispatch() {
+        var dispatched = 0;
         while (_renameQueue.Count > 0) {
             if (_rob.IsFull) break;
 
@@ -1575,6 +1709,7 @@ internal sealed class OoOPipelineCore : Gear {
                 robFault.PhysDestination = -1;
                 PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
                 _renameQueue.Dequeue();
+                dispatched++;
                 continue;
             }
 
@@ -1710,12 +1845,26 @@ internal sealed class OoOPipelineCore : Gear {
             }
 
             _renameQueue.Dequeue();
+            dispatched++;
         }
 
         // Count cycles where the rename queue had work but dispatch was structurally blocked.
         bool stalled = _renameQueue.Count > 0;
         if (stalled) _stallsCounter.Increment();
         _dispatchStalledPrevCycle = stalled;
+
+        // TMA slot accounting at the issue point (Table 1). Every dispatched uop fills an
+        // issue slot (wrong-path included). Unutilized slots count as FetchBubbles only when
+        // there was no backend stall — a non-empty rename queue or a full ROB means the
+        // backend could not have accepted more uops regardless of frontend supply. A cycle
+        // that delivers nothing at all is whole-cycle fetch starvation (FetchBubbles ≥ MIW),
+        // the paper's Fetch Latency Bound numerator. Dispatch may burst past issueWidth when
+        // draining a backlog, so the bubble count is clamped at zero.
+        _tdSlotsIssuedCounter.IncrementBy(dispatched);
+        if (!stalled && !_rob.IsFull && dispatched < _issueWidth) {
+            _tdFetchBubblesCounter.IncrementBy(_issueWidth - dispatched);
+            if (dispatched == 0) _tdFetchLatencyCyclesCounter.Increment();
+        }
     }
 
     /// <summary>Drain up to issueWidth decoded instructions through the RAT/PRF rename stage.</summary>
@@ -2781,13 +2930,18 @@ internal sealed class OoOPipelineCore : Gear {
     private void ChargeStallCycles(long n) {
         if (n <= 0) return;
         _cyclesCounter.IncrementBy(n);
+        _tdTotalSlotsCounter.IncrementBy(n * _issueWidth);
         _stallsCounter.IncrementBy(n);
         _cacheMissStallsCounter?.IncrementBy(n);
         for (long i = 0; i < n; i++) State.OnCycle();
     }
 
-    private long DrainAndChargeStalls() {
-        long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
+    // Collects pending lump-sum stall cycles, split by side so TMA can attribute I-fetch
+    // misses to the frontend and store-commit misses to the backend, and refreshes the
+    // per-level cache/TLB hit-miss counters.
+    private (long IStalls, long DStalls) DrainStalls() {
+        long iStalls = ILayers.ConsumeAllStalls();
+        long dStalls = DLayers.ConsumeAllStalls();
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
         UpdateCacheStat(
             ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
@@ -2813,8 +2967,25 @@ internal sealed class OoOPipelineCore : Gear {
         );
         UpdateTlbStat(ILayers.Tlb, _itlbHitsCounter, _itlbMissesCounter, ref _lastITlbHits, ref _lastITlbMisses);
         UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);
-        return stalls;
+        return (iStalls, dStalls);
     }
+
+    /// <summary>Live Top-Down breakdown (Yasin, ISPASS 2014) from the current counter values.</summary>
+    private TopDownBreakdown ComputeTopDown() =>
+        TopDownBreakdown.Compute(
+            _tdTotalSlotsCounter.Value,
+            _tdSlotsIssuedCounter.Value,
+            _retiredCounter.Value,
+            _tdFetchBubblesCounter.Value,
+            _tdRecoveryBubblesCounter.Value,
+            _cyclesCounter.Value,
+            _tdFetchLatencyCyclesCounter.Value,
+            _tdExecStallCyclesCounter.Value,
+            _tdMemStallLoadCyclesCounter.Value,
+            _tdMemStallStoreCyclesCounter.Value,
+            _branchMissCounter.Value,
+            _flushesCounter.Value
+        );
 
     private static void UpdateCacheStat(
         SetAssociativeCache? cache,

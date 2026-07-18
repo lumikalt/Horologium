@@ -17,8 +17,10 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Analysis
 
-- [ ] Top-Down Microarchitecture Analysis (TMA): frontend-bound / backend-bound / bad-speculation / retiring slot
+- [x] Top-Down Microarchitecture Analysis (TMA): frontend-bound / backend-bound / bad-speculation / retiring slot
   accounting computed from dial values. — Yasin, ISPASS 2014
+- [ ] Extend TMA slot accounting to the other OoO trains (`CprTrain`, `DaeTrain`, `SmtTrain`): same dispatch-point
+  events `OooeTrain` records, adapted to checkpoint-based recovery (CPR) and per-thread slot attribution (SMT).
 - [ ] CPI stacks via interval analysis: per-miss-event cycle accounting for OoO cores (as in Sniper), attributing
   stall cycles to branch mispredictions, cache misses, and dependences. — Eyerman et al., ASPLOS 2006 / ACM TOCS 2009
 - [ ] SimPoint phase analysis: basic-block vector (BBV) profiling and k-means clustering for representative sampling;
