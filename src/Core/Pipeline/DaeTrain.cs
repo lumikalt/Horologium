@@ -342,10 +342,14 @@ internal sealed class DaeCore(
         if (!executeAdvanced && _executeQueue.Count > 0) _crossLaneStallCounter.Increment();
 
         long cacheStalls = iLayers.ConsumeAllStalls() + dLayers.ConsumeAllStalls();
+        // State.OnCycle advances the cycle CSR — self-timing workloads (rdcycle
+        // calibration loops) never terminate without it.
         _cyclesCounter.Increment();
+        State.OnCycle();
         if (cacheStalls > 0) {
             _stallsCounter.IncrementBy(cacheStalls);
             _cyclesCounter.IncrementBy(cacheStalls);
+            for (long i = 0; i < cacheStalls; i++) State.OnCycle();
         }
 
         bool idleCycle = !accessAdvanced && !executeAdvanced && !dispatched

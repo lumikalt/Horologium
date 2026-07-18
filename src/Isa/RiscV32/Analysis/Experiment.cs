@@ -196,6 +196,15 @@ public static class Experiment {
                     workload.EntryPoint,
                     config.IssueWidth,
                     config.ToIMemoryConfig(),
+                    dCfg,
+                    config.Predictor?.Build(mechanism, workload)
+                ).Run(maxTicks, warmupTicks, snapshotInterval),
+
+                "dae" => new DaeTrain(
+                    mechanism, runMemory,
+                    workload.EntryPoint,
+                    config.DaeLaneQueueDepth,
+                    config.ToIMemoryConfig(),
                     dCfg
                 ).Run(maxTicks, warmupTicks, snapshotInterval),
 
@@ -218,7 +227,8 @@ public static class Experiment {
 
     /// <summary>
     ///     Runs <paramref name="workload" /> under a single <paramref name="config" /> with a
-    ///     <see cref="PEventLog" /> attached and returns the log. Superscalar returns an empty log.
+    ///     <see cref="PEventLog" /> attached and returns the log. CPR and DAE return an
+    ///     empty log (no PEventLog support yet).
     /// </summary>
     public static PEventLog Trace(
         IWorkload workload,
@@ -247,7 +257,17 @@ public static class Experiment {
                     rdip: cfg.Rdip
                 ).Run(maxTicks);
                 break;
-            case "superscalar": break;
+            case "superscalar":
+                new SuperscalarTrain(
+                    mechanism, runMemory, workload.EntryPoint,
+                    cfg.IssueWidth,
+                    cfg.ToIMemoryConfig(), dCfg,
+                    cfg.Predictor?.Build(mechanism, workload),
+                    plog
+                ).Run(maxTicks);
+                break;
+            // CPR and DAE have no PEventLog support yet.
+            case "cpr" or "dae": break;
             default:
                 new FiveStageTrain(
                     mechanism, runMemory, workload.EntryPoint,
@@ -272,13 +292,6 @@ public static class Experiment {
             ? dCfg with { UncacheableBase = r.Base, UncacheableSize = r.Size, }
             : dCfg;
 
-    /// <summary>
-    ///     Runs <paramref name="workload" /> functionally on the single-cycle train and
-    ///     writes an Olympia-compatible JSON instruction trace to <paramref name="output" />.
-    ///     Returns the number of instructions written. The single-cycle train is the
-    ///     natural source: it retires exactly one instruction per commit, so the trace
-    ///     is an exact functional instruction stream (the timing model is Olympia's job).
-    /// </summary>
     /// <summary>
     ///     SimPoint phase analysis (Sherwood et al., ASPLOS 2002): runs
     ///     <paramref name="workload" /> once on a functional <c>SingleCycleTrain</c> with a
@@ -305,6 +318,13 @@ public static class Experiment {
         return (SimPointAnalysis.Analyze(profiler.Intervals, dimensions, maxK, seed: seed), profiler);
     }
 
+    /// <summary>
+    ///     Runs <paramref name="workload" /> functionally on the single-cycle train and
+    ///     writes an Olympia-compatible JSON instruction trace to <paramref name="output" />.
+    ///     Returns the number of instructions written. The single-cycle train is the
+    ///     natural source: it retires exactly one instruction per commit, so the trace
+    ///     is an exact functional instruction stream (the timing model is Olympia's job).
+    /// </summary>
     public static int WriteOlympiaTrace(
         IWorkload workload,
         IMechanism mechanism,

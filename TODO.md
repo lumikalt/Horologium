@@ -15,6 +15,10 @@ off here until a periodic cleanup removes them; the durable record is git histor
   which clobbers harcom predictors' per-block register state as above. Needs either per-predictor block-state
   snapshot/restore (not generic — differs per submission) or another reconciliation strategy.
 
+## Pipelines
+
+- [ ] PEventLog support for `CprTrain` and `DaeTrain`, so the Face PEvents waterfall covers all single-hart trains.
+
 ## Analysis
 
 - [x] Top-Down Microarchitecture Analysis (TMA): frontend-bound / backend-bound / bad-speculation / retiring slot

@@ -1,5 +1,5 @@
-using JetBrains.Annotations;
 using Mechanism;
+using Mechanism.BranchPredictModels;
 using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
@@ -16,10 +16,15 @@ namespace Pipeline;
 ///     cycle, executing them sequentially so intra-group RAW dependencies resolve
 ///     naturally without any hazard detection logic.
 ///     <para>
-///         There is no speculation across branches — the issue group stops at any
-///         branch or jump, paying a "group-cutoff" penalty instead of a flush penalty.
-///         This makes it straightforward to compare against <see cref="OooeTrain" />:
-///         same issue width, same branch predictor absence, purely in-order semantics.
+///         Without a predictor there is no speculation across branches — the issue
+///         group stops at any branch or jump, paying a "group-cutoff" penalty instead
+///         of a flush penalty. With a predictor, a correctly predicted branch lets the
+///         group continue fetching at the predicted target within the same cycle
+///         (calls/returns steered by a RAS, direct jumps always taken), while a
+///         misprediction cuts the group and charges a fixed frontend-redirect penalty —
+///         the same two squashed stages a <see cref="FiveStageTrain" /> flush costs.
+///         Branches resolve immediately after issue, so the predictor is trained
+///         in-order with no outstanding speculation to recover.
 ///     </para>
 /// </summary>
 public sealed class SuperscalarTrain : ISteppableTrain {
@@ -32,14 +37,19 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         ulong entryPoint = 0,
         int issueWidth = 2,
         MemoryConfig? iMemConfig = null,
-        MemoryConfig? dMemConfig = null
+        MemoryConfig? dMemConfig = null,
+        IBranchPredictor? predictor = null,
+        PEventLog? pEventLog = null
     ) {
         var esc = new Escapement();
         _train = new Train("superscalar", esc);
         var iLayers = MemoryLayers.Build(memory, iMemConfig ?? MemoryConfig.None);
         var dLayers = MemoryLayers.Build(memory, dMemConfig ?? MemoryConfig.None);
         _core = _train.AddGear(
-            new SuperscalarCore("pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth)
+            new SuperscalarCore(
+                "pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth,
+                predictor, pEventLog
+            )
         );
         _train.Build();
     }
@@ -49,15 +59,22 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         MemoryLayers iLayers,
         MemoryLayers dLayers,
         ulong entryPoint,
-        int issueWidth = 2
+        int issueWidth = 2,
+        IBranchPredictor? predictor = null,
+        PEventLog? pEventLog = null
     ) {
         var esc = new Escapement();
         _train = new Train("superscalar", esc);
         _core = _train.AddGear(
-            new SuperscalarCore("pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth)
+            new SuperscalarCore(
+                "pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth,
+                predictor, pEventLog
+            )
         );
         _train.Build();
     }
+
+    public PEventLog? PEventLog => _core.PEventLog;
 
     public SetAssociativeCache? ICache => _core.ILayers.Cache;
     public SetAssociativeCache? DCache => _core.DLayers.Cache;
@@ -76,6 +93,8 @@ public sealed class SuperscalarTrain : ISteppableTrain {
     public void BeginStepping() => _train.BeginStepping();
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
+
+    public DialBoardSnapshot SnapshotPipeline() => _core.Dials.Snapshot();
 }
 
 // ── Pipeline core Gear ─────────────────────────────────────────────────────────
@@ -85,9 +104,10 @@ public sealed class SuperscalarTrain : ISteppableTrain {
 ///     instructions in program order.
 ///     <para>
 ///         Stalls are counted as cycles where the group ran shorter than the issue
-///         width (due to a branch, halt, or memory fault cutting the group short).
-///         Cache miss penalties are added as extra cycles after each issue group.
-///         branch_misses is always zero because there is no speculative fetch.
+///         width (due to a mispredicted or unpredicted branch, halt, or memory fault
+///         cutting the group short). Cache miss penalties are added as extra cycles
+///         after each issue group. Without a predictor, branch_misses is always zero
+///         because there is no speculative fetch.
 ///     </para>
 /// </summary>
 internal sealed class SuperscalarCore(
@@ -98,10 +118,19 @@ internal sealed class SuperscalarCore(
     MemoryLayers iLayers,
     MemoryLayers dLayers,
     ulong entryPoint,
-    int issueWidth
+    int issueWidth,
+    IBranchPredictor? predictor = null,
+    PEventLog? pEventLog = null
 ) : Gear(name, parent, esc) {
+    // Frontend-redirect cost of a mispredicted branch: the same two squashed stages a
+    // FiveStageTrain flush pays (IF + ID refill).
+    private const int MispredictPenaltyCycles = 2;
+
+    // Calls/returns steered by a RAS when a predictor is attached; resolution is
+    // immediate, so no committed shadow copy is needed (no wrong path can corrupt it).
+    private readonly ReturnAddressStack _ras = new();
     private bool _anyCache;
-    [UsedImplicitly] private Counter _branchMissCounter = null!;
+    private Counter _branchMissCounter = null!;
     private Counter? _cacheMissStallsCounter;
 
     private Counter _cyclesCounter = null!;
@@ -119,6 +148,7 @@ internal sealed class SuperscalarCore(
     // Delta tracking for hit/miss counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
+    private ulong _nextInstrId = 1;
     private Counter _retiredCounter = null!;
 
     // Cached to avoid a fresh Action allocation per simulated cycle.
@@ -126,6 +156,7 @@ internal sealed class SuperscalarCore(
     private Counter _stallsCounter = null!;
     public MemoryLayers ILayers { get; } = iLayers;
     public MemoryLayers DLayers { get; } = dLayers;
+    public PEventLog? PEventLog { get; } = pEventLog;
 
     public IArchState ArchState { get; } = mechanism.CreateArchState();
 
@@ -134,7 +165,9 @@ internal sealed class SuperscalarCore(
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
         _stallsCounter = Dials.AddCounter("stalls", "Cycles where issue group < issueWidth or cache miss");
-        _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions (0: no speculation)");
+        _branchMissCounter = Dials.AddCounter(
+            "branch_misses", "Branch mispredictions (always 0 without a predictor: no speculation)"
+        );
 
         Dials.AddDial(
             "cpi",
@@ -211,6 +244,8 @@ internal sealed class SuperscalarCore(
     private void RunCycle() {
         var issued = 0;
         var halt = false;
+        long mispredictPenalty = 0;
+        long cyc = _cyclesCounter.Value;
 
         while (issued < issueWidth) {
             ulong pc = ArchState.Pc;
@@ -246,12 +281,47 @@ internal sealed class SuperscalarCore(
                 }
             }
 
+            ulong instrId = _nextInstrId++;
+            if (PEventLog is not null) {
+                PEventLog.Record(instrId, pc, cyc, PEventKind.Fetch);
+                PEventLog.RecordDisasm(instrId, mechanism.Decoder.Disassemble(pc, instr.RawEncoding));
+            }
+
+            // Predict the branch's successor before executing it. Resolution is immediate
+            // (same loop iteration), so prediction only decides whether the group continues.
+            ulong fallThrough = pc + (ulong)instr.SizeBytes;
+            ulong predictedNext = fallThrough;
+            FetchHint hint = default;
+            bool isBranch = instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch;
+            if (predictor is not null && isBranch) {
+                hint = mechanism.Decoder.GetFetchHint(pc, instr.RawEncoding);
+                // Direct unconditional jumps/calls are always taken to their known target and
+                // bypass the predictor (mirrors the five-stage fetch stage / gem5).
+                BranchPrediction pred = hint is { IsUnconditional: true, BranchTarget.HasValue: true, }
+                    ? BranchPrediction.Taken(hint.BranchTarget.Value)
+                    : predictor.Predict(pc, hint.BranchTarget);
+                if (hint.IsCall)
+                    _ras.Push(fallThrough);
+                else if (hint.IsReturn && _ras.TryPop(out ulong ret)) pred = BranchPrediction.Taken(ret);
+
+                // A direct branch's taken target comes from the decode hint, not the BTB
+                // (which may be cold or aliased); a cold indirect target (0) falls through.
+                ulong takenTarget = hint.BranchTarget.HasValue ? hint.BranchTarget.Value : pred.PredictedTarget;
+                predictedNext = pred.PredictedTaken && takenTarget != 0 ? takenTarget : fallThrough;
+            }
+
             // Execute (through D-cache accessor)
             DLayers.Accessor.SetRequestPc(pc);
             ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, DLayers.Accessor);
             issued++;
             _retiredCounter.Increment();
+            if (PEventLog is not null) {
+                PEventLog.Record(instrId, pc, cyc, PEventKind.Execute);
+                PEventLog.Record(instrId, pc, cyc, PEventKind.Retire);
+            }
 
+            // IsHalt stops before any state change (ebreak); RequestHalt (an HTIF
+            // tohost-exit store) halts after the instruction's effects apply below.
             if (result.IsHalt) {
                 halt = true;
                 break;
@@ -276,12 +346,33 @@ internal sealed class SuperscalarCore(
             else
                 ArchState.Pc = pc + (ulong)instr.SizeBytes;
 
+            if (result.RequestHalt) {
+                halt = true;
+                break;
+            }
+
             if (ArchState.Pc == pc && instr.Class == ToothClass.Branch) {
                 halt = true;
                 break;
             }
 
-            if (instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch) break;
+            if (isBranch) {
+                // No predictor: legacy semantics — every branch cuts the issue group.
+                if (predictor is null) break;
+
+                // Train on every resolved branch (as the other trains do), then either
+                // continue the group at the correctly predicted target or pay the redirect.
+                if (predictor is IBranchKindAwareBranchPredictor kindAware)
+                    kindAware.NotifyBranchKind(pc, ClassifyBranchKind(instr, hint));
+                predictor.Update(pc, ArchState.Pc != fallThrough, ArchState.Pc);
+
+                if (ArchState.Pc != predictedNext) {
+                    _branchMissCounter.Increment();
+                    mispredictPenalty += SuperscalarCore.MispredictPenaltyCycles;
+                    PEventLog?.Record(instrId, pc, cyc, PEventKind.Flush);
+                    break;
+                }
+            }
         }
 
         // Check for pending interrupts after the issue group retires normally.
@@ -293,18 +384,39 @@ internal sealed class SuperscalarCore(
         // Drain cache stall penalties accumulated during this group's memory operations.
         long cacheStalls = _anyCache ? DrainAndChargeStalls() : 0;
 
-        // Count the issue cycle (plus any cache penalty cycles).
+        // Count the issue cycle (plus any cache penalty and mispredict-redirect cycles).
+        // ArchState.OnCycle advances the cycle CSR — self-timing workloads (rdcycle
+        // calibration loops) never terminate without it.
         _cyclesCounter.Increment();
+        ArchState.OnCycle();
         if (cacheStalls > 0) {
             _cacheMissStallsCounter?.IncrementBy(cacheStalls);
             _stallsCounter.IncrementBy(cacheStalls);
             _cyclesCounter.IncrementBy(cacheStalls);
+            for (long i = 0; i < cacheStalls; i++) ArchState.OnCycle();
+        }
+
+        if (mispredictPenalty > 0) {
+            _stallsCounter.IncrementBy(mispredictPenalty);
+            _cyclesCounter.IncrementBy(mispredictPenalty);
+            for (long i = 0; i < mispredictPenalty; i++) ArchState.OnCycle();
         }
 
         // A cycle where the group ran short (branch cut / halt) counts as a stall cycle.
         if (issued < issueWidth) _stallsCounter.Increment();
 
         if (!halt) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Execute);
+    }
+
+    // Classifies a resolved branch for IBranchKindAwareBranchPredictor, from the fetch
+    // hint already derived for prediction.
+    private static BranchKind ClassifyBranchKind(ITooth instruction, FetchHint hint) {
+        var kind = BranchKind.None;
+        if (instruction.Class == ToothClass.ConditionalBranch) kind |= BranchKind.Conditional;
+        if (hint.IsCall) kind |= BranchKind.Call;
+        if (hint.IsReturn) kind |= BranchKind.Return;
+        if (!hint.BranchTarget.HasValue) kind |= BranchKind.Indirect;
+        return kind;
     }
 
     // Drains all pending stalls and updates hit/miss counters. Returns total stall count.

@@ -135,13 +135,17 @@ public partial class ConfigViewModel : ObservableObject {
     [ObservableProperty] public partial int FdipFtqCapacity { get; set; } = 32;
     [ObservableProperty] public partial bool RdipEnabled { get; set; }
 
+    [ObservableProperty] public partial int DaeLaneQueueDepth { get; set; } = 8;
+
     public bool HasFdipFtqCapacity => FdipEnabled;
 
     public bool IsSingleCycle => Pipeline == "single_cycle";
     public bool IsFiveStage => Pipeline == "five_stage";
     public bool IsOoo => Pipeline == "ooo";
-    public bool IsWidePipeline => Pipeline is "superscalar" or "ooo";
-    public bool HasPredictorConfig => Pipeline is "five_stage" or "ooo";
+    public bool IsCpr => Pipeline == "cpr";
+    public bool IsDae => Pipeline == "dae";
+    public bool IsWidePipeline => Pipeline is "superscalar" or "ooo" or "cpr";
+    public bool HasPredictorConfig => Pipeline is "five_stage" or "superscalar" or "ooo" or "cpr";
     public bool HasNBitParams => PredictorType == "n_bit";
     public bool HasGshareParams => PredictorType is "gshare" or "gselect";
     public bool HasGselectParams => PredictorType == "gselect";
@@ -166,7 +170,7 @@ public partial class ConfigViewModel : ObservableObject {
     public static string[] WritePolicyOptions { get; } = ["write_through", "write_back",];
     public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
 
-    public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo",];
+    public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo", "cpr", "dae",];
 
     public string[] PredictorOptions { get; } = [
         "none",
@@ -205,6 +209,8 @@ public partial class ConfigViewModel : ObservableObject {
     partial void OnPipelineChanged(string value) {
         OnPropertyChanged(nameof(IsFiveStage));
         OnPropertyChanged(nameof(IsOoo));
+        OnPropertyChanged(nameof(IsCpr));
+        OnPropertyChanged(nameof(IsDae));
         OnPropertyChanged(nameof(IsWidePipeline));
         OnPropertyChanged(nameof(HasPredictorConfig));
     }
@@ -314,6 +320,7 @@ public partial class ConfigViewModel : ObservableObject {
                 DPrefetcherDepth: DPrefetcherDepth,
                 DPrefetchLatency: DPrefetchLatency,
                 CacheReplacementPolicy: CacheReplacementPolicy == "lru" ? null : CacheReplacementPolicy,
+                DaeLaneQueueDepth: DaeLaneQueueDepth,
                 FdipFtqCapacity: ICacheEnabled && FdipEnabled ? FdipFtqCapacity : 0,
                 Rdip: ICacheEnabled && RdipEnabled
             )
@@ -361,6 +368,7 @@ public partial class ConfigViewModel : ObservableObject {
             ExtraPhysRegs = nc.Config.ExtraPhysRegs,
             FlatIq = nc.Config.FlatIq,
             MshrCapacity = nc.Config.MshrCapacity,
+            DaeLaneQueueDepth = nc.Config.DaeLaneQueueDepth,
             ICacheEnabled = nc.Config.ICache is not null,
             DCacheEnabled = nc.Config.DCache is not null,
             L2CacheEnabled = nc.Config.L2Cache is not null,

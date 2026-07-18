@@ -70,6 +70,9 @@ public sealed record TrainConfig(
     string? CacheReplacementPolicy
         = null, // null/"lru" | "mru" | "clock" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc" | "random" | "fifo" | "plru" | "hawkeye"
     bool EnableStoreSets = false, // Chrysos & Emer ISCA 1998 store-set memory dependence predictor
+
+    // ── DaeTrain parameters ───────────────────────────────────────────────────
+    int DaeLaneQueueDepth = 8, // per-lane instruction queue depth (Access / Execute lanes)
     int FdipFtqCapacity = 0, // 0 = disabled; fetch-directed I-cache prefetch (Reinman/Calder/Austin, MICRO 1999)
     bool Rdip = false, // RAS-directed I-cache prefetch (Kolli/Saidi/Wenisch, MICRO 2013)
     string? RtlCachePolicyLib

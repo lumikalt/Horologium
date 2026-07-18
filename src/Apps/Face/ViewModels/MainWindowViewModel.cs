@@ -238,8 +238,8 @@ public partial class MainWindowViewModel : ObservableObject {
         }
 
         var nc = SelectedConfig.ToNamedConfig();
-        if (nc.Config.Pipeline == "superscalar") {
-            PEventStatusText = "Superscalar pipeline does not support PEvent tracing.";
+        if (nc.Config.Pipeline is "cpr" or "dae") {
+            PEventStatusText = $"The {nc.Config.Pipeline} pipeline does not support PEvent tracing yet.";
             return;
         }
 
@@ -540,7 +540,9 @@ public partial class MainWindowViewModel : ObservableObject {
         new("1_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(1))),
         new("2_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit())),
         new("3_bit", new TrainConfig(Predictor: BranchPredictorConfig.NBit(3))),
-        new("superscalar_2w", new TrainConfig("superscalar", IssueWidth: 2)),
+        new("superscalar_2w", new TrainConfig("superscalar", Predictor: BranchPredictorConfig.NBit(), IssueWidth: 2)),
         new("ooo_2w", new TrainConfig("ooo", Predictor: BranchPredictorConfig.NBit(), IssueWidth: 2)),
+        new("cpr_2w", new TrainConfig("cpr", Predictor: BranchPredictorConfig.NBit(), IssueWidth: 2)),
+        new("dae", new TrainConfig("dae")),
     ];
 }

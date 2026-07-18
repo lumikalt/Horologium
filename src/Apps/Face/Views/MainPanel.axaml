@@ -328,12 +328,32 @@
                                        Minimum="0" Maximum="64" />
                     </Grid>
 
-                    <!-- superscalar / ooo: issue width -->
+                    <!-- superscalar / ooo / cpr: issue width -->
                     <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
                           IsVisible="{Binding IsWidePipeline}">
                         <TextBlock Grid.Column="0" Text="Issue width" VerticalAlignment="Center" />
                         <NumericUpDown Grid.Column="1" Value="{Binding IssueWidth}"
                                        Minimum="1" Maximum="16" />
+                    </Grid>
+
+                    <!-- cpr: IQ / phys regs (checkpoint geometry stays at train defaults) -->
+                    <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                          RowDefinitions="Auto,Auto" RowSpacing="4"
+                          IsVisible="{Binding IsCpr}">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="IQ capacity" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding IqCapacity}"
+                                       Minimum="4" Maximum="256" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Extra phys regs" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding ExtraPhysRegs}"
+                                       Minimum="0" Maximum="256" />
+                    </Grid>
+
+                    <!-- dae: per-lane queue depth -->
+                    <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                          IsVisible="{Binding IsDae}">
+                        <TextBlock Grid.Column="0" Text="Lane queue depth" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="1" Value="{Binding DaeLaneQueueDepth}"
+                                       Minimum="1" Maximum="64" />
                     </Grid>
 
                     <!-- ooo: ROB / IQ / phys regs / flat IQ / MSHR -->

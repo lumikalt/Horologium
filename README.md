@@ -888,14 +888,28 @@ stalls waiting on a not-yet-ready cross-lane value, in `FinishStepping().Dials`.
 
 `PEventLog` captures structured per-instruction lifecycle events — Fetch, Decode, Dispatch, Issue, Execute, Retire,
 Flush — tagged with an instruction ID, PC, and cycle number. A cycle-level `FetchStall` sentinel (instrId=0) marks
-cycles where the OoO fetch unit is blocked (faulted PC). Pass a `PEventLog` instance to `FiveStageTrain` or `OooeTrain`
-to enable recording (null = zero overhead). Query methods include `ForInstruction(id)`, `OfKind(kind)`, and
-`InCycleRange(from, to)` for post-hoc filtering and phase analysis. Every instruction is assigned a monotonically
-increasing `InstrId` at fetch time, unique across the full simulation run, so lifecycle phases can be correlated even
-for wrong-path instructions that are later flushed.
+cycles where the OoO fetch unit is blocked (faulted PC). Pass a `PEventLog` instance to `FiveStageTrain`,
+`SuperscalarTrain` or `OooeTrain` to enable recording (null = zero overhead). Query methods include
+`ForInstruction(id)`, `OfKind(kind)`, and `InCycleRange(from, to)` for post-hoc filtering and phase analysis. Every
+instruction is assigned a monotonically increasing `InstrId` at fetch time, unique across the full simulation run, so
+lifecycle phases can be correlated even for wrong-path instructions that are later flushed.
 
 FiveStage records Fetch/Decode/Execute/Retire/Flush. OoO records the full lifecycle: Fetch → Decode → Dispatch → Issue →
 Execute → Retire/Flush. Flush events appear as an additional terminal event for wrong-path or squashed instructions.
+Superscalar records Fetch/Execute/Retire in the instruction's issue cycle, plus a Flush marker on a mispredicted
+branch.
+
+`SuperscalarTrain` also takes an optional `IBranchPredictor`: without one, every branch cuts the issue group (the
+legacy no-speculation semantics, branch_misses always 0); with one, a correctly predicted branch lets the group
+continue at the predicted target within the same cycle (calls/returns steered by a RAS, direct jumps always taken),
+while a mispredict cuts the group and pays a fixed two-cycle frontend-redirect penalty — branches resolve immediately
+after issue, so the predictor trains in-order with no outstanding speculation. Superscalar now honors HTIF
+tohost-exit stores (`RequestHalt`), and Superscalar, DAE and SMT advance the cycle CSR (`ArchState.OnCycle`) every
+cycle — previously frozen `rdcycle` readings made self-calibrating benchmarks (dhrystone) re-run their measurement
+loop forever on all three. The Face's pipeline picker covers
+`single_cycle`, `five_stage`, `superscalar`, `ooo`, `cpr`, and `dae` (predictor config applies to
+five_stage/superscalar/ooo/cpr; the PEvents waterfall supports five_stage, superscalar and ooo), and sweeps select
+DAE with `"pipeline": "dae"` (`dae_lane_queue_depth`).
 
 ### Spike lock-step co-simulation (src/Isa/RiscV32/CoSim)
 

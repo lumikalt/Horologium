@@ -204,10 +204,16 @@ internal sealed class SmtCore(
             if (!issuedThisCycle[i])
                 cacheStalls += _harts[i].ILayers.ConsumeAllStalls() + _harts[i].DLayers.ConsumeAllStalls();
 
+        // Per-hart OnCycle advances each cycle CSR — self-timing workloads (rdcycle
+        // calibration loops) never terminate without it.
         _cyclesCounter.Increment();
+        foreach (HartContext ctx in _harts) ctx.ArchState.OnCycle();
         if (cacheStalls > 0) {
             _stallsCounter.IncrementBy(cacheStalls);
             _cyclesCounter.IncrementBy(cacheStalls);
+            for (long i = 0; i < cacheStalls; i++)
+                foreach (HartContext ctx in _harts)
+                    ctx.ArchState.OnCycle();
         }
 
         if (issued < issueWidth) _stallsCounter.Increment();
