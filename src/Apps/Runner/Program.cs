@@ -3,6 +3,7 @@ using Mechanism.BranchPredictModels;
 using Mechanism.RtlFu;
 using Orrery.Cache;
 using Orrery.Train;
+using Pipeline;
 using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Analysis;
@@ -21,6 +22,7 @@ long snapshotInterval = 0;         // 0 = off, -1 = auto, >0 = explicit ticks
 var format = "md";                 // md | csv | both | ts-csv
 int? memorySizeBytes = null;       // null → default to 4 MB for ELF workloads
 string? traceJsonPath = null;      // --trace-json <path>: emit an Olympia JSON trace and exit
+long simpointInterval = 0;         // --simpoint <n>: SimPoint phase analysis with n-instruction intervals
 string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
 string? checkpointLoadPath = null; // --checkpoint-load <path>: restore arch checkpoint before run
@@ -59,6 +61,7 @@ for (var i = 0; i < args.Length; i++)
             break;
         case "--format":          format = args[++i]; break;
         case "--trace-json":      traceJsonPath = args[++i]; break;
+        case "--simpoint":        simpointInterval = long.Parse(args[++i]); break;
         case "--checkpoint-save": checkpointSavePath = args[++i]; break;
         case "--checkpoint-load": checkpointLoadPath = args[++i]; break;
         case "--roi-start":       roiStartSymbol = args[++i]; break;
@@ -203,6 +206,29 @@ else {
     }
 
     workloads = [("built-in countdown loop (100 iterations)", new ByteArrayWorkload(bytes)),];
+}
+
+// ── SimPoint phase analysis ───────────────────────────────────────────────────
+
+if (simpointInterval > 0) {
+    if (workloads.Count > 1) {
+        Console.Error.WriteLine("--simpoint supports only a single workload.");
+        return;
+    }
+
+    IWorkload spWorkload = workloads[0].Workload;
+    (SimPointResult sp, BbvProfiler profiler) = Experiment.ProfileSimPoints(
+        spWorkload, new Rv32Mechanism(spWorkload.HtifTohostAddress), simpointInterval, maxTicks
+    );
+    Console.Error.WriteLine(
+        $"Profiled {profiler.TotalInstructions:N0} instructions " +
+        $"({sp.IntervalCount} intervals × {simpointInterval:N0})"
+    );
+    Console.WriteLine(sp);
+    Console.WriteLine();
+    Console.WriteLine("interval,phase");
+    for (var i = 0; i < sp.Phases.Count; i++) Console.WriteLine($"{i},{sp.Phases[i]}");
+    return;
 }
 
 // ── Olympia JSON trace output ─────────────────────────────────────────────────
@@ -548,6 +574,11 @@ static void PrintUsage() {
           --trace-json <path>   Emit an Olympia-compatible JSON instruction trace
                                 (functional single-cycle run) to <path> and exit.
                                 Single workload only.
+          --simpoint <n>        SimPoint phase analysis (Sherwood et al., ASPLOS 2002):
+                                profile basic-block vectors over n-instruction intervals
+                                on a functional run, cluster them into phases, and print
+                                representative simulation points with weights. Single
+                                workload only.
           --script <path>       Evaluate a .csx/.fsx file returning a MachineSpec and run
                                 the selected workload on it. All Spec types and RiscV32
                                 are pre-imported; no #r or using needed.

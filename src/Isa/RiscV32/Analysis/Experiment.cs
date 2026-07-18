@@ -279,6 +279,32 @@ public static class Experiment {
     ///     natural source: it retires exactly one instruction per commit, so the trace
     ///     is an exact functional instruction stream (the timing model is Olympia's job).
     /// </summary>
+    /// <summary>
+    ///     SimPoint phase analysis (Sherwood et al., ASPLOS 2002): runs
+    ///     <paramref name="workload" /> once on a functional <c>SingleCycleTrain</c> with a
+    ///     <see cref="BbvProfiler" /> attached, then clusters the interval basic-block
+    ///     vectors into phases and picks representative simulation points.
+    /// </summary>
+    public static (SimPointResult Result, BbvProfiler Profiler) ProfileSimPoints(
+        IWorkload workload,
+        IMechanism mechanism,
+        long intervalSize,
+        long maxTicks = 100_000_000,
+        int dimensions = 15,
+        int maxK = 10,
+        int seed = 42
+    ) {
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+
+        var profiler = new BbvProfiler(mechanism.Decoder, intervalSize);
+        new SingleCycleTrain(mechanism, workload.WrapMemory(memory), workload.EntryPoint, commitObserver: profiler)
+           .Run(maxTicks);
+        profiler.Complete();
+
+        return (SimPointAnalysis.Analyze(profiler.Intervals, dimensions, maxK, seed: seed), profiler);
+    }
+
     public static int WriteOlympiaTrace(
         IWorkload workload,
         IMechanism mechanism,

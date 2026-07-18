@@ -25,7 +25,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   model's preconditions (wide speculative OoO with an issue-point border) do not hold for them.
 - [x] CPI stacks via interval analysis: per-miss-event cycle accounting for OoO cores (as in Sniper), attributing
   stall cycles to branch mispredictions, cache misses, and dependences. — Eyerman et al., ASPLOS 2006 / ACM TOCS 2009
-- [ ] SimPoint phase analysis: basic-block vector (BBV) profiling and k-means clustering for representative sampling;
+- [x] SimPoint phase analysis: basic-block vector (BBV) profiling and k-means clustering for representative sampling;
   the sampling substrate the SPEC harness item below builds on. — Sherwood et al., ASPLOS 2002
 - [x] ChampSim trace import: parse ChampSim's binary trace format (`input_instr`, the input to CBP branch-predictor
   and CRC cache-replacement-championship submissions) and replay it through Horologium's `IBranchPredictor` and

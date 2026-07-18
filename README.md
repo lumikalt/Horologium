@@ -991,6 +991,22 @@ at checkpoint rollback, and non-branch rollbacks (memory-order violations) plus 
 clears. `CpiStack.FromSnapshot(snapshot)` computes the stack from any pipeline snapshot (counter-based, so
 warmup/ROI-window accurate); base + components equals total CPI by construction.
 
+### SimPoint phase analysis (Pipeline/SimPointAnalysis)
+
+Representative-sampling substrate after Sherwood, Perelman, Hamerly & Calder (ASPLOS 2002). `BbvProfiler` is an
+`ICommitObserver` (typically attached to a functional `SingleCycleTrain`) that splits the committed stream into
+fixed-length intervals and records per-interval basic-block vectors — block-entry counts weighted by block length,
+with blocks identified dynamically (start = first instruction after a control-flow instruction or a trap
+discontinuity) and per-PC decode info memoised. `SimPointAnalysis.Analyze` then normalizes each BBV, projects it to
+15 dimensions through a seeded random linear projection (the matrix is derived from a hash of block PC × dimension,
+never materialised), runs k-means for k = 1…10, scores each clustering with the Pelleg–Moore spherical-Gaussian BIC
+(variance floored at a fraction of the global variance so duplicated interval vectors cannot drag k to the maximum),
+and picks the smallest k whose score reaches 90% of the BIC spread. The result carries the per-interval phase
+labels, one simulation point per phase (the interval closest to its cluster centroid) with its weight, and the
+single simulation point closest to the whole-run centroid. `runner --simpoint <intervalSize> prog.elf` profiles and
+prints the phase table; the simulation points feed the checkpoint/ROI handoff flows for detailed-model sampling
+(on CoreMark at 20 K-instruction intervals this finds the iteration's interleaved kernels as ~7 recurring phases).
+
 ### Architecture scripting and checkpointing (Script/)
 
 `ScriptHost.EvaluateFileAsync(path)` compiles and evaluates a `.csx` (Roslyn C#) or `.fsx` (F# Interactive) script file
