@@ -351,7 +351,7 @@ public partial class AssemblerViewModel : ObservableObject {
         ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
 
     public static IReadOnlyList<string> DPrefetcherOptions { get; } =
-        ["none", "next_line", "stride", "stream", "ipcp", "berti", "pythia", "sms", "bop",];
+        ["none", "next_line", "stride", "stream", "ipcp", "berti", "pythia", "sms", "bop", "spp",];
 
     public static IReadOnlyList<string> WritePolicyOptions { get; } = ["write_through", "write_back",];
     public static IReadOnlyList<string> WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
@@ -1139,6 +1139,7 @@ public partial class AssemblerViewModel : ObservableObject {
             "berti"     => PrefetcherKind.Berti,
             "sms"       => PrefetcherKind.Sms,
             "bop"       => PrefetcherKind.Bop,
+            "spp"       => PrefetcherKind.Spp,
             _           => PrefetcherKind.None,
         };
         if (prefKind != PrefetcherKind.None)

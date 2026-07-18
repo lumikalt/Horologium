@@ -13,6 +13,7 @@ public enum PrefetcherKind {
     Berti,
     Sms,
     Bop,
+    Spp,
 }
 
 public enum ReplacementPolicyKind {
@@ -399,6 +400,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Berti  => new BertiPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Sms    => new SmsPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Bop    => new BopPrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Spp    => new SppPrefetcher(cfg.CacheBlockBytes),
                 _                     => null,
             }
             : null;
@@ -492,6 +494,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Berti  => new BertiPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Sms    => new SmsPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Bop    => new BopPrefetcher(s0.BlockBytes),
+                PrefetcherKind.Spp    => new SppPrefetcher(s0.BlockBytes),
                 _                     => null,
             };
 

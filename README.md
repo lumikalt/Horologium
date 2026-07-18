@@ -644,7 +644,7 @@ lookahead translation).
 
 `IPrefetcher.OnAccess(pc, address, wasHit, Span<ulong> targets)` writes zero or more prefetch addresses into the
 caller-provided span and returns the count; the `OooeTrain` execute stage drives it once per demand load and calls
-`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Eight prefetchers are implemented: **NextLine** —
+`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Nine prefetchers are implemented: **NextLine** —
 always prefetches the cache line immediately following the access; bandwidth-greedy but effective for sequential
 workloads. **Stride / RPT** — Reference Prediction Table (per-PC stride tracking with a 0–3 saturating confidence
 counter); issues a prefetch at `address + stride` once the stride is confirmed (confidence ≥ 2). **Stream** — multi-way
@@ -696,10 +696,24 @@ all offsets 1–256 with prime factors ≤ 5, pruned to the page size in lines);
 with offset d issued back then would have completed in time, so d scores. A phase ends at SCOREMAX (31) or after
 ROUNDMAX (100) rounds; the top scorer becomes D, and a winning score ≤ BADSCORE (1) turns prefetching off (learning
 continues against demand fills so it can re-enable). The L2 prefetch bit of the paper is tracked internally, and
-completion time is approximated by a configurable tick count (default 10), as in Berti. Select with
-`Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop}` on
-`MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher: "next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"`
-in `TrainConfig` JSON.
+completion time is approximated by a configurable tick count (default 10), as in Berti. **SPP** — Signature Path
+Prefetcher (Kim et al., MICRO 2016): a PC-free lookahead prefetcher that compresses per-page delta history into a
+12-bit signature (`sig = (sig << 3) XOR delta`, sign+magnitude deltas) indexing a 512-entry global Pattern Table of
+(delta, confidence) predictions shared across all pages. Prediction recursively walks a *signature path*: the
+highest-confidence delta extends the signature speculatively (no confirmation), producing a new signature to predict
+from, and the walk continues until path confidence `P_d = α·C_d·P_(d−1)` (`P_0 = C_d`) falls below the prefetch
+threshold (25%); α is the measured global accuracy (useful / total prefetches, from a 1024-entry direct-mapped
+Prefetch Filter that also drops redundant requests), throttling lookahead depth to the current program phase. A
+prediction that would cross the 4KB page boundary is not issued but recorded in an 8-entry Global History Register
+(signature, confidence, last offset, delta); the first access to an untracked page searches the GHR for an entry
+whose predicted landing offset matches, and if found inherits that signature — so complex patterns continue into a
+new physical page with no per-page warmup, SPP's signature contribution beyond plain lookahead prefetching. Beats
+BOP/Berti/next-line on workloads with complex, non-strided-but-learnable access patterns (coremark: cuts D$ misses
+~39% vs. no-prefetch, where next-line/BOP manage ~8% and Berti is a no-op) but can lag simpler prefetchers when
+capacity/conflict misses dominate a tiny cache. Select with
+`Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp}` on
+`MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher:
+"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"` in `TrainConfig` JSON.
 
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 
