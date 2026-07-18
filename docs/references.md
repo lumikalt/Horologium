@@ -17,3 +17,6 @@ this file carries the full title so the paper can be found. Local PDFs live in `
 | Michaud, HPCA 2016 | Best-Offset Hardware Prefetching | P. Michaud | HPCA 2016 | `~/dl/michaud_hpca16_bop.pdf` |
 | Kim et al., MICRO 2016 | Path Confidence based Lookahead Prefetching | J. Kim, S. H. Pugsley, P. V. Gratz, A. L. N. Reddy, C. Wilkerson, Z. Chishti | MICRO-49, 2016 | `~/dl/kim_micro16_spp.pdf` |
 | Bhatia et al., ISCA 2019 | Perceptron-Based Prefetch Filtering | E. Bhatia, G. Chacon, S. Pugsley, E. Teran, P. V. Gratz, D. A. Jiménez | ISCA 2019 | `~/dl/bhatia_isca19_ppf.pdf` |
+| Lipasti & Shen, MICRO 1996 | Exceeding the Dataflow Limit via Value Prediction | M. H. Lipasti, J. P. Shen | MICRO-29, 1996 | `~/dl/lipasti_lvpt.pdf` |
+| Lipasti et al., ASPLOS 1996 | Value Locality and Load Value Prediction | M. H. Lipasti, C. B. Wilkerson, J. P. Shen | ASPLOS-VII, 1996 | `~/dl/lipasti_locality.pdf` |
+| Perais & Seznec, HPCA 2014 | Practical Data Value Speculation for Future High-end Processors | A. Perais, A. Seznec | HPCA 2014 | `~/dl/Practical_data_value_speculation.pdf` |

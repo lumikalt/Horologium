@@ -144,6 +144,37 @@ public sealed class RobEntry {
     /// <summary>Deepest memory-hierarchy level this load/atomic missed at execute time.</summary>
     public CpiMissClass DMissClass { get; set; }
 
+    // ── Value prediction (Lipasti &amp; Shen, MICRO 1996; Perais &amp; Seznec, HPCA 2014) ─────
+
+    /// <summary>
+    ///     True for value-prediction-eligible classes (ALU/load with a register destination),
+    ///     independent of whether a confident prediction was actually supplied — the value
+    ///     predictor must be trained at commit on every such instruction, not just the ones it
+    ///     predicted.
+    /// </summary>
+    public bool IsVpEligible { get; set; }
+
+    /// <summary>True when a value predictor supplied a speculative value for this destination at rename.</summary>
+    public bool WasValuePredicted { get; set; }
+
+    /// <summary>The value speculatively written to the PRF at rename, when <see cref="WasValuePredicted" />.</summary>
+    public ulong PredictedValue { get; set; }
+
+    /// <summary>
+    ///     Set at Complete when the real, executed value differs from <see cref="PredictedValue" />.
+    ///     Checked at Commit to trigger a full pipeline squash — the only recovery path for a
+    ///     value misprediction (never a partial squash).
+    /// </summary>
+    public bool ValuePredMispredicted { get; set; }
+
+    /// <summary>
+    ///     Speculative value-history checkpoint captured at this instruction's fetch, before it
+    ///     folded its own predicted branch direction (populated only for branches). Used to
+    ///     recover the value predictor's exact speculative history on an execute-time partial
+    ///     squash, mirroring <see cref="HistCheckpoint" /> for the branch predictor.
+    /// </summary>
+    public ValueHistoryCheckpoint VpHistCheckpoint { get; set; }
+
     /// <summary>
     ///     True when this instruction's fetch suffered an I-cache/I-TLB miss (the sFMT miss
     ///     bit): its retirement proves the stalled fetch was on the correct path and posts the
@@ -166,6 +197,11 @@ public sealed class RobEntry {
         PredictedNextPc = 0;
         ResolvedNextPc = default((ulong Value, bool HasValue));
         HistCheckpoint = default(BranchHistoryCheckpoint);
+        IsVpEligible = false;
+        WasValuePredicted = false;
+        PredictedValue = 0;
+        ValuePredMispredicted = false;
+        VpHistCheckpoint = default(ValueHistoryCheckpoint);
         IsLoad = false;
         IsStore = false;
         LqIdx = -1;

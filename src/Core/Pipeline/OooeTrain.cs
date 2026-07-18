@@ -1,5 +1,6 @@
 using Mechanism;
 using Mechanism.BranchPredictModels;
+using Mechanism.ValuePredictModels;
 using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
@@ -46,7 +47,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int runaheadBudget = 200,
         bool enableVectorRunahead = false,
         int runaheadVectorWidth = 8,
-        int runaheadUnrollLength = 8
+        int runaheadUnrollLength = 8,
+        IValuePredictor? valuePredictor = null
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -77,7 +79,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 runaheadBudget,
                 enableVectorRunahead,
                 runaheadVectorWidth,
-                runaheadUnrollLength
+                runaheadUnrollLength,
+                valuePredictor
             )
         );
         _train.Build();
@@ -101,7 +104,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int sqCapacity = 0,
         int writeBufferCapacity = 0,
         int mshrCapacity = 0,
-        bool flatIq = false
+        bool flatIq = false,
+        IValuePredictor? valuePredictor = null
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -119,7 +123,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 sqCapacity,
                 writeBufferCapacity,
                 mshrCapacity,
-                flatIq
+                flatIq,
+                valuePredictor: valuePredictor
             )
         );
         _train.Build();
@@ -279,6 +284,7 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly StoreQueue _sq;
     private readonly StoreSetPredictor? _storeSets;
     private readonly ITrapController _trapController;
+    private readonly IValuePredictor? _valuePredictor;
     private readonly VrStrideEntry[] _vrStrideTable;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
@@ -396,6 +402,7 @@ internal sealed class OoOPipelineCore : Gear {
     private Action? _runCycle;
     private ulong _shadowPc;
     private Counter? _smbBypassesCounter, _smbMispredictsCounter;
+    private Counter? _vpPredictionsCounter, _vpCorrectCounter, _vpMispredictsCounter;
     private ulong _squashInstrId;
 
     // Execute-time partial squash (branch mispredict resolved before the branch reaches the ROB
@@ -452,7 +459,8 @@ internal sealed class OoOPipelineCore : Gear {
         int runaheadBudget = 200,
         bool enableVectorRunahead = false,
         int runaheadVectorWidth = 8,
-        int runaheadUnrollLength = 8
+        int runaheadUnrollLength = 8,
+        IValuePredictor? valuePredictor = null
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -487,6 +495,7 @@ internal sealed class OoOPipelineCore : Gear {
             ? new TokenPassingCriticalityPredictor(robCapacity)
             : null;
         _smbPredictor = enableSmbBypass ? new SmbPredictor() : null;
+        _valuePredictor = valuePredictor;
         _enableRunahead = enableRunahead;
         _runaheadBudget = runaheadBudget;
         _enableVectorRunahead = enableRunahead && enableVectorRunahead;
@@ -561,6 +570,18 @@ internal sealed class OoOPipelineCore : Gear {
             );
             _smbMispredictsCounter = Dials.AddCounter(
                 "smb_mispredicts", "NoSQ speculative memory bypasses that mispredicted"
+            );
+        }
+
+        if (_valuePredictor is not null) {
+            _vpPredictionsCounter = Dials.AddCounter(
+                "vp_predictions", "Value predictions supplied speculatively at rename"
+            );
+            _vpCorrectCounter = Dials.AddCounter(
+                "vp_correct", "Value predictions that verified correct at execute"
+            );
+            _vpMispredictsCounter = Dials.AddCounter(
+                "vp_mispredicts", "Value predictions that mispredicted and were squashed at commit"
             );
         }
 
@@ -897,6 +918,15 @@ internal sealed class OoOPipelineCore : Gear {
                 }
             }
 
+            // Value prediction verification: the real execution just produced the ground-truth
+            // value. Compare against the speculative value already written at rename — a
+            // mismatch is caught here and squashed at commit (StepCommit), never here (the
+            // unconditional PRF write below self-heals the value regardless of the outcome).
+            if (rob.WasValuePredicted) {
+                if (_prf.Read(r.PhysDest) == r.RegValue.Value) _vpCorrectCounter?.Increment();
+                else rob.ValuePredMispredicted = true;
+            }
+
             _prf.Write(r.PhysDest, r.RegValue.Value);
             foreach (IssueQueue iq in _iqs) iq.Broadcast(r.PhysDest, r.RegValue.Value, r.InstrId);
         }
@@ -1012,6 +1042,20 @@ internal sealed class OoOPipelineCore : Gear {
                 if (lq.SpeculativelyCompleted) _smbPredictor?.Train(head.Pc, lq.SeqNo - lq.PredictedProducerSeqNo);
             }
 
+            // Value prediction: train on every eligible instruction's real committed value,
+            // whether or not it was predicted (Perais & Seznec, HPCA 2014 — predictors must be
+            // trained even when unused). A misprediction is the only trigger for a full pipeline
+            // squash from value prediction — recovery is always a full re-fetch from this PC,
+            // never a partial squash, matching the paper's squash-at-commit recovery model.
+            if (head.IsVpEligible) {
+                _valuePredictor?.Update(head.Pc, _prf.Read(head.PhysDestination));
+                if (head.ValuePredMispredicted) {
+                    _vpMispredictsCounter?.Increment();
+                    SetFlush(head.Pc);
+                    return;
+                }
+            }
+
             // Write deferred store/atomic data to memory at commit time.
             // Real hardware has one D-cache write port: break if already used this cycle.
             if (head.SqIdx >= 0) {
@@ -1089,6 +1133,7 @@ internal sealed class OoOPipelineCore : Gear {
                 if (_predictor is IBranchKindAwareBranchPredictor kindAware)
                     kindAware.NotifyBranchKind(instrPc, ClassifyBranchKind(head.Instruction));
                 _predictor.Update(instrPc, taken, resolvedPc);
+                (_valuePredictor as VtagePredictor)?.AdvanceCommittedHistory(taken);
 
                 if (resolvedPc != predictedPc) {
                     _branchMissCounter.Increment();
@@ -1778,6 +1823,10 @@ internal sealed class OoOPipelineCore : Gear {
             rob.PrevPhysDestination = ri.PrevPhysDest;
             rob.PredictedNextPc = ri.PredictedNextPc;
             rob.HistCheckpoint = ri.HistCheckpoint;
+            rob.VpHistCheckpoint = ri.VpHistCheckpoint;
+            rob.IsVpEligible = ri.IsVpEligible;
+            rob.WasValuePredicted = ri.WasValuePredicted;
+            rob.PredictedValue = ri.PredictedValue;
             rob.IsStore = instr.Class == ToothClass.Store;
             rob.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             rob.IsHalt = instr.Class == ToothClass.Halt;
@@ -1978,9 +2027,26 @@ internal sealed class OoOPipelineCore : Gear {
 
             // ── Rename destination ─────────────────────────────────────────────
             int newPhys = -1, oldPhys = -1;
+            var vpEligible = false;
+            var wasValuePredicted = false;
+            ulong predictedValue = 0;
             if (destArch > 0) {
                 (newPhys, oldPhys) = _rat.Rename(destArch);
                 _prf.MarkPending(newPhys);
+
+                // Value prediction (Lipasti & Shen, MICRO 1996; Perais & Seznec, HPCA 2014):
+                // eligible ALU/load destinations only (TODO.md's "ALU/load results" scope).
+                // A confident prediction is written and marked ready immediately — dependents
+                // waiting in StepDispatch's IsReady check pick it up with no further plumbing.
+                // The producing instruction still executes for real; a mismatch is caught in
+                // StepComplete and squashed at commit (StepCommit), never here. Eligible
+                // instructions are trained at commit whether or not a prediction was supplied.
+                vpEligible = instr.Class is ToothClass.IntegerAlu or ToothClass.Load;
+                if (vpEligible && _valuePredictor is not null && _valuePredictor.TryPredict(fi.Pc, out predictedValue)) {
+                    _prf.Write(newPhys, predictedValue);
+                    wasValuePredicted = true;
+                    _vpPredictionsCounter?.Increment();
+                }
             }
 
             PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
@@ -1988,7 +2054,7 @@ internal sealed class OoOPipelineCore : Gear {
                 new RenameEntry(
                     fi.Pc, instr, fi.PredictedNextPc, fi.InstrId, null,
                     destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3, fi.HistCheckpoint,
-                    fi.IcacheMiss
+                    fi.IcacheMiss, fi.VpHistCheckpoint, vpEligible, wasValuePredicted, predictedValue
                 )
             );
             _decodeQueue.Dequeue();
@@ -2079,10 +2145,12 @@ internal sealed class OoOPipelineCore : Gear {
             FetchHint hint = _decoder.GetFetchHint(_fetchPc, raw);
             ulong predictedNext;
             BranchHistoryCheckpoint histCheckpoint = default;
+            ValueHistoryCheckpoint vpHistCheckpoint = default;
             if (hint.IsBranch) {
                 // Snapshot the predictor's speculative history before this branch folds its own
                 // direction, so an execute-time partial squash can rewind to exactly here.
                 histCheckpoint = _predictor.CaptureHistory(_fetchPc);
+                vpHistCheckpoint = _valuePredictor?.CaptureHistory() ?? default;
                 if (hint.IsCall) _ras.Push(_fetchPc + (ulong)decoded.SizeBytes);
 
                 BranchPrediction pred;
@@ -2109,6 +2177,7 @@ internal sealed class OoOPipelineCore : Gear {
                 // branches index fresh history. Matches the taken bit Update applies at commit
                 // (resolvedPc != fall-through); on the correct path the two agree bit-for-bit.
                 _predictor.SpeculativeHistoryUpdate(_fetchPc, predictedNext != fallThrough);
+                _valuePredictor?.OnBranchFetched(predictedNext != fallThrough);
             }
             else { predictedNext = _fetchPc + (ulong)decoded.SizeBytes; }
 
@@ -2121,7 +2190,7 @@ internal sealed class OoOPipelineCore : Gear {
             _decodeQueue.Enqueue(
                 new FetchedInstr(
                     _fetchPc, decoded, predictedNext, instrId, HistCheckpoint: histCheckpoint,
-                    IcacheMiss: icacheMiss
+                    IcacheMiss: icacheMiss, VpHistCheckpoint: vpHistCheckpoint
                 )
             );
             PEventLog?.Record(instrId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
@@ -2631,6 +2700,7 @@ internal sealed class OoOPipelineCore : Gear {
         // applied the redirecting branch's true outcome to the committed shadow, so this
         // resumes fetch with correct history and drops wrong-path history bits.
         _predictor.RecoverSpeculativeHistory();
+        _valuePredictor?.RecoverSpeculativeHistory();
 
         _fetchPc = _flushTarget;
         _flushPending = false;
@@ -2697,6 +2767,7 @@ internal sealed class OoOPipelineCore : Gear {
 
         // (d) Restore global history (+ B's own local entry) to as-of-B and fold B's true direction.
         _predictor.RestoreHistory(b.HistCheckpoint, b.Pc, _squashTaken);
+        _valuePredictor?.RestoreHistory(b.VpHistCheckpoint, _squashTaken);
 
         // ── Discard the younger structures (B and everything older survive) ─────────────
         _rob.TruncateYoungerThan(bId);
@@ -3181,7 +3252,8 @@ internal sealed class OoOPipelineCore : Gear {
         ulong InstrId = 0,
         TrapInfo? PreTrap = null,
         BranchHistoryCheckpoint HistCheckpoint = default,
-        bool IcacheMiss = false // fetch access missed the I-cache/I-TLB (sFMT miss bit)
+        bool IcacheMiss = false, // fetch access missed the I-cache/I-TLB (sFMT miss bit)
+        ValueHistoryCheckpoint VpHistCheckpoint = default
     );
 
     // Instruction that has been renamed but not yet dispatched to ROB/IQ.
@@ -3198,7 +3270,11 @@ internal sealed class OoOPipelineCore : Gear {
         int P2,
         int P3, // physical source tags captured from RAT, -1 if unused
         BranchHistoryCheckpoint HistCheckpoint = default,
-        bool IcacheMiss = false // fetch access missed the I-cache/I-TLB (sFMT miss bit)
+        bool IcacheMiss = false, // fetch access missed the I-cache/I-TLB (sFMT miss bit)
+        ValueHistoryCheckpoint VpHistCheckpoint = default,
+        bool IsVpEligible = false,
+        bool WasValuePredicted = false,
+        ulong PredictedValue = 0
     );
 
     private readonly record struct IssuedInstr(

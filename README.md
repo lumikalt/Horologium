@@ -213,7 +213,30 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   path-insensitive (PC-indexed only, no history register); bypass is full-word/zero-offset only (the predicted
   producer's static width must equal the load's, so no address is ever needed to trust a prediction); and the
   `LoadQueue` is retained unconditionally as the verification backstop rather than eliminated, exactly as the
-  papers themselves treat LQ elimination as an optional, performance-neutral extension. A **critical-path predictor** (`TokenPassingCriticalityPredictor`,
+  papers themselves treat LQ elimination as an optional, performance-neutral extension. A **value predictor** (pass
+  an `IValuePredictor` via the `valuePredictor` constructor parameter; `null` disables the feature entirely) predicts
+  the destination register value of eligible ALU/load instructions (`IntegerAlu`, `Load`) at rename, writes it
+  speculatively into the PRF and marks it ready immediately — so dependent instructions issue and execute without
+  waiting for the real producer — while the producing instruction still executes for real in the background. Two
+  predictors are provided: `LvpPredictor` (Lipasti &amp; Shen, "Exceeding the Dataflow Limit via Value Prediction",
+  MICRO 1996 — the LVPT scheme), a tagless, PC-indexed table of last-seen values; and `VtagePredictor` (Perais &amp;
+  Seznec, "Practical Data Value Speculation for Future High-end Processors", HPCA 2014), which adapts the ITTAGE
+  indirect-branch predictor to value prediction — a tagless `LvpPredictor` base component backed by six tagged
+  components indexed by a hash of the PC and a geometrically increasing number of global-branch-history bits (2, 4,
+  8, 16, 32, 64), so it can predict back-to-back occurrences of an instruction in a tight loop with no same-cycle
+  critical dependency, unlike local-value-history predictors. Both are gated by a `ForwardProbabilisticCounter`
+  (Perais &amp; Seznec §5, after Riley &amp; Zilles, HPCA 2006): a 3-bit saturating counter whose forward
+  transitions are only taken probabilistically, mimicking a much wider counter at a fraction of the storage, and
+  which hard-resets to 0 on any misprediction; a prediction is used only once fully saturated. Recovery mirrors
+  `SmbPredictor`'s: no selective reissue, no execution-time repair path — a mismatch discovered when the real
+  result completes (`StepComplete`) is squashed with a full re-fetch the moment the mispredicted instruction reaches
+  the ROB head (`StepCommit`), the paper's central finding that squash-at-commit performs within noise of an
+  idealized selective-reissue implementation once FPC accuracy exceeds ~99.5%. `VtagePredictor` keeps its own
+  speculative/committed global-history shadow (independent of whichever `IBranchPredictor` is configured), advanced
+  at fetch and rewound via checkpoint/restore on both a full flush and an execute-time partial squash — so its
+  index survives ordinary branch mispredictions exactly, not just approximately. EOLE (early/late in-order ALU
+  execution to shrink OoO issue width atop value prediction) and eligibility beyond ALU/load are tracked in
+  TODO.md. A **critical-path predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each
   instruction is modeled as a 3-node dependence graph (dispatch/execute/commit); the pipeline resolves,

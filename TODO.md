@@ -11,8 +11,12 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Performance
 
-- [ ] Value prediction: predict ALU/load results to break dependence chains; commit only if the prediction is correct. —
-  Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, MICRO 2014 (VTAGE/EOLE)
+- [x] Value prediction: predict ALU/load results to break dependence chains; commit only if the prediction is correct. —
+  Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, HPCA 2014 (VTAGE + FPC confidence)
+- [ ] EOLE: early/late in-order ALU execution atop value prediction, to shrink the OoO issue width without losing
+  performance. — Perais & Seznec, ISCA 2014 (EOLE)
+- [ ] Widen value-prediction eligibility beyond scalar ALU/load (FP, MulDiv, CSR-writing ops) and add a
+  computational (stride-family) predictor component to hybridize with VTAGE.
 
 ## Cache Prefetching
 
