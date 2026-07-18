@@ -76,7 +76,8 @@ public sealed class CprTrain : ISteppableTrain {
         bool enableCfp = false,
         int cfpMissThresholdCycles = 8,
         int sdbCapacity = 256,
-        int cfpReservedRegs = 8
+        int cfpReservedRegs = 8,
+        PEventLog? pEventLog = null
     ) {
         var esc = new Escapement();
         _train = new Train("cpr", esc);
@@ -92,11 +93,14 @@ public sealed class CprTrain : ISteppableTrain {
                 predictor ?? new AlwaysNotTakenPredictor(),
                 fuLatency ?? FuLatencyConfig.Default,
                 enableStoreSets,
-                enableCfp, cfpMissThresholdCycles, sdbCapacity, cfpReservedRegs
+                enableCfp, cfpMissThresholdCycles, sdbCapacity, cfpReservedRegs,
+                pEventLog
             )
         );
         _train.Build();
     }
+
+    public PEventLog? PEventLog => _core.PEventLog;
 
     public SetAssociativeCache? ICache => _core.ILayers.Cache;
     public SetAssociativeCache? DCache => _core.DLayers.Cache;
@@ -327,8 +331,10 @@ internal sealed class CprPipelineCore : Gear {
         bool enableCfp,
         int cfpMissThresholdCycles,
         int sdbCapacity,
-        int cfpReservedRegs
+        int cfpReservedRegs,
+        PEventLog? pEventLog = null
     ) : base(name, parent, esc) {
+        PEventLog = pEventLog;
         _decoder = mechanism.Decoder;
         _executor = mechanism.Executor;
         _trapController = mechanism.TrapController;
@@ -366,6 +372,7 @@ internal sealed class CprPipelineCore : Gear {
 
     public MemoryLayers ILayers { get; }
     public MemoryLayers DLayers { get; }
+    public PEventLog? PEventLog { get; }
     public IArchState State { get; }
 
     /// <summary>True while the SDB head is drainable — the front end waits (ASPLOS 2004 §4.1.3).</summary>
@@ -879,6 +886,7 @@ internal sealed class CprPipelineCore : Gear {
         // CPI stack: retiring an instruction carrying the sFMT miss bit proves its stalled
         // fetch was correct-path — post the pending I-side miss cycles to the globals.
         if (e.IcacheMiss) PostIcachePendings();
+        PEventLog?.Record(e.InstrId, e.Pc, _cyclesCounter.Value, PEventKind.Retire);
         _entryByInstrId.Remove(e.InstrId);
         cp.CommittedCount++;
         _retiredCounter.Increment();
@@ -929,6 +937,7 @@ internal sealed class CprPipelineCore : Gear {
 
             ulong lqSeqNo = entry.LqIdx >= 0 ? _lq.At(entry.LqIdx).SeqNo : 0;
             (ExecResult result, bool forwardPenalty) = ExecuteOne(issued, lqSeqNo);
+            PEventLog?.Record(issued.InstrId, issued.Pc, _cyclesCounter.Value, PEventKind.Execute);
 
             if (classifyDMiss)
                 entry.DMissClass =
@@ -1542,6 +1551,7 @@ internal sealed class CprPipelineCore : Gear {
             FillDispatchSource(rs, 1, ri.P2);
             FillDispatchSource(rs, 2, ri.P3);
 
+            PEventLog?.Record(ri.Entry.InstrId, ri.Entry.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
             _renameQueue.Dequeue();
             dispatched++;
         }
@@ -1631,6 +1641,7 @@ internal sealed class CprPipelineCore : Gear {
                 // Pre-trap entries never pass through dispatch but do retire: count the slot
                 // here so SlotsIssued − SlotsRetired stays consistent.
                 _tdSlotsIssuedCounter.Increment();
+                PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
                 _decodeQueue.Dequeue();
                 continue;
             }
@@ -1727,6 +1738,7 @@ internal sealed class CprPipelineCore : Gear {
             // instruction was serialized, so the one after it opens a fresh checkpoint.
             _forceCheckpointAfterSerialized = serialized;
 
+            PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
             _renameQueue.Enqueue(new CprRenameEntry(entry, instr, p1, p2, p3));
             _decodeQueue.Dequeue();
         }
@@ -1878,9 +1890,15 @@ internal sealed class CprPipelineCore : Gear {
                                          || (ILayers.L3Cache?.Misses ?? 0) > im3
                                          || (ILayers.Tlb?.Misses ?? 0) > imt);
 
+            ulong instrId = _nextInstrId++;
+            if (PEventLog is not null) {
+                PEventLog.Record(instrId, _fetchPc, _cyclesCounter.Value, PEventKind.Fetch);
+                PEventLog.RecordDisasm(instrId, _decoder.Disassemble(_fetchPc, raw));
+            }
+
             _decodeQueue.Enqueue(
                 new FetchedInstr(
-                    _fetchPc, decoded, predictedNext, _nextInstrId++, WantsCheckpoint: wantsCheckpoint,
+                    _fetchPc, decoded, predictedNext, instrId, WantsCheckpoint: wantsCheckpoint,
                     IcacheMiss: icacheMiss
                 )
             );
@@ -1934,6 +1952,7 @@ internal sealed class CprPipelineCore : Gear {
             if (ri.P3 >= 0) _prf.Release(ri.P3);
         }
 
+        RecordFrontendFlushEvents();
         _renameQueue.Clear();
         _decodeQueue.Clear();
         _execBuffer.RemoveAll(e => e.InstrId >= boundaryInstrId);
@@ -1996,6 +2015,8 @@ internal sealed class CprPipelineCore : Gear {
 
     private void SquashCheckpointEntries(Checkpoint cp) {
         foreach (CheckpointEntry e in cp.Entries) {
+            if (e.InstrId != 0 && _entryByInstrId.ContainsKey(e.InstrId))
+                PEventLog?.Record(e.InstrId, e.Pc, _cyclesCounter.Value, PEventKind.Flush);
             _entryByInstrId.Remove(e.InstrId);
             if (e.PhysDestination < 0) continue;
             // Only mark the destination if this entry still owns the allocation — aggressive
@@ -2012,6 +2033,17 @@ internal sealed class CprPipelineCore : Gear {
         _fullFlushTarget = target;
     }
 
+    /// <summary>Flush events for the not-yet-renamed/dispatched frontend queues.</summary>
+    private void RecordFrontendFlushEvents() {
+        if (PEventLog is null) return;
+        foreach (CprRenameEntry ri in _renameQueue)
+            if (ri.Entry.InstrId != 0)
+                PEventLog.Record(ri.Entry.InstrId, ri.Entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
+        foreach (FetchedInstr fi in _decodeQueue)
+            if (fi.InstrId != 0)
+                PEventLog.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Flush);
+    }
+
     /// <summary>
     ///     Full flush (trap / interrupt / mret): everything in flight is discarded and the rename
     ///     state is rebuilt from the committed architectural state — identity RAT, PRF loaded from
@@ -2020,6 +2052,15 @@ internal sealed class CprPipelineCore : Gear {
     private void ApplyFullFlush() {
         _fullFlushPending = false;
         _flushesCounter.Increment();
+
+        if (PEventLog is not null)
+            foreach (Checkpoint cp in _cpList.InOrder())
+                for (int i = cp.CommittedCount; i < cp.Entries.Count; i++)
+                    if (cp.Entries[i].InstrId != 0)
+                        PEventLog.Record(
+                            cp.Entries[i].InstrId, cp.Entries[i].Pc, _cyclesCounter.Value, PEventKind.Flush
+                        );
+        RecordFrontendFlushEvents();
 
         _cpList.Flush();
         foreach (IssueQueue iq in _iqs) iq.Flush();

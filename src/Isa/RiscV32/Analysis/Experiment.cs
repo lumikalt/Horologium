@@ -228,8 +228,7 @@ public static class Experiment {
 
     /// <summary>
     ///     Runs <paramref name="workload" /> under a single <paramref name="config" /> with a
-    ///     <see cref="PEventLog" /> attached and returns the log. CPR and DAE return an
-    ///     empty log (no PEventLog support yet).
+    ///     <see cref="PEventLog" /> attached and returns the log.
     /// </summary>
     public static PEventLog Trace(
         IWorkload workload,
@@ -268,8 +267,24 @@ public static class Experiment {
                     cfg.FuLatency
                 ).Run(maxTicks);
                 break;
-            // CPR and DAE have no PEventLog support yet.
-            case "cpr" or "dae": break;
+            case "cpr":
+                new CprTrain(
+                    mechanism, runMemory, workload.EntryPoint,
+                    cfg.IssueWidth, cfg.IqCapacity, cfg.ExtraPhysRegs,
+                    predictor: cfg.Predictor?.Build(mechanism, workload),
+                    iMemConfig: cfg.ToIMemoryConfig(), dMemConfig: dCfg,
+                    fuLatency: cfg.FuLatency,
+                    pEventLog: plog
+                ).Run(maxTicks);
+                break;
+            case "dae":
+                new DaeTrain(
+                    mechanism, runMemory, workload.EntryPoint,
+                    cfg.DaeLaneQueueDepth,
+                    cfg.ToIMemoryConfig(), dCfg,
+                    plog
+                ).Run(maxTicks);
+                break;
             default:
                 new FiveStageTrain(
                     mechanism, runMemory, workload.EntryPoint,

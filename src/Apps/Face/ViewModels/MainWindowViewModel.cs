@@ -238,11 +238,6 @@ public partial class MainWindowViewModel : ObservableObject {
         }
 
         var nc = SelectedConfig.ToNamedConfig();
-        if (nc.Config.Pipeline is "cpr" or "dae") {
-            PEventStatusText = $"The {nc.Config.Pipeline} pipeline does not support PEvent tracing yet.";
-            return;
-        }
-
         if (SelectedPreset.ElfFileName == "" && string.IsNullOrWhiteSpace(WorkloadPath)) {
             PEventStatusText = "Specify an ELF file or select a different workload.";
             return;

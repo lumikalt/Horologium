@@ -64,7 +64,8 @@ public sealed class DaeTrain : ISteppableTrain {
         ulong entryPoint = 0,
         int laneQueueDepth = 8,
         MemoryConfig? iMemConfig = null,
-        MemoryConfig? dMemConfig = null
+        MemoryConfig? dMemConfig = null,
+        PEventLog? pEventLog = null
     ) {
         ArgumentNullException.ThrowIfNull(mechanism);
         ArgumentNullException.ThrowIfNull(memory);
@@ -75,10 +76,14 @@ public sealed class DaeTrain : ISteppableTrain {
         var iLayers = MemoryLayers.Build(memory, iMemConfig ?? MemoryConfig.None);
         var dLayers = MemoryLayers.Build(memory, dMemConfig ?? MemoryConfig.None);
         _core = _train.AddGear(
-            new DaeCore("pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, laneQueueDepth)
+            new DaeCore(
+                "pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, laneQueueDepth, pEventLog
+            )
         );
         _train.Build();
     }
+
+    public PEventLog? PEventLog => _core.PEventLog;
 
     public long CurrentTick => _train.CurrentTick;
     public bool IsIdle => _train.IsIdle;
@@ -117,6 +122,9 @@ internal sealed class DaeInstruction {
 
     /// <summary>Source register index → the specific producer's slot, for cross-lane RAW sources only.</summary>
     public Dictionary<int, HandoffSlot>? CrossLaneReads;
+
+    /// <summary>PEvent instruction id (shared numbering with barriers), 0 when tracing is off.</summary>
+    public ulong InstrId;
 
     public required ulong Pc;
 
@@ -243,7 +251,8 @@ internal sealed class DaeCore(
     MemoryLayers iLayers,
     MemoryLayers dLayers,
     ulong entryPoint,
-    int laneQueueDepth
+    int laneQueueDepth,
+    PEventLog? pEventLog = null
 ) : Gear(name, parent, esc) {
     private readonly Queue<DaeInstruction> _accessQueue = new();
     private readonly Queue<DaeInstruction> _executeQueue = new();
@@ -259,8 +268,10 @@ internal sealed class DaeCore(
     private IFetchTranslator? _fetchTranslator;
     private bool _halted;
     private (Lane Lane, HandoffSlot Slot)?[] _lastWriter = [];
+    private ulong _nextInstrId = 1;
     private ulong _nextSeq;
     private ITooth? _pendingBarrier;
+    private ulong _pendingBarrierInstrId;
     private ulong _pendingBarrierPc;
     private PendingTrap? _pendingTrap;
     private Counter _preciseTrapsCounter = null!;
@@ -268,6 +279,7 @@ internal sealed class DaeCore(
     private Action? _runCycle;
     private Counter _stallsCounter = null!;
     private UndoLoggingMemory _undoMemory = null!;
+    public PEventLog? PEventLog { get; } = pEventLog;
 
     public IArchState State { get; } = CreateInitialState(mechanism, entryPoint);
 
@@ -400,6 +412,12 @@ internal sealed class DaeCore(
         if (IsBarrierClass(instr.Class)) {
             _pendingBarrier = instr;
             _pendingBarrierPc = pc;
+            _pendingBarrierInstrId = _nextInstrId++;
+            if (PEventLog is not null) {
+                PEventLog.Record(_pendingBarrierInstrId, pc, _cyclesCounter.Value, PEventKind.Fetch);
+                PEventLog.RecordDisasm(_pendingBarrierInstrId, mechanism.Decoder.Disassemble(pc, instr.RawEncoding));
+            }
+
             return true;
         }
 
@@ -424,9 +442,19 @@ internal sealed class DaeCore(
 
         UpdateTaint(instr, lane);
 
+        ulong instrId = _nextInstrId++;
+        if (PEventLog is not null) {
+            // Fetch at dispatch, Execute/Retire at lane execution: the waterfall's F→EX gap
+            // makes the Access/Execute lane slip directly visible.
+            PEventLog.Record(instrId, pc, _cyclesCounter.Value, PEventKind.Fetch);
+            PEventLog.Record(instrId, pc, _cyclesCounter.Value, PEventKind.Dispatch);
+            PEventLog.RecordDisasm(instrId, mechanism.Decoder.Disassemble(pc, instr.RawEncoding));
+        }
+
         queue.Enqueue(
             new DaeInstruction {
-                Tooth = instr, Pc = pc, Seq = _nextSeq++, CrossLaneReads = crossLaneReads, CaptureWrite = captureWrite,
+                Tooth = instr, Pc = pc, Seq = _nextSeq++, CrossLaneReads = crossLaneReads,
+                CaptureWrite = captureWrite, InstrId = instrId,
             }
         );
         (lane == Lane.Access ? _accessIssuedCounter : _executeIssuedCounter).Increment();
@@ -502,6 +530,10 @@ internal sealed class DaeCore(
         _undoMemory.CurrentSeq = inst.Seq;
         ExecuteResult result = mechanism.Executor.Execute(instr, execState, _undoMemory);
         _retiredCounter.Increment();
+        if (PEventLog is not null) {
+            PEventLog.Record(inst.InstrId, inst.Pc, _cyclesCounter.Value, PEventKind.Execute);
+            if (!result.HasTrap) PEventLog.Record(inst.InstrId, inst.Pc, _cyclesCounter.Value, PEventKind.Retire);
+        }
 
         if (result.HasTrap) {
             // A faulting Load/Store never reaches its RegisterResult/SideEffect/memory-write
@@ -547,6 +579,16 @@ internal sealed class DaeCore(
     // at or before trap.Seq has already permanently retired and can never need to be undone.
     private void ResolveTrap(PendingTrap trap) {
         _pendingTrap = null;
+        if (PEventLog is not null) {
+            // Everything still queued (and any staged barrier) is younger than the trap.
+            foreach (DaeInstruction inst in _accessQueue)
+                PEventLog.Record(inst.InstrId, inst.Pc, _cyclesCounter.Value, PEventKind.Flush);
+            foreach (DaeInstruction inst in _executeQueue)
+                PEventLog.Record(inst.InstrId, inst.Pc, _cyclesCounter.Value, PEventKind.Flush);
+            if (_pendingBarrier is not null)
+                PEventLog.Record(_pendingBarrierInstrId, _pendingBarrierPc, _cyclesCounter.Value, PEventKind.Flush);
+        }
+
         _pendingBarrier = null;
 
         for (int i = _undoLog.Count - 1; i >= 0; i--) {
@@ -583,6 +625,10 @@ internal sealed class DaeCore(
         dLayers.Accessor.SetRequestPc(pc);
         ExecuteResult result = mechanism.Executor.Execute(instr, State, dLayers.Accessor);
         _retiredCounter.Increment();
+        if (PEventLog is not null) {
+            PEventLog.Record(_pendingBarrierInstrId, pc, _cyclesCounter.Value, PEventKind.Execute);
+            PEventLog.Record(_pendingBarrierInstrId, pc, _cyclesCounter.Value, PEventKind.Retire);
+        }
 
         if (result.IsHalt || result.RequestHalt) {
             _halted = true;
