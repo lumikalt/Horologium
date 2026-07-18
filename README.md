@@ -896,18 +896,23 @@ lifecycle phases can be correlated even for wrong-path instructions that are lat
 
 FiveStage records Fetch/Decode/Execute/Retire/Flush. OoO records the full lifecycle: Fetch → Decode → Dispatch → Issue →
 Execute → Retire/Flush. Flush events appear as an additional terminal event for wrong-path or squashed instructions.
-Superscalar records Fetch/Execute/Retire in the instruction's issue cycle, plus a Flush marker on a mispredicted
-branch.
+Superscalar records Fetch at fetch time, Execute at issue, Retire at result completion, and Flush for wrong-path
+fetch-queue entries discarded on a misprediction, trap, or interrupt redirect.
 
-`SuperscalarTrain` also takes an optional `IBranchPredictor`: without one, every branch cuts the issue group (the
-legacy no-speculation semantics, branch_misses always 0); with one, a correctly predicted branch lets the group
-continue at the predicted target within the same cycle (calls/returns steered by a RAS, direct jumps always taken),
-while a mispredict cuts the group and pays a fixed two-cycle frontend-redirect penalty — branches resolve immediately
-after issue, so the predictor trains in-order with no outstanding speculation. Superscalar now honors HTIF
-tohost-exit stores (`RequestHalt`), and Superscalar, DAE and SMT advance the cycle CSR (`ArchState.OnCycle`) every
-cycle — previously frozen `rdcycle` readings made self-calibrating benchmarks (dhrystone) re-run their measurement
-loop forever on all three. The Face's pipeline picker covers
-`single_cycle`, `five_stage`, `superscalar`, `ooo`, `cpr`, and `dae` (predictor config applies to
+`SuperscalarTrain` is a scoreboarded in-order machine: a pipelined frontend fetches up to `issueWidth` instructions
+per cycle along the predicted path (always-not-taken by default; any `IBranchPredictor` plugs in, with RAS-steered
+calls/returns and direct jumps always taken) into a fetch queue, and an instruction fetched at cycle T becomes
+issueable at T + `frontendDepth` (default 2) — a misprediction's penalty is the emergent frontend refill, not a
+constant. Issue is strictly in order behind a register scoreboard: it stops at the first instruction with a pending
+source (RAW, full bypass — a latency-L producer feeds a consumer issuing L cycles later), a pending destination
+(WAW, in-order writeback), exhausted per-class FU ports for the cycle, or a memory op while the blocking data cache
+services a miss (one outstanding miss; independent ALU work continues underneath — stall-on-use via the scoreboard).
+FU counts and latencies come from the same `FuLatencyConfig` the OoO trains use. Instructions execute functionally
+at issue (exact for an in-order machine), so branches resolve at issue and train the predictor with no outstanding
+speculation beyond the fetch queue. Superscalar honors HTIF tohost-exit stores (`RequestHalt`), and Superscalar,
+DAE and SMT advance the cycle CSR (`ArchState.OnCycle`) every cycle — previously frozen `rdcycle` readings made
+self-calibrating benchmarks (dhrystone) re-run their measurement loop forever on all three. The Face's pipeline
+picker covers `single_cycle`, `five_stage`, `superscalar`, `ooo`, `cpr`, and `dae` (predictor config applies to
 five_stage/superscalar/ooo/cpr; the PEvents waterfall supports five_stage, superscalar and ooo), and sweeps select
 DAE with `"pipeline": "dae"` (`dae_lane_queue_depth`).
 

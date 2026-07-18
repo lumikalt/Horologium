@@ -90,9 +90,16 @@ public sealed record FiveStageSpec(
     );
 }
 
-/// <summary>Superscalar in-order: issues up to <see cref="IssueWidth" /> instructions per cycle.</summary>
+/// <summary>
+///     Superscalar in-order: issues up to <see cref="IssueWidth" /> instructions per cycle
+///     behind a scoreboard, with speculative fetch through <see cref="BranchPredictorFactory" />
+///     (always-not-taken when null) and per-class FU timing from <see cref="FuLatency" />.
+/// </summary>
 public sealed record SuperscalarSpec(
-    int IssueWidth = 2
+    int IssueWidth = 2,
+    Func<IBranchPredictor>? BranchPredictorFactory = null,
+    FuLatencyConfig? FuLatency = null,
+    int FrontendDepth = 2
 ) : PipelineSpec {
     public override ISteppableTrain Build(
         IMechanism mechanism,
@@ -100,14 +107,20 @@ public sealed record SuperscalarSpec(
         ulong entryPoint = 0,
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null
-    ) => new SuperscalarTrain(mechanism, backing, entryPoint, IssueWidth, iMemConfig, dMemConfig);
+    ) => new SuperscalarTrain(
+        mechanism, backing, entryPoint, IssueWidth, iMemConfig, dMemConfig,
+        BranchPredictorFactory?.Invoke(), fuLatency: FuLatency, frontendDepth: FrontendDepth
+    );
 
     public override ISteppableTrain Build(
         IMechanism mechanism,
         MemoryLayers iLayers,
         MemoryLayers dLayers,
         ulong entryPoint = 0
-    ) => new SuperscalarTrain(mechanism, iLayers, dLayers, entryPoint, IssueWidth);
+    ) => new SuperscalarTrain(
+        mechanism, iLayers, dLayers, entryPoint, IssueWidth,
+        BranchPredictorFactory?.Invoke(), fuLatency: FuLatency, frontendDepth: FrontendDepth
+    );
 }
 
 /// <summary>

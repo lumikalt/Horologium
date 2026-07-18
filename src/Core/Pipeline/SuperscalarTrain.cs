@@ -12,19 +12,23 @@ namespace Pipeline;
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 
 /// <summary>
-///     Superscalar in-order Train: issues up to <c>issueWidth</c> instructions per
-///     cycle, executing them sequentially so intra-group RAW dependencies resolve
-///     naturally without any hazard detection logic.
+///     Superscalar in-order Train: a pipelined frontend feeds an in-order issue stage of
+///     width <c>issueWidth</c> gated by a register scoreboard.
 ///     <para>
-///         Without a predictor there is no speculation across branches — the issue
-///         group stops at any branch or jump, paying a "group-cutoff" penalty instead
-///         of a flush penalty. With a predictor, a correctly predicted branch lets the
-///         group continue fetching at the predicted target within the same cycle
-///         (calls/returns steered by a RAS, direct jumps always taken), while a
-///         misprediction cuts the group and charges a fixed frontend-redirect penalty —
-///         the same two squashed stages a <see cref="FiveStageTrain" /> flush costs.
-///         Branches resolve immediately after issue, so the predictor is trained
-///         in-order with no outstanding speculation to recover.
+///         Fetch follows the branch predictor speculatively (always-not-taken by default,
+///         RAS-steered calls/returns, direct jumps always taken) into a fetch queue;
+///         an instruction fetched at cycle T becomes issueable at T + <c>frontendDepth</c>,
+///         so a misprediction's penalty is the emergent frontend refill rather than a
+///         constant. Issue is strictly in order: it stops at the first instruction whose
+///         sources are not ready (RAW, with full bypass — a producer of latency L feeds a
+///         consumer issuing L cycles later), whose destination is still pending (WAW,
+///         in-order writeback), whose functional-unit ports for the cycle are exhausted
+///         (<see cref="Ooo.FuLatencyConfig" /> counts and latencies), or that needs the LSU
+///         while a cache miss is outstanding (blocking cache: one miss at a time, but ALU
+///         work continues underneath — stall-on-use via the scoreboard). Instructions
+///         execute functionally at issue, which is exact for an in-order machine; branches
+///         therefore resolve at issue and train the predictor with no outstanding
+///         speculation beyond the fetch queue.
 ///     </para>
 /// </summary>
 public sealed class SuperscalarTrain : ISteppableTrain {
@@ -39,7 +43,9 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null,
         IBranchPredictor? predictor = null,
-        PEventLog? pEventLog = null
+        PEventLog? pEventLog = null,
+        Ooo.FuLatencyConfig? fuLatency = null,
+        int frontendDepth = 2
     ) {
         var esc = new Escapement();
         _train = new Train("superscalar", esc);
@@ -48,7 +54,10 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         _core = _train.AddGear(
             new SuperscalarCore(
                 "pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth,
-                predictor, pEventLog
+                predictor ?? new AlwaysNotTakenPredictor(),
+                fuLatency ?? Ooo.FuLatencyConfig.Default,
+                frontendDepth,
+                pEventLog
             )
         );
         _train.Build();
@@ -61,14 +70,19 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         ulong entryPoint,
         int issueWidth = 2,
         IBranchPredictor? predictor = null,
-        PEventLog? pEventLog = null
+        PEventLog? pEventLog = null,
+        Ooo.FuLatencyConfig? fuLatency = null,
+        int frontendDepth = 2
     ) {
         var esc = new Escapement();
         _train = new Train("superscalar", esc);
         _core = _train.AddGear(
             new SuperscalarCore(
                 "pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, issueWidth,
-                predictor, pEventLog
+                predictor ?? new AlwaysNotTakenPredictor(),
+                fuLatency ?? Ooo.FuLatencyConfig.Default,
+                frontendDepth,
+                pEventLog
             )
         );
         _train.Build();
@@ -100,14 +114,14 @@ public sealed class SuperscalarTrain : ISteppableTrain {
 // ── Pipeline core Gear ─────────────────────────────────────────────────────────
 
 /// <summary>
-///     The superscalar core Gear. Each tick it issues up to <c>issueWidth</c>
-///     instructions in program order.
+///     The superscalar core Gear. Each cycle: issue up to <c>issueWidth</c> queue heads in
+///     program order (scoreboard/port/LSU gated, executing functionally at issue), then
+///     fetch up to <c>issueWidth</c> instructions along the predicted path.
 ///     <para>
-///         Stalls are counted as cycles where the group ran shorter than the issue
-///         width (due to a mispredicted or unpredicted branch, halt, or memory fault
-///         cutting the group short). Cache miss penalties are added as extra cycles
-///         after each issue group. Without a predictor, branch_misses is always zero
-///         because there is no speculative fetch.
+///         Stalls count cycles where the issue group ran short of the width for any reason
+///         (frontend starvation, interlocks, structural limits, halts). Cache misses are
+///         charged where they bind: an I-side miss blocks further fetch until the line
+///         arrives, a D-side miss extends the load's result latency and holds the LSU busy.
 ///     </para>
 /// </summary>
 internal sealed class SuperscalarCore(
@@ -119,15 +133,19 @@ internal sealed class SuperscalarCore(
     MemoryLayers dLayers,
     ulong entryPoint,
     int issueWidth,
-    IBranchPredictor? predictor = null,
+    IBranchPredictor predictor,
+    Ooo.FuLatencyConfig fuConfig,
+    int frontendDepth,
     PEventLog? pEventLog = null
 ) : Gear(name, parent, esc) {
-    // Frontend-redirect cost of a mispredicted branch: the same two squashed stages a
-    // FiveStageTrain flush pays (IF + ID refill).
-    private const int MispredictPenaltyCycles = 2;
+    private readonly Queue<FetchedEntry> _fetchQueue = new();
 
-    // Calls/returns steered by a RAS when a predictor is attached; resolution is
-    // immediate, so no committed shadow copy is needed (no wrong path can corrupt it).
+    // Fetch-queue capacity: enough to cover the fetch→issue delay plus one full group.
+    private readonly int _queueCapacity = (frontendDepth + 1) * issueWidth;
+
+    // Calls/returns steered by a RAS. Updated speculatively at fetch with no committed
+    // shadow — wrong-path corruption is possible but shallow (bounded by the fetch queue),
+    // matching the five-stage train's fetch-time RAS.
     private readonly ReturnAddressStack _ras = new();
     private bool _anyCache;
     private Counter _branchMissCounter = null!;
@@ -136,6 +154,15 @@ internal sealed class SuperscalarCore(
     private Counter _cyclesCounter = null!;
     private Counter? _dcacheHitsCounter, _dcacheMissesCounter;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
+
+    // True after fetching a faulting/undecodable instruction: fetch waits until the fault
+    // reaches issue in program order (where it traps if it was correct-path) or a flush
+    // discards it (it was wrong-path).
+    private bool _fetchFaulted;
+    private ulong _fetchPc = entryPoint;
+
+    // Fetch blocked until this cycle while an I-cache/I-TLB miss is serviced.
+    private long _fetchStallUntil;
     private IFetchTranslator? _fetchTranslator;
     private Counter? _icacheHitsCounter, _icacheMissesCounter;
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
@@ -148,7 +175,15 @@ internal sealed class SuperscalarCore(
     // Delta tracking for hit/miss counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
+
+    // Blocking data cache: the LSU accepts no new memory operation until this cycle while
+    // a miss is outstanding (no hit-under-miss). Independent ALU work continues.
+    private long _lsuBusyUntil;
     private ulong _nextInstrId = 1;
+
+    // Scoreboard: cycle at which each architectural integer register's in-flight value
+    // becomes readable through the bypass network (index 0 = x0, never pending).
+    private long[] _regReadyCycle = [];
     private Counter _retiredCounter = null!;
 
     // Cached to avoid a fresh Action allocation per simulated cycle.
@@ -162,12 +197,11 @@ internal sealed class SuperscalarCore(
 
     public override void Initialize() {
         _fetchTranslator = mechanism.CreateFetchTranslator(ArchState, ILayers.Accessor);
+        _regReadyCycle = new long[ArchState.IntegerRegisters.Count];
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
-        _stallsCounter = Dials.AddCounter("stalls", "Cycles where issue group < issueWidth or cache miss");
-        _branchMissCounter = Dials.AddCounter(
-            "branch_misses", "Branch mispredictions (always 0 without a predictor: no speculation)"
-        );
+        _stallsCounter = Dials.AddCounter("stalls", "Cycles where the issue group ran short of issueWidth");
+        _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions (frontend refill penalty)");
 
         Dials.AddDial(
             "cpi",
@@ -186,7 +220,7 @@ internal sealed class SuperscalarCore(
                                               || ILayers.Tlb is not null || DLayers.Tlb is not null;
         if (_anyCache)
             _cacheMissStallsCounter = Dials.AddCounter(
-                "cache_miss_stalls", "Stall cycles from memory hierarchy misses"
+                "cache_miss_stalls", "Miss cycles charged to fetch (I-side) or the LSU (D-side)"
             );
 
         if (ILayers.Cache is not null) {
@@ -234,69 +268,242 @@ internal sealed class SuperscalarCore(
         base.Reset();
         ArchState.Reset();
         ArchState.Pc = entryPoint;
+        _fetchPc = entryPoint;
+        _fetchQueue.Clear();
+        _fetchFaulted = false;
+        _fetchStallUntil = 0;
+        _lsuBusyUntil = 0;
+        Array.Clear(_regReadyCycle);
     }
 
     public override void Wind() {
         ArchState.Pc = entryPoint;
+        _fetchPc = entryPoint;
         Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Execute);
     }
 
     private void RunCycle() {
+        long now = _cyclesCounter.Value;
+        bool halt = StepIssue(now);
+
+        if (!halt) StepFetch(now);
+
+        if (_anyCache) {
+            UpdateAllMemoryStats();
+            ILayers.TickWb();
+            DLayers.TickWb();
+            ILayers.TickMshr();
+            DLayers.TickMshr();
+            ILayers.TickPorts();
+            DLayers.TickPorts();
+        }
+
+        // ArchState.OnCycle advances the cycle CSR — self-timing workloads (rdcycle
+        // calibration loops) never terminate without it.
+        _cyclesCounter.Increment();
+        ArchState.OnCycle();
+
+        if (!halt) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Execute);
+    }
+
+    // ── Issue ──────────────────────────────────────────────────────────────────
+
+    /// <summary>Issues up to issueWidth queue heads in program order. Returns true on halt.</summary>
+    private bool StepIssue(long now) {
         var issued = 0;
         var halt = false;
-        long mispredictPenalty = 0;
-        long cyc = _cyclesCounter.Value;
+        Span<int> classIssued = stackalloc int[16]; // one slot per ToothClass value
 
         while (issued < issueWidth) {
-            ulong pc = ArchState.Pc;
+            if (_fetchQueue.Count == 0) break;
+            FetchedEntry head = _fetchQueue.Peek();
+            if (head.ReadyAt > now) break; // still traversing the frontend pipeline
 
-            // Fetch & Decode (through I-cache accessor)
-            ITooth instr;
-            if (_fetchTranslator is not null) {
-                (ulong physPc, int faultCause) = _fetchTranslator.Translate(pc);
-                if (faultCause != 0) {
-                    ArchState.Pc = mechanism.TrapController.RaiseTrap(
-                        new TrapInfo(faultCause, pc, pc), ArchState
-                    );
-                    break;
-                }
-
-                try {
-                    var raw = (uint)ILayers.Accessor.Read(physPc, 4);
-                    instr = mechanism.Decoder.Decode(pc, raw);
-                }
-                catch (IllegalInstructionException ex) {
-                    ArchState.Pc = mechanism.TrapController.RaiseTrap(
-                        new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), ArchState
-                    );
-                    break;
-                }
-            }
-            else {
-                try { instr = mechanism.Decoder.Decode(pc, ILayers.Accessor); }
-                catch (IllegalInstructionException ex) {
-                    var trap = new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc);
-                    ArchState.Pc = mechanism.TrapController.RaiseTrap(trap, ArchState);
-                    break;
-                }
+            // A fetch fault that reaches issue is on the correct path: raise it.
+            if (head.PreTrap is not null) {
+                _fetchQueue.Dequeue();
+                ArchState.Pc = mechanism.TrapController.RaiseTrap(head.PreTrap, ArchState);
+                FlushFrontend(ArchState.Pc, now);
+                break;
             }
 
-            ulong instrId = _nextInstrId++;
+            ITooth instr = head.Instruction!;
+
+            // RAW interlock: every source must be readable through the bypass this cycle.
+            var blocked = false;
+            IReadOnlyList<int> srcs = instr.SourceRegisters;
+            for (var i = 0; i < srcs.Count && !blocked; i++)
+                if (srcs[i] > 0 && _regReadyCycle[srcs[i]] > now)
+                    blocked = true;
+
+            // WAW interlock: in-order writeback — a pending older write to the same
+            // destination must land before this one may issue.
+            int dest = instr.DestinationRegister;
+            if (dest > 0 && _regReadyCycle[dest] > now) blocked = true;
+            if (blocked) break;
+
+            // Structural: per-class FU ports this cycle, and the blocking LSU.
+            ToothClass cls = instr.Class;
+            bool isMem = cls is ToothClass.Load or ToothClass.Store or ToothClass.Atomic;
+            if (isMem && now < _lsuBusyUntil) break;
+            int fuSlot = Ooo.FuLatencyConfig.BudgetSlot(cls);
+            if (classIssued[fuSlot] >= fuConfig.CountFor(cls)) break;
+
+            // Execute functionally at issue — exact for an in-order machine, since every
+            // older instruction has already executed.
+            DLayers.Accessor.SetRequestPc(head.Pc);
+            ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, DLayers.Accessor);
+            _fetchQueue.Dequeue();
+            classIssued[fuSlot]++;
+            issued++;
+            _retiredCounter.Increment();
+
+            int latency = result.LatencyOverride is > 0 and var overridden
+                ? overridden
+                : fuConfig.LatencyFor(instr);
+            if (cls == ToothClass.Load) {
+                int cacheHit = DLayers.Cache?.HitLatency ?? 0;
+                if (cacheHit > 0) latency = cacheHit;
+            }
+
+            // Blocking data cache: a miss extends this operation's latency and holds the
+            // LSU until the line arrives; independent non-memory work continues.
+            if (_anyCache && isMem) {
+                long miss = DLayers.ConsumeAllStalls();
+                if (miss > 0) {
+                    latency += (int)miss;
+                    _lsuBusyUntil = now + 1 + miss;
+                    _cacheMissStallsCounter?.IncrementBy(miss);
+                }
+            }
+
             if (PEventLog is not null) {
-                PEventLog.Record(instrId, pc, cyc, PEventKind.Fetch);
-                PEventLog.RecordDisasm(instrId, mechanism.Decoder.Disassemble(pc, instr.RawEncoding));
+                PEventLog.Record(head.InstrId, head.Pc, now, PEventKind.Execute);
+                PEventLog.Record(head.InstrId, head.Pc, now + latency - 1, PEventKind.Retire);
             }
 
-            // Predict the branch's successor before executing it. Resolution is immediate
-            // (same loop iteration), so prediction only decides whether the group continues.
+            // IsHalt stops before any state change (ebreak); RequestHalt (an HTIF
+            // tohost-exit store) halts after the instruction's effects apply below.
+            if (result.IsHalt) {
+                halt = true;
+                break;
+            }
+
+            if (result.HasTrap) {
+                ArchState.Pc = mechanism.TrapController.RaiseTrap(result.Trap!, ArchState);
+                FlushFrontend(ArchState.Pc, now);
+                break;
+            }
+
+            if (result.IsReturnFromTrap) {
+                ArchState.Pc = mechanism.TrapController.ReturnFromTrap(result.ReturnPrivilege!.Value, ArchState);
+                FlushFrontend(ArchState.Pc, now);
+                break;
+            }
+
+            result.SideEffect?.Invoke(ArchState);
+            if (result.RegisterResult.HasValue && dest >= 0)
+                ArchState.IntegerRegisters.Write(dest, result.RegisterResult.Value);
+            if (dest > 0) _regReadyCycle[dest] = now + latency;
+
+            if (result is { BranchTaken: true, BranchTarget: not null, })
+                ArchState.Pc = result.BranchTarget.Value;
+            else
+                ArchState.Pc = head.Pc + (ulong)instr.SizeBytes;
+
+            if (result.RequestHalt) {
+                halt = true;
+                break;
+            }
+
+            // Unconditional jump-to-self: the bare-metal terminator.
+            if (ArchState.Pc == head.Pc && cls == ToothClass.Branch) {
+                halt = true;
+                break;
+            }
+
+            if (cls is ToothClass.Branch or ToothClass.ConditionalBranch) {
+                // Branches resolve at issue: train on every one, then either keep issuing
+                // (the queue already holds the correctly predicted path) or flush the
+                // frontend — the penalty is the refill, frontendDepth cycles of starvation.
+                ulong fallThrough = head.Pc + (ulong)instr.SizeBytes;
+                if (predictor is IBranchKindAwareBranchPredictor kindAware)
+                    kindAware.NotifyBranchKind(head.Pc, ClassifyBranchKind(instr));
+                predictor.Update(head.Pc, ArchState.Pc != fallThrough, ArchState.Pc);
+
+                if (ArchState.Pc != head.PredictedNextPc) {
+                    _branchMissCounter.Increment();
+                    FlushFrontend(ArchState.Pc, now);
+                    break;
+                }
+            }
+        }
+
+        // Check for pending interrupts once the issue group retires normally.
+        if (!halt) {
+            TrapInfo? interrupt = mechanism.TrapController.PeekInterrupt(ArchState);
+            if (interrupt is not null) {
+                ArchState.Pc = mechanism.TrapController.RaiseTrap(interrupt, ArchState);
+                FlushFrontend(ArchState.Pc, now);
+            }
+        }
+
+        // A cycle where the group ran short counts as a stall cycle.
+        if (issued < issueWidth) _stallsCounter.Increment();
+        return halt;
+    }
+
+    // ── Fetch ──────────────────────────────────────────────────────────────────
+
+    /// <summary>Fetches up to issueWidth instructions along the predicted path into the queue.</summary>
+    private void StepFetch(long now) {
+        if (_fetchFaulted || now < _fetchStallUntil) return;
+
+        var fetched = 0;
+        while (fetched < issueWidth && _fetchQueue.Count < _queueCapacity) {
+            ulong pc = _fetchPc;
+
+            ulong physPc = pc;
+            if (_fetchTranslator is not null) {
+                (ulong pa, int faultCause) = _fetchTranslator.Translate(pc);
+                if (faultCause != 0) {
+                    EnqueueFault(pc, new TrapInfo(faultCause, pc, pc), now);
+                    return;
+                }
+
+                physPc = pa;
+            }
+
+            ITooth instr;
+            uint raw;
+            try {
+                raw = (uint)ILayers.Accessor.Read(physPc, 4);
+                instr = mechanism.Decoder.Decode(pc, raw);
+            }
+            catch (IllegalInstructionException ex) {
+                EnqueueFault(pc, new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), now);
+                return;
+            }
+            catch (AccessViolationException) {
+                EnqueueFault(pc, new TrapInfo(TrapCause.InstructionAccessFault, pc, pc), now);
+                return;
+            }
+
+            // I-side miss: the line arrives after the penalty. This instruction's issue
+            // readiness and all further fetch wait for it.
+            long iStalls = _anyCache ? ILayers.ConsumeAllStalls() : 0;
+            if (iStalls > 0) {
+                _fetchStallUntil = now + iStalls;
+                _cacheMissStallsCounter?.IncrementBy(iStalls);
+            }
+
+            // Predict the successor. Direct unconditional jumps/calls are always taken to
+            // their known target and bypass the predictor (mirrors the five-stage fetch
+            // stage / gem5); returns are steered by the RAS.
             ulong fallThrough = pc + (ulong)instr.SizeBytes;
             ulong predictedNext = fallThrough;
-            FetchHint hint = default;
-            bool isBranch = instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch;
-            if (predictor is not null && isBranch) {
-                hint = mechanism.Decoder.GetFetchHint(pc, instr.RawEncoding);
-                // Direct unconditional jumps/calls are always taken to their known target and
-                // bypass the predictor (mirrors the five-stage fetch stage / gem5).
+            FetchHint hint = mechanism.Decoder.GetFetchHint(pc, raw);
+            if (hint.IsBranch) {
                 BranchPrediction pred = hint is { IsUnconditional: true, BranchTarget.HasValue: true, }
                     ? BranchPrediction.Taken(hint.BranchTarget.Value)
                     : predictor.Predict(pc, hint.BranchTarget);
@@ -310,122 +517,54 @@ internal sealed class SuperscalarCore(
                 predictedNext = pred.PredictedTaken && takenTarget != 0 ? takenTarget : fallThrough;
             }
 
-            // Execute (through D-cache accessor)
-            DLayers.Accessor.SetRequestPc(pc);
-            ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, DLayers.Accessor);
-            issued++;
-            _retiredCounter.Increment();
+            ulong instrId = _nextInstrId++;
             if (PEventLog is not null) {
-                PEventLog.Record(instrId, pc, cyc, PEventKind.Execute);
-                PEventLog.Record(instrId, pc, cyc, PEventKind.Retire);
+                PEventLog.Record(instrId, pc, now, PEventKind.Fetch);
+                PEventLog.RecordDisasm(instrId, mechanism.Decoder.Disassemble(pc, raw));
             }
 
-            // IsHalt stops before any state change (ebreak); RequestHalt (an HTIF
-            // tohost-exit store) halts after the instruction's effects apply below.
-            if (result.IsHalt) {
-                halt = true;
-                break;
-            }
+            _fetchQueue.Enqueue(new FetchedEntry(pc, instr, predictedNext, instrId, now + frontendDepth + iStalls));
+            _fetchPc = predictedNext;
+            fetched++;
 
-            if (result.HasTrap) {
-                ArchState.Pc = mechanism.TrapController.RaiseTrap(result.Trap!, ArchState);
-                break;
-            }
-
-            if (result.IsReturnFromTrap) {
-                ArchState.Pc = mechanism.TrapController.ReturnFromTrap(result.ReturnPrivilege!.Value, ArchState);
-                break;
-            }
-
-            result.SideEffect?.Invoke(ArchState);
-            if (result.RegisterResult.HasValue && instr.DestinationRegister >= 0)
-                ArchState.IntegerRegisters.Write(instr.DestinationRegister, result.RegisterResult.Value);
-
-            if (result is { BranchTaken: true, BranchTarget: not null, })
-                ArchState.Pc = result.BranchTarget.Value;
-            else
-                ArchState.Pc = pc + (ulong)instr.SizeBytes;
-
-            if (result.RequestHalt) {
-                halt = true;
-                break;
-            }
-
-            if (ArchState.Pc == pc && instr.Class == ToothClass.Branch) {
-                halt = true;
-                break;
-            }
-
-            if (isBranch) {
-                // No predictor: legacy semantics — every branch cuts the issue group.
-                if (predictor is null) break;
-
-                // Train on every resolved branch (as the other trains do), then either
-                // continue the group at the correctly predicted target or pay the redirect.
-                if (predictor is IBranchKindAwareBranchPredictor kindAware)
-                    kindAware.NotifyBranchKind(pc, ClassifyBranchKind(instr, hint));
-                predictor.Update(pc, ArchState.Pc != fallThrough, ArchState.Pc);
-
-                if (ArchState.Pc != predictedNext) {
-                    _branchMissCounter.Increment();
-                    mispredictPenalty += SuperscalarCore.MispredictPenaltyCycles;
-                    PEventLog?.Record(instrId, pc, cyc, PEventKind.Flush);
-                    break;
-                }
-            }
+            // A taken branch or a line miss ends the sequential fetch group.
+            if (predictedNext != fallThrough || iStalls > 0) break;
         }
-
-        // Check for pending interrupts after the issue group retires normally.
-        if (!halt) {
-            TrapInfo? interrupt = mechanism.TrapController.PeekInterrupt(ArchState);
-            if (interrupt is not null) ArchState.Pc = mechanism.TrapController.RaiseTrap(interrupt, ArchState);
-        }
-
-        // Drain cache stall penalties accumulated during this group's memory operations.
-        long cacheStalls = _anyCache ? DrainAndChargeStalls() : 0;
-
-        // Count the issue cycle (plus any cache penalty and mispredict-redirect cycles).
-        // ArchState.OnCycle advances the cycle CSR — self-timing workloads (rdcycle
-        // calibration loops) never terminate without it.
-        _cyclesCounter.Increment();
-        ArchState.OnCycle();
-        if (cacheStalls > 0) {
-            _cacheMissStallsCounter?.IncrementBy(cacheStalls);
-            _stallsCounter.IncrementBy(cacheStalls);
-            _cyclesCounter.IncrementBy(cacheStalls);
-            for (long i = 0; i < cacheStalls; i++) ArchState.OnCycle();
-        }
-
-        if (mispredictPenalty > 0) {
-            _stallsCounter.IncrementBy(mispredictPenalty);
-            _cyclesCounter.IncrementBy(mispredictPenalty);
-            for (long i = 0; i < mispredictPenalty; i++) ArchState.OnCycle();
-        }
-
-        // A cycle where the group ran short (branch cut / halt) counts as a stall cycle.
-        if (issued < issueWidth) _stallsCounter.Increment();
-
-        if (!halt) Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Execute);
     }
 
-    // Classifies a resolved branch for IBranchKindAwareBranchPredictor, from the fetch
-    // hint already derived for prediction.
-    private static BranchKind ClassifyBranchKind(ITooth instruction, FetchHint hint) {
+    private void EnqueueFault(ulong pc, TrapInfo trap, long now) {
+        ulong instrId = _nextInstrId++;
+        PEventLog?.Record(instrId, pc, now, PEventKind.Fetch);
+        _fetchQueue.Enqueue(new FetchedEntry(pc, null, pc, instrId, now + frontendDepth, trap));
+        _fetchFaulted = true; // wait for the fault to issue (correct path) or flush (wrong path)
+    }
+
+    /// <summary>Discards the speculative frontend contents and redirects fetch.</summary>
+    private void FlushFrontend(ulong target, long now) {
+        if (PEventLog is not null)
+            foreach (FetchedEntry entry in _fetchQueue)
+                PEventLog.Record(entry.InstrId, entry.Pc, now, PEventKind.Flush);
+
+        _fetchQueue.Clear();
+        _fetchPc = target;
+        _fetchFaulted = false;
+        _fetchStallUntil = 0; // any in-flight I-miss belonged to the wrong path
+    }
+
+    // Classifies a resolved branch for IBranchKindAwareBranchPredictor.
+    private BranchKind ClassifyBranchKind(ITooth instruction) {
         var kind = BranchKind.None;
         if (instruction.Class == ToothClass.ConditionalBranch) kind |= BranchKind.Conditional;
+        FetchHint hint = mechanism.Decoder.GetFetchHint(instruction.Pc, instruction.RawEncoding);
         if (hint.IsCall) kind |= BranchKind.Call;
         if (hint.IsReturn) kind |= BranchKind.Return;
         if (!hint.BranchTarget.HasValue) kind |= BranchKind.Indirect;
         return kind;
     }
 
-    // Drains all pending stalls and updates hit/miss counters. Returns total stall count.
-    private long DrainAndChargeStalls() {
-        long stalls = ILayers.ConsumeAllStalls() + DLayers.ConsumeAllStalls();
-        ILayers.TickMshr();
-        DLayers.TickMshr();
-        ILayers.TickPorts();
-        DLayers.TickPorts();
+    // ── Memory hierarchy stat collection ──────────────────────────────────────
+
+    private void UpdateAllMemoryStats() {
         UpdateCacheStat(ILayers.Cache, _icacheHitsCounter, _icacheMissesCounter, ref _lastIHits, ref _lastIMisses);
         UpdateCacheStat(
             ILayers.L2Cache, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
@@ -442,7 +581,6 @@ internal sealed class SuperscalarCore(
         );
         UpdateTlbStat(ILayers.Tlb, _itlbHitsCounter, _itlbMissesCounter, ref _lastITlbHits, ref _lastITlbMisses);
         UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);
-        return stalls;
     }
 
     private static void UpdateCacheStat(
@@ -472,4 +610,14 @@ internal sealed class SuperscalarCore(
         lastHits = tlb.Hits;
         lastMisses = tlb.Misses;
     }
+
+    /// <summary>One fetched (possibly faulting) instruction traversing the frontend pipeline.</summary>
+    private readonly record struct FetchedEntry(
+        ulong Pc,
+        ITooth? Instruction,
+        ulong PredictedNextPc,
+        ulong InstrId,
+        long ReadyAt, // first cycle this entry may issue (fetch cycle + frontendDepth + I-miss delay)
+        TrapInfo? PreTrap = null
+    );
 }

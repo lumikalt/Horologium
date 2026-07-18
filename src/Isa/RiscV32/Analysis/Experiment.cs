@@ -197,7 +197,8 @@ public static class Experiment {
                     config.IssueWidth,
                     config.ToIMemoryConfig(),
                     dCfg,
-                    config.Predictor?.Build(mechanism, workload)
+                    config.Predictor?.Build(mechanism, workload),
+                    fuLatency: config.FuLatency
                 ).Run(maxTicks, warmupTicks, snapshotInterval),
 
                 "dae" => new DaeTrain(
@@ -263,7 +264,8 @@ public static class Experiment {
                     cfg.IssueWidth,
                     cfg.ToIMemoryConfig(), dCfg,
                     cfg.Predictor?.Build(mechanism, workload),
-                    plog
+                    plog,
+                    cfg.FuLatency
                 ).Run(maxTicks);
                 break;
             // CPR and DAE have no PEventLog support yet.
