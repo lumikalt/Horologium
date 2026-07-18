@@ -24,16 +24,10 @@ the active thread.
   Gear's internal state (ROB, LSQ, issue queues, pipeline latches, cache/TLB line arrays, branch predictor
   tables) so simulation can be suspended and resumed with microarchitectural fidelity — mirrors gem5's
   `serialize`/`unserialize` Checkpoint interface. Requires each `Gear` to implement a serialization contract.
-- [ ] SimPoint phase analysis: basic-block vector (BBV) profiling and k-means clustering for representative sampling. —
-  Sherwood et al., ASPLOS 2002
 - [ ] SMARTS: systematic statistical sampling with functional warming between detailed sample windows. — Wunderlich
   et al., ISCA 2003
 - [ ] LoopPoint: checkpoint-driven sampling methodology for multithreaded workloads; the multi-hart counterpart to
   SimPoint. — Sabu et al., HPCA 2022
-- [ ] Top-Down Microarchitecture Analysis (TMA): frontend-bound / backend-bound / bad-speculation / retiring slot
-  accounting computed from dial values. — Yasin, ISPASS 2014
-- [ ] CPI stacks via interval analysis: per-miss-event cycle accounting for OoO cores (as in Sniper), attributing
-  stall cycles to branch mispredictions, cache misses, and dependences. — Eyerman et al., ASPLOS 2006 / ACM TOCS 2009
 - [ ] Intel PT (Processor Trace) binary format import: decode hardware-captured execution traces into the elastic replay
   path.
 - [ ] RISC-V-PAPI integration: cross-validate Horologium's Zicntr/Zihpm counter output against hardware readings
@@ -48,11 +42,6 @@ the active thread.
   Patterson, CACM 2009 (base Roofline)
 - [ ] Mansard Roofline extension: split each cache-level roof into a read roof and a write roof for more accurate
   mixed-access characterization. — Marques, Ilic & Sousa, ACM TOMPECS 2021
-
-## Performance
-
-- [ ] Value prediction: predict ALU/load results to break dependence chains; commit only if the prediction is correct. —
-  Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, MICRO 2014 (VTAGE/EOLE)
 
 ## µops
 
@@ -75,10 +64,6 @@ the active thread.
 
 - [ ] Spatio-temporal memory streaming (STeMS) extending SMS with temporal miss-sequence recording. — Somogyi et al.,
   ISCA 2009
-- [ ] Best-Offset Prefetcher (BOP): offset-selection tournament with timeliness scoring; the DPC-2 winner. — Michaud,
-  HPCA 2016
-- [ ] Signature Path Prefetcher (SPP): compressed access-pattern signatures with path-confidence lookahead; optional
-  perceptron prefetch filter (PPF) on top. — Kim et al., MICRO 2016; Bhatia et al., ISCA 2019
 - [ ] MLOP (multi-lookahead offset prefetcher): BOP generalized to score offsets at multiple lookahead depths; DPC-3
   winner. — Shakerinava et al., DPC-3 2019
 - [ ] ISB (irregular stream buffer): linearizes PC-localized correlated irregular streams into a structural address

@@ -17,6 +17,12 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Analysis
 
+- [ ] Top-Down Microarchitecture Analysis (TMA): frontend-bound / backend-bound / bad-speculation / retiring slot
+  accounting computed from dial values. — Yasin, ISPASS 2014
+- [ ] CPI stacks via interval analysis: per-miss-event cycle accounting for OoO cores (as in Sniper), attributing
+  stall cycles to branch mispredictions, cache misses, and dependences. — Eyerman et al., ASPLOS 2006 / ACM TOCS 2009
+- [ ] SimPoint phase analysis: basic-block vector (BBV) profiling and k-means clustering for representative sampling;
+  the sampling substrate the SPEC harness item below builds on. — Sherwood et al., ASPLOS 2002
 - [x] ChampSim trace import: parse ChampSim's binary trace format (`input_instr`, the input to CBP branch-predictor
   and CRC cache-replacement-championship submissions) and replay it through Horologium's `IBranchPredictor` and
   `IReplacementPolicy` plug-in surfaces, so those implementations can be validated against real trace corpuses
@@ -24,6 +30,8 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Performance
 
+- [ ] Value prediction: predict ALU/load results to break dependence chains; commit only if the prediction is correct. —
+  Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, MICRO 2014 (VTAGE/EOLE)
 - [x] Struct latches: `IfIdLatch`/`IdExLatch`/`ExMemLatch`/`MemWbLatch` (`PipelineRegisters.cs`) are now
   `readonly record struct`, one fewer heap allocation per stage per instruction. Behaviorally transparent
   (all 3565 tests pass) — not separately measured against the perf playbook in `docs/references.md`-adjacent
@@ -39,6 +47,13 @@ off here until a periodic cleanup removes them; the durable record is git histor
   latent exception-safety gap the old restore-on-the-happy-path code had). All 7 ISA `ArchState`s updated for
   interface compliance; only RV32/64 actually rely on the swap being correct (verified: `VectorTests` pass under
   `FiveStageTrain`), the other 6 ISAs never run through this path.
+
+## Cache Prefetching
+
+- [ ] Best-Offset Prefetcher (BOP): offset-selection tournament with timeliness scoring; the DPC-2 winner. — Michaud,
+  HPCA 2016
+- [ ] Signature Path Prefetcher (SPP): compressed access-pattern signatures with path-confidence lookahead; optional
+  perceptron prefetch filter (PPF) on top. — Kim et al., MICRO 2016; Bhatia et al., ISCA 2019
 
 ## Benchmarks
 
