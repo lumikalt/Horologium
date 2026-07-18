@@ -22,12 +22,12 @@ public class PEventTraceTests {
     ];
 
     private static ByteArrayWorkload Workload() {
-        var bytes = new byte[LoopProgram.Length * 4];
-        for (var i = 0; i < LoopProgram.Length; i++) {
-            bytes[i * 4 + 0] = (byte)LoopProgram[i];
-            bytes[i * 4 + 1] = (byte)(LoopProgram[i] >> 8);
-            bytes[i * 4 + 2] = (byte)(LoopProgram[i] >> 16);
-            bytes[i * 4 + 3] = (byte)(LoopProgram[i] >> 24);
+        var bytes = new byte[PEventTraceTests.LoopProgram.Length * 4];
+        for (var i = 0; i < PEventTraceTests.LoopProgram.Length; i++) {
+            bytes[i * 4 + 0] = (byte)PEventTraceTests.LoopProgram[i];
+            bytes[i * 4 + 1] = (byte)(PEventTraceTests.LoopProgram[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(PEventTraceTests.LoopProgram[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(PEventTraceTests.LoopProgram[i] >> 24);
         }
 
         return new ByteArrayWorkload(bytes);
@@ -41,7 +41,7 @@ public class PEventTraceTests {
     [InlineData("dae")]
     public void Trace_RecordsLifecycleEvents(string pipeline) {
         var config = new NamedConfig(pipeline, new TrainConfig(pipeline, IssueWidth: 2));
-        PEventLog plog = Experiment.Trace(Workload(), config, new Rv32Mechanism(), maxTicks: 20_000);
+        PEventLog plog = Experiment.Trace(Workload(), config, new Rv32Mechanism(), 20_000);
 
         Assert.NotEmpty(plog.Events);
         Assert.Contains(plog.Events, e => e.Kind == PEventKind.Fetch);
@@ -70,7 +70,7 @@ public class PEventTraceTests {
         // The taken back-edge mispredicts every iteration under the always-not-taken
         // default, so speculatively fetched wrong-path instructions must flush.
         var config = new NamedConfig(pipeline, new TrainConfig(pipeline, IssueWidth: 2));
-        PEventLog plog = Experiment.Trace(Workload(), config, new Rv32Mechanism(), maxTicks: 20_000);
+        PEventLog plog = Experiment.Trace(Workload(), config, new Rv32Mechanism(), 20_000);
         Assert.Contains(plog.Events, e => e.Kind == PEventKind.Flush);
     }
 }

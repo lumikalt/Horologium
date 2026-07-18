@@ -644,7 +644,7 @@ lookahead translation).
 
 `IPrefetcher.OnAccess(pc, address, wasHit, Span<ulong> targets)` writes zero or more prefetch addresses into the
 caller-provided span and returns the count; the `OooeTrain` execute stage drives it once per demand load and calls
-`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Nine prefetchers are implemented: **NextLine** —
+`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Ten prefetchers are implemented: **NextLine** —
 always prefetches the cache line immediately following the access; bandwidth-greedy but effective for sequential
 workloads. **Stride / RPT** — Reference Prediction Table (per-PC stride tracking with a 0–3 saturating confidence
 counter); issues a prefetch at `address + stride` once the stride is confirmed (confidence ≥ 2). **Stream** — multi-way
@@ -710,10 +710,28 @@ whose predicted landing offset matches, and if found inherits that signature —
 new physical page with no per-page warmup, SPP's signature contribution beyond plain lookahead prefetching. Beats
 BOP/Berti/next-line on workloads with complex, non-strided-but-learnable access patterns (coremark: cuts D$ misses
 ~39% vs. no-prefetch, where next-line/BOP manage ~8% and Berti is a no-op) but can lag simpler prefetchers when
-capacity/conflict misses dominate a tiny cache. Select with
-`Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp}` on
+capacity/conflict misses dominate a tiny cache. **PPF** — Perceptron-based Prefetch Filter (Bhatia, Chacon, Teran,
+Gratz &amp; Jiménez, ISCA 2019): reimplements the same Signature/Pattern-Table/GHR core as SPP but discards its
+confidence-throttling entirely — the lookahead walk runs until the Pattern Table has no more information for the
+current signature (or a 64-depth safety cap), regardless of confidence — and instead routes every delta candidate the
+de-throttled walk produces through a hashed-perceptron filter that decides admit/reject per candidate. Nine hashed
+features (address, cache line, page, PC⊕depth, a 3-PC path hash, PC⊕delta, confidence, page⊕confidence,
+signature⊕delta) each index an independent table of signed 5-bit saturating weights (paper's Table 3: 4×4096-entry +
+2×2048-entry + 2×1024-entry + 1×128-entry, cross-checked against its 113,280-bit total); the nine partial weights sum
+to a single score thresholded against an admit line. Training: a demand hit on an admitted line (tracked via a
+1024-entry Prefetch Table) trains its contributing weights toward "useful"; a demand hit on a *rejected* candidate
+(tracked via a matching 1024-entry Reject Table) is a false negative and trains toward "should have admitted." The
+paper's third trigger — an L2 eviction of a still-unused prefetched line — has no analogue in `IPrefetcher` (no
+eviction callback reaches the prefetcher); it is approximated by training a departing, never-marked-useful Prefetch
+Table entry toward "should have rejected" when a slot collision evicts it, a documented fidelity limit (table
+pressure standing in for real cache-capacity pressure) rather than the paper's literal mechanism. The paper's L2-vs-
+LLC fill-level split (τ_hi/τ_lo) collapses into one admit threshold, matching the same simplification already
+documented for SPP's own T_F. On coremark PPF cuts D$ misses to roughly a sixth of plain SPP's (188 vs. 1104 misses
+at 32KB/8-way, vs. 1806 with no prefetching) — the paper's central claim that de-throttling plus perceptron filtering
+beats a throttled lookahead prefetcher outright, not just a marginal gain. Select with
+`Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp,Ppf}` on
 `MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher:
-"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"` in `TrainConfig` JSON.
+"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"/"ppf"` in `TrainConfig` JSON.
 
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 

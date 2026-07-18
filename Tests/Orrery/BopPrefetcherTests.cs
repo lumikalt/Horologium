@@ -23,7 +23,7 @@ public sealed class BopPrefetcherTests {
 
     [Fact]
     public void Constructor_PageNotLargerThanBlock_Throws() {
-        Assert.Throws<ArgumentException>(() => new BopPrefetcher(blockBytes: 64, pageBytes: 64));
+        Assert.Throws<ArgumentException>(() => new BopPrefetcher(64, pageBytes: 64));
     }
 
     // ── Single-access sanity ──────────────────────────────────────────────────
@@ -167,7 +167,7 @@ public sealed class BopPrefetcherTests {
         ulong x = 12345;
         for (var i = 0; i < 5300; i++) {
             x = x * 6364136223846793005UL + 1442695040888963407UL; // LCG
-            ulong addr = (x >> 16) % (1UL << 40) & ~(ulong)(BopPrefetcherTests.Line - 1);
+            ulong addr = ((x >> 16) % (1UL << 40)) & ~(ulong)(BopPrefetcherTests.Line - 1);
             buf.Clear();
             p.OnAccess(0x1000UL, addr, false, buf);
         }

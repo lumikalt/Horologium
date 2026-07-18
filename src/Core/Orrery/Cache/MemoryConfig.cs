@@ -14,6 +14,7 @@ public enum PrefetcherKind {
     Sms,
     Bop,
     Spp,
+    Ppf,
 }
 
 public enum ReplacementPolicyKind {
@@ -401,6 +402,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Sms    => new SmsPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Bop    => new BopPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Spp    => new SppPrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Ppf    => new PpfPrefetcher(cfg.CacheBlockBytes),
                 _                     => null,
             }
             : null;
@@ -495,6 +497,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Sms    => new SmsPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Bop    => new BopPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Spp    => new SppPrefetcher(s0.BlockBytes),
+                PrefetcherKind.Ppf    => new PpfPrefetcher(s0.BlockBytes),
                 _                     => null,
             };
 

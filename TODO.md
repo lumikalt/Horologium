@@ -20,7 +20,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   HPCA 2016
 - [x] Signature Path Prefetcher (SPP): compressed access-pattern signatures with path-confidence lookahead. — Kim et
   al., MICRO 2016
-- [ ] Perceptron Prefetch Filter (PPF): a learned filter on top of SPP that suppresses low-value prefetches by
+- [x] Perceptron Prefetch Filter (PPF): a learned filter on top of SPP that suppresses low-value prefetches by
   perceptron vote over signature/confidence/delta features. — Bhatia et al., ISCA 2019
 
 ## Benchmarks

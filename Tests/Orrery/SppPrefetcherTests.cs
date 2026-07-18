@@ -19,7 +19,7 @@ public sealed class SppPrefetcherTests {
 
     [Fact]
     public void Constructor_PageNotLargerThanBlock_Throws() {
-        Assert.Throws<ArgumentException>(() => new SppPrefetcher(blockBytes: 64, pageBytes: 64));
+        Assert.Throws<ArgumentException>(() => new SppPrefetcher(64, 64));
     }
 
     // ── Single-access sanity ──────────────────────────────────────────────────
@@ -36,7 +36,8 @@ public sealed class SppPrefetcherTests {
     public void EmptySpan_NeverCrashes() {
         var p = new SppPrefetcher();
         Span<ulong> empty = [];
-        for (var i = 0; i < 300; i++) _ = p.OnAccess(0x1000UL, (ulong)(0x2000 + i * SppPrefetcherTests.Line), false, empty);
+        for (var i = 0; i < 300; i++)
+            _ = p.OnAccess(0x1000UL, (ulong)(0x2000 + i * SppPrefetcherTests.Line), false, empty);
     }
 
     [Fact]
@@ -138,7 +139,9 @@ public sealed class SppPrefetcherTests {
         const ulong pageA = 5;
         for (var off = 0; off < SppPrefetcherTests.LinesPerPage; off++) {
             buf.Clear();
-            p.OnAccess(0x1000UL, (pageA * SppPrefetcherTests.LinesPerPage + (ulong)off) * SppPrefetcherTests.Line, false, buf);
+            p.OnAccess(
+                0x1000UL, (pageA * SppPrefetcherTests.LinesPerPage + (ulong)off) * SppPrefetcherTests.Line, false, buf
+            );
         }
 
         // Physically distant page, first touch at offset 0 (= (127 + 1) mod 128).

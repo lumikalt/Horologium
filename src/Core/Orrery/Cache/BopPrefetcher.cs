@@ -34,6 +34,14 @@ namespace Orrery.Cache;
 ///     </para>
 /// </summary>
 public sealed class BopPrefetcher : IPrefetcher {
+    private const int RrEntries = 256;
+    private const int RrIndexMask = BopPrefetcher.RrEntries - 1;
+    private const int RrTagMask = 0xFFF; // 12-bit tags
+    private const int ScoreMax = 31;
+    private const int RoundMax = 100;
+    private const int BadScore = 1;
+    private const int FillQueueCap = 64; // pending completions; oldest dropped when full
+
     /// <summary>
     ///     All offsets in 1..256 whose prime factorization contains only 2, 3, and 5.
     ///     At construction the list is pruned to offsets smaller than the page size in
@@ -46,35 +54,25 @@ public sealed class BopPrefetcher : IPrefetcher {
         150, 160, 162, 180, 192, 200, 216, 225, 240, 243, 250, 256,
     ];
 
-    private const int RrEntries = 256;
-    private const int RrIndexMask = BopPrefetcher.RrEntries - 1;
-    private const int RrTagMask = 0xFFF; // 12-bit tags
-    private const int ScoreMax = 31;
-    private const int RoundMax = 100;
-    private const int BadScore = 1;
-    private const int FillQueueCap = 64; // pending completions; oldest dropped when full
-
     private readonly int _latency;
     private readonly int _lineShift;
     private readonly int _linesPerPageShift;
     private readonly int[] _offsets; // AllOffsets pruned to < lines-per-page
-    private readonly int[] _scores;
-
-    // RR table and the internal prefetch-bit table: direct-mapped, tag or -1 when invalid.
-    private readonly int[] _rr = new int[BopPrefetcher.RrEntries];
-    private readonly int[] _pfBit = new int[BopPrefetcher.RrEntries];
 
     // Pending completions: prefetched (or, while off, demand-fetched) lines that will be
     // inserted into the RR table once _tick reaches Ready.
     private readonly Queue<(ulong Line, int Ready, bool DemandFill)> _pending = new();
+    private readonly int[] _pfBit = new int[BopPrefetcher.RrEntries];
+
+    // RR table and the internal prefetch-bit table: direct-mapped, tag or -1 when invalid.
+    private readonly int[] _rr = new int[BopPrefetcher.RrEntries];
+    private readonly int[] _scores;
+    private int _bestOffset = 1;
+    private int _bestScore;
+
+    private int _round;
 
     private int _testIndex; // next offset-list slot to test
-    private int _round;
-    private int _bestScore;
-    private int _bestOffset = 1;
-
-    private int _d = 1; // current prefetch offset
-    private bool _prefetchOn = true;
     private int _tick;
 
     public BopPrefetcher(int blockBytes = 32, int latency = 10, int pageBytes = 4096) {
@@ -94,10 +92,10 @@ public sealed class BopPrefetcher : IPrefetcher {
     }
 
     /// <summary>Current prefetch offset D, in lines (exposed for tests/diagnostics).</summary>
-    public int CurrentOffset => _d;
+    public int CurrentOffset { get; private set; } = 1;
 
     /// <summary>False while throttled off by a failed learning phase.</summary>
-    public bool PrefetchEnabled => _prefetchOn;
+    public bool PrefetchEnabled { get; private set; } = true;
 
     public int OnAccess(ulong pc, ulong address, bool wasHit, Span<ulong> targets) {
         DrainCompletions();
@@ -117,8 +115,8 @@ public sealed class BopPrefetcher : IPrefetcher {
         LearnStep(line);
 
         var count = 0;
-        if (_prefetchOn) {
-            ulong target = line + (ulong)_d;
+        if (PrefetchEnabled) {
+            ulong target = line + (ulong)CurrentOffset;
             if (SamePage(line, target)) {
                 if (!targets.IsEmpty) {
                     targets[0] = target << _lineShift;
@@ -157,13 +155,12 @@ public sealed class BopPrefetcher : IPrefetcher {
             _round++;
         }
 
-        if (_bestScore >= BopPrefetcher.ScoreMax || _round >= BopPrefetcher.RoundMax)
-            EndLearningPhase();
+        if (_bestScore >= BopPrefetcher.ScoreMax || _round >= BopPrefetcher.RoundMax) EndLearningPhase();
     }
 
     private void EndLearningPhase() {
-        _d = _bestOffset;
-        _prefetchOn = _bestScore > BopPrefetcher.BadScore;
+        CurrentOffset = _bestOffset;
+        PrefetchEnabled = _bestScore > BopPrefetcher.BadScore;
         Array.Clear(_scores);
         _testIndex = 0;
         _round = 0;
@@ -181,14 +178,12 @@ public sealed class BopPrefetcher : IPrefetcher {
     private void DrainCompletions() {
         while (_pending.Count > 0 && _pending.Peek().Ready <= _tick) {
             (ulong y, _, bool demandFill) = _pending.Dequeue();
-            if (demandFill) {
-                RrInsert(y);
-            }
+            if (demandFill) { RrInsert(y); }
             else {
                 // Reconstruct the base address from the *current* offset, as the hardware
                 // does; if D changed mid-flight or the base falls off the page, skip.
-                ulong baseLine = y - (ulong)_d;
-                if ((long)y - _d >= 0 && SamePage(baseLine, y)) RrInsert(baseLine);
+                ulong baseLine = y - (ulong)CurrentOffset;
+                if ((long)y - CurrentOffset >= 0 && SamePage(baseLine, y)) RrInsert(baseLine);
             }
         }
     }
@@ -200,15 +195,15 @@ public sealed class BopPrefetcher : IPrefetcher {
 
     private static int Tag(ulong line) => (int)((line >> 8) & BopPrefetcher.RrTagMask);
 
-    private void RrInsert(ulong line) => _rr[BopPrefetcher.HashIndex(line)] = BopPrefetcher.Tag(line);
+    private void RrInsert(ulong line) => _rr[HashIndex(line)] = Tag(line);
 
-    private bool RrHit(ulong line) => _rr[BopPrefetcher.HashIndex(line)] == BopPrefetcher.Tag(line);
+    private bool RrHit(ulong line) => _rr[HashIndex(line)] == Tag(line);
 
-    private void PfBitSet(ulong line) => _pfBit[BopPrefetcher.HashIndex(line)] = BopPrefetcher.Tag(line);
+    private void PfBitSet(ulong line) => _pfBit[HashIndex(line)] = Tag(line);
 
     private bool PfBitTestAndClear(ulong line) {
-        int idx = BopPrefetcher.HashIndex(line);
-        if (_pfBit[idx] != BopPrefetcher.Tag(line)) return false;
+        int idx = HashIndex(line);
+        if (_pfBit[idx] != Tag(line)) return false;
         _pfBit[idx] = -1;
         return true;
     }
