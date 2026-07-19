@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace Mechanism.ValuePredictModels;
 
 /// <summary>
@@ -16,17 +18,17 @@ namespace Mechanism.ValuePredictModels;
 ///     </para>
 /// </summary>
 public sealed class VtagePredictor : IValuePredictor {
+    private const int TagWidthBase = 12; // tag width for component rank r (1-based) is TagWidthBase + r
+
     /// <summary>Geometrically increasing history lengths, one per tagged component (paper §7.1.1, Table 1).</summary>
     private static readonly int[] HistLengths = [2, 4, 8, 16, 32, 64,];
-
-    private const int TagWidthBase = 12; // tag width for component rank r (1-based) is TagWidthBase + r
 
     private readonly LvpPredictor _base;
     private readonly TaggedEntry[][] _components; // [component][index]
     private readonly int _entriesPerComponent;
-    private readonly int _indexBits;
     private readonly ForwardProbabilisticCounter _fpc;
     private readonly SpeculativeValueHistory _history;
+    private readonly int _indexBits;
     private readonly Random _rng;
 
     /// <param name="baseEntries">Size of the tagless base (LVP) component. Must be a power of two.</param>
@@ -35,7 +37,7 @@ public sealed class VtagePredictor : IValuePredictor {
     public VtagePredictor(int baseEntries = 4096, int entriesPerComponent = 1024, int seed = 0) {
         _base = new LvpPredictor(baseEntries, seed);
         _entriesPerComponent = entriesPerComponent;
-        _indexBits = System.Numerics.BitOperations.Log2((uint)entriesPerComponent);
+        _indexBits = BitOperations.Log2((uint)entriesPerComponent);
         _components = new TaggedEntry[VtagePredictor.HistLengths.Length][];
         for (var c = 0; c < _components.Length; c++) _components[c] = new TaggedEntry[entriesPerComponent];
         _history = new SpeculativeValueHistory(VtagePredictor.HistLengths[^1]);
@@ -137,8 +139,7 @@ public sealed class VtagePredictor : IValuePredictor {
                 candidates[candidateCount++] = c;
 
         if (candidateCount == 0) {
-            for (int c = providerRank + 1; c < NumComponents; c++)
-                _components[c][Index(c, pc, hist)].Useful = false;
+            for (int c = providerRank + 1; c < NumComponents; c++) _components[c][Index(c, pc, hist)].Useful = false;
             return;
         }
 
@@ -164,7 +165,10 @@ public sealed class VtagePredictor : IValuePredictor {
         return (folded ^ pcMix) & ((1u << tagBits) - 1);
     }
 
-    /// <summary>XOR-folds the low <paramref name="bits" /> bits of <paramref name="value" /> down to <paramref name="outBits" /> width.</summary>
+    /// <summary>
+    ///     XOR-folds the low <paramref name="bits" /> bits of <paramref name="value" /> down to
+    ///     <paramref name="outBits" /> width.
+    /// </summary>
     private static uint Fold(ulong value, int bits, int outBits) {
         ulong masked = bits >= 64 ? value : value & ((1UL << bits) - 1);
         uint result = 0;
@@ -205,7 +209,6 @@ public sealed class VtagePredictor : IValuePredictor {
 /// </summary>
 internal sealed class SpeculativeValueHistory {
     private readonly ulong _mask;
-    private ulong _committed;
 
     public SpeculativeValueHistory(int bits) => _mask = bits >= 64 ? ulong.MaxValue : (1UL << bits) - 1;
 
@@ -213,13 +216,13 @@ internal sealed class SpeculativeValueHistory {
     public ulong Value { get; private set; }
 
     /// <summary>Committed history shadow, used for Update-time (training) indexing.</summary>
-    public ulong Committed => _committed;
+    public ulong Committed { get; private set; }
 
     /// <summary>Folds a predicted branch direction into the speculative history at fetch.</summary>
     public void Speculate(bool taken) => Value = ((Value << 1) | (taken ? 1UL : 0UL)) & _mask;
 
     /// <summary>Discards wrong-path speculation on a full flush, restoring committed history.</summary>
-    public void Recover() => Value = _committed;
+    public void Recover() => Value = Committed;
 
     /// <summary>Captures the working history as a per-branch checkpoint, before that branch speculates.</summary>
     public ulong Capture() => Value;
@@ -231,5 +234,5 @@ internal sealed class SpeculativeValueHistory {
     }
 
     /// <summary>Advances the committed shadow with a branch's resolved outcome, at commit.</summary>
-    public void AdvanceCommitted(bool taken) => _committed = ((_committed << 1) | (taken ? 1UL : 0UL)) & _mask;
+    public void AdvanceCommitted(bool taken) => Committed = ((Committed << 1) | (taken ? 1UL : 0UL)) & _mask;
 }

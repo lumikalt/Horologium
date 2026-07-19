@@ -242,9 +242,23 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   verify-at-Commit step reusing the exact same `ExecuteOne`/squash-at-commit machinery as ordinary value
   prediction, just relocated from `StepComplete` to `StepCommit` — so it costs no new recovery path, only a
   narrower window for OoO issue-port contention to matter, letting a narrow-issue machine approach a wider one's
-  performance on ALU-heavy code (the paper's own headline result). Early Execution (the front-end half — ALU ops
-  executing in parallel with Rename before ever reaching Dispatch) and widening VP eligibility beyond ALU/load
-  are tracked in TODO.md. A **critical-path predictor** (`TokenPassingCriticalityPredictor`,
+  performance on ALU-heavy code (the paper's own headline result). **EOLE Early Execution** (same paper §3.2;
+  enable with `enableEoleEarlyExec: true`, no `valuePredictor` required — operand readiness at rename is
+  provenance-agnostic) computes a single-cycle `IntegerAlu` instruction immediately in `StepRename`, in-order,
+  whenever both its source registers are already ready — an immediate, an already-committed value, or a value
+  prediction all count, exactly as the paper specifies ("operands are never read from the PRF" in their hardware;
+  Horologium's PRF already stores all three provenances, so reading it is the equivalent simplification). The one
+  detail that came directly from the paper rather than Horologium's own structure: the paper found chaining
+  Early-Execution results *within the same rename cycle* ("more than a single [ALU] stage") "highly inefficient"
+  and settled on a 1-deep design where only the *previous* cycle's Early-Execution results may feed a new one.
+  `StepRename`'s `_eeWrittenThisTick` set enforces exactly that cap (cleared every tick), which matters because
+  `StepRename` can drain a multi-tick decode-queue backlog in one call — without the cap, a stalled dependency
+  chain would collapse implausibly in a single tick the moment the backlog cleared. An Early-Executed
+  instruction's result needs no separate commit-time verification (unlike Late Execution): the only way one of
+  its operands could be wrong is if it came from a value prediction, and in-order commit guarantees that
+  prediction's own squash-at-commit path (if it mispredicts) flushes the Early-Executed consumer before it ever
+  reaches the ROB head. Widening VP eligibility beyond ALU/load is tracked in TODO.md. A **critical-path
+  predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each
   instruction is modeled as a 3-node dependence graph (dispatch/execute/commit); the pipeline resolves,

@@ -15,13 +15,13 @@ off here until a periodic cleanup removes them; the durable record is git histor
   Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, HPCA 2014 (VTAGE + FPC confidence)
 - [x] EOLE: late in-order ALU execution atop value prediction, to shrink the OoO issue width without losing
   performance. — Perais & Seznec, ISCA 2014 (EOLE)
-- [ ] Early Execution: the front-end half of EOLE — single-cycle ALU ops with immediate/predicted operands
-  execute in-order, in parallel with Rename, bypassing the OoO scheduler entirely (Late Execution, the
-  back-end half, is done). — Perais & Seznec, ISCA 2014 (EOLE)
-- [ ] TMA/CPI-stack accounting for EOLE Late Execution: instructions retired via Late Execution are
-  dispatched but never issued, so the `_td*` slot counters and CPI-stack classification (which only
-  observe `StepIssue`/`StepDispatch`) misreport Retiring/backend slots when `enableEoleLateExec` and
-  TMA/CPI accounting are both enabled. Currently unmodeled — no test exercises the combination.
+- [x] Early Execution: the front-end half of EOLE — single-cycle ALU ops with immediate/predicted operands
+  execute in-order, in parallel with Rename, bypassing the OoO scheduler entirely. — Perais & Seznec, ISCA 2014
+  (EOLE)
+- [ ] TMA/CPI-stack accounting for EOLE Early/Late Execution: instructions retired via either are dispatched
+  but never issued, so the `_td*` slot counters and CPI-stack classification (which only observe
+  `StepIssue`/`StepDispatch`) misreport Retiring/backend slots when `enableEoleLateExec`/`enableEoleEarlyExec`
+  and TMA/CPI accounting are both enabled. Currently unmodeled — no test exercises the combination.
 - [ ] Widen value-prediction eligibility beyond scalar ALU/load (FP, MulDiv, CSR-writing ops) and add a
   computational (stride-family) predictor component to hybridize with VTAGE.
 

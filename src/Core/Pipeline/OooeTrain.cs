@@ -49,7 +49,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int runaheadVectorWidth = 8,
         int runaheadUnrollLength = 8,
         IValuePredictor? valuePredictor = null,
-        bool enableEoleLateExec = false
+        bool enableEoleLateExec = false,
+        bool enableEoleEarlyExec = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -82,7 +83,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 runaheadVectorWidth,
                 runaheadUnrollLength,
                 valuePredictor,
-                enableEoleLateExec
+                enableEoleLateExec,
+                enableEoleEarlyExec
             )
         );
         _train.Build();
@@ -108,7 +110,8 @@ public sealed class OooeTrain : ISteppableTrain {
         int mshrCapacity = 0,
         bool flatIq = false,
         IValuePredictor? valuePredictor = null,
-        bool enableEoleLateExec = false
+        bool enableEoleLateExec = false,
+        bool enableEoleEarlyExec = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -128,7 +131,8 @@ public sealed class OooeTrain : ISteppableTrain {
                 mshrCapacity,
                 flatIq,
                 valuePredictor: valuePredictor,
-                enableEoleLateExec: enableEoleLateExec
+                enableEoleLateExec: enableEoleLateExec,
+                enableEoleEarlyExec: enableEoleEarlyExec
             )
         );
         _train.Build();
@@ -211,6 +215,13 @@ internal sealed class OoOPipelineCore : Gear {
     // ISA services
     private readonly IDecoder _decoder;
 
+    // EOLE Early Execution (Perais & Seznec, ISCA 2014, §3.2): physical registers written by an
+    // Early-Execution computation during the current StepRename() call. Cleared at the top of
+    // every call — see StepRename for why this must never persist across ticks.
+    private readonly HashSet<int> _eeWrittenThisTick = [];
+    private readonly bool _enableEoleEarlyExec;
+    private readonly bool _enableEoleLateExec;
+
     // Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021):
     // a self-contained shadow execution lane entered when dispatch is stalled behind a full
     // ROB whose head is an incomplete load. Never touches the real ROB/IQ/LQ/SQ/RAS/predictor
@@ -289,7 +300,6 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly StoreSetPredictor? _storeSets;
     private readonly ITrapController _trapController;
     private readonly IValuePredictor? _valuePredictor;
-    private readonly bool _enableEoleLateExec;
     private readonly VrStrideEntry[] _vrStrideTable;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
@@ -345,6 +355,8 @@ internal sealed class OoOPipelineCore : Gear {
     // only branch mispredictions set it; traps/halts are not modeled by the paper's ED rule.
     private bool _dispatchStalledPrevCycle;
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
+    private Counter? _eoleEarlyExecCounter;
+    private Counter? _eoleLateExecCounter;
     private bool _fetchFaulted; // suppress repeated fault entries until flush clears
 
     // Runtime state
@@ -407,8 +419,6 @@ internal sealed class OoOPipelineCore : Gear {
     private Action? _runCycle;
     private ulong _shadowPc;
     private Counter? _smbBypassesCounter, _smbMispredictsCounter;
-    private Counter? _vpPredictionsCounter, _vpCorrectCounter, _vpMispredictsCounter;
-    private Counter? _eoleLateExecCounter;
     private ulong _squashInstrId;
 
     // Execute-time partial squash (branch mispredict resolved before the branch reaches the ROB
@@ -430,6 +440,7 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _tdRecoveryBubblesCounter = null!;
     private Counter _tdSlotsIssuedCounter = null!;
     private Counter _tdTotalSlotsCounter = null!;
+    private Counter? _vpPredictionsCounter, _vpCorrectCounter, _vpMispredictsCounter;
     private Counter? _wbAbsorbedStallsCounter;
     private int _wbOccupied; // number of slots currently counting down
 
@@ -467,7 +478,8 @@ internal sealed class OoOPipelineCore : Gear {
         int runaheadVectorWidth = 8,
         int runaheadUnrollLength = 8,
         IValuePredictor? valuePredictor = null,
-        bool enableEoleLateExec = false
+        bool enableEoleLateExec = false,
+        bool enableEoleEarlyExec = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -504,6 +516,7 @@ internal sealed class OoOPipelineCore : Gear {
         _smbPredictor = enableSmbBypass ? new SmbPredictor() : null;
         _valuePredictor = valuePredictor;
         _enableEoleLateExec = enableEoleLateExec && valuePredictor is not null;
+        _enableEoleEarlyExec = enableEoleEarlyExec;
         _enableRunahead = enableRunahead;
         _runaheadBudget = runaheadBudget;
         _enableVectorRunahead = enableRunahead && enableVectorRunahead;
@@ -593,12 +606,17 @@ internal sealed class OoOPipelineCore : Gear {
             );
         }
 
-        if (_enableEoleLateExec) {
+        if (_enableEoleLateExec)
             _eoleLateExecCounter = Dials.AddCounter(
                 "eole_late_exec",
                 "Instructions retired via EOLE Late Execution (bypassed IQ/Issue/Execute entirely)"
             );
-        }
+
+        if (_enableEoleEarlyExec)
+            _eoleEarlyExecCounter = Dials.AddCounter(
+                "eole_early_exec",
+                "Instructions computed via EOLE Early Execution at Rename (bypassed IQ/Issue/Execute entirely)"
+            );
 
         if (_enableRunahead) {
             _runaheadEpisodesCounter = Dials.AddCounter(
@@ -938,8 +956,10 @@ internal sealed class OoOPipelineCore : Gear {
             // mismatch is caught here and squashed at commit (StepCommit), never here (the
             // unconditional PRF write below self-heals the value regardless of the outcome).
             if (rob.WasValuePredicted) {
-                if (_prf.Read(r.PhysDest) == r.RegValue.Value) _vpCorrectCounter?.Increment();
-                else rob.ValuePredMispredicted = true;
+                if (_prf.Read(r.PhysDest) == r.RegValue.Value)
+                    _vpCorrectCounter?.Increment();
+                else
+                    rob.ValuePredMispredicted = true;
             }
 
             _prf.Write(r.PhysDest, r.RegValue.Value);
@@ -1072,7 +1092,9 @@ internal sealed class OoOPipelineCore : Gear {
             if (head.IsLateExecEligible) {
                 ulong src1 = head.P1 >= 0 ? _prf.Read(head.P1) : 0;
                 ulong src2 = head.P2 >= 0 ? _prf.Read(head.P2) : 0;
-                var issued = new IssuedInstr(0, head.PhysDestination, head.Instruction!, head.Pc, src1, src2, 0, head.InstrId);
+                var issued = new IssuedInstr(
+                    0, head.PhysDestination, head.Instruction!, head.Pc, src1, src2, 0, head.InstrId
+                );
                 ExecResult er = ExecuteOne(issued, 0);
                 _eoleLateExecCounter?.Increment();
                 head.SideEffect = er.SideEffect;
@@ -1853,9 +1875,14 @@ internal sealed class OoOPipelineCore : Gear {
             // live (and ready) in the PRF from Rename, so it can be marked complete immediately
             // and verified in-order near Commit instead of competing for an issue port.
             bool leEligible = _enableEoleLateExec && ri.WasValuePredicted
-                                                   && instr.Class == ToothClass.IntegerAlu;
+                                                  && instr.Class == ToothClass.IntegerAlu;
 
-            if (!leEligible && _iqs[IqIndex(instr.Class)].IsFull) break;
+            // EOLE Early Execution (Perais & Seznec, ISCA 2014, §3.2): already computed for real
+            // back in StepRename (its sources were ready then), so this entry is complete now too
+            // — no separate Commit-time verification needed (see StepRename's comment on why).
+            bool eeEligible = ri.IsEarlyExecEligible;
+
+            if (!leEligible && !eeEligible && _iqs[IqIndex(instr.Class)].IsFull) break;
 
             bool needsLq = instr.Class is ToothClass.Load or ToothClass.Atomic;
             bool needsSq = instr.Class is ToothClass.Store or ToothClass.Atomic;
@@ -1897,14 +1924,20 @@ internal sealed class OoOPipelineCore : Gear {
                 else if (_dispatchStalledPrevCycle) { rob.DGatedByStall = true; }
             }
 
-            if (leEligible) {
-                // Skip IQ/LQ/SQ entirely: the predicted value is already the PRF's live value
-                // for PhysDest, so this entry is complete the instant it's dispatched. Real
-                // verification happens in-order near Commit (see StepCommit's
-                // IsLateExecEligible branch), never at Issue/Execute.
+            if (leEligible || eeEligible) {
+                // Skip IQ/LQ/SQ entirely: the value is already the PRF's live value for
+                // PhysDest, so this entry is complete the instant it's dispatched. A
+                // Late-Execution entry still needs in-order verification near Commit (see
+                // StepCommit's IsLateExecEligible branch); an Early-Execution entry doesn't —
+                // it was computed for real, not predicted.
                 rob.IsComplete = true;
-                rob.P1 = ri.P1;
-                rob.P2 = ri.P2;
+                if (leEligible) {
+                    rob.P1 = ri.P1;
+                    rob.P2 = ri.P2;
+                }
+
+                if (eeEligible) rob.SideEffect = ri.EarlySideEffect;
+
                 // Synthetic Issue/Execute PEvents at the same cycle, so PEvent-driven consumers
                 // (waveform viewer, CPI/TMA views) see a coherent — if instantaneous —
                 // Fetch→Dispatch→Issue→Execute trail instead of an instruction stuck forever
@@ -2055,6 +2088,16 @@ internal sealed class OoOPipelineCore : Gear {
         // Freezing real rename for the episode's duration closes that race for both the scalar
         // and vector runahead shadow lanes.
         if (_runaheadActive) return;
+
+        // EOLE Early Execution (Perais & Seznec, ISCA 2014, §3.2): physical registers written
+        // by an Early-Execution computation *this tick* don't count as "ready" for another
+        // Early-Execution eligibility check this same tick. The paper found chaining EE results
+        // within one rename cycle ("more than a single [ALU] stage") highly inefficient and
+        // settled on a 1-deep design — only the *previous* cycle's EE results (or immediates,
+        // or value predictions, both available same-cycle) may feed an EE computation. Cleared
+        // every call since it must never carry across ticks.
+        _eeWrittenThisTick.Clear();
+
         while (_decodeQueue.Count > 0 && _renameQueue.Count < _maxDecodeDepth) {
             FetchedInstr fi = _decodeQueue.Peek();
 
@@ -2100,9 +2143,33 @@ internal sealed class OoOPipelineCore : Gear {
             var vpEligible = false;
             var wasValuePredicted = false;
             ulong predictedValue = 0;
+            var earlyExecEligible = false;
+            Action<IArchState>? earlySideEffect = null;
             if (destArch > 0) {
                 (newPhys, oldPhys) = _rat.Rename(destArch);
                 _prf.MarkPending(newPhys);
+
+                // EOLE Early Execution (Perais & Seznec, ISCA 2014, §3.2): a single-cycle ALU op
+                // whose sources are already available (immediate, an already-ready register, or a
+                // value predictor's prediction — anything but another *this-tick* EE result, see
+                // _eeWrittenThisTick above) is computed right here, in-order, and never enters the
+                // IQ at all. Checked ahead of value prediction: if EE fires, the true result is
+                // already known, so there's nothing left to predict for this destination.
+                bool srcsReady = (p1 < 0 || (_prf.IsReady(p1) && !_eeWrittenThisTick.Contains(p1)))
+                              && (p2 < 0 || (_prf.IsReady(p2) && !_eeWrittenThisTick.Contains(p2)));
+                earlyExecEligible = _enableEoleEarlyExec && instr.Class == ToothClass.IntegerAlu
+                                                         && srcsReady && _eeWrittenThisTick.Count < _issueWidth;
+
+                if (earlyExecEligible) {
+                    ulong src1 = p1 >= 0 ? _prf.Read(p1) : 0;
+                    ulong src2 = p2 >= 0 ? _prf.Read(p2) : 0;
+                    var issued = new IssuedInstr(0, newPhys, instr, fi.Pc, src1, src2, 0, fi.InstrId);
+                    ExecResult er = ExecuteOne(issued, 0);
+                    _prf.Write(newPhys, er.RegValue.Value);
+                    _eeWrittenThisTick.Add(newPhys);
+                    earlySideEffect = er.SideEffect;
+                    _eoleEarlyExecCounter?.Increment();
+                }
 
                 // Value prediction (Lipasti & Shen, MICRO 1996; Perais & Seznec, HPCA 2014):
                 // eligible ALU/load destinations only (TODO.md's "ALU/load results" scope).
@@ -2110,9 +2177,12 @@ internal sealed class OoOPipelineCore : Gear {
                 // waiting in StepDispatch's IsReady check pick it up with no further plumbing.
                 // The producing instruction still executes for real; a mismatch is caught in
                 // StepComplete and squashed at commit (StepCommit), never here. Eligible
-                // instructions are trained at commit whether or not a prediction was supplied.
+                // instructions are trained at commit whether or not a prediction was supplied
+                // (this still applies to an Early-Executed instruction: it's trained with the
+                // ground-truth value it just computed, for free, via the ordinary commit path).
                 vpEligible = instr.Class is ToothClass.IntegerAlu or ToothClass.Load;
-                if (vpEligible && _valuePredictor is not null && _valuePredictor.TryPredict(fi.Pc, out predictedValue)) {
+                if (!earlyExecEligible && vpEligible && _valuePredictor is not null
+                 && _valuePredictor.TryPredict(fi.Pc, out predictedValue)) {
                     _prf.Write(newPhys, predictedValue);
                     wasValuePredicted = true;
                     _vpPredictionsCounter?.Increment();
@@ -2124,7 +2194,8 @@ internal sealed class OoOPipelineCore : Gear {
                 new RenameEntry(
                     fi.Pc, instr, fi.PredictedNextPc, fi.InstrId, null,
                     destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3, fi.HistCheckpoint,
-                    fi.IcacheMiss, fi.VpHistCheckpoint, vpEligible, wasValuePredicted, predictedValue
+                    fi.IcacheMiss, fi.VpHistCheckpoint, vpEligible, wasValuePredicted, predictedValue,
+                    earlyExecEligible, earlySideEffect
                 )
             );
             _decodeQueue.Dequeue();
@@ -2220,7 +2291,7 @@ internal sealed class OoOPipelineCore : Gear {
                 // Snapshot the predictor's speculative history before this branch folds its own
                 // direction, so an execute-time partial squash can rewind to exactly here.
                 histCheckpoint = _predictor.CaptureHistory(_fetchPc);
-                vpHistCheckpoint = _valuePredictor?.CaptureHistory() ?? default;
+                vpHistCheckpoint = _valuePredictor?.CaptureHistory() ?? default(ValueHistoryCheckpoint);
                 if (hint.IsCall) _ras.Push(_fetchPc + (ulong)decoded.SizeBytes);
 
                 BranchPrediction pred;
@@ -3344,7 +3415,9 @@ internal sealed class OoOPipelineCore : Gear {
         ValueHistoryCheckpoint VpHistCheckpoint = default,
         bool IsVpEligible = false,
         bool WasValuePredicted = false,
-        ulong PredictedValue = 0
+        ulong PredictedValue = 0,
+        bool IsEarlyExecEligible = false,
+        Action<IArchState>? EarlySideEffect = null
     );
 
     private readonly record struct IssuedInstr(
