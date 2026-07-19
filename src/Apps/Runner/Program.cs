@@ -26,6 +26,8 @@ int? memorySizeBytes = null;       // null → default to 4 MB for ELF workloads
 var xlen = 32;                     // --xlen 32|64: RV32I or RV64I workload/mechanism
 string? traceJsonPath = null;      // --trace-json <path>: emit an Olympia JSON trace and exit
 long simpointInterval = 0;         // --simpoint <n>: SimPoint phase analysis with n-instruction intervals
+long simpointWarmup = -1;          // --simpoint-warmup <n>: also measure each simulation point on the
+                                    // detailed pipeline, with n unmeasured warmup instructions per point
 string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
 string? checkpointLoadPath = null; // --checkpoint-load <path>: restore arch checkpoint before run
@@ -66,6 +68,7 @@ for (var i = 0; i < args.Length; i++)
         case "--format":          format = args[++i]; break;
         case "--trace-json":      traceJsonPath = args[++i]; break;
         case "--simpoint":        simpointInterval = long.Parse(args[++i]); break;
+        case "--simpoint-warmup": simpointWarmup = long.Parse(args[++i]); break;
         case "--checkpoint-save": checkpointSavePath = args[++i]; break;
         case "--checkpoint-load": checkpointLoadPath = args[++i]; break;
         case "--roi-start":       roiStartSymbol = args[++i]; break;
@@ -253,6 +256,63 @@ if (simpointInterval > 0) {
     Console.WriteLine();
     Console.WriteLine("interval,phase");
     for (var i = 0; i < sp.Phases.Count; i++) Console.WriteLine($"{i},{sp.Phases[i]}");
+
+    // ── Detailed measurement: checkpoint-and-measure each simulation point ───────
+    if (simpointWarmup >= 0) {
+        IReadOnlyList<NamedConfig> spConfigs = sweepPath is not null ? NamedConfig.LoadFile(sweepPath) : DefaultSweep();
+        Console.WriteLine();
+        Console.WriteLine("## Detailed measurement (checkpoint-and-measure per simulation point)");
+        foreach (NamedConfig named in spConfigs) {
+            TrainConfig cfg = named.Config;
+            if (cfg.Pipeline is not ("ooo" or "five_stage" or "single_cycle")) {
+                Console.Error.WriteLine(
+                    $"  {named.Name}: skipped — --simpoint-warmup supports ooo/five_stage/single_cycle pipelines only."
+                );
+                continue;
+            }
+
+            ISteppableTrain DetailedFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) {
+                MemoryConfig dCfg = cfg.ToDMemoryConfig();
+                if (spWorkload.MmioRegion is { } r) dCfg = dCfg with { UncacheableBase = r.Base, UncacheableSize = r.Size, };
+                IBranchPredictor? predictor = cfg.Predictor?.Build(mech, spWorkload);
+
+                return cfg.Pipeline switch {
+                    "ooo" => new OooeTrain(
+                        mech, mem, entry,
+                        cfg.IssueWidth, cfg.RobCapacity, cfg.IqCapacity, cfg.ExtraPhysRegs,
+                        predictor, cfg.ToIMemoryConfig(), dCfg, cfg.FuLatency,
+                        commitObserver: counter,
+                        writeBufferCapacity: cfg.StoreBufferCapacity,
+                        mshrCapacity: cfg.MshrCapacity,
+                        flatIq: cfg.FlatIq,
+                        enableStoreSets: cfg.EnableStoreSets,
+                        fdipFtqCapacity: cfg.FdipFtqCapacity,
+                        rdip: cfg.Rdip
+                    ),
+                    "single_cycle" => new SingleCycleTrain(mech, mem, entry, commitObserver: counter),
+                    _ => new FiveStageTrain(
+                        mech, mem, entry,
+                        cfg.ForwardingEnabled, predictor,
+                        cfg.ToIMemoryConfig(), dCfg,
+                        cfg.StoreBufferCapacity,
+                        commitObserver: counter,
+                        fdipFtqCapacity: cfg.FdipFtqCapacity,
+                        rdip: cfg.Rdip
+                    ),
+                };
+            }
+
+            SimPointCheckpointResult spResult = Experiment.RunWithSimPointCheckpoints(
+                spWorkload, () => mechanismFactory(spWorkload.HtifTohostAddress), DetailedFactory,
+                simpointInterval, simpointWarmup, maxTicks
+            );
+            Console.WriteLine(
+                $"  {named.Name}: CPI={spResult.EstimatedCpi:F3}  IPC={spResult.EstimatedIpc:F3}  " +
+                $"({spResult.PointResults.Count} simulation point(s))"
+            );
+        }
+    }
+
     return;
 }
 
@@ -606,6 +666,14 @@ static void PrintUsage() {
                                 on a functional run, cluster them into phases, and print
                                 representative simulation points with weights. Single
                                 workload only.
+          --simpoint-warmup <n> Requires --simpoint. Also measure each simulation point
+                                on the detailed pipeline: save one checkpoint per point in
+                                a single functional pass, restore into a fresh detailed
+                                train, run <n> unmeasured warmup instructions then measure
+                                one interval, and combine per-point CPI by SimPoint weight
+                                into a whole-program CPI/IPC estimate. Runs once per
+                                --sweep config (or the default sweep); configs whose
+                                pipeline isn't ooo/five_stage/single_cycle are skipped.
           --script <path>       Evaluate a .csx/.fsx file returning a MachineSpec and run
                                 the selected workload on it. All Spec types and RiscV32
                                 are pre-imported; no #r or using needed.

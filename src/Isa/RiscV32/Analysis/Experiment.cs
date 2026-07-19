@@ -336,6 +336,149 @@ public static class Experiment {
     }
 
     /// <summary>
+    ///     Full SimPoint-sampled estimation for a detailed pipeline: profile
+    ///     <paramref name="workload" /> (<see cref="ProfileSimPoints" />), save one checkpoint per
+    ///     simulation point in a single second functional pass, then restore each checkpoint into a
+    ///     fresh detailed train (built by <paramref name="detailedTrainFactory" />) and measure
+    ///     <paramref name="intervalSize" /> instructions after <paramref name="warmupInstructions" />
+    ///     of unmeasured warmup (<see cref="WarmupMeasureDriver" />). Per-point CPIs are combined into
+    ///     a whole-program estimate by <see cref="SimulationPoint.Weight" /> — all intervals are the
+    ///     same length, so the correct combination is a weighted mean of CPI (not of IPC).
+    /// </summary>
+    /// <param name="workload">The workload to profile and measure.</param>
+    /// <param name="mechanismFactory">
+    ///     Produces a fresh <see cref="IMechanism" /> instance. Called once per functional pass and
+    ///     once per simulation point — mechanisms can carry state (CSRs etc.), so every pass needs
+    ///     its own, bit-identically-behaving instance.
+    /// </param>
+    /// <param name="detailedTrainFactory">
+    ///     Builds the detailed pipeline train for one simulation point, given a fresh mechanism, the
+    ///     wrapped memory to run on, the checkpoint's restart PC (to use as the train's entry point —
+    ///     required so the train's own fetch-PC state starts at the restored PC, not the workload's
+    ///     original entry point), and the <see cref="InstructionCounter" /> the caller must wire up as
+    ///     the train's commit observer. Must return a train that supports
+    ///     <see cref="ISteppableTrain.SnapshotDials" />/baseline-<see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
+    ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, <c>OooeTrain</c>.
+    /// </param>
+    /// <param name="intervalSize">Instructions per SimPoint interval (also the per-point measured length).</param>
+    /// <param name="warmupInstructions">
+    ///     Unmeasured warmup instructions run before each point's measured interval, restarting from
+    ///     <c>intervalStart − warmupInstructions</c> (clamped to 0).
+    /// </param>
+    public static SimPointCheckpointResult RunWithSimPointCheckpoints(
+        IWorkload workload,
+        Func<IMechanism> mechanismFactory,
+        Func<IMechanism, IMemory, ulong, InstructionCounter, ISteppableTrain> detailedTrainFactory,
+        long intervalSize,
+        long warmupInstructions,
+        long profileMaxTicks = 100_000_000,
+        int dimensions = 15,
+        int maxK = 10,
+        int seed = 42
+    ) {
+        (SimPointResult sp, _) = ProfileSimPoints(workload, mechanismFactory(), intervalSize, profileMaxTicks, dimensions, maxK, seed);
+
+        // Checkpoint target per point (clamped so warmup never reaches before instruction 0),
+        // sorted ascending for InstructionCounter — `order` maps sorted position back to the
+        // point's index so each checkpoint lands in the right slot.
+        var targets = sp.Points.Select(p => Math.Max(0L, p.IntervalIndex * intervalSize - warmupInstructions)).ToList();
+        int[] order = [..Enumerable.Range(0, sp.Points.Count).OrderBy(i => targets[i]),];
+        List<long> sortedTargets = [..order.Select(i => targets[i]),];
+
+        // Single second functional pass: save every point's checkpoint without re-running the
+        // workload from scratch per point. Targets of exactly 0 (interval 0 with warmup clamped
+        // away) need the pristine pre-step state — InstructionCounter's callback only fires after
+        // a commit, which would already be one instruction past the true start — so those are
+        // captured directly from the wound-but-not-yet-stepped train, before any StepCycle call.
+        var checkpoints = new byte[sp.Points.Count][];
+        if (sp.Points.Count > 0) {
+            var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+            workload.Load(mem);
+            IMemory runMem = workload.WrapMemory(mem);
+
+            var zeroPointIndices = new List<int>();
+            var positiveOrder = new List<int>();
+            var positiveTargets = new List<long>();
+            for (var si = 0; si < sortedTargets.Count; si++)
+                if (sortedTargets[si] == 0) zeroPointIndices.Add(order[si]);
+                else {
+                    positiveOrder.Add(order[si]);
+                    positiveTargets.Add(sortedTargets[si]);
+                }
+
+            SingleCycleTrain? captureTrainRef = null;
+            var counter = new InstructionCounter(
+                positiveTargets,
+                sortedIdx => {
+                    int pointIdx = positiveOrder[sortedIdx];
+                    using var ms = new MemoryStream();
+                    ArchitecturalCheckpoint.Save(
+                        ms, captureTrainRef!.ArchState, mem, (ulong)captureTrainRef.CurrentTick
+                    );
+                    checkpoints[pointIdx] = ms.ToArray();
+                }
+            );
+
+            captureTrainRef = new SingleCycleTrain(mechanismFactory(), runMem, workload.EntryPoint, commitObserver: counter);
+            captureTrainRef.BeginStepping();
+
+            foreach (int pointIdx in zeroPointIndices) {
+                using var ms = new MemoryStream();
+                ArchitecturalCheckpoint.Save(ms, captureTrainRef.ArchState, mem, 0);
+                checkpoints[pointIdx] = ms.ToArray();
+            }
+
+            if (positiveTargets.Count > 0) {
+                long maxTarget = positiveTargets[^1];
+                while (counter.Count < maxTarget && captureTrainRef.StepCycle()) { }
+            }
+
+            captureTrainRef.FinishStepping();
+
+            for (var i = 0; i < checkpoints.Length; i++)
+                if (checkpoints[i] is null)
+                    throw new InvalidOperationException(
+                        $"Simulation point {i} (interval {sp.Points[i].IntervalIndex}) needs " +
+                        $"{targets[i]:N0} instructions, but the workload halted at {counter.Count:N0}."
+                    );
+        }
+
+        // Restore each checkpoint into a fresh detailed train and measure.
+        var pointResults = new List<SimPointPointResult>();
+        for (var i = 0; i < sp.Points.Count; i++) {
+            SimulationPoint point = sp.Points[i];
+            ArchitecturalCheckpoint chk;
+            using (var ms = new MemoryStream(checkpoints[i])) chk = ArchitecturalCheckpoint.Load(ms);
+
+            var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+            workload.Load(mem);
+            IMemory runMem = workload.WrapMemory(mem);
+
+            var counter = new InstructionCounter();
+            IMechanism mechanism = mechanismFactory();
+            ISteppableTrain detailedTrain = detailedTrainFactory(mechanism, runMem, chk.Pc, counter);
+            chk.RestoreInto(detailedTrain.ArchState!, mem);
+
+            // The checkpoint target is intervalStart − actualWarmup (clamped so it never precedes
+            // instruction 0); actualWarmup must match here too, or an early interval's measured
+            // window would be shifted past the interval it's supposed to represent (e.g. interval
+            // 0 with warmupInstructions > 0 would measure [warmup, warmup+intervalSize) instead of
+            // [0, intervalSize)).
+            long intervalStart = point.IntervalIndex * intervalSize;
+            long actualWarmup = Math.Min(warmupInstructions, intervalStart);
+
+            RevolutionResult rev = WarmupMeasureDriver.RunWarmupThenMeasure(
+                detailedTrain, counter, actualWarmup, intervalSize
+            );
+            long measured = Math.Max(0, counter.Count - actualWarmup);
+            pointResults.Add(new SimPointPointResult(point, measured, rev));
+        }
+
+        double cpi = pointResults.Sum(r => r.Point.Weight * r.Cpi);
+        return new SimPointCheckpointResult(sp, pointResults, cpi);
+    }
+
+    /// <summary>
     ///     Runs <paramref name="workload" /> functionally on the single-cycle train and
     ///     writes an Olympia-compatible JSON instruction trace to <paramref name="output" />.
     ///     Returns the number of instructions written. The single-cycle train is the

@@ -63,10 +63,17 @@ free embedded suites are runnable in full today.
     independent of clustering (checkpoint-at-K-then-run-N−K matches straight-through-to-N on OoO
     bit-for-bit). Found and fixed a real bug along the way: `ArchitecturalCheckpoint.RestoreInto`
     was silently invisible to `OooeTrain`'s physical register file.
-  - [ ] SimPoint-interval → checkpoint glue: given a `SimPointResult`, save one checkpoint per
-    simulation point (at `intervalStart − warmup`) in a single functional pass, then drive
-    `WarmupMeasureDriver` per point and weight-combine into a whole-program CPI/IPC estimate.
-    Wire into the Runner CLI.
+  - [x] SimPoint-interval → checkpoint glue (`Experiment.RunWithSimPointCheckpoints`): profiles,
+    saves one checkpoint per simulation point in a single functional pass (per-point warmup
+    clamped to the interval's own start), restores each into a fresh detailed train, and
+    weight-combines per-point CPI (not IPC — intervals are equal length, so CPI is the correct
+    domain) into a whole-program estimate. Wired into the Runner CLI as `--simpoint-warmup <n>`,
+    run once per `--sweep` config (ooo/five_stage/single_cycle only). Found and fixed a second
+    tick-accounting bug along the way: `Train.FinishStepping(baseline)` returned the absolute
+    Escapement tick instead of ticks-since-baseline, which only mattered once warmup > 0.
+  - [ ] Reuse one profiling + checkpoint-capture pass across the whole `--sweep`, instead of
+    `RunWithSimPointCheckpoints` repeating both per config — matters at SPEC-scale interval
+    counts, not at today's small test/demo sizes.
   - [x] Runner CLI: `--xlen 32|64` selects RV32/RV64 workload + mechanism across every mode
     (default sweep, `--simpoint`, `--trace-json`, `--elastic-record`, `--stf-record`, `--script`
     incl. `--roi-start`/`--checkpoint-save`/`--checkpoint-load`); `.csx`/`.fsx` scripts can

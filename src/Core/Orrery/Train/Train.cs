@@ -76,6 +76,7 @@ public sealed class Train {
     private readonly Escapement _escapement;
     private readonly List<Gear> _gears = new();
     private bool _built;
+    private long _steppingBaselineTick;
 
     public Train(string name, Escapement escapement) {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -360,19 +361,23 @@ public sealed class Train {
     ///     <see cref="FinishStepping()" />/<see cref="Reset" /> would end the lifecycle or wipe
     ///     warmed-up gear state, so neither can be reused directly for that.
     /// </summary>
-    public IReadOnlyList<DialBoardSnapshot> SnapshotDials() =>
-        [.._gears.Select(g => g.Dials.Snapshot()),];
+    public IReadOnlyList<DialBoardSnapshot> SnapshotDials() {
+        _steppingBaselineTick = _escapement.CurrentTick;
+        return [.._gears.Select(g => g.Dials.Snapshot()),];
+    }
 
     /// <summary>
     ///     Finalizes a step-by-step run like <see cref="FinishStepping()" />, but subtracts
     ///     <paramref name="baseline" /> (from an earlier <see cref="SnapshotDials" /> call) from
     ///     every Gear's final DialBoard snapshot — the stepping-API equivalent of <see cref="Run" />'s
-    ///     tick-based warmup/measurement split.
+    ///     tick-based warmup/measurement split. <see cref="RevolutionResult.TotalTicks" /> is relative
+    ///     to that <see cref="SnapshotDials" /> call, matching <see cref="Run" />'s
+    ///     warmup-subtracted tick count (not the absolute Escapement tick).
     /// </summary>
     public RevolutionResult FinishStepping(IReadOnlyList<DialBoardSnapshot> baseline) {
         Root.BeginFinished();
         return new RevolutionResult(
-            _escapement.CurrentTick, 0,
+            _escapement.CurrentTick - _steppingBaselineTick, 0,
             [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i])),]
         );
     }

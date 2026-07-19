@@ -1277,6 +1277,21 @@ construction and was never re-seeded from `ArchState.IntegerRegisters`, so a che
 was silently invisible to execution (`Wind()` now re-seeds it; a fresh, never-restored `ArchState` seeds zeros, so
 ordinary runs are unaffected).
 
+**SimPoint-interval → checkpoint glue.** `Experiment.RunWithSimPointCheckpoints` (`src/Isa/RiscV32/Analysis/Experiment.cs`)
+composes the three pieces above into the full SimPoint sampling workflow: profile the workload (`ProfileSimPoints`),
+save one checkpoint per simulation point in a single second functional pass (`InstructionCounter`'s target-callback
+mode — interval-0 targets are captured from the pristine pre-`StepCycle` state, since the callback itself only fires
+after a commit, one instruction too late for a target of exactly zero), then restore each checkpoint into a fresh
+detailed train (built by a caller-supplied factory) and measure via `WarmupMeasureDriver`. Per-point warmup is clamped
+to `min(warmupInstructions, intervalStart)` so an early interval's measured window is never shifted off the interval
+it represents. Per-point CPI (not IPC — SimPoint intervals are equal-length, so CPI is the domain a weighted mean is
+valid in) is combined by `SimulationPoint.Weight` into a whole-program estimate. The Runner exposes this as
+`--simpoint-warmup <n>`, run once per `--sweep` config (skipping pipelines other than ooo/five_stage/single_cycle,
+which are the only ones `ISteppableTrain.SnapshotDials`/baseline-`FinishStepping` support). Building this surfaced a
+second real bug: `Train.FinishStepping(baseline)` returned the *absolute* Escapement tick instead of ticks-since-
+baseline, which `WarmupMeasureDriver`'s zero-warmup callers never noticed but inflates every per-point CPI once
+warmup > 0 — fixed by recording the tick at `SnapshotDials()` and subtracting it in `FinishStepping(baseline)`.
+
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
 `Experiment.WriteOlympiaTrace(workload, mechanism, output)` runs the workload functionally on the single-cycle train (

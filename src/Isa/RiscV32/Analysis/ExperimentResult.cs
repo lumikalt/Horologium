@@ -1,6 +1,7 @@
 using System.Text;
 using Orrery.Observation;
 using Orrery.Train;
+using Pipeline;
 using RiscV32.Config;
 
 namespace RiscV32.Analysis;
@@ -9,6 +10,30 @@ namespace RiscV32.Analysis;
 ///     The collected result of one named simulation run.
 /// </summary>
 public sealed record RunRecord(string Name, TrainConfig Config, RevolutionResult Result);
+
+/// <summary>
+///     One SimPoint simulation point measured on the detailed pipeline: its representative
+///     interval/cluster/weight (<see cref="SimulationPoint" />), the actual number of instructions
+///     measured (may be less than the requested interval size if the workload halted mid-interval),
+///     and the baseline-subtracted <see cref="RevolutionResult" /> for that measurement.
+/// </summary>
+public sealed record SimPointPointResult(SimulationPoint Point, long MeasuredInstructions, RevolutionResult Revolution) {
+    /// <summary>Cycles per instruction over the measured interval.</summary>
+    public double Cpi => MeasuredInstructions > 0 ? (double)Revolution.TotalTicks / MeasuredInstructions : double.NaN;
+}
+
+/// <summary>
+///     Result of <see cref="Experiment.RunWithSimPointCheckpoints" />: the SimPoint phase analysis,
+///     the per-point detailed measurement, and the weighted whole-program CPI estimate.
+/// </summary>
+public sealed record SimPointCheckpointResult(
+    SimPointResult SimPoints,
+    IReadOnlyList<SimPointPointResult> PointResults,
+    double EstimatedCpi
+) {
+    /// <summary>Whole-program IPC estimate (1 / <see cref="EstimatedCpi" />).</summary>
+    public double EstimatedIpc => 1.0 / EstimatedCpi;
+}
 
 /// <summary>
 ///     Aggregated results from an <see cref="Experiment" /> across multiple hardware configurations.

@@ -59,6 +59,8 @@ public sealed class SingleCycleTrain : ISteppableTrain {
 
     public bool IsIdle => _train.IsIdle;
 
+    public long CurrentTick => _train.CurrentTick;
+
     public IArchState ArchState => _core.ArchState;
 
     public RevolutionResult Run(long maxTicks = 100_000, long warmupTicks = 0, long snapshotInterval = 0) =>
