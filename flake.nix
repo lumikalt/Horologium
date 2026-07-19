@@ -74,11 +74,24 @@
             msbuild
             omnisharp-roslyn
 
-            # RISC-V bare-metal toolchains
+            # RISC-V bare-metal toolchains (riscv{32,64}-none-elf-*): -nostdlib/-nostartfiles
+            # only, no libc — used for the hand-assembled SE-mode fixtures under TestBinaries/.
             pkgsCross.riscv32-embedded.buildPackages.gcc
             pkgsCross.riscv32-embedded.buildPackages.binutils
             pkgsCross.riscv64-embedded.buildPackages.gcc
             pkgsCross.riscv64-embedded.buildPackages.binutils
+
+            # RISC-V Linux userspace toolchain (riscv64-unknown-linux-musl-*): a real libc, a
+            # real _start, argv/envp/auxv off the initial stack — the toolchain the batch-mode
+            # harness (BenchmarkConfig/Experiment.RunBenchmark, InitialStackBuilder,
+            # LinuxSyscallEmulator) has been unable to validate against for lack of exactly this.
+            # musl over glibc deliberately: `-static` with pkgsCross.riscv64 (glibc) fails to
+            # link out of the box here (no static libc output wired up without extra plumbing),
+            # while musl statically links cleanly with no extra flags — confirmed by compiling
+            # and linking a real hello-world (`riscv64-unknown-linux-musl-gcc -static`). Static
+            # is required: Horologium has no dynamic-linker/loader support (AT_BASE is always 0).
+            pkgsCross.riscv64-musl.buildPackages.gcc
+            pkgsCross.riscv64-musl.buildPackages.binutils
 
             # RISC-V ISA reference simulator for lock-step co-simulation
             spike

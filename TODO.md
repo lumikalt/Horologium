@@ -50,9 +50,12 @@ free embedded suites are runnable in full today.
 - [ ] SPEC CPU2006/2017 harness (user-supplied install; SPEC is licensed and non-redistributable):
   RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction
   intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint). All infrastructure below is done;
-  the parent item stays unchecked because end-to-end validation against a real linked libc/SPEC binary
-  is blocked on toolchain availability (no `riscv64-*-linux-*` userspace toolchain in this environment,
-  only bare-metal `riscv{32,64}-none-elf-gcc`) — only bare-metal SE-mode probes have run through it.
+  the toolchain gap that blocked end-to-end validation is now closed (`riscv64-unknown-linux-musl-gcc`
+  is in `flake.nix`), but the parent item still stays unchecked: the first real run of a real
+  statically-linked musl RV64 binary through `--bench-config` found raw syscalls (`write`/`exit`) work
+  end to end, but `printf`-based stdio produces no captured output at all (even with an explicit
+  `fflush`) — see the new sub-bullet below. No SPEC/realistic binary has run through this
+  successfully yet.
   - [x] RV64 ECALL/syscall-handler wiring (`Rv64Mechanism`) and `Rv64ElfWorkload.InitialBreak`.
   - [x] ISA-agnostic psABI initial-stack builder (argc/argv/envp/auxv) so a real compiled `_start`
     can run, not just bare-metal entry — `InitialStackBuilder`.
@@ -96,6 +99,20 @@ free embedded suites are runnable in full today.
     ENOMEMs mid-run — arena sizing is a per-benchmark tuning knob, not a solved problem — and
     `FlatMemory` is `int`-sized, so a real multi-GB SPEC heap is out of reach regardless of arena
     config.
+  - [x] `riscv64-unknown-linux-musl-gcc` added to `flake.nix`'s dev shell — a real, statically-linking
+    libc toolchain (glibc's `pkgsCross.riscv64` cross toolchain, already used in-tree for
+    OpenSBI/the Linux kernel, fails `-static` linking here without extra plumbing; musl doesn't).
+    First real test: a hand-written `hello.c` compiled `-static` and run through `--bench-config`
+    halts cleanly (`SYS_exit`), and a raw `write(1, ...)` syscall (bypassing stdio) is captured
+    correctly — but `printf`, even followed by an explicit `fflush(stdout)`, produces no captured
+    output at all. Not yet root-caused.
+  - [ ] Root-cause why musl's buffered stdio (`printf`/`fflush`) produces no output through
+    `LinuxSyscallEmulator`, though a raw `write()` syscall works — the first genuinely diagnosable
+    real-libc gap (previously this whole class of question was blocked on toolchain availability).
+    Prime suspects: a stdio-internals syscall this project's emulator doesn't implement
+    (`writev`/`fcntl` variants beyond GETFD/SETFD/GETFL/SETFL/`ioctl` beyond the blanket ENOTTY), or
+    something in the initial-stack/TLS setup that leaves musl's `FILE` state initialized incorrectly
+    without crashing outright.
   - [ ] Reference-output comparison in `BenchmarkResult.Passed` is byte-exact, including trailing
     newline — real reference files almost always end in `\n`. Consider a
     trailing-whitespace-normalized compare mode.

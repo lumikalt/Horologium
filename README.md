@@ -42,9 +42,12 @@ dotnet run --project src/Apps/Runner                                     # run t
 dotnet run --project src/Apps/Runner -- --help                           # CLI usage
 ```
 
-The development environment is provided by a Nix flake (`flake.nix`, `direnv`). It supplies the .NET 11 SDK, a
-`riscv32-embedded` GCC/binutils cross-toolchain for producing bare-metal test binaries, and native libraries required to
-launch Rider via the `rider` command.
+The development environment is provided by a Nix flake (`flake.nix`, `direnv`). It supplies the .NET 11 SDK,
+`riscv{32,64}-embedded` GCC/binutils cross-toolchains for producing bare-metal test binaries, a
+`riscv64-unknown-linux-musl-gcc` real-libc userspace toolchain (statically links cleanly, unlike the
+`riscv64-unknown-linux-gnu` glibc cross toolchain already used in-tree for OpenSBI/the Linux kernel — that one needs
+extra static-libc plumbing not wired up here) for building real linked binaries to validate the batch-mode harness
+against, and native libraries required to launch Rider via the `rider` command.
 
 ## Naming convention
 
@@ -1154,14 +1157,18 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   exiting with status 1 if any times out or fails its reference check. A crashing benchmark (e.g. one that
   dereferences a failed mmap's negative return) is caught per-benchmark and reported as `ERROR` rather than
   aborting the rest of the batch. Verified end-to-end against bare-metal SE-mode probes (`abi_probe64.elf`,
-  `stdin_echo64.elf`, `mmap_probe64.elf`) — no real linked-libc/SPEC binary has run through it (no toolchain
-  available to build one). `BenchmarkConfig.MmapArenaBytes` optionally sizes an anonymous-mmap arena, appended past
-  the workload's own memory so enabling it never shifts where the stack or `brk`-growable region end up (both keep
-  the exact placement they'd have with it unset); omitted or 0 (the default) keeps `mmap` disabled — `SYS_mmap`
-  returns `ENOMEM`, same as before this existed. The arena is still a bump allocator that never reclaims
-  (`SYS_munmap` is a no-op, per the `LinuxSyscallEmulator` realism note above), so a long malloc-heavy run still
-  exhausts a finite arena and ENOMEMs mid-run, and `FlatMemory` is `int`-sized, putting a real multi-GB SPEC heap
-  out of reach regardless of arena config — sizing the arena per benchmark is a tuning knob, not a solved problem.
+  `stdin_echo64.elf`, `mmap_probe64.elf`); the toolchain gap that previously made a real linked-libc test
+  impossible is now closed (`riscv64-unknown-linux-musl-gcc` in `flake.nix`) — the first attempt, a hand-written
+  `hello.c` compiled `-static` and run through `--bench-config`, halts cleanly and a raw `write()` syscall
+  (bypassing stdio) is captured correctly, but `printf`/`fflush` produces no output at all. Not yet root-caused
+  (see TODO.md) — no SPEC/realistic binary has successfully run through this yet. `BenchmarkConfig.MmapArenaBytes`
+  optionally sizes an anonymous-mmap arena, appended past the workload's own memory so enabling it never shifts
+  where the stack or `brk`-growable region end up (both keep the exact placement they'd have with it unset);
+  omitted or 0 (the default) keeps `mmap` disabled — `SYS_mmap` returns `ENOMEM`, same as before this existed. The
+  arena is still a bump allocator that never reclaims (`SYS_munmap` is a no-op, per the `LinuxSyscallEmulator`
+  realism note above), so a long malloc-heavy run still exhausts a finite arena and ENOMEMs mid-run, and
+  `FlatMemory` is `int`-sized, putting a real multi-GB SPEC heap out of reach regardless of arena config — sizing
+  the arena per benchmark is a tuning knob, not a solved problem.
 
 Because the five-stage and out-of-order trains previously spun HTIF binaries to `maxTicks`, adding these halts also
 makes the HTIF benchmark suite finish in seconds. `HtifExitTests` covers both paths across all three trains without
