@@ -1151,10 +1151,17 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   `Checked`/`Passed` tell "no reference supplied" apart from "verified and matched". Kept ISA-agnostic (takes an
   already-built `IElfWorkload` and a `mechanismFactory` the caller supplies) the same way the rest of `Experiment`
   is. The Runner exposes it as `--bench-config <path.json>`, running every benchmark under `--xlen`'s ISA and
-  exiting with status 1 if any times out or fails its reference check. Verified end-to-end only against bare-metal
-  SE-mode probes (`abi_probe64.elf`, `stdin_echo64.elf`) — no real linked-libc/SPEC binary has run through it (no
-  toolchain available to build one). The mmap arena is disabled by default (no `mmapBase`/`mmapLimit` wired
-  through yet), so a real malloc-heavy benchmark will `ENOMEM` once it exhausts `brk`.
+  exiting with status 1 if any times out or fails its reference check. A crashing benchmark (e.g. one that
+  dereferences a failed mmap's negative return) is caught per-benchmark and reported as `ERROR` rather than
+  aborting the rest of the batch. Verified end-to-end against bare-metal SE-mode probes (`abi_probe64.elf`,
+  `stdin_echo64.elf`, `mmap_probe64.elf`) — no real linked-libc/SPEC binary has run through it (no toolchain
+  available to build one). `BenchmarkConfig.MmapArenaBytes` optionally sizes an anonymous-mmap arena, appended past
+  the workload's own memory so enabling it never shifts where the stack or `brk`-growable region end up (both keep
+  the exact placement they'd have with it unset); omitted or 0 (the default) keeps `mmap` disabled — `SYS_mmap`
+  returns `ENOMEM`, same as before this existed. The arena is still a bump allocator that never reclaims
+  (`SYS_munmap` is a no-op, per the `LinuxSyscallEmulator` realism note above), so a long malloc-heavy run still
+  exhausts a finite arena and ENOMEMs mid-run, and `FlatMemory` is `int`-sized, putting a real multi-GB SPEC heap
+  out of reach regardless of arena config — sizing the arena per benchmark is a tuning knob, not a solved problem.
 
 Because the five-stage and out-of-order trains previously spun HTIF binaries to `maxTicks`, adding these halts also
 makes the HTIF benchmark suite finish in seconds. `HtifExitTests` covers both paths across all three trains without

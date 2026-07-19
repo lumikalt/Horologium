@@ -23,13 +23,24 @@ namespace RiscV32.Analysis;
 ///     see <see cref="BenchmarkResult.Checked" />.
 /// </param>
 /// <param name="MemorySizeBytes">Overrides the workload's auto-computed memory size when set.</param>
+/// <param name="MmapArenaBytes">
+///     Size of the anonymous-mmap bump-allocation arena passed to
+///     <see cref="Syscalls.LinuxSyscallEmulator" />. Null or 0 (the default) disables <c>mmap</c>
+///     entirely (<c>SYS_mmap</c> returns <c>ENOMEM</c>) — a malloc that falls back to <c>brk</c>
+///     when that happens still works, but a malloc-heavy binary that mmaps large allocations
+///     directly will fail. When set, <see cref="Experiment.RunBenchmark" /> appends this many bytes
+///     onto the workload's memory and dedicates that region to the arena — it never overlaps the
+///     stack or the <c>brk</c>-growable region, both of which keep the exact placement they'd have
+///     with this field unset.
+/// </param>
 public sealed record BenchmarkConfig(
     string Name,
     string ElfPath,
     IReadOnlyList<string>? Args = null,
     string? StdinPath = null,
     string? ExpectedOutputPath = null,
-    int? MemorySizeBytes = null
+    int? MemorySizeBytes = null,
+    int? MmapArenaBytes = null
 ) {
     private static readonly JsonSerializerOptions Options = new() {
         WriteIndented = true,

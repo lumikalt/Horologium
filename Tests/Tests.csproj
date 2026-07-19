@@ -98,6 +98,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>stdin_echo64.elf</Link>
         </None>
+        <None Include="..\TestBinaries\mmap_probe64.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>mmap_probe64.elf</Link>
+        </None>
         <None Include="..\TestBinaries\isa\*.elf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <LinkBase>isa</LinkBase>

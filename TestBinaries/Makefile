@@ -587,13 +587,21 @@ abi_probe64.elf: abi_probe64.s test.ld
 stdin_echo64.elf: stdin_echo64.s test.ld
 	$(CC64) $(CFLAGS_SE64) -T test.ld stdin_echo64.s -o $@
 
+# ── anonymous-mmap probe (SYS_mmap → write/read the mapped page) ───────────
+#
+# Proves LinuxSyscallEmulator's mmap arena is wired through SYS_mmap end to
+# end — see mmap_probe64.s for the exact sequence.
+
+mmap_probe64.elf: mmap_probe64.s test.ld
+	$(CC64) $(CFLAGS_SE64) -T test.ld mmap_probe64.s -o $@
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
 .PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture torture64 clean
 
 all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture torture64
 
-custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf
+custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf
 
 isa-tests: rv32-isa-tests rv64-isa-tests
 
@@ -634,5 +642,5 @@ lab2: $(LAB2_ELFS)
 .PHONY: lab2
 
 clean:
-	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf
+	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf
 	rm -f isa/*.elf benchmarks/*.elf torture/*.elf torture64/*.elf lab2/*.elf

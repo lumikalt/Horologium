@@ -224,11 +224,22 @@ if (benchConfigPath is not null) {
     var anyFailed = false;
 
     foreach (BenchmarkConfig bench in benchmarks) {
-        IElfWorkload workload = xlen == 64
-            ? new Rv64ElfWorkload(bench.ElfPath, bench.MemorySizeBytes)
-            : new Rv32ElfWorkload(bench.ElfPath, bench.MemorySizeBytes);
+        BenchmarkResult result;
+        try {
+            IElfWorkload workload = xlen == 64
+                ? new Rv64ElfWorkload(bench.ElfPath, bench.MemorySizeBytes)
+                : new Rv32ElfWorkload(bench.ElfPath, bench.MemorySizeBytes);
 
-        BenchmarkResult result = Experiment.RunBenchmark(bench, workload, wordSize, benchMechanismFactory, maxTicks);
+            result = Experiment.RunBenchmark(bench, workload, wordSize, benchMechanismFactory, maxTicks);
+        }
+        catch (Exception ex) {
+            // A crashing guest (e.g. one that dereferences a failed mmap's negative return, or an
+            // unreadable/malformed ELF) must not abort the rest of the batch — one bad benchmark
+            // should show up as a reported failure, not take down every benchmark after it.
+            Console.WriteLine($"{bench.Name}: ERROR  ({ex.GetType().Name}: {ex.Message})");
+            anyFailed = true;
+            continue;
+        }
 
         string status = !result.Halted
             ? "TIMEOUT"

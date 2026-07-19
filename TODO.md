@@ -87,9 +87,15 @@ free embedded suites are runnable in full today.
     always-EOF) + captured stdout/stderr + exact reference-output diffing, functional single-cycle
     only. Verified end-to-end against bare-metal SE-mode probes only (`abi_probe64.elf`,
     `stdin_echo64.elf`) — no real linked-libc/SPEC binary has run through it (see parent item).
-  - [ ] mmap arena is disabled by default in `RunBenchmark` (no `mmapBase`/`mmapLimit` wired through
-    yet) — a real malloc-heavy benchmark will ENOMEM once it exhausts `brk`. Needed before batch-mode
-    can run realistic (not just probe) binaries.
+  - [x] `BenchmarkConfig.MmapArenaBytes` wires a caller-sized mmap arena through to
+    `LinuxSyscallEmulator` (appended past the workload's own memory, so stack/`brk` placement is
+    unchanged whether or not it's set), and a crashing benchmark (e.g. one that dereferences a
+    failed mmap's negative return) now reports as `ERROR` and lets the rest of the `--bench-config`
+    batch continue instead of aborting it. Residual limits, not chased further: the arena never
+    reclaims (`SYS_munmap` is a no-op) so a long malloc-heavy run still exhausts a finite arena and
+    ENOMEMs mid-run — arena sizing is a per-benchmark tuning knob, not a solved problem — and
+    `FlatMemory` is `int`-sized, so a real multi-GB SPEC heap is out of reach regardless of arena
+    config.
   - [ ] Reference-output comparison in `BenchmarkResult.Passed` is byte-exact, including trailing
     newline — real reference files almost always end in `\n`. Consider a
     trailing-whitespace-normalized compare mode.

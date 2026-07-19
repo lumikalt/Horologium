@@ -578,10 +578,18 @@ public static class Experiment {
         Func<ISyscallHandler, IMechanism> mechanismFactory,
         long maxTicks = 1_000_000
     ) {
-        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        // The mmap arena (if any) is appended past the workload's own memory rather than carved out
+        // of it, so the stack and the brk-growable region keep the exact placement/size they'd have
+        // with MmapArenaBytes unset — enabling mmap can only add address space, never shrink or move
+        // what was already there.
+        int arenaSize = Math.Max(0, bench.MmapArenaBytes ?? 0);
+        var memory = new FlatMemory(workload.MemorySize + arenaSize, workload.BaseAddress);
         workload.Load(memory);
 
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
+        ulong mmapBase = arenaSize > 0 ? stackTop : 0;
+        ulong mmapLimit = arenaSize > 0 ? stackTop + (ulong)arenaSize : 0;
+
         List<string> argv = [Path.GetFileName(bench.ElfPath), ..bench.Args ?? [],];
         ulong sp = InitialStackBuilder.BuildInitialStack(
             memory, stackTop, wordSize, argv, [],
@@ -590,7 +598,9 @@ public static class Experiment {
 
         var outputWriter = new StringWriter();
         using Stream? stdin = bench.StdinPath is not null ? File.OpenRead(bench.StdinPath) : null;
-        using var syscalls = new LinuxSyscallEmulator(workload.InitialBreak, outputWriter, wordSize, input: stdin);
+        using var syscalls = new LinuxSyscallEmulator(
+            workload.InitialBreak, outputWriter, wordSize, mmapBase, mmapLimit, stdin
+        );
 
         IMechanism mechanism = mechanismFactory(syscalls);
         var train = new SingleCycleTrain(mechanism, memory, workload.EntryPoint);

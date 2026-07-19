@@ -17,6 +17,7 @@ namespace Tests.RiscV32.Analysis;
 public class BenchmarkConfigTests {
     private static string AbiProbe64Elf => Path.Combine(AppContext.BaseDirectory, "abi_probe64.elf");
     private static string StdinEcho64Elf => Path.Combine(AppContext.BaseDirectory, "stdin_echo64.elf");
+    private static string MmapProbe64Elf => Path.Combine(AppContext.BaseDirectory, "mmap_probe64.elf");
 
     [Fact]
     public void FromJson_ToJson_RoundTrips() {
@@ -113,5 +114,35 @@ public class BenchmarkConfigTests {
             Assert.Equal("ping", result.Output);
         }
         finally { File.Delete(stdinPath); }
+    }
+
+    [Fact]
+    public void RunBenchmark_MmapArenaEnabled_MmapSucceedsAndMappedMemoryIsReadWrite() {
+        var bench = new BenchmarkConfig("mmap", MmapProbe64Elf, MmapArenaBytes: 3 * 4096);
+        var workload = new Rv64ElfWorkload(bench.ElfPath);
+
+        BenchmarkResult result = Experiment.RunBenchmark(
+            bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+        );
+
+        Assert.True(result.Halted);
+        Assert.Equal("*", result.Output); // the byte the probe wrote into (then read back from) the mapped page
+    }
+
+    [Fact]
+    public void RunBenchmark_MmapArenaEnabled_DoesNotDisturbArgvOrStackPlacement() {
+        // The arena is appended past the workload's own memory (see RunBenchmark's doc comment) —
+        // enabling it must not shift where the stack/argv end up. Reuses the argv probe with
+        // MmapArenaBytes set, rather than a fresh assertion, so a regression that moved the stack
+        // into (or the arena underneath) the existing layout shows up as a wrong argv[0] readback.
+        var bench = new BenchmarkConfig("probe", AbiProbe64Elf, ["hello"], MmapArenaBytes: 3 * 4096);
+        var workload = new Rv64ElfWorkload(bench.ElfPath);
+
+        BenchmarkResult result = Experiment.RunBenchmark(
+            bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+        );
+
+        Assert.True(result.Halted);
+        Assert.Equal("abi_probe64.elf", result.Output);
     }
 }
