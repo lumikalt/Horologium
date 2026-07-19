@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Observation;
 
 namespace Orrery.Train;
 
@@ -25,6 +26,26 @@ public interface ISteppableTrain {
 
     /// <summary>Finalizes the run and returns accumulated statistics.</summary>
     RevolutionResult FinishStepping();
+
+    /// <summary>
+    ///     Snapshots every Gear's DialBoard at the current point in a step-by-step run, without
+    ///     ending the lifecycle — lets a caller drive an instruction-count-bounded (rather than
+    ///     tick-bounded) warmup/measurement split externally via <see cref="StepCycle" />. Only
+    ///     implemented by trains that also support a commit observer (<c>SingleCycleTrain</c>,
+    ///     <c>FiveStageTrain</c>, <c>OooeTrain</c>) — the trains an instruction-count driver is
+    ///     meaningful for. Others throw <see cref="NotSupportedException" />.
+    /// </summary>
+    IReadOnlyList<DialBoardSnapshot> SnapshotDials() =>
+        throw new NotSupportedException($"{GetType().Name} does not support mid-step dial snapshots.");
+
+    /// <summary>
+    ///     Finalizes a step-by-step run like <see cref="FinishStepping()" />, subtracting
+    ///     <paramref name="baseline" /> (from an earlier <see cref="SnapshotDials" /> call) from
+    ///     every Gear's final DialBoard snapshot. See <see cref="SnapshotDials" /> for which trains
+    ///     support this.
+    /// </summary>
+    RevolutionResult FinishStepping(IReadOnlyList<DialBoardSnapshot> baseline) =>
+        throw new NotSupportedException($"{GetType().Name} does not support baseline-relative FinishStepping.");
 
     /// <summary>
     ///     Runs the train for up to <paramref name="maxTicks" /> ticks.

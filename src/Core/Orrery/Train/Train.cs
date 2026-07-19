@@ -351,6 +351,32 @@ public sealed class Train {
         );
     }
 
+    /// <summary>
+    ///     Snapshots every Gear's DialBoard at the current point in a step-by-step run (between
+    ///     <see cref="BeginStepping" /> and <see cref="FinishStepping()" />), without ending the
+    ///     lifecycle. Lets a caller establish a baseline for an instruction-count-bounded (rather
+    ///     than tick-bounded) warmup/measurement split driven externally via <see cref="StepCycle" />
+    ///     — <see cref="Run" />'s own warmup/baseline-subtract logic only knows about ticks, and
+    ///     <see cref="FinishStepping()" />/<see cref="Reset" /> would end the lifecycle or wipe
+    ///     warmed-up gear state, so neither can be reused directly for that.
+    /// </summary>
+    public IReadOnlyList<DialBoardSnapshot> SnapshotDials() =>
+        [.._gears.Select(g => g.Dials.Snapshot()),];
+
+    /// <summary>
+    ///     Finalizes a step-by-step run like <see cref="FinishStepping()" />, but subtracts
+    ///     <paramref name="baseline" /> (from an earlier <see cref="SnapshotDials" /> call) from
+    ///     every Gear's final DialBoard snapshot — the stepping-API equivalent of <see cref="Run" />'s
+    ///     tick-based warmup/measurement split.
+    /// </summary>
+    public RevolutionResult FinishStepping(IReadOnlyList<DialBoardSnapshot> baseline) {
+        Root.BeginFinished();
+        return new RevolutionResult(
+            _escapement.CurrentTick, 0,
+            [.._gears.Select((g, i) => g.Dials.Snapshot().Subtract(baseline[i])),]
+        );
+    }
+
     // ── Diagnostics ───────────────────────────────────────────────────────────
 
     /// <summary>Dumps the full tree topology for debugging.</summary>

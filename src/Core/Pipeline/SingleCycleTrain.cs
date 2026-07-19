@@ -67,6 +67,8 @@ public sealed class SingleCycleTrain : ISteppableTrain {
     public void BeginStepping() => _train.BeginStepping();
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
+    public IReadOnlyList<DialBoardSnapshot> SnapshotDials() => _train.SnapshotDials();
+    public RevolutionResult FinishStepping(IReadOnlyList<DialBoardSnapshot> baseline) => _train.FinishStepping(baseline);
 
     public string DumpTopology() => _train.DumpTopology();
 }
