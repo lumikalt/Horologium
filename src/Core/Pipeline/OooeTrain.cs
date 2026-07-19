@@ -748,8 +748,16 @@ internal sealed class OoOPipelineCore : Gear {
         }
     }
 
-    public override void Wind() =>
+    public override void Wind() {
+        // Seed the PRF's identity-mapped architectural registers from State.IntegerRegisters —
+        // the PRF starts zeroed at construction (see PhysicalRegisterFile ctor) and execution
+        // reads register operands from the PRF, never from State.IntegerRegisters directly. A
+        // caller that writes State.IntegerRegisters between construction and Run()/BeginStepping()
+        // (e.g. ArchitecturalCheckpoint.RestoreInto) would otherwise be silently invisible to the
+        // OoO pipeline. On a fresh (never-written) ArchState this seeds zeros — no behavior change.
+        for (var i = 0; i < State.IntegerRegisters.Count; i++) _prf.Write(i, State.IntegerRegisters.Read(i));
         Escapement.ScheduleNextTick(_runCycle ??= RunCycle, Phase.Fetch);
+    }
 
     private void RunCycle() {
         if (_halted) return;

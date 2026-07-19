@@ -1,4 +1,5 @@
 using Mechanism;
+using Orrery.Train;
 using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Memory;
@@ -228,6 +229,59 @@ public class CheckpointTests {
 
         // mem2[256] should already be 3 (restored from single-cycle run).
         Assert.Equal(3uL, mem2.Read(256, 4));
+    }
+
+    /// <summary>
+    ///     <see cref="RestoreInto" /> writes <c>ArchState.IntegerRegisters</c> — but OoOE execution
+    ///     reads register operands from the physical register file (PRF), which starts zeroed at
+    ///     construction and is otherwise only ever written by the pipeline itself at Complete. A
+    ///     restore performed between construction and <c>Run()</c>/<c>BeginStepping()</c> would be
+    ///     silently invisible to execution unless the PRF is re-seeded from ArchState at Wind()
+    ///     time. The other OoO checkpoint tests above only assert on <c>ArchState</c> directly after
+    ///     restore — they never run the restored train, so they cannot catch this.
+    ///     <para>
+    ///         This test does run the restored train, and uses a restored register (x1) as the
+    ///         *address* operand of a store, not just the data operand — an earlier version of this
+    ///         test used a restored data operand only (<c>sw x1, 256(x0)</c>) and it passed even
+    ///         without the Wind() fix, because store data apparently resolves through a different
+    ///         path than store address computation. Address computation goes through the same
+    ///         PRF-read path that produced the real symptom this fix addresses (a garbage store
+    ///         address computed from an unseeded stack-pointer register, crashing with
+    ///         <c>AccessViolationException</c> on a real RV64 ELF run through Runner's ROI mode).
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public void OutOfOrder_RestoreThenRun_UsesRestoredRegisterAsStoreAddress() {
+        // addi x1, x0, 512  →  addi x2, x0, 99  →  sw x2, 0(x1)  →  ebreak
+        byte[] prog = Encode(0x20000093u, 0x06300113u, 0x0020A023u, 0x00100073u);
+
+        FlatMemory mem1 = MakeMem(prog);
+        MachineHandle h1 = new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism()).Build(mem1);
+        h1.Train.BeginStepping();
+        h1.Train.StepCycle(); // addi x1, x0, 512
+        h1.Train.StepCycle(); // addi x2, x0, 99 — PC now points at the sw
+        RevolutionResult r1 = h1.Train.FinishStepping();
+
+        using var ms = new MemoryStream();
+        ArchitecturalCheckpoint.Save(ms, h1.ArchState!, mem1, (ulong)r1.TotalTicks);
+        ms.Position = 0;
+        ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(ms);
+
+        // Detailed OoO run from the checkpoint: fetch starts at the sw (chk.Pc), x1 = 512 and
+        // x2 = 99 restored. entryPoint must be passed at Build() time — it seeds a separate
+        // internal fetch-PC field that RestoreInto (which only writes ArchState.Pc) does not
+        // touch — exactly how Runner's --checkpoint-load (spec.Build(memory, chk.Pc)) and
+        // --roi-start (spec.Build(backing, roiStartPc, mmio)) already do it.
+        var mem2 = new FlatMemory(mem1.SizeBytes, mem1.BaseAddress);
+        MachineHandle h2 = new MachineSpec(new OutOfOrderSpec(), () => new Rv32Mechanism()).Build(mem2, chk.Pc);
+        chk.RestoreInto(h2.ArchState!, mem2);
+
+        h2.Run(1_000);
+
+        // If x1 (the store's base address) were invisible to the OoO pipeline, this would
+        // compute address 0 instead of 512 (the PRF's zeroed default), and mem2[512] would
+        // remain unwritten.
+        Assert.Equal(99uL, mem2.Read(512, 4));
     }
 
     // ── Error cases ──────────────────────────────────────────────────────────
