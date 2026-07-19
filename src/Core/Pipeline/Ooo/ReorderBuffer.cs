@@ -182,6 +182,23 @@ public sealed class RobEntry {
     /// </summary>
     public bool IcacheMiss { get; set; }
 
+    // ── EOLE Late Execution (Perais &amp; Seznec, ISCA 2014) ───────────────────
+
+    /// <summary>
+    ///     True when this instruction was confidently value-predicted and is a
+    ///     single-cycle ALU op: it skips the IQ/Issue/Execute stages entirely
+    ///     (dispatched directly complete, its predicted value already live in the
+    ///     PRF) and is instead verified in-order at Commit via <see cref="P1" />/
+    ///     <see cref="P2" />, freeing OoO issue-port/IQ budget for other instructions.
+    /// </summary>
+    public bool IsLateExecEligible { get; set; }
+
+    /// <summary>Physical source register 1, stashed only for <see cref="IsLateExecEligible" /> entries.</summary>
+    public int P1 { get; set; } = -1;
+
+    /// <summary>Physical source register 2, stashed only for <see cref="IsLateExecEligible" /> entries.</summary>
+    public int P2 { get; set; } = -1;
+
     internal void Clear() {
         Valid = false;
         Pc = 0;
@@ -221,6 +238,9 @@ public sealed class RobEntry {
         CpiStolenAtDispatch = 0;
         DMissClass = CpiMissClass.None;
         IcacheMiss = false;
+        IsLateExecEligible = false;
+        P1 = -1;
+        P2 = -1;
     }
 }
 

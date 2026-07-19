@@ -234,9 +234,17 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   idealized selective-reissue implementation once FPC accuracy exceeds ~99.5%. `VtagePredictor` keeps its own
   speculative/committed global-history shadow (independent of whichever `IBranchPredictor` is configured), advanced
   at fetch and rewound via checkpoint/restore on both a full flush and an execute-time partial squash — so its
-  index survives ordinary branch mispredictions exactly, not just approximately. EOLE (early/late in-order ALU
-  execution to shrink OoO issue width atop value prediction) and eligibility beyond ALU/load are tracked in
-  TODO.md. A **critical-path predictor** (`TokenPassingCriticalityPredictor`,
+  index survives ordinary branch mispredictions exactly, not just approximately. **EOLE Late Execution** (Perais
+  &amp; Seznec, "EOLE: Paving the Way for an Effective Implementation of Value Prediction", ISCA 2014; enable with
+  `enableEoleLateExec: true`, requires a `valuePredictor`) removes confidently value-predicted single-cycle ALU
+  ops from the OoO scheduler entirely: instead of entering the IQ, they are marked complete at Dispatch (their
+  predicted value is already the live PRF value) and their real computation is deferred to an in-order
+  verify-at-Commit step reusing the exact same `ExecuteOne`/squash-at-commit machinery as ordinary value
+  prediction, just relocated from `StepComplete` to `StepCommit` — so it costs no new recovery path, only a
+  narrower window for OoO issue-port contention to matter, letting a narrow-issue machine approach a wider one's
+  performance on ALU-heavy code (the paper's own headline result). Early Execution (the front-end half — ALU ops
+  executing in parallel with Rename before ever reaching Dispatch) and widening VP eligibility beyond ALU/load
+  are tracked in TODO.md. A **critical-path predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each
   instruction is modeled as a 3-node dependence graph (dispatch/execute/commit); the pipeline resolves,
