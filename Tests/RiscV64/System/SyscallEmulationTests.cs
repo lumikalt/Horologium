@@ -24,7 +24,7 @@ public class SyscallEmulationTests {
         workload.Load(mem);
 
         var sw = new StringWriter();
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new SingleCycleTrain(mech, mem, workload.EntryPoint);
 
@@ -38,7 +38,7 @@ public class SyscallEmulationTests {
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
 
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, wordSize: 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         RevolutionResult result = new SingleCycleTrain(mech, mem, workload.EntryPoint).Run();
 

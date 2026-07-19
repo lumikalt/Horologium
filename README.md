@@ -1098,6 +1098,23 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   `−ENOTTY`; all others return `−ENOSYS`. `Rv32ElfWorkload.InitialBreak` exposes the page-rounded end of the last
   PT_LOAD segment as the initial break address. `ISyscallHandler` (in `Mechanism/`) defines the interface so alternate
   emulators can be plugged in.
+- **`LinuxSyscallEmulator` realism: file I/O, mmap, clock/random, fcntl.** `SYS_openat`/`SYS_read`/`SYS_write`/
+  `SYS_close`/`SYS_lseek` are unrestricted host passthrough (the gem5-SE/Spike-pk convention — paths open exactly as
+  given, against the simulator process's own cwd; no sandboxing, since the guest binary is the user's own,
+  already-compiled, locally run program). `SYS_fstat` fills a real `struct stat`/`stat64` — RV32's `fstat` syscall
+  (80) is `sys_fstat64` (104-byte layout), RV64's is `sys_newfstat` (128-byte layout); genuinely different structs
+  under the same syscall number, selected by the new `wordSize` constructor parameter. Both layouts, and
+  `clock_gettime`'s 16-byte `struct __kernel_timespec` (identical on RV32/RV64 — RISC-V never implemented the
+  legacy 32-bit-time_t syscalls), were verified by compiling field-store probes with `riscv32-none-elf-gcc`/
+  `riscv64-none-elf-gcc` and reading the emitted store offsets, not reconstructed from memory. `SYS_mmap` is a bump
+  allocator over a caller-supplied `[mmapBase, mmapLimit)` arena (new constructor parameters; anonymous mappings
+  only, file-backed mappings eagerly read the file into the region); `SYS_munmap` never reclaims; an unconfigured
+  or exhausted arena returns ENOMEM, same as real mmap under memory pressure. `SYS_clock_gettime`/`SYS_getrandom`
+  are deterministic (a synthetic incrementing clock; a seeded xorshift PRNG) rather than real host time/entropy,
+  matching this project's reproducibility precedent. `SYS_fcntl` returns benign success for
+  `F_GETFD`/`F_SETFD`/`F_GETFL`/`F_SETFL`. None of this has been validated against a real linked glibc/musl binary —
+  there is no riscv64-\*-linux-\* userspace toolchain in this environment, only bare-metal `riscv{32,64}-none-elf-gcc`;
+  coverage is hand-verified struct offsets plus unit tests calling `Handle` directly.
 - **RV64 syscall-emulation wiring.** `Rv64Mechanism` now takes the same `syscallHandler: ISyscallHandler?` constructor
   parameter as `Rv32Mechanism` — `Rv64Executor : Rv32Executor` already inherited the ECALL-dispatch arm unchanged, so
   this was the only missing wire. `Rv64ElfWorkload.InitialBreak` mirrors `Rv32ElfWorkload`'s PT_LOAD-scan computation.

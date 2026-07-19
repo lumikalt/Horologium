@@ -32,7 +32,7 @@ public class InitialStackTests {
         );
 
         var sw = new StringWriter();
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new SingleCycleTrain(mech, mem, workload.EntryPoint);
         train.ArchState.IntegerRegisters.Write(2, sp); // x2 = sp

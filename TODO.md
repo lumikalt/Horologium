@@ -53,8 +53,10 @@ free embedded suites are runnable in full today.
   - [x] RV64 ECALL/syscall-handler wiring (`Rv64Mechanism`) and `Rv64ElfWorkload.InitialBreak`.
   - [x] ISA-agnostic psABI initial-stack builder (argc/argv/envp/auxv) so a real compiled `_start`
     can run, not just bare-metal entry — `InitialStackBuilder`.
-  - [ ] `LinuxSyscallEmulator` realism: real file I/O/mmap/clock_gettime/getrandom/fcntl (currently
-    RV32-only and minimal).
+  - [x] `LinuxSyscallEmulator` realism: real host file I/O (openat/read/write/close/lseek/fstat),
+    an anonymous-mmap bump allocator, deterministic clock_gettime/getrandom, and fcntl — works on
+    both RV32 and RV64 (`wordSize` selects the `fstat` struct layout, verified against real
+    toolchain codegen). Not yet validated against a real linked glibc/musl binary.
   - [ ] Instruction-count-triggered checkpoint hook + SimPoint-interval → checkpoint glue + a
     warmup-then-measure driver for the detailed pipeline.
   - [ ] Runner CLI: wire RV64 into every mode, plus a benchmark-config/batch-mode concept (ELF +
