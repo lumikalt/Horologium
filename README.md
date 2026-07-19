@@ -1261,6 +1261,22 @@ overlapping work; the Runner's `--checkpoint-save` path uses it. `Load(path)` de
 the committed hart state after or during a run; `MachineHandle.ArchState` forwards it. ROI uses an in-memory checkpoint
 internally (no file I/O); both `--checkpoint-save` and the ROI path can be combined to persist the post-ROI state.
 
+**Instruction-count-bounded warmup/measurement.** `Train.Run`'s own warmup/measure split (and the ROI/checkpoint-load
+flows above) are tick-bounded; SimPoint-style sampling needs boundaries in dynamic instruction counts instead.
+`InstructionCounter` (`src/Core/Mechanism/InstructionCounter.cs`) is an `ICommitObserver` that counts commits and,
+given an ascending list of target counts, fires a callback as each is crossed — enough to save one checkpoint per
+simulation point in a single functional pass. `WarmupMeasureDriver.RunWarmupThenMeasure` (`src/Core/Pipeline/`) then
+steps a train (built with that counter as its `CommitObserver`) through an unmeasured warmup phase, snapshots a
+baseline via the new `ISteppableTrain.SnapshotDials()`, steps through the measured phase, and returns the
+baseline-subtracted result via the new `FinishStepping(baseline)` overload — the stepping-API equivalent of `Run`'s
+own tick-based warmup, needed because a train's lifecycle is one-shot (`Reset()` would wipe warmed-up
+microarchitectural state along with the counters). Only `SingleCycleTrain`, `FiveStageTrain`, and `OooeTrain`
+implement `SnapshotDials`/baseline-`FinishStepping` — the trains that already support a commit observer. Building
+this surfaced a real, previously undiscovered bug: `OooeTrain`'s physical register file started zeroed at
+construction and was never re-seeded from `ArchState.IntegerRegisters`, so a checkpoint restored into an OoO train
+was silently invisible to execution (`Wind()` now re-seeds it; a fresh, never-restored `ArchState` seeds zeros, so
+ordinary runs are unaffected).
+
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
 `Experiment.WriteOlympiaTrace(workload, mechanism, output)` runs the workload functionally on the single-cycle train (

@@ -57,8 +57,16 @@ free embedded suites are runnable in full today.
     an anonymous-mmap bump allocator, deterministic clock_gettime/getrandom, and fcntl — works on
     both RV32 and RV64 (`wordSize` selects the `fstat` struct layout, verified against real
     toolchain codegen). Not yet validated against a real linked glibc/musl binary.
-  - [ ] Instruction-count-triggered checkpoint hook + SimPoint-interval → checkpoint glue + a
-    warmup-then-measure driver for the detailed pipeline.
+  - [x] Instruction-count-triggered checkpoint hook (`InstructionCounter`) and an
+    instruction-count-bounded warmup-then-measure driver for the detailed pipeline
+    (`WarmupMeasureDriver`, `ISteppableTrain.SnapshotDials`/baseline-`FinishStepping`) — verified
+    independent of clustering (checkpoint-at-K-then-run-N−K matches straight-through-to-N on OoO
+    bit-for-bit). Found and fixed a real bug along the way: `ArchitecturalCheckpoint.RestoreInto`
+    was silently invisible to `OooeTrain`'s physical register file.
+  - [ ] SimPoint-interval → checkpoint glue: given a `SimPointResult`, save one checkpoint per
+    simulation point (at `intervalStart − warmup`) in a single functional pass, then drive
+    `WarmupMeasureDriver` per point and weight-combine into a whole-program CPI/IPC estimate.
+    Wire into the Runner CLI.
   - [x] Runner CLI: `--xlen 32|64` selects RV32/RV64 workload + mechanism across every mode
     (default sweep, `--simpoint`, `--trace-json`, `--elastic-record`, `--stf-record`, `--script`
     incl. `--roi-start`/`--checkpoint-save`/`--checkpoint-load`); `.csx`/`.fsx` scripts can
