@@ -1,6 +1,5 @@
 using Mechanism;
 using Mechanism.BranchPredictModels;
-using Mechanism.ValuePredictModels;
 using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
@@ -1203,7 +1202,7 @@ internal sealed class OoOPipelineCore : Gear {
                 if (_predictor is IBranchKindAwareBranchPredictor kindAware)
                     kindAware.NotifyBranchKind(instrPc, ClassifyBranchKind(head.Instruction));
                 _predictor.Update(instrPc, taken, resolvedPc);
-                (_valuePredictor as VtagePredictor)?.AdvanceCommittedHistory(taken);
+                _valuePredictor?.AdvanceCommittedHistory(taken);
 
                 if (resolvedPc != predictedPc) {
                     _branchMissCounter.Increment();

@@ -267,8 +267,22 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   that instruction's own Fetch and threaded through Rename/Commit, rather than each method separately reading
   whichever of the predictor's live-speculative or committed-shadow history register it used to read — the
   latter let heavy squash/refetch churn drift the two apart, aliasing a confidently-wrong prediction onto a
-  slot training could never reach to correct (a permanent livelock, not just a missed opportunity). A
-  stride-family predictor component to hybridize with VTAGE remains tracked in TODO.md. A **critical-path
+  slot training could never reach to correct (a permanent livelock, not just a missed opportunity).
+  **`StridePredictor`** is a computational value predictor (Sazeides &amp; Smith's taxonomy, as summarized in
+  Perais &amp; Seznec, HPCA 2014 §2) complementary to LVP/VTAGE's value-repetition approach: it tracks a static
+  instruction's last value and the constant stride between successive occurrences, predicting `lastValue +
+  stride`, so a monotonically incrementing register (which never repeats a value, and so never lets
+  LVP/VTAGE's confidence saturate) still predicts trivially. Confidence is a 4-state FSM (`Init`/`Transient`/
+  `Steady`/`NoPred`) requiring two consecutive matching strides to reach `Steady` before predicting — a
+  "2-delta"-style confidence gate, not a reproduction of any specific historical stride predictor's exact
+  mechanism. **`HybridValuePredictor`** composes any context-based and computational `IValuePredictor` (e.g.
+  `VtagePredictor` + `StridePredictor`) per the paper's own §7.1.2 combination rule: a lone confident
+  component's prediction is used as-is; two confident components that agree are used; two that disagree
+  suppress the prediction entirely; both are trained at every retire regardless of which one predicted. Not
+  modeled: the paper's further optimization of feeding one component's speculative prediction to the other to
+  resolve back-to-back same-PC occurrences within a single cycle — Horologium's pipeline only calls
+  `TryPredict`/`Update` once per instruction, at Rename/Commit, so there's no equivalent intra-cycle chaining
+  to hook into. A **critical-path
   predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each

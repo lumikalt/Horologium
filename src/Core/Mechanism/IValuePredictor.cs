@@ -87,6 +87,16 @@ public interface IValuePredictor {
     /// </summary>
     void RestoreHistory(in ValueHistoryCheckpoint checkpoint, bool actualTaken) =>
         RecoverSpeculativeHistory();
+
+    /// <summary>
+    ///     Advances the committed (non-speculative) history shadow with a branch's resolved
+    ///     outcome. Called once per committing branch, in program order. Default no-op:
+    ///     predictors with no branch-history component (e.g. a tagless LVPT, or a computational
+    ///     predictor like <see cref="ValuePredictModels.StridePredictor" />) need nothing here. A
+    ///     predictor composing others (e.g. <see cref="ValuePredictModels.HybridValuePredictor" />)
+    ///     forwards this to whichever inner component tracks history.
+    /// </summary>
+    void AdvanceCommittedHistory(bool taken) { }
 }
 
 /// <summary>

@@ -568,4 +568,91 @@ public class ValuePredictionTests {
         Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
         Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
     }
+
+    // ── Stride / hybrid predictor (TODO.md: "computational (stride-family) predictor component
+    // to hybridize with VTAGE") ──────────────────────────────────────────────────────────────
+    //
+    // StridePredictor (a 2-delta-style confidence FSM, see its own doc comment for provenance)
+    // and VTAGE are complementary (Sazeides & Smith's computational vs. context-based taxonomy,
+    // per Perais & Seznec HPCA 2014 §2): a monotonically incrementing register never repeats a value,
+    // so LVP/VTAGE's confidence never saturates on it, but its stride is trivially constant. The
+    // tests below use exactly such a program to demonstrate the new predictor firing on its own,
+    // and firing identically when wrapped in HybridValuePredictor alongside VTAGE (per §7.1.2's
+    // combination rule: single-component pass-through, since VTAGE never confidently disagrees
+    // on an ever-changing value).
+
+    /// <summary>
+    ///     A monotonically incrementing counter (<c>addi x2,x2,4</c>, looped) is the complement of
+    ///     the copy-chain tests above: the same value is never seen twice, so a value-repetition
+    ///     predictor (LVP, or VTAGE without <see cref="StridePredictor" />) can never saturate
+    ///     confidence on it, while the stride between successive occurrences is constant from the
+    ///     very first iteration. Assembled from:
+    ///     <c>
+    ///         addi x1,x0,300; addi x2,x0,0; loop: addi x2,x2,4; addi x1,x1,-1; bne x1,x0,loop;
+    ///         ebreak
+    ///     </c>
+    ///     .
+    /// </summary>
+    [Fact]
+    public void StrideOnly_MonotonicCounterLoop_ArchStateIdenticalToWithout_AndPredictionsOccur() {
+        uint[] program = [
+            0x12C00093, // addi x1, x0, 300
+            0x00000113, // addi x2, x0, 0
+            0x00410113, // loop: addi x2, x2, 4
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009CE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null);
+        (OooeTrain on, FlatMemory memOn) = Make(new StridePredictor());
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_predictions"));
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
+    }
+
+    /// <summary>
+    ///     Same monotonic-counter program as above, but the predictor under test is
+    ///     <c>HybridValuePredictor(VtagePredictor, StridePredictor)</c> — the actual "hybridize
+    ///     with VTAGE" TODO item. VTAGE's own component never confidently predicts this program's
+    ///     ever-changing value (no repeat to key a tagged component's confidence on), so the
+    ///     hybrid's combination rule (single-component pass-through) must let Stride's confident
+    ///     prediction through unblocked, exactly as it would standalone. This is the regression
+    ///     test for that pass-through path specifically, as opposed to
+    ///     <see cref="Tests.Mechanism.HybridValuePredictionTests" />'s isolated, non-pipeline
+    ///     coverage of the same combination logic.
+    /// </summary>
+    [Fact]
+    public void HybridVtageStride_MonotonicCounterLoop_ArchStateIdenticalToWithout_AndPredictionsOccur() {
+        uint[] program = [
+            0x12C00093, // addi x1, x0, 300
+            0x00000113, // addi x2, x0, 0
+            0x00410113, // loop: addi x2, x2, 4
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009CE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null);
+        (OooeTrain on, FlatMemory memOn) = Make(new HybridValuePredictor(new VtagePredictor(), new StridePredictor()));
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_predictions"));
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
+    }
 }

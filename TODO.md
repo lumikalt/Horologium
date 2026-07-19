@@ -22,7 +22,8 @@ off here until a periodic cleanup removes them; the durable record is git histor
   instructions that bypass `StepIssue`/`StepExecute` entirely. — Yasin, ISPASS 2014 (TMA)
 - [x] Widen value-prediction eligibility beyond scalar ALU/load to MulDiv, floating point (pipelined and
   div/sqrt), and CSR reads (System). — Lipasti & Shen, MICRO 1996; Perais & Seznec, HPCA 2014
-- [ ] Add a computational (stride-family) predictor component to hybridize with VTAGE.
+- [x] Add a computational (stride-family) predictor component to hybridize with VTAGE. — Perais & Seznec,
+  HPCA 2014
 
 ## Cache Prefetching
 

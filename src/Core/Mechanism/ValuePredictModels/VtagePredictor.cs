@@ -97,12 +97,7 @@ public sealed class VtagePredictor : IValuePredictor {
     public void RestoreHistory(in ValueHistoryCheckpoint checkpoint, bool actualTaken) =>
         _history.RestoreTo(checkpoint.Global, actualTaken);
 
-    /// <summary>
-    ///     Advances the committed history shadow with a branch's resolved outcome. Called once per
-    ///     committing branch, in program order — not part of <see cref="IValuePredictor" /> since
-    ///     it concerns branch commits, not value commits. The pipeline calls this on any
-    ///     <see cref="IValuePredictor" /> that is also a <see cref="VtagePredictor" />.
-    /// </summary>
+    /// <inheritdoc />
     public void AdvanceCommittedHistory(bool taken) => _history.AdvanceCommitted(taken);
 
     /// <summary>
