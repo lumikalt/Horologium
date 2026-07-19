@@ -111,6 +111,79 @@ public class StrideValuePredictionTests {
     }
 
     [Fact]
+    public void BackToBackTryPredict_ScalesByInFlightDepthWithoutAnInterveningUpdate() {
+        // Simulates several in-flight occurrences of the same PC being predicted (at Rename)
+        // before the earliest of them has retired (at Commit calling Update) -- the scenario
+        // StridePredictor's in-flight depth tracking exists for (see its doc comment). Each
+        // successive TryPredict call, with no Update in between, must multiply the stride by how
+        // many occurrences are now unresolved, not keep re-predicting a single stride step past
+        // the same stale last-committed value.
+        var p = new StridePredictor();
+        const ulong pc = 0x1000;
+        p.Update(pc, default, 0);
+        p.Update(pc, default, 10); // stride=10 vs 0: mismatch, stays Init, stride now 10
+        p.Update(pc, default, 20); // stride=10 vs 10: match, Init -> Transient
+        p.Update(pc, default, 30); // stride=10 vs 10: match, Transient -> Steady
+
+        Assert.True(p.TryPredict(pc, default, out ulong first));
+        Assert.Equal(40UL, first); // lastValue(30) + stride(10) * depth(1)
+        Assert.True(p.TryPredict(pc, default, out ulong second));
+        Assert.Equal(50UL, second); // lastValue(30) + stride(10) * depth(2), not chained off `first`
+        Assert.True(p.TryPredict(pc, default, out ulong third));
+        Assert.Equal(60UL, third); // lastValue(30) + stride(10) * depth(3)
+    }
+
+    [Fact]
+    public void Update_DecrementsInFlightDepth_WithoutClobberingFurtherSpeculation() {
+        // A commit must only ever signal "one fewer occurrence is unresolved" -- never "reset
+        // speculation to here" -- or it would clobber legitimate further-ahead predictions that
+        // already happened for younger, still-in-flight occurrences (the bug this design fixes;
+        // see StridePredictor's doc comment for the pipeline measurement that caught it).
+        var p = new StridePredictor();
+        const ulong pc = 0x2000;
+        p.Update(pc, default, 0);
+        p.Update(pc, default, 10);
+        p.Update(pc, default, 20);
+        p.Update(pc, default, 30); // Steady, stride=10
+
+        // Three occurrences renamed back-to-back before any of them commit.
+        Assert.True(p.TryPredict(pc, default, out ulong spec1));
+        Assert.Equal(40UL, spec1);
+        Assert.True(p.TryPredict(pc, default, out ulong spec2));
+        Assert.Equal(50UL, spec2);
+        Assert.True(p.TryPredict(pc, default, out ulong spec3));
+        Assert.Equal(60UL, spec3);
+
+        // The first of those three commits (matches its own prediction, 40): in-flight depth
+        // drops from 3 to 2, but the two still-unresolved occurrences (50, 60) are not clobbered
+        // -- the *next* prediction correctly continues the sequence at 70, not at 40+10=50.
+        p.Update(pc, default, 40);
+        Assert.True(p.TryPredict(pc, default, out ulong predicted));
+        Assert.Equal(70UL, predicted); // lastValue(40) + stride(10) * depth(2 in-flight + 1)
+    }
+
+    [Fact]
+    public void RecoverSpeculativeHistory_ResetsInFlightDepth_AfterSquash() {
+        // A squash discards every younger in-flight instruction without ever calling Update for
+        // them, so the in-flight counter must be reset explicitly (there is no commit to
+        // decrement it) -- otherwise it would leak upward forever across repeated squashes.
+        var p = new StridePredictor();
+        const ulong pc = 0x6000;
+        p.Update(pc, default, 0);
+        p.Update(pc, default, 10);
+        p.Update(pc, default, 20);
+        p.Update(pc, default, 30); // Steady, stride=10
+
+        Assert.True(p.TryPredict(pc, default, out _)); // in-flight depth now 1
+        Assert.True(p.TryPredict(pc, default, out _)); // in-flight depth now 2
+
+        p.RecoverSpeculativeHistory(); // simulates a full-flush squash discarding both
+
+        Assert.True(p.TryPredict(pc, default, out ulong predicted));
+        Assert.Equal(40UL, predicted); // lastValue(30) + stride(10) * depth(1), not depth(3)
+    }
+
+    [Fact]
     public void Tagless_DistinctPcsAliasingToSameSlot_ShareState() {
         var p = new StridePredictor(1);
         p.Update(0x1000, default, 10);

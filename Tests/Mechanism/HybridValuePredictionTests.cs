@@ -9,6 +9,15 @@ namespace Tests.Mechanism;
 ///     independently by PC choice, isolating the combination logic from either component's own
 ///     convergence behavior (already covered by <see cref="StrideValuePredictionTests" /> and
 ///     <see cref="VtageValuePredictionTests" />).
+///     <para>
+///         <see cref="StridePredictor.TryPredict" /> is not side-effect-free — it advances its own
+///         speculative chain on every confident call (see that class's doc comment). So these tests
+///         never "peek" at a component that's wired into the <see cref="HybridValuePredictor" />
+///         under test via a second, separate <c>TryPredict</c> call: doing so would consume a step of
+///         that component's speculative chain before the real assertion, silently changing the value
+///         the next call returns. Expected values are instead read from freshly-trained, untouched
+///         oracle instances.
+///     </para>
 /// </summary>
 public class HybridValuePredictionTests {
     private static void TrainToSteady(StridePredictor p, ulong pc, ulong start, long stride) {
@@ -36,9 +45,12 @@ public class HybridValuePredictionTests {
         const ulong pc = 0x1000;
         TrainToSteady(context, pc, 0, 5);
 
+        var oracle = new StridePredictor();
+        TrainToSteady(oracle, pc, 0, 5);
+        Assert.True(oracle.TryPredict(pc, default, out ulong expected));
+
         Assert.True(hybrid.TryPredict(pc, default, out ulong predicted));
-        Assert.True(context.TryPredict(pc, default, out ulong contextValue));
-        Assert.Equal(contextValue, predicted);
+        Assert.Equal(expected, predicted);
         Assert.False(computational.TryPredict(pc, default, out _));
     }
 
@@ -50,9 +62,12 @@ public class HybridValuePredictionTests {
         const ulong pc = 0x2000;
         TrainToSteady(computational, pc, 100, 3);
 
+        var oracle = new StridePredictor();
+        TrainToSteady(oracle, pc, 100, 3);
+        Assert.True(oracle.TryPredict(pc, default, out ulong expected));
+
         Assert.True(hybrid.TryPredict(pc, default, out ulong predicted));
-        Assert.True(computational.TryPredict(pc, default, out ulong computationalValue));
-        Assert.Equal(computationalValue, predicted);
+        Assert.Equal(expected, predicted);
         Assert.False(context.TryPredict(pc, default, out _));
     }
 
@@ -67,8 +82,12 @@ public class HybridValuePredictionTests {
         TrainToSteady(context, pc, 0, 4);
         TrainToSteady(computational, pc, 0, 4);
 
-        Assert.True(context.TryPredict(pc, default, out ulong contextValue));
-        Assert.True(computational.TryPredict(pc, default, out ulong computationalValue));
+        var contextOracle = new StridePredictor();
+        var computationalOracle = new StridePredictor();
+        TrainToSteady(contextOracle, pc, 0, 4);
+        TrainToSteady(computationalOracle, pc, 0, 4);
+        Assert.True(contextOracle.TryPredict(pc, default, out ulong contextValue));
+        Assert.True(computationalOracle.TryPredict(pc, default, out ulong computationalValue));
         Assert.Equal(contextValue, computationalValue); // sanity: test actually exercises agreement
 
         Assert.True(hybrid.TryPredict(pc, default, out ulong predicted));
@@ -86,8 +105,12 @@ public class HybridValuePredictionTests {
         TrainToSteady(context, pc, 0, 4);
         TrainToSteady(computational, pc, 0, 9);
 
-        Assert.True(context.TryPredict(pc, default, out ulong contextValue));
-        Assert.True(computational.TryPredict(pc, default, out ulong computationalValue));
+        var contextOracle = new StridePredictor();
+        var computationalOracle = new StridePredictor();
+        TrainToSteady(contextOracle, pc, 0, 4);
+        TrainToSteady(computationalOracle, pc, 0, 9);
+        Assert.True(contextOracle.TryPredict(pc, default, out ulong contextValue));
+        Assert.True(computationalOracle.TryPredict(pc, default, out ulong computationalValue));
         Assert.NotEqual(contextValue, computationalValue); // sanity: test actually exercises disagreement
 
         Assert.False(hybrid.TryPredict(pc, default, out _));
@@ -106,11 +129,17 @@ public class HybridValuePredictionTests {
             v += 6;
         }
 
-        // Both components independently reached Steady from the same retire-time updates.
-        Assert.True(context.TryPredict(pc, default, out ulong contextValue));
-        Assert.True(computational.TryPredict(pc, default, out ulong computationalValue));
+        // Both components independently reached Steady from the same retire-time updates —
+        // verified via untouched oracle instances trained identically.
+        var contextOracle = new StridePredictor();
+        var computationalOracle = new StridePredictor();
+        TrainToSteady(contextOracle, pc, 0, 6);
+        TrainToSteady(computationalOracle, pc, 0, 6);
+        Assert.True(contextOracle.TryPredict(pc, default, out ulong contextValue));
+        Assert.True(computationalOracle.TryPredict(pc, default, out ulong computationalValue));
         Assert.Equal(v, contextValue);
         Assert.Equal(v, computationalValue);
+
         Assert.True(hybrid.TryPredict(pc, default, out ulong hybridValue));
         Assert.Equal(v, hybridValue);
     }

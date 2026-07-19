@@ -28,8 +28,52 @@ namespace Mechanism.ValuePredictModels;
 ///         instructions mapping to the same index is possible and is treated like any other
 ///         misprediction, since the producing instruction always executes for real regardless.
 ///     </para>
+///     <para>
+///         <b>In-flight depth tracking (a deviation from the paper, not a reproduction of it):</b>
+///         Perais &amp; Seznec §7.1.2 addresses tight, back-to-back same-PC occurrences by feeding one
+///         hybrid component's already-confident prediction to another as the "next last value" — but
+///         that only helps when the other component (VTAGE) is actually confident, which it never is
+///         for a value that keeps changing (the exact case this predictor exists for). Measured
+///         directly in Horologium's OoOE pipeline (a tight loop under a competent branch predictor,
+///         so several iterations of a monotonic counter are genuinely in flight — renamed but not yet
+///         committed — at once): predicting <c>lastCommittedValue + stride</c> unconditionally is
+///         wrong by construction for any renamed-ahead-of-commit occurrence beyond the very next one,
+///         since it always adds exactly one stride step regardless of how many occurrences of this PC
+///         are still unresolved (measured at 168 mispredicts vs. 215 correct on one hand-built loop).
+///         An initial fix that chained each new prediction off the <em>previous prediction</em>
+///         (rather than the committed value) helped, but reintroduced a related bug at
+///         <see cref="Update" />: re-anchoring the chain to the freshly-committed value on every
+///         commit could clobber further, still-valid progress later occurrences had already spec'd
+///         past it (mispredicts unchanged at 168 despite correct predictions rising to 664 — more
+///         predictions survived to be verified, but the same absolute number were still wrong).
+///     </para>
+///     <para>
+///         The actual fix tracks <c>_inFlight</c>: how many confident predictions have been issued
+///         since the last <see cref="Update" /> resolved one. <see cref="TryPredict" /> predicts
+///         <c>lastValue + stride * (inFlight + 1)</c> and increments; <see cref="Update" /> decrements
+///         (floored at zero) and otherwise leaves the base <c>lastValue</c>/<c>stride</c>/confidence
+///         state exactly as it would be with no speculation involved — a commit only ever signals "one
+///         fewer occurrence is now unresolved," never "reset to here," so it can't clobber legitimate
+///         further-ahead speculation. This measured at 84 residual mispredicts (down from 168) on the
+///         same loop — the remaining ones are believed to be a warmup/post-flush undercount (a
+///         non-Steady <see cref="TryPredict" /> call doesn't increment <c>_inFlight</c>, and every
+///         full-flush reset floors it to zero, so the first few predictions after either event
+///         understate the true in-flight depth until the counter catches back up), not chased further
+///         since it's a deviation-from-paper refinement measured against one hand-built loop, not a
+///         load-bearing correctness property. Since a squashed (never-committed) prediction has no
+///         matching <see cref="Update" /> to decrement its increment, <c>_inFlight</c> would otherwise
+///         leak upward forever after every squash; <see cref="RecoverSpeculativeHistory" /> (already
+///         called by the pipeline on every full flush, and reached from a partial squash too via
+///         <see cref="IValuePredictor.RestoreHistory" />'s default fallback) zeroes every entry's
+///         counter, since a squash discards all younger in-flight instructions regardless of PC. The
+///         confidence FSM itself is untouched by any of this — it only ever compares the actual
+///         committed delta against the last committed stride, so a wrong <c>_inFlight</c> depth can
+///         only cost prediction accuracy, never corrupt training state (the same non-negotiable
+///         property as VTAGE's own predict/train checkpoint discipline).
+///     </para>
 /// </summary>
 public sealed class StridePredictor : IValuePredictor {
+    private readonly int[] _inFlight;
     private readonly ulong[] _lastValue;
     private readonly int _mask;
     private readonly State[] _state;
@@ -42,6 +86,7 @@ public sealed class StridePredictor : IValuePredictor {
         _lastValue = new ulong[entries];
         _stride = new long[entries];
         _state = new State[entries];
+        _inFlight = new int[entries];
         _mask = entries - 1;
     }
 
@@ -49,7 +94,9 @@ public sealed class StridePredictor : IValuePredictor {
     public bool TryPredict(ulong pc, ValueHistoryCheckpoint history, out ulong value) {
         int idx = Idx(pc);
         if (_valid[idx] && _state[idx] == State.Steady) {
-            value = unchecked(_lastValue[idx] + (ulong)_stride[idx]);
+            int depth = _inFlight[idx] + 1;
+            value = unchecked(_lastValue[idx] + (ulong)(_stride[idx] * depth));
+            _inFlight[idx]++;
             return true;
         }
 
@@ -60,6 +107,8 @@ public sealed class StridePredictor : IValuePredictor {
     /// <inheritdoc />
     public void Update(ulong pc, ValueHistoryCheckpoint history, ulong actualValue) {
         int idx = Idx(pc);
+        if (_inFlight[idx] > 0) _inFlight[idx]--;
+
         if (!_valid[idx]) {
             // First encounter: nothing to compute a stride against yet.
             _valid[idx] = true;
@@ -81,6 +130,9 @@ public sealed class StridePredictor : IValuePredictor {
         _stride[idx] = newStride;
         _lastValue[idx] = actualValue;
     }
+
+    /// <inheritdoc />
+    public void RecoverSpeculativeHistory() => Array.Clear(_inFlight);
 
     private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
 

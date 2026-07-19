@@ -29,6 +29,14 @@ public interface IValuePredictor {
     ///         time this instruction reaches Commit (e.g. after other instructions' flush/refetch
     ///         cycles). A predictor with no history component (e.g. a tagless LVPT) ignores it.
     ///     </para>
+    ///     <para>
+    ///         An implementor may advance its own internal speculative state on a confident call
+    ///         (e.g. <see cref="ValuePredictModels.StridePredictor" /> tracks how many predictions
+    ///         are outstanding, to scale its next prediction for a still-more-in-flight occurrence
+    ///         of the same PC) — so this is not guaranteed idempotent, and callers must call it
+    ///         exactly once per dynamic instruction actually being predicted, not as a side-effect-free
+    ///         peek.
+    ///     </para>
     /// </summary>
     bool TryPredict(ulong pc, ValueHistoryCheckpoint history, out ulong value);
 

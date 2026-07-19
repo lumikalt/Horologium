@@ -275,14 +275,22 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   LVP/VTAGE's confidence saturate) still predicts trivially. Confidence is a 4-state FSM (`Init`/`Transient`/
   `Steady`/`NoPred`) requiring two consecutive matching strides to reach `Steady` before predicting — a
   "2-delta"-style confidence gate, not a reproduction of any specific historical stride predictor's exact
-  mechanism. **`HybridValuePredictor`** composes any context-based and computational `IValuePredictor` (e.g.
+  mechanism. It also tracks an in-flight speculative depth per PC — how many confident predictions have been
+  issued since the last commit resolved one — so a tight loop with several genuinely overlapping iterations
+  (renamed well ahead of commit under a competent branch predictor) predicts `lastCommittedValue + stride *
+  (depth + 1)` rather than a single un-scaled stride step; measured directly in Horologium's own OoOE pipeline,
+  the latter mispredicted roughly 44% of the time once overlap was allowed to develop. The depth counter is
+  reset on any squash (a discarded occurrence has no commit to decrement it, so it would otherwise leak
+  upward) but is deliberately not chased to full precision through warmup/post-squash recovery — see TODO.md.
+  **`HybridValuePredictor`** composes any context-based and computational `IValuePredictor` (e.g.
   `VtagePredictor` + `StridePredictor`) per the paper's own §7.1.2 combination rule: a lone confident
   component's prediction is used as-is; two confident components that agree are used; two that disagree
   suppress the prediction entirely; both are trained at every retire regardless of which one predicted. Not
   modeled: the paper's further optimization of feeding one component's speculative prediction to the other to
   resolve back-to-back same-PC occurrences within a single cycle — Horologium's pipeline only calls
   `TryPredict`/`Update` once per instruction, at Rename/Commit, so there's no equivalent intra-cycle chaining
-  to hook into. A **critical-path
+  to hook into; a Rychlik-style dynamic single-component selection (in place of always querying both) is
+  tracked in TODO.md pending its own primary source. A **critical-path
   predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each

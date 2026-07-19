@@ -27,6 +27,17 @@ namespace Mechanism.ValuePredictModels;
 ///         <see cref="TryPredict" />/<see cref="Update" /> once per instruction, at Rename/Commit, so
 ///         there is no equivalent intra-cycle chaining to hook into.
 ///     </para>
+///     <para>
+///         Known limitation, not chased: <see cref="TryPredict" /> queries both components
+///         unconditionally even when they end up disagreeing — a confident
+///         <see cref="StridePredictor" /> component still advances its own in-flight-depth counter
+///         on such a call even though the disagreement means no prediction is actually used. This
+///         perturbs that counter's accuracy but never correctness (a real misprediction is still
+///         always caught and squashed regardless). It's off-path for the workloads this hybrid was
+///         built and measured against, where the context component is silent (never confident)
+///         whenever the computational one is, so no disagreement — and thus no phantom advance —
+///         actually occurs.
+///     </para>
 /// </summary>
 public sealed class HybridValuePredictor : IValuePredictor {
     private readonly IValuePredictor _computational;
@@ -78,14 +89,23 @@ public sealed class HybridValuePredictor : IValuePredictor {
     public void OnBranchFetched(bool predictedTaken) => _context.OnBranchFetched(predictedTaken);
 
     /// <inheritdoc />
-    public void RecoverSpeculativeHistory() => _context.RecoverSpeculativeHistory();
+    public void RecoverSpeculativeHistory() {
+        // Forwarded to both components, not just context: a computational predictor can have its
+        // own squash-sensitive speculative state to reset (e.g. StridePredictor's in-flight-depth
+        // counter, which would otherwise leak upward forever across repeated squashes if this
+        // only reached the history-tracking component).
+        _context.RecoverSpeculativeHistory();
+        _computational.RecoverSpeculativeHistory();
+    }
 
     /// <inheritdoc />
     public ValueHistoryCheckpoint CaptureHistory() => _context.CaptureHistory();
 
     /// <inheritdoc />
-    public void RestoreHistory(in ValueHistoryCheckpoint checkpoint, bool actualTaken) =>
+    public void RestoreHistory(in ValueHistoryCheckpoint checkpoint, bool actualTaken) {
         _context.RestoreHistory(checkpoint, actualTaken);
+        _computational.RestoreHistory(checkpoint, actualTaken);
+    }
 
     /// <inheritdoc />
     public void AdvanceCommittedHistory(bool taken) => _context.AdvanceCommittedHistory(taken);

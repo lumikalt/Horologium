@@ -620,6 +620,52 @@ public class ValuePredictionTests {
     }
 
     /// <summary>
+    ///     Regression test for <see cref="StridePredictor" />'s in-flight depth tracking (see its
+    ///     own doc comment for the mechanism and why it deviates from the paper). Same
+    ///     monotonic-counter program as above, but with a competent branch predictor
+    ///     (<c>LTagePredictor</c>, per this file's documented convention for VP timing/accuracy
+    ///     tests) rather than the default <c>AlwaysNotTakenPredictor</c> — that default mispredicts
+    ///     this loop's backward branch every iteration, squashing everything younger before more
+    ///     than one iteration is ever simultaneously in flight, which masks the effect entirely.
+    ///     Under <c>LTagePredictor</c>, multiple iterations genuinely overlap in this OoOE pipeline,
+    ///     so predicting from the last committed value with a single, un-scaled stride step
+    ///     mispredicts often (undercounting how many occurrences are actually still unresolved).
+    ///     Asserts a ratio with headroom so a regression that reintroduces committed-value-only
+    ///     prediction fails loud; the exact figures aren't asserted since they're one hand-built
+    ///     loop's measurement, not a general accuracy claim.
+    /// </summary>
+    [Fact]
+    public void StrideInFlightDepth_MonotonicCounterLoop_ArchStateIdenticalToWithout_AndMispredictRateIsLow() {
+        uint[] program = [
+            0x12C00093, // addi x1, x0, 300
+            0x00000113, // addi x2, x0, 0
+            0x00410113, // loop: addi x2, x2, 4
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009CE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null, predictor: new LTagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new StridePredictor(), predictor: new LTagePredictor());
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_predictions"));
+        long correct = Counter(onResult, "vp_correct");
+        long mispredicts = Counter(onResult, "vp_mispredicts");
+        Assert.True(
+            correct > mispredicts * 3,
+            $"stride's in-flight depth tracking regressed: correct={correct}, mispredicts={mispredicts} " +
+            "(expected correct to substantially outweigh mispredicts once overlap is allowed to develop)"
+        );
+    }
+
+    /// <summary>
     ///     Same monotonic-counter program as above, but the predictor under test is
     ///     <c>HybridValuePredictor(VtagePredictor, StridePredictor)</c> — the actual "hybridize
     ///     with VTAGE" TODO item. VTAGE's own component never confidently predicts this program's
