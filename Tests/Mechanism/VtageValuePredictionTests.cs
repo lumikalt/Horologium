@@ -11,7 +11,7 @@ public class VtageValuePredictionTests {
     [Fact]
     public void ColdMiss_NoPrediction() {
         var p = new VtagePredictor();
-        Assert.False(p.TryPredict(0x1000, out _));
+        Assert.False(p.TryPredict(0x1000, p.CaptureHistory(), out _));
     }
 
     [Fact]
@@ -19,9 +19,9 @@ public class VtageValuePredictionTests {
         var p = new VtagePredictor();
         const ulong pc = 0x1000;
         const ulong value = 123;
-        for (var i = 0; i < 5000; i++) p.Update(pc, value);
+        for (var i = 0; i < 5000; i++) p.Update(pc, p.CaptureHistory(), value);
 
-        Assert.True(p.TryPredict(pc, out ulong predicted));
+        Assert.True(p.TryPredict(pc, p.CaptureHistory(), out ulong predicted));
         Assert.Equal(value, predicted);
     }
 
@@ -29,15 +29,15 @@ public class VtageValuePredictionTests {
     public void Mispredict_ResetsConfidenceAndReplacesValue() {
         var p = new VtagePredictor();
         const ulong pc = 0x3000;
-        for (var i = 0; i < 5000; i++) p.Update(pc, 10);
-        Assert.True(p.TryPredict(pc, out ulong before));
+        for (var i = 0; i < 5000; i++) p.Update(pc, p.CaptureHistory(), 10);
+        Assert.True(p.TryPredict(pc, p.CaptureHistory(), out ulong before));
         Assert.Equal(10UL, before);
 
-        p.Update(pc, 99);
-        Assert.False(p.TryPredict(pc, out _));
+        p.Update(pc, p.CaptureHistory(), 99);
+        Assert.False(p.TryPredict(pc, p.CaptureHistory(), out _));
 
-        for (var i = 0; i < 5000; i++) p.Update(pc, 99);
-        Assert.True(p.TryPredict(pc, out ulong after));
+        for (var i = 0; i < 5000; i++) p.Update(pc, p.CaptureHistory(), 99);
+        Assert.True(p.TryPredict(pc, p.CaptureHistory(), out ulong after));
         Assert.Equal(99UL, after);
     }
 
@@ -53,19 +53,19 @@ public class VtageValuePredictionTests {
         for (var i = 0; i < 5000; i++) {
             p.OnBranchFetched(true);
             p.AdvanceCommittedHistory(true);
-            p.Update(pc, 111);
+            p.Update(pc, p.CaptureHistory(), 111);
         }
 
-        Assert.True(p.TryPredict(pc, out ulong first));
+        Assert.True(p.TryPredict(pc, p.CaptureHistory(), out ulong first));
         Assert.Equal(111UL, first);
 
         for (var i = 0; i < 5000; i++) {
             p.OnBranchFetched(false);
             p.AdvanceCommittedHistory(false);
-            p.Update(pc, 222);
+            p.Update(pc, p.CaptureHistory(), 222);
         }
 
-        Assert.True(p.TryPredict(pc, out ulong second));
+        Assert.True(p.TryPredict(pc, p.CaptureHistory(), out ulong second));
         Assert.Equal(222UL, second);
     }
 
@@ -97,8 +97,8 @@ public class VtageValuePredictionTests {
         }
 
         for (var i = 0; i < 5000; i++) {
-            diverged.Update(pc, 77);
-            clean.Update(pc, 77);
+            diverged.Update(pc, diverged.CaptureHistory(), 77);
+            clean.Update(pc, clean.CaptureHistory(), 77);
         }
 
         ValueHistoryCheckpoint checkpoint = diverged.CaptureHistory();
@@ -120,8 +120,8 @@ public class VtageValuePredictionTests {
         // verdict and, when confident, the same value, for a range of PCs (the trained one
         // and several untrained ones, to also exercise cold-miss/base-fallback agreement).
         foreach (ulong testPc in new[] { pc, 0x5004UL, 0x6000UL, 0x7000UL, }) {
-            bool divergedHit = diverged.TryPredict(testPc, out ulong divergedValue);
-            bool cleanHit = clean.TryPredict(testPc, out ulong cleanValue);
+            bool divergedHit = diverged.TryPredict(testPc, diverged.CaptureHistory(), out ulong divergedValue);
+            bool cleanHit = clean.TryPredict(testPc, clean.CaptureHistory(), out ulong cleanValue);
             Assert.Equal(cleanHit, divergedHit);
             if (cleanHit) Assert.Equal(cleanValue, divergedValue);
         }
@@ -135,10 +135,10 @@ public class VtageValuePredictionTests {
         for (var i = 0; i < 5000; i++) {
             p.OnBranchFetched(false);
             p.AdvanceCommittedHistory(false);
-            p.Update(pc, 55);
+            p.Update(pc, p.CaptureHistory(), 55);
         }
 
-        Assert.True(p.TryPredict(pc, out ulong predicted));
+        Assert.True(p.TryPredict(pc, p.CaptureHistory(), out ulong predicted));
         Assert.Equal(55UL, predicted);
 
         // Speculate down a wrong path, then fully recover (a real StepFlush call).
@@ -147,7 +147,7 @@ public class VtageValuePredictionTests {
         p.RecoverSpeculativeHistory();
 
         // History is back to the all-not-taken committed shadow, so the same PC still predicts.
-        Assert.True(p.TryPredict(pc, out ulong afterRecover));
+        Assert.True(p.TryPredict(pc, p.CaptureHistory(), out ulong afterRecover));
         Assert.Equal(55UL, afterRecover);
     }
 }

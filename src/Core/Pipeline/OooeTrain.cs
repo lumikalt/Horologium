@@ -1107,18 +1107,18 @@ internal sealed class OoOPipelineCore : Gear {
                 ulong actual = er.RegValue.Value;
                 if (_prf.Read(head.PhysDestination) == actual) {
                     _vpCorrectCounter?.Increment();
-                    _valuePredictor?.Update(head.Pc, actual);
+                    _valuePredictor?.Update(head.Pc, head.VpHistCheckpoint, actual);
                 }
                 else {
                     _prf.Write(head.PhysDestination, actual); // self-heal before squash/refetch
                     _vpMispredictsCounter?.Increment();
-                    _valuePredictor?.Update(head.Pc, actual);
+                    _valuePredictor?.Update(head.Pc, head.VpHistCheckpoint, actual);
                     SetFlush(head.Pc);
                     return;
                 }
             }
             else if (head.IsVpEligible) {
-                _valuePredictor?.Update(head.Pc, _prf.Read(head.PhysDestination));
+                _valuePredictor?.Update(head.Pc, head.VpHistCheckpoint, _prf.Read(head.PhysDestination));
                 if (head.ValuePredMispredicted) {
                     _vpMispredictsCounter?.Increment();
                     SetFlush(head.Pc);
@@ -2210,7 +2210,7 @@ internal sealed class OoOPipelineCore : Gear {
                                           or ToothClass.Load or ToothClass.FloatingPoint
                                           or ToothClass.FloatDivSqrt or ToothClass.System;
                 if (!earlyExecEligible && vpEligible && _valuePredictor is not null
-                 && _valuePredictor.TryPredict(fi.Pc, out predictedValue)) {
+                 && _valuePredictor.TryPredict(fi.Pc, fi.VpHistCheckpoint, out predictedValue)) {
                     _prf.Write(newPhys, predictedValue);
                     wasValuePredicted = true;
                     _vpPredictionsCounter?.Increment();
@@ -2314,12 +2314,16 @@ internal sealed class OoOPipelineCore : Gear {
             FetchHint hint = _decoder.GetFetchHint(_fetchPc, raw);
             ulong predictedNext;
             BranchHistoryCheckpoint histCheckpoint = default;
-            ValueHistoryCheckpoint vpHistCheckpoint = default;
+            // Snapshot the value predictor's speculative history at this exact fetch, for every
+            // instruction (not just branches): value prediction's own TryPredict/Update pair needs
+            // this same snapshot passed to both calls so a single dynamic instruction's predict and
+            // train always agree on which history slot to index, regardless of how much the live
+            // speculative history has moved on by the time this instruction reaches Commit.
+            ValueHistoryCheckpoint vpHistCheckpoint = _valuePredictor?.CaptureHistory() ?? default(ValueHistoryCheckpoint);
             if (hint.IsBranch) {
-                // Snapshot the predictor's speculative history before this branch folds its own
-                // direction, so an execute-time partial squash can rewind to exactly here.
+                // Snapshot the branch predictor's own speculative history before this branch folds
+                // its own direction, so an execute-time partial squash can rewind to exactly here.
                 histCheckpoint = _predictor.CaptureHistory(_fetchPc);
-                vpHistCheckpoint = _valuePredictor?.CaptureHistory() ?? default(ValueHistoryCheckpoint);
                 if (hint.IsCall) _ras.Push(_fetchPc + (ulong)decoded.SizeBytes);
 
                 BranchPrediction pred;

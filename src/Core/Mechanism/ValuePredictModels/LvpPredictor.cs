@@ -33,7 +33,7 @@ public sealed class LvpPredictor : IValuePredictor {
     }
 
     /// <inheritdoc />
-    public bool TryPredict(ulong pc, out ulong value) {
+    public bool TryPredict(ulong pc, ValueHistoryCheckpoint history, out ulong value) {
         int idx = Idx(pc);
         if (_valid[idx] && ForwardProbabilisticCounter.IsSaturated(_confidence[idx])) {
             value = _value[idx];
@@ -45,7 +45,7 @@ public sealed class LvpPredictor : IValuePredictor {
     }
 
     /// <inheritdoc />
-    public void Update(ulong pc, ulong actualValue) {
+    public void Update(ulong pc, ValueHistoryCheckpoint history, ulong actualValue) {
         int idx = Idx(pc);
         if (!_valid[idx]) {
             // First encounter: seed the value history, no prediction was made to confirm.

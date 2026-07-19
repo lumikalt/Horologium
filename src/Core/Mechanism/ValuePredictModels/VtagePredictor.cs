@@ -48,8 +48,8 @@ public sealed class VtagePredictor : IValuePredictor {
     private int NumComponents => _components.Length;
 
     /// <inheritdoc />
-    public bool TryPredict(ulong pc, out ulong value) {
-        ulong hist = _history.Value;
+    public bool TryPredict(ulong pc, ValueHistoryCheckpoint history, out ulong value) {
+        ulong hist = history.Global;
         if (TryFindProvider(pc, hist, out int rank, out int idx)) {
             ref TaggedEntry provider = ref _components[rank][idx];
             if (ForwardProbabilisticCounter.IsSaturated(provider.Confidence)) {
@@ -61,12 +61,12 @@ public sealed class VtagePredictor : IValuePredictor {
             return false; // a provider matched but isn't confident yet: no cascade to shorter history
         }
 
-        return _base.TryPredict(pc, out value);
+        return _base.TryPredict(pc, history, out value);
     }
 
     /// <inheritdoc />
-    public void Update(ulong pc, ulong actualValue) {
-        ulong hist = _history.Committed;
+    public void Update(ulong pc, ValueHistoryCheckpoint history, ulong actualValue) {
+        ulong hist = history.Global;
         if (TryFindProvider(pc, hist, out int rank, out int idx)) {
             ref TaggedEntry provider = ref _components[rank][idx];
             if (provider.Val == actualValue) {
@@ -81,7 +81,7 @@ public sealed class VtagePredictor : IValuePredictor {
         }
         else { AllocateUpper(-1, pc, hist, actualValue); }
 
-        _base.Update(pc, actualValue);
+        _base.Update(pc, history, actualValue);
     }
 
     /// <inheritdoc />

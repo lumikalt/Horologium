@@ -205,6 +205,72 @@ public class ValuePredictionTests {
     }
 
     /// <summary>
+    ///     Regression test for a VTAGE tag-aliasing livelock found during eligibility-widening
+    ///     work: <c>TryPredict</c> indexed by the speculative global history (<c>_history.Value</c>,
+    ///     read live at Rename) while <c>Update</c> indexed by the committed shadow
+    ///     (<c>_history.Committed</c>, read at Commit) — two different snapshots for the same
+    ///     dynamic instruction whenever a full flush's refetch let extra speculative folds occur
+    ///     between an instruction's own fetch and its (much later, or never-reached) commit. Under
+    ///     the default <c>AlwaysNotTakenPredictor</c> (which mispredicts this loop's backward branch
+    ///     every single iteration, triggering constant full flushes) the two histories could
+    ///     permanently drift apart by exactly the one bit separating two <em>different</em>
+    ///     instructions' tags, aliasing <c>addi x1,x1,-1</c>'s prediction onto an unrelated,
+    ///     already-confident neighboring instruction's slot — a slot <c>Update</c> (indexing by the
+    ///     other history) could never reach to correct, so the machine spun forever mispredicting
+    ///     the same wrong value. Fixed by capturing a per-instruction <c>ValueHistoryCheckpoint</c>
+    ///     at Fetch (already the mechanism branches use for their own recovery) and threading it
+    ///     through Rename/Commit so a single dynamic instruction's own predict and train calls
+    ///     always agree on which history to index — eliminating the drift instead of requiring a
+    ///     competent branch predictor to avoid ever reaching it. Reproduced with plain ALU
+    ///     instructions (no MulDiv/FP involved) at this exact register/PC layout — asserting
+    ///     against <c>AlwaysNotTakenPredictor</c> here (unlike every other test in this file, which
+    ///     correctly avoids it per the documented measurement pitfall) is deliberate: it's the
+    ///     trigger, not noise, for this specific regression. Assembled from:
+    ///     <c>
+    ///         addi x1,x0,500; addi x2,x0,99; addi x6,x0,1; loop: add x3,x2,x0; add x2,x3,x0;
+    ///         addi x1,x1,-1; bne x1,x0,loop; ebreak
+    ///     </c>
+    ///     .
+    /// </summary>
+    [Fact]
+    public void VtageTagAliasing_DoesNotLivelockUnderAdversarialBranchPredictor() {
+        uint[] program = [
+            0x1F400093, // addi x1, x0, 500
+            0x06300113, // addi x2, x0, 99
+            0x00100313, // addi x6, x0, 1 (dead register, preserves the PC layout that aliases)
+            0x000101B3, // loop: add x3, x2, x0
+            0x00018133, // add x2, x3, x0
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009AE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null);
+        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor());
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        long offCycles = Counter(offResult, "cycles");
+        long onCycles = Counter(onResult, "cycles");
+        Assert.True(
+            onCycles < offCycles * 2,
+            $"VTAGE livelocked instead of converging: {onCycles} cycles vs. {offCycles} without " +
+            "(a converging run should be in the same ballpark, not pinned at the tick cap)"
+        );
+
+        // The cycle bound alone can't distinguish "the fix converges VTAGE" from "VTAGE never
+        // predicts here at all" (no predictions -> no squashes -> onCycles ~= offCycles, which
+        // also passes). Assert the predictor is actually active and, post-fix, actually correct.
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
+    }
+
+    /// <summary>
     ///     A load can be sped up by two independent predictors at once: <c>SmbPredictor</c>
     ///     (NoSQ) supplies an early value from a live in-flight store at dispatch, while the value
     ///     predictor separately supplies one at rename. Both compare their own bookkeeping against
@@ -322,15 +388,12 @@ public class ValuePredictionTests {
     // This isn't the usual "branch noise swamps a small measured effect" pitfall documented
     // elsewhere in this file — under investigation, AlwaysNotTakenPredictor (mispredicting the
     // loop's backward branch every iteration) drove some of these programs into a genuine
-    // livelock: VTAGE's TryPredict indexes by speculative history (_history.Value) but Update
-    // indexes by committed history (_history.Committed), and under heavy squash/refetch churn
-    // these can drift apart by exactly the bit that separates two nearby PCs' tags, aliasing one
-    // instruction's confidently-wrong prediction onto another's dedicated (and otherwise
-    // correctly zero-confidence) slot — one that Update, indexing by the *other* history, never
-    // gets a chance to correct. Confirmed by a same-layout ADD-only reproduction (no MulDiv/FP
-    // involved) — the aliasing is a pre-existing VTAGE liveness gap, not something this widening
-    // introduces (tracked as a follow-up TODO item, not fixed here). A competent branch predictor
-    // avoids ever reaching the frozen state.
+    // livelock, since VTAGE's TryPredict and Update disagreed on which speculative-history
+    // snapshot indexed a given dynamic instruction (fixed below, see
+    // VtageTagAliasing_DoesNotLivelockUnderAdversarialBranchPredictor). LTagePredictor is kept
+    // here regardless, since these particular tests are about eligibility widening, not about
+    // re-exercising the aliasing fix, and a competent branch predictor is the simplest way to
+    // avoid depending on it.
 
     /// <summary>
     ///     The same copy-chain shape as <see cref="ConstantCopyChain_ArchStateIdenticalToWithout_AndPredictionsOccur" />,

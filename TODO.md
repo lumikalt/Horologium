@@ -23,10 +23,6 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Widen value-prediction eligibility beyond scalar ALU/load to MulDiv, floating point (pipelined and
   div/sqrt), and CSR reads (System). — Lipasti & Shen, MICRO 1996; Perais & Seznec, HPCA 2014
 - [ ] Add a computational (stride-family) predictor component to hybridize with VTAGE.
-- [ ] VTAGE tag-aliasing livelock: `TryPredict` indexes by speculative history, `Update` by committed
-  history; under heavy squash/refetch churn the two drift apart, letting a confidently-wrong prediction
-  served from the drifted (aliased) slot go permanently uncorrected, since training always targets the
-  other slot. — Perais & Seznec, HPCA 2014 (VTAGE)
 
 ## Cache Prefetching
 

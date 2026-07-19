@@ -263,9 +263,12 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   Level-2 Core/Memory Bound split — the only TMA/CPI-stack accounting that reads execute-stage traffic rather
   than dispatch-stage slot counts or ROB-head completeness — folds each tick's EOLE-bypassed count in at the
   end of `StepDispatch` so a narrow-issue machine leaning on EOLE isn't misreported as execution-stalled.
-  A stride-family predictor component to hybridize with VTAGE, and a known VTAGE tag-aliasing gap (predict-time
-  speculative history vs. train-time committed history can drift under heavy squash churn, letting a
-  confidently-wrong prediction go permanently uncorrected), are both tracked in TODO.md. A **critical-path
+  VTAGE's `TryPredict`/`Update` calls take an explicit per-instruction `ValueHistoryCheckpoint`, captured once at
+  that instruction's own Fetch and threaded through Rename/Commit, rather than each method separately reading
+  whichever of the predictor's live-speculative or committed-shadow history register it used to read — the
+  latter let heavy squash/refetch churn drift the two apart, aliasing a confidently-wrong prediction onto a
+  slot training could never reach to correct (a permanent livelock, not just a missed opportunity). A
+  stride-family predictor component to hybridize with VTAGE remains tracked in TODO.md. A **critical-path
   predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each

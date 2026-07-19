@@ -16,19 +16,32 @@ namespace Mechanism;
 public interface IValuePredictor {
     /// <summary>
     ///     Predicts the value that the instruction at <paramref name="pc" /> will write to its
-    ///     destination register. Returns <c>false</c> (with <paramref name="value" /> undefined)
-    ///     when the predictor has no confident prediction — the instruction then proceeds
-    ///     through the ordinary (non-speculative) dataflow path.
+    ///     destination register, given <paramref name="history" /> — the predictor's own
+    ///     speculative-history checkpoint captured at this same instruction's fetch (see
+    ///     <see cref="CaptureHistory" />). Returns <c>false</c> (with <paramref name="value" />
+    ///     undefined) when the predictor has no confident prediction — the instruction then
+    ///     proceeds through the ordinary (non-speculative) dataflow path.
+    ///     <para>
+    ///         Passing the fetch-time checkpoint explicitly (rather than reading live internal
+    ///         state) matters for history-based predictors: it guarantees that whichever slot this
+    ///         call indexes is the exact same slot <see cref="Update" /> will later train for this
+    ///         same dynamic instruction, even if the live speculative history has moved on by the
+    ///         time this instruction reaches Commit (e.g. after other instructions' flush/refetch
+    ///         cycles). A predictor with no history component (e.g. a tagless LVPT) ignores it.
+    ///     </para>
     /// </summary>
-    bool TryPredict(ulong pc, out ulong value);
+    bool TryPredict(ulong pc, ValueHistoryCheckpoint history, out ulong value);
 
     /// <summary>
     ///     Trains the predictor with the actual value produced by the instruction at
-    ///     <paramref name="pc" />. Called at commit, in program order, for every eligible
-    ///     instruction — regardless of whether its value was predicted, or predicted but not
-    ///     used (low confidence): predictors must be trained on every outcome to converge.
+    ///     <paramref name="pc" />, indexed by <paramref name="history" /> — the <em>same</em>
+    ///     fetch-time checkpoint passed to <see cref="TryPredict" /> for this dynamic instruction
+    ///     (not a live or committed-shadow snapshot re-read at commit time, which could have
+    ///     drifted from what was used to predict). Called at commit, in program order, for every
+    ///     eligible instruction — regardless of whether its value was predicted, or predicted but
+    ///     not used (low confidence): predictors must be trained on every outcome to converge.
     /// </summary>
-    void Update(ulong pc, ulong actualValue);
+    void Update(ulong pc, ValueHistoryCheckpoint history, ulong actualValue);
 
     /// <summary>
     ///     Folds the <paramref name="predictedTaken" /> direction of a branch into the
@@ -50,9 +63,11 @@ public interface IValuePredictor {
     /// <summary>
     ///     Captures a checkpoint of the predictor's speculative history <em>before</em> the
     ///     branch at the current fetch has folded its own predicted direction in. Called at
-    ///     fetch, immediately before <see cref="OnBranchFetched" />, and stored per in-flight
-    ///     branch so an out-of-order train can recover exact history on an execute-time partial
-    ///     squash (redirect at Execute rather than a full flush at commit).
+    ///     fetch for every fetched instruction (not just branches), immediately before
+    ///     <see cref="OnBranchFetched" />, and stored per in-flight instruction: an out-of-order
+    ///     train uses it both to recover exact history on an execute-time partial squash
+    ///     (redirect at Execute rather than a full flush at commit) and to pass the same snapshot
+    ///     to <see cref="TryPredict" /> and <see cref="Update" /> for a single dynamic instruction.
     ///     <para>Default returns <c>default</c>: predictors with no speculative history need nothing.</para>
     /// </summary>
     ValueHistoryCheckpoint CaptureHistory() => default;
