@@ -215,7 +215,9 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   `LoadQueue` is retained unconditionally as the verification backstop rather than eliminated, exactly as the
   papers themselves treat LQ elimination as an optional, performance-neutral extension. A **value predictor** (pass
   an `IValuePredictor` via the `valuePredictor` constructor parameter; `null` disables the feature entirely) predicts
-  the destination register value of eligible ALU/load instructions (`IntegerAlu`, `Load`) at rename, writes it
+  the destination register value of eligible instructions (`IntegerAlu`, `IntegerMulDiv`, `Load`, `FloatingPoint`,
+  `FloatDivSqrt`, `System` — i.e. any single-register-destination result that lands in the PRF; excludes `Atomic`,
+  whose secondary destination bypasses the PRF, and `Vector`, which isn't renamed) at rename, writes it
   speculatively into the PRF and marks it ready immediately — so dependent instructions issue and execute without
   waiting for the real producer — while the producing instruction still executes for real in the background. Two
   predictors are provided: `LvpPredictor` (Lipasti &amp; Shen, "Exceeding the Dataflow Limit via Value Prediction",
@@ -261,7 +263,9 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   Level-2 Core/Memory Bound split — the only TMA/CPI-stack accounting that reads execute-stage traffic rather
   than dispatch-stage slot counts or ROB-head completeness — folds each tick's EOLE-bypassed count in at the
   end of `StepDispatch` so a narrow-issue machine leaning on EOLE isn't misreported as execution-stalled.
-  Widening VP eligibility beyond ALU/load is tracked in TODO.md. A **critical-path
+  A stride-family predictor component to hybridize with VTAGE, and a known VTAGE tag-aliasing gap (predict-time
+  speculative history vs. train-time committed history can drift under heavy squash churn, letting a
+  confidently-wrong prediction go permanently uncorrected), are both tracked in TODO.md. A **critical-path
   predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each

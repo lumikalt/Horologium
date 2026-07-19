@@ -2189,15 +2189,26 @@ internal sealed class OoOPipelineCore : Gear {
                 }
 
                 // Value prediction (Lipasti & Shen, MICRO 1996; Perais & Seznec, HPCA 2014):
-                // eligible ALU/load destinations only (TODO.md's "ALU/load results" scope).
-                // A confident prediction is written and marked ready immediately — dependents
-                // waiting in StepDispatch's IsReady check pick it up with no further plumbing.
-                // The producing instruction still executes for real; a mismatch is caught in
-                // StepComplete and squashed at commit (StepCommit), never here. Eligible
-                // instructions are trained at commit whether or not a prediction was supplied
-                // (this still applies to an Early-Executed instruction: it's trained with the
-                // ground-truth value it just computed, for free, via the ordinary commit path).
-                vpEligible = instr.Class is ToothClass.IntegerAlu or ToothClass.Load;
+                // eligible for any single-register-destination, PRF-resident result — integer
+                // ALU/MulDiv, load, floating point (both pipelined and div/sqrt), and CSR reads
+                // (System). All six share the same PRF (FP architectural registers are renamed
+                // through the same RAT at index rd+32 — see Rv32Decoder.Fp.cs) and the same
+                // recovery shape: any speculative side effect a mispredicted producer's younger
+                // consumers picked up (e.g. FP fflags) is undone by the same full-squash-at-commit
+                // machinery that already recovers wrong-path branch execution, so VP introduces no
+                // new hazard class. Deliberately excludes Atomic (secondary destination delivered
+                // via SideEffect straight into architectural state, never renamed — see
+                // ITooth.SecondaryDestinationRegister) and Vector (register renaming not
+                // implemented for the V extension). A confident prediction is written and marked
+                // ready immediately — dependents waiting in StepDispatch's IsReady check pick it up
+                // with no further plumbing. The producing instruction still executes for real; a
+                // mismatch is caught in StepComplete and squashed at commit (StepCommit), never
+                // here. Eligible instructions are trained at commit whether or not a prediction was
+                // supplied (this still applies to an Early-Executed instruction: it's trained with
+                // the ground-truth value it just computed, for free, via the ordinary commit path).
+                vpEligible = instr.Class is ToothClass.IntegerAlu or ToothClass.IntegerMulDiv
+                                          or ToothClass.Load or ToothClass.FloatingPoint
+                                          or ToothClass.FloatDivSqrt or ToothClass.System;
                 if (!earlyExecEligible && vpEligible && _valuePredictor is not null
                  && _valuePredictor.TryPredict(fi.Pc, out predictedValue)) {
                     _prf.Write(newPhys, predictedValue);

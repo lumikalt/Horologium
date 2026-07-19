@@ -57,7 +57,9 @@ public class ValuePredictionTests {
     }
 
     private static void AssertIdenticalArchState(OooeTrain off, OooeTrain on) {
-        for (var r = 0; r < 32; r++)
+        // 0-31 are the integer registers; 32-63 are the FP registers, renamed through the same
+        // RAT/PRF at index rd+32 (see Rv32Decoder.Fp.cs) — comparing the full range covers both.
+        for (var r = 0; r < 64; r++)
             Assert.Equal(off.ArchState.IntegerRegisters.Read(r), on.ArchState.IntegerRegisters.Read(r));
     }
 
@@ -312,5 +314,195 @@ public class ValuePredictionTests {
         long offCycles = Counter(offResult, "cycles");
         long onCycles = Counter(onResult, "cycles");
         Assert.True(onCycles < offCycles, $"value prediction did not speed up the loop: {onCycles} >= {offCycles}");
+    }
+
+    // ── Widened eligibility (TODO.md: "beyond scalar ALU/load") ─────────────────
+    //
+    // Several tests below use LTagePredictor instead of the default AlwaysNotTakenPredictor.
+    // This isn't the usual "branch noise swamps a small measured effect" pitfall documented
+    // elsewhere in this file — under investigation, AlwaysNotTakenPredictor (mispredicting the
+    // loop's backward branch every iteration) drove some of these programs into a genuine
+    // livelock: VTAGE's TryPredict indexes by speculative history (_history.Value) but Update
+    // indexes by committed history (_history.Committed), and under heavy squash/refetch churn
+    // these can drift apart by exactly the bit that separates two nearby PCs' tags, aliasing one
+    // instruction's confidently-wrong prediction onto another's dedicated (and otherwise
+    // correctly zero-confidence) slot — one that Update, indexing by the *other* history, never
+    // gets a chance to correct. Confirmed by a same-layout ADD-only reproduction (no MulDiv/FP
+    // involved) — the aliasing is a pre-existing VTAGE liveness gap, not something this widening
+    // introduces (tracked as a follow-up TODO item, not fixed here). A competent branch predictor
+    // avoids ever reaching the frozen state.
+
+    /// <summary>
+    ///     The same copy-chain shape as <see cref="ConstantCopyChain_ArchStateIdenticalToWithout_AndPredictionsOccur" />,
+    ///     but through <c>ToothClass.FloatingPoint</c> destinations instead of integer ones: <c>f2</c>
+    ///     and <c>f3</c> alternate via <c>fsgnj.s</c> (the FP move idiom, matching the integer chain's
+    ///     <c>add rd,rs,x0</c>), fed by a one-time <c>fcvt.s.w</c> seed so no float immediate needs
+    ///     encoding. FP architectural registers are renamed through the same RAT/PRF as integer ones
+    ///     (index <c>rd+32</c>), so this exercises the same rename/verify/train path with a different
+    ///     PhysDest range. Uses <see cref="LTagePredictor" /> — see the section comment above.
+    ///     Assembled from:
+    ///     <c>
+    ///         addi x1,x0,500; addi x2,x0,99; fcvt.s.w f2,x2; loop: fsgnj.s f3,f2,f2; fsgnj.s f2,f3,f3;
+    ///         addi x1,x1,-1; bne x1,x0,loop; ebreak
+    ///     </c>
+    ///     .
+    /// </summary>
+    [Fact]
+    public void FloatingPointCopyChain_ArchStateIdenticalToWithout_AndPredictionsOccur() {
+        uint[] program = [
+            0x1F400093, // addi x1, x0, 500
+            0x06300113, // addi x2, x0, 99
+            0xD0010153, // fcvt.s.w f2, x2
+            0x202101D3, // loop: fsgnj.s f3, f2, f2
+            0x20318153, // fsgnj.s f2, f3, f3
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009AE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), new LTagePredictor());
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_predictions"));
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
+    }
+
+    /// <summary>
+    ///     FP counterpart to <c>MidLoopValueShift_...</c>: the FP copy chain converges on <c>99.0f</c>
+    ///     via <c>f2</c>/<c>f3</c>, then a rare branch re-converts <c>x10</c> (55) into <c>f2</c> five
+    ///     iterations before the end, mispredicting the FP destination once VTAGE has converged.
+    ///     Regression test for value-mispredict squash-at-commit driven by a non-integer,
+    ///     non-ALU-class PhysDest. Uses <see cref="LTagePredictor" /> — see the section comment
+    ///     above. Assembled from:
+    ///     <c>
+    ///         addi x1,x0,600; addi x2,x0,99; addi x9,x0,5; fcvt.s.w f2,x2;
+    ///         loop: fsgnj.s f3,f2,f2; fsgnj.s f2,f3,f3; addi x1,x1,-1; beq x1,x9,do_redirect;
+    ///         jal x0,cont; do_redirect: addi x10,x0,55; fcvt.s.w f2,x10; cont: bne x1,x0,loop; ebreak
+    ///     </c>
+    ///     .
+    /// </summary>
+    [Fact]
+    public void FloatingPointMidLoopValueShift_ArchStateIdenticalToWithout_AndMispredictOccurs() {
+        uint[] program = [
+            0x25800093, // addi x1, x0, 600
+            0x06300113, // addi x2, x0, 99
+            0x00500493, // addi x9, x0, 5
+            0xD0010153, // fcvt.s.w f2, x2
+            0x202101D3, // loop: fsgnj.s f3, f2, f2
+            0x20318153, // fsgnj.s f2, f3, f3
+            0xFFF08093, // addi x1, x1, -1
+            0x00908463, // beq x1, x9, do_redirect
+            0x00C0006F, // jal x0, cont
+            0x03700513, // do_redirect: addi x10, x0, 55
+            0xD0050153, // fcvt.s.w f2, x10
+            0xFE0092E3, // cont: bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), new LTagePredictor());
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_mispredicts"));
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_mispredicts") > 0, "the mid-loop FP value shift never mispredicted");
+    }
+
+    /// <summary>
+    ///     Same copy-chain shape again, through <c>ToothClass.IntegerMulDiv</c>: <c>mul rd,rs,x6</c>
+    ///     with <c>x6=1</c> (multiplicative identity) is the MulDiv analogue of the ALU chain's
+    ///     <c>add rd,rs,x0</c> — a genuine RAW dependency that always converges on the same value.
+    ///     Uses <see cref="LTagePredictor" /> — see the section comment above (this exact PC
+    ///     layout, with the default predictor, was the one that surfaced the VTAGE aliasing
+    ///     livelock during investigation). Assembled from:
+    ///     <c>
+    ///         addi x1,x0,500; addi x2,x0,99; addi x6,x0,1; loop: mul x3,x2,x6; mul x2,x3,x6;
+    ///         addi x1,x1,-1; bne x1,x0,loop; ebreak
+    ///     </c>
+    ///     .
+    /// </summary>
+    [Fact]
+    public void MulDivCopyChain_ArchStateIdenticalToWithout_AndPredictionsOccur() {
+        uint[] program = [
+            0x1F400093, // addi x1, x0, 500
+            0x06300113, // addi x2, x0, 99
+            0x00100313, // addi x6, x0, 1
+            0x026101B3, // loop: mul x3, x2, x6
+            0x02618133, // mul x2, x3, x6
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009AE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), new LTagePredictor());
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_predictions"));
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
+    }
+
+    /// <summary>
+    ///     <c>ToothClass.System</c> (CSR reads): <c>csrrs x3, mscratch, x0</c> reads a scratch CSR
+    ///     (rs1=x0, so per spec this never writes the CSR — see <c>Rv32Executor.ExecuteCsr</c>'s
+    ///     <c>writeIfSrcZero</c>) primed once to a constant, so every dynamic instance of the read
+    ///     returns the same value — a value-prediction win case with no register dependency chain at
+    ///     all, unlike every other test here. System instructions are head-serialized (may only issue
+    ///     at the ROB head — see <c>OooeTrain.TryIssueSlot</c>), so the benefit is entirely about
+    ///     letting <em>younger</em> instructions elsewhere consume the predicted value early; this
+    ///     test only checks that the prediction/verify/train path fires correctly for the class, not
+    ///     a timing win. Assembled from:
+    ///     <c>
+    ///         addi x2,x0,99; csrrw x0,mscratch,x2; addi x1,x0,500;
+    ///         loop: csrrs x3,mscratch,x0; addi x1,x1,-1; bne x1,x0,loop; ebreak
+    ///     </c>
+    ///     .
+    /// </summary>
+    [Fact]
+    public void CsrReadLoop_ArchStateIdenticalToWithout_AndPredictionsOccur() {
+        uint[] program = [
+            0x06300113, // addi x2, x0, 99
+            0x34011073, // csrrw x0, mscratch, x2
+            0x1F400093, // addi x1, x0, 500
+            0x340021F3, // loop: csrrs x3, mscratch, x0
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009AE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null);
+        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor());
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_predictions"));
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
     }
 }
