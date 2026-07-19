@@ -233,4 +233,80 @@ public class SyscallRealismTests {
         for (var i = 0; i < 3; i++) nextThree[i] = (byte)memory.Read(bufAddr + (ulong)i, 1);
         Assert.Equal("def"u8.ToArray(), nextThree);
     }
+
+    // musl's buffered stdio writes via SYS_writev, not plain SYS_write — discovered only once a
+    // real linked binary could be run (RealLinkedBinaryTests): unimplemented, it silently produced
+    // no output at all. iovec is { void *iov_base; size_t iov_len } — 2 wordSize-wide fields per
+    // entry (wordSize=4 here, the default, so 8 bytes/entry).
+    [Fact]
+    public void Writev_Fd1_ConcatenatesAllIovecsInOrder() {
+        var memory = new FlatMemory(0x1000, 0x8000_0000UL);
+        var sw = new StringWriter();
+        var handler = new LinuxSyscallEmulator(0x8000_0000UL, sw);
+        const ulong iovAddr = 0x8000_0100UL;
+        const ulong buf1 = 0x8000_0200UL;
+        const ulong buf2 = 0x8000_0300UL;
+        WriteCString(memory, buf1, "hello ");
+        WriteCString(memory, buf2, "world");
+
+        // struct iovec[0] = { buf1, 6 }, iovec[1] = { buf2, 5 } (excluding each NUL terminator)
+        memory.Write(iovAddr + 0, buf1, 4);
+        memory.Write(iovAddr + 4, 6, 4);
+        memory.Write(iovAddr + 8, buf2, 4);
+        memory.Write(iovAddr + 12, 5, 4);
+
+        long n = Call(handler, 66, memory, 1, iovAddr, 2); // SYS_writev, fd=1, iovcnt=2
+        Assert.Equal(11, n);
+        Assert.Equal("hello world", sw.ToString());
+    }
+
+    [Fact]
+    public void Writev_ZeroLengthIovec_IsSkippedNotTreatedAsError() {
+        var memory = new FlatMemory(0x1000, 0x8000_0000UL);
+        var sw = new StringWriter();
+        var handler = new LinuxSyscallEmulator(0x8000_0000UL, sw);
+        const ulong iovAddr = 0x8000_0100UL;
+        const ulong buf = 0x8000_0200UL;
+        WriteCString(memory, buf, "ok");
+
+        // iovec[0] = { buf, 0 } (empty), iovec[1] = { buf, 2 }
+        memory.Write(iovAddr + 0, buf, 4);
+        memory.Write(iovAddr + 4, 0, 4);
+        memory.Write(iovAddr + 8, buf, 4);
+        memory.Write(iovAddr + 12, 2, 4);
+
+        long n = Call(handler, 66, memory, 1, iovAddr, 2);
+        Assert.Equal(2, n);
+        Assert.Equal("ok", sw.ToString());
+    }
+
+    [Fact]
+    public void Writev_Fd3_WritesToRealFileInOrder() {
+        string path = Path.Combine(Path.GetTempPath(), $"horologium_test_{Guid.NewGuid():N}.bin");
+        try {
+            var memory = new FlatMemory(0x10000, 0x8000_0000UL);
+            var handler = new LinuxSyscallEmulator(0x8000_0000UL);
+            const ulong pathAddr = 0x8000_1000UL;
+            const ulong buf1 = 0x8000_2000UL;
+            const ulong buf2 = 0x8000_2100UL;
+            const ulong iovAddr = 0x8000_2200UL;
+            WriteCString(memory, pathAddr, path);
+            WriteCString(memory, buf1, "AB");
+            WriteCString(memory, buf2, "CD");
+            memory.Write(iovAddr + 0, buf1, 4);
+            memory.Write(iovAddr + 4, 2, 4);
+            memory.Write(iovAddr + 8, buf2, 4);
+            memory.Write(iovAddr + 12, 2, 4);
+
+            // O_WRONLY|O_CREAT|O_TRUNC = 1 | 0x40 | 0x200
+            long fd = Call(handler, 56, memory, AtFdcwd, pathAddr, 0x241, 0x1A4);
+            Assert.True(fd >= 3);
+
+            Assert.Equal(4, Call(handler, 66, memory, (ulong)fd, iovAddr, 2));
+            Assert.Equal(0, Call(handler, 57, memory, (ulong)fd));
+
+            Assert.Equal("ABCD", File.ReadAllText(path));
+        }
+        finally { File.Delete(path); }
+    }
 }

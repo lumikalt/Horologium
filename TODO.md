@@ -49,13 +49,15 @@ free embedded suites are runnable in full today.
 
 - [ ] SPEC CPU2006/2017 harness (user-supplied install; SPEC is licensed and non-redistributable):
   RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction
-  intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint). All infrastructure below is done;
-  the toolchain gap that blocked end-to-end validation is now closed (`riscv64-unknown-linux-musl-gcc`
-  is in `flake.nix`), but the parent item still stays unchecked: the first real run of a real
-  statically-linked musl RV64 binary through `--bench-config` found raw syscalls (`write`/`exit`) work
-  end to end, but `printf`-based stdio produces no captured output at all (even with an explicit
-  `fflush`) — see the new sub-bullet below. No SPEC/realistic binary has run through this
-  successfully yet.
+  intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint). All infrastructure below is done,
+  and the toolchain gap that blocked end-to-end validation is now closed
+  (`riscv64-unknown-linux-musl-gcc` is in `flake.nix`): a real, genuinely compiled and statically-linked
+  musl RV64 binary now runs correctly end-to-end through `--bench-config` (argv, `printf`-based stdio,
+  clean exit — see the `SYS_writev` sub-bullet below). The parent item still stays unchecked, though:
+  what's validated so far is only the trivial entry/syscall/stdio path on a hello-world binary — the
+  actual substance of this item (BBV profiling, clustering, checkpointed intervals with warmup) has
+  never been run against a real compiled binary, only bare-metal HTIF probes. See the open sub-bullet
+  below for the next real validation step.
   - [x] RV64 ECALL/syscall-handler wiring (`Rv64Mechanism`) and `Rv64ElfWorkload.InitialBreak`.
   - [x] ISA-agnostic psABI initial-stack builder (argc/argv/envp/auxv) so a real compiled `_start`
     can run, not just bare-metal entry — `InitialStackBuilder`.
@@ -104,15 +106,31 @@ free embedded suites are runnable in full today.
     OpenSBI/the Linux kernel, fails `-static` linking here without extra plumbing; musl doesn't).
     First real test: a hand-written `hello.c` compiled `-static` and run through `--bench-config`
     halts cleanly (`SYS_exit`), and a raw `write(1, ...)` syscall (bypassing stdio) is captured
-    correctly — but `printf`, even followed by an explicit `fflush(stdout)`, produces no captured
-    output at all. Not yet root-caused.
-  - [ ] Root-cause why musl's buffered stdio (`printf`/`fflush`) produces no output through
-    `LinuxSyscallEmulator`, though a raw `write()` syscall works — the first genuinely diagnosable
-    real-libc gap (previously this whole class of question was blocked on toolchain availability).
-    Prime suspects: a stdio-internals syscall this project's emulator doesn't implement
-    (`writev`/`fcntl` variants beyond GETFD/SETFD/GETFL/SETFL/`ioctl` beyond the blanket ENOTTY), or
-    something in the initial-stack/TLS setup that leaves musl's `FILE` state initialized incorrectly
-    without crashing outright.
+    correctly — but `printf`, even followed by an explicit `fflush(stdout)`, produced no captured
+    output at all (root-caused and fixed below).
+  - [x] Root-caused musl's buffered-stdio silent-output bug: `printf`/`fwrite`'s flush path calls
+    `SYS_writev` (66), not plain `write` (64) — unimplemented in `LinuxSyscallEmulator`, it fell
+    through to the `ENOSYS` default, which musl's stdio layer swallows as a write error instead of
+    surfacing it, so the symptom was "no output" rather than a crash. Found via a temporary
+    syscall-tracing wrapper (`ISyscallHandler` decorator logging every ECALL's number/args),
+    deleted once syscall 66 was identified. Fixed with `LinuxSyscallEmulator.Writev`: walks the
+    `iovec` array (2 `wordSize`-wide fields/entry) and delegates each entry to the existing
+    `Write`, skipping zero-length entries and stopping early on a short write (matching real
+    `writev` semantics). Covered by 3 unit tests (`SyscallRealismTests.Writev_*`: concatenation
+    order, zero-length-iovec skip, real-file fd) and a new end-to-end fixture —
+    `TestBinaries/hello64_musl.c`/`.elf`, a genuinely compiled and statically-linked (not
+    hand-assembled) binary, exercised by `Tests/RiscV64/System/RealLinkedBinaryTests` — the first
+    real linked binary to run correctly through this pipeline's entry/syscall/stdio path
+    end-to-end. Verified by revert-and-recheck: all 4 new tests fail with `ENOSYS`/empty output
+    without the fix. This validates only the trivial entry+syscall+stdio path (argv, a handful of
+    syscalls, one `printf`, clean exit) — not the SimPoint/checkpoint sampling pipeline itself,
+    which has still never seen a real binary (see the sub-bullet below).
+  - [ ] Run a non-trivial real musl binary (real file I/O, a loop, `malloc` under actual pressure —
+    not just hello-world) through `--simpoint-warmup`, not merely `--bench-config`. This is the
+    first time the profile → cluster → checkpoint → measure path would touch genuinely compiled
+    code rather than a bare-metal HTIF probe or a single straight-through printf, and it's the most
+    likely place for the next silently-swallowed syscall gap (wider syscall surface, `SYS_munmap`
+    still a no-op against a heap under real churn) to surface.
   - [ ] Reference-output comparison in `BenchmarkResult.Passed` is byte-exact, including trailing
     newline — real reference files almost always end in `\n`. Consider a
     trailing-whitespace-normalized compare mode.

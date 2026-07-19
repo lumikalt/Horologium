@@ -1098,9 +1098,11 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   every ECALL through the handler instead of trapping: `SYS_write`/`SYS_read` operate on simulated memory; `SYS_exit`/
   `SYS_exit_group` set `RequestHalt`; `SYS_brk` manages a software heap break; `SYS_mprotect`, `SYS_rt_sigaction`,
   `SYS_rt_sigprocmask`, `SYS_set_tid_address`, `SYS_getpid`, `SYS_gettid` return benign constants; `SYS_ioctl` returns
-  `−ENOTTY`; all others return `−ENOSYS`. `Rv32ElfWorkload.InitialBreak` exposes the page-rounded end of the last
-  PT_LOAD segment as the initial break address. `ISyscallHandler` (in `Mechanism/`) defines the interface so alternate
-  emulators can be plugged in.
+  `−ENOTTY`; all others return `−ENOSYS`. `SYS_writev` (`Writev`) walks the `iovec` array and delegates each entry to
+  `Write` — real musl/glibc buffered stdio (`printf`, `fwrite`) flushes through `writev`, not plain `write`; see the
+  batch-harness note below for how this was found. `Rv32ElfWorkload.InitialBreak` exposes the page-rounded end of the
+  last PT_LOAD segment as the initial break address. `ISyscallHandler` (in `Mechanism/`) defines the interface so
+  alternate emulators can be plugged in.
 - **`LinuxSyscallEmulator` realism: file I/O, mmap, clock/random, fcntl.** `SYS_openat`/`SYS_read`/`SYS_write`/
   `SYS_close`/`SYS_lseek` are unrestricted host passthrough (the gem5-SE/Spike-pk convention — paths open exactly as
   given, against the simulator process's own cwd; no sandboxing, since the guest binary is the user's own,
@@ -1117,11 +1119,12 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   matching this project's reproducibility precedent. `SYS_fcntl` returns benign success for
   `F_GETFD`/`F_SETFD`/`F_GETFL`/`F_SETFL`. stdin (fd 0) is separate from the file-I/O passthrough: an optional
   `Stream? input` constructor parameter redirects `SYS_read` on fd 0 to it (read sequentially, never rewound, EOF
-  once exhausted); omitted (the default) it stays always-EOF as before. None of this has been validated against a
-  real linked glibc/musl binary — there is no riscv64-\*-linux-\* userspace toolchain in this environment, only
-  bare-metal `riscv{32,64}-none-elf-gcc`; coverage is hand-verified struct offsets plus unit tests calling `Handle`
-  directly, plus one ELF-driven round-trip (`stdin_echo64.elf`) proving an injected stream reaches a real guest's
-  `SYS_read` and comes back out through `SYS_write`.
+  once exhausted); omitted (the default) it stays always-EOF as before. `SYS_write`/`SYS_writev`/`SYS_exit_group`
+  are now validated against a real, genuinely compiled and statically-linked musl RV64 binary (see the batch-harness
+  note below) — but `openat`/`read`/`close`/`lseek`/`fstat`/`mmap` are still only hand-verified struct offsets plus
+  unit tests calling `Handle` directly, plus one ELF-driven round-trip (`stdin_echo64.elf`) proving an injected
+  stream reaches a real guest's `SYS_read` and comes back out through `SYS_write` — none of *those* syscalls have
+  been exercised by a real linked binary yet.
 - **RV64 syscall-emulation wiring.** `Rv64Mechanism` now takes the same `syscallHandler: ISyscallHandler?` constructor
   parameter as `Rv32Mechanism` — `Rv64Executor : Rv32Executor` already inherited the ECALL-dispatch arm unchanged, so
   this was the only missing wire. `Rv64ElfWorkload.InitialBreak` mirrors `Rv32ElfWorkload`'s PT_LOAD-scan computation.
@@ -1158,10 +1161,19 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   dereferences a failed mmap's negative return) is caught per-benchmark and reported as `ERROR` rather than
   aborting the rest of the batch. Verified end-to-end against bare-metal SE-mode probes (`abi_probe64.elf`,
   `stdin_echo64.elf`, `mmap_probe64.elf`); the toolchain gap that previously made a real linked-libc test
-  impossible is now closed (`riscv64-unknown-linux-musl-gcc` in `flake.nix`) — the first attempt, a hand-written
-  `hello.c` compiled `-static` and run through `--bench-config`, halts cleanly and a raw `write()` syscall
-  (bypassing stdio) is captured correctly, but `printf`/`fflush` produces no output at all. Not yet root-caused
-  (see TODO.md) — no SPEC/realistic binary has successfully run through this yet. `BenchmarkConfig.MmapArenaBytes`
+  impossible is now closed (`riscv64-unknown-linux-musl-gcc` in `flake.nix`). The first attempt, a hand-written
+  `hello.c` compiled `-static` and run through `--bench-config`, halted cleanly and a raw `write()` syscall
+  (bypassing stdio) was captured correctly, but `printf`/`fflush` produced no output at all — root-caused to a
+  missing `SYS_writev`: musl's buffered stdio flushes via `writev`, not plain `write`, and the emulator's fallback
+  `ENOSYS` for unimplemented syscalls is swallowed silently by musl's stdio error path rather than surfaced. Fixed
+  with `LinuxSyscallEmulator.Writev` (walks the `iovec` array, delegating each entry to the existing `Write`,
+  matching real `writev`'s zero-length-skip and short-write-stops-early semantics). `TestBinaries/hello64_musl.c`/
+  `.elf` — a genuinely compiled and statically-linked binary, not a hand-assembled probe — now runs its `printf`
+  and returns its `argv[0]` correctly end-to-end (`Tests/RiscV64/System/RealLinkedBinaryTests`), the first real
+  linked binary to complete this pipeline's entry/syscall/stdio path successfully. This validates only that
+  trivial path, though — the SimPoint/checkpoint sampling pipeline itself (the actual substance of the SPEC-harness
+  TODO item) has not yet been run against a real compiled binary, only against bare-metal HTIF probes; see
+  TODO.md. `BenchmarkConfig.MmapArenaBytes`
   optionally sizes an anonymous-mmap arena, appended past the workload's own memory so enabling it never shifts
   where the stack or `brk`-growable region end up (both keep the exact placement they'd have with it unset);
   omitted or 0 (the default) keeps `mmap` disabled — `SYS_mmap` returns `ENOMEM`, same as before this existed. The

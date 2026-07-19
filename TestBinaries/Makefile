@@ -222,6 +222,10 @@ CC64      = riscv64-none-elf-gcc
 CFLAGS64  = -march=rv64imafd -mabi=lp64 -nostdlib -nostartfiles -static -O1 -g
 LDFLAGS64 = -T env/link.ld
 
+# Real Linux userspace toolchain (musl — see flake.nix for why musl over glibc), for genuinely
+# linked (not bare-metal -nostdlib) fixtures: real _start, real libc, real stdio.
+CC64_MUSL = riscv64-unknown-linux-musl-gcc
+
 # ── RV64 hand-written co-sim workloads (test.c/rich.c/htif.c, RV64 build) ─────
 #
 # Same sources as the RV32 test.elf/rich.elf/htif.elf above; crt0.s, htif_crt.s,
@@ -595,13 +599,24 @@ stdin_echo64.elf: stdin_echo64.s test.ld
 mmap_probe64.elf: mmap_probe64.s test.ld
 	$(CC64) $(CFLAGS_SE64) -T test.ld mmap_probe64.s -o $@
 
+# ── real linked binary (musl libc, real printf/stdio) ───────────────────────
+#
+# Not a hand-assembled bare-metal probe like everything else above — a real C
+# program compiled and statically linked against a real libc, with the
+# toolchain's own default _start/linker script. Proves InitialStackBuilder +
+# LinuxSyscallEmulator against genuine compiled code, not just assembly written
+# to already match the layout it's checking.
+
+hello64_musl.elf: hello64_musl.c
+	$(CC64_MUSL) -static -O0 -o $@ hello64_musl.c
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
 .PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture torture64 clean
 
 all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture torture64
 
-custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf
+custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf
 
 isa-tests: rv32-isa-tests rv64-isa-tests
 
@@ -642,5 +657,5 @@ lab2: $(LAB2_ELFS)
 .PHONY: lab2
 
 clean:
-	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf
+	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf
 	rm -f isa/*.elf benchmarks/*.elf torture/*.elf torture64/*.elf lab2/*.elf

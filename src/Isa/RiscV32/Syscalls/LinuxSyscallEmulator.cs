@@ -108,6 +108,7 @@ public sealed class LinuxSyscallEmulator(
 
         long result = num switch {
             64   => Write(a0, a1, a2, memory),           // SYS_write
+            66   => Writev(a0, a1, a2, memory),           // SYS_writev
             63   => Read(a0, a1, a2, memory),            // SYS_read
             57   => Close(a0),                           // SYS_close
             62   => Lseek(a0, a1, a2),                   // SYS_lseek
@@ -149,6 +150,29 @@ public sealed class LinuxSyscallEmulator(
         for (ulong i = 0; i < count; i++) buf[i] = (byte)memory.Read(bufPtr + i, 1);
         fs.Write(buf, 0, (int)count);
         return (long)count;
+    }
+
+    // musl's buffered stdio (fwrite/printf's flush path) writes via SYS_writev, not plain
+    // SYS_write — a real libc detail this project only discovered once a real linked binary
+    // could finally be run (see project memory): without this, printf silently produced no
+    // output at all (ENOSYS from the fallback case, which musl's stdio swallows as a write
+    // error rather than surfacing it). struct iovec is { void *iov_base; size_t iov_len; } —
+    // two wordSize-wide fields, so entry i starts at iov + i·(2·wordSize).
+    private long Writev(ulong fd, ulong iovPtr, ulong iovCount, IMemory memory) {
+        long total = 0;
+        for (ulong i = 0; i < iovCount; i++) {
+            ulong entry = iovPtr + i * (ulong)(2 * wordSize);
+            ulong iovBase = memory.Read(entry, wordSize);
+            ulong iovLen = memory.Read(entry + (ulong)wordSize, wordSize);
+            if (iovLen == 0) continue;
+
+            long n = Write(fd, iovBase, iovLen, memory);
+            if (n < 0) return total > 0 ? total : n; // first entry fails → propagate the error
+            total += n;
+            if (n < (long)iovLen) break; // short write — matches real writev's stop-on-short-write
+        }
+
+        return total;
     }
 
     private long Read(ulong fd, ulong bufPtr, ulong count, IMemory memory) {
