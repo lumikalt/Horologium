@@ -188,4 +188,49 @@ public class SyscallRealismTests {
 
         Assert.NotEqual(first, second);
     }
+
+    [Fact]
+    public void Read_Fd0_WithNoInputStream_IsAlwaysEof() {
+        var memory = new FlatMemory(0x1000, 0x8000_0000UL);
+        var handler = new LinuxSyscallEmulator(0x8000_0000UL); // input: null (default)
+        const ulong bufAddr = 0x8000_0100UL;
+
+        Assert.Equal(0, Call(handler, 63, memory, 0, bufAddr, 64)); // SYS_read, fd=0
+    }
+
+    [Fact]
+    public void Read_Fd0_WithInjectedStream_ReturnsBytesThenEof() {
+        var memory = new FlatMemory(0x1000, 0x8000_0000UL);
+        using var stdin = new MemoryStream("hi\n"u8.ToArray());
+        var handler = new LinuxSyscallEmulator(0x8000_0000UL, input: stdin);
+        const ulong bufAddr = 0x8000_0100UL;
+
+        long n = Call(handler, 63, memory, 0, bufAddr, 64); // SYS_read, fd=0, count=64
+        Assert.Equal(3, n);
+        var read = new byte[3];
+        for (var i = 0; i < 3; i++) read[i] = (byte)memory.Read(bufAddr + (ulong)i, 1);
+        Assert.Equal("hi\n"u8.ToArray(), read);
+
+        // Exhausted: further reads are EOF, not an error or a repeat of the same bytes.
+        Assert.Equal(0, Call(handler, 63, memory, 0, bufAddr, 64));
+    }
+
+    [Fact]
+    public void Read_Fd0_WithInjectedStream_ShorterCountThanAvailable_ReadsSequentially() {
+        var memory = new FlatMemory(0x1000, 0x8000_0000UL);
+        using var stdin = new MemoryStream("abcdef"u8.ToArray());
+        var handler = new LinuxSyscallEmulator(0x8000_0000UL, input: stdin);
+        const ulong bufAddr = 0x8000_0100UL;
+
+        Assert.Equal(3, Call(handler, 63, memory, 0, bufAddr, 3));
+        var firstThree = new byte[3];
+        for (var i = 0; i < 3; i++) firstThree[i] = (byte)memory.Read(bufAddr + (ulong)i, 1);
+        Assert.Equal("abc"u8.ToArray(), firstThree);
+
+        // Never rewound — the next read continues from where the last one left off.
+        Assert.Equal(3, Call(handler, 63, memory, 0, bufAddr, 3));
+        var nextThree = new byte[3];
+        for (var i = 0; i < 3; i++) nextThree[i] = (byte)memory.Read(bufAddr + (ulong)i, 1);
+        Assert.Equal("def"u8.ToArray(), nextThree);
+    }
 }

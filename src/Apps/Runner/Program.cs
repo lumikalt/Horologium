@@ -53,6 +53,7 @@ var champsimCacheBlock = 64;      // --champsim-cache-block <bytes>
 // replay has no JSON spec, so it keeps champsim-scoped flags:
 string? champsimRtlBpLib = null; // --champsim-rtl-bp-lib <path>: RTL predictor to evaluate
 string? champsimRtlRpLib = null; // --champsim-rtl-rp-lib <path>: RTL replacement policy to evaluate
+string? benchConfigPath = null;  // --bench-config <path>: run a batch of Linux-ABI benchmarks and exit
 
 for (var i = 0; i < args.Length; i++)
     switch (args[i]) {
@@ -93,6 +94,7 @@ for (var i = 0; i < args.Length; i++)
         case "--champsim-cache-block":  champsimCacheBlock = int.Parse(args[++i]); break;
         case "--champsim-rtl-bp-lib":   champsimRtlBpLib = args[++i]; break;
         case "--champsim-rtl-rp-lib":   champsimRtlRpLib = args[++i]; break;
+        case "--bench-config":          benchConfigPath = args[++i]; break;
         case "--help" or "-h":
             PrintUsage();
             return;
@@ -197,6 +199,56 @@ if (champsimTracePath is not null) {
             $"{replay.CacheHits:N0} hits, {replay.CacheMisses:N0} misses ({replay.CacheHitRate:P2} hit rate)"
         );
 
+    return;
+}
+
+// ── Batch benchmark-config mode ───────────────────────────────────────────────
+
+if (benchConfigPath is not null) {
+    if (xlen is not (32 or 64)) {
+        Console.Error.WriteLine($"--xlen must be 32 or 64, got {xlen}.");
+        return;
+    }
+
+    IReadOnlyList<BenchmarkConfig> benchmarks;
+    try { benchmarks = BenchmarkConfig.LoadFile(benchConfigPath); }
+    catch (Exception ex) {
+        Console.Error.WriteLine($"Failed to load {benchConfigPath}: {ex.Message}");
+        return;
+    }
+
+    Func<ISyscallHandler, IMechanism> benchMechanismFactory = xlen == 64
+        ? handler => new Rv64Mechanism(syscallHandler: handler)
+        : handler => new Rv32Mechanism(syscallHandler: handler);
+    int wordSize = xlen == 64 ? 8 : 4;
+    var anyFailed = false;
+
+    foreach (BenchmarkConfig bench in benchmarks) {
+        IElfWorkload workload = xlen == 64
+            ? new Rv64ElfWorkload(bench.ElfPath, bench.MemorySizeBytes)
+            : new Rv32ElfWorkload(bench.ElfPath, bench.MemorySizeBytes);
+
+        BenchmarkResult result = Experiment.RunBenchmark(bench, workload, wordSize, benchMechanismFactory, maxTicks);
+
+        string status = !result.Halted
+            ? "TIMEOUT"
+            : !result.Checked
+                ? "ran (unchecked)"
+                : result.Passed
+                    ? "PASS"
+                    : "FAIL";
+        Console.WriteLine($"{bench.Name}: {status}  ({result.Ticks:N0} ticks)");
+
+        if (!result.Halted || (result.Checked && !result.Passed)) {
+            anyFailed = true;
+            if (result.Checked && !result.Passed) {
+                Console.Error.WriteLine($"  expected: {EscapeForDisplay(result.ExpectedOutput!)}");
+                Console.Error.WriteLine($"  actual:   {EscapeForDisplay(result.Output)}");
+            }
+        }
+    }
+
+    if (anyFailed) Environment.Exit(1);
     return;
 }
 
@@ -600,6 +652,8 @@ return;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+static string EscapeForDisplay(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
+
 static IBranchPredictor ResolveChampSimPredictor(string name) => (name switch {
     "always_taken"      => BranchPredictorConfig.AlwaysTaken(),
     "always_not_taken"  => BranchPredictorConfig.AlwaysNotTaken(),
@@ -674,6 +728,17 @@ static void PrintUsage() {
                                 into a whole-program CPI/IPC estimate. Runs once per
                                 --sweep config (or the default sweep); configs whose
                                 pipeline isn't ooo/five_stage/single_cycle are skipped.
+          --bench-config <path>  Run a batch of Linux-ABI benchmarks described by a JSON file
+                                 (BenchmarkConfig[]: name, elf_path, args, stdin_path,
+                                 expected_output_path, memory_size_bytes) and exit. Each
+                                 benchmark gets a real psABI initial stack (argv/envp/auxv) and
+                                 a LinuxSyscallEmulator for file I/O/stdin/stdout/mmap/exit —
+                                 the entry convention a real compiled _start needs, as opposed
+                                 to the bare-metal HTIF convention every other mode uses.
+                                 Functional single-cycle only (a correctness/regression harness,
+                                 not a timing run); --xlen selects RV32/RV64 for every benchmark
+                                 in the file. Exits with status 1 if any benchmark times out or
+                                 its output doesn't match expected_output_path (when given).
           --script <path>       Evaluate a .csx/.fsx file returning a MachineSpec and run
                                 the selected workload on it. All Spec types and RiscV32
                                 are pre-imported; no #r or using needed.

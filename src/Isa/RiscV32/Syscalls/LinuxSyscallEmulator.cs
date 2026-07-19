@@ -18,7 +18,9 @@ namespace RiscV32.Syscalls;
 ///         directory. There is no sandboxing — the guest binary is the user's own, already
 ///         compiled, locally run program, not untrusted code. <c>dirfd</c> is always treated as
 ///         <c>AT_FDCWD</c> (ignored); there is no support for opening relative to an arbitrary
-///         already-open directory fd.
+///         already-open directory fd. stdin (fd 0) is separate from that passthrough — it reads
+///         from the optional <paramref name="input" /> stream instead of a real file, so a caller
+///         can redirect a fixed buffer/file without the guest ever opening anything.
 ///     </para>
 ///     <para>
 ///         <c>mmap</c> is a bump allocator over a caller-supplied <c>[mmapBase, mmapLimit)</c>
@@ -57,12 +59,18 @@ namespace RiscV32.Syscalls;
 /// <param name="wordSize">4 for RV32, 8 for RV64 — selects the <c>fstat</c> struct layout.</param>
 /// <param name="mmapBase">Start of the anonymous-mmap bump-allocation arena; 0 disables mmap (ENOMEM).</param>
 /// <param name="mmapLimit">Exclusive end of the mmap arena.</param>
+/// <param name="input">
+///     Redirected stdin for SYS_read on fd 0. Read sequentially, never rewound; returns 0 (EOF)
+///     once exhausted. Not disposed by this class — the caller owns its lifecycle, matching
+///     <paramref name="output" />. Null (the default) means stdin is always EOF, as before.
+/// </param>
 public sealed class LinuxSyscallEmulator(
     ulong initialBreak,
     TextWriter? output = null,
     int wordSize = 4,
     ulong mmapBase = 0,
-    ulong mmapLimit = 0
+    ulong mmapLimit = 0,
+    Stream? input = null
 ) : ISyscallHandler, IDisposable {
     private const long ENoEnt = -2;
     private const long EBadF = -9;
@@ -144,7 +152,14 @@ public sealed class LinuxSyscallEmulator(
     }
 
     private long Read(ulong fd, ulong bufPtr, ulong count, IMemory memory) {
-        if (fd == 0) return 0; // stdin: always EOF, no interactive input modeled
+        if (fd == 0) {
+            if (input is null) return 0; // no stdin redirected: always EOF
+            var stdinBuf = new byte[count];
+            int stdinN = input.Read(stdinBuf, 0, (int)count);
+            if (stdinN > 0) memory.Load(bufPtr, stdinBuf.AsSpan(0, stdinN));
+            return stdinN;
+        }
+
         if (!_files.TryGetValue((int)fd, out FileStream? fs)) return LinuxSyscallEmulator.EBadF;
         var buf = new byte[count];
         int n = fs.Read(buf, 0, (int)count);

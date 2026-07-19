@@ -1,3 +1,4 @@
+using System.Text;
 using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
@@ -5,6 +6,7 @@ using Orrery.Train;
 using Pipeline;
 using RiscV32.Config;
 using RiscV32.Memory;
+using RiscV32.Syscalls;
 using RiscV32.Trace;
 
 namespace RiscV32.Analysis;
@@ -537,5 +539,74 @@ public static class Experiment {
         using var writer = new StfTraceWriter(mechanism.Decoder, tracing, output, workload.EntryPoint);
         new SingleCycleTrain(mechanism, tracing, workload.EntryPoint, commitObserver: writer).Run(maxTicks);
         return writer.Count;
+    }
+
+    /// <summary>
+    ///     Runs one <see cref="BenchmarkConfig" /> to completion (or <paramref name="maxTicks" />) on
+    ///     a functional single-cycle train with a real Linux-ABI entry: a psABI initial stack
+    ///     (<see cref="InitialStackBuilder" />) so a real compiled <c>_start</c> can read
+    ///     argc/argv/envp, and a <see cref="LinuxSyscallEmulator" /> for file I/O, stdin/stdout,
+    ///     mmap, and process exit — the entry convention SPEC-class binaries need, unlike the
+    ///     bare-metal HTIF convention the rest of this file's ELF runs use (which self-terminate via
+    ///     the <c>tohost</c> register instead of <c>exit()</c>). Functional execution only, no timing
+    ///     model — this is a correctness/regression harness, not a performance measurement (see
+    ///     <see cref="RunWithSimPointCheckpoints" /> for that).
+    ///     <para>
+    ///         Not validated against a real linked glibc/musl binary — see
+    ///         <see cref="LinuxSyscallEmulator" />'s doc comment for why (no <c>riscv64-*-linux-*</c>
+    ///         userspace toolchain in this environment).
+    ///     </para>
+    /// </summary>
+    /// <param name="bench">The benchmark to run.</param>
+    /// <param name="workload">
+    ///     The ELF workload, already constructed by the caller with the ISA-specific concrete type
+    ///     (<c>Rv32ElfWorkload</c>/<c>Rv64ElfWorkload</c>) and <paramref name="bench" />'s
+    ///     <see cref="BenchmarkConfig.MemorySizeBytes" /> override applied — kept out of this
+    ///     ISA-agnostic method so it never has to reference <c>RiscV64</c> directly, mirroring the
+    ///     <c>mechanismFactory</c> pattern used throughout the Runner.
+    /// </param>
+    /// <param name="wordSize">4 for RV32, 8 for RV64 — selects the psABI pointer width and the <c>fstat</c> layout.</param>
+    /// <param name="mechanismFactory">
+    ///     Builds the mechanism given the syscall handler this method constructs, e.g.
+    ///     <c>handler =&gt; new Rv32Mechanism(syscallHandler: handler)</c>.
+    /// </param>
+    /// <param name="maxTicks">Tick budget; <see cref="BenchmarkResult.Halted" /> is false if this is reached without the guest exiting.</param>
+    public static BenchmarkResult RunBenchmark(
+        BenchmarkConfig bench,
+        IElfWorkload workload,
+        int wordSize,
+        Func<ISyscallHandler, IMechanism> mechanismFactory,
+        long maxTicks = 1_000_000
+    ) {
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+
+        ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
+        List<string> argv = [Path.GetFileName(bench.ElfPath), ..bench.Args ?? [],];
+        ulong sp = InitialStackBuilder.BuildInitialStack(
+            memory, stackTop, wordSize, argv, [],
+            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+        );
+
+        var outputWriter = new StringWriter();
+        using Stream? stdin = bench.StdinPath is not null ? File.OpenRead(bench.StdinPath) : null;
+        using var syscalls = new LinuxSyscallEmulator(workload.InitialBreak, outputWriter, wordSize, input: stdin);
+
+        IMechanism mechanism = mechanismFactory(syscalls);
+        var train = new SingleCycleTrain(mechanism, memory, workload.EntryPoint);
+        train.ArchState.IntegerRegisters.Write(2, sp); // x2 = sp, before Run() — Wind() only sets Pc
+
+        train.Run(maxTicks);
+
+        string output = outputWriter.ToString();
+        // Latin1 both here and in the emulator's capture path (Write() does `(char)byte`) so the
+        // comparison is a byte-exact round trip regardless of content, not a UTF-8 (re)interpretation
+        // of raw bytes that could mismatch on anything outside ASCII. Comparison is exact — a stray
+        // trailing newline in the reference file will fail it.
+        string? expected = bench.ExpectedOutputPath is not null
+            ? File.ReadAllText(bench.ExpectedOutputPath, Encoding.Latin1)
+            : null;
+
+        return new BenchmarkResult(bench.Name, train.IsIdle, train.CurrentTick, output, expected);
     }
 }

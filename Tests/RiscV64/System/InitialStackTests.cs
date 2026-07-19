@@ -40,4 +40,29 @@ public class InitialStackTests {
         train.Run();
         Assert.Equal("a.out", sw.ToString()); // argv[0]
     }
+
+    private static string StdinEcho64Elf => Path.Combine(AppContext.BaseDirectory, "stdin_echo64.elf");
+
+    [Fact]
+    public void LinuxSyscallEmulator_InjectedStdin_EchoedBackThroughSysReadSysWrite() {
+        // End-to-end proof that a stream injected as LinuxSyscallEmulator's stdin reaches a real
+        // guest's SYS_read and comes back out through SYS_write — the ELF-driven complement to the
+        // direct Handle()-level unit tests in SyscallRealismTests.
+        var workload = new Rv64ElfWorkload(StdinEcho64Elf);
+        var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(mem);
+
+        ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
+        ulong sp = InitialStackBuilder.BuildInitialStack(mem, stackTop, wordSize: 8, argv: ["a.out"], envp: [], auxv: []);
+
+        var sw = new StringWriter();
+        using var stdin = new MemoryStream("ping"u8.ToArray());
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8, input: stdin);
+        var mech = new Rv64Mechanism(syscallHandler: handler);
+        var train = new SingleCycleTrain(mech, mem, workload.EntryPoint);
+        train.ArchState.IntegerRegisters.Write(2, sp);
+
+        train.Run();
+        Assert.Equal("ping", sw.ToString());
+    }
 }

@@ -94,6 +94,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>abi_probe64.elf</Link>
         </None>
+        <None Include="..\TestBinaries\stdin_echo64.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>stdin_echo64.elf</Link>
+        </None>
         <None Include="..\TestBinaries\isa\*.elf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <LinkBase>isa</LinkBase>

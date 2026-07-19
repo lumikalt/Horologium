@@ -579,13 +579,21 @@ se_hello64.elf: se_hello.s test.ld
 abi_probe64.elf: abi_probe64.s test.ld
 	$(CC64) $(CFLAGS_SE64) -T test.ld abi_probe64.s -o $@
 
+# ── stdin echo probe (SYS_read fd 0 → SYS_write fd 1) ───────────────────────
+#
+# Proves LinuxSyscallEmulator's injected stdin stream reaches the guest via
+# SYS_read end to end — see stdin_echo64.s for the exact reads/writes.
+
+stdin_echo64.elf: stdin_echo64.s test.ld
+	$(CC64) $(CFLAGS_SE64) -T test.ld stdin_echo64.s -o $@
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
 .PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture torture64 clean
 
 all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture torture64
 
-custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf
+custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf
 
 isa-tests: rv32-isa-tests rv64-isa-tests
 
@@ -626,5 +634,5 @@ lab2: $(LAB2_ELFS)
 .PHONY: lab2
 
 clean:
-	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf
+	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf
 	rm -f isa/*.elf benchmarks/*.elf torture/*.elf torture64/*.elf lab2/*.elf

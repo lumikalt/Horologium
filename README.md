@@ -1112,9 +1112,13 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   or exhausted arena returns ENOMEM, same as real mmap under memory pressure. `SYS_clock_gettime`/`SYS_getrandom`
   are deterministic (a synthetic incrementing clock; a seeded xorshift PRNG) rather than real host time/entropy,
   matching this project's reproducibility precedent. `SYS_fcntl` returns benign success for
-  `F_GETFD`/`F_SETFD`/`F_GETFL`/`F_SETFL`. None of this has been validated against a real linked glibc/musl binary —
-  there is no riscv64-\*-linux-\* userspace toolchain in this environment, only bare-metal `riscv{32,64}-none-elf-gcc`;
-  coverage is hand-verified struct offsets plus unit tests calling `Handle` directly.
+  `F_GETFD`/`F_SETFD`/`F_GETFL`/`F_SETFL`. stdin (fd 0) is separate from the file-I/O passthrough: an optional
+  `Stream? input` constructor parameter redirects `SYS_read` on fd 0 to it (read sequentially, never rewound, EOF
+  once exhausted); omitted (the default) it stays always-EOF as before. None of this has been validated against a
+  real linked glibc/musl binary — there is no riscv64-\*-linux-\* userspace toolchain in this environment, only
+  bare-metal `riscv{32,64}-none-elf-gcc`; coverage is hand-verified struct offsets plus unit tests calling `Handle`
+  directly, plus one ELF-driven round-trip (`stdin_echo64.elf`) proving an injected stream reaches a real guest's
+  `SYS_read` and comes back out through `SYS_write`.
 - **RV64 syscall-emulation wiring.** `Rv64Mechanism` now takes the same `syscallHandler: ISyscallHandler?` constructor
   parameter as `Rv32Mechanism` — `Rv64Executor : Rv32Executor` already inherited the ECALL-dispatch arm unchanged, so
   this was the only missing wire. `Rv64ElfWorkload.InitialBreak` mirrors `Rv32ElfWorkload`'s PT_LOAD-scan computation.
@@ -1124,14 +1128,33 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   `_start` from bare-metal isn't possible without one. `BuildInitialStack(memory, stackTop, wordSize, argv, envp,
   auxv)` writes a standard argc/argv/envp/auxv layout (string blob → 16-byte-aligned auxv array, terminated by
   `AT_NULL` → envp/argv pointer arrays, NULL-terminated → argc word) and returns the resulting SP, 16-byte aligned
-  per the RISC-V calling convention. One function serves RV32 and RV64 (`wordSize` 4 or 8); only RV64 has a caller
-  so far. `BuildStandardAuxv` assembles the standards-minimal auxv set for a statically-linked binary (`AT_PAGESZ`,
-  `AT_PHDR`/`AT_PHENT`/`AT_PHNUM`, `AT_ENTRY`, zeroed uid/gid/hwcap/secure) — not yet exercised by a caller.
-  Verified two ways: `InitialStackBuilderTests` asserts the exact byte layout for both word sizes directly against a
-  `FlatMemory`; `Tests/RiscV64/System/InitialStackTests.cs` loads a hand-assembled RV64 probe (`abi_probe64.s`, its
-  own independent offset arithmetic) that reads `argv[0]` off a stack built entirely by this function and echoes it
-  back. Callers still inject the SP manually (`ArchState.IntegerRegisters.Write(2, sp)` before `Run()`) — there is no
-  `IWorkload`/`Train` wiring yet, and real argv/envp plumbing from a CLI is still open.
+  per the RISC-V calling convention. One function serves RV32 and RV64 (`wordSize` 4 or 8). `BuildStandardAuxv`
+  assembles the standards-minimal auxv set for a statically-linked binary (`AT_PAGESZ`, `AT_PHDR`/`AT_PHENT`/
+  `AT_PHNUM`, `AT_ENTRY`, zeroed uid/gid/hwcap/secure) — `Experiment.RunBenchmark` (below) is its first production
+  caller, passing 0 for the PHDR fields since no ELF workload here exposes program-header geometry (unverifiable
+  without a real linked binary regardless — see that section). Verified two ways: `InitialStackBuilderTests` asserts
+  the exact byte layout for both word sizes directly against a `FlatMemory`; `Tests/RiscV64/System/InitialStackTests.cs`
+  loads hand-assembled RV64 probes (`abi_probe64.s`, `stdin_echo64.s`, each with its own independent offset
+  arithmetic) that read the stack this function built and echo back what they find. Callers still inject the SP
+  manually (`ArchState.IntegerRegisters.Write(2, sp)` before `Run()`) — there is no `IWorkload`/`Train` wiring for it.
+- **Batch benchmark harness (`BenchmarkConfig`/`Experiment.RunBenchmark`, `src/Isa/RiscV32/Analysis/`).** Ties the
+  three pieces above together into a real Linux-ABI entry, instead of each being exercised only in isolation:
+  `BenchmarkConfig` (JSON, mirroring `NamedConfig`'s conventions) names an ELF, its argv, an optional stdin file, an
+  optional reference-output file, and an optional memory-size override. `RunBenchmark` builds the psABI stack
+  (`argv[0]` derived from the ELF's file name), wires a `LinuxSyscallEmulator` with captured output and the
+  benchmark's stdin file (if any), runs to completion (or `maxTicks`) on a functional `SingleCycleTrain` — this is a
+  correctness/regression harness, not a timing run — and diffs captured output against the reference file
+  byte-for-byte (`Encoding.Latin1` on both sides, matching the emulator's `(char)byte` capture convention, so the
+  comparison is exact regardless of content; a stray trailing newline in the reference file will fail it).
+  `BenchmarkResult.Halted` (via `SingleCycleTrain.IsIdle` after `Run()`, not a tick-count heuristic — a clean
+  `SYS_exit` drains the Escapement, a timeout leaves events pending) tells a timeout apart from a real exit;
+  `Checked`/`Passed` tell "no reference supplied" apart from "verified and matched". Kept ISA-agnostic (takes an
+  already-built `IElfWorkload` and a `mechanismFactory` the caller supplies) the same way the rest of `Experiment`
+  is. The Runner exposes it as `--bench-config <path.json>`, running every benchmark under `--xlen`'s ISA and
+  exiting with status 1 if any times out or fails its reference check. Verified end-to-end only against bare-metal
+  SE-mode probes (`abi_probe64.elf`, `stdin_echo64.elf`) — no real linked-libc/SPEC binary has run through it (no
+  toolchain available to build one). The mmap arena is disabled by default (no `mmapBase`/`mmapLimit` wired
+  through yet), so a real malloc-heavy benchmark will `ENOMEM` once it exhausts `brk`.
 
 Because the five-stage and out-of-order trains previously spun HTIF binaries to `maxTicks`, adding these halts also
 makes the HTIF benchmark suite finish in seconds. `HtifExitTests` covers both paths across all three trains without

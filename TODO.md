@@ -49,7 +49,10 @@ free embedded suites are runnable in full today.
 
 - [ ] SPEC CPU2006/2017 harness (user-supplied install; SPEC is licensed and non-redistributable):
   RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction
-  intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint)
+  intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint). All infrastructure below is done;
+  the parent item stays unchecked because end-to-end validation against a real linked libc/SPEC binary
+  is blocked on toolchain availability (no `riscv64-*-linux-*` userspace toolchain in this environment,
+  only bare-metal `riscv{32,64}-none-elf-gcc`) — only bare-metal SE-mode probes have run through it.
   - [x] RV64 ECALL/syscall-handler wiring (`Rv64Mechanism`) and `Rv64ElfWorkload.InitialBreak`.
   - [x] ISA-agnostic psABI initial-stack builder (argc/argv/envp/auxv) so a real compiled `_start`
     can run, not just bare-metal entry — `InitialStackBuilder`.
@@ -78,8 +81,18 @@ free embedded suites are runnable in full today.
     (default sweep, `--simpoint`, `--trace-json`, `--elastic-record`, `--stf-record`, `--script`
     incl. `--roi-start`/`--checkpoint-save`/`--checkpoint-load`); `.csx`/`.fsx` scripts can
     construct `Rv64Mechanism` directly (RiscV64 pre-imported like RiscV32).
-  - [ ] Runner benchmark-config/batch-mode concept (ELF + argv + stdin/stdout redirection +
-    reference output per benchmark).
+  - [x] Runner benchmark-config/batch-mode concept (`BenchmarkConfig`/`Experiment.RunBenchmark`,
+    `--bench-config <path.json>`): ELF + argv (via `InitialStackBuilder`, wired into production for
+    the first time) + stdin redirection (new — `LinuxSyscallEmulator` previously stubbed fd 0 as
+    always-EOF) + captured stdout/stderr + exact reference-output diffing, functional single-cycle
+    only. Verified end-to-end against bare-metal SE-mode probes only (`abi_probe64.elf`,
+    `stdin_echo64.elf`) — no real linked-libc/SPEC binary has run through it (see parent item).
+  - [ ] mmap arena is disabled by default in `RunBenchmark` (no `mmapBase`/`mmapLimit` wired through
+    yet) — a real malloc-heavy benchmark will ENOMEM once it exhausts `brk`. Needed before batch-mode
+    can run realistic (not just probe) binaries.
+  - [ ] Reference-output comparison in `BenchmarkResult.Passed` is byte-exact, including trailing
+    newline — real reference files almost always end in `\n`. Consider a
+    trailing-whitespace-normalized compare mode.
 
 ## Face
 
