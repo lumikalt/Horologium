@@ -3039,6 +3039,19 @@ internal sealed class OoOPipelineCore : Gear {
         _capMem.Reset();
         bool isVec = issued.Instr.Class == ToothClass.Vector;
         bool isUve = issued.Instr.Class == ToothClass.Uve;
+        // System (ECALL/CSR) ops are likewise head-serialized (see the Dispatch-stage issue gate:
+        // `case ToothClass.System when rs.RobIndex != _rob.HeadIndex`) — never speculative, so
+        // their memory accesses must be real and immediate too, not deferred through
+        // CapturingMemory. This matters because ECALL routes to LinuxSyscallEmulator, which reads
+        // AND writes guest memory directly (e.g. SYS_fstat/SYS_clock_gettime/SYS_getrandom fill a
+        // struct via IMemory.Write): through CapturingMemory, a write is only ever *captured*
+        // (HasWrite/WriteAddress/...), never applied to backing memory, until a Store Queue entry
+        // later drains it at commit — but System-class instructions never get an SQ entry (no
+        // ordinary store to disambiguate), so the write would be silently lost, and reading
+        // ExecResult.HasLoadAccess/HasStoreCapture off CapturingMemory's flags for a class with no
+        // LQ/SQ entry at all previously corrupted `_lq`/`_sq` indexing outright (IndexOutOfRange —
+        // found running a real musl binary's startup ECALLs through OoOe for the first time).
+        bool isSystem = issued.Instr.Class == ToothClass.System;
 
         // For UVE ops: inject stream element values into u-register lanes before the executor runs,
         // and sync exhaustion state for branch ops. Vector-mode streams deliver up to VL lanes.
@@ -3078,7 +3091,7 @@ internal sealed class OoOPipelineCore : Gear {
                 }
         }
 
-        IMemory mem = isVec || isUve ? DLayers.Accessor : _capMem;
+        IMemory mem = isVec || isUve || isSystem ? DLayers.Accessor : _capMem;
         mem.SetRequestPc(issued.Pc);
         ExecuteResult er;
         try { er = _executor.Execute(issued.Instr, State, mem); }

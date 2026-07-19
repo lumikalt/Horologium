@@ -610,13 +610,20 @@ mmap_probe64.elf: mmap_probe64.s test.ld
 hello64_musl.elf: hello64_musl.c
 	$(CC64_MUSL) -static -O0 -o $@ hello64_musl.c
 
+# Non-trivial companion to hello64_musl.elf: static-array compute kernel (no malloc, so no
+# brk/mmap) with one printf at the very end, for validating the SimPoint/checkpoint sampling
+# pipeline against real compiled code instead of just a straight-through hello-world.
+
+simpoint_kernel.elf: simpoint_kernel.c
+	$(CC64_MUSL) -static -O1 -o $@ simpoint_kernel.c
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
 .PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture torture64 clean
 
 all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture torture64
 
-custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf
+custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf simpoint_kernel.elf
 
 isa-tests: rv32-isa-tests rv64-isa-tests
 
@@ -657,5 +664,5 @@ lab2: $(LAB2_ELFS)
 .PHONY: lab2
 
 clean:
-	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf
+	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf simpoint_kernel.elf
 	rm -f isa/*.elf benchmarks/*.elf torture/*.elf torture64/*.elf lab2/*.elf

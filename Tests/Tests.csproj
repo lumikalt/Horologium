@@ -106,6 +106,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>hello64_musl.elf</Link>
         </None>
+        <None Include="..\TestBinaries\simpoint_kernel.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>simpoint_kernel.elf</Link>
+        </None>
         <None Include="..\TestBinaries\isa\*.elf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <LinkBase>isa</LinkBase>

@@ -53,11 +53,14 @@ free embedded suites are runnable in full today.
   and the toolchain gap that blocked end-to-end validation is now closed
   (`riscv64-unknown-linux-musl-gcc` is in `flake.nix`): a real, genuinely compiled and statically-linked
   musl RV64 binary now runs correctly end-to-end through `--bench-config` (argv, `printf`-based stdio,
-  clean exit — see the `SYS_writev` sub-bullet below). The parent item still stays unchecked, though:
-  what's validated so far is only the trivial entry/syscall/stdio path on a hello-world binary — the
-  actual substance of this item (BBV profiling, clustering, checkpointed intervals with warmup) has
-  never been run against a real compiled binary, only bare-metal HTIF probes. See the open sub-bullet
-  below for the next real validation step.
+  clean exit — see the `SYS_writev` sub-bullet below), and the SimPoint/checkpoint sampling machinery
+  itself has now been run against a real compiled binary too (see the `simpoint_kernel.elf` sub-bullet
+  below) — including finding and fixing a real, independent `OooeTrain` crash along the way. The
+  parent item still stays unchecked, though: that validation used a binary deliberately chosen so its
+  measured windows are syscall-free (real emulator-state checkpointing — brk/mmap cursors, fd table,
+  stdin position — is still unimplemented), and it surfaced (not yet closed) a younger-load
+  memory-ordering hazard around head-serialized ECALLs under OoOe. No SPEC/realistic binary with a
+  non-trivial syscall footprint inside its hot path has run through this yet.
   - [x] RV64 ECALL/syscall-handler wiring (`Rv64Mechanism`) and `Rv64ElfWorkload.InitialBreak`.
   - [x] ISA-agnostic psABI initial-stack builder (argc/argv/envp/auxv) so a real compiled `_start`
     can run, not just bare-metal entry — `InitialStackBuilder`.
@@ -125,12 +128,65 @@ free embedded suites are runnable in full today.
     without the fix. This validates only the trivial entry+syscall+stdio path (argv, a handful of
     syscalls, one `printf`, clean exit) — not the SimPoint/checkpoint sampling pipeline itself,
     which has still never seen a real binary (see the sub-bullet below).
-  - [ ] Run a non-trivial real musl binary (real file I/O, a loop, `malloc` under actual pressure —
-    not just hello-world) through `--simpoint-warmup`, not merely `--bench-config`. This is the
-    first time the profile → cluster → checkpoint → measure path would touch genuinely compiled
-    code rather than a bare-metal HTIF probe or a single straight-through printf, and it's the most
-    likely place for the next silently-swallowed syscall gap (wider syscall surface, `SYS_munmap`
-    still a no-op against a heap under real churn) to surface.
+  - [x] Ran a non-trivial real musl binary (`TestBinaries/simpoint_kernel.c`/`.elf` — static arrays,
+    no malloc, one `printf` at the very end) directly through the `Experiment.RunWithSimPointCheckpoints`
+    API, the first time the profile → cluster → checkpoint → measure path touched genuinely compiled
+    code. `ProfileSimPoints`/`RunWithSimPointCheckpoints` gained optional `argv`/`wordSize` parameters
+    so the profiling and single-pass checkpoint-capture runs can inject a real psABI initial stack
+    (`InitialStackBuilder`), not just bare-metal entry. Verified end to end in
+    `Tests/RiscV64/System/RealLinkedSimPointTests.cs`: an independent functional pass records every
+    ECALL's commit index, and every *selected* simulation point's warmup+measure window is asserted
+    syscall-free except the two edge phases (program startup and shutdown, which always contain
+    ECALLs by construction — no SimPoint parameter choice changes that). Confirms the reduced scope
+    from the sub-bullet above: only those two edge phases would need full syscall-emulator-state
+    checkpointing (brk/mmap cursors, fd table, stdin position) to measure correctly; every other
+    point — the actual repeated compute-loop phase this sampling technique targets — measures
+    correctly today. **Not done by this**: the `--simpoint-warmup` CLI flag itself
+    (`Program.cs`) still isn't wired for real ELFs — it still builds a bare-metal HTIF mechanism
+    with no argv/syscall handler, so `--simpoint-warmup real.elf` from the CLI does not work yet;
+    only the underlying API was validated directly. See the new sub-bullet below.
+  - [ ] Wire `argv` + a fresh-per-pass `LinuxSyscallEmulator` through the `--simpoint-warmup` CLI path
+    in `Program.cs`, mirroring `--bench-config`'s `Func<ISyscallHandler, IMechanism>` mechanism-factory
+    shape — the actual remaining step to run a real binary through SimPoint sampling from the CLI, not
+    just through the `RunWithSimPointCheckpoints` API directly (see the sub-bullet above).
+  - [x] Found and fixed a real, independent `OooeTrain` bug along the way, unrelated to the SimPoint
+    pipeline itself (reproduced on a plain straight-through OoO run too): `LinuxSyscallEmulator`'s
+    ECALL handler reads and writes guest memory through the same `IMemory` (`_capMem`) the executor
+    uses for real loads/stores. `ExecResult.HasLoadAccess`/`HasStoreCapture` were derived
+    unconditionally from `_capMem.HasRead`/`HasWrite`, so any ECALL that touched memory (e.g.
+    `write`/`writev`'s buffer read, `fstat`/`clock_gettime`/`getrandom`'s struct write) was
+    misread as owning an LQ/SQ entry it was never allocated (System-class instructions don't
+    allocate one) — `_lq.At(-1)`/`_sq.At(-1)` then threw `IndexOutOfRangeException`. Root cause:
+    System-class instructions are head-serialized (`ToothClass.System when rs.RobIndex !=
+    _rob.HeadIndex`, same as Vector/UVE) but weren't routed through the same direct,
+    non-speculative `DLayers.Accessor` path Vector/UVE already use — they went through
+    `CapturingMemory`, which only *captures* writes for later Store Queue drain rather than
+    applying them, silently losing syscall writes even once the crash was suppressed by an earlier,
+    reverted attempt at a narrower fix. Fixed by adding System to the `DLayers.Accessor` bypass set
+    alongside Vector/UVE. Two regression tests in `Tests/RiscV64/System/InitialStackTests.cs`
+    (`SyscallMemoryAccess_UnderOooeTrain_DoesNotCorruptLoadStoreQueues`,
+    `SyscallMemoryWrite_UnderOooeTrain_DoesNotCorruptStoreQueue`), both verified via
+    revert-and-recheck to fail (the second with silently-lost data before crash-suppression was
+    even attempted, then with the crash itself) without the fix.
+  - [ ] Known, documented gap surfaced by the above (not fixed): a younger load can still issue and
+    execute *before* a head-serialized ECALL that writes overlapping memory, reading stale data —
+    `HasPrecedingPendingStore`'s vector-store precedent blocks younger loads behind a
+    SQ-bypassing store, but ECALL was never added to that blocking set. One (inconclusive — a pass
+    doesn't prove absence, only a fail proves presence) probe against a
+    `clock_gettime`-then-immediately-dependent-load sequence did not reproduce it — inconclusive, not
+    evidence of rarity (`read()`-into-buffer-then-load-that-buffer is a common real-code shape). Not
+    closed. Likely the same root cause as the pre-existing
+    `stdin_echo64.elf`-under-`OooeTrain` gap below (register-side twin: head-serialization protects
+    an ECALL's *inputs*, not its *consumers*) — investigate whether making System-class instructions
+    fully serializing (block younger issue until retirement, not just self-gate on ROB head) closes
+    both at once, rather than fixing them separately.
+  - [ ] Pre-existing, separate gap noticed while building the above (not fixed, not caused by this
+    increment): `stdin_echo64.elf` (its `SYS_write`'s count depends on `SYS_read`'s return value via
+    `mv a2, a0`) produces empty output under `OooeTrain`, unlike under `SingleCycleTrain` where it
+    passes. ECALL's return value is delivered via `SideEffect` applied at Commit (not through the
+    PRF/rename), so a dependent instruction renamed to the ECALL's physical destination register may
+    read a stale/never-written PRF slot instead of the post-commit architectural value. See the
+    sub-bullet above — may share a fix with the memory-ordering hazard.
   - [ ] Reference-output comparison in `BenchmarkResult.Passed` is byte-exact, including trailing
     newline — real reference files almost always end in `\n`. Consider a
     trailing-whitespace-normalized compare mode.

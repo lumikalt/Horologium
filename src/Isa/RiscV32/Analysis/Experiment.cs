@@ -324,17 +324,34 @@ public static class Experiment {
         long maxTicks = 100_000_000,
         int dimensions = 15,
         int maxK = 10,
-        int seed = 42
+        int seed = 42,
+        IReadOnlyList<string>? argv = null,
+        int wordSize = 4
     ) {
         var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(memory);
 
         var profiler = new BbvProfiler(mechanism.Decoder, intervalSize);
-        new SingleCycleTrain(mechanism, workload.WrapMemory(memory), workload.EntryPoint, commitObserver: profiler)
-           .Run(maxTicks);
+        var train = new SingleCycleTrain(mechanism, workload.WrapMemory(memory), workload.EntryPoint, commitObserver: profiler);
+        if (argv is not null) InjectInitialStack(train, memory, workload, argv, wordSize);
+        train.Run(maxTicks);
         profiler.Complete();
 
         return (SimPointAnalysis.Analyze(profiler.Intervals, dimensions, maxK, seed: seed), profiler);
+    }
+
+    // A real compiled binary's _start reads argv/envp/auxv off the initial stack — bare-metal entry
+    // (PC = ELF entry, registers untouched) only works for hand-assembled probes. Writing SP before
+    // Run()/BeginStepping() is safe: Wind() (called by both) never touches IntegerRegisters.
+    private static void InjectInitialStack(
+        SingleCycleTrain train, IMemory memory, IWorkload workload, IReadOnlyList<string> argv, int wordSize
+    ) {
+        ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
+        ulong sp = InitialStackBuilder.BuildInitialStack(
+            memory, stackTop, wordSize, argv, [],
+            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+        );
+        train.ArchState.IntegerRegisters.Write(2, sp);
     }
 
     /// <summary>
@@ -376,9 +393,13 @@ public static class Experiment {
         long profileMaxTicks = 100_000_000,
         int dimensions = 15,
         int maxK = 10,
-        int seed = 42
+        int seed = 42,
+        IReadOnlyList<string>? argv = null,
+        int wordSize = 4
     ) {
-        (SimPointResult sp, _) = ProfileSimPoints(workload, mechanismFactory(), intervalSize, profileMaxTicks, dimensions, maxK, seed);
+        (SimPointResult sp, _) = ProfileSimPoints(
+            workload, mechanismFactory(), intervalSize, profileMaxTicks, dimensions, maxK, seed, argv, wordSize
+        );
 
         // Checkpoint target per point (clamped so warmup never reaches before instruction 0),
         // sorted ascending for InstructionCounter — `order` maps sorted position back to the
@@ -422,6 +443,7 @@ public static class Experiment {
             );
 
             captureTrainRef = new SingleCycleTrain(mechanismFactory(), runMem, workload.EntryPoint, commitObserver: counter);
+            if (argv is not null) InjectInitialStack(captureTrainRef, mem, workload, argv, wordSize);
             captureTrainRef.BeginStepping();
 
             foreach (int pointIdx in zeroPointIndices) {

@@ -1341,6 +1341,31 @@ second real bug: `Train.FinishStepping(baseline)` returned the *absolute* Escape
 baseline, which `WarmupMeasureDriver`'s zero-warmup callers never noticed but inflates every per-point CPI once
 warmup > 0 — fixed by recording the tick at `SnapshotDials()` and subtracting it in `FinishStepping(baseline)`.
 
+**Validated against a real compiled binary (`TestBinaries/simpoint_kernel.c`/`.elf`).** `ProfileSimPoints` and
+`RunWithSimPointCheckpoints` gained optional `argv`/`wordSize` parameters so their functional passes can inject a real
+psABI initial stack (`InitialStackBuilder`) instead of only bare-metal entry — the first time the *sampling* machinery
+itself has been checked directly (via the `RunWithSimPointCheckpoints` API, not yet the `--simpoint-warmup` CLI flag —
+`Program.cs` still builds a bare-metal HTIF mechanism with no argv/syscall handler for that path; see TODO.md) against
+genuinely compiled code rather than a hand-assembled probe.
+`Tests/RiscV64/System/RealLinkedSimPointTests.cs` uses `simpoint_kernel.elf` — static arrays (no `malloc`, so no
+`brk`/`mmap`) with one `printf` at the very end — and an independent commit-trace pass to verify every *selected*
+simulation point's warmup+measure window is syscall-free except the two edge phases (startup/shutdown), which always
+contain ECALLs by construction and are the documented reduced-scope exception (real syscall-emulator-state
+checkpointing — `brk`/`mmap` cursors, fd table, stdin position — is still unimplemented; see TODO.md). Building this
+surfaced a third real, independent bug — not part of the checkpoint machinery, reproduced on a plain straight-through
+`OooeTrain` run too: `LinuxSyscallEmulator`'s ECALL handler reads/writes guest memory through the same `IMemory`
+`OooeTrain` uses for real loads/stores, and `ExecResult.HasLoadAccess`/`HasStoreCapture` were derived unconditionally
+from that memory wrapper's flags — any memory-touching ECALL (`write`/`writev`'s buffer read, `fstat`/
+`clock_gettime`/`getrandom`'s struct write) was misread as owning a load/store-queue entry it was never allocated,
+corrupting `_lq`/`_sq` indexing (`IndexOutOfRangeException`). Fixed by routing System-class instructions through the
+same direct, non-speculative `DLayers.Accessor` path Vector/UVE already use (they're equally head-serialized), rather
+than through the deferred-write `CapturingMemory` wrapper. Two regression tests in `InitialStackTests.cs`, verified
+via revert-and-recheck. **Known, not yet fixed:** a younger load can still issue before a head-serialized ECALL that
+writes overlapping memory and read stale data — `HasPrecedingPendingStore`'s vector-store precedent never added
+System-class instructions to its blocking set — and a related, pre-existing gap (`stdin_echo64.elf` under
+`OooeTrain`: an ECALL's result, delivered via `SideEffect` at Commit rather than through the PRF, may be read stale by
+a renamed dependent instruction) is still open; see TODO.md.
+
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
 `Experiment.WriteOlympiaTrace(workload, mechanism, output)` runs the workload functionally on the single-cycle train (
