@@ -109,8 +109,16 @@ public sealed class RvInstruction(
     // RV32 amocas.d (Zacas) holds its 64-bit result in a register pair: Rd gets the
     // low word (via the normal DestinationRegister/RegisterResult path), Rd+1 gets the
     // high word via SideEffect. See ITooth.SecondaryDestinationRegister.
+    // ECALL never has a DestinationRegister of its own (rd=-1 at decode — see
+    // Rv32Decoder), but ISyscallHandler.Handle always delivers its return value to a0
+    // (x10) via SideEffect (LinuxSyscallEmulator's ABI: "return value written to a0").
+    // Without this, a0 is never renamed for the ECALL, so a younger consumer resolves
+    // its RAT lookup to whatever produced a0 *before* the syscall and never learns of
+    // the dependency at all — reproduced by stdin_echo64.elf under OooeTrain (SYS_write's
+    // count depends on SYS_read's return via `mv a2, a0`, which read stale/pre-ecall a0).
     public int SecondaryDestinationRegister { get; } = payload switch {
         RvAmocasDPair op => op.Rd + 1,
+        RvEcall          => 10,
         _                => -1,
     };
 
@@ -159,6 +167,7 @@ public sealed class RvInstruction(
 
     public bool IsDiv { get; } = payload is RvDiv or RvDivu or RvRem or RvRemu;
     public bool IsStoreConditional { get; } = payload is RvScW or RvScD;
+    public bool MayAccessArbitraryMemory { get; } = payload is RvEcall;
 
     // W (bit 0) in the predecessor set and R (bit 1) in the successor set: the fence
     // orders older stores before younger loads — the only ordering TSO doesn't already

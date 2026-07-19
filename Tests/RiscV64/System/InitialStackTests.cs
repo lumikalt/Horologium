@@ -137,6 +137,91 @@ public class InitialStackTests {
         Assert.Equal(1_000_000UL, mem.Read(tsPtr + 8, 8));
     }
 
+    [Fact]
+    public void LinuxSyscallEmulator_InjectedStdin_EchoedBackThroughSysReadSysWrite_UnderOooeTrain() {
+        // Regression for the TODO.md-documented register-delivery gap: ECALL's return value
+        // was delivered only via ExecuteResult.SideEffect applied at Commit, never through the
+        // PRF/rename, so `mv a2, a0` (SYS_write's count, depending on SYS_read's return value)
+        // could rename to a0's pre-ECALL physical register and read a stale/never-written slot
+        // instead of the syscall's result — producing empty output under OooeTrain even though
+        // the identical program worked under SingleCycleTrain (see the sibling test above).
+        // Fixed by giving RvEcall a SecondaryDestinationRegister of x10 (a0): the existing
+        // generic HasPendingSecondaryDest/CommitRegisters machinery (previously used only for
+        // amocas.d's register-pair high half) now stalls renaming of any younger consumer of a0
+        // until the ECALL retires, and syncs the PRF slot RAT still maps for a0 at that point.
+        var workload = new Rv64ElfWorkload(StdinEcho64Elf);
+        var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(mem);
+
+        ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
+        ulong sp = InitialStackBuilder.BuildInitialStack(mem, stackTop, wordSize: 8, argv: ["a.out"], envp: [], auxv: []);
+
+        var sw = new StringWriter();
+        using var stdin = new MemoryStream("ping"u8.ToArray());
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8, input: stdin);
+        var mech = new Rv64Mechanism(syscallHandler: handler);
+        var train = new OooeTrain(mech, mem, workload.EntryPoint);
+        train.ArchState.IntegerRegisters.Write(2, sp);
+
+        train.Run(100_000);
+        Assert.True(train.IsIdle);
+        Assert.Equal("ping", sw.ToString());
+    }
+
+    [Fact]
+    public void SyscallMemoryWrite_OrdersBeforeYoungerLoad_UnderOooeTrain() {
+        // Regression for the TODO.md-documented memory-ordering hazard: a younger load could
+        // issue and execute before a head-serialized ECALL that writes overlapping memory,
+        // reading stale data. HasPrecedingVectorStore (OooeTrain.cs) previously only blocked
+        // loads behind vector stores; ECALL was never added to that blocking set, even though
+        // it is equally non-speculative and equally bypasses the normal store-forwarding
+        // machinery (its writes go straight through DLayers.Accessor, not the Store Queue).
+        //
+        // To make the race deterministic (rather than relying on scheduling luck), a long
+        // dependent add-chain precedes the ECALL — the chain must fully retire before ECALL
+        // can reach the ROB head and issue (System-class instructions only issue at the ROB
+        // head), while the younger load's address (a1, set once at the very start) is ready
+        // from cycle zero. Without the fix, the load races ahead and reads a poison value
+        // stored at the same address before the chain even begins; with the fix, it is
+        // blocked until the ECALL retires and observes the post-syscall value instead.
+        const ulong tsPtr = 0x1000;
+        const ulong capturePtr = 0x1020;
+
+        var words = new List<uint> {
+            0x000015B7u, // lui  a1, 1          — a1 = 0x1000 (struct timespec* / poison target)
+            0x12300293u, // addi t0, x0, 0x123  — poison marker
+            0x0055A023u, // sw   t0, 0(a1)      — poison mem[0x1000..0x1004)
+            0x00100313u, // addi t1, x0, 1      — start of dependent chain
+        };
+        for (var i = 0; i < 64; i++) words.Add(0x00130313u); // addi t1, t1, 1 (chain delays ECALL)
+        words.AddRange([
+            0x07100893u, // addi a7, x0, 113 — SYS_clock_gettime
+            0x00000073u, // ecall            — overwrites mem[0x1000..0x1010) with tv_sec/tv_nsec
+            0x0005A383u, // lw   t2, 0(a1)   — younger load: races against the ECALL's write
+            0x02058613u, // addi a2, a1, 32  — a2 = 0x1020 (capture slot)
+            0x00762023u, // sw   t2, 0(a2)   — capture what the load actually saw
+            0x00000513u, // addi a0, x0, 0   — exit code
+            0x05D00893u, // addi a7, x0, 93  — SYS_exit
+            0x00000073u, // ecall
+        ]);
+
+        byte[] program = InitialStackTests.Encode(words.ToArray());
+
+        var workload = new ByteArrayWorkload(program, memorySizeBytes: 0x2000);
+        var mem = new FlatMemory(workload.MemorySize, 0);
+        workload.Load(mem);
+
+        var handler = new LinuxSyscallEmulator(initialBreak: 0x2000, wordSize: 8);
+        var mech = new Rv64Mechanism(syscallHandler: handler);
+        var train = new OooeTrain(mech, mem, workload.EntryPoint);
+
+        train.Run(100_000);
+        Assert.True(train.IsIdle);
+
+        Assert.Equal(0UL, mem.Read(tsPtr, 8)); // ECALL's write landed (tv_sec = 0 on first call)
+        Assert.Equal(0UL, mem.Read(capturePtr, 4)); // load saw the post-ECALL value, not the 0x123 poison
+    }
+
     private static byte[] Encode(params uint[] words) {
         var b = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(b.AsSpan(i * 4), words[i]);

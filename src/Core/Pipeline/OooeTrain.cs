@@ -1509,10 +1509,11 @@ internal sealed class OoOPipelineCore : Gear {
         if (classIssued[fuSlot] >= _fuConfig.CountFor(cls)) return false;
 
         switch (cls) {
-            // Loads issue speculatively; only block on preceding vector stores (which
-            // write eagerly at execute time, not at commit — see HasPrecedingVectorStore).
-            // Scalar store-to-load ordering is maintained through forwarding and, when
-            // necessary, memory-order violation detection and squash at the ROB head.
+            // Loads issue speculatively; only block on preceding vector stores or
+            // arbitrary-memory ops like ECALL (which write eagerly at execute time, not at
+            // commit — see HasPrecedingVectorStore). Scalar store-to-load ordering is
+            // maintained through forwarding and, when necessary, memory-order violation
+            // detection and squash at the ROB head.
             case ToothClass.Load when HasPrecedingVectorStore(rs.RobIndex):
             // TSO fence: a load may not issue while an older store→load fence is
             // still in the ROB — the fence itself only issues (and then retires)
@@ -1671,9 +1672,15 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    ///     True if any instruction older than <paramref name="loadRobIndex" /> is a vector store.
-    ///     Vector stores write eagerly at execute time (bypassing CapturingMemory), so
-    ///     younger loads must wait until the vector store has cleared the ROB.
+    ///     True if any instruction older than <paramref name="loadRobIndex" /> is a vector
+    ///     store, or an instruction that may access arbitrary guest memory (e.g. ECALL — see
+    ///     <see cref="ITooth.MayAccessArbitraryMemory" />). Both write eagerly at execute time
+    ///     (bypassing CapturingMemory) at an address the pipeline can't statically check for
+    ///     overlap, so younger loads must wait until they have cleared the ROB rather than
+    ///     relying on the normal store-forwarding/memory-order-violation machinery. Without this,
+    ///     a younger load can issue and execute before a head-serialized ECALL that writes
+    ///     overlapping memory (e.g. LinuxSyscallEmulator's fstat/clock_gettime/getrandom/read
+    ///     filling a guest buffer), reading stale data.
     ///     Scalar stores no longer block loads here; they are handled by forwarding and
     ///     memory-order violation detection.
     /// </summary>
@@ -1683,6 +1690,7 @@ internal sealed class OoOPipelineCore : Gear {
             ITooth? instr = entry.Instruction;
             if (instr is { Class: ToothClass.Vector, VectorDestinationRegister: < 0, DestinationRegister: < 0, })
                 return true;
+            if (instr?.MayAccessArbitraryMemory == true) return true;
         }
 
         return false;

@@ -58,8 +58,8 @@ free embedded suites are runnable in full today.
   below) — including finding and fixing a real, independent `OooeTrain` crash along the way. The
   parent item still stays unchecked, though: that validation used a binary deliberately chosen so its
   measured windows are syscall-free (real emulator-state checkpointing — brk/mmap cursors, fd table,
-  stdin position — is still unimplemented), and it surfaced (not yet closed) a younger-load
-  memory-ordering hazard around head-serialized ECALLs under OoOe. No SPEC/realistic binary with a
+  stdin position — is still unimplemented). It also surfaced two younger-instruction-vs-ECALL hazards
+  under OoOe, both now fixed (see the two sub-bullets below). No SPEC/realistic binary with a
   non-trivial syscall footprint inside its hot path has run through this yet.
   - [x] RV64 ECALL/syscall-handler wiring (`Rv64Mechanism`) and `Rv64ElfWorkload.InitialBreak`.
   - [x] ISA-agnostic psABI initial-stack builder (argc/argv/envp/auxv) so a real compiled `_start`
@@ -168,25 +168,31 @@ free embedded suites are runnable in full today.
     `SyscallMemoryWrite_UnderOooeTrain_DoesNotCorruptStoreQueue`), both verified via
     revert-and-recheck to fail (the second with silently-lost data before crash-suppression was
     even attempted, then with the crash itself) without the fix.
-  - [ ] Known, documented gap surfaced by the above (not fixed): a younger load can still issue and
+  - [x] Fixed the younger-load-vs-ECALL memory-ordering hazard: a younger load could issue and
     execute *before* a head-serialized ECALL that writes overlapping memory, reading stale data —
-    `HasPrecedingPendingStore`'s vector-store precedent blocks younger loads behind a
-    SQ-bypassing store, but ECALL was never added to that blocking set. One (inconclusive — a pass
-    doesn't prove absence, only a fail proves presence) probe against a
-    `clock_gettime`-then-immediately-dependent-load sequence did not reproduce it — inconclusive, not
-    evidence of rarity (`read()`-into-buffer-then-load-that-buffer is a common real-code shape). Not
-    closed. Likely the same root cause as the pre-existing
-    `stdin_echo64.elf`-under-`OooeTrain` gap below (register-side twin: head-serialization protects
-    an ECALL's *inputs*, not its *consumers*) — investigate whether making System-class instructions
-    fully serializing (block younger issue until retirement, not just self-gate on ROB head) closes
-    both at once, rather than fixing them separately.
-  - [ ] Pre-existing, separate gap noticed while building the above (not fixed, not caused by this
-    increment): `stdin_echo64.elf` (its `SYS_write`'s count depends on `SYS_read`'s return value via
-    `mv a2, a0`) produces empty output under `OooeTrain`, unlike under `SingleCycleTrain` where it
-    passes. ECALL's return value is delivered via `SideEffect` applied at Commit (not through the
-    PRF/rename), so a dependent instruction renamed to the ECALL's physical destination register may
-    read a stale/never-written PRF slot instead of the post-commit architectural value. See the
-    sub-bullet above — may share a fix with the memory-ordering hazard.
+    `HasPrecedingVectorStore`'s vector-store blocking set never included ECALL. Turned out to be a
+    genuine, deterministically-reproducible race (not the rare/inconclusive case the earlier probe
+    suggested): a new hand-encoded test with a long dependent add-chain ahead of the ECALL (to widen
+    the race window) confirms a younger load races ahead and reads a poisoned pre-ECALL value without
+    the fix. Fixed by adding `ITooth.MayAccessArbitraryMemory` (true only for RV32/64 `RvEcall`; CSR
+    reads/writes and SRET/MRET/WFI have proper destinations and don't touch memory) and checking it
+    in `HasPrecedingVectorStore` alongside the existing vector-store case — blanket, non-address-
+    specific, matching the vector-store precedent's own conservatism. Regression test:
+    `SyscallMemoryWrite_OrdersBeforeYoungerLoad_UnderOooeTrain`, verified via revert-and-recheck to
+    fail (reads back the poison value) without the fix.
+  - [x] Fixed the separate `stdin_echo64.elf`-under-`OooeTrain` register-delivery gap (its
+    `SYS_write`'s count depends on `SYS_read`'s return value via `mv a2, a0`, which produced empty
+    output under `OooeTrain` while passing under `SingleCycleTrain`). Root cause: `RvEcall` decodes
+    with `DestinationRegister = -1` and never participates in the RAT/PRF at all, so a younger
+    consumer of a0 resolved its RAT lookup to whatever produced a0 *before* the ECALL and never
+    learned of the dependency — this was not a timing race like the sub-bullet above, but a structural
+    gap in how ECALL's result reaches the PRF. Fixed the same way the pre-existing Zacas `amocas.d`
+    register-pair high half is already handled: set `RvEcall`'s `SecondaryDestinationRegister = 10`
+    (a0) so the existing, class-agnostic `HasPendingSecondaryDest` dispatch stall and
+    `CommitRegisters`' secondary-dest PRF sync — previously exercised only by atomics — now cover
+    ECALL's result too, with no pipeline-stage code changes needed. Regression test:
+    `LinuxSyscallEmulator_InjectedStdin_EchoedBackThroughSysReadSysWrite_UnderOooeTrain`, verified via
+    revert-and-recheck to fail (empty output) without the fix.
   - [ ] Reference-output comparison in `BenchmarkResult.Passed` is byte-exact, including trailing
     newline — real reference files almost always end in `\n`. Consider a
     trailing-whitespace-normalized compare mode.

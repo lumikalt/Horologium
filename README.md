@@ -1360,11 +1360,18 @@ from that memory wrapper's flags — any memory-touching ECALL (`write`/`writev`
 corrupting `_lq`/`_sq` indexing (`IndexOutOfRangeException`). Fixed by routing System-class instructions through the
 same direct, non-speculative `DLayers.Accessor` path Vector/UVE already use (they're equally head-serialized), rather
 than through the deferred-write `CapturingMemory` wrapper. Two regression tests in `InitialStackTests.cs`, verified
-via revert-and-recheck. **Known, not yet fixed:** a younger load can still issue before a head-serialized ECALL that
-writes overlapping memory and read stale data — `HasPrecedingPendingStore`'s vector-store precedent never added
-System-class instructions to its blocking set — and a related, pre-existing gap (`stdin_echo64.elf` under
-`OooeTrain`: an ECALL's result, delivered via `SideEffect` at Commit rather than through the PRF, may be read stale by
-a renamed dependent instruction) is still open; see TODO.md.
+via revert-and-recheck. This surfaced two further hazards, both since fixed. First, a younger load could issue before
+a head-serialized ECALL that writes overlapping memory and read stale data — `HasPrecedingVectorStore`'s vector-store
+precedent never added ECALL to its blocking set. A widened-race-window regression test (a long dependent add-chain
+ahead of the ECALL, so the race is deterministic rather than luck-of-scheduling) confirmed this was a real,
+reproducible bug, not the rare case an earlier probe's inconclusive pass had suggested. Fixed via
+`ITooth.MayAccessArbitraryMemory` (true only for ECALL), checked alongside the vector-store case. Second, a separate,
+pre-existing gap: `stdin_echo64.elf` under `OooeTrain` produced empty output, because ECALL's result is delivered via
+`SideEffect` at Commit and `RvEcall` never has a `DestinationRegister`, so it never participates in the RAT/PRF at
+all — a younger consumer of a0 could resolve to whatever produced a0 *before* the syscall. Fixed the same way as
+Zacas `amocas.d`'s register-pair high half: `RvEcall.SecondaryDestinationRegister = 10` (a0), reusing the existing
+class-agnostic `HasPendingSecondaryDest` dispatch stall and `CommitRegisters` PRF sync with no pipeline-stage changes.
+Both fixes verified via revert-and-recheck in `InitialStackTests.cs`; see TODO.md.
 
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
