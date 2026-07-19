@@ -22,11 +22,19 @@ public sealed class Rv64ElfWorkload : IWorkload {
         BaseAddress = ComputeBaseAddress(elfBytes);
         MemorySize = memorySizeBytes ?? ComputeMinMemorySize(elfBytes, BaseAddress);
         HtifTohostAddress = TryFindSymbol("tohost", out ulong tohost) ? tohost : null;
+        InitialBreak = ComputeInitialBreak(elfBytes);
     }
 
     public ulong EntryPoint { get; }
     public int MemorySize { get; }
     public int CodeSize => _elfBytes.Length;
+
+    /// <summary>
+    ///     Address just past the last PT_LOAD segment (i.e. the initial program break).
+    ///     Pass to <see cref="RiscV32.Syscalls.LinuxSyscallEmulator" /> as <c>initialBreak</c>
+    ///     so SYS_brk starts from the correct address.
+    /// </summary>
+    public ulong InitialBreak { get; }
 
     /// <summary>
     ///     The physical base address of the first PT_LOAD segment, e.g. 0x80000000
@@ -136,5 +144,23 @@ public sealed class Rv64ElfWorkload : IWorkload {
         // Size relative to the base address, rounded to next 64 KB + 64 KB for stack/heap.
         ulong relativeEnd = maxEnd - baseAddress;
         return (int)((relativeEnd + 0xFFFF) & ~0xFFFFUL) + 0x10000;
+    }
+
+    private static ulong ComputeInitialBreak(ReadOnlySpan<byte> elf) {
+        ulong phoff = BinaryPrimitives.ReadUInt64LittleEndian(elf[32..]);
+        ushort phentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[54..]);
+        ushort phnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[56..]);
+
+        ulong maxEnd = 0;
+        for (var i = 0; i < phnum; i++) {
+            var ph = (int)(phoff + (ulong)(i * phentsz));
+            if (BinaryPrimitives.ReadUInt32LittleEndian(elf[ph..]) != 1) continue; // PT_LOAD = 1
+            ulong paddr = BinaryPrimitives.ReadUInt64LittleEndian(elf[(ph + 24)..]);
+            ulong memsz = BinaryPrimitives.ReadUInt64LittleEndian(elf[(ph + 40)..]);
+            maxEnd = Math.Max(maxEnd, paddr + memsz);
+        }
+
+        // Round up to the next page boundary (4 KiB).
+        return (maxEnd + 0xFFFUL) & ~0xFFFUL;
     }
 }

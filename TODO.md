@@ -50,6 +50,15 @@ free embedded suites are runnable in full today.
 - [ ] SPEC CPU2006/2017 harness (user-supplied install; SPEC is licensed and non-redistributable):
   RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction
   intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint)
+  - [x] RV64 ECALL/syscall-handler wiring (`Rv64Mechanism`) and `Rv64ElfWorkload.InitialBreak`.
+  - [x] ISA-agnostic psABI initial-stack builder (argc/argv/envp/auxv) so a real compiled `_start`
+    can run, not just bare-metal entry — `InitialStackBuilder`.
+  - [ ] `LinuxSyscallEmulator` realism: real file I/O/mmap/clock_gettime/getrandom/fcntl (currently
+    RV32-only and minimal).
+  - [ ] Instruction-count-triggered checkpoint hook + SimPoint-interval → checkpoint glue + a
+    warmup-then-measure driver for the detailed pipeline.
+  - [ ] Runner CLI: wire RV64 into every mode, plus a benchmark-config/batch-mode concept (ELF +
+    argv + stdin/stdout redirection + reference output per benchmark).
 
 ## Face
 

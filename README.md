@@ -1098,6 +1098,23 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   `−ENOTTY`; all others return `−ENOSYS`. `Rv32ElfWorkload.InitialBreak` exposes the page-rounded end of the last
   PT_LOAD segment as the initial break address. `ISyscallHandler` (in `Mechanism/`) defines the interface so alternate
   emulators can be plugged in.
+- **RV64 syscall-emulation wiring.** `Rv64Mechanism` now takes the same `syscallHandler: ISyscallHandler?` constructor
+  parameter as `Rv32Mechanism` — `Rv64Executor : Rv32Executor` already inherited the ECALL-dispatch arm unchanged, so
+  this was the only missing wire. `Rv64ElfWorkload.InitialBreak` mirrors `Rv32ElfWorkload`'s PT_LOAD-scan computation.
+- **psABI initial-stack builder (`InitialStackBuilder`, ISA-agnostic, in `Mechanism/`).** Bare-metal entry (PC = ELF
+  entry point, registers untouched) is enough for the hand-written assembly test fixtures, but a real compiled
+  binary's C-runtime `_start` reads its command line and environment straight off the initial stack. Building
+  `_start` from bare-metal isn't possible without one. `BuildInitialStack(memory, stackTop, wordSize, argv, envp,
+  auxv)` writes a standard argc/argv/envp/auxv layout (string blob → 16-byte-aligned auxv array, terminated by
+  `AT_NULL` → envp/argv pointer arrays, NULL-terminated → argc word) and returns the resulting SP, 16-byte aligned
+  per the RISC-V calling convention. One function serves RV32 and RV64 (`wordSize` 4 or 8); only RV64 has a caller
+  so far. `BuildStandardAuxv` assembles the standards-minimal auxv set for a statically-linked binary (`AT_PAGESZ`,
+  `AT_PHDR`/`AT_PHENT`/`AT_PHNUM`, `AT_ENTRY`, zeroed uid/gid/hwcap/secure) — not yet exercised by a caller.
+  Verified two ways: `InitialStackBuilderTests` asserts the exact byte layout for both word sizes directly against a
+  `FlatMemory`; `Tests/RiscV64/System/InitialStackTests.cs` loads a hand-assembled RV64 probe (`abi_probe64.s`, its
+  own independent offset arithmetic) that reads `argv[0]` off a stack built entirely by this function and echoes it
+  back. Callers still inject the SP manually (`ArchState.IntegerRegisters.Write(2, sp)` before `Run()`) — there is no
+  `IWorkload`/`Train` wiring yet, and real argv/envp plumbing from a CLI is still open.
 
 Because the five-stage and out-of-order trains previously spun HTIF binaries to `maxTicks`, adding these halts also
 makes the HTIF benchmark suite finish in seconds. `HtifExitTests` covers both paths across all three trains without

@@ -86,6 +86,14 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <Link>se_hello.elf</Link>
         </None>
+        <None Include="..\TestBinaries\se_hello64.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>se_hello64.elf</Link>
+        </None>
+        <None Include="..\TestBinaries\abi_probe64.elf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>abi_probe64.elf</Link>
+        </None>
         <None Include="..\TestBinaries\isa\*.elf">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <LinkBase>isa</LinkBase>

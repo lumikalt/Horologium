@@ -2,6 +2,7 @@ using Mechanism;
 using Orrery.Cache;
 using Orrery.Devices;
 using RiscV32.Execute;
+using RiscV32.Syscalls;
 using RiscV32.Trap;
 using RiscV64.Decode;
 using RiscV64.Execute;
@@ -42,6 +43,10 @@ public sealed class Rv64Mechanism : IMechanism {
     /// </param>
     /// <param name="ebreakAlwaysHalts">See <see cref="Rv32Executor.EbreakAlwaysHalts" />.</param>
     /// <param name="wfiNeverHalts">See <see cref="Rv32Executor.WfiNeverHalts" />.</param>
+    /// <param name="syscallHandler">
+    ///     Optional Linux syscall-emulation handler. When non-null, ECALL instructions
+    ///     are routed here instead of generating a trap. See <see cref="LinuxSyscallEmulator" />.
+    /// </param>
     public Rv64Mechanism(
         ulong? htifTohost = null,
         ReservationTable? reservationTable = null,
@@ -49,7 +54,8 @@ public sealed class Rv64Mechanism : IMechanism {
         ClintDevice? clint = null,
         PlicDevice? plic = null,
         bool ebreakAlwaysHalts = false,
-        bool wfiNeverHalts = false
+        bool wfiNeverHalts = false,
+        ISyscallHandler? syscallHandler = null
     ) {
         Executor = new Rv64Executor {
             HtifTohostAddress = htifTohost,
@@ -58,6 +64,7 @@ public sealed class Rv64Mechanism : IMechanism {
             Clint = clint,
             EbreakAlwaysHalts = ebreakAlwaysHalts,
             WfiNeverHalts = wfiNeverHalts,
+            SyscallHandler = syscallHandler,
         };
         TrapController = new RvTrapController(clint, plic);
     }
