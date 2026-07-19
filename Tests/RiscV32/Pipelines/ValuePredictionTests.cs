@@ -701,4 +701,85 @@ public class ValuePredictionTests {
         Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
         Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
     }
+
+    // ── Dynamic classification (TODO.md: Rychlik-style hybrid component selection) ──────────────
+    //
+    // DynamicClassificationValuePredictor assigns each PC to at most one component (rather than
+    // HybridValuePredictor's always-query-both-and-gate-on-agreement), after a short 3-value
+    // learning window. Routing correctness (which program shape lands on which component) is
+    // covered precisely by Tests.Mechanism.DynamicClassificationValuePredictionTests; these two
+    // pipeline tests just confirm the same wiring holds end-to-end through OooeTrain on the two
+    // program shapes already used elsewhere in this file for the same purpose.
+
+    /// <summary>
+    ///     Same monotonic-counter program used by the Stride/Hybrid tests above — a value that
+    ///     never repeats, so its 3-value learning window sees two equal (non-zero) deltas and
+    ///     classifies to the computational component.
+    /// </summary>
+    [Fact]
+    public void DynamicClassification_MonotonicCounterLoop_ArchStateIdenticalToWithout_AndPredictionsOccur() {
+        uint[] program = [
+            0x12C00093, // addi x1, x0, 300
+            0x00000113, // addi x2, x0, 0
+            0x00410113, // loop: addi x2, x2, 4
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009CE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null);
+        (OooeTrain on, FlatMemory memOn) =
+            Make(new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor()));
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_predictions"));
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
+    }
+
+    /// <summary>
+    ///     Same constant copy-chain program as <c>ConstantCopyChain_ArchStateIdenticalToWithout_AndPredictionsOccur</c>
+    ///     above — a value that always converges to the same constant (99) every iteration. Its
+    ///     first three committed values are already 99, 99, 99 (zero deltas), which — per the
+    ///     "equal deltas, including zero" rule — classifies to the <em>computational</em> component,
+    ///     not context; this test exercises the same routing decision as the monotonic-counter test
+    ///     above (equal, non-zero deltas), just via the zero-delta case instead. Routing to the
+    ///     context component specifically is covered at the unit level, in
+    ///     <see cref="Tests.Mechanism.DynamicClassificationValuePredictionTests" />
+    ///     .<c>NonConstantDeltaHistory_ClassifiesToContext_AndEventuallyPredicts</c> — no program in
+    ///     this file happens to produce the non-constant-delta learning window that path needs.
+    /// </summary>
+    [Fact]
+    public void DynamicClassification_ConstantCopyChain_ArchStateIdenticalToWithout_AndPredictionsOccur() {
+        uint[] program = [
+            0x1F400093, // addi x1, x0, 500
+            0x06300113, // addi x2, x0, 99
+            0x000101B3, // loop: add x3, x2, x0
+            0x00018133, // add x2, x3, x0
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009AE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain off, FlatMemory memOff) = Make(null);
+        (OooeTrain on, FlatMemory memOn) =
+            Make(new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor()));
+        Load(memOff, program);
+        Load(memOn, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+
+        Assert.Equal(0L, Counter(offResult, "vp_predictions"));
+        Assert.True(Counter(onResult, "vp_predictions") > 0, "no value prediction was ever supplied");
+        Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
+    }
 }

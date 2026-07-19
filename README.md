@@ -289,8 +289,19 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   modeled: the paper's further optimization of feeding one component's speculative prediction to the other to
   resolve back-to-back same-PC occurrences within a single cycle — Horologium's pipeline only calls
   `TryPredict`/`Update` once per instruction, at Rename/Commit, so there's no equivalent intra-cycle chaining
-  to hook into; a Rychlik-style dynamic single-component selection (in place of always querying both) is
-  tracked in TODO.md pending its own primary source. A **critical-path
+  to hook into. **`DynamicClassificationValuePredictor`** (Rychlik et al., CMuART-1998-01, §3.2.3 "Efficient
+  Dynamic Scheme") is the alternative to always-query-both: each PC is assigned, after a 3-value learning
+  window, to *at most one* of the two components — equal consecutive deltas (including zero) route to the
+  computational component, anything else routes to the context component, folding the paper's 3-predictor
+  split (Popular Last Value / Stride+ / FCM) onto Horologium's 2-component hybrid since VTAGE's own tagless
+  LVP base already subsumes Popular Last Value. A classified PC whose component stops predicting confidently
+  after having predicted at least once is evicted — permanently to Don't Predict if it was on the context
+  (FCM-role) component, or back to Unclassified to relearn if it was on the computational one — but the
+  trigger (any non-confident `TryPredict`, since `IValuePredictor` exposes no raw confidence value) is
+  markedly more aggressive than the paper's confidence-reaches-zero trigger: a context-classified PC is
+  dropped permanently on its first ordinary misprediction, not once its accuracy has actually collapsed. A
+  consecutive-miss threshold closer to the paper's intent is tracked in TODO.md, deliberately not built since
+  no test here measures eviction *rate*. A **critical-path
   predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each

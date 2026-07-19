@@ -24,13 +24,13 @@ off here until a periodic cleanup removes them; the durable record is git histor
   div/sqrt), and CSR reads (System). — Lipasti & Shen, MICRO 1996; Perais & Seznec, HPCA 2014
 - [x] Add a computational (stride-family) predictor component to hybridize with VTAGE. — Perais & Seznec,
   HPCA 2014
-- [ ] Dynamic component selection for hybrid value predictors: assign each PC to at most one component
-  (context-based or computational) instead of always querying both, for space efficiency. **Needs the
-  primary source** — Perais & Seznec HPCA 2014 §7.1.2 only glosses the idea in one sentence; the actual
-  mechanism is Rychlik, Faistl, Krug, Kurland, Sung, Velev & Shen, "Efficient and accurate value prediction
-  using dynamic classification", 1998 tech report — not yet obtained.
+- [x] Dynamic component selection for hybrid value predictors: assign each PC to at most one component
+  (context-based or computational) instead of always querying both, for space efficiency. — Rychlik et al.,
+  CMuART-1998-01
 - [ ] Tighten the stride predictor's in-flight speculative-depth tracking to hold through warmup and
   post-squash recovery, closing the residual undercount measured in each of those windows.
+- [ ] Evict-on-consecutive-misprediction threshold for dynamic component selection, closer to Rychlik et
+  al.'s confidence-zero trigger than the current evict-on-first-non-confident-prediction rule.
 
 ## Cache Prefetching
 

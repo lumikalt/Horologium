@@ -21,3 +21,4 @@ this file carries the full title so the paper can be found. Local PDFs live in `
 | Lipasti et al., ASPLOS 1996 | Value Locality and Load Value Prediction | M. H. Lipasti, C. B. Wilkerson, J. P. Shen | ASPLOS-VII, 1996 | `~/dl/lipasti_locality.pdf` |
 | Perais & Seznec, HPCA 2014 | Practical Data Value Speculation for Future High-end Processors | A. Perais, A. Seznec | HPCA 2014 | `~/dl/Practical_data_value_speculation.pdf` |
 | Perais & Seznec, ISCA 2014 | EOLE: Paving the Way for an Effective Implementation of Value Prediction | A. Perais, A. Seznec | ISCA 2014 | `~/dl/eole.pdf` |
+| Rychlik et al., CMuART-1998-01 | Efficient and Accurate Value Prediction Using Dynamic Classification | B. Rychlik, J. Faistl, B. Krug, A. Kurland, J. Sung, M. Velev, J. P. Shen | CMU CMuART tech report, 1998 | `~/dl/CMuART-1998-01.pdf` |
