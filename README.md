@@ -257,7 +257,11 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   instruction's result needs no separate commit-time verification (unlike Late Execution): the only way one of
   its operands could be wrong is if it came from a value prediction, and in-order commit guarantees that
   prediction's own squash-at-commit path (if it mispredicts) flushes the Early-Executed consumer before it ever
-  reaches the ROB head. Widening VP eligibility beyond ALU/load is tracked in TODO.md. A **critical-path
+  reaches the ROB head. Both bypass `StepIssue`/`StepExecute` entirely, so the Top-Down (Yasin, ISPASS 2014)
+  Level-2 Core/Memory Bound split — the only TMA/CPI-stack accounting that reads execute-stage traffic rather
+  than dispatch-stage slot counts or ROB-head completeness — folds each tick's EOLE-bypassed count in at the
+  end of `StepDispatch` so a narrow-issue machine leaning on EOLE isn't misreported as execution-stalled.
+  Widening VP eligibility beyond ALU/load is tracked in TODO.md. A **critical-path
   predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each

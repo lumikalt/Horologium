@@ -193,7 +193,7 @@ public class ValuePredictionTests {
         Load(memOff, program);
         Load(memOn, program);
 
-        RevolutionResult offResult = off.Run();
+        off.Run();
         RevolutionResult onResult = on.Run();
 
         AssertIdenticalArchState(off, on);
@@ -237,7 +237,7 @@ public class ValuePredictionTests {
         Load(memOff, program);
         Load(memOn, program);
 
-        RevolutionResult offResult = off.Run();
+        off.Run();
         RevolutionResult onResult = on.Run();
 
         AssertIdenticalArchState(off, on);
@@ -267,7 +267,7 @@ public class ValuePredictionTests {
         Load(memOff, program);
         Load(memOn, program);
 
-        RevolutionResult offResult = off.Run();
+        off.Run();
         RevolutionResult onResult = on.Run();
 
         AssertIdenticalArchState(off, on);

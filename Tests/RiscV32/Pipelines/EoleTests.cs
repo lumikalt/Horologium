@@ -327,7 +327,7 @@ public class EoleTests {
         Load(memOff, program);
         Load(memOn, program);
 
-        RevolutionResult offResult = off.Run();
+        off.Run();
         RevolutionResult onResult = on.Run();
 
         AssertIdenticalArchState(off, on);
@@ -480,6 +480,52 @@ public class EoleTests {
             narrowCycles <= baselineCycles,
             $"narrow+Early-Execution ({narrowCycles} cycles, IntAluCount=1) did not beat the wide no-EOLE " +
             $"baseline ({baselineCycles} cycles, IntAluCount=2)"
+        );
+    }
+
+    /// <summary>
+    ///     TMA ExecutionStalls (Table 1) must not misreport cycles where EOLE Early Execution
+    ///     supplies the throughput instead of the OoO issue/execute path. <c>StepExecute</c>'s
+    ///     <c>executing</c> count only sees IQ-issued instructions — before this counter was
+    ///     folded together with the same-tick EOLE bypass count at the end of
+    ///     <c>StepDispatch</c>, a narrow-issue machine leaning entirely on Early Execution (as
+    ///     here — see <see cref="EarlyExec_NarrowIssueApproachesWideIssueBaseline" />, which
+    ///     drives every one of these four independent adds through Early Execution instead of
+    ///     the single ALU port) would count almost every cycle as an execution stall, even
+    ///     though the machine is retiring at full rate. TotalSlots/Retiring/BackendBound
+    ///     (Level 1, driven by <c>dispatched</c> at the frontend/backend border, not
+    ///     <c>executing</c>) were never affected — only the Level-2 Core/Memory split under
+    ///     Backend Bound reads <c>td_exec_stall_cycles</c> at all.
+    /// </summary>
+    [Fact]
+    public void EarlyExec_DoesNotMisreportExecutionStalls() {
+        uint[] program = [
+            0x25800093, // addi x1, x0, 600
+            0x06300113, // addi x2, x0, 99
+            0x00010533, // loop: add x10, x2, x0
+            0x000105B3, // add x11, x2, x0
+            0x00010633, // add x12, x2, x0
+            0x000106B3, // add x13, x2, x0
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009AE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        (OooeTrain narrowEe, FlatMemory memNarrow) =
+            Make(null, false, new LTagePredictor(), 4, fuLatency: new FuLatencyConfig(1), enableEoleEarlyExec: true);
+        Load(memNarrow, program);
+
+        RevolutionResult result = narrowEe.Run();
+
+        long cycles = Counter(result, "cycles");
+        long execStallCycles = Counter(result, TopDownBreakdown.ExecStallCyclesCounter);
+        Assert.True(Counter(result, "eole_early_exec") > 0, "no instruction was computed via Early Execution");
+        Assert.True(
+            execStallCycles < cycles / 2,
+            $"td_exec_stall_cycles ({execStallCycles}) should be a small minority of cycles ({cycles}) — " +
+            "Early Execution is supplying the throughput this narrow-issue machine can't get from its single " +
+            "ALU port, so most cycles are not execution stalls despite StepIssue/StepExecute seeing near-zero " +
+            "traffic"
         );
     }
 }

@@ -440,6 +440,12 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _tdRecoveryBubblesCounter = null!;
     private Counter _tdSlotsIssuedCounter = null!;
     private Counter _tdTotalSlotsCounter = null!;
+
+    // TMA ExecutionStalls classification (Table 1) is finalized at the end of StepDispatch,
+    // not StepExecute, so that EOLE Late/Early Execution bypasses dispatched later in the
+    // same tick (see StepDispatch) can be folded in. This field carries StepExecute's
+    // IQ-issued count across that gap.
+    private int _execCountThisTick;
     private Counter? _vpPredictionsCounter, _vpCorrectCounter, _vpMispredictsCounter;
     private Counter? _wbAbsorbedStallsCounter;
     private int _wbOccupied; // number of slots currently counting down
@@ -1431,15 +1437,10 @@ internal sealed class OoOPipelineCore : Gear {
 
         _execBuffer.Clear();
 
-        // TMA ExecutionStalls / MemStalls.AnyLoad (Table 1): a cycle starting fewer than
-        // half the machine width in uops is an execution stall (the paper's generalization
-        // of "no or few uops executed"; 0-or-1 for the 4-wide Appendix-1 machine). When
-        // nothing at all started and a load is still in flight, the stall is pending on
-        // memory rather than the core.
-        if (executing * 2 < _issueWidth) {
-            _tdExecStallCyclesCounter.Increment();
-            if (executing == 0 && AnyInFlightLoad()) _tdMemStallLoadCyclesCounter.Increment();
-        }
+        // TMA ExecutionStalls / MemStalls.AnyLoad (Table 1) classification is finalized at
+        // the end of StepDispatch (later this same tick), which folds in any EOLE Late/Early
+        // Execution bypasses — see the comment there.
+        _execCountThisTick = executing;
     }
 
     /// <summary>True when any in-flight FU countdown belongs to a load/atomic.</summary>
@@ -1844,6 +1845,7 @@ internal sealed class OoOPipelineCore : Gear {
     /// <summary>Allocate ROB + IQ + LQ/SQ slots for instructions that have already been renamed.</summary>
     private void StepDispatch() {
         var dispatched = 0;
+        var eoleBypassed = 0;
         while (_renameQueue.Count > 0) {
             if (_rob.IsFull) break;
 
@@ -1946,6 +1948,7 @@ internal sealed class OoOPipelineCore : Gear {
                 PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Execute);
                 _renameQueue.Dequeue();
                 dispatched++;
+                eoleBypassed++;
                 continue;
             }
 
@@ -2065,6 +2068,20 @@ internal sealed class OoOPipelineCore : Gear {
         if (!stalled && !_rob.IsFull && dispatched < _issueWidth) {
             _tdFetchBubblesCounter.IncrementBy(_issueWidth - dispatched);
             if (dispatched == 0) _tdFetchLatencyCyclesCounter.Increment();
+        }
+
+        // TMA ExecutionStalls / MemStalls.AnyLoad (Table 1), continuing from StepExecute:
+        // EOLE Late/Early Execution retire IntegerAlu ops without ever occupying an issue
+        // slot or execute port (Late's verify-compute is deferred to Commit; Early's real
+        // compute already happened in a prior tick's StepRename — see its comment there), so
+        // a cycle where the OoO engine itself issued nothing is not a stall if EOLE bypass
+        // supplied the throughput instead. Crediting both at this instant (rather than
+        // wherever their arithmetic actually happens) matches the synthetic Issue/Execute
+        // PEvents already recorded at this same bypass site, above.
+        int totalExecuting = _execCountThisTick + eoleBypassed;
+        if (totalExecuting * 2 < _issueWidth) {
+            _tdExecStallCyclesCounter.Increment();
+            if (totalExecuting == 0 && AnyInFlightLoad()) _tdMemStallLoadCyclesCounter.Increment();
         }
 
         // CPI stack: after a mispredicted-branch redirect, dispatch-empty cycles are the
