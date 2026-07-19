@@ -33,6 +33,14 @@ namespace RiscV32.Analysis;
 ///     stack or the <c>brk</c>-growable region, both of which keep the exact placement they'd have
 ///     with this field unset.
 /// </param>
+/// <param name="NormalizeTrailingWhitespace">
+///     When true, <see cref="BenchmarkResult.Passed" /> trims trailing whitespace from both the
+///     captured output and <see cref="ExpectedOutputPath" />'s contents before comparing, instead
+///     of requiring a byte-exact match. Off by default, so an existing byte-exact reference keeps
+///     its current, stricter behaviour. Real reference-output files (the SPEC-style convention)
+///     almost always end in a trailing newline regardless of whether the guest's last write did —
+///     set this per-benchmark to stop that alone from failing the comparison.
+/// </param>
 public sealed record BenchmarkConfig(
     string Name,
     string ElfPath,
@@ -40,7 +48,8 @@ public sealed record BenchmarkConfig(
     string? StdinPath = null,
     string? ExpectedOutputPath = null,
     int? MemorySizeBytes = null,
-    int? MmapArenaBytes = null
+    int? MmapArenaBytes = null,
+    bool NormalizeTrailingWhitespace = false
 ) {
     private static readonly JsonSerializerOptions Options = new() {
         WriteIndented = true,
@@ -68,15 +77,21 @@ public sealed record BenchmarkResult(
     bool Halted,
     long Ticks,
     string Output,
-    string? ExpectedOutput
+    string? ExpectedOutput,
+    bool NormalizeTrailingWhitespace = false
 ) {
     /// <summary>True when an <see cref="ExpectedOutput" /> was supplied, so <see cref="Passed" /> means something.</summary>
     public bool Checked => ExpectedOutput is not null;
 
     /// <summary>
-    ///     True when there was no reference output to check, or the captured output matches it
-    ///     exactly (byte-for-byte — see <see cref="Experiment.RunBenchmark" /> for how both sides
-    ///     are read). Check <see cref="Checked" /> to tell "nothing to verify" apart from "verified".
+    ///     True when there was no reference output to check, or the captured output matches it —
+    ///     byte-for-byte by default (see <see cref="Experiment.RunBenchmark" /> for how both sides
+    ///     are read), or with trailing whitespace trimmed from both sides first when
+    ///     <see cref="NormalizeTrailingWhitespace" /> is set (see
+    ///     <see cref="BenchmarkConfig.NormalizeTrailingWhitespace" />). Check <see cref="Checked" />
+    ///     to tell "nothing to verify" apart from "verified".
     /// </summary>
-    public bool Passed => ExpectedOutput is null || Output == ExpectedOutput;
+    public bool Passed => ExpectedOutput is null || (NormalizeTrailingWhitespace
+        ? Output.TrimEnd() == ExpectedOutput.TrimEnd()
+        : Output == ExpectedOutput);
 }

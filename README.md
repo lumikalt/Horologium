@@ -1151,7 +1151,10 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   benchmark's stdin file (if any), runs to completion (or `maxTicks`) on a functional `SingleCycleTrain` — this is a
   correctness/regression harness, not a timing run — and diffs captured output against the reference file
   byte-for-byte (`Encoding.Latin1` on both sides, matching the emulator's `(char)byte` capture convention, so the
-  comparison is exact regardless of content; a stray trailing newline in the reference file will fail it).
+  comparison is exact regardless of content) unless `BenchmarkConfig.NormalizeTrailingWhitespace` is set, in which
+  case both sides are trimmed of trailing whitespace before comparing — off by default, since a stray trailing
+  newline in the reference file (the common SPEC-style convention, regardless of whether the guest's last write
+  emitted one) would otherwise fail a benchmark that's actually correct.
   `BenchmarkResult.Halted` (via `SingleCycleTrain.IsIdle` after `Run()`, not a tick-count heuristic — a clean
   `SYS_exit` drains the Escapement, a timeout leaves events pending) tells a timeout apart from a real exit;
   `Checked`/`Passed` tell "no reference supplied" apart from "verified and matched". Kept ISA-agnostic (takes an

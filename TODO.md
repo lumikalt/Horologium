@@ -193,9 +193,14 @@ free embedded suites are runnable in full today.
     ECALL's result too, with no pipeline-stage code changes needed. Regression test:
     `LinuxSyscallEmulator_InjectedStdin_EchoedBackThroughSysReadSysWrite_UnderOooeTrain`, verified via
     revert-and-recheck to fail (empty output) without the fix.
-  - [ ] Reference-output comparison in `BenchmarkResult.Passed` is byte-exact, including trailing
-    newline — real reference files almost always end in `\n`. Consider a
-    trailing-whitespace-normalized compare mode.
+  - [x] Reference-output comparison in `BenchmarkResult.Passed` was byte-exact only, including
+    trailing newline. Added `BenchmarkConfig.NormalizeTrailingWhitespace` (default `false`, so an
+    existing byte-exact reference keeps today's stricter behaviour) — when set,
+    `BenchmarkResult.Passed` trims trailing whitespace from both the captured output and the
+    reference file before comparing, so the SPEC-style convention of reference files always ending
+    in `\n` no longer alone fails a benchmark whose last write didn't. Verified via
+    revert-and-recheck that the flag both closes the false-failure case and still catches a real
+    content mismatch that happens to also carry a trailing newline.
 
 ## Face
 

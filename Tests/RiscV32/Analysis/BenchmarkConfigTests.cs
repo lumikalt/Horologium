@@ -100,6 +100,69 @@ public class BenchmarkConfigTests {
     }
 
     [Fact]
+    public void RunBenchmark_TrailingNewlineMismatch_FailsByDefault() {
+        // Byte-exact is still the default: a reference file with the trailing newline convention
+        // most such files use (but that the guest's own output doesn't emit) must fail unless
+        // NormalizeTrailingWhitespace opts into trimming both sides first (see the sibling test).
+        string expectedPath = Path.Combine(Path.GetTempPath(), $"horologium_bench_{Guid.NewGuid():N}.txt");
+        File.WriteAllText(expectedPath, "abi_probe64.elf\n");
+        try {
+            var bench = new BenchmarkConfig("probe", AbiProbe64Elf, ExpectedOutputPath: expectedPath);
+            var workload = new Rv64ElfWorkload(bench.ElfPath);
+
+            BenchmarkResult result = Experiment.RunBenchmark(
+                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+            );
+
+            Assert.True(result.Checked);
+            Assert.False(result.Passed);
+        }
+        finally { File.Delete(expectedPath); }
+    }
+
+    [Fact]
+    public void RunBenchmark_NormalizeTrailingWhitespace_IgnoresTrailingNewlineMismatch() {
+        string expectedPath = Path.Combine(Path.GetTempPath(), $"horologium_bench_{Guid.NewGuid():N}.txt");
+        File.WriteAllText(expectedPath, "abi_probe64.elf\n");
+        try {
+            var bench = new BenchmarkConfig(
+                "probe", AbiProbe64Elf, ExpectedOutputPath: expectedPath, NormalizeTrailingWhitespace: true
+            );
+            var workload = new Rv64ElfWorkload(bench.ElfPath);
+
+            BenchmarkResult result = Experiment.RunBenchmark(
+                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+            );
+
+            Assert.True(result.Checked);
+            Assert.True(result.Passed);
+        }
+        finally { File.Delete(expectedPath); }
+    }
+
+    [Fact]
+    public void RunBenchmark_NormalizeTrailingWhitespace_StillFailsOnRealContentMismatch() {
+        // The flag only trims trailing whitespace runs, not internal content — must not mask an
+        // actual output difference just because it also happens to add a trailing newline.
+        string expectedPath = Path.Combine(Path.GetTempPath(), $"horologium_bench_{Guid.NewGuid():N}.txt");
+        File.WriteAllText(expectedPath, "not the right output\n");
+        try {
+            var bench = new BenchmarkConfig(
+                "probe", AbiProbe64Elf, ExpectedOutputPath: expectedPath, NormalizeTrailingWhitespace: true
+            );
+            var workload = new Rv64ElfWorkload(bench.ElfPath);
+
+            BenchmarkResult result = Experiment.RunBenchmark(
+                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+            );
+
+            Assert.True(result.Checked);
+            Assert.False(result.Passed);
+        }
+        finally { File.Delete(expectedPath); }
+    }
+
+    [Fact]
     public void RunBenchmark_StdinPath_IsRedirectedToGuest() {
         string stdinPath = Path.Combine(Path.GetTempPath(), $"horologium_bench_{Guid.NewGuid():N}.txt");
         File.WriteAllText(stdinPath, "ping");

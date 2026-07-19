@@ -633,12 +633,16 @@ public static class Experiment {
         string output = outputWriter.ToString();
         // Latin1 both here and in the emulator's capture path (Write() does `(char)byte`) so the
         // comparison is a byte-exact round trip regardless of content, not a UTF-8 (re)interpretation
-        // of raw bytes that could mismatch on anything outside ASCII. Comparison is exact — a stray
-        // trailing newline in the reference file will fail it.
+        // of raw bytes that could mismatch on anything outside ASCII. Comparison is exact by default
+        // — a stray trailing newline in the reference file will fail it unless
+        // bench.NormalizeTrailingWhitespace opts into trimming both sides first (see
+        // BenchmarkResult.Passed).
         string? expected = bench.ExpectedOutputPath is not null
             ? File.ReadAllText(bench.ExpectedOutputPath, Encoding.Latin1)
             : null;
 
-        return new BenchmarkResult(bench.Name, train.IsIdle, train.CurrentTick, output, expected);
+        return new BenchmarkResult(
+            bench.Name, train.IsIdle, train.CurrentTick, output, expected, bench.NormalizeTrailingWhitespace
+        );
     }
 }
