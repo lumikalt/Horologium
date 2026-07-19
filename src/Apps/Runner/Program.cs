@@ -10,6 +10,8 @@ using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
 using RiscV32.Trace;
+using RiscV64;
+using RiscV64.Memory;
 using Script;
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
@@ -21,6 +23,7 @@ long maxTicks = 1_000_000;
 long snapshotInterval = 0;         // 0 = off, -1 = auto, >0 = explicit ticks
 var format = "md";                 // md | csv | both | ts-csv
 int? memorySizeBytes = null;       // null → default to 4 MB for ELF workloads
+var xlen = 32;                     // --xlen 32|64: RV32I or RV64I workload/mechanism
 string? traceJsonPath = null;      // --trace-json <path>: emit an Olympia JSON trace and exit
 long simpointInterval = 0;         // --simpoint <n>: SimPoint phase analysis with n-instruction intervals
 string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
@@ -56,6 +59,7 @@ for (var i = 0; i < args.Length; i++)
         case "--warmup":    warmupTicks = long.Parse(args[++i]); break;
         case "--max-ticks": maxTicks = long.Parse(args[++i]); break;
         case "--memory":    memorySizeBytes = int.Parse(args[++i]); break;
+        case "--xlen":      xlen = int.Parse(args[++i]); break;
         case "--snapshot-interval":
             snapshotInterval = args[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(args[++i]);
             break;
@@ -99,6 +103,18 @@ for (var i = 0; i < args.Length; i++)
 
             break;
     }
+
+if (xlen is not (32 or 64)) {
+    Console.Error.WriteLine($"--xlen must be 32 or 64, got {xlen}.");
+    return;
+}
+
+// mechanismFactory: swaps RV32I/RV64I across every mode below based on --xlen. Both
+// Rv32Mechanism/Rv64Mechanism have the same first positional constructor parameter
+// (htifTohost), so one delegate shape covers both.
+Func<ulong?, IMechanism> mechanismFactory = xlen == 64
+    ? htifTohost => new Rv64Mechanism(htifTohost)
+    : htifTohost => new Rv32Mechanism(htifTohost);
 
 // ── Elastic trace → gem5 Protobuf translation (standalone) ───────────────────
 
@@ -187,7 +203,9 @@ List<(string Label, IWorkload Workload)> workloads;
 
 if (elfPaths.Count > 0) {
     int memSize = memorySizeBytes ?? 4 * 1024 * 1024;
-    workloads = elfPaths.Select(p => (Path.GetFileName(p), (IWorkload)new Rv32ElfWorkload(p, memSize))).ToList();
+    workloads = xlen == 64
+        ? elfPaths.Select(p => (Path.GetFileName(p), (IWorkload)new Rv64ElfWorkload(p, memSize))).ToList()
+        : elfPaths.Select(p => (Path.GetFileName(p), (IWorkload)new Rv32ElfWorkload(p, memSize))).ToList();
 }
 else {
     // Built-in demo: 100-iteration countdown loop
@@ -196,6 +214,13 @@ else {
     //   addi  x1, x1, -1
     //   jal   x0, -8          ← back to beq
     //   ebreak
+    if (xlen == 64 && checkpointLoadPath is null) {
+        // --checkpoint-load never touches `workloads` (its own memory/PC come from the
+        // checkpoint), so it's the one no-ELF mode --xlen 64 is meaningful for.
+        Console.Error.WriteLine("--xlen 64 requires an ELF path (the built-in demo is RV32-only).");
+        return;
+    }
+
     uint[] words = [0x06400093, 0x00008663, 0xFFF08093, 0xFF9FF06F, 0x00100073,];
     var bytes = new byte[words.Length * 4];
     for (var i = 0; i < words.Length; i++) {
@@ -218,7 +243,7 @@ if (simpointInterval > 0) {
 
     IWorkload spWorkload = workloads[0].Workload;
     (SimPointResult sp, BbvProfiler profiler) = Experiment.ProfileSimPoints(
-        spWorkload, new Rv32Mechanism(spWorkload.HtifTohostAddress), simpointInterval, maxTicks
+        spWorkload, mechanismFactory(spWorkload.HtifTohostAddress), simpointInterval, maxTicks
     );
     Console.Error.WriteLine(
         $"Profiled {profiler.TotalInstructions:N0} instructions " +
@@ -242,7 +267,7 @@ if (traceJsonPath is not null) {
     IWorkload traceWorkload = workloads[0].Workload;
     await using var sw = new StreamWriter(traceJsonPath);
     int written = Experiment.WriteOlympiaTrace(
-        traceWorkload, new Rv32Mechanism(traceWorkload.HtifTohostAddress), sw, maxTicks
+        traceWorkload, mechanismFactory(traceWorkload.HtifTohostAddress), sw, maxTicks
     );
     Console.Error.WriteLine($"Wrote {written} instructions to {traceJsonPath}");
     return;
@@ -259,7 +284,7 @@ if (elasticRecordPath is not null) {
     IWorkload elasticWorkload = workloads[0].Workload;
     await using var fs = new FileStream(elasticRecordPath, FileMode.Create, FileAccess.Write);
     int written = Experiment.WriteElasticTrace(
-        elasticWorkload, new Rv32Mechanism(elasticWorkload.HtifTohostAddress), fs, maxTicks
+        elasticWorkload, mechanismFactory(elasticWorkload.HtifTohostAddress), fs, maxTicks
     );
     Console.Error.WriteLine($"Recorded {written:N0} instructions to {elasticRecordPath}");
     return;
@@ -276,7 +301,7 @@ if (stfRecordPath is not null) {
     IWorkload stfWorkload = workloads[0].Workload;
     await using var fs = new FileStream(stfRecordPath, FileMode.Create, FileAccess.Write);
     int written = Experiment.WriteStfTrace(
-        stfWorkload, new Rv32Mechanism(stfWorkload.HtifTohostAddress), fs, maxTicks
+        stfWorkload, mechanismFactory(stfWorkload.HtifTohostAddress), fs, maxTicks
     );
     Console.Error.WriteLine($"Recorded {written:N0} instructions to {stfRecordPath}");
     return;
@@ -305,7 +330,7 @@ if (scriptPath is not null) {
         // Phase 1: fast-forward with SingleCycleTrain until ArchState.Pc == roiStartPc.
         // Phase 2: rebuild with the script's pipeline, restore state, run to roiEnd or maxTicks.
 
-        if (workloads[0].Workload is not Rv32ElfWorkload elfWorkload) {
+        if (workloads[0].Workload is not IElfWorkload elfWorkload) {
             Console.Error.WriteLine("--roi-start requires an ELF workload.");
             return;
         }
@@ -476,7 +501,7 @@ Console.Error.WriteLine();
 if (workloads.Count == 1) {
     IWorkload workload = workloads[0].Workload;
     ExperimentResult result = Experiment.Run(
-        workload, configs, () => new Rv32Mechanism(workload.HtifTohostAddress),
+        workload, configs, () => mechanismFactory(workload.HtifTohostAddress),
         maxTicks, warmupTicks, snapshotInterval
     );
 
@@ -488,7 +513,7 @@ if (workloads.Count == 1) {
 }
 else {
     IReadOnlyList<(string Label, ExperimentResult Result)> results = Experiment.RunMany(
-        workloads, configs, w => new Rv32Mechanism(w.HtifTohostAddress),
+        workloads, configs, w => mechanismFactory(w.HtifTohostAddress),
         maxTicks, warmupTicks, snapshotInterval
     );
 
@@ -564,6 +589,8 @@ static void PrintUsage() {
         Options:
           --sweep <path>        JSON file with named hardware configurations to compare.
                                 Default: branch-predictor sweep + OoO 2-wide and 4-wide.
+          --xlen 32|64          RV32I or RV64I workload/mechanism (default: 32). 64 requires an
+                                ELF path — the built-in demo program is RV32-only.
           --memory <bytes>      Physical memory size in bytes (default: 4194304 = 4 MB).
           --warmup <n>          Ticks to run before recording statistics (default: 0).
           --max-ticks <n>       Maximum measurement ticks per run (default: 1000000).

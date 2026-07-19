@@ -11,6 +11,7 @@
         <ProjectReference Include="../../Core/Orrery/Orrery.csproj"/>
         <ProjectReference Include="../../Core/Mechanism/Mechanism.csproj"/>
         <ProjectReference Include="../../Isa/RiscV32/RiscV32.csproj"/>
+        <ProjectReference Include="../../Isa/RiscV64/RiscV64.csproj"/>
         <ProjectReference Include="..\Script\Script.csproj"/>
     </ItemGroup>
 

@@ -19,6 +19,8 @@ public static class ScriptHost {
                                                                             typeof(IMemory).Assembly,       // Mechanism
                                                                             typeof(MachineSpec).Assembly,   // Pipeline
                                                                             typeof(Rv32Mechanism).Assembly, // RiscV32
+                                                                            typeof(RiscV64.Rv64Mechanism)
+                                                                               .Assembly, // RiscV64
                                                                             typeof(SetAssociativeCache)
                                                                                .Assembly // Orrery (includes Orrery.Spec)
                                                                         )
@@ -31,7 +33,9 @@ public static class ScriptHost {
                                                                             "Orrery.Spec",
                                                                             "Orrery.Cache",
                                                                             "RiscV32",
-                                                                            "RiscV32.Execute"
+                                                                            "RiscV32.Execute",
+                                                                            "RiscV64",
+                                                                            "RiscV64.Execute"
                                                                         );
 
     /// <summary>

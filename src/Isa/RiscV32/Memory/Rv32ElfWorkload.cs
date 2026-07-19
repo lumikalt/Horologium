@@ -9,7 +9,7 @@ namespace RiscV32.Memory;
 ///     Entry point and minimum memory size are derived from the ELF headers so
 ///     callers need only supply the file path.
 /// </summary>
-public sealed class Rv32ElfWorkload : IWorkload {
+public sealed class Rv32ElfWorkload : IElfWorkload {
     private readonly byte[] _elfBytes;
 
     public Rv32ElfWorkload(string path, int? memorySizeBytes = null)

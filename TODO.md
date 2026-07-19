@@ -59,8 +59,12 @@ free embedded suites are runnable in full today.
     toolchain codegen). Not yet validated against a real linked glibc/musl binary.
   - [ ] Instruction-count-triggered checkpoint hook + SimPoint-interval → checkpoint glue + a
     warmup-then-measure driver for the detailed pipeline.
-  - [ ] Runner CLI: wire RV64 into every mode, plus a benchmark-config/batch-mode concept (ELF +
-    argv + stdin/stdout redirection + reference output per benchmark).
+  - [x] Runner CLI: `--xlen 32|64` selects RV32/RV64 workload + mechanism across every mode
+    (default sweep, `--simpoint`, `--trace-json`, `--elastic-record`, `--stf-record`, `--script`
+    incl. `--roi-start`/`--checkpoint-save`/`--checkpoint-load`); `.csx`/`.fsx` scripts can
+    construct `Rv64Mechanism` directly (RiscV64 pre-imported like RiscV32).
+  - [ ] Runner benchmark-config/batch-mode concept (ELF + argv + stdin/stdout redirection +
+    reference output per benchmark).
 
 ## Face
 

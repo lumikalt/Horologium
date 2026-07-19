@@ -24,12 +24,15 @@ internal static class FSharpScriptHost {
         "Orrery.Cache",
         "RiscV32",
         "RiscV32.Execute",
+        "RiscV64",
+        "RiscV64.Execute",
     ];
 
     private static readonly string[] AssemblyPaths = [
         typeof(IMemory).Assembly.Location,
         typeof(MachineSpec).Assembly.Location,
         typeof(Rv32Mechanism).Assembly.Location,
+        typeof(RiscV64.Rv64Mechanism).Assembly.Location,
         typeof(SetAssociativeCache).Assembly.Location,
     ];
 

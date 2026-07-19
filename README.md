@@ -1203,9 +1203,9 @@ prints the phase table; the simulation points feed the checkpoint/ROI handoff fl
 ### Architecture scripting and checkpointing (Script/)
 
 `ScriptHost.EvaluateFileAsync(path)` compiles and evaluates a `.csx` (Roslyn C#) or `.fsx` (F# Interactive) script file
-whose last expression is a `MachineSpec`. All `Pipeline.Spec`, `Orrery.Spec`, `Orrery.Cache`, and `RiscV32` namespaces
-are pre-imported — no `#r` directives or `using`/`open` statements needed. The result can be passed directly to
-`MachineSpec.Build()`:
+whose last expression is a `MachineSpec`. All `Pipeline.Spec`, `Orrery.Spec`, `Orrery.Cache`, `RiscV32`, and `RiscV64`
+namespaces are pre-imported — no `#r` directives or `using`/`open` statements needed, so a script can construct
+`Rv64Mechanism()` exactly like `Rv32Mechanism()`. The result can be passed directly to `MachineSpec.Build()`:
 
 ```csharp
 // example.fsx
@@ -1215,7 +1215,12 @@ let cache = CacheHierarchySpec.Unified(CachePathSpec([| l1 |]))
 MachineSpec(pipeline, (fun () -> Rv32Mechanism()), cache)
 ```
 
-The Runner exposes this as `--script <file.csx|fsx>`. Two handoff patterns are supported:
+The Runner exposes this as `--script <file.csx|fsx>`. `--xlen 32|64` (default 32) selects RV32I or
+RV64I for the workload *and* the mechanism factories used across every Runner mode — the default
+sweep, `--simpoint`, `--trace-json`, `--elastic-record`, `--stf-record`, and `--script` (including
+`--roi-start`/`--checkpoint-save`/`--checkpoint-load`); `--xlen 64` requires an ELF path (the
+built-in demo program is RV32-only), except `--checkpoint-load`, which restores its own memory/PC
+from the checkpoint and never touches the workload. Two script handoff patterns are supported:
 
 **Symbol-based region-of-interest (ROI)** — name ELF symbols to bracket the measurement window. The Runner fast-forwards
 functionally (single-cycle) until the start symbol's PC is committed, then restores state into the script's pipeline and

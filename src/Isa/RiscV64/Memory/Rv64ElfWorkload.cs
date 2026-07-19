@@ -10,7 +10,7 @@ namespace RiscV64.Memory;
 ///     Entry point and minimum memory size are derived from the ELF headers so
 ///     callers need only supply the file path.
 /// </summary>
-public sealed class Rv64ElfWorkload : IWorkload {
+public sealed class Rv64ElfWorkload : IElfWorkload {
     private readonly byte[] _elfBytes;
 
     public Rv64ElfWorkload(string path, int? memorySizeBytes = null)

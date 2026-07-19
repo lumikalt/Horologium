@@ -9,6 +9,7 @@
     <ItemGroup>
         <ProjectReference Include="../../Core/Pipeline/Pipeline.csproj"/>
         <ProjectReference Include="../../Isa/RiscV32/RiscV32.csproj"/>
+        <ProjectReference Include="../../Isa/RiscV64/RiscV64.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
