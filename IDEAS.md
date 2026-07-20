@@ -20,10 +20,6 @@ the active thread.
 
 ## Analysis
 
-- [ ] Simulation state checkpoint/restore: Option B — full microarchitectural checkpoint: serialize every
-  Gear's internal state (ROB, LSQ, issue queues, pipeline latches, cache/TLB line arrays, branch predictor
-  tables) so simulation can be suspended and resumed with microarchitectural fidelity — mirrors gem5's
-  `serialize`/`unserialize` Checkpoint interface. Requires each `Gear` to implement a serialization contract.
 - [ ] SMARTS: systematic statistical sampling with functional warming between detailed sample windows. — Wunderlich
   et al., ISCA 2003
 - [ ] LoopPoint: checkpoint-driven sampling methodology for multithreaded workloads; the multi-hart counterpart to
@@ -72,8 +68,6 @@ the active thread.
   threading `IPrefetcher` through the (already long) cache constructor. Revisit if the table-pressure proxy is ever
   shown to mispredict in a case that matters — `SetAssociativeCache` is shared by every ISA/cache level/RTL policy,
   and PPF would be the only one of ten prefetchers consuming it, so it's not worth the blast radius speculatively.
-- [ ] Spatio-temporal memory streaming (STeMS) extending SMS with temporal miss-sequence recording. — Somogyi et al.,
-  ISCA 2009
 - [ ] MLOP (multi-lookahead offset prefetcher): BOP generalized to score offsets at multiple lookahead depths; DPC-3
   winner. — Shakerinava et al., DPC-3 2019
 - [ ] ISB (irregular stream buffer): linearizes PC-localized correlated irregular streams into a structural address
@@ -97,14 +91,6 @@ the active thread.
   caches; concrete design for the memory-side-cache item. — Qureshi & Loh, MICRO 2012
 - [ ] MMU translation research: page-walk caches / translation caching ("skip, don't walk") and TLB prefetching;
   builds on the Sv32 walker. — Barr, Cox & Rixner, ISCA 2010; Kandiraju & Sivasubramaniam, ISCA 2002
-  - [ ] Vector Runahead true pipelining: decouple the shadow lane's unroll-round issuance from its single-PC
-    walk through the loop body. Today `TerminateOrUnroll` only starts round N+1 once the shadow PC revisits
-    the chain origin, even though a stride-confirmed chain's round addresses are all knowable up front with
-    no data dependency forcing that wait. The real `SetAssociativeCache` MSHR model (finite `MshrCount`,
-    per-cycle countdown, capacity-stall accounting) already has overlap capacity to exploit; it's just not
-    being fed concurrent requests. Would need a round-issue loop independent of normal shadow stepping,
-    computing, and issuing all U rounds' lane reads back-to-back. — Naithani, Ainsworth, Jones & Eeckhout,
-    ISCA 2021 (§III-G, P overlapped in-flight rounds)
 
 ## Security
 

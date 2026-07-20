@@ -9,6 +9,26 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] ~~Suspended-stream data exchange: `so.v.vload`/`so.v.vstor`~~ — **hold**: dissertation gives one sentence
   with no operand semantics; Spike has no instruction files for it. Skip until the spec is clarified.
 
+## Performance
+
+- [ ] TMA (Top-Down slot accounting): extend from `OooeTrain`/`CprTrain` to `DaeTrain` and `SmtTrain`. —
+  Yasin, ISPASS 2014
+- [ ] Vector Runahead true pipelining: overlap the shadow lane's unroll rounds instead of issuing them
+  serially one loop-walk at a time, exploiting the existing MSHR overlap capacity. — Naithani, Ainsworth,
+  Jones & Eeckhout, ISCA 2021 (§III-G, P overlapped in-flight rounds)
+
+## Cache Prefetching
+
+- [ ] STeMS: spatio-temporal memory streaming extending SMS with temporal miss-sequence recording. —
+  Somogyi et al., ISCA 2009
+
+## Analysis
+
+- [ ] Simulation state checkpoint/restore, Option B: full microarchitectural checkpoint — serialize every
+  Gear's internal state (ROB, LSQ, issue queues, pipeline latches, cache/TLB line arrays, branch
+  predictor tables) so a run can be suspended and resumed with microarchitectural fidelity, mirroring
+  gem5's `serialize`/`unserialize` interface.
+
 ## Benchmarks
 
 Measured feasibility (Release, single thread): ~1M instr/s functional (single-cycle), ~0.1M cycles/s
