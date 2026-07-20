@@ -1,7 +1,11 @@
+#region
+
 using Mechanism;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
+
+#endregion
 
 // ReSharper disable ShiftExpressionZeroLeftOperand
 

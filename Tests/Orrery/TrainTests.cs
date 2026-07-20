@@ -1,9 +1,13 @@
+#region
+
 using Orrery.Gears;
 using Orrery.Observation;
 using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
+
+#endregion
 
 namespace Tests.Orrery;
 

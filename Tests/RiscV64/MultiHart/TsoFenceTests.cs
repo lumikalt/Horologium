@@ -1,9 +1,13 @@
+#region
+
 using Mechanism;
 using Orrery.Cache;
 using Orrery.Train;
 using Pipeline;
 using RiscV32.Memory;
 using RiscV64;
+
+#endregion
 
 namespace Tests.RiscV64.MultiHart;
 

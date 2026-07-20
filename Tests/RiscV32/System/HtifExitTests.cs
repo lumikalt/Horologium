@@ -1,8 +1,12 @@
+#region
+
 using Mechanism;
 using Orrery.Train;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.RiscV32.System;
 

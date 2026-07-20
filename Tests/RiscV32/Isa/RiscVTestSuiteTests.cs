@@ -1,3 +1,5 @@
+#region
+
 using Mechanism;
 using Orrery.Observation;
 using Orrery.Train;
@@ -5,6 +7,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 using Xunit.Abstractions;
+
+#endregion
 
 namespace Tests.RiscV32.Isa;
 

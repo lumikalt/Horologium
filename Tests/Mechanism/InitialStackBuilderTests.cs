@@ -1,6 +1,10 @@
+#region
+
 using System.Text;
 using Mechanism;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Mechanism;
 

@@ -1,8 +1,12 @@
+#region
+
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using Mechanism.RtlFu;
+
+#endregion
 
 namespace Tests.Mechanism;
 

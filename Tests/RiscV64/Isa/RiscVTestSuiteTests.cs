@@ -1,8 +1,12 @@
+#region
+
 using Mechanism;
 using Pipeline;
 using RiscV32.Memory;
 using RiscV64;
 using RiscV64.Memory;
+
+#endregion
 
 namespace Tests.RiscV64.Isa;
 

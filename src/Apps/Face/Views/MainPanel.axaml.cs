@@ -1,3 +1,5 @@
+#region
+
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
@@ -13,6 +15,8 @@ using Orrery.Observation;
 using ScottPlot;
 using ScottPlot.Avalonia;
 using ScottPlot.Plottables;
+
+#endregion
 
 namespace Face.Views;
 

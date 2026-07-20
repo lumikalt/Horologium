@@ -1,7 +1,11 @@
+#region
+
 using Avalonia;
 using Avalonia.Media;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Rendering;
+
+#endregion
 
 namespace Face.Controls;
 

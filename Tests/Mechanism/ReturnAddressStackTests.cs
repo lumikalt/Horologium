@@ -1,4 +1,8 @@
+#region
+
 using Mechanism.BranchPredictModels;
+
+#endregion
 
 namespace Tests.Mechanism;
 

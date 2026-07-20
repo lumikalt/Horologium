@@ -1,6 +1,10 @@
+#region
+
 using Chip8;
 using Chip8.Memory;
 using Chip8.Trains;
+
+#endregion
 
 namespace Tests.Isa.Chip8;
 

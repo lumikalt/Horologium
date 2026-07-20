@@ -1,3 +1,5 @@
+#region
+
 using Mechanism;
 using Orrery.Cache;
 using Orrery.Devices;
@@ -7,6 +9,8 @@ using RiscV32.Memory;
 using RiscV32.State;
 using RiscV32.Syscalls;
 using RiscV32.Trap;
+
+#endregion
 
 namespace RiscV32;
 
@@ -80,6 +84,13 @@ public sealed class Rv32Mechanism : IMechanism {
 
     public IImpulseCracker? UopCracker => null;
     public ITrapController TrapController { get; }
+
+    /// <summary>
+    ///     Read from whatever <see cref="Executor" /> currently is (it's settable — a decorator
+    ///     like <c>RtlBackedExecutor</c> can replace it post-construction), not cached at
+    ///     construction time. Null if the current executor isn't a <see cref="Rv32Executor" />.
+    /// </summary>
+    public ISyscallHandler? SyscallHandler => (Executor as Rv32Executor)?.SyscallHandler;
 
     public IArchState CreateArchState() => new Rv32ArchState();
 

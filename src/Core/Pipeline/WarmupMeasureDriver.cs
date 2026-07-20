@@ -1,6 +1,10 @@
+#region
+
 using Mechanism;
 using Orrery.Observation;
 using Orrery.Train;
+
+#endregion
 
 namespace Pipeline;
 

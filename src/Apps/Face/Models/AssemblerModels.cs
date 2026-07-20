@@ -1,6 +1,10 @@
+#region
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using RiscV32.Config;
 using RiscV32.Decode;
+
+#endregion
 
 namespace Face.Models;
 

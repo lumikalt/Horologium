@@ -1,5 +1,9 @@
+#region
+
 using RiscV32.Memory;
 using RiscV64.Memory;
+
+#endregion
 
 namespace Tests.Isa.RiscV64;
 

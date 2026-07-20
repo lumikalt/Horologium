@@ -1,4 +1,8 @@
+#region
+
 using System.Collections.Concurrent;
+
+#endregion
 
 namespace RiscV32.Trace;
 

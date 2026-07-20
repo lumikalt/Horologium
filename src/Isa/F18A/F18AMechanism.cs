@@ -1,6 +1,10 @@
+#region
+
 using F18A.Decode;
 using F18A.Execute;
 using Mechanism;
+
+#endregion
 
 namespace F18A;
 

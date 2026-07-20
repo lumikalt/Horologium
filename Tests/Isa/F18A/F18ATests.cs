@@ -1,8 +1,12 @@
+#region
+
 using F18A;
 using F18A.Decode;
 using F18A.MultiCore;
 using Pipeline;
 using RiscV32.Memory;
+
+#endregion
 
 // ReSharper disable ShiftExpressionZeroLeftOperand
 

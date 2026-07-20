@@ -1,3 +1,5 @@
+#region
+
 using Mechanism;
 using Orrery.Cache;
 using Orrery.Gears;
@@ -5,6 +7,8 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
+
+#endregion
 
 namespace Pipeline;
 

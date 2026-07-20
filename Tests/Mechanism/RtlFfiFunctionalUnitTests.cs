@@ -1,6 +1,10 @@
+#region
+
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Mechanism.RtlFu;
+
+#endregion
 
 namespace Tests.Mechanism;
 

@@ -1,4 +1,8 @@
+#region
+
 using Pipeline;
+
+#endregion
 
 namespace Tests.Pipeline;
 

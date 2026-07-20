@@ -1,5 +1,9 @@
+#region
+
 using Avalonia.Controls;
 using Face.ViewModels;
+
+#endregion
 
 namespace Face.Views;
 

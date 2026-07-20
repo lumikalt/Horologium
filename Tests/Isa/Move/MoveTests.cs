@@ -1,6 +1,10 @@
+#region
+
 using Move;
 using Pipeline;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Isa.Move;
 

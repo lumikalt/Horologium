@@ -1,3 +1,5 @@
+#region
+
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -17,6 +19,8 @@ using RiscV32.Decode;
 using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.State;
+
+#endregion
 
 // ReSharper disable UnusedParameterInPartialMethod
 

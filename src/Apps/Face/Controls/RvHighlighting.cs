@@ -1,7 +1,11 @@
+#region
+
 using System.Text;
 using System.Xml;
 using AvaloniaEdit.Highlighting;
 using AvaloniaEdit.Highlighting.Xshd;
+
+#endregion
 
 namespace Face.Controls;
 

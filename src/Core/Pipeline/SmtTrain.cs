@@ -1,3 +1,5 @@
+#region
+
 using JetBrains.Annotations;
 using Mechanism;
 using Mechanism.SmtFetchPolicies;
@@ -7,6 +9,8 @@ using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
+
+#endregion
 
 namespace Pipeline;
 

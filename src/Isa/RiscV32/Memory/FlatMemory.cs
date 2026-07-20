@@ -1,5 +1,9 @@
+#region
+
 using System.Runtime.CompilerServices;
 using Mechanism;
+
+#endregion
 
 namespace RiscV32.Memory;
 

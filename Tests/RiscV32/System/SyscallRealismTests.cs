@@ -1,8 +1,12 @@
+#region
+
 using System.Text;
 using Mechanism;
 using RiscV32.Memory;
 using RiscV32.State;
 using RiscV32.Syscalls;
+
+#endregion
 
 namespace Tests.RiscV32.System;
 

@@ -1,5 +1,9 @@
+#region
+
 using System.Text;
 using Mechanism;
+
+#endregion
 
 namespace RiscV32.Syscalls;
 
@@ -71,7 +75,7 @@ public sealed class LinuxSyscallEmulator(
     ulong mmapBase = 0,
     ulong mmapLimit = 0,
     Stream? input = null
-) : ISyscallHandler, IDisposable {
+) : ICheckpointableSyscallHandler, IDisposable {
     private const long ENoEnt = -2;
     private const long EBadF = -9;
     private const long EAcces = -13;
@@ -83,6 +87,11 @@ public sealed class LinuxSyscallEmulator(
     private const int SIfregMode = 0x81A4;
     private const int SIfchrMode = 0x2190;
 
+    // Path + access mode per open fd, alongside _files — needed by WriteState/ReadState to
+    // reopen a file at checkpoint-restore time (a FileStream alone doesn't retain its own
+    // open path/mode).
+    private readonly Dictionary<int, (string Path, FileAccess Access)> _fileMeta = new();
+
     private readonly Dictionary<int, FileStream> _files = new();
     private ulong _brk = initialBreak;
     private ulong _fakeNanos;
@@ -90,9 +99,68 @@ public sealed class LinuxSyscallEmulator(
     private int _nextFd = 3;
     private uint _randState = 0x9E37_79B9;
 
-    public void Dispose() {
+    // Bytes delivered to the guest via fd-0 reads so far — WriteState/ReadState's only handle
+    // on "stdin position", since `input` is a caller-owned Stream this class doesn't seek freely.
+    private ulong _stdinConsumed;
+
+    /// <summary>
+    ///     Serializes brk/mmap cursors, the fd table (path + access mode + current position per
+    ///     open fd), the stdin byte-position, and the deterministic clock/PRNG cursors. Open
+    ///     stdout/stderr capture (<see cref="output" />) is a host-side sink, not emulator state,
+    ///     and isn't part of this — a checkpoint-and-measure interval doesn't compare captured
+    ///     output, only guest-visible behavior.
+    /// </summary>
+    public void WriteState(BinaryWriter writer) {
+        writer.Write(_brk);
+        writer.Write(_mmapNext);
+        writer.Write(_nextFd);
+        writer.Write(_randState);
+        writer.Write(_fakeNanos);
+        writer.Write(_stdinConsumed);
+
+        writer.Write(_files.Count);
+        foreach ((int fd, FileStream fs) in _files) {
+            (string path, FileAccess access) = _fileMeta[fd];
+            writer.Write(fd);
+            writer.Write(path);
+            writer.Write((int)access);
+            writer.Write(fs.Position);
+        }
+    }
+
+    /// <summary>
+    ///     Restores state written by <see cref="WriteState" />. Any files currently open on this
+    ///     instance are closed first; restored fds are reopened at their recorded path (never
+    ///     truncating — <see cref="FileMode.Open" /> regardless of how the fd was originally
+    ///     created) and seeked to their recorded position. Stdin is fast-forwarded to its recorded
+    ///     byte position by seeking (if <see cref="input" /> is seekable) or by discarding bytes.
+    /// </summary>
+    public void ReadState(BinaryReader reader) {
+        _brk = reader.ReadUInt64();
+        _mmapNext = reader.ReadUInt64();
+        _nextFd = reader.ReadInt32();
+        _randState = reader.ReadUInt32();
+        _fakeNanos = reader.ReadUInt64();
+        ulong stdinConsumed = reader.ReadUInt64();
+
         foreach (FileStream fs in _files.Values) fs.Dispose();
         _files.Clear();
+        _fileMeta.Clear();
+
+        int fileCount = reader.ReadInt32();
+        for (var i = 0; i < fileCount; i++) {
+            int fd = reader.ReadInt32();
+            string path = reader.ReadString();
+            var access = (FileAccess)reader.ReadInt32();
+            long position = reader.ReadInt64();
+
+            var fs = new FileStream(path, FileMode.Open, access);
+            fs.Position = position;
+            _files[fd] = fs;
+            _fileMeta[fd] = (path, access);
+        }
+
+        SkipStdinTo(stdinConsumed);
     }
 
     public ExecuteResult Handle(ulong num, IRegisterFile regs, IMemory memory, ulong pc) {
@@ -134,6 +202,33 @@ public sealed class LinuxSyscallEmulator(
 
         var ret = (ulong)result;
         return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, ret), };
+    }
+
+    public void Dispose() {
+        foreach (FileStream fs in _files.Values) fs.Dispose();
+        _files.Clear();
+        _fileMeta.Clear();
+    }
+
+    private void SkipStdinTo(ulong consumed) {
+        _stdinConsumed = 0;
+        if (input is null || consumed == 0) return;
+
+        if (input.CanSeek) {
+            input.Seek((long)consumed, SeekOrigin.Begin);
+            _stdinConsumed = consumed;
+            return;
+        }
+
+        var discard = new byte[8192];
+        ulong remaining = consumed;
+        while (remaining > 0) {
+            int n = input.Read(discard, 0, (int)Math.Min((ulong)discard.Length, remaining));
+            if (n <= 0) break; // stream shorter than the recorded position — nothing more to skip
+            remaining -= (ulong)n;
+        }
+
+        _stdinConsumed = consumed - remaining;
     }
 
     private long Write(ulong fd, ulong bufPtr, ulong count, IMemory memory) {
@@ -180,7 +275,11 @@ public sealed class LinuxSyscallEmulator(
             if (input is null) return 0; // no stdin redirected: always EOF
             var stdinBuf = new byte[count];
             int stdinN = input.Read(stdinBuf, 0, (int)count);
-            if (stdinN > 0) memory.Load(bufPtr, stdinBuf.AsSpan(0, stdinN));
+            if (stdinN > 0) {
+                memory.Load(bufPtr, stdinBuf.AsSpan(0, stdinN));
+                _stdinConsumed += (ulong)stdinN;
+            }
+
             return stdinN;
         }
 
@@ -194,6 +293,7 @@ public sealed class LinuxSyscallEmulator(
     private long Close(ulong fd) {
         if (fd <= 2) return 0;
         if (!_files.Remove((int)fd, out FileStream? fs)) return LinuxSyscallEmulator.EBadF;
+        _fileMeta.Remove((int)fd);
         fs.Dispose();
         return 0;
     }
@@ -238,6 +338,7 @@ public sealed class LinuxSyscallEmulator(
             var fs = new FileStream(path, fileMode, access);
             int fd = _nextFd++;
             _files[fd] = fs;
+            _fileMeta[fd] = (path, access);
             return fd;
         }
         catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {

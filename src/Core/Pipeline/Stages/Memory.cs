@@ -1,8 +1,12 @@
+#region
+
 using Mechanism;
 using Orrery.Gears;
 using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
+
+#endregion
 
 namespace Pipeline.Stages;
 

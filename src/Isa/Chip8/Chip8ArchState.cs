@@ -1,5 +1,9 @@
+#region
+
 using Chip8.Registers;
 using Mechanism;
+
+#endregion
 
 namespace Chip8;
 

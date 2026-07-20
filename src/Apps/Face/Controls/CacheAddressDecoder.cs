@@ -1,8 +1,12 @@
+#region
+
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Styling;
+
+#endregion
 
 namespace Face.Controls;
 

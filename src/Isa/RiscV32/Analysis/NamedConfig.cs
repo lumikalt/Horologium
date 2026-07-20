@@ -1,6 +1,10 @@
+#region
+
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using RiscV32.Config;
+
+#endregion
 
 namespace RiscV32.Analysis;
 

@@ -1,9 +1,13 @@
+#region
+
 using System.Text.Json.Serialization;
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using Mechanism.RtlFu;
 using Pipeline;
 using RiscV32.Memory;
+
+#endregion
 
 namespace RiscV32.Config;
 

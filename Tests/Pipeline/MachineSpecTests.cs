@@ -1,9 +1,13 @@
+#region
+
 using Mechanism;
 using Orrery.Cache;
 using Orrery.Spec;
 using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Pipeline;
 

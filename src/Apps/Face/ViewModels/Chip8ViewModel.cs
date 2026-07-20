@@ -1,3 +1,5 @@
+#region
+
 using Avalonia;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
@@ -7,6 +9,8 @@ using Chip8.Memory;
 using Chip8.Trains;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+
+#endregion
 
 namespace Face.ViewModels;
 

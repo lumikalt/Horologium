@@ -1,3 +1,5 @@
+#region
+
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using Orrery.Observation;
@@ -7,6 +9,8 @@ using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.RiscV32.Pipelines;
 

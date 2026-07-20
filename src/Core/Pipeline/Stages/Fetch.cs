@@ -1,3 +1,5 @@
+#region
+
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using Orrery.Cache;
@@ -5,6 +7,8 @@ using Orrery.Gears;
 using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
+
+#endregion
 
 namespace Pipeline.Stages;
 

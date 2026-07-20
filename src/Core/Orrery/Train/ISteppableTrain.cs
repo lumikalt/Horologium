@@ -1,5 +1,9 @@
+#region
+
 using Mechanism;
 using Orrery.Observation;
+
+#endregion
 
 namespace Orrery.Train;
 

@@ -1,8 +1,12 @@
+#region
+
 using System.Text;
 using Orrery.Gears;
 using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Tree;
+
+#endregion
 
 namespace Orrery.Train;
 

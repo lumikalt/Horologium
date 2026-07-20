@@ -1,6 +1,10 @@
+#region
+
 using Mechanism;
 using Orrery.Streaming;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Orrery;
 

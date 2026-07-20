@@ -1,6 +1,10 @@
+#region
+
 using Mechanism;
 using Move.Decode;
 using Move.Execute;
+
+#endregion
 
 namespace Move;
 

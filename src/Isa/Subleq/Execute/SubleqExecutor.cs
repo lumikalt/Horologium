@@ -1,5 +1,9 @@
+#region
+
 using Mechanism;
 using Subleq.Decode;
+
+#endregion
 
 namespace Subleq.Execute;
 

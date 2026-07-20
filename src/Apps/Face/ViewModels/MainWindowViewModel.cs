@@ -1,3 +1,5 @@
+#region
+
 using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Styling;
@@ -10,6 +12,8 @@ using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+
+#endregion
 
 // ReSharper disable UnusedParameterInPartialMethod
 

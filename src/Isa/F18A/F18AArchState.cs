@@ -1,5 +1,9 @@
+#region
+
 using F18A.Registers;
 using Mechanism;
+
+#endregion
 
 namespace F18A;
 

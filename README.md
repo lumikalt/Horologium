@@ -1368,8 +1368,7 @@ output-checked runs.
 `Tests/RiscV64/System/RealLinkedSimPointTests.cs` uses `simpoint_kernel.elf` — static arrays (no `malloc`, so no
 `brk`/`mmap`) with one `printf` at the very end — and an independent commit-trace pass to verify every *selected*
 simulation point's warmup+measure window is syscall-free except the two edge phases (startup/shutdown), which always
-contain ECALLs by construction and are the documented reduced-scope exception (real syscall-emulator-state
-checkpointing — `brk`/`mmap` cursors, fd table, stdin position — is still unimplemented; see TODO.md). Building this
+contain ECALLs by construction. Building this
 surfaced a third real, independent bug — not part of the checkpoint machinery, reproduced on a plain straight-through
 `OooeTrain` run too: `LinuxSyscallEmulator`'s ECALL handler reads/writes guest memory through the same `IMemory`
 `OooeTrain` uses for real loads/stores, and `ExecResult.HasLoadAccess`/`HasStoreCapture` were derived unconditionally
@@ -1390,6 +1389,34 @@ all — a younger consumer of a0 could resolve to whatever produced a0 *before* 
 Zacas `amocas.d`'s register-pair high half: `RvEcall.SecondaryDestinationRegister = 10` (a0), reusing the existing
 class-agnostic `HasPendingSecondaryDest` dispatch stall and `CommitRegisters` PRF sync with no pipeline-stage changes.
 Both fixes verified via revert-and-recheck in `InitialStackTests.cs`; see TODO.md.
+
+**Full syscall-emulator-state checkpointing.** `ArchitecturalCheckpoint` only ever covered guest architectural
+state (registers, memory, ISA blob) — a `LinuxSyscallEmulator`'s own mutable state (brk/mmap cursors, fd table,
+stdin position, plus the deterministic clock/PRNG cursors) lives outside that and needed its own capture/restore
+path so a checkpoint landing mid-syscall-emulation restores faithfully instead of resetting to a fresh handler.
+`ICheckpointableSyscallHandler` (`Mechanism`) adds `WriteState(BinaryWriter)`/`ReadState(BinaryReader)`, which
+`LinuxSyscallEmulator` implements: the fd table serializes path + access mode + current position per open fd
+(reopened with `FileMode.Open`, never truncating, regardless of how the fd was originally created) and stdin
+position is either `Seek`'d or fast-forwarded by discarding bytes depending on whether the caller's redirected
+stream is seekable. `IMechanism` exposes the resolved handler as `SyscallHandler` (default `null`; `Rv32Mechanism`/
+`Rv64Mechanism` read it off whichever `Rv32Executor` is currently wired in, since `Executor` is settable post-
+construction). `Experiment.CaptureSimPointCheckpoints`/`MeasureSimPointCheckpoints` capture/restore this alongside
+each point's `ArchitecturalCheckpoint`, in a new `SimPointCheckpointSet.SyscallStates` array (null at any index
+whose mechanism has no checkpointable handler — e.g. bare-metal HTIF workloads). `Tests/RiscV32/System/
+SyscallCheckpointTests.cs` proves the round-trip directly (brk continuation, a reopened fd landing at the right
+position, stdin continuing past what a fresh stream over the same content already delivered, and getrandom/
+clock_gettime continuing their sequence rather than repeating it — each checked against an independent reference,
+not a self-consistent recomputation); `Tests/RiscV32/Analysis/SimPointCheckpointTests.cs` drives a hand-assembled
+brk-extend-then-query program through `MeasureSimPointCheckpoints` itself and shows the query only sees the
+extended break when the syscall state was actually restored, with a same-shape control that omits the restore and
+gets the stale answer. `simpoint_kernel.elf`'s own ECALLs (`set_tid_address`/`ioctl`/`writev`/`exit_group`) turned
+out to be state-inert w.r.t. every cursor tracked here — a static-array, no-`malloc` kernel, by design — so
+`RealLinkedSimPointTests.cs` only proves the wiring fires against real compiled code (`SyscallStates` populated,
+`MeasureSimPointCheckpoints` restores without error), not the semantic case; that's what the two unit-level tests
+above are for. mmap-cursor and stdin-position serialization is exercised only at the unit level: the
+`--simpoint-argv` CLI path always builds its `LinuxSyscallEmulator` with `mmapBase=0`/`input=null` (mmap disabled,
+stdin always EOF) on both the capture and measure side, a separate pre-existing limitation of that specific CLI
+wiring, so those two fields are currently serialized-but-unexercised there rather than validated end-to-end.
 
 ### Instruction trace output (Olympia, RiscV32/Trace)
 

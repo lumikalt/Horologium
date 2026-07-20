@@ -1,5 +1,9 @@
+#region
+
 using System.Text;
 using Mechanism;
+
+#endregion
 
 namespace RiscV32.Trace;
 

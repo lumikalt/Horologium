@@ -1,3 +1,5 @@
+#region
+
 using System.Text.Json;
 using Mechanism;
 using Orrery.Cache;
@@ -7,6 +9,8 @@ using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.RiscV32.Analysis;
 

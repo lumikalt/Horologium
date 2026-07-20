@@ -1,6 +1,10 @@
+#region
+
 using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
+
+#endregion
 
 namespace Face.Controls;
 

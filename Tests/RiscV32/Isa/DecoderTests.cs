@@ -1,5 +1,9 @@
+#region
+
 using Mechanism;
 using RiscV32.Decode;
+
+#endregion
 
 namespace Tests.RiscV32.Isa;
 

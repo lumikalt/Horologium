@@ -1,7 +1,11 @@
+#region
+
 using Mechanism;
 using RiscV32.Analysis;
 using RiscV64;
 using RiscV64.Memory;
+
+#endregion
 
 namespace Tests.RiscV32.Analysis;
 

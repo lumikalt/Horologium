@@ -1,5 +1,9 @@
+#region
+
 using System.Collections.ObjectModel;
 using System.Text;
+
+#endregion
 
 namespace Orrery.Tree;
 

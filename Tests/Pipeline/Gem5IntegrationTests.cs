@@ -1,8 +1,12 @@
+#region
+
 using System.Diagnostics;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 using RiscV32.Trace;
+
+#endregion
 
 namespace Tests.Pipeline;
 

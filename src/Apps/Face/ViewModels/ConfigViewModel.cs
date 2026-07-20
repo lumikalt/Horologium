@@ -1,7 +1,11 @@
+#region
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using Orrery.Cache;
 using RiscV32.Analysis;
 using RiscV32.Config;
+
+#endregion
 
 // ReSharper disable UnusedParameterInPartialMethod
 

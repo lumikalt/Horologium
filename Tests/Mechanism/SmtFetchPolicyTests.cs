@@ -1,4 +1,8 @@
+#region
+
 using Mechanism.SmtFetchPolicies;
+
+#endregion
 
 namespace Tests.Mechanism;
 

@@ -1,3 +1,5 @@
+#region
+
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
@@ -7,6 +9,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using Face.Models;
 using Orrery.Observation;
+
+#endregion
 
 namespace Face.Controls;
 

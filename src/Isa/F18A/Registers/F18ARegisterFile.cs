@@ -1,4 +1,8 @@
+#region
+
 using Mechanism;
+
+#endregion
 
 namespace F18A.Registers;
 

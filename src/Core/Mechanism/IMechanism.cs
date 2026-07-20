@@ -27,6 +27,13 @@ public interface IMechanism {
     /// <summary>The trap controller for this ISA.</summary>
     ITrapController TrapController { get; }
 
+    /// <summary>
+    ///     The syscall handler wired into this mechanism's executor, or null if this ISA/instance
+    ///     does not use syscall emulation (e.g. bare-metal HTIF workloads, or ISAs with no
+    ///     syscall convention at all).
+    /// </summary>
+    ISyscallHandler? SyscallHandler => null;
+
     /// <summary>Creates a fresh architectural state for a new hart.</summary>
     IArchState CreateArchState();
 

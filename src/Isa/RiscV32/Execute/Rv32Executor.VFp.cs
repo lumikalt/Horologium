@@ -1,6 +1,10 @@
+#region
+
 using Mechanism;
 using RiscV32.Decode;
 using RiscV32.Registers;
+
+#endregion
 
 // ReSharper disable CompareOfFloatsByEqualityOperator
 

@@ -1,9 +1,13 @@
+#region
+
 using Mechanism;
 using Orrery.Gears;
 using Orrery.Observation;
 using Orrery.Scheduling;
 using Orrery.Train;
 using Orrery.Tree;
+
+#endregion
 
 namespace Chip8.Trains;
 

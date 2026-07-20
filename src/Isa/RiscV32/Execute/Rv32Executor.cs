@@ -1,3 +1,5 @@
+#region
+
 using System.Numerics;
 using Mechanism;
 using Orrery.Cache;
@@ -6,6 +8,8 @@ using RiscV32.Decode;
 using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV32.State;
+
+#endregion
 
 // ReSharper disable CompareOfFloatsByEqualityOperator
 

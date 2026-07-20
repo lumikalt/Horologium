@@ -1,8 +1,12 @@
+#region
+
 using Mechanism;
 using Pipeline;
 using RiscV32;
 using RiscV32.CoSim;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.RiscV32.CoSim;
 

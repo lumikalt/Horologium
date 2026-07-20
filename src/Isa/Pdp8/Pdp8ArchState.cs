@@ -1,5 +1,9 @@
+#region
+
 using Mechanism;
 using Pdp8.Registers;
+
+#endregion
 
 namespace Pdp8;
 

@@ -1,7 +1,11 @@
+#region
+
 using Orrery.Cache;
 using RiscV32.Memory;
 using RiscV32.MultiCore;
 using RiscV64;
+
+#endregion
 
 namespace Tests.RiscV64.MultiHart;
 

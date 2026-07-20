@@ -1,6 +1,10 @@
+#region
+
 using Mechanism;
 using Subleq.Decode;
 using Subleq.Execute;
+
+#endregion
 
 namespace Subleq;
 

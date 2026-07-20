@@ -1,4 +1,8 @@
+#region
+
 using Orrery.Devices;
+
+#endregion
 
 namespace Tests.Orrery;
 

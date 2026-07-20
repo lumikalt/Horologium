@@ -1,3 +1,5 @@
+#region
+
 using FSharp.Compiler.Diagnostics;
 using Mechanism;
 using Microsoft.FSharp.Core;
@@ -6,6 +8,8 @@ using Pipeline.Spec;
 using RiscV32;
 using RiscV64;
 using static FSharp.Compiler.Interactive.Shell;
+
+#endregion
 
 namespace Script;
 

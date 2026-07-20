@@ -1,9 +1,13 @@
+#region
+
 using Mechanism;
 using Orrery.Cache;
 using RiscV32.Decode;
 using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.State;
+
+#endregion
 
 namespace Tests.RiscV32.MultiHart;
 

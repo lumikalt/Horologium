@@ -1,4 +1,8 @@
-﻿using Orrery.Tree;
+﻿#region
+
+using Orrery.Tree;
+
+#endregion
 
 namespace Tests.Orrery;
 

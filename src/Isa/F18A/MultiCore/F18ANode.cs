@@ -1,6 +1,10 @@
+#region
+
 using F18A.Arbors;
 using F18A.Decode;
 using F18A.Memory;
+
+#endregion
 
 namespace F18A.MultiCore;
 

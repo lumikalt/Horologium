@@ -1,5 +1,9 @@
+#region
+
 using Mechanism;
 using Pdp8.Decode;
+
+#endregion
 
 namespace Pdp8.Execute;
 

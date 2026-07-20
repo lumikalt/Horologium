@@ -1,3 +1,5 @@
+#region
+
 using Mechanism;
 using Orrery.Train;
 using Pipeline;
@@ -6,6 +8,8 @@ using RiscV32.Memory;
 using RiscV32.Syscalls;
 using RiscV64;
 using RiscV64.Memory;
+
+#endregion
 
 namespace Tests.RiscV64.System;
 
@@ -18,15 +22,17 @@ namespace Tests.RiscV64.System;
 ///     BBV-profiling/clustering/checkpoint-restore path itself sees real compiled code instead of a
 ///     bare-metal HTIF probe.
 ///     <para>
-///         Scope, deliberately reduced (see TODO.md/project memory): <see cref="ArchitecturalCheckpoint" />
-///         does not serialize <see cref="LinuxSyscallEmulator" />'s mutable state (brk/mmap cursors, fd
-///         table, stdin position) — restoring a mid-execution checkpoint into a fresh emulator instance
-///         would desync that state from the checkpointed guest memory. Static arrays avoid brk/mmap
-///         entirely, and the one real syscall-bearing region (musl's <c>_start</c> bookkeeping, then the
-///         final <c>printf</c>/<c>exit_group</c>) is deliberately kept out of the warmup+measured window
-///         of every simulation point actually used for detailed measurement — verified below, not
-///         assumed, by an independent functional pass that records the commit index of every ECALL
-///         (raw encoding <c>0x00000073</c>) and asserts none fall inside any point's window.
+///         <see cref="ArchitecturalCheckpoint" /> itself only covers guest architectural state
+///         (registers, memory, ISA blob) — a <see cref="LinuxSyscallEmulator" />'s own mutable state
+///         (brk/mmap cursors, fd table, stdin position) is captured/restored separately via
+///         <see cref="ICheckpointableSyscallHandler" />, wired into
+///         <see cref="Experiment.CaptureSimPointCheckpoints" />/<see cref="Experiment.MeasureSimPointCheckpoints" />
+///         through <see cref="IMechanism.SyscallHandler" />.
+///         <see cref="CaptureAndMeasureSimPointCheckpoints_OnRealBinary_RoundTripsSyscallStateWithoutError" />
+///         below proves that wiring actually fires against this real binary's compiled code, not just
+///         that it compiles against the interface — see that test's doc comment for why the deeper
+///         semantic proof (a broken restore actually producing wrong behavior) has to live elsewhere,
+///         against a syscall sequence this particular binary doesn't have.
 ///     </para>
 /// </summary>
 public class RealLinkedSimPointTests {
@@ -132,11 +138,11 @@ public class RealLinkedSimPointTests {
         // The interval covering program startup (musl's _start bookkeeping) and the interval
         // covering shutdown (the final printf/exit_group) always include ECALLs by construction —
         // "phase 0" and "phase end" are cold-start/teardown code, and no choice of SimPoint
-        // parameters moves that. This is the expected, documented edge of this increment's reduced
-        // scope (see the class doc comment): only those two edge phases would need full
-        // emulator-state checkpointing to measure correctly. Every other simulation point —
-        // representing the actual repeated compute-loop phase this sampling technique targets —
-        // must still be genuinely syscall-free, which is what this test actually validates.
+        // parameters moves that. Those two edge phases are still skipped below, but not because
+        // they'd measure incorrectly (see the class doc comment: emulator-state checkpointing now
+        // covers them) — this test's actual purpose is the complementary invariant: every simulation
+        // point representing the repeated compute-loop phase this sampling technique targets must be
+        // genuinely syscall-free, which the edge phases trivially aren't and would just add noise here.
         // Identify the dominant syscall-free gap directly (same technique as the sibling test)
         // rather than guessing where the startup/shutdown boundary falls.
         List<long> boundaries = [0, ..tracker.EcallCommitIndices, tracker.TotalCommits,];
@@ -158,8 +164,8 @@ public class RealLinkedSimPointTests {
             Assert.False(
                 tracker.EcallCommitIndices.Any(i => i > windowStart && i <= windowEnd),
                 $"simulation point at interval {point.Point.IntervalIndex} (window [{windowStart}, {windowEnd})) " +
-                "needs a syscall despite falling inside the dominant syscall-free gap — outside this " +
-                "increment's reduced scope (no emulator-state checkpointing)."
+                "needs a syscall despite falling inside the dominant syscall-free gap — the compute loop " +
+                "should be genuinely syscall-free."
             );
         }
 
@@ -167,6 +173,65 @@ public class RealLinkedSimPointTests {
             fullyInsideSafeGap > 0,
             "expected at least one selected simulation point inside the compute loop, not just at the startup/shutdown edges"
         );
+    }
+
+    /// <summary>
+    ///     Wiring proof, against this real ELF, for full syscall-emulator-state checkpointing (see the
+    ///     class doc comment): <see cref="Experiment.CaptureSimPointCheckpoints" /> must actually
+    ///     resolve <see cref="IMechanism.SyscallHandler" /> and call
+    ///     <see cref="ICheckpointableSyscallHandler.WriteState" /> for every simulation point (not
+    ///     just compile against the interface), and <see cref="Experiment.MeasureSimPointCheckpoints" />
+    ///     must restore it (<see cref="ICheckpointableSyscallHandler.ReadState" />) without error.
+    ///     <para>
+    ///         This binary's own ECALLs (<c>set_tid_address</c>/<c>ioctl</c>/<c>writev</c>/<c>exit_group</c>
+    ///         — see <see cref="EcallsOnlyOccurAtStartupAndShutdown_NotInsideTheComputeLoop" />) happen to
+    ///         be state-inert w.r.t. every cursor <see cref="LinuxSyscallEmulator" /> checkpoints (no
+    ///         <c>brk</c>/<c>mmap</c>/file/stdin/<c>getrandom</c>/<c>clock_gettime</c> here — a
+    ///         static-array, no-<c>malloc</c> kernel, by design), so this test cannot itself prove the
+    ///         restored state is semantically correct — that requires a state-carrying syscall to
+    ///         actually diverge a broken restore from a correct one. That proof lives elsewhere:
+    ///         <c>SyscallCheckpointTests</c> (RiscV32.System) round-trips
+    ///         <see cref="LinuxSyscallEmulator" />'s brk/fd/stdin/rand/nanos state directly, and
+    ///         <c>SimPointCheckpointTests.MeasureSimPointCheckpoints_RestoresSyscallState_...</c>
+    ///         (RiscV32.Analysis) drives a hand-assembled <c>brk</c>-extend-then-query program through
+    ///         this exact <see cref="Experiment.MeasureSimPointCheckpoints" /> code path and asserts the
+    ///         query only sees the extended break when the syscall state was actually restored —
+    ///         discriminatingly, with a same-shape control that omits the restore and gets the wrong
+    ///         answer.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public void CaptureAndMeasureSimPointCheckpoints_OnRealBinary_RoundTripsSyscallStateWithoutError() {
+        Rv64ElfWorkload workload = MakeWorkload();
+        const long intervalSize = 20_000;
+        const long warmup = 2_000;
+
+        Func<IMechanism> mechanismFactory = () => new Rv64Mechanism(
+            syscallHandler: new LinuxSyscallEmulator(
+                workload.InitialBreak, TextWriter.Null, RealLinkedSimPointTests.WordSize
+            )
+        );
+
+        SimPointCheckpointSet captured = Experiment.CaptureSimPointCheckpoints(
+            workload, mechanismFactory, intervalSize, warmup, maxK: 4, argv: RealLinkedSimPointTests.Argv,
+            wordSize: RealLinkedSimPointTests.WordSize
+        );
+
+        Assert.NotEmpty(captured.SyscallStates);
+        // Every point's syscall state was actually captured — proves IMechanism.SyscallHandler
+        // resolution + ICheckpointableSyscallHandler.WriteState fired during this real ELF's capture
+        // pass, not just that the code compiles against the interface.
+        Assert.All(captured.SyscallStates, Assert.NotNull);
+
+        // MeasureSimPointCheckpoints must restore that state (ReadState) without throwing, for every
+        // point, including the startup/shutdown edge points whose window contains this binary's real
+        // ECALLs.
+        SimPointCheckpointResult result = Experiment.MeasureSimPointCheckpoints(
+            workload, captured, mechanismFactory, DetailedFactory
+        );
+
+        Assert.NotEmpty(result.PointResults);
+        Assert.True(result.EstimatedCpi > 0);
     }
 
     private sealed class EcallCommitTracker : ICommitObserver {

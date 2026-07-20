@@ -1,4 +1,8 @@
+#region
+
 using Orrery.Scheduling;
+
+#endregion
 
 namespace Tests.Orrery;
 

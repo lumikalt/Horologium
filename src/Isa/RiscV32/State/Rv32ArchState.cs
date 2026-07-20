@@ -1,5 +1,9 @@
+#region
+
 using Mechanism;
 using RiscV32.Registers;
+
+#endregion
 
 namespace RiscV32.State;
 

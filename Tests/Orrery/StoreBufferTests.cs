@@ -1,6 +1,10 @@
+#region
+
 using Orrery.Cache;
 using Orrery.Scheduling;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Orrery;
 

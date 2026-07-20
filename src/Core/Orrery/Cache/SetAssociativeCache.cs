@@ -1,5 +1,9 @@
+#region
+
 using System.Numerics;
 using Mechanism;
+
+#endregion
 
 namespace Orrery.Cache;
 

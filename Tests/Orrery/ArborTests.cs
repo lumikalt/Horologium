@@ -1,6 +1,10 @@
+#region
+
 using JetBrains.Annotations;
 using Orrery.Ports;
 using Orrery.Scheduling;
+
+#endregion
 
 namespace Tests.Orrery;
 

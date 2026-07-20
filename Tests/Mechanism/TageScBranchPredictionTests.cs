@@ -1,7 +1,11 @@
+#region
+
 using System.Text.Json;
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using RiscV32.Config;
+
+#endregion
 
 namespace Tests.Mechanism;
 

@@ -1,9 +1,13 @@
+#region
+
 using Mechanism;
 using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV64.Decode;
 using RiscV64.Execute;
 using RiscV64.State;
+
+#endregion
 
 namespace Tests.Isa.RiscV64;
 

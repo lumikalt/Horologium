@@ -1,8 +1,12 @@
+#region
+
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Face.ViewModels;
+
+#endregion
 
 namespace Face.Views;
 

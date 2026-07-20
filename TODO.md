@@ -52,12 +52,11 @@ free embedded suites are runnable in full today.
   intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint). All supporting infrastructure is
   built and validated against real, genuinely compiled RV64 binaries: RV64 syscall wiring, a psABI
   initial-stack builder, `LinuxSyscallEmulator` (real file I/O/mmap/clock_gettime/getrandom/writev),
-  checkpoint/SimPoint sampling glue (reused once per `--sweep` rather than per config),
-  `--bench-config` batch mode, and `--simpoint-argv` CLI wiring for real ELFs. **Blocked on the SPEC
-  license itself, not on remaining code**: missing a license currently.
-  - [ ] Full syscall-emulator-state checkpointing (brk/mmap cursors, fd table, stdin position), so a
-    syscall inside a SimPoint interval's startup- / shutdown-edge phases measures correctly too — every
-    other phase already does.
+  checkpoint/SimPoint sampling glue (reused once per `--sweep` rather than per config, and covering full
+  syscall-emulator state — brk/mmap cursors, fd table, stdin position — so a syscall inside a SimPoint
+  interval's startup-/shutdown-edge phases measures correctly too), `--bench-config` batch mode, and
+  `--simpoint-argv` CLI wiring for real ELFs. **Blocked on the SPEC license itself, not on remaining
+  code**: missing a license currently.
 
 ## Face
 

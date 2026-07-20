@@ -1,6 +1,10 @@
+#region
+
 using Pdp8;
 using Pipeline;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Isa.Pdp8;
 

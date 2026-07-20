@@ -1,8 +1,12 @@
+#region
+
 using Mechanism;
 using Orrery.Devices;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
+
+#endregion
 
 // ReSharper disable ShiftExpressionZeroLeftOperand
 

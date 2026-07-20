@@ -1,3 +1,5 @@
+#region
+
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Mechanism;
@@ -7,6 +9,8 @@ using RiscV32;
 using RiscV32.Execute;
 using RiscV32.Memory;
 using Tests.Mechanism;
+
+#endregion
 
 namespace Tests.RiscV32.CoSim;
 

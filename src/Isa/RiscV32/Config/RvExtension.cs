@@ -1,4 +1,8 @@
+#region
+
 using System.Text;
+
+#endregion
 
 namespace RiscV32.Config;
 

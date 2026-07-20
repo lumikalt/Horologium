@@ -1,3 +1,5 @@
+#region
+
 using System.Text;
 using Mechanism;
 using Orrery.Cache;
@@ -8,6 +10,8 @@ using RiscV32.Config;
 using RiscV32.Memory;
 using RiscV32.Syscalls;
 using RiscV32.Trace;
+
+#endregion
 
 namespace RiscV32.Analysis;
 
@@ -426,6 +430,7 @@ public static class Experiment {
         // a commit, which would already be one instruction past the true start — so those are
         // captured directly from the wound-but-not-yet-stepped train, before any StepCycle call.
         var checkpoints = new byte[sp.Points.Count][];
+        byte[]?[] syscallStates = new byte[sp.Points.Count][];
         if (sp.Points.Count > 0) {
             var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
             workload.Load(mem);
@@ -441,6 +446,20 @@ public static class Experiment {
                     positiveTargets.Add(sortedTargets[si]);
                 }
 
+            IMechanism captureMechanism = mechanismFactory();
+
+            // Captures whatever mutable state the mechanism's syscall handler (if any — bare-metal
+            // HTIF workloads have none) carries, so a checkpoint that lands mid-syscall-emulation
+            // (brk/mmap cursors, fd table, stdin position) can be restored faithfully at measurement
+            // time instead of resetting to a fresh handler's initial state.
+            byte[]? CaptureSyscallState() {
+                if (captureMechanism.SyscallHandler is not ICheckpointableSyscallHandler handler) return null;
+                using var ms = new MemoryStream();
+                using (var bw = new BinaryWriter(ms, Encoding.UTF8, true)) { handler.WriteState(bw); }
+
+                return ms.ToArray();
+            }
+
             SingleCycleTrain? captureTrainRef = null;
             // ReSharper disable AccessToModifiedClosure — the lambda below is only invoked (as an
             // InstructionCounter callback) after captureTrainRef is assigned a few lines down.
@@ -453,12 +472,13 @@ public static class Experiment {
                         ms, captureTrainRef!.ArchState, mem, (ulong)captureTrainRef.CurrentTick
                     );
                     checkpoints[pointIdx] = ms.ToArray();
+                    syscallStates[pointIdx] = CaptureSyscallState();
                 }
             );
             // ReSharper restore AccessToModifiedClosure
 
             captureTrainRef = new SingleCycleTrain(
-                mechanismFactory(), runMem, workload.EntryPoint, commitObserver: counter
+                captureMechanism, runMem, workload.EntryPoint, commitObserver: counter
             );
             if (argv is not null) InjectInitialStack(captureTrainRef, mem, workload, argv, wordSize);
             captureTrainRef.BeginStepping();
@@ -467,6 +487,7 @@ public static class Experiment {
                 using var ms = new MemoryStream();
                 ArchitecturalCheckpoint.Save(ms, captureTrainRef.ArchState, mem, 0);
                 checkpoints[pointIdx] = ms.ToArray();
+                syscallStates[pointIdx] = CaptureSyscallState();
             }
 
             if (positiveTargets.Count > 0) {
@@ -484,7 +505,9 @@ public static class Experiment {
                     );
         }
 
-        return new SimPointCheckpointSet(sp, checkpoints, intervalSize, warmupInstructions, profiler.TotalInstructions);
+        return new SimPointCheckpointSet(
+            sp, checkpoints, syscallStates, intervalSize, warmupInstructions, profiler.TotalInstructions
+        );
     }
 
     /// <summary>
@@ -537,6 +560,13 @@ public static class Experiment {
             IMechanism mechanism = mechanismFactory();
             ISteppableTrain detailedTrain = detailedTrainFactory(mechanism, runMem, chk.Pc, counter);
             chk.RestoreInto(detailedTrain.ArchState!, mem);
+
+            if (captured.SyscallStates[i] is { } syscallStateBytes &&
+                mechanism.SyscallHandler is ICheckpointableSyscallHandler handler) {
+                using var ms = new MemoryStream(syscallStateBytes);
+                using var br = new BinaryReader(ms);
+                handler.ReadState(br);
+            }
 
             // The checkpoint target is intervalStart − actualWarmup (clamped so it never precedes
             // instruction 0); actualWarmup must match here too, or an early interval's measured

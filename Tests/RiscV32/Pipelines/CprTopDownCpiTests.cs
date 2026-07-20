@@ -1,9 +1,13 @@
+#region
+
 using Orrery.Cache;
 using Orrery.Observation;
 using Pipeline;
 using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.RiscV32.Pipelines;
 

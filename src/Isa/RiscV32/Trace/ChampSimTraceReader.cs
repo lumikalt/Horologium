@@ -1,4 +1,8 @@
+#region
+
 using System.IO.Compression;
+
+#endregion
 
 namespace RiscV32.Trace;
 

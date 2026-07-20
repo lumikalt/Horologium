@@ -1,6 +1,10 @@
+#region
+
 using System.Buffers.Binary;
 using System.Text;
 using Mechanism;
+
+#endregion
 
 namespace RiscV32.Memory;
 

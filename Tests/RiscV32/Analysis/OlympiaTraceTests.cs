@@ -1,3 +1,5 @@
+#region
+
 using System.Globalization;
 using System.Text.Json;
 using Orrery.Train;
@@ -5,6 +7,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.RiscV32.Analysis;
 

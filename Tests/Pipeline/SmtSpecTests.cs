@@ -1,8 +1,12 @@
+#region
+
 using Orrery.Train;
 using Pipeline;
 using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Pipeline;
 

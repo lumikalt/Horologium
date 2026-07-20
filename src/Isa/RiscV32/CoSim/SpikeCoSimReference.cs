@@ -1,7 +1,11 @@
+#region
+
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Mechanism;
+
+#endregion
 
 namespace RiscV32.CoSim;
 

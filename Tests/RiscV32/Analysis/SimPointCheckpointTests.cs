@@ -1,9 +1,14 @@
+#region
+
 using Mechanism;
 using Orrery.Train;
 using Pipeline;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Memory;
+using RiscV32.Syscalls;
+
+#endregion
 
 namespace Tests.RiscV32.Analysis;
 
@@ -24,6 +29,16 @@ public class SimPointCheckpointTests {
         0x02800093u, 0x00000113u, 0x00310113u, 0xFFF08093u, 0xFE009EE3u, 0x00100073u
     );
 
+    // addi a0, x0, 1024   — brk(1024): extend, a0 becomes 1024
+    // addi a7, x0, 214    — a7 = SYS_brk
+    // ecall               — extend the break
+    // addi a0, x0, 0      — brk(0): query, doesn't move the break
+    // ecall               — a0 becomes whatever _brk currently is
+    // ebreak
+    private static readonly byte[] BrkProgram = Encode(
+        0x40000513u, 0x0D600893u, 0x00000073u, 0x00000513u, 0x00000073u, 0x00100073u
+    );
+
     private static byte[] Encode(params uint[] words) {
         var b = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(b.AsSpan(i * 4), words[i]);
@@ -32,6 +47,9 @@ public class SimPointCheckpointTests {
 
     private static ByteArrayWorkload MakeWorkload() =>
         new(SimPointCheckpointTests.LoopProgram, memorySizeBytes: 0x1000);
+
+    private static ByteArrayWorkload MakeBrkWorkload() =>
+        new(SimPointCheckpointTests.BrkProgram, memorySizeBytes: 0x1000);
 
     private static ISteppableTrain DetailedFactory(
         IMechanism mechanism,
@@ -241,5 +259,75 @@ public class SimPointCheckpointTests {
         Assert.Equal(viaOoo.EstimatedCpi, viaOooAgain.EstimatedCpi, 12);
         // Sanity against a vacuous pass: OoO and single-cycle must actually measure differently here.
         Assert.NotEqual(viaOoo.EstimatedCpi, viaSingleCycle.EstimatedCpi);
+    }
+
+    /// <summary>
+    ///     <see cref="Experiment.MeasureSimPointCheckpoints" />'s <c>captured.SyscallStates[i]</c>
+    ///     restore branch, discriminatingly: a checkpoint taken right after a <c>brk</c> extend must
+    ///     let a subsequent <c>brk(0)</c> query in the measured window see the extended break, not a
+    ///     fresh handler's <c>initialBreak</c>. Hand-builds a one-point <see cref="SimPointCheckpointSet" />
+    ///     directly (bypassing SimPoint clustering, whose interval/warmup selection can't be pinned to
+    ///     land exactly between two specific instructions) so the checkpoint target is exactly "right
+    ///     after the extend, right before the query" and the measured window is exactly the query.
+    ///     Complements <c>SyscallCheckpointTests</c> (RiscV32.System — direct <see cref="LinuxSyscallEmulator" />
+    ///     unit coverage) and <c>RealLinkedSimPointTests.CheckpointMidStartup_...</c> (RiscV64.System —
+    ///     wiring proof against a real ELF, which happens to have no state-carrying syscalls of its own).
+    /// </summary>
+    [Fact]
+    public void MeasureSimPointCheckpoints_RestoresSyscallState_BrkQueryAfterRestoreSeesExtendedBreak() {
+        const long queryWindowInstructions = 2; // "addi a0,x0,0" + the query ecall
+
+        // Fast-forward to right after the extend-brk ecall commits (the 3rd instruction) — the
+        // checkpoint target that puts the restart Pc at "addi a0,x0,0", right before the query.
+        IWorkload workload = MakeBrkWorkload();
+        var ffCounter = new InstructionCounter();
+        var ffHandler = new LinuxSyscallEmulator(0UL);
+        var ffMem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(ffMem);
+        var ffTrain = new SingleCycleTrain(
+            new Rv32Mechanism(syscallHandler: ffHandler), ffMem, workload.EntryPoint, commitObserver: ffCounter
+        );
+        ffTrain.BeginStepping();
+        while (ffCounter.Count < 3 && ffTrain.StepCycle()) { }
+
+        ffTrain.FinishStepping();
+
+        using var archMs = new MemoryStream();
+        ArchitecturalCheckpoint.Save(archMs, ffTrain.ArchState, ffMem, 0);
+        byte[] archBytes = archMs.ToArray();
+        using var syscallMs = new MemoryStream();
+        using (var bw = new BinaryWriter(syscallMs)) { ffHandler.WriteState(bw); }
+
+        byte[] syscallBytes = syscallMs.ToArray();
+
+        var point = new SimulationPoint(0, 0, 1.0);
+        var sp = new SimPointResult(1, 1, [0,], [point,], 0);
+
+        ISteppableTrain? withStateTrain = null;
+
+        ISteppableTrain WithStateFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
+            withStateTrain = new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
+
+        var setWithState = new SimPointCheckpointSet(sp, [archBytes,], [syscallBytes,], queryWindowInstructions, 0, 6);
+        Experiment.MeasureSimPointCheckpoints(
+            workload, setWithState, () => new Rv32Mechanism(syscallHandler: new LinuxSyscallEmulator(0UL)),
+            WithStateFactory
+        );
+        Assert.Equal(1024UL, withStateTrain!.ArchState!.IntegerRegisters.Read(10));
+
+        // Control: the same checkpoint with no syscall-state entry (SyscallStates[0] = null) — what a
+        // mechanism with no ICheckpointableSyscallHandler, or the pre-fix code, would produce. Proves
+        // this test is actually discriminating, not vacuously true regardless of the restore branch.
+        ISteppableTrain? withoutStateTrain = null;
+
+        ISteppableTrain WithoutStateFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
+            withoutStateTrain = new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
+
+        var setWithoutState = new SimPointCheckpointSet(sp, [archBytes,], [null,], queryWindowInstructions, 0, 6);
+        Experiment.MeasureSimPointCheckpoints(
+            workload, setWithoutState, () => new Rv32Mechanism(syscallHandler: new LinuxSyscallEmulator(0UL)),
+            WithoutStateFactory
+        );
+        Assert.Equal(0UL, withoutStateTrain!.ArchState!.IntegerRegisters.Read(10));
     }
 }

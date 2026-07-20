@@ -1,4 +1,8 @@
+#region
+
 using CommunityToolkit.Mvvm.ComponentModel;
+
+#endregion
 
 namespace Face.ViewModels;
 

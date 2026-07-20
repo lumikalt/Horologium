@@ -1,8 +1,12 @@
+#region
+
 using Mechanism;
 using Orrery.Observation;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
+
+#endregion
 
 namespace Tests.RiscV32.Pipelines;
 

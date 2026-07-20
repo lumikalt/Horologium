@@ -1,3 +1,5 @@
+#region
+
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using Mechanism.RtlFu;
@@ -14,6 +16,8 @@ using RiscV32.Trace;
 using RiscV64;
 using RiscV64.Memory;
 using Script;
+
+#endregion
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 

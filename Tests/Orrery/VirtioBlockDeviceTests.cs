@@ -1,5 +1,9 @@
+#region
+
 using Orrery.Devices;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Orrery;
 

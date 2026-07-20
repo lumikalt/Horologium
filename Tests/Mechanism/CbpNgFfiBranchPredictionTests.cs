@@ -1,6 +1,10 @@
+#region
+
 using System.Diagnostics;
 using Mechanism;
 using Mechanism.BranchPredictModels;
+
+#endregion
 
 namespace Tests.Mechanism;
 

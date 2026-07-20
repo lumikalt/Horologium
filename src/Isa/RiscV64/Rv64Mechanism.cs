@@ -1,3 +1,5 @@
+#region
+
 using Mechanism;
 using Orrery.Cache;
 using Orrery.Devices;
@@ -8,6 +10,8 @@ using RiscV64.Decode;
 using RiscV64.Execute;
 using RiscV64.Memory;
 using RiscV64.State;
+
+#endregion
 
 namespace RiscV64;
 
@@ -74,6 +78,9 @@ public sealed class Rv64Mechanism : IMechanism {
     public IExecutor Executor { get; }
     public IImpulseCracker? UopCracker => null;
     public ITrapController TrapController { get; }
+
+    /// <summary>Null if the current executor isn't a <see cref="Rv32Executor" /> (all RV64 executors are).</summary>
+    public ISyscallHandler? SyscallHandler => (Executor as Rv32Executor)?.SyscallHandler;
 
     public IArchState CreateArchState() => new Rv64ArchState();
 

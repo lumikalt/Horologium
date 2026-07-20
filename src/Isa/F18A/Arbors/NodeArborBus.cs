@@ -1,4 +1,8 @@
+#region
+
 using F18A.MultiCore;
+
+#endregion
 
 namespace F18A.Arbors;
 

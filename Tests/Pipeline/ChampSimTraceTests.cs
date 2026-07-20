@@ -1,9 +1,13 @@
+#region
+
 using System.IO.Compression;
 using Mechanism;
 using Mechanism.BranchPredictModels;
 using Orrery.Cache;
 using RiscV32.Config;
 using RiscV32.Trace;
+
+#endregion
 
 namespace Tests.Pipeline;
 

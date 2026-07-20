@@ -1,7 +1,11 @@
+#region
+
 using Orrery.Observation;
 using Orrery.Ports;
 using Orrery.Scheduling;
 using Orrery.Tree;
+
+#endregion
 
 namespace Orrery.Gears;
 

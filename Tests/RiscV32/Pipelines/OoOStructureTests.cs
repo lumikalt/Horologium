@@ -1,5 +1,9 @@
+#region
+
 using Mechanism;
 using Pipeline.Ooo;
+
+#endregion
 
 namespace Tests.RiscV32.Pipelines;
 

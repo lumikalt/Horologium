@@ -1,5 +1,9 @@
+#region
+
 using JetBrains.Annotations;
 using Mechanism;
+
+#endregion
 
 namespace Chip8.Decode;
 

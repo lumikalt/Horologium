@@ -1,6 +1,10 @@
+#region
+
 using Chip8.Decode;
 using Chip8.Execute;
 using Mechanism;
+
+#endregion
 
 namespace Chip8;
 

@@ -1,7 +1,11 @@
+#region
+
 using Mechanism;
 using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Memory;
+
+#endregion
 
 namespace Tests.Pipeline;
 

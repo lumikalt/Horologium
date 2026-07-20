@@ -1,6 +1,10 @@
+#region
+
 using Pipeline;
 using RiscV32.Memory;
 using Subleq;
+
+#endregion
 
 namespace Tests.Isa.Subleq;
 

@@ -1,3 +1,5 @@
+#region
+
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
@@ -12,6 +14,8 @@ using Face.ViewModels;
 using ScottPlot;
 using ScottPlot.Avalonia;
 using ScottPlot.Plottables;
+
+#endregion
 
 namespace Face.Views;
 

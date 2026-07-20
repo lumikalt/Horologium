@@ -1,7 +1,11 @@
+#region
+
 using Mechanism;
 using Mechanism.RtlFu;
 using RiscV32.Decode;
 using RiscV32.State;
+
+#endregion
 
 namespace RiscV32.Execute;
 

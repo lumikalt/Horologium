@@ -1,6 +1,10 @@
+#region
+
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Orrery.Cache;
+
+#endregion
 
 namespace Tests.Orrery;
 

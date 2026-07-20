@@ -1,6 +1,10 @@
+#region
+
 using System.Text;
 using Mechanism;
 using Pipeline.Ooo;
+
+#endregion
 
 namespace RiscV32.Trace;
 

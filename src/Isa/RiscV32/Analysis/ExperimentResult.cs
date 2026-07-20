@@ -1,8 +1,12 @@
+#region
+
 using System.Text;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
 using RiscV32.Config;
+
+#endregion
 
 namespace RiscV32.Analysis;
 
@@ -38,9 +42,19 @@ public sealed record SimPointPointResult(
 ///     of also calling <see cref="Experiment.ProfileSimPoints" /> separately for the report alone —
 ///     that would otherwise profile the workload twice.
 /// </summary>
+/// <param name="SyscallStates">
+///     One serialized <see cref="Mechanism.ICheckpointableSyscallHandler" /> state blob per simulation
+///     point (same order/indexing as <paramref name="Checkpoints" />), or null at an index whose
+///     mechanism has no checkpointable syscall handler (bare-metal HTIF workloads). Restores fd
+///     table/brk/mmap cursors/stdin position alongside the architectural checkpoint, so a syscall
+///     inside a simulation point's window (typically only the startup/shutdown edge phases — see
+///     <c>RealLinkedSimPointTests</c>) measures against the state the guest actually had at that
+///     point, not a fresh handler's initial state.
+/// </param>
 public sealed record SimPointCheckpointSet(
     SimPointResult SimPoints,
     IReadOnlyList<byte[]> Checkpoints,
+    IReadOnlyList<byte[]?> SyscallStates,
     long IntervalSize,
     long WarmupInstructions,
     long TotalInstructions

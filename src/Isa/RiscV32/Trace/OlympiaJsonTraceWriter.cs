@@ -1,7 +1,11 @@
+#region
+
 using System.Globalization;
 using System.Text;
 using Mechanism;
 using RiscV32.Decode;
+
+#endregion
 
 namespace RiscV32.Trace;
 

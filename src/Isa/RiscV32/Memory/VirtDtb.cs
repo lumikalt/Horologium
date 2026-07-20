@@ -1,4 +1,8 @@
+#region
+
 using System.Reflection;
+
+#endregion
 
 namespace RiscV32.Memory;
 

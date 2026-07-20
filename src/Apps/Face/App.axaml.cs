@@ -1,8 +1,12 @@
+#region
+
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Face.ViewModels;
 using Face.Views;
+
+#endregion
 
 namespace Face;
 

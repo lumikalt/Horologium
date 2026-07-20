@@ -1,9 +1,13 @@
+#region
+
 using Mechanism;
 using Orrery.Devices;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 using Xunit.Abstractions;
+
+#endregion
 
 namespace Tests.RiscV32.System;
 

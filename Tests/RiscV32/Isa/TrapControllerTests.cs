@@ -1,8 +1,12 @@
+#region
+
 using Mechanism;
 using RiscV32;
 using RiscV32.Registers;
 using RiscV32.State;
 using RiscV32.Trap;
+
+#endregion
 
 namespace Tests.RiscV32.Isa;
 
