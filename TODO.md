@@ -49,8 +49,12 @@ free embedded suites are runnable in full today.
 
 - [ ] SPEC CPU2006/2017 harness (user-supplied install; SPEC is licensed and non-redistributable):
   RV64 + syscall emulation + SimPoint sampling — BBV profiling, clustering, checkpointed 10M-instruction
-  intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint). All infrastructure below is done,
-  and the toolchain gap that blocked end-to-end validation is now closed
+  intervals with warmup. — Sherwood et al., ASPLOS 2002 (SimPoint). **Blocked on the SPEC license
+  itself, not on anything left to build here**: the user doesn't have a SPEC install yet and still
+  needs to ask their teachers for one — nothing on the code side can close this item until that
+  license is in hand and a real SPEC binary can be pointed at the harness below.
+
+  All infrastructure below is done, and the toolchain gap that blocked end-to-end validation is now closed
   (`riscv64-unknown-linux-musl-gcc` is in `flake.nix`): a real, genuinely compiled and statically-linked
   musl RV64 binary now runs correctly end-to-end through `--bench-config` (argv, `printf`-based stdio,
   clean exit — see the `SYS_writev` sub-bullet below), and the SimPoint/checkpoint sampling machinery
@@ -82,9 +86,32 @@ free embedded suites are runnable in full today.
     run once per `--sweep` config (ooo/five_stage/single_cycle only). Found and fixed a second
     tick-accounting bug along the way: `Train.FinishStepping(baseline)` returned the absolute
     Escapement tick instead of ticks-since-baseline, which only mattered once warmup > 0.
-  - [ ] Reuse one profiling + checkpoint-capture pass across the whole `--sweep`, instead of
-    `RunWithSimPointCheckpoints` repeating both per config — matters at SPEC-scale interval
-    counts, not at today's small test/demo sizes.
+  - [x] Reused one profiling + checkpoint-capture pass across the whole `--sweep`, instead of
+    `RunWithSimPointCheckpoints` repeating both per config. Split it into
+    `Experiment.CaptureSimPointCheckpoints` (profile + single second functional pass to save one
+    checkpoint per simulation point — config-independent) and `Experiment.MeasureSimPointCheckpoints`
+    (restore each checkpoint into a fresh detailed train and measure — config-dependent), returning
+    a new `SimPointCheckpointSet` (SimPoint result + raw checkpoint bytes + the interval/warmup sizes
+    baked into their capture targets) in between. `RunWithSimPointCheckpoints` itself is now a thin
+    two-line wrapper calling both, kept for the single-config case and existing test callers.
+    `Program.cs`'s `--sweep` loop now calls `CaptureSimPointCheckpoints` once before the loop and
+    `MeasureSimPointCheckpoints` per config inside it, instead of the old per-config
+    `RunWithSimPointCheckpoints` call. Also closed a second, related redundancy noticed while wiring
+    this in: the top-level profile report (printed once regardless of `--simpoint-warmup`) used to
+    call `ProfileSimPoints` separately, so a `--simpoint-warmup` run profiled the workload *twice*
+    even after the per-config fix. `SimPointCheckpointSet` gained a `TotalInstructions` field (from
+    the profiling pass's own `BbvProfiler`) so the report can read everything it needs off one
+    `CaptureSimPointCheckpoints` call; `Program.cs` now calls `ProfileSimPoints` directly only when
+    `--simpoint-warmup` is unset (no checkpoint set to reuse in that mode). Exactly one profiling
+    pass total, in every mode. Measured, not just assumed: on `TestBinaries/simpoint_kernel.elf`
+    (742 intervals) the old per-config-repeat behavior didn't finish an 8-config sweep in 90 s; the
+    capture-once version finished in ~18 s. Two new tests in `SimPointCheckpointTests.cs`: the split
+    reproduces `RunWithSimPointCheckpoints`'s exact result for one config, and one captured set is
+    correctly reusable across two different pipelines *and* repeated `Measure` calls against it
+    (this second test is the one that actually matters — verified via revert-and-recheck by injecting
+    a checkpoint-mutation bug that only this test caught, since the first test's two sides both go
+    through the same code path and would agree even if buggy — see
+    `feedback_test_independent_reference`).
   - [x] Runner CLI: `--xlen 32|64` selects RV32/RV64 workload + mechanism across every mode
     (default sweep, `--simpoint`, `--trace-json`, `--elastic-record`, `--stf-record`, `--script`
     incl. `--roi-start`/`--checkpoint-save`/`--checkpoint-load`); `.csx`/`.fsx` scripts can

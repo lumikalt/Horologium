@@ -162,4 +162,75 @@ public class SimPointCheckpointTests {
         Assert.Equal(refResult.TotalTicks, point.Revolution.TotalTicks);
         Assert.Equal(refCounter.Count, point.MeasuredInstructions);
     }
+
+    [Fact]
+    public void CaptureThenMeasure_MatchesRunWithSimPointCheckpoints_ForTheSameConfig() {
+        // RunWithSimPointCheckpoints is now a thin CaptureSimPointCheckpoints + MeasureSimPointCheckpoints
+        // wrapper (see their doc comments) — this pins that the split didn't change the single-config
+        // result at all, byte-for-byte in the measured tick/instruction counts.
+        const long intervalSize = 15;
+        const long warmup = 6;
+
+        SimPointCheckpointResult direct = Experiment.RunWithSimPointCheckpoints(
+            MakeWorkload(), () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory, intervalSize, warmup, maxK: 1
+        );
+
+        SimPointCheckpointSet captured = Experiment.CaptureSimPointCheckpoints(
+            MakeWorkload(), () => new Rv32Mechanism(), intervalSize, warmup, maxK: 1
+        );
+        SimPointCheckpointResult viaSplit = Experiment.MeasureSimPointCheckpoints(
+            MakeWorkload(), captured, () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory
+        );
+
+        Assert.Equal(direct.PointResults.Count, viaSplit.PointResults.Count);
+        for (var i = 0; i < direct.PointResults.Count; i++) {
+            Assert.Equal(direct.PointResults[i].Revolution.TotalTicks, viaSplit.PointResults[i].Revolution.TotalTicks);
+            Assert.Equal(direct.PointResults[i].MeasuredInstructions, viaSplit.PointResults[i].MeasuredInstructions);
+        }
+
+        Assert.Equal(direct.EstimatedCpi, viaSplit.EstimatedCpi, 12);
+    }
+
+    [Fact]
+    public void MeasureSimPointCheckpoints_ReusesOneCaptureAcrossDifferentPipelinesAndRepeatedCalls() {
+        // The actual point of the split (see the --sweep use in Program.cs): one capture must be
+        // reusable across several detailed-pipeline configs, each measuring exactly as if it had
+        // been captured freshly for that config alone — not aliased/mutated by an earlier measure
+        // call. Uses single_cycle vs OoO specifically because they have different CPI on this loop
+        // (no memory/branch-predictor divergence to confound it — a real, checkable difference).
+        const long intervalSize = 15;
+        const long warmup = 6;
+
+        SimPointCheckpointSet captured = Experiment.CaptureSimPointCheckpoints(
+            MakeWorkload(), () => new Rv32Mechanism(), intervalSize, warmup, maxK: 1
+        );
+
+        ISteppableTrain SingleCycleFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
+            new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
+
+        SimPointCheckpointResult viaOoo = Experiment.MeasureSimPointCheckpoints(
+            MakeWorkload(), captured, () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory
+        );
+        SimPointCheckpointResult viaSingleCycle = Experiment.MeasureSimPointCheckpoints(
+            MakeWorkload(), captured, () => new Rv32Mechanism(), SingleCycleFactory
+        );
+        // Re-measure with the OoO config again, against the same captured set, to prove it wasn't
+        // consumed or mutated by the two calls above.
+        SimPointCheckpointResult viaOooAgain = Experiment.MeasureSimPointCheckpoints(
+            MakeWorkload(), captured, () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory
+        );
+
+        SimPointCheckpointResult directOoo = Experiment.RunWithSimPointCheckpoints(
+            MakeWorkload(), () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory, intervalSize, warmup, maxK: 1
+        );
+        SimPointCheckpointResult directSingleCycle = Experiment.RunWithSimPointCheckpoints(
+            MakeWorkload(), () => new Rv32Mechanism(), SingleCycleFactory, intervalSize, warmup, maxK: 1
+        );
+
+        Assert.Equal(directOoo.EstimatedCpi, viaOoo.EstimatedCpi, 12);
+        Assert.Equal(directSingleCycle.EstimatedCpi, viaSingleCycle.EstimatedCpi, 12);
+        Assert.Equal(viaOoo.EstimatedCpi, viaOooAgain.EstimatedCpi, 12);
+        // Sanity against a vacuous pass: OoO and single-cycle must actually measure differently here.
+        Assert.NotEqual(viaOoo.EstimatedCpi, viaSingleCycle.EstimatedCpi);
+    }
 }

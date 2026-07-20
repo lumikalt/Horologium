@@ -347,11 +347,31 @@ if (simpointInterval > 0) {
         spMechanismFactory = () => mechanismFactory(spWorkload.HtifTohostAddress);
     }
 
-    (SimPointResult sp, BbvProfiler profiler) = Experiment.ProfileSimPoints(
-        spWorkload, spMechanismFactory(), simpointInterval, maxTicks, argv: spArgv, wordSize: spWordSize
-    );
+    // Profile exactly once, regardless of --simpoint-warmup: CaptureSimPointCheckpoints already
+    // profiles internally (it needs the SimPoint result to pick checkpoint targets), so calling
+    // ProfileSimPoints here too when --simpoint-warmup is set would profile the workload twice —
+    // wasteful at SPEC-scale interval counts, the same cost class the capture-once-per-sweep change
+    // above targets. When --simpoint-warmup is unset there's no capture to reuse, so this is the
+    // only profiling pass either way.
+    SimPointResult sp;
+    long totalInstructions;
+    SimPointCheckpointSet? captured = null;
+    if (simpointWarmup >= 0) {
+        captured = Experiment.CaptureSimPointCheckpoints(
+            spWorkload, spMechanismFactory, simpointInterval, simpointWarmup, maxTicks, argv: spArgv, wordSize: spWordSize
+        );
+        sp = captured.SimPoints;
+        totalInstructions = captured.TotalInstructions;
+    }
+    else {
+        (sp, BbvProfiler profiler) = Experiment.ProfileSimPoints(
+            spWorkload, spMechanismFactory(), simpointInterval, maxTicks, argv: spArgv, wordSize: spWordSize
+        );
+        totalInstructions = profiler.TotalInstructions;
+    }
+
     Console.Error.WriteLine(
-        $"Profiled {profiler.TotalInstructions:N0} instructions " +
+        $"Profiled {totalInstructions:N0} instructions " +
         $"({sp.IntervalCount} intervals × {simpointInterval:N0})"
     );
     Console.WriteLine(sp);
@@ -360,8 +380,9 @@ if (simpointInterval > 0) {
     for (var i = 0; i < sp.Phases.Count; i++) Console.WriteLine($"{i},{sp.Phases[i]}");
 
     // ── Detailed measurement: checkpoint-and-measure each simulation point ───────
-    if (simpointWarmup >= 0) {
+    if (captured is not null) {
         IReadOnlyList<NamedConfig> spConfigs = sweepPath is not null ? NamedConfig.LoadFile(sweepPath) : DefaultSweep();
+
         Console.WriteLine();
         Console.WriteLine("## Detailed measurement (checkpoint-and-measure per simulation point)");
         foreach (NamedConfig named in spConfigs) {
@@ -404,9 +425,8 @@ if (simpointInterval > 0) {
                 };
             }
 
-            SimPointCheckpointResult spResult = Experiment.RunWithSimPointCheckpoints(
-                spWorkload, spMechanismFactory, DetailedFactory,
-                simpointInterval, simpointWarmup, maxTicks, argv: spArgv, wordSize: spWordSize
+            SimPointCheckpointResult spResult = Experiment.MeasureSimPointCheckpoints(
+                spWorkload, captured, spMechanismFactory, DetailedFactory
             );
             Console.WriteLine(
                 $"  {named.Name}: CPI={spResult.EstimatedCpi:F3}  IPC={spResult.EstimatedIpc:F3}  " +

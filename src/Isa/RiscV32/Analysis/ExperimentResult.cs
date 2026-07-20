@@ -23,8 +23,28 @@ public sealed record SimPointPointResult(SimulationPoint Point, long MeasuredIns
 }
 
 /// <summary>
-///     Result of <see cref="Experiment.RunWithSimPointCheckpoints" />: the SimPoint phase analysis,
-///     the per-point detailed measurement, and the weighted whole-program CPI estimate.
+///     Result of <see cref="Experiment.CaptureSimPointCheckpoints" />: the SimPoint phase analysis and
+///     one raw <see cref="Mechanism.ArchitecturalCheckpoint" /> byte blob per simulation point (same order
+///     as <see cref="SimPoints" />.Points), plus the interval/warmup sizes baked into each checkpoint's
+///     capture target — reusable across multiple <see cref="Experiment.MeasureSimPointCheckpoints" />
+///     calls against different detailed-pipeline configs, since none of this depends on which pipeline
+///     measures it. <see cref="TotalInstructions" /> carries the profiling pass's own instruction count
+///     (from <see cref="Pipeline.BbvProfiler" />) so a caller that needs both the profile report and a
+///     checkpoint set (e.g. <c>--simpoint-warmup</c>) can get everything from this one capture, instead
+///     of also calling <see cref="Experiment.ProfileSimPoints" /> separately for the report alone —
+///     that would otherwise profile the workload twice.
+/// </summary>
+public sealed record SimPointCheckpointSet(
+    SimPointResult SimPoints,
+    IReadOnlyList<byte[]> Checkpoints,
+    long IntervalSize,
+    long WarmupInstructions,
+    long TotalInstructions
+);
+
+/// <summary>
+///     Result of <see cref="Experiment.RunWithSimPointCheckpoints" />/<see cref="Experiment.MeasureSimPointCheckpoints" />:
+///     the SimPoint phase analysis, the per-point detailed measurement, and the weighted whole-program CPI estimate.
 /// </summary>
 public sealed record SimPointCheckpointResult(
     SimPointResult SimPoints,

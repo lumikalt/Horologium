@@ -355,39 +355,32 @@ public static class Experiment {
     }
 
     /// <summary>
-    ///     Full SimPoint-sampled estimation for a detailed pipeline: profile
-    ///     <paramref name="workload" /> (<see cref="ProfileSimPoints" />), save one checkpoint per
-    ///     simulation point in a single second functional pass, then restore each checkpoint into a
-    ///     fresh detailed train (built by <paramref name="detailedTrainFactory" />) and measure
-    ///     <paramref name="intervalSize" /> instructions after <paramref name="warmupInstructions" />
-    ///     of unmeasured warmup (<see cref="WarmupMeasureDriver" />). Per-point CPIs are combined into
-    ///     a whole-program estimate by <see cref="SimulationPoint.Weight" /> — all intervals are the
-    ///     same length, so the correct combination is a weighted mean of CPI (not of IPC).
+    ///     Profiles <paramref name="workload" /> (<see cref="ProfileSimPoints" />) and saves one
+    ///     checkpoint per simulation point in a single second functional pass — the config-independent
+    ///     half of <see cref="RunWithSimPointCheckpoints" />. Split out so a caller measuring the same
+    ///     workload against several detailed-pipeline configs (e.g. a <c>--sweep</c>) can run this once
+    ///     and reuse the result across every config via <see cref="MeasureSimPointCheckpoints" />,
+    ///     instead of re-profiling and re-capturing per config for a result that would be identical
+    ///     every time (the SimPoint clustering and the raw checkpoint bytes don't depend on which
+    ///     detailed pipeline measures them).
     /// </summary>
-    /// <param name="workload">The workload to profile and measure.</param>
+    /// <param name="workload">The workload to profile and checkpoint.</param>
     /// <param name="mechanismFactory">
-    ///     Produces a fresh <see cref="IMechanism" /> instance. Called once per functional pass and
-    ///     once per simulation point — mechanisms can carry state (CSRs etc.), so every pass needs
-    ///     its own, bit-identically-behaving instance.
-    /// </param>
-    /// <param name="detailedTrainFactory">
-    ///     Builds the detailed pipeline train for one simulation point, given a fresh mechanism, the
-    ///     wrapped memory to run on, the checkpoint's restart PC (to use as the train's entry point —
-    ///     required so the train's own fetch-PC state starts at the restored PC, not the workload's
-    ///     original entry point), and the <see cref="InstructionCounter" /> the caller must wire up as
-    ///     the train's commit observer. Must return a train that supports
-    ///     <see cref="ISteppableTrain.SnapshotDials" />/baseline-<see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
-    ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, <c>OooeTrain</c>.
+    ///     Produces a fresh <see cref="IMechanism" /> instance. Called once per functional pass —
+    ///     mechanisms can carry state (CSRs etc.), so every pass needs its own, bit-identically-behaving
+    ///     instance.
     /// </param>
     /// <param name="intervalSize">Instructions per SimPoint interval (also the per-point measured length).</param>
     /// <param name="warmupInstructions">
-    ///     Unmeasured warmup instructions run before each point's measured interval, restarting from
-    ///     <c>intervalStart − warmupInstructions</c> (clamped to 0).
+    ///     Unmeasured warmup instructions to reserve before each point's measured interval, restarting
+    ///     from <c>intervalStart − warmupInstructions</c> (clamped to 0). Baked into each checkpoint's
+    ///     capture target, so <see cref="MeasureSimPointCheckpoints" /> must be given the same value
+    ///     implicitly via the returned <see cref="SimPointCheckpointSet" /> — it is not a free parameter
+    ///     at measure time.
     /// </param>
-    public static SimPointCheckpointResult RunWithSimPointCheckpoints(
+    public static SimPointCheckpointSet CaptureSimPointCheckpoints(
         IWorkload workload,
         Func<IMechanism> mechanismFactory,
-        Func<IMechanism, IMemory, ulong, InstructionCounter, ISteppableTrain> detailedTrainFactory,
         long intervalSize,
         long warmupInstructions,
         long profileMaxTicks = 100_000_000,
@@ -397,7 +390,7 @@ public static class Experiment {
         IReadOnlyList<string>? argv = null,
         int wordSize = 4
     ) {
-        (SimPointResult sp, _) = ProfileSimPoints(
+        (SimPointResult sp, BbvProfiler profiler) = ProfileSimPoints(
             workload, mechanismFactory(), intervalSize, profileMaxTicks, dimensions, maxK, seed, argv, wordSize
         );
 
@@ -467,12 +460,49 @@ public static class Experiment {
                     );
         }
 
-        // Restore each checkpoint into a fresh detailed train and measure.
+        return new SimPointCheckpointSet(sp, checkpoints, intervalSize, warmupInstructions, profiler.TotalInstructions);
+    }
+
+    /// <summary>
+    ///     Restores each checkpoint in <paramref name="captured" /> into a fresh detailed train (built
+    ///     by <paramref name="detailedTrainFactory" />) and measures <c>IntervalSize</c> instructions
+    ///     after the checkpoint's baked-in warmup (<see cref="WarmupMeasureDriver" />) — the
+    ///     config-dependent half of <see cref="RunWithSimPointCheckpoints" />, reusable across several
+    ///     detailed-pipeline configs against one <see cref="CaptureSimPointCheckpoints" /> result. Per-point
+    ///     CPIs are combined into a whole-program estimate by <see cref="SimulationPoint.Weight" /> —
+    ///     all intervals are the same length, so the correct combination is a weighted mean of CPI (not IPC).
+    /// </summary>
+    /// <param name="workload">The same workload <paramref name="captured" /> was captured from.</param>
+    /// <param name="captured">The result of a prior <see cref="CaptureSimPointCheckpoints" /> call.</param>
+    /// <param name="mechanismFactory">
+    ///     Produces a fresh <see cref="IMechanism" /> instance. Called once per simulation point —
+    ///     mechanisms can carry state (CSRs etc.), so every point needs its own, bit-identically-behaving
+    ///     instance.
+    /// </param>
+    /// <param name="detailedTrainFactory">
+    ///     Builds the detailed pipeline train for one simulation point, given a fresh mechanism, the
+    ///     wrapped memory to run on, the checkpoint's restart PC (to use as the train's entry point —
+    ///     required so the train's own fetch-PC state starts at the restored PC, not the workload's
+    ///     original entry point), and the <see cref="InstructionCounter" /> the caller must wire up as
+    ///     the train's commit observer. Must return a train that supports
+    ///     <see cref="ISteppableTrain.SnapshotDials" />/baseline-<see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
+    ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, <c>OooeTrain</c>.
+    /// </param>
+    public static SimPointCheckpointResult MeasureSimPointCheckpoints(
+        IWorkload workload,
+        SimPointCheckpointSet captured,
+        Func<IMechanism> mechanismFactory,
+        Func<IMechanism, IMemory, ulong, InstructionCounter, ISteppableTrain> detailedTrainFactory
+    ) {
+        SimPointResult sp = captured.SimPoints;
+        long intervalSize = captured.IntervalSize;
+        long warmupInstructions = captured.WarmupInstructions;
+
         var pointResults = new List<SimPointPointResult>();
         for (var i = 0; i < sp.Points.Count; i++) {
             SimulationPoint point = sp.Points[i];
             ArchitecturalCheckpoint chk;
-            using (var ms = new MemoryStream(checkpoints[i])) chk = ArchitecturalCheckpoint.Load(ms);
+            using (var ms = new MemoryStream(captured.Checkpoints[i])) chk = ArchitecturalCheckpoint.Load(ms);
 
             var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
             workload.Load(mem);
@@ -500,6 +530,45 @@ public static class Experiment {
 
         double cpi = pointResults.Sum(r => r.Point.Weight * r.Cpi);
         return new SimPointCheckpointResult(sp, pointResults, cpi);
+    }
+
+    /// <summary>
+    ///     Full SimPoint-sampled estimation for a detailed pipeline: <see cref="CaptureSimPointCheckpoints" />
+    ///     followed by <see cref="MeasureSimPointCheckpoints" /> against a single detailed-pipeline config.
+    ///     Convenience wrapper for the single-config case; a caller measuring several configs against the
+    ///     same workload (e.g. a <c>--sweep</c>) should call the two halves directly instead, to capture
+    ///     once and measure many times — see <see cref="CaptureSimPointCheckpoints" />'s doc comment.
+    /// </summary>
+    /// <param name="workload">The workload to profile and measure.</param>
+    /// <param name="mechanismFactory">
+    ///     Produces a fresh <see cref="IMechanism" /> instance. Called once per functional pass and
+    ///     once per simulation point — mechanisms can carry state (CSRs etc.), so every pass needs
+    ///     its own, bit-identically-behaving instance.
+    /// </param>
+    /// <param name="detailedTrainFactory">See <see cref="MeasureSimPointCheckpoints" />.</param>
+    /// <param name="intervalSize">Instructions per SimPoint interval (also the per-point measured length).</param>
+    /// <param name="warmupInstructions">
+    ///     Unmeasured warmup instructions run before each point's measured interval, restarting from
+    ///     <c>intervalStart − warmupInstructions</c> (clamped to 0).
+    /// </param>
+    public static SimPointCheckpointResult RunWithSimPointCheckpoints(
+        IWorkload workload,
+        Func<IMechanism> mechanismFactory,
+        Func<IMechanism, IMemory, ulong, InstructionCounter, ISteppableTrain> detailedTrainFactory,
+        long intervalSize,
+        long warmupInstructions,
+        long profileMaxTicks = 100_000_000,
+        int dimensions = 15,
+        int maxK = 10,
+        int seed = 42,
+        IReadOnlyList<string>? argv = null,
+        int wordSize = 4
+    ) {
+        SimPointCheckpointSet captured = CaptureSimPointCheckpoints(
+            workload, mechanismFactory, intervalSize, warmupInstructions, profileMaxTicks, dimensions, maxK, seed,
+            argv, wordSize
+        );
+        return MeasureSimPointCheckpoints(workload, captured, mechanismFactory, detailedTrainFactory);
     }
 
     /// <summary>
