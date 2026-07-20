@@ -9,6 +9,7 @@ using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+using RiscV32.Syscalls;
 using RiscV32.Trace;
 using RiscV64;
 using RiscV64.Memory;
@@ -28,6 +29,12 @@ string? traceJsonPath = null;      // --trace-json <path>: emit an Olympia JSON 
 long simpointInterval = 0;         // --simpoint <n>: SimPoint phase analysis with n-instruction intervals
 long simpointWarmup = -1;          // --simpoint-warmup <n>: also measure each simulation point on the
                                     // detailed pipeline, with n unmeasured warmup instructions per point
+string? simpointArgvRaw = null;    // --simpoint-argv "<args>": opts --simpoint/--simpoint-warmup into
+                                    // Linux-ABI entry (psABI initial stack + a fresh LinuxSyscallEmulator
+                                    // per functional pass) instead of bare-metal HTIF entry, for a real
+                                    // compiled binary. Value is space-separated argv entries after
+                                    // argv[0] (the ELF's file name); pass "" for none. Requires an ELF
+                                    // workload (not the built-in demo).
 string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
 string? checkpointLoadPath = null; // --checkpoint-load <path>: restore arch checkpoint before run
@@ -70,6 +77,7 @@ for (var i = 0; i < args.Length; i++)
         case "--trace-json":      traceJsonPath = args[++i]; break;
         case "--simpoint":        simpointInterval = long.Parse(args[++i]); break;
         case "--simpoint-warmup": simpointWarmup = long.Parse(args[++i]); break;
+        case "--simpoint-argv":   simpointArgvRaw = args[++i]; break;
         case "--checkpoint-save": checkpointSavePath = args[++i]; break;
         case "--checkpoint-load": checkpointLoadPath = args[++i]; break;
         case "--roi-start":       roiStartSymbol = args[++i]; break;
@@ -308,8 +316,39 @@ if (simpointInterval > 0) {
     }
 
     IWorkload spWorkload = workloads[0].Workload;
+
+    // --simpoint-argv opts into Linux-ABI entry: a real psABI initial stack (argv/envp/auxv) and
+    // a fresh LinuxSyscallEmulator per functional pass (it carries mutable state — fd table,
+    // mmap/brk cursors — so every pass needs its own instance, never a shared one; mirrors
+    // --bench-config's Func<ISyscallHandler, IMechanism> factory shape). Bare-metal HTIF ELFs
+    // (every other mode's convention) don't set this and keep today's exact behavior.
+    IReadOnlyList<string>? spArgv = null;
+    int spWordSize = xlen == 64 ? 8 : 4;
+    Func<IMechanism> spMechanismFactory;
+    if (simpointArgvRaw is not null) {
+        if (spWorkload is not IElfWorkload spElfWorkload) {
+            Console.Error.WriteLine("--simpoint-argv requires an ELF workload, not the built-in demo.");
+            return;
+        }
+
+        spArgv = [
+            Path.GetFileName(elfPaths[0]),
+            ..simpointArgvRaw.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+        ];
+        spMechanismFactory = xlen == 64
+            ? () => new Rv64Mechanism(
+                syscallHandler: new LinuxSyscallEmulator(spElfWorkload.InitialBreak, TextWriter.Null, spWordSize)
+            )
+            : () => new Rv32Mechanism(
+                syscallHandler: new LinuxSyscallEmulator(spElfWorkload.InitialBreak, TextWriter.Null, spWordSize)
+            );
+    }
+    else {
+        spMechanismFactory = () => mechanismFactory(spWorkload.HtifTohostAddress);
+    }
+
     (SimPointResult sp, BbvProfiler profiler) = Experiment.ProfileSimPoints(
-        spWorkload, mechanismFactory(spWorkload.HtifTohostAddress), simpointInterval, maxTicks
+        spWorkload, spMechanismFactory(), simpointInterval, maxTicks, argv: spArgv, wordSize: spWordSize
     );
     Console.Error.WriteLine(
         $"Profiled {profiler.TotalInstructions:N0} instructions " +
@@ -366,8 +405,8 @@ if (simpointInterval > 0) {
             }
 
             SimPointCheckpointResult spResult = Experiment.RunWithSimPointCheckpoints(
-                spWorkload, () => mechanismFactory(spWorkload.HtifTohostAddress), DetailedFactory,
-                simpointInterval, simpointWarmup, maxTicks
+                spWorkload, spMechanismFactory, DetailedFactory,
+                simpointInterval, simpointWarmup, maxTicks, argv: spArgv, wordSize: spWordSize
             );
             Console.WriteLine(
                 $"  {named.Name}: CPI={spResult.EstimatedCpi:F3}  IPC={spResult.EstimatedIpc:F3}  " +
@@ -739,6 +778,15 @@ static void PrintUsage() {
                                 into a whole-program CPI/IPC estimate. Runs once per
                                 --sweep config (or the default sweep); configs whose
                                 pipeline isn't ooo/five_stage/single_cycle are skipped.
+          --simpoint-argv "<args>"  Requires --simpoint and an ELF workload (not the built-in
+                                demo). Opts into Linux-ABI entry for a real compiled binary:
+                                a psABI initial stack (argv/envp/auxv, argv[0] = the ELF's
+                                file name, extra entries from this space-separated string —
+                                pass "" for none) and a fresh LinuxSyscallEmulator per
+                                functional pass, instead of the bare-metal HTIF entry every
+                                other mode uses. Captured stdout/stderr is discarded (this
+                                mode measures CPI/IPC, not output — see --bench-config for
+                                output-checked runs).
           --bench-config <path>  Run a batch of Linux-ABI benchmarks described by a JSON file
                                  (BenchmarkConfig[]: name, elf_path, args, stdin_path,
                                  expected_output_path, memory_size_bytes) and exit. Each

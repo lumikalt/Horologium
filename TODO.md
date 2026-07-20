@@ -144,11 +144,25 @@ free embedded suites are runnable in full today.
     correctly today. **Not done by this**: the `--simpoint-warmup` CLI flag itself
     (`Program.cs`) still isn't wired for real ELFs — it still builds a bare-metal HTIF mechanism
     with no argv/syscall handler, so `--simpoint-warmup real.elf` from the CLI does not work yet;
-    only the underlying API was validated directly. See the new sub-bullet below.
-  - [ ] Wire `argv` + a fresh-per-pass `LinuxSyscallEmulator` through the `--simpoint-warmup` CLI path
-    in `Program.cs`, mirroring `--bench-config`'s `Func<ISyscallHandler, IMechanism>` mechanism-factory
-    shape — the actual remaining step to run a real binary through SimPoint sampling from the CLI, not
-    just through the `RunWithSimPointCheckpoints` API directly (see the sub-bullet above).
+    only the underlying API was validated directly. Closed by the next sub-bullet.
+  - [x] Wired `argv` + a fresh-per-pass `LinuxSyscallEmulator` through the `--simpoint`/
+    `--simpoint-warmup` CLI path in `Program.cs`. New `--simpoint-argv "<args>"` flag (space-separated
+    extra argv entries after argv[0] = the ELF's file name; pass `""` for none) opts a single
+    `--simpoint` workload into Linux-ABI entry — a real psABI initial stack plus a
+    `Func<IMechanism>` that constructs a fresh `LinuxSyscallEmulator` on every call, mirroring
+    `--bench-config`'s `Func<ISyscallHandler, IMechanism>` factory shape (`ProfileSimPoints`/
+    `RunWithSimPointCheckpoints` already call the factory once per functional pass, and
+    `LinuxSyscallEmulator` carries mutable state — fd table, mmap/brk cursors — so each pass needs
+    its own instance). Requires an `IElfWorkload` (a clean error otherwise, e.g. the built-in demo);
+    omitting the flag keeps every other mode's existing bare-metal HTIF entry byte-for-byte
+    unchanged. Captured output is discarded (`TextWriter.Null`) — this mode measures CPI/IPC, not
+    output; use `--bench-config` for output-checked runs. No xUnit seam exists for `Program.cs` (a
+    top-level-statements `Exe` project, same as every other CLI-only increment) — verified manually:
+    `--simpoint`/`--simpoint-argv ""` profiles `TestBinaries/simpoint_kernel.elf` end to end
+    (3,707,769 real instructions, 742 intervals), `--simpoint-warmup` on top of that produces real
+    per-config CPI/IPC estimates from the CLI for the first time, the pre-existing bare-metal
+    `--simpoint` path (`htif64.elf`, no `--simpoint-argv`) is unaffected, and `--simpoint-argv`
+    against the built-in demo reports the clean expected error instead of crashing.
   - [x] Found and fixed a real, independent `OooeTrain` bug along the way, unrelated to the SimPoint
     pipeline itself (reproduced on a plain straight-through OoO run too): `LinuxSyscallEmulator`'s
     ECALL handler reads and writes guest memory through the same `IMemory` (`_capMem`) the executor

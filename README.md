@@ -1347,9 +1347,13 @@ warmup > 0 — fixed by recording the tick at `SnapshotDials()` and subtracting 
 **Validated against a real compiled binary (`TestBinaries/simpoint_kernel.c`/`.elf`).** `ProfileSimPoints` and
 `RunWithSimPointCheckpoints` gained optional `argv`/`wordSize` parameters so their functional passes can inject a real
 psABI initial stack (`InitialStackBuilder`) instead of only bare-metal entry — the first time the *sampling* machinery
-itself has been checked directly (via the `RunWithSimPointCheckpoints` API, not yet the `--simpoint-warmup` CLI flag —
-`Program.cs` still builds a bare-metal HTIF mechanism with no argv/syscall handler for that path; see TODO.md) against
-genuinely compiled code rather than a hand-assembled probe.
+itself has been checked directly against genuinely compiled code rather than a hand-assembled probe. This is now
+wired into the CLI too: `--simpoint-argv "<args>"` opts a single `--simpoint`/`--simpoint-warmup` workload into
+Linux-ABI entry (the psABI stack above, plus a `Func<IMechanism>` that builds a fresh `LinuxSyscallEmulator` on every
+call — mirroring `--bench-config`'s factory shape, since the emulator carries mutable per-run state) instead of the
+bare-metal HTIF entry every other mode uses; omitting the flag keeps that other-modes behavior byte-for-byte
+unchanged. Captured output is discarded — this mode estimates CPI/IPC, not output; see `--bench-config` for
+output-checked runs.
 `Tests/RiscV64/System/RealLinkedSimPointTests.cs` uses `simpoint_kernel.elf` — static arrays (no `malloc`, so no
 `brk`/`mmap`) with one `printf` at the very end — and an independent commit-trace pass to verify every *selected*
 simulation point's warmup+measure window is syscall-free except the two edge phases (startup/shutdown), which always
