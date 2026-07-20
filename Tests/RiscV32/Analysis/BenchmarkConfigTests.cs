@@ -28,7 +28,7 @@ public class BenchmarkConfigTests {
         // enumerables (as done for Args below) does do structural sequence comparison; that's a
         // different, safe code path.
         IReadOnlyList<BenchmarkConfig> benchmarks = [
-            new("probe", "abi_probe64.elf", ["hello"], ExpectedOutputPath: "expected.txt"),
+            new("probe", "abi_probe64.elf", ["hello",], ExpectedOutputPath: "expected.txt"),
             new("echo", "stdin_echo64.elf", StdinPath: "in.txt"),
         ];
 
@@ -50,17 +50,17 @@ public class BenchmarkConfigTests {
 
     [Fact]
     public void RunBenchmark_ArgvReachesGuest_OutputMatchesArgv0() {
-        var bench = new BenchmarkConfig("probe", AbiProbe64Elf, ["hello"]);
+        var bench = new BenchmarkConfig("probe", AbiProbe64Elf, ["hello",]);
         var workload = new Rv64ElfWorkload(bench.ElfPath);
 
         BenchmarkResult result = Experiment.RunBenchmark(
-            bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+            bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
         );
 
         Assert.True(result.Halted);
         Assert.Equal("abi_probe64.elf", result.Output); // argv[0], derived from the ELF's file name
-        Assert.False(result.Checked); // no ExpectedOutputPath supplied
-        Assert.True(result.Passed);   // nothing to check → considered passed
+        Assert.False(result.Checked);                   // no ExpectedOutputPath supplied
+        Assert.True(result.Passed);                     // nothing to check → considered passed
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class BenchmarkConfigTests {
             var workload = new Rv64ElfWorkload(bench.ElfPath);
 
             BenchmarkResult result = Experiment.RunBenchmark(
-                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+                bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
             );
 
             Assert.True(result.Checked);
@@ -90,7 +90,7 @@ public class BenchmarkConfigTests {
             var workload = new Rv64ElfWorkload(bench.ElfPath);
 
             BenchmarkResult result = Experiment.RunBenchmark(
-                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+                bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
             );
 
             Assert.True(result.Checked);
@@ -111,7 +111,7 @@ public class BenchmarkConfigTests {
             var workload = new Rv64ElfWorkload(bench.ElfPath);
 
             BenchmarkResult result = Experiment.RunBenchmark(
-                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+                bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
             );
 
             Assert.True(result.Checked);
@@ -131,7 +131,7 @@ public class BenchmarkConfigTests {
             var workload = new Rv64ElfWorkload(bench.ElfPath);
 
             BenchmarkResult result = Experiment.RunBenchmark(
-                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+                bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
             );
 
             Assert.True(result.Checked);
@@ -153,7 +153,7 @@ public class BenchmarkConfigTests {
             var workload = new Rv64ElfWorkload(bench.ElfPath);
 
             BenchmarkResult result = Experiment.RunBenchmark(
-                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+                bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
             );
 
             Assert.True(result.Checked);
@@ -171,7 +171,7 @@ public class BenchmarkConfigTests {
             var workload = new Rv64ElfWorkload(bench.ElfPath);
 
             BenchmarkResult result = Experiment.RunBenchmark(
-                bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+                bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
             );
 
             Assert.Equal("ping", result.Output);
@@ -185,7 +185,7 @@ public class BenchmarkConfigTests {
         var workload = new Rv64ElfWorkload(bench.ElfPath);
 
         BenchmarkResult result = Experiment.RunBenchmark(
-            bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+            bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
         );
 
         Assert.True(result.Halted);
@@ -198,11 +198,11 @@ public class BenchmarkConfigTests {
         // enabling it must not shift where the stack/argv end up. Reuses the argv probe with
         // MmapArenaBytes set, rather than a fresh assertion, so a regression that moved the stack
         // into (or the arena underneath) the existing layout shows up as a wrong argv[0] readback.
-        var bench = new BenchmarkConfig("probe", AbiProbe64Elf, ["hello"], MmapArenaBytes: 3 * 4096);
+        var bench = new BenchmarkConfig("probe", AbiProbe64Elf, ["hello",], MmapArenaBytes: 3 * 4096);
         var workload = new Rv64ElfWorkload(bench.ElfPath);
 
         BenchmarkResult result = Experiment.RunBenchmark(
-            bench, workload, wordSize: 8, handler => new Rv64Mechanism(syscallHandler: handler)
+            bench, workload, 8, handler => new Rv64Mechanism(syscallHandler: handler)
         );
 
         Assert.True(result.Halted);

@@ -22,7 +22,7 @@ public class InstructionCountedCheckpointTests {
     //       addi x1, x1, -1  — decrement
     //       bne  x1, x0, loop
     // ebreak
-    private static readonly byte[] LoopProgram = InstructionCountedCheckpointTests.Encode(
+    private static readonly byte[] LoopProgram = Encode(
         0x01400093u, 0x00000113u, 0x00310113u, 0xFFF08093u, 0xFE009EE3u, 0x00100073u
     );
 
@@ -63,10 +63,11 @@ public class InstructionCountedCheckpointTests {
         var counterFf = new InstructionCounter();
         FlatMemory memFf = MakeMem();
         MachineHandle ffHandle = new MachineSpec(
-            new SingleCycleSpec(CommitObserver: counterFf), () => new Rv32Mechanism()
+            new SingleCycleSpec(counterFf), () => new Rv32Mechanism()
         ).Build(memFf);
         ffHandle.Train.BeginStepping();
         while (counterFf.Count < k && ffHandle.Train.StepCycle()) { }
+
         RevolutionResult ffResult = ffHandle.Train.FinishStepping();
 
         using var ms = new MemoryStream();

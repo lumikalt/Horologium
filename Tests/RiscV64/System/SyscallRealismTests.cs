@@ -42,10 +42,11 @@ public class SyscallRealismTests {
             var handler64 = new LinuxSyscallEmulator(0x8000_0000UL, wordSize: 8);
             long fd64 = Call(handler64, 56, mem64, 0xFFFF_FF9CUL, WritePath(mem64, path), 0, 0);
             Assert.Equal(0, Call(handler64, 80, mem64, (ulong)fd64, statAddr));
-            Assert.Equal(0UL, mem64.Read(statAddr + 100, 1)); // within RV64's 128-byte stat: zeroed by the timestamp tail
-        } finally {
-            File.Delete(path);
+            Assert.Equal(
+                0UL, mem64.Read(statAddr + 100, 1)
+            ); // within RV64's 128-byte stat: zeroed by the timestamp tail
         }
+        finally { File.Delete(path); }
     }
 
     private static ulong WritePath(FlatMemory memory, string path) {

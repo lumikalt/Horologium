@@ -1,3 +1,4 @@
+using Mechanism;
 using Mechanism.ValuePredictModels;
 
 namespace Tests.Mechanism;
@@ -22,19 +23,19 @@ namespace Tests.Mechanism;
 public class HybridValuePredictionTests {
     private static void TrainToSteady(StridePredictor p, ulong pc, ulong start, long stride) {
         ulong v = start;
-        p.Update(pc, default, v);
+        p.Update(pc, default(ValueHistoryCheckpoint), v);
         v = unchecked(v + (ulong)stride);
-        p.Update(pc, default, v); // primes the stride (likely a mismatch against the seed's 0)
+        p.Update(pc, default(ValueHistoryCheckpoint), v); // primes the stride (likely a mismatch against the seed's 0)
         v = unchecked(v + (ulong)stride);
-        p.Update(pc, default, v); // 1st confirmation: Init -> Transient
+        p.Update(pc, default(ValueHistoryCheckpoint), v); // 1st confirmation: Init -> Transient
         v = unchecked(v + (ulong)stride);
-        p.Update(pc, default, v); // 2nd confirmation: Transient -> Steady
+        p.Update(pc, default(ValueHistoryCheckpoint), v); // 2nd confirmation: Transient -> Steady
     }
 
     [Fact]
     public void NeitherComponentConfident_NoPrediction() {
         var hybrid = new HybridValuePredictor(new StridePredictor(), new StridePredictor());
-        Assert.False(hybrid.TryPredict(0x1000, default, out _));
+        Assert.False(hybrid.TryPredict(0x1000, default(ValueHistoryCheckpoint), out _));
     }
 
     [Fact]
@@ -47,11 +48,11 @@ public class HybridValuePredictionTests {
 
         var oracle = new StridePredictor();
         TrainToSteady(oracle, pc, 0, 5);
-        Assert.True(oracle.TryPredict(pc, default, out ulong expected));
+        Assert.True(oracle.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong expected));
 
-        Assert.True(hybrid.TryPredict(pc, default, out ulong predicted));
+        Assert.True(hybrid.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong predicted));
         Assert.Equal(expected, predicted);
-        Assert.False(computational.TryPredict(pc, default, out _));
+        Assert.False(computational.TryPredict(pc, default(ValueHistoryCheckpoint), out _));
     }
 
     [Fact]
@@ -64,11 +65,11 @@ public class HybridValuePredictionTests {
 
         var oracle = new StridePredictor();
         TrainToSteady(oracle, pc, 100, 3);
-        Assert.True(oracle.TryPredict(pc, default, out ulong expected));
+        Assert.True(oracle.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong expected));
 
-        Assert.True(hybrid.TryPredict(pc, default, out ulong predicted));
+        Assert.True(hybrid.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong predicted));
         Assert.Equal(expected, predicted);
-        Assert.False(context.TryPredict(pc, default, out _));
+        Assert.False(context.TryPredict(pc, default(ValueHistoryCheckpoint), out _));
     }
 
     [Fact]
@@ -86,11 +87,11 @@ public class HybridValuePredictionTests {
         var computationalOracle = new StridePredictor();
         TrainToSteady(contextOracle, pc, 0, 4);
         TrainToSteady(computationalOracle, pc, 0, 4);
-        Assert.True(contextOracle.TryPredict(pc, default, out ulong contextValue));
-        Assert.True(computationalOracle.TryPredict(pc, default, out ulong computationalValue));
+        Assert.True(contextOracle.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong contextValue));
+        Assert.True(computationalOracle.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong computationalValue));
         Assert.Equal(contextValue, computationalValue); // sanity: test actually exercises agreement
 
-        Assert.True(hybrid.TryPredict(pc, default, out ulong predicted));
+        Assert.True(hybrid.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong predicted));
         Assert.Equal(contextValue, predicted);
     }
 
@@ -109,11 +110,11 @@ public class HybridValuePredictionTests {
         var computationalOracle = new StridePredictor();
         TrainToSteady(contextOracle, pc, 0, 4);
         TrainToSteady(computationalOracle, pc, 0, 9);
-        Assert.True(contextOracle.TryPredict(pc, default, out ulong contextValue));
-        Assert.True(computationalOracle.TryPredict(pc, default, out ulong computationalValue));
+        Assert.True(contextOracle.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong contextValue));
+        Assert.True(computationalOracle.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong computationalValue));
         Assert.NotEqual(contextValue, computationalValue); // sanity: test actually exercises disagreement
 
-        Assert.False(hybrid.TryPredict(pc, default, out _));
+        Assert.False(hybrid.TryPredict(pc, default(ValueHistoryCheckpoint), out _));
     }
 
     [Fact]
@@ -125,7 +126,7 @@ public class HybridValuePredictionTests {
 
         ulong v = 0;
         for (var i = 0; i < 4; i++) {
-            hybrid.Update(pc, default, v);
+            hybrid.Update(pc, default(ValueHistoryCheckpoint), v);
             v += 6;
         }
 
@@ -135,12 +136,12 @@ public class HybridValuePredictionTests {
         var computationalOracle = new StridePredictor();
         TrainToSteady(contextOracle, pc, 0, 6);
         TrainToSteady(computationalOracle, pc, 0, 6);
-        Assert.True(contextOracle.TryPredict(pc, default, out ulong contextValue));
-        Assert.True(computationalOracle.TryPredict(pc, default, out ulong computationalValue));
+        Assert.True(contextOracle.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong contextValue));
+        Assert.True(computationalOracle.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong computationalValue));
         Assert.Equal(v, contextValue);
         Assert.Equal(v, computationalValue);
 
-        Assert.True(hybrid.TryPredict(pc, default, out ulong hybridValue));
+        Assert.True(hybrid.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong hybridValue));
         Assert.Equal(v, hybridValue);
     }
 }

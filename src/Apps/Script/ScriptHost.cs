@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis.Scripting;
 using Orrery.Cache;
 using Pipeline.Spec;
 using RiscV32;
+using RiscV64;
 
 namespace Script;
 
@@ -19,7 +20,7 @@ public static class ScriptHost {
                                                                             typeof(IMemory).Assembly,       // Mechanism
                                                                             typeof(MachineSpec).Assembly,   // Pipeline
                                                                             typeof(Rv32Mechanism).Assembly, // RiscV32
-                                                                            typeof(RiscV64.Rv64Mechanism)
+                                                                            typeof(Rv64Mechanism)
                                                                                .Assembly, // RiscV64
                                                                             typeof(SetAssociativeCache)
                                                                                .Assembly // Orrery (includes Orrery.Spec)

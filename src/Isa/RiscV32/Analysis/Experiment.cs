@@ -66,7 +66,7 @@ public static class Experiment {
     ///     <see cref="ExperimentResult" /> per workload, preserving the input order.
     /// </summary>
     /// <param name="workloads">
-    ///     The labelled workloads to simulate. Each label is used as a display name in output.
+    ///     The labeled workloads to simulate. Each label is used as a display name in the output.
     /// </param>
     /// <param name="configurations">
     ///     The hardware configurations shared across all workloads.
@@ -76,7 +76,7 @@ public static class Experiment {
     ///     a workload-specific HTIF tohost address to the mechanism constructor.
     /// </param>
     /// <param name="maxTicks">Maximum ticks per (workload, config) run.</param>
-    /// <param name="warmupTicks">Ticks before measurement starts.</param>
+    /// <param name="warmupTicks">Ticks before the measurement starts.</param>
     /// <param name="snapshotInterval">
     ///     Ticks between time-series snapshots (-1 = auto per workload, 0 = off).
     /// </param>
@@ -136,93 +136,96 @@ public static class Experiment {
         MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
 
         RevolutionResult result;
-        if (config.Pipeline == "ooo") {
-            // For HTIF benchmark workloads that have setStats(), attach an observer to
-            // measure kernel-only IPC (excluding startup and the sprintf teardown that
-            // inflates instruction count vs. the Linux-ABI gem5 binary).
-            SetStatsObserver? setStatsObs = null;
-            OooeTrain? trainRef = null;
-            if (workload is Rv32ElfWorkload elfWorkload &&
-                elfWorkload.TryFindSymbol("setStats", out ulong setStatsPc))
-                // ReSharper disable once AccessToModifiedClosure
-                setStatsObs = new SetStatsObserver(setStatsPc, () => trainRef!.SnapshotPipeline());
+        switch (config.Pipeline) {
+            case "ooo": {
+                // For HTIF benchmark workloads that have setStats(), attach an observer to
+                // measure kernel-only IPC (excluding startup and the sprintf teardown that
+                // inflates instruction count vs. the Linux-ABI gem5 binary).
+                SetStatsObserver? setStatsObs = null;
+                OooeTrain? trainRef = null;
+                if (workload is Rv32ElfWorkload elfWorkload &&
+                    elfWorkload.TryFindSymbol("setStats", out ulong setStatsPc))
+                    // ReSharper disable once AccessToModifiedClosure
+                    setStatsObs = new SetStatsObserver(setStatsPc, () => trainRef!.SnapshotPipeline());
 
-            trainRef = new OooeTrain(
-                mechanism, runMemory,
-                workload.EntryPoint,
-                config.IssueWidth,
-                config.RobCapacity,
-                config.IqCapacity,
-                config.ExtraPhysRegs,
-                config.Predictor?.Build(mechanism, workload),
-                config.ToIMemoryConfig(),
-                dCfg,
-                config.FuLatency,
-                commitObserver: setStatsObs,
-                writeBufferCapacity: config.StoreBufferCapacity,
-                mshrCapacity: config.MshrCapacity,
-                flatIq: config.FlatIq,
-                enableStoreSets: config.EnableStoreSets,
-                fdipFtqCapacity: config.FdipFtqCapacity,
-                rdip: config.Rdip
-            );
-
-            result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
-
-            if (setStatsObs?.KernelDelta is { } kernelSnap) result = result with { Snapshots = [kernelSnap,], };
-        }
-        else if (config.Pipeline == "cpr") {
-            // Checkpoint Processing and Recovery train: shares the OoO knobs it understands
-            // (width, IQ, physical registers, predictor, caches, FU latencies); checkpoint
-            // geometry and CFP stay at their constructor defaults. Store sets stay at the
-            // CprTrain default (enabled) rather than following config.EnableStoreSets:
-            // CPR's violation recovery re-executes the whole checkpoint, so without
-            // memory-dependence learning the same load re-violates forever (a livelock the
-            // OoO train cannot have — its violation path re-executes from the load itself).
-            result = new CprTrain(
-                mechanism, runMemory,
-                workload.EntryPoint,
-                config.IssueWidth,
-                config.IqCapacity,
-                config.ExtraPhysRegs,
-                predictor: config.Predictor?.Build(mechanism, workload),
-                iMemConfig: config.ToIMemoryConfig(),
-                dMemConfig: dCfg,
-                fuLatency: config.FuLatency
-            ).Run(maxTicks, warmupTicks, snapshotInterval);
-        }
-        else {
-            result = config.Pipeline switch {
-                "superscalar" => new SuperscalarTrain(
+                trainRef = new OooeTrain(
                     mechanism, runMemory,
                     workload.EntryPoint,
                     config.IssueWidth,
-                    config.ToIMemoryConfig(),
-                    dCfg,
-                    config.Predictor?.Build(mechanism, workload),
-                    fuLatency: config.FuLatency
-                ).Run(maxTicks, warmupTicks, snapshotInterval),
-
-                "dae" => new DaeTrain(
-                    mechanism, runMemory,
-                    workload.EntryPoint,
-                    config.DaeLaneQueueDepth,
-                    config.ToIMemoryConfig(),
-                    dCfg
-                ).Run(maxTicks, warmupTicks, snapshotInterval),
-
-                _ => new FiveStageTrain(
-                    mechanism, runMemory,
-                    workload.EntryPoint,
-                    config.ForwardingEnabled,
+                    config.RobCapacity,
+                    config.IqCapacity,
+                    config.ExtraPhysRegs,
                     config.Predictor?.Build(mechanism, workload),
                     config.ToIMemoryConfig(),
                     dCfg,
-                    config.StoreBufferCapacity,
+                    config.FuLatency,
+                    commitObserver: setStatsObs,
+                    writeBufferCapacity: config.StoreBufferCapacity,
+                    mshrCapacity: config.MshrCapacity,
+                    flatIq: config.FlatIq,
+                    enableStoreSets: config.EnableStoreSets,
                     fdipFtqCapacity: config.FdipFtqCapacity,
                     rdip: config.Rdip
-                ).Run(maxTicks, warmupTicks, snapshotInterval),
-            };
+                );
+
+                result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
+
+                if (setStatsObs?.KernelDelta is { } kernelSnap) result = result with { Snapshots = [kernelSnap,], };
+                break;
+            }
+            case "cpr":
+                // Checkpoint Processing and Recovery train: shares the OoO knobs it understands
+                // (width, IQ, physical registers, predictor, caches, FU latencies); checkpoint
+                // geometry and CFP stay at their constructor defaults. Store sets stay at the
+                // CprTrain default (enabled) rather than following config.EnableStoreSets:
+                // CPR's violation recovery re-executes the whole checkpoint, so without
+                // memory-dependence learning the same load re-violates forever (a livelock the
+                // OoO train cannot have — its violation path re-executes from the load itself).
+                result = new CprTrain(
+                    mechanism, runMemory,
+                    workload.EntryPoint,
+                    config.IssueWidth,
+                    config.IqCapacity,
+                    config.ExtraPhysRegs,
+                    predictor: config.Predictor?.Build(mechanism, workload),
+                    iMemConfig: config.ToIMemoryConfig(),
+                    dMemConfig: dCfg,
+                    fuLatency: config.FuLatency
+                ).Run(maxTicks, warmupTicks, snapshotInterval);
+                break;
+            default:
+                result = config.Pipeline switch {
+                    "superscalar" => new SuperscalarTrain(
+                        mechanism, runMemory,
+                        workload.EntryPoint,
+                        config.IssueWidth,
+                        config.ToIMemoryConfig(),
+                        dCfg,
+                        config.Predictor?.Build(mechanism, workload),
+                        fuLatency: config.FuLatency
+                    ).Run(maxTicks, warmupTicks, snapshotInterval),
+
+                    "dae" => new DaeTrain(
+                        mechanism, runMemory,
+                        workload.EntryPoint,
+                        config.DaeLaneQueueDepth,
+                        config.ToIMemoryConfig(),
+                        dCfg
+                    ).Run(maxTicks, warmupTicks, snapshotInterval),
+
+                    _ => new FiveStageTrain(
+                        mechanism, runMemory,
+                        workload.EntryPoint,
+                        config.ForwardingEnabled,
+                        config.Predictor?.Build(mechanism, workload),
+                        config.ToIMemoryConfig(),
+                        dCfg,
+                        config.StoreBufferCapacity,
+                        fdipFtqCapacity: config.FdipFtqCapacity,
+                        rdip: config.Rdip
+                    ).Run(maxTicks, warmupTicks, snapshotInterval),
+                };
+                break;
         }
 
         return new RunRecord(named.Name, config, result);
@@ -303,7 +306,7 @@ public static class Experiment {
         return plog;
     }
 
-    // Memory-mapped I/O must bypass caches: device side effects (e.g. HtifMemory's
+    // Memory-mapped I/O must bypass caches: device side effects (e.g., HtifMemory's
     // fromhost auto-ACK, or a UART device's TX/RX state) are invisible to the cache,
     // so a cached copy goes stale and poll loops spin forever.
     private static MemoryConfig WithMmio(MemoryConfig dCfg, IWorkload workload) =>
@@ -315,7 +318,7 @@ public static class Experiment {
     ///     SimPoint phase analysis (Sherwood et al., ASPLOS 2002): runs
     ///     <paramref name="workload" /> once on a functional <c>SingleCycleTrain</c> with a
     ///     <see cref="BbvProfiler" /> attached, then clusters the interval basic-block
-    ///     vectors into phases and picks representative simulation points.
+    ///     vectors into phases, and picks representative simulation points.
     /// </summary>
     public static (SimPointResult Result, BbvProfiler Profiler) ProfileSimPoints(
         IWorkload workload,
@@ -332,7 +335,9 @@ public static class Experiment {
         workload.Load(memory);
 
         var profiler = new BbvProfiler(mechanism.Decoder, intervalSize);
-        var train = new SingleCycleTrain(mechanism, workload.WrapMemory(memory), workload.EntryPoint, commitObserver: profiler);
+        var train = new SingleCycleTrain(
+            mechanism, workload.WrapMemory(memory), workload.EntryPoint, commitObserver: profiler
+        );
         if (argv is not null) InjectInitialStack(train, memory, workload, argv, wordSize);
         train.Run(maxTicks);
         profiler.Complete();
@@ -344,7 +349,11 @@ public static class Experiment {
     // (PC = ELF entry, registers untouched) only works for hand-assembled probes. Writing SP before
     // Run()/BeginStepping() is safe: Wind() (called by both) never touches IntegerRegisters.
     private static void InjectInitialStack(
-        SingleCycleTrain train, IMemory memory, IWorkload workload, IReadOnlyList<string> argv, int wordSize
+        SingleCycleTrain train,
+        IMemory memory,
+        IWorkload workload,
+        IReadOnlyList<string> argv,
+        int wordSize
     ) {
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
@@ -358,11 +367,11 @@ public static class Experiment {
     ///     Profiles <paramref name="workload" /> (<see cref="ProfileSimPoints" />) and saves one
     ///     checkpoint per simulation point in a single second functional pass — the config-independent
     ///     half of <see cref="RunWithSimPointCheckpoints" />. Split out so a caller measuring the same
-    ///     workload against several detailed-pipeline configs (e.g. a <c>--sweep</c>) can run this once
+    ///     workload against several detailed-pipeline configs (e.g., a <c>--sweep</c>) can run this once
     ///     and reuse the result across every config via <see cref="MeasureSimPointCheckpoints" />,
     ///     instead of re-profiling and re-capturing per config for a result that would be identical
-    ///     every time (the SimPoint clustering and the raw checkpoint bytes don't depend on which
-    ///     detailed pipeline measures them).
+    ///     every time. (The SimPoint clustering and the raw checkpoint bytes don't depend on which
+    ///     detailed pipeline measures them.)
     /// </summary>
     /// <param name="workload">The workload to profile and checkpoint.</param>
     /// <param name="mechanismFactory">
@@ -378,6 +387,15 @@ public static class Experiment {
     ///     implicitly via the returned <see cref="SimPointCheckpointSet" /> — it is not a free parameter
     ///     at measure time.
     /// </param>
+    /// <param name="profileMaxTicks">Tick budget for the profiling functional pass.</param>
+    /// <param name="dimensions">Projected dimensionality for SimPoint clustering (paper: 15).</param>
+    /// <param name="maxK">Largest cluster count tried (paper: 10).</param>
+    /// <param name="seed">Seed for the projection matrix and k-means initialization.</param>
+    /// <param name="argv">
+    ///     When non-null, injects a psABI initial stack (<see cref="InitialStackBuilder" />) instead
+    ///     of bare-metal entry, so a real compiled binary's <c>_start</c> can run.
+    /// </param>
+    /// <param name="wordSize">4 for RV32, 8 for RV64 — selects the psABI pointer width.</param>
     public static SimPointCheckpointSet CaptureSimPointCheckpoints(
         IWorkload workload,
         Func<IMechanism> mechanismFactory,
@@ -397,7 +415,8 @@ public static class Experiment {
         // Checkpoint target per point (clamped so warmup never reaches before instruction 0),
         // sorted ascending for InstructionCounter — `order` maps sorted position back to the
         // point's index so each checkpoint lands in the right slot.
-        var targets = sp.Points.Select(p => Math.Max(0L, p.IntervalIndex * intervalSize - warmupInstructions)).ToList();
+        List<long> targets = sp.Points.Select(p => Math.Max(0L, p.IntervalIndex * intervalSize - warmupInstructions))
+                               .ToList();
         int[] order = [..Enumerable.Range(0, sp.Points.Count).OrderBy(i => targets[i]),];
         List<long> sortedTargets = [..order.Select(i => targets[i]),];
 
@@ -416,13 +435,15 @@ public static class Experiment {
             var positiveOrder = new List<int>();
             var positiveTargets = new List<long>();
             for (var si = 0; si < sortedTargets.Count; si++)
-                if (sortedTargets[si] == 0) zeroPointIndices.Add(order[si]);
+                if (sortedTargets[si] == 0) { zeroPointIndices.Add(order[si]); }
                 else {
                     positiveOrder.Add(order[si]);
                     positiveTargets.Add(sortedTargets[si]);
                 }
 
             SingleCycleTrain? captureTrainRef = null;
+            // ReSharper disable AccessToModifiedClosure — the lambda below is only invoked (as an
+            // InstructionCounter callback) after captureTrainRef is assigned a few lines down.
             var counter = new InstructionCounter(
                 positiveTargets,
                 sortedIdx => {
@@ -434,8 +455,11 @@ public static class Experiment {
                     checkpoints[pointIdx] = ms.ToArray();
                 }
             );
+            // ReSharper restore AccessToModifiedClosure
 
-            captureTrainRef = new SingleCycleTrain(mechanismFactory(), runMem, workload.EntryPoint, commitObserver: counter);
+            captureTrainRef = new SingleCycleTrain(
+                mechanismFactory(), runMem, workload.EntryPoint, commitObserver: counter
+            );
             if (argv is not null) InjectInitialStack(captureTrainRef, mem, workload, argv, wordSize);
             captureTrainRef.BeginStepping();
 
@@ -485,7 +509,8 @@ public static class Experiment {
     ///     required so the train's own fetch-PC state starts at the restored PC, not the workload's
     ///     original entry point), and the <see cref="InstructionCounter" /> the caller must wire up as
     ///     the train's commit observer. Must return a train that supports
-    ///     <see cref="ISteppableTrain.SnapshotDials" />/baseline-<see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
+    ///     <see cref="ISteppableTrain.SnapshotDials" />/baseline-
+    ///     <see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
     ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, <c>OooeTrain</c>.
     /// </param>
     public static SimPointCheckpointResult MeasureSimPointCheckpoints(
@@ -502,7 +527,7 @@ public static class Experiment {
         for (var i = 0; i < sp.Points.Count; i++) {
             SimulationPoint point = sp.Points[i];
             ArchitecturalCheckpoint chk;
-            using (var ms = new MemoryStream(captured.Checkpoints[i])) chk = ArchitecturalCheckpoint.Load(ms);
+            using (var ms = new MemoryStream(captured.Checkpoints[i])) { chk = ArchitecturalCheckpoint.Load(ms); }
 
             var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
             workload.Load(mem);
@@ -515,7 +540,7 @@ public static class Experiment {
 
             // The checkpoint target is intervalStart − actualWarmup (clamped so it never precedes
             // instruction 0); actualWarmup must match here too, or an early interval's measured
-            // window would be shifted past the interval it's supposed to represent (e.g. interval
+            // window would be shifted past the interval it's supposed to represent (e.g., interval
             // 0 with warmupInstructions > 0 would measure [warmup, warmup+intervalSize) instead of
             // [0, intervalSize)).
             long intervalStart = point.IntervalIndex * intervalSize;
@@ -536,7 +561,7 @@ public static class Experiment {
     ///     Full SimPoint-sampled estimation for a detailed pipeline: <see cref="CaptureSimPointCheckpoints" />
     ///     followed by <see cref="MeasureSimPointCheckpoints" /> against a single detailed-pipeline config.
     ///     Convenience wrapper for the single-config case; a caller measuring several configs against the
-    ///     same workload (e.g. a <c>--sweep</c>) should call the two halves directly instead, to capture
+    ///     same workload (e.g., a <c>--sweep</c>) should call the two halves directly instead, to capture
     ///     once and measure many times — see <see cref="CaptureSimPointCheckpoints" />'s doc comment.
     /// </summary>
     /// <param name="workload">The workload to profile and measure.</param>
@@ -551,6 +576,15 @@ public static class Experiment {
     ///     Unmeasured warmup instructions run before each point's measured interval, restarting from
     ///     <c>intervalStart − warmupInstructions</c> (clamped to 0).
     /// </param>
+    /// <param name="profileMaxTicks">Tick budget for the profiling functional pass.</param>
+    /// <param name="dimensions">Projected dimensionality for SimPoint clustering (paper: 15).</param>
+    /// <param name="maxK">Largest cluster count tried (paper: 10).</param>
+    /// <param name="seed">Seed for the projection matrix and k-means initialization.</param>
+    /// <param name="argv">
+    ///     When non-null, injects a psABI initial stack (<see cref="InitialStackBuilder" />) instead
+    ///     of bare-metal entry, so a real compiled binary's <c>_start</c> can run.
+    /// </param>
+    /// <param name="wordSize">4 for RV32, 8 for RV64 — selects the psABI pointer width.</param>
     public static SimPointCheckpointResult RunWithSimPointCheckpoints(
         IWorkload workload,
         Func<IMechanism> mechanismFactory,
@@ -661,7 +695,10 @@ public static class Experiment {
     ///     Builds the mechanism given the syscall handler this method constructs, e.g.
     ///     <c>handler =&gt; new Rv32Mechanism(syscallHandler: handler)</c>.
     /// </param>
-    /// <param name="maxTicks">Tick budget; <see cref="BenchmarkResult.Halted" /> is false if this is reached without the guest exiting.</param>
+    /// <param name="maxTicks">
+    ///     Tick budget; <see cref="BenchmarkResult.Halted" /> is false if this is reached without the guest
+    ///     exiting.
+    /// </param>
     public static BenchmarkResult RunBenchmark(
         BenchmarkConfig bench,
         IElfWorkload workload,
@@ -699,8 +736,8 @@ public static class Experiment {
 
         train.Run(maxTicks);
 
-        string output = outputWriter.ToString();
-        // Latin1 both here and in the emulator's capture path (Write() does `(char)byte`) so the
+        var output = outputWriter.ToString();
+        // Latin1 both here and in the emulator's capture path (Write() does `(char)byte`), so the
         // comparison is a byte-exact round trip regardless of content, not a UTF-8 (re)interpretation
         // of raw bytes that could mismatch on anything outside ASCII. Comparison is exact by default
         // — a stray trailing newline in the reference file will fail it unless

@@ -51,14 +51,6 @@ public sealed class Rv32ElfWorkload : IElfWorkload {
     IMemory IWorkload.WrapMemory(IMemory memory) => WrapMemory(memory);
 
     /// <summary>
-    ///     Wraps <paramref name="memory" /> with <see cref="HtifMemory" /> when the ELF contains
-    ///     a <c>tohost</c> symbol, executing fesvr magic-mem syscalls and ACK-ing fromhost.
-    ///     <paramref name="output" /> receives SYS_write output; when null, output is discarded.
-    /// </summary>
-    public IMemory WrapMemory(IMemory memory, TextWriter? output = null) =>
-        TryFindSymbol("tohost", out ulong tohost) ? new HtifMemory(memory, tohost, output) : memory;
-
-    /// <summary>
     ///     Returns the virtual address of a named ELF symbol, or throws if not found.
     /// </summary>
     public ulong FindSymbol(string name) {
@@ -93,6 +85,14 @@ public sealed class Rv32ElfWorkload : IElfWorkload {
 
         throw new KeyNotFoundException($"ELF symbol '{name}' not found");
     }
+
+    /// <summary>
+    ///     Wraps <paramref name="memory" /> with <see cref="HtifMemory" /> when the ELF contains
+    ///     a <c>tohost</c> symbol, executing fesvr magic-mem syscalls and ACK-ing fromhost.
+    ///     <paramref name="output" /> receives SYS_write output; when null, output is discarded.
+    /// </summary>
+    public IMemory WrapMemory(IMemory memory, TextWriter? output = null) =>
+        TryFindSymbol("tohost", out ulong tohost) ? new HtifMemory(memory, tohost, output) : memory;
 
     /// <summary>Like <see cref="FindSymbol" /> but returns false instead of throwing.</summary>
     public bool TryFindSymbol(string name, out ulong address) {

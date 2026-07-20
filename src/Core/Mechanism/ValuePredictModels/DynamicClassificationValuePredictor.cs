@@ -53,8 +53,11 @@ namespace Mechanism.ValuePredictModels;
 ///         never needs to match a specific dynamic instance to its outcome.
 ///     </para>
 ///     <para>
-///         <b>This is markedly more trigger-happy than the paper's trigger, not merely an inexact
-///         proxy for it</b> — say so plainly rather than softening it. The paper's Predict operation
+///         <b>
+///             This is markedly more trigger-happy than the paper's trigger, not merely an inexact
+///             proxy for it
+///         </b>
+///         — say so plainly rather than softening it. The paper's Predict operation
 ///         has three outcomes: confident (predict), low-but-nonzero confidence (no prediction, no
 ///         eviction), and confidence exactly zero (evict). Collapsing "low but nonzero" and "zero"
 ///         into a single boolean <see cref="IValuePredictor.TryPredict" /> result means this predictor
@@ -96,7 +99,11 @@ public sealed class DynamicClassificationValuePredictor : IValuePredictor {
     /// <param name="context">The context-based (history-driven) component, e.g. <see cref="VtagePredictor" />.</param>
     /// <param name="computational">The computational component, e.g. <see cref="StridePredictor" />.</param>
     /// <param name="entries">Classification/history table size. Must be a power of two.</param>
-    public DynamicClassificationValuePredictor(IValuePredictor context, IValuePredictor computational, int entries = 8192) {
+    public DynamicClassificationValuePredictor(
+        IValuePredictor context,
+        IValuePredictor computational,
+        int entries = 8192
+    ) {
         _context = context;
         _computational = computational;
         _classification = new Classification[entries];
@@ -148,7 +155,7 @@ public sealed class DynamicClassificationValuePredictor : IValuePredictor {
                 return;
             case Classification.DontPredict:
                 return; // permanently unpredictable (paper: evicted from the FCM/general role)
-            default: // Unclassified: still accumulating the 3-value learning history
+            default:    // Unclassified: still accumulating the 3-value learning history
                 RecordHistoryAndMaybeClassify(idx, actualValue);
                 return;
         }
@@ -226,5 +233,10 @@ public sealed class DynamicClassificationValuePredictor : IValuePredictor {
 
     private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
 
-    private enum Classification : byte { Unclassified, DontPredict, Context, Computational, }
+    private enum Classification : byte {
+        Unclassified,
+        DontPredict,
+        Context,
+        Computational,
+    }
 }

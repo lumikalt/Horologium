@@ -159,7 +159,9 @@ public sealed class OooeTrain : ISteppableTrain {
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
     public IReadOnlyList<DialBoardSnapshot> SnapshotDials() => _train.SnapshotDials();
-    public RevolutionResult FinishStepping(IReadOnlyList<DialBoardSnapshot> baseline) => _train.FinishStepping(baseline);
+
+    public RevolutionResult FinishStepping(IReadOnlyList<DialBoardSnapshot> baseline) =>
+        _train.FinishStepping(baseline);
 
     public DialBoardSnapshot SnapshotPipeline() => _core.Dials.Snapshot();
 }
@@ -358,6 +360,12 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter? _dtlbHitsCounter, _dtlbMissesCounter;
     private Counter? _eoleEarlyExecCounter;
     private Counter? _eoleLateExecCounter;
+
+    // TMA ExecutionStalls classification (Table 1) is finalized at the end of StepDispatch,
+    // not StepExecute, so that EOLE Late/Early Execution bypasses dispatched later in the
+    // same tick (see StepDispatch) can be folded in. This field carries StepExecute's
+    // IQ-issued count across that gap.
+    private int _execCountThisTick;
     private bool _fetchFaulted; // suppress repeated fault entries until flush clears
 
     // Runtime state
@@ -441,12 +449,6 @@ internal sealed class OoOPipelineCore : Gear {
     private Counter _tdRecoveryBubblesCounter = null!;
     private Counter _tdSlotsIssuedCounter = null!;
     private Counter _tdTotalSlotsCounter = null!;
-
-    // TMA ExecutionStalls classification (Table 1) is finalized at the end of StepDispatch,
-    // not StepExecute, so that EOLE Late/Early Execution bypasses dispatched later in the
-    // same tick (see StepDispatch) can be folded in. This field carries StepExecute's
-    // IQ-issued count across that gap.
-    private int _execCountThisTick;
     private Counter? _vpPredictionsCounter, _vpCorrectCounter, _vpMispredictsCounter;
     private Counter? _wbAbsorbedStallsCounter;
     private int _wbOccupied; // number of slots currently counting down
@@ -2224,8 +2226,8 @@ internal sealed class OoOPipelineCore : Gear {
                 // supplied (this still applies to an Early-Executed instruction: it's trained with
                 // the ground-truth value it just computed, for free, via the ordinary commit path).
                 vpEligible = instr.Class is ToothClass.IntegerAlu or ToothClass.IntegerMulDiv
-                                          or ToothClass.Load or ToothClass.FloatingPoint
-                                          or ToothClass.FloatDivSqrt or ToothClass.System;
+                                                                  or ToothClass.Load or ToothClass.FloatingPoint
+                                                                  or ToothClass.FloatDivSqrt or ToothClass.System;
                 if (!earlyExecEligible && vpEligible && _valuePredictor is not null
                  && _valuePredictor.TryPredict(fi.Pc, fi.VpHistCheckpoint, out predictedValue)) {
                     _prf.Write(newPhys, predictedValue);
@@ -2336,7 +2338,8 @@ internal sealed class OoOPipelineCore : Gear {
             // this same snapshot passed to both calls so a single dynamic instruction's predict and
             // train always agree on which history slot to index, regardless of how much the live
             // speculative history has moved on by the time this instruction reaches Commit.
-            ValueHistoryCheckpoint vpHistCheckpoint = _valuePredictor?.CaptureHistory() ?? default(ValueHistoryCheckpoint);
+            ValueHistoryCheckpoint vpHistCheckpoint
+                = _valuePredictor?.CaptureHistory() ?? default(ValueHistoryCheckpoint);
             if (hint.IsBranch) {
                 // Snapshot the branch predictor's own speculative history before this branch folds
                 // its own direction, so an execute-time partial squash can rewind to exactly here.

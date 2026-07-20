@@ -15,16 +15,17 @@ namespace Pipeline;
 ///         A train's lifecycle is one-shot (<c>Run()</c>, and separately
 ///         <c>BeginStepping</c>→<c>FinishStepping</c>, cannot be re-entered without
 ///         <c>Reset()</c>, which wipes warmed-up microarchitectural state) so both phases must
-///         happen within one continuous stepping session — this drives that session manually via
-///         <see cref="ISteppableTrain.StepCycle" />, using <paramref name="counter" /> to know when
+///         happen within one continuous stepping session. This drives that session manually via
+///         <see cref="ISteppableTrain.StepCycle" />, using <c>counter</c> to know when
 ///         each phase ends.
 ///     </para>
 /// </summary>
 public static class WarmupMeasureDriver {
     /// <param name="train">
     ///     A freshly built, not-yet-stepped train whose commit observer is <paramref name="counter" />
-    ///     (e.g. built from a <c>PipelineSpec</c> with <c>CommitObserver: counter</c>). Must support
-    ///     <see cref="ISteppableTrain.SnapshotDials" />/<see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
+    ///     (e.g., built from a <c>PipelineSpec</c> with <c>CommitObserver: counter</c>). Must support
+    ///     <see cref="ISteppableTrain.SnapshotDials" />/
+    ///     <see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
     ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, and <c>OooeTrain</c>.
     /// </param>
     /// <param name="counter">
@@ -32,7 +33,7 @@ public static class WarmupMeasureDriver {
     ///     commit observer at construction.
     /// </param>
     /// <param name="warmupInstructions">
-    ///     Instructions to run before measurement starts. Zero skips the warmup phase entirely.
+    ///     Instructions to run before the measurement starts. Zero skips the warmup phase entirely.
     /// </param>
     /// <param name="measureInstructions">Instructions to run and measure after warmup.</param>
     /// <returns>

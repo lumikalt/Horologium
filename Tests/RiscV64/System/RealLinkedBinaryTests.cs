@@ -33,12 +33,12 @@ public class RealLinkedBinaryTests {
 
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, wordSize: 8, argv: ["hello64_musl.elf"], envp: [],
-            auxv: InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+            mem, stackTop, 8, ["hello64_musl.elf",], [],
+            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
         );
 
         var sw = new StringWriter();
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new SingleCycleTrain(mech, mem, workload.EntryPoint);
         train.ArchState.IntegerRegisters.Write(2, sp);

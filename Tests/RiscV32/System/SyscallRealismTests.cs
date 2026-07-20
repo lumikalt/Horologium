@@ -35,7 +35,7 @@ public class SyscallRealismTests {
         return Sext32(state.IntegerRegisters.Read(10));
     }
 
-    private static long Sext32(ulong v) => unchecked((long)(int)(uint)v);
+    private static long Sext32(ulong v) => unchecked((int)(uint)v);
 
     [Fact]
     public void FileIo_OpenWriteCloseReopenReadLseek_RoundTrips() {
@@ -48,7 +48,7 @@ public class SyscallRealismTests {
             WriteCString(memory, pathAddr, path);
 
             // O_WRONLY|O_CREAT|O_TRUNC = 1 | 0x40 | 0x200
-            long fdWrite = Call(handler, 56, memory, AtFdcwd, pathAddr, 0x241, 0x1A4);
+            long fdWrite = Call(handler, 56, memory, SyscallRealismTests.AtFdcwd, pathAddr, 0x241, 0x1A4);
             Assert.True(fdWrite >= 3);
 
             byte[] payload = "hello file\n"u8.ToArray();
@@ -57,7 +57,7 @@ public class SyscallRealismTests {
             Assert.Equal(payload.Length, written);
             Assert.Equal(0, Call(handler, 57, memory, (ulong)fdWrite)); // close
 
-            long fdRead = Call(handler, 56, memory, AtFdcwd, pathAddr, 0, 0); // O_RDONLY
+            long fdRead = Call(handler, 56, memory, SyscallRealismTests.AtFdcwd, pathAddr, 0, 0); // O_RDONLY
             Assert.True(fdRead >= 3);
 
             const ulong readBufAddr = 0x8000_3000UL;
@@ -72,7 +72,8 @@ public class SyscallRealismTests {
             Assert.Equal(5, readN2);
 
             Assert.Equal(0, Call(handler, 57, memory, (ulong)fdRead));
-        } finally {
+        }
+        finally {
             if (File.Exists(path)) File.Delete(path);
         }
     }
@@ -95,15 +96,14 @@ public class SyscallRealismTests {
             const ulong statAddr = 0x8000_2000UL;
             WriteCString(memory, pathAddr, path);
 
-            long fd = Call(handler, 56, memory, AtFdcwd, pathAddr, 0, 0);
+            long fd = Call(handler, 56, memory, SyscallRealismTests.AtFdcwd, pathAddr, 0, 0);
             Assert.True(fd >= 3);
 
             Assert.Equal(0, Call(handler, 80, memory, (ulong)fd, statAddr));
             Assert.Equal(100L, unchecked((long)memory.Read(statAddr + 48, 8))); // st_size
-            Assert.Equal(0x81A4UL, memory.Read(statAddr + 16, 4)); // st_mode: S_IFREG|0644
-        } finally {
-            File.Delete(path);
+            Assert.Equal(0x81A4UL, memory.Read(statAddr + 16, 4));              // st_mode: S_IFREG|0644
         }
+        finally { File.Delete(path); }
     }
 
     [Theory]
@@ -299,7 +299,7 @@ public class SyscallRealismTests {
             memory.Write(iovAddr + 12, 2, 4);
 
             // O_WRONLY|O_CREAT|O_TRUNC = 1 | 0x40 | 0x200
-            long fd = Call(handler, 56, memory, AtFdcwd, pathAddr, 0x241, 0x1A4);
+            long fd = Call(handler, 56, memory, SyscallRealismTests.AtFdcwd, pathAddr, 0x241, 0x1A4);
             Assert.True(fd >= 3);
 
             Assert.Equal(4, Call(handler, 66, memory, (ulong)fd, iovAddr, 2));

@@ -17,7 +17,11 @@ public sealed record RunRecord(string Name, TrainConfig Config, RevolutionResult
 ///     measured (may be less than the requested interval size if the workload halted mid-interval),
 ///     and the baseline-subtracted <see cref="RevolutionResult" /> for that measurement.
 /// </summary>
-public sealed record SimPointPointResult(SimulationPoint Point, long MeasuredInstructions, RevolutionResult Revolution) {
+public sealed record SimPointPointResult(
+    SimulationPoint Point,
+    long MeasuredInstructions,
+    RevolutionResult Revolution
+) {
     /// <summary>Cycles per instruction over the measured interval.</summary>
     public double Cpi => MeasuredInstructions > 0 ? (double)Revolution.TotalTicks / MeasuredInstructions : double.NaN;
 }
@@ -43,7 +47,8 @@ public sealed record SimPointCheckpointSet(
 );
 
 /// <summary>
-///     Result of <see cref="Experiment.RunWithSimPointCheckpoints" />/<see cref="Experiment.MeasureSimPointCheckpoints" />:
+///     Result of <see cref="Experiment.RunWithSimPointCheckpoints" />/<see cref="Experiment.MeasureSimPointCheckpoints" />
+///     :
 ///     the SimPoint phase analysis, the per-point detailed measurement, and the weighted whole-program CPI estimate.
 /// </summary>
 public sealed record SimPointCheckpointResult(

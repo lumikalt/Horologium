@@ -10,7 +10,7 @@ namespace Tests.RiscV64.System;
 /// <summary>
 ///     RV64 counterpart to <see cref="Tests.RiscV32.System.SyscallEmulationTests" />'s SE-mode
 ///     section — <see cref="LinuxSyscallEmulator" /> intercepting ECALL on a 64-bit hart. No HTIF
-///     section here: <see cref="RiscV32.Memory.HtifMemory" /> coverage is RV32-specific and
+///     section here: <see cref="HtifMemory" /> coverage is RV32-specific and
 ///     orthogonal to this test file's purpose (proving the ECALL-intercept path, added to
 ///     <see cref="Rv64Mechanism" /> this session, works end-to-end on RV64).
 /// </summary>
@@ -24,7 +24,7 @@ public class SyscallEmulationTests {
         workload.Load(mem);
 
         var sw = new StringWriter();
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new SingleCycleTrain(mech, mem, workload.EntryPoint);
 

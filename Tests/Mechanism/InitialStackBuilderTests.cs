@@ -1,3 +1,4 @@
+using System.Text;
 using Mechanism;
 using RiscV32.Memory;
 
@@ -22,19 +23,22 @@ public class InitialStackBuilderTests {
             a++;
         }
 
-        return System.Text.Encoding.UTF8.GetString(bytes.ToArray());
+        return Encoding.UTF8.GetString(bytes.ToArray());
     }
 
     [Theory]
     [InlineData(4)]
     [InlineData(8)]
     public void Layout_MatchesPsAbiSpec_ForBothWordSizes(int wordSize) {
-        var memory = new FlatMemory(0x10000, StackTop - 0x10000);
-        string[] argv = ["a.out", "hello"];
-        string[] envp = ["FOO=bar"];
-        (ulong Type, ulong Value)[] auxv = [(InitialStackBuilder.AtPagesz, 4096), (InitialStackBuilder.AtEntry, 0x1000),];
+        var memory = new FlatMemory(0x10000, InitialStackBuilderTests.StackTop - 0x10000);
+        string[] argv = ["a.out", "hello",];
+        string[] envp = ["FOO=bar",];
+        (ulong Type, ulong Value)[] auxv =
+            [(InitialStackBuilder.AtPagesz, 4096), (InitialStackBuilder.AtEntry, 0x1000),];
 
-        ulong sp = InitialStackBuilder.BuildInitialStack(memory, StackTop, wordSize, argv, envp, auxv);
+        ulong sp = InitialStackBuilder.BuildInitialStack(
+            memory, InitialStackBuilderTests.StackTop, wordSize, argv, envp, auxv
+        );
 
         Assert.Equal(0UL, sp % 16);
 
@@ -86,15 +90,15 @@ public class InitialStackBuilderTests {
     [InlineData(4)]
     [InlineData(8)]
     public void EmptyArgvEnvpAuxv_StillProducesAlignedSpAndTerminators(int wordSize) {
-        var memory = new FlatMemory(0x10000, StackTop - 0x10000);
+        var memory = new FlatMemory(0x10000, InitialStackBuilderTests.StackTop - 0x10000);
 
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            memory, StackTop, wordSize, [], [], []
+            memory, InitialStackBuilderTests.StackTop, wordSize, [], [], []
         );
 
         Assert.Equal(0UL, sp % 16);
-        Assert.Equal(0UL, memory.Read(sp, wordSize)); // argc == 0
-        Assert.Equal(0UL, memory.Read(sp + (ulong)wordSize, wordSize)); // argv[] NULL only
+        Assert.Equal(0UL, memory.Read(sp, wordSize));                         // argc == 0
+        Assert.Equal(0UL, memory.Read(sp + (ulong)wordSize, wordSize));       // argv[] NULL only
         Assert.Equal(0UL, memory.Read(sp + (ulong)(2 * wordSize), wordSize)); // envp[] NULL only
 
         // AT_RANDOM pair then AT_NULL pair.

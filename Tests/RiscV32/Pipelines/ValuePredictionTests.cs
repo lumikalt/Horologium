@@ -16,7 +16,7 @@ namespace Tests.RiscV32.Pipelines;
 ///     <para>
 ///         A value-predicted instruction still executes for real through the ordinary pipeline in
 ///         the background; the early prediction only supplies a speculative early result. Every
-///         test here runs the same program twice (feature off vs on) and asserts identical final
+///         test here runs the same program twice (feature off vs on) and asserts an identical final
 ///         architectural register state, regardless of whether the predictions made during the
 ///         run were correct, wrong, or never attempted.
 ///     </para>
@@ -161,7 +161,7 @@ public class ValuePredictionTests {
     ///     commit-time squash). This is the regression test for VTAGE's speculative
     ///     history surviving ordinary branch mispredictions: if its checkpoint/restore were
     ///     wrong, architectural state would still be correct (the producing instruction always
-    ///     executes for real) but this is exactly the scenario where a silent history-corruption
+    ///     executes for real), but this is exactly the scenario where a silent history-corruption
     ///     bug would otherwise go undetected. The alternating toggle bit keeps the value
     ///     predictor's branch history oscillating rather than settling immediately, so 600
     ///     iterations give ample deterministic (seeded) margin for the FPC to still converge.
@@ -209,13 +209,13 @@ public class ValuePredictionTests {
     ///     work: <c>TryPredict</c> indexed by the speculative global history (<c>_history.Value</c>,
     ///     read live at Rename) while <c>Update</c> indexed by the committed shadow
     ///     (<c>_history.Committed</c>, read at Commit) — two different snapshots for the same
-    ///     dynamic instruction whenever a full flush's refetch let extra speculative folds occur
+    ///     dynamic instruction whenever a full flush's refetching let extra speculative folds occur
     ///     between an instruction's own fetch and its (much later, or never-reached) commit. Under
     ///     the default <c>AlwaysNotTakenPredictor</c> (which mispredicts this loop's backward branch
     ///     every single iteration, triggering constant full flushes) the two histories could
     ///     permanently drift apart by exactly the one bit separating two <em>different</em>
     ///     instructions' tags, aliasing <c>addi x1,x1,-1</c>'s prediction onto an unrelated,
-    ///     already-confident neighboring instruction's slot — a slot <c>Update</c> (indexing by the
+    ///     already-confident neighboring instruction's slot. A slot <c>Update</c> (indexing by the
     ///     other history) could never reach to correct, so the machine spun forever mispredicting
     ///     the same wrong value. Fixed by capturing a per-instruction <c>ValueHistoryCheckpoint</c>
     ///     at Fetch (already the mechanism branches use for their own recovery) and threading it
@@ -442,7 +442,7 @@ public class ValuePredictionTests {
     ///     FP counterpart to <c>MidLoopValueShift_...</c>: the FP copy chain converges on <c>99.0f</c>
     ///     via <c>f2</c>/<c>f3</c>, then a rare branch re-converts <c>x10</c> (55) into <c>f2</c> five
     ///     iterations before the end, mispredicting the FP destination once VTAGE has converged.
-    ///     Regression test for value-mispredict squash-at-commit driven by a non-integer,
+    ///     Regression test for value-mispredict squash-at-commit driven by a noninteger,
     ///     non-ALU-class PhysDest. Uses <see cref="LTagePredictor" /> — see the section comment
     ///     above. Assembled from:
     ///     <c>
@@ -628,8 +628,8 @@ public class ValuePredictionTests {
     ///     this loop's backward branch every iteration, squashing everything younger before more
     ///     than one iteration is ever simultaneously in flight, which masks the effect entirely.
     ///     Under <c>LTagePredictor</c>, multiple iterations genuinely overlap in this OoOE pipeline,
-    ///     so predicting from the last committed value with a single, un-scaled stride step
-    ///     mispredicts often (undercounting how many occurrences are actually still unresolved).
+    ///     so predicting from the last committed value with a single, unscaled stride step
+    ///     often mispredicts (undercounting how many occurrences are actually still unresolved).
     ///     Asserts a ratio with headroom so a regression that reintroduces committed-value-only
     ///     prediction fails loud; the exact figures aren't asserted since they're one hand-built
     ///     loop's measurement, not a general accuracy claim.
@@ -645,8 +645,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, predictor: new LTagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(new StridePredictor(), predictor: new LTagePredictor());
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new StridePredictor(), new LTagePredictor());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -668,10 +668,10 @@ public class ValuePredictionTests {
     /// <summary>
     ///     Same monotonic-counter program as above, but the predictor under test is
     ///     <c>HybridValuePredictor(VtagePredictor, StridePredictor)</c> — the actual "hybridize
-    ///     with VTAGE" TODO item. VTAGE's own component never confidently predicts this program's
+    ///     with VTAGE" README item. VTAGE's own component never confidently predicts this program's
     ///     ever-changing value (no repeat to key a tagged component's confidence on), so the
     ///     hybrid's combination rule (single-component pass-through) must let Stride's confident
-    ///     prediction through unblocked, exactly as it would standalone. This is the regression
+    ///     prediction through unblocked, exactly as it would stand alone. This is the regression
     ///     test for that pass-through path specifically, as opposed to
     ///     <see cref="Tests.Mechanism.HybridValuePredictionTests" />'s isolated, non-pipeline
     ///     coverage of the same combination logic.

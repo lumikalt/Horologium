@@ -84,11 +84,11 @@ public sealed class LinuxSyscallEmulator(
     private const int SIfchrMode = 0x2190;
 
     private readonly Dictionary<int, FileStream> _files = new();
-    private int _nextFd = 3;
     private ulong _brk = initialBreak;
-    private ulong _mmapNext = mmapBase;
-    private uint _randState = 0x9E37_79B9;
     private ulong _fakeNanos;
+    private ulong _mmapNext = mmapBase;
+    private int _nextFd = 3;
+    private uint _randState = 0x9E37_79B9;
 
     public void Dispose() {
         foreach (FileStream fs in _files.Values) fs.Dispose();
@@ -107,28 +107,28 @@ public sealed class LinuxSyscallEmulator(
             return new ExecuteResult { RequestHalt = true, };
 
         long result = num switch {
-            64   => Write(a0, a1, a2, memory),           // SYS_write
-            66   => Writev(a0, a1, a2, memory),           // SYS_writev
-            63   => Read(a0, a1, a2, memory),            // SYS_read
-            57   => Close(a0),                           // SYS_close
-            62   => Lseek(a0, a1, a2),                   // SYS_lseek
-            80   => Fstat(a0, a1, memory),                // SYS_fstat
-            1024 => LinuxSyscallEmulator.ENoEnt,          // SYS_open (not a real RV syscall; openat only)
-            56   => Openat(a1, a2, a3, memory),           // SYS_openat
-            214  => Brk(a0),                              // SYS_brk
-            222  => Mmap(a1, a3, a4, a5, memory),          // SYS_mmap (a0 addr-hint ignored, no MAP_FIXED)
-            215  => 0,                                     // SYS_munmap → ok (arena never reclaims)
-            226  => 0,                                     // SYS_mprotect → ok
-            113  => ClockGettime(a1, memory),              // SYS_clock_gettime
-            278  => GetRandom(a0, a1, memory),              // SYS_getrandom
-            25   => Fcntl(a1),                              // SYS_fcntl
-            134  => 0,                                       // SYS_rt_sigaction → ok
-            135  => 0,                                       // SYS_rt_sigprocmask → ok
-            96   => 1L,                                      // SYS_set_tid_address → tid=1
-            172  => 1L,                                      // SYS_getpid → 1
-            178  => 1L,                                      // SYS_gettid → 1
-            29   => -25L,                                    // SYS_ioctl → ENOTTY
-            160  => -1L,                                     // SYS_uname → EFAULT (no struct)
+            64   => Write(a0, a1, a2, memory),    // SYS_write
+            66   => Writev(a0, a1, a2, memory),   // SYS_writev
+            63   => Read(a0, a1, a2, memory),     // SYS_read
+            57   => Close(a0),                    // SYS_close
+            62   => Lseek(a0, a1, a2),            // SYS_lseek
+            80   => Fstat(a0, a1, memory),        // SYS_fstat
+            1024 => LinuxSyscallEmulator.ENoEnt,  // SYS_open (not a real RV syscall; openat only)
+            56   => Openat(a1, a2, memory),       // SYS_openat
+            214  => Brk(a0),                      // SYS_brk
+            222  => Mmap(a1, a3, a4, a5, memory), // SYS_mmap (a0 addr-hint ignored, no MAP_FIXED)
+            215  => 0,                            // SYS_munmap → ok (arena never reclaims)
+            226  => 0,                            // SYS_mprotect → ok
+            113  => ClockGettime(a1, memory),     // SYS_clock_gettime
+            278  => GetRandom(a0, a1, memory),    // SYS_getrandom
+            25   => Fcntl(a1),                    // SYS_fcntl
+            134  => 0,                            // SYS_rt_sigaction → ok
+            135  => 0,                            // SYS_rt_sigprocmask → ok
+            96   => 1L,                           // SYS_set_tid_address → tid=1
+            172  => 1L,                           // SYS_getpid → 1
+            178  => 1L,                           // SYS_gettid → 1
+            29   => -25L,                         // SYS_ioctl → ENOTTY
+            160  => -1L,                          // SYS_uname → EFAULT (no struct)
             _    => LinuxSyscallEmulator.ENoSys,
         };
 
@@ -201,16 +201,16 @@ public sealed class LinuxSyscallEmulator(
     private long Lseek(ulong fd, ulong offset, ulong whence) {
         if (!_files.TryGetValue((int)fd, out FileStream? fs)) return LinuxSyscallEmulator.ESpipe;
         SeekOrigin origin = whence switch {
-            1    => SeekOrigin.Current,
-            2    => SeekOrigin.End,
-            _    => SeekOrigin.Begin,
+            1 => SeekOrigin.Current,
+            2 => SeekOrigin.End,
+            _ => SeekOrigin.Begin,
         };
         return fs.Seek((long)offset, origin);
     }
 
-    private long Openat(ulong pathPtr, ulong flags, ulong mode, IMemory memory) {
+    private long Openat(ulong pathPtr, ulong flags, IMemory memory) {
         const ulong oAccmode = 3, oCreat = 0x40, oExcl = 0x80, oTrunc = 0x200, oAppend = 0x400;
-        string path = LinuxSyscallEmulator.ReadCString(memory, pathPtr);
+        string path = ReadCString(memory, pathPtr);
         var accMode = (int)(flags & oAccmode);
         bool creat = (flags & oCreat) != 0;
         bool excl = (flags & oExcl) != 0;
@@ -239,13 +239,12 @@ public sealed class LinuxSyscallEmulator(
             int fd = _nextFd++;
             _files[fd] = fs;
             return fd;
-        } catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
-            return LinuxSyscallEmulator.ENoEnt;
-        } catch (UnauthorizedAccessException) {
-            return LinuxSyscallEmulator.EAcces;
-        } catch (IOException) {
-            return LinuxSyscallEmulator.EIo;
         }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
+            return LinuxSyscallEmulator.ENoEnt;
+        }
+        catch (UnauthorizedAccessException) { return LinuxSyscallEmulator.EAcces; }
+        catch (IOException) { return LinuxSyscallEmulator.EIo; }
     }
 
     private long Fstat(ulong fd, ulong statPtr, IMemory memory) {
@@ -254,12 +253,12 @@ public sealed class LinuxSyscallEmulator(
         if (fd <= 2) {
             size = 0;
             mode = LinuxSyscallEmulator.SIfchrMode;
-        } else if (_files.TryGetValue((int)fd, out FileStream? fs)) {
+        }
+        else if (_files.TryGetValue((int)fd, out FileStream? fs)) {
             size = fs.Length;
             mode = LinuxSyscallEmulator.SIfregMode;
-        } else {
-            return LinuxSyscallEmulator.EBadF;
         }
+        else { return LinuxSyscallEmulator.EBadF; }
 
         WriteStat(memory, statPtr, size, mode);
         return 0;
@@ -269,19 +268,20 @@ public sealed class LinuxSyscallEmulator(
         // Offsets through st_blocks (64) are identical for RV32's stat64 and RV64's stat — see
         // the class doc comment for how they were verified. Only the timestamp tail (from 72)
         // differs: 4-byte int fields on stat64, 8-byte long fields on stat.
-        memory.Write(ptr + 0, 0, 8);               // st_dev
-        memory.Write(ptr + 8, 1, 8);                // st_ino
+        memory.Write(ptr + 0, 0, 8); // st_dev
+        memory.Write(ptr + 8, 1, 8); // st_ino
         memory.Write(ptr + 16, (ulong)mode, 4);
-        memory.Write(ptr + 20, 1, 4);                // st_nlink
-        memory.Write(ptr + 24, 0, 4);                // st_uid
-        memory.Write(ptr + 28, 0, 4);                // st_gid
-        memory.Write(ptr + 32, 0, 8);                // st_rdev
-        memory.Write(ptr + 48, (ulong)size, 8);       // st_size
-        memory.Write(ptr + 56, 4096, 4);              // st_blksize
+        memory.Write(ptr + 20, 1, 4);                           // st_nlink
+        memory.Write(ptr + 24, 0, 4);                           // st_uid
+        memory.Write(ptr + 28, 0, 4);                           // st_gid
+        memory.Write(ptr + 32, 0, 8);                           // st_rdev
+        memory.Write(ptr + 48, (ulong)size, 8);                 // st_size
+        memory.Write(ptr + 56, 4096, 4);                        // st_blksize
         memory.Write(ptr + 64, (ulong)((size + 511) / 512), 8); // st_blocks
 
         int ts = wordSize == 8 ? 8 : 4;
-        for (var i = 0; i < 6; i++) memory.Write(ptr + 72 + (ulong)(i * ts), 0, ts); // atime/mtime/ctime (sec,nsec) — fixed epoch
+        for (var i = 0; i < 6; i++)
+            memory.Write(ptr + 72 + (ulong)(i * ts), 0, ts); // atime/mtime/ctime (sec,nsec) — fixed epoch
     }
 
     private long Brk(ulong requested) {
@@ -312,7 +312,7 @@ public sealed class LinuxSyscallEmulator(
     }
 
     private long ClockGettime(ulong tsPtr, IMemory memory) {
-        _fakeNanos += 1_000_000; // 1 ms per call — deterministic, not real host time
+        _fakeNanos += 1_000_000;                                // 1 ms per call — deterministic, not real host time
         memory.Write(tsPtr, _fakeNanos / 1_000_000_000, 8);     // tv_sec
         memory.Write(tsPtr + 8, _fakeNanos % 1_000_000_000, 8); // tv_nsec
         return 0;
@@ -330,7 +330,7 @@ public sealed class LinuxSyscallEmulator(
     }
 
     private static long Fcntl(ulong cmd) => cmd switch {
-        1 or 2 or 3 or 4 => 0, // F_GETFD/F_SETFD/F_GETFL/F_SETFL → benign success
+        1 or 2 or 3 or 4 => 0,                           // F_GETFD/F_SETFD/F_GETFL/F_SETFL → benign success
         _                => LinuxSyscallEmulator.ENoSys, // F_DUPFD and everything else unimplemented
     };
 

@@ -30,23 +30,18 @@ namespace Tests.RiscV64.System;
 ///     </para>
 /// </summary>
 public class RealLinkedSimPointTests {
-    private static string ElfPath => Path.Combine(AppContext.BaseDirectory, "simpoint_kernel.elf");
-    private static readonly string[] Argv = ["simpoint_kernel.elf"];
     private const int WordSize = 8;
+    private static readonly string[] Argv = ["simpoint_kernel.elf",];
+    private static string ElfPath => Path.Combine(AppContext.BaseDirectory, "simpoint_kernel.elf");
 
     private static Rv64ElfWorkload MakeWorkload() => new(ElfPath, 8 * 1024 * 1024);
 
-    private sealed class EcallCommitTracker : ICommitObserver {
-        public long TotalCommits { get; private set; }
-        public List<long> EcallCommitIndices { get; } = [];
-
-        public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
-            TotalCommits++;
-            if (rawEncoding == 0x00000073u) EcallCommitIndices.Add(TotalCommits);
-        }
-    }
-
-    private static ISteppableTrain DetailedFactory(IMechanism mechanism, IMemory mem, ulong entryPoint, InstructionCounter counter) =>
+    private static ISteppableTrain DetailedFactory(
+        IMechanism mechanism,
+        IMemory mem,
+        ulong entryPoint,
+        InstructionCounter counter
+    ) =>
         new OooeTrain(mechanism, mem, entryPoint, commitObserver: counter);
 
     [Fact]
@@ -58,12 +53,13 @@ public class RealLinkedSimPointTests {
         workload.Load(mem);
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, WordSize, Argv, [], InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+            mem, stackTop, RealLinkedSimPointTests.WordSize, RealLinkedSimPointTests.Argv, [],
+            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
         );
 
         var sw = new StringWriter();
         var tracker = new EcallCommitTracker();
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: WordSize);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, RealLinkedSimPointTests.WordSize);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new SingleCycleTrain(mech, mem, workload.EntryPoint, commitObserver: tracker);
         train.ArchState.IntegerRegisters.Write(2, sp);
@@ -99,9 +95,14 @@ public class RealLinkedSimPointTests {
 
         SimPointCheckpointResult result = Experiment.RunWithSimPointCheckpoints(
             workload,
-            () => new Rv64Mechanism(syscallHandler: new LinuxSyscallEmulator(workload.InitialBreak, TextWriter.Null, WordSize)),
+            () => new Rv64Mechanism(
+                syscallHandler: new LinuxSyscallEmulator(
+                    workload.InitialBreak, TextWriter.Null, RealLinkedSimPointTests.WordSize
+                )
+            ),
             DetailedFactory,
-            intervalSize, warmup, maxK: 4, argv: Argv, wordSize: WordSize
+            intervalSize, warmup, maxK: 4, argv: RealLinkedSimPointTests.Argv,
+            wordSize: RealLinkedSimPointTests.WordSize
         );
 
         Assert.NotEmpty(result.PointResults);
@@ -114,11 +115,16 @@ public class RealLinkedSimPointTests {
         refWorkload.Load(refMem);
         ulong stackTop = refWorkload.BaseAddress + (ulong)refWorkload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            refMem, stackTop, WordSize, Argv, [], InitialStackBuilder.BuildStandardAuxv(0, 0, 0, refWorkload.EntryPoint)
+            refMem, stackTop, RealLinkedSimPointTests.WordSize, RealLinkedSimPointTests.Argv, [],
+            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, refWorkload.EntryPoint)
         );
         var tracker = new EcallCommitTracker();
-        var refHandler = new LinuxSyscallEmulator(refWorkload.InitialBreak, TextWriter.Null, WordSize);
-        var refTrain = new SingleCycleTrain(new Rv64Mechanism(syscallHandler: refHandler), refMem, refWorkload.EntryPoint, commitObserver: tracker);
+        var refHandler = new LinuxSyscallEmulator(
+            refWorkload.InitialBreak, TextWriter.Null, RealLinkedSimPointTests.WordSize
+        );
+        var refTrain = new SingleCycleTrain(
+            new Rv64Mechanism(syscallHandler: refHandler), refMem, refWorkload.EntryPoint, commitObserver: tracker
+        );
         refTrain.ArchState.IntegerRegisters.Write(2, sp);
         refTrain.Run(8_000_000);
         Assert.True(refTrain.IsIdle);
@@ -145,7 +151,8 @@ public class RealLinkedSimPointTests {
             long windowStart = intervalStart - actualWarmup;
             long windowEnd = intervalStart + intervalSize;
 
-            if (windowStart < safeStart || windowEnd > safeEnd) continue; // startup/shutdown edge phase — expected, not asserted
+            if (windowStart < safeStart || windowEnd > safeEnd)
+                continue; // startup/shutdown edge phase — expected, not asserted
             fullyInsideSafeGap++;
 
             Assert.False(
@@ -156,6 +163,19 @@ public class RealLinkedSimPointTests {
             );
         }
 
-        Assert.True(fullyInsideSafeGap > 0, "expected at least one selected simulation point inside the compute loop, not just at the startup/shutdown edges");
+        Assert.True(
+            fullyInsideSafeGap > 0,
+            "expected at least one selected simulation point inside the compute loop, not just at the startup/shutdown edges"
+        );
+    }
+
+    private sealed class EcallCommitTracker : ICommitObserver {
+        public long TotalCommits { get; private set; }
+        public List<long> EcallCommitIndices { get; } = [];
+
+        public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
+            TotalCommits++;
+            if (rawEncoding == 0x00000073u) EcallCommitIndices.Add(TotalCommits);
+        }
     }
 }

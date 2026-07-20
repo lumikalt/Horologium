@@ -175,8 +175,8 @@ public class CheckpointTests {
 
     [Fact]
     public async Task SaveAsync_MutatingMemoryAfterCall_DoesNotAffectCheckpoint() {
-        // The state copy must happen synchronously inside SaveAsync, before it returns —
-        // mutating memory afterwards (while the background write is in flight) must not
+        // The state copy must happen synchronously inside SaveAsync before it returns —
+        // mutating memory afterward (while the background write is in flight) must not
         // be visible in the checkpoint.
         byte[] prog = Encode(0x02a00093u, 0x10102023u, 0x00100073u); // addi x1,x0,42; sw x1,256(x0); ebreak
         FlatMemory mem = MakeMem(prog);
@@ -232,7 +232,7 @@ public class CheckpointTests {
     }
 
     /// <summary>
-    ///     <see cref="RestoreInto" /> writes <c>ArchState.IntegerRegisters</c> — but OoOE execution
+    ///     <see cref="ArchitecturalCheckpoint.RestoreInto" /> writes <c>ArchState.IntegerRegisters</c> — but OoOE execution
     ///     reads register operands from the physical register file (PRF), which starts zeroed at
     ///     construction and is otherwise only ever written by the pipeline itself at Complete. A
     ///     restore performed between construction and <c>Run()</c>/<c>BeginStepping()</c> would be

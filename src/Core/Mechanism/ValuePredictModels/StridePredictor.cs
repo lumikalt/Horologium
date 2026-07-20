@@ -15,8 +15,12 @@ namespace Mechanism.ValuePredictModels;
 ///     value (so LVP/VTAGE's confidence never saturates) but has a trivially constant stride.
 ///     <para>
 ///         Confidence is the FSM itself (no separate saturating counter layered on top): 4 states
-///         <c>Init</c>, <c>Transient</c>, <c>Steady</c>, <c>NoPred</c>. A match advances <c>Init -&gt;
-///         Transient -&gt; Steady</c> (predicting only once <c>Steady</c> is reached — two consecutive
+///         <c>Init</c>, <c>Transient</c>, <c>Steady</c>, <c>NoPred</c>. A match advances
+///         <c>
+///             Init -&gt;
+///             Transient -&gt; Steady
+///         </c>
+///         (predicting only once <c>Steady</c> is reached — two consecutive
 ///         matching strides, the "2-delta" in the name) and <c>NoPred -&gt; Transient</c>; a mismatch
 ///         drops <c>Steady -&gt; Init</c> and <c>Transient -&gt; NoPred</c> while leaving
 ///         <c>Init</c>/<c>NoPred</c> in place — so one bad guess right after warmup costs nothing, but
@@ -121,11 +125,11 @@ public sealed class StridePredictor : IValuePredictor {
         var newStride = unchecked((long)(actualValue - _lastValue[idx]));
         bool matched = newStride == _stride[idx];
         _state[idx] = _state[idx] switch {
-            State.Init => matched ? State.Transient : State.Init,
+            State.Init      => matched ? State.Transient : State.Init,
             State.Transient => matched ? State.Steady : State.NoPred,
-            State.Steady => matched ? State.Steady : State.Init,
-            State.NoPred => matched ? State.Transient : State.NoPred,
-            _ => State.Init,
+            State.Steady    => matched ? State.Steady : State.Init,
+            State.NoPred    => matched ? State.Transient : State.NoPred,
+            _               => State.Init,
         };
         _stride[idx] = newStride;
         _lastValue[idx] = actualValue;
@@ -136,5 +140,10 @@ public sealed class StridePredictor : IValuePredictor {
 
     private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
 
-    private enum State : byte { Init, Transient, Steady, NoPred, }
+    private enum State : byte {
+        Init,
+        Transient,
+        Steady,
+        NoPred,
+    }
 }

@@ -1,3 +1,4 @@
+using Mechanism;
 using Mechanism.ValuePredictModels;
 
 namespace Tests.Mechanism;
@@ -10,7 +11,7 @@ public class LvpValuePredictionTests {
     [Fact]
     public void ColdMiss_NoPrediction() {
         var p = new LvpPredictor();
-        Assert.False(p.TryPredict(0x1000, default, out _));
+        Assert.False(p.TryPredict(0x1000, default(ValueHistoryCheckpoint), out _));
     }
 
     [Fact]
@@ -18,36 +19,36 @@ public class LvpValuePredictionTests {
         var p = new LvpPredictor();
         const ulong pc = 0x1000;
         const ulong value = 42;
-        for (var i = 0; i < 5000; i++) p.Update(pc, default, value);
+        for (var i = 0; i < 5000; i++) p.Update(pc, default(ValueHistoryCheckpoint), value);
 
-        Assert.True(p.TryPredict(pc, default, out ulong predicted));
+        Assert.True(p.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong predicted));
         Assert.Equal(value, predicted);
     }
 
     [Fact]
     public void FirstEncounter_SeedsValueButDoesNotPredict() {
         var p = new LvpPredictor();
-        p.Update(0x2000, default, 7);
+        p.Update(0x2000, default(ValueHistoryCheckpoint), 7);
         // A single training pass only seeds the value history; confidence has not
         // yet been demonstrated by a repeated correct prediction.
-        Assert.False(p.TryPredict(0x2000, default, out _));
+        Assert.False(p.TryPredict(0x2000, default(ValueHistoryCheckpoint), out _));
     }
 
     [Fact]
     public void Mispredict_ResetsConfidenceAndReplacesValue() {
         var p = new LvpPredictor();
         const ulong pc = 0x3000;
-        for (var i = 0; i < 5000; i++) p.Update(pc, default, 10);
-        Assert.True(p.TryPredict(pc, default, out ulong before));
+        for (var i = 0; i < 5000; i++) p.Update(pc, default(ValueHistoryCheckpoint), 10);
+        Assert.True(p.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong before));
         Assert.Equal(10UL, before);
 
         // A single differing value hard-resets confidence (FPC never gradually decays).
-        p.Update(pc, default, 99);
-        Assert.False(p.TryPredict(pc, default, out _));
+        p.Update(pc, default(ValueHistoryCheckpoint), 99);
+        Assert.False(p.TryPredict(pc, default(ValueHistoryCheckpoint), out _));
 
         // Re-converges on the new value with enough repeated training.
-        for (var i = 0; i < 5000; i++) p.Update(pc, default, 99);
-        Assert.True(p.TryPredict(pc, default, out ulong after));
+        for (var i = 0; i < 5000; i++) p.Update(pc, default(ValueHistoryCheckpoint), 99);
+        Assert.True(p.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong after));
         Assert.Equal(99UL, after);
     }
 
@@ -56,12 +57,12 @@ public class LvpValuePredictionTests {
         // A 1-entry table forces every PC to the same slot — the "tagless" design
         // accepts this as an ordinary misprediction source, never a correctness issue.
         var p = new LvpPredictor(1);
-        for (var i = 0; i < 5000; i++) p.Update(0x1000, default, 5);
-        Assert.True(p.TryPredict(0x1000, default, out ulong v1));
+        for (var i = 0; i < 5000; i++) p.Update(0x1000, default(ValueHistoryCheckpoint), 5);
+        Assert.True(p.TryPredict(0x1000, default(ValueHistoryCheckpoint), out ulong v1));
         Assert.Equal(5UL, v1);
 
         // A different PC that hashes to the same (only) slot aliases and clobbers it.
-        p.Update(0x2000, default, 6);
-        Assert.False(p.TryPredict(0x2000, default, out _));
+        p.Update(0x2000, default(ValueHistoryCheckpoint), 6);
+        Assert.False(p.TryPredict(0x2000, default(ValueHistoryCheckpoint), out _));
     }
 }

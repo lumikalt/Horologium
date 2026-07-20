@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Mechanism;
 
 /// <summary>
@@ -85,7 +87,11 @@ public static class InitialStackBuilder {
     ///     against, which is out of reach without a riscv64-*-linux-* userspace toolchain.
     /// </summary>
     public static IReadOnlyList<(ulong Type, ulong Value)> BuildStandardAuxv(
-        ulong phdrAddr, ulong phEntrySize, ulong phNum, ulong entryPoint, ulong pageSize = 4096
+        ulong phdrAddr,
+        ulong phEntrySize,
+        ulong phNum,
+        ulong entryPoint,
+        ulong pageSize = 4096
     ) => [
         (InitialStackBuilder.AtPagesz, pageSize),
         (InitialStackBuilder.AtPhdr, phdrAddr),
@@ -139,10 +145,10 @@ public static class InitialStackBuilder {
         // returned SP) is 16-byte aligned, with any leftover padding sitting harmlessly between
         // its high end and the string blob above. ──
         var fixedRegionSize = (ulong)(
-            wordSize // argc
-            + (argv.Count + 1) * wordSize // argv[] + NULL
-            + (envp.Count + 1) * wordSize // envp[] + NULL
-            + (auxv.Count + 2) * 2 * wordSize // caller's auxv pairs + AT_RANDOM pair + AT_NULL pair
+            wordSize                        // argc
+          + (argv.Count + 1) * wordSize     // argv[] + NULL
+          + (envp.Count + 1) * wordSize     // envp[] + NULL
+          + (auxv.Count + 2) * 2 * wordSize // caller's auxv pairs + AT_RANDOM pair + AT_NULL pair
         );
 
         ulong sp = (stringBlobBase - fixedRegionSize) & ~0xFUL;
@@ -176,14 +182,17 @@ public static class InitialStackBuilder {
         memory.Write(atNullPairAddr, InitialStackBuilder.AtNull, wordSize);
         memory.Write(atNullPairAddr + (ulong)wordSize, 0, wordSize);
 
-        if (sp % 16 != 0) throw new InvalidOperationException($"InitialStackBuilder produced a misaligned SP (0x{sp:X}) — packing-math bug.");
+        if (sp % 16 != 0)
+            throw new InvalidOperationException(
+                $"InitialStackBuilder produced a misaligned SP (0x{sp:X}) — packing-math bug."
+            );
 
         return sp;
     }
 
     /// <summary>Writes a NUL-terminated string just below <paramref name="cursor" />, returning the new cursor.</summary>
     private static ulong WriteCString(IMemory memory, ulong cursor, string s, out ulong address) {
-        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(s + "\0");
+        byte[] bytes = Encoding.UTF8.GetBytes(s + "\0");
         cursor -= (ulong)bytes.Length;
         memory.Load(cursor, bytes);
         address = cursor;

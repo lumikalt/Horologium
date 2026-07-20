@@ -88,7 +88,9 @@ public sealed class FiveStageTrain : ISteppableTrain {
     public bool StepCycle() => _train.StepCycle();
     public RevolutionResult FinishStepping() => _train.FinishStepping();
     public IReadOnlyList<DialBoardSnapshot> SnapshotDials() => _train.SnapshotDials();
-    public RevolutionResult FinishStepping(IReadOnlyList<DialBoardSnapshot> baseline) => _train.FinishStepping(baseline);
+
+    public RevolutionResult FinishStepping(IReadOnlyList<DialBoardSnapshot> baseline) =>
+        _train.FinishStepping(baseline);
 }
 
 internal sealed class PipelineCore : Gear {

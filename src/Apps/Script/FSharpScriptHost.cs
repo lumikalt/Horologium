@@ -4,6 +4,7 @@ using Microsoft.FSharp.Core;
 using Orrery.Cache;
 using Pipeline.Spec;
 using RiscV32;
+using RiscV64;
 using static FSharp.Compiler.Interactive.Shell;
 
 namespace Script;
@@ -32,7 +33,7 @@ internal static class FSharpScriptHost {
         typeof(IMemory).Assembly.Location,
         typeof(MachineSpec).Assembly.Location,
         typeof(Rv32Mechanism).Assembly.Location,
-        typeof(RiscV64.Rv64Mechanism).Assembly.Location,
+        typeof(Rv64Mechanism).Assembly.Location,
         typeof(SetAssociativeCache).Assembly.Location,
     ];
 

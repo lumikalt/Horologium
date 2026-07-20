@@ -21,20 +21,20 @@ List<string> elfPaths = [];
 string? sweepPath = null;
 long warmupTicks = 0;
 long maxTicks = 1_000_000;
-long snapshotInterval = 0;         // 0 = off, -1 = auto, >0 = explicit ticks
-var format = "md";                 // md | csv | both | ts-csv
-int? memorySizeBytes = null;       // null → default to 4 MB for ELF workloads
-var xlen = 32;                     // --xlen 32|64: RV32I or RV64I workload/mechanism
-string? traceJsonPath = null;      // --trace-json <path>: emit an Olympia JSON trace and exit
-long simpointInterval = 0;         // --simpoint <n>: SimPoint phase analysis with n-instruction intervals
-long simpointWarmup = -1;          // --simpoint-warmup <n>: also measure each simulation point on the
-                                    // detailed pipeline, with n unmeasured warmup instructions per point
-string? simpointArgvRaw = null;    // --simpoint-argv "<args>": opts --simpoint/--simpoint-warmup into
-                                    // Linux-ABI entry (psABI initial stack + a fresh LinuxSyscallEmulator
-                                    // per functional pass) instead of bare-metal HTIF entry, for a real
-                                    // compiled binary. Value is space-separated argv entries after
-                                    // argv[0] (the ELF's file name); pass "" for none. Requires an ELF
-                                    // workload (not the built-in demo).
+long snapshotInterval = 0;    // 0 = off, -1 = auto, >0 = explicit ticks
+var format = "md";            // md | csv | both | ts-csv
+int? memorySizeBytes = null;  // null → default to 4 MB for ELF workloads
+var xlen = 32;                // --xlen 32|64: RV32I or RV64I workload/mechanism
+string? traceJsonPath = null; // --trace-json <path>: emit an Olympia JSON trace and exit
+long simpointInterval = 0;    // --simpoint <n>: SimPoint phase analysis with n-instruction intervals
+long simpointWarmup = -1;     // --simpoint-warmup <n>: also measure each simulation point on the
+// detailed pipeline, with n unmeasured warmup instructions per point
+string? simpointArgvRaw = null; // --simpoint-argv "<args>": opts --simpoint/--simpoint-warmup into
+// Linux-ABI entry (psABI initial stack + a fresh LinuxSyscallEmulator
+// per functional pass) instead of bare-metal HTIF entry, for a real
+// compiled binary. Value is space-separated argv entries after
+// argv[0] (the ELF's file name); pass "" for none. Requires an ELF
+// workload (not the built-in demo).
 string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
 string? checkpointLoadPath = null; // --checkpoint-load <path>: restore arch checkpoint before run
@@ -343,9 +343,7 @@ if (simpointInterval > 0) {
                 syscallHandler: new LinuxSyscallEmulator(spElfWorkload.InitialBreak, TextWriter.Null, spWordSize)
             );
     }
-    else {
-        spMechanismFactory = () => mechanismFactory(spWorkload.HtifTohostAddress);
-    }
+    else { spMechanismFactory = () => mechanismFactory(spWorkload.HtifTohostAddress); }
 
     // Profile exactly once, regardless of --simpoint-warmup: CaptureSimPointCheckpoints already
     // profiles internally (it needs the SimPoint result to pick checkpoint targets), so calling
@@ -358,7 +356,8 @@ if (simpointInterval > 0) {
     SimPointCheckpointSet? captured = null;
     if (simpointWarmup >= 0) {
         captured = Experiment.CaptureSimPointCheckpoints(
-            spWorkload, spMechanismFactory, simpointInterval, simpointWarmup, maxTicks, argv: spArgv, wordSize: spWordSize
+            spWorkload, spMechanismFactory, simpointInterval, simpointWarmup, maxTicks, argv: spArgv,
+            wordSize: spWordSize
         );
         sp = captured.SimPoints;
         totalInstructions = captured.TotalInstructions;
@@ -396,7 +395,8 @@ if (simpointInterval > 0) {
 
             ISteppableTrain DetailedFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) {
                 MemoryConfig dCfg = cfg.ToDMemoryConfig();
-                if (spWorkload.MmioRegion is { } r) dCfg = dCfg with { UncacheableBase = r.Base, UncacheableSize = r.Size, };
+                if (spWorkload.MmioRegion is { } r)
+                    dCfg = dCfg with { UncacheableBase = r.Base, UncacheableSize = r.Size, };
                 IBranchPredictor? predictor = cfg.Predictor?.Build(mech, spWorkload);
 
                 return cfg.Pipeline switch {

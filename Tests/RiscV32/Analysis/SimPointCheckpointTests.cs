@@ -20,7 +20,7 @@ public class SimPointCheckpointTests {
     //       addi x1, x1, -1  — decrement
     //       bne  x1, x0, loop
     // ebreak
-    private static readonly byte[] LoopProgram = SimPointCheckpointTests.Encode(
+    private static readonly byte[] LoopProgram = Encode(
         0x02800093u, 0x00000113u, 0x00310113u, 0xFFF08093u, 0xFE009EE3u, 0x00100073u
     );
 
@@ -30,9 +30,15 @@ public class SimPointCheckpointTests {
         return b;
     }
 
-    private static ByteArrayWorkload MakeWorkload() => new(SimPointCheckpointTests.LoopProgram, memorySizeBytes: 0x1000);
+    private static ByteArrayWorkload MakeWorkload() =>
+        new(SimPointCheckpointTests.LoopProgram, memorySizeBytes: 0x1000);
 
-    private static ISteppableTrain DetailedFactory(IMechanism mechanism, IMemory mem, ulong entryPoint, InstructionCounter counter) =>
+    private static ISteppableTrain DetailedFactory(
+        IMechanism mechanism,
+        IMemory mem,
+        ulong entryPoint,
+        InstructionCounter counter
+    ) =>
         new OooeTrain(mechanism, mem, entryPoint, commitObserver: counter);
 
     [Fact]
@@ -46,7 +52,7 @@ public class SimPointCheckpointTests {
         const long intervalSize = 10_000;
 
         SimPointCheckpointResult result = Experiment.RunWithSimPointCheckpoints(
-            MakeWorkload(), () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory, intervalSize, 0
+            MakeWorkload(), () => new Rv32Mechanism(), DetailedFactory, intervalSize, 0
         );
 
         Assert.Equal(1, result.SimPoints.IntervalCount);
@@ -61,7 +67,7 @@ public class SimPointCheckpointTests {
         var refMem = new FlatMemory(refWorkload.MemorySize, refWorkload.BaseAddress);
         refWorkload.Load(refMem);
         var refTrain = new OooeTrain(new Rv32Mechanism(), refMem, refWorkload.EntryPoint, commitObserver: refCounter);
-        RevolutionResult refResult = refTrain.Run(1_000_000);
+        RevolutionResult refResult = refTrain.Run();
 
         Assert.Equal(refResult.TotalTicks, point.Revolution.TotalTicks);
         Assert.Equal(refCounter.Count, point.MeasuredInstructions);
@@ -70,7 +76,7 @@ public class SimPointCheckpointTests {
 
     [Fact]
     public void SinglePoint_WithWarmup_MatchesManualCheckpointAtTheSameTarget() {
-        // Forces exactly one simulation point (maxK: 1) so the checkpoint target is deterministic
+        // Forces exactly one simulation point (maxK: 1), so the checkpoint target is deterministic
         // given whichever interval the analysis picks as most representative — this test doesn't
         // need to know that index ahead of time, since it reads it back from the result and
         // reproduces the same checkpoint target/warmup manually. What it actually exercises is
@@ -82,7 +88,7 @@ public class SimPointCheckpointTests {
         const long warmup = 6;
 
         SimPointCheckpointResult result = Experiment.RunWithSimPointCheckpoints(
-            MakeWorkload(), () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory, intervalSize, warmup, maxK: 1
+            MakeWorkload(), () => new Rv32Mechanism(), DetailedFactory, intervalSize, warmup, maxK: 1
         );
         SimPointPointResult point = Assert.Single(result.PointResults);
 
@@ -102,6 +108,7 @@ public class SimPointCheckpointTests {
         var ffTrain = new SingleCycleTrain(new Rv32Mechanism(), ffMem, workload.EntryPoint, commitObserver: ffCounter);
         ffTrain.BeginStepping();
         while (ffCounter.Count < target && ffTrain.StepCycle()) { }
+
         ffTrain.FinishStepping();
 
         using var ms = new MemoryStream();
@@ -117,13 +124,15 @@ public class SimPointCheckpointTests {
         var refMem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(refMem);
         var refTrain = new OooeTrain(new Rv32Mechanism(), refMem, chk.Pc, commitObserver: refCounter);
-        chk.RestoreInto(refTrain.ArchState!, refMem);
+        chk.RestoreInto(refTrain.ArchState, refMem);
 
         refTrain.BeginStepping();
         while (refCounter.Count < actualWarmup && refTrain.StepCycle()) { }
+
         long tickAtBaseline = refTrain.CurrentTick;
         long measureTarget = actualWarmup + intervalSize;
         while (refCounter.Count < measureTarget && refTrain.StepCycle()) { }
+
         long groundTruthMeasuredTicks = refTrain.CurrentTick - tickAtBaseline;
         refTrain.FinishStepping();
 
@@ -143,7 +152,7 @@ public class SimPointCheckpointTests {
         const long requestedWarmup = 7;
 
         SimPointCheckpointResult result = Experiment.RunWithSimPointCheckpoints(
-            MakeWorkload(), () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory,
+            MakeWorkload(), () => new Rv32Mechanism(), DetailedFactory,
             intervalSize, requestedWarmup
         );
 
@@ -157,7 +166,7 @@ public class SimPointCheckpointTests {
         var refMem = new FlatMemory(refWorkload.MemorySize, refWorkload.BaseAddress);
         refWorkload.Load(refMem);
         var refTrain = new OooeTrain(new Rv32Mechanism(), refMem, refWorkload.EntryPoint, commitObserver: refCounter);
-        RevolutionResult refResult = refTrain.Run(1_000_000);
+        RevolutionResult refResult = refTrain.Run();
 
         Assert.Equal(refResult.TotalTicks, point.Revolution.TotalTicks);
         Assert.Equal(refCounter.Count, point.MeasuredInstructions);
@@ -172,14 +181,14 @@ public class SimPointCheckpointTests {
         const long warmup = 6;
 
         SimPointCheckpointResult direct = Experiment.RunWithSimPointCheckpoints(
-            MakeWorkload(), () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory, intervalSize, warmup, maxK: 1
+            MakeWorkload(), () => new Rv32Mechanism(), DetailedFactory, intervalSize, warmup, maxK: 1
         );
 
         SimPointCheckpointSet captured = Experiment.CaptureSimPointCheckpoints(
             MakeWorkload(), () => new Rv32Mechanism(), intervalSize, warmup, maxK: 1
         );
         SimPointCheckpointResult viaSplit = Experiment.MeasureSimPointCheckpoints(
-            MakeWorkload(), captured, () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory
+            MakeWorkload(), captured, () => new Rv32Mechanism(), DetailedFactory
         );
 
         Assert.Equal(direct.PointResults.Count, viaSplit.PointResults.Count);
@@ -196,7 +205,7 @@ public class SimPointCheckpointTests {
         // The actual point of the split (see the --sweep use in Program.cs): one capture must be
         // reusable across several detailed-pipeline configs, each measuring exactly as if it had
         // been captured freshly for that config alone — not aliased/mutated by an earlier measure
-        // call. Uses single_cycle vs OoO specifically because they have different CPI on this loop
+        // call. Uses single_cycle vs. OoO specifically because they have different CPI on this loop
         // (no memory/branch-predictor divergence to confound it — a real, checkable difference).
         const long intervalSize = 15;
         const long warmup = 6;
@@ -209,7 +218,7 @@ public class SimPointCheckpointTests {
             new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
 
         SimPointCheckpointResult viaOoo = Experiment.MeasureSimPointCheckpoints(
-            MakeWorkload(), captured, () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory
+            MakeWorkload(), captured, () => new Rv32Mechanism(), DetailedFactory
         );
         SimPointCheckpointResult viaSingleCycle = Experiment.MeasureSimPointCheckpoints(
             MakeWorkload(), captured, () => new Rv32Mechanism(), SingleCycleFactory
@@ -217,11 +226,11 @@ public class SimPointCheckpointTests {
         // Re-measure with the OoO config again, against the same captured set, to prove it wasn't
         // consumed or mutated by the two calls above.
         SimPointCheckpointResult viaOooAgain = Experiment.MeasureSimPointCheckpoints(
-            MakeWorkload(), captured, () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory
+            MakeWorkload(), captured, () => new Rv32Mechanism(), DetailedFactory
         );
 
         SimPointCheckpointResult directOoo = Experiment.RunWithSimPointCheckpoints(
-            MakeWorkload(), () => new Rv32Mechanism(), SimPointCheckpointTests.DetailedFactory, intervalSize, warmup, maxK: 1
+            MakeWorkload(), () => new Rv32Mechanism(), DetailedFactory, intervalSize, warmup, maxK: 1
         );
         SimPointCheckpointResult directSingleCycle = Experiment.RunWithSimPointCheckpoints(
             MakeWorkload(), () => new Rv32Mechanism(), SingleCycleFactory, intervalSize, warmup, maxK: 1

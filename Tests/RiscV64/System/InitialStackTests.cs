@@ -1,5 +1,4 @@
 using Mechanism;
-using Orrery.Train;
 using Pipeline;
 using RiscV32.Memory;
 using RiscV32.Syscalls;
@@ -20,6 +19,8 @@ namespace Tests.RiscV64.System;
 public class InitialStackTests {
     private static string AbiProbe64Elf => Path.Combine(AppContext.BaseDirectory, "abi_probe64.elf");
 
+    private static string StdinEcho64Elf => Path.Combine(AppContext.BaseDirectory, "stdin_echo64.elf");
+
     [Fact]
     public void BuildInitialStack_SpLandsWhereProbeExpectsIt_OutputMatchesArgv0() {
         var workload = new Rv64ElfWorkload(AbiProbe64Elf);
@@ -28,11 +29,11 @@ public class InitialStackTests {
 
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, wordSize: 8, argv: ["a.out", "hello"], envp: [], auxv: []
+            mem, stackTop, 8, ["a.out", "hello",], [], []
         );
 
         var sw = new StringWriter();
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new SingleCycleTrain(mech, mem, workload.EntryPoint);
         train.ArchState.IntegerRegisters.Write(2, sp); // x2 = sp
@@ -56,11 +57,11 @@ public class InitialStackTests {
 
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, wordSize: 8, argv: ["a.out", "hello"], envp: [], auxv: []
+            mem, stackTop, 8, ["a.out", "hello",], [], []
         );
 
         var sw = new StringWriter();
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new OooeTrain(mech, mem, workload.EntryPoint);
         train.ArchState.IntegerRegisters.Write(2, sp);
@@ -69,8 +70,6 @@ public class InitialStackTests {
         Assert.True(train.IsIdle);
         Assert.Equal("a.out", sw.ToString());
     }
-
-    private static string StdinEcho64Elf => Path.Combine(AppContext.BaseDirectory, "stdin_echo64.elf");
 
     [Fact]
     public void LinuxSyscallEmulator_InjectedStdin_EchoedBackThroughSysReadSysWrite() {
@@ -82,11 +81,11 @@ public class InitialStackTests {
         workload.Load(mem);
 
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
-        ulong sp = InitialStackBuilder.BuildInitialStack(mem, stackTop, wordSize: 8, argv: ["a.out"], envp: [], auxv: []);
+        ulong sp = InitialStackBuilder.BuildInitialStack(mem, stackTop, 8, ["a.out",], [], []);
 
         var sw = new StringWriter();
         using var stdin = new MemoryStream("ping"u8.ToArray());
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8, input: stdin);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, 8, input: stdin);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new SingleCycleTrain(mech, mem, workload.EntryPoint);
         train.ArchState.IntegerRegisters.Write(2, sp);
@@ -111,20 +110,20 @@ public class InitialStackTests {
         // isolation, and clock_gettime's result is deterministic (LinuxSyscallEmulator's synthetic
         // clock), letting this assert the exact written value, not just "didn't crash".
         const ulong tsPtr = 0x1000;
-        byte[] program = InitialStackTests.Encode(
+        byte[] program = Encode(
             0x000015B7u, // lui  a1, 1         — a1 = 0x1000 (struct timespec*)
             0x07100893u, // addi a7, x0, 113   — SYS_clock_gettime
             0x00000073u, // ecall
             0x00000513u, // addi a0, x0, 0     — exit code
             0x05D00893u, // addi a7, x0, 93    — SYS_exit
-            0x00000073u // ecall
+            0x00000073u  // ecall
         );
 
         var workload = new ByteArrayWorkload(program, memorySizeBytes: 0x2000);
-        var mem = new FlatMemory(workload.MemorySize, 0);
+        var mem = new FlatMemory(workload.MemorySize);
         workload.Load(mem);
 
-        var handler = new LinuxSyscallEmulator(initialBreak: 0x2000, wordSize: 8);
+        var handler = new LinuxSyscallEmulator(0x2000, wordSize: 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new OooeTrain(mech, mem, workload.EntryPoint);
 
@@ -154,11 +153,11 @@ public class InitialStackTests {
         workload.Load(mem);
 
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
-        ulong sp = InitialStackBuilder.BuildInitialStack(mem, stackTop, wordSize: 8, argv: ["a.out"], envp: [], auxv: []);
+        ulong sp = InitialStackBuilder.BuildInitialStack(mem, stackTop, 8, ["a.out",], [], []);
 
         var sw = new StringWriter();
         using var stdin = new MemoryStream("ping"u8.ToArray());
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, wordSize: 8, input: stdin);
+        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, 8, input: stdin);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new OooeTrain(mech, mem, workload.EntryPoint);
         train.ArchState.IntegerRegisters.Write(2, sp);
@@ -194,31 +193,33 @@ public class InitialStackTests {
             0x00100313u, // addi t1, x0, 1      — start of dependent chain
         };
         for (var i = 0; i < 64; i++) words.Add(0x00130313u); // addi t1, t1, 1 (chain delays ECALL)
-        words.AddRange([
-            0x07100893u, // addi a7, x0, 113 — SYS_clock_gettime
-            0x00000073u, // ecall            — overwrites mem[0x1000..0x1010) with tv_sec/tv_nsec
-            0x0005A383u, // lw   t2, 0(a1)   — younger load: races against the ECALL's write
-            0x02058613u, // addi a2, a1, 32  — a2 = 0x1020 (capture slot)
-            0x00762023u, // sw   t2, 0(a2)   — capture what the load actually saw
-            0x00000513u, // addi a0, x0, 0   — exit code
-            0x05D00893u, // addi a7, x0, 93  — SYS_exit
-            0x00000073u, // ecall
-        ]);
+        words.AddRange(
+            [
+                0x07100893u, // addi a7, x0, 113 — SYS_clock_gettime
+                0x00000073u, // ecall            — overwrites mem[0x1000..0x1010) with tv_sec/tv_nsec
+                0x0005A383u, // lw   t2, 0(a1)   — younger load: races against the ECALL's write
+                0x02058613u, // addi a2, a1, 32  — a2 = 0x1020 (capture slot)
+                0x00762023u, // sw   t2, 0(a2)   — capture what the load actually saw
+                0x00000513u, // addi a0, x0, 0   — exit code
+                0x05D00893u, // addi a7, x0, 93  — SYS_exit
+                0x00000073u, // ecall
+            ]
+        );
 
-        byte[] program = InitialStackTests.Encode(words.ToArray());
+        byte[] program = Encode(words.ToArray());
 
         var workload = new ByteArrayWorkload(program, memorySizeBytes: 0x2000);
-        var mem = new FlatMemory(workload.MemorySize, 0);
+        var mem = new FlatMemory(workload.MemorySize);
         workload.Load(mem);
 
-        var handler = new LinuxSyscallEmulator(initialBreak: 0x2000, wordSize: 8);
+        var handler = new LinuxSyscallEmulator(0x2000, wordSize: 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
         var train = new OooeTrain(mech, mem, workload.EntryPoint);
 
         train.Run(100_000);
         Assert.True(train.IsIdle);
 
-        Assert.Equal(0UL, mem.Read(tsPtr, 8)); // ECALL's write landed (tv_sec = 0 on first call)
+        Assert.Equal(0UL, mem.Read(tsPtr, 8));      // ECALL's write landed (tv_sec = 0 on first call)
         Assert.Equal(0UL, mem.Read(capturePtr, 4)); // load saw the post-ECALL value, not the 0x123 poison
     }
 
