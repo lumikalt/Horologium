@@ -46,27 +46,34 @@ namespace Mechanism.ValuePred;
 ///         vs. what actually committed" per dynamic instance to detect a real misprediction would need
 ///         per-instance state a single PC-indexed slot can't hold once multiple occurrences are
 ///         in flight (see <see cref="StrideVp" />'s own doc comment for exactly this class of
-///         problem). Instead, eviction here fires whenever the assigned component's own
-///         <see cref="IValuePredictor.TryPredict" /> returns <c>false</c> for a PC that has predicted
-///         confidently (<c>true</c>) at least once since being classified. Cheap, observable purely
-///         from the outside at Predict time, and immune to the in-flight-overlap problem since it
-///         never needs to match a specific dynamic instance to its outcome.
+///         problem). Instead, eviction here fires when the assigned component's own
+///         <see cref="IValuePredictor.TryPredict" /> returns <c>false</c>, for a PC that has predicted
+///         confidently (<c>true</c>) at least once since being classified, <em>N</em> times in a row
+///         (<c>evictThreshold</c>, default 2). Cheap, observable purely from the outside at Predict
+///         time, and immune to the in-flight-overlap problem since it never needs to match a specific
+///         dynamic instance to its outcome.
 ///     </para>
 ///     <para>
 ///         <b>
-///             This is markedly more trigger-happy than the paper's trigger, not merely an inexact
-///             proxy for it
+///             Consecutive-miss threshold -- tightened, still an adapted proxy, not the paper's literal
+///             mechanism.
 ///         </b>
-///         — say so plainly rather than softening it. The paper's Predict operation
-///         has three outcomes: confident (predict), low-but-nonzero confidence (no prediction, no
-///         eviction), and confidence exactly zero (evict). Collapsing "low but nonzero" and "zero"
-///         into a single boolean <see cref="IValuePredictor.TryPredict" /> result means this predictor
-///         evicts on the very first ordinary, ungraceful misprediction after arming. For example, a
-///         Context-classified PC backed by <see cref="VtageVp" /> (whose whole premise is
-///         ~95%, not 100%, accuracy) gets permanently dropped to Don't Predict the first time it's
-///         ordinarily wrong, not when its confidence has actually bottomed out. A consecutive-miss
-///         threshold (evict only after N&#8805;2 in a row) would track the paper's intent more closely
-///         and is a small, deliberately deferred refinement.
+///         The paper's Predict operation has three outcomes: confident (predict),
+///         low-but-nonzero confidence (no prediction, no eviction), and confidence exactly zero
+///         (evict). Collapsing "low but nonzero" and "zero" into a single boolean
+///         <see cref="IValuePredictor.TryPredict" /> result still means a single ordinary,
+///         ungraceful miss looks identical to a genuinely collapsed component from this class's own
+///         vantage point -- there is no way to ask <see cref="IValuePredictor" /> "was that confidence
+///         near zero or merely nonzero." What the threshold buys back is the paper's actual shape of
+///         the failure: a context-classified PC backed by <see cref="VtageVp" /> (whose whole premise
+///         is ~95%, not 100%, accuracy) is no longer permanently dropped to Don't Predict on its first
+///         ordinary miss -- it now needs <c>evictThreshold</c> consecutive ones, tracking "confidence
+///         has actually bottomed out" more closely than the previous evict-on-first-miss rule did.
+///         <c>_missStreak</c> resets to zero on the next confident prediction (a single recovered
+///         guess is evidence the component hasn't collapsed) and is cleared by the same squash-reset
+///         discipline as <c>_armed</c> (see <see cref="RecoverSpeculativeHistory" />/
+///         <see cref="RestoreHistory" />), since a wrong-path miss shouldn't count toward a real
+///         eviction decision.
 ///     </para>
 ///     <para>
 ///         Tagless and PC-indexed throughout (classification table, history table, and the "armed"
@@ -88,19 +95,28 @@ public sealed class DynamicClassificationVp : IValuePredictor {
     private readonly Classification[] _classification;
     private readonly IValuePredictor _computational;
     private readonly IValuePredictor _context;
+    private readonly int _evictThreshold;
     private readonly ulong[] _h1;
     private readonly ulong[] _h2;
     private readonly ulong[] _h3;
     private readonly int[] _historyCount;
     private readonly int _mask;
+    private readonly int[] _missStreak;
 
     /// <param name="context">The context-based (history-driven) component, e.g. <see cref="VtageVp" />.</param>
     /// <param name="computational">The computational component, e.g. <see cref="StrideVp" />.</param>
     /// <param name="entries">Classification/history table size. Must be a power of two.</param>
+    /// <param name="evictThreshold">
+    ///     Consecutive non-confident <see cref="TryPredict" /> calls (since the assigned component
+    ///     last predicted confidently) required to evict a classified PC. See this class's doc
+    ///     comment for why this exists as an adapted proxy for the paper's own confidence-reaches-zero
+    ///     trigger. Must be at least 1 (1 reproduces the previous evict-on-first-miss behavior).
+    /// </param>
     public DynamicClassificationVp(
         IValuePredictor context,
         IValuePredictor computational,
-        int entries = 8192
+        int entries = 8192,
+        int evictThreshold = 2
     ) {
         _context = context;
         _computational = computational;
@@ -110,35 +126,32 @@ public sealed class DynamicClassificationVp : IValuePredictor {
         _h2 = new ulong[entries];
         _h3 = new ulong[entries];
         _armed = new bool[entries];
+        _missStreak = new int[entries];
         _mask = entries - 1;
+        _evictThreshold = Math.Max(1, evictThreshold);
     }
 
     /// <inheritdoc />
     public bool TryPredict(ulong pc, ValueHistoryCheckpoint history, out ulong value) {
         int idx = Idx(pc);
-        switch (_classification[idx]) {
-            case Classification.Context:
-                if (_context.TryPredict(pc, history, out value)) {
-                    _armed[idx] = true;
-                    return true;
-                }
-
-                if (_armed[idx]) Evict(idx);
-                return false;
-
-            case Classification.Computational:
-                if (_computational.TryPredict(pc, history, out value)) {
-                    _armed[idx] = true;
-                    return true;
-                }
-
-                if (_armed[idx]) Evict(idx);
-                return false;
-
-            default: // Unclassified or DontPredict
-                value = 0;
-                return false;
+        IValuePredictor? component = _classification[idx] switch {
+            Classification.Context       => _context,
+            Classification.Computational => _computational,
+            _                            => null, // Unclassified or DontPredict
+        };
+        if (component is null) {
+            value = 0;
+            return false;
         }
+
+        if (component.TryPredict(pc, history, out value)) {
+            _armed[idx] = true;
+            _missStreak[idx] = 0;
+            return true;
+        }
+
+        if (_armed[idx] && ++_missStreak[idx] >= _evictThreshold) Evict(idx);
+        return false;
     }
 
     /// <inheritdoc />
@@ -167,9 +180,11 @@ public sealed class DynamicClassificationVp : IValuePredictor {
         _context.RecoverSpeculativeHistory();
         _computational.RecoverSpeculativeHistory();
         // A wrong-path Predict can arm an entry (or observe a false that would otherwise evict it)
-        // before the squash that discards it is processed; clearing every entry's arming bit here
-        // bounds that to the same squash-reset discipline as the components' own speculative state.
+        // before the squash that discards it is processed; clearing every entry's arming bit -- and
+        // its miss streak, for the same reason -- here bounds that to the same squash-reset
+        // discipline as the components' own speculative state.
         Array.Clear(_armed);
+        Array.Clear(_missStreak);
     }
 
     /// <inheritdoc />
@@ -180,6 +195,7 @@ public sealed class DynamicClassificationVp : IValuePredictor {
         _context.RestoreHistory(checkpoint, actualTaken);
         _computational.RestoreHistory(checkpoint, actualTaken);
         Array.Clear(_armed);
+        Array.Clear(_missStreak);
     }
 
     /// <inheritdoc />
@@ -213,6 +229,7 @@ public sealed class DynamicClassificationVp : IValuePredictor {
         var delta2 = unchecked((long)(_h3[idx] - _h2[idx]));
         _classification[idx] = delta1 == delta2 ? Classification.Computational : Classification.Context;
         _armed[idx] = false;
+        _missStreak[idx] = 0;
         _historyCount[idx] = 0;
     }
 
@@ -227,6 +244,7 @@ public sealed class DynamicClassificationVp : IValuePredictor {
             ? Classification.DontPredict
             : Classification.Unclassified;
         _armed[idx] = false;
+        _missStreak[idx] = 0;
     }
 
     private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);

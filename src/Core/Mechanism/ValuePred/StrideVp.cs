@@ -56,24 +56,43 @@ namespace Mechanism.ValuePred;
 ///         since the last <see cref="Update" /> resolved one. <see cref="TryPredict" /> predicts
 ///         <c>lastValue + stride * (inFlight + 1)</c> and increments; <see cref="Update" /> decrements
 ///         (floored at zero) and otherwise leaves the base <c>lastValue</c>/<c>stride</c>/confidence
-///         state exactly as it would be with no speculation involved — a commit only ever signals “one
-///         less occurrence is now unresolved”, never “reset to here”, so it can't clobber legitimate
-///         further-ahead speculation. This measured at 84 residual mispredicts (down from 168) on the
-///         same loop — the remaining ones are likely a warmup/post-flush undercount (a
-///         non-Steady <see cref="TryPredict" /> call doesn't increment <c>_inFlight</c>, and every
-///         full-flush reset floors it to zero, so the first few predictions after either event
-///         understate the true in-flight depth until the counter catches back up), not chased further
-///         since it’s a deviation-from-paper refinement measured against one hand-built loop, not a
-///         load-bearing correctness property. Since a squashed (never-committed) prediction has no
-///         matching <see cref="Update" /> to decrement its increment, <c>_inFlight</c> would otherwise
-///         leak upward forever after every squash; <see cref="RecoverSpeculativeHistory" /> (already
-///         called by the pipeline on every full flush, and reached from a partial squash too via
-///         <see cref="IValuePredictor.RestoreHistory" />'s default fallback) zeroes every entry’s
+///         state exactly as it would be with no speculation involved -- a commit only ever signals
+///         "one less occurrence is now unresolved", never "reset to here", so it can't clobber
+///         legitimate further-ahead speculation. This measured at 84 residual mispredicts (down from
+///         168) on the same loop.
+///     </para>
+///     <para>
+///         <b>Warmup/post-squash undercount -- tightened.</b> The residual 84 mispredicts traced to
+///         <see cref="TryPredict" /> only incrementing <c>_inFlight</c> on a <em>confident</em> call.
+///         Every eligible instruction calls <see cref="TryPredict" /> once at rename regardless of
+///         whether the FSM is <c>Steady</c> yet, and every one of them later calls
+///         <see cref="Update" /> once at commit (Perais &amp; Seznec's train-even-when-unused rule --
+///         the pipeline trains on every eligible instruction's committed value, predicted or not), so
+///         a non-confident call still represents a real renamed-but-uncommitted occurrence of this PC,
+///         exactly as much as a confident one. Only counting the confident subset understated the true
+///         in-flight depth for the first few predictions after warmup (FSM not yet <c>Steady</c>) or
+///         right after a squash (counter freshly zeroed while several occurrences race back in ahead
+///         of commit) -- precisely the two windows the previous version left unaddressed. Fixed by
+///         incrementing <c>_inFlight</c> on <em>every</em> <see cref="TryPredict" /> call, confident
+///         or not (a cold, not-yet-<c>_valid</c> entry too, since it's still one renamed occurrence
+///         awaiting its own <see cref="Update" />); the confident branch's depth math (and
+///         <see cref="Update" />'s unconditional decrement) are unchanged, so this only widens what
+///         counts as "unresolved", without touching how a confident prediction is computed once
+///         counted. Re-measured on the same monotonic-counter loop (not just reasoned through): the
+///         84 residual mispredicts dropped to 0 (up from 549 to 586 correct), confirming this closes
+///         the gap rather than just plausibly narrowing it.
+///     </para>
+///     <para>
+///         Since a squashed (never-committed) prediction has no matching <see cref="Update" /> to
+///         decrement its increment, <c>_inFlight</c> would otherwise leak upward forever after every
+///         squash; <see cref="RecoverSpeculativeHistory" /> (already called by the pipeline on every
+///         full flush, and reached from a partial squash too via
+///         <see cref="IValuePredictor.RestoreHistory" />'s default fallback) zeroes every entry's
 ///         counter, since a squash discards all younger in-flight instructions regardless of PC. The
-///         confidence FSM itself is untouched by any of this — it only ever compares the actual
+///         confidence FSM itself is untouched by any of this -- it only ever compares the actual
 ///         committed delta against the last committed stride, so a wrong <c>_inFlight</c> depth can
 ///         only cost prediction accuracy, never corrupt training state (the same non-negotiable
-///         property as VTAGE’s own predict/train checkpoint discipline).
+///         property as VTAGE's own predict/train checkpoint discipline).
 ///     </para>
 /// </summary>
 public sealed class StrideVp : IValuePredictor {
@@ -97,10 +116,10 @@ public sealed class StrideVp : IValuePredictor {
     /// <inheritdoc />
     public bool TryPredict(ulong pc, ValueHistoryCheckpoint history, out ulong value) {
         int idx = Idx(pc);
+        int depth = _inFlight[idx];
+        _inFlight[idx]++;
         if (_valid[idx] && _state[idx] == State.Steady) {
-            int depth = _inFlight[idx] + 1;
-            value = unchecked(_lastValue[idx] + (ulong)(_stride[idx] * depth));
-            _inFlight[idx]++;
+            value = unchecked(_lastValue[idx] + (ulong)(_stride[idx] * (depth + 1)));
             return true;
         }
 

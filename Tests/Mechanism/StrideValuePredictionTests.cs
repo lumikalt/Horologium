@@ -191,6 +191,39 @@ public class StrideValuePredictionTests {
     }
 
     [Fact]
+    public void NonConfidentTryPredict_StillCountsTowardInFlightDepth() {
+        // Regression test for the warmup/post-squash undercount fix (TODO.md): a renamed-but-
+        // uncommitted occurrence of a PC is still "in flight" even when the FSM wasn't Steady yet
+        // at the moment it was renamed -- it still owes a matching Update at commit. Scenario: two
+        // occurrences (A, B) are renamed back-to-back while the FSM is still warming up (both
+        // TryPredict calls return false); A's own commit (Update) is what finally reaches Steady,
+        // but B is still unresolved when the *next* occurrence (C) is renamed and asks for a
+        // confident prediction -- C's predicted value must account for B still being in flight.
+        var p = new StrideVp();
+        const ulong pc = 0x5000;
+        p.Update(pc, default(ValueHistoryCheckpoint), 0);
+        p.Update(pc, default(ValueHistoryCheckpoint), 10); // stride=10 vs 0: mismatch, stays Init, stride now 10
+
+        Assert.False(p.TryPredict(pc, default(ValueHistoryCheckpoint), out _)); // A renamed, Init
+        Assert.False(p.TryPredict(pc, default(ValueHistoryCheckpoint), out _)); // B renamed, still Init
+
+        p.Update(pc, default(ValueHistoryCheckpoint), 20); // A commits: stride=10 vs 10 match, Init -> Transient
+
+        Assert.False(p.TryPredict(pc, default(ValueHistoryCheckpoint), out _)); // C renamed, Transient
+
+        p.Update(pc, default(ValueHistoryCheckpoint), 30); // B commits: stride=10 vs 10 match, Transient -> Steady
+
+        // D renamed: Steady now. A and B have both committed, but C is still unresolved (renamed,
+        // never committed), so exactly 1 occurrence is in flight ahead of D. The pre-fix code only
+        // counted *confident* TryPredict calls toward in-flight depth -- since none of A/B/C's
+        // calls were ever confident, it would have seen depth 0 here and predicted 40
+        // (lastValue(30) + stride(10) * 1), silently ignoring C. The fix counts every TryPredict
+        // call, so D correctly sees C's occurrence and predicts accounting for it.
+        Assert.True(p.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong predicted));
+        Assert.Equal(50UL, predicted); // lastValue(30) + stride(10) * depth(1 in-flight + 1)
+    }
+
+    [Fact]
     public void Tagless_DistinctPcsAliasingToSameSlot_ShareState() {
         var p = new StrideVp(1);
         p.Update(0x1000, default(ValueHistoryCheckpoint), 10);

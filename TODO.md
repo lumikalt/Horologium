@@ -9,38 +9,6 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] ~~Suspended-stream data exchange: `so.v.vload`/`so.v.vstor`~~ — **hold**: dissertation gives one sentence
   with no operand semantics; Spike has no instruction files for it. Skip until the spec is clarified.
 
-## Performance
-
-- [x] Value prediction: predict ALU/load results to break dependence chains; commit only if the prediction is correct. —
-  Lipasti & Shen, MICRO 1996 (LVPT); Perais & Seznec, HPCA 2014 (VTAGE + FPC confidence)
-- [x] EOLE: late in-order ALU execution atop value prediction, to shrink the OoO issue width without losing
-  performance. — Perais & Seznec, ISCA 2014 (EOLE)
-- [x] Early Execution: the front-end half of EOLE — single-cycle ALU ops with immediate/predicted operands
-  execute in-order, in parallel with Rename, bypassing the OoO scheduler entirely. — Perais & Seznec, ISCA 2014
-  (EOLE)
-- [x] TMA/CPI-stack accounting for EOLE Early/Late Execution: reconcile Top-Down slot/cycle accounting with
-  instructions that bypass `StepIssue`/`StepExecute` entirely. — Yasin, ISPASS 2014 (TMA)
-- [x] Widen value-prediction eligibility beyond scalar ALU/load to MulDiv, floating point (pipelined and
-  div/sqrt), and CSR reads (System). — Lipasti & Shen, MICRO 1996; Perais & Seznec, HPCA 2014
-- [x] Add a computational (stride-family) predictor component to hybridize with VTAGE. — Perais & Seznec,
-  HPCA 2014
-- [x] Dynamic component selection for hybrid value predictors: assign each PC to at most one component
-  (context-based or computational) instead of always querying both, for space efficiency. — Rychlik et al.,
-  CMuART-1998-01
-- [ ] Tighten the stride predictor's in-flight speculative-depth tracking to hold through warmup and
-  post-squash recovery, closing the residual undercount measured in each of those windows.
-- [ ] Evict-on-consecutive-misprediction threshold for dynamic component selection, closer to Rychlik et
-  al.'s confidence-zero trigger than the current evict-on-first-non-confident-prediction rule.
-
-## Cache Prefetching
-
-- [x] Best-Offset Prefetcher (BOP): offset-selection tournament with timeliness scoring; the DPC-2 winner. — Michaud,
-  HPCA 2016
-- [x] Signature Path Prefetcher (SPP): compressed access-pattern signatures with path-confidence lookahead. — Kim et
-  al., MICRO 2016
-- [x] Perceptron Prefetch Filter (PPF): a learned filter on top of SPP that suppresses low-value prefetches by
-  perceptron vote over signature/confidence/delta features. — Bhatia et al., ISCA 2019
-
 ## Benchmarks
 
 Measured feasibility (Release, single thread): ~1M instr/s functional (single-cycle), ~0.1M cycles/s

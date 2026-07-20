@@ -223,10 +223,10 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   whose secondary destination bypasses the PRF, and `Vector`, which isn't renamed) at rename, writes it
   speculatively into the PRF and marks it ready immediately — so dependent instructions issue and execute without
   waiting for the real producer — while the producing instruction still executes for real in the background. Two
-  predictors are provided: `LvpPredictor` (Lipasti &amp; Shen, "Exceeding the Dataflow Limit via Value Prediction",
-  MICRO 1996 — the LVPT scheme), a tagless, PC-indexed table of last-seen values; and `VtagePredictor` (Perais &amp;
+  predictors are provided: `LvpVp` (Lipasti &amp; Shen, "Exceeding the Dataflow Limit via Value Prediction",
+  MICRO 1996 — the LVPT scheme), a tagless, PC-indexed table of last-seen values; and `VtageVp` (Perais &amp;
   Seznec, "Practical Data Value Speculation for Future High-end Processors", HPCA 2014), which adapts the ITTAGE
-  indirect-branch predictor to value prediction — a tagless `LvpPredictor` base component backed by six tagged
+  indirect-branch predictor to value prediction — a tagless `LvpVp` base component backed by six tagged
   components indexed by a hash of the PC and a geometrically increasing number of global-branch-history bits (2, 4,
   8, 16, 32, 64), so it can predict back-to-back occurrences of an instruction in a tight loop with no same-cycle
   critical dependency, unlike local-value-history predictors. Both are gated by a `ForwardProbabilisticCounter`
@@ -236,7 +236,7 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   `SmbPredictor`'s: no selective reissue, no execution-time repair path — a mismatch discovered when the real
   result completes (`StepComplete`) is squashed with a full re-fetch the moment the mispredicted instruction reaches
   the ROB head (`StepCommit`), the paper's central finding that squash-at-commit performs within noise of an
-  idealized selective-reissue implementation once FPC accuracy exceeds ~99.5%. `VtagePredictor` keeps its own
+  idealized selective-reissue implementation once FPC accuracy exceeds ~99.5%. `VtageVp` keeps its own
   speculative/committed global-history shadow (independent of whichever `IBranchPredictor` is configured), advanced
   at fetch and rewound via checkpoint/restore on both a full flush and an execute-time partial squash — so its
   index survives ordinary branch mispredictions exactly, not just approximately. **EOLE Late Execution** (Perais
@@ -271,40 +271,43 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   whichever of the predictor's live-speculative or committed-shadow history register it used to read — the
   latter let heavy squash/refetch churn drift the two apart, aliasing a confidently-wrong prediction onto a
   slot training could never reach to correct (a permanent livelock, not just a missed opportunity).
-  **`StridePredictor`** is a computational value predictor (Sazeides &amp; Smith's taxonomy, as summarized in
-  Perais &amp; Seznec, HPCA 2014 §2) complementary to LVP/VTAGE's value-repetition approach: it tracks a static
+  **`StrideVp`** is a computational value predictor (Sazeides & Smith's taxonomy, as summarized in
+  Perais & Seznec, HPCA 2014 §2) complementary to LVP/VTAGE's value-repetition approach: it tracks a static
   instruction's last value and the constant stride between successive occurrences, predicting `lastValue +
   stride`, so a monotonically incrementing register (which never repeats a value, and so never lets
   LVP/VTAGE's confidence saturate) still predicts trivially. Confidence is a 4-state FSM (`Init`/`Transient`/
-  `Steady`/`NoPred`) requiring two consecutive matching strides to reach `Steady` before predicting — a
+  `Steady`/`NoPred`) requiring two consecutive matching strides to reach `Steady` before predicting -- a
   "2-delta"-style confidence gate, not a reproduction of any specific historical stride predictor's exact
-  mechanism. It also tracks an in-flight speculative depth per PC — how many confident predictions have been
-  issued since the last commit resolved one — so a tight loop with several genuinely overlapping iterations
-  (renamed well ahead of commit under a competent branch predictor) predicts `lastCommittedValue + stride *
-  (depth + 1)` rather than a single un-scaled stride step; measured directly in Horologium's own OoOE pipeline,
-  the latter mispredicted roughly 44% of the time once overlap was allowed to develop. The depth counter is
-  reset on any squash (a discarded occurrence has no commit to decrement it, so it would otherwise leak
-  upward) but is deliberately not chased to full precision through warmup/post-squash recovery — see TODO.md.
-  **`HybridValuePredictor`** composes any context-based and computational `IValuePredictor` (e.g.
-  `VtagePredictor` + `StridePredictor`) per the paper's own §7.1.2 combination rule: a lone confident
+  mechanism. It also tracks an in-flight speculative depth per PC -- how many renamed-but-uncommitted
+  occurrences of that PC are still unresolved, confident prediction or not -- so a tight loop with several
+  genuinely overlapping iterations (renamed well ahead of commit under a competent branch predictor) predicts
+  `lastCommittedValue + stride * (depth + 1)` rather than a single un-scaled stride step; measured directly in
+  Horologium's own OoOE pipeline, the latter mispredicted roughly 44% of the time once overlap was allowed to
+  develop. Counting every `TryPredict` call toward the depth (not just confident ones) closes a residual
+  undercount in the warmup and post-squash windows, where earlier, still-in-flight occurrences of the same PC
+  hadn't yet reached `Steady` when renamed but still owed a matching commit -- the 84 residual mispredicts left
+  by the depth-scaling fix above dropped to 0 on the same loop once this was fixed. The depth counter is reset
+  on any squash (a discarded occurrence has no commit to decrement it, so it would otherwise leak upward).
+  **`HybridVp`** composes any context-based and computational `IValuePredictor` (e.g.
+  `VtageVp` + `StrideVp`) per the paper's own §7.1.2 combination rule: a lone confident
   component's prediction is used as-is; two confident components that agree are used; two that disagree
   suppress the prediction entirely; both are trained at every retire regardless of which one predicted. Not
   modeled: the paper's further optimization of feeding one component's speculative prediction to the other to
-  resolve back-to-back same-PC occurrences within a single cycle — Horologium's pipeline only calls
+  resolve back-to-back same-PC occurrences within a single cycle -- Horologium's pipeline only calls
   `TryPredict`/`Update` once per instruction, at Rename/Commit, so there's no equivalent intra-cycle chaining
-  to hook into. **`DynamicClassificationValuePredictor`** (Rychlik et al., CMuART-1998-01, §3.2.3 "Efficient
+  to hook into. **`DynamicClassificationVp`** (Rychlik et al., CMuART-1998-01, §3.2.3 "Efficient
   Dynamic Scheme") is the alternative to always-query-both: each PC is assigned, after a 3-value learning
-  window, to *at most one* of the two components — equal consecutive deltas (including zero) route to the
+  window, to *at most one* of the two components -- equal consecutive deltas (including zero) route to the
   computational component, anything else routes to the context component, folding the paper's 3-predictor
   split (Popular Last Value / Stride+ / FCM) onto Horologium's 2-component hybrid since VTAGE's own tagless
   LVP base already subsumes Popular Last Value. A classified PC whose component stops predicting confidently
-  after having predicted at least once is evicted — permanently to Don't Predict if it was on the context
-  (FCM-role) component, or back to Unclassified to relearn if it was on the computational one — but the
-  trigger (any non-confident `TryPredict`, since `IValuePredictor` exposes no raw confidence value) is
-  markedly more aggressive than the paper's confidence-reaches-zero trigger: a context-classified PC is
-  dropped permanently on its first ordinary misprediction, not once its accuracy has actually collapsed. A
-  consecutive-miss threshold closer to the paper's intent is tracked in TODO.md, deliberately not built since
-  no test here measures eviction *rate*. A **critical-path
+  after having predicted at least once is evicted -- permanently to Don't Predict if it was on the context
+  (FCM-role) component, or back to Unclassified to relearn if it was on the computational one -- after
+  `evictThreshold` (default 2) consecutive non-confident `TryPredict` calls, resetting on the next confident
+  one. That threshold is still an adapted proxy for the paper's confidence-reaches-zero trigger, since
+  `IValuePredictor` exposes no raw confidence value to distinguish "low but nonzero" from "zero" -- but it no
+  longer drops a context-classified PC (whose whole premise is ~95%, not 100%, accuracy) to permanent Don't
+  Predict on its first ordinary miss. A **critical-path
   predictor** (`TokenPassingCriticalityPredictor`,
   enable with `enableCriticalityPrediction: true`) biases `StepIssue` to prefer predicted-critical
   instructions when several ready instructions compete for the same functional-unit/port slot. Each
