@@ -1,6 +1,6 @@
 #region
 
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 

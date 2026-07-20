@@ -1,27 +1,27 @@
 #region
 
 using Mechanism;
-using Mechanism.ValuePredictModels;
+using Mechanism.ValuePred;
 
 #endregion
 
 namespace Tests.Mechanism;
 
 /// <summary>
-///     Unit tests for <see cref="StridePredictor" />'s 2-delta-style confidence FSM, in isolation
+///     Unit tests for <see cref="StrideVp" />'s 2-delta-style confidence FSM, in isolation
 ///     from pipeline complexity.
 /// </summary>
 public class StrideValuePredictionTests {
     [Fact]
     public void ColdMiss_NoPrediction() {
-        var p = new StridePredictor();
+        var p = new StrideVp();
         Assert.False(p.TryPredict(0x1000, default(ValueHistoryCheckpoint), out _));
     }
 
     [Fact]
     public void SingleStrideMatch_StillNotConfident() {
         // 2-delta: one matching stride (Init -> Transient) is not enough to predict yet.
-        var p = new StridePredictor();
+        var p = new StrideVp();
         const ulong pc = 0x1000;
         p.Update(pc, default(ValueHistoryCheckpoint), 10); // seeds last value, state = Init
         p.Update(pc, default(ValueHistoryCheckpoint), 20); // stride = 10, first ever comparison (0 != 10) -> stays Init
@@ -30,7 +30,7 @@ public class StrideValuePredictionTests {
 
     [Fact]
     public void TwoConsecutiveMatchingStrides_ReachesSteadyAndPredicts() {
-        var p = new StridePredictor();
+        var p = new StrideVp();
         const ulong pc = 0x1000;
         p.Update(pc, default(ValueHistoryCheckpoint), 10); // Init, last=10, stride=0
         p.Update(pc, default(ValueHistoryCheckpoint), 20); // stride=10 vs 0: mismatch, stays Init, stride now 10
@@ -43,7 +43,7 @@ public class StrideValuePredictionTests {
 
     [Fact]
     public void SteadyState_PredictsIndefinitelyWhileStrideHolds() {
-        var p = new StridePredictor();
+        var p = new StrideVp();
         const ulong pc = 0x2000;
         ulong value = 5;
         for (var i = 0; i < 10; i++) {
@@ -57,7 +57,7 @@ public class StrideValuePredictionTests {
 
     [Fact]
     public void MismatchInSteady_DropsToInit_RequiringTwoFreshConfirmations() {
-        var p = new StridePredictor();
+        var p = new StrideVp();
         const ulong pc = 0x3000;
         ulong value = 0;
         for (var i = 0; i < 5; i++) {
@@ -94,7 +94,7 @@ public class StrideValuePredictionTests {
 
     [Fact]
     public void BrokenPatternAfterTransient_DropsToNoPred_AndRecoveryNeedsTwoMatches() {
-        var p = new StridePredictor();
+        var p = new StrideVp();
         const ulong pc = 0x4000;
 
         p.Update(pc, default(ValueHistoryCheckpoint), 100); // seed: Init, last=100, stride=0
@@ -121,11 +121,11 @@ public class StrideValuePredictionTests {
     public void BackToBackTryPredict_ScalesByInFlightDepthWithoutAnInterveningUpdate() {
         // Simulates several in-flight occurrences of the same PC being predicted (at Rename)
         // before the earliest of them has retired (at Commit calling Update) -- the scenario
-        // StridePredictor's in-flight depth tracking exists for (see its doc comment). Each
+        // StrideVp's in-flight depth tracking exists for (see its doc comment). Each
         // successive TryPredict call, with no Update in between, must multiply the stride by how
         // many occurrences are now unresolved, not keep re-predicting a single stride step past
         // the same stale last-committed value.
-        var p = new StridePredictor();
+        var p = new StrideVp();
         const ulong pc = 0x1000;
         p.Update(pc, default(ValueHistoryCheckpoint), 0);
         p.Update(pc, default(ValueHistoryCheckpoint), 10); // stride=10 vs 0: mismatch, stays Init, stride now 10
@@ -145,8 +145,8 @@ public class StrideValuePredictionTests {
         // A commit must only ever signal "one fewer occurrence is unresolved" -- never "reset
         // speculation to here" -- or it would clobber legitimate further-ahead predictions that
         // already happened for younger, still-in-flight occurrences (the bug this design fixes;
-        // see StridePredictor's doc comment for the pipeline measurement that caught it).
-        var p = new StridePredictor();
+        // see StrideVp's doc comment for the pipeline measurement that caught it).
+        var p = new StrideVp();
         const ulong pc = 0x2000;
         p.Update(pc, default(ValueHistoryCheckpoint), 0);
         p.Update(pc, default(ValueHistoryCheckpoint), 10);
@@ -174,7 +174,7 @@ public class StrideValuePredictionTests {
         // A squash discards every younger in-flight instruction without ever calling Update for
         // them, so the in-flight counter must be reset explicitly (there is no commit to
         // decrement it) -- otherwise it would leak upward forever across repeated squashes.
-        var p = new StridePredictor();
+        var p = new StrideVp();
         const ulong pc = 0x6000;
         p.Update(pc, default(ValueHistoryCheckpoint), 0);
         p.Update(pc, default(ValueHistoryCheckpoint), 10);
@@ -192,7 +192,7 @@ public class StrideValuePredictionTests {
 
     [Fact]
     public void Tagless_DistinctPcsAliasingToSameSlot_ShareState() {
-        var p = new StridePredictor(1);
+        var p = new StrideVp(1);
         p.Update(0x1000, default(ValueHistoryCheckpoint), 10);
         p.Update(0x1000, default(ValueHistoryCheckpoint), 20);
         p.Update(0x1000, default(ValueHistoryCheckpoint), 30);
@@ -200,7 +200,7 @@ public class StrideValuePredictionTests {
         Assert.True(p.TryPredict(0x1000, default(ValueHistoryCheckpoint), out _));
 
         // A different PC aliasing to the same (single-entry) table slot inherits and then
-        // disrupts that state, exactly as LvpPredictor's aliasing test documents.
+        // disrupts that state, exactly as LvpVp's aliasing test documents.
         p.Update(0x2000, default(ValueHistoryCheckpoint), 999);
         Assert.False(p.TryPredict(0x2000, default(ValueHistoryCheckpoint), out _));
     }

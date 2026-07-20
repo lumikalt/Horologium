@@ -1,18 +1,18 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
 namespace Tests.Mechanism;
 
 public class CorrelatedBranchPredictionTests {
-    // ── CorrelatedPredictor (m, n) ────────────────────────────────────────────
+    // ── CorrelatedBp (m, n) ────────────────────────────────────────────
 
     [Fact]
     public void Correlated_ColdMiss_PredictsFallThrough() {
-        var p = new CorrelatedPredictor();
+        var p = new CorrelatedBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -20,7 +20,7 @@ public class CorrelatedBranchPredictionTests {
 
     [Fact]
     public void Correlated_AlwaysTaken_ConvergesAfterTraining() {
-        var p = new CorrelatedPredictor();
+        var p = new CorrelatedBp();
         ulong pc = 0x1000;
         // Warmup: push the 2-bit counter past weakly-not-taken
         for (var i = 0; i < 4; i++) p.Update(pc, true, 0x2000);
@@ -33,7 +33,7 @@ public class CorrelatedBranchPredictionTests {
         // The (2,2) predictor has a 2-bit history; a TNTNT pattern produces
         // history "01" or "10" alternating. After enough training the PHT
         // entries for those patterns saturate correctly.
-        var p = new CorrelatedPredictor();
+        var p = new CorrelatedBp();
         ulong pc = 0x100;
         bool[] pattern = [true, false, true, false, true, false,];
         // Warmup for several full cycles
@@ -51,7 +51,7 @@ public class CorrelatedBranchPredictionTests {
     [Fact]
     public void Correlated_TwoDifferentPcsDoNotInterfere() {
         // PAg: two distinct PCs that hash to different BHT slots are independent.
-        var p = new CorrelatedPredictor();
+        var p = new CorrelatedBp();
         ulong pcA = 0x100, pcB = 0x200;
         for (var i = 0; i < 8; i++) p.Update(pcA, true, 0x300);
         for (var i = 0; i < 8; i++) p.Update(pcB, false, 0x400);
@@ -59,11 +59,11 @@ public class CorrelatedBranchPredictionTests {
         Assert.False(p.Predict(pcB).PredictedTaken);
     }
 
-    // ── GsharePredictor ───────────────────────────────────────────────────────
+    // ── GshareBp ───────────────────────────────────────────────────────
 
     [Fact]
     public void Gshare_ColdMiss_PredictsFallThrough() {
-        var p = new GsharePredictor(4);
+        var p = new GshareBp(4);
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -71,7 +71,7 @@ public class CorrelatedBranchPredictionTests {
 
     [Fact]
     public void Gshare_AlwaysTaken_ConvergesAfterTraining() {
-        var p = new GsharePredictor(4);
+        var p = new GshareBp(4);
         ulong pc = 0x1000;
         for (var i = 0; i < 6; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
@@ -84,7 +84,7 @@ public class CorrelatedBranchPredictionTests {
         // Because GHR is global, each update shifts it. After 4 taken updates
         // the GHR should be all-ones (for 4 history bits) → XOR still maps to
         // a valid PHT slot.
-        var p = new GsharePredictor(4);
+        var p = new GshareBp(4);
         for (var i = 0; i < 10; i++) {
             p.Update(0x100, true, 0x200);
             p.Update(0x200, true, 0x300);
@@ -97,7 +97,7 @@ public class CorrelatedBranchPredictionTests {
 
     [Fact]
     public void Gshare_TakenFlagFlipsCounterCorrectly() {
-        var p = new GsharePredictor(4);
+        var p = new GshareBp(4);
         ulong pc = 0x10;
         // Drive the counter to strongly not-taken
         for (var i = 0; i < 8; i++) p.Update(pc, false, pc + 4);

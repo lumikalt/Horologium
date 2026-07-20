@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Observation;
 using Pipeline;
 using Pipeline.Ooo;
@@ -98,7 +98,7 @@ public class SuperscalarBpTests {
     [Fact]
     public void Predictor_LearnsLoop_GroupsSpanTheBranch() {
         (long cyclesNotTaken, _, _) = RunLoop(null);
-        (long cyclesNBit, long misses, uint x2) = RunLoop(new NBitPredictor());
+        (long cyclesNBit, long misses, uint x2) = RunLoop(new NBitBp());
 
         Assert.Equal(200u, x2); // architectural result unchanged
         // A trained predicted-taken branch keeps the frontend on the loop path: no refill
@@ -179,7 +179,7 @@ public class SuperscalarBpTests {
     [Fact]
     public void PEventLog_RecordsLifecycle_AndWrongPathFlushes() {
         var plog = new PEventLog();
-        (_, _, uint x2) = RunLoop(new NBitPredictor(), plog);
+        (_, _, uint x2) = RunLoop(new NBitBp(), plog);
         Assert.Equal(200u, x2);
 
         // Every correct-path instruction carries Fetch → Execute → Retire.

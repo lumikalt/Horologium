@@ -1,0 +1,55 @@
+namespace Mechanism.BranchPred;
+
+/// <summary>A single branch outcome captured during a functional pre-pass.</summary>
+public readonly record struct BranchOutcome(ulong Pc, bool Taken, ulong Target);
+
+/// <summary>
+///     Commit observer that records all branch outcomes in dynamic execution order.
+///     Attach to a <c>SingleCycleTrain</c> pre-pass; feed the resulting
+///     <see cref="Trace" /> to <see cref="OracleBp" />.
+/// </summary>
+public sealed class BranchTraceRecorder(IDecoder decoder) : ICommitObserver {
+    private readonly List<BranchOutcome> _trace = [];
+
+    /// <summary>The ordered sequence of branch outcomes recorded so far.</summary>
+    public IReadOnlyList<BranchOutcome> Trace => _trace;
+
+    /// <inheritdoc />
+    public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
+        FetchHint hint = decoder.GetFetchHint(pc, rawEncoding);
+        if (!hint.IsBranch) return;
+        bool taken = state.Pc != pc + (ulong)hint.InstructionSize;
+        _trace.Add(new BranchOutcome(pc, taken, state.Pc));
+    }
+}
+
+/// <summary>
+///     Zero-mispredict oracle predictor. Replays a branch outcome trace collected by a
+///     functional pre-pass (<see cref="BranchTraceRecorder" />). Accuracy is perfect when
+///     the pre-pass and main run execute the same instruction stream in the same order.
+///     <para>
+///         Limitations: index drift occurs if speculative branches are Predicted-then-flushed
+///         for reasons other than branch misprediction (e.g., traps, interrupts, RAS overflow).
+///         For bare-metal compute workloads without mid-run interrupts, this does not occur.
+///     </para>
+/// </summary>
+public sealed class OracleBp(IReadOnlyList<BranchOutcome> trace) : IBranchPredictor {
+    private int _nextIdx;
+
+    /// <inheritdoc />
+    public BranchPrediction Predict(ulong pc, (ulong Value, bool HasValue) knownTarget = default) {
+        // Seek to the next recorded outcome for this PC, skipping entries for branches
+        // the fetch stage resolves without consulting the predictor (direct unconditional
+        // jumps, RAS-predicted returns). The trace is in commit order and Predict is
+        // called in program order, so a forward scan stays aligned.
+        while (_nextIdx < trace.Count && trace[_nextIdx].Pc != pc) _nextIdx++;
+        if (_nextIdx >= trace.Count) return BranchPrediction.NotTaken(pc + 4);
+        BranchOutcome outcome = trace[_nextIdx++];
+        return outcome.Taken
+            ? BranchPrediction.Taken(outcome.Target)
+            : BranchPrediction.NotTaken(outcome.Target);
+    }
+
+    /// <inheritdoc />
+    public void Update(ulong pc, bool taken, ulong actualTarget) { }
+}

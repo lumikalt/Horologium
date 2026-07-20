@@ -160,7 +160,7 @@ public interface IVectorAwareBranchPredictor : IBranchPredictor {
 ///     (or in addition to) branch history. The pipeline checks for this
 ///     interface and calls it when available.
 /// </summary>
-public interface IValueAwareBranchPredictor : IBranchPredictor {
+public interface IValueAwareBp : IBranchPredictor {
     /// <summary>
     ///     Called at execute time for every instruction that writes an integer
     ///     destination register, giving the architectural register index and

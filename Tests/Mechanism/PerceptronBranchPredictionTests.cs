@@ -2,7 +2,7 @@
 
 using System.Text.Json;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using RiscV32.Config;
 
 #endregion
@@ -16,7 +16,7 @@ public class PerceptronBranchPredictionTests {
     public void ColdMiss_AllWeightsZero_PredictsWeaklyTaken_TargetFallsThrough() {
         // y = 0 (all weights zero) → 0 >= 0 → predicted taken,
         // but BTB is empty so target is still pc+4.
-        var p = new PerceptronPredictor(4, 64);
+        var p = new PerceptronBp(4, 64);
         BranchPrediction pred = p.Predict(0x1000);
         Assert.True(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget); // no BTB entry yet
@@ -26,7 +26,7 @@ public class PerceptronBranchPredictionTests {
 
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
-        var p = new PerceptronPredictor(8, 64);
+        var p = new PerceptronBp(8, 64);
         ulong pc = 0x1000;
         for (var i = 0; i < 40; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
@@ -36,7 +36,7 @@ public class PerceptronBranchPredictionTests {
 
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
-        var p = new PerceptronPredictor(8, 64);
+        var p = new PerceptronBp(8, 64);
         ulong pc = 0x1000;
         for (var i = 0; i < 40; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
@@ -48,7 +48,7 @@ public class PerceptronBranchPredictionTests {
     public void AlternatingPattern_LearnsTakenAfterNotTakenHistory() {
         // TNTNTNT… pattern: after enough training, with history "1010…" the
         // predictor should reliably predict T when the last branch was N.
-        var p = new PerceptronPredictor(8, 64);
+        var p = new PerceptronBp(8, 64);
         ulong pc = 0x400;
         bool[] pattern = [true, false, true, false, true, false, true, false,];
 
@@ -67,7 +67,7 @@ public class PerceptronBranchPredictionTests {
     public void TwoBranches_DifferentTableSlots_DoNotInterfere() {
         // historyLength=0 eliminates GHR coupling; each perceptron is a pure bias.
         // pcA and pcB map to different slots (they differ in bits [9:2]).
-        var p = new PerceptronPredictor(0);
+        var p = new PerceptronBp(0);
 
         ulong pcA = 0x0000, pcB = 0x0100;
         for (var i = 0; i < 20; i++) p.Update(pcA, true, 0x200);
@@ -95,7 +95,7 @@ public class PerceptronBranchPredictionTests {
     public void WeightsReachSaturation_AndPredictor_RemainsStable() {
         // After very heavy training on always-taken the bias weight should saturate
         // at 127 (sbyte.MaxValue) and the predictor should remain confidently taken.
-        var p = new PerceptronPredictor(4, 64);
+        var p = new PerceptronBp(4, 64);
         ulong pc = 0x80;
         for (var i = 0; i < 200; i++) p.Update(pc, true, 0x100);
         Assert.True(p.Predict(pc).PredictedTaken);

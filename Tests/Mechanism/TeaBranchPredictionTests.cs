@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -14,7 +14,7 @@ public class TeaBranchPredictionTests {
 
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
-        var p = new TeaPredictor();
+        var p = new TeaBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -25,8 +25,8 @@ public class TeaBranchPredictionTests {
     public void NoBlockCacheEntry_BehavesLikeTageScL() {
         // With an empty Block Cache (no FromProfile pre-pass), every branch falls through to
         // the internal TAGE-SC-L baseline unchanged.
-        var tsl = new TageScLPredictor();
-        var tea = new TeaPredictor();
+        var tsl = new TageScLBp();
+        var tea = new TeaBp();
         const ulong branch = 0x3000;
 
         for (var i = 0; i < 200; i++) {
@@ -48,7 +48,7 @@ public class TeaBranchPredictionTests {
         // branch's direction is a pseudorandom function of loop iteration (defeats
         // history-based TAGE-SC-L) but is perfectly signaled by the producer's register
         // value — exactly the correlation the Backward Dataflow Walk is meant to discover
-        // (rather than assume, the way RunltsPredictor's "most recent write" heuristic does).
+        // (rather than assume, the way RunltsBp's "most recent write" heuristic does).
         var decoder = new FakeDecoder(
             new Dictionary<ulong, ITooth> {
                 [TeaBranchPredictionTests.ProducerPc] = new FakeTooth {
@@ -62,7 +62,7 @@ public class TeaBranchPredictionTests {
             }
         );
 
-        var profiler = new TeaPredictor.TeaProfiler(decoder);
+        var profiler = new TeaBp.TeaProfiler(decoder);
         var state = new FakeArchState();
         var rng = new Random(1234);
         const int profileSteps = 600;
@@ -77,10 +77,10 @@ public class TeaBranchPredictionTests {
             profiler.OnCommit(TeaBranchPredictionTests.BranchPc, 0, state);
         }
 
-        TeaPredictor tea = TeaPredictor.FromProfile(profiler);
+        TeaBp tea = TeaBp.FromProfile(profiler);
         Assert.Equal(1, tea.TrackedBranchCount);
 
-        var tsl = new TageScLPredictor();
+        var tsl = new TageScLBp();
         rng = new Random(1234); // replay the same pattern for the online comparison
         int tslMisses = 0, teaMisses = 0;
         const ulong takenValue = 0xAAAAAAAAAAAAAAAAUL;
@@ -131,7 +131,7 @@ public class TeaBranchPredictionTests {
             }
         );
 
-        var profiler = new TeaPredictor.TeaProfiler(decoder);
+        var profiler = new TeaBp.TeaProfiler(decoder);
         var state = new FakeArchState();
         var rng = new Random(42);
         const int profileSteps = 600;
@@ -144,7 +144,7 @@ public class TeaBranchPredictionTests {
             profiler.OnCommit(TeaBranchPredictionTests.BranchPc, 0, state);
         }
 
-        TeaPredictor tea = TeaPredictor.FromProfile(profiler);
+        TeaBp tea = TeaBp.FromProfile(profiler);
         Assert.Equal(1, tea.TrackedBranchCount);
 
         // Flood with register results from PCs never seen during profiling — must be ignored.

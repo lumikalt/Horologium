@@ -97,7 +97,7 @@ public sealed class MachineSpecRtlTests {
         mech.Executor = new RtlBackedExecutor(mech.Executor, divUnit, RvRtlDiv.Select);
         MachineHandle handle = new MachineSpec(
             new OutOfOrderSpec(
-                BranchPredictorFactory: () => new RtlFfiBranchPredictor(RtlBpLibrary.Path)
+                BranchPredictorFactory: () => new RtlFfiBp(RtlBpLibrary.Path)
             ),
             () => mech,
             CacheHierarchySpec.SplitId(

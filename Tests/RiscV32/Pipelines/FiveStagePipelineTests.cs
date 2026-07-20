@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
@@ -326,7 +326,7 @@ public class FiveStagePipelineTests {
         ];
 
         (FiveStageTrain ant, FlatMemory memAnt) = Make(predictor: new AlwaysNotTakenPredictor());
-        (FiveStageTrain twoB, FlatMemory memTwoB) = Make(predictor: new NBitPredictor());
+        (FiveStageTrain twoB, FlatMemory memTwoB) = Make(predictor: new NBitBp());
         Load(memAnt, program);
         Load(memTwoB, program);
 
@@ -712,7 +712,7 @@ public class FiveStagePipelineTests {
         new SingleCycleTrain(mechanism, preMem, commitObserver: recorder).Run();
 
         // Main pass: replay the oracle trace — every prediction must be correct
-        (FiveStageTrain train, FlatMemory mem) = Make(predictor: new TrueOraclePredictor(recorder.Trace));
+        (FiveStageTrain train, FlatMemory mem) = Make(predictor: new OracleBp(recorder.Trace));
         Load(mem, program);
         RevolutionResult result = train.Run();
 

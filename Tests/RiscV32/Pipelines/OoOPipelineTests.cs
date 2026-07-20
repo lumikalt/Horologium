@@ -1,6 +1,6 @@
 #region
 
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
@@ -810,7 +810,7 @@ public class OoOPipelineTests {
     public void OoO_TrueOraclePredictor_ZeroBranchMisses_WithCallReturn() {
         // Program: main calls a subroutine that loops 5 times, then returns.
         // Exercises JAL (call), conditional BLT (loop), and JALR (return).
-        // Verifies both that TrueOraclePredictor achieves 0 mispredicts on OoO
+        // Verifies both that OracleBp achieves 0 mispredicts on OoO
         // and that return-instruction trace-index alignment holds.
         uint[] program = [
             0x010000EF, // addr  0: jal  x1, 16        -- call subroutine; x1 = return addr 4
@@ -834,7 +834,7 @@ public class OoOPipelineTests {
         // Main pass: replay the oracle trace on OoO
         var mem = new FlatMemory(4096);
         Load(mem, program);
-        var oracle = new TrueOraclePredictor(recorder.Trace);
+        var oracle = new OracleBp(recorder.Trace);
         var train = new OooeTrain(mechanism, mem, predictor: oracle);
         RevolutionResult result = train.Run();
 

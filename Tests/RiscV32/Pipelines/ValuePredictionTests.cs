@@ -1,8 +1,8 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
-using Mechanism.ValuePredictModels;
+using Mechanism.BranchPred;
+using Mechanism.ValuePred;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
@@ -97,7 +97,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -143,7 +143,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -195,7 +195,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -250,7 +250,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -305,7 +305,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), enableSmbBypass: true);
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), enableSmbBypass: true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -319,8 +319,8 @@ public class ValuePredictionTests {
     }
 
     /// <summary>
-    ///     The pipeline wiring is predictor-agnostic: <see cref="LvpPredictor" /> alone (no
-    ///     history hooks at all) must integrate exactly like <see cref="VtagePredictor" />.
+    ///     The pipeline wiring is predictor-agnostic: <see cref="LvpVp" /> alone (no
+    ///     history hooks at all) must integrate exactly like <see cref="VtageVp" />.
     /// </summary>
     [Fact]
     public void LvpPredictorAlone_ArchStateIdenticalToWithout_AndPredictionsOccur() {
@@ -335,7 +335,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new LvpPredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new LvpVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -352,7 +352,7 @@ public class ValuePredictionTests {
     ///     Performance sanity check on the constant copy chain: value prediction should
     ///     meaningfully shorten this dependence-bound loop, the textbook win case for both papers
     ///     (Lipasti &amp; Shen §1: "collapse true dependences"; Perais &amp; Seznec §3.2: tight
-    ///     loops). Uses <see cref="LTagePredictor" /> instead of the default
+    ///     loops). Uses <see cref="LTageBp" /> instead of the default
     ///     <c>AlwaysNotTakenPredictor</c> for branch prediction so the loop-closing branch
     ///     converges to near-zero mispredictions — with the trivial default predictor, this
     ///     backward branch mispredicts (and squashes) on <em>every</em> iteration, and that noise
@@ -371,8 +371,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), new LTagePredictor());
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -388,13 +388,13 @@ public class ValuePredictionTests {
 
     // ── Widened eligibility (TODO.md: "beyond scalar ALU/load") ─────────────────
     //
-    // Several tests below use LTagePredictor instead of the default AlwaysNotTakenPredictor.
+    // Several tests below use LTageBp instead of the default AlwaysNotTakenPredictor.
     // This isn't the usual "branch noise swamps a small measured effect" pitfall documented
     // elsewhere in this file — under investigation, AlwaysNotTakenPredictor (mispredicting the
     // loop's backward branch every iteration) drove some of these programs into a genuine
     // livelock, since VTAGE's TryPredict and Update disagreed on which speculative-history
     // snapshot indexed a given dynamic instruction (fixed below, see
-    // VtageTagAliasing_DoesNotLivelockUnderAdversarialBranchPredictor). LTagePredictor is kept
+    // VtageTagAliasing_DoesNotLivelockUnderAdversarialBranchPredictor). LTageBp is kept
     // here regardless, since these particular tests are about eligibility widening, not about
     // re-exercising the aliasing fix, and a competent branch predictor is the simplest way to
     // avoid depending on it.
@@ -406,7 +406,7 @@ public class ValuePredictionTests {
     ///     <c>add rd,rs,x0</c>), fed by a one-time <c>fcvt.s.w</c> seed so no float immediate needs
     ///     encoding. FP architectural registers are renamed through the same RAT/PRF as integer ones
     ///     (index <c>rd+32</c>), so this exercises the same rename/verify/train path with a different
-    ///     PhysDest range. Uses <see cref="LTagePredictor" /> — see the section comment above.
+    ///     PhysDest range. Uses <see cref="LTageBp" /> — see the section comment above.
     ///     Assembled from:
     ///     <c>
     ///         addi x1,x0,500; addi x2,x0,99; fcvt.s.w f2,x2; loop: fsgnj.s f3,f2,f2; fsgnj.s f2,f3,f3;
@@ -427,8 +427,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), new LTagePredictor());
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -447,7 +447,7 @@ public class ValuePredictionTests {
     ///     via <c>f2</c>/<c>f3</c>, then a rare branch re-converts <c>x10</c> (55) into <c>f2</c> five
     ///     iterations before the end, mispredicting the FP destination once VTAGE has converged.
     ///     Regression test for value-mispredict squash-at-commit driven by a noninteger,
-    ///     non-ALU-class PhysDest. Uses <see cref="LTagePredictor" /> — see the section comment
+    ///     non-ALU-class PhysDest. Uses <see cref="LTageBp" /> — see the section comment
     ///     above. Assembled from:
     ///     <c>
     ///         addi x1,x0,600; addi x2,x0,99; addi x9,x0,5; fcvt.s.w f2,x2;
@@ -474,8 +474,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), new LTagePredictor());
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -493,7 +493,7 @@ public class ValuePredictionTests {
     ///     Same copy-chain shape again, through <c>ToothClass.IntegerMulDiv</c>: <c>mul rd,rs,x6</c>
     ///     with <c>x6=1</c> (multiplicative identity) is the MulDiv analogue of the ALU chain's
     ///     <c>add rd,rs,x0</c> — a genuine RAW dependency that always converges on the same value.
-    ///     Uses <see cref="LTagePredictor" /> — see the section comment above (this exact PC
+    ///     Uses <see cref="LTageBp" /> — see the section comment above (this exact PC
     ///     layout, with the default predictor, was the one that surfaced the VTAGE aliasing
     ///     livelock during investigation). Assembled from:
     ///     <c>
@@ -515,8 +515,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), new LTagePredictor());
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -559,7 +559,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -576,19 +576,19 @@ public class ValuePredictionTests {
     // ── Stride / hybrid predictor (TODO.md: "computational (stride-family) predictor component
     // to hybridize with VTAGE") ──────────────────────────────────────────────────────────────
     //
-    // StridePredictor (a 2-delta-style confidence FSM, see its own doc comment for provenance)
+    // StrideVp (a 2-delta-style confidence FSM, see its own doc comment for provenance)
     // and VTAGE are complementary (Sazeides & Smith's computational vs. context-based taxonomy,
     // per Perais & Seznec HPCA 2014 §2): a monotonically incrementing register never repeats a value,
     // so LVP/VTAGE's confidence never saturates on it, but its stride is trivially constant. The
     // tests below use exactly such a program to demonstrate the new predictor firing on its own,
-    // and firing identically when wrapped in HybridValuePredictor alongside VTAGE (per §7.1.2's
+    // and firing identically when wrapped in HybridVp alongside VTAGE (per §7.1.2's
     // combination rule: single-component pass-through, since VTAGE never confidently disagrees
     // on an ever-changing value).
 
     /// <summary>
     ///     A monotonically incrementing counter (<c>addi x2,x2,4</c>, looped) is the complement of
     ///     the copy-chain tests above: the same value is never seen twice, so a value-repetition
-    ///     predictor (LVP, or VTAGE without <see cref="StridePredictor" />) can never saturate
+    ///     predictor (LVP, or VTAGE without <see cref="StrideVp" />) can never saturate
     ///     confidence on it, while the stride between successive occurrences is constant from the
     ///     very first iteration. Assembled from:
     ///     <c>
@@ -609,7 +609,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new StridePredictor());
+        (OooeTrain on, FlatMemory memOn) = Make(new StrideVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -624,14 +624,14 @@ public class ValuePredictionTests {
     }
 
     /// <summary>
-    ///     Regression test for <see cref="StridePredictor" />'s in-flight depth tracking (see its
+    ///     Regression test for <see cref="StrideVp" />'s in-flight depth tracking (see its
     ///     own doc comment for the mechanism and why it deviates from the paper). Same
     ///     monotonic-counter program as above, but with a competent branch predictor
-    ///     (<c>LTagePredictor</c>, per this file's documented convention for VP timing/accuracy
+    ///     (<c>LTageBp</c>, per this file's documented convention for VP timing/accuracy
     ///     tests) rather than the default <c>AlwaysNotTakenPredictor</c> — that default mispredicts
     ///     this loop's backward branch every iteration, squashing everything younger before more
     ///     than one iteration is ever simultaneously in flight, which masks the effect entirely.
-    ///     Under <c>LTagePredictor</c>, multiple iterations genuinely overlap in this OoOE pipeline,
+    ///     Under <c>LTageBp</c>, multiple iterations genuinely overlap in this OoOE pipeline,
     ///     so predicting from the last committed value with a single, unscaled stride step
     ///     often mispredicts (undercounting how many occurrences are actually still unresolved).
     ///     Asserts a ratio with headroom so a regression that reintroduces committed-value-only
@@ -649,8 +649,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(new StridePredictor(), new LTagePredictor());
+        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooeTrain on, FlatMemory memOn) = Make(new StrideVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -671,7 +671,7 @@ public class ValuePredictionTests {
 
     /// <summary>
     ///     Same monotonic-counter program as above, but the predictor under test is
-    ///     <c>HybridValuePredictor(VtagePredictor, StridePredictor)</c> — the actual "hybridize
+    ///     <c>HybridVp(VtageVp, StrideVp)</c> — the actual "hybridize
     ///     with VTAGE" README item. VTAGE's own component never confidently predicts this program's
     ///     ever-changing value (no repeat to key a tagged component's confidence on), so the
     ///     hybrid's combination rule (single-component pass-through) must let Stride's confident
@@ -692,7 +692,7 @@ public class ValuePredictionTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new HybridValuePredictor(new VtagePredictor(), new StridePredictor()));
+        (OooeTrain on, FlatMemory memOn) = Make(new HybridVp(new VtageVp(), new StrideVp()));
         Load(memOff, program);
         Load(memOn, program);
 
@@ -708,8 +708,8 @@ public class ValuePredictionTests {
 
     // ── Dynamic classification (TODO.md: Rychlik-style hybrid component selection) ──────────────
     //
-    // DynamicClassificationValuePredictor assigns each PC to at most one component (rather than
-    // HybridValuePredictor's always-query-both-and-gate-on-agreement), after a short 3-value
+    // DynamicClassificationVp assigns each PC to at most one component (rather than
+    // HybridVp's always-query-both-and-gate-on-agreement), after a short 3-value
     // learning window. Routing correctness (which program shape lands on which component) is
     // covered precisely by Tests.Mechanism.DynamicClassificationValuePredictionTests; these two
     // pipeline tests just confirm the same wiring holds end-to-end through OooeTrain on the two
@@ -733,7 +733,7 @@ public class ValuePredictionTests {
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
         (OooeTrain on, FlatMemory memOn) =
-            Make(new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor()));
+            Make(new DynamicClassificationVp(new VtageVp(), new StrideVp()));
         Load(memOff, program);
         Load(memOn, program);
 
@@ -773,7 +773,7 @@ public class ValuePredictionTests {
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
         (OooeTrain on, FlatMemory memOn) =
-            Make(new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor()));
+            Make(new DynamicClassificationVp(new VtageVp(), new StrideVp()));
         Load(memOff, program);
         Load(memOn, program);
 

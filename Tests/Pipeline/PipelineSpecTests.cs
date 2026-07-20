@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline.Spec;

@@ -1,14 +1,14 @@
 #region
 
 using Mechanism;
-using Mechanism.ValuePredictModels;
+using Mechanism.ValuePred;
 
 #endregion
 
 namespace Tests.Mechanism;
 
 /// <summary>
-///     Unit tests for <see cref="DynamicClassificationValuePredictor" /> (Rychlik et al.,
+///     Unit tests for <see cref="DynamicClassificationVp" /> (Rychlik et al.,
 ///     CMuART-1998-01, §3.2.3) in isolation from pipeline complexity: the 3-value learning window,
 ///     delta-based classification, routing, and the adapted eviction/reclassification rules. See
 ///     that class's own doc comment for the paper's 3-way-to-2-way fold and the eviction-trigger
@@ -17,7 +17,7 @@ namespace Tests.Mechanism;
 public class DynamicClassificationValuePredictionTests {
     [Fact]
     public void Unclassified_NoPredictionDuringLearningWindow() {
-        var p = new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor());
+        var p = new DynamicClassificationVp(new VtageVp(), new StrideVp());
         const ulong pc = 0x1000;
         Assert.False(p.TryPredict(pc, default(ValueHistoryCheckpoint), out _));
         p.Update(pc, default(ValueHistoryCheckpoint), 10); // 1st of 3 learning values
@@ -32,7 +32,7 @@ public class DynamicClassificationValuePredictionTests {
 
     [Fact]
     public void ConstantDeltaHistory_ClassifiesToComputational_AndEventuallyPredicts() {
-        var p = new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor());
+        var p = new DynamicClassificationVp(new VtageVp(), new StrideVp());
         const ulong pc = 0x2000;
 
         // Learning window: deltas 10, 10 (equal) -> classified Computational (Stride).
@@ -53,7 +53,7 @@ public class DynamicClassificationValuePredictionTests {
 
     [Fact]
     public void NonConstantDeltaHistory_ClassifiesToContext_AndEventuallyPredicts() {
-        var p = new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor());
+        var p = new DynamicClassificationVp(new VtageVp(), new StrideVp());
         const ulong pc = 0x3000;
 
         // Learning window: deltas 94, -96 (not equal) -> classified Context (VTAGE), playing the
@@ -73,9 +73,9 @@ public class DynamicClassificationValuePredictionTests {
 
     [Fact]
     public void Update_OnlyTrainsTheAssignedComponent() {
-        var context = new VtagePredictor();
-        var computational = new StridePredictor();
-        var p = new DynamicClassificationValuePredictor(context, computational);
+        var context = new VtageVp();
+        var computational = new StrideVp();
+        var p = new DynamicClassificationVp(context, computational);
         const ulong pc = 0x4000;
 
         // Classifies to Computational.
@@ -91,7 +91,7 @@ public class DynamicClassificationValuePredictionTests {
 
     [Fact]
     public void EvictionFromComputational_ReturnsToUnclassified_AndReclassifiesToContext() {
-        var p = new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor());
+        var p = new DynamicClassificationVp(new VtageVp(), new StrideVp());
         const ulong pc = 0x5000;
 
         // Classify to Computational and bring it to a confident, Steady prediction.
@@ -128,7 +128,7 @@ public class DynamicClassificationValuePredictionTests {
 
     [Fact]
     public void EvictionFromContext_BecomesPermanentlyDontPredict() {
-        var p = new DynamicClassificationValuePredictor(new VtagePredictor(), new StridePredictor());
+        var p = new DynamicClassificationVp(new VtageVp(), new StrideVp());
         const ulong pc = 0x6000;
 
         // Classify to Context (non-constant deltas) and converge to a confident prediction.

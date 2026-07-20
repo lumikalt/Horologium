@@ -2,7 +2,7 @@
 
 using System.Text.Json;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using RiscV32.Config;
 
 #endregion
@@ -14,7 +14,7 @@ public class HypreBranchPredictionTests {
 
     [Fact]
     public void Cold_DoesNotThrow_TargetFallsThroughWhenNotInBtb() {
-        var p = new HyprePredictor();
+        var p = new HypreBp();
         BranchPrediction pred = p.Predict(0x1000);
         if (!pred.PredictedTaken) Assert.Equal(0x1004UL, pred.PredictedTarget);
     }
@@ -23,7 +23,7 @@ public class HypreBranchPredictionTests {
 
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
-        var p = new HyprePredictor();
+        var p = new HypreBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 64; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
@@ -33,7 +33,7 @@ public class HypreBranchPredictionTests {
 
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
-        var p = new HyprePredictor();
+        var p = new HypreBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 64; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
@@ -43,7 +43,7 @@ public class HypreBranchPredictionTests {
 
     [Fact]
     public void PeriodicPattern_ConvergesToHighAccuracy() {
-        var p = new HyprePredictor();
+        var p = new HypreBp();
         ulong pc = 0x4000;
         bool[] period = [true, true, false, true, false, false,];
 
@@ -68,7 +68,7 @@ public class HypreBranchPredictionTests {
 
     [Fact]
     public void TwoBranches_DifferentDirections_BothConverge() {
-        var p = new HyprePredictor();
+        var p = new HypreBp();
         ulong pcA = 0x1000, pcB = 0x1040;
         for (var i = 0; i < 80; i++) {
             p.Update(pcA, true, 0x2000);
@@ -83,7 +83,7 @@ public class HypreBranchPredictionTests {
 
     [Fact]
     public void CustomHistLengths_ConvergesAlwaysTaken() {
-        var p = new HyprePredictor([2, 8, 24,]);
+        var p = new HypreBp([2, 8, 24,]);
         ulong pc = 0x1000;
         for (var i = 0; i < 64; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
@@ -93,7 +93,7 @@ public class HypreBranchPredictionTests {
 
     [Fact]
     public void RandomPatternAcrossManyPcs_StaysStable() {
-        var p = new HyprePredictor();
+        var p = new HypreBp();
         var rng = new Random(12345);
         const int pcCount = 64;
         var pcs = new ulong[pcCount];

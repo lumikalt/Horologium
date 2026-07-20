@@ -2,7 +2,7 @@
 
 using System.Text.Json;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using RiscV32.Config;
 
 #endregion
@@ -16,7 +16,7 @@ public class TournamentBranchPredictionTests {
     public void Cold_LocalPhtWeaklyNotTaken_ChooserWeaklyLocal_PredictsNotTaken() {
         // Cold: local PHT = 3 (weakly not-taken, 3-bit: taken ≥ 4).
         // Chooser = 1 → local. Local not-taken → predict not-taken.
-        var p = new TournamentPredictor();
+        var p = new TournamentBp();
         Assert.False(p.Predict(0x1000).PredictedTaken);
     }
 
@@ -24,7 +24,7 @@ public class TournamentBranchPredictionTests {
 
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
-        var p = new TournamentPredictor();
+        var p = new TournamentBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 60; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
@@ -36,7 +36,7 @@ public class TournamentBranchPredictionTests {
 
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
-        var p = new TournamentPredictor();
+        var p = new TournamentBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 60; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
@@ -47,7 +47,7 @@ public class TournamentBranchPredictionTests {
     [Fact]
     public void AlternatingPattern_ConvergesViaLocalPredictor() {
         // T N T N … repeating: local predictor can learn this via per-branch BHT.
-        var p = new TournamentPredictor(4, 256, 4);
+        var p = new TournamentBp(4, 256, 4);
         ulong pc = 0x400;
         bool[] pattern = [true, false, true, false, true, false, true, false,];
 
@@ -66,7 +66,7 @@ public class TournamentBranchPredictionTests {
         // Interleaved training: pcA always taken, pcB always not-taken.
         // pcA and pcB map to different BHT entries so their local PHT patterns diverge.
         // With enough rounds the local predictor saturates each branch independently.
-        var p = new TournamentPredictor();
+        var p = new TournamentBp();
         ulong pcA = 0x0000, pcB = 0x0004; // BHT indices 0 and 1 — no aliasing
         for (var i = 0; i < 80; i++) {
             p.Update(pcA, true, 0x200);

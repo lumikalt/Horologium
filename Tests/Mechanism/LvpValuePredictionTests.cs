@@ -1,26 +1,26 @@
 #region
 
 using Mechanism;
-using Mechanism.ValuePredictModels;
+using Mechanism.ValuePred;
 
 #endregion
 
 namespace Tests.Mechanism;
 
 /// <summary>
-///     Unit tests for <see cref="LvpPredictor" /> (Lipasti &amp; Shen, MICRO 1996, LVPT) in
+///     Unit tests for <see cref="LvpVp" /> (Lipasti &amp; Shen, MICRO 1996, LVPT) in
 ///     isolation from pipeline complexity.
 /// </summary>
 public class LvpValuePredictionTests {
     [Fact]
     public void ColdMiss_NoPrediction() {
-        var p = new LvpPredictor();
+        var p = new LvpVp();
         Assert.False(p.TryPredict(0x1000, default(ValueHistoryCheckpoint), out _));
     }
 
     [Fact]
     public void RepeatedValue_ConvergesToConfidentPrediction() {
-        var p = new LvpPredictor();
+        var p = new LvpVp();
         const ulong pc = 0x1000;
         const ulong value = 42;
         for (var i = 0; i < 5000; i++) p.Update(pc, default(ValueHistoryCheckpoint), value);
@@ -31,7 +31,7 @@ public class LvpValuePredictionTests {
 
     [Fact]
     public void FirstEncounter_SeedsValueButDoesNotPredict() {
-        var p = new LvpPredictor();
+        var p = new LvpVp();
         p.Update(0x2000, default(ValueHistoryCheckpoint), 7);
         // A single training pass only seeds the value history; confidence has not
         // yet been demonstrated by a repeated correct prediction.
@@ -40,7 +40,7 @@ public class LvpValuePredictionTests {
 
     [Fact]
     public void Mispredict_ResetsConfidenceAndReplacesValue() {
-        var p = new LvpPredictor();
+        var p = new LvpVp();
         const ulong pc = 0x3000;
         for (var i = 0; i < 5000; i++) p.Update(pc, default(ValueHistoryCheckpoint), 10);
         Assert.True(p.TryPredict(pc, default(ValueHistoryCheckpoint), out ulong before));
@@ -60,7 +60,7 @@ public class LvpValuePredictionTests {
     public void Tagless_DistinctPcsAliasingToSameSlot_ShareState() {
         // A 1-entry table forces every PC to the same slot — the "tagless" design
         // accepts this as an ordinary misprediction source, never a correctness issue.
-        var p = new LvpPredictor(1);
+        var p = new LvpVp(1);
         for (var i = 0; i < 5000; i++) p.Update(0x1000, default(ValueHistoryCheckpoint), 5);
         Assert.True(p.TryPredict(0x1000, default(ValueHistoryCheckpoint), out ulong v1));
         Assert.Equal(5UL, v1);

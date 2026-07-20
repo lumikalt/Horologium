@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Mechanism.RtlFu;
 using Pipeline;
 using RiscV32;
@@ -23,7 +23,7 @@ public sealed class RtlBpCoSimTests {
     [SkippableFact]
     public void OooeTrain_LoopProgram_CorrectWithRtlPredictor() {
         Skip.If(RtlBpLibrary.Path is null, "verilator toolchain unavailable — skipping.");
-        using var predictor = new RtlFfiBranchPredictor(RtlBpLibrary.Path);
+        using var predictor = new RtlFfiBp(RtlBpLibrary.Path);
 
         var mem = new FlatMemory(4096);
         uint[] words = [
@@ -49,7 +49,7 @@ public sealed class RtlBpCoSimTests {
         Skip.If(RtlTageLibrary.Path is null, "verilator toolchain unavailable — skipping.");
         // Nested loops give the speculative-history machinery real work: inner-loop
         // back-edges mispredict at every exit, driving capture/partial-squash/recover.
-        // The RTL L-TAGE mirrors the C# LTagePredictor bit-for-bit, and OooeTrain drives
+        // The RTL L-TAGE mirrors the C# LTageBp bit-for-bit, and OooeTrain drives
         // both through the same call sites — so cycles and results must match exactly.
         uint[] words = [
             0x00600093, // addi x1, x0, 6        (outer counter)
@@ -74,8 +74,8 @@ public sealed class RtlBpCoSimTests {
             return cycles;
         }
 
-        long csCycles = Run(() => new LTagePredictor(), out uint csX2);
-        long rtlCycles = Run(() => new RtlFfiHistoryBranchPredictor(RtlTageLibrary.Path), out uint rtlX2);
+        long csCycles = Run(() => new LTageBp(), out uint csX2);
+        long rtlCycles = Run(() => new RtlFfiHistoryBp(RtlTageLibrary.Path), out uint rtlX2);
 
         Assert.Equal(24u, csX2); // 6 × 4 inner iterations
         Assert.Equal(csX2, rtlX2);

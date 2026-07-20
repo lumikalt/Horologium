@@ -1,3 +1,9 @@
+#region
+
+using Mechanism.ValuePred;
+
+#endregion
+
 namespace Mechanism;
 
 /// <summary>
@@ -31,7 +37,7 @@ public interface IValuePredictor {
     ///     </para>
     ///     <para>
     ///         An implementor may advance its own internal speculative state on a confident call
-    ///         (e.g. <see cref="ValuePredictModels.StridePredictor" /> tracks how many predictions
+    ///         (e.g. <see cref="StrideVp" /> tracks how many predictions
     ///         are outstanding, to scale its next prediction for a still-more-in-flight occurrence
     ///         of the same PC) — so this is not guaranteed idempotent, and callers must call it
     ///         exactly once per dynamic instruction actually being predicted, not as a side-effect-free
@@ -100,8 +106,8 @@ public interface IValuePredictor {
     ///     Advances the committed (non-speculative) history shadow with a branch's resolved
     ///     outcome. Called once per committing branch, in program order. Default no-op:
     ///     predictors with no branch-history component (e.g. a tagless LVPT, or a computational
-    ///     predictor like <see cref="ValuePredictModels.StridePredictor" />) need nothing here. A
-    ///     predictor composing others (e.g. <see cref="ValuePredictModels.HybridValuePredictor" />)
+    ///     predictor like <see cref="StrideVp" />) need nothing here. A
+    ///     predictor composing others (e.g. <see cref="HybridVp" />)
     ///     forwards this to whichever inner component tracks history.
     /// </summary>
     void AdvanceCommittedHistory(bool taken) { }

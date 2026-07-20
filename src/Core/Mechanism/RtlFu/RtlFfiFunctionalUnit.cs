@@ -1,6 +1,7 @@
 #region
 
 using System.Runtime.InteropServices;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -12,7 +13,7 @@ namespace Mechanism.RtlFu;
 ///     <c>rtl_execute</c> via P/Invoke, so a cycle-accurate RTL model (e.g. a Chisel
 ///     divider) can replace the C# functional/latency model for one FU while the
 ///     surrounding pipeline stays unchanged — the RTL counterpart of
-///     <see cref="BranchPredictModels.CbpFfiPredictor" />.
+///     <see cref="CbpFfiBp" />.
 ///     <para>
 ///         Each call runs one operation to completion inside the shim and reports the
 ///         observed cycle count alongside the result; <see cref="RtlBackedExecutor" />

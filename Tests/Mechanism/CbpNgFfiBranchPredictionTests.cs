@@ -2,7 +2,7 @@
 
 using System.Diagnostics;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -11,7 +11,7 @@ namespace Tests.Mechanism;
 /// <summary>
 ///     Builds <c>native/CbpNgShim/test_predictor.hpp</c> (a minimal harcom `predictor` fixture — a
 ///     single global 1-bit direction register, not a competitive predictor) into a native shared
-///     library via <c>native/CbpNgShim/build.sh</c>, then drives <see cref="CbpNgFfiPredictor" />
+///     library via <c>native/CbpNgShim/build.sh</c>, then drives <see cref="CbpNgFfiBp" />
 ///     against it — exercising the real FFI path end-to-end rather than mocking the native side.
 ///     <para>Requires a host C++20 toolchain (<c>g++</c>); skips if unavailable.</para>
 /// </summary>
@@ -41,7 +41,7 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void ColdMiss_PredictsFallThrough() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpNgFfiPredictor(_libraryPath!);
+        using var p = new CbpNgFfiBp(_libraryPath!);
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -50,7 +50,7 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void Taken_FlipsPredictionToTaken() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpNgFfiPredictor(_libraryPath!);
+        using var p = new CbpNgFfiBp(_libraryPath!);
         ulong branch = 0x2000, target = 0x2100;
 
         p.Predict(branch);
@@ -64,7 +64,7 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void NotTaken_StaysNotTakenAndFallsThrough() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpNgFfiPredictor(_libraryPath!);
+        using var p = new CbpNgFfiBp(_libraryPath!);
         ulong branch = 0x3000;
 
         p.Predict(branch);
@@ -78,7 +78,7 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void TakenThenReverts_FlipsBackToNotTaken() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpNgFfiPredictor(_libraryPath!);
+        using var p = new CbpNgFfiBp(_libraryPath!);
         ulong branch = 0x4000, target = 0x4200;
 
         p.Predict(branch);
@@ -93,7 +93,7 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void NotifyBranchKind_IsThreadedThroughToUpdate() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpNgFfiPredictor(_libraryPath!);
+        using var p = new CbpNgFfiBp(_libraryPath!);
         ulong branch = 0x5000, target = 0x5100;
 
         p.Predict(branch);
@@ -107,14 +107,14 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
     public void CommitDriven_SurvivesManyOutstandingFetchPredictionsBeforeAnyCommit() {
         // Simulates OoOE's actual hazard: many branches fetched (Predict, which only ever
         // touches the internal fetch-side predictor) before any of them commits (Update, the
-        // only place the wrapped native predictor is ever touched). Raw CbpNgFfiPredictor would
+        // only place the wrapped native predictor is ever touched). Raw CbpNgFfiBp would
         // corrupt harcom's per-block registers if driven this way — a violation harcom itself
         // enforces by calling std::terminate() (see reg/ram "single access per cycle" and
         // "storage lifetime" checks in vendor/harcom.hpp) — so a burst of Predict() calls with no
         // matching Update() reaching the process alive, followed by Update() calls succeeding
         // cleanly, demonstrates the native predictor was never reentered.
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpNgCommitDrivenPredictor(_libraryPath!);
+        using var p = new CbpNgCommitDrivenBp(_libraryPath!);
         ulong branch = 0x6000, target = 0x6100;
 
         // Fetch (speculatively) far more predictions than have resolved — the ROB-window pattern.
@@ -137,7 +137,7 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
         // directly — verified by never calling Update and confirming Predict is still callable
         // repeatedly without ever touching the (never-resolved) native predictor unsafely.
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpNgCommitDrivenPredictor(_libraryPath!);
+        using var p = new CbpNgCommitDrivenBp(_libraryPath!);
         ulong branch = 0x7000;
 
         BranchPrediction first = p.Predict(branch);
@@ -153,7 +153,7 @@ public sealed class CbpNgFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void CommitDriven_NotifyBranchKind_IsThreadedThroughToHarcomUpdate() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpNgCommitDrivenPredictor(_libraryPath!);
+        using var p = new CbpNgCommitDrivenBp(_libraryPath!);
         ulong branch = 0x8000, target = 0x8100;
 
         p.Predict(branch);

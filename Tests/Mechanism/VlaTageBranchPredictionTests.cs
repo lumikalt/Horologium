@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -10,7 +10,7 @@ namespace Tests.Mechanism;
 public class VlaTageBranchPredictionTests {
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
-        var p = new VlaTagePredictor();
+        var p = new VlaTageBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -18,7 +18,7 @@ public class VlaTageBranchPredictionTests {
 
     [Fact]
     public void NonVectorLoop_DoesNotGate() {
-        var p = new VlaTagePredictor();
+        var p = new VlaTageBp();
         ulong branch = 0x2000;
         ulong head = 0x1000;
 
@@ -40,7 +40,7 @@ public class VlaTageBranchPredictionTests {
         // After the first iteration the LM stores (rs1=0, rs2=200).
         // On the second iteration (rs1=1, rs2=200) it computes:
         //   variable=rs1=1, bound=rs2=200, increment=1, remaining=199 >= 32 → PenLatch=true.
-        var p = new VlaTagePredictor();
+        var p = new VlaTageBp();
         ulong branch = 0x2000;
         ulong head = 0x1000;
         ulong vecInst = 0x1800; // inside [head, branch]
@@ -63,7 +63,7 @@ public class VlaTageBranchPredictionTests {
     [Fact]
     public void VectorLoop_DeassertsPenNearLoopEnd() {
         // A 40-iteration loop: PEN should eventually drop before the exit.
-        var p = new VlaTagePredictor();
+        var p = new VlaTageBp();
         ulong branch = 0x2000;
         ulong head = 0x1000;
         ulong vecInst = 0x1800;
@@ -89,7 +89,7 @@ public class VlaTageBranchPredictionTests {
     public void VectorLoop_ResetsAfterExit() {
         // After a loop exits (not-taken) and re-enters, the second run must
         // also gate once estimation fires.
-        var p = new VlaTagePredictor();
+        var p = new VlaTageBp();
         ulong branch = 0x2000;
         ulong head = 0x1000;
         ulong vecInst = 0x1800;
@@ -129,8 +129,8 @@ public class VlaTageBranchPredictionTests {
     public void VectorLoop_AccuracyCloseToTageScL() {
         // On a stable taken-only backward branch VLA-TAGE (gated via bimodal) should
         // match or approach TAGE-SC-L since bimodal quickly learns "always taken."
-        var tsl = new TageScLPredictor();
-        var vlat = new VlaTagePredictor();
+        var tsl = new TageScLBp();
+        var vlat = new VlaTageBp();
 
         ulong branch = 0x2000;
         ulong head = 0x1000;

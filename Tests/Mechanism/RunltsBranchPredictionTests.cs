@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -10,7 +10,7 @@ namespace Tests.Mechanism;
 public class RunltsBranchPredictionTests {
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
-        var p = new RunltsPredictor();
+        var p = new RunltsBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -20,8 +20,8 @@ public class RunltsBranchPredictionTests {
     public void NoRegisterActivity_BehavesLikeTageScL() {
         // With no NotifyRegisterResult calls, sR never has a fresh digest to score, so
         // ResolvePrediction should fall through to the TAGE-SC-L baseline unchanged.
-        var tsl = new TageScLPredictor();
-        var runlts = new RunltsPredictor();
+        var tsl = new TageScLBp();
+        var runlts = new RunltsBp();
         ulong branch = 0x3000;
 
         for (var i = 0; i < 200; i++) {
@@ -42,8 +42,8 @@ public class RunltsBranchPredictionTests {
         // history-based TAGE-SC-L) but is perfectly signaled by a register value produced
         // just before the branch is fetched (as if by an earlier instruction in the loop
         // body) — exactly the correlation sR is designed to exploit.
-        var tsl = new TageScLPredictor();
-        var runlts = new RunltsPredictor();
+        var tsl = new TageScLBp();
+        var runlts = new RunltsBp();
         ulong branch = 0x4000;
         const int destReg = 5;
         const ulong takenValue = 0xAAAAAAAAAAAAAAAAUL;
@@ -81,8 +81,8 @@ public class RunltsBranchPredictionTests {
         // A digest older than the 256-notification staleness window must not be used —
         // flood the freshness table with unrelated writes to age the tracked register out,
         // then confirm the predictor no longer diverges from TAGE-SC-L for that branch.
-        var tsl = new TageScLPredictor();
-        var runlts = new RunltsPredictor();
+        var tsl = new TageScLBp();
+        var runlts = new RunltsBp();
         ulong branch = 0x5000;
         const int destReg = 3;
 

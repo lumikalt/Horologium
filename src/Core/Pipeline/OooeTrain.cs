@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
@@ -3185,7 +3185,7 @@ internal sealed class OoOPipelineCore : Gear {
         }
 
         // Notify value-aware predictor of the register value this instruction produced.
-        if (_predictor is IValueAwareBranchPredictor vabp
+        if (_predictor is IValueAwareBp vabp
          && issued.Instr.DestinationRegister >= 0
          && regValue.HasValue)
             vabp.NotifyRegisterResult(

@@ -2,7 +2,7 @@
 
 using System.Text.Json;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using RiscV32.Config;
 
 #endregion
@@ -12,7 +12,7 @@ namespace Tests.Mechanism;
 public class BullseyeBranchPredictionTests {
     [Fact]
     public void Cold_PredictsNotTaken_FallThroughTarget() {
-        var p = new BullseyePredictor();
+        var p = new BullseyeBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -20,7 +20,7 @@ public class BullseyeBranchPredictionTests {
 
     [Fact]
     public void AlwaysTaken_DirectionConverges() {
-        var p = new BullseyePredictor();
+        var p = new BullseyeBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 32; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
@@ -28,7 +28,7 @@ public class BullseyeBranchPredictionTests {
 
     [Fact]
     public void AlwaysNotTaken_DirectionConverges() {
-        var p = new BullseyePredictor();
+        var p = new BullseyeBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 32; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
@@ -40,7 +40,7 @@ public class BullseyeBranchPredictionTests {
     // thousands of times without breaking basic learning.
     [Fact]
     public void PeriodicPattern_ConvergesToHighAccuracy() {
-        var p = new BullseyePredictor();
+        var p = new BullseyeBp();
         ulong pc = 0x4000;
         bool[] period = [true, true, false, true, false, false,];
 
@@ -70,7 +70,7 @@ public class BullseyeBranchPredictionTests {
     // subsystem's admission and eviction machinery.
     [Fact]
     public void RandomPatternAcrossManyPcs_H2PSubsystemStaysStable() {
-        var p = new BullseyePredictor();
+        var p = new BullseyeBp();
         var rng = new Random(12345);
         const int pcCount = 96; // > HitCapacity(64) forces HIT eviction
         var pcs = new ulong[pcCount];

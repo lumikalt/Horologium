@@ -2,7 +2,7 @@
 
 using System.IO.Compression;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Cache;
 using RiscV32.Config;
 using RiscV32.Trace;

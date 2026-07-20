@@ -2,7 +2,7 @@
 
 using System.Text.Json.Serialization;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Mechanism.RtlFu;
 using Pipeline;
 using RiscV32.Memory;
@@ -27,7 +27,6 @@ namespace RiscV32.Config;
 [JsonDerivedType(typeof(IttageConfig), "ittage")]
 [JsonDerivedType(typeof(BatageConfig), "batage")]
 [JsonDerivedType(typeof(OracleConfig), "oracle")]
-[JsonDerivedType(typeof(TrueOracleConfig), "true_oracle")]
 [JsonDerivedType(typeof(ImliConfig), "imli")]
 [JsonDerivedType(typeof(LlbpConfig), "llbp")]
 [JsonDerivedType(typeof(LlbpXConfig), "llbp_x")]
@@ -48,7 +47,7 @@ public abstract record BranchPredictorConfig {
 
     /// <summary>
     ///     Builds a predictor with access to a functional pre-pass. Configs that need a workload
-    ///     trace (e.g. <see cref="TrueOracleConfig" />) override this; all others delegate to Build().
+    ///     trace (e.g. <see cref="OracleConfig" />) override this; all others delegate to Build().
     /// </summary>
     public virtual IBranchPredictor Build(IMechanism mechanism, IWorkload workload) => Build();
 
@@ -84,7 +83,6 @@ public abstract record BranchPredictorConfig {
     public static BranchPredictorConfig Ittage() => new IttageConfig();
     public static BranchPredictorConfig Batage() => new BatageConfig();
     public static BranchPredictorConfig Oracle() => new OracleConfig();
-    public static BranchPredictorConfig TrueOracle() => new TrueOracleConfig();
 
     public static BranchPredictorConfig Imli(int phtSize = 65536, int btbSize = 1024) =>
         new ImliConfig(phtSize, btbSize);
@@ -122,11 +120,11 @@ public sealed record AlwaysBackwardNotForwardsConfig : BranchPredictorConfig {
 }
 
 public sealed record NBitConfig(int Bits = 2, int TableSize = 1024) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new NBitPredictor(Bits, TableSize);
+    public override IBranchPredictor Build() => new NBitBp(Bits, TableSize);
 }
 
 public sealed record CorrelatedConfig(int M = 2, int N = 2, int BhtSize = 1024) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new CorrelatedPredictor(M, N, BhtSize);
+    public override IBranchPredictor Build() => new CorrelatedBp(M, N, BhtSize);
 }
 
 public sealed record GselectConfig(int HistoryBits = 4, int PcBits = 4) : BranchPredictorConfig {
@@ -134,15 +132,15 @@ public sealed record GselectConfig(int HistoryBits = 4, int PcBits = 4) : Branch
 }
 
 public sealed record GshareConfig(int HistoryBits = 8) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new GsharePredictor(HistoryBits);
+    public override IBranchPredictor Build() => new GshareBp(HistoryBits);
 }
 
 public sealed record LTageConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new LTagePredictor();
+    public override IBranchPredictor Build() => new LTageBp();
 }
 
 public sealed record PerceptronConfig(int HistoryLength = 24, int TableSize = 256) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new PerceptronPredictor(HistoryLength, TableSize);
+    public override IBranchPredictor Build() => new PerceptronBp(HistoryLength, TableSize);
 }
 
 public sealed record TournamentConfig(
@@ -151,15 +149,15 @@ public sealed record TournamentConfig(
     int GlobalHistoryBits = 12
 ) : BranchPredictorConfig {
     public override IBranchPredictor Build() =>
-        new TournamentPredictor(LocalHistoryBits, LocalTableSize, GlobalHistoryBits);
+        new TournamentBp(LocalHistoryBits, LocalTableSize, GlobalHistoryBits);
 }
 
 public sealed record TageScLConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new TageScLPredictor();
+    public override IBranchPredictor Build() => new TageScLBp();
 }
 
 public sealed record HashedPerceptronConfig(int TableSize = 512) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new HashedPerceptronPredictor(TableSize);
+    public override IBranchPredictor Build() => new HashedPerceptronBp(TableSize);
 }
 
 public sealed record IttageConfig : BranchPredictorConfig {
@@ -167,11 +165,7 @@ public sealed record IttageConfig : BranchPredictorConfig {
 }
 
 public sealed record BatageConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new BatagePredictor();
-}
-
-public sealed record OracleConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new OraclePredictor();
+    public override IBranchPredictor Build() => new BatageBp();
 }
 
 public sealed record ImliConfig(int PhtSize = 65536, int BtbSize = 1024) : BranchPredictorConfig {
@@ -179,21 +173,21 @@ public sealed record ImliConfig(int PhtSize = 65536, int BtbSize = 1024) : Branc
 }
 
 public sealed record LlbpConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new LlbpPredictor();
+    public override IBranchPredictor Build() => new LlbpBp();
 }
 
 public sealed record LlbpXConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new LlbpXPredictor();
+    public override IBranchPredictor Build() => new LlbpXBp();
 }
 
 public sealed record VlaTageConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new VlaTagePredictor();
+    public override IBranchPredictor Build() => new VlaTageBp();
 }
 
-public sealed record TrueOracleConfig : BranchPredictorConfig {
+public sealed record OracleConfig : BranchPredictorConfig {
     public override IBranchPredictor Build() =>
         throw new InvalidOperationException(
-            "TrueOracleConfig requires a functional pre-pass. Call Build(mechanism, workload) instead."
+            "OracleConfig requires a functional pre-pass. Call Build(mechanism, workload) instead."
         );
 
     public override IBranchPredictor Build(IMechanism mechanism, IWorkload workload) {
@@ -204,16 +198,16 @@ public sealed record TrueOracleConfig : BranchPredictorConfig {
             mechanism, workload.WrapMemory(preMemory), workload.EntryPoint,
             commitObserver: recorder
         ).Run(long.MaxValue);
-        return new TrueOraclePredictor(recorder.Trace);
+        return new OracleBp(recorder.Trace);
     }
 }
 
 public sealed record RunltsConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new RunltsPredictor();
+    public override IBranchPredictor Build() => new RunltsBp();
 }
 
 public sealed record LvcpConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new LvcpPredictor();
+    public override IBranchPredictor Build() => new LvcpBp();
 }
 
 public sealed record BranchNetConfig : BranchPredictorConfig {
@@ -225,12 +219,12 @@ public sealed record BranchNetConfig : BranchPredictorConfig {
     public override IBranchPredictor Build(IMechanism mechanism, IWorkload workload) {
         var preMemory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(preMemory);
-        var profiler = new BranchNetPredictor.BranchProfiler(mechanism.Decoder);
+        var profiler = new BranchNetBp.BranchProfiler(mechanism.Decoder);
         new SingleCycleTrain(
             mechanism, workload.WrapMemory(preMemory), workload.EntryPoint,
             commitObserver: profiler
         ).Run(long.MaxValue);
-        return BranchNetPredictor.FromProfile(profiler);
+        return BranchNetBp.FromProfile(profiler);
     }
 }
 
@@ -243,29 +237,29 @@ public sealed record TeaConfig : BranchPredictorConfig {
     public override IBranchPredictor Build(IMechanism mechanism, IWorkload workload) {
         var preMemory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(preMemory);
-        var profiler = new TeaPredictor.TeaProfiler(mechanism.Decoder);
+        var profiler = new TeaBp.TeaProfiler(mechanism.Decoder);
         new SingleCycleTrain(
             mechanism, workload.WrapMemory(preMemory), workload.EntryPoint,
             commitObserver: profiler
         ).Run(long.MaxValue);
-        return TeaPredictor.FromProfile(profiler);
+        return TeaBp.FromProfile(profiler);
     }
 }
 
 /// <summary>
 ///     Loads a CBP-3/CBP-5-style third-party predictor from a native shared library built via
-///     <c>native/CbpShim/build.sh</c>. Desktop-only — see <see cref="CbpFfiPredictor" />.
+///     <c>native/CbpShim/build.sh</c>. Desktop-only — see <see cref="CbpFfiBp" />.
 /// </summary>
 public sealed record CbpPluginConfig(string LibraryPath) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new CbpFfiPredictor(LibraryPath);
+    public override IBranchPredictor Build() => new CbpFfiBp(LibraryPath);
 }
 
 /// <summary>
 ///     Loads a Verilator-compiled RTL branch predictor from a native shared library built via
 ///     <c>native/RtlFu/build.sh &lt;sv&gt; &lt;top&gt; &lt;out.so&gt; rtl_bp_shim.cpp</c> (plain
-///     predictor) or <c>… rtl_hbp_shim.cpp</c> (speculative-history predictor, e.g. the L-TAGE);
-///     the shim ABI is auto-detected. Desktop-only — see <see cref="RtlFfiBranchPredictor" /> and
-///     <see cref="RtlFfiHistoryBranchPredictor" />.
+///     predictor) or <c>… rtl_hbp_shim.cpp</c> (speculative-history predictor, e.g., the L-TAGE);
+///     the shim ABI is auto-detected. Desktop-only — see <see cref="RtlFfiBp" /> and
+///     <see cref="RtlFfiHistoryBp" />.
 /// </summary>
 public sealed record RtlBpPluginConfig(string LibraryPath) : BranchPredictorConfig {
     public override IBranchPredictor Build() => RtlBranchPredictorLoader.Load(LibraryPath);
@@ -274,33 +268,33 @@ public sealed record RtlBpPluginConfig(string LibraryPath) : BranchPredictorConf
 /// <summary>
 ///     Loads a CBP2025/CBP-NG (AmpereComputing/cbp-ng) predictor from a native shared library
 ///     built via <c>native/CbpNgShim/build.sh</c>, driven live at fetch time. Desktop-only — see
-///     <see cref="CbpNgFfiPredictor" />. Only safe for <c>SingleCycleTrain</c>, which never
+///     <see cref="CbpNgFfiBp" />. Only safe for <c>SingleCycleTrain</c>, which never
 ///     overlaps an unresolved branch's <c>Predict</c>/<c>Update</c> with another branch's; use
 ///     <see cref="CbpNgOoOePluginConfig" /> for any other pipeline.
 /// </summary>
 public sealed record CbpNgPluginConfig(string LibraryPath) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new CbpNgFfiPredictor(LibraryPath);
+    public override IBranchPredictor Build() => new CbpNgFfiBp(LibraryPath);
 }
 
 /// <summary>
 ///     Loads a CBP2025/CBP-NG predictor the same way as <see cref="CbpNgPluginConfig" />, but
-///     wrapped in <see cref="CbpNgCommitDrivenPredictor" /> so it is safe with pipelines that keep
+///     wrapped in <see cref="CbpNgCommitDrivenBp" /> so it is safe with pipelines that keep
 ///     multiple unresolved predictions in flight (<c>FiveStageTrain</c>, <c>OooeTrain</c>) — see
 ///     README.md "CBP2025/CBP-NG predictor integration". Not suitable for <c>CprTrain</c> (trains
-///     predictors out of program order at execute).
+///     predictors out of program order at execution).
 /// </summary>
 public sealed record CbpNgOoOePluginConfig(string LibraryPath) : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new CbpNgCommitDrivenPredictor(LibraryPath);
+    public override IBranchPredictor Build() => new CbpNgCommitDrivenBp(LibraryPath);
 }
 
 public sealed record BullseyeConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new BullseyePredictor();
+    public override IBranchPredictor Build() => new BullseyeBp();
 }
 
 public sealed record HypreConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new HyprePredictor();
+    public override IBranchPredictor Build() => new HypreBp();
 }
 
 public sealed record MultiperspectivePerceptronConfig : BranchPredictorConfig {
-    public override IBranchPredictor Build() => new MultiperspectivePerceptronPredictor();
+    public override IBranchPredictor Build() => new MultiperspectivePerceptronBp();
 }

@@ -2,7 +2,7 @@
 
 using System.Text.Json;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using RiscV32.Config;
 
 #endregion
@@ -12,7 +12,7 @@ namespace Tests.Mechanism;
 public class MultiperspectivePerceptronBranchPredictionTests {
     [Fact]
     public void Cold_PredictsNotTaken_FallThroughTarget() {
-        var p = new MultiperspectivePerceptronPredictor();
+        var p = new MultiperspectivePerceptronBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -20,7 +20,7 @@ public class MultiperspectivePerceptronBranchPredictionTests {
 
     [Fact]
     public void AlwaysTaken_DirectionConverges() {
-        var p = new MultiperspectivePerceptronPredictor();
+        var p = new MultiperspectivePerceptronBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 64; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
@@ -28,7 +28,7 @@ public class MultiperspectivePerceptronBranchPredictionTests {
 
     [Fact]
     public void AlwaysNotTaken_DirectionConverges() {
-        var p = new MultiperspectivePerceptronPredictor();
+        var p = new MultiperspectivePerceptronBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 64; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
@@ -40,7 +40,7 @@ public class MultiperspectivePerceptronBranchPredictionTests {
     // thousands of times without breaking basic learning.
     [Fact]
     public void PeriodicPattern_ConvergesToHighAccuracy() {
-        var p = new MultiperspectivePerceptronPredictor();
+        var p = new MultiperspectivePerceptronBp();
         ulong pc = 0x4000;
         bool[] period = [true, true, false, true, false, false,];
 
@@ -65,7 +65,7 @@ public class MultiperspectivePerceptronBranchPredictionTests {
     // target >= pc), which nothing else in this test class distinguishes.
     [Fact]
     public void BackwardLoopBranch_ConvergesToTaken() {
-        var p = new MultiperspectivePerceptronPredictor();
+        var p = new MultiperspectivePerceptronBp();
         ulong pc = 0x5000;
         ulong backwardTarget = 0x4000; // target < pc
 
@@ -79,7 +79,7 @@ public class MultiperspectivePerceptronBranchPredictionTests {
     // test of the five feature tables' bookkeeping.
     [Fact]
     public void RandomPatternAcrossManyPcs_StaysStable() {
-        var p = new MultiperspectivePerceptronPredictor();
+        var p = new MultiperspectivePerceptronBp();
         var rng = new Random(12345);
         const int pcCount = 64;
         var pcs = new ulong[pcCount];

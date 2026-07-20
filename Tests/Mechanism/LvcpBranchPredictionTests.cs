@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -10,7 +10,7 @@ namespace Tests.Mechanism;
 public class LvcpBranchPredictionTests {
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
-        var p = new LvcpPredictor();
+        var p = new LvcpBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -21,8 +21,8 @@ public class LvcpBranchPredictionTests {
         // With no NotifyRegisterResult(isLoad: true) calls, the LTQ is always empty, so
         // TryLvcpPredict never finds a candidate and ResolvePrediction falls through to
         // the TAGE-SC-L baseline unchanged, regardless of H2P classification.
-        var tsl = new TageScLPredictor();
-        var lvcp = new LvcpPredictor();
+        var tsl = new TageScLBp();
+        var lvcp = new LvcpBp();
         ulong branch = 0x3000;
 
         for (var i = 0; i < 200; i++) {
@@ -45,8 +45,8 @@ public class LvcpBranchPredictionTests {
         // First drive enough mispredicted iterations against the TAGE-SC-L baseline to push
         // the branch's H2P counter to saturation, then confirm the correlation table takes
         // over and substantially reduces misses.
-        var tsl = new TageScLPredictor();
-        var lvcp = new LvcpPredictor();
+        var tsl = new TageScLBp();
+        var lvcp = new LvcpBp();
         ulong branch = 0x4000;
         ulong loadPc = branch - 4;
         const int destReg = 5;
@@ -86,7 +86,7 @@ public class LvcpBranchPredictionTests {
         // outcome for the same (branch PC, load PC, load value) key, DirChanged retires it
         // permanently — it must never again participate in a prediction override, even
         // though the branch stays H2P and the same load value keeps recurring.
-        var lvcp = new LvcpPredictor();
+        var lvcp = new LvcpBp();
         ulong branch = 0x6000;
         ulong loadPc = branch - 4;
         const int destReg = 7;

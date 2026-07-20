@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
@@ -95,7 +95,7 @@ public class FdipPrefetcherTests {
         // branch_misses must be byte-identical: if FDIP's lookahead calls to
         // Predict() overwrite per-prediction carry state consumed by Update(),
         // the count would diverge. This test catches that class of bug.
-        IBranchPredictor Predictor() => new LTagePredictor();
+        IBranchPredictor Predictor() => new LTageBp();
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public class FdipPrefetcherTests {
         Assert.Equal(sOff.Counters["branch_misses"], sOn.Counters["branch_misses"]);
         return;
 
-        IBranchPredictor Predictor() => new LTagePredictor();
+        IBranchPredictor Predictor() => new LTageBp();
     }
 
     [Fact]

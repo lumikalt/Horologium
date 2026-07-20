@@ -1,26 +1,26 @@
 #region
 
 using Mechanism;
-using Mechanism.ValuePredictModels;
+using Mechanism.ValuePred;
 
 #endregion
 
 namespace Tests.Mechanism;
 
 /// <summary>
-///     Unit tests for <see cref="VtagePredictor" /> (Perais &amp; Seznec, HPCA 2014, VTAGE) in
+///     Unit tests for <see cref="VtageVp" /> (Perais &amp; Seznec, HPCA 2014, VTAGE) in
 ///     isolation from pipeline complexity.
 /// </summary>
 public class VtageValuePredictionTests {
     [Fact]
     public void ColdMiss_NoPrediction() {
-        var p = new VtagePredictor();
+        var p = new VtageVp();
         Assert.False(p.TryPredict(0x1000, p.CaptureHistory(), out _));
     }
 
     [Fact]
     public void RepeatedValue_ConvergesToConfidentPrediction() {
-        var p = new VtagePredictor();
+        var p = new VtageVp();
         const ulong pc = 0x1000;
         const ulong value = 123;
         for (var i = 0; i < 5000; i++) p.Update(pc, p.CaptureHistory(), value);
@@ -31,7 +31,7 @@ public class VtageValuePredictionTests {
 
     [Fact]
     public void Mispredict_ResetsConfidenceAndReplacesValue() {
-        var p = new VtagePredictor();
+        var p = new VtageVp();
         const ulong pc = 0x3000;
         for (var i = 0; i < 5000; i++) p.Update(pc, p.CaptureHistory(), 10);
         Assert.True(p.TryPredict(pc, p.CaptureHistory(), out ulong before));
@@ -51,7 +51,7 @@ public class VtageValuePredictionTests {
         // history changes which slot a PC's training lands in — it may or may not be the same
         // slot as before. Either way, the predictor must still converge cleanly to whatever
         // value is actually observed under the new history.
-        var p = new VtagePredictor();
+        var p = new VtageVp();
         const ulong pc = 0x4000;
 
         for (var i = 0; i < 5000; i++) {
@@ -85,8 +85,8 @@ public class VtageValuePredictionTests {
     /// </summary>
     [Fact]
     public void RestoreHistory_AfterWrongPathDetour_MatchesNeverDivergedPredictor() {
-        var diverged = new VtagePredictor();
-        var clean = new VtagePredictor();
+        var diverged = new VtageVp();
+        var clean = new VtageVp();
         const ulong pc = 0x5000;
 
         // Common setup: both predictors walk an identical sequence of correctly-predicted
@@ -133,7 +133,7 @@ public class VtageValuePredictionTests {
 
     [Fact]
     public void RecoverSpeculativeHistory_OnFullFlush_RestoresCommittedShadow() {
-        var p = new VtagePredictor();
+        var p = new VtageVp();
         const ulong pc = 0x8000;
 
         for (var i = 0; i < 5000; i++) {

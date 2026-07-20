@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -10,7 +10,7 @@ namespace Tests.Mechanism;
 public class BranchNetBranchPredictionTests {
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
-        var p = new BranchNetPredictor();
+        var p = new BranchNetBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -21,8 +21,8 @@ public class BranchNetBranchPredictionTests {
     public void NoModels_BehavesLikeTageScL() {
         // With no FromProfile pre-pass, every branch falls through to the internal TAGE-SC-L
         // baseline unchanged.
-        var tsl = new TageScLPredictor();
-        var bnp = new BranchNetPredictor();
+        var tsl = new TageScLBp();
+        var bnp = new BranchNetBp();
         const ulong branch = 0x3000;
 
         for (var i = 0; i < 200; i++) {
@@ -50,7 +50,7 @@ public class BranchNetBranchPredictionTests {
         const ulong branch = 0x9000;
         var decoder = new FakeBranchDecoder(branch);
 
-        var profiler = new BranchNetPredictor.BranchProfiler(decoder);
+        var profiler = new BranchNetBp.BranchProfiler(decoder);
         var state = new FakeArchState();
         ulong oracleGhr = 0x123456;
         const int profileSteps = 3000;
@@ -62,10 +62,10 @@ public class BranchNetBranchPredictionTests {
             oracleGhr = ((oracleGhr << 1) | (taken ? 1UL : 0UL)) & 0xFFFFFF;
         }
 
-        BranchNetPredictor bnp = BranchNetPredictor.FromProfile(profiler);
+        BranchNetBp bnp = BranchNetBp.FromProfile(profiler);
         Assert.Equal(1, bnp.TrainedModelCount);
 
-        var tsl = new TageScLPredictor();
+        var tsl = new TageScLBp();
         oracleGhr = 0x123456;
         int tslMisses = 0, bnpMisses = 0;
         const int evalSteps = 3000;

@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -12,7 +12,7 @@ public class LTageBranchPredictionTests {
 
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
-        var p = new LTagePredictor();
+        var p = new LTageBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -20,7 +20,7 @@ public class LTageBranchPredictionTests {
 
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
-        var p = new LTagePredictor();
+        var p = new LTageBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 16; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
@@ -30,7 +30,7 @@ public class LTageBranchPredictionTests {
 
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
-        var p = new LTagePredictor();
+        var p = new LTageBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 16; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
@@ -40,7 +40,7 @@ public class LTageBranchPredictionTests {
 
     [Fact]
     public void BtbColdMiss_FallsThrough() {
-        var p = new LTagePredictor();
+        var p = new LTageBp();
         // Drive predictor to taken but BTB not yet populated.
         // (We can't easily reach "predicted taken but no BTB" in LTage because
         //  the first update populates BTB at the same time as training. Instead
@@ -57,7 +57,7 @@ public class LTageBranchPredictionTests {
         // A branch taken 3 times then not-taken, repeated many times.
         // After LoopConfidence (4) consistent exits the loop predictor should
         // be confident and predict the pattern exactly.
-        var p = new LTagePredictor();
+        var p = new LTageBp();
         ulong pc = 0x3000;
         const ulong target = 0x2F00;
         const int tripCount = 3;
@@ -81,7 +81,7 @@ public class LTageBranchPredictionTests {
 
     [Fact]
     public void LoopPredictor_TripCountChange_DropConfidence() {
-        var p = new LTagePredictor();
+        var p = new LTageBp();
         ulong pc = 0x4000;
         const ulong target = 0x3F00;
 
@@ -111,7 +111,7 @@ public class LTageBranchPredictionTests {
 
     [Fact]
     public void TwoBranches_DoNotInterfere() {
-        var p = new LTagePredictor();
+        var p = new LTageBp();
         ulong pcA = 0x100, pcB = 0x200;
         for (var i = 0; i < 20; i++) p.Update(pcA, true, 0x300);
         for (var i = 0; i < 20; i++) p.Update(pcB, false, pcB + 4);

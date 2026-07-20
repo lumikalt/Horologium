@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Cache;
 using Orrery.Gears;
 using Orrery.Observation;
@@ -444,7 +444,7 @@ internal sealed class PipelineCore : Gear {
 
         // Notify value-aware predictor of the register value this instruction produced.
         if (exMemLast is { IsValid: true, Result.RegisterResult.HasValue: true, DestinationRegister: >= 0, }
-         && _predictor is IValueAwareBranchPredictor vabp)
+         && _predictor is IValueAwareBp vabp)
             vabp.NotifyRegisterResult(
                 exMemLast.Pc, exMemLast.DestinationRegister, exMemLast.Result.RegisterResult.Value,
                 exMemLast.Instruction?.Class == ToothClass.Load

@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -10,7 +10,7 @@ namespace Tests.Mechanism;
 public class LlbpXBranchPredictionTests {
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
-        var p = new LlbpXPredictor();
+        var p = new LlbpXBp();
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -18,7 +18,7 @@ public class LlbpXBranchPredictionTests {
 
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
-        var p = new LlbpXPredictor();
+        var p = new LlbpXBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 8; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
@@ -28,7 +28,7 @@ public class LlbpXBranchPredictionTests {
 
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
-        var p = new LlbpXPredictor();
+        var p = new LlbpXBp();
         ulong pc = 0x1000;
         for (var i = 0; i < 8; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
@@ -39,7 +39,7 @@ public class LlbpXBranchPredictionTests {
         // Uses proper Predict→Update cycles so LLBP-X can learn and then override.
         // The W=2 RCR transitions context faster than W=8 LLBP, so the base LLBP
         // test's Update-only shortcut does not generalize here.
-        var p = new LlbpXPredictor();
+        var p = new LlbpXBp();
         ulong pc = 0x1000;
         ulong warmPc = 0x8000;
         for (var i = 0; i < 120; i++) {
@@ -65,9 +65,9 @@ public class LlbpXBranchPredictionTests {
     /// </summary>
     [Fact]
     public void BenchmarkComparison_LlbpX_AtLeastAsGoodAsLlbp() {
-        var tsl = new TageScLPredictor();
-        var llbp = new LlbpPredictor();
-        var llbpX = new LlbpXPredictor();
+        var tsl = new TageScLBp();
+        var llbp = new LlbpBp();
+        var llbpX = new LlbpXBp();
 
         // Synthetic trace: four branches cycling through a repeating 4-deep pattern.
         // Branch A at 0x1000 taken → 0x2000, then branch B, C, D at distinct PCs.

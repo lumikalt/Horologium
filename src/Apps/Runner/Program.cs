@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Mechanism.RtlFu;
 using Orrery.Cache;
 using Orrery.Train;
@@ -171,7 +171,7 @@ if (champsimTracePath is not null) {
     IBranchPredictor predictor = champsimRtlBpLib is not null
         ? RtlBranchPredictorLoader.Load(champsimRtlBpLib)
         : champsimCbpLib is not null
-            ? new CbpFfiPredictor(champsimCbpLib)
+            ? new CbpFfiBp(champsimCbpLib)
             : ResolveChampSimPredictor(champsimPredictor);
 
     SetAssociativeCache? cache = null;

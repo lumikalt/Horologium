@@ -2,7 +2,7 @@
 
 using System.Diagnostics;
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -11,7 +11,7 @@ namespace Tests.Mechanism;
 /// <summary>
 ///     Builds <c>native/CbpShim/test_predictor.h</c> (a minimal 2-bit-counter <c>class PREDICTOR</c>
 ///     fixture) into a native shared library via <c>native/CbpShim/build.sh</c>, then drives
-///     <see cref="CbpFfiPredictor" /> against it — exercising the real FFI path end-to-end rather
+///     <see cref="CbpFfiBp" /> against it — exercising the real FFI path end-to-end rather
 ///     than mocking the native side.
 ///     <para>Requires a host C++ toolchain (<c>g++</c>); skips if unavailable.</para>
 /// </summary>
@@ -41,7 +41,7 @@ public sealed class CbpFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void ColdMiss_PredictsFallThrough() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpFfiPredictor(_libraryPath!);
+        using var p = new CbpFfiBp(_libraryPath!);
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -50,7 +50,7 @@ public sealed class CbpFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void RepeatedTaken_TrainsCounterToPredictTaken() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpFfiPredictor(_libraryPath!);
+        using var p = new CbpFfiBp(_libraryPath!);
         ulong branch = 0x2000, target = 0x2100;
 
         for (var i = 0; i < 3; i++) {
@@ -66,7 +66,7 @@ public sealed class CbpFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void RepeatedNotTaken_StaysNotTakenAndFallsThrough() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpFfiPredictor(_libraryPath!);
+        using var p = new CbpFfiBp(_libraryPath!);
         ulong branch = 0x3000;
 
         for (var i = 0; i < 3; i++) {
@@ -82,7 +82,7 @@ public sealed class CbpFfiBranchPredictionTests : IDisposable {
     [SkippableFact]
     public void TakenThenReverts_CounterSaturatesBackToNotTaken() {
         Skip.If(_libraryPath is null, "g++ unavailable or native shim failed to build — skipping.");
-        using var p = new CbpFfiPredictor(_libraryPath!);
+        using var p = new CbpFfiBp(_libraryPath!);
         ulong branch = 0x4000, target = 0x4200;
 
         for (var i = 0; i < 3; i++) {

@@ -1,8 +1,8 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
-using Mechanism.ValuePredictModels;
+using Mechanism.BranchPred;
+using Mechanism.ValuePred;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
@@ -92,8 +92,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(new VtagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), true);
+        (OooeTrain off, FlatMemory memOff) = Make(new VtageVp());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -130,8 +130,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(new VtagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), true);
+        (OooeTrain off, FlatMemory memOff) = Make(new VtageVp());
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -185,11 +185,11 @@ public class EoleTests {
         var narrowFu = new FuLatencyConfig(1);
 
         (OooeTrain reference, FlatMemory memRef) =
-            Make(null, false, new LTagePredictor(), 4, fuLatency: FuLatencyConfig.Default);
+            Make(null, false, new LTageBp(), 4, fuLatency: FuLatencyConfig.Default);
         (OooeTrain baseline, FlatMemory memBaseline) =
-            Make(new VtagePredictor(), false, new LTagePredictor(), 4, fuLatency: wideFu);
+            Make(new VtageVp(), false, new LTageBp(), 4, fuLatency: wideFu);
         (OooeTrain narrowEole, FlatMemory memNarrow) =
-            Make(new VtagePredictor(), true, new LTagePredictor(), 4, fuLatency: narrowFu);
+            Make(new VtageVp(), true, new LTageBp(), 4, fuLatency: narrowFu);
 
         Load(memRef, program);
         Load(memBaseline, program);
@@ -257,7 +257,7 @@ public class EoleTests {
     ///     program's two <c>add</c>s form a genuine RAW dependency each iteration
     ///     (<c>x3&lt;-x2; x2&lt;-x3</c>) and are typically renamed in the same tick, so per the
     ///     paper's model neither may use the other's same-tick Early Execution result — the loop
-    ///     should barely speed up at all. Uses <see cref="LTagePredictor" /> (not the default
+    ///     should barely speed up at all. Uses <see cref="LTageBp" /> (not the default
     ///     <c>AlwaysNotTakenPredictor</c>) so per-iteration branch-misprediction squash noise
     ///     doesn't dominate the much smaller chain-latency effect this test isolates — the same
     ///     reasoning as <c>ValuePredictionTests.ConstantCopyChain_CompletesInFewerCyclesThanWithout</c>.
@@ -281,8 +281,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, false, new LTagePredictor());
-        (OooeTrain on, FlatMemory memOn) = Make(null, false, new LTagePredictor(), enableEoleEarlyExec: true);
+        (OooeTrain off, FlatMemory memOff) = Make(null, false, new LTageBp());
+        (OooeTrain on, FlatMemory memOn) = Make(null, false, new LTageBp(), enableEoleEarlyExec: true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -340,7 +340,7 @@ public class EoleTests {
     }
 
     /// <summary>
-    ///     All three EOLE-family features on at once — <c>VtagePredictor</c>, Late Execution, and
+    ///     All three EOLE-family features on at once — <c>VtageVp</c>, Late Execution, and
     ///     Early Execution — on both the copy-chain (RAW-dependent) and independent-ops
     ///     (width-bound) programs. Both programs feed a constant value, so no value-misprediction
     ///     ever fires here; this test only confirms Early and Late Execution's mutual exclusivity
@@ -376,7 +376,7 @@ public class EoleTests {
         foreach (uint[] program in new[] { chainProgram, indepProgram, }) {
             (OooeTrain off, FlatMemory memOff) = Make(null);
             (OooeTrain on, FlatMemory memOn) = Make(
-                new VtagePredictor(), true, enableEoleEarlyExec: true
+                new VtageVp(), true, enableEoleEarlyExec: true
             );
             Load(memOff, program);
             Load(memOn, program);
@@ -418,7 +418,7 @@ public class EoleTests {
         ];
 
         (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtagePredictor(), true, enableEoleEarlyExec: true);
+        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), true, enableEoleEarlyExec: true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -460,11 +460,11 @@ public class EoleTests {
         var narrowFu = new FuLatencyConfig(1);
 
         (OooeTrain reference, FlatMemory memRef) =
-            Make(null, false, new LTagePredictor(), 4, fuLatency: FuLatencyConfig.Default);
+            Make(null, false, new LTageBp(), 4, fuLatency: FuLatencyConfig.Default);
         (OooeTrain baseline, FlatMemory memBaseline) =
-            Make(null, false, new LTagePredictor(), 4, fuLatency: wideFu);
+            Make(null, false, new LTageBp(), 4, fuLatency: wideFu);
         (OooeTrain narrowEe, FlatMemory memNarrow) =
-            Make(null, false, new LTagePredictor(), 4, fuLatency: narrowFu, enableEoleEarlyExec: true);
+            Make(null, false, new LTageBp(), 4, fuLatency: narrowFu, enableEoleEarlyExec: true);
 
         Load(memRef, program);
         Load(memBaseline, program);
@@ -516,7 +516,7 @@ public class EoleTests {
         ];
 
         (OooeTrain narrowEe, FlatMemory memNarrow) =
-            Make(null, false, new LTagePredictor(), 4, fuLatency: new FuLatencyConfig(1), enableEoleEarlyExec: true);
+            Make(null, false, new LTageBp(), 4, fuLatency: new FuLatencyConfig(1), enableEoleEarlyExec: true);
         Load(memNarrow, program);
 
         RevolutionResult result = narrowEe.Run();

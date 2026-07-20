@@ -1,7 +1,7 @@
 #region
 
 using Mechanism;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 
 #endregion
 
@@ -12,7 +12,7 @@ public class NBitBranchPredictionTests {
 
     [Fact]
     public void OneBit_ColdMiss_PredictsNotTaken() {
-        var p = new NBitPredictor(1);
+        var p = new NBitBp(1);
         BranchPrediction pred = p.Predict(0x1000);
         Assert.False(pred.PredictedTaken);
         Assert.Equal(0x1004UL, pred.PredictedTarget);
@@ -20,7 +20,7 @@ public class NBitBranchPredictionTests {
 
     [Fact]
     public void OneBit_AfterTakenUpdate_PredictsTaken() {
-        var p = new NBitPredictor(1);
+        var p = new NBitBp(1);
         p.Update(0x1000, true, 0x2000);
         BranchPrediction pred = p.Predict(0x1000);
         Assert.True(pred.PredictedTaken);
@@ -29,7 +29,7 @@ public class NBitBranchPredictionTests {
 
     [Fact]
     public void OneBit_SingleNotTakenFlipsImmediately() {
-        var p = new NBitPredictor(1);
+        var p = new NBitBp(1);
         p.Update(0x1000, true, 0x2000);  // now taken
         p.Update(0x1000, false, 0x2000); // one miss flips to not-taken
         Assert.False(p.Predict(0x1000).PredictedTaken);
@@ -39,13 +39,13 @@ public class NBitBranchPredictionTests {
 
     [Fact]
     public void TwoBit_ColdMiss_PredictsNotTaken() {
-        var p = new NBitPredictor();
+        var p = new NBitBp();
         Assert.False(p.Predict(0x1000).PredictedTaken);
     }
 
     [Fact]
     public void TwoBit_AlwaysTaken_ConvergesAfterTwoUpdates() {
-        var p = new NBitPredictor();
+        var p = new NBitBp();
         ulong pc = 0x1000;
         p.Update(pc, true, 0x2000);
         p.Update(pc, true, 0x2000);
@@ -55,7 +55,7 @@ public class NBitBranchPredictionTests {
 
     [Fact]
     public void TwoBit_SingleMiss_DoesNotFlipFromStronglyTaken() {
-        var p = new NBitPredictor();
+        var p = new NBitBp();
         ulong pc = 0x100;
         // Drive to strongly taken (counter = 3)
         for (var i = 0; i < 4; i++) p.Update(pc, true, 0x200);
@@ -68,7 +68,7 @@ public class NBitBranchPredictionTests {
 
     [Fact]
     public void ThreeBit_RequiresThreeMissesToFlip() {
-        var p = new NBitPredictor(3);
+        var p = new NBitBp(3);
         ulong pc = 0x400;
         // Drive to strongly taken (counter = 7)
         for (var i = 0; i < 8; i++) p.Update(pc, true, 0x500);
@@ -92,7 +92,7 @@ public class NBitBranchPredictionTests {
     [InlineData(3)]
     [InlineData(4)]
     public void NBit_AlwaysTaken_ConvergesForAnyBitWidth(int bits) {
-        var p = new NBitPredictor(bits);
+        var p = new NBitBp(bits);
         ulong pc = 0x1000;
         int warmup = 1 << bits; // saturate the counter
         for (var i = 0; i < warmup; i++) p.Update(pc, true, 0x2000);
@@ -101,7 +101,7 @@ public class NBitBranchPredictionTests {
 
     [Fact]
     public void TwoBit_TwoPcsDoNotInterfere() {
-        var p = new NBitPredictor();
+        var p = new NBitBp();
         ulong pcA = 0x100, pcB = 0x200;
         for (var i = 0; i < 4; i++) p.Update(pcA, true, 0x300);
         for (var i = 0; i < 4; i++) p.Update(pcB, false, pcB + 4);

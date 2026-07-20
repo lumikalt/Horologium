@@ -1,7 +1,7 @@
 #region
 
 using System.Diagnostics;
-using Mechanism.BranchPredictModels;
+using Mechanism.BranchPred;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
@@ -13,7 +13,7 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-///     Full pipeline-integration coverage for <see cref="CbpNgCommitDrivenPredictor" />: wires a
+///     Full pipeline-integration coverage for <see cref="CbpNgCommitDrivenBp" />: wires a
 ///     built harcom submission directly into a real <c>OooeTrain</c> — exercising the actual
 ///     <c>Predict</c> call sites (main fetch and shadow/runahead fetch) and ROB-based commit-order
 ///     <c>Update</c> — rather than the isolated-adapter-unit calls in
@@ -49,7 +49,7 @@ public sealed class CbpNgOoOeIntegrationTests : IDisposable {
         // (JAL call, BLT loop 5x, JALR return) — but with the default OoOE settings (robCapacity=16,
         // issueWidth=2), several loop iterations' branches are fetched (Predict) into the ROB well
         // before the earliest of them commits (Update), including via TryShadowStep's runahead
-        // fetch past the head. A raw CbpNgFfiPredictor would corrupt harcom's per-block registers
+        // fetch past the head. A raw CbpNgFfiBp would corrupt harcom's per-block registers
         // under this pattern — enforced by harcom itself via std::terminate() on a same-cycle
         // reentrant reg/ram access (vendor/harcom.hpp). Running to completion, with correct final
         // register values, demonstrates the adapter holds under genuine pipeline-driven concurrency,
@@ -70,7 +70,7 @@ public sealed class CbpNgOoOeIntegrationTests : IDisposable {
         var mem = new FlatMemory(4096);
         LoadWords(mem, program);
         var mechanism = new Rv32Mechanism();
-        using var predictor = new CbpNgCommitDrivenPredictor(_libraryPath!);
+        using var predictor = new CbpNgCommitDrivenBp(_libraryPath!);
         var train = new OooeTrain(mechanism, mem, predictor: predictor);
 
         RevolutionResult result = train.Run();
