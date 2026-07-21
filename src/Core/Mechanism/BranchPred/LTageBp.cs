@@ -396,4 +396,87 @@ public class LTageBp : IBranchPredictor {
         public byte ConfCount;     // consistent exits seen
         public bool Confident;
     }
+
+    // ── Checkpointing ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    ///     Serializes the bimodal base, tagged TAGE tables, loop predictor, BTB, and both
+    ///     history shadows (speculative <see cref="Ghr" /> and <see cref="_committedGhr" />) —
+    ///     mirroring the RAS/CRAS and <c>VtageVp</c> speculative/committed pair rather than
+    ///     assuming the two have converged at the drain boundary. No folded-history index
+    ///     register needs its own entry: per <see cref="CaptureHistory" />'s doc comment, every
+    ///     folded index is recomputed on the fly from <see cref="Ghr" />, so restoring the raw
+    ///     GHR alone keeps every derived index consistent — unlike a genuinely stored derived
+    ///     register, which would itself need to round-trip. <see cref="_speculative" /> is
+    ///     included for safety even though it should self-heal on the next
+    ///     <see cref="SpeculativeHistoryUpdate" /> call. Virtual: subclasses that add their own
+    ///     tables (<see cref="TageScLBp" />'s Statistical Corrector, etc.) override and call
+    ///     <c>base.WriteState</c>/<c>base.ReadState</c> first.
+    /// </summary>
+    public virtual void WriteState(BinaryWriter w) {
+        foreach (byte b in _base) w.Write(b);
+
+        for (var t = 0; t < LTageBp.NumTables; t++)
+        foreach (TageEntry e in _tage[t]) {
+            w.Write(e.Tag);
+            w.Write(e.Ctr);
+            w.Write(e.U);
+            w.Write(e.Valid);
+        }
+
+        foreach (LoopEntry le in _loop) {
+            w.Write(le.Tag);
+            w.Write(le.LearnedIter);
+            w.Write(le.CurrentIter);
+            w.Write(le.ConfCount);
+            w.Write(le.Confident);
+        }
+
+        w.Write(_btb.Count);
+        foreach ((ulong pc, ulong target) in _btb) {
+            w.Write(pc);
+            w.Write(target);
+        }
+
+        w.Write(Ghr);
+        w.Write(_committedGhr);
+        w.Write(_speculative);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public virtual void ReadState(BinaryReader r) {
+        for (var i = 0; i < _base.Length; i++) _base[i] = r.ReadByte();
+
+        for (var t = 0; t < LTageBp.NumTables; t++)
+        for (var i = 0; i < _tage[t].Length; i++) {
+            ushort tag = r.ReadUInt16();
+            byte ctr = r.ReadByte();
+            byte u = r.ReadByte();
+            bool valid = r.ReadBoolean();
+            _tage[t][i] = new TageEntry { Tag = tag, Ctr = ctr, U = u, Valid = valid, };
+        }
+
+        for (var i = 0; i < _loop.Length; i++) {
+            ushort tag = r.ReadUInt16();
+            ushort learned = r.ReadUInt16();
+            ushort current = r.ReadUInt16();
+            byte confCount = r.ReadByte();
+            bool confident = r.ReadBoolean();
+            _loop[i] = new LoopEntry {
+                Tag = tag, LearnedIter = learned, CurrentIter = current, ConfCount = confCount, Confident = confident,
+            };
+        }
+
+        _btb.Clear();
+        int btbCount = r.ReadInt32();
+        for (var i = 0; i < btbCount; i++) {
+            ulong pc = r.ReadUInt64();
+            ulong target = r.ReadUInt64();
+            _btb[pc] = target;
+        }
+
+        Ghr = r.ReadUInt64();
+        _committedGhr = r.ReadUInt64();
+        _speculative = r.ReadBoolean();
+    }
 }

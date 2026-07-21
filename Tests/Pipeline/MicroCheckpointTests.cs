@@ -155,6 +155,62 @@ public class MicroCheckpointTests {
         Assert.Equal(bpA.Predict(0x300), bpB.Predict(0x300));
     }
 
+    /// <summary>
+    ///     Trains with a varying (not-constant) outcome pattern biased toward not-taken — a fresh
+    ///     <see cref="HashedPerceptronBp" /> has all-zero weights, so <c>Sum() &gt;= 0</c> always
+    ///     predicts <em>taken</em> by default; training against a net not-taken bias is what makes
+    ///     the trained prediction actually distinguishable from a cold one, which the equality
+    ///     assertion alone can't prove (a no-op <c>ReadState</c> would leave <c>bpB</c> cold, and
+    ///     cold would trivially equal a warm instance that also happens to predict taken).
+    /// </summary>
+    [Fact]
+    public void HashedPerceptronBp_RoundTrip_HistoryDependentPredictionMatches() {
+        var bpA = new HashedPerceptronBp(64, [0, 2, 4,]);
+        const ulong pc = 0x100;
+        for (var i = 0; i < 16; i++) bpA.Update(pc, i % 3 == 0, pc + 4); // taken 6/16, not-taken 10/16
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
+
+        var bpB = new HashedPerceptronBp(64, [0, 2, 4,]);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) bpB.ReadState(r);
+
+        Assert.Equal(bpA.Predict(pc), bpB.Predict(pc));
+
+        // The real proof: the trained prediction must differ from a cold instance's default —
+        // otherwise the equality above would pass even with a no-op ReadState.
+        var cold = new HashedPerceptronBp(64, [0, 2, 4,]);
+        Assert.NotEqual(bpA.Predict(pc), cold.Predict(pc));
+    }
+
+    [Fact]
+    public void TournamentBp_RoundTrip_LocalAndGlobalHistoryMatch() {
+        var bpA = new TournamentBp(localHistoryBits: 6, localTableSize: 64, globalHistoryBits: 8);
+        const ulong pcA = 0x100;
+        const ulong pcB = 0x200;
+        for (var i = 0; i < 20; i++) {
+            bpA.Update(pcA, true, pcA + 4); // consistently taken: flips local + global from their
+            //                                 not-taken defaults, so trained != cold is provable
+            bpA.Update(pcB, i % 5 != 0, pcB + 4); // mostly-taken with occasional misses: global/chooser
+        }
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
+
+        var bpB = new TournamentBp(localHistoryBits: 6, localTableSize: 64, globalHistoryBits: 8);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) bpB.ReadState(r);
+
+        Assert.Equal(bpA.Predict(pcA), bpB.Predict(pcA));
+
+        // Same theater check as HashedPerceptronBp: prove the trained prediction is actually
+        // distinguishable from a cold instance's default (both PHTs start weakly not-taken).
+        var cold = new TournamentBp(localHistoryBits: 6, localTableSize: 64, globalHistoryBits: 8);
+        Assert.NotEqual(bpA.Predict(pcA), cold.Predict(pcA));
+        Assert.Equal(bpA.Predict(pcB), bpB.Predict(pcB));
+    }
+
     [Fact]
     public void LruPolicy_RoundTrip_AgesMatch() {
         var polA = new LruPolicy(4, 2);
@@ -645,6 +701,16 @@ public class MicroCheckpointTests {
             | (imm4_1 << 8) | (imm11 << 7) | 0x63;
     }
 
+    private static uint EncodeBeq(int rs1, int rs2, int byteOffset) {
+        var imm = (uint)byteOffset;
+        uint imm12 = (imm >> 12) & 1;
+        uint imm11 = (imm >> 11) & 1;
+        uint imm10_5 = (imm >> 5) & 0x3F;
+        uint imm4_1 = (imm >> 1) & 0xF;
+        return (imm12 << 31) | (imm10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b000u << 12)
+            | (imm4_1 << 8) | (imm11 << 7) | 0x63;
+    }
+
     /// <summary>
     ///     A store whose address is delayed behind a long dependency chain (x3), and an
     ///     independent load to the same address whose own address (x5) is ready immediately —
@@ -990,5 +1056,63 @@ public class MicroCheckpointTests {
         }
 
         mem.Load(address, bytes);
+    }
+
+    // ── BP zoo: representative-per-family predictor checkpointing ───────────
+    //
+    // NBitBp/AlwaysNotTaken are the only predictors any existing equivalence test above uses,
+    // and neither carries global-history state, so history serialization through a live pipeline
+    // (as opposed to a standalone unit-level round trip) has never actually been exercised. This
+    // is the one pipeline equivalence test that does: LTageBp, representative of the whole
+    // TAGE-lineage family (also the base of TageScLBp/BullseyeBp/MultiperspectiveBp/BatageBp via
+    // inheritance — those subclasses' own additional tables still cold-start, only the inherited
+    // TAGE/loop/history state round-trips). HashedPerceptronBp/TournamentBp above get a
+    // history-populated unit round trip only, per the deliberately capped scope here (BP zoo
+    // coverage is representative-per-family, not exhaustive — see TODO.md).
+
+    /// <summary>
+    ///     addi x1,x0,0; addi x2,x0,<paramref name="iterations" />; loop: andi x3,x1,1;
+    ///     beq x3,x0,+8 (skip the next instruction on even iterations); addi x4,x4,1 (odd-only
+    ///     body); addi x1,x1,1; bne x1,x2,loop; ebreak. The branch at "beq" strictly alternates
+    ///     taken/not-taken every iteration (parity of <c>x1</c>) — a pattern a plain bimodal
+    ///     counter (2-bit saturating) can never learn (it always lags one behind), but a
+    ///     history-indexed predictor like L-TAGE can, once it allocates a tagged entry keyed off
+    ///     recent history. Forces real use of the history-dependent tables under test, not just
+    ///     the PC-only bimodal base.
+    /// </summary>
+    private static uint[] BuildAlternatingParityBranchProgram(int iterations) => [
+        0x00000093, // addi x1, x0, 0
+        ((uint)iterations << 20) | (2u << 7) | 0x13, // addi x2, x0, iterations
+        0x0010F193, // loop: andi x3, x1, 1
+        MicroCheckpointTests.EncodeBeq(3, 0, 8), // beq x3, x0, +8 (skip next on even)
+        0x00120213, // addi x4, x4, 1
+        0x00108093, // addi x1, x1, 1
+        MicroCheckpointTests.EncodeBne(1, 2, -16), // bne x1, x2, loop
+        0x00100073, // ebreak
+    ];
+
+    [Fact]
+    public void LTageBp_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        uint[] program = MicroCheckpointTests.BuildAlternatingParityBranchProgram(40);
+
+        OooeTrain MakeLTageTrain(FlatMemory mem, ulong entryPoint) =>
+            new(
+                new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16,
+                predictor: new LTageBp()
+            );
+
+        (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
+            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+                MakeLTageTrain,
+                mem => MicroCheckpointTests.Load(mem, program),
+                // Wait for real mispredicts so the tagged (history-indexed) tables — not just the
+                // bimodal base — actually have trained entries by the time we checkpoint.
+                train => train.SnapshotPipeline().Counters.GetValueOrDefault("branch_misses") >= 4
+            );
+
+        Assert.Equal(
+            MicroCheckpointTests.Counter(refResult, "branch_misses"),
+            MicroCheckpointTests.Counter(reloadResult, "branch_misses")
+        );
     }
 }

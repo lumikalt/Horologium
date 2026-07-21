@@ -73,4 +73,32 @@ internal sealed class SpeculativeLocalHistory {
         _committed[idx] = ((_committed[idx] << 1) | (taken ? 1UL : 0UL)) & _mask;
         _working[idx] = _speculative ? working : _committed[idx];
     }
+
+    /// <summary>
+    ///     Serializes both per-entry history shadows and the speculative latch — the local-history
+    ///     analogue of <see cref="SpeculativeGlobalHistory.WriteState" />.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_working.Length);
+        foreach (ulong v in _working) w.Write(v);
+        foreach (ulong v in _committed) w.Write(v);
+        w.Write(_speculative);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Entry count must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int entries = r.ReadInt32();
+        int n = Math.Min(entries, _working.Length);
+        for (var i = 0; i < entries; i++) {
+            ulong v = r.ReadUInt64();
+            if (i < n) _working[i] = v;
+        }
+
+        for (var i = 0; i < entries; i++) {
+            ulong v = r.ReadUInt64();
+            if (i < n) _committed[i] = v;
+        }
+
+        _speculative = r.ReadBoolean();
+    }
 }

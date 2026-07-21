@@ -44,13 +44,26 @@ off here until a periodic cleanup removes them; the durable record is git histor
   smoke-testing this: `ScriptHost`/`FSharpScriptHost` pre-imported the stale namespace
   `Mechanism.BranchPredictModels` (renamed to `Mechanism.BranchPred` at some point), which broke every
   `--script` invocation.
-- [ ] The BP zoo: extend `WriteState`/`ReadState` beyond `NBitBp` to more `IBranchPredictor`
-  implementations. Scope needs a decision (exhaustive vs. representative-per-family) before starting —
-  ~17 structurally distinct predictors (`LTageBp` family, `HashedPerceptronBp`, `PerceptronBp`,
-  `ImliBp`, `TournamentBp`, `CorrelatedBp`, `LlbpBp`/`LlbpXBp`, `BranchNetBp`, `HypreBp`, `LvcpBp`,
-  `ItageBp`, `TeaBp`, `RunltsBp`, ...), each needing its own counter-keyed-vs-content-keyed audit;
-  `OracleBp` (trace-driven)/`StaticBp` (stateless)/`CbpFfiBp`/`CbpNgFfiBp`/`CbpNgCommitDrivenBp`
-  (FFI-owned native state) excluded on the same principled grounds as `RandomPolicy` above.
+- [x] The BP zoo, representative-per-family scope (user chose this over exhaustive or stopping): `LTageBp`
+  (TAGE lineage — also the base of `TageScLBp`/`BullseyeBp`/`MultiperspectiveBp`/`BatageBp` via
+  inheritance, so they inherit the base TAGE/loop/history round trip; their own additional layered
+  tables still cold-start), `HashedPerceptronBp` (perceptron family), `TournamentBp` (local/global/chooser
+  hybrid family). `SpeculativeGlobalHistory`/`SpeculativeLocalHistory` (the shared speculative/committed
+  history-shadow helpers used by most predictors in this file) gained `WriteState`/`ReadState` once,
+  benefiting every predictor built on them, not just these three. Only `LTageBp` got a full pipeline
+  equivalence test (an alternating-parity branch pattern a bimodal counter can't learn but a
+  history-indexed predictor can) — the one case that actually exercises history serialization through a
+  live pipeline, since every prior equivalence test used history-free `NBitBp`/`AlwaysNotTaken`;
+  `HashedPerceptronBp`/`TournamentBp` got history-populated unit-level round trips only, per the
+  deliberately capped scope.
+- [ ] Extend BP zoo coverage beyond the three representative families above: `PerceptronBp`, `ImliBp`,
+  `CorrelatedBp`, `ItageBp` (ITTAGE — indirect-target prediction, a genuinely distinct family, deferred
+  rather than added as a fourth to keep this phase capped), `LlbpBp`/`LlbpXBp`, `BranchNetBp`, `HypreBp`,
+  `LvcpBp`, `TeaBp`, `RunltsBp`, `BatageBp`/`BullseyeBp`/`MultiperspectiveBp`/`TageScLBp`'s own
+  additional layered tables (Statistical Corrector, HIT, RCR context store, etc.) beyond what they
+  inherit from `LTageBp`. `OracleBp` (trace-driven)/`StaticBp` (stateless)/`CbpFfiBp`/`CbpNgFfiBp`/
+  `CbpNgCommitDrivenBp` (FFI-owned native state) excluded on the same principled grounds as `RandomPolicy`
+  above.
 
 ## Benchmarks
 

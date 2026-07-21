@@ -66,4 +66,22 @@ internal sealed class SpeculativeGlobalHistory {
         _committed = ((_committed << 1) | (taken ? 1UL : 0UL)) & _mask;
         Value = _speculative ? working : _committed;
     }
+
+    /// <summary>
+    ///     Serializes both history shadows and the speculative latch — mirroring RAS/CRAS and
+    ///     <c>VtageVp</c>'s analogous speculative/committed pair rather than assuming the two
+    ///     have converged at the drain boundary.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(Value);
+        w.Write(_committed);
+        w.Write(_speculative);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public void ReadState(BinaryReader r) {
+        Value = r.ReadUInt64();
+        _committed = r.ReadUInt64();
+        _speculative = r.ReadBoolean();
+    }
 }

@@ -181,4 +181,54 @@ public sealed class TournamentBp : IBranchPredictor {
         (int)((_hist.Value ^ (pc >> 2)) & (ulong)_globalPhtMask);
 
     private int ChooserIdx() => (int)(_hist.Value & (ulong)_chooserMask);
+
+    /// <summary>
+    ///     Serializes the local/global PHTs, the chooser, the BTB, and both history components
+    ///     (global via <see cref="SpeculativeGlobalHistory.WriteState" />, local via
+    ///     <see cref="SpeculativeLocalHistory.WriteState" />).
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_localPht.Length);
+        foreach (byte c in _localPht) w.Write(c);
+        w.Write(_globalPht.Length);
+        foreach (byte c in _globalPht) w.Write(c);
+        w.Write(_chooser.Length);
+        foreach (byte c in _chooser) w.Write(c);
+
+        w.Write(_btb.Count);
+        foreach ((ulong pc, ulong target) in _btb) {
+            w.Write(pc);
+            w.Write(target);
+        }
+
+        _hist.WriteState(w);
+        _local.WriteState(w);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public void ReadState(BinaryReader r) {
+        ReadTable(r, _localPht);
+        ReadTable(r, _globalPht);
+        ReadTable(r, _chooser);
+
+        _btb.Clear();
+        int btbCount = r.ReadInt32();
+        for (var i = 0; i < btbCount; i++) {
+            ulong pc = r.ReadUInt64();
+            ulong target = r.ReadUInt64();
+            _btb[pc] = target;
+        }
+
+        _hist.ReadState(r);
+        _local.ReadState(r);
+    }
+
+    private static void ReadTable(BinaryReader r, byte[] table) {
+        int size = r.ReadInt32();
+        int n = Math.Min(size, table.Length);
+        for (var i = 0; i < size; i++) {
+            byte c = r.ReadByte();
+            if (i < n) table[i] = c;
+        }
+    }
 }
