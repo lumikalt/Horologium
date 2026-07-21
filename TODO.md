@@ -21,7 +21,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
   addresses from `mem.LastReadAddress` only advances by one real loop iteration's stride per origin visit,
   making a multi-round/multi-visit chain's lane ranges overlap almost entirely instead of covering new
   ground.
-- [ ] Vector Runahead pipelining: investigate why deeper `runaheadPipelineDepth` measured neutral-to-worse
+- [x] Vector Runahead pipelining: investigate why deeper `runaheadPipelineDepth` measured neutral-to-worse
   (never better) on real `cycles`/`dcache_misses` in every synthetic single-pass-loop configuration tried —
   disentangle the in-principle episode-shortening benefit from MSHR contention and speculative-read cache
   pollution (see the README's Vector Runahead section), e.g. via reuse-distance-aware prefetch throttling

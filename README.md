@@ -420,11 +420,42 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   side `dcache_misses` (over an order of magnitude in one configuration) rather than lowering it, i.e. the
   extra speculative volume evicted or otherwise disturbed data the real stream still needed sooner than the
   far-future addresses it fetched — cache pollution, not the paper's assumed clean-prefetch benefit.
-  Net effect measured across every configuration tried: pipelining came out neutral-to-worse on real
-  `cycles`/`dcache_misses`, never demonstrably better. Whether the in-principle episode-shortening effect is
-  real but consistently masked by pollution/contention at these program sizes, or negligible outright, is
-  unresolved — untangling it (e.g. reuse-distance-aware prefetch throttling, or a program large enough that
-  U rounds' reach never overshoots real future demand) is left for future work, not attempted here.
+  Net effect measured across every configuration tried up to that point: pipelining came out
+  neutral-to-worse on real `cycles`/`dcache_misses`, never demonstrably better.
+
+  **Follow-up investigation, resolved:** disentangling MSHR contention and cache pollution from the
+  in-principle episode-shortening benefit required a program where `U` rounds' reach never overshoots
+  real future demand and an MSHR table large enough (`CacheMshrCount ≥ N×P`) to keep contention at
+  zero — once both confounds are eliminated by construction, `runaheadPipelineDepth` **does** shrink
+  real cycles, monotonically (measured: P=1 2565, P=2 2506, P=4 2492, P=8 2487 cycles on a 200-iteration,
+  one-cache-line-stride program). But the deeper finding, found only by adding the `enableRunahead: false`
+  baseline that earlier comparisons omitted, is less flattering than "pipelining helps": on this same
+  program, turning Vector Runahead **off entirely** measured 1311 cycles — faster than *every*
+  runahead-enabled configuration, including the best-case fully-pipelined one. The reason is structural,
+  not confound-related: `StepRename` freezes real rename for the entire duration `_runaheadActive` is
+  true (a chain-bound episode extends that freeze past the point the real blocking load resolves, for as
+  long as the chain keeps unrolling), which blocks further iterations from even entering the ROB window
+  during the episode — but this program's ROB (8 entries, 3 instructions/iteration) is already deep
+  enough that plain OoO execution extracts most of the available memory-level parallelism for free,
+  without any speculative help. Runahead's rename freeze is pure overhead here; deeper `P` only shrinks
+  how long that freeze lasts (recovering part of the self-inflicted cost), it never converts Vector
+  Runahead into a net win on a pattern the ROB alone can already parallelize. So the TODO's question
+  ("why does pipelining measure neutral-to-worse") resolves to: it usually isn't really about pipelining
+  at all — it's Vector Runahead itself being net-negative on ROB-parallelizable streaming patterns, with
+  `P` only ever modulating the size of that self-inflicted loss. Locked in by
+  `VectorRunaheadPipelineTests.PipelineDepthP_RecoversPartOfRunaheadsOwnOverhead_ButNeverBeatsRunaheadOff`.
+  Also worth remembering: this comparison is itself sensitive to `runaheadBudget`/`extraPhysRegs` — under
+  small values (400/32) sized for shorter chains, the same 200-iteration program's P=1-vs-P=8 comparison
+  *inverts* (P=8 measured worse: 3009 vs. P=1's 1808 cycles). Checked, not asserted on a guess: at P=1
+  under the small budget, `runahead_episodes` explodes to 645 (vs. 9 in the well-provisioned regime) while
+  total `runahead_instructions` stays tiny (226) — nearly every episode aborts on `!_rat.HasFree` almost
+  immediately, so P=1 does barely any speculative work and ends up cheap almost by accident (close to the
+  1311-cycle runahead-off floor). At P=8 under the same small budget, episodes stay low (13) but
+  `runahead_vector_lane_accesses` is high (576 = 9 chains × 64 lanes) — most episodes *do* complete a full
+  unrolled chain before something forces a restart, so P=8 pays for several complete, largely redundant
+  re-vectorizations of overlapping address ranges across those restarts. A fourth, distinct mechanism from
+  MSHR contention, reach-overshoot, and the ROB-MLP finding above: tight budgets change how much redundant
+  speculative work survives per episode, with opposite-signed effect for small vs. large P.
   `TryVectorizeShadowStep`'s untainted chain-origin path now tracks `_runaheadRoundBaseAddr` explicitly
   across visits, mirroring `TryVectorizeTaintedLoad`, instead of re-deriving each round's lane addresses
   from `mem.LastReadAddress` (which only advances one real loop iteration's stride per visit and made

@@ -174,10 +174,11 @@ public class VectorRunaheadPipelineTests {
     ///     lane of a fully-pipelined round without contention, pipelining reaches the same real
     ///     demand-side miss count (<c>dcache_misses</c> — the actual program loads, unaffected by
     ///     how the shadow lane prefetched them) as serial unrolling, using far fewer chain-origin
-    ///     events. Coverage stays equivalent rather than improving — this model does not capture
-    ///     the paper's further claim that finishing rounds faster also reduces real stall time, only
-    ///     that MSHR contention (the previous test) is what limits how much pipelining can help
-    ///     before that; see the README's Vector Runahead section for the scope of what's modeled.
+    ///     events. This particular program (only 40 iterations against U×N=64 reach) overshoots
+    ///     real demand and pollutes the cache, so coverage alone is the only thing checked here —
+    ///     see <see cref="PipelineDepthP_RecoversPartOfRunaheadsOwnOverhead_ButNeverBeatsRunaheadOff" />
+    ///     below for the case where reach does <em>not</em> overshoot, which shows the (partial)
+    ///     real-cycle reduction this test does not attempt to measure.
     /// </summary>
     [Fact]
     public void PipelineDepthP_WithAmpleMshrs_MatchesSerialCoverage_WithFewerEvents() {
@@ -200,6 +201,94 @@ public class VectorRunaheadPipelineTests {
         Assert.True(
             Counter(pipelinedResult, "runahead_vector_chains") < Counter(serialResult, "runahead_vector_chains"),
             "expected pipelining to need fewer chain-origin events for the same real-miss coverage"
+        );
+    }
+
+    /// <summary>
+    ///     Disentangles the in-principle episode-shortening benefit from MSHR contention and
+    ///     reach-overshoot (the two confounds identified when pipelining was first added) — but
+    ///     the honest finding, found only by adding the <c>enableRunahead: false</c> baseline this
+    ///     test was missing at first, is more sobering than "pipelining helps": on this program
+    ///     (a single-load-per-iteration stride walk with a ROB deep enough — 8 entries, 3
+    ///     instructions/iteration — to already run 2-3 iterations' loads concurrently), plain OoO
+    ///     execution already extracts near-full memory-level parallelism <em>without</em> Vector
+    ///     Runahead. <c>StepRename</c> freezes real rename for the entire duration
+    ///     <c>_runaheadActive</c> is true (including a chain-bound episode's extension past the
+    ///     point the real blocking load resolves), which prevents further iterations from even
+    ///     entering the ROB window during the episode — pure overhead when the hardware would
+    ///     have overlapped those misses for free anyway. Measured on this program (200 iterations,
+    ///     one-cache-line stride, ample MSHR — <c>CacheMshrCount: 128</c> &gt;= N×P=64, zero
+    ///     <c>MshrCapacityStalls</c> at any P): runahead <em>off</em> = 1311 cycles, beating every
+    ///     runahead-on configuration tried (P=1: 2565, P=8: 2487). Deeper <c>runaheadPipelineDepth</c>
+    ///     does shrink the chain-active window and measurably recovers part of that self-inflicted
+    ///     rename-freeze cost (P=8 &lt; P=1, confirmed monotonic: P=1 2565, P=2 2506, P=4 2492, P=8
+    ///     2487) — but never enough to close the gap back to simply not runahead-ing at all. So the
+    ///     TODO's "why does pipelining measure neutral-to-worse" resolves to: it isn't pipelining
+    ///     specifically, it's Vector Runahead itself being net-negative on ROB-parallelizable
+    ///     streaming patterns, with deeper P only modulating how much of that self-inflicted
+    ///     damage is recovered, never eliminating it. Also needs generous
+    ///     <c>runaheadBudget</c>/<c>extraPhysRegs</c> (2000/128 here vs. this file's small
+    ///     400/32 defaults, sized for short chains on the 40-iteration program elsewhere in this
+    ///     file): under the small defaults this same comparison inverts (P=1: 1808, P=8: 3009,
+    ///     P=8 <em>worse</em>) — checked, not a coincidence: at P=1 under the small budget,
+    ///     <c>runahead_episodes</c> explodes to 645 (vs. 9 in the clean regime) while total
+    ///     <c>runahead_instructions</c> stays tiny (226) — nearly every episode aborts on
+    ///     <c>!_rat.HasFree</c> almost immediately, so P=1 ends up doing barely any speculative
+    ///     work at all and is cheap almost by accident (close to the 1311-cycle runahead-off
+    ///     floor). At P=8 under the same small budget, episodes stay low (13) but
+    ///     <c>runahead_vector_lane_accesses</c> is high (576 = 9 chains × 64 lanes, i.e. most
+    ///     episodes *do* complete a full unrolled chain before something forces a restart) — so
+    ///     P=8 pays for several complete, largely redundant re-vectorizations of overlapping
+    ///     address ranges across those 13 restarts, which costs more than either the low-P
+    ///     near-no-op case or the well-provisioned single-episode case. In short: tight
+    ///     <c>runaheadBudget</c>/<c>extraPhysRegs</c> changes *how much redundant speculative work
+    ///     survives per episode*, and that effect has the opposite sign for small vs. large P — a
+    ///     fourth mechanism, distinct from MSHR contention, reach-overshoot, and the ROB-MLP
+    ///     finding above, worth remembering before trusting any pipelining comparison run under
+    ///     tight register/instruction budgets.
+    /// </summary>
+    [Fact]
+    public void PipelineDepthP_RecoversPartOfRunaheadsOwnOverhead_ButNeverBeatsRunaheadOff() {
+        uint[] program = WideStrideProgram(200);
+        var dCfg = new MemoryConfig(65536, CacheBlockBytes: 64, CacheMissLatency: 10, CacheMshrCount: 128);
+
+        (OooeTrain off, FlatMemory memOff) = Make(false, memSize: 65536, dMemConfig: dCfg);
+        (OooeTrain serial, FlatMemory memSerial) = Make(
+            true, true, runaheadPipelineDepth: 1, runaheadBudget: 2000, extraPhysRegs: 128,
+            memSize: 65536, dMemConfig: dCfg
+        );
+        (OooeTrain pipelined, FlatMemory memPipelined) = Make(
+            true, true, runaheadPipelineDepth: 8, runaheadBudget: 2000, extraPhysRegs: 128,
+            memSize: 65536, dMemConfig: dCfg
+        );
+        Load(memOff, program);
+        Load(memSerial, program);
+        Load(memPipelined, program);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult serialResult = serial.Run();
+        RevolutionResult pipelinedResult = pipelined.Run();
+
+        Assert.NotNull(serial.DCache);
+        Assert.NotNull(pipelined.DCache);
+        Assert.Equal(0, serial.DCache!.MshrCapacityStalls);
+        Assert.Equal(0, pipelined.DCache!.MshrCapacityStalls);
+
+        long offCycles = Counter(offResult, "cycles");
+        long serialCycles = Counter(serialResult, "cycles");
+        long pipelinedCycles = Counter(pipelinedResult, "cycles");
+
+        Assert.True(
+            pipelinedCycles < serialCycles,
+            $"expected P=8 ({pipelinedCycles} cycles) to recover some of P=1's ({serialCycles} cycles) "
+          + "self-inflicted rename-freeze overhead once MSHR contention and reach-overshoot are both "
+          + "eliminated by construction"
+        );
+        Assert.True(
+            offCycles < pipelinedCycles,
+            $"expected runahead OFF ({offCycles} cycles) to still beat even the best-case pipelined "
+          + $"run ({pipelinedCycles} cycles) on this ROB-parallelizable streaming pattern — pipelining "
+          + "recovers part of Vector Runahead's own overhead here, it doesn't turn it into a net win"
         );
     }
 
