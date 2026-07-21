@@ -51,6 +51,7 @@ public sealed class OooeTrain : ISteppableTrain {
         bool enableVectorRunahead = false,
         int runaheadVectorWidth = 8,
         int runaheadUnrollLength = 8,
+        int runaheadPipelineDepth = 1,
         IValuePredictor? valuePredictor = null,
         bool enableEoleLateExec = false,
         bool enableEoleEarlyExec = false
@@ -85,6 +86,7 @@ public sealed class OooeTrain : ISteppableTrain {
                 enableVectorRunahead,
                 runaheadVectorWidth,
                 runaheadUnrollLength,
+                runaheadPipelineDepth,
                 valuePredictor,
                 enableEoleLateExec,
                 enableEoleEarlyExec
@@ -244,14 +246,18 @@ internal sealed class OoOPipelineCore : Gear {
     // "vectorization" is modeled purely as running the existing scalar shadow body N times with
     // different per-lane values, tracked by _runaheadVectorLanes (a physical register carries a
     // vector-lane set iff it's a key in that dictionary). Vector unrolling (repeated N-wide
-    // rounds, bounded by _runaheadUnrollLength) is implemented below; the paper's vector
-    // pipelining (P overlapped in-flight rounds via a VRAT) is deliberately not modeled — see
-    // the README paragraph for why (round issuance is serialized behind the shadow PC's walk
-    // through the loop body, not because reordering would be free). Physical-register pressure
-    // from deep unrolling is instead managed by freeing a shadow-allocated physical register
-    // immediately when its architectural register is re-renamed (see the free-on-rename comment
-    // at the Rename() call sites) — a simplification of the paper's register-deallocation queue
-    // that is exact, not approximate, because the shadow lane issues strictly in program order.
+    // rounds, bounded by _runaheadUnrollLength) is implemented below, as is vector pipelining
+    // (§III-G, "P overlapped in-flight rounds", bounded by _runaheadPipelineDepth): instead of
+    // requiring one full loop-body walk per round, a single origin-load vectorization event packs
+    // up to _runaheadPipelineDepth rounds' worth of N-wide lanes at once (see
+    // PipelineRoundsThisVisit), needing only ⌈U/P⌉ walks to reach U total rounds — no VRAT is
+    // needed for this because a vectorized physical register's lane array is already width-generic
+    // (see VectorizeByReplay), unlike the paper's fixed 512-bit AVX vector registers. Physical-
+    // register pressure from deep unrolling/pipelining is instead managed by freeing a shadow-
+    // allocated physical register immediately when its architectural register is re-renamed (see
+    // the free-on-rename comment at the Rename() call sites) — a simplification of the paper's
+    // register-deallocation queue that is exact, not approximate, because the shadow lane issues
+    // strictly in program order.
     private readonly bool _enableVectorRunahead;
     private readonly List<IssuedInstr> _execBuffer = [];
     private readonly IExecutor _executor;
@@ -300,6 +306,11 @@ internal sealed class OoOPipelineCore : Gear {
     private readonly Dictionary<ulong, (ulong Value, int Bytes)> _runaheadStoreBuffer = [];
     private readonly HashSet<int> _runaheadTainted = [];
     private readonly int _runaheadUnrollLength;
+
+    // Vector pipelining (Naithani et al., ISCA 2021 §III-G, "P overlapped in-flight rounds"):
+    // the number of unroll rounds packed into a single origin-load vectorization event, instead
+    // of requiring a separate full loop-body walk per round. See PipelineRoundsThisVisit.
+    private readonly int _runaheadPipelineDepth;
     private readonly Dictionary<int, ulong[]> _runaheadVectorLanes = [];
     private readonly int _runaheadVectorWidth;
     private readonly SmbPredictor? _smbPredictor;
@@ -418,7 +429,7 @@ internal sealed class OoOPipelineCore : Gear {
     private bool _runaheadActive;
     private bool _runaheadChainActive;
     private ulong _runaheadChainOrigin;
-    private int _runaheadChainRound; // 0-based round count within the active chain (vector unrolling)
+    private int _runaheadChainRound; // rounds completed so far within the active chain (vector unrolling/pipelining)
     private ulong _runaheadChainTerminator;
     private Counter? _runaheadEpisodesCounter, _runaheadInstructionsCounter;
     private int _runaheadInstrCount;
@@ -490,6 +501,7 @@ internal sealed class OoOPipelineCore : Gear {
         bool enableVectorRunahead = false,
         int runaheadVectorWidth = 8,
         int runaheadUnrollLength = 8,
+        int runaheadPipelineDepth = 1,
         IValuePredictor? valuePredictor = null,
         bool enableEoleLateExec = false,
         bool enableEoleEarlyExec = false
@@ -535,6 +547,7 @@ internal sealed class OoOPipelineCore : Gear {
         _enableVectorRunahead = enableRunahead && enableVectorRunahead;
         _runaheadVectorWidth = runaheadVectorWidth;
         _runaheadUnrollLength = runaheadUnrollLength;
+        _runaheadPipelineDepth = Math.Max(1, runaheadPipelineDepth);
         _vrStrideTable = _enableVectorRunahead ? new VrStrideEntry[256] : [];
 
         int archRegs = State.IntegerRegisters.Count;
@@ -2523,19 +2536,37 @@ internal sealed class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    ///     Vector unrolling (Naithani et al., ISCA 2021 §III-G): a chain that has just reached one
-    ///     of the two termination points above does not necessarily end the episode — instead it
-    ///     issues another N-wide round from the same chain origin (advancing
-    ///     <see cref="_runaheadRoundBaseAddr" />, see <see cref="TryVectorizeTaintedLoad" />/
-    ///     <see cref="TryVectorizeShadowStep" />) until <see cref="_runaheadUnrollLength" /> total
-    ///     rounds have been issued for this chain, matching the paper's default of U=8 rounds of
-    ///     N=8 lanes (64 scalar-equivalent loop iterations) before returning to normal mode.
+    ///     Vector pipelining (Naithani et al., ISCA 2021 §III-G, "P overlapped in-flight rounds"):
+    ///     how many of the remaining unroll rounds to pack into the origin load's <em>next</em>
+    ///     vectorization event, instead of issuing them across separate loop-body walks. A pure
+    ///     function of <see cref="_runaheadChainRound" /> (rounds already completed) so
+    ///     <see cref="TryVectorizeTaintedLoad" />/<see cref="TryVectorizeShadowStep" /> (computing
+    ///     this visit's lane width) and <see cref="TerminateOrUnroll" /> (advancing the round
+    ///     count afterwards) always agree without threading extra state between them — nothing
+    ///     else mutates <see cref="_runaheadChainRound" /> in between a single origin visit's two
+    ///     calls. Clamped to at least 1 so a chain can never get stuck packing a zero-wide round.
+    /// </summary>
+    private int PipelineRoundsThisVisit() =>
+        Math.Max(1, Math.Min(_runaheadPipelineDepth, _runaheadUnrollLength - _runaheadChainRound));
+
+    /// <summary>
+    ///     Vector unrolling and pipelining (Naithani et al., ISCA 2021 §III-G): a chain that has
+    ///     just reached one of the two termination points above does not necessarily end the
+    ///     episode — instead its most recent origin-load visit already packed
+    ///     <see cref="PipelineRoundsThisVisit" /> rounds' worth of N-wide lanes into one
+    ///     vectorization event (advancing <see cref="_runaheadRoundBaseAddr" />, see
+    ///     <see cref="TryVectorizeTaintedLoad" />/<see cref="TryVectorizeShadowStep" />), so the
+    ///     round count only needs to advance by that many at once — requiring just
+    ///     <c>⌈U/P⌉</c> total loop-body walks to reach <see cref="_runaheadUnrollLength" /> (U)
+    ///     total rounds, rather than U separate walks. With the default <c>runaheadPipelineDepth</c>
+    ///     of 1 this reduces exactly to one round advanced per walk, matching the paper's default
+    ///     of U=8 rounds of N=8 lanes (64 scalar-equivalent loop iterations) before returning to
+    ///     normal mode.
     /// </summary>
     private void TerminateOrUnroll() {
-        if (_runaheadChainRound + 1 < _runaheadUnrollLength) {
-            _runaheadChainRound++;
+        _runaheadChainRound += PipelineRoundsThisVisit();
+        if (_runaheadChainRound < _runaheadUnrollLength)
             return; // stay chain-active: the next pass through the origin PC starts the next round
-        }
 
         _runaheadChainActive = false;
 
@@ -2704,24 +2735,28 @@ internal sealed class OoOPipelineCore : Gear {
         // not from e.LastAddr directly, which never changes mid-episode (it is trained only from
         // the real demand-load stream). Without this, a second round through the same tainted
         // chain-origin load would re-fetch the exact same N addresses as the first.
+        // Vector pipelining (§III-G, "P overlapped in-flight rounds"): pack PipelineRoundsThisVisit()
+        // rounds into this single visit's lane array (width N×rounds instead of N) — the paper's
+        // decoupling of round-issue rate from the shadow PC's loop-body walk cadence.
         var mem = new RunaheadMemory(DLayers.Accessor, _runaheadStoreBuffer);
-        var lanes = new ulong[_runaheadVectorWidth];
+        int width = _runaheadVectorWidth * PipelineRoundsThisVisit();
+        var lanes = new ulong[width];
         int bytes = instr.MemoryAccessBytes;
-        for (var i = 0; i < _runaheadVectorWidth; i++) {
+        for (var i = 0; i < width; i++) {
             var laneAddr = (ulong)((long)_runaheadRoundBaseAddr + (i + 1) * e.Stride);
             try { lanes[i] = mem.Read(laneAddr, bytes); }
             catch (AccessViolationException) { lanes[i] = 0UL; }
         }
 
-        _runaheadRoundBaseAddr = (ulong)((long)_runaheadRoundBaseAddr + _runaheadVectorWidth * e.Stride);
+        _runaheadRoundBaseAddr = (ulong)((long)_runaheadRoundBaseAddr + width * e.Stride);
 
         (int newPhys, int oldPhys) = _rat.Rename(destArch);
         _prf.Write(newPhys, lanes[0]);
         _runaheadVectorLanes[newPhys] = lanes;
         FreeShadowRename(newPhys, oldPhys);
-        _runaheadInstrCount += _runaheadVectorWidth - 1;
-        _runaheadInstructionsCounter?.IncrementBy(_runaheadVectorWidth - 1);
-        _runaheadVectorLaneAccessesCounter?.IncrementBy(_runaheadVectorWidth);
+        _runaheadInstrCount += width - 1;
+        _runaheadInstructionsCounter?.IncrementBy(width - 1);
+        _runaheadVectorLaneAccessesCounter?.IncrementBy(width);
         _runaheadVectorChainsCounter?.Increment();
         return true;
     }
@@ -2772,18 +2807,29 @@ internal sealed class OoOPipelineCore : Gear {
                 _runaheadRoundBaseAddr = 0;
             }
 
-            var lanes = new ulong[_runaheadVectorWidth];
+            // Vector pipelining (§III-G): pack PipelineRoundsThisVisit() rounds into this single
+            // visit's lane array (width N×rounds) instead of one N-wide round per loop-body walk.
+            // Pre-existing v2 coverage inefficiency, unrelated to pipelining but worth noting here
+            // since a wider width amplifies it: mem.LastReadAddress only advances by one real
+            // iteration's stride between origin visits (the shadow lane's real register state
+            // steps one iteration per walk, never width iterations), so a visit's lane range
+            // overlaps almost entirely with the previous visit's rather than starting past it —
+            // unlike TryVectorizeTaintedLoad, which tracks _runaheadRoundBaseAddr explicitly for
+            // exactly this reason. Not fixed here: it predates this change and affects U>1 on this
+            // path regardless of P.
+            int width = _runaheadVectorWidth * PipelineRoundsThisVisit();
+            var lanes = new ulong[width];
             lanes[0] = er.RegisterResult.HasValue ? er.RegisterResult.Value : 0UL;
-            for (var i = 1; i < _runaheadVectorWidth; i++) {
+            for (var i = 1; i < width; i++) {
                 var laneAddr = (ulong)((long)mem.LastReadAddress + i * e.Stride);
                 try { lanes[i] = mem.Read(laneAddr, mem.LastReadBytes); }
                 catch (AccessViolationException) { lanes[i] = 0UL; }
             }
 
             _runaheadVectorLanes[newPhys] = lanes;
-            _runaheadInstrCount += _runaheadVectorWidth - 1;
-            _runaheadInstructionsCounter?.IncrementBy(_runaheadVectorWidth - 1);
-            _runaheadVectorLaneAccessesCounter?.IncrementBy(_runaheadVectorWidth);
+            _runaheadInstrCount += width - 1;
+            _runaheadInstructionsCounter?.IncrementBy(width - 1);
+            _runaheadVectorLaneAccessesCounter?.IncrementBy(width);
             _runaheadVectorChainsCounter?.Increment();
             return;
         }
@@ -2803,7 +2849,11 @@ internal sealed class OoOPipelineCore : Gear {
     ///     arithmetic propagation: re-invokes the scalar shadow body once per extra lane with
     ///     <paramref name="srcIndex" /> temporarily bound to that lane's value from
     ///     <paramref name="srcLanes" />, exactly as <see cref="TryShadowStep" /> already does for
-    ///     its single real (lane-0) invocation.
+    ///     its single real (lane-0) invocation. Width-generic (<paramref name="srcLanes" />
+    ///     <c>.Length</c>, not the fixed <see cref="_runaheadVectorWidth" />) so propagation
+    ///     automatically carries whatever width the origin load produced — N lanes normally, or
+    ///     N×<see cref="PipelineRoundsThisVisit" /> when vector pipelining packed multiple rounds
+    ///     into that origin visit (Naithani et al., ISCA 2021 §III-G).
     /// </summary>
     private void VectorizeByReplay(
         ITooth instr,
@@ -2814,13 +2864,14 @@ internal sealed class OoOPipelineCore : Gear {
         RunaheadMemory mem,
         ExecuteResult lane0Result
     ) {
-        var lanes = new ulong[_runaheadVectorWidth];
+        int width = srcLanes.Length;
+        var lanes = new ulong[width];
         lanes[0] = lane0Result.RegisterResult.HasValue ? lane0Result.RegisterResult.Value : 0UL;
 
         IRegisterFile regs = State.IntegerRegisters;
         int srcArch = srcs[srcIndex];
         ulong saved = regs.Read(srcArch);
-        for (var i = 1; i < _runaheadVectorWidth; i++) {
+        for (var i = 1; i < width; i++) {
             regs.Write(srcArch, srcLanes[i]);
             try {
                 ExecuteResult laneResult = _executor.Execute(instr, State, mem);
@@ -2832,9 +2883,9 @@ internal sealed class OoOPipelineCore : Gear {
         regs.Write(srcArch, saved);
 
         _runaheadVectorLanes[newPhys] = lanes;
-        _runaheadInstrCount += _runaheadVectorWidth - 1;
-        _runaheadInstructionsCounter?.IncrementBy(_runaheadVectorWidth - 1);
-        _runaheadVectorLaneAccessesCounter?.IncrementBy(_runaheadVectorWidth);
+        _runaheadInstrCount += width - 1;
+        _runaheadInstructionsCounter?.IncrementBy(width - 1);
+        _runaheadVectorLaneAccessesCounter?.IncrementBy(width);
     }
 
     // ── Flush (misprediction / trap) ───────────────────────────────────────────

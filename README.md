@@ -388,22 +388,45 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   out-of-program-order pipelined issue), any shadow instruction that could still read a register's old value
   has, by construction, already executed before the instruction that redefines it, so a physical register
   can be freed the instant its architectural register is renamed again — an RDQ's ordering guarantee for
-  free, with no queue needed. True **vector pipelining** (the paper's P overlapped in-flight rounds,
-  reordering loads across rounds to increase MLP/MSHR utilization) is deliberately not modeled, but not
-  because the effect would be unobservable — `SetAssociativeCache` has real finite MSHR capacity
-  (`MshrCount`, per-cycle countdown via `TickMshr`, capacity-stall charging when every slot is busy), and
-  shadow-lane reads share the same cache instance and `_pendingStalls` accumulator as real loads, so a
-  round's miss cost genuinely is charged onto the real cycle count (picked up by the following cycle's
-  `DrainAndChargeStalls`, since `RunaheadStep` itself never drains it) — reordering rounds would change
-  what MSHR contention they see. The actual blocker is that today a round's addresses aren't computed
-  until the shadow PC walks back through the loop body to the chain origin again (`TerminateOrUnroll`
-  only starts the next round on that revisit), gated by `issueWidth` real shadow instructions per cycle —
-  even though for a stride-confirmed chain, all U rounds' addresses are knowable from the trained stride
-  alone, with no data dependency forcing that wait. Pipelining would mean decoupling round issuance from
-  that single-PC walk (computing and issuing all U rounds' lane reads back-to-back) to actually exploit
-  the real MSHR's overlap capacity, which is a genuine restructuring of the round-issue loop, not a
-  reordering of otherwise-equivalent work — deferred; see IDEAS.md. v1/v2 scope reductions: no per-lane
-  divergence/masking (an invalid lane is simply
+  free, with no queue needed. **Vector pipelining** (the paper's P overlapped in-flight rounds, bounded by
+  `runaheadPipelineDepth`, default 1) decouples round issuance from the shadow PC's single-PC loop-body
+  walk: `PipelineRoundsThisVisit` computes `min(P, U − roundsSoFar)` — how many of the remaining unroll
+  rounds to pack into the *next* origin-load vectorization event — so a single visit to the chain origin
+  produces an N×rounds-wide lane array instead of a fixed N-wide one, needing only `⌈U/P⌉` total loop-body
+  walks to reach `U` total rounds rather than `U` separate ones. No VRAT is needed the way the paper's fixed
+  512-bit AVX vector registers require one: because "vectorization" here is already pure scratch lane-array
+  replication (see above), a vectorized physical register's lane array is naturally width-generic —
+  `VectorizeByReplay` propagates whatever width the origin produced (`srcLanes.Length`, not a fixed field),
+  so ALU/indirect-load propagation through the dependent chain automatically carries P× the width with zero
+  extra bookkeeping. `runaheadPipelineDepth: 1` is defined as exactly today's pre-pipelining behavior (every
+  origin visit packs 1 round, matching `TerminateOrUnroll`'s old per-visit increment byte-for-byte) so the
+  knob is purely additive. This is a real timing effect, not a counter relabeling: `SetAssociativeCache` has
+  finite MSHR capacity (`MshrCount`, per-cycle countdown via `TickMshr`, capacity-stall charging via
+  `ChargeAndAllocateMshr` when every slot is busy — `MshrCapacityStalls`), and shadow-lane reads share the
+  same cache instance and `_pendingStalls` accumulator as real loads, so packing many rounds' worth of
+  misses into one instant (no `TickMshr` ticks between them, unlike misses spread across separate
+  loop-body-walk rounds) measurably contends for a small MSHR table — the *direction* of the paper's own
+  §VI-B/Fig. 11 MSHR-count sensitivity (an under-provisioned MSHR table limits how much a deep pipeline
+  depth can help) shows up here too, as higher `MshrCapacityStalls` under a tight `CacheMshrCount`, and
+  vanishes (contention stays negligible) once the table is sized ≥ N×P. In principle a chain-bound episode
+  (one that `UpdateChainTermination` keeps open past the point the originally-blocking real load already
+  resolved, purely to keep vectorizing) *should* let a shorter, pipelined walk resume real dispatch/commit
+  sooner than a serial one needing `U` separate walks — the episode's real-cycle length is `max` of the
+  load's own resolution time and the chain's; only the second term is pipeline-depth-dependent, and it
+  shrinks with `P`. In measurement, though, this potential saving was never isolable from two confounds
+  that dominate it in every synthetic single-pass-loop configuration tried here: MSHR contention (above)
+  and a more severe effect — deep `P` packs far more simultaneous speculative reads through the shared
+  cache than a serial round would, and on these small test programs that measurably *raised* real demand-
+  side `dcache_misses` (over an order of magnitude in one configuration) rather than lowering it, i.e. the
+  extra speculative volume evicted or otherwise disturbed data the real stream still needed sooner than the
+  far-future addresses it fetched — cache pollution, not the paper's assumed clean-prefetch benefit.
+  Net effect measured across every configuration tried: pipelining came out neutral-to-worse on real
+  `cycles`/`dcache_misses`, never demonstrably better. Whether the in-principle episode-shortening effect is
+  real but consistently masked by pollution/contention at these program sizes, or negligible outright, is
+  unresolved — untangling it (e.g. reuse-distance-aware prefetch throttling, or a program large enough that
+  U rounds' reach never overshoots real future demand) is left for future work, not attempted here.
+
+  v1-v3 scope reductions: no per-lane divergence/masking (an invalid lane is simply
   marked tainted rather than modeled with a real predicate mask); fixed lane width, not tied to the real
   `VLEN=128` architectural setting; and only one live chain is tracked at a time. Control-flow
   speculation follows gem5: direct unconditional jumps (`jal`/`j`,
