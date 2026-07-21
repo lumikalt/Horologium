@@ -96,4 +96,36 @@ public sealed class ImliPredictor : IBranchPredictor {
 
     private int BtbIndex(ulong pc) =>
         (int)((pc >> 2) & (uint)_btbMask);
+
+    /// <summary>
+    ///     Serializes the PHT, BTB, backward-branch classification set, and both IMLI counter
+    ///     shadows (<see cref="_imli" />/<see cref="_committedImli" />) — mirroring RAS/CRAS and
+    ///     <c>VtageVp</c>'s speculative/committed pair rather than assuming the two have
+    ///     converged at the drain boundary.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        foreach (byte c in _pht) w.Write(c);
+        foreach (ulong t in _btb) w.Write(t);
+
+        w.Write(_backwardBranches.Count);
+        foreach (ulong pc in _backwardBranches) w.Write(pc);
+
+        w.Write(_imli);
+        w.Write(_committedImli);
+        w.Write(_speculative);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public void ReadState(BinaryReader r) {
+        for (var i = 0; i < _pht.Length; i++) _pht[i] = r.ReadByte();
+        for (var i = 0; i < _btb.Length; i++) _btb[i] = r.ReadUInt64();
+
+        _backwardBranches.Clear();
+        int count = r.ReadInt32();
+        for (var i = 0; i < count; i++) _backwardBranches.Add(r.ReadUInt64());
+
+        _imli = r.ReadInt32();
+        _committedImli = r.ReadInt32();
+        _speculative = r.ReadBoolean();
+    }
 }

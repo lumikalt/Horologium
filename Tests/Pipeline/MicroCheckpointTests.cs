@@ -220,58 +220,101 @@ public class MicroCheckpointTests {
 
     /// <summary>
     ///     Generic round-trip check for an <see cref="IBranchPredictor" />: trains with a
-    ///     varying, not-taken-biased pattern (exercises history-folded tables and biases away
+    ///     varying, biased pattern (exercises history-folded tables and biases away
     ///     from whatever a cold instance predicts by default — see the anti-theater note on
     ///     <see cref="HashedPerceptronBp_RoundTrip_HistoryDependentPredictionMatches" />), then
     ///     asserts restored == trained AND trained is distinguishable from a fresh cold instance.
+    ///     Defaults to a not-taken-biased pattern (right for predictors that default to
+    ///     "taken" when cold, e.g. all-zero-weight perceptrons); pass <paramref name="takenAt" />
+    ///     to flip the bias for predictors whose saturating counters default to "not-taken".
     /// </summary>
-    private static void AssertBpRoundTripNotTheater<T>(ulong pc) where T : IBranchPredictor, new() {
-        var bpA = new T();
-        for (var i = 0; i < 24; i++) bpA.Update(pc, i % 3 == 0, pc + 4);
+    private static void AssertBpRoundTripNotTheater<T>(
+        Func<T> make,
+        ulong pc,
+        Func<int, bool>? takenAt = null
+    ) where T : IBranchPredictor {
+        takenAt ??= i => i % 3 == 0;
+        T bpA = make();
+        for (var i = 0; i < 24; i++) bpA.Update(pc, takenAt(i), pc + 4);
 
         using var ms = new MemoryStream();
         using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
 
-        var bpB = new T();
+        T bpB = make();
         ms.Position = 0;
         using (var r = new BinaryReader(ms)) bpB.ReadState(r);
 
         Assert.Equal(bpA.Predict(pc), bpB.Predict(pc));
 
-        var cold = new T();
+        T cold = make();
         Assert.NotEqual(bpA.Predict(pc), cold.Predict(pc));
     }
 
     [Fact]
-    public void TageScLBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<TageScLBp>(0x100);
+    public void TageScLBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new TageScLBp(), 0x100);
 
     [Fact]
-    public void BatageBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<BatageBp>(0x100);
+    public void BatageBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new BatageBp(), 0x100);
 
     [Fact]
-    public void BullseyeBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<BullseyeBp>(0x100);
+    public void BullseyeBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new BullseyeBp(), 0x100);
 
     [Fact]
     public void MultiperspectivePerceptronBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater<MultiperspectivePerceptronBp>(0x100);
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new MultiperspectivePerceptronBp(), 0x100);
 
     [Fact]
-    public void LlbpBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<LlbpBp>(0x100);
+    public void LlbpBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new LlbpBp(), 0x100);
 
     [Fact]
-    public void LlbpXBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<LlbpXBp>(0x100);
+    public void LlbpXBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new LlbpXBp(), 0x100);
 
     [Fact]
-    public void TeaBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<TeaBp>(0x100);
+    public void TeaBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new TeaBp(), 0x100);
 
     [Fact]
-    public void LvcpBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<LvcpBp>(0x100);
+    public void LvcpBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new LvcpBp(), 0x100);
 
     [Fact]
-    public void RunltsBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<RunltsBp>(0x100);
+    public void RunltsBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new RunltsBp(), 0x100);
 
     [Fact]
-    public void VlaTageBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<VlaTageBp>(0x100);
+    public void VlaTageBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new VlaTageBp(), 0x100);
+
+    // ── BP zoo: standalone (non-TAGE) predictors ─────────────────────────────
+
+    [Fact]
+    public void PerceptronBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new PerceptronBp(), 0x100, _ => false);
+
+    [Fact]
+    public void CorrelatedBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new CorrelatedBp(), 0x100);
+
+    [Fact]
+    public void GselectPredictor_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new GselectPredictor(), 0x100);
+
+    [Fact]
+    public void GshareBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new GshareBp(), 0x100);
+
+    [Fact]
+    public void IttagePredictor_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new IttagePredictor(), 0x100, i => i % 3 != 0);
+
+    [Fact]
+    public void ImliPredictor_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new ImliPredictor(), 0x100, i => i % 3 != 0);
 
     [Fact]
     public void LruPolicy_RoundTrip_AgesMatch() {
@@ -1169,6 +1212,40 @@ public class MicroCheckpointTests {
                 mem => MicroCheckpointTests.Load(mem, program),
                 // Wait for real mispredicts so the tagged (history-indexed) tables — not just the
                 // bimodal base — actually have trained entries by the time we checkpoint.
+                train => train.SnapshotPipeline().Counters.GetValueOrDefault("branch_misses") >= 4
+            );
+
+        Assert.Equal(
+            MicroCheckpointTests.Counter(refResult, "branch_misses"),
+            MicroCheckpointTests.Counter(reloadResult, "branch_misses")
+        );
+    }
+
+    /// <summary>
+    ///     <see cref="ImliPredictor" /> is the one standalone predictor with genuine
+    ///     speculative-vs-committed counter semantics (<c>_imli</c>/<c>_committedImli</c>) not
+    ///     covered by <see cref="LTageBp_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation" />'s
+    ///     history-register case — so unlike the other standalone predictors (round-trip only),
+    ///     it gets its own pipeline equivalence test. Reuses the same alternating-parity program:
+    ///     the outer <c>bne</c> loop is itself a genuine backward taken branch (increments
+    ///     <c>_imli</c> every iteration), and the inner <c>beq</c> parity branch's PHT index is
+    ///     <c>(pc &gt;&gt; 2) ^ _imli</c> — so a broken IMLI-counter restore would show up as
+    ///     the inner branch indexing the wrong PHT slot after reload.
+    /// </summary>
+    [Fact]
+    public void ImliPredictor_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        uint[] program = MicroCheckpointTests.BuildAlternatingParityBranchProgram(40);
+
+        OooeTrain MakeImliTrain(FlatMemory mem, ulong entryPoint) =>
+            new(
+                new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16,
+                predictor: new ImliPredictor()
+            );
+
+        (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
+            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+                MakeImliTrain,
+                mem => MicroCheckpointTests.Load(mem, program),
                 train => train.SnapshotPipeline().Counters.GetValueOrDefault("branch_misses") >= 4
             );
 

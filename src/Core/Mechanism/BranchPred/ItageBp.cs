@@ -180,4 +180,48 @@ public sealed class IttagePredictor : IBranchPredictor {
         public byte U;   // 2-bit usefulness (provider beat alternate)
         public bool Valid;
     }
+
+    /// <summary>Serializes the bimodal base, tagged target tables, BTB, and the global-history pair.</summary>
+    public void WriteState(BinaryWriter w) {
+        foreach (byte b in _base) w.Write(b);
+
+        for (var t = 0; t < IttagePredictor.NumTables; t++)
+        foreach (IttageEntry e in _tables[t]) {
+            w.Write(e.Tag);
+            w.Write(e.Target);
+            w.Write(e.Ctr);
+            w.Write(e.U);
+            w.Write(e.Valid);
+        }
+
+        w.Write(_btb.Count);
+        foreach ((ulong pc, ulong target) in _btb) {
+            w.Write(pc);
+            w.Write(target);
+        }
+
+        _hist.WriteState(w);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public void ReadState(BinaryReader r) {
+        for (var i = 0; i < _base.Length; i++) _base[i] = r.ReadByte();
+
+        for (var t = 0; t < IttagePredictor.NumTables; t++)
+        for (var i = 0; i < _tables[t].Length; i++)
+            _tables[t][i] = new IttageEntry {
+                Tag = r.ReadUInt16(), Target = r.ReadUInt64(), Ctr = r.ReadByte(), U = r.ReadByte(),
+                Valid = r.ReadBoolean(),
+            };
+
+        _btb.Clear();
+        int btbCount = r.ReadInt32();
+        for (var i = 0; i < btbCount; i++) {
+            ulong pc = r.ReadUInt64();
+            ulong target = r.ReadUInt64();
+            _btb[pc] = target;
+        }
+
+        _hist.ReadState(r);
+    }
 }

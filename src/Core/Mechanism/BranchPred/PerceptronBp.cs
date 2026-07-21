@@ -94,4 +94,45 @@ public sealed class PerceptronBp : IBranchPredictor {
     private int TableIdx(ulong pc) => (int)((pc >> 2) & (ulong)_tableMask);
 
     private static sbyte Clamp(int v) => (sbyte)Math.Clamp(v, sbyte.MinValue, sbyte.MaxValue);
+
+    /// <summary>Serializes every per-PC weight vector, the BTB, and the speculative/committed history pair.</summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_weights.Length);
+        foreach (sbyte[] vec in _weights) {
+            w.Write(vec.Length);
+            foreach (sbyte weight in vec) w.Write(weight);
+        }
+
+        w.Write(_btb.Count);
+        foreach ((ulong pc, ulong target) in _btb) {
+            w.Write(pc);
+            w.Write(target);
+        }
+
+        _hist.WriteState(w);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int numVecs = r.ReadInt32();
+        int vecN = Math.Min(numVecs, _weights.Length);
+        for (var i = 0; i < numVecs; i++) {
+            int size = r.ReadInt32();
+            int n = i < vecN ? Math.Min(size, _weights[i].Length) : 0;
+            for (var j = 0; j < size; j++) {
+                sbyte weight = r.ReadSByte();
+                if (j < n) _weights[i][j] = weight;
+            }
+        }
+
+        _btb.Clear();
+        int btbCount = r.ReadInt32();
+        for (var i = 0; i < btbCount; i++) {
+            ulong pc = r.ReadUInt64();
+            ulong target = r.ReadUInt64();
+            _btb[pc] = target;
+        }
+
+        _hist.ReadState(r);
+    }
 }
