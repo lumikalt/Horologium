@@ -44,9 +44,9 @@ free embedded suites are runnable in full today.
   subprocess.
   - Also a C compiler…
 - [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes.
-- [ ] Vector operation visualization.
-  - Need to think of how this should be done.
+- [x] Vector operation visualization.
 - [ ] gem5-style architecture configurator: UI surface for the scripting host and pipeline builder — edit `.csx` scripts
   in-app and hot-reload the resulting pipeline, cache hierarchy, branch predictor, and FU configuration without
   restarting. (Phase 5 UI of the architecture builder: AvaloniaEdit code editor, hot-reload on file change via
   `FileSystemWatcher`, workload selector, and live cache/TLB stat display.)
+- [ ] More intuitive ways to visualize prefetching, cache policies, branch prediction, etc.

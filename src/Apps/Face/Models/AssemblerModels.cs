@@ -16,6 +16,13 @@ public enum RegFormat {
     Float,
 }
 
+public enum VecElemWidth {
+    E8,
+    E16,
+    E32,
+    E64,
+}
+
 public enum PipelineMode {
     SingleCycle, FiveStage, OoO,
 }

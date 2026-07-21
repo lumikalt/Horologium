@@ -18,6 +18,7 @@ using RiscV32.Config;
 using RiscV32.Decode;
 using RiscV32.Execute;
 using RiscV32.Memory;
+using RiscV32.Registers;
 using RiscV32.State;
 
 #endregion
@@ -269,6 +270,10 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [ObservableProperty] public partial RegFormat FloatRegFormat { get; set; } = RegFormat.Hex;
 
+    [ObservableProperty] public partial VecElemWidth VecWidth { get; set; } = VecElemWidth.E32;
+
+    [ObservableProperty] public partial RegFormat VecValueFormat { get; set; } = RegFormat.Hex;
+
     [ObservableProperty] public partial decimal MsPerCycle { get; set; } = 100;
 
     [ObservableProperty] public partial string PipelineModeLabel { get; set; } = "Single Cycle";
@@ -370,6 +375,7 @@ public partial class AssemblerViewModel : ObservableObject {
     public ObservableCollection<AssemblyRow> Instructions { get; } = [];
     public ObservableCollection<RegEntry> IntRegisters { get; } = [];
     public ObservableCollection<RegEntry> FloatRegisters { get; } = [];
+    public ObservableCollection<RegEntry> VectorRegisters { get; } = [];
     public ObservableCollection<CacheLineEntry> CacheRows { get; } = [];
 
     public bool IsPipelineMode => CurrentMode != PipelineMode.SingleCycle;
@@ -381,6 +387,29 @@ public partial class AssemblerViewModel : ObservableObject {
     public IReadOnlyList<RegFormat> FloatFormatOptions { get; } = [
         RegFormat.Hex, RegFormat.Float, RegFormat.Binary,
     ];
+
+    public IReadOnlyList<VecElemWidth> VecWidthOptions { get; } = [
+        VecElemWidth.E8, VecElemWidth.E16, VecElemWidth.E32, VecElemWidth.E64,
+    ];
+
+    public IReadOnlyList<RegFormat> VecValueFormatOptions { get; } = [
+        RegFormat.Hex, RegFormat.DecimalSigned, RegFormat.DecimalUnsigned, RegFormat.Binary, RegFormat.Float,
+    ];
+
+    /// <summary>Current vtype/vl CSR state, for reference next to the vector register grid.</summary>
+    public string VtypeLabel {
+        get {
+            if (ActiveArchState is not Rv32ArchState state) return "";
+            ulong vtype = state.SystemRegisters.Read(CsrFile.Vtype, state.PrivilegeLevel);
+            ulong vl = state.SystemRegisters.Read(CsrFile.Vl, state.PrivilegeLevel);
+            int sew = 8 << (int)((vtype >> 3) & 0x7);
+            string lmul = (vtype & 0x7) switch {
+                0 => "m1", 1  => "m2", 2  => "m4", 3  => "m8",
+                5 => "mf8", 6 => "mf4", 7 => "mf2", _ => "m?",
+            };
+            return $"vtype: e{sew},{lmul}  vl={vl}";
+        }
+    }
 
     public IReadOnlyList<ExtensionToggle> AvailableExtensions { get; } = [
         new("M", RvExtension.M),
@@ -423,6 +452,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private void InitRegisterEntries() {
         for (var i = 0; i < 32; i++) IntRegisters.Add(new RegEntry($"x{i}"));
         for (var i = 0; i < 32; i++) FloatRegisters.Add(new RegEntry($"f{i}"));
+        for (var i = 0; i < 32; i++) VectorRegisters.Add(new RegEntry($"v{i}"));
     }
 
     partial void OnSelectedInstructionChanged(AssemblyRow? value) {
@@ -434,6 +464,10 @@ public partial class AssemblerViewModel : ObservableObject {
     partial void OnIntRegFormatChanged(RegFormat value) => RefreshIntRegisters();
 
     partial void OnFloatRegFormatChanged(RegFormat value) => RefreshFloatRegisters();
+
+    partial void OnVecWidthChanged(VecElemWidth value) => RefreshVectorRegisters();
+
+    partial void OnVecValueFormatChanged(RegFormat value) => RefreshVectorRegisters();
 
     partial void OnPipelineModeLabelChanged(string value) {
         _runCts?.Cancel();
@@ -1302,6 +1336,7 @@ public partial class AssemblerViewModel : ObservableObject {
     private void RefreshAllRegisters() {
         RefreshIntRegisters();
         RefreshFloatRegisters();
+        RefreshVectorRegisters();
     }
 
     private void RefreshIntRegisters() {
@@ -1320,6 +1355,16 @@ public partial class AssemblerViewModel : ObservableObject {
             FloatRegisters[i].Display = FormatFloat(state.IntegerRegisters.Read(i + 32));
             FloatRegisters[i].Changed = false;
         }
+    }
+
+    private void RefreshVectorRegisters() {
+        if (ActiveArchState is not Rv32ArchState state) return;
+        for (var i = 0; i < 32; i++) {
+            VectorRegisters[i].Display = FormatVector(state.VectorRegisters.Read(i));
+            VectorRegisters[i].Changed = false;
+        }
+
+        OnPropertyChanged(nameof(VtypeLabel));
     }
 
     private void RefreshCacheDisplay() {
@@ -1399,6 +1444,45 @@ public partial class AssemblerViewModel : ObservableObject {
         RegFormat.Float  => BitConverter.UInt32BitsToSingle((uint)val).ToString("G6"),
         RegFormat.Binary => Convert.ToString((uint)val, 2).PadLeft(32, '0'),
         _                => $"0x{(uint)val:X8}",
+    };
+
+    private string FormatVector(byte[] bytes) {
+        int ewBytes = VecWidth switch {
+            VecElemWidth.E8  => 1,
+            VecElemWidth.E16 => 2,
+            VecElemWidth.E64 => 8,
+            _                => 4, // E32
+        };
+
+        int bits = ewBytes * 8;
+        int count = VectorRegisterFile.VLenB / ewBytes;
+        var parts = new string[count];
+        for (var i = 0; i < count; i++) {
+            ulong v = 0;
+            for (int b = ewBytes - 1; b >= 0; b--) v = (v << 8) | bytes[i * ewBytes + b];
+            parts[i] = FormatVectorElement(v, ewBytes, bits);
+        }
+
+        return string.Join(" ", parts);
+    }
+
+    private string FormatVectorElement(ulong v, int ewBytes, int bits) => VecValueFormat switch {
+        RegFormat.DecimalUnsigned => v.ToString(),
+        RegFormat.DecimalSigned => (bits switch {
+            8  => (sbyte)v,
+            16 => (short)v,
+            32 => (int)v,
+            _  => (long)v,
+        }).ToString(),
+        RegFormat.Binary => Convert.ToString((long)v, 2).PadLeft(bits, '0'),
+        RegFormat.Float => ewBytes switch {
+            4 => BitConverter.UInt32BitsToSingle((uint)v).ToString("G6"),
+            8 => BitConverter.UInt64BitsToDouble(v).ToString("G6"),
+            _ => bits switch { 8 => $"{v:X2}", _ => $"{v:X4}", }, // no IEEE-754 8/16-bit type; fall back to hex
+        },
+        _ => bits switch {
+            8 => $"{v:X2}", 16 => $"{v:X4}", 32 => $"{v:X8}", _ => $"{v:X16}",
+        },
     };
 
     [UnsupportedOSPlatform("browser")]

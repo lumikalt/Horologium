@@ -82,7 +82,16 @@ public static class RvHighlighting {
                 <Word>bgt</Word><Word>ble</Word><Word>bgtu</Word><Word>bleu</Word>
                 <Word>j</Word><Word>jr</Word><Word>call</Word><Word>tail</Word>
                 <Word>seqz</Word><Word>snez</Word><Word>sltz</Word><Word>sgtz</Word>
+                <Word>e8</Word><Word>e16</Word><Word>e32</Word><Word>e64</Word>
+                <Word>m1</Word><Word>m2</Word><Word>m4</Word><Word>m8</Word>
+                <Word>mf2</Word><Word>mf4</Word><Word>mf8</Word>
+                <Word>ta</Word><Word>tu</Word><Word>ma</Word><Word>mu</Word>
               </Keywords>
+
+              <!-- Vector mnemonics (vle32.v, vadd.vv, vsetvli, …) — a regex rather than an
+                   enumeration since dotted/width-suffixed forms multiply combinatorially.
+                   Requires a letter right after 'v' so it never swallows v0-v31 registers. -->
+              <Rule color="Opcode">\bv[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z0-9]+)*\b</Rule>
 
               <Rule color="Label">[a-zA-Z_.][a-zA-Z0-9_.]*\s*:</Rule>
 
@@ -94,6 +103,13 @@ public static class RvHighlighting {
                 <Word>x20</Word><Word>x21</Word><Word>x22</Word><Word>x23</Word><Word>x24</Word>
                 <Word>x25</Word><Word>x26</Word><Word>x27</Word><Word>x28</Word><Word>x29</Word>
                 <Word>x30</Word><Word>x31</Word>
+                <Word>v0</Word><Word>v1</Word><Word>v2</Word><Word>v3</Word><Word>v4</Word>
+                <Word>v5</Word><Word>v6</Word><Word>v7</Word><Word>v8</Word><Word>v9</Word>
+                <Word>v10</Word><Word>v11</Word><Word>v12</Word><Word>v13</Word><Word>v14</Word>
+                <Word>v15</Word><Word>v16</Word><Word>v17</Word><Word>v18</Word><Word>v19</Word>
+                <Word>v20</Word><Word>v21</Word><Word>v22</Word><Word>v23</Word><Word>v24</Word>
+                <Word>v25</Word><Word>v26</Word><Word>v27</Word><Word>v28</Word><Word>v29</Word>
+                <Word>v30</Word><Word>v31</Word>
                 <Word>f0</Word><Word>f1</Word><Word>f2</Word><Word>f3</Word><Word>f4</Word>
                 <Word>f5</Word><Word>f6</Word><Word>f7</Word><Word>f8</Word><Word>f9</Word>
                 <Word>f10</Word><Word>f11</Word><Word>f12</Word><Word>f13</Word><Word>f14</Word>
