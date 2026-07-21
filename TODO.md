@@ -56,14 +56,23 @@ off here until a periodic cleanup removes them; the durable record is git histor
   live pipeline, since every prior equivalence test used history-free `NBitBp`/`AlwaysNotTaken`;
   `HashedPerceptronBp`/`TournamentBp` got history-populated unit-level round trips only, per the
   deliberately capped scope.
-- [ ] Extend BP zoo coverage beyond the three representative families above: `PerceptronBp`, `ImliBp`,
-  `CorrelatedBp`, `ItageBp` (ITTAGE — indirect-target prediction, a genuinely distinct family, deferred
-  rather than added as a fourth to keep this phase capped), `LlbpBp`/`LlbpXBp`, `BranchNetBp`, `HypreBp`,
-  `LvcpBp`, `TeaBp`, `RunltsBp`, `BatageBp`/`BullseyeBp`/`MultiperspectiveBp`/`TageScLBp`'s own
-  additional layered tables (Statistical Corrector, HIT, RCR context store, etc.) beyond what they
-  inherit from `LTageBp`. `OracleBp` (trace-driven)/`StaticBp` (stateless)/`CbpFfiBp`/`CbpNgFfiBp`/
-  `CbpNgCommitDrivenBp` (FFI-owned native state) excluded on the same principled grounds as `RandomPolicy`
-  above.
+- [x] Extend BP zoo coverage to the rest of the zoo (user follow-up: "do them now since it's relevant" —
+  moved from representative-per-family to exhaustive). Every `TageScLBp`-lineage subclass's own layered
+  tables: `TageScLBp` (Statistical Corrector), `BatageBp` (bias table), `BullseyeBp` (HIT/H2P
+  perceptrons), `MultiperspectivePerceptronBp` (five hashed-history feature tables), `LlbpBp`/`LlbpXBp`
+  (RCR + context-keyed pattern storage + CTT), `TeaBp`/`LvcpBp`/`RunltsBp` (correlation tables + register/
+  load-value tracking), `VlaTageBp` (Vector Loop Table). Every remaining standalone predictor:
+  `PerceptronBp`, `CorrelatedBp`/`GselectPredictor`/`GshareBp`, `IttagePredictor` (ITTAGE — confirmed
+  wireable as a standalone `IBranchPredictor` before including it), `ImliPredictor` (genuine
+  speculative/committed counter semantics — got its own pipeline equivalence test, reusing the
+  alternating-parity program, since it's the one mechanism `LTageBp`'s equivalence test doesn't
+  structurally cover), `BranchNetBp` (composes a `TageScLBp` field rather than extending it — its own
+  offline-trained per-branch CNNs are frozen shape, not state, same category as `TeaBp`'s `_chains`),
+  `HypreBp` (hyperdimensional/SDM — a genuinely different HD-vector data structure; its round-trip test
+  needed far more training reps than every other predictor to move its Hamming-distance threshold, a real
+  anti-theater case caught by running the test rather than assumed). `OracleBp` (trace-driven)/`StaticBp`
+  (stateless)/`CbpFfiBp`/`CbpNgFfiBp`/`CbpNgCommitDrivenBp` (FFI-owned native state) remain excluded on
+  principled grounds. The BP zoo — and with it, Option B's predictor/policy coverage — is now complete.
 
 ## Benchmarks
 

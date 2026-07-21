@@ -1535,13 +1535,10 @@ family — `SrripPolicy`/`BrripPolicy`/`DrripPolicy` — `ShipPolicy`, and `Hawk
 (RNG-only state) and `RtlFfiReplacementPolicy` (native-owned state) cold-start by design, matching the same
 FFI/RNG exclusion already established for the branch predictor side. Composed predictors (`HybridVp`,
 `DynamicClassificationVp`) hold no state of their own beyond what they delegate to their two component
-predictors' own `WriteState`/`ReadState`. Three more `IBranchPredictor` implementations, chosen to be
-representative of the ~17-predictor "BP zoo" rather than exhaustive (a user scope decision — TODO.md tracks
-the rest as a separate, scope-gated item): `LTageBp` (the TAGE lineage — also the base, via inheritance, of
-`TageScLBp`/`BullseyeBp`/`MultiperspectiveBp`/`BatageBp`, so those subclasses inherit a real base
-TAGE/loop/history round trip even though their own additional layered tables still cold-start),
-`HashedPerceptronBp` (perceptron family), and `TournamentBp` (local/global/chooser hybrid family). Every
-other `IBranchPredictor` still cold-starts. `FdipPrefetcher` is deliberately excluded entirely: it has no
+predictors' own `WriteState`/`ReadState`. Every `IBranchPredictor` implementation now has a real
+`WriteState`/`ReadState` except `OracleBp` (trace-driven, no table), `StaticBp`'s stateless variants, and
+`CbpFfiBp`/`CbpNgFfiBp`/`CbpNgCommitDrivenBp` (FFI-owned native state) — see the BP zoo section below for
+the full breakdown. `FdipPrefetcher` is deliberately excluded entirely: it has no
 trained table, only a lookahead FTQ that rebuilds itself within `ftqCapacity` cycles of `Wind()` regardless, so
 there's nothing worth carrying over. `PhysicalRegisterFile`/`RenameMap` are deliberately not serialized: at a
 drained boundary they carry no information the architectural register values (already covered by
@@ -1573,30 +1570,51 @@ is between values produced and restored by the same policy instance, never check
 independently-resetting counter), the same property that already let `SmbPredictor`'s relative deltas serialize
 wholesale.
 
-**The BP zoo (representative-per-family scope, user-chosen over exhaustive or stopping).** Every equivalence
-test above used `NBitBp` or a stateless `AlwaysNotTaken` predictor, neither of which carries global-history
-state — so before this pass, history serialization through a *live pipeline* (as opposed to a standalone
-unit-level round trip) had never actually been exercised, which is exactly the kind of thing a counter-keyed
-bug hides in. `SpeculativeGlobalHistory`/`SpeculativeLocalHistory` — the shared speculative/committed
-history-shadow helpers most predictors in `Mechanism.BranchPred` are built on — gained `WriteState`/`ReadState`
-once (mirroring RAS/CRAS and `VtageVp`'s pair), benefiting every predictor built on them, not just the three
-below. `LTageBp.WriteState`/`ReadState` (made `virtual` so `TageScLBp`/`BullseyeBp`/`MultiperspectiveBp`/
-`BatageBp` — all of which extend `LTageBp` or `TageScLBp` — inherit a real base round trip even though their
-own additional layered tables, e.g. the Statistical Corrector, still cold-start) serializes the bimodal base,
-tagged TAGE tables, loop predictor, BTB, and both history shadows; per its own `CaptureHistory` doc comment,
-every folded-history index is recomputed on the fly from the raw GHR, so restoring the raw register alone
-keeps every derived index consistent — there's no separately-stored folded register that could itself go
-stale. `HashedPerceptronBp` (weight tables + BTB + history) and `TournamentBp` (local/global PHTs + chooser +
-BTB + both history components) round out the three representative families (TAGE, perceptron,
-local/global-hybrid); `ItageBp`/`IttagePredictor` (ITTAGE — a genuinely distinct indirect-*target* rather than
-direction-only family) was deliberately deferred rather than folded in as a fourth, to keep this phase capped
-rather than re-inflating into the exhaustive sweep the user chose not to do. Only `LTageBp` got a full
-pipeline equivalence test — an alternating-parity branch pattern (`beq` on `x1`'s parity bit) a plain bimodal
-counter can never learn but a history-indexed predictor can, forcing real tagged-table allocations before the
-checkpoint — since that's the one case that actually needed proving; `HashedPerceptronBp`/`TournamentBp` got
-history-*populated* unit-level round trips (trained with a real alternating pattern first, not just one call,
-so the history-folded tables actually diverge from their defaults before the round trip) rather than a second
-and third full pipeline test, per the same capped-scope choice.
+**The BP zoo (complete).** Every equivalence test up to this point used `NBitBp` or a stateless
+`AlwaysNotTaken` predictor, neither of which carries global-history state — so before this pass, history
+serialization through a *live pipeline* (as opposed to a standalone unit-level round trip) had never
+actually been exercised, which is exactly the kind of thing a counter-keyed bug hides in.
+`SpeculativeGlobalHistory`/`SpeculativeLocalHistory` — the shared speculative/committed history-shadow
+helpers most predictors in `Mechanism.BranchPred` are built on — gained `WriteState`/`ReadState` once
+(mirroring RAS/CRAS and `VtageVp`'s pair), benefiting every predictor built on them for free.
+
+Work started scoped to three representative families (TAGE via `LTageBp`, perceptron via
+`HashedPerceptronBp`, local/global-hybrid via `TournamentBp`) — a user decision to avoid a multi-session
+exhaustive grind — but a follow-up ask ("do them now since it's relevant") extended it to every remaining
+predictor. `LTageBp.WriteState`/`ReadState` (made `virtual`) serializes the bimodal base, tagged TAGE
+tables, loop predictor, BTB, and both history shadows; per its own `CaptureHistory` doc comment, every
+folded-history index is recomputed on the fly from the raw GHR, so restoring the raw register alone keeps
+every derived index consistent. Every class that extends `LTageBp` or `TageScLBp` — `TageScLBp` itself
+(the Statistical Corrector, also the base of eight other predictors), `BatageBp`, `BullseyeBp`,
+`MultiperspectivePerceptronBp`, `LlbpBp`/`LlbpXBp`, `TeaBp`, `LvcpBp`, `RunltsBp`, `VlaTageBp` — overrides
+`WriteState`/`ReadState` to call `base` first (the inherited TAGE/loop/history state) and then add only
+its own layered tables. Every remaining standalone predictor also got a real implementation:
+`PerceptronBp`, `CorrelatedBp`/`GselectPredictor`/`GshareBp`, `IttagePredictor` (ITTAGE — confirmed
+wireable as a standalone `IBranchPredictor`, per its own doc comment, before including it), and
+`ImliPredictor`. Two composed-baseline predictors needed individual attention rather than the established
+pattern, exactly as flagged before starting: `BranchNetBp` holds a `TageScLBp` *field* rather than
+extending it, so its `WriteState` delegates to `_baseline.WriteState` explicitly instead of calling
+`base`; its per-branch CNN models are an offline-training artifact frozen at construction (the same
+"shape, not state" category as `TeaBp`'s dependence chains) and are not serialized. `HypreBp`
+(hyperdimensional/sparse-distributed-memory) is a genuinely different data structure — HD vectors
+(a saturating-counter array plus a derived sign-bit array) rather than any table shape used elsewhere in
+this codebase.
+
+Only two predictors needed their own full pipeline equivalence test, rather than a unit-level round trip:
+`LTageBp` (an alternating-parity branch pattern — `beq` on a loop counter's parity bit — a plain bimodal
+counter can never learn but a history-indexed predictor can, forcing real tagged-table allocations before
+the checkpoint) and `ImliPredictor` (the one standalone predictor with genuine speculative-vs-committed
+*counter* semantics, distinct from the history-*register* case `LTageBp` already proves — it reuses the
+same alternating-parity program, since the outer loop branch is itself a real backward taken branch
+driving the IMLI counter and the inner branch's PHT index depends on it directly). Every other predictor
+gets a unit-level round trip using a shared generic helper: train with a varying, biased pattern: trained
+must equal restored, *and* trained must be distinguishable from a fresh cold instance (the anti-theater
+check). The bias direction and iteration count aren't universal — different predictors default cold to
+different directions (all-zero-weight perceptrons default "taken"; saturating counters initialized
+"weakly not-taken" default the other way), and `HypreBp`'s 1024-bit HD vectors need hundreds of
+repetitions to move their Hamming-distance threshold, not the two dozen every other predictor needs — both
+discovered by running the anti-theater assertion and watching it fail, not by reasoning it through in
+advance.
 
 `Tests/Pipeline/MicroCheckpointTests.cs` has per-table round trips (where the type is `public` and cheap to
 construct standalone) plus equivalence tests: drain a running train mid-program, save, and continue it as the
@@ -1612,13 +1630,12 @@ chain racing an immediately-ready load address, to reliably trigger a real memor
 own small tolerance on ticks/violation count for the same wrong-path-timing reason — but asserts `retired` matches
 exactly and that the divergence stays bounded rather than scaling with remaining loop iterations, which a genuine
 stale-SeqNo stall bug would do. `StoreSetPredictor` and `SmbPredictor` are `internal`, so their equivalence tests
-are the only reachable verification for them (no unit-level round trip is possible from the test project). The
-seven newly-covered `IReplacementPolicy` implementations and four `IValuePredictor` implementations each get a
-unit-level round trip in the same file; `StrideVp` (a genuinely exercisable equivalence case — a monotonic-counter
-loop, the pattern its own doc comment builds and measures against, since `LvpVp`/value-repetition predictors can
-never predict it) and `LTageBp` (the alternating-parity branch program above) additionally get a full
-drain/save/restore/continue pipeline equivalence test each; `HashedPerceptronBp`/`TournamentBp` get
-history-populated unit round trips only. 36 tests total.
+are the only reachable verification for them (no unit-level round trip is possible from the test project).
+`StrideVp` (a genuinely exercisable equivalence case — a monotonic-counter loop, the pattern its own doc comment
+builds and measures against, since `LvpVp`/value-repetition predictors can never predict it), `LTageBp`, and
+`ImliPredictor` get a full drain/save/restore/continue pipeline equivalence test each; every other newly-covered
+predictor/policy/value-predictor gets a unit-level (optionally history/cold-baseline-checked) round trip. 55
+tests total.
 
 **Runner CLI wiring**: `--checkpoint-save-micro <path>`/`--checkpoint-load-micro <path>`, mirroring the
 architectural-only `--checkpoint-save`/`--checkpoint-load`. Both require `--script` and an OoOE pipeline train —
@@ -1633,12 +1650,12 @@ prints a message and skips rather than crashing on `Drain`'s `InvalidOperationEx
 end-to-end (save mid-run, reload into a fresh train, confirm ticks/PC/register/cache-hit continuity) rather than
 covered by an automated Runner-process test — no existing test in this repo spawns the Runner CLI as a
 subprocess, and the underlying `Drain`/`SaveMicroCheckpoint`/`RestoreMicroCheckpoint` API this wiring calls is
-already covered by the 36 tests above.
+already covered by the 55 tests above.
 
-Not yet done: the remaining "BP zoo" implementations beyond the three representative families above —
-`PerceptronBp`, `ImliBp`, `CorrelatedBp`, `ItageBp`/`IttagePredictor`, `LlbpBp`/`LlbpXBp`, `BranchNetBp`,
-`HypreBp`, `LvcpBp`, `TeaBp`, `RunltsBp`, and the additional layered tables `BatageBp`/`BullseyeBp`/
-`MultiperspectiveBp`/`TageScLBp` hold beyond what they inherit from `LTageBp` — see TODO.md.
+Not yet done: nothing outstanding for the Option B predictor/policy surface — every `IValuePredictor`,
+`IReplacementPolicy`, and non-excluded `IBranchPredictor` implementation now has a real checkpoint. The
+Runner CLI wiring above is the only remaining entry point that isn't covered by an automated test (manual
+smoke-test only — see its own paragraph for why).
 
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
