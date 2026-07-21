@@ -211,6 +211,68 @@ public class MicroCheckpointTests {
         Assert.Equal(bpA.Predict(pcB), bpB.Predict(pcB));
     }
 
+    // ── BP zoo: TAGE-lineage subclasses (exhaustive, per user follow-up ask) ────
+    //
+    // Every predictor below extends LTageBp or TageScLBp, so LTageBp's own pipeline
+    // equivalence test already proves history-through-pipeline for the inherited substrate;
+    // these round trips only need to prove each subclass's own additional layered tables
+    // serialize correctly, with the same cold-baseline anti-theater check used above.
+
+    /// <summary>
+    ///     Generic round-trip check for an <see cref="IBranchPredictor" />: trains with a
+    ///     varying, not-taken-biased pattern (exercises history-folded tables and biases away
+    ///     from whatever a cold instance predicts by default — see the anti-theater note on
+    ///     <see cref="HashedPerceptronBp_RoundTrip_HistoryDependentPredictionMatches" />), then
+    ///     asserts restored == trained AND trained is distinguishable from a fresh cold instance.
+    /// </summary>
+    private static void AssertBpRoundTripNotTheater<T>(ulong pc) where T : IBranchPredictor, new() {
+        var bpA = new T();
+        for (var i = 0; i < 24; i++) bpA.Update(pc, i % 3 == 0, pc + 4);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
+
+        var bpB = new T();
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) bpB.ReadState(r);
+
+        Assert.Equal(bpA.Predict(pc), bpB.Predict(pc));
+
+        var cold = new T();
+        Assert.NotEqual(bpA.Predict(pc), cold.Predict(pc));
+    }
+
+    [Fact]
+    public void TageScLBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<TageScLBp>(0x100);
+
+    [Fact]
+    public void BatageBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<BatageBp>(0x100);
+
+    [Fact]
+    public void BullseyeBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<BullseyeBp>(0x100);
+
+    [Fact]
+    public void MultiperspectivePerceptronBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater<MultiperspectivePerceptronBp>(0x100);
+
+    [Fact]
+    public void LlbpBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<LlbpBp>(0x100);
+
+    [Fact]
+    public void LlbpXBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<LlbpXBp>(0x100);
+
+    [Fact]
+    public void TeaBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<TeaBp>(0x100);
+
+    [Fact]
+    public void LvcpBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<LvcpBp>(0x100);
+
+    [Fact]
+    public void RunltsBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<RunltsBp>(0x100);
+
+    [Fact]
+    public void VlaTageBp_RoundTrip_NotTheater() => MicroCheckpointTests.AssertBpRoundTripNotTheater<VlaTageBp>(0x100);
+
     [Fact]
     public void LruPolicy_RoundTrip_AgesMatch() {
         var polA = new LruPolicy(4, 2);

@@ -85,6 +85,25 @@ public sealed class LlbpXBp : LlbpBp {
             }
         }
     }
+
+    /// <summary>
+    ///     Serializes the inherited LLBP state (via <c>base</c>) plus the Context Tracking Table.
+    ///     Deliberately does not serialize <see cref="_usedDeep" /> (set by
+    ///     <see cref="TryLlbpPredict" />, consumed only within that same predict-time call — never
+    ///     read by <see cref="TrainLlbp" />, which recomputes depth independently from the
+    ///     committed RCR) or <see cref="DeepContextPredictions" /> (a pure inspection statistic,
+    ///     like the base class's <c>LlbpOverrides</c>).
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        _ctt.WriteState(w);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        _ctt.ReadState(r);
+    }
 }
 
 /// <summary>
@@ -126,6 +145,34 @@ internal sealed class Ctt {
 
         _map[cid2] = new CttEntry();
         _order.Enqueue(cid2);
+    }
+
+    /// <summary>Serializes every context's depth-tracking entry plus the FIFO eviction order.</summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_map.Count);
+        foreach ((uint key, CttEntry e) in _map) {
+            w.Write(key);
+            w.Write(e.AvgHistLen);
+            w.Write(e.IsDeep);
+        }
+
+        w.Write(_order.Count);
+        foreach (uint key in _order) w.Write(key);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public void ReadState(BinaryReader r) {
+        _map.Clear();
+        int mapCount = r.ReadInt32();
+        for (var i = 0; i < mapCount; i++) {
+            uint key = r.ReadUInt32();
+            var e = new CttEntry { AvgHistLen = r.ReadByte(), IsDeep = r.ReadBoolean(), };
+            _map[key] = e;
+        }
+
+        _order.Clear();
+        int orderCount = r.ReadInt32();
+        for (var i = 0; i < orderCount; i++) _order.Enqueue(r.ReadUInt32());
     }
 }
 

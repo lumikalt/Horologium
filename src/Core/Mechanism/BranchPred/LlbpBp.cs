@@ -140,6 +140,37 @@ public class LlbpBp : TageScLBp {
 
     /// <summary>Computes the LLBP pattern key for branch <paramref name="pc" /> at history-table index <paramref name="t" />.</summary>
     protected int PatternKey(ulong pc, int t) => (TageTag(pc, t) << 2) | t;
+
+    /// <summary>
+    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>), both RCR shadows, and the
+    ///     context-keyed pattern storage. Deliberately does not serialize
+    ///     <see cref="LastProvider" />/<see cref="LlbpCtxKey" />/<see cref="LlbpHistIdx" />/
+    ///     <see cref="LlbpIsProvider" />/<see cref="LlbpPatternKey" />: these are set by
+    ///     <see cref="ResolvePrediction" /> (predict time) and consumed once by
+    ///     <see cref="OnAfterUpdate" /> (commit time) for the same branch; by a drained boundary
+    ///     that consuming call has already run (nothing is fetched again until the next
+    ///     <c>Predict</c> after restore, which overwrites them before any
+    ///     <see cref="OnAfterUpdate" /> needs them again). Also skips <see cref="LlbpOverrides" />:
+    ///     a pure inspection statistic, like cache hit/miss counters elsewhere, that never feeds
+    ///     back into a prediction decision. Virtual: <see cref="LlbpXBp" /> overrides and calls
+    ///     <c>base.WriteState</c>/<c>base.ReadState</c> first.
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        CommittedRcr.WriteState(w);
+        Rcr.WriteState(w);
+        Storage.WriteState(w);
+        w.Write(_rcrSpeculative);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        CommittedRcr.ReadState(r);
+        Rcr.ReadState(r);
+        Storage.ReadState(r);
+        _rcrSpeculative = r.ReadBoolean();
+    }
 }
 
 internal sealed class RollingContextReg {
@@ -198,6 +229,26 @@ internal sealed class RollingContextReg {
 
         return hash & mask;
     }
+
+    /// <summary>Serializes the circular PC window and derived context IDs.</summary>
+    public void WriteState(BinaryWriter w) {
+        foreach (ulong pc in _window) w.Write(pc);
+        w.Write(_head);
+        w.Write(_count);
+        w.Write(ContextId);
+        w.Write(CidShallow);
+        w.Write(CidDeep);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public void ReadState(BinaryReader r) {
+        for (var i = 0; i < _window.Length; i++) _window[i] = r.ReadUInt64();
+        _head = r.ReadInt32();
+        _count = r.ReadInt32();
+        ContextId = r.ReadUInt32();
+        CidShallow = r.ReadUInt32();
+        CidDeep = r.ReadUInt32();
+    }
 }
 
 internal sealed class PatternMap {
@@ -255,6 +306,29 @@ internal sealed class PatternMap {
 
         _e[slot] = (key, taken ? (sbyte)0 : (sbyte)-1, true);
     }
+
+    /// <summary>Serializes every slot (fixed capacity, no length prefix needed) and the clock hand.</summary>
+    public void WriteState(BinaryWriter w) {
+        foreach ((int key, sbyte ctr, bool valid) in _e) {
+            w.Write(key);
+            w.Write(ctr);
+            w.Write(valid);
+        }
+
+        w.Write(_clock);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public void ReadState(BinaryReader r) {
+        for (var i = 0; i < PatternMap.Cap; i++) {
+            int key = r.ReadInt32();
+            sbyte ctr = r.ReadSByte();
+            bool valid = r.ReadBoolean();
+            _e[i] = (key, ctr, valid);
+        }
+
+        _clock = r.ReadInt32();
+    }
 }
 
 internal sealed class LlbpStorage {
@@ -273,5 +347,38 @@ internal sealed class LlbpStorage {
         _map[key] = pm;
         _order.Enqueue(key);
         return pm;
+    }
+
+    /// <summary>
+    ///     Serializes every context's pattern map plus the FIFO eviction order — restoring the
+    ///     order matters for eviction-quality fidelity (which context gets evicted first under
+    ///     capacity pressure), not correctness (a wrong-order eviction just evicts a different,
+    ///     still-valid context, never corrupts state).
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_map.Count);
+        foreach ((uint key, PatternMap pm) in _map) {
+            w.Write(key);
+            pm.WriteState(w);
+        }
+
+        w.Write(_order.Count);
+        foreach (uint key in _order) w.Write(key);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public void ReadState(BinaryReader r) {
+        _map.Clear();
+        int mapCount = r.ReadInt32();
+        for (var i = 0; i < mapCount; i++) {
+            uint key = r.ReadUInt32();
+            var pm = new PatternMap();
+            pm.ReadState(r);
+            _map[key] = pm;
+        }
+
+        _order.Clear();
+        int orderCount = r.ReadInt32();
+        for (var i = 0; i < orderCount; i++) _order.Enqueue(r.ReadUInt32());
     }
 }

@@ -257,4 +257,39 @@ public sealed class MultiperspectivePerceptronBp : TageScLBp {
         for (int j = i; j >= 1; j--) _recency[j] = _recency[j - 1];
         _recency[0] = b;
     }
+
+    /// <summary>
+    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>) plus the five feature tables
+    ///     and every auxiliary history (blurry-path, recency MRU stack, mod-history, IMLI
+    ///     counters). Deliberately does not serialize <see cref="_pendingTarget" />: set at
+    ///     <see cref="Update" /> entry and consumed by the same call's <see cref="OnAfterUpdate" />,
+    ///     never observed across a drained boundary — the same transient-parameter pattern as
+    ///     <c>ShipPolicy</c>'s <c>_pendingSignature</c>/<c>HawkeyePolicy</c>'s <c>_pendingTag</c>.
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        foreach (short[] table in _tables)
+        foreach (short c in table)
+            w.Write(c);
+
+        foreach (uint v in _blurryPath) w.Write(v);
+        foreach (ushort v in _recency) w.Write(v);
+        foreach (bool v in _modHist) w.Write(v);
+        foreach (ushort v in _modPath) w.Write(v);
+        foreach (uint v in _imliCounter) w.Write(v);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        foreach (short[] table in _tables)
+        for (var i = 0; i < table.Length; i++)
+            table[i] = r.ReadInt16();
+
+        for (var i = 0; i < _blurryPath.Length; i++) _blurryPath[i] = r.ReadUInt32();
+        for (var i = 0; i < _recency.Length; i++) _recency[i] = r.ReadUInt16();
+        for (var i = 0; i < _modHist.Length; i++) _modHist[i] = r.ReadBoolean();
+        for (var i = 0; i < _modPath.Length; i++) _modPath[i] = r.ReadUInt16();
+        for (var i = 0; i < _imliCounter.Length; i++) _imliCounter[i] = r.ReadUInt32();
+    }
 }

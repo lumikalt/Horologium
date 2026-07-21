@@ -193,4 +193,47 @@ public sealed class RunltsBp : TageScLBp, IValueAwareBp {
 
         return count;
     }
+
+    /// <summary>
+    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>), the freshness table
+    ///     (<see cref="_digest" />/<see cref="_valid" />/<see cref="_setAt" />), and both per-bank
+    ///     tables. <see cref="_clock" />/<see cref="_setAt" /> are self-referential (compared only
+    ///     against each other within this same instance, via <see cref="IsFresh" />) — the same
+    ///     property that already let <c>HawkeyePolicy</c>'s <c>_absTime</c> serialize wholesale.
+    ///     Deliberately does not serialize <see cref="SrOverrides" />, a pure inspection statistic.
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        foreach (int d in _digest) w.Write(d);
+        foreach (bool v in _valid) w.Write(v);
+        foreach (long s in _setAt) w.Write(s);
+        w.Write(_clock);
+
+        foreach (sbyte[] bank in _dir)
+        foreach (sbyte c in bank)
+            w.Write(c);
+
+        foreach (sbyte[][] bank in _weight)
+        foreach (sbyte[] slot in bank)
+        foreach (sbyte c in slot)
+            w.Write(c);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        for (var i = 0; i < _digest.Length; i++) _digest[i] = r.ReadInt32();
+        for (var i = 0; i < _valid.Length; i++) _valid[i] = r.ReadBoolean();
+        for (var i = 0; i < _setAt.Length; i++) _setAt[i] = r.ReadInt64();
+        _clock = r.ReadInt64();
+
+        foreach (sbyte[] bank in _dir)
+        for (var i = 0; i < bank.Length; i++)
+            bank[i] = r.ReadSByte();
+
+        foreach (sbyte[][] bank in _weight)
+        foreach (sbyte[] slot in bank)
+        for (var i = 0; i < slot.Length; i++)
+            slot[i] = r.ReadSByte();
+    }
 }

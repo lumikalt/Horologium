@@ -89,4 +89,29 @@ public class TageScLBp : LTageBp {
         for (var sh = 0; sh < histLen; sh += outBits) res ^= (int)((h >> sh) & outMask);
         return res;
     }
+
+    /// <summary>Serializes the inherited TAGE/loop/history state (via <c>base</c>) plus the SC tables.</summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        w.Write(_sc.Length);
+        foreach (sbyte[] table in _sc) {
+            w.Write(table.Length);
+            foreach (sbyte weight in table) w.Write(weight);
+        }
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        int numTables = r.ReadInt32();
+        int tableN = Math.Min(numTables, _sc.Length);
+        for (var i = 0; i < numTables; i++) {
+            int size = r.ReadInt32();
+            int n = i < tableN ? Math.Min(size, _sc[i].Length) : 0;
+            for (var j = 0; j < size; j++) {
+                sbyte weight = r.ReadSByte();
+                if (j < n) _sc[i][j] = weight;
+            }
+        }
+    }
 }

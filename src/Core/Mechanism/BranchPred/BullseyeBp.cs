@@ -367,4 +367,93 @@ public sealed class BullseyeBp : TageScLBp {
         public uint LocalWins;
         public uint TrialCount;
     }
+
+    /// <summary>
+    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>) plus the HIT/H2P dictionaries
+    ///     and <see cref="_clock" />. <see cref="_clock" /> and the entries' <c>LastTouch</c> fields
+    ///     are self-referential (every comparison is between values produced and restored by this
+    ///     same instance, e.g. <see cref="EvictLruHit" />'s <c>e.LastTouch &lt; oldest</c>), the
+    ///     same property that already let <c>HawkeyePolicy</c>'s <c>_absTime</c> serialize wholesale
+    ///     — unlike a SeqNo compared against a separate, independently-resetting component.
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        w.Write(_clock);
+
+        w.Write(_hit.Count);
+        foreach ((ulong pc, HitEntry e) in _hit) {
+            w.Write(pc);
+            w.Write(e.Exec);
+            w.Write(e.Mispred);
+            w.Write(e.LastTouch);
+        }
+
+        w.Write(_h2P.Count);
+        foreach ((ulong pc, H2PEntry e) in _h2P) {
+            w.Write(pc);
+            w.Write(e.LastTouch);
+            w.Write(e.TrialCount);
+            w.Write(e.LocalHistory);
+            w.Write(e.LocalBias);
+            w.Write(e.LocalTc);
+            w.Write(e.LocalTheta);
+            w.Write(e.LocalTotal);
+            w.Write(e.LocalWins);
+            foreach (sbyte v in e.LocalWeightsA) w.Write(v);
+            foreach (sbyte v in e.LocalWeightsB) w.Write(v);
+            w.Write(e.GlobalBias);
+            w.Write(e.GlobalTc);
+            w.Write(e.GlobalTheta);
+            w.Write(e.GlobalTotal);
+            w.Write(e.GlobalWins);
+            foreach (sbyte v in e.GlobalWeights) w.Write(v);
+            w.Write(e.Filtered);
+            w.Write(e.FilterStreak);
+        }
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        _clock = r.ReadUInt32();
+
+        _hit.Clear();
+        int hitCount = r.ReadInt32();
+        for (var i = 0; i < hitCount; i++) {
+            ulong pc = r.ReadUInt64();
+            var e = new HitEntry { Exec = r.ReadUInt32(), Mispred = r.ReadUInt32(), LastTouch = r.ReadUInt32(), };
+            _hit[pc] = e;
+        }
+
+        _h2P.Clear();
+        int h2PCount = r.ReadInt32();
+        for (var i = 0; i < h2PCount; i++) {
+            ulong pc = r.ReadUInt64();
+            var e = new H2PEntry {
+                LastTouch = r.ReadUInt32(),
+                TrialCount = r.ReadUInt32(),
+                LocalHistory = r.ReadUInt64(),
+                LocalBias = r.ReadSByte(),
+                LocalTc = r.ReadInt32(),
+                LocalTheta = r.ReadInt32(),
+                LocalTotal = r.ReadUInt32(),
+                LocalWins = r.ReadUInt32(),
+            };
+            for (var w = 0; w < BullseyeBp.LocalWindowWidths.Length; w++)
+            for (var j = 0; j < BullseyeBp.LocalTableSize; j++)
+                e.LocalWeightsA[w, j] = r.ReadSByte();
+            for (var w = 0; w < BullseyeBp.LocalWindowWidths.Length; w++)
+            for (var j = 0; j < BullseyeBp.LocalTableSize; j++)
+                e.LocalWeightsB[w, j] = r.ReadSByte();
+            e.GlobalBias = r.ReadSByte();
+            e.GlobalTc = r.ReadInt32();
+            e.GlobalTheta = r.ReadInt32();
+            e.GlobalTotal = r.ReadUInt32();
+            e.GlobalWins = r.ReadUInt32();
+            for (var j = 0; j < BullseyeBp.GlobalFoldBits; j++) e.GlobalWeights[j] = r.ReadSByte();
+            e.Filtered = r.ReadBoolean();
+            e.FilterStreak = r.ReadUInt32();
+            _h2P[pc] = e;
+        }
+    }
 }

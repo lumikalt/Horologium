@@ -314,4 +314,59 @@ public sealed class TeaBp : TageScLBp, IValueAwareBp {
         public byte Conf;
         public bool DirChanged;
     }
+
+    /// <summary>
+    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>), the correlation table, and
+    ///     the producer-value cache (content-keyed by producer PC; <see cref="_clock" /> is
+    ///     self-referential — only ever compared against timestamps this same instance wrote —
+    ///     the same property that already let <c>HawkeyePolicy</c>'s <c>_absTime</c> serialize
+    ///     wholesale). Deliberately does not serialize <see cref="_chains" />/
+    ///     <see cref="_producerToBranches" />: these are offline-profiling-derived <em>shape</em>
+    ///     (like a table size), not runtime-trained state — set once at construction from
+    ///     <see cref="FromProfile" /> and never mutated afterward. A restore into a train
+    ///     reconstructed with the same profile has identical chains already; the checkpoint's job
+    ///     is the state that changes at runtime. Also skips the Predict→Update transient fields
+    ///     (<see cref="_haveChainKey" />/<see cref="_havePredicted" />/<see cref="_lastBaselinePred" />/
+    ///     <see cref="_lastChainKey" />/<see cref="_lastPredictedPc" />), consumed once per branch
+    ///     the same way <c>LlbpBp</c>'s analogous fields are, and <see cref="TeaOverrides" />, a
+    ///     pure inspection statistic like <c>LlbpBp.LlbpOverrides</c>.
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        foreach (CorrEntry e in _corr) {
+            w.Write(e.Tag);
+            w.Write(e.Valid);
+            w.Write(e.Dir);
+            w.Write(e.Conf);
+            w.Write(e.DirChanged);
+        }
+
+        w.Write(_clock);
+        w.Write(_producerValues.Count);
+        foreach ((ulong pc, (ulong value, long seq)) in _producerValues) {
+            w.Write(pc);
+            w.Write(value);
+            w.Write(seq);
+        }
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Correlation-table size must match.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        for (var i = 0; i < _corr.Length; i++)
+            _corr[i] = new CorrEntry {
+                Tag = r.ReadUInt16(), Valid = r.ReadBoolean(), Dir = r.ReadBoolean(), Conf = r.ReadByte(),
+                DirChanged = r.ReadBoolean(),
+            };
+
+        _clock = r.ReadInt64();
+        _producerValues.Clear();
+        int count = r.ReadInt32();
+        for (var i = 0; i < count; i++) {
+            ulong pc = r.ReadUInt64();
+            ulong value = r.ReadUInt64();
+            long seq = r.ReadInt64();
+            _producerValues[pc] = (value, seq);
+        }
+    }
 }

@@ -54,4 +54,16 @@ public sealed class BatageBp : LTageBp {
 
     private static int BiasIdx(ulong pc) =>
         (int)((pc >> 2) & ((1u << BatageBp.BiasTableBits) - 1));
+
+    /// <summary>Serializes the inherited LTageBp state (via <c>base</c>) plus the per-PC bias table.</summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        foreach (sbyte b in _bias) w.Write(b);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        for (var i = 0; i < _bias.Length; i++) _bias[i] = r.ReadSByte();
+    }
 }
