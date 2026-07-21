@@ -43,4 +43,14 @@ public interface IReplacementPolicy {
     ///     The default is a no-op.
     /// </summary>
     void RecordHitPc(int set, int way, ulong lineTag, ulong pc) { }
+
+    /// <summary>
+    ///     Serializes this policy's per-way metadata for a microarchitectural checkpoint (see
+    ///     <see cref="Mechanism.MicroarchitecturalCheckpoint" />). Default no-op: policies that
+    ///     don't opt in cold-start after restore (e.g. every way looks equally old).
+    /// </summary>
+    void WriteState(BinaryWriter w) { }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Default no-op.</summary>
+    void ReadState(BinaryReader r) { }
 }

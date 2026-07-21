@@ -16,10 +16,15 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Analysis
 
-- [ ] Simulation state checkpoint/restore, Option B: full microarchitectural checkpoint — serialize every
-  Gear's internal state (ROB, LSQ, issue queues, pipeline latches, cache/TLB line arrays, branch
-  predictor tables) so a run can be suspended and resumed with microarchitectural fidelity, mirroring
-  gem5's `serialize`/`unserialize` interface.
+- [x] Simulation state checkpoint/restore, Option B: warm microarchitectural checkpoint (caches, TLBs,
+  branch predictor, RAS) layered on `ArchitecturalCheckpoint`, valid only at a drained pipeline boundary
+  (`OooeTrain.Drain`) — mirroring gem5's `drain()`-before-`serialize()` precedent. `OooeTrain` only.
+- [ ] Extend the Option B microarchitectural checkpoint to `StoreSetPredictor`/`IValuePredictor`/
+  `ICriticalityPredictor`/`SmbPredictor`/`FdipPrefetcher`/`RdipPrefetcher` (currently cold-start on
+  restore via the default no-op `WriteState`/`ReadState`), and to more `IBranchPredictor`/
+  `IReplacementPolicy` implementations beyond `NBitBp`/`LruPolicy`.
+- [ ] Wire the Option B microarchitectural checkpoint into the Runner CLI (a `--checkpoint-micro`-style
+  flag alongside the existing architectural-only `--checkpoint-save`/`--checkpoint-load`).
 
 ## Benchmarks
 

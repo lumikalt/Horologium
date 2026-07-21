@@ -1,6 +1,7 @@
 #region
 
 using System.Numerics;
+using System.Text;
 using Mechanism;
 
 #endregion
@@ -1429,6 +1430,113 @@ public sealed class SetAssociativeCache : IMemory {
             if (dirty[i])
                 return true;
         return false;
+    }
+
+    /// <summary>
+    ///     Serializes this cache's tag/data arrays and replacement-policy metadata for a
+    ///     microarchitectural checkpoint (see <see cref="Mechanism.MicroarchitecturalCheckpoint" />).
+    ///     Must be called only when the cache has no background in-flight work (no outstanding
+    ///     MSHRs, write-back-buffer entries, victim-buffer entries, or in-flight prefetches) —
+    ///     that state is transient and not currently serialized, so capturing it mid-flight would
+    ///     silently lose it on restore. Callers checkpoint at a drained pipeline boundary
+    ///     (<c>OooeTrain.Drain</c>), where this holds by construction for the covered configs.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Background in-flight state is non-empty.</exception>
+    public void WriteState(BinaryWriter w) {
+        if (MshrOccupancy > 0 || WbOccupancy > 0 || VictimCacheOccupancy > 0 || InFlightPrefetchCount > 0)
+            throw new InvalidOperationException(
+                "SetAssociativeCache.WriteState: cache has in-flight background work " +
+                $"(mshr={MshrOccupancy}, wb={WbOccupancy}, victim={VictimCacheOccupancy}, " +
+                $"prefetch={InFlightPrefetchCount}) — checkpoint at a fully drained boundary."
+            );
+
+        int sets = _tags.Length;
+        w.Write(sets);
+        w.Write(Ways);
+        w.Write(BlockBytes);
+
+        for (var s = 0; s < sets; s++)
+            for (var wy = 0; wy < Ways; wy++) {
+                ulong? tag = _tags[s][wy];
+                w.Write(tag.HasValue);
+                if (tag.HasValue) w.Write(tag.Value);
+                w.Write(_blocks[s][wy]);
+                w.Write(_dirty?[s][wy] ?? false);
+            }
+
+        bool sectored = _sectorValid != null;
+        w.Write(sectored);
+        if (sectored)
+            for (var s = 0; s < sets; s++)
+                for (var wy = 0; wy < Ways; wy++)
+                    for (var sec = 0; sec < _sectorsPerLine; sec++) {
+                        w.Write(_sectorValid![s][wy][sec]);
+                        w.Write(_sectorDirty?[s][wy][sec] ?? false);
+                    }
+
+        using var policyMs = new MemoryStream();
+        using (var policyW = new BinaryWriter(policyMs, Encoding.UTF8, true)) {
+            // Tag with the concrete policy type so a restore into a differently-configured cache
+            // (e.g. LRU checkpoint restored into an RRIP-policy cache) skips this sub-blob instead
+            // of feeding foreign bytes into an unrelated policy's ReadState.
+            policyW.Write(_policy.GetType().FullName ?? "");
+            _policy.WriteState(policyW);
+        }
+
+        byte[] policyBlob = policyMs.ToArray();
+        w.Write(policyBlob.Length);
+        if (policyBlob.Length > 0) w.Write(policyBlob);
+    }
+
+    /// <summary>
+    ///     Restores state written by <see cref="WriteState" />. Sets/ways/block size must match
+    ///     this cache's own configuration exactly — a mismatch throws rather than silently
+    ///     restoring a partial or misaligned array.
+    /// </summary>
+    /// <exception cref="CheckpointException">Cache geometry does not match.</exception>
+    public void ReadState(BinaryReader r) {
+        int sets = r.ReadInt32();
+        int ways = r.ReadInt32();
+        int blockBytes = r.ReadInt32();
+        if (sets != _tags.Length || ways != Ways || blockBytes != BlockBytes)
+            throw new CheckpointException(
+                $"SetAssociativeCache.ReadState: geometry mismatch — checkpoint has " +
+                $"sets={sets} ways={ways} blockBytes={blockBytes}, but this cache has " +
+                $"sets={_tags.Length} ways={Ways} blockBytes={BlockBytes}."
+            );
+
+        for (var s = 0; s < sets; s++)
+            for (var wy = 0; wy < ways; wy++) {
+                bool hasTag = r.ReadBoolean();
+                ulong tag = hasTag ? r.ReadUInt64() : 0;
+                _tags[s][wy] = hasTag ? tag : null;
+                byte[] block = r.ReadBytes(blockBytes);
+                Buffer.BlockCopy(block, 0, _blocks[s][wy], 0, blockBytes);
+                bool dirty = r.ReadBoolean();
+                if (_dirty != null) _dirty[s][wy] = dirty;
+            }
+
+        bool sectored = r.ReadBoolean();
+        if (sectored)
+            for (var s = 0; s < sets; s++)
+                for (var wy = 0; wy < ways; wy++)
+                    for (var sec = 0; sec < _sectorsPerLine; sec++) {
+                        bool valid = r.ReadBoolean();
+                        bool dirty = r.ReadBoolean();
+                        if (_sectorValid != null) _sectorValid[s][wy][sec] = valid;
+                        if (_sectorDirty != null) _sectorDirty[s][wy][sec] = dirty;
+                    }
+
+        int policyBlobLen = r.ReadInt32();
+        if (policyBlobLen > 0) {
+            byte[] policyBlob = r.ReadBytes(policyBlobLen);
+            using var policyMs = new MemoryStream(policyBlob);
+            using var policyR = new BinaryReader(policyMs);
+            string policyType = policyR.ReadString();
+            // Only apply if the checkpoint's policy type matches this cache's live policy —
+            // otherwise leave it cold-started rather than feeding it a foreign policy's bytes.
+            if (policyType == (_policy.GetType().FullName ?? "")) _policy.ReadState(policyR);
+        }
     }
 
     // Write-back buffer: holds dirty-victim lines waiting to drain to backing.

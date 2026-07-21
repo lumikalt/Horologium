@@ -17,7 +17,7 @@ namespace Pipeline;
 
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 
-public sealed class OooeTrain : ISteppableTrain {
+public sealed partial class OooeTrain : ISteppableTrain {
     private readonly OoOPipelineCore _core;
     private readonly Train _train;
 
@@ -187,7 +187,7 @@ public sealed class OooeTrain : ISteppableTrain {
 ///         an independent instruction is ~4 ticks (Fetch, Dispatch, Execute, Complete+Commit).
 ///     </para>
 /// </summary>
-internal sealed class OoOPipelineCore : Gear {
+internal sealed partial class OoOPipelineCore : Gear {
     // IQ index 0=INT(Alu/MulDiv/Sys/Fence/Halt), 1=FP, 2=BR, 3=VEC(Vector/UVE), 4=LSU
     private const int IqCount = 5;
 
@@ -385,6 +385,11 @@ internal sealed class OoOPipelineCore : Gear {
 
     // Runtime state
     private ulong _fetchPc;
+
+    // Set by Drain() to stop admitting new instructions while the back-end empties out ahead of
+    // a microarchitectural checkpoint. See OooeTrain.Checkpoint.cs.
+    private bool _fetchInhibited;
+
     private Counter _flushesCounter = null!;
     private bool _flushPending;
     private ulong _flushTarget;
@@ -895,7 +900,7 @@ internal sealed class OoOPipelineCore : Gear {
         StepRename();
 
         // Fetch: fill the decode queue with new speculative instructions.
-        StepFetch();
+        if (!_fetchInhibited) StepFetch();
 
         // Runahead: on a full-window stall behind an incomplete load, pre-execute past it in
         // a self-contained shadow lane to generate prefetches (Mutlu et al., HPCA 2003).

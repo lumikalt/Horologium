@@ -37,4 +37,23 @@ public sealed class LruPolicy : IReplacementPolicy {
     public void RecordInstall(int set, int way) => RecordHit(set, way);
 
     public int GetMetadata(int set, int way) => _age[set][way];
+
+    /// <inheritdoc />
+    public void WriteState(BinaryWriter writer) {
+        writer.Write(_age.Length);
+        foreach (int[] set in _age)
+        foreach (int age in set)
+            writer.Write(age);
+    }
+
+    /// <inheritdoc />
+    public void ReadState(BinaryReader reader) {
+        int sets = reader.ReadInt32();
+        int n = Math.Min(sets, _age.Length);
+        for (var s = 0; s < sets; s++)
+        for (var w = 0; w < _ways; w++) {
+            int age = reader.ReadInt32();
+            if (s < n) _age[s][w] = age;
+        }
+    }
 }

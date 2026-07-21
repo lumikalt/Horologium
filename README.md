@@ -1508,6 +1508,42 @@ above are for. mmap-cursor and stdin-position serialization is exercised only at
 stdin always EOF) on both the capture and measure side, a separate pre-existing limitation of that specific CLI
 wiring, so those two fields are currently serialized-but-unexercised there rather than validated end-to-end.
 
+**Warm microarchitectural checkpoint (`MicroarchitecturalCheckpoint`, `OooeTrain.Drain`/`SaveMicroCheckpoint`/
+`RestoreMicroCheckpoint`).** `ArchitecturalCheckpoint` above is enough to resume *correctly*, but a freshly-loaded
+`OooeTrain` starts with cold caches/TLBs/branch predictor — the warmup a per-interval SimPoint sampling flow already
+pays around it. This layers a second checkpoint on top that also carries the trained tables across, so a reload can
+skip that warmup. It only applies at a **drained** boundary (no in-flight instructions anywhere in the pipeline) —
+mirroring gem5's own `drain()`-before-`serialize()` precedent — because `RobEntry.SideEffect` is a raw
+`Action<IArchState>` closure that cannot be generically serialized; at a drained boundary the ROB/issue
+queues/load-store queues/decode-rename latches/exec-CDB buffers are all empty by construction, so there's nothing
+closure-bearing left to capture. `OooeTrain.Drain(maxTicks)` stops admitting new fetches and steps until the
+pipeline empties (or throws if it doesn't within `maxTicks`, or if the train halts first). `SaveMicroCheckpoint`
+then writes an `ArchitecturalCheckpoint` plus tagged sections for each configured I/D cache (all levels), I/D TLB,
+the branch predictor, and the RAS (both the speculative and committed-shadow copies) — each section is
+length-prefixed and, for the branch predictor and each cache's replacement policy, additionally tagged with the
+concrete type name, so a restore into a differently-configured train (missing a level, or a different
+predictor/policy type) skips the mismatched section and cold-starts it instead of throwing or feeding it foreign
+bytes. `RestoreMicroCheckpoint` must be called with the same `entryPoint` convention as `ArchitecturalCheckpoint`
+(pass the checkpoint's PC to the constructor — `RestoreInto` only writes `ArchState.Pc`, not the pipeline's internal
+fetch-PC latch). Caches/TLB/predictor gained `WriteState`/`ReadState` via the same default-no-op-then-override
+pattern as `IArchState` (`IBranchPredictor`, `IReplacementPolicy`); only `SetAssociativeCache`, `Tlb`, `LruPolicy`,
+and `NBitBp` implement real bodies so far — everything else cold-starts. `PhysicalRegisterFile`/`RenameMap` are
+deliberately not serialized: at a drained boundary they carry no information the architectural register values
+(already covered by `ArchitecturalCheckpoint`, restored into the PRF by the existing `Wind()` re-seed) don't already
+reconstruct. `MSHR`/write-back-buffer/victim-buffer/in-flight-prefetch state in `SetAssociativeCache` is not
+serialized either — `WriteState` throws if any of it is non-empty at save time, rather than silently dropping it,
+since a proper drain leaves it empty for every config this covers today. `Tests/Pipeline/MicroCheckpointTests.cs`
+has per-table round trips plus an equivalence test: drain a running train mid-loop, save, and continue it as the
+reference (`Drain` never discards in-flight work, only delays new fetches by a few cycles, so this is a faithful
+continuation); separately reload the checkpoint into a fresh train and run to completion. Final architectural
+state, ticks, retired-instruction count, cache miss count, and branch-misprediction count match exactly; cache hit
+count is allowed a ±1 tolerance for wrong-path (later-squashed) memory accesses right at a branch-resolution
+boundary, whose exact count depends on cycle-exact pipeline occupancy that a drained-boundary checkpoint doesn't
+claim to preserve — confirmed by direct tag/data/age snapshot comparison that the restored cache table itself is
+bit-identical at the checkpoint instant. Not yet done: `StoreSetPredictor`/`IValuePredictor`/
+`ICriticalityPredictor`/`SmbPredictor`/`FdipPrefetcher`/`RdipPrefetcher` table serialization, and Runner CLI wiring
+(`--checkpoint-save`/`--checkpoint-load` cover only the architectural checkpoint today) — see TODO.md.
+
 ### Instruction trace output (Olympia, RiscV32/Trace)
 
 `Experiment.WriteOlympiaTrace(workload, mechanism, output)` runs the workload functionally on the single-cycle train (

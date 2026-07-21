@@ -80,6 +80,33 @@ public sealed class Tlb : IMemory {
         return s;
     }
 
+    /// <summary>Serializes this TLB's entries for a microarchitectural checkpoint.</summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_vpns.Length);
+        foreach (ulong? vpn in _vpns) {
+            w.Write(vpn.HasValue);
+            if (vpn.HasValue) w.Write(vpn.Value);
+        }
+
+        foreach (ulong ppn in _ppns) w.Write(ppn);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Entry count must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int entries = r.ReadInt32();
+        int n = Math.Min(entries, _vpns.Length);
+        for (var i = 0; i < entries; i++) {
+            bool has = r.ReadBoolean();
+            ulong vpn = has ? r.ReadUInt64() : 0;
+            if (i < n) _vpns[i] = has ? vpn : null;
+        }
+
+        for (var i = 0; i < entries; i++) {
+            ulong ppn = r.ReadUInt64();
+            if (i < n) _ppns[i] = ppn;
+        }
+    }
+
     // ── Translation ─────────────────────────────────────────────────────────────
 
     private ulong Translate(ulong vAddress) {

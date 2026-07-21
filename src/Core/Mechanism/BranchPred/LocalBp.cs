@@ -47,4 +47,23 @@ public sealed class NBitBp : IBranchPredictor {
     }
 
     private int Index(ulong pc) => (int)((pc >> 2) % (ulong)_counters.Length);
+
+    /// <inheritdoc />
+    public void WriteState(BinaryWriter w) {
+        w.Write(_counters.Length);
+        w.Write(_counters);
+        foreach (ulong target in _btb) w.Write(target);
+    }
+
+    /// <inheritdoc />
+    public void ReadState(BinaryReader r) {
+        int count = r.ReadInt32();
+        int n = Math.Min(count, _counters.Length);
+        byte[] counters = r.ReadBytes(count);
+        Array.Copy(counters, _counters, n);
+        for (var i = 0; i < count; i++) {
+            ulong target = r.ReadUInt64();
+            if (i < _btb.Length) _btb[i] = target;
+        }
+    }
 }

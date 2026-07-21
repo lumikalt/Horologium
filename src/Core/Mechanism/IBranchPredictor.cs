@@ -82,6 +82,17 @@ public interface IBranchPredictor {
     /// </summary>
     void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) =>
         RecoverSpeculativeHistory();
+
+    /// <summary>
+    ///     Serializes this predictor's trained tables for a microarchitectural checkpoint
+    ///     (see <see cref="MicroarchitecturalCheckpoint" />). Default no-op: predictors that don't
+    ///     opt in simply cold-start after restore. Called only at a drained pipeline boundary, so
+    ///     no in-flight speculative history needs to be captured — only steady-state tables.
+    /// </summary>
+    void WriteState(BinaryWriter w) { }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Default no-op.</summary>
+    void ReadState(BinaryReader r) { }
 }
 
 /// <summary>

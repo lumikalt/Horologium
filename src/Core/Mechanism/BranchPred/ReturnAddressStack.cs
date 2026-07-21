@@ -67,4 +67,24 @@ public sealed class ReturnAddressStack {
         _top = other._top;
         _count = other._count;
     }
+
+    /// <summary>Serializes this stack for a microarchitectural checkpoint.</summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(Depth);
+        w.Write(_top);
+        w.Write(_count);
+        foreach (ulong e in _entries) w.Write(e);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Depth must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int depth = r.ReadInt32();
+        _top = r.ReadInt32();
+        _count = r.ReadInt32();
+        int n = Math.Min(depth, _entries.Length);
+        for (var i = 0; i < depth; i++) {
+            ulong e = r.ReadUInt64();
+            if (i < n) _entries[i] = e;
+        }
+    }
 }
