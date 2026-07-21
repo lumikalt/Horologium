@@ -2795,37 +2795,55 @@ internal sealed class OoOPipelineCore : Gear {
             ref VrStrideEntry e = ref _vrStrideTable[(int)((_shadowPc >> 2) & (uint)(_vrStrideTable.Length - 1))];
             if (!e.Initialized || e.Confidence < 3 || e.Stride == 0 || !mem.HasRead) return;
 
-            if (!_runaheadChainActive) {
+            var firstVisit = !_runaheadChainActive;
+            if (firstVisit) {
                 if (_runaheadCappedOrigins.Contains(_shadowPc)) return; // already used up its unroll budget
                 _runaheadChainActive = true;
                 _runaheadChainOrigin = _shadowPc;
                 _runaheadChainTerminator = e.Terminator;
                 _runaheadChainRound = 0;
-                // This path's lane addresses are derived from mem.LastReadAddress (the real
-                // re-executed read), not _runaheadRoundBaseAddr, so it's left at 0/unused here —
-                // set only for consistency with TryVectorizeTaintedLoad's parallel init.
-                _runaheadRoundBaseAddr = 0;
+                _runaheadRoundBaseAddr = 0; // established below, from this visit's real read
             }
 
             // Vector pipelining (§III-G): pack PipelineRoundsThisVisit() rounds into this single
             // visit's lane array (width N×rounds) instead of one N-wide round per loop-body walk.
-            // Pre-existing v2 coverage inefficiency, unrelated to pipelining but worth noting here
-            // since a wider width amplifies it: mem.LastReadAddress only advances by one real
-            // iteration's stride between origin visits (the shadow lane's real register state
-            // steps one iteration per walk, never width iterations), so a visit's lane range
-            // overlaps almost entirely with the previous visit's rather than starting past it —
-            // unlike TryVectorizeTaintedLoad, which tracks _runaheadRoundBaseAddr explicitly for
-            // exactly this reason. Not fixed here: it predates this change and affects U>1 on this
-            // path regardless of P.
+            //
+            // Round base tracking: only the first visit's lane 0 can use the real re-executed
+            // value (mem.LastReadAddress) — the shadow lane's real register state advances just
+            // one iteration per loop-body walk, so by a second visit (forced when P < U) that
+            // value is stale near-term data, not the far-future round _runaheadRoundBaseAddr
+            // already tracks from the first visit's advance below. So every later visit derives
+            // its whole lane array — including lane 0 — from the tracked base instead, mirroring
+            // TryVectorizeTaintedLoad exactly (this path previously diverged from that one for no
+            // principled reason). Safe to differ from the real executed value because lanes[0] is
+            // never consumed by VectorizeByReplay's propagation (only lanes[1..] are, substituting
+            // into a fresh execution) and the PRF already holds the real value separately (written
+            // by TryShadowStep's caller before this method runs) — lanes[0] here only needs to be
+            // internally consistent with lanes[1..]'s stride-offset scheme. This closes a real
+            // arithmetic divergence between the two sibling paths, but empirically (several
+            // synthetic strided-loop configs, cycle/dcache_misses/cache-residency probes) it
+            // produced no measurable behavioral difference in this model — real scalar demand
+            // coverage and shadow-lane stepping already reach these addresses independently, so
+            // the overlap this fixes was never the actual bottleneck. Kept for correctness and
+            // consistency with the tainted path, not for a measured performance gain.
             int width = _runaheadVectorWidth * PipelineRoundsThisVisit();
             var lanes = new ulong[width];
-            lanes[0] = er.RegisterResult.HasValue ? er.RegisterResult.Value : 0UL;
-            for (var i = 1; i < width; i++) {
-                var laneAddr = (ulong)((long)mem.LastReadAddress + i * e.Stride);
+            ulong roundBase;
+            var startLane = 0;
+            if (firstVisit) {
+                roundBase = mem.LastReadAddress;
+                lanes[0] = er.RegisterResult.HasValue ? er.RegisterResult.Value : 0UL;
+                startLane = 1;
+            }
+            else { roundBase = _runaheadRoundBaseAddr; }
+
+            for (var i = startLane; i < width; i++) {
+                var laneAddr = (ulong)((long)roundBase + i * e.Stride);
                 try { lanes[i] = mem.Read(laneAddr, mem.LastReadBytes); }
                 catch (AccessViolationException) { lanes[i] = 0UL; }
             }
 
+            _runaheadRoundBaseAddr = (ulong)((long)roundBase + width * e.Stride);
             _runaheadVectorLanes[newPhys] = lanes;
             _runaheadInstrCount += width - 1;
             _runaheadInstructionsCounter?.IncrementBy(width - 1);

@@ -16,7 +16,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Vector Runahead true pipelining: overlap the shadow lane's unroll rounds instead of issuing them
   serially one loop-walk at a time, exploiting the existing MSHR overlap capacity. — Naithani, Ainsworth,
   Jones & Eeckhout, ISCA 2021 (§III-G, P overlapped in-flight rounds)
-- [ ] Vector Runahead: track an explicit round base address for `TryVectorizeShadowStep`'s untainted
+- [x] Vector Runahead: track an explicit round base address for `TryVectorizeShadowStep`'s untainted
   chain-origin path (mirroring `TryVectorizeTaintedLoad`'s `_runaheadRoundBaseAddr`), since deriving lane
   addresses from `mem.LastReadAddress` only advances by one real loop iteration's stride per origin visit,
   making a multi-round/multi-visit chain's lane ranges overlap almost entirely instead of covering new

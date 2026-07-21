@@ -425,6 +425,14 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   real but consistently masked by pollution/contention at these program sizes, or negligible outright, is
   unresolved — untangling it (e.g. reuse-distance-aware prefetch throttling, or a program large enough that
   U rounds' reach never overshoots real future demand) is left for future work, not attempted here.
+  `TryVectorizeShadowStep`'s untainted chain-origin path now tracks `_runaheadRoundBaseAddr` explicitly
+  across visits, mirroring `TryVectorizeTaintedLoad`, instead of re-deriving each round's lane addresses
+  from `mem.LastReadAddress` (which only advances one real loop iteration's stride per visit and made
+  later rounds' lane ranges overlap almost entirely with earlier ones). This closes a real divergence
+  between the two sibling paths, but empirically it produced no measurable behavioral difference in this
+  model — real scalar demand coverage and shadow-lane stepping already reach these addresses on their own,
+  so the overlap it fixes was never the actual bottleneck; kept for correctness and consistency, not a
+  measured performance gain.
 
   v1-v3 scope reductions: no per-lane divergence/masking (an invalid lane is simply
   marked tainted rather than modeled with a real predicate mask); fixed lane width, not tied to the real
