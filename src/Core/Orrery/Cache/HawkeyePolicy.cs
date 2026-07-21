@@ -121,6 +121,78 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
 
     public int GetMetadata(int set, int way) => _rrpv[set][way];
 
+    /// <summary>
+    ///     Serializes RRPV, the OPTgen occupancy vectors, per-way tag/liveness history, the
+    ///     PC-indexed predictor table, and the per-set absolute-time counters. Unlike
+    ///     <c>StoreSetPredictor</c>'s SeqNo, <see cref="_absTime" />/<see cref="_absLineTime" />
+    ///     are self-referential — every comparison is between values produced and restored by
+    ///     this same policy instance, so carrying the counter across a checkpoint alongside the
+    ///     values it produced keeps every comparison valid, unlike a counter compared against a
+    ///     separate component (e.g. the ROB) that resets independently on a fresh train.
+    ///     Deliberately does not serialize <see cref="_pendingTag" />/<see cref="_pendingPc" />:
+    ///     set by <see cref="SetPendingAddress" /> immediately before <see cref="RecordInstall" />
+    ///     in the same fill operation, never observed across a drained boundary.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        int sets = _rrpv.Length;
+        w.Write(sets);
+        w.Write(_ways);
+        w.Write(_optLen);
+        for (var s = 0; s < sets; s++) {
+            w.Write(_absTime[s]);
+            for (var wi = 0; wi < _ways; wi++) {
+                w.Write(_rrpv[s][wi]);
+                w.Write(_absLineTime[s][wi]);
+                w.Write(_lineTag[s][wi]);
+            }
+
+            for (var i = 0; i < _optLen; i++) w.Write(_optOcc[s][i]);
+        }
+
+        w.Write(_predictor.Length);
+        foreach (byte p in _predictor) w.Write(p);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Set/way/OPTgen-length geometry must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int sets = r.ReadInt32();
+        int ways = r.ReadInt32();
+        int optLen = r.ReadInt32();
+        if (ways != _ways || optLen != _optLen)
+            throw new Mechanism.CheckpointException(
+                $"HawkeyePolicy.ReadState: geometry mismatch — checkpoint has ways={ways}, " +
+                $"optLen={optLen}; this policy has ways={_ways}, optLen={_optLen}."
+            );
+
+        int n = Math.Min(sets, _rrpv.Length);
+        for (var s = 0; s < sets; s++) {
+            long absTime = r.ReadInt64();
+            if (s < n) _absTime[s] = absTime;
+            for (var wi = 0; wi < ways; wi++) {
+                int rrpv = r.ReadInt32();
+                long absLineTime = r.ReadInt64();
+                ulong lineTag = r.ReadUInt64();
+                if (s < n) {
+                    _rrpv[s][wi] = rrpv;
+                    _absLineTime[s][wi] = absLineTime;
+                    _lineTag[s][wi] = lineTag;
+                }
+            }
+
+            for (var i = 0; i < optLen; i++) {
+                int occ = r.ReadInt32();
+                if (s < n) _optOcc[s][i] = occ;
+            }
+        }
+
+        int predSize = r.ReadInt32();
+        int predN = Math.Min(predSize, _predictor.Length);
+        for (var i = 0; i < predSize; i++) {
+            byte p = r.ReadByte();
+            if (i < predN) _predictor[i] = p;
+        }
+    }
+
     // ── OPTgen ───────────────────────────────────────────────────────────────
 
     /// <summary>

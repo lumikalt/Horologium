@@ -61,4 +61,43 @@ public sealed class ShipPolicy : RripPolicyBase {
 
     /// <summary>Exposes the raw SHCT counter for a given signature index (testing/inspection).</summary>
     public int GetShctCounter(int sigIndex) => _shct[sigIndex];
+
+    /// <summary>
+    ///     Serializes the RRPV array (base), the SHCT, and the per-way signature/outcome arrays.
+    ///     Deliberately does not serialize <see cref="_pendingSignature" />: it is set by
+    ///     <see cref="SetPendingSignature" /> immediately before <see cref="RecordInstall" /> is
+    ///     called in the same fill operation, never observed across a drained boundary (no fill
+    ///     is in flight when the pipeline is drained).
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        w.Write(_shct.Length);
+        foreach (byte c in _shct) w.Write(c);
+        w.Write(_signature.Length);
+        foreach (int sig in _signature) w.Write(sig);
+        foreach (bool o in _outcome) w.Write(o);
+    }
+
+    /// <inheritdoc />
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        int shctSize = r.ReadInt32();
+        int shctN = Math.Min(shctSize, _shct.Length);
+        for (var i = 0; i < shctSize; i++) {
+            byte c = r.ReadByte();
+            if (i < shctN) _shct[i] = c;
+        }
+
+        int slots = r.ReadInt32();
+        int slotN = Math.Min(slots, _signature.Length);
+        for (var i = 0; i < slots; i++) {
+            int sig = r.ReadInt32();
+            if (i < slotN) _signature[i] = sig;
+        }
+
+        for (var i = 0; i < slots; i++) {
+            bool o = r.ReadBoolean();
+            if (i < slotN) _outcome[i] = o;
+        }
+    }
 }

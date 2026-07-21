@@ -27,11 +27,30 @@ off here until a periodic cleanup removes them; the durable record is git histor
   (InstrId/SeqNo/commit count) — those reset to 0 on a freshly restored train, so a carried-over counter
   value can never match again (`StoreSetPredictor`'s LFST, `TokenPassingCriticalityPredictor`'s token/
   slot/commit-count state).
-- [ ] Extend further: more `IValuePredictor` implementations beyond `LvpVp` (`VtageVp`, `StrideVp`,
-  `HybridVp`, `DynamicClassificationVp`), more `IBranchPredictor`/`IReplacementPolicy` implementations
-  beyond `NBitBp`/`LruPolicy`.
-- [ ] Wire the Option B microarchitectural checkpoint into the Runner CLI (a `--checkpoint-micro`-style
-  flag alongside the existing architectural-only `--checkpoint-save`/`--checkpoint-load`).
+- [x] Extend further: the remaining `IValuePredictor` implementations (`VtageVp`, `StrideVp`, `HybridVp`,
+  `DynamicClassificationVp`) and seven more `IReplacementPolicy` implementations (`FifoPolicy`,
+  `MruPolicy`, `ClockPolicy`, `PlruPolicy`, `SrripPolicy`/`BrripPolicy`/`DrripPolicy`, `ShipPolicy`,
+  `HawkeyePolicy`) — `RandomPolicy`/`RtlFfiReplacementPolicy` deliberately excluded (RNG-only state,
+  FFI-owned native state). Found one genuine trained-state case that looked transient at first glance
+  but wasn't: `DynamicClassificationVp`'s `_armed`/`_missStreak` are never cleared by `Update` (only by
+  eviction/reclassification/squash), unlike a real in-flight counter — serialized, not skipped. Verified
+  by direct instrumentation (not just doc-comment assertion) that `StrideVp`'s `_inFlight` genuinely is
+  zero at its equivalence test's drain point, same method used for `StoreSetPredictor`'s LFST.
+- [x] Wire the Option B microarchitectural checkpoint into the Runner CLI: `--checkpoint-save-micro`/
+  `--checkpoint-load-micro`, mirroring the existing architectural-only `--checkpoint-save`/
+  `--checkpoint-load`. Requires `--script` and an OoOE pipeline train (graceful warning + fall back to
+  architectural-only restore otherwise); save drains at the simplest trigger, the end of the run — the
+  CLI has no way to name a mid-run boundary. Incidentally fixed a pre-existing, unrelated bug found while
+  smoke-testing this: `ScriptHost`/`FSharpScriptHost` pre-imported the stale namespace
+  `Mechanism.BranchPredictModels` (renamed to `Mechanism.BranchPred` at some point), which broke every
+  `--script` invocation.
+- [ ] The BP zoo: extend `WriteState`/`ReadState` beyond `NBitBp` to more `IBranchPredictor`
+  implementations. Scope needs a decision (exhaustive vs. representative-per-family) before starting —
+  ~17 structurally distinct predictors (`LTageBp` family, `HashedPerceptronBp`, `PerceptronBp`,
+  `ImliBp`, `TournamentBp`, `CorrelatedBp`, `LlbpBp`/`LlbpXBp`, `BranchNetBp`, `HypreBp`, `LvcpBp`,
+  `ItageBp`, `TeaBp`, `RunltsBp`, ...), each needing its own counter-keyed-vs-content-keyed audit;
+  `OracleBp` (trace-driven)/`StaticBp` (stateless)/`CbpFfiBp`/`CbpNgFfiBp`/`CbpNgCommitDrivenBp`
+  (FFI-owned native state) excluded on the same principled grounds as `RandomPolicy` above.
 
 ## Benchmarks
 

@@ -25,4 +25,20 @@ public sealed class FifoPolicy : IReplacementPolicy {
     // Pseudo-age: 0 = just installed (MRU), ways−1 = next victim (oldest).
     public int GetMetadata(int set, int way) =>
         _ways - 1 - (way - _ptr[set] + _ways) % _ways;
+
+    /// <inheritdoc />
+    public void WriteState(BinaryWriter w) {
+        w.Write(_ptr.Length);
+        foreach (int p in _ptr) w.Write(p);
+    }
+
+    /// <inheritdoc />
+    public void ReadState(BinaryReader r) {
+        int sets = r.ReadInt32();
+        int n = Math.Min(sets, _ptr.Length);
+        for (var s = 0; s < sets; s++) {
+            int p = r.ReadInt32();
+            if (s < n) _ptr[s] = p;
+        }
+    }
 }

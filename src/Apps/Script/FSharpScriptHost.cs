@@ -22,7 +22,7 @@ namespace Script;
 internal static class FSharpScriptHost {
     private static readonly string[] PreOpenedNamespaces = [
         "Mechanism",
-        "Mechanism.BranchPredictModels",
+        "Mechanism.BranchPred",
         "Mechanism.RtlFu",
         "Pipeline.Spec",
         "Orrery.Spec",

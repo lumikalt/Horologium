@@ -105,6 +105,53 @@ public sealed class VtageVp : IValuePredictor {
     public void AdvanceCommittedHistory(bool taken) => _history.AdvanceCommitted(taken);
 
     /// <summary>
+    ///     Serializes the base LVP component, every tagged component's entries, and the global
+    ///     value-history shadows. Deliberately does not serialize <see cref="_fpc" />'s or
+    ///     <see cref="_rng" />'s internal RNG state — same accepted benign-divergence tradeoff as
+    ///     <see cref="LvpVp" />'s FPC.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        _base.WriteState(w);
+        w.Write(_components.Length);
+        foreach (TaggedEntry[] component in _components) {
+            w.Write(component.Length);
+            foreach (TaggedEntry e in component) {
+                w.Write(e.Valid);
+                w.Write(e.Tag);
+                w.Write(e.Val);
+                w.Write(e.Confidence);
+                w.Write(e.Useful);
+            }
+        }
+
+        _history.WriteState(w);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Component geometry must match.</summary>
+    public void ReadState(BinaryReader r) {
+        _base.ReadState(r);
+        int numComponents = r.ReadInt32();
+        int componentN = Math.Min(numComponents, _components.Length);
+        for (var c = 0; c < numComponents; c++) {
+            int entries = r.ReadInt32();
+            int entryN = c < componentN ? Math.Min(entries, _components[c].Length) : 0;
+            for (var i = 0; i < entries; i++) {
+                bool valid = r.ReadBoolean();
+                uint tag = r.ReadUInt32();
+                ulong val = r.ReadUInt64();
+                byte confidence = r.ReadByte();
+                bool useful = r.ReadBoolean();
+                if (i < entryN)
+                    _components[c][i] = new TaggedEntry {
+                        Valid = valid, Tag = tag, Val = val, Confidence = confidence, Useful = useful,
+                    };
+            }
+        }
+
+        _history.ReadState(r);
+    }
+
+    /// <summary>
     ///     Searches components from longest to shortest history for a valid tag match. The first
     ///     (longest-history) match found is the provider.
     /// </summary>
@@ -232,4 +279,20 @@ internal sealed class SpeculativeValueHistory(int bits) {
 
     /// <summary>Advances the committed shadow with a branch’s resolved outcome, at commit.</summary>
     public void AdvanceCommitted(bool taken) => Committed = ((Committed << 1) | (taken ? 1UL : 0UL)) & _mask;
+
+    /// <summary>
+    ///     Serializes both the speculative and committed history shadows — mirroring
+    ///     <c>OoOPipelineCore</c>'s existing RAS/CRAS (speculative/committed) checkpoint pair
+    ///     rather than assuming the two have converged at the drain boundary.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(Value);
+        w.Write(Committed);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public void ReadState(BinaryReader r) {
+        Value = r.ReadUInt64();
+        Committed = r.ReadUInt64();
+    }
 }

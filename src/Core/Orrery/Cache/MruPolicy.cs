@@ -48,4 +48,23 @@ public sealed class MruPolicy : IReplacementPolicy {
     }
 
     public int GetMetadata(int set, int way) => _age[set][way];
+
+    /// <inheritdoc />
+    public void WriteState(BinaryWriter w) {
+        w.Write(_age.Length);
+        foreach (int[] set in _age)
+        foreach (int age in set)
+            w.Write(age);
+    }
+
+    /// <inheritdoc />
+    public void ReadState(BinaryReader r) {
+        int sets = r.ReadInt32();
+        int n = Math.Min(sets, _age.Length);
+        for (var s = 0; s < sets; s++)
+        for (var w2 = 0; w2 < _ways; w2++) {
+            int age = r.ReadInt32();
+            if (s < n) _age[s][w2] = age;
+        }
+    }
 }

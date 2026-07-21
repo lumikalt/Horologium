@@ -201,6 +201,72 @@ public sealed class DynamicClassificationVp : IValuePredictor {
     /// <inheritdoc />
     public void AdvanceCommittedHistory(bool taken) => _context.AdvanceCommittedHistory(taken);
 
+    /// <summary>
+    ///     Serializes the classification/history table and delegates to each composed component's
+    ///     own <see cref="IValuePredictor.WriteState" />. Unlike <see cref="StrideVp" />'s
+    ///     <c>_inFlight</c> or the OoO <c>StoreSetPredictor</c>'s LFST,
+    ///     <see cref="_armed" />/<see cref="_missStreak" /> are <em>not</em> transient
+    ///     renamed-but-uncommitted counters — <see cref="Update" /> never clears them, only
+    ///     <see cref="Evict" />/<see cref="Classify" />/a squash do — so they are real trained
+    ///     state (whether this PC's component has ever predicted confidently since classification)
+    ///     that must round-trip, not skip, across a checkpoint.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_classification.Length);
+        foreach (Classification c in _classification) w.Write((byte)c);
+        foreach (int hc in _historyCount) w.Write(hc);
+        foreach (ulong h in _h1) w.Write(h);
+        foreach (ulong h in _h2) w.Write(h);
+        foreach (ulong h in _h3) w.Write(h);
+        foreach (bool a in _armed) w.Write(a);
+        foreach (int m in _missStreak) w.Write(m);
+        _context.WriteState(w);
+        _computational.WriteState(w);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table size must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int size = r.ReadInt32();
+        int n = Math.Min(size, _classification.Length);
+        for (var i = 0; i < size; i++) {
+            var c = (Classification)r.ReadByte();
+            if (i < n) _classification[i] = c;
+        }
+
+        for (var i = 0; i < size; i++) {
+            int hc = r.ReadInt32();
+            if (i < n) _historyCount[i] = hc;
+        }
+
+        for (var i = 0; i < size; i++) {
+            ulong h = r.ReadUInt64();
+            if (i < n) _h1[i] = h;
+        }
+
+        for (var i = 0; i < size; i++) {
+            ulong h = r.ReadUInt64();
+            if (i < n) _h2[i] = h;
+        }
+
+        for (var i = 0; i < size; i++) {
+            ulong h = r.ReadUInt64();
+            if (i < n) _h3[i] = h;
+        }
+
+        for (var i = 0; i < size; i++) {
+            bool a = r.ReadBoolean();
+            if (i < n) _armed[i] = a;
+        }
+
+        for (var i = 0; i < size; i++) {
+            int m = r.ReadInt32();
+            if (i < n) _missStreak[i] = m;
+        }
+
+        _context.ReadState(r);
+        _computational.ReadState(r);
+    }
+
     private void RecordHistoryAndMaybeClassify(int idx, ulong actualValue) {
         switch (_historyCount[idx]) {
             case 0:

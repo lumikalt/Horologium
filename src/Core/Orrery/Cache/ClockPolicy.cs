@@ -43,4 +43,29 @@ public sealed class ClockPolicy : IReplacementPolicy {
 
     // 0 = referenced (recently used); 1 = unreferenced (eviction candidate).
     public int GetMetadata(int set, int way) => _ref[set][way] ? 0 : 1;
+
+    /// <inheritdoc />
+    public void WriteState(BinaryWriter w) {
+        w.Write(_ref.Length);
+        foreach (int h in _hand) w.Write(h);
+        foreach (bool[] set in _ref)
+        foreach (bool r in set)
+            w.Write(r);
+    }
+
+    /// <inheritdoc />
+    public void ReadState(BinaryReader r) {
+        int sets = r.ReadInt32();
+        int n = Math.Min(sets, _ref.Length);
+        for (var s = 0; s < sets; s++) {
+            int h = r.ReadInt32();
+            if (s < n) _hand[s] = h;
+        }
+
+        for (var s = 0; s < sets; s++)
+        for (var w2 = 0; w2 < _ways; w2++) {
+            bool bit = r.ReadBoolean();
+            if (s < n) _ref[s][w2] = bit;
+        }
+    }
 }

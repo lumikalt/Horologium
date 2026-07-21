@@ -174,6 +174,204 @@ public class MicroCheckpointTests {
     }
 
     [Fact]
+    public void FifoPolicy_RoundTrip_PointerMatches() {
+        var polA = new FifoPolicy(4, 2);
+        polA.RecordInstall(0, 0);
+        polA.RecordInstall(0, 1);
+        polA.RecordInstall(2, 0);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new FifoPolicy(4, 2);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        for (var s = 0; s < 4; s++)
+        for (var w2 = 0; w2 < 2; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+        Assert.Equal(polA.ChooseVictim(0), polB.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void MruPolicy_RoundTrip_AgesMatch() {
+        var polA = new MruPolicy(4, 2);
+        polA.RecordHit(0, 1);
+        polA.RecordInstall(2, 0);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new MruPolicy(4, 2);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        for (var s = 0; s < 4; s++)
+        for (var w2 = 0; w2 < 2; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+    }
+
+    [Fact]
+    public void ClockPolicy_RoundTrip_RefBitsAndHandMatch() {
+        var polA = new ClockPolicy(4, 2);
+        polA.RecordInstall(0, 0);
+        polA.RecordHit(0, 1);
+        polA.RecordInstall(2, 0);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new ClockPolicy(4, 2);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        for (var s = 0; s < 4; s++)
+        for (var w2 = 0; w2 < 2; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+        Assert.Equal(polA.ChooseVictim(0), polB.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void PlruPolicy_RoundTrip_BitsMatch() {
+        var polA = new PlruPolicy(4, 4);
+        polA.RecordInstall(0, 0);
+        polA.RecordHit(0, 2);
+        polA.RecordInstall(1, 1);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new PlruPolicy(4, 4);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        for (var s = 0; s < 4; s++)
+        for (var w2 = 0; w2 < 4; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+        Assert.Equal(polA.ChooseVictim(0), polB.ChooseVictim(0));
+    }
+
+    [Fact]
+    public void SrripPolicy_RoundTrip_RrpvMatches() {
+        var polA = new SrripPolicy(4, 4);
+        polA.RecordInstall(0, 0);
+        polA.RecordHit(0, 0);
+        polA.RecordInstall(1, 2);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new SrripPolicy(4, 4);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        for (var s = 0; s < 4; s++)
+        for (var w2 = 0; w2 < 4; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+    }
+
+    [Fact]
+    public void BrripPolicy_RoundTrip_RrpvAndCounterMatch() {
+        var polA = new BrripPolicy(4, 4, bimodalDenominator: 4);
+        for (var i = 0; i < 3; i++) polA.RecordInstall(0, i % 4); // advance the bimodal counter partway
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new BrripPolicy(4, 4, bimodalDenominator: 4);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        for (var s = 0; s < 4; s++)
+        for (var w2 = 0; w2 < 4; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+
+        // The 4th install exercises the restored bimodal counter identically in both instances —
+        // if the counter hadn't round-tripped, this install would diverge (distant vs long RRPV).
+        polA.RecordInstall(1, 0);
+        polB.RecordInstall(1, 0);
+        Assert.Equal(polA.GetMetadata(1, 0), polB.GetMetadata(1, 0));
+    }
+
+    [Fact]
+    public void DrripPolicy_RoundTrip_PselAndRrpvMatch() {
+        var polA = new DrripPolicy(64, 4, sdmSets: 4);
+        for (var i = 0; i < 5; i++) polA.RecordInstall(0, i % 4); // SDM-SRRIP set: nudges PSEL
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new DrripPolicy(64, 4, sdmSets: 4);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        Assert.Equal(polA.Psel, polB.Psel);
+        for (var s = 0; s < 64; s++)
+        for (var w2 = 0; w2 < 4; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+    }
+
+    [Fact]
+    public void ShipPolicy_RoundTrip_ShctAndSignatureMatch() {
+        var polA = new ShipPolicy(4, 4);
+        polA.SetPendingSignature(0x100);
+        polA.RecordInstall(0, 0);
+        polA.RecordHit(0, 0); // trains SHCT[0x100] upward
+        polA.SetPendingSignature(0x200);
+        polA.RecordInstall(0, 1);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new ShipPolicy(4, 4);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        Assert.Equal(polA.GetShctCounter(0x100), polB.GetShctCounter(0x100));
+        Assert.Equal(polA.GetShctCounter(0x200), polB.GetShctCounter(0x200));
+        for (var s = 0; s < 4; s++)
+        for (var w2 = 0; w2 < 4; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+
+        // A fresh install with the trained signature must reproduce the same RRPV insertion
+        // decision in both instances — the real proof the SHCT round-tripped, not just its bytes.
+        polA.SetPendingSignature(0x100);
+        polA.RecordInstall(0, 2);
+        polB.SetPendingSignature(0x100);
+        polB.RecordInstall(0, 2);
+        Assert.Equal(polA.GetMetadata(0, 2), polB.GetMetadata(0, 2));
+    }
+
+    [Fact]
+    public void HawkeyePolicy_RoundTrip_PredictorAndOptgenMatch() {
+        var polA = new HawkeyePolicy(4, 4);
+        for (ulong i = 0; i < 20; i++) {
+            polA.SetPendingAddress(i, 0x100);
+            polA.RecordInstall(0, (int)(i % 4));
+            polA.RecordHitPc(0, (int)(i % 4), i, 0x100);
+        }
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+
+        var polB = new HawkeyePolicy(4, 4);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+
+        for (var s = 0; s < 4; s++)
+        for (var w2 = 0; w2 < 4; w2++)
+            Assert.Equal(polA.GetMetadata(s, w2), polB.GetMetadata(s, w2));
+
+        // Exercise OPTgen/the predictor further post-restore — divergence here would indicate
+        // _absTime/_absLineTime (the self-referential counters) didn't round-trip together.
+        polA.SetPendingAddress(99, 0x300);
+        polA.RecordInstall(1, 0);
+        polB.SetPendingAddress(99, 0x300);
+        polB.RecordInstall(1, 0);
+        Assert.Equal(polA.GetMetadata(1, 0), polB.GetMetadata(1, 0));
+    }
+
+    [Fact]
     public void Ras_RoundTrip_EntriesMatch() {
         var rasA = new ReturnAddressStack(4);
         rasA.Push(0x1000);
@@ -586,6 +784,90 @@ public class MicroCheckpointTests {
     }
 
     [Fact]
+    public void StrideVp_RoundTrip_TableMatches() {
+        var vpA = new StrideVp(64);
+        vpA.Update(0x100, default, 10); // Init, stride seeded to 0
+        vpA.Update(0x100, default, 20); // stride=10 vs previous 0: no match, stays Init
+        vpA.Update(0x100, default, 30); // stride=10 vs previous 10: match, Init -> Transient
+        vpA.Update(0x100, default, 40); // stride=10 vs previous 10: match, Transient -> Steady
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+
+        var vpB = new StrideVp(64);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+
+        Assert.Equal(vpA.TryPredict(0x100, default, out ulong valA), vpB.TryPredict(0x100, default, out ulong valB));
+        Assert.Equal(valA, valB);
+        Assert.True(valA > 0); // sanity: the trained Steady state actually produced a prediction
+    }
+
+    [Fact]
+    public void VtageVp_RoundTrip_TaggedComponentMatches() {
+        var vpA = new VtageVp(baseEntries: 64, entriesPerComponent: 32);
+        // First Update always allocates a tagged component (TryFindProvider fails on an empty
+        // table), deterministically since both instances share the default seed.
+        vpA.Update(0x100, new ValueHistoryCheckpoint(0xABCD), 42);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+
+        var vpB = new VtageVp(baseEntries: 64, entriesPerComponent: 32);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+
+        var history = new ValueHistoryCheckpoint(0xABCD);
+        Assert.Equal(
+            vpA.TryPredict(0x100, history, out ulong valA), vpB.TryPredict(0x100, history, out ulong valB)
+        );
+        Assert.Equal(valA, valB);
+    }
+
+    [Fact]
+    public void DynamicClassificationVp_RoundTrip_ClassificationAndComponentsMatch() {
+        DynamicClassificationVp Make() => new(new VtageVp(64, 32), new StrideVp(64));
+
+        DynamicClassificationVp vpA = Make();
+        // Three Updates classify the PC (equal deltas -> Computational/StrideVp), then a fourth
+        // trains StrideVp itself to Steady.
+        vpA.Update(0x100, default, 10);
+        vpA.Update(0x100, default, 20);
+        vpA.Update(0x100, default, 30); // classifies here (delta1==delta2==10)
+        vpA.Update(0x100, default, 40);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+
+        DynamicClassificationVp vpB = Make();
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+
+        Assert.Equal(vpA.TryPredict(0x100, default, out ulong valA), vpB.TryPredict(0x100, default, out ulong valB));
+        Assert.Equal(valA, valB);
+    }
+
+    [Fact]
+    public void HybridVp_RoundTrip_BothComponentsMatch() {
+        HybridVp Make() => new(new VtageVp(64, 32), new StrideVp(64));
+
+        HybridVp vpA = Make();
+        vpA.Update(0x100, default, 10);
+        vpA.Update(0x100, default, 20);
+        vpA.Update(0x100, default, 30);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+
+        HybridVp vpB = Make();
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+
+        Assert.Equal(vpA.TryPredict(0x100, default, out ulong valA), vpB.TryPredict(0x100, default, out ulong valB));
+        Assert.Equal(valA, valB);
+    }
+
+    [Fact]
     public void ValuePredictor_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
         // Register-copy chain that always converges to the same value every iteration — the
         // classic value-prediction win case. Cribbed from ValuePredictionTests.
@@ -601,6 +883,45 @@ public class MicroCheckpointTests {
 
         OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
             new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new LvpVp());
+
+        (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
+            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+                MakeVpTrain,
+                mem => MicroCheckpointTests.Load(mem, program),
+                train => train.SnapshotPipeline().Counters.GetValueOrDefault("vp_predictions") > 0
+            );
+
+        Assert.Equal(
+            MicroCheckpointTests.Counter(refResult, "vp_mispredicts"),
+            MicroCheckpointTests.Counter(reloadResult, "vp_mispredicts")
+        );
+        Assert.True(MicroCheckpointTests.Counter(refResult, "vp_predictions") > 0);
+    }
+
+    /// <summary>
+    ///     Monotonic-counter loop — the pattern <see cref="StrideVp" />'s own doc comment builds
+    ///     and measures against, and the one case <see cref="LvpVp" /> (value-repetition) can never
+    ///     predict, so a passing equivalence run here is real proof <c>StrideVp.WriteState</c>
+    ///     round-trips the trained (value, stride, FSM) table correctly, not just that some
+    ///     component happened to agree. The claim in <c>StrideVp.WriteState</c>'s doc comment that
+    ///     <c>_inFlight</c> is genuinely all-zero at a drained boundary (not just assumed) was
+    ///     verified the same way as the analogous <c>StoreSetPredictor</c> LFST claim: a temporary
+    ///     instrumented build logging any nonzero <c>_inFlight</c> entry inside <c>WriteState</c>
+    ///     produced no output across this test.
+    /// </summary>
+    [Fact]
+    public void StrideVpEquivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        uint[] program = [
+            0x00000093, // addi x1, x0, 0        -- counter
+            0x03200113, // addi x2, x0, 50        -- loop count
+            0x00408093, // loop: addi x1, x1, 4   -- monotonic stride-4 value producer
+            0xFFF10113, // addi x2, x2, -1
+            MicroCheckpointTests.EncodeBne(2, 0, -8), // bne x2, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
+            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new StrideVp());
 
         (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
             MicroCheckpointTests.RunDrainSaveRestoreEquivalence(

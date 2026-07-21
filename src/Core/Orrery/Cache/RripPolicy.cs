@@ -45,6 +45,25 @@ public abstract class RripPolicyBase : IReplacementPolicy {
     public abstract void RecordInstall(int set, int way);
 
     public int GetMetadata(int set, int way) => Rrpv[set][way];
+
+    /// <summary>Serializes the shared RRPV array. Subclasses override to append their own state.</summary>
+    public virtual void WriteState(BinaryWriter w) {
+        w.Write(Rrpv.Length);
+        foreach (int[] set in Rrpv)
+        foreach (int rrpv in set)
+            w.Write(rrpv);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Subclasses override to append their own state.</summary>
+    public virtual void ReadState(BinaryReader r) {
+        int sets = r.ReadInt32();
+        int n = Math.Min(sets, Rrpv.Length);
+        for (var s = 0; s < sets; s++)
+        for (var w2 = 0; w2 < Ways; w2++) {
+            int rrpv = r.ReadInt32();
+            if (s < n) Rrpv[s][w2] = rrpv;
+        }
+    }
 }
 
 /// <summary>
@@ -79,6 +98,18 @@ public sealed class BrripPolicy : RripPolicyBase {
         else {
             Rrpv[set][way] = MaxRrpv; // distant (most inserts)
         }
+    }
+
+    /// <inheritdoc />
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        w.Write(_counter);
+    }
+
+    /// <inheritdoc />
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        _counter = r.ReadInt32();
     }
 }
 
@@ -141,5 +172,19 @@ public sealed class DrripPolicy : RripPolicyBase {
                 Rrpv[set][way] = MaxRrpv; // distant
             }
         }
+    }
+
+    /// <inheritdoc />
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        w.Write(Psel);
+        w.Write(_bimodalCounter);
+    }
+
+    /// <inheritdoc />
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        Psel = r.ReadInt32();
+        _bimodalCounter = r.ReadInt32();
     }
 }

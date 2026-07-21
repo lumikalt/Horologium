@@ -159,6 +159,47 @@ public sealed class StrideVp : IValuePredictor {
 
     private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
 
+    /// <summary>
+    ///     Serializes the trained (value, stride, confidence-FSM) table. Deliberately does not
+    ///     serialize <see cref="_inFlight" />: it counts renamed-but-not-yet-committed occurrences
+    ///     of a PC, incremented at <see cref="TryPredict" /> (rename) and decremented at
+    ///     <see cref="Update" /> (commit) — at a drained checkpoint boundary nothing is renamed but
+    ///     uncommitted, so every slot is back at zero (verified directly for this predictor's test
+    ///     the same way the analogous claim was verified for <c>StoreSetPredictor</c>'s LFST).
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_valid.Length);
+        foreach (bool v in _valid) w.Write(v);
+        foreach (ulong lv in _lastValue) w.Write(lv);
+        foreach (long s in _stride) w.Write(s);
+        foreach (State st in _state) w.Write((byte)st);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table size must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int size = r.ReadInt32();
+        int n = Math.Min(size, _valid.Length);
+        for (var i = 0; i < size; i++) {
+            bool v = r.ReadBoolean();
+            if (i < n) _valid[i] = v;
+        }
+
+        for (var i = 0; i < size; i++) {
+            ulong lv = r.ReadUInt64();
+            if (i < n) _lastValue[i] = lv;
+        }
+
+        for (var i = 0; i < size; i++) {
+            long s = r.ReadInt64();
+            if (i < n) _stride[i] = s;
+        }
+
+        for (var i = 0; i < size; i++) {
+            var st = (State)r.ReadByte();
+            if (i < n) _state[i] = st;
+        }
+    }
+
     private enum State : byte {
         Init,
         Transient,

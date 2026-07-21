@@ -109,4 +109,16 @@ public sealed class HybridVp : IValuePredictor {
 
     /// <inheritdoc />
     public void AdvanceCommittedHistory(bool taken) => _context.AdvanceCommittedHistory(taken);
+
+    /// <summary>Holds no state of its own; delegates to both composed components.</summary>
+    public void WriteState(BinaryWriter w) {
+        _context.WriteState(w);
+        _computational.WriteState(w);
+    }
+
+    /// <inheritdoc cref="WriteState" />
+    public void ReadState(BinaryReader r) {
+        _context.ReadState(r);
+        _computational.ReadState(r);
+    }
 }

@@ -32,7 +32,7 @@ public static class ScriptHost {
                                                                        .AddImports(
                                                                             "System",
                                                                             "Mechanism",
-                                                                            "Mechanism.BranchPredictModels",
+                                                                            "Mechanism.BranchPred",
                                                                             "Mechanism.RtlFu",
                                                                             "Pipeline.Spec",
                                                                             "Orrery.Spec",

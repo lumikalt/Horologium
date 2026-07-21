@@ -42,6 +42,8 @@ string? simpointArgvRaw = null; // --simpoint-argv "<args>": opts --simpoint/--s
 string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
 string? checkpointLoadPath = null; // --checkpoint-load <path>: restore arch checkpoint before run
+string? checkpointSaveMicroPath = null; // --checkpoint-save-micro <path>: save micro checkpoint after run
+string? checkpointLoadMicroPath = null; // --checkpoint-load-micro <path>: restore micro checkpoint before run
 string? roiStartSymbol = null;     // --roi-start <symbol>: fast-forward to this ELF symbol, then measure
 string? roiEndSymbol = null;       // --roi-end <symbol>: stop measuring when PC reaches this symbol
 string? elasticRecordPath = null;  // --elastic-record <path>: record DDG trace and exit
@@ -84,6 +86,8 @@ for (var i = 0; i < args.Length; i++)
         case "--simpoint-argv":   simpointArgvRaw = args[++i]; break;
         case "--checkpoint-save": checkpointSavePath = args[++i]; break;
         case "--checkpoint-load": checkpointLoadPath = args[++i]; break;
+        case "--checkpoint-save-micro": checkpointSaveMicroPath = args[++i]; break;
+        case "--checkpoint-load-micro": checkpointLoadMicroPath = args[++i]; break;
         case "--roi-start":       roiStartSymbol = args[++i]; break;
         case "--roi-end":         roiEndSymbol = args[++i]; break;
         case "--elastic-record":  elasticRecordPath = args[++i]; break;
@@ -614,6 +618,47 @@ if (scriptPath is not null) {
             await checkpointSave;
         }
     }
+    else if (checkpointLoadMicroPath is not null) {
+        // ── Micro-checkpoint-load mode ───────────────────────────────────────
+        // The entry PC/memory geometry must be known before Build() constructs the train (an
+        // OooeTrain's fetch PC is fixed at construction — see OooeTrain.Checkpoint.cs), so the
+        // checkpoint is parsed once up front and its bytes replayed into RestoreMicroCheckpoint
+        // via the same in-memory stream rather than re-reading the file from disk twice.
+        byte[] chkBytes = File.ReadAllBytes(checkpointLoadMicroPath);
+        using var chkMs = new MemoryStream(chkBytes);
+        MicroarchitecturalCheckpoint chk = MicroarchitecturalCheckpoint.Load(chkMs);
+        Console.Error.WriteLine(
+            $"Loaded micro checkpoint — tick={chk.Architectural.Tick:N0} pc=0x{chk.Architectural.Pc:X} " +
+            $"mem={chk.Architectural.MemorySizeBytes:N0} bytes"
+        );
+        var scriptMem = new FlatMemory(chk.Architectural.MemorySizeBytes, chk.Architectural.MemoryBaseAddress);
+
+        MachineHandle handle = spec.Build(scriptMem, chk.Architectural.Pc);
+        if (handle.Train is OooeTrain oooLoad) {
+            chkMs.Position = 0;
+            oooLoad.RestoreMicroCheckpoint(chkMs, scriptMem);
+        }
+        else {
+            Console.Error.WriteLine(
+                "--checkpoint-load-micro requires an OoOE pipeline train; restoring architectural state only."
+            );
+            chk.Architectural.RestoreInto(handle.ArchState!, scriptMem);
+        }
+
+        RevolutionResult result = handle.Run(maxTicks, warmupTicks);
+        Console.Error.WriteLine($"Done — {result.TotalTicks:N0} ticks");
+        PrintLayerStats(handle);
+
+        SaveMicroCheckpointIfRequested(handle, scriptMem, checkpointSaveMicroPath);
+        if (checkpointSavePath is not null) {
+            Task checkpointSave =
+                ArchitecturalCheckpoint.SaveAsync(
+                    checkpointSavePath, handle.ArchState!, scriptMem, (ulong)result.TotalTicks
+                );
+            Console.Error.WriteLine($"Checkpoint saved → {checkpointSavePath}");
+            await checkpointSave;
+        }
+    }
     else if (checkpointLoadPath is not null) {
         // ── Checkpoint-load mode ─────────────────────────────────────────────
         ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(checkpointLoadPath);
@@ -629,6 +674,7 @@ if (scriptPath is not null) {
         Console.Error.WriteLine($"Done — {result.TotalTicks:N0} ticks");
         PrintLayerStats(handle);
 
+        SaveMicroCheckpointIfRequested(handle, scriptMem, checkpointSaveMicroPath);
         if (checkpointSavePath is not null) {
             Task checkpointSave =
                 ArchitecturalCheckpoint.SaveAsync(
@@ -650,6 +696,7 @@ if (scriptPath is not null) {
         Console.Error.WriteLine($"Done — {result.TotalTicks:N0} ticks");
         PrintLayerStats(handle);
 
+        SaveMicroCheckpointIfRequested(handle, scriptMem, checkpointSaveMicroPath);
         if (checkpointSavePath is not null) {
             Task checkpointSave =
                 ArchitecturalCheckpoint.SaveAsync(
@@ -667,6 +714,33 @@ if (scriptPath is not null) {
         if (layers.Cache is { } l1) Console.Error.WriteLine($"  L1  — misses: {l1.Misses:N0}  hits: {l1.Hits:N0}");
         if (layers.L2Cache is { } l2) Console.Error.WriteLine($"  L2  — misses: {l2.Misses:N0}  hits: {l2.Hits:N0}");
         if (layers.Tlb is { } tlb) Console.Error.WriteLine($"  TLB — misses: {tlb.Misses:N0}  hits: {tlb.Hits:N0}");
+    }
+
+    // Micro checkpoints require an OoOE pipeline train (the drain-to-empty-ROB boundary and
+    // trained tables — caches/predictors/etc. — only exist there; see OooeTrain.Checkpoint.cs).
+    // Drains at the simplest possible trigger — the end of the run — rather than any mid-run
+    // boundary, which the CLI has no way to name.
+    static void SaveMicroCheckpointIfRequested(MachineHandle h, ISnapshotableMemory memory, string? path) {
+        if (path is null) return;
+        if (h.Train is not OooeTrain oooTrain) {
+            Console.Error.WriteLine("--checkpoint-save-micro requires an OoOE pipeline train; skipped.");
+            return;
+        }
+
+        // A run that reached program exit (rather than being cut short by --max-ticks) has
+        // already halted — nothing left to drain, and Drain() correctly refuses. Not a bug, just
+        // this trigger's own limit: --checkpoint-save-micro captures the mid-run state at
+        // whatever point the run stopped, not a synthesized end-of-program snapshot.
+        try {
+            oooTrain.Drain();
+        }
+        catch (InvalidOperationException ex) {
+            Console.Error.WriteLine($"--checkpoint-save-micro: could not drain the pipeline — {ex.Message}");
+            return;
+        }
+
+        oooTrain.SaveMicroCheckpoint(path, memory);
+        Console.Error.WriteLine($"Micro checkpoint saved → {path}");
     }
 }
 
@@ -833,6 +907,20 @@ static void PrintUsage() {
           --checkpoint-load <path>  Before run, restore state from a checkpoint saved by
                                     --checkpoint-save. Ignores the workload's memory and
                                     entry point; uses the checkpoint's. Requires --script.
+          --checkpoint-save-micro <path>  After run completes, drain the pipeline and save a
+                                    microarchitectural checkpoint (architectural state plus
+                                    trained caches/TLBs/branch-predictor/RAS/OoO-predictor
+                                    tables — see TODO.md/README.md "Option B") to <path>.
+                                    Requires --script and an OoOE pipeline train; skipped
+                                    with a warning otherwise. Combinable with
+                                    --checkpoint-save (independent files).
+          --checkpoint-load-micro <path>  Before run, restore state from a checkpoint saved
+                                    by --checkpoint-save-micro — warm tables included, not
+                                    just architectural state. Ignores the workload's memory
+                                    and entry point; uses the checkpoint's. Requires
+                                    --script and an OoOE pipeline train (falls back to
+                                    architectural-only restore otherwise). Mutually exclusive
+                                    with --checkpoint-load.
           --roi-start <symbol>      Fast-forward functionally (single-cycle) until the named
                                     ELF symbol is reached, then run the script's pipeline for
                                     detailed timing from that point. Requires --script + ELF.
