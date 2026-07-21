@@ -1218,6 +1218,16 @@ paper's ExecutionStalls heuristic). All ten `td_*` dials flow through `Experimen
 `TopDownBreakdown.FromSnapshot(snapshot)` computes the same breakdown from any (warmup-subtracted) pipeline
 `DialBoardSnapshot`, and its `ToString()` renders the hierarchy as a small tree.
 
+`DaeTrain` and `SmtTrain` also record the same ten `td_*` events, each adapted to its own front end. DAE's
+single-dispatch front end has no explicit issue width, so TotalSlots accrues one slot per real cycle (rather than
+issueWidth × cycles); DAE has no branch speculation (barriers, including branches, execute in-order against precise
+architectural state), so its only Bad Speculation source is a precise-trap undo-log rollback, wired as a
+`RecoveryBubbles`/machine-clear event rather than a branch mispredict. SMT's slots are shared issueWidth-wide across
+harts each cycle; it has no speculation either (each hart resolves its own PC synchronously), so Bad Speculation is
+always zero, and the only source of unfilled slots is thread starvation (fewer runnable harts than issueWidth) —
+correctly read as Frontend Bound, since there is no ROB/IQ-style backend resource in either design to structurally
+block dispatch.
+
 ### CPI stacks via interval analysis (Pipeline/CpiStackAnalysis)
 
 `OooeTrain` and `CprTrain` also build interval-analysis CPI stacks (Eyerman, Eeckhout, Karkhanis & Smith, ASPLOS 2006 — the

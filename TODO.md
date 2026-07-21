@@ -11,7 +11,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Performance
 
-- [ ] TMA (Top-Down slot accounting): extend from `OooeTrain`/`CprTrain` to `DaeTrain` and `SmtTrain`. —
+- [x] TMA (Top-Down slot accounting): extend from `OooeTrain`/`CprTrain` to `DaeTrain` and `SmtTrain`. —
   Yasin, ISPASS 2014
 - [ ] Vector Runahead true pipelining: overlap the shadow lane's unroll rounds instead of issuing them
   serially one loop-walk at a time, exploiting the existing MSHR overlap capacity. — Naithani, Ainsworth,

@@ -282,6 +282,20 @@ internal sealed class DaeCore(
     private Counter _retiredCounter = null!;
     private Action? _runCycle;
     private Counter _stallsCounter = null!;
+
+    // Top-Down Microarchitecture Analysis slot accounting (Yasin, ISPASS 2014). DAE has a
+    // single-dispatch front end (issueWidth = 1 in TMA terms: at most one instruction enters a
+    // lane, or one barrier is staged, per cycle), so TotalSlots accrues one per real cycle
+    // (including lump-sum stall cycles) rather than issueWidth × cycles.
+    private Counter _tdExecStallCyclesCounter = null!;
+    private Counter _tdFetchBubblesCounter = null!;
+    private Counter _tdFetchLatencyCyclesCounter = null!;
+    private Counter _tdMemStallLoadCyclesCounter = null!;
+    private Counter _tdMemStallStoreCyclesCounter = null!;
+    private Counter _tdRecoveriesCounter = null!;
+    private Counter _tdRecoveryBubblesCounter = null!;
+    private Counter _tdSlotsIssuedCounter = null!;
+    private Counter _tdTotalSlotsCounter = null!;
     private UndoLoggingMemory _undoMemory = null!;
     public PEventLog? PEventLog { get; } = pEventLog;
 
@@ -312,6 +326,9 @@ internal sealed class DaeCore(
         _preciseTrapsCounter = Dials.AddCounter(
             "precise_traps", "Lane-instruction traps resolved via undo-log rollback"
         );
+        _tdRecoveriesCounter = Dials.AddCounter(
+            "recoveries", "Precise-trap rollbacks (TMA: Bad Speculation, attributed to Machine Clears)"
+        );
         Dials.AddDial(
             "ipc",
             () => _cyclesCounter.Value == 0 ? 0.0 : _retiredCounter.Value / (double)_cyclesCounter.Value,
@@ -322,7 +339,37 @@ internal sealed class DaeCore(
             () => _retiredCounter.Value == 0 ? 0.0 : _cyclesCounter.Value / (double)_retiredCounter.Value,
             "Cycles per instruction"
         );
+
+        // ── Top-Down Microarchitecture Analysis (Yasin, ISPASS 2014) ──────────────
+        // Slot accounting at the single-dispatch front end (issueWidth = 1): every real
+        // cycle contributes exactly one issue-pipeline slot.
+        TopDownCounters td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
+        _tdTotalSlotsCounter = td.TotalSlots;
+        _tdSlotsIssuedCounter = td.SlotsIssued;
+        _tdFetchBubblesCounter = td.FetchBubbles;
+        _tdRecoveryBubblesCounter = td.RecoveryBubbles;
+        _tdFetchLatencyCyclesCounter = td.FetchLatencyCycles;
+        _tdExecStallCyclesCounter = td.ExecStallCycles;
+        _tdMemStallLoadCyclesCounter = td.MemStallLoadCycles;
+        _tdMemStallStoreCyclesCounter = td.MemStallStoreCycles;
     }
+
+    private TopDownBreakdown ComputeTopDown() =>
+        TopDownBreakdown.Compute(
+            _tdTotalSlotsCounter.Value,
+            _tdSlotsIssuedCounter.Value,
+            _retiredCounter.Value,
+            _tdFetchBubblesCounter.Value,
+            _tdRecoveryBubblesCounter.Value,
+            _cyclesCounter.Value,
+            _tdFetchLatencyCyclesCounter.Value,
+            _tdExecStallCyclesCounter.Value,
+            _tdMemStallLoadCyclesCounter.Value,
+            _tdMemStallStoreCyclesCounter.Value,
+            0, // No branch speculation in DAE: barriers (including branches) execute in-order
+            // against precise state, so every rollback is a non-branch machine clear.
+            _tdRecoveriesCounter.Value
+        );
 
     public override void Wind() {
         State.Pc = entryPoint;
@@ -345,6 +392,10 @@ internal sealed class DaeCore(
 
         var dispatched = false;
         if (_pendingTrap is { } trap) {
+            // TMA RecoveryBubbles: the single-dispatch front end delivers nothing this cycle
+            // while lane-instruction traps drain toward precise rollback (Bad Speculation,
+            // Table 1) — including the cycle the rollback itself resolves on.
+            _tdRecoveryBubblesCounter.Increment();
             bool accessClear = _accessQueue.Count == 0 || _accessQueue.Peek().Seq > trap.Seq;
             bool executeClear = _executeQueue.Count == 0 || _executeQueue.Peek().Seq > trap.Seq;
             if (accessClear && executeClear) ResolveTrap(trap);
@@ -357,14 +408,36 @@ internal sealed class DaeCore(
         if (!accessAdvanced && _accessQueue.Count > 0) _crossLaneStallCounter.Increment();
         if (!executeAdvanced && _executeQueue.Count > 0) _crossLaneStallCounter.Increment();
 
-        long cacheStalls = iLayers.ConsumeAllStalls() + dLayers.ConsumeAllStalls();
+        // TMA: split stall cycles by side so an I-fetch miss (whole-cycle fetch starvation)
+        // attributes to Frontend Latency Bound while a D-side stall (store-commit write miss)
+        // attributes to Backend Memory Bound, mirroring OooeTrain/CprTrain's DrainStalls.
+        long iStalls = iLayers.ConsumeAllStalls();
+        long dStalls = dLayers.ConsumeAllStalls();
+        long cacheStalls = iStalls + dStalls;
+        if (iStalls > 0) {
+            _tdFetchBubblesCounter.IncrementBy(iStalls);
+            _tdFetchLatencyCyclesCounter.IncrementBy(iStalls);
+        }
+
+        if (dStalls > 0) {
+            _tdExecStallCyclesCounter.IncrementBy(dStalls);
+            // DAE executes each lane instruction synchronously against the live D-side
+            // accessor (no store buffer, no per-load in-flight latency tracking like
+            // OooeTrain's), so ConsumeAllStalls cannot separate a load miss from a store
+            // miss here; credited to MemStallLoad since a stalling load blocking its lane is
+            // this pipeline's central case.
+            _tdMemStallLoadCyclesCounter.IncrementBy(dStalls);
+        }
+
         // State.OnCycle advances the cycle CSR — self-timing workloads (rdcycle
         // calibration loops) never terminate without it.
         _cyclesCounter.Increment();
+        _tdTotalSlotsCounter.Increment();
         State.OnCycle();
         if (cacheStalls > 0) {
             _stallsCounter.IncrementBy(cacheStalls);
             _cyclesCounter.IncrementBy(cacheStalls);
+            _tdTotalSlotsCounter.IncrementBy(cacheStalls);
             for (long i = 0; i < cacheStalls; i++) State.OnCycle();
         }
 
@@ -387,6 +460,9 @@ internal sealed class DaeCore(
             if (faultCause != 0) {
                 State.Pc = mechanism.TrapController.RaiseTrap(new TrapInfo(faultCause, pc, pc), State);
                 _fetchPc = State.Pc;
+                // TMA: the front end consumed this cycle but delivered no lane work — an
+                // unutilized issue slot, not a backend-structural stall.
+                _tdFetchBubblesCounter.Increment();
                 return true;
             }
 
@@ -399,6 +475,7 @@ internal sealed class DaeCore(
                     new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), State
                 );
                 _fetchPc = State.Pc;
+                _tdFetchBubblesCounter.Increment();
                 return true;
             }
         }
@@ -409,6 +486,7 @@ internal sealed class DaeCore(
                     new TrapInfo(TrapCause.IllegalInstruction, ex.Encoding, pc), State
                 );
                 _fetchPc = State.Pc;
+                _tdFetchBubblesCounter.Increment();
                 return true;
             }
         }
@@ -422,11 +500,16 @@ internal sealed class DaeCore(
                 PEventLog.RecordDisasm(_pendingBarrierInstrId, mechanism.Decoder.Disassemble(pc, instr.RawEncoding));
             }
 
+            // TMA: staging a barrier fills this cycle's issue slot productively, even though
+            // its own execution is deferred until both lanes drain.
+            _tdSlotsIssuedCounter.Increment();
             return true;
         }
 
         Lane lane = ClassifyLane(instr);
         Queue<DaeInstruction> queue = lane == Lane.Access ? _accessQueue : _executeQueue;
+        // A full target lane is a backend-structural stall (ROB/IQ-full analogue), not a
+        // frontend bubble — left uncounted, same convention as OooeTrain's dispatch stall.
         if (queue.Count >= laneQueueDepth) return false;
 
         Dictionary<int, HandoffSlot>? crossLaneReads = null;
@@ -462,6 +545,7 @@ internal sealed class DaeCore(
             }
         );
         (lane == Lane.Access ? _accessIssuedCounter : _executeIssuedCounter).Increment();
+        _tdSlotsIssuedCounter.Increment();
 
         _fetchPc = pc + (ulong)instr.SizeBytes;
         return true;
@@ -546,6 +630,8 @@ internal sealed class DaeCore(
             // lane) once both lanes have drained down to program-order-older instructions only.
             _pendingTrap = new PendingTrap(inst.Seq, result.Trap!);
             _preciseTrapsCounter.Increment();
+            // TMA: a non-branch machine clear (DAE has no branch speculation to mispredict).
+            _tdRecoveriesCounter.Increment();
             return;
         }
 

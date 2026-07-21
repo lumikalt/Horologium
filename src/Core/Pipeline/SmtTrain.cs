@@ -133,6 +133,18 @@ internal sealed class SmtCore(
     private Action? _runCycle;
     private Counter _stallsCounter = null!;
 
+    // Top-Down Microarchitecture Analysis slot accounting (Yasin, ISPASS 2014). Each cycle
+    // contributes issueWidth slots, shared across harts; there is no branch speculation in
+    // this in-order barrel design (each hart resolves its own PC synchronously), so Bad
+    // Speculation stays at zero — a correct reading, not a gap.
+    private Counter _tdExecStallCyclesCounter = null!;
+    private Counter _tdFetchBubblesCounter = null!;
+    private Counter _tdFetchLatencyCyclesCounter = null!;
+    private Counter _tdMemStallLoadCyclesCounter = null!;
+    private Counter _tdMemStallStoreCyclesCounter = null!;
+    private Counter _tdSlotsIssuedCounter = null!;
+    private Counter _tdTotalSlotsCounter = null!;
+
     public int HartCount => _harts.Length;
     public IArchState StateOf(int i) => _harts[i].ArchState;
 
@@ -160,7 +172,33 @@ internal sealed class SmtCore(
             () => _retiredCounter.Value == 0 ? 0.0 : _cyclesCounter.Value / (double)_retiredCounter.Value,
             "Cycles per instruction (aggregate)"
         );
+
+        // ── Top-Down Microarchitecture Analysis (Yasin, ISPASS 2014) ──────────────
+        TopDownCounters td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
+        _tdTotalSlotsCounter = td.TotalSlots;
+        _tdSlotsIssuedCounter = td.SlotsIssued;
+        _tdFetchBubblesCounter = td.FetchBubbles;
+        _tdFetchLatencyCyclesCounter = td.FetchLatencyCycles;
+        _tdExecStallCyclesCounter = td.ExecStallCycles;
+        _tdMemStallLoadCyclesCounter = td.MemStallLoadCycles;
+        _tdMemStallStoreCyclesCounter = td.MemStallStoreCycles;
     }
+
+    private TopDownBreakdown ComputeTopDown() =>
+        TopDownBreakdown.Compute(
+            _tdTotalSlotsCounter.Value,
+            _tdSlotsIssuedCounter.Value,
+            _retiredCounter.Value,
+            _tdFetchBubblesCounter.Value,
+            0, // No recovery bubbles: no speculative rollback exists in this in-order design.
+            _cyclesCounter.Value,
+            _tdFetchLatencyCyclesCounter.Value,
+            _tdExecStallCyclesCounter.Value,
+            _tdMemStallLoadCyclesCounter.Value,
+            _tdMemStallStoreCyclesCounter.Value,
+            0, // No branch speculation: each hart resolves its own PC synchronously in-order.
+            0
+        );
 
     public override void Reset() {
         base.Reset();
@@ -183,7 +221,7 @@ internal sealed class SmtCore(
         for (var i = 0; i < n; i++) available[i] = !_harts[i].Halted;
 
         var issued = 0;
-        long cacheStalls = 0;
+        long iStallsTotal = 0, dStallsTotal = 0;
 
         fetchPolicy.BeginCycle(n);
 
@@ -195,9 +233,11 @@ internal sealed class SmtCore(
             bool cut = IssueOne(ctx);
             issuedThisCycle[found] = true;
 
-            long hartStalls = ctx.ILayers.ConsumeAllStalls() + ctx.DLayers.ConsumeAllStalls();
-            cacheStalls += hartStalls;
-            fetchPolicy.OnIssued(found, hartStalls);
+            long iStalls = ctx.ILayers.ConsumeAllStalls();
+            long dStalls = ctx.DLayers.ConsumeAllStalls();
+            iStallsTotal += iStalls;
+            dStallsTotal += dStalls;
+            fetchPolicy.OnIssued(found, iStalls + dStalls);
 
             available[found] = !cut;
             issued++;
@@ -205,22 +245,56 @@ internal sealed class SmtCore(
 
         // Drain accumulated cache stall penalties from harts that didn't get an issue slot.
         for (var i = 0; i < n; i++)
-            if (!issuedThisCycle[i])
-                cacheStalls += _harts[i].ILayers.ConsumeAllStalls() + _harts[i].DLayers.ConsumeAllStalls();
+            if (!issuedThisCycle[i]) {
+                iStallsTotal += _harts[i].ILayers.ConsumeAllStalls();
+                dStallsTotal += _harts[i].DLayers.ConsumeAllStalls();
+            }
+
+        long cacheStalls = iStallsTotal + dStallsTotal;
+
+        // TMA: split by side so an I-side miss attributes to Frontend Latency Bound and a
+        // D-side miss to Backend Memory Bound, mirroring OooeTrain/CprTrain's DrainStalls.
+        // Each hart has independent I/D memory layers, so this sums misses across harts —
+        // the lump-sum stall model already freezes the whole cycle group for their combined
+        // penalty (see below), so the attribution is consistent with that simplification.
+        if (iStallsTotal > 0) {
+            _tdFetchBubblesCounter.IncrementBy(iStallsTotal * issueWidth);
+            _tdFetchLatencyCyclesCounter.IncrementBy(iStallsTotal);
+        }
+
+        if (dStallsTotal > 0) {
+            _tdExecStallCyclesCounter.IncrementBy(dStallsTotal);
+            // No store buffer and no per-load in-flight tracking in this in-order model (like
+            // DaeTrain), so a D-side miss cannot be split into load vs. store; credited to
+            // MemStallLoad since a stalling load is the common case.
+            _tdMemStallLoadCyclesCounter.IncrementBy(dStallsTotal);
+        }
 
         // Per-hart OnCycle advances each cycle CSR — self-timing workloads (rdcycle
         // calibration loops) never terminate without it.
         _cyclesCounter.Increment();
+        _tdTotalSlotsCounter.IncrementBy(issueWidth);
+        _tdSlotsIssuedCounter.IncrementBy(issued);
         foreach (HartContext ctx in _harts) ctx.ArchState.OnCycle();
         if (cacheStalls > 0) {
             _stallsCounter.IncrementBy(cacheStalls);
             _cyclesCounter.IncrementBy(cacheStalls);
+            _tdTotalSlotsCounter.IncrementBy(cacheStalls * issueWidth);
             for (long i = 0; i < cacheStalls; i++)
                 foreach (HartContext ctx in _harts)
                     ctx.ArchState.OnCycle();
         }
 
-        if (issued < issueWidth) _stallsCounter.Increment();
+        if (issued < issueWidth) {
+            _stallsCounter.Increment();
+            // TMA: fewer harts issued than there were issue slots. There is no ROB/IQ-style
+            // backend resource in this in-order design to structurally block dispatch, so an
+            // underfilled cycle always reads as Frontend Bound — thread starvation (too few
+            // runnable harts, or every available hart was cut by a branch/halt/trap this
+            // cycle) rather than a backend stall.
+            _tdFetchBubblesCounter.IncrementBy(issueWidth - issued);
+            if (issued == 0) _tdFetchLatencyCyclesCounter.Increment();
+        }
 
         var anyActive = false;
         foreach (HartContext ctx in _harts)
