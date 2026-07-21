@@ -66,4 +66,14 @@ public interface ICriticalityPredictor {
 
     /// <summary>Trains the predictor from a retiring instruction's resolved dependence-graph sources.</summary>
     void OnCommit(in CriticalityCommitInfo info);
+
+    /// <summary>
+    ///     Serializes this predictor's trained table for a microarchitectural checkpoint (see
+    ///     <see cref="MicroarchitecturalCheckpoint" />). Default no-op: predictors that don't opt
+    ///     in cold-start after restore.
+    /// </summary>
+    void WriteState(BinaryWriter w) { }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Default no-op.</summary>
+    void ReadState(BinaryReader r) { }
 }

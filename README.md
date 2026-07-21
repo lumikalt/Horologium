@@ -1526,23 +1526,49 @@ predictor/policy type) skips the mismatched section and cold-starts it instead o
 bytes. `RestoreMicroCheckpoint` must be called with the same `entryPoint` convention as `ArchitecturalCheckpoint`
 (pass the checkpoint's PC to the constructor — `RestoreInto` only writes `ArchState.Pc`, not the pipeline's internal
 fetch-PC latch). Caches/TLB/predictor gained `WriteState`/`ReadState` via the same default-no-op-then-override
-pattern as `IArchState` (`IBranchPredictor`, `IReplacementPolicy`); only `SetAssociativeCache`, `Tlb`, `LruPolicy`,
-and `NBitBp` implement real bodies so far — everything else cold-starts. `PhysicalRegisterFile`/`RenameMap` are
-deliberately not serialized: at a drained boundary they carry no information the architectural register values
-(already covered by `ArchitecturalCheckpoint`, restored into the PRF by the existing `Wind()` re-seed) don't already
-reconstruct. `MSHR`/write-back-buffer/victim-buffer/in-flight-prefetch state in `SetAssociativeCache` is not
-serialized either — `WriteState` throws if any of it is non-empty at save time, rather than silently dropping it,
-since a proper drain leaves it empty for every config this covers today. `Tests/Pipeline/MicroCheckpointTests.cs`
-has per-table round trips plus an equivalence test: drain a running train mid-loop, save, and continue it as the
+pattern as `IArchState` (`IBranchPredictor`, `IReplacementPolicy`, `IValuePredictor`, `ICriticalityPredictor`);
+`SetAssociativeCache`, `Tlb`, `LruPolicy`, `NBitBp`, `StoreSetPredictor`, `SmbPredictor`, `RdipPrefetcher`,
+`TokenPassingCriticalityPredictor`, and `LvpVp` implement real bodies — every other `IBranchPredictor`/
+`IReplacementPolicy`/`IValuePredictor` cold-starts. `FdipPrefetcher` is deliberately excluded entirely: it has no
+trained table, only a lookahead FTQ that rebuilds itself within `ftqCapacity` cycles of `Wind()` regardless, so
+there's nothing worth carrying over. `PhysicalRegisterFile`/`RenameMap` are deliberately not serialized: at a
+drained boundary they carry no information the architectural register values (already covered by
+`ArchitecturalCheckpoint`, restored into the PRF by the existing `Wind()` re-seed) don't already reconstruct.
+`MSHR`/write-back-buffer/victim-buffer/in-flight-prefetch state in `SetAssociativeCache` is not serialized either —
+`WriteState` throws if any of it is non-empty at save time, rather than silently dropping it, since a proper drain
+leaves it empty for every config this covers today.
+
+**The key design rule for the OoO-side predictors** (found while extending past the vertical slice): serialize
+only tables keyed by PC, address, or other *content*; skip anything keyed by, or compared against, a monotonic
+per-train counter (InstrId/SeqNo/commit count) — those restart at 0/1 on a freshly restored train, so a
+carried-over counter value can never match again. `StoreSetPredictor`'s SSIT (PC → store-set) is safe and
+serialized; its LFST (keyed by store `SeqNo`) is deliberately left cold — at a drained boundary every tracked
+store has already issued, so a fresh (all-zero) LFST is the *correct* state, not an approximation, and carrying a
+stale SeqNo over could stall a load's dependence prediction forever. `TokenPassingCriticalityPredictor` follows
+the same rule: only its PC-indexed hysteresis table (`_cpTable`) is serialized; its ROB-slot/token/commit-counter
+bookkeeping is not. `SmbPredictor` (distances are *relative* SSN deltas, not absolute SeqNos) and `RdipPrefetcher`
+(everything is keyed by call-stack signature or physical address) needed no such split — both serialize wholesale.
+
+`Tests/Pipeline/MicroCheckpointTests.cs` has per-table round trips (where the type is `public` and cheap to
+construct standalone) plus equivalence tests: drain a running train mid-program, save, and continue it as the
 reference (`Drain` never discards in-flight work, only delays new fetches by a few cycles, so this is a faithful
-continuation); separately reload the checkpoint into a fresh train and run to completion. Final architectural
-state, ticks, retired-instruction count, cache miss count, and branch-misprediction count match exactly; cache hit
-count is allowed a ±1 tolerance for wrong-path (later-squashed) memory accesses right at a branch-resolution
-boundary, whose exact count depends on cycle-exact pipeline occupancy that a drained-boundary checkpoint doesn't
-claim to preserve — confirmed by direct tag/data/age snapshot comparison that the restored cache table itself is
-bit-identical at the checkpoint instant. Not yet done: `StoreSetPredictor`/`IValuePredictor`/
-`ICriticalityPredictor`/`SmbPredictor`/`FdipPrefetcher`/`RdipPrefetcher` table serialization, and Runner CLI wiring
-(`--checkpoint-save`/`--checkpoint-load` cover only the architectural checkpoint today) — see TODO.md.
+continuation); separately reload the checkpoint into a fresh train and run to completion. The main D-cache/
+predictor/RAS equivalence test asserts final architectural state, ticks, retired-instruction count, cache miss
+count, and branch-misprediction count match exactly; cache hit count is allowed a ±1 tolerance for wrong-path
+(later-squashed) memory accesses right at a branch-resolution boundary, whose exact count depends on cycle-exact
+pipeline occupancy that a drained-boundary checkpoint doesn't claim to preserve — confirmed by direct tag/data/age
+snapshot comparison that the restored cache table itself is bit-identical at the checkpoint instant. The
+`StoreSetPredictor` equivalence test is deliberately adversarial (a store address delayed behind a long dependency
+chain racing an immediately-ready load address, to reliably trigger a real memory-order violation) and needs its
+own small tolerance on ticks/violation count for the same wrong-path-timing reason — but asserts `retired` matches
+exactly and that the divergence stays bounded rather than scaling with remaining loop iterations, which a genuine
+stale-SeqNo stall bug would do. `StoreSetPredictor` and `SmbPredictor` are `internal`, so their equivalence tests
+are the only reachable verification for them (no unit-level round trip is possible from the test project).
+
+Not yet done: more `IValuePredictor` implementations beyond `LvpVp` (`VtageVp`, `StrideVp`, `HybridVp`,
+`DynamicClassificationVp`), more `IBranchPredictor`/`IReplacementPolicy` implementations beyond `NBitBp`/
+`LruPolicy`, and Runner CLI wiring (`--checkpoint-save`/`--checkpoint-load` cover only the architectural checkpoint
+today) — see TODO.md.
 
 ### Instruction trace output (Olympia, RiscV32/Trace)
 

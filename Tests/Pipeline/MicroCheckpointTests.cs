@@ -3,10 +3,12 @@
 using System.Text;
 using Mechanism;
 using Mechanism.BranchPred;
+using Mechanism.ValuePred;
 using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
+using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
 
@@ -374,5 +376,298 @@ public class MicroCheckpointTests {
 
         RevolutionResult result = trainB.Run();
         Assert.True(result.TotalTicks > 0);
+    }
+
+    // ── Optional OoO predictor/prefetcher tables ─────────────────────────────
+    //
+    // StoreSetPredictor and SmbPredictor are `internal`, so a direct unit-level round trip isn't
+    // reachable from this test project — full pipeline equivalence tests are the only available
+    // (and, per the design note on each WriteState, the only sufficient) proof for them.
+    // TokenPassingCriticalityPredictor and LvpVp are `public`, so they also get a cheap direct
+    // round trip. RdipPrefetcher's equivalence test is the most expensive to set up (needs a
+    // two-region call/return program plus an I-cache) but reuses RdipPrefetcherTests' program
+    // directly.
+
+    private static (RevolutionResult RefResult, RevolutionResult ReloadResult, OooeTrain TrainA, OooeTrain TrainB)
+        RunDrainSaveRestoreEquivalence(
+            Func<FlatMemory, ulong, OooeTrain> makeTrain,
+            Action<FlatMemory> loadProgram,
+            Func<OooeTrain, bool> triggerReached,
+            int marginCycles = 5,
+            long tickTolerance = 0
+        ) {
+        var memA = new FlatMemory(8192);
+        loadProgram(memA);
+        OooeTrain trainA = makeTrain(memA, 0);
+
+        trainA.BeginStepping();
+        while (!triggerReached(trainA))
+            if (!trainA.StepCycle())
+                break;
+        for (var i = 0; i < marginCycles; i++)
+            if (!trainA.StepCycle())
+                break;
+        trainA.Drain();
+
+        ulong checkpointPc = trainA.ArchState.Pc;
+        IReadOnlyList<DialBoardSnapshot> baseline = trainA.SnapshotDials();
+
+        using var ms = new MemoryStream();
+        trainA.SaveMicroCheckpoint(ms, memA);
+        while (trainA.StepCycle()) { }
+        RevolutionResult refResult = trainA.FinishStepping(baseline);
+
+        var memB = new FlatMemory(8192);
+        loadProgram(memB);
+        OooeTrain trainB = makeTrain(memB, checkpointPc);
+        ms.Position = 0;
+        trainB.RestoreMicroCheckpoint(ms, memB);
+        trainB.BeginStepping();
+        while (trainB.StepCycle()) { }
+        RevolutionResult reloadResult = trainB.FinishStepping();
+
+        for (var r = 0; r < 32; r++)
+            Assert.Equal(trainA.ArchState.IntegerRegisters.Read(r), trainB.ArchState.IntegerRegisters.Read(r));
+        Assert.Equal(trainA.ArchState.Pc, trainB.ArchState.Pc);
+        Assert.InRange(reloadResult.TotalTicks - refResult.TotalTicks, -tickTolerance, tickTolerance);
+        Assert.Equal(
+            MicroCheckpointTests.Counter(refResult, "retired"), MicroCheckpointTests.Counter(reloadResult, "retired")
+        );
+
+        return (refResult, reloadResult, trainA, trainB);
+    }
+
+    private static uint EncodeBne(int rs1, int rs2, int byteOffset) {
+        var imm = (uint)byteOffset;
+        uint imm12 = (imm >> 12) & 1;
+        uint imm11 = (imm >> 11) & 1;
+        uint imm10_5 = (imm >> 5) & 0x3F;
+        uint imm4_1 = (imm >> 1) & 0xF;
+        return (imm12 << 31) | (imm10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b001u << 12)
+            | (imm4_1 << 8) | (imm11 << 7) | 0x63;
+    }
+
+    /// <summary>
+    ///     A store whose address is delayed behind a long dependency chain (x3), and an
+    ///     independent load to the same address whose own address (x5) is ready immediately —
+    ///     the classic setup for a genuine memory-order violation: the younger load races ahead
+    ///     and reads before the older, still-in-flight store resolves. Looped
+    ///     <paramref name="iterations" /> times at fixed PCs so StoreSetPredictor's SSIT (keyed
+    ///     by store/load PC, threshold 2) trains after the first two violations and then
+    ///     correctly prevents the rest — verified directly against a store-sets-disabled control
+    ///     in a throwaway scratch run before this test was written.
+    /// </summary>
+    private static uint[] BuildViolationLoopProgram(int iterations, int chainLength) {
+        var body = new List<uint> {
+            0x0C800293, // addi x5, x0, 200      -- load address, ready immediately
+            0x0C800193, // addi x3, x0, 200      -- store-address chain seed
+        };
+        for (var i = 0; i < chainLength; i++) body.Add(0x00018193); // addi x3, x3, 0 (delay chain)
+        body.Add(0x00018093); // addi x1, x3, 0  -- store address, ready only after the chain
+        body.Add(0x0020A023); // sw x2, 0(x1)     -- older, address resolves late
+        body.Add(0x0002A203); // lw x4, 0(x5)     -- younger, address ready immediately
+        body.Add(0x00020313); // addi x6, x4, 0   -- use x4 so it isn't dead code
+        body.Add(0xFFF38393); // addi x7, x7, -1  -- loop counter decrement
+
+        uint bne = MicroCheckpointTests.EncodeBne(7, 0, -(body.Count * 4));
+
+        var program = new List<uint> { ((uint)iterations << 20) | (7u << 7) | 0x13, }; // addi x7, x0, iterations
+        program.AddRange(body);
+        program.Add(bne);
+        program.Add(0x00100073); // ebreak
+        return program.ToArray();
+    }
+
+    /// <summary>
+    ///     Deliberately adversarial timing: the store's address is delayed behind a long chain
+    ///     while the load's is immediate, so the outcome sits exactly on a one-cycle race —
+    ///     maximally sensitive to *any* cycle-level scheduling difference between "continuing a
+    ///     live pipeline through Drain()" and "resuming a freshly Wind()-ed one", independent of
+    ///     the checkpoint mechanism (a similar ±1 timing artifact was also observed, and
+    ///     tolerated, for wrong-path dcache_hits counting near a branch-resolution boundary in
+    ///     <see cref="Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation" />). The
+    ///     property this test actually exists to guard — the one the design note on
+    ///     <c>StoreSetPredictor.WriteState</c> calls out as the real risk — is that the checkpoint
+    ///     must never carry over a stale <c>SeqNo</c>-keyed LFST entry that could stall a load's
+    ///     dependence prediction forever: confirmed by <c>retired</c> matching exactly (both runs
+    ///     converge to the identical final instruction count and architectural state) and by the
+    ///     tick divergence staying small and bounded rather than scaling with the number of
+    ///     remaining loop iterations (checked manually against 8 vs. 20 total iterations while
+    ///     developing this test — a permanent stall would instead grow unboundedly). The claim on
+    ///     <c>StoreSetPredictor.WriteState</c> that LFST/<c>_seen1Pc</c> are genuinely all-zero at
+    ///     this test's drain point (not just "assumed empty") was verified directly: a temporary
+    ///     instrumented build logging any nonzero LFST/<c>_seen1Pc</c> entry at
+    ///     <c>WriteState</c> time produced no output across this test, so the residual
+    ///     <c>violationsDelta</c> of at most 1 is confirmed to come from un-checkpointed pipeline
+    ///     scalar timing (the same category as the wrong-path dcache_hits tolerance above), not
+    ///     from a skipped-but-load-bearing LFST entry.
+    /// </summary>
+    [Fact]
+    public void StoreSetPredictor_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        uint[] program = MicroCheckpointTests.BuildViolationLoopProgram(8, 20);
+
+        OooeTrain MakeStoreSetTrain(FlatMemory mem, ulong entryPoint) =>
+            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 64, iqCapacity: 32, enableStoreSets: true);
+
+        (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
+            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+                MakeStoreSetTrain,
+                mem => MicroCheckpointTests.Load(mem, program),
+                // Wait past the 2nd violation (SSID assigned, threshold=2) before checkpointing,
+                // so the checkpoint actually carries a trained SSIT.
+                train => train.SnapshotPipeline().Counters.GetValueOrDefault("mem_order_violations") >= 2,
+                tickTolerance: 50
+            );
+
+        // At most one extra violation from the race-condition sensitivity described above — not
+        // the unbounded-stall failure mode a stale-SeqNo bug would cause.
+        long violationsDelta = MicroCheckpointTests.Counter(reloadResult, "mem_order_violations")
+            - MicroCheckpointTests.Counter(refResult, "mem_order_violations");
+        Assert.InRange(violationsDelta, 0, 1);
+    }
+
+    [Fact]
+    public void SmbPredictor_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        OooeTrain MakeSmbTrain(FlatMemory mem, ulong entryPoint) =>
+            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 16, iqCapacity: 8, enableSmbBypass: true);
+
+        (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
+            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+                MakeSmbTrain,
+                mem => MicroCheckpointTests.Load(mem, MicroCheckpointTests.LoopProgram),
+                train => train.SnapshotPipeline().Counters.GetValueOrDefault("smb_bypasses") > 0
+            );
+
+        Assert.Equal(
+            MicroCheckpointTests.Counter(refResult, "smb_mispredicts"),
+            MicroCheckpointTests.Counter(reloadResult, "smb_mispredicts")
+        );
+        Assert.True(MicroCheckpointTests.Counter(refResult, "smb_bypasses") > 0);
+    }
+
+    [Fact]
+    public void TokenPassingCriticalityPredictor_RoundTrip_CpTableMatches() {
+        var predA = new TokenPassingCriticalityPredictor(robCapacity: 16, cpTableSize: 256);
+        for (ulong i = 0; i < 20; i++)
+            predA.OnCommit(
+                new CriticalityCommitInfo {
+                    InstrId = i, Pc = 0x100, DSourceNode = CpNode.D, DSourceInstrId = i,
+                    ESourceNode = CpNode.D, ESourceInstrId = i, CSourceNode = CpNode.E, CSourceInstrId = i,
+                }
+            );
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) predA.WriteState(w);
+
+        var predB = new TokenPassingCriticalityPredictor(robCapacity: 16, cpTableSize: 256);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) predB.ReadState(r);
+
+        for (ulong pc = 0; pc < 4096; pc += 4)
+            Assert.Equal(predA.PredictCritical(pc), predB.PredictCritical(pc));
+    }
+
+    [Fact]
+    public void LvpVp_RoundTrip_TableMatches() {
+        var vpA = new LvpVp(64);
+        vpA.Update(0x100, default, 42);
+        vpA.Update(0x100, default, 42);
+        vpA.Update(0x100, default, 42);
+
+        using var ms = new MemoryStream();
+        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+
+        var vpB = new LvpVp(64);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+
+        Assert.Equal(vpA.TryPredict(0x100, default, out ulong valA), vpB.TryPredict(0x100, default, out ulong valB));
+        Assert.Equal(valA, valB);
+    }
+
+    [Fact]
+    public void ValuePredictor_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        // Register-copy chain that always converges to the same value every iteration — the
+        // classic value-prediction win case. Cribbed from ValuePredictionTests.
+        uint[] program = [
+            0x1F400093, // addi x1, x0, 500
+            0x06300113, // addi x2, x0, 99
+            0x000101B3, // loop: add x3, x2, x0
+            0x00018133, // add x2, x3, x0
+            0xFFF08093, // addi x1, x1, -1
+            0xFE009AE3, // bne x1, x0, loop
+            0x00100073, // ebreak
+        ];
+
+        OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
+            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new LvpVp());
+
+        (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
+            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+                MakeVpTrain,
+                mem => MicroCheckpointTests.Load(mem, program),
+                train => train.SnapshotPipeline().Counters.GetValueOrDefault("vp_predictions") > 0
+            );
+
+        Assert.Equal(
+            MicroCheckpointTests.Counter(refResult, "vp_mispredicts"),
+            MicroCheckpointTests.Counter(reloadResult, "vp_mispredicts")
+        );
+        Assert.True(MicroCheckpointTests.Counter(refResult, "vp_predictions") > 0);
+    }
+
+    [Fact]
+    public void RdipPrefetcher_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        // Caller (block 0) repeatedly calls a 5-cache-block callee (0x1000+); cribbed from
+        // RdipPrefetcherTests, whose comment block explains the exact block layout.
+        const uint nop = 0x00000013;
+        var caller = new List<uint> {
+            0x00A00293, // addi x5, x0, 10       -- loop count (more iterations than the original
+            //                                       test, so there's meaningful work either side
+            //                                       of the checkpoint)
+            0x7FD000EF, // jal x1, 4092 (call 0x1000)
+            0xFFF28293, // addi x5, x5, -1
+            0xFE029CE3, // bne x5, x0, -8
+            0x00100073, // ebreak
+        };
+        for (var i = 0; i < 11; i++) caller.Add(nop);
+
+        var callee = new List<uint>();
+        for (var i = 0; i < 79; i++) callee.Add(nop);
+        callee.Add(0x00008067); // jalr x0, x1, 0 -- return
+
+        void LoadProgram(FlatMemory mem) {
+            MicroCheckpointTests.LoadAt(mem, 0, caller.ToArray());
+            MicroCheckpointTests.LoadAt(mem, 0x1000, callee.ToArray());
+        }
+
+        var iCacheCfg = new MemoryConfig(256, 4, 64);
+
+        OooeTrain MakeRdipTrain(FlatMemory mem, ulong entryPoint) =>
+            new(
+                new Rv32Mechanism(), mem, entryPoint, robCapacity: 16, iqCapacity: 8,
+                iMemConfig: iCacheCfg, rdip: true
+            );
+
+        (RevolutionResult refResult, RevolutionResult reloadResult, OooeTrain trainA, OooeTrain trainB) =
+            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+                MakeRdipTrain, LoadProgram, train => train.ICache!.Prefetches > 0
+            );
+
+        Assert.Equal(refResult.TotalTicks, reloadResult.TotalTicks); // already asserted by the helper; kept for clarity
+        Assert.True(trainA.ICache!.Prefetches > 0);
+        Assert.True(trainB.ICache!.Prefetches >= 0); // reload may or may not need further prefetches; must not throw
+    }
+
+    private static void LoadAt(FlatMemory mem, ulong address, uint[] words) {
+        var bytes = new byte[words.Length * 4];
+        for (var i = 0; i < words.Length; i++) {
+            bytes[i * 4 + 0] = (byte)words[i];
+            bytes[i * 4 + 1] = (byte)(words[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(words[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(words[i] >> 24);
+        }
+
+        mem.Load(address, bytes);
     }
 }

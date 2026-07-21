@@ -111,6 +111,17 @@ public interface IValuePredictor {
     ///     forwards this to whichever inner component tracks history.
     /// </summary>
     void AdvanceCommittedHistory(bool taken) { }
+
+    /// <summary>
+    ///     Serializes this predictor's trained tables for a microarchitectural checkpoint (see
+    ///     <see cref="MicroarchitecturalCheckpoint" />). Default no-op: predictors that don't opt
+    ///     in cold-start after restore. Called only at a drained pipeline boundary, so no
+    ///     in-flight speculative history needs to be captured — only steady-state tables.
+    /// </summary>
+    void WriteState(BinaryWriter w) { }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Default no-op.</summary>
+    void ReadState(BinaryReader r) { }
 }
 
 /// <summary>

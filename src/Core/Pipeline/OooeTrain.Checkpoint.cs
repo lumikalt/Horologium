@@ -144,6 +144,33 @@ internal sealed partial class OoOPipelineCore {
         ));
         sections.Add(("RAS", _ras.WriteState));
         sections.Add(("CRAS", _committedRas.WriteState));
+
+        if (_storeSets is not null) sections.Add(("STORESETS", _storeSets.WriteState));
+        if (_smbPredictor is not null) sections.Add(("SMB", _smbPredictor.WriteState));
+        if (Rdip is not null) sections.Add(("RDIP", Rdip.WriteState));
+
+        // ICriticalityPredictor/IValuePredictor can have more than one concrete implementation
+        // (like IBranchPredictor), so tag with the concrete type and skip on mismatch — see BPRED.
+        if (_criticalityPredictor is not null) {
+            string criticalityType = _criticalityPredictor.GetType().FullName ?? "";
+            sections.Add((
+                "CRITICALITY", w => {
+                    w.Write(criticalityType);
+                    _criticalityPredictor.WriteState(w);
+                }
+            ));
+        }
+
+        if (_valuePredictor is not null) {
+            string valuePredictorType = _valuePredictor.GetType().FullName ?? "";
+            sections.Add((
+                "VALUEPRED", w => {
+                    w.Write(valuePredictorType);
+                    _valuePredictor.WriteState(w);
+                }
+            ));
+        }
+
         return sections;
     }
 
@@ -166,5 +193,29 @@ internal sealed partial class OoOPipelineCore {
         );
         chk.TryRestoreSection("RAS", _ras.ReadState);
         chk.TryRestoreSection("CRAS", _committedRas.ReadState);
+
+        if (_storeSets is not null) chk.TryRestoreSection("STORESETS", _storeSets.ReadState);
+        if (_smbPredictor is not null) chk.TryRestoreSection("SMB", _smbPredictor.ReadState);
+        if (Rdip is not null) chk.TryRestoreSection("RDIP", Rdip.ReadState);
+
+        if (_criticalityPredictor is not null) {
+            string criticalityType = _criticalityPredictor.GetType().FullName ?? "";
+            chk.TryRestoreSection(
+                "CRITICALITY", r => {
+                    string savedType = r.ReadString();
+                    if (savedType == criticalityType) _criticalityPredictor.ReadState(r);
+                }
+            );
+        }
+
+        if (_valuePredictor is not null) {
+            string valuePredictorType = _valuePredictor.GetType().FullName ?? "";
+            chk.TryRestoreSection(
+                "VALUEPRED", r => {
+                    string savedType = r.ReadString();
+                    if (savedType == valuePredictorType) _valuePredictor.ReadState(r);
+                }
+            );
+        }
     }
 }

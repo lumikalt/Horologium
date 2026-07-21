@@ -75,4 +75,43 @@ internal sealed class SmbPredictor {
         if (!_valid[idx] || _pc[idx] != pc) return;
         _confidence[idx] = (byte)Math.Max(0, _confidence[idx] - 1);
     }
+
+    /// <summary>
+    ///     Serializes this predictor's table for a microarchitectural checkpoint. Safe to carry
+    ///     over wholesale — unlike <see cref="StoreSetPredictor" />'s LFST, <see cref="_distance" />
+    ///     stores a relative SSN <em>delta</em> (load minus producing-store), not an absolute
+    ///     SeqNo, so it stays meaningful across a train restart that resets SeqNo numbering.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_distance.Length);
+        foreach (ulong d in _distance) w.Write(d);
+        foreach (byte c in _confidence) w.Write(c);
+        foreach (ulong pc in _pc) w.Write(pc);
+        foreach (bool v in _valid) w.Write(v);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table size must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int size = r.ReadInt32();
+        int n = Math.Min(size, _distance.Length);
+        for (var i = 0; i < size; i++) {
+            ulong d = r.ReadUInt64();
+            if (i < n) _distance[i] = d;
+        }
+
+        for (var i = 0; i < size; i++) {
+            byte c = r.ReadByte();
+            if (i < n) _confidence[i] = c;
+        }
+
+        for (var i = 0; i < size; i++) {
+            ulong pc = r.ReadUInt64();
+            if (i < n) _pc[i] = pc;
+        }
+
+        for (var i = 0; i < size; i++) {
+            bool v = r.ReadBoolean();
+            if (i < n) _valid[i] = v;
+        }
+    }
 }

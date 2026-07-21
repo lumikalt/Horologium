@@ -121,4 +121,28 @@ public sealed class TokenPassingCriticalityPredictor : ICriticalityPredictor {
     }
 
     private int CpTableIdx(ulong pc) => (int)((pc >> 2) & (uint)_cpTableMask);
+
+    /// <summary>
+    ///     Serializes only <see cref="_cpTable" /> — the PC-indexed hysteresis table, the sole
+    ///     genuinely persistent learned state. Deliberately skips <see cref="_tokens" /> (indexed
+    ///     by <c>InstrId % robCapacity</c>), <see cref="_plantedAt" />/<see cref="_replantAt" />/
+    ///     <see cref="_commitCount" /> (raw commit-counter values), and <see cref="_tokenInUse" />/
+    ///     <see cref="_seedPc" />: all of these are keyed by or compared against
+    ///     <see cref="_commitCount" />, a monotonic per-train counter that restarts at 0 on a
+    ///     freshly constructed train. Carrying them over would compare stale large counter values
+    ///     against a small fresh one — an unsigned-subtraction underflow that corrupts token
+    ///     lifecycle tracking. A fresh predictor's default token-planting schedule is exactly the
+    ///     correct state to resume into.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_cpTable.Length);
+        w.Write(_cpTable);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table size must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int size = r.ReadInt32();
+        byte[] table = r.ReadBytes(size);
+        Array.Copy(table, _cpTable, Math.Min(size, _cpTable.Length));
+    }
 }

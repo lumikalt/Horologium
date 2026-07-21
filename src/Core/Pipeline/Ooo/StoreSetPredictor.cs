@@ -152,4 +152,39 @@ internal sealed class StoreSetPredictor {
         if (_nextSsid > _lfst.Length) _nextSsid = 1;
         return _nextSsid++;
     }
+
+    /// <summary>
+    ///     Serializes the learned SSIT (PC → store-set) mapping for a microarchitectural
+    ///     checkpoint. Deliberately does <em>not</em> serialize <see cref="_lfst" /> or
+    ///     <see cref="_seen1Pc" />: both are keyed by store <c>SeqNo</c>, a monotonic per-train
+    ///     counter that restarts at 1 on a freshly constructed train, so a carried-over SeqNo
+    ///     would never match again and could stall a load's dependence prediction forever. At a
+    ///     drained checkpoint boundary every tracked store has long since issued, so a fresh
+    ///     (all-zero) LFST is the <em>correct</em> state, not an approximation.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_ssit.Length);
+        foreach (int s in _ssit) w.Write(s);
+        foreach (ulong pc in _ssitPc) w.Write(pc);
+        w.Write(_nextSsid);
+        w.Write(_loadCount);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table size must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int size = r.ReadInt32();
+        int n = Math.Min(size, _ssit.Length);
+        for (var i = 0; i < size; i++) {
+            int s = r.ReadInt32();
+            if (i < n) _ssit[i] = s;
+        }
+
+        for (var i = 0; i < size; i++) {
+            ulong pc = r.ReadUInt64();
+            if (i < n) _ssitPc[i] = pc;
+        }
+
+        _nextSsid = r.ReadInt32();
+        _loadCount = r.ReadUInt32();
+    }
 }

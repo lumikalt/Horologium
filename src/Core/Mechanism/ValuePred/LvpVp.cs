@@ -63,4 +63,38 @@ public sealed class LvpVp : IValuePredictor {
     }
 
     private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
+
+    /// <summary>
+    ///     Serializes the PC-indexed value/confidence table. Deliberately does not serialize
+    ///     <see cref="_fpc" />'s internal RNG state — it is not exposed for serialization, and
+    ///     re-seeding fresh only causes a benign statistical divergence in confidence-transition
+    ///     timing, the same accepted tradeoff as every other RNG-backed component this checkpoint
+    ///     format skips (see README.md).
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_value.Length);
+        foreach (ulong v in _value) w.Write(v);
+        foreach (byte c in _confidence) w.Write(c);
+        foreach (bool valid in _valid) w.Write(valid);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table size must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int size = r.ReadInt32();
+        int n = Math.Min(size, _value.Length);
+        for (var i = 0; i < size; i++) {
+            ulong v = r.ReadUInt64();
+            if (i < n) _value[i] = v;
+        }
+
+        for (var i = 0; i < size; i++) {
+            byte c = r.ReadByte();
+            if (i < n) _confidence[i] = c;
+        }
+
+        for (var i = 0; i < size; i++) {
+            bool valid = r.ReadBoolean();
+            if (i < n) _valid[i] = valid;
+        }
+    }
 }

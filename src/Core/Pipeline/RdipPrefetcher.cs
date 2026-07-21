@@ -217,4 +217,48 @@ public sealed class RdipPrefetcher(SetAssociativeCache iCache, IDecoder decoder)
         _trigValid[replace] = true;
         _entryNextTrigger[entryIdx] = (_entryNextTrigger[entryIdx] + 1) % RdipPrefetcher.MaxTriggers;
     }
+
+    /// <summary>
+    ///     Serializes this prefetcher's full state for a microarchitectural checkpoint. Unlike
+    ///     the OoO predictors that key on monotonic per-train counters (InstrId/SeqNo), every
+    ///     field here is keyed by call-stack signature or physical address, both of which stay
+    ///     meaningful across a train restart — so the whole miss table, the commit-time RAS, and
+    ///     the small pending-miss buffer all carry over safely.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_rasSize);
+        foreach (ulong r in _ras) w.Write(r);
+        w.Write(_curSig);
+        w.Write(_prevSig);
+
+        w.Write(_csmCount);
+        foreach (ulong m in _csm) w.Write(m);
+
+        foreach (bool v in _entryValid) w.Write(v);
+        foreach (uint t in _entryTag) w.Write(t);
+        foreach (int a in _entryLruAge) w.Write(a);
+        foreach (int n in _entryNextTrigger) w.Write(n);
+        foreach (bool v in _trigValid) w.Write(v);
+        foreach (ulong b in _trigBase) w.Write(b);
+        foreach (byte m in _trigMask) w.Write(m);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table dimensions are fixed constants.</summary>
+    public void ReadState(BinaryReader r) {
+        _rasSize = r.ReadInt32();
+        for (var i = 0; i < RdipPrefetcher.RasDepth; i++) _ras[i] = r.ReadUInt64();
+        _curSig = r.ReadUInt32();
+        _prevSig = r.ReadUInt32();
+
+        _csmCount = r.ReadInt32();
+        for (var i = 0; i < RdipPrefetcher.CsmCapacity; i++) _csm[i] = r.ReadUInt64();
+
+        for (var i = 0; i < _entryValid.Length; i++) _entryValid[i] = r.ReadBoolean();
+        for (var i = 0; i < _entryTag.Length; i++) _entryTag[i] = r.ReadUInt32();
+        for (var i = 0; i < _entryLruAge.Length; i++) _entryLruAge[i] = r.ReadInt32();
+        for (var i = 0; i < _entryNextTrigger.Length; i++) _entryNextTrigger[i] = r.ReadInt32();
+        for (var i = 0; i < _trigValid.Length; i++) _trigValid[i] = r.ReadBoolean();
+        for (var i = 0; i < _trigBase.Length; i++) _trigBase[i] = r.ReadUInt64();
+        for (var i = 0; i < _trigMask.Length; i++) _trigMask[i] = r.ReadByte();
+    }
 }

@@ -19,10 +19,17 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Simulation state checkpoint/restore, Option B: warm microarchitectural checkpoint (caches, TLBs,
   branch predictor, RAS) layered on `ArchitecturalCheckpoint`, valid only at a drained pipeline boundary
   (`OooeTrain.Drain`) — mirroring gem5's `drain()`-before-`serialize()` precedent. `OooeTrain` only.
-- [ ] Extend the Option B microarchitectural checkpoint to `StoreSetPredictor`/`IValuePredictor`/
-  `ICriticalityPredictor`/`SmbPredictor`/`FdipPrefetcher`/`RdipPrefetcher` (currently cold-start on
-  restore via the default no-op `WriteState`/`ReadState`), and to more `IBranchPredictor`/
-  `IReplacementPolicy` implementations beyond `NBitBp`/`LruPolicy`.
+- [x] Extend the Option B microarchitectural checkpoint to `StoreSetPredictor`/`SmbPredictor`/
+  `RdipPrefetcher`/`TokenPassingCriticalityPredictor` (one `ICriticalityPredictor` implementation)/`LvpVp`
+  (one `IValuePredictor` implementation). `FdipPrefetcher` deliberately excluded — no trained table, only
+  a cheap-to-rebuild lookahead FTQ. Key design rule discovered along the way: serialize only PC/address/
+  content-keyed tables; skip anything keyed by or compared against a monotonic per-train counter
+  (InstrId/SeqNo/commit count) — those reset to 0 on a freshly restored train, so a carried-over counter
+  value can never match again (`StoreSetPredictor`'s LFST, `TokenPassingCriticalityPredictor`'s token/
+  slot/commit-count state).
+- [ ] Extend further: more `IValuePredictor` implementations beyond `LvpVp` (`VtageVp`, `StrideVp`,
+  `HybridVp`, `DynamicClassificationVp`), more `IBranchPredictor`/`IReplacementPolicy` implementations
+  beyond `NBitBp`/`LruPolicy`.
 - [ ] Wire the Option B microarchitectural checkpoint into the Runner CLI (a `--checkpoint-micro`-style
   flag alongside the existing architectural-only `--checkpoint-save`/`--checkpoint-load`).
 
