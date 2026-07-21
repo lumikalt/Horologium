@@ -231,11 +231,12 @@ public class MicroCheckpointTests {
     private static void AssertBpRoundTripNotTheater<T>(
         Func<T> make,
         ulong pc,
-        Func<int, bool>? takenAt = null
+        Func<int, bool>? takenAt = null,
+        int iterations = 24
     ) where T : IBranchPredictor {
         takenAt ??= i => i % 3 == 0;
         T bpA = make();
-        for (var i = 0; i < 24; i++) bpA.Update(pc, takenAt(i), pc + 4);
+        for (var i = 0; i < iterations; i++) bpA.Update(pc, takenAt(i), pc + 4);
 
         using var ms = new MemoryStream();
         using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
@@ -315,6 +316,23 @@ public class MicroCheckpointTests {
     [Fact]
     public void ImliPredictor_RoundTrip_NotTheater() =>
         MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new ImliPredictor(), 0x100, i => i % 3 != 0);
+
+    // ── BP zoo: composed-baseline predictors (not TAGE subclasses — hold a TageScLBp
+    // field rather than extending it, so their own WriteState must delegate explicitly) ──
+
+    [Fact]
+    public void BranchNetBp_RoundTrip_NotTheater() =>
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new BranchNetBp(), 0x100);
+
+    [Fact]
+    public void HypreBp_RoundTrip_NotTheater() =>
+        // HYPRE's 1024-bit HD vectors need many more repetitions than the other predictors here
+        // to push a Hamming match count across its high threshold (~560) — a handful of updates
+        // spreads across too many distinct history-folded query vectors to reinforce any one of
+        // them enough. A strongly not-taken-biased pattern over many iterations lets the bounded
+        // (16-state) local-history fallback slot repeat enough times to actually diverge from a
+        // cold (all-zero, tie-breaks to "taken") instance.
+        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new HypreBp(), 0x100, _ => false, 400);
 
     [Fact]
     public void LruPolicy_RoundTrip_AgesMatch() {

@@ -155,6 +155,47 @@ public sealed class BranchNetBp : IBranchPredictor {
         return bits;
     }
 
+    /// <summary>
+    ///     Serializes the continuously-trained TAGE-SC-L baseline (a composed field, not an
+    ///     inherited one — <see cref="_baseline" />.WriteState is called explicitly, unlike the
+    ///     TAGE-lineage subclasses' <c>base.WriteState</c>), BranchNet's own BTB, and its
+    ///     speculative/committed history pair. Deliberately does not serialize
+    ///     <see cref="_models" />: like <c>TeaBp</c>'s <c>_chains</c>, these are offline-training
+    ///     artifacts frozen at construction by <see cref="FromProfile" />, not runtime-trained
+    ///     state — a restore into a train reconstructed with the same profile already has
+    ///     identical models.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        _baseline.WriteState(w);
+
+        w.Write(_btb.Count);
+        foreach ((ulong pc, ulong target) in _btb) {
+            w.Write(pc);
+            w.Write(target);
+        }
+
+        w.Write(_committedGhr);
+        w.Write(_ghr);
+        w.Write(_speculative);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public void ReadState(BinaryReader r) {
+        _baseline.ReadState(r);
+
+        _btb.Clear();
+        int count = r.ReadInt32();
+        for (var i = 0; i < count; i++) {
+            ulong pc = r.ReadUInt64();
+            ulong target = r.ReadUInt64();
+            _btb[pc] = target;
+        }
+
+        _committedGhr = r.ReadUInt64();
+        _ghr = r.ReadUInt64();
+        _speculative = r.ReadBoolean();
+    }
+
     internal sealed class BranchStats {
         public int Mispredicts;
         public int Occurrences;

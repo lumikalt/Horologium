@@ -220,5 +220,75 @@ public sealed class HypreBp : IBranchPredictor {
     private sealed class HdVector(int bits) {
         public readonly sbyte[] Counters = new sbyte[bits];
         public readonly ulong[] SignBits = new ulong[bits / 64];
+
+        /// <summary>Serializes both arrays wholesale (kept mutually consistent by <see cref="Adjust" />).</summary>
+        public void WriteState(BinaryWriter w) {
+            foreach (sbyte c in Counters) w.Write(c);
+            foreach (ulong s in SignBits) w.Write(s);
+        }
+
+        /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+        public void ReadState(BinaryReader r) {
+            for (var i = 0; i < Counters.Length; i++) Counters[i] = r.ReadSByte();
+            for (var i = 0; i < SignBits.Length; i++) SignBits[i] = r.ReadUInt64();
+        }
+    }
+
+    /// <summary>
+    ///     Serializes the base HD-bimodal accumulators, every per-length accumulator pair, the
+    ///     local-history table, the BTB, and the speculative/committed history pair. Deliberately
+    ///     does not serialize <see cref="_queryBuf" />: a scratch buffer always overwritten by
+    ///     <see cref="FillHv" /> before every read, in both <see cref="Predict" />/<see cref="Resolve" />
+    ///     and <see cref="Update" /> — never carries meaningful state between calls.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        _baseTaken.WriteState(w);
+        _baseNotTaken.WriteState(w);
+
+        w.Write(_taken.Length);
+        for (var i = 0; i < _taken.Length; i++) {
+            _taken[i].WriteState(w);
+            _notTaken[i].WriteState(w);
+        }
+
+        foreach (byte h in _localHistory) w.Write(h);
+
+        w.Write(_btb.Count);
+        foreach ((ulong pc, ulong target) in _btb) {
+            w.Write(pc);
+            w.Write(target);
+        }
+
+        _hist.WriteState(w);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Vector/history-length geometry must match.</summary>
+    /// <exception cref="CheckpointException">The number of history-length levels does not match.</exception>
+    public void ReadState(BinaryReader r) {
+        _baseTaken.ReadState(r);
+        _baseNotTaken.ReadState(r);
+
+        int numLevels = r.ReadInt32();
+        if (numLevels != _taken.Length)
+            throw new CheckpointException(
+                $"HypreBp.ReadState: geometry mismatch — checkpoint has {numLevels} history-length " +
+                $"levels; this predictor has {_taken.Length}."
+            );
+        for (var i = 0; i < numLevels; i++) {
+            _taken[i].ReadState(r);
+            _notTaken[i].ReadState(r);
+        }
+
+        for (var i = 0; i < _localHistory.Length; i++) _localHistory[i] = r.ReadByte();
+
+        _btb.Clear();
+        int btbCount = r.ReadInt32();
+        for (var i = 0; i < btbCount; i++) {
+            ulong pc = r.ReadUInt64();
+            ulong target = r.ReadUInt64();
+            _btb[pc] = target;
+        }
+
+        _hist.ReadState(r);
     }
 }
