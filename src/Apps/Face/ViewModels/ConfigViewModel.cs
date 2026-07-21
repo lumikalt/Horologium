@@ -169,7 +169,7 @@ public partial class ConfigViewModel : ObservableObject {
         ["lru", "mru", "clock", "fifo", "plru", "random", "srrip", "brrip", "drrip", "ship", "ship_pc", "hawkeye",];
 
     public static string[] DPrefetcherOptions { get; } =
-        ["none", "next_line", "stride", "stream", "ipcp", "berti", "pythia", "sms", "bop", "spp", "ppf",];
+        ["none", "next_line", "stride", "stream", "ipcp", "berti", "pythia", "sms", "bop", "spp", "ppf", "stems",];
 
     public static string[] WritePolicyOptions { get; } = ["write_through", "write_back",];
     public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];

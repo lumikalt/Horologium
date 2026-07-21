@@ -19,6 +19,7 @@ public enum PrefetcherKind {
     Bop,
     Spp,
     Ppf,
+    Stems,
 }
 
 public enum ReplacementPolicyKind {
@@ -407,6 +408,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Bop    => new BopPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Spp    => new SppPrefetcher(cfg.CacheBlockBytes),
                 PrefetcherKind.Ppf    => new PpfPrefetcher(cfg.CacheBlockBytes),
+                PrefetcherKind.Stems  => new StemsPrefetcher(cfg.CacheBlockBytes),
                 _                     => null,
             }
             : null;
@@ -502,6 +504,7 @@ public sealed record MemoryLayers(
                 PrefetcherKind.Bop    => new BopPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Spp    => new SppPrefetcher(s0.BlockBytes),
                 PrefetcherKind.Ppf    => new PpfPrefetcher(s0.BlockBytes),
+                PrefetcherKind.Stems  => new StemsPrefetcher(s0.BlockBytes),
                 _                     => null,
             };
 

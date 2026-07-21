@@ -303,14 +303,14 @@ internal sealed class OoOPipelineCore : Gear {
     // them from pre-episode (real) registers, which must never be freed mid-episode. See
     // FreeShadowRename.
     private readonly HashSet<int> _runaheadOwnedPhys = [];
-    private readonly Dictionary<ulong, (ulong Value, int Bytes)> _runaheadStoreBuffer = [];
-    private readonly HashSet<int> _runaheadTainted = [];
-    private readonly int _runaheadUnrollLength;
 
     // Vector pipelining (Naithani et al., ISCA 2021 §III-G, "P overlapped in-flight rounds"):
     // the number of unroll rounds packed into a single origin-load vectorization event, instead
     // of requiring a separate full loop-body walk per round. See PipelineRoundsThisVisit.
     private readonly int _runaheadPipelineDepth;
+    private readonly Dictionary<ulong, (ulong Value, int Bytes)> _runaheadStoreBuffer = [];
+    private readonly HashSet<int> _runaheadTainted = [];
+    private readonly int _runaheadUnrollLength;
     private readonly Dictionary<int, ulong[]> _runaheadVectorLanes = [];
     private readonly int _runaheadVectorWidth;
     private readonly SmbPredictor? _smbPredictor;
@@ -2795,7 +2795,7 @@ internal sealed class OoOPipelineCore : Gear {
             ref VrStrideEntry e = ref _vrStrideTable[(int)((_shadowPc >> 2) & (uint)(_vrStrideTable.Length - 1))];
             if (!e.Initialized || e.Confidence < 3 || e.Stride == 0 || !mem.HasRead) return;
 
-            var firstVisit = !_runaheadChainActive;
+            bool firstVisit = !_runaheadChainActive;
             if (firstVisit) {
                 if (_runaheadCappedOrigins.Contains(_shadowPc)) return; // already used up its unroll budget
                 _runaheadChainActive = true;
@@ -2837,7 +2837,7 @@ internal sealed class OoOPipelineCore : Gear {
             }
             else { roundBase = _runaheadRoundBaseAddr; }
 
-            for (var i = startLane; i < width; i++) {
+            for (int i = startLane; i < width; i++) {
                 var laneAddr = (ulong)((long)roundBase + i * e.Stride);
                 try { lanes[i] = mem.Read(laneAddr, mem.LastReadBytes); }
                 catch (AccessViolationException) { lanes[i] = 0UL; }

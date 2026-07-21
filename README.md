@@ -885,10 +885,25 @@ pressure standing in for real cache-capacity pressure) rather than the paper's l
 LLC fill-level split (τ_hi/τ_lo) collapses into one admit threshold, matching the same simplification already
 documented for SPP's own T_F. On coremark PPF cuts D$ misses to roughly a sixth of plain SPP's (188 vs. 1104 misses
 at 32KB/8-way, vs. 1806 with no prefetching) — the paper's central claim that de-throttling plus perceptron filtering
-beats a throttled lookahead prefetcher outright, not just a marginal gain. Select with
-`Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp,Ppf}` on
+beats a throttled lookahead prefetcher outright, not just a marginal gain. **STeMS** — Spatio-Temporal Memory
+Streaming (Somogyi, Wenisch, Ailamaki &amp; Falsafi, ISCA 2009): extends SMS with temporal miss-sequence recording so
+prefetching can cross region boundaries, which SMS alone cannot do. A trigger (first miss to a region) is recorded in
+a Region Miss Order Buffer (RMOB, 128K-entry circular buffer of `(block address, trigger PC, trigger offset, delta)`)
+alongside a block-address → most-recent-RMOB-slot map. SMS's AGT/PHT are kept structurally identical (32-entry
+filter/64-entry accumulation AGT, 16K-entry 16-way PST) but store an *ordered sequence* of `(offset, delta)` pairs per
+generation instead of a bit vector — each block appears once, in first-access order. Every recorded entry's delta is
+the count of *other* misses (from any region) interleaved before it since the previous entry of the same sequence
+(trigger stream or a region's own spatial stream); reconstruction re-derives absolute positions from these deltas via
+one recurrence, `pos[entry] = pos[previous same-sequence entry] + delta + 1`, merging the trigger stream and every
+region's spatial stream into a single ordered prediction. On a trigger miss whose address has a prior RMOB
+occurrence, this reconstruction runs synchronously and returns the whole predicted sequence at once (bounded by a
+256-entry reconstruction window and the caller's target span — replacing the paper's decoupled stream-queue/SVB
+throttling the same way SPP/PPF's lookahead walks replace theirs), with ±2-position collision resolution matching the
+paper's own (§4.2). Verified directly against the paper's own worked example (Fig. 3/5): training on the observed
+order A, A+4, B, A+2, B+6, A−1, C, D, D+1, D+2 and re-triggering A reconstructs the exact original continuation.
+Select with `Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp,Ppf,Stems}` on
 `MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher:
-"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"/"ppf"` in `TrainConfig` JSON.
+"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"/"ppf"/"stems"` in `TrainConfig` JSON.
 
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 

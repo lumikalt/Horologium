@@ -22,3 +22,6 @@ this file carries the full title so the paper can be found. Local PDFs live in `
 | Perais & Seznec, HPCA 2014 | Practical Data Value Speculation for Future High-end Processors | A. Perais, A. Seznec | HPCA 2014 | `~/dl/Practical_data_value_speculation.pdf` |
 | Perais & Seznec, ISCA 2014 | EOLE: Paving the Way for an Effective Implementation of Value Prediction | A. Perais, A. Seznec | ISCA 2014 | `~/dl/eole.pdf` |
 | Rychlik et al., CMuART-1998-01 | Efficient and Accurate Value Prediction Using Dynamic Classification | B. Rychlik, J. Faistl, B. Krug, A. Kurland, J. Sung, M. Velev, J. P. Shen | CMU CMuART tech report, 1998 | `~/dl/CMuART-1998-01.pdf` |
+| Somogyi et al., ISCA 2006 | Spatial Memory Streaming | S. Somogyi, T. F. Wenisch, A. Ailamaki, B. Falsafi, A. Moshovos | ISCA 2006 | `~/dl/sms.pdf` |
+| Somogyi et al., ISCA 2009 | Spatio-Temporal Memory Streaming | S. Somogyi, T. F. Wenisch, A. Ailamaki, B. Falsafi | ISCA 2009 | `~/dl/stms.pdf` |
+

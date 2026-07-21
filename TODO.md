@@ -9,27 +9,9 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] ~~Suspended-stream data exchange: `so.v.vload`/`so.v.vstor`~~ — **hold**: dissertation gives one sentence
   with no operand semantics; Spike has no instruction files for it. Skip until the spec is clarified.
 
-## Performance
-
-- [x] TMA (Top-Down slot accounting): extend from `OooeTrain`/`CprTrain` to `DaeTrain` and `SmtTrain`. —
-  Yasin, ISPASS 2014
-- [x] Vector Runahead true pipelining: overlap the shadow lane's unroll rounds instead of issuing them
-  serially one loop-walk at a time, exploiting the existing MSHR overlap capacity. — Naithani, Ainsworth,
-  Jones & Eeckhout, ISCA 2021 (§III-G, P overlapped in-flight rounds)
-- [x] Vector Runahead: track an explicit round base address for `TryVectorizeShadowStep`'s untainted
-  chain-origin path (mirroring `TryVectorizeTaintedLoad`'s `_runaheadRoundBaseAddr`), since deriving lane
-  addresses from `mem.LastReadAddress` only advances by one real loop iteration's stride per origin visit,
-  making a multi-round/multi-visit chain's lane ranges overlap almost entirely instead of covering new
-  ground.
-- [x] Vector Runahead pipelining: investigate why deeper `runaheadPipelineDepth` measured neutral-to-worse
-  (never better) on real `cycles`/`dcache_misses` in every synthetic single-pass-loop configuration tried —
-  disentangle the in-principle episode-shortening benefit from MSHR contention and speculative-read cache
-  pollution (see the README's Vector Runahead section), e.g. via reuse-distance-aware prefetch throttling
-  or programs where U rounds' reach never overshoots real future demand.
-
 ## Cache Prefetching
 
-- [ ] STeMS: spatio-temporal memory streaming extending SMS with temporal miss-sequence recording. —
+- [x] STeMS: spatio-temporal memory streaming extending SMS with temporal miss-sequence recording. —
   Somogyi et al., ISCA 2009
 
 ## Analysis

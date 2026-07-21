@@ -115,7 +115,7 @@ public class VectorRunaheadPipelineTests {
     // simultaneous misses in one origin-visit instant) from serial unrolling (misses spread
     // across separate loop-body walks, with TickMshr freeing slots in between).
     private static uint[] WideStrideProgram(int iterations) {
-        var loopBody = new[] {
+        uint[] loopBody = new[] {
             0x0000A203u,    // lw   x4, 0(x1)
             Addi(1, 1, 64), // addi x1, x1, 64
             Addi(2, 2, -1), // addi x2, x2, -1
