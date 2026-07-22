@@ -2519,6 +2519,132 @@ public class UveTests {
             (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
+    // ── Integration test: convolution via OoO pipeline ───────────────────────
+
+    /// <summary>
+    ///     Ports the <c>convolution</c> UVE2 reference benchmark (github.com/hpc-ulisboa/UVE2,
+    ///     UVE-Testing/spike_test/benchmarks/convolution): a 3x3-tap 2D stencil, one load stream per
+    ///     filter tap (<c>u1</c>-<c>u9</c>, each an overlapping-offset view of <c>src</c> — the same
+    ///     multi-load-stream-per-position idiom as <c>jacobi-2d</c>, just with 9 taps instead of 5).
+    ///     This kernel was blocked before <c>StreamingEngine.MaxStreams</c> became caller-configurable
+    ///     (it needs a stream register up to u9, one past the engine's old fixed capacity of 8) — now
+    ///     unblocked by passing <c>streamMaxCount: UveState.RecommendedStreamCapacity</c> at
+    ///     construction. u-register numbers are taken <b>verbatim</b> from the reference asm (u0 for
+    ///     the store, u1-u9 for the nine loads, u10-u18 for filter broadcasts, u19-u31 for the
+    ///     reduction-tree scratch registers) — no renumbering needed, since all of u1-u9 now fit under
+    ///     the raised capacity and everything from u10 up was already scratch-only.
+    ///     <para>
+    ///     The reference's own store stream never reloads <c>dst</c>'s prior value before writing (no
+    ///     load stream is configured for <c>dst</c> at all) — it's a pure overwrite, not a genuine
+    ///     accumulate. This is only equivalent to <c>RUN_SIMPLE</c>'s <c>dst[...] += ...</c> (which
+    ///     accumulates across the 9 taps within one call) when <c>dst</c> starts at zero; the oracle
+    ///     below reproduces that by using a zero-initialized accumulator, separate from the memory
+    ///     image (initialized to a sentinel) used to confirm the border cells outside the
+    ///     (PB_I-2)x(PB_J-2) interior are never touched by the store stream.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public void Pipeline_Convolution_CorrectResult() {
+        const int pbJ = 4, pbI = 4; // 4x4 grid; interior is the 2x2 region y,x in {1,2}
+        float[] src = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,]; // row-major
+        float[] filter = [1, 2, 3, 4, 5, 6, 7, 8, 9,];
+        const float sentinel = -999f;
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback (dst zero-initialized,
+        // since the UVE store stream never reloads dst's prior value — see the summary above).
+        var dst = new float[pbI * pbJ];
+        for (var y = 1; y < pbI - 1; y++)
+        for (var x = 1; x < pbJ - 1; x++)
+        for (var k = -1; k <= 1; k++)
+        for (var j = -1; j <= 1; j++)
+            dst[y * pbJ + x] += filter[(j + 1) * 3 + (k + 1)] * src[(y - j) * pbJ + (x - k)];
+
+        const ulong srcBase = 0x0000, dstBase = 0x0100;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < src.Length; i++) mem.Load(srcBase + (ulong)(i * 4), BitConverter.GetBytes(src[i]));
+        for (var i = 0; i < dst.Length; i++) mem.Load(dstBase + (ulong)(i * 4), BitConverter.GetBytes(sentinel));
+
+        // Register plan: x1-x9 = src_0..src_8 (the nine overlapping-offset bases); x10 = dst+PB_J
+        // (store base, matching the reference's "dst + PB_J" operand); x11=inm2(PB_I-2) x12=jn(PB_J)
+        // x13=jnm2(PB_J-2) x14=one; x15-x23 = bits(filter[0..8]).
+        const ulong code = 0x1000;
+        var words = new List<uint>();
+
+        int[] srcOffsets = [0, 1, 2, pbJ, pbJ + 1, pbJ + 2, 2 * pbJ, 2 * pbJ + 1, 2 * pbJ + 2,];
+        for (var i = 0; i < srcOffsets.Length; i++)
+            words.Add(Addi(1 + i, 0, (int)srcBase + srcOffsets[i] * 4));
+        words.Add(Addi(10, 0, (int)dstBase + pbJ * 4));
+        words.Add(Addi(11, 0, pbI - 2));
+        words.Add(Addi(12, 0, pbJ));
+        words.Add(Addi(13, 0, pbJ - 2));
+        words.Add(Addi(14, 0, 1));
+        for (var i = 0; i < filter.Length; i++)
+            words.Add(Lui(15 + i, BitConverter.SingleToInt32Bits(filter[i]) >> 12));
+
+        // u1-u9: nine src load streams (identical 2D shape, different bases) — outer(y) count=inm2
+        // stride=jn elems; inner(x) count=jnm2 stride=one elem.
+        for (var u = 1; u <= 9; u++) {
+            words.Add(SsStaLdW(u, u));
+            words.Add(SsApp(u, 0, 11, 12));
+            words.Add(SsEnd(u, 0, 13, 14));
+        }
+
+        // u10-u18: filter[0..8] broadcasts.
+        for (var u = 10; u <= 18; u++) words.Add(SoVDpW(u, 15 + (u - 10)));
+
+        // u0: dst store — same 2D shape, offset by +1 element (so the first write lands at
+        // dst[1*PB_J+1], matching the reference's "ss.end u0, %[one], ...").
+        words.Add(SsStaStW(0, 10));
+        words.Add(SsApp(0, 0, 11, 12));
+        words.Add(SsEnd(0, 14, 13, 14));
+
+        var loopStart = words.Count;
+        words.Add(SoAFp(UveFpOp.Mul, 19, 10, 9)); // filter[0] * src(y+1,x+1)
+        words.Add(SoAFp(UveFpOp.Mul, 20, 11, 8)); // filter[1] * src(y+1,x)
+        words.Add(SoAFp(UveFpOp.Mul, 21, 12, 7)); // filter[2] * src(y+1,x-1)
+        words.Add(SoAFp(UveFpOp.Mul, 22, 13, 6)); // filter[3] * src(y,x+1)
+        words.Add(SoAFp(UveFpOp.Mul, 23, 14, 5)); // filter[4] * src(y,x)
+        words.Add(SoAFp(UveFpOp.Mul, 24, 15, 4)); // filter[5] * src(y,x-1)
+        words.Add(SoAFp(UveFpOp.Mul, 25, 16, 3)); // filter[6] * src(y-1,x+1)
+        words.Add(SoAFp(UveFpOp.Mul, 26, 17, 2)); // filter[7] * src(y-1,x)
+        words.Add(SoAFp(UveFpOp.Mul, 27, 18, 1)); // filter[8] * src(y-1,x-1)
+
+        words.Add(SoAFp(UveFpOp.Add, 28, 19, 20));
+        words.Add(SoAFp(UveFpOp.Add, 29, 21, 22));
+        words.Add(SoAFp(UveFpOp.Add, 30, 23, 24));
+        words.Add(SoAFp(UveFpOp.Add, 31, 25, 26));
+
+        words.Add(SoAFp(UveFpOp.Add, 29, 29, 28));
+        words.Add(SoAFp(UveFpOp.Add, 31, 31, 30));
+        words.Add(SoAFp(UveFpOp.Add, 31, 31, 29));
+
+        words.Add(SoAFp(UveFpOp.Add, 0, 31, 27)); // u0(store) = u31 + u27
+        words.Add(SoBNc(0, (loopStart - words.Count) * 4));
+
+        words.Add(EBreak());
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, streamMaxCount: UveState.RecommendedStreamCapacity,
+            robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(30_000);
+
+        for (var y = 0; y < pbI; y++)
+        for (var x = 0; x < pbJ; x++) {
+            bool interior = y is >= 1 and <= 2 && x is >= 1 and <= 2;
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(dstBase + (ulong)((y * pbJ + x) * 4), 4));
+            Assert.Equal(interior ? dst[y * pbJ + x] : sentinel, actual, 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
     // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]
