@@ -24,6 +24,17 @@ public sealed class UveState : IUveScalars {
     public const int Count = 32;
     public const int MaxDims = 8;
 
+    /// <summary>
+    ///     Recommended <c>StreamingEngine</c> capacity for RiscV32/UVE: high enough for every ported
+    ///     benchmark kernel's concurrent load-stream register ids (the tightest, <c>convolution</c>,
+    ///     reaches u9), while staying well below the 32-register ceiling imposed by the 5-bit
+    ///     ud/rs1/rs2/rs3 encoding fields (<see cref="Count" />) — ids at or above this value remain
+    ///     free for arithmetic-only scratch/broadcast operands, which are never bound to a real stream.
+    ///     Not itself a hard limit: any caller building an <c>OooeTrain</c> for RV32/UVE can pass a
+    ///     different <c>streamMaxCount</c> if a future kernel needs more.
+    /// </summary>
+    public const int RecommendedStreamCapacity = 16;
+
     /// <summary>VLEN in bytes. Each u-register holds PredBytes worth of element data.</summary>
     public const int PredBytes = 16; // VLEN/8 = 128-bit VLEN
 

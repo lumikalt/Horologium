@@ -19,23 +19,30 @@ namespace Orrery.Streaming;
 ///         Streams are architectural state: they survive pipeline flushes. The pipeline should
 ///         call <see cref="Step" /> unconditionally every cycle, even during flush cycles.
 ///     </para>
+///     <para>
+///         <see cref="MaxStreams" /> is caller-supplied, not an Orrery-wide constant: Orrery is
+///         ISA-agnostic and has no opinion on how many concurrent streams a given ISA's stream
+///         registers can address. An ISA plugin picks the value that fits its own encoding (e.g.
+///         RiscV32's UVE extension exposes <c>RiscV32.State.UveState.RecommendedStreamCapacity</c>,
+///         derived from its 5-bit u-register field) and passes it in at construction time.
+///     </para>
 /// </summary>
 public sealed class StreamingEngine {
-    // Ceiling is 32 (5-bit ud/rs1/rs2/rs3 fields in the UVE custom-0/1 encoding, matching
-    // UveState.Count); register ids >= MaxStreams are reserved as arithmetic-only scratch/broadcast
-    // operands (never Configure()'d as a real stream), so this must stay well below 32.
-    public const int MaxStreams = 16;
-
     private readonly int _prefetchDepth;
     private readonly StreamState[] _streams;
     private int _activeCount; // tracks how many streams are currently active
 
-    public StreamingEngine(int prefetchDepth = 4) {
+    public StreamingEngine(int prefetchDepth = 4, int maxStreams = 8) {
         if (prefetchDepth < 1) throw new ArgumentOutOfRangeException(nameof(prefetchDepth));
+        if (maxStreams < 1) throw new ArgumentOutOfRangeException(nameof(maxStreams));
         _prefetchDepth = prefetchDepth;
-        _streams = new StreamState[StreamingEngine.MaxStreams];
-        for (var i = 0; i < StreamingEngine.MaxStreams; i++) _streams[i] = new StreamState();
+        MaxStreams = maxStreams;
+        _streams = new StreamState[maxStreams];
+        for (var i = 0; i < maxStreams; i++) _streams[i] = new StreamState();
     }
+
+    /// <summary>The number of independently addressable stream slots this instance was built with.</summary>
+    public int MaxStreams { get; }
 
     /// <summary>
     ///     Configures and activates a stream. Replaces any existing configuration on
@@ -133,9 +140,9 @@ public sealed class StreamingEngine {
         foreach (StreamState s in _streams) s.Step(memory, _prefetchDepth, vectorLength, _streams);
     }
 
-    private static void Validate(int id) {
-        if ((uint)id >= StreamingEngine.MaxStreams)
-            throw new ArgumentOutOfRangeException(nameof(id), $"Stream ID must be 0–{StreamingEngine.MaxStreams - 1}.");
+    private void Validate(int id) {
+        if ((uint)id >= (uint)MaxStreams)
+            throw new ArgumentOutOfRangeException(nameof(id), $"Stream ID must be 0–{MaxStreams - 1}.");
     }
 
     // ── Per-stream state ───────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ public class StreamingEngineTests {
     [Fact]
     public void FreshEngine_NoStreamActive() {
         var eng = new StreamingEngine();
-        for (var i = 0; i < StreamingEngine.MaxStreams; i++) {
+        for (var i = 0; i < eng.MaxStreams; i++) {
             Assert.False(eng.IsActive(i));
             Assert.False(eng.HasElement(i));
         }
@@ -225,17 +225,17 @@ public class StreamingEngineTests {
 
     [Fact]
     public void AllMaxStreams_Configurable() {
-        var mem = new FlatMemory(StreamingEngine.MaxStreams * 4);
-        for (var i = 0; i < StreamingEngine.MaxStreams; i++)
+        var eng = new StreamingEngine();
+        var mem = new FlatMemory(eng.MaxStreams * 4);
+        for (var i = 0; i < eng.MaxStreams; i++)
             mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
 
-        var eng = new StreamingEngine();
-        for (var i = 0; i < StreamingEngine.MaxStreams; i++)
+        for (var i = 0; i < eng.MaxStreams; i++)
             eng.Configure(i, new StreamDescriptor((ulong)(i * 4), 4, 1, 4));
 
         for (var step = 0; step < 4; step++) eng.Step(mem);
 
-        for (var i = 0; i < StreamingEngine.MaxStreams; i++) Assert.Equal((ulong)(i + 1), eng.Consume(i));
+        for (var i = 0; i < eng.MaxStreams; i++) Assert.Equal((ulong)(i + 1), eng.Consume(i));
     }
 
     // ── Deactivate ────────────────────────────────────────────────────────────
@@ -522,7 +522,7 @@ public class StreamingEngineTests {
     public void InvalidStreamId_Throws() {
         var eng = new StreamingEngine();
         Assert.Throws<ArgumentOutOfRangeException>(() => eng.IsActive(-1));
-        Assert.Throws<ArgumentOutOfRangeException>(() => eng.IsActive(StreamingEngine.MaxStreams));
+        Assert.Throws<ArgumentOutOfRangeException>(() => eng.IsActive(eng.MaxStreams));
     }
 
     [Fact]

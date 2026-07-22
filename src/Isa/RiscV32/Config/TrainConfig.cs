@@ -10,6 +10,7 @@ using Pipeline;
 using Pipeline.Ooo;
 using Pipeline.Spec;
 using RiscV32.Execute;
+using RiscV32.State;
 
 #endregion
 
@@ -192,6 +193,7 @@ public sealed record TrainConfig(
                 WriteBufferCapacity: StoreBufferCapacity,
                 MshrCapacity: MshrCapacity,
                 StreamPrefetchDepth: 4,
+                StreamMaxCount: UveState.RecommendedStreamCapacity,
                 FuLatency: FuLatency,
                 BranchPredictorFactory: predictorFactory,
                 PEventLog: pEventLog,

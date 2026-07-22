@@ -35,6 +35,7 @@ public sealed partial class OooeTrain : ISteppableTrain {
         FuLatencyConfig? fuLatency = null,
         PEventLog? pEventLog = null,
         int streamPrefetchDepth = 4,
+        int streamMaxCount = 8,
         ICommitObserver? commitObserver = null,
         int lqCapacity = 0,
         int sqCapacity = 0,
@@ -70,6 +71,7 @@ public sealed partial class OooeTrain : ISteppableTrain {
                 fuLatency ?? FuLatencyConfig.Default,
                 pEventLog,
                 streamPrefetchDepth,
+                streamMaxCount,
                 commitObserver,
                 lqCapacity,
                 sqCapacity,
@@ -109,6 +111,7 @@ public sealed partial class OooeTrain : ISteppableTrain {
         FuLatencyConfig? fuLatency = null,
         PEventLog? pEventLog = null,
         int streamPrefetchDepth = 4,
+        int streamMaxCount = 8,
         ICommitObserver? commitObserver = null,
         int lqCapacity = 0,
         int sqCapacity = 0,
@@ -134,6 +137,7 @@ public sealed partial class OooeTrain : ISteppableTrain {
                 fuLatency ?? FuLatencyConfig.Default,
                 pEventLog,
                 streamPrefetchDepth,
+                streamMaxCount,
                 commitObserver,
                 lqCapacity,
                 sqCapacity,
@@ -498,6 +502,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         FuLatencyConfig fuConfig,
         PEventLog? pEventLog = null,
         int streamPrefetchDepth = 4,
+        int streamMaxCount = 8,
         ICommitObserver? commitObserver = null,
         int lqCapacity = 0,
         int sqCapacity = 0,
@@ -582,7 +587,7 @@ internal sealed partial class OoOPipelineCore : Gear {
 
         _lq = new LoadQueue(lqCapacity > 0 ? lqCapacity : robCapacity);
         _sq = new StoreQueue(sqCapacity > 0 ? sqCapacity : robCapacity);
-        StreamingEngine = new StreamingEngine(streamPrefetchDepth);
+        StreamingEngine = new StreamingEngine(streamPrefetchDepth, streamMaxCount);
         _wbCapacity = writeBufferCapacity;
         _wbSlots = writeBufferCapacity > 0 ? new int[writeBufferCapacity] : [];
         _mshrCapacity = mshrCapacity;
