@@ -26,6 +26,8 @@ public partial class MainPanel : UserControl {
     private DataGrid? _resultsGrid;
     private AvaPlot? _waveformView;
 
+    private bool _configuratorTabAdded;
+
     public MainPanel() {
         InitializeComponent();
 
@@ -41,6 +43,7 @@ public partial class MainPanel : UserControl {
                 };
             }
 
+            AddConfiguratorTabIfNeeded();
             ApplyChartStyle();
 
             // Attach a tunneling key handler at TopLevel so zoom works regardless of which
@@ -54,6 +57,22 @@ public partial class MainPanel : UserControl {
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
+
+    // Added from code-behind, not XAML: ConfiguratorView doesn't compile for browser-wasm (it
+    // needs Script.csproj/Roslyn), so MainPanel.axaml itself can't reference the type directly —
+    // that would break the browser build even under a runtime-only guard, since XAML compilation
+    // needs the type to exist at compile time. See Face.csproj's browser-TFM exclusions.
+#if !BROWSER
+    private void AddConfiguratorTabIfNeeded() {
+        if (_configuratorTabAdded || Vm is null) return;
+        _configuratorTabAdded = true;
+        ResultsTabControl.Items.Add(
+            new TabItem { Header = "Configurator", Content = new ConfiguratorView { DataContext = Vm.Configurator, }, }
+        );
+    }
+#else
+    private void AddConfiguratorTabIfNeeded() { }
+#endif
 
     // ── Zoom via keyboard (tunnel from TopLevel — no focus dependency) ─────────
     private void OnGlobalKeyDown(object? sender, KeyEventArgs e) {

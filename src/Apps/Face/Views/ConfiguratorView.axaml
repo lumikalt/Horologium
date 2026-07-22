@@ -1,0 +1,100 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Face.ViewModels"
+             xmlns:avEdit="using:AvaloniaEdit"
+             x:Class="Face.Views.ConfiguratorView"
+             x:DataType="vm:ConfiguratorViewModel">
+
+    <Grid ColumnDefinitions="*,300">
+
+        <!-- ── Left: script editor + controls ────────────────────────────────── -->
+        <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto" Margin="0,0,1,0">
+
+            <!-- Toolbar -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,200,Auto,Auto,Auto,Auto,Auto,Auto,*"
+                  Margin="8,8,8,4" ColumnSpacing="6">
+                <TextBlock Grid.Column="0" Text="Workload:"
+                           VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.7" />
+                <ComboBox Grid.Column="1"
+                          ItemsSource="{Binding WorkloadPresets}"
+                          SelectedItem="{Binding SelectedPreset}"
+                          DisplayMemberBinding="{Binding Label}"
+                          HorizontalAlignment="Stretch" />
+                <Button Grid.Column="2" Content="Browse…"
+                        IsVisible="{Binding ShowBrowse}"
+                        Click="OnBrowseWorkloadClick" />
+                <Button Grid.Column="3" Content="▶ Run"
+                        Command="{Binding RunCommand}"
+                        IsVisible="{Binding !IsRunning}" />
+                <Button Grid.Column="4" Content="■ Stop"
+                        Command="{Binding StopCommand}"
+                        IsVisible="{Binding IsRunning}" />
+                <Button Grid.Column="5" Content="→ Step"
+                        Command="{Binding StepCommand}" />
+                <Button Grid.Column="6" Content="↺ Reset"
+                        Command="{Binding ResetCommand}" />
+                <Button Grid.Column="7" Content="Save script…"
+                        Click="OnSaveScriptClick"
+                        ToolTip.Tip="Save to a file and start watching it — lets you edit with real tooling in an external editor." />
+            </Grid>
+
+            <!-- Editor -->
+            <avEdit:TextEditor Grid.Row="1"
+                               x:Name="Editor"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="13"
+                               ShowLineNumbers="True"
+                               WordWrap="False"
+                               HorizontalScrollBarVisibility="Auto"
+                               VerticalScrollBarVisibility="Auto"
+                               Margin="8,0" />
+
+            <!-- Error panel -->
+            <Border Grid.Row="2"
+                    IsVisible="{Binding HasError}"
+                    Background="#4D1A1A"
+                    CornerRadius="4"
+                    Margin="8,4">
+                <TextBlock Text="{Binding ErrorText}"
+                           TextWrapping="Wrap"
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="11"
+                           Foreground="#FFAAAA"
+                           Padding="8,6" />
+            </Border>
+
+            <!-- Status bar -->
+            <TextBlock Grid.Row="3"
+                       Text="{Binding StatusLine}"
+                       Margin="8,4,8,8"
+                       FontSize="11"
+                       Opacity="0.65"
+                       TextWrapping="Wrap" />
+        </Grid>
+
+        <!-- ── Right: live stats ──────────────────────────────────────────────── -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="1,0,0,0">
+            <TextBlock Grid.Row="0" Text="STATS"
+                       FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                       Margin="8,8,8,4" />
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Stats}" Margin="4,0,4,8">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:StatRow">
+                            <Grid ColumnDefinitions="*,Auto" Margin="4,1">
+                                <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                           FontSize="11" Opacity="0.7"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1" Text="{Binding Value}"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="11" Margin="6,0,0,0" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+
+    </Grid>
+
+</UserControl>

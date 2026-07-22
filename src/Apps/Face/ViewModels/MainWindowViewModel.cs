@@ -28,7 +28,7 @@ public enum AppPage {
 public partial class MainWindowViewModel : ObservableObject {
     private const int BenchmarkMemoryBytes = 4 * 1024 * 1024;
 
-    private static readonly string BenchmarksDir =
+    internal static readonly string BenchmarksDir =
         Path.Combine(AppContext.BaseDirectory, "benchmarks");
 
     private ExperimentResult? _lastResult;
@@ -40,7 +40,11 @@ public partial class MainWindowViewModel : ObservableObject {
         SelectedPreset = WorkloadPresets[0];
     }
 
-    public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } = [
+    /// <summary>
+    ///     Shared workload preset list — also consumed by <see cref="ConfiguratorViewModel" />
+    ///     so both tabs offer the same benchmark set from one place.
+    /// </summary>
+    internal static IReadOnlyList<WorkloadPreset> DefaultWorkloadPresets { get; } = [
         new("Built-in demo  (100-iter countdown loop)", null),
         new("Benchmark — coremark", "coremark.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Benchmark — dhrystone", "dhrystone.elf", MainWindowViewModel.BenchmarkMemoryBytes),
@@ -58,6 +62,9 @@ public partial class MainWindowViewModel : ObservableObject {
         new("Benchmark — vvadd", "vvadd.elf", MainWindowViewModel.BenchmarkMemoryBytes),
         new("Custom ELF…", ""),
     ];
+
+    public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } =
+        [..MainWindowViewModel.DefaultWorkloadPresets,];
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowBrowse))]
@@ -127,6 +134,12 @@ public partial class MainWindowViewModel : ObservableObject {
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
     public AssemblerViewModel Assembler { get; } = new();
+
+    // The Configurator tab needs Script.csproj (Roslyn), which doesn't compile for
+    // browser-wasm — see Face.csproj's browser-TFM exclusions for ConfiguratorViewModel itself.
+#if !BROWSER
+    public ConfiguratorViewModel Configurator { get; } = new();
+#endif
 
     public ObservableCollection<ConfigViewModel> Configs { get; } = [];
     public ObservableCollection<string> AvailableMetrics { get; } = [];
@@ -519,7 +532,17 @@ public partial class MainWindowViewModel : ObservableObject {
         return merged;
     }
 
-    private static ByteArrayWorkload CreateBuiltInWorkload() {
+    /// <summary>Resolves a <see cref="WorkloadPreset" /> selection to a runnable <see cref="IWorkload" />.</summary>
+    internal static IWorkload ResolveWorkload(WorkloadPreset preset, string? workloadPath) => preset.ElfFileName switch {
+        null => MainWindowViewModel.CreateBuiltInWorkload(),
+        ""   => new Rv32ElfWorkload(workloadPath!),
+        var fn => new Rv32ElfWorkload(
+            Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
+            preset.MemoryBytes
+        ),
+    };
+
+    internal static ByteArrayWorkload CreateBuiltInWorkload() {
         // Built-in demo: 100-iteration countdown loop
         uint[] words = [0x06400093, 0x00008663, 0xFFF08093, 0xFF9FF06F, 0x00100073,];
         var bytes = new byte[words.Length * 4];

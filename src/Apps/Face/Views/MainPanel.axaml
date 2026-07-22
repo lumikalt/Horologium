@@ -1188,7 +1188,7 @@
             </Border>
 
             <!-- Tabs -->
-            <TabControl Grid.Row="1" SelectedIndex="{Binding SelectedTabIndex}">
+            <TabControl Grid.Row="1" x:Name="ResultsTabControl" SelectedIndex="{Binding SelectedTabIndex}">
 
                 <!-- Charts tab (Chart + Table as sub-tabs) -->
                 <TabItem Header="Charts">

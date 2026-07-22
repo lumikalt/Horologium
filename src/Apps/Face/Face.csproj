@@ -10,9 +10,20 @@
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
-    <!-- Exclude desktop-only entry point from browser builds -->
+    <!-- Browser builds can't dynamic-codegen, so Roslyn scripting (Script.csproj, which the
+         Configurator tab depends on) doesn't compile for them; this constant lets the shared
+         MainWindowViewModel/MainPanel code-behind gate the tab out with #if. -->
+    <PropertyGroup Condition="$(TargetFramework.Contains('browser'))">
+        <DefineConstants>$(DefineConstants);BROWSER</DefineConstants>
+    </PropertyGroup>
+
+    <!-- Exclude desktop-only entry point and the Configurator tab (needs Script.csproj/Roslyn,
+         unavailable under browser-wasm) from browser builds -->
     <ItemGroup Condition="$(TargetFramework.Contains('browser'))">
         <Compile Remove="Program.cs"/>
+        <Compile Remove="Views/ConfiguratorView.axaml.cs"/>
+        <Compile Remove="ViewModels/ConfiguratorViewModel.cs"/>
+        <AvaloniaXaml Remove="Views/ConfiguratorView.axaml"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -21,6 +32,7 @@
         <ProjectReference Include="../../Isa/RiscV32/RiscV32.csproj"/>
         <ProjectReference Include="../../Core/Pipeline/Pipeline.csproj"/>
         <ProjectReference Include="../../Isa/Chip8/Chip8.csproj"/>
+        <ProjectReference Include="../../Apps/Script/Script.csproj" Condition="!$(TargetFramework.Contains('browser'))"/>
     </ItemGroup>
 
     <ItemGroup>

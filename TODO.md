@@ -98,8 +98,26 @@ free embedded suites are runnable in full today.
   - Also a C compiler…
 - [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes.
 - [x] Vector operation visualization.
-- [ ] gem5-style architecture configurator: UI surface for the scripting host and pipeline builder — edit `.csx` scripts
-  in-app and hot-reload the resulting pipeline, cache hierarchy, branch predictor, and FU configuration without
-  restarting. (Phase 5 UI of the architecture builder: AvaloniaEdit code editor, hot-reload on file change via
-  `FileSystemWatcher`, workload selector, and live cache/TLB stat display.)
+- [x] gem5-style architecture configurator: new desktop-only "Configurator" tab (`ConfiguratorView`/
+  `ConfiguratorViewModel`) — an AvaloniaEdit pane edits a `.csx` script, hot-reloads on both a
+  600ms debounced in-app edit and an external save via `FileSystemWatcher` (both converge on the
+  same `ConfiguratorEngine.BuildAsync`), a workload selector reuses `MainWindowViewModel`'s
+  benchmark preset list, and a live stat panel shows cache/TLB counters and dial snapshots while
+  running. Coexists with the pre-existing `ConfigViewModel`/`TrainConfig` GUI path rather than
+  replacing or bridging it — the two talk to unrelated data models (`MachineSpec` vs
+  `TrainConfig`) and there was no reason to unify them for this. **Desktop-only, by constraint**:
+  the tab depends on `Script.csproj` (Roslyn `CSharpScript`), which can't dynamic-codegen under
+  browser-wasm, so `Face.csproj` excludes `ConfiguratorView`/`ConfiguratorViewModel` from the
+  `net11.0-browser` TFM (verified: the published browser DLL has zero references to either type)
+  and gates the tab's registration in `MainWindowViewModel`/`MainPanel.axaml.cs` behind a
+  `BROWSER` compile constant. No code-completion/diagnostics in the in-app editor (that's a
+  separate mini-IDE-scale feature); a "Save script…" button writes the buffer to a file and
+  launches the OS default handler so real tooling (Rider, vim, …) can be used externally, with
+  the `FileSystemWatcher` picking the edits back up.
 - [ ] More intuitive ways to visualize prefetching, cache policies, branch prediction, etc.
+- [ ] Unify Face's two disconnected configuration models: the sidebar's `ConfigViewModel`/
+  `TrainConfig`/`Experiment` GUI-knob path and the Configurator tab's `.csx`/`MachineSpec`/
+  `ScriptHost` scripting path currently describe the same kind of thing (a machine to build and
+  run) two incompatible ways, with no adapter between them. Long-horizon direction, not a small
+  patch: either generate `TrainConfig` knobs from `MachineSpec`'s shape (or vice versa), or retire
+  one path in favor of the other.
