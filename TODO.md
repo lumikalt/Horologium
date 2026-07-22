@@ -35,6 +35,34 @@ off here until a periodic cleanup removes them; the durable record is git histor
   `ss.cfg.ind`/`ss.cfg.vec` syntax that the spec revision Horologium implements folds into the
   `ss.sta` header fields (see `SPEC_NOTES.md`'s "Removed-instruction reminders") — drop those lines
   when porting rather than decoding them.
+- [x] Fixed `.L` modifier target-dimension resolution: the UVE2 author confirmed (2026-07-22) that
+  `.L` targets the *last configured dimension of the stream*, not "the dimension configured right
+  after the trigger" as `ExecuteUveSsAppMod`/`ExecuteUveSsAppInd` (`Rv32Executor.Uve.cs`) previously
+  resolved it via `targetDimRaw == 7 ? spikeTrigger + 1 : targetDimRaw`. That resolution only happened
+  to be correct when the modifier triggered on the second-to-last configured dimension; a modifier
+  appended earlier, with two or more further dimensions configured afterward, got the wrong target
+  dimension and wrong addresses. Fixed by no longer resolving `.L` eagerly at
+  `ss.app.mod`/`ss.app.ind` time — the raw tdim=7 sentinel is now carried unresolved through
+  `PendingConfig.Modifiers` and resolved in `BuildAndActivatePendingStream` (ss.end time, when `ndim`
+  is finally known) directly to engine index 0 (innermost — since ss.end always appends the innermost
+  dimension last, "the last configured dimension" is unconditionally engine index 0, independent of
+  `ndim`). Spike could not be the oracle (its own `.L` handling is a confirmed Spike bug — hardcoded
+  `targetDim = 7`, throws on <8-dimension streams); verified instead with a direct executor-level test
+  (`SsAppMod_DotL_TargetsLastConfiguredDimension_NotTriggerPlusOne`) using a 3-dimension stream where
+  the modifier triggers on the outermost dimension with two more configured afterward — the old and
+  new resolutions genuinely diverge there (confirmed the test fails under the old resolution before
+  fixing). Full suite 3921/1/3922 (3920 baseline + 1 new test).
+- [ ] Fix `so.b.*` branch `d`-field encoding and the numeric-tdim/branch-D dimension direction to
+  match the UVE2 author's authoritative correction (2026-07-22, see `SPEC_NOTES.md`'s "Branch `d`
+  field" and "Numeric tdim and branch-D direction" entries) — the author is the absolute authority and
+  overrules Spike here. Corrected branch-d table: `SO.B.NC.1`=000 .. `SO.B.NC.7`=110, `SO.B.NC`=111
+  (dc.1 becomes reachable; the no-suffix EOS-equivalent form moves from funct3=0 to funct3=7). Checked
+  against Spike ground truth (`riscv/encoding.h`'s `MATCH_SO_B_*`, AnaBSF/riscv-isa-sim @ a048271):
+  Spike ships the *old* encoding Horologium currently implements, not the author's table — a confirmed
+  Spike divergence, not a reason to keep matching Spike (see CLAUDE.md's updated UVE2 policy). Fix the
+  decoder's so.b.[n]c/so.b.[n]dc.D funct3 mapping and the numeric-tdim dimension-direction convention
+  together, since both stem from the same dimension-order-inversion correction; round-trip tests alone
+  can't validate the change (encoder and decoder would flip together and still agree with each other).
 
 ## Cache Prefetching
 

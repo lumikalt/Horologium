@@ -16,6 +16,9 @@ namespace RiscV32.Decode;
 //   MemLevel are decoded but not yet consumed (predication policy → vector-width model; mem → cache routing).
 //   funct2=1, funct3=0: ss.app     — rs1=offset reg, rs2=count reg, rs3=stride reg
 //   funct2=1, funct3=4: ss.app.mod — static modifier: b[24:22], ta[21:20], tdim[17:15], rs3=disp reg
+//     tdim=7 (".L") targets the last configured dimension of the stream (author-confirmed), not
+//     "the dimension configured right after the trigger" — resolved at ss.end time since the final
+//     dimension count isn't known until then.
 //   funct2=1, funct3=6: ss.app.ind — indirect modifier: tdim[30:28], b[24:22], ta[21:20], rs1=IndSource reg
 //   funct2=2, funct3=0: ss.end     — rs1=offset reg, rs2=count reg, rs3=stride reg; activates stream
 // VecCfgDim: -1 = innermost dimension; 0..6 = explicit dimension (outermost-first, Spike order).
@@ -55,8 +58,8 @@ public record RvUveSsEndSgi(int Ud, int Rs1Source, StreamModifierBehavior Behavi
 
 // ss.app.ind ud, rs1_indsrc — attach one indirect (dynamic) modifier to the pending stream config.
 // The trigger dimension is positional (the most recently appended dimension at execute time);
-// TargetDimRaw is the tdim field (outermost-first, Spike order; 7 = "linked" → the dimension
-// configured right after the trigger). Both are remapped to engine indices in ExecuteUveSsEnd.
+// TargetDimRaw is the tdim field (outermost-first, Spike order; 7 = ".L", the last configured
+// dimension of the stream). Both are remapped to engine indices in ExecuteUveSsEnd.
 // SourceStreamId = rs1 field = UVE register number of the IndSource stream.
 public record RvUveSsAppInd(
     int Ud,
@@ -73,7 +76,8 @@ public record RvUveSsApp(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : R
 public record RvUveSsEnd(int Ud, int Rs1Offset, int Rs2Count, int Rs3Stride) : RvOp;
 
 // ss.app.mod: append a static modifier. Trigger dimension is positional (like ss.app.ind);
-// TargetDimRaw = tdim field [17:15] (outermost-first; 7 = "linked"). rs3 = displacement register.
+// TargetDimRaw = tdim field [17:15] (outermost-first; 7 = ".L", the last configured dimension).
+// rs3 = displacement register.
 public record RvUveSsAppMod(
     int Ud,
     int TargetDimRaw,

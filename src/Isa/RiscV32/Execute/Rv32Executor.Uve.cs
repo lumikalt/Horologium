@@ -441,6 +441,9 @@ public partial class Rv32Executor {
     // The trigger is positional: the most recently appended dimension at execute time (Spike
     // keys modifiers to dimensions.size()-1). Pending modifiers hold SPIKE (outermost-first)
     // indices in TriggerDim/TargetDim; ExecuteUveSsEnd remaps both to engine order.
+    // targetDimRaw == 7 (".L") is stored unresolved — it always means "the last configured
+    // dimension of the stream" (author-confirmed), which can't be known until ss.end fixes the
+    // final dimension count; BuildAndActivatePendingStream resolves it there.
     private static ExecuteResult ExecuteUveSsAppInd(
         int ud,
         int targetDimRaw,
@@ -453,8 +456,7 @@ public partial class Rv32Executor {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
                 if (cfg is null || cfg.Dimensions.Count == 0) return;
                 int spikeTrigger = cfg.Dimensions.Count - 1;
-                int spikeTarget = targetDimRaw == 7 ? spikeTrigger + 1 : targetDimRaw;
-                cfg.Modifiers.Add(new StreamModifier(spikeTrigger, spikeTarget, target, behavior, 0, sourceStreamId));
+                cfg.Modifiers.Add(new StreamModifier(spikeTrigger, targetDimRaw, target, behavior, 0, sourceStreamId));
             },
         };
     }
@@ -550,12 +552,16 @@ public partial class Rv32Executor {
         // Remap modifier dims and explicit vecCfgDim from Spike (outermost=0) to engine (innermost=0).
         // Pending TriggerDim holds the Spike deque index K of the dimension the modifier was appended
         // after; that dimension ADVANCES when its inner neighbor (deque K+1) wraps, so the engine
-        // trigger is ndim-2-K. TargetDim is a plain index remapping.
+        // trigger is ndim-2-K. TargetDim is a plain index remapping — except a pending TargetDim of 7,
+        // the unresolved ".L" sentinel (see ExecuteUveSsAppMod/ExecuteUveSsAppInd), which always means
+        // "the last configured dimension of the stream" regardless of ndim: since ss.end always
+        // appends the innermost dimension last, that is unconditionally engine index 0.
         StreamModifier[]? mods = null;
         if (pending.Modifiers.Count > 0)
             mods = pending.Modifiers
                           .Select(m => m with {
-                                   TriggerDim = ndim - 2 - m.TriggerDim, TargetDim = ndim - 1 - m.TargetDim,
+                                   TriggerDim = ndim - 2 - m.TriggerDim,
+                                   TargetDim = m.TargetDim == 7 ? 0 : ndim - 1 - m.TargetDim,
                                }
                            )
                           .ToArray();
@@ -598,8 +604,12 @@ public partial class Rv32Executor {
 
     // ss.app.mod ud, tdim, target, behavior, rs3Disp — append static modifier (UVE2).
     // Trigger is positional (the most recently appended dimension); tdim is the target dimension
-    // in Spike outermost-first order (7 = "linked" → the dimension configured right after the
-    // trigger). Pending modifiers hold Spike indices; ExecuteUveSsEnd remaps to engine order.
+    // in Spike outermost-first order. Pending modifiers hold Spike indices; ExecuteUveSsEnd remaps
+    // to engine order. tdim == 7 (".L") is stored unresolved — it always means "the last configured
+    // dimension of the stream" (author-confirmed, not "the dimension configured right after the
+    // trigger" — that reading only coincided by accident whenever the modifier happened to trigger
+    // on the second-to-last configured dimension), which can't be known until ss.end fixes the final
+    // dimension count; BuildAndActivatePendingStream resolves it there.
     private static ExecuteResult ExecuteUveSsAppMod(
         IRegisterFile regs,
         int ud,
@@ -614,12 +624,11 @@ public partial class Rv32Executor {
                 PendingStreamConfig? cfg = UState(s).UveState.PendingConfig[ud];
                 if (cfg is null || cfg.Dimensions.Count == 0) return;
                 int spikeTrigger = cfg.Dimensions.Count - 1;
-                int spikeTarget = targetDimRaw == 7 ? spikeTrigger + 1 : targetDimRaw;
                 // Stride displacement is an element count; scale to bytes for the engine.
                 // Offset displacement stays as element count (engine scales internally).
                 // Size displacement is already a count; no scaling.
                 long scaledDisp = target == StreamModifierTarget.Stride ? disp * cfg.ElementBytes : disp;
-                cfg.Modifiers.Add(new StreamModifier(spikeTrigger, spikeTarget, target, behavior, scaledDisp));
+                cfg.Modifiers.Add(new StreamModifier(spikeTrigger, targetDimRaw, target, behavior, scaledDisp));
             },
         };
     }

@@ -1409,6 +1409,44 @@ public class UveTests {
         Assert.Equal(LowerTriangularExpected(n), RunSsAppModLowerTriangular(n), 3);
     }
 
+    /// <summary>
+    ///     ".L" (tdim=7) must target the *last configured dimension of the stream* (author-confirmed,
+    ///     2026-07-22 — see SPEC_NOTES.md's ".L modifier suffix" entry), not "the dimension configured
+    ///     right after the trigger" as previously implemented. The two readings only coincide when the
+    ///     modifier triggers on the second-to-last configured dimension; here the modifier triggers on
+    ///     the *outermost* of three dimensions, with two more dimensions (middle, innermost) configured
+    ///     afterward, so the old ("trigger+1" → middle dimension, engine index 1) and correct
+    ///     ("last configured" → innermost dimension, engine index 0) readings genuinely diverge.
+    /// </summary>
+    [Fact]
+    public void SsAppMod_DotL_TargetsLastConfiguredDimension_NotTriggerPlusOne() {
+        var state = new Rv32ArchState();
+        var cfg = new PendingStreamConfig { BaseAddress = 0x1000, ElementBytes = 4, IsLoad = true, };
+        state.UveState.PendingConfig[1] = cfg;
+
+        // ss.sta.ld already ran (implicit above); ss.app configures the outermost dimension.
+        cfg.Dimensions.Add(new StreamDimension(2, 16)); // outermost dim (Spike index 0), the trigger
+
+        // ss.app.mod u1, .L, Size, Inc, x5 — triggers on the outermost dim just appended above.
+        state.IntegerRegisters.Write(5, 1); // displacement (unused by this test beyond non-zero)
+        ExecuteResult modResult = Exec(new RvUveSsAppMod(1, 7, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), state);
+        modResult.SideEffect?.Invoke(state);
+
+        // Two more ss.app-style dimensions configured after the modifier: middle, then innermost via ss.end.
+        cfg.Dimensions.Add(new StreamDimension(2, 4)); // middle dim (Spike index 1)
+        state.IntegerRegisters.Write(2, 2); // innermost count
+        state.IntegerRegisters.Write(3, 1); // innermost stride (1 elem = 4 bytes)
+        ExecuteResult endResult = Exec(new RvUveSsEnd(1, 0, 2, 3), state);
+
+        Assert.True(endResult.StreamConfig.HasValue);
+        StreamDescriptor desc = endResult.StreamConfig!.Value.Descriptor;
+        Assert.NotNull(desc.Modifiers);
+        Assert.Single(desc.Modifiers!);
+        // Engine order is innermost-first: index 0 = innermost dim (the true "last configured" one).
+        // The old "trigger+1" bug would have resolved this to engine index 1 (the middle dimension).
+        Assert.Equal(0, desc.Modifiers![0].TargetDim);
+    }
+
     // ── FP extended ops (Min/Max/Abs/Inc/Dec) ─────────────────────────────────
 
     [Fact]
