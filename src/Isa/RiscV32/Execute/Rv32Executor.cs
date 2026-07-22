@@ -866,7 +866,7 @@ public partial class Rv32Executor : IExecutor {
             RvUveSoPCmp (var cop, var cmpType, var pd, var govPred, var vs1, var vs2, var cmpZeroing)
                 => ExecuteUveSoPCmp(state, cop, cmpType, pd, govPred, vs1, vs2, cmpZeroing),
             RvUveSoVMv (var transpose, var vd, var vs1, var predIdx)
-                => ExecuteUveSoVMv(state, transpose, vd, vs1, predIdx),
+                => ExecuteUveSoVMv(state, memory, transpose, vd, vs1, predIdx),
             RvUveSoPCv (var pd, var ps1, var srcBytes, var destBytes, var zeroing)
                 => ExecuteUveSoPCv(state, pd, ps1, srcBytes, destBytes, zeroing),
             RvUveSoVCv (var vd, var vs1, var destBytes, var isFp, var isSigned)

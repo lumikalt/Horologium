@@ -135,6 +135,7 @@ public sealed class RvInstruction(
         RvUveSoASadde op  => [op.Usrc1,],
         RvUveSoVMvvs op   => [op.Us1,],
         RvUveSoVCv op     => [op.Vs1,],
+        RvUveSoVMv op     => [op.Vs1,],
         _                 => [],
     };
 

@@ -754,12 +754,39 @@ public partial class Rv32Executor {
 
     // so.v.mv/mvt vd, vs1, pred — copy vs1 into vd where predicate PredIdx is active (merging).
     // Transpose variant (mvt) reverses the active range.
-    private static ExecuteResult ExecuteUveSoVMv(IArchState state, bool transpose, int vd, int vs1, int predIdx) {
+    // When vd is a store-stream register, the copy writes through to memory immediately (like
+    // UveWriteResult's arithmetic-op store-stream path and OoOE's vector stores generally: the
+    // write is not deferred to SideEffect commit) rather than only updating vd's own lanes —
+    // confirmed against Spike (so_v_mv.h/so_v_mvt.h both write through the generic register
+    // setElements() path, which handles the store-stream case uniformly for every writer).
+    private static ExecuteResult ExecuteUveSoVMv(
+        IArchState state, IMemory memory, bool transpose, int vd, int vs1, int predIdx
+    ) {
         UveState uvs = UState(state).UveState;
         bool isVector = uvs.RegMode[vs1] == UveRegMode.Vector;
         int vLen = isVector ? uvs.ValidElements[vs1] > 0 ? uvs.ValidElements[vs1] : 1 : 1;
         var srcLanes = new uint[vLen];
         for (var i = 0; i < vLen; i++) srcLanes[i] = uvs.GetLane32(vs1, i);
+
+        UveStoreStream? storeStream = uvs.RegKind[vd] == UveRegKind.StoreStream ? uvs.StoreStreams[vd] : null;
+        if (storeStream is { } ss) {
+            bool[] predNow = uvs.PredicateRegs[predIdx];
+            int ewBytes = ss.ElementBytes;
+            if (!isVector) {
+                int checkIdx = transpose ? UveState.PredBytes - 1 : 0;
+                if (predNow[checkIdx]) memory.Write(ss.CurrentAddress, srcLanes[0], ewBytes);
+                ss.Advance();
+            }
+            else {
+                for (var i = 0; i < vLen; i++) {
+                    int predByte = transpose ? UveState.PredBytes - 1 - (i * 4 + 3) : i * 4 + 3;
+                    if (predByte is >= 0 and < UveState.PredBytes && predNow[predByte])
+                        memory.Write(ss.CurrentAddress, srcLanes[i], ewBytes);
+                    ss.Advance();
+                }
+            }
+        }
+
         return new ExecuteResult {
             SideEffect = s => {
                 UveState u = UState(s).UveState;
@@ -770,7 +797,7 @@ public partial class Rv32Executor {
                         u.SetLane32(vd, 0, srcLanes[0]);
                         u.RegMode[vd] = UveRegMode.Scalar;
                         u.ValidElements[vd] = 1;
-                        u.RegKind[vd] = UveRegKind.Scalar;
+                        if (storeStream is null) u.RegKind[vd] = UveRegKind.Scalar;
                     }
                 }
                 else {

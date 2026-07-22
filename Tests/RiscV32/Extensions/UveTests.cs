@@ -376,6 +376,40 @@ public class UveTests {
         Assert.Equal(4UL, state.UveState.StoreStreams[3]!.CurrentAddress); // cursor advanced to next element
     }
 
+    /// <summary>
+    ///     so.v.mv's destination writing through to memory when bound to an active store stream —
+    ///     the gap found while porting the UVE2 <c>stream</c> benchmark's Copy kernel (c = a via
+    ///     so.v.mv), where <see cref="ExecuteUveSoVMv" /> used to only update vd's own lanes,
+    ///     unlike the arithmetic ops' <c>UveWriteResult</c> path (see
+    ///     <see cref="SoAFp_ToStoreStream_WritesMemory" />). Confirmed against Spike's
+    ///     so_v_mv.h/so_v_mvt.h, which both write through the same generic per-register path used
+    ///     by every writer.
+    /// </summary>
+    [Fact]
+    public void SoVMv_ToStoreStream_WritesMemory() {
+        var state = new Rv32ArchState();
+        var mem = new FlatMemory(64);
+
+        var storeStream = new UveStoreStream {
+            BaseAddress = 0, ElementBytes = 4,
+            Dimensions = [new StreamDimension(4, 4),], Indices = [0,],
+        };
+        storeStream.Initialize();
+        state.UveState.StoreStreams[3] = storeStream;
+        state.UveState.RegKind[3] = UveRegKind.StoreStream;
+
+        state.UveState.SetScalar(1, 7.0f);
+
+        // so.v.mv u3, u1, p0 → should write 7.0 to address 0 and advance the cursor
+        ExecuteResult er = Exec(new RvUveSoVMv(false, 3, 1, 0), state, mem);
+        er.SideEffect?.Invoke(state);
+
+        float written = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(0, 4));
+        Assert.Equal(7.0f, written, 4);
+        Assert.Equal(4UL, state.UveState.StoreStreams[3]!.CurrentAddress); // cursor advanced to next element
+        Assert.Equal(UveRegKind.StoreStream, state.UveState.RegKind[3]); // still a store stream, not downgraded
+    }
+
     [Fact]
     public void SoBNc_TakenWhenNotDone() {
         var state = new Rv32ArchState();
@@ -1184,6 +1218,95 @@ public class UveTests {
             float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(dstAddr, 4));
             float expected = src[r * cols + c];
             Assert.Equal(expected, actual, 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
+    // ── Integration test: STREAM (Copy/Scale/Add/Triad) via OoO pipeline ─────
+
+    /// <summary>
+    ///     Ports the four classic McCalpin STREAM kernels (Copy/Scale/Add/Triad) from the UVE2
+    ///     reference benchmark suite's <c>stream</c> test
+    ///     (github.com/hpc-ulisboa/UVE2, UVE-Testing/spike_test/benchmarks/stream), chained in one
+    ///     program exactly as the reference kernel.c does: c=a; b=scalar*c; c=a+b; a=b+scalar*c.
+    ///     Only the final <c>a[]</c> is checked, mirroring the reference's own main.c (which only
+    ///     reads back <c>src_1</c>).
+    ///     <para>Memory layout: a at 0x0000, b at 0x0100, c at 0x0200, code at 0x1000.</para>
+    /// </summary>
+    [Fact]
+    public void Pipeline_Stream_CopyScaleAddTriad_CorrectResult() {
+        const int n = 4;
+        const float scalar = 3.0f;
+
+        float[] a = [1.0f, 2.0f, 3.0f, 4.0f,];
+        float[] b = [5.0f, 6.0f, 7.0f, 8.0f,];
+        float[] c = [9.0f, 10.0f, 11.0f, 12.0f,];
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback, not Horologium's
+        // execution.
+        float[] cCopy = a.ToArray();
+        float[] bScale = cCopy.Select(v => scalar * v).ToArray();
+        float[] cAdd = a.Zip(bScale, (ai, bi) => ai + bi).ToArray();
+        float[] expectedA = bScale.Zip(cAdd, (bi, ci) => bi + scalar * ci).ToArray();
+
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < n; i++) {
+            mem.Load((ulong)(0x000 + i * 4), BitConverter.GetBytes(a[i]));
+            mem.Load((ulong)(0x100 + i * 4), BitConverter.GetBytes(b[i]));
+            mem.Load((ulong)(0x200 + i * 4), BitConverter.GetBytes(c[i]));
+        }
+
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, 0x000), // x1 = base a
+            Addi(2, 0, 0x100), // x2 = base b
+            Addi(3, 0, 0x200), // x3 = base c
+            Addi(4, 0, n),     // x4 = count
+            Addi(5, 0, 1),     // x5 = stride (1 elem)
+            Lui(6, 0x40400),   // x6 = bits(3.0f) scalar
+
+            // KERNEL COPY: c = a
+            SsStaLdW(1, 1), SsEnd(1, 0, 4, 5), // u1 = load a
+            SsStaStW(2, 3), SsEnd(2, 0, 4, 5), // u2 = store c
+            SoVMv(2, 1), SoBNc(1, -4),
+
+            // KERNEL SCALE: b = scalar * c
+            SsStaLdW(1, 3), SsEnd(1, 0, 4, 5), // u1 = load c
+            SsStaStW(2, 2), SsEnd(2, 0, 4, 5), // u2 = store b
+            SoVDpW(10, 6),                     // u10 = broadcast scalar
+            SoAFp(UveFpOp.Mul, 2, 1, 10), SoBNc(1, -4),
+
+            // KERNEL ADD: c = a + b
+            SsStaLdW(1, 1), SsEnd(1, 0, 4, 5), // u1 = load a
+            SsStaLdW(2, 2), SsEnd(2, 0, 4, 5), // u2 = load b
+            SsStaStW(3, 3), SsEnd(3, 0, 4, 5), // u3 = store c
+            SoAFp(UveFpOp.Add, 3, 1, 2), SoBNc(1, -4),
+
+            // KERNEL TRIAD: a = b + scalar * c
+            SsStaLdW(1, 2), SsEnd(1, 0, 4, 5), // u1 = load b
+            SsStaLdW(2, 3), SsEnd(2, 0, 4, 5), // u2 = load c
+            SsStaStW(3, 1), SsEnd(3, 0, 4, 5), // u3 = store a
+            SoVDpW(10, 6),                     // u10 = broadcast scalar
+            SoAFp(UveFpOp.Mul, 20, 2, 10), SoAFp(UveFpOp.Add, 3, 1, 20), SoBNc(1, -8),
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(6000);
+
+        for (var i = 0; i < n; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read((ulong)(0x000 + i * 4), 4));
+            Assert.Equal(expectedA[i], actual, 2);
         }
 
         return;

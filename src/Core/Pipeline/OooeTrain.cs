@@ -1618,7 +1618,11 @@ internal sealed partial class OoOPipelineCore : Gear {
                 var streamStall = false;
                 if (rs.Instruction is not null)
                     foreach (int uid in rs.Instruction.UveStreamSources)
-                        if (uid >= 0 && StreamingEngine.IsActive(uid) && !StreamingEngine.HasElement(uid)) {
+                        // UveStreamSources over-lists every vector-register operand at decode
+                        // time (it can't know which ones get dynamically stream-configured), so
+                        // uid >= MaxStreams is a plain arithmetic register, never an active stream.
+                        if (uid >= 0 && uid < StreamingEngine.MaxStreams && StreamingEngine.IsActive(uid)
+                         && !StreamingEngine.HasElement(uid)) {
                             streamStall = true;
                             break;
                         }
@@ -3157,7 +3161,8 @@ internal sealed partial class OoOPipelineCore : Gear {
             // Buffer for vector lane injection; max VLEN=128 bits = 4 float32 lanes.
             Span<uint> laneBuf = stackalloc uint[16];
             foreach (int uid in issued.Instr.UveStreamSources) {
-                if (uid < 0 || !StreamingEngine.IsActive(uid) || !StreamingEngine.HasElement(uid)) continue;
+                if (uid < 0 || uid >= StreamingEngine.MaxStreams || !StreamingEngine.IsActive(uid)
+                 || !StreamingEngine.HasElement(uid)) continue;
                 bool merging = StreamingEngine.GetMergingPredication(uid);
                 if (StreamingEngine.IsVectorMode(uid)) {
                     int ew = StreamingEngine.GetElementBytes(uid);

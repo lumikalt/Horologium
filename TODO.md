@@ -8,6 +8,33 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 - [ ] ~~Suspended-stream data exchange: `so.v.vload`/`so.v.vstor`~~ — **hold**: dissertation gives one sentence
   with no operand semantics; Spike has no instruction files for it. Skip until the spec is clarified.
+- [x] Port UVE2 reference benchmark kernels as Horologium regression tests, first kernel (`stream`):
+  ported the reference suite's four McCalpin STREAM kernels (Copy/Scale/Add/Triad) from
+  github.com/hpc-ulisboa/UVE2 (`UVE-Testing/spike_test/benchmarks/stream`) as
+  `Pipeline_Stream_CopyScaleAddTriad_CorrectResult` in `UveTests.cs`. Chaining real streaming kernels
+  (rather than hand-written unit tests) surfaced three real bugs no existing test had hit: (1)
+  `ExecuteUveSoVMv` (`so.v.mv`) never wrote through to memory when its destination was bound to an
+  active store stream, unlike the arithmetic ops' `UveWriteResult` path — confirmed against Spike
+  (`so_v_mv.h`/`so_v_mvt.h` both write through the same generic per-register path every writer uses)
+  before fixing; added a dedicated store-stream branch plus a `SoVMv_ToStoreStream_WritesMemory`
+  regression test. (2) `so.v.mv`'s `Vs1` operand was missing from `RvInstruction.UveStreamSources`,
+  so OoOE's UVE issue-gating never stalled it for its load stream's element to be ready, letting it
+  read stale (zero) register state. (3) Both `UveStreamSources` consumers in `OooeTrain.cs`
+  (issue-gating and the stream-value injection point) called `StreamingEngine`'s 8-slot-limited
+  methods unconditionally on every listed uid, crashing on register numbers ≥8 used for plain
+  arithmetic (broadcast/temp) operands — a real, previously-unexercised gap, since every existing UVE
+  pipeline test happened to stay within u1–u5; fixed by bounding both call sites to
+  `uid < StreamingEngine.MaxStreams` before querying. Verified: each fix's necessity confirmed by the
+  natural fail-then-pass progression while building the port, full suite 3920/1/3921 (3918 baseline +
+  2 new tests).
+- [ ] Port the remaining UVE2 reference benchmark kernels (github.com/hpc-ulisboa/UVE2,
+  `UVE-Testing/spike_test/benchmarks/`): `3mm`, `convolution`, `covariance`, `gemver`, `jacobi-1d`,
+  `jacobi-2d`, `knn`, `memcpy`, `mvt`, `sgd`, `spmv_ellpack`(+`_delimiters`), `syrk`, `trmm`, `vec_cv`,
+  and the `test`/`test_dyn` harnesses (`saxpy`/`gemm`/`trisolv`/`triangular_acc`/indirect-gather
+  already have equivalent Horologium kernel tests). `knn` and `syrk` still contain some pre-revision
+  `ss.cfg.ind`/`ss.cfg.vec` syntax that the spec revision Horologium implements folds into the
+  `ss.sta` header fields (see `SPEC_NOTES.md`'s "Removed-instruction reminders") — drop those lines
+  when porting rather than decoding them.
 
 ## Cache Prefetching
 
