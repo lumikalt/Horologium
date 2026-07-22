@@ -46,6 +46,17 @@ public interface IUveScalars {
     /// <summary>Returns true when u-register <paramref name="uid" /> uses merging predication (pm=1).</summary>
     bool IsRegMerging(int uid) => false;
 
+    /// <summary>
+    ///     Returns true when u-register <paramref name="uid" /> is bound to a store stream. Store
+    ///     streams bypass the ISA-agnostic streaming engine (they write through the executor's own
+    ///     cursor instead), so the pipeline must ask the ISA layer directly rather than querying the
+    ///     engine's Active/Exhausted state — which would see "never configured" for any store stream.
+    /// </summary>
+    bool IsStoreStream(int uid) => false;
+
+    /// <summary>Returns true when the store stream bound to u-register <paramref name="uid" /> is exhausted.</summary>
+    bool StoreStreamExhausted(int uid) => true;
+
     /// <summary>Returns true when stream <paramref name="uid" /> is exhausted.</summary>
     bool GetStreamDone(int uid);
 

@@ -34,17 +34,28 @@ off here until a periodic cleanup removes them; the durable record is git histor
   two-level nested loop (`so.b.ndc.2` inner, `so.b.nc` outer). Passed first try — no new bugs found.
   Verified against an independent C# oracle mirroring the reference's own `RUN_SIMPLE` fallback; full
   suite 3923/1/3924.
+- [x] Ported `memcpy` (`Pipeline_Memcpy_CorrectResult`) and `jacobi-1d` (`Pipeline_Jacobi1D_CorrectResult`,
+  a 3-point stencil using three overlapping-offset load streams over the same array): both scalar-mode
+  ports, dropping the reference's `.v` vector-mode suffix per the one-representative-width convention.
+  No new bugs. Full suite 3928/1/3929 including these two.
+- [x] Ported `mvt` (`Pipeline_Mvt_CorrectResult`: matrix-vector-transpose, row-major then column-major
+  passes over the same matrix). This one **did** find a real bug: `OooeTrain`'s `UveBranchStreams`
+  handling computed stream-done purely from `StreamingEngine.IsActive`/`IsExhausted`, which store
+  streams never register with (they bypass the engine entirely, tracked instead via the ISA layer's own
+  `UveStoreStream` cursor) — collapsing to "always done" for any store-stream branch operand, so
+  `so.b.nc`/`so.b.c` checking a store stream (as `mvt`'s outer loop does, unlike every prior test's
+  load-stream check) exited after one iteration. Fixed by adding `IUveScalars.IsStoreStream`/
+  `StoreStreamExhausted` (default-bodied, false/true, for non-UVE ISAs) and branching on it in
+  `OooeTrain.cs`; added a minimal dedicated regression test
+  (`Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted`) alongside the `mvt` port, both confirmed to fail
+  without the fix via revert-and-recheck. Full suite 3929/1/3930.
 - [ ] Port the remaining UVE2 reference benchmark kernels (github.com/hpc-ulisboa/UVE2,
-  `UVE-Testing/spike_test/benchmarks/`): `3mm`, `convolution`, `covariance`, `gemver`, `jacobi-1d`,
-  `jacobi-2d`, `memcpy`, `mvt`, `sgd`, `spmv_ellpack_delimiters`, `syrk`, `trmm`, `vec_cv`, and the
-  `test`/`test_dyn` harnesses (`saxpy`/`gemm`/`trisolv`/`triangular_acc`/`spmv_ellpack` already have
-  equivalent Horologium kernel tests). The matrix/stencil-shaped kernels (`3mm`, `convolution`,
-  `covariance`, `gemver`, `jacobi-1d`/`2d`, `mvt`, `trmm`) recombine arithmetic/branch patterns already
-  exercised by the passing gemm/saxpy/stream/spmv_ellpack tests — low expected bug-discovery yield, port
-  only if regression coverage breadth is wanted for its own sake. `syrk` still contains some pre-revision
-  `ss.cfg.vec` syntax that the spec revision Horologium implements folds into the `ss.sta` header fields
-  (see `SPEC_NOTES.md`'s "Removed-instruction reminders") — drop those lines when porting rather than
-  decoding them.
+  `UVE-Testing/spike_test/benchmarks/`): `3mm`, `convolution`, `covariance`, `gemver`, `jacobi-2d`,
+  `sgd`, `spmv_ellpack_delimiters`, `syrk`, `trmm`, `vec_cv`, and the `test`/`test_dyn` harnesses
+  (`saxpy`/`gemm`/`trisolv`/`triangular_acc`/`spmv_ellpack`/`memcpy`/`jacobi-1d`/`mvt` already have
+  equivalent Horologium kernel tests). `syrk` still contains some pre-revision `ss.cfg.vec` syntax that
+  the spec revision Horologium implements folds into the `ss.sta` header fields (see `SPEC_NOTES.md`'s
+  "Removed-instruction reminders") — drop those lines when porting rather than decoding them.
 - [ ] `knn` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not 1:1 portable today**: its
   `position_x_j`/`_y`/`_z` neighbor-gather streams use a 4-operand `ss.sta.ld.d ud, base, count, stride`
   header that configures a dimension inline (Horologium's `ss.sta.ld.*` header only takes `rs1`=base;

@@ -110,6 +110,8 @@ public sealed class UveState : IUveScalars {
     }
 
     public void SetRegElemBytes(int uid, int elemBytes) => RegElemBytes[uid] = elemBytes;
+    public bool IsStoreStream(int uid) => RegKind[uid] == UveRegKind.StoreStream;
+    public bool StoreStreamExhausted(int uid) => StoreStreams[uid] is not { } ss || ss.IsExhausted;
     public bool GetStreamDone(int uid) => StreamDone[uid];
     public void SetStreamDone(int uid, bool done) => StreamDone[uid] = done;
     public bool GetDimDone(int streamId, int dim) => DimDone[streamId, dim];

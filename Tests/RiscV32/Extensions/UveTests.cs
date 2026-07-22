@@ -1283,6 +1283,54 @@ public class UveTests {
             (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
+    /// <summary>
+    ///     Regression test for a bug found while porting the <c>mvt</c> benchmark: <c>OooeTrain</c>'s
+    ///     <c>UveBranchStreams</c> handling computed "done" purely from
+    ///     <see cref="StreamingEngine" />.IsActive/IsExhausted, which store streams never register with
+    ///     (they bypass the engine entirely). That collapsed to "always done" for any store-stream
+    ///     branch operand, so <c>so.b.nc</c>/<c>so.b.c</c> checking a store stream exited after their
+    ///     first iteration — every prior test happened to check a *load* stream's completion instead.
+    ///     Writes 4 elements through a 1D store stream in a <c>so.b.nc</c>-driven loop; without the fix
+    ///     only element 0 lands.
+    /// </summary>
+    [Fact]
+    public void Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted() {
+        const int n = 4;
+        const ulong destBase = 0x0000;
+        var mem = new FlatMemory(0x2000);
+
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)destBase), Addi(2, 0, n), Addi(3, 0, 1),
+            Lui(4, (int)(BitConverter.SingleToInt32Bits(7.0f) >> 12)), // x4 = bits(7.0f)
+
+            SsStaStW(1, 1), SsEnd(1, 0, 2, 3), // u1 = store stream: count=n, stride=1 elem
+            SoVDpW(2, 4),                      // u2 = 7.0f broadcast
+
+            SoAFp(UveFpOp.Add, 1, 2, -1), // u1(store) = u2 + 0 (unary usrc2=-1)
+            SoBNc(1, -4),                 // so.b.nc u1, (loop back to the write above)
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 32, iqCapacity: 16
+        );
+        train.Run(2000);
+
+        for (var i = 0; i < n; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(destBase + (ulong)(i * 4), 4));
+            Assert.Equal(7.0f, actual, 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
     // ── Integration test: STREAM (Copy/Scale/Add/Triad) via OoO pipeline ─────
 
     /// <summary>
@@ -1451,6 +1499,228 @@ public class UveTests {
         for (var i = 0; i < n; i++) {
             float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(outBase + (ulong)(i * 4), 4));
             Assert.Equal(expectedOut[i], actual, 2);
+        }
+    }
+
+    // ── Integration test: memcpy via OoO pipeline ────────────────────────────
+
+    /// <summary>
+    ///     Ports the <c>memcpy</c> UVE2 reference benchmark (github.com/hpc-ulisboa/UVE2,
+    ///     UVE-Testing/spike_test/benchmarks/memcpy): a straight 1D load-stream/store-stream copy via
+    ///     <c>so.v.mv</c>. Structurally identical to the <c>stream</c> port's Copy phase (same
+    ///     so.v.mv-to-store-stream path, already exercised there) — ported mainly for regression
+    ///     breadth, not new coverage.
+    /// </summary>
+    [Fact]
+    public void Pipeline_Memcpy_CorrectResult() {
+        const int size = 4;
+        float[] src = [1.0f, 2.0f, 3.0f, 4.0f,];
+
+        const ulong srcBase = 0x0000, destBase = 0x0100;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < src.Length; i++) mem.Load(srcBase + (ulong)(i * 4), BitConverter.GetBytes(src[i]));
+
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)destBase), Addi(2, 0, (int)srcBase), Addi(3, 0, size), Addi(4, 0, 1),
+
+            SsStaStW(1, 1), SsEnd(1, 0, 3, 4), // dest store stream: count=size, stride=1 elem
+            SsStaLdW(2, 2), SsEnd(2, 0, 3, 4), // src load stream: count=size, stride=1 elem
+
+            SoVMv(1, 2), SoBNc(2, -4),
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(4000);
+
+        for (var i = 0; i < size; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(destBase + (ulong)(i * 4), 4));
+            Assert.Equal(src[i], actual, 2);
+        }
+    }
+
+    // ── Integration test: jacobi-1d via OoO pipeline ─────────────────────────
+
+    /// <summary>
+    ///     Ports the <c>jacobi-1d</c> UVE2 reference benchmark (github.com/hpc-ulisboa/UVE2,
+    ///     UVE-Testing/spike_test/benchmarks/jacobi-1d): a 3-point 1D stencil,
+    ///     <c>B[i] = ct*(A[i-1]+A[i]+A[i+1])</c> then <c>A[i] = ct*(B[i-1]+B[i]+B[i+1])</c>, for
+    ///     <c>i</c> in <c>[1, SIZE-2]</c>. Three overlapping-offset load streams over the same array
+    ///     (base, base+1, base+2 elements) feed a running sum, ported scalar (dropping the reference's
+    ///     <c>.v</c> vector-mode suffix, per the one-representative-width convention).
+    /// </summary>
+    [Fact]
+    public void Pipeline_Jacobi1D_CorrectResult() {
+        const int size = 6;
+        const float ct = 0.5f;
+        float[] a = [1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f,];
+        float[] b = [10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f,];
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback.
+        float[] bNew = b.ToArray();
+        for (var i = 1; i < size - 1; i++) bNew[i] = ct * (a[i - 1] + a[i] + a[i + 1]);
+        float[] aNew = a.ToArray();
+        for (var i = 1; i < size - 1; i++) aNew[i] = ct * (bNew[i - 1] + bNew[i] + bNew[i + 1]);
+
+        const ulong aBase = 0x0000, bBase = 0x0100;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < size; i++) mem.Load(aBase + (ulong)(i * 4), BitConverter.GetBytes(a[i]));
+        for (var i = 0; i < size; i++) mem.Load(bBase + (ulong)(i * 4), BitConverter.GetBytes(b[i]));
+
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)aBase), Addi(2, 0, (int)aBase + 4), Addi(3, 0, (int)aBase + 8),
+            Addi(4, 0, (int)bBase + 4), Addi(5, 0, size - 2), Addi(6, 0, 1),
+            Lui(7, (int)(BitConverter.SingleToInt32Bits(ct) >> 12)),
+
+            SsStaLdW(1, 1), SsEnd(1, 0, 5, 6), // u1 = A[0..]
+            SsStaLdW(2, 2), SsEnd(2, 0, 5, 6), // u2 = A[1..]
+            SsStaLdW(3, 3), SsEnd(3, 0, 5, 6), // u3 = A[2..]
+            SsStaStW(4, 4), SsEnd(4, 0, 5, 6), // u4 = B[1..] store
+            SoVDpW(5, 7),                      // u5 = ct broadcast
+
+            // .uve_loop1:
+            SoAFp(UveFpOp.Add, 10, 1, 2), SoAFp(UveFpOp.Add, 10, 10, 3), SoAFp(UveFpOp.Mul, 4, 10, 5),
+            SoBNc(1, -12),
+
+            Addi(1, 0, (int)bBase), Addi(2, 0, (int)bBase + 4), Addi(3, 0, (int)bBase + 8),
+            Addi(4, 0, (int)aBase + 4),
+
+            SsStaLdW(1, 1), SsEnd(1, 0, 5, 6), // u1 = B[0..]
+            SsStaLdW(2, 2), SsEnd(2, 0, 5, 6), // u2 = B[1..]
+            SsStaLdW(3, 3), SsEnd(3, 0, 5, 6), // u3 = B[2..]
+            SsStaStW(4, 4), SsEnd(4, 0, 5, 6), // u4 = A[1..] store
+
+            // .uve_loop2: (u5 = ct broadcast, unchanged from loop1)
+            SoAFp(UveFpOp.Add, 10, 1, 2), SoAFp(UveFpOp.Add, 10, 10, 3), SoAFp(UveFpOp.Mul, 4, 10, 5),
+            SoBNc(1, -12),
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(8000);
+
+        for (var i = 0; i < size; i++) {
+            float actualA = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(aBase + (ulong)(i * 4), 4));
+            float actualB = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(bBase + (ulong)(i * 4), 4));
+            Assert.Equal(aNew[i], actualA, 2);
+            Assert.Equal(bNew[i], actualB, 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
+    // ── Integration test: mvt via OoO pipeline ───────────────────────────────
+
+    /// <summary>
+    ///     Ports the <c>mvt</c> UVE2 reference benchmark (github.com/hpc-ulisboa/UVE2,
+    ///     UVE-Testing/spike_test/benchmarks/mvt): matrix-vector-transpose,
+    ///     <c>x_1[i] += sum_j A[i,j]*y_1[j]</c> (row-major, SLOOP_1) then
+    ///     <c>x_2[i] += sum_j A[j,i]*y_2[j]</c> (column-major over the same matrix, SLOOP_2). Same
+    ///     inner-dim-completion-branch reduction pattern as spmv_ellpack/LowerTriangular, but exercises
+    ///     both a stride-N and a stride-1 outer-dimension traversal of the same base array (row-major
+    ///     vs. transposed access).
+    /// </summary>
+    [Fact]
+    public void Pipeline_Mvt_CorrectResult() {
+        const int n = 3;
+        float[] a = [1, 2, 3, 4, 5, 6, 7, 8, 9,];
+        float[] y1 = [1, 1, 1,];
+        float[] x1 = [10, 20, 30,];
+        float[] y2 = [1, 1, 1,];
+        float[] x2 = [100, 200, 300,];
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback.
+        float[] x1New = x1.ToArray();
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < n; j++)
+            x1New[i] += a[i * n + j] * y1[j];
+        float[] x2New = x2.ToArray();
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < n; j++)
+            x2New[i] += a[j * n + i] * y2[j];
+
+        const ulong aBase = 0x0000, y1Base = 0x0100, x1Base = 0x0200, y2Base = 0x0300, x2Base = 0x0400;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < a.Length; i++) mem.Load(aBase + (ulong)(i * 4), BitConverter.GetBytes(a[i]));
+        for (var i = 0; i < n; i++) mem.Load(y1Base + (ulong)(i * 4), BitConverter.GetBytes(y1[i]));
+        for (var i = 0; i < n; i++) mem.Load(x1Base + (ulong)(i * 4), BitConverter.GetBytes(x1[i]));
+        for (var i = 0; i < n; i++) mem.Load(y2Base + (ulong)(i * 4), BitConverter.GetBytes(y2[i]));
+        for (var i = 0; i < n; i++) mem.Load(x2Base + (ulong)(i * 4), BitConverter.GetBytes(x2[i]));
+
+        // Register plan: x1=aBase x2=N x3=1 x4=y1Base x5=x1Base x6=y2Base x7=x2Base
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)aBase), Addi(2, 0, n), Addi(3, 0, 1),
+            Addi(4, 0, (int)y1Base), Addi(5, 0, (int)x1Base), Addi(6, 0, (int)y2Base), Addi(7, 0, (int)x2Base),
+
+            // u4 = A row-major: outer count=N stride=N elems, inner count=N stride=1 elem
+            SsStaLdW(4, 1), SsApp(4, 0, 2, 2), SsEnd(4, 0, 2, 3),
+            // u5 = y1: outer count=N stride=0 (broadcast each row), inner count=N stride=1
+            SsStaLdW(5, 4), SsApp(5, 0, 2, 0), SsEnd(5, 0, 2, 3),
+            // u7 = x1 load: 1D count=N stride=1
+            SsStaLdW(7, 5), SsEnd(7, 0, 2, 3),
+            // u1 = x1 store: 1D count=N stride=1
+            SsStaStW(1, 5), SsEnd(1, 0, 2, 3),
+
+            // .SLOOP_1:
+            SoVDpW(2, 0), // u2 = 0
+            // .SLOOP_1_0:
+            SoAFp(UveFpOp.Mac, 2, 4, 5),   // u2 += u4*u5
+            SoBNdcD(4, 1, -4),             // so.b.ndc.2 u4, .SLOOP_1_0
+            SoAFp(UveFpOp.Adde, 3, 2, -1), // u3 = u2
+            SoAFp(UveFpOp.Add, 1, 7, 3),   // u1(store) = u7(x1 old) + u3
+            SoBNc(1, -20),                 // so.b.nc u1, .SLOOP_1
+
+            // u4 = A column-major (transposed access): outer count=N stride=1 elem, inner count=N stride=N elems
+            SsStaLdW(4, 1), SsApp(4, 0, 2, 3), SsEnd(4, 0, 2, 2),
+            // u5 = y2: outer count=N stride=0, inner count=N stride=1
+            SsStaLdW(5, 6), SsApp(5, 0, 2, 0), SsEnd(5, 0, 2, 3),
+            // u7 = x2 load: 1D count=N stride=1
+            SsStaLdW(7, 7), SsEnd(7, 0, 2, 3),
+            // u1 = x2 store: 1D count=N stride=1
+            SsStaStW(1, 7), SsEnd(1, 0, 2, 3),
+
+            // .SLOOP_2:
+            SoVDpW(2, 0),
+            // .SLOOP_2_0:
+            SoAFp(UveFpOp.Mac, 2, 4, 5),
+            SoBNdcD(4, 1, -4),
+            SoAFp(UveFpOp.Adde, 3, 2, -1),
+            SoAFp(UveFpOp.Add, 1, 7, 3),
+            SoBNc(1, -20),
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(10_000);
+
+        for (var i = 0; i < n; i++) {
+            float actualX1 = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(x1Base + (ulong)(i * 4), 4));
+            float actualX2 = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(x2Base + (ulong)(i * 4), 4));
+            Assert.Equal(x1New[i], actualX1, 2);
+            Assert.Equal(x2New[i], actualX2, 2);
         }
     }
 

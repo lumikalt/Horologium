@@ -3180,10 +3180,16 @@ internal sealed partial class OoOPipelineCore : Gear {
             }
 
             foreach (int uid in issued.Instr.UveBranchStreams)
-                if (uid >= 0)
-                    uvs.SetStreamDone(
-                        uid, !StreamingEngine.IsActive(uid) || StreamingEngine.IsExhausted(uid)
-                    ); // inactive = deactivated = done
+                if (uid >= 0) {
+                    // Store streams bypass StreamingEngine entirely (the ISA layer tracks their own
+                    // cursor/exhaustion) — querying the engine for one always sees "never configured"
+                    // (Active=false), which the OR below collapses to "done" unconditionally,
+                    // terminating so.b.[n]c loops after their first iteration.
+                    bool done = uvs.IsStoreStream(uid)
+                        ? uvs.StoreStreamExhausted(uid)
+                        : !StreamingEngine.IsActive(uid) || StreamingEngine.IsExhausted(uid);
+                    uvs.SetStreamDone(uid, done);
+                }
             // so.b.ndc.D encodes the dimension as funct3 = D-1, counting from the
             // OUTERMOST dimension (Spike: EODTable.at(funct3), dimensions[0] = outermost).
             // The engine indexes dimensions innermost-first, so remap before querying.
