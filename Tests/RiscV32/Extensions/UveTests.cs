@@ -1331,6 +1331,73 @@ public class UveTests {
             (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
+    /// <summary>
+    ///     Single-variable-changed sibling of <see cref="Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted" />:
+    ///     identical 2-instruction write+<c>so.b.nc</c> loop body, identical broadcast source, identical
+    ///     stream-under-check — the only change is that u1 is now a 2D store stream carrying a
+    ///     Size-Inc modifier (lower-triangular growth) instead of a flat 1D store.
+    ///     <para>
+    ///     KNOWN LIMITATION (pinned repro, not yet fixed — see TODO.md "UVE store-stream-modifier +
+    ///     2-instruction loop anomaly"): this fails (writes nothing at all, not even element 0) while
+    ///     both siblings pass — the same modifier-bearing stream driven by a 3-instruction loop
+    ///     (<see cref="SsAppMod_StoreStream_LowerTriangular_WritesSequentialCounter" />, an extra
+    ///     accumulator instruction between write and branch) and a modifier-FREE stream in this exact
+    ///     2-instruction shape (<see cref="Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted" />) both
+    ///     work. That isolates the trigger to the combination of (a) a static modifier mutating
+    ///     <c>UveStoreStream</c>'s <c>Dimensions</c>/<c>_offsets</c> arrays in <c>Advance()</c> and (b)
+    ///     <c>OooeTrain</c> applying UVE <c>SideEffect</c>s immediately at execute for head-serialized
+    ///     ops rather than deferring to commit — a branch misprediction/squash-and-refetch of the write
+    ///     would re-execute <c>Advance()</c> without the mutation being rollback-safe, plausibly
+    ///     double-advancing (or otherwise corrupting) the modified dimensions before any iteration's
+    ///     write actually commits. Not confirmed by tracing; no ported kernel uses this exact
+    ///     write-immediately-followed-by-branch shape (every real kernel has >=3 instructions of
+    ///     separation), so nothing currently shipped is affected.
+    ///     </para>
+    /// </summary>
+    [Fact(Skip = "Known limitation: modifier-bearing store stream in a strict 2-instruction write+branch loop; see TODO.md. No shipped kernel port exercises this shape.")]
+    public void Pipeline_SoBNc_OnModifierBearingStoreStream_LoopsUntilExhausted() {
+        const int rows = 3;
+        const ulong destBase = 0x0000;
+        var mem = new FlatMemory(0x2000);
+        var expectedCount = rows * (rows + 1) / 2;
+        for (var i = 0; i < expectedCount + 2; i++) mem.Load(destBase + (ulong)(i * 4), BitConverter.GetBytes(-1f));
+
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)destBase), Addi(2, 0, rows), Addi(3, 0, rows), Addi(4, 0, 1), Addi(5, 0, 1),
+            Lui(6, (int)(BitConverter.SingleToInt32Bits(7.0f) >> 12)), // x6 = bits(7.0f)
+
+            // u1 = 2D store stream: D1(outer,"rows") count=rows stride=rows; D2(final, Size-Inc
+            // modifier) count=1 stride=1 — the exact single variable changed from the sibling test
+            // above (which used a flat 1D store with no modifier).
+            SsStaStW(1, 1), SsApp(1, 0, 2, 3),
+            SsAppMod(1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), SsEnd(1, 0, 5, 4),
+            SoVDpW(2, 6), // u2 = 7.0f broadcast
+
+            SoAFp(UveFpOp.Add, 1, 2, -1), // u1(store) = u2 + 0 (unary usrc2=-1)
+            SoBNc(1, -4),                 // so.b.nc u1, (loop back to the write above)
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 32, iqCapacity: 16
+        );
+        train.Run(2000);
+
+        for (var i = 0; i < expectedCount; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(destBase + (ulong)(i * 4), 4));
+            Assert.Equal(7.0f, actual, 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
     // ── Integration test: STREAM (Copy/Scale/Add/Triad) via OoO pipeline ─────
 
     /// <summary>
@@ -2154,10 +2221,20 @@ public class UveTests {
     ///     dimension of each 2- or 3-dim stream involved).
     /// </summary>
     [Fact]
-    public void Pipeline_Covariance_CorrectResult() {
-        const int m = 2, n = 3;
-        const float datatN = 3.0f, datatNn = 2.0f; // datatN - 1
-        float[] data = [1, 10, 2, 20, 6, 30,]; // N x M row-major
+    public void Pipeline_Covariance_CorrectResult() => RunCovariance(2, 3, [1, 10, 2, 20, 6, 30,]);
+
+    /// <summary>
+    ///     Same kernel as <see cref="Pipeline_Covariance_CorrectResult" /> but scaled up (M=3, N=4,
+    ///     asymmetric non-arithmetic-progression data) so the store-stream-modifier fix isn't only
+    ///     validated at the original port's minimal 2x3 size — the triangular stage's Offset/Size
+    ///     modifiers now actually shrink/grow across more than one step per store stream.
+    /// </summary>
+    [Fact]
+    public void Pipeline_Covariance_Scaled3x4_CorrectResult() =>
+        RunCovariance(3, 4, [1, 10, 100, 2, 7, 90, 5, 3, 40, 9, 20, 8,]);
+
+    private static void RunCovariance(int m, int n, float[] data) {
+        float datatN = n, datatNn = n - 1; // datatN - 1
 
         // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback.
         var mean = new float[m];
@@ -2367,6 +2444,74 @@ public class UveTests {
     [InlineData(5)]
     public void SsAppMod_LowerTriangular_CorrectSum(int n) {
         Assert.Equal(LowerTriangularExpected(n), RunSsAppModLowerTriangular(n), 3);
+    }
+
+    // Single-variable-changed sibling of RunSsAppModLowerTriangular: identical dimensions/modifier
+    // shape, but the stream is a STORE stream (ss.sta.st.w) driven by a tight write+so.b.nc loop
+    // (same shape as Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted), instead of a load stream
+    // read by SoAFp.Add. Writes a running counter 1,2,3,... in lower-triangular row order; checks
+    // every written element AND that untouched cells stay at the sentinel, so a loop that dies
+    // after 1 iteration (the covariance-motivated regression concern) is caught directly rather
+    // than only being caught by the whole-kernel covariance test's more complex instruction mix.
+    private static float[] RunSsAppModStoreLowerTriangular(int n) {
+        const ulong matBase = 0x0200u;
+        const ulong codeBase = 0x1000u;
+        const float sentinel = -1f;
+
+        var mem = new FlatMemory(0x4000);
+        for (var i = 0; i < n * n; i++) mem.Load(matBase + (ulong)(i * 4), BitConverter.GetBytes(sentinel));
+
+        // Registers: x1=matBase, x2=N (row count), x3=N (row stride elems), x4=1 (elem stride), x5=1 (disp)
+        uint[] words = [
+            Addi(1, 0, (int)matBase), // [0]
+            Addi(2, 0, n), // [1] x2 = N
+            Addi(3, 0, n), // [2] x3 = N (row stride, elems)
+            Addi(4, 0, 1), // [3] x4 = 1 (elem stride)
+            Addi(5, 0, 1), // [4] x5 = 1 (disp)
+            Lui(6, BitConverter.SingleToInt32Bits(1.0f) >> 12), // [5] x6 = bits(1.0f)
+            SsStaStW(1, 1), // [6] base=x1
+            SsApp(1, 0, 2, 3), // [7] outer rows: count=x2(N), stride=x3(N elems)
+            SsAppMod(1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), // [8] innermost.Size += x5
+            SsEnd(1, 0, 5, 4), // [9] innermost: count=x5(1), stride=x4(1 elem); activate
+            SoVDpW(2, 6), // [10] u2 = 1.0f broadcast (increment constant)
+            SoVDpW(3, 0), // [11] u3 = 0.0 running counter
+            // .LOOP:
+            SoAFp(UveFpOp.Add, 3, 3, 2), // [12] u3 += u2 (counter++)
+            SoAFp(UveFpOp.Add, 1, 3, -1), // [13] u1(store) = u3 (unary copy)
+            SoBNc(1, -8), // [14] loop while store stream active (back to [12])
+            EBreak(), // [15]
+        ];
+
+        for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+        new OooeTrain(new Rv32Mechanism(), mem, codeBase, streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32)
+           .Run(20_000);
+
+        var result = new float[n * n];
+        for (var i = 0; i < result.Length; i++)
+            result[i] = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(matBase + (ulong)(i * 4), 4));
+        return result;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void SsAppMod_StoreStream_LowerTriangular_WritesSequentialCounter(int n) {
+        const float sentinel = -1f;
+        var expected = new float[n * n];
+        for (var i = 0; i < expected.Length; i++) expected[i] = sentinel;
+        var counter = 0f;
+        for (var r = 0; r < n; r++)
+        for (var c = 0; c <= r; c++)
+            expected[r * n + c] = ++counter;
+
+        float[] actual = RunSsAppModStoreLowerTriangular(n);
+        for (var i = 0; i < expected.Length; i++) Assert.Equal(expected[i], actual[i], 3);
     }
 
     /// <summary>

@@ -107,18 +107,28 @@ off here until a periodic cleanup removes them; the durable record is git histor
   upfront — full suite re-run confirms this is behavior-preserving for every unmodified store stream.
   Verified: confirmed via revert-and-recheck that `Pipeline_Covariance_CorrectResult` fails identically
   without the fix (wrong values landing at wrong `cov` indices). Full suite 3935/1/3936.
-- [ ] While regression-testing the `covariance` fix above with a deliberately minimal, tight 2-instruction
-  loop (write + `so.b.nc`, no other instructions in between) writing to a *Size-modified* store stream,
-  the loop terminated after exactly 1 iteration instead of the expected 6 — even when the loop's
-  continuation check was pointed at the (unrelated, already-well-tested) load stream supplying the
-  values, ruling out `UveStoreStream`'s own exhaustion tracking as the cause. An isolated executor-level
-  trace of `UveStoreStream.Advance()`/`CurrentAddress` (bypassing the pipeline) showed fully correct
-  behavior, so the discrepancy is somewhere in `OooeTrain`'s handling of this specific instruction
-  combination, not in the modifier logic itself. `covariance`'s own triangular stage — which exercises
-  the identical store-stream-modifier mechanism, just interspersed with several other instructions per
-  iteration rather than back-to-back — is unaffected and passes. Not root-caused; needs a dedicated
-  pipeline-tracing pass (not a kernel port) before it can be fixed. The minimal reproduction was not kept
-  as a committed test since its exact trigger condition isn't pinned down yet.
+- [ ] **UVE store-stream-modifier + 2-instruction loop anomaly** (narrowed since first found). The
+  `covariance` fix above was re-verified two ways per the advisor's push-back that a deleted, unpinned
+  minimal test undersold the risk: (1) scaled `covariance` itself up to M=3/N=4 with asymmetric data
+  (`Pipeline_Covariance_Scaled3x4_CorrectResult`) — passes, so the shipped fix is not a small-size
+  coincidence; (2) added a *pinned* (not deleted) minimal reproduction,
+  `Pipeline_SoBNc_OnModifierBearingStoreStream_LoopsUntilExhausted` (`[Fact(Skip=...)]`), built as a
+  single-variable change from the already-passing `Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted`:
+  same exact 2-instruction write+`so.b.nc` loop body, same broadcast source, only difference is u1 is a
+  2D Size-Inc-modifier store instead of a flat 1D store — this fails (writes nothing at all, not even
+  element 0). Two siblings both pass and bound the trigger precisely: the identical modifier-bearing
+  stream driven by a 3-instruction loop (`SsAppMod_StoreStream_LowerTriangular_WritesSequentialCounter`,
+  one extra accumulator instruction between write and branch) works, and a modifier-free stream in the
+  exact same 2-instruction shape (`Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted`) works. So the
+  trigger requires *both* a static modifier on the stream *and* zero instructions between the write and
+  the branch checking it. Leading hypothesis (not confirmed by tracing): `OooeTrain` applies UVE
+  `SideEffect`s immediately at execute for head-serialized ops rather than deferring to commit (see
+  `OooeTrain.cs` ~line 3227); `UveStoreStream.Advance()`'s modifier apply/reset mutates the shared
+  `Dimensions`/`_offsets` arrays destructively and isn't rollback-safe, so a branch
+  misprediction/squash-and-refetch of the write could re-execute `Advance()` and corrupt/double-advance
+  the modified dimensions before any iteration's write commits. No ported kernel exercises this exact
+  write-immediately-followed-by-branch shape (every real port has >=3 instructions of separation), so
+  nothing shipped is affected — but this needs a dedicated pipeline-tracing pass before it can be fixed.
 - [ ] `sgd` (371 lines) is **not portable within `StreamingEngine.MaxStreams=8`**, confirmed by reading
   its `RUN_UVE` asm in full: all three of its per-epoch reduction sub-kernels configure their streams
   *once*, before the epoch loop begins, using a stride-0 outer "epochs" dimension rather than
