@@ -1984,6 +1984,81 @@ public class UveTests {
         }
     }
 
+    // ── Integration test: trmm via OoO pipeline ──────────────────────────────
+
+    /// <summary>
+    ///     Ports the <c>trmm</c> UVE2 reference benchmark (github.com/hpc-ulisboa/UVE2,
+    ///     UVE-Testing/spike_test/benchmarks/trmm): <c>B[i,j] += sum_{k=i+1}^{M-1} A[k,i]</c> for all
+    ///     <c>i</c> in <c>[0,M)</c>, <c>j</c> in <c>[0,N)</c> — a triangular access over <c>A</c> using
+    ///     a static <c>ss.app.mod.siz.dec</c> modifier: the innermost (k) dimension's size shrinks by 1
+    ///     each time the outer (i) wraps, going to 0 on the last row (a structurally-forced degenerate
+    ///     case: the last row of a strict upper triangle has no valid k). The kernel's literal
+    ///     <c>.dec.3</c>/<c>.ndc.3</c> suffixes are Spike-internal tdim numbering — NOT copied verbatim
+    ///     here; the raw tdim passed to <see cref="SsAppMod" /> is rederived from the desired *engine*
+    ///     target dimension (as for <c>spmv_ellpack_delimiters</c>).
+    /// </summary>
+    [Fact]
+    public void Pipeline_Trmm_CorrectResult() {
+        const int m = 4, n = 2;
+        var a = new float[m * m];
+        for (var i = 0; i < a.Length; i++) a[i] = i + 1;
+        var b = new float[m * n];
+        for (var i = 0; i < b.Length; i++) b[i] = 100 + i;
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback.
+        float[] bNew = b.ToArray();
+        for (var i = 0; i < m; i++)
+        for (var j = 0; j < n; j++)
+        for (var k = i + 1; k < m; k++)
+            bNew[i * n + j] += a[k * m + i];
+
+        const ulong aBase = 0x0000, bBase = 0x0100;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < a.Length; i++) mem.Load(aBase + (ulong)(i * 4), BitConverter.GetBytes(a[i]));
+        for (var i = 0; i < b.Length; i++) mem.Load(bBase + (ulong)(i * 4), BitConverter.GetBytes(b[i]));
+
+        // Register plan: x1=A x2=B x3=M x4=M+1 x5=N x6=1 x7=M-1
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)aBase), Addi(2, 0, (int)bBase), Addi(3, 0, m), Addi(4, 0, m + 1),
+            Addi(5, 0, n), Addi(6, 0, 1), Addi(7, 0, m - 1),
+
+            // u3 = A (3-dim, triangular): D1(i) count=M stride=M+1; static Size-Dec modifier (disp=1)
+            // targeting the innermost (k) dim; D2(j-repeat) count=N stride=0; D3(k) offset=M count=M-1
+            // stride=M — activates with base offset by M elements (matches A[k*M+i]'s address algebra).
+            SsStaLdW(3, 1), SsApp(3, 0, 3, 4), SsAppMod(3, 2, StreamModifierTarget.Size, StreamModifierBehavior.Dec, 6),
+            SsApp(3, 0, 5, 0), SsEnd(3, 3, 7, 3),
+
+            // u5 = B load: D1 count=M stride=N; D2 count=N stride=1
+            SsStaLdW(5, 2), SsApp(5, 0, 3, 5), SsEnd(5, 0, 5, 6),
+            // u1 = B store: same shape
+            SsStaStW(1, 2), SsApp(1, 0, 3, 5), SsEnd(1, 0, 5, 6),
+
+            // .SLOOP_1:
+            SoVDpW(2, 0), // u2 = 0
+            // .SLOOP_1_0_0:
+            SoAFp(UveFpOp.AddeAcc, 2, 3, -1), // u2 += u3
+            SoBNdcD(3, 2, -4),                // so.b.ndc.3 u3, .SLOOP_1_0_0
+            SoAFp(UveFpOp.Add, 1, 2, 5),       // u1(store) = u2 + u5
+            SoBNc(3, -16),                     // so.b.nc u3, .SLOOP_1
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(10_000);
+
+        for (var i = 0; i < b.Length; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(bBase + (ulong)(i * 4), 4));
+            Assert.Equal(bNew[i], actual, 2);
+        }
+    }
+
     // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]
