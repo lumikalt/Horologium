@@ -115,9 +115,75 @@ free embedded suites are runnable in full today.
   launches the OS default handler so real tooling (Rider, vim, …) can be used externally, with
   the `FileSystemWatcher` picking the edits back up.
 - [ ] More intuitive ways to visualize prefetching, cache policies, branch prediction, etc.
-- [ ] Unify Face's two disconnected configuration models: the sidebar's `ConfigViewModel`/
-  `TrainConfig`/`Experiment` GUI-knob path and the Configurator tab's `.csx`/`MachineSpec`/
-  `ScriptHost` scripting path currently describe the same kind of thing (a machine to build and
-  run) two incompatible ways, with no adapter between them. Long-horizon direction, not a small
-  patch: either generate `TrainConfig` knobs from `MachineSpec`'s shape (or vice versa), or retire
-  one path in favor of the other.
+- [x] Unify Face's two disconnected configuration models, phase 1: `TrainConfig`/`Experiment` used
+  to bypass `PipelineSpec` entirely and hand-roll pipeline construction inline, duplicated across
+  four independent sites (`Experiment.RunOne`, `Experiment.Trace`, Runner's `--simpoint-warmup`
+  measurement switch, and `PipelineSpec` itself for the `.csx`/`MachineSpec` scripting path) —
+  already a source of real drift (`OutOfOrderSpec` was missing `EnableStoreSets`/
+  `FdipFtqCapacity`/`Rdip`, which `Experiment.RunOne` set). Added `CprSpec`/`DaeSpec` to
+  `PipelineSpec` and closed the remaining knob gaps on `OutOfOrderSpec`/`FiveStageSpec`/
+  `SuperscalarSpec`, then added `TrainConfig.ToPipelineSpec()` — the single place the
+  "which `PipelineSpec` subtype for which `Pipeline` string" mapping lives — and rewired all four
+  sites through it. `TrainConfig` remains the JSON-serialisable GUI/sweep-file format; only the
+  construction step is now shared with the scripting path. Verified strictly behavior-preserving:
+  a before/after sweep-run diff (`git stash`) confirms byte-identical output for every pipeline kind
+  the old inline switches handled (`five_stage`/`superscalar`/`ooo`/`cpr`/`dae`), full solution build
+  clean, and the entire non-benchmark test suite unchanged (3910 passed, 1 skipped, same as
+  baseline). `ToPipelineSpec` deliberately leaves `"single_cycle"` falling through to `FiveStageSpec`
+  (matching `Experiment`'s old behavior exactly, bug and all — see the next item); Runner's
+  `--simpoint-warmup` path, whose `single_cycle` handling was already correct before this change,
+  special-cases it inline instead of routing through `ToPipelineSpec`, so that behavior didn't move
+  either.
+- [ ] Fix `Experiment`'s `"single_cycle"` pipeline handling: `TrainConfig.Pipeline == "single_cycle"`
+  (a real, user-selectable option — `ConfigViewModel.PipelineOptions`) has never had a case in
+  `Experiment`'s pipeline-construction switch (nor, now, in `TrainConfig.ToPipelineSpec()`, see the
+  item above), so selecting "Single Cycle" in Face's GUI silently builds a `FiveStageTrain` instead.
+  The fix itself is a one-line addition to `ToPipelineSpec` (`"single_cycle" => new
+  SingleCycleSpec(commitObserver)`) — the work here is verifying it in Face itself before flipping
+  it, since `SingleCycleTrain`'s dial schema (`core.*` counters) differs from the `pipeline.*`
+  schema every other pipeline kind emits, and the Face comparison grid/CSV output has not been
+  checked against that schema switch.
+- [x] Unify Face's two configuration models, phase 2b — FDIP semantics on `MachineSpec`'s split-I/D
+  branch: fixed and tested; the unified branch has a separate, pre-existing structural gap, not fixed
+  (own item below). `PipelineSpec.Build` (both overloads) gained an additive `fdipBackingMemory`
+  parameter (defaults preserve every existing caller's behavior exactly — `TrainConfig`/`Experiment`
+  pass nothing and are unaffected, confirmed via sweep diffs), threaded through `FiveStageTrain`'s and
+  `OooeTrain`'s constructors down to `FdipPrefetcher`'s own decode-ahead reads specifically — not to
+  `fetchTranslatorMemory`/`CreateFetchTranslator` (the page-table-walker path), which must stay
+  untouched (conflating the two would have silently moved real instruction fetch onto raw backing,
+  not just FDIP's lookahead). `MachineSpec.Build`'s split-I/D branch now threads real raw backing
+  through; FDIP now correctly bypasses the I-cache it's warming there, matching `FdipPrefetcher`'s own
+  doc comment ("reads bypass the cache") and the `TrainConfig` path's existing behavior. Verified with
+  `Tests/Pipeline/MachineSpecFdipTests.cs`: confirmed the new assertions actually fail without the
+  `MachineSpec.cs` half of the fix (9597 vs. 45 I-cache accesses — FDIP's own reads were inflating the
+  counters), not just that they pass with it. Full suite 3912/1/3913 (3910 baseline + 2 new tests), full
+  solution build clean, sweep diffs byte-identical on the unaffected `TrainConfig` path.
+- [x] Unify Face's two configuration models, phase 2b-2 — FDIP now engages via
+  `CacheHierarchySpec.Unified` too (previously it never did, before or after phase 2b's fix — a
+  separate, deeper structural gap than bypass-vs-through-cache semantics). Root cause: the unified
+  branch stayed on the *flat* `Build` overload specifically because `CprSpec`/`DaeSpec` only
+  implemented that one; the flat overload always rebuilds its own internal `MemoryLayers` with
+  `MemoryConfig.None`, leaving `iLayers.Cache` null and `FdipFtqCapacity > 0`'s guard always failing,
+  regardless of `fdipBackingMemory`. Fixed by giving `CprTrain`/`DaeTrain` an internal pre-built-
+  `MemoryLayers` constructor (mirroring `FiveStageTrain`/`OooeTrain`/`SuperscalarTrain`'s existing
+  pattern — their Gear gear classes, `CprPipelineCore`/`DaeCore`, already took `MemoryLayers` directly,
+  so this was a thin wrapper) and a matching `CprSpec`/`DaeSpec` `Build(MemoryLayers, ...)` override;
+  `SmtSpec` had the same gap (no `MemoryLayers` override at all) and got one too, for the same reason.
+  With every `PipelineSpec` subtype now supporting both overloads, `MachineSpec.Build`'s unified branch
+  switched from the flat overload (`layers.Accessor` as raw backing, rebuilding an empty wrapper) to
+  the `MemoryLayers` overload (passing the real externally-built `layers` directly as both I and D) —
+  which also incidentally fixes the pre-existing "train's internal ICache/DCache stat fields are null"
+  limitation the old `MachineSpec` doc comment called out, since `iLayers`/`dLayers` are no longer a
+  rebuilt wrapper. Verified: confirmed the two new unified-branch FDIP tests
+  (`Tests/Pipeline/MachineSpecFdipTests.cs`) fail without the `MachineSpec.cs` branch change
+  specifically (isolated via a temporary one-line revert, not a full-stack `git stash`, since none of
+  this work is committed yet); added `CprSpec`/`DaeSpec`-via-`MachineSpec`-with-cache tests to
+  `Tests/Pipeline/MachineSpecTests.cs` (new capability, didn't exist before). Full suite 3918/1/3919
+  (3912 baseline + 6 new tests), full solution build clean, three separate sweep diffs
+  (default/dedup+ELF/cpr+dae) byte-identical, confirming zero change on the `TrainConfig`/`Experiment`
+  path this entire pass never touches.
+- [ ] Unify Face's two configuration models, phase 2c (GUI-facing, deferred until Face can be
+  visually verified): RV64 support for `TrainConfig`/`ConfigViewModel` (the scripting path already
+  supports RV64; `TrainConfig` is RV32-only), multi-hart GUI support (`MulticoreSpec`/`HartSpec` exist
+  on the scripting side only), and exposing `CacheLevelSpec`'s richer knobs (bank count, read/write
+  ports, sector size, victim cache, inclusion policy) in `ConfigViewModel`.

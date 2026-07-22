@@ -2,9 +2,13 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Mechanism;
 using Mechanism.RtlFu;
 using Orrery.Cache;
+using Orrery.Observation;
+using Pipeline;
 using Pipeline.Ooo;
+using Pipeline.Spec;
 using RiscV32.Execute;
 
 #endregion
@@ -163,6 +167,65 @@ public sealed record TrainConfig(
             mechanism.Executor = new RvRtlFpExecutor(
                 mechanism.Executor, new RtlFfiFunctionalUnit(RtlFdivLib)
             );
+    }
+
+    /// <summary>
+    ///     Lowers this config to the matching <see cref="PipelineSpec" /> subtype — the single
+    ///     construction point <c>PipelineSpec.Build</c> also serves the <c>.csx</c>/<see cref="MachineSpec"/>
+    ///     scripting path, so both Face's GUI/sweep-file path and its scripting path build trains through
+    ///     the same code. Mirrors what <c>Experiment.RunOne</c>/<c>Experiment.Trace</c> used to construct
+    ///     inline via a <c>switch (Pipeline)</c>.
+    /// </summary>
+    public PipelineSpec ToPipelineSpec(
+        IMechanism mechanism,
+        IWorkload workload,
+        ICommitObserver? commitObserver = null,
+        PEventLog? pEventLog = null
+    ) {
+        Func<IBranchPredictor>? predictorFactory = Predictor is null
+            ? null
+            : () => Predictor.Build(mechanism, workload);
+
+        return Pipeline switch {
+            "ooo" => new OutOfOrderSpec(
+                IssueWidth, RobCapacity, IqCapacity, FlatIq, ExtraPhysRegs,
+                WriteBufferCapacity: StoreBufferCapacity,
+                MshrCapacity: MshrCapacity,
+                StreamPrefetchDepth: 4,
+                FuLatency: FuLatency,
+                BranchPredictorFactory: predictorFactory,
+                PEventLog: pEventLog,
+                CommitObserver: commitObserver,
+                FdipFtqCapacity: FdipFtqCapacity,
+                Rdip: Rdip,
+                EnableStoreSets: EnableStoreSets
+            ),
+            "cpr" => new CprSpec(
+                IssueWidth, IqCapacity, ExtraPhysRegs,
+                BranchPredictorFactory: predictorFactory,
+                FuLatency: FuLatency,
+                PEventLog: pEventLog
+            ),
+            "superscalar" => new SuperscalarSpec(
+                IssueWidth,
+                BranchPredictorFactory: predictorFactory,
+                FuLatency: FuLatency,
+                PEventLog: pEventLog
+            ),
+            "dae" => new DaeSpec(DaeLaneQueueDepth, pEventLog),
+            // NB: "single_cycle" intentionally falls through to FiveStageSpec below, matching
+            // Experiment's pre-existing (buggy) behavior exactly — see TODO.md. Runner's
+            // --simpoint-warmup path special-cases "single_cycle" itself rather than relying on
+            // this method, since it already builds SingleCycleTrain correctly for that case.
+            _ => new FiveStageSpec(
+                ForwardingEnabled, StoreBufferCapacity,
+                BranchPredictorFactory: predictorFactory,
+                PEventLog: pEventLog,
+                CommitObserver: commitObserver,
+                FdipFtqCapacity: FdipFtqCapacity,
+                Rdip: Rdip
+            ),
+        };
     }
 
     private ReplacementPolicyKind ParseReplacementPolicy() =>

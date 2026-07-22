@@ -30,7 +30,8 @@ public sealed class FiveStageTrain : ISteppableTrain {
         PEventLog? pEventLog = null,
         ICommitObserver? commitObserver = null,
         int fdipFtqCapacity = 0,
-        bool rdip = false
+        bool rdip = false,
+        IMemory? fdipBackingMemory = null
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
@@ -41,7 +42,7 @@ public sealed class FiveStageTrain : ISteppableTrain {
                 "pipeline", _train.Root, esc,
                 mechanism, memory, iLayers, dLayers, entryPoint, forwardingEnabled,
                 predictor ?? new AlwaysNotTakenPredictor(),
-                storeBufferCapacity, pEventLog, commitObserver, fdipFtqCapacity, rdip
+                storeBufferCapacity, pEventLog, commitObserver, fdipFtqCapacity, rdip, fdipBackingMemory
             )
         );
         _train.Build();
@@ -56,7 +57,10 @@ public sealed class FiveStageTrain : ISteppableTrain {
         IBranchPredictor? predictor = null,
         int storeBufferCapacity = 0,
         PEventLog? pEventLog = null,
-        ICommitObserver? commitObserver = null
+        ICommitObserver? commitObserver = null,
+        int fdipFtqCapacity = 0,
+        bool rdip = false,
+        IMemory? fdipBackingMemory = null
     ) {
         var esc = new Escapement();
         _train = new Train("five_stage", esc);
@@ -65,7 +69,7 @@ public sealed class FiveStageTrain : ISteppableTrain {
                 "pipeline", _train.Root, esc,
                 mechanism, iLayers.Accessor, iLayers, dLayers, entryPoint, forwardingEnabled,
                 predictor ?? new AlwaysNotTakenPredictor(),
-                storeBufferCapacity, pEventLog, commitObserver
+                storeBufferCapacity, pEventLog, commitObserver, fdipFtqCapacity, rdip, fdipBackingMemory
             )
         );
         _train.Build();
@@ -176,7 +180,8 @@ internal sealed class PipelineCore : Gear {
         PEventLog? pEventLog = null,
         ICommitObserver? commitObserver = null,
         int fdipFtqCapacity = 0,
-        bool rdipEnabled = false
+        bool rdipEnabled = false,
+        IMemory? fdipBackingMemory = null
     )
         : base(name, parent, esc) {
         PEventLog = pEventLog;
@@ -196,8 +201,15 @@ internal sealed class PipelineCore : Gear {
             dAccessor = StoreBuffer;
         }
 
+        // fdipBackingMemory is deliberately distinct from fetchTranslatorMemory: the latter feeds
+        // mechanism.CreateFetchTranslator (page-table-walk reads, unrelated to caching), and must not
+        // be repointed to raw backing — only FDIP's own instruction-lookahead reads should bypass
+        // the I-cache. Falls back to fetchTranslatorMemory (today's behavior) when not given.
         FdipPrefetcher? fdip = fdipFtqCapacity > 0 && iLayers.Cache is not null
-            ? new FdipPrefetcher(predictor, _decoder, fetchTranslatorMemory, iLayers.Cache, entryPoint, fdipFtqCapacity)
+            ? new FdipPrefetcher(
+                predictor, _decoder, fdipBackingMemory ?? fetchTranslatorMemory, iLayers.Cache, entryPoint,
+                fdipFtqCapacity
+            )
             : null;
 
         RdipPrefetcher? rdip = rdipEnabled && iLayers.Cache is not null

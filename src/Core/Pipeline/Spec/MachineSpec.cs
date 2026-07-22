@@ -64,15 +64,13 @@ public sealed class MachineHandle {
 ///     <para>
 ///         Build order: backing → [cache stack from <see cref="Cache" />] → pipeline train.
 ///         When <see cref="Cache" /> is non-null the full hierarchy is built externally via
-///         <see cref="CacheHierarchySpec.BuildDLayers" />; the accessor top is passed as unified (I = D)
-///         backing to the train with null iMemConfig/dMemConfig. This mirrors the <see cref="MulticoreSpec" />
-///         approach and preserves per-level replacement policies and arbitrary hierarchy depth.
+///         <see cref="CacheHierarchySpec.BuildDLayers" /> (or <c>BuildILayers</c>/<c>BuildDLayers</c>
+///         separately for split I/D) and passed straight into <see cref="PipelineSpec" />'s
+///         pre-built-<c>MemoryLayers</c> <c>Build</c> overload — every subtype implements it — so the
+///         train's own internal <c>ILayers</c>/<c>DLayers</c> (and hence <c>ICache</c>/<c>DCache</c>,
+///         FDIP, RDIP) are the real externally-built cache objects, not a rebuilt empty wrapper.
 ///     </para>
-///     <para>
-///         Rigidities: I and D paths share one cache chain (no split I/D); TLB configuration is not
-///         supported; the train's internal ICache/DCache stat fields are null — use
-///         <see cref="MachineHandle.Layers" /> for cache statistics.
-///     </para>
+///     <para>Rigidity: unified I/D means I and D paths share one cache chain (no split I/D).</para>
 /// </summary>
 public sealed record MachineSpec(
     PipelineSpec Pipeline,
@@ -107,12 +105,14 @@ public sealed record MachineSpec(
             if (splitId) {
                 MemoryLayers iLayers = cache.BuildILayers(backing, mmioBase, mmioSize);
                 MemoryLayers dLayers = cache.BuildDLayers(backing, mmioBase, mmioSize);
-                ISteppableTrain train = Pipeline.Build(mechanism, iLayers, dLayers, entryPoint);
+                // fdipBackingMemory: backing — FDIP's own lookahead reads should bypass the I-cache
+                // being built here, not read back through it (see PipelineSpec.Build's doc comment).
+                ISteppableTrain train = Pipeline.Build(mechanism, iLayers, dLayers, entryPoint, backing);
                 return new MachineHandle(train, iLayers, dLayers);
             }
             else {
                 MemoryLayers layers = cache.BuildDLayers(backing, mmioBase, mmioSize);
-                ISteppableTrain train = Pipeline.Build(mechanism, layers.Accessor, entryPoint);
+                ISteppableTrain train = Pipeline.Build(mechanism, layers, layers, entryPoint, backing);
                 return new MachineHandle(train, layers);
             }
         }

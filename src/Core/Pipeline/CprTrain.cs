@@ -104,6 +104,50 @@ public sealed class CprTrain : ISteppableTrain {
         _train.Build();
     }
 
+    internal CprTrain(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint = 0,
+        int issueWidth = 2,
+        int iqCapacity = 8,
+        int extraPhysRegs = 32,
+        int checkpointCount = 8,
+        int checkpointMaxInstructions = 256,
+        int lqCapacity = 32,
+        int l1SqCapacity = 16,
+        int l2SqCapacity = 240,
+        int mtbSize = 1024,
+        int mtbBlockBytes = 64,
+        int l2SqForwardPenalty = 10,
+        IBranchPredictor? predictor = null,
+        FuLatencyConfig? fuLatency = null,
+        bool enableStoreSets = true,
+        bool enableCfp = false,
+        int cfpMissThresholdCycles = 8,
+        int sdbCapacity = 256,
+        int cfpReservedRegs = 8,
+        PEventLog? pEventLog = null
+    ) {
+        var esc = new Escapement();
+        _train = new Train("cpr", esc);
+        _core = _train.AddGear(
+            new CprPipelineCore(
+                "pipeline", _train.Root, esc,
+                mechanism, iLayers, dLayers, entryPoint,
+                issueWidth, iqCapacity, extraPhysRegs,
+                checkpointCount, checkpointMaxInstructions,
+                lqCapacity, l1SqCapacity, l2SqCapacity, mtbSize, mtbBlockBytes, l2SqForwardPenalty,
+                predictor ?? new AlwaysNotTakenPredictor(),
+                fuLatency ?? FuLatencyConfig.Default,
+                enableStoreSets,
+                enableCfp, cfpMissThresholdCycles, sdbCapacity, cfpReservedRegs,
+                pEventLog
+            )
+        );
+        _train.Build();
+    }
+
     public PEventLog? PEventLog => _core.PEventLog;
 
     public SetAssociativeCache? ICache => _core.ILayers.Cache;

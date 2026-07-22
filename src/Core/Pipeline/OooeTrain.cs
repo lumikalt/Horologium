@@ -54,7 +54,8 @@ public sealed partial class OooeTrain : ISteppableTrain {
         int runaheadPipelineDepth = 1,
         IValuePredictor? valuePredictor = null,
         bool enableEoleLateExec = false,
-        bool enableEoleEarlyExec = false
+        bool enableEoleEarlyExec = false,
+        IMemory? fdipBackingMemory = null
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -75,7 +76,7 @@ public sealed partial class OooeTrain : ISteppableTrain {
                 writeBufferCapacity,
                 mshrCapacity,
                 flatIq,
-                memory,
+                fdipBackingMemory ?? memory,
                 fdipFtqCapacity,
                 rdip,
                 enableStoreSets,
@@ -114,9 +115,13 @@ public sealed partial class OooeTrain : ISteppableTrain {
         int writeBufferCapacity = 0,
         int mshrCapacity = 0,
         bool flatIq = false,
+        int fdipFtqCapacity = 0,
+        bool rdip = false,
+        bool enableStoreSets = false,
         IValuePredictor? valuePredictor = null,
         bool enableEoleLateExec = false,
-        bool enableEoleEarlyExec = false
+        bool enableEoleEarlyExec = false,
+        IMemory? fdipBackingMemory = null
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -135,6 +140,10 @@ public sealed partial class OooeTrain : ISteppableTrain {
                 writeBufferCapacity,
                 mshrCapacity,
                 flatIq,
+                fdipBackingMemory: fdipBackingMemory ?? iLayers.Accessor,
+                fdipFtqCapacity: fdipFtqCapacity,
+                rdipEnabled: rdip,
+                enableStoreSets: enableStoreSets,
                 valuePredictor: valuePredictor,
                 enableEoleLateExec: enableEoleLateExec,
                 enableEoleEarlyExec: enableEoleEarlyExec

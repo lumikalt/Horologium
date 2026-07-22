@@ -6,6 +6,7 @@ using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
+using Pipeline.Spec;
 using RiscV32.Config;
 using RiscV32.Memory;
 using RiscV32.Syscalls;
@@ -140,96 +141,33 @@ public static class Experiment {
         MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
 
         RevolutionResult result;
-        switch (config.Pipeline) {
-            case "ooo": {
-                // For HTIF benchmark workloads that have setStats(), attach an observer to
-                // measure kernel-only IPC (excluding startup and the sprintf teardown that
-                // inflates instruction count vs. the Linux-ABI gem5 binary).
-                SetStatsObserver? setStatsObs = null;
-                OooeTrain? trainRef = null;
-                if (workload is Rv32ElfWorkload elfWorkload &&
-                    elfWorkload.TryFindSymbol("setStats", out ulong setStatsPc))
-                    // ReSharper disable once AccessToModifiedClosure
-                    setStatsObs = new SetStatsObserver(setStatsPc, () => trainRef!.SnapshotPipeline());
+        if (config.Pipeline == "ooo") {
+            // For HTIF benchmark workloads that have setStats(), attach an observer to
+            // measure kernel-only IPC (excluding startup and the sprintf teardown that
+            // inflates instruction count vs. the Linux-ABI gem5 binary).
+            SetStatsObserver? setStatsObs = null;
+            OooeTrain? trainRef = null;
+            if (workload is Rv32ElfWorkload elfWorkload &&
+                elfWorkload.TryFindSymbol("setStats", out ulong setStatsPc))
+                // ReSharper disable once AccessToModifiedClosure
+                setStatsObs = new SetStatsObserver(setStatsPc, () => trainRef!.SnapshotPipeline());
 
-                trainRef = new OooeTrain(
-                    mechanism, runMemory,
-                    workload.EntryPoint,
-                    config.IssueWidth,
-                    config.RobCapacity,
-                    config.IqCapacity,
-                    config.ExtraPhysRegs,
-                    config.Predictor?.Build(mechanism, workload),
-                    config.ToIMemoryConfig(),
-                    dCfg,
-                    config.FuLatency,
-                    commitObserver: setStatsObs,
-                    writeBufferCapacity: config.StoreBufferCapacity,
-                    mshrCapacity: config.MshrCapacity,
-                    flatIq: config.FlatIq,
-                    enableStoreSets: config.EnableStoreSets,
-                    fdipFtqCapacity: config.FdipFtqCapacity,
-                    rdip: config.Rdip
-                );
+            PipelineSpec spec = config.ToPipelineSpec(mechanism, workload, commitObserver: setStatsObs);
+            trainRef = (OooeTrain)spec.Build(mechanism, runMemory, workload.EntryPoint, config.ToIMemoryConfig(), dCfg);
 
-                result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
+            result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
 
-                if (setStatsObs?.KernelDelta is { } kernelSnap) result = result with { Snapshots = [kernelSnap,], };
-                break;
-            }
-            case "cpr":
-                // Checkpoint Processing and Recovery train: shares the OoO knobs it understands
-                // (width, IQ, physical registers, predictor, caches, FU latencies); checkpoint
-                // geometry and CFP stay at their constructor defaults. Store sets stay at the
-                // CprTrain default (enabled) rather than following config.EnableStoreSets:
-                // CPR's violation recovery re-executes the whole checkpoint, so without
-                // memory-dependence learning the same load re-violates forever (a livelock the
-                // OoO train cannot have — its violation path re-executes from the load itself).
-                result = new CprTrain(
-                    mechanism, runMemory,
-                    workload.EntryPoint,
-                    config.IssueWidth,
-                    config.IqCapacity,
-                    config.ExtraPhysRegs,
-                    predictor: config.Predictor?.Build(mechanism, workload),
-                    iMemConfig: config.ToIMemoryConfig(),
-                    dMemConfig: dCfg,
-                    fuLatency: config.FuLatency
-                ).Run(maxTicks, warmupTicks, snapshotInterval);
-                break;
-            default:
-                result = config.Pipeline switch {
-                    "superscalar" => new SuperscalarTrain(
-                        mechanism, runMemory,
-                        workload.EntryPoint,
-                        config.IssueWidth,
-                        config.ToIMemoryConfig(),
-                        dCfg,
-                        config.Predictor?.Build(mechanism, workload),
-                        fuLatency: config.FuLatency
-                    ).Run(maxTicks, warmupTicks, snapshotInterval),
-
-                    "dae" => new DaeTrain(
-                        mechanism, runMemory,
-                        workload.EntryPoint,
-                        config.DaeLaneQueueDepth,
-                        config.ToIMemoryConfig(),
-                        dCfg
-                    ).Run(maxTicks, warmupTicks, snapshotInterval),
-
-                    _ => new FiveStageTrain(
-                        mechanism, runMemory,
-                        workload.EntryPoint,
-                        config.ForwardingEnabled,
-                        config.Predictor?.Build(mechanism, workload),
-                        config.ToIMemoryConfig(),
-                        dCfg,
-                        config.StoreBufferCapacity,
-                        fdipFtqCapacity: config.FdipFtqCapacity,
-                        rdip: config.Rdip
-                    ).Run(maxTicks, warmupTicks, snapshotInterval),
-                };
-                break;
+            if (setStatsObs?.KernelDelta is { } kernelSnap) result = result with { Snapshots = [kernelSnap,], };
+        } else {
+            // Checkpoint Processing and Recovery: store sets stay at the CprTrain default
+            // (enabled) rather than following config.EnableStoreSets — CPR's violation recovery
+            // re-executes the whole checkpoint, so without memory-dependence learning the same
+            // load re-violates forever (a livelock the OoO train cannot have — its violation
+            // path re-executes from the load itself). ToPipelineSpec's CprSpec case intentionally
+            // never reads config.EnableStoreSets, so this holds automatically.
+            ISteppableTrain train = config.ToPipelineSpec(mechanism, workload)
+                .Build(mechanism, runMemory, workload.EntryPoint, config.ToIMemoryConfig(), dCfg);
+            result = train.Run(maxTicks, warmupTicks, snapshotInterval);
         }
 
         return new RunRecord(named.Name, config, result);
@@ -251,61 +189,10 @@ public static class Experiment {
         var plog = new PEventLog();
         TrainConfig cfg = config.Config;
         MemoryConfig dCfg = WithMmio(cfg.ToDMemoryConfig(), workload);
-        switch (cfg.Pipeline) {
-            case "ooo":
-                new OooeTrain(
-                    mechanism, runMemory, workload.EntryPoint,
-                    cfg.IssueWidth, cfg.RobCapacity, cfg.IqCapacity, cfg.ExtraPhysRegs,
-                    cfg.Predictor?.Build(mechanism, workload),
-                    cfg.ToIMemoryConfig(), dCfg,
-                    cfg.FuLatency, plog,
-                    writeBufferCapacity: cfg.StoreBufferCapacity,
-                    mshrCapacity: cfg.MshrCapacity,
-                    flatIq: cfg.FlatIq,
-                    fdipFtqCapacity: cfg.FdipFtqCapacity,
-                    rdip: cfg.Rdip
-                ).Run(maxTicks);
-                break;
-            case "superscalar":
-                new SuperscalarTrain(
-                    mechanism, runMemory, workload.EntryPoint,
-                    cfg.IssueWidth,
-                    cfg.ToIMemoryConfig(), dCfg,
-                    cfg.Predictor?.Build(mechanism, workload),
-                    plog,
-                    cfg.FuLatency
-                ).Run(maxTicks);
-                break;
-            case "cpr":
-                new CprTrain(
-                    mechanism, runMemory, workload.EntryPoint,
-                    cfg.IssueWidth, cfg.IqCapacity, cfg.ExtraPhysRegs,
-                    predictor: cfg.Predictor?.Build(mechanism, workload),
-                    iMemConfig: cfg.ToIMemoryConfig(), dMemConfig: dCfg,
-                    fuLatency: cfg.FuLatency,
-                    pEventLog: plog
-                ).Run(maxTicks);
-                break;
-            case "dae":
-                new DaeTrain(
-                    mechanism, runMemory, workload.EntryPoint,
-                    cfg.DaeLaneQueueDepth,
-                    cfg.ToIMemoryConfig(), dCfg,
-                    plog
-                ).Run(maxTicks);
-                break;
-            default:
-                new FiveStageTrain(
-                    mechanism, runMemory, workload.EntryPoint,
-                    cfg.ForwardingEnabled,
-                    cfg.Predictor?.Build(mechanism, workload),
-                    cfg.ToIMemoryConfig(), dCfg,
-                    cfg.StoreBufferCapacity, plog,
-                    fdipFtqCapacity: cfg.FdipFtqCapacity,
-                    rdip: cfg.Rdip
-                ).Run(maxTicks);
-                break;
-        }
+
+        cfg.ToPipelineSpec(mechanism, workload, pEventLog: plog)
+            .Build(mechanism, runMemory, workload.EntryPoint, cfg.ToIMemoryConfig(), dCfg)
+            .Run(maxTicks);
 
         return plog;
     }

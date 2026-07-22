@@ -401,36 +401,19 @@ if (simpointInterval > 0) {
                 continue;
             }
 
+            // "single_cycle" is special-cased directly rather than through ToPipelineSpec: that
+            // method deliberately leaves "single_cycle" falling through to FiveStageSpec (matching
+            // Experiment's pre-existing behavior — see TODO.md), but this measurement path already
+            // builds SingleCycleTrain correctly for it and that behavior must not regress.
             ISteppableTrain DetailedFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) {
+                if (cfg.Pipeline == "single_cycle") return new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
+
                 MemoryConfig dCfg = cfg.ToDMemoryConfig();
                 if (spWorkload.MmioRegion is { } r)
                     dCfg = dCfg with { UncacheableBase = r.Base, UncacheableSize = r.Size, };
-                IBranchPredictor? predictor = cfg.Predictor?.Build(mech, spWorkload);
 
-                return cfg.Pipeline switch {
-                    "ooo" => new OooeTrain(
-                        mech, mem, entry,
-                        cfg.IssueWidth, cfg.RobCapacity, cfg.IqCapacity, cfg.ExtraPhysRegs,
-                        predictor, cfg.ToIMemoryConfig(), dCfg, cfg.FuLatency,
-                        commitObserver: counter,
-                        writeBufferCapacity: cfg.StoreBufferCapacity,
-                        mshrCapacity: cfg.MshrCapacity,
-                        flatIq: cfg.FlatIq,
-                        enableStoreSets: cfg.EnableStoreSets,
-                        fdipFtqCapacity: cfg.FdipFtqCapacity,
-                        rdip: cfg.Rdip
-                    ),
-                    "single_cycle" => new SingleCycleTrain(mech, mem, entry, commitObserver: counter),
-                    _ => new FiveStageTrain(
-                        mech, mem, entry,
-                        cfg.ForwardingEnabled, predictor,
-                        cfg.ToIMemoryConfig(), dCfg,
-                        cfg.StoreBufferCapacity,
-                        commitObserver: counter,
-                        fdipFtqCapacity: cfg.FdipFtqCapacity,
-                        rdip: cfg.Rdip
-                    ),
-                };
+                return cfg.ToPipelineSpec(mech, spWorkload, commitObserver: counter)
+                    .Build(mech, mem, entry, cfg.ToIMemoryConfig(), dCfg);
             }
 
             SimPointCheckpointResult spResult = Experiment.MeasureSimPointCheckpoints(

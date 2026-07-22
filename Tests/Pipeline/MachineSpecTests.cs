@@ -54,6 +54,44 @@ public class MachineSpecTests {
         Assert.Equal(42uL, mem.Read(256, 4));
     }
 
+    [Fact]
+    public void Cpr_NoCaches_ProducesCorrectResult() {
+        FlatMemory mem = LoadedMem();
+        new MachineSpec(new CprSpec(), Rv32()).Build(mem).Run(10_000);
+        Assert.Equal(42uL, mem.Read(256, 4));
+    }
+
+    [Fact]
+    public void Cpr_WithL1_BuildsAndRuns() {
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
+        FlatMemory mem = LoadedMem();
+        MachineHandle handle = new MachineSpec(
+            new CprSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
+        ).Build(mem);
+        handle.Run(10_000);
+        Assert.Equal(42uL, mem.Read(256, 4));
+        Assert.True(handle.Layers!.Cache!.Misses > 0);
+    }
+
+    [Fact]
+    public void Dae_NoCaches_ProducesCorrectResult() {
+        FlatMemory mem = LoadedMem();
+        new MachineSpec(new DaeSpec(), Rv32()).Build(mem).Run(10_000);
+        Assert.Equal(42uL, mem.Read(256, 4));
+    }
+
+    [Fact]
+    public void Dae_WithL1_BuildsAndRuns() {
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
+        FlatMemory mem = LoadedMem();
+        MachineHandle handle = new MachineSpec(
+            new DaeSpec(), Rv32(), CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]))
+        ).Build(mem);
+        handle.Run(10_000);
+        Assert.Equal(42uL, mem.Read(256, 4));
+        Assert.True(handle.Layers!.Cache!.Misses > 0);
+    }
+
     // ── Layers exposure ───────────────────────────────────────────────────────
 
     [Fact]

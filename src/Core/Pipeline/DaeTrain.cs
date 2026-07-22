@@ -87,6 +87,27 @@ public sealed class DaeTrain : ISteppableTrain {
         _train.Build();
     }
 
+    internal DaeTrain(
+        IMechanism mechanism,
+        MemoryLayers iLayers,
+        MemoryLayers dLayers,
+        ulong entryPoint = 0,
+        int laneQueueDepth = 8,
+        PEventLog? pEventLog = null
+    ) {
+        ArgumentNullException.ThrowIfNull(mechanism);
+        if (laneQueueDepth < 1) throw new ArgumentException("Must be at least 1.", nameof(laneQueueDepth));
+
+        var esc = new Escapement();
+        _train = new Train("dae", esc);
+        _core = _train.AddGear(
+            new DaeCore(
+                "pipeline", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, laneQueueDepth, pEventLog
+            )
+        );
+        _train.Build();
+    }
+
     public PEventLog? PEventLog => _core.PEventLog;
 
     public long CurrentTick => _train.CurrentTick;
