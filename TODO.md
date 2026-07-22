@@ -54,8 +54,14 @@ off here until a periodic cleanup removes them; the durable record is git histor
   `spmv_ellpack`) fire on every element. Both are decoder/semantics gaps, not test-porting work; the
   count=0-placeholder-dimension idiom's exact semantics need the author's confirmation before
   implementing (per `SPEC_NOTES.md`'s "author is authority" discipline) — don't guess at it from the
-  kernel source alone. `ss.app.ind` (the non-`sgi` dynamic modifier family) itself also has zero test
-  coverage in `UveTests.cs` today, independent of this kernel.
+  kernel source alone.
+- [x] Closed the `ss.app.ind` (dynamic indirect modifier, distinct from `ss.app.sgi`) test-coverage gap
+  found while investigating `knn` above — it had zero tests despite being fully implemented.
+  `Decoder_SsAppInd_Roundtrip` + `SsAppInd_DotL_AttachesSourceStreamModifier_TargetsLastConfiguredDimension`
+  (mirroring the existing `ss.app.mod`/`.L` pair) confirm it attaches a general `StreamModifier` with
+  `SourceStreamId` set and that `.L` resolves to the last configured dimension here too. Descriptor-level
+  only (construction, not engine stepping) — deliberately scoped below the count=0-placeholder-dimension
+  question above. Full suite 3925/1/3926.
 - [x] Fixed `.L` modifier target-dimension resolution: the UVE2 author confirmed (2026-07-22) that
   `.L` targets the *last configured dimension of the stream*, not "the dimension configured right
   after the trigger" as `ExecuteUveSsAppMod`/`ExecuteUveSsAppInd` (`Rv32Executor.Uve.cs`) previously

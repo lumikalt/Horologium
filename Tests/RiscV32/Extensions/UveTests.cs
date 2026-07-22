@@ -253,6 +253,27 @@ public class UveTests {
              | ((uint)(tdim & 0x7) << 15) | (0x4u << 12) | ((uint)(ud & 0x1F) << 7) | 0x0Bu;
     }
 
+    // ss.app.ind ud, tdim, target, behavior, rs1_indsrc — dynamic (indirect) modifier; funct2=1,
+    // funct3=6, bit27=0 (distinguishes from ss.app.sgi, same funct2/funct3 with bit27=1).
+    // tdim[30:28]; rs2[24:20]=(behavior<<2)|target; rs1=source stream id.
+    private static uint SsAppInd(
+        int ud,
+        int tdim,
+        StreamModifierTarget target,
+        StreamModifierBehavior behavior,
+        int rs1Source
+    ) {
+        uint ta = target switch {
+            StreamModifierTarget.Size   => 0u,
+            StreamModifierTarget.Stride => 1u,
+            StreamModifierTarget.Offset => 2u,
+            _                           => throw new ArgumentOutOfRangeException(nameof(target)),
+        };
+        uint rs2 = ((uint)behavior << 2) | ta;
+        return ((uint)(tdim & 0x7) << 28) | (0x1u << 25) | (rs2 << 20) | ((uint)(rs1Source & 0x1F) << 15)
+             | (0x6u << 12) | ((uint)(ud & 0x1F) << 7) | 0x0Bu;
+    }
+
     // ss.app.sgi: funct2=1, funct3=6, bit27=1; rs1=source stream id, rs2=(behavior<<2)
     private static uint SsAppSgi(int ud, int rs1Source, StreamModifierBehavior behavior) {
         uint rs2Literal = (uint)behavior << 2;
@@ -1563,6 +1584,57 @@ public class UveTests {
         // Engine order is innermost-first: index 0 = innermost dim (the true "last configured" one).
         // The old "trigger+1" bug would have resolved this to engine index 1 (the middle dimension).
         Assert.Equal(0, desc.Modifiers![0].TargetDim);
+    }
+
+    // ── ss.app.ind (dynamic indirect modifier) tests ─────────────────────────
+    // Unlike ss.app.sgi/ss.end.sgi (StreamDescriptor.SgiMod), ss.app.ind attaches a general
+    // StreamModifier with SourceStreamId set, reusing the same Target/Behavior/TriggerDim/TargetDim
+    // machinery as the static ss.app.mod modifier. Had zero test coverage before this pair.
+
+    [Fact]
+    public void Decoder_SsAppInd_Roundtrip() {
+        var mem = new FlatMemory(4);
+        mem.Load(0, BitConverter.GetBytes(SsAppInd(2, 3, StreamModifierTarget.Offset, StreamModifierBehavior.Add, 7)));
+        var op = Assert.IsType<RvUveSsAppInd>(new Rv32Decoder().Decode(0, mem).Payload);
+        Assert.Equal(2, op.Ud);
+        Assert.Equal(3, op.TargetDimRaw);
+        Assert.Equal(StreamModifierTarget.Offset, op.Target);
+        Assert.Equal(StreamModifierBehavior.Add, op.Behavior);
+        Assert.Equal(7, op.SourceStreamId);
+    }
+
+    /// <summary>
+    ///     Mirrors <see cref="SsAppMod_DotL_TargetsLastConfiguredDimension_NotTriggerPlusOne" /> but for
+    ///     the dynamic (<c>ss.app.ind</c>) modifier family: attaches a <see cref="StreamModifier" /> with
+    ///     <see cref="StreamModifier.SourceStreamId" /> set (rather than <see cref="StreamDescriptor.SgiMod" />),
+    ///     and confirms ".L" (tdim=7) resolves to the last configured (innermost) dimension here too.
+    /// </summary>
+    [Fact]
+    public void SsAppInd_DotL_AttachesSourceStreamModifier_TargetsLastConfiguredDimension() {
+        var state = new Rv32ArchState();
+        var cfg = new PendingStreamConfig { BaseAddress = 0x1000, ElementBytes = 4, IsLoad = true, };
+        state.UveState.PendingConfig[1] = cfg;
+
+        cfg.Dimensions.Add(new StreamDimension(2, 16)); // outermost dim (Spike index 0), the trigger
+
+        // ss.app.ind u1, .L, Offset, Add, u9 — triggers on the outermost dim just appended above.
+        ExecuteResult indResult = Exec(new RvUveSsAppInd(1, 7, StreamModifierTarget.Offset, StreamModifierBehavior.Add, 9), state);
+        indResult.SideEffect?.Invoke(state);
+
+        // One more dimension configured after the modifier, via ss.end (the innermost).
+        state.IntegerRegisters.Write(2, 2); // innermost count
+        state.IntegerRegisters.Write(3, 1); // innermost stride (1 elem = 4 bytes)
+        ExecuteResult endResult = Exec(new RvUveSsEnd(1, 0, 2, 3), state);
+
+        Assert.True(endResult.StreamConfig.HasValue);
+        StreamDescriptor desc = endResult.StreamConfig!.Value.Descriptor;
+        Assert.NotNull(desc.Modifiers);
+        StreamModifier mod = Assert.Single(desc.Modifiers!);
+        Assert.Equal(9, mod.SourceStreamId);
+        Assert.Equal(StreamModifierTarget.Offset, mod.Target);
+        Assert.Equal(StreamModifierBehavior.Add, mod.Behavior);
+        // ndim=2: engine index 0 = innermost (the ss.end-appended dim) — the true "last configured" one.
+        Assert.Equal(0, mod.TargetDim);
     }
 
     // ── FP extended ops (Min/Max/Abs/Inc/Dec) ─────────────────────────────────
