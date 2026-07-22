@@ -77,12 +77,34 @@ off here until a periodic cleanup removes them; the durable record is git histor
   dimension count hits 0) — passed first try including that edge case, no new bugs. Confirms the
   fetch/consume-side size-queue mechanism (`_indModSizeQueues`) correctly gates delivery even when the
   fetch side speculatively buffers past a nominally-zero-count dimension. Full suite 3933/1/3934.
-- [ ] Port the remaining UVE2 reference benchmark kernels (github.com/hpc-ulisboa/UVE2,
-  `UVE-Testing/spike_test/benchmarks/`): `convolution`, `covariance`, `gemver`, `sgd`, `vec_cv`, and the
-  `test`/`test_dyn` harnesses (`saxpy`/`gemm`/`trisolv`/`triangular_acc`/`spmv_ellpack`(+`_delimiters`)/
-  `memcpy`/`jacobi-1d`/`2d`/`mvt`/`3mm`/`trmm` already have equivalent Horologium kernel tests).
-  `gemver`/`convolution`/`covariance`/`vec_cv` are large (550-680 line) multi-DataType-variant sources
-  not yet read in detail.
+- [ ] `convolution` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not portable within
+  Horologium's current `StreamingEngine.MaxStreams=8` limit**: its 3x3-tap stencil configures 9
+  simultaneous overlapping-offset load streams (one per filter tap, `u1`-`u9`) plus a store stream — 10
+  concurrent real memory streams, exceeding the engine's 8-slot capacity (the 9 filter *coefficients*
+  are broadcast scalars at `u10`-`u18` and fine, since ids ≥8 already bypass `StreamingEngine` for
+  arithmetic-only temps per the `stream` port fix — the blocker is the 9 concurrent *load* streams, which
+  do need real engine slots). A capacity increase is an `Orrery` change, not a test-porting one; out of
+  scope here.
+- [ ] `gemver` (677 lines) chains a broadcast outer-product update (`A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]`),
+  a transposed matvec, a vector add, and a matvec — each sub-kernel recombines patterns already exercised
+  by `mvt`/`3mm`/`jacobi-1d` (broadcast dims, transposed access, running-sum reduction). Not read in full
+  detail; port only if regression breadth is wanted for its own sake, expected low bug-discovery yield.
+- [ ] `covariance` (553 lines) is a 3-stage kernel (per-column mean via reduction+divide, broadcast-subtract
+  centering, then an upper-triangular `cov[i,j]=cov[j,i]` symmetric update with mirrored writes) — not
+  read in full detail; the triangular stage may hit the same 4-operand `ss.sta` header gap as
+  `knn`/`syrk` (unconfirmed, needs reading the actual `RUN_UVE` asm before attempting).
+- [ ] `sgd` (371 lines) is a genuine iterative SGD linear-regression training loop (multi-epoch, real
+  floating-point convergence, three nested reduction stages per epoch) — large effort for a single
+  kernel, not attempted; likely tractable in principle (no 4-operand headers spotted in `RUN_SIMPLE`) but
+  needs its own dedicated pass through the `RUN_UVE` asm.
+- [ ] `vec_cv` (661 lines, `so.v.cv` conversions) has an **empty `RUN_SIMPLE`** (`void core(DataType
+  src[SIZE]){}`) — there is no independent oracle to verify against at all. Matches the already-recorded
+  `SPEC_NOTES.md` finding that `so.v.cv` correctness was "genuinely underspecified, never given
+  attention" by the author. Do not port without a real reference to check against.
+- [x] Confirmed `test` and `test_dyn` are not portable benchmark kernels: `test`'s `RUN_SIMPLE` is empty
+  (`void core(){}`) and its `RUN_UVE` body is just `so.p.cv`/predicate-conversion `printf` dumps with no
+  assertions (not a kernel with a checkable result); `test_dyn/kernel.c` is a genuinely empty (0-byte)
+  file in the reference repo. Nothing to port from either.
 - [ ] `knn` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not 1:1 portable today**: its
   `position_x_j`/`_y`/`_z` neighbor-gather streams use a 4-operand `ss.sta.ld.d ud, base, count, stride`
   header that configures a dimension inline (Horologium's `ss.sta.ld.*` header only takes `rs1`=base;
