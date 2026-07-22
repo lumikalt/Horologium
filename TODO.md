@@ -85,12 +85,18 @@ off here until a periodic cleanup removes them; the durable record is git histor
   arithmetic-only temps per the `stream` port fix — the blocker is the 9 concurrent *load* streams, which
   do need real engine slots). A capacity increase is an `Orrery` change, not a test-porting one; out of
   scope here.
-- [x] Ported `gemver`'s first sub-kernel (`Pipeline_Gemver_OuterProductUpdate_CorrectResult`:
-  `A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]`) — the structurally distinctive one, with two *simultaneous
-  independent* vary/repeat broadcast pairings across four load streams feeding two multiply-adds (beyond
-  3mm's single broadcast-vs-vary pairing). The other three chained sub-kernels (transposed matvec,
-  vector add, matvec) recombine patterns already exercised by mvt/3mm/jacobi-1d — not ported, low
-  expected marginal value. No new bugs. Full suite 3934/1/3935.
+- [x] Ported `gemver` in full. `Pipeline_Gemver_OuterProductUpdate_CorrectResult` covers the first,
+  structurally distinctive sub-kernel in isolation (`A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]`, two
+  *simultaneous independent* vary/repeat broadcast pairings across four load streams feeding two
+  multiply-adds — beyond 3mm's single broadcast-vs-vary pairing). Per user request, the remaining three
+  chained sub-kernels — initially deferred as low-marginal-value recombinations of mvt/3mm/jacobi-1d
+  patterns — are now also ported, chained back-to-back exactly as the reference `core()` does, in
+  `Pipeline_Gemver_FullKernel_CorrectResult`: transposed matvec+reduction into `x`, a plain elementwise
+  vector add, then a non-transposed matvec+reduction into `w` consuming the updated `x`. No pipeline
+  bugs; the one real issue was self-inflicted — an early draft picked a base address (0x0800) that
+  overflows the 12-bit signed `Addi` immediate range (max 0x7FF), wrapping to -2048 and crashing the
+  engine's prefetch step on a garbage address. Fixed by keeping all base addresses under 0x7FF. Full
+  suite 3943/1/3944.
 - [x] Ported `covariance` (`Pipeline_Covariance_CorrectResult`) in full: per-column mean
   (reduction+divide), broadcast-subtract centering, then an upper-triangular `cov[i,j]=cov[j,i]`
   symmetric update with mirrored writes. Confirmed portable (only single-operand `ss.sta` headers,

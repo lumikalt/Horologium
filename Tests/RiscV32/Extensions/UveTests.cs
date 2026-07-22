@@ -2130,14 +2130,15 @@ public class UveTests {
     // ── Integration test: gemver (outer-product update) via OoO pipeline ────
 
     /// <summary>
-    ///     Ports the first of <c>gemver</c>'s four chained sub-kernels (github.com/hpc-ulisboa/UVE2,
-    ///     UVE-Testing/spike_test/benchmarks/gemver): <c>A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]</c>, a
-    ///     broadcast outer-product update. Ports only this sub-kernel (not the other three chained
-    ///     calls) since it's the structurally distinctive one: four load streams each independently
-    ///     vary-per-i/repeat-per-j or repeat-per-i/vary-per-j (two *simultaneous, independent*
-    ///     broadcast pairings feeding two separate multiply-adds) — a genuinely new combination beyond
-    ///     3mm's single broadcast-vs-vary pairing. The other three sub-kernels (transposed matvec,
-    ///     vector add, matvec) recombine patterns already exercised by mvt/3mm/jacobi-1d.
+    ///     Ports the first of <c>gemver</c>'s four chained sub-kernels in isolation
+    ///     (github.com/hpc-ulisboa/UVE2, UVE-Testing/spike_test/benchmarks/gemver):
+    ///     <c>A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]</c>, a broadcast outer-product update. This is the
+    ///     structurally distinctive one: four load streams each independently vary-per-i/repeat-per-j
+    ///     or repeat-per-i/vary-per-j (two *simultaneous, independent* broadcast pairings feeding two
+    ///     separate multiply-adds) — a genuinely new combination beyond 3mm's single broadcast-vs-vary
+    ///     pairing. The other three sub-kernels (transposed matvec+reduction, vector add, matvec+
+    ///     reduction) recombine patterns already exercised by mvt/3mm/jacobi-1d; see
+    ///     <see cref="Pipeline_Gemver_FullKernel_CorrectResult" /> for the complete 4-stage chain.
     /// </summary>
     [Fact]
     public void Pipeline_Gemver_OuterProductUpdate_CorrectResult() {
@@ -2203,6 +2204,165 @@ public class UveTests {
             float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(aBase + (ulong)(i * 4), 4));
             Assert.Equal(aNew[i], actual, 2);
         }
+    }
+
+    /// <summary>
+    ///     Ports all four of <c>gemver</c>'s chained sub-kernels (github.com/hpc-ulisboa/UVE2,
+    ///     UVE-Testing/spike_test/benchmarks/gemver), run back-to-back exactly as the reference
+    ///     <c>core()</c> does: (1) the outer-product update from
+    ///     <see cref="Pipeline_Gemver_OuterProductUpdate_CorrectResult" />; (2) a transposed
+    ///     matvec+reduction into <c>x</c> (<c>x[i] += beta*A[j,i]*y[j]</c>, structurally identical to
+    ///     <c>mvt</c>'s column-major pass); (3) a plain elementwise vector add (<c>x[i] += z[i]</c>,
+    ///     identical shape to <c>memcpy</c>/<c>jacobi-1d</c>); (4) a non-transposed matvec+reduction
+    ///     into <c>w</c> (<c>w[i] += alpha*A[i,j]*x[j]</c>, structurally identical to <c>mvt</c>'s
+    ///     row-major pass, but consuming stage 2+3's updated <c>x</c>). u-registers 1-4 are reused
+    ///     across all four stages (each prior stage's streams are fully exhausted before the next
+    ///     stage reconfigures the same register), matching the reference's own register reuse; u10-u14
+    ///     are pure arithmetic scratch/broadcast registers, never bound to a stream.
+    /// </summary>
+    [Fact]
+    public void Pipeline_Gemver_FullKernel_CorrectResult() {
+        const int n = 3;
+        const float alpha = 2.0f, beta = 0.5f;
+        float[] kernelU1 = [2, 3, 4,];
+        float[] kernelV1 = [5, 6, 7,];
+        float[] kernelU2 = [1, 2, 1,];
+        float[] kernelV2 = [3, 1, 2,];
+        float[] a = [1, 1, 1, 1, 1, 1, 1, 1, 1,];
+        float[] y = [2, 1, 3,];
+        float[] z = [10, 20, 30,];
+        float[] x = [100, 200, 300,];
+        float[] w = [1000, 2000, 3000,];
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback, run in the same order
+        // (each stage operates on the previous stage's updated arrays).
+        float[] aNew = a.ToArray();
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < n; j++)
+            aNew[i * n + j] += kernelU1[i] * kernelV1[j] + kernelU2[i] * kernelV2[j];
+
+        float[] xNew = x.ToArray();
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < n; j++)
+            xNew[i] += beta * aNew[j * n + i] * y[j];
+
+        for (var i = 0; i < n; i++) xNew[i] += z[i];
+
+        float[] wNew = w.ToArray();
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < n; j++)
+            wNew[i] += alpha * aNew[i * n + j] * xNew[j];
+
+        // NOTE: all base addresses must stay within the 12-bit signed Addi immediate range
+        // (-2048..2047) — 0x0800 (2048) would overflow and wrap to -2048.
+        const ulong aBase = 0x0000, v1Base = 0x0080, v2Base = 0x0100, kernelU1Base = 0x0180,
+            kernelU2Base = 0x0200, yBase = 0x0280, zBase = 0x0300, xBase = 0x0380, wBase = 0x0400;
+        var mem = new FlatMemory(0x4000);
+        for (var i = 0; i < a.Length; i++) mem.Load(aBase + (ulong)(i * 4), BitConverter.GetBytes(a[i]));
+        for (var i = 0; i < n; i++) mem.Load(v1Base + (ulong)(i * 4), BitConverter.GetBytes(kernelV1[i]));
+        for (var i = 0; i < n; i++) mem.Load(v2Base + (ulong)(i * 4), BitConverter.GetBytes(kernelV2[i]));
+        for (var i = 0; i < n; i++) mem.Load(kernelU1Base + (ulong)(i * 4), BitConverter.GetBytes(kernelU1[i]));
+        for (var i = 0; i < n; i++) mem.Load(kernelU2Base + (ulong)(i * 4), BitConverter.GetBytes(kernelU2[i]));
+        for (var i = 0; i < n; i++) mem.Load(yBase + (ulong)(i * 4), BitConverter.GetBytes(y[i]));
+        for (var i = 0; i < n; i++) mem.Load(zBase + (ulong)(i * 4), BitConverter.GetBytes(z[i]));
+        for (var i = 0; i < n; i++) mem.Load(xBase + (ulong)(i * 4), BitConverter.GetBytes(x[i]));
+        for (var i = 0; i < n; i++) mem.Load(wBase + (ulong)(i * 4), BitConverter.GetBytes(w[i]));
+
+        // Register plan: x1=aBase x2=v2Base x3=kernelU2Base x4=v1Base x5=kernelU1Base x6=N x7=1
+        //                x8=yBase x9=xBase x10=bits(beta) x11=zBase x12=bits(alpha) x13=wBase
+        const ulong code = 0x1000;
+        var words = new List<uint>();
+
+        words.Add(Addi(1, 0, (int)aBase)); words.Add(Addi(2, 0, (int)v2Base));
+        words.Add(Addi(3, 0, (int)kernelU2Base)); words.Add(Addi(4, 0, (int)v1Base));
+        words.Add(Addi(5, 0, (int)kernelU1Base)); words.Add(Addi(6, 0, n)); words.Add(Addi(7, 0, 1));
+        words.Add(Addi(8, 0, (int)yBase)); words.Add(Addi(9, 0, (int)xBase));
+        words.Add(Lui(10, BitConverter.SingleToInt32Bits(beta) >> 12));
+        words.Add(Addi(11, 0, (int)zBase));
+        words.Add(Lui(12, BitConverter.SingleToInt32Bits(alpha) >> 12));
+        words.Add(Addi(13, 0, (int)wBase));
+
+        // ── STAGE 1: A[i,j] += kernelU1[i]*v1[j] + kernelU2[i]*v2[j] ──
+        words.Add(SsStaStW(1, 1)); words.Add(SsApp(1, 0, 6, 6)); words.Add(SsEnd(1, 0, 6, 7));
+        words.Add(SsStaLdW(2, 2)); words.Add(SsApp(2, 0, 6, 0)); words.Add(SsEnd(2, 0, 6, 7));
+        words.Add(SsStaLdW(3, 3)); words.Add(SsApp(3, 0, 6, 7)); words.Add(SsEnd(3, 0, 6, 0));
+        words.Add(SsStaLdW(4, 4)); words.Add(SsApp(4, 0, 6, 0)); words.Add(SsEnd(4, 0, 6, 7));
+        words.Add(SsStaLdW(5, 5)); words.Add(SsApp(5, 0, 6, 7)); words.Add(SsEnd(5, 0, 6, 0));
+        words.Add(SsStaLdW(6, 1)); words.Add(SsApp(6, 0, 6, 6)); words.Add(SsEnd(6, 0, 6, 7));
+
+        var loopStart1 = words.Count;
+        words.Add(SoAFp(UveFpOp.Mul, 0, 5, 4));
+        words.Add(SoAFp(UveFpOp.Add, 7, 6, 0));
+        words.Add(SoAFp(UveFpOp.Mul, 0, 3, 2));
+        words.Add(SoAFp(UveFpOp.Add, 1, 7, 0));
+        words.Add(SoBNc(1, (loopStart1 - words.Count) * 4));
+
+        // ── STAGE 2: x[i] += beta * A[j,i] * y[j] (transposed matvec + reduction over j) ──
+        words.Add(SsStaStW(1, 9)); words.Add(SsEnd(1, 0, 6, 7));
+        words.Add(SsStaLdW(2, 1)); words.Add(SsApp(2, 0, 6, 7)); words.Add(SsEnd(2, 0, 6, 6));
+        words.Add(SsStaLdW(3, 8)); words.Add(SsApp(3, 0, 6, 0)); words.Add(SsEnd(3, 0, 6, 7));
+        words.Add(SsStaLdW(4, 9)); words.Add(SsEnd(4, 0, 6, 7));
+        words.Add(SoVDpW(13, 10));
+
+        var outerStart2 = words.Count;
+        words.Add(SoVDpW(11, 0));
+        var innerStart2 = words.Count;
+        words.Add(SoAFp(UveFpOp.Mul, 12, 2, 13));
+        words.Add(SoAFp(UveFpOp.Mul, 12, 12, 3));
+        words.Add(SoAFp(UveFpOp.AddeAcc, 11, 12, -1));
+        words.Add(SoBNdcD(2, 1, (innerStart2 - words.Count) * 4));
+        words.Add(SoAFp(UveFpOp.Add, 1, 4, 11));
+        words.Add(SoBNc(1, (outerStart2 - words.Count) * 4));
+
+        // ── STAGE 3: x[i] += z[i] ──
+        words.Add(SsStaStW(1, 9)); words.Add(SsEnd(1, 0, 6, 7));
+        words.Add(SsStaLdW(2, 11)); words.Add(SsEnd(2, 0, 6, 7));
+        words.Add(SsStaLdW(3, 9)); words.Add(SsEnd(3, 0, 6, 7));
+
+        var loopStart3 = words.Count;
+        words.Add(SoAFp(UveFpOp.Add, 1, 3, 2));
+        words.Add(SoBNc(1, (loopStart3 - words.Count) * 4));
+
+        // ── STAGE 4: w[i] += alpha * A[i,j] * x[j] (matvec + reduction over j) ──
+        words.Add(SsStaStW(1, 13)); words.Add(SsEnd(1, 0, 6, 7));
+        words.Add(SsStaLdW(2, 1)); words.Add(SsApp(2, 0, 6, 6)); words.Add(SsEnd(2, 0, 6, 7));
+        words.Add(SsStaLdW(3, 9)); words.Add(SsApp(3, 0, 6, 0)); words.Add(SsEnd(3, 0, 6, 7));
+        words.Add(SsStaLdW(4, 13)); words.Add(SsEnd(4, 0, 6, 7));
+        words.Add(SoVDpW(14, 12));
+
+        var outerStart4 = words.Count;
+        words.Add(SoVDpW(11, 0));
+        var innerStart4 = words.Count;
+        words.Add(SoAFp(UveFpOp.Mul, 12, 2, 14));
+        words.Add(SoAFp(UveFpOp.Mul, 12, 12, 3));
+        words.Add(SoAFp(UveFpOp.AddeAcc, 11, 12, -1));
+        words.Add(SoBNdcD(2, 1, (innerStart4 - words.Count) * 4));
+        words.Add(SoAFp(UveFpOp.Add, 1, 4, 11));
+        words.Add(SoBNc(1, (outerStart4 - words.Count) * 4));
+
+        words.Add(EBreak());
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(30_000);
+
+        for (var i = 0; i < aNew.Length; i++) {
+            float actualA = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(aBase + (ulong)(i * 4), 4));
+            Assert.Equal(aNew[i], actualA, 2);
+        }
+        for (var i = 0; i < n; i++) {
+            float actualW = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(wBase + (ulong)(i * 4), 4));
+            Assert.Equal(wNew[i], actualW, 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
     // ── Integration test: covariance via OoO pipeline ────────────────────────
