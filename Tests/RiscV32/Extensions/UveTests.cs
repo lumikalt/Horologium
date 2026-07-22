@@ -2658,25 +2658,23 @@ public class UveTests {
     ///     u6, u7 each carry two stride-0/varying dims plus the epochs dim). u-register numbers are
     ///     taken verbatim from the reference asm, same rationale as <c>convolution</c>.
     ///     <para>
-    ///     KNOWN LIMITATION (not fixed here — see TODO.md): this kernel exposes a genuine, confirmed
-    ///     engine-level hazard between <c>StreamingEngine</c>'s eager background prefetch and
-    ///     <c>UveStoreStream</c>'s bypass writes. u5 (kernel2's reload of kernel1's y_err output) and
-    ///     u1/u8 (kernel1/3's reload of kernel3's sgd_model output) are all configured — and start
-    ///     prefetching immediately — before the epoch loop's own stores have ever run, because
-    ///     <c>StreamingEngine.Step()</c> advances every active stream every cycle with no visibility
-    ///     into <c>UveStoreStream</c> (store streams bypass the engine entirely, so it cannot know a
-    ///     write to the same address is still pending). Root-caused precisely: reducing to
-    ///     <c>epochs=1</c> isolates the bug to within a single epoch (kernel1→kernel2, not a
-    ///     cross-epoch issue as first suspected) — yErr comes out correct (kernel1's own load streams
-    ///     read pre-initialized memory, safe at any prefetch time) while intercept stays at exactly 0
-    ///     (kernel2's u5 read all-zero stale memory, since y_err hadn't been written yet when u5's
-    ///     prefetch ran). Not fixable by adjusting <c>streamPrefetchDepth</c>: once a stale value is
-    ///     buffered, a later write doesn't retroactively correct it. A real fix is engine-scope — e.g.
-    ///     deferring the prefetch's <c>memory.Read</c> to consume-time — not a kernel-port change; left
-    ///     as an open TODO item rather than attempted here.
+    ///     This kernel initially exposed two real, confirmed bugs, both now fixed (see TODO.md):
+    ///     (1) a genuine engine-level hazard between <c>StreamingEngine</c>'s eager background
+    ///     prefetch and <c>UveStoreStream</c>'s bypass writes — u5 (kernel2's reload of kernel1's
+    ///     y_err output) and u1/u8 (kernel1/3's reload of kernel3's sgd_model output) were configured,
+    ///     and started prefetching, before the epoch loop's own stores had ever run, since
+    ///     <c>StreamingEngine.Step()</c> had no visibility into <c>UveStoreStream</c>'s bypass writes
+    ///     to the same addresses. Fixed by deferring the actual <c>IMemory.Read</c> from prefetch time
+    ///     to <c>Peek</c>/<c>Consume</c> time, which program order (plus UVE ops being head-serialized)
+    ///     already guarantees is correctly ordered relative to an earlier store. (2) A separate,
+    ///     unrelated decoder bug in <c>so.v.mvvs</c> (used here to extract the final <c>intercept</c>
+    ///     scalar into an integer register): it was the only UVE instruction passing a real destination
+    ///     register to <c>RvInstruction</c> instead of -1, which allocated a normal PRF rename slot that
+    ///     nothing ever wrote a value into — the commit-time PRF-to-architectural writeback silently
+    ///     clobbered the correct value the instruction's SideEffect had just written directly.
     ///     </para>
     /// </summary>
-    [Fact(Skip = "Known limitation: StreamingEngine's eager prefetch races UveStoreStream's bypass writes when a load stream is configured before its data is produced. See TODO.md.")]
+    [Fact]
     public void Pipeline_Sgd_CoreKernel_CorrectResult() {
         const int epochs = 2, n = 3, d = 2;
         const float lr = 0.25f; // Lui-exact (2^-2); the reference's literal 0.02 is not.

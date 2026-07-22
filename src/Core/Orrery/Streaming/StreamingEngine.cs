@@ -32,6 +32,11 @@ public sealed class StreamingEngine {
     private readonly StreamState[] _streams;
     private int _activeCount; // tracks how many streams are currently active
 
+    // Cached from the most recent Step() call, used to perform the deferred read in Peek/Consume (see
+    // their doc comments). Never null when actually dereferenced: HasElement — required for a buffered
+    // address to exist at all — can only become true after at least one Step() call has run.
+    private IMemory? _lastMemory;
+
     public StreamingEngine(int prefetchDepth = 4, int maxStreams = 8) {
         if (prefetchDepth < 1) throw new ArgumentOutOfRangeException(nameof(prefetchDepth));
         if (maxStreams < 1) throw new ArgumentOutOfRangeException(nameof(maxStreams));
@@ -115,18 +120,24 @@ public sealed class StreamingEngine {
         return _streams[streamId].MergingPredication;
     }
 
-    /// <summary>Returns the next buffered element without advancing the consume pointer.</summary>
+    /// <summary>
+    ///     Returns the next buffered element without advancing the consume pointer. The actual memory
+    ///     read happens here, not at prefetch time (see <see cref="Step" />'s doc comment for why).
+    /// </summary>
     /// <exception cref="InvalidOperationException">The buffer is empty.</exception>
     public ulong Peek(int streamId) {
         Validate(streamId);
-        return _streams[streamId].Peek();
+        return _streams[streamId].Peek(_lastMemory!);
     }
 
-    /// <summary>Removes and returns the next buffered element.</summary>
+    /// <summary>
+    ///     Removes and returns the next buffered element. The actual memory read happens here, not at
+    ///     prefetch time (see <see cref="Step" />'s doc comment for why).
+    /// </summary>
     /// <exception cref="InvalidOperationException">The buffer is empty.</exception>
     public ulong Consume(int streamId) {
         Validate(streamId);
-        return _streams[streamId].Consume();
+        return _streams[streamId].Consume(_lastMemory!);
     }
 
     /// <summary>
@@ -134,8 +145,20 @@ public sealed class StreamingEngine {
     ///     vector-mode streams read up to <paramref name="vectorLength" /> elements, stopping at
     ///     the vecCfgDim boundary so each Step delivers at most one complete vector slice.
     ///     Call once per pipeline cycle.
+    ///     <para>
+    ///         The prefetch buffer holds computed <b>addresses</b>, not values — the actual
+    ///         <see cref="IMemory.Read" /> is deferred to <see cref="Peek" />/<see cref="Consume" />.
+    ///         This matters because a store stream (<c>UveStoreStream</c>, tracked entirely outside
+    ///         this engine) can write to an address a load stream will later read: reading eagerly at
+    ///         prefetch time — as soon as a stream is <see cref="Configure" />d, potentially long before
+    ///         the corresponding store has executed — would capture stale data with no way to correct
+    ///         it once buffered. Deferring to consume time reads current memory at the point the
+    ///         consuming instruction actually executes, which program order (plus UVE ops being
+    ///         head-serialized) already guarantees is correctly ordered relative to any earlier store.
+    ///     </para>
     /// </summary>
     public void Step(IMemory memory, int vectorLength = 1) {
+        _lastMemory = memory;
         if (_activeCount == 0) return;
         foreach (StreamState s in _streams) s.Step(memory, _prefetchDepth, vectorLength, _streams);
     }
@@ -254,37 +277,40 @@ public sealed class StreamingEngine {
             _buffer.Clear();
         }
 
-        public ulong Peek() {
+        // The actual memory.Read happens here (deferred from Step's prefetch) — see
+        // StreamingEngine.Step's doc comment for why.
+        public ulong Peek(IMemory memory) {
             if (_buffer.Count == 0) throw new InvalidOperationException("Stream buffer is empty.");
-            return _buffer.Peek();
+            return memory.Read(_buffer.Peek(), _desc.ElementBytes);
         }
 
-        public ulong Consume() {
+        public ulong Consume(IMemory memory) {
             if (_buffer.Count == 0) throw new InvalidOperationException("Stream buffer is empty.");
-            ulong val = _buffer.Dequeue();
+            ulong addr = _buffer.Dequeue();
             AdvanceConsumeIndex();
-            return val;
+            return memory.Read(addr, _desc.ElementBytes);
         }
 
         public void Step(IMemory memory, int prefetchDepth, int vectorLength, StreamState[] allStreams) {
             if (!Active) return;
             if (_fetchDone) return;
-            if (_needsInitialModApply && !ApplyInitialIndirectModifiers(allStreams)) return;
+            if (_needsInitialModApply && !ApplyInitialIndirectModifiers(allStreams, memory)) return;
             if (_buffer.Count >= prefetchDepth) return;
 
             int toFetch = _vecCfgDim >= 0 ? vectorLength : 1;
             for (var i = 0; i < toFetch; i++) {
                 if (_buffer.Count >= prefetchDepth) break;
                 if (_fetchDone) break;
-                if (_sgiMod.HasValue && !ApplySgiMod(allStreams)) break;
-                _buffer.Enqueue(memory.Read((ulong)((long)_desc.BaseAddress + FetchOffset()), _desc.ElementBytes));
-                if (AdvanceFetchIndex(allStreams)) break;
+                if (_sgiMod.HasValue && !ApplySgiMod(allStreams, memory)) break;
+                // Buffer the computed ADDRESS, not the value — the read is deferred to Peek/Consume.
+                _buffer.Enqueue((ulong)((long)_desc.BaseAddress + FetchOffset()));
+                if (AdvanceFetchIndex(allStreams, memory)) break;
             }
         }
 
         // Applies all indirect modifiers using their initial IndSource values.
         // Returns false (and defers) if any source stream has no element ready yet.
-        private bool ApplyInitialIndirectModifiers(StreamState[] allStreams) {
+        private bool ApplyInitialIndirectModifiers(StreamState[] allStreams, IMemory memory) {
             if (_desc.Modifiers is not { Length: > 0, } mods) {
                 _needsInitialModApply = false;
                 return true;
@@ -296,7 +322,7 @@ public sealed class StreamingEngine {
             for (var i = 0; i < mods.Length; i++) {
                 StreamModifier m = mods[i];
                 if (m.SourceStreamId < 0) continue;
-                var rawVal = (long)(int)allStreams[m.SourceStreamId].Consume();
+                var rawVal = (long)(int)allStreams[m.SourceStreamId].Consume(memory);
                 long newVal = CalculateIndirectValue(m, rawVal);
                 ApplyToFetchField(m.Target, m.TargetDim, newVal);
                 if (m.Target == StreamModifierTarget.Size) _consumeDimCounts[m.TargetDim] = Math.Max(0, newVal);
@@ -317,11 +343,11 @@ public sealed class StreamingEngine {
         // updates _fetchDimOffsets[0]. Returns false (stalls the fetch) if the source has no element.
         // Spike: dim.iter_offset = f(dim.offset, behavior, sourceValue * elementWidth), where
         // dim.offset (the configured base) is always 0, so Add/Sub collapse to the same as Set/Negate.
-        private bool ApplySgiMod(StreamState[] allStreams) {
+        private bool ApplySgiMod(StreamState[] allStreams, IMemory memory) {
             (int srcId, StreamModifierBehavior behavior) = _sgiMod!.Value;
             StreamState src = allStreams[srcId];
             if (!src.HasElement) return false;
-            var rawVal = (long)(int)src.Consume();
+            var rawVal = (long)(int)src.Consume(memory);
             long scaled = rawVal * _desc.ElementBytes;
             _fetchDimOffsets[0] = behavior switch {
                 StreamModifierBehavior.Add => scaled,  // base=0, so Add ≡ Set
@@ -339,13 +365,13 @@ public sealed class StreamingEngine {
         // On each wrap of dim d: modifiers whose trigger dimension itself wrapped (TriggerDim+1 == d)
         // are RESET first, then modifiers triggered by d are applied — matching Spike's
         // updateIteration order (reset keyed i, then apply keyed i-1).
-        private bool AdvanceFetchIndex(StreamState[] allStreams) {
+        private bool AdvanceFetchIndex(StreamState[] allStreams, IMemory memory) {
             var boundary = false;
             for (var d = 0; d < _fetchDimCounts.Length; d++) {
                 if (++_fetchIndices[d] < _fetchDimCounts[d]) return boundary;
                 _fetchIndices[d] = 0;
                 ResetFetchModifiers(d - 1);
-                ApplyFetchModifiers(d, allStreams);
+                ApplyFetchModifiers(d, allStreams, memory);
                 if (d == _fetchDimCounts.Length - 1) {
                     _fetchDone = true;
                     return true;
@@ -369,7 +395,7 @@ public sealed class StreamingEngine {
             }
         }
 
-        private void ApplyFetchModifiers(int wrappedDim, StreamState[] allStreams) {
+        private void ApplyFetchModifiers(int wrappedDim, StreamState[] allStreams, IMemory memory) {
             if (_desc.Modifiers is not { Length: > 0, } mods) return;
             for (var i = 0; i < mods.Length; i++) {
                 StreamModifier m = mods[i];
@@ -377,7 +403,7 @@ public sealed class StreamingEngine {
                 if (m.SourceStreamId >= 0) {
                     // Indirect modifier: consume one element from the IndSource stream.
                     if (!allStreams[m.SourceStreamId].HasElement) continue;
-                    var rawVal = (long)(int)allStreams[m.SourceStreamId].Consume();
+                    var rawVal = (long)(int)allStreams[m.SourceStreamId].Consume(memory);
                     long newVal = CalculateIndirectValue(m, rawVal);
                     ApplyToFetchField(m.Target, m.TargetDim, newVal);
                     if (m.Target == StreamModifierTarget.Size && _indModSizeQueues[i] is { } q) q.Enqueue(newVal);

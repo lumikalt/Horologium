@@ -163,7 +163,14 @@ public partial class Rv32Decoder {
             case 0x54: {
                 int mvKind = (rs2 >> 3) & 3;
                 switch (mvKind) {
-                    case 2: return new RvInstruction(pc, raw, rd, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
+                    // dest=-1 (not rd): the destination integer register is written via SideEffect
+                    // directly into architectural state (ExecuteUveSoVMvvs), like every other UVE op's
+                    // u-register destination — NOT through the normal PRF rename/writeback path. Passing
+                    // rd as a normal DestinationRegister here (as an earlier version of this line did)
+                    // allocates a PRF physical register that nothing ever writes a value into, so the
+                    // commit-time PRF->architectural writeback silently clobbers the SideEffect's correct
+                    // write with an unwritten (zero) physical register.
+                    case 2: return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
                     case 3: {
                         int elemBytes = (int)funct3 switch {
                             0 => 1, 1 => 2, 2 => 4, 3 => 8,

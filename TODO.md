@@ -136,29 +136,40 @@ off here until a periodic cleanup removes them; the durable record is git histor
   incl. untouched sentinel cells) and it passes unconditionally, no `Skip`. The mechanism is confirmed
   correct even in the tightest possible write-immediately-followed-by-branch shape, so there is no
   remaining open item here.
-- [ ] **`sgd`'s `core_kernel` (the SGD training loop, the actual capacity-blocked piece — `predict` and
-  `r2_score` each use at most 4 stream registers and were never blocked) exposes a genuine, confirmed
-  engine-level hazard, separate from the capacity work above.** Ported as
-  `Pipeline_Sgd_CoreKernel_CorrectResult` (`[Fact(Skip=...)]`, not deleted — a pinned repro, since this
-  is a real bug, not a test-authoring mistake like the tight-loop anomaly). All three sub-kernels
-  configure their streams *once* before the epoch loop, using a stride-0 outer "epochs" dimension so
-  kernel1/2/3 re-read the same addresses fresh each epoch (`u1`-`u9`, register numbers taken verbatim
-  from the reference asm now that `MaxStreams` covers them — the first port with a genuinely
-  3-dimensional stream). Root-caused precisely by isolating to `epochs=1`: kernel1's output (`yErr`)
-  comes out exactly correct, but kernel2's `intercept` update stays at exactly 0 — because `u5`
-  (kernel2's reload of kernel1's `y_err` output) is configured, and starts prefetching, *before* the
-  epoch loop's kernel1 has ever written to `y_err`. `StreamingEngine.Step()` advances every active
-  stream every cycle with no visibility into `UveStoreStream` (store streams bypass the engine entirely
-  to track their own cursor), so it has no way to know a write to the same address is still pending —
-  `u5` eagerly buffers stale (zero-initialized) memory well before the real write happens. Confirmed
-  not fixable by adjusting `streamPrefetchDepth`: once a stale value is buffered, a later write doesn't
-  retroactively correct it. Every prior port avoided this because each stage's load stream was
-  *configured* only after the producing stage's store loop had already fully exhausted (in program
-  order, hence in real elapsed cycles too) — `sgd` is the first kernel whose own idiom configures a
-  load stream before its producer has run. A real fix is engine-scope (e.g. deferring the prefetch's
-  `memory.Read` to consume-time instead of eagerly at `Step()`, which would need to preserve the
-  latency-hiding prefetch exists for) — a genuine `StreamingEngine` project, not a kernel-port change.
-  Not attempted here; needs an explicit decision on whether to pursue it.
+- [x] Ported `sgd`'s `core_kernel` (`Pipeline_Sgd_CoreKernel_CorrectResult`) — the SGD training loop,
+  the actual capacity-blocked piece (`predict`/`r2_score` each use at most 4 stream registers and were
+  never blocked, out of scope). All three sub-kernels configure their streams *once* before the epoch
+  loop, using a stride-0 outer "epochs" dimension so kernel1/2/3 re-read the same addresses fresh each
+  epoch (`u1`-`u9`, register numbers taken verbatim from the reference asm — the first port with a
+  genuinely 3-dimensional stream). Found and fixed two independent real bugs:
+  - **`StreamingEngine`/`UveStoreStream` prefetch-ordering hazard.** Root-caused by isolating to
+    `epochs=1`: kernel1's `yErr` output came out exactly correct, but kernel2's `intercept` update
+    stayed at exactly 0 — `u5` (kernel2's reload of kernel1's `y_err` output) was configured, and
+    started prefetching, *before* the epoch loop's kernel1 had ever written to `y_err`.
+    `StreamingEngine.Step()` advances every active stream every cycle with no visibility into
+    `UveStoreStream` (store streams bypass the engine entirely to track their own cursor), so it had no
+    way to know a write to the same address was still pending — `u5` eagerly buffered stale
+    (zero-initialized) memory well before the real write happened. Every prior port avoided this
+    because each stage's load stream was *configured* only after the producing stage's store loop had
+    already fully exhausted; `sgd` is the first kernel whose own idiom configures a load stream before
+    its producer has run. **Fixed** by deferring the actual `IMemory.Read` from prefetch time
+    (`Step()`) to consume time (`Peek`/`Consume`) — the buffer now holds computed addresses, not
+    pre-read values. Program order (plus UVE ops being head-serialized) already guarantees a consuming
+    instruction executes after any program-order-earlier store, so reading at that point is always
+    correctly ordered; reading eagerly at prefetch time was not. No public API changed — `MaxStreams`'s
+    caller (`OooeTrain`) already passes the same `IMemory` to every `Step()` call, so `StreamingEngine`
+    just caches it internally and threads it to `Peek`/`Consume` (both the public wrappers and every
+    internal indirect/scatter-gather-modifier call site) instead of changing any call site's signature.
+    Full suite re-run confirms this is behavior-preserving for every other port (nothing regressed).
+  - **`so.v.mvvs` decoder bug**, unrelated to the above: it was the *only* UVE instruction in
+    `Rv32Decoder.Uve.cs` passing a real destination register to `RvInstruction` (every sibling passes
+    `-1`, since UVE ops deliver their real destination via `SideEffect`). Passing `rd` there allocates
+    a normal PRF rename slot that nothing ever writes a value into — the commit-time PRF→architectural
+    writeback silently clobbered the correct value the instruction's `SideEffect` had just written
+    directly into `State.IntegerRegisters`. Never caught before because no integration test had
+    exercised `so.v.mvvs` through the full pipeline (only in isolated `Exec()`-based unit tests) until
+    this port needed it to extract the final `intercept` scalar. Fixed by passing `-1`, matching every
+    other UVE instruction's convention. Full suite 3945/1/3946.
 - [ ] `vec_cv` (661 lines, `so.v.cv` conversions) has an **empty `RUN_SIMPLE`** (`void core(DataType
   src[SIZE]){}`) — there is no independent oracle to verify against at all. Matches the already-recorded
   `SPEC_NOTES.md` finding that `so.v.cv` correctness was "genuinely underspecified, never given
