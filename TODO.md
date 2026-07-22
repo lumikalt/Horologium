@@ -85,10 +85,12 @@ off here until a periodic cleanup removes them; the durable record is git histor
   arithmetic-only temps per the `stream` port fix — the blocker is the 9 concurrent *load* streams, which
   do need real engine slots). A capacity increase is an `Orrery` change, not a test-porting one; out of
   scope here.
-- [ ] `gemver` (677 lines) chains a broadcast outer-product update (`A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]`),
-  a transposed matvec, a vector add, and a matvec — each sub-kernel recombines patterns already exercised
-  by `mvt`/`3mm`/`jacobi-1d` (broadcast dims, transposed access, running-sum reduction). Not read in full
-  detail; port only if regression breadth is wanted for its own sake, expected low bug-discovery yield.
+- [x] Ported `gemver`'s first sub-kernel (`Pipeline_Gemver_OuterProductUpdate_CorrectResult`:
+  `A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]`) — the structurally distinctive one, with two *simultaneous
+  independent* vary/repeat broadcast pairings across four load streams feeding two multiply-adds (beyond
+  3mm's single broadcast-vs-vary pairing). The other three chained sub-kernels (transposed matvec,
+  vector add, matvec) recombine patterns already exercised by mvt/3mm/jacobi-1d — not ported, low
+  expected marginal value. No new bugs. Full suite 3934/1/3935.
 - [ ] `covariance` (553 lines) is a 3-stage kernel (per-column mean via reduction+divide, broadcast-subtract
   centering, then an upper-triangular `cov[i,j]=cov[j,i]` symmetric update with mirrored writes) — not
   read in full detail; the triangular stage may hit the same 4-operand `ss.sta` header gap as

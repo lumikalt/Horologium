@@ -2059,6 +2059,84 @@ public class UveTests {
         }
     }
 
+    // ── Integration test: gemver (outer-product update) via OoO pipeline ────
+
+    /// <summary>
+    ///     Ports the first of <c>gemver</c>'s four chained sub-kernels (github.com/hpc-ulisboa/UVE2,
+    ///     UVE-Testing/spike_test/benchmarks/gemver): <c>A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]</c>, a
+    ///     broadcast outer-product update. Ports only this sub-kernel (not the other three chained
+    ///     calls) since it's the structurally distinctive one: four load streams each independently
+    ///     vary-per-i/repeat-per-j or repeat-per-i/vary-per-j (two *simultaneous, independent*
+    ///     broadcast pairings feeding two separate multiply-adds) — a genuinely new combination beyond
+    ///     3mm's single broadcast-vs-vary pairing. The other three sub-kernels (transposed matvec,
+    ///     vector add, matvec) recombine patterns already exercised by mvt/3mm/jacobi-1d.
+    /// </summary>
+    [Fact]
+    public void Pipeline_Gemver_OuterProductUpdate_CorrectResult() {
+        const int n = 2;
+        float[] u1Vec = [2, 3,];
+        float[] v1 = [5, 7,];
+        float[] u2Vec = [4, 6,];
+        float[] v2 = [8, 9,];
+        float[] a = [1, 1, 1, 1,];
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback.
+        float[] aNew = a.ToArray();
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < n; j++)
+            aNew[i * n + j] += u1Vec[i] * v1[j] + u2Vec[i] * v2[j];
+
+        const ulong aBase = 0x0000, v2Base = 0x0100, u2Base = 0x0200, v1Base = 0x0300, u1Base = 0x0400;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < a.Length; i++) mem.Load(aBase + (ulong)(i * 4), BitConverter.GetBytes(a[i]));
+        for (var i = 0; i < n; i++) mem.Load(v2Base + (ulong)(i * 4), BitConverter.GetBytes(v2[i]));
+        for (var i = 0; i < n; i++) mem.Load(u2Base + (ulong)(i * 4), BitConverter.GetBytes(u2Vec[i]));
+        for (var i = 0; i < n; i++) mem.Load(v1Base + (ulong)(i * 4), BitConverter.GetBytes(v1[i]));
+        for (var i = 0; i < n; i++) mem.Load(u1Base + (ulong)(i * 4), BitConverter.GetBytes(u1Vec[i]));
+
+        // Register plan: x1=A x2=v2 x3=u2Vec x4=v1 x5=u1Vec x6=N x7=1
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)aBase), Addi(2, 0, (int)v2Base), Addi(3, 0, (int)u2Base),
+            Addi(4, 0, (int)v1Base), Addi(5, 0, (int)u1Base), Addi(6, 0, n), Addi(7, 0, 1),
+
+            // u1 = A store (2D): outer count=N stride=N; inner count=N stride=1
+            SsStaStW(1, 1), SsApp(1, 0, 6, 6), SsEnd(1, 0, 6, 7),
+            // u2 = v2 load: repeat-per-i (outer stride=0), vary-per-j (inner stride=1)
+            SsStaLdW(2, 2), SsApp(2, 0, 6, 0), SsEnd(2, 0, 6, 7),
+            // u3 = u2Vec load: vary-per-i (outer stride=1), repeat-per-j (inner stride=0)
+            SsStaLdW(3, 3), SsApp(3, 0, 6, 7), SsEnd(3, 0, 6, 0),
+            // u4 = v1 load: repeat-per-i, vary-per-j
+            SsStaLdW(4, 4), SsApp(4, 0, 6, 0), SsEnd(4, 0, 6, 7),
+            // u5 = u1Vec load: vary-per-i, repeat-per-j
+            SsStaLdW(5, 5), SsApp(5, 0, 6, 7), SsEnd(5, 0, 6, 0),
+            // u6 = A load (2D, same shape as the store)
+            SsStaLdW(6, 1), SsApp(6, 0, 6, 6), SsEnd(6, 0, 6, 7),
+
+            // .SLOOP_1:
+            SoAFp(UveFpOp.Mul, 0, 5, 4), // u0 = u1Vec * v1
+            SoAFp(UveFpOp.Add, 7, 6, 0), // u7 = Aload + u0
+            SoAFp(UveFpOp.Mul, 0, 3, 2), // u0 = u2Vec * v2
+            SoAFp(UveFpOp.Add, 1, 7, 0), // u1(store) = u7 + u0
+            SoBNc(1, -16),               // so.b.nc u1, .SLOOP_1
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(8000);
+
+        for (var i = 0; i < aNew.Length; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(aBase + (ulong)(i * 4), 4));
+            Assert.Equal(aNew[i], actual, 2);
+        }
+    }
+
     // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]
