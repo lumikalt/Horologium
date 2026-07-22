@@ -2671,7 +2671,11 @@ public class UveTests {
     ///     scalar into an integer register): it was the only UVE instruction passing a real destination
     ///     register to <c>RvInstruction</c> instead of -1, which allocated a normal PRF rename slot that
     ///     nothing ever wrote a value into — the commit-time PRF-to-architectural writeback silently
-    ///     clobbered the correct value the instruction's SideEffect had just written directly.
+    ///     clobbered the correct value the instruction's SideEffect had just written directly. Fixing
+    ///     it via dest=-1 bypasses rename entirely for this op's destination, so the write is visible
+    ///     here (a direct post-run <c>ArchState</c> read) and to any head-serialized UVE consumer, but
+    ///     NOT to a later renamed integer read of the same register — see the comment on
+    ///     <c>ExecuteUveSoVMvvs</c>.
     ///     </para>
     /// </summary>
     [Fact]

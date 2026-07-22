@@ -163,13 +163,16 @@ public partial class Rv32Decoder {
             case 0x54: {
                 int mvKind = (rs2 >> 3) & 3;
                 switch (mvKind) {
-                    // dest=-1 (not rd): the destination integer register is written via SideEffect
-                    // directly into architectural state (ExecuteUveSoVMvvs), like every other UVE op's
-                    // u-register destination — NOT through the normal PRF rename/writeback path. Passing
-                    // rd as a normal DestinationRegister here (as an earlier version of this line did)
-                    // allocates a PRF physical register that nothing ever writes a value into, so the
-                    // commit-time PRF->architectural writeback silently clobbers the SideEffect's correct
-                    // write with an unwritten (zero) physical register.
+                    // dest=-1 (not rd): unlike every other UVE op (whose destination is a u-register,
+                    // never part of integer rename, so -1 is unconditionally correct for them), this op's
+                    // destination genuinely is an integer register — normally renamed. Passing rd as a
+                    // real DestinationRegister here (as an earlier version of this line did) allocates a
+                    // PRF slot that nothing ever writes a value into, so commit-time PRF->architectural
+                    // writeback clobbers ExecuteUveSoVMvvs's correct SideEffect write with zero. dest=-1
+                    // fixes that, at the cost of a narrower one: the write now bypasses rename entirely,
+                    // so it's visible to head-serialized UVE consumers and to post-run architectural
+                    // reads, but NOT to a later renamed integer read of rd (see the comment on
+                    // ExecuteUveSoVMvvs, and "so.v.mvvs result visibility" in TODO.md).
                     case 2: return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
                     case 3: {
                         int elemBytes = (int)funct3 switch {

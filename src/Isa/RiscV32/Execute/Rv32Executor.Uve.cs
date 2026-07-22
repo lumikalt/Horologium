@@ -32,6 +32,13 @@ public partial class Rv32Executor {
         };
     }
 
+    // Unlike every other UVE op's u-register SideEffect (which never touches integer rename),
+    // this writes State.IntegerRegisters[rd] directly with no RAT update, because the decoder
+    // passes dest=-1 (see Rv32Decoder.Uve.cs) so no PRF slot is allocated for rd at all. That's
+    // correct for UVE-only consumers (head-serialized, read State directly) and for reads of
+    // architectural state after the run, but a *renamed* integer read of rd from a later,
+    // ordinary (non-UVE) instruction would still see whatever the RAT already mapped rd to,
+    // not this write. See "so.v.mvvs result visibility" in TODO.md.
     private static ExecuteResult ExecuteUveSoVMvvs(IArchState state, int rd, int us1) {
         uint bits = UState(state).UveState.GetLane32(us1, 0);
         return new ExecuteResult {

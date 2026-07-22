@@ -162,14 +162,22 @@ off here until a periodic cleanup removes them; the durable record is git histor
     internal indirect/scatter-gather-modifier call site) instead of changing any call site's signature.
     Full suite re-run confirms this is behavior-preserving for every other port (nothing regressed).
   - **`so.v.mvvs` decoder bug**, unrelated to the above: it was the *only* UVE instruction in
-    `Rv32Decoder.Uve.cs` passing a real destination register to `RvInstruction` (every sibling passes
-    `-1`, since UVE ops deliver their real destination via `SideEffect`). Passing `rd` there allocates
-    a normal PRF rename slot that nothing ever writes a value into — the commit-time PRF→architectural
-    writeback silently clobbered the correct value the instruction's `SideEffect` had just written
-    directly into `State.IntegerRegisters`. Never caught before because no integration test had
-    exercised `so.v.mvvs` through the full pipeline (only in isolated `Exec()`-based unit tests) until
-    this port needed it to extract the final `intercept` scalar. Fixed by passing `-1`, matching every
-    other UVE instruction's convention. Full suite 3945/1/3946.
+    `Rv32Decoder.Uve.cs` passing a real destination register to `RvInstruction`. Every sibling UVE op
+    passes `-1` because its destination is a u-register, never part of integer rename — `-1` is
+    unconditionally correct for them. `so.v.mvvs` is different: its destination genuinely is an integer
+    register, normally renamed. Passing `rd` there allocated a normal PRF rename slot that nothing ever
+    wrote a value into — the commit-time PRF→architectural writeback silently clobbered the correct
+    value the instruction's `SideEffect` had just written directly into `State.IntegerRegisters`. Never
+    caught before because no integration test had exercised `so.v.mvvs` through the full pipeline (only
+    in isolated `Exec()`-based unit tests) until this port needed it to extract the final `intercept`
+    scalar. **Fixed** by passing `-1` instead, which makes architectural state correct — but the write
+    now bypasses rename entirely, so it's visible to head-serialized UVE consumers and to a direct
+    post-run `ArchState` read (both covered by existing tests), but **not** to a later *renamed* integer
+    read of `rd` from an ordinary (non-UVE) instruction — that would still see the RAT's prior mapping,
+    not this write. No port has needed that ordering yet (`sgd` reads `intercept` back only after the
+    run). Proper fix, if ever needed, is to route `so.v.mvvs`'s delivery through the real register-write/
+    rename path instead of `SideEffect`. See the comment on `ExecuteUveSoVMvvs` in `Rv32Executor.Uve.cs`.
+    Full suite 3945/1/3946.
 - [ ] `vec_cv` (661 lines, `so.v.cv` conversions) has an **empty `RUN_SIMPLE`** (`void core(DataType
   src[SIZE]){}`) — there is no independent oracle to verify against at all. Matches the already-recorded
   `SPEC_NOTES.md` finding that `so.v.cv` correctness was "genuinely underspecified, never given
