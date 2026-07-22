@@ -161,6 +161,21 @@ off here until a periodic cleanup removes them; the durable record is git histor
     just caches it internally and threads it to `Peek`/`Consume` (both the public wrappers and every
     internal indirect/scatter-gather-modifier call site) instead of changing any call site's signature.
     Full suite re-run confirms this is behavior-preserving for every other port (nothing regressed).
+    **Known modeling caveat, not a bug**: moving the read from `Step()` to `Peek`/`Consume` moves *when*
+    `DLayers.Accessor.Read` fires for a stream element, and — only when a real cache is configured
+    alongside UVE streams (`TrainConfig` allows this combination today; no shipped sweep/test config
+    actually does it yet) — cache state is order-sensitive, so this can shift which specific stream
+    reads classify as hits vs. misses, and hence the D-side stall total `DrainStalls()` charges via
+    `DLayers.ConsumeAllStalls()` (the same lump-sum bucket `RunCycle` already (mis)attributes to
+    store-commit misses per its own comment — UVE stream misses were *already* being silently absorbed
+    into that bucket pre-fix, just at prefetch time instead of consume time). `ConsumeAllStalls()` is
+    never charged against UVE ops' own latency (gated to `ToothClass.Load`/`Atomic` only in
+    `StepExecute`), so this cannot affect functional correctness — only aggregate D-side stall-cycle/IPC
+    stats, and only for a cache+UVE combination nobody has configured yet. Arguably more accurate than
+    before (classifying hit/miss at actual data-need time, not speculatively at stream-configure time),
+    but a real hit/miss-timing model would record the cache access at prefetch time (like real HW) and
+    only defer store-coherence invalidation of the buffered value — this simple model doesn't have real
+    cache-line snooping to do that. Revisit if a future port pairs a cache hierarchy with UVE streams.
   - **`so.v.mvvs` decoder bug**, unrelated to the above: it was the *only* UVE instruction in
     `Rv32Decoder.Uve.cs` passing a real destination register to `RvInstruction`. Every sibling UVE op
     passes `-1` because its destination is a u-register, never part of integer rename — `-1` is
