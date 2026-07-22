@@ -1916,6 +1916,74 @@ public class UveTests {
         }
     }
 
+    // ── Integration test: 3mm (single matmul core) via OoO pipeline ──────────
+
+    /// <summary>
+    ///     Ports the generic matmul core shared by all three chained calls in the <c>3mm</c> UVE2
+    ///     reference benchmark (github.com/hpc-ulisboa/UVE2, UVE-Testing/spike_test/benchmarks/3mm) —
+    ///     <c>C[i,j] = sum_k A[i,k]*B[k,j]</c>. Ports a single instance (the three calls are the same
+    ///     core with different operands/sizes) since the interesting part is the 3-dimensional stream
+    ///     shape, not the chaining: A repeats each row across <c>j</c> (D2 stride=0) while B repeats
+    ///     each column across <c>i</c> (D1 stride=0) — a genuinely new configuration (two independent
+    ///     stride-0 broadcast dimensions in different positions of two 3D streams) not exercised by
+    ///     mvt/spmv_ellpack's 2D streams.
+    /// </summary>
+    [Fact]
+    public void Pipeline_3mm_CorrectResult() {
+        const int sizeI = 2, sizeJ = 2, sizeK = 2;
+        float[] a = [1, 2, 3, 4,]; // I x K row-major
+        float[] b = [5, 6, 7, 8,]; // K x J row-major
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback.
+        var expectedC = new float[sizeI * sizeJ];
+        for (var i = 0; i < sizeI; i++)
+        for (var j = 0; j < sizeJ; j++)
+        for (var k = 0; k < sizeK; k++)
+            expectedC[i * sizeJ + j] += a[i * sizeK + k] * b[k * sizeJ + j];
+
+        const ulong aBase = 0x0000, bBase = 0x0100, cBase = 0x0200;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < a.Length; i++) mem.Load(aBase + (ulong)(i * 4), BitConverter.GetBytes(a[i]));
+        for (var i = 0; i < b.Length; i++) mem.Load(bBase + (ulong)(i * 4), BitConverter.GetBytes(b[i]));
+
+        // Register plan: x1=A x2=B x3=C x4=sizeI x5=sizeJ x6=sizeK x7=1
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)aBase), Addi(2, 0, (int)bBase), Addi(3, 0, (int)cBase),
+            Addi(4, 0, sizeI), Addi(5, 0, sizeJ), Addi(6, 0, sizeK), Addi(7, 0, 1),
+
+            // u1 = A (I x K): D1 count=I stride=K elems; D2 count=J stride=0 (repeat row per j); D3 count=K stride=1
+            SsStaLdW(1, 1), SsApp(1, 0, 4, 6), SsApp(1, 0, 5, 0), SsEnd(1, 0, 6, 7),
+            // u2 = B (K x J): D1 count=I stride=0 (repeat col per i); D2 count=J stride=1; D3 count=K stride=J
+            SsStaLdW(2, 2), SsApp(2, 0, 4, 0), SsApp(2, 0, 5, 7), SsEnd(2, 0, 6, 5),
+            // u4 = C store (I x J): D1 count=I stride=J elems; D2 count=J stride=1
+            SsStaStW(4, 3), SsApp(4, 0, 4, 5), SsEnd(4, 0, 5, 7),
+
+            // .iLoop1:
+            SoVDpW(0, 0), // u0 = 0 (accumulator)
+            // .kloop1:
+            SoAFp(UveFpOp.Mac, 0, 1, 2), // u0 += u1*u2
+            SoBNdcD(2, 2, -4),           // so.b.ndc.3 u2, .kloop1
+            SoAFp(UveFpOp.Adde, 4, 0, -1),
+            SoBNc(2, -16), // so.b.nc u2, .iLoop1
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(8000);
+
+        for (var i = 0; i < expectedC.Length; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(cBase + (ulong)(i * 4), 4));
+            Assert.Equal(expectedC[i], actual, 2);
+        }
+    }
+
     // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]
