@@ -77,14 +77,25 @@ off here until a periodic cleanup removes them; the durable record is git histor
   dimension count hits 0) — passed first try including that edge case, no new bugs. Confirms the
   fetch/consume-side size-queue mechanism (`_indModSizeQueues`) correctly gates delivery even when the
   fetch side speculatively buffers past a nominally-zero-count dimension. Full suite 3933/1/3934.
-- [ ] `convolution` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not portable within
-  Horologium's current `StreamingEngine.MaxStreams=8` limit**: its 3x3-tap stencil configures 9
-  simultaneous overlapping-offset load streams (one per filter tap, `u1`-`u9`) plus a store stream — 10
-  concurrent real memory streams, exceeding the engine's 8-slot capacity (the 9 filter *coefficients*
-  are broadcast scalars at `u10`-`u18` and fine, since ids ≥8 already bypass `StreamingEngine` for
-  arithmetic-only temps per the `stream` port fix — the blocker is the 9 concurrent *load* streams, which
-  do need real engine slots). A capacity increase is an `Orrery` change, not a test-porting one; out of
-  scope here.
+- [x] **Made `StreamingEngine.MaxStreams` a caller-supplied constructor parameter instead of an
+  Orrery-level constant** (per user request — Orrery is ISA-agnostic and has no business hardcoding a
+  value derived from one ISA's register-encoding width). Threaded a new `streamMaxCount` parameter
+  through `OooeTrain`'s three constructors, `PipelineSpec.OutOfOrderSpec`, and RiscV32's `TrainConfig`,
+  mirroring the existing `streamPrefetchDepth` plumbing exactly; default stays 8 (Orrery-neutral,
+  matches prior behavior with zero test changes needed, since every existing call site uses named
+  arguments). Added `RiscV32.State.UveState.RecommendedStreamCapacity = 16` — the "why 16" reasoning
+  (5-bit `ud`/`rs1`/`rs2`/`rs3` encoding fields, 32-register ceiling, headroom for scratch registers)
+  now lives with the ISA that has that reasoning, not in Orrery. Verified safe two ways: full suite
+  stayed at 3943/1/3944 at the new neutral default of 8 (nothing implicitly relied on a higher value),
+  and `convolution` below (needing stream ids up to u9) passes first try when explicitly constructed
+  with `streamMaxCount: UveState.RecommendedStreamCapacity`.
+- [x] Ported `convolution` (`Pipeline_Convolution_CorrectResult`): 3x3-tap 2D stencil, one load stream
+  per filter tap (`u1`-`u9`, register numbers taken verbatim from the reference asm — no renumbering
+  needed once `MaxStreams` covers u9). Passed first try. Independent-oracle note: the reference's own
+  store stream never reloads `dst`'s prior value (no load stream configured for `dst` at all) — a pure
+  overwrite, only equivalent to `RUN_SIMPLE`'s `dst[...] += ...` accumulation when `dst` starts at zero;
+  the oracle reproduces this with a zero-initialized accumulator, verified separately against a
+  sentinel-initialized memory image confirming border cells outside the interior region are untouched.
 - [x] Ported `gemver` in full. `Pipeline_Gemver_OuterProductUpdate_CorrectResult` covers the first,
   structurally distinctive sub-kernel in isolation (`A[i,j] += u1[i]*v1[j] + u2[i]*v2[j]`, two
   *simultaneous independent* vary/repeat broadcast pairings across four load streams feeding two
@@ -125,15 +136,29 @@ off here until a periodic cleanup removes them; the durable record is git histor
   incl. untouched sentinel cells) and it passes unconditionally, no `Skip`. The mechanism is confirmed
   correct even in the tightest possible write-immediately-followed-by-branch shape, so there is no
   remaining open item here.
-- [ ] `sgd` (371 lines) is **not portable within `StreamingEngine.MaxStreams=8`**, confirmed by reading
-  its `RUN_UVE` asm in full: all three of its per-epoch reduction sub-kernels configure their streams
-  *once*, before the epoch loop begins, using a stride-0 outer "epochs" dimension rather than
-  reconfiguring per epoch — meaning `u1`-`u9` (sgd_model load, x load, y_err store, y load, y_err load
-  (kernel 2), x load (kernel 3), y_err load (kernel 3), sgd_model load (kernel 3), sgd_model store
-  (kernel 3)) are all real, simultaneously-active memory streams: 9 concurrent, one over the engine's
-  8-slot capacity. Same underlying blocker as `convolution` (an `Orrery` capacity change, not a
-  test-porting one) — not a reduced/simplified version, since dropping a stream would test something
-  other than what the kernel actually is.
+- [ ] **`sgd`'s `core_kernel` (the SGD training loop, the actual capacity-blocked piece — `predict` and
+  `r2_score` each use at most 4 stream registers and were never blocked) exposes a genuine, confirmed
+  engine-level hazard, separate from the capacity work above.** Ported as
+  `Pipeline_Sgd_CoreKernel_CorrectResult` (`[Fact(Skip=...)]`, not deleted — a pinned repro, since this
+  is a real bug, not a test-authoring mistake like the tight-loop anomaly). All three sub-kernels
+  configure their streams *once* before the epoch loop, using a stride-0 outer "epochs" dimension so
+  kernel1/2/3 re-read the same addresses fresh each epoch (`u1`-`u9`, register numbers taken verbatim
+  from the reference asm now that `MaxStreams` covers them — the first port with a genuinely
+  3-dimensional stream). Root-caused precisely by isolating to `epochs=1`: kernel1's output (`yErr`)
+  comes out exactly correct, but kernel2's `intercept` update stays at exactly 0 — because `u5`
+  (kernel2's reload of kernel1's `y_err` output) is configured, and starts prefetching, *before* the
+  epoch loop's kernel1 has ever written to `y_err`. `StreamingEngine.Step()` advances every active
+  stream every cycle with no visibility into `UveStoreStream` (store streams bypass the engine entirely
+  to track their own cursor), so it has no way to know a write to the same address is still pending —
+  `u5` eagerly buffers stale (zero-initialized) memory well before the real write happens. Confirmed
+  not fixable by adjusting `streamPrefetchDepth`: once a stale value is buffered, a later write doesn't
+  retroactively correct it. Every prior port avoided this because each stage's load stream was
+  *configured* only after the producing stage's store loop had already fully exhausted (in program
+  order, hence in real elapsed cycles too) — `sgd` is the first kernel whose own idiom configures a
+  load stream before its producer has run. A real fix is engine-scope (e.g. deferring the prefetch's
+  `memory.Read` to consume-time instead of eagerly at `Step()`, which would need to preserve the
+  latency-hiding prefetch exists for) — a genuine `StreamingEngine` project, not a kernel-port change.
+  Not attempted here; needs an explicit decision on whether to pursue it.
 - [ ] `vec_cv` (661 lines, `so.v.cv` conversions) has an **empty `RUN_SIMPLE`** (`void core(DataType
   src[SIZE]){}`) — there is no independent oracle to verify against at all. Matches the already-recorded
   `SPEC_NOTES.md` finding that `so.v.cv` correctness was "genuinely underspecified, never given

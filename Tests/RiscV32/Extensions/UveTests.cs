@@ -2645,6 +2645,190 @@ public class UveTests {
             (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
+    // ── Integration test: sgd (core_kernel) via OoO pipeline ─────────────────
+
+    /// <summary>
+    ///     Ports <c>sgd</c>'s <c>core_kernel</c> — the actual SGD training loop
+    ///     (github.com/hpc-ulisboa/UVE2, UVE-Testing/spike_test/benchmarks/sgd) — the piece that was
+    ///     capacity-blocked (needs stream ids up to u9, one past the engine's old fixed capacity of 8;
+    ///     <c>predict</c> and <c>r2_score</c> use at most 4 stream registers each and were never
+    ///     blocked, so they're out of scope here). Nine concurrent streams configured once, before the
+    ///     per-epoch loop, using a stride-0 outer "epochs" dimension so kernel1/2/3 re-read the same
+    ///     addresses fresh each epoch — the first port to use a genuinely 3-dimensional stream (u1, u2,
+    ///     u6, u7 each carry two stride-0/varying dims plus the epochs dim). u-register numbers are
+    ///     taken verbatim from the reference asm, same rationale as <c>convolution</c>.
+    ///     <para>
+    ///     KNOWN LIMITATION (not fixed here — see TODO.md): this kernel exposes a genuine, confirmed
+    ///     engine-level hazard between <c>StreamingEngine</c>'s eager background prefetch and
+    ///     <c>UveStoreStream</c>'s bypass writes. u5 (kernel2's reload of kernel1's y_err output) and
+    ///     u1/u8 (kernel1/3's reload of kernel3's sgd_model output) are all configured — and start
+    ///     prefetching immediately — before the epoch loop's own stores have ever run, because
+    ///     <c>StreamingEngine.Step()</c> advances every active stream every cycle with no visibility
+    ///     into <c>UveStoreStream</c> (store streams bypass the engine entirely, so it cannot know a
+    ///     write to the same address is still pending). Root-caused precisely: reducing to
+    ///     <c>epochs=1</c> isolates the bug to within a single epoch (kernel1→kernel2, not a
+    ///     cross-epoch issue as first suspected) — yErr comes out correct (kernel1's own load streams
+    ///     read pre-initialized memory, safe at any prefetch time) while intercept stays at exactly 0
+    ///     (kernel2's u5 read all-zero stale memory, since y_err hadn't been written yet when u5's
+    ///     prefetch ran). Not fixable by adjusting <c>streamPrefetchDepth</c>: once a stale value is
+    ///     buffered, a later write doesn't retroactively correct it. A real fix is engine-scope — e.g.
+    ///     deferring the prefetch's <c>memory.Read</c> to consume-time — not a kernel-port change; left
+    ///     as an open TODO item rather than attempted here.
+    ///     </para>
+    /// </summary>
+    [Fact(Skip = "Known limitation: StreamingEngine's eager prefetch races UveStoreStream's bypass writes when a load stream is configured before its data is produced. See TODO.md.")]
+    public void Pipeline_Sgd_CoreKernel_CorrectResult() {
+        const int epochs = 2, n = 3, d = 2;
+        const float lr = 0.25f; // Lui-exact (2^-2); the reference's literal 0.02 is not.
+        float[] x = [1, 2, 3, 4, 5, 6,]; // n x d row-major
+        float[] y = [10, 12, 14,];
+        float[] modelInit = [0.5f, 0.25f,];
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE core_kernel fallback exactly,
+        // including the cross-epoch dependency (sgd_model/intercept carry from one epoch to the next).
+        var model = modelInit.ToArray();
+        var yErr = new float[n];
+        var intercept = 0f;
+        for (var e = 0; e < epochs; e++) {
+            for (var i = 0; i < n; i++) {
+                var yhat = 0f;
+                for (var j = 0; j < d; j++) yhat += x[i * d + j] * model[j];
+                yErr[i] = y[i] - (yhat + intercept);
+            }
+
+            var interceptDer = 0f;
+            for (var i = 0; i < n; i++) interceptDer += yErr[i];
+            interceptDer /= n;
+            intercept += lr * interceptDer;
+
+            for (var i = 0; i < d; i++) {
+                var rawUpdate = 0f;
+                for (var j = 0; j < n; j++) rawUpdate += x[j * d + i] * yErr[j];
+                model[i] += lr * rawUpdate;
+            }
+        }
+
+        const ulong modelBase = 0x0000, xBase = 0x0100, yErrBase = 0x0200, yBase = 0x0300;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < modelInit.Length; i++)
+            mem.Load(modelBase + (ulong)(i * 4), BitConverter.GetBytes(modelInit[i]));
+        for (var i = 0; i < x.Length; i++) mem.Load(xBase + (ulong)(i * 4), BitConverter.GetBytes(x[i]));
+        for (var i = 0; i < y.Length; i++) mem.Load(yBase + (ulong)(i * 4), BitConverter.GetBytes(y[i]));
+
+        // Register plan: x1=modelBase x2=xBase x3=yErrBase x4=yBase x5=epochs x6=n x7=d x8=1
+        // x9=bits(lr) x10=bits((float)n)
+        const ulong code = 0x1000;
+        var words = new List<uint>();
+
+        words.Add(Addi(1, 0, (int)modelBase));
+        words.Add(Addi(2, 0, (int)xBase));
+        words.Add(Addi(3, 0, (int)yErrBase));
+        words.Add(Addi(4, 0, (int)yBase));
+        words.Add(Addi(5, 0, epochs));
+        words.Add(Addi(6, 0, n));
+        words.Add(Addi(7, 0, d));
+        words.Add(Addi(8, 0, 1));
+        words.Add(Lui(9, BitConverter.SingleToInt32Bits(lr) >> 12));
+        words.Add(Lui(10, BitConverter.SingleToInt32Bits(n) >> 12));
+
+        // KERNEL 1 streams
+        // u1 = sgd_model(j) load: outer(epochs,stride0), middle(n,stride0), inner(d,stride1)
+        words.Add(SsStaLdW(1, 1)); words.Add(SsApp(1, 0, 5, 0)); words.Add(SsApp(1, 0, 6, 0));
+        words.Add(SsEnd(1, 0, 7, 8));
+        // u2 = x(i,j) load: outer(epochs,stride0), middle(n,stride=d), inner(d,stride1)
+        words.Add(SsStaLdW(2, 2)); words.Add(SsApp(2, 0, 5, 0)); words.Add(SsApp(2, 0, 6, 7));
+        words.Add(SsEnd(2, 0, 7, 8));
+        // u3 = y_err(i) store: outer(epochs,stride0), inner(n,stride1)
+        words.Add(SsStaStW(3, 3)); words.Add(SsApp(3, 0, 5, 0)); words.Add(SsEnd(3, 0, 6, 8));
+        // u4 = y(i) load: outer(epochs,stride0), inner(n,stride1)
+        words.Add(SsStaLdW(4, 4)); words.Add(SsApp(4, 0, 5, 0)); words.Add(SsEnd(4, 0, 6, 8));
+
+        // KERNEL 2 stream
+        // u5 = y_err(i) load: outer(epochs,stride0), inner(n,stride1)
+        words.Add(SsStaLdW(5, 3)); words.Add(SsApp(5, 0, 5, 0)); words.Add(SsEnd(5, 0, 6, 8));
+
+        // KERNEL 3 streams
+        // u6 = x(j,i) load: outer(epochs,stride0), middle(d,stride1), inner(n,stride=d)
+        words.Add(SsStaLdW(6, 2)); words.Add(SsApp(6, 0, 5, 0)); words.Add(SsApp(6, 0, 7, 8));
+        words.Add(SsEnd(6, 0, 6, 7));
+        // u7 = y_err(j) load: outer(epochs,stride0), middle(d,stride0), inner(n,stride1)
+        words.Add(SsStaLdW(7, 3)); words.Add(SsApp(7, 0, 5, 0)); words.Add(SsApp(7, 0, 7, 0));
+        words.Add(SsEnd(7, 0, 6, 8));
+        // u8 = sgd_model(j) load: outer(epochs,stride0), inner(d,stride1)
+        words.Add(SsStaLdW(8, 1)); words.Add(SsApp(8, 0, 5, 0)); words.Add(SsEnd(8, 0, 7, 8));
+        // u9 = sgd_model(j) store: outer(epochs,stride0), inner(d,stride1)
+        words.Add(SsStaStW(9, 1)); words.Add(SsApp(9, 0, 5, 0)); words.Add(SsEnd(9, 0, 7, 8));
+
+        words.Add(SoVMvsv(10, 0, 4)); // u10 = intercept, init 0 (reuses x0=zero)
+        words.Add(SoVMvsv(11, 9, 4)); // u11 = lr broadcast
+        words.Add(SoVMvsv(12, 10, 4)); // u12 = (float)n broadcast
+
+        // .SLOOP_1: (outer, per epoch)
+        var sloop1 = words.Count;
+
+        // .SLOOP_1_0: (per i, KERNEL 1)
+        var sloop10 = words.Count;
+        words.Add(SoVDpW(13, 0)); // u13 = 0 (yhat accumulator)
+        // .SLOOP_1_0_0: (per j, inner reduction)
+        var sloop100 = words.Count;
+        words.Add(SoAFp(UveFpOp.Mac, 13, 2, 1)); // u13 += x(i,j) * model(j)
+        words.Add(SoBNdcD(1, 2, (sloop100 - words.Count) * 4)); // so.b.ndc.3 u1
+        words.Add(SoAFp(UveFpOp.Adde, 15, 13, -1)); // u15 = u13 (reduce copy)
+        words.Add(SoAFp(UveFpOp.Add, 15, 15, 10)); // u15 += intercept
+        words.Add(SoAFp(UveFpOp.Sub, 3, 4, 15)); // u3(store) = y(i) - u15
+        words.Add(SoBNdcD(1, 1, (sloop10 - words.Count) * 4)); // so.b.ndc.2 u1
+
+        // KERNEL 2
+        words.Add(SoVDpW(16, 0)); // u16 = 0 (intercept_der accumulator)
+        var sloop11 = words.Count;
+        words.Add(SoAFp(UveFpOp.AddeAcc, 16, 5, -1)); // u16 += y_err(i)
+        words.Add(SoBNdcD(5, 1, (sloop11 - words.Count) * 4)); // so.b.ndc.2 u5
+        words.Add(SoAFp(UveFpOp.Div, 16, 16, 12)); // u16 /= n
+        words.Add(SoAFp(UveFpOp.Mac, 10, 16, 11)); // intercept += intercept_der * lr
+
+        // KERNEL 3
+        var sloop12 = words.Count;
+        words.Add(SoVDpW(18, 0)); // u18 = 0 (raw_update accumulator)
+        var sloop120 = words.Count;
+        words.Add(SoAFp(UveFpOp.Mul, 19, 6, 7)); // u19 = x(j,i) * y_err(j)
+        words.Add(SoAFp(UveFpOp.AddeAcc, 18, 19, -1)); // u18 += u19
+        words.Add(SoBNdcD(6, 2, (sloop120 - words.Count) * 4)); // so.b.ndc.3 u6
+        words.Add(SoAFp(UveFpOp.Mul, 18, 18, 11)); // u18 *= lr
+        words.Add(SoAFp(UveFpOp.Add, 9, 8, 18)); // u9(store) = model(i) + u18
+        words.Add(SoBNdcD(6, 1, (sloop12 - words.Count) * 4)); // so.b.ndc.2 u6
+
+        words.Add(SoBNc(1, (sloop1 - words.Count) * 4)); // so.b.nc u1 (outer per-epoch loop)
+
+        words.Add(SoVMvvs(20, 10)); // extract final intercept into x20
+        words.Add(EBreak());
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, streamMaxCount: UveState.RecommendedStreamCapacity,
+            robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(20_000);
+
+        for (var i = 0; i < model.Length; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(modelBase + (ulong)(i * 4), 4));
+            Assert.Equal(model[i], actual, 2);
+        }
+
+        for (var i = 0; i < yErr.Length; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(yErrBase + (ulong)(i * 4), 4));
+            Assert.Equal(yErr[i], actual, 2);
+        }
+
+        Assert.Equal(intercept, BitConverter.Int32BitsToSingle((int)train.ArchState.IntegerRegisters.Read(20)), 2);
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
     // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]
