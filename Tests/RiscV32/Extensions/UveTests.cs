@@ -2354,6 +2354,12 @@ public class UveTests {
             float actualA = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(aBase + (ulong)(i * 4), 4));
             Assert.Equal(aNew[i], actualA, 2);
         }
+        // Checked directly (not just transitively via w below) so a stage 2/3 regression localizes to
+        // "x wrong" instead of requiring back-tracing from a failing w assertion.
+        for (var i = 0; i < n; i++) {
+            float actualX = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(xBase + (ulong)(i * 4), 4));
+            Assert.Equal(xNew[i], actualX, 2);
+        }
         for (var i = 0; i < n; i++) {
             float actualW = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(wBase + (ulong)(i * 4), 4));
             Assert.Equal(wNew[i], actualW, 2);
