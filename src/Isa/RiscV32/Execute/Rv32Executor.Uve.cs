@@ -593,7 +593,7 @@ public partial class Rv32Executor {
                 uvs.PendingConfig[ud] = null;
                 var ss = new UveStoreStream {
                     BaseAddress = descriptor.BaseAddress, ElementBytes = descriptor.ElementBytes,
-                    Dimensions = dims, Indices = new long[dims.Length],
+                    Dimensions = dims, Indices = new long[dims.Length], Modifiers = mods,
                 };
                 ss.Initialize();
                 uvs.StoreStreams[ud] = ss;

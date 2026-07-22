@@ -192,37 +192,96 @@ public enum UveRegKind {
 ///     Supports N-dimensional layouts: innermost dimension first, matching StreamState
 ///     in StreamingEngine. <see cref="CurrentAddress" /> computes the flat memory address
 ///     from per-dim indices; <see cref="Advance" /> carries across dimension boundaries.
+///     <see cref="Modifiers" /> supports the same static (non-indirect) Size/Stride/Offset
+///     modifiers as load streams (<see cref="StreamModifier.SourceStreamId" /> &lt; 0 only —
+///     indirect modifiers on a store stream are not yet implemented).
 /// </summary>
 public sealed class UveStoreStream {
-    private long _totalConsumed;
-    private long _totalCount;
+    private long[] _baseCounts = [];
+    private long[] _baseStrides = [];
+    private bool _done;
+    private long[] _offsets = [];
     public ulong BaseAddress;
     public StreamDimension[] Dimensions = [];
     public int ElementBytes;
     public long[] Indices = [];
+    public StreamModifier[]? Modifiers;
 
-    public bool IsExhausted => _totalConsumed >= _totalCount;
+    public bool IsExhausted => _done;
 
     public ulong CurrentAddress {
         get {
             long offset = 0;
-            for (var i = 0; i < Dimensions.Length; i++) offset += Indices[i] * Dimensions[i].Stride;
+            for (var i = 0; i < Dimensions.Length; i++) offset += Indices[i] * Dimensions[i].Stride + _offsets[i];
             return (ulong)((long)BaseAddress + offset);
         }
     }
 
     public void Initialize() {
-        _totalConsumed = 0;
-        _totalCount = 1;
-        foreach (StreamDimension d in Dimensions) _totalCount *= d.Count;
+        _done = false;
+        _baseCounts = new long[Dimensions.Length];
+        _baseStrides = new long[Dimensions.Length];
+        for (var i = 0; i < Dimensions.Length; i++) {
+            _baseCounts[i] = Dimensions[i].Count;
+            _baseStrides[i] = Dimensions[i].Stride;
+        }
+
+        _offsets = new long[Dimensions.Length];
     }
 
     public void Advance() {
-        _totalConsumed++;
         for (var d = 0; d < Dimensions.Length; d++) {
             Indices[d]++;
             if (Indices[d] < Dimensions[d].Count) return;
             Indices[d] = 0;
+            ResetModifiers(d - 1);
+            ApplyModifiers(d);
+            if (d == Dimensions.Length - 1) {
+                _done = true;
+                return;
+            }
+        }
+    }
+
+    // Applies every static modifier whose TriggerDim just wrapped. Indirect modifiers
+    // (SourceStreamId >= 0) are skipped — not supported on store streams yet.
+    private void ApplyModifiers(int wrappedDim) {
+        if (Modifiers is not { Length: > 0, } mods) return;
+        for (var i = 0; i < mods.Length; i++) {
+            StreamModifier m = mods[i];
+            if (m.TriggerDim != wrappedDim || m.SourceStreamId >= 0) continue;
+            long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
+            int t = m.TargetDim;
+            switch (m.Target) {
+                case StreamModifierTarget.Size:
+                    Dimensions[t] = Dimensions[t] with { Count = Math.Max(0, Dimensions[t].Count + delta), };
+                    break;
+                case StreamModifierTarget.Stride:
+                    Dimensions[t] = Dimensions[t] with { Stride = Dimensions[t].Stride + delta, };
+                    break;
+                case StreamModifierTarget.Offset:
+                    _offsets[t] = Math.Max(0, _offsets[t] + delta * ElementBytes);
+                    break;
+            }
+        }
+    }
+
+    // Restores the target dimension's modified fields when the dimension one level outside the
+    // trigger wraps — mirrors StreamState.ResetFetchModifiers.
+    private void ResetModifiers(int triggerDim) {
+        if (Modifiers is not { Length: > 0, } mods) return;
+        for (var i = 0; i < mods.Length; i++) {
+            StreamModifier m = mods[i];
+            if (m.TriggerDim != triggerDim) continue;
+            switch (m.Target) {
+                case StreamModifierTarget.Size:
+                    Dimensions[m.TargetDim] = Dimensions[m.TargetDim] with { Count = _baseCounts[m.TargetDim], };
+                    break;
+                case StreamModifierTarget.Stride:
+                    Dimensions[m.TargetDim] = Dimensions[m.TargetDim] with { Stride = _baseStrides[m.TargetDim], };
+                    break;
+                case StreamModifierTarget.Offset: _offsets[m.TargetDim] = 0; break;
+            }
         }
     }
 }

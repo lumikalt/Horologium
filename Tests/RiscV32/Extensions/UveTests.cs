@@ -2137,6 +2137,144 @@ public class UveTests {
         }
     }
 
+    // ── Integration test: covariance via OoO pipeline ────────────────────────
+
+    /// <summary>
+    ///     Ports the <c>covariance</c> UVE2 reference benchmark (github.com/hpc-ulisboa/UVE2,
+    ///     UVE-Testing/spike_test/benchmarks/covariance) in full: per-column mean (reduction + divide),
+    ///     broadcast-subtract centering, then an upper-triangular covariance matrix with mirrored
+    ///     <c>cov[i,j]=cov[j,i]</c> writes. The triangular stage introduces the <c>Offset</c> modifier
+    ///     target (unused by every prior port, which only ever resized <c>Size</c>) — <c>cov</c>'s two
+    ///     store streams each carry *two simultaneous* static modifiers (Offset-Inc making <c>j</c>
+    ///     start at <c>i</c>; Size-Dec shrinking its count), both self-triggering on their own target
+    ///     dimension's wrap (verified by tracing <c>StreamingEngine</c>'s reset/apply ordering, not
+    ///     guessed). As with <c>trmm</c>/<c>spmv_ellpack_delimiters</c>, the kernel's literal
+    ///     <c>.inc.2</c>/<c>.dec.2</c> suffixes are NOT copied into the <see cref="SsAppMod" /> calls —
+    ///     every <c>tdim</c> here is rederived to target engine index 0 (the innermost/only-resized
+    ///     dimension of each 2- or 3-dim stream involved).
+    /// </summary>
+    [Fact]
+    public void Pipeline_Covariance_CorrectResult() {
+        const int m = 2, n = 3;
+        const float datatN = 3.0f, datatNn = 2.0f; // datatN - 1
+        float[] data = [1, 10, 2, 20, 6, 30,]; // N x M row-major
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback.
+        var mean = new float[m];
+        for (var j = 0; j < m; j++) {
+            for (var i = 0; i < n; i++) mean[j] += data[i * m + j];
+            mean[j] /= datatN;
+        }
+
+        float[] centered = data.ToArray();
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < m; j++)
+            centered[i * m + j] -= mean[j];
+
+        var cov = new float[m * m];
+        for (var i = 0; i < m; i++)
+        for (var j = i; j < m; j++) {
+            float sum = 0;
+            for (var k = 0; k < n; k++) sum += centered[k * m + i] * centered[k * m + j];
+            cov[i * m + j] = sum / datatNn;
+            cov[j * m + i] = cov[i * m + j];
+        }
+
+        const ulong dataBase = 0x0000, meanBase = 0x0100, covBase = 0x0200;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < data.Length; i++) mem.Load(dataBase + (ulong)(i * 4), BitConverter.GetBytes(data[i]));
+
+        // Register plan: x1=data x2=mean x3=M x4=N x5=1 x6=bits(datatN) x7=cov x8=bits(datatNn)
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)dataBase), Addi(2, 0, (int)meanBase), Addi(3, 0, m), Addi(4, 0, n),
+            Addi(5, 0, 1), Lui(6, BitConverter.SingleToInt32Bits(datatN) >> 12), Addi(7, 0, (int)covBase),
+            Lui(8, BitConverter.SingleToInt32Bits(datatNn) >> 12),
+
+            // ── STAGE 1: mean[j] = sum_i data[i,j] / datatN ──
+            // u1 = data load: D1(outer,"j") count=M stride=1; D2(final,"i") count=N stride=M
+            SsStaLdW(1, 1), SsApp(1, 0, 3, 5), SsEnd(1, 0, 4, 3),
+            // u2 = mean store: count=M stride=1
+            SsStaStW(2, 2), SsEnd(2, 0, 3, 5),
+            SoVMvsv(3, 6, 4), // u3 = broadcast datatN
+
+            // .SLOOP_1:
+            SoVMvsv(4, 0, 4), // u4 = 0.0 (accumulator)
+            // .SLOOP_1_0:
+            SoAFp(UveFpOp.AddeAcc, 4, 1, -1), // u4 += u1
+            SoBNdcD(1, 1, -4),                // so.b.ndc.2 u1, .SLOOP_1_0
+            SoAFp(UveFpOp.Div, 2, 4, 3),       // u2(store) = u4 / u3
+            SoBNc(1, -16),                     // so.b.nc u1, .SLOOP_1
+
+            // ── STAGE 2: data[i,j] -= mean[j] ──
+            // u1 = data store: D1("i") count=N stride=M; D2(final,"j") count=M stride=1
+            SsStaStW(1, 1), SsApp(1, 0, 4, 3), SsEnd(1, 0, 3, 5),
+            // u2 = mean load: D1 repeat-per-i (stride=0); D2(final) vary-per-j (stride=1)
+            SsStaLdW(2, 2), SsApp(2, 0, 4, 0), SsEnd(2, 0, 3, 5),
+            // u3 = data load (same shape as u1's store)
+            SsStaLdW(3, 1), SsApp(3, 0, 4, 3), SsEnd(3, 0, 3, 5),
+
+            // .SLOOP_2:
+            SoAFp(UveFpOp.Sub, 1, 3, 2), // u1(store) = u3(data) - u2(mean)
+            SoBNc(1, -4),                 // so.b.nc u1, .SLOOP_2
+
+            // ── STAGE 3: cov[i,j] = sum_k centered[k,i]*centered[k,j] / datatNn, for j>=i ──
+            // u1 = data col-j (shrinking): D1("i") count=M stride=1; static Size-Dec (self-triggering,
+            // self-targeting the same dim — tdim rederived to engine index 0, NOT the kernel's ".2");
+            // D2("j", shrinking) count=M stride=1; D3(final,"k") count=N stride=M.
+            SsStaLdW(1, 1), SsApp(1, 0, 3, 5), SsAppMod(1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Dec, 5),
+            SsApp(1, 0, 3, 5), SsEnd(1, 0, 4, 3),
+
+            // u2 = data col-i (fixed): same D1/modifier; D2 repeat (stride=0) so its address never
+            // varies with j; D3 same as u1.
+            SsStaLdW(2, 1), SsApp(2, 0, 3, 5), SsAppMod(2, 1, StreamModifierTarget.Size, StreamModifierBehavior.Dec, 5),
+            SsApp(2, 0, 3, 0), SsEnd(2, 0, 4, 3),
+
+            // u3 = cov[i,j] store: D1("i") count=M stride=M (row shift); Offset-Inc (j starts at i) +
+            // Size-Dec (j's count shrinks), both self-triggering/targeting D2; D2(final,"j") count=M
+            // stride=1.
+            SsStaStW(3, 7), SsApp(3, 0, 3, 3), SsAppMod(3, 1, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 5),
+            SsAppMod(3, 1, StreamModifierTarget.Size, StreamModifierBehavior.Dec, 5), SsEnd(3, 0, 3, 5),
+
+            // u4 = cov[j,i] store (mirror): D1("i") count=M stride=1 (column shift); Offset-Inc
+            // disp=M (row-shift accumulation) + Size-Dec; D2(final) count=M stride=M (row shift).
+            SsStaStW(4, 7), SsApp(4, 0, 3, 5), SsAppMod(4, 1, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 3),
+            SsAppMod(4, 1, StreamModifierTarget.Size, StreamModifierBehavior.Dec, 5), SsEnd(4, 0, 3, 3),
+
+            SoVMvsv(5, 8, 4), // u5 = broadcast datatNn
+
+            // .SLOOP_3:
+            SoVDpW(6, 0), // u6 = 0 (accumulator)
+            // .SLOOP_3_0_0:
+            SoAFp(UveFpOp.Mac, 6, 2, 1), // u6 += u2*u1
+            SoBNdcD(2, 2, -4),           // so.b.ndc.3 u2, .SLOOP_3_0_0
+            SoAFp(UveFpOp.Adde, 7, 6, -1), // u7 = u6 (reduce copy)
+            SoAFp(UveFpOp.Div, 8, 7, 5),    // u8(scalar temp) = u7 / u5
+            SoVMv(3, 8), SoVMv(4, 8),        // cov[i,j] = u8; cov[j,i] = u8
+            SoBNc(1, -28),                    // so.b.nc u1, .SLOOP_3
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(30_000);
+
+        for (var i = 0; i < cov.Length; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(covBase + (ulong)(i * 4), 4));
+            Assert.Equal(cov[i], actual, 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
     // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]

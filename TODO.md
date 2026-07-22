@@ -91,14 +91,43 @@ off here until a periodic cleanup removes them; the durable record is git histor
   3mm's single broadcast-vs-vary pairing). The other three chained sub-kernels (transposed matvec,
   vector add, matvec) recombine patterns already exercised by mvt/3mm/jacobi-1d — not ported, low
   expected marginal value. No new bugs. Full suite 3934/1/3935.
-- [ ] `covariance` (553 lines) is a 3-stage kernel (per-column mean via reduction+divide, broadcast-subtract
-  centering, then an upper-triangular `cov[i,j]=cov[j,i]` symmetric update with mirrored writes) — not
-  read in full detail; the triangular stage may hit the same 4-operand `ss.sta` header gap as
-  `knn`/`syrk` (unconfirmed, needs reading the actual `RUN_UVE` asm before attempting).
-- [ ] `sgd` (371 lines) is a genuine iterative SGD linear-regression training loop (multi-epoch, real
-  floating-point convergence, three nested reduction stages per epoch) — large effort for a single
-  kernel, not attempted; likely tractable in principle (no 4-operand headers spotted in `RUN_SIMPLE`) but
-  needs its own dedicated pass through the `RUN_UVE` asm.
+- [x] Ported `covariance` (`Pipeline_Covariance_CorrectResult`) in full: per-column mean
+  (reduction+divide), broadcast-subtract centering, then an upper-triangular `cov[i,j]=cov[j,i]`
+  symmetric update with mirrored writes. Confirmed portable (only single-operand `ss.sta` headers,
+  unlike `knn`/`syrk`) but found a real bug: the triangular stage's two `cov` store streams each carry
+  simultaneous Offset-Inc + Size-Dec static modifiers (the first use of the `Offset` modifier target by
+  any port — every prior one only ever resized `Size`), and `BuildAndActivatePendingStream`'s store
+  branch built `UveStoreStream` purely from the flat dimension list, **never passing `StreamModifier[]`
+  through at all** — `ss.app.mod` was a complete no-op on any store stream. Fixed by adding
+  `Modifiers`/apply/reset logic to `UveStoreStream` itself (mirroring `StreamState`'s static-modifier
+  path in `StreamingEngine.cs`; indirect/`SourceStreamId` modifiers on a store stream remain
+  unimplemented, not needed here) and wiring `mods` through in the store branch. Also had to rework
+  `UveStoreStream.IsExhausted` from a precomputed dimension-product (`_totalCount`) to an
+  outermost-dim-wrap flag (`_done`), since a Size-modified stream's real element count isn't knowable
+  upfront — full suite re-run confirms this is behavior-preserving for every unmodified store stream.
+  Verified: confirmed via revert-and-recheck that `Pipeline_Covariance_CorrectResult` fails identically
+  without the fix (wrong values landing at wrong `cov` indices). Full suite 3935/1/3936.
+- [ ] While regression-testing the `covariance` fix above with a deliberately minimal, tight 2-instruction
+  loop (write + `so.b.nc`, no other instructions in between) writing to a *Size-modified* store stream,
+  the loop terminated after exactly 1 iteration instead of the expected 6 — even when the loop's
+  continuation check was pointed at the (unrelated, already-well-tested) load stream supplying the
+  values, ruling out `UveStoreStream`'s own exhaustion tracking as the cause. An isolated executor-level
+  trace of `UveStoreStream.Advance()`/`CurrentAddress` (bypassing the pipeline) showed fully correct
+  behavior, so the discrepancy is somewhere in `OooeTrain`'s handling of this specific instruction
+  combination, not in the modifier logic itself. `covariance`'s own triangular stage — which exercises
+  the identical store-stream-modifier mechanism, just interspersed with several other instructions per
+  iteration rather than back-to-back — is unaffected and passes. Not root-caused; needs a dedicated
+  pipeline-tracing pass (not a kernel port) before it can be fixed. The minimal reproduction was not kept
+  as a committed test since its exact trigger condition isn't pinned down yet.
+- [ ] `sgd` (371 lines) is **not portable within `StreamingEngine.MaxStreams=8`**, confirmed by reading
+  its `RUN_UVE` asm in full: all three of its per-epoch reduction sub-kernels configure their streams
+  *once*, before the epoch loop begins, using a stride-0 outer "epochs" dimension rather than
+  reconfiguring per epoch — meaning `u1`-`u9` (sgd_model load, x load, y_err store, y load, y_err load
+  (kernel 2), x load (kernel 3), y_err load (kernel 3), sgd_model load (kernel 3), sgd_model store
+  (kernel 3)) are all real, simultaneously-active memory streams: 9 concurrent, one over the engine's
+  8-slot capacity. Same underlying blocker as `convolution` (an `Orrery` capacity change, not a
+  test-porting one) — not a reduced/simplified version, since dropping a stream would test something
+  other than what the kernel actually is.
 - [ ] `vec_cv` (661 lines, `so.v.cv` conversions) has an **empty `RUN_SIMPLE`** (`void core(DataType
   src[SIZE]){}`) — there is no independent oracle to verify against at all. Matches the already-recorded
   `SPEC_NOTES.md` finding that `so.v.cv` correctness was "genuinely underspecified, never given
