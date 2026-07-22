@@ -66,11 +66,27 @@ off here until a periodic cleanup removes them; the durable record is git histor
   repeats each row across `j` (D2 stride=0) while B repeats each column across `i` (D1 stride=0), two
   independent stride-0 broadcast dims in different positions — not exercised by mvt/spmv_ellpack's 2D
   streams. No new bugs. Full suite 3932/1/3933.
-- [ ] `syrk` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not 1:1 portable today**: like
-  `knn`, its `C` stream header (`ss.sta.st.d u1, %[C], %[N], %[N]`) is the same 4-operand form
-  Horologium's `ss.sta.*` decoder doesn't implement (single `rs1`=base only) — a decoder gap, not
-  test-porting work. Also still contains a pre-revision `ss.cfg.vec` line to drop if/when the header gap
-  is closed (see `SPEC_NOTES.md`'s "Removed-instruction reminders").
+- [x] Ported `syrk` (`Pipeline_Syrk_CorrectResult`): `C[i,j] = beta*C[i,j] + alpha*sum_k A[i,k]*A[j,k]`
+  for the lower triangle `j <= i` — the Size-Inc (growing) mirror of `trmm`'s Size-Dec (shrinking)
+  triangle. This item was previously recorded as blocked on a decoder gap (the reference's `ss.sta.*`
+  header carries extra inline operands, `ss.sta.st.d u1, %[C], %[N], %[N]`, plus a trailing
+  `ss.cfg.vec` line) — **that framing was wrong**. Per `SPEC_NOTES.md`'s "Pseudo-assembly listings use
+  pre-revision syntax" entry (author-confirmed), this exact inline-header pattern is dissertation-era
+  UVE1 syntax the revision deliberately removed (dimensions must come from `ss.app`/`ss.end`; `ss.cfg.vec`
+  itself is a removed instruction per the same file's "Removed-instruction reminders"), not a capability
+  gap — no decoder change was needed. Reconstructed the stream topology directly from `RUN_SIMPLE`
+  (this file's usual methodology) rather than translating the stale asm literally; the reconstruction
+  happens to reproduce the stale header's own inline operands as the derived outer dimension's
+  (count, stride) pair, cross-validating it independently. New shape: phase 2's inner reduction is a
+  genuine 3-level nest (outer `i`, middle `k` repeating `C`'s address, inner `j` growing with `i`) —
+  since the growing dimension is the *innermost* of three (unlike `trmm`'s shrink, where the shrinking
+  dimension is second-outermost and can self-trigger), the `Size`-Inc modifier must trigger on the
+  middle dimension's wrap instead of its own; confirmed against `trmm`'s own `SsAppMod` placement
+  (structurally identical once accounting for Inc-vs-Dec/growing-vs-shrinking) and verified empirically
+  by deliberately mistargeting the modifier and confirming the test fails (74 vs. expected 24.5) before
+  reverting to the correct target. `knn` remains separately blocked — even with this framing corrected,
+  its own placeholder (`count=0`) dimension idiom is a genuine semantic unknown RUN_SIMPLE can't
+  rederive, not a dialect-translation question; still needs the author's input. Full suite 3946/1/3947.
 - [x] Ported `trmm` (`Pipeline_Trmm_CorrectResult`: `B[i,j] += sum_{k=i+1}^{M-1} A[k,i]`, a triangular
   access using a static `ss.app.mod.siz.dec` modifier that shrinks the innermost (k) dimension's size by
   1 each outer (i) wrap). Structurally forces a genuine degenerate case at the last row (k-range empty,
@@ -203,14 +219,14 @@ off here until a periodic cleanup removes them; the durable record is git histor
   file in the reference repo. Nothing to port from either.
 - [ ] `knn` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not 1:1 portable today**: its
   `position_x_j`/`_y`/`_z` neighbor-gather streams use a 4-operand `ss.sta.ld.d ud, base, count, stride`
-  header that configures a dimension inline (Horologium's `ss.sta.ld.*` header only takes `rs1`=base;
-  all dimensions come from separate `ss.app`/`ss.end`), plus a trailing `ss.end ud, zero, zero, zero`
-  with a literal zero count — apparently a placeholder inner dimension whose sole purpose is to make its
+  header — the same pre-revision inline-dimension syntax `syrk` turned out to have (see that item above;
+  not itself a decoder gap, and not knn's real blocker) — plus a trailing `ss.end ud, zero, zero, zero`
+  with a literal zero count: apparently a placeholder inner dimension whose sole purpose is to make its
   attached `ss.app.indl.ofs.add` (dynamic/`.L` indirect modifier, as opposed to the `sgi` form used by
-  `spmv_ellpack`) fire on every element. Both are decoder/semantics gaps, not test-porting work; the
-  count=0-placeholder-dimension idiom's exact semantics need the author's confirmation before
-  implementing (per `SPEC_NOTES.md`'s "author is authority" discipline) — don't guess at it from the
-  kernel source alone.
+  `spmv_ellpack`) fire on every element. Unlike `syrk`, this count=0-placeholder-dimension idiom is a
+  genuine semantic unknown — `RUN_SIMPLE` can't be used to rederive what a zero-count dimension does to
+  the fetch/consume odometers, so this needs the author's confirmation before implementing (per
+  `SPEC_NOTES.md`'s "author is authority" discipline) — don't guess at it from the kernel source alone.
 - [x] Closed the `ss.app.ind` (dynamic indirect modifier, distinct from `ss.app.sgi`) test-coverage gap
   found while investigating `knn` above — it had zero tests despite being fully implemented.
   `Decoder_SsAppInd_Roundtrip` + `SsAppInd_DotL_AttachesSourceStreamModifier_TargetsLastConfiguredDimension`

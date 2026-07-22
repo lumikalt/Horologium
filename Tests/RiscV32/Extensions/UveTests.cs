@@ -2127,6 +2127,128 @@ public class UveTests {
         }
     }
 
+    // ── Integration test: syrk via OoO pipeline ──────────────────────────────
+
+    /// <summary>
+    ///     Ports <c>syrk</c> (github.com/hpc-ulisboa/UVE2, UVE-Testing/spike_test/benchmarks/syrk):
+    ///     <c>C[i,j] = beta*C[i,j] + alpha*sum_k A[i,k]*A[j,k]</c> for the lower triangle <c>j &lt;= i</c>
+    ///     (a growing triangle as <c>i</c> increases — the INC-modifier mirror of <c>trmm</c>'s
+    ///     shrinking one). TODO.md previously flagged this kernel as blocked on a decoder gap: its
+    ///     reference source's <c>ss.sta.*</c> header carries extra inline operands
+    ///     (<c>ss.sta.st.d u1, %[C], %[N], %[N]</c>) that Horologium's revised-syntax decoder doesn't
+    ///     accept, plus a trailing <c>ss.cfg.vec</c> line (a removed instruction, per
+    ///     <c>SPEC_NOTES.md</c>'s "Removed-instruction reminders"). That framing turned out to be wrong:
+    ///     per <c>SPEC_NOTES.md</c>'s "Pseudo-assembly listings use pre-revision syntax" entry
+    ///     (author-confirmed), this exact inline-header pattern is dissertation-era UVE1 syntax the
+    ///     revision deliberately removed — not a capability gap. So this port reconstructs the stream
+    ///     topology straight from <c>RUN_SIMPLE</c> (per this file's usual methodology) rather than
+    ///     translating the stale asm literally, and it happens to reproduce the header's own inline
+    ///     operands as the derived outer dimension's (count, stride) pair — cross-validating the
+    ///     reconstruction independently. New shape needed here: phase 2's inner reduction is a genuine
+    ///     3-level nest (outer <c>i</c>, middle <c>k</c> repeating <c>C</c>'s address, inner <c>j</c>
+    ///     growing with <c>i</c>) — unlike <c>trmm</c>'s 3-dim shrink (where the shrinking dim is the
+    ///     second-outermost, so a bare self-trigger suffices), the growing dim here is the *innermost*
+    ///     of three, so the <c>Size</c>-Inc modifier must trigger on the middle dim's wrap, not its own
+    ///     — confirmed against <c>trmm</c>'s own <c>SsAppMod</c> call, which is structurally identical
+    ///     (placed right after appending the outer dim, before the middle one) once you account for
+    ///     Inc-vs-Dec and growing-vs-shrinking. Every <c>so.b.n[d]c</c> check targets a *load* stream,
+    ///     never a store stream, matching every other port in this file (store streams bypass
+    ///     <c>StreamingEngine</c> entirely and don't expose per-dimension pass-complete state).
+    /// </summary>
+    [Fact]
+    public void Pipeline_Syrk_CorrectResult() {
+        const int n = 3, m = 2;
+        const float alpha = 0.5f, beta = 2.0f;
+        var c = new float[n * n];
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < n; j++)
+            c[i * n + j] = 10 * (i + 1) + (j + 1);
+        var a = new float[n * m];
+        for (var i = 0; i < a.Length; i++) a[i] = i + 1;
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback exactly.
+        float[] cNew = c.ToArray();
+        for (var i = 0; i < n; i++) {
+            for (var j = 0; j <= i; j++) cNew[i * n + j] *= beta;
+            for (var k = 0; k < m; k++)
+            for (var j = 0; j <= i; j++)
+                cNew[i * n + j] += alpha * a[i * m + k] * a[j * m + k];
+        }
+
+        const ulong cBase = 0x0000, aBase = 0x0100;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < c.Length; i++) mem.Load(cBase + (ulong)(i * 4), BitConverter.GetBytes(c[i]));
+        for (var i = 0; i < a.Length; i++) mem.Load(aBase + (ulong)(i * 4), BitConverter.GetBytes(a[i]));
+
+        // Register plan: x1=C x2=A x3=N x4=M x5=1 x6=bits(beta) x7=bits(alpha)
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)cBase), Addi(2, 0, (int)aBase), Addi(3, 0, n), Addi(4, 0, m), Addi(5, 0, 1),
+            Lui(6, BitConverter.SingleToInt32Bits(beta) >> 12), Lui(7, BitConverter.SingleToInt32Bits(alpha) >> 12),
+
+            // u1 = C store (phase 1, growing triangle): D1(i) count=N stride=N; self-triggering
+            // Size-Inc (disp=1) targeting D2 itself; D2(final,j) count=1 stride=1.
+            SsStaStW(1, 1), SsApp(1, 0, 3, 3), SsAppMod(1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5),
+            SsEnd(1, 0, 5, 5),
+            // u2 = C load, same shape as u1 (phase 1's read side).
+            SsStaLdW(2, 1), SsApp(2, 0, 3, 3), SsAppMod(2, 1, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5),
+            SsEnd(2, 0, 5, 5),
+
+            // u3 = C store (phase 2): D1(i) count=N stride=N; D2(k, repeat) count=M stride=0; Size-Inc
+            // (disp=1) triggering on D2(k)'s wrap (NOT self — the growing dim is innermost of three
+            // here, unlike trmm's shrink), targeting D3; D3(final,j) count=1 stride=1.
+            SsStaStW(3, 1), SsApp(3, 0, 3, 3), SsAppMod(3, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5),
+            SsApp(3, 0, 4, 0), SsEnd(3, 0, 5, 5),
+            // u4 = C load, same shape as u3 (phase 2's read side).
+            SsStaLdW(4, 1), SsApp(4, 0, 3, 3), SsAppMod(4, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5),
+            SsApp(4, 0, 4, 0), SsEnd(4, 0, 5, 5),
+
+            // u5 = A[j,k] load: D1(i, repeat) count=N stride=0; same Size-Inc as u3/u4; D2(k) count=M
+            // stride=1; D3(final,j, growing) count=1 stride=M — address varies with j (stride=M) and k
+            // (stride=1), not with i.
+            SsStaLdW(5, 2), SsApp(5, 0, 3, 0), SsAppMod(5, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5),
+            SsApp(5, 0, 4, 5), SsEnd(5, 0, 5, 4),
+            // u6 = A[i,k] load: D1(i) count=N stride=M; same Size-Inc; D2(k) count=M stride=1;
+            // D3(final,j, repeat) count=1 stride=0 — address varies with i and k, not with j.
+            SsStaLdW(6, 2), SsApp(6, 0, 3, 4), SsAppMod(6, 2, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5),
+            SsApp(6, 0, 4, 5), SsEnd(6, 0, 5, 0),
+
+            SoVDpW(7, 6), // u7 = broadcast beta
+            SoVDpW(8, 7), // u8 = broadcast alpha
+
+            // .OUTER (index 37):
+            SoAFp(UveFpOp.Mul, 1, 2, 7),  // phase 1: C[i,j](store u1) = C[i,j](load u2) * beta
+            SoBNdcD(2, 1, -4),            // so.b.ndc.2 u2 (load) — loop while j not done
+
+            SoAFp(UveFpOp.Mul, 9, 6, 8),  // u9 = A[i,k] * alpha
+            SoAFp(UveFpOp.Mul, 10, 9, 5), // u10 = u9 * A[j,k]
+            SoAFp(UveFpOp.Add, 3, 4, 10), // C[i,j](store u3) = C[i,j](load u4) + u10
+            SoBNdcD(4, 1, -12),           // so.b.ndc.2 u4 (load) — loop while (k,j) batch not done
+
+            SoBNc(2, -24), // so.b.nc u2 (load) — loop while more i remain
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(10_000);
+
+        for (var i = 0; i < cNew.Length; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(cBase + (ulong)(i * 4), 4));
+            Assert.Equal(cNew[i], actual, 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) =>
+            (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
     // ── Integration test: gemver (outer-product update) via OoO pipeline ────
 
     /// <summary>
