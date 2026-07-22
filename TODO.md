@@ -27,14 +27,35 @@ off here until a periodic cleanup removes them; the durable record is git histor
   `uid < StreamingEngine.MaxStreams` before querying. Verified: each fix's necessity confirmed by the
   natural fail-then-pass progression while building the port, full suite 3920/1/3921 (3918 baseline +
   2 new tests).
+- [x] Port `spmv_ellpack` (github.com/hpc-ulisboa/UVE2, `UVE-Testing/spike_test/benchmarks/spmv_ellpack`)
+  as `Pipeline_SpmvEllpack_CorrectResult` in `UveTests.cs`: an ELLPACK sparse matrix-vector product,
+  `out[i] = sum_j nzval[i,j] * vec[cols[i,j]]`. First kernel port to exercise indirect/scatter-gather
+  addressing (`ss.sta.ld.w.inds` index stream + `ss.end.sgi.ofs.add` gather stream) combined with a
+  two-level nested loop (`so.b.ndc.2` inner, `so.b.nc` outer). Passed first try — no new bugs found.
+  Verified against an independent C# oracle mirroring the reference's own `RUN_SIMPLE` fallback; full
+  suite 3923/1/3924.
 - [ ] Port the remaining UVE2 reference benchmark kernels (github.com/hpc-ulisboa/UVE2,
   `UVE-Testing/spike_test/benchmarks/`): `3mm`, `convolution`, `covariance`, `gemver`, `jacobi-1d`,
-  `jacobi-2d`, `knn`, `memcpy`, `mvt`, `sgd`, `spmv_ellpack`(+`_delimiters`), `syrk`, `trmm`, `vec_cv`,
-  and the `test`/`test_dyn` harnesses (`saxpy`/`gemm`/`trisolv`/`triangular_acc`/indirect-gather
-  already have equivalent Horologium kernel tests). `knn` and `syrk` still contain some pre-revision
-  `ss.cfg.ind`/`ss.cfg.vec` syntax that the spec revision Horologium implements folds into the
-  `ss.sta` header fields (see `SPEC_NOTES.md`'s "Removed-instruction reminders") — drop those lines
-  when porting rather than decoding them.
+  `jacobi-2d`, `memcpy`, `mvt`, `sgd`, `spmv_ellpack_delimiters`, `syrk`, `trmm`, `vec_cv`, and the
+  `test`/`test_dyn` harnesses (`saxpy`/`gemm`/`trisolv`/`triangular_acc`/`spmv_ellpack` already have
+  equivalent Horologium kernel tests). The matrix/stencil-shaped kernels (`3mm`, `convolution`,
+  `covariance`, `gemver`, `jacobi-1d`/`2d`, `mvt`, `trmm`) recombine arithmetic/branch patterns already
+  exercised by the passing gemm/saxpy/stream/spmv_ellpack tests — low expected bug-discovery yield, port
+  only if regression coverage breadth is wanted for its own sake. `syrk` still contains some pre-revision
+  `ss.cfg.vec` syntax that the spec revision Horologium implements folds into the `ss.sta` header fields
+  (see `SPEC_NOTES.md`'s "Removed-instruction reminders") — drop those lines when porting rather than
+  decoding them.
+- [ ] `knn` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not 1:1 portable today**: its
+  `position_x_j`/`_y`/`_z` neighbor-gather streams use a 4-operand `ss.sta.ld.d ud, base, count, stride`
+  header that configures a dimension inline (Horologium's `ss.sta.ld.*` header only takes `rs1`=base;
+  all dimensions come from separate `ss.app`/`ss.end`), plus a trailing `ss.end ud, zero, zero, zero`
+  with a literal zero count — apparently a placeholder inner dimension whose sole purpose is to make its
+  attached `ss.app.indl.ofs.add` (dynamic/`.L` indirect modifier, as opposed to the `sgi` form used by
+  `spmv_ellpack`) fire on every element. Both are decoder/semantics gaps, not test-porting work; the
+  count=0-placeholder-dimension idiom's exact semantics need the author's confirmation before
+  implementing (per `SPEC_NOTES.md`'s "author is authority" discipline) — don't guess at it from the
+  kernel source alone. `ss.app.ind` (the non-`sgi` dynamic modifier family) itself also has zero test
+  coverage in `UveTests.cs` today, independent of this kernel.
 - [x] Fixed `.L` modifier target-dimension resolution: the UVE2 author confirmed (2026-07-22) that
   `.L` targets the *last configured dimension of the stream*, not "the dimension configured right
   after the trigger" as `ExecuteUveSsAppMod`/`ExecuteUveSsAppInd` (`Rv32Executor.Uve.cs`) previously

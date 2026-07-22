@@ -1351,6 +1351,88 @@ public class UveTests {
             (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
+    // ── Integration test: SPMV_ELLPACK (indirect gather) via OoO pipeline ────
+
+    /// <summary>
+    ///     Ports the <c>spmv_ellpack</c> UVE2 reference benchmark
+    ///     (github.com/hpc-ulisboa/UVE2, UVE-Testing/spike_test/benchmarks/spmv_ellpack): an ELLPACK
+    ///     sparse matrix-vector product, <c>out[i] = sum_j nzval[i,j] * vec[cols[i,j]]</c>. Exercises
+    ///     indirect/scatter-gather addressing (<c>ss.sta.ld.w.inds</c> index stream + <c>ss.end.sgi.ofs.add</c>
+    ///     gather stream) combined with a two-level nested loop (<c>so.b.ndc.2</c> inner, <c>so.b.nc</c>
+    ///     outer) — this is the one bucket of UVE2 functionality (indirect gather) not already exercised
+    ///     by the saxpy/gemm/stream-style tests, and the reference kernel's own cols/nzval 2D streams
+    ///     share the same [N,L] shape so the inner-dim-completion branch drives both the accumulate loop
+    ///     and the gather's index stream in lockstep.
+    ///     <para>
+    ///         Memory layout: cols (int32, N*L) at 0x0000, nzval (float, N*L) at 0x0100, vec (float) at
+    ///         0x0200, out (float, N) at 0x0300, code at 0x1000.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public void Pipeline_SpmvEllpack_CorrectResult() {
+        const int n = 2, l = 2;
+        int[] cols = [2, 0, 1, 2,];
+        float[] nzval = [1.0f, 2.0f, 3.0f, 4.0f,];
+        float[] vec = [10.0f, 20.0f, 30.0f,];
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback, not Horologium's
+        // execution.
+        var expectedOut = new float[n];
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < l; j++)
+            expectedOut[i] += nzval[i * l + j] * vec[cols[i * l + j]];
+
+        const ulong colsBase = 0x0000, nzvalBase = 0x0100, vecBase = 0x0200, outBase = 0x0300;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < cols.Length; i++) mem.Load(colsBase + (ulong)(i * 4), BitConverter.GetBytes(cols[i]));
+        for (var i = 0; i < nzval.Length; i++) mem.Load(nzvalBase + (ulong)(i * 4), BitConverter.GetBytes(nzval[i]));
+        for (var i = 0; i < vec.Length; i++) mem.Load(vecBase + (ulong)(i * 4), BitConverter.GetBytes(vec[i]));
+
+        // Register plan: x1=colsBase x2=nzvalBase x3=vecBase x4=outBase x5=N x6=L x7=1(stride)
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)colsBase), Addi(2, 0, (int)nzvalBase), Addi(3, 0, (int)vecBase),
+            Addi(4, 0, (int)outBase), Addi(5, 0, n), Addi(6, 0, l), Addi(7, 0, 1),
+
+            // u1: cols index stream (IndSource) — 2D, outermost-first: outer count=N stride=L elems,
+            // inner count=L stride=1 elem.
+            SsStaLdW(1, 1) | (1u << 24), SsApp(1, 0, 5, 6), SsEnd(1, 0, 6, 7),
+
+            // u2: nzval load stream — same [N,L] shape, drives the loop-completion branches.
+            SsStaLdW(2, 2), SsApp(2, 0, 5, 6), SsEnd(2, 0, 6, 7),
+
+            // u3: vec gather stream — both dims stride=0 (pure indirect addressing); ss.end.sgi
+            // activates using the two already-appended dims and attaches the sgi modifier (source=u1,
+            // behavior=Add) instead of appending a third dimension.
+            SsStaLdW(3, 3), SsApp(3, 0, 5, 0), SsApp(3, 0, 6, 0), SsEndSgi(3, 1, StreamModifierBehavior.Add),
+
+            // u4: out store stream — 1D, count=N, stride=1 elem.
+            SsStaStW(4, 4), SsEnd(4, 0, 5, 7),
+
+            // .iLoop1:
+            SoVDpW(5, 0), // u5 = 0.0 (accumulator reset)
+            // .kloop1:
+            SoAFp(UveFpOp.Mac, 5, 2, 3), // u5 += u2 * u3
+            SoBNdcD(2, 1, -4),           // so.b.ndc.2 u2, .kloop1 (inner dim of the [N,L] shape)
+            SoAFp(UveFpOp.Adde, 4, 5, -1), // out[i] = u5 (advances the store stream)
+            SoBNc(2, -16),               // so.b.nc u2, .iLoop1 (whole-stream not done)
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(6000);
+
+        for (var i = 0; i < n; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(outBase + (ulong)(i * 4), 4));
+            Assert.Equal(expectedOut[i], actual, 2);
+        }
+    }
+
     // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]
