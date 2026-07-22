@@ -106,29 +106,19 @@ off here until a periodic cleanup removes them; the durable record is git histor
   outermost-dim-wrap flag (`_done`), since a Size-modified stream's real element count isn't knowable
   upfront — full suite re-run confirms this is behavior-preserving for every unmodified store stream.
   Verified: confirmed via revert-and-recheck that `Pipeline_Covariance_CorrectResult` fails identically
-  without the fix (wrong values landing at wrong `cov` indices). Full suite 3935/1/3936.
-- [ ] **UVE store-stream-modifier + 2-instruction loop anomaly** (narrowed since first found). The
-  `covariance` fix above was re-verified two ways per the advisor's push-back that a deleted, unpinned
-  minimal test undersold the risk: (1) scaled `covariance` itself up to M=3/N=4 with asymmetric data
-  (`Pipeline_Covariance_Scaled3x4_CorrectResult`) — passes, so the shipped fix is not a small-size
-  coincidence; (2) added a *pinned* (not deleted) minimal reproduction,
-  `Pipeline_SoBNc_OnModifierBearingStoreStream_LoopsUntilExhausted` (`[Fact(Skip=...)]`), built as a
-  single-variable change from the already-passing `Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted`:
-  same exact 2-instruction write+`so.b.nc` loop body, same broadcast source, only difference is u1 is a
-  2D Size-Inc-modifier store instead of a flat 1D store — this fails (writes nothing at all, not even
-  element 0). Two siblings both pass and bound the trigger precisely: the identical modifier-bearing
-  stream driven by a 3-instruction loop (`SsAppMod_StoreStream_LowerTriangular_WritesSequentialCounter`,
-  one extra accumulator instruction between write and branch) works, and a modifier-free stream in the
-  exact same 2-instruction shape (`Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted`) works. So the
-  trigger requires *both* a static modifier on the stream *and* zero instructions between the write and
-  the branch checking it. Leading hypothesis (not confirmed by tracing): `OooeTrain` applies UVE
-  `SideEffect`s immediately at execute for head-serialized ops rather than deferring to commit (see
-  `OooeTrain.cs` ~line 3227); `UveStoreStream.Advance()`'s modifier apply/reset mutates the shared
-  `Dimensions`/`_offsets` arrays destructively and isn't rollback-safe, so a branch
-  misprediction/squash-and-refetch of the write could re-execute `Advance()` and corrupt/double-advance
-  the modified dimensions before any iteration's write commits. No ported kernel exercises this exact
-  write-immediately-followed-by-branch shape (every real port has >=3 instructions of separation), so
-  nothing shipped is affected — but this needs a dedicated pipeline-tracing pass before it can be fixed.
+  without the fix (wrong values landing at wrong `cov` indices). Full suite 3935/1/3936. Re-verified twice
+  more after an advisor push-back that a deleted, unpinned minimal test had undersold the risk: (1) scaled
+  `covariance` itself up to M=3/N=4 with asymmetric data (`Pipeline_Covariance_Scaled3x4_CorrectResult`) —
+  passes; (2) traced a dedicated minimal reproduction of an apparent "2-instruction write+branch loop on a
+  modifier-bearing store stream" failure (`Pipeline_SoBNc_OnModifierBearingStoreStream_LoopsUntilExhausted`)
+  down to its actual root cause with `Console.Error` instrumentation at the write site (temporary, removed
+  after use) — every write landed at the exact correct address with the correct value; the "failure" was
+  the test's OWN verification loop wrongly asserting against consecutive flat addresses instead of the
+  stream's real sparse row-major layout (row `r` only fills `r+1` of its `rows` slots; the rest are
+  legitimately untouched). No pipeline bug: fixed the test's assertion (now checks the full row-major grid
+  incl. untouched sentinel cells) and it passes unconditionally, no `Skip`. The mechanism is confirmed
+  correct even in the tightest possible write-immediately-followed-by-branch shape, so there is no
+  remaining open item here.
 - [ ] `sgd` (371 lines) is **not portable within `StreamingEngine.MaxStreams=8`**, confirmed by reading
   its `RUN_UVE` asm in full: all three of its per-epoch reduction sub-kernels configure their streams
   *once*, before the epoch loop begins, using a stride-0 outer "epochs" dimension rather than

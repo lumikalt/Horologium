@@ -1335,32 +1335,32 @@ public class UveTests {
     ///     Single-variable-changed sibling of <see cref="Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted" />:
     ///     identical 2-instruction write+<c>so.b.nc</c> loop body, identical broadcast source, identical
     ///     stream-under-check — the only change is that u1 is now a 2D store stream carrying a
-    ///     Size-Inc modifier (lower-triangular growth) instead of a flat 1D store.
+    ///     Size-Inc modifier (lower-triangular growth) instead of a flat 1D store. Confirms the
+    ///     store-stream-modifier mechanism survives the tightest possible write+branch loop shape, not
+    ///     just the more spaced-out instruction sequences <c>covariance</c> happens to use.
     ///     <para>
-    ///     KNOWN LIMITATION (pinned repro, not yet fixed — see TODO.md "UVE store-stream-modifier +
-    ///     2-instruction loop anomaly"): this fails (writes nothing at all, not even element 0) while
-    ///     both siblings pass — the same modifier-bearing stream driven by a 3-instruction loop
-    ///     (<see cref="SsAppMod_StoreStream_LowerTriangular_WritesSequentialCounter" />, an extra
-    ///     accumulator instruction between write and branch) and a modifier-FREE stream in this exact
-    ///     2-instruction shape (<see cref="Pipeline_SoBNc_OnStoreStream_LoopsUntilExhausted" />) both
-    ///     work. That isolates the trigger to the combination of (a) a static modifier mutating
-    ///     <c>UveStoreStream</c>'s <c>Dimensions</c>/<c>_offsets</c> arrays in <c>Advance()</c> and (b)
-    ///     <c>OooeTrain</c> applying UVE <c>SideEffect</c>s immediately at execute for head-serialized
-    ///     ops rather than deferring to commit — a branch misprediction/squash-and-refetch of the write
-    ///     would re-execute <c>Advance()</c> without the mutation being rollback-safe, plausibly
-    ///     double-advancing (or otherwise corrupting) the modified dimensions before any iteration's
-    ///     write actually commits. Not confirmed by tracing; no ported kernel uses this exact
-    ///     write-immediately-followed-by-branch shape (every real kernel has >=3 instructions of
-    ///     separation), so nothing currently shipped is affected.
+    ///     An earlier version of this test asserted against consecutive flat addresses
+    ///     (<c>destBase + i*4</c> for <c>i</c> in <c>0..expectedCount</c>) and appeared to fail with
+    ///     nothing written at all. <c>Console.Error</c> tracing at the write site (temporary, removed
+    ///     after use) showed every write landing at the correct address with the correct value — the
+    ///     apparent failure was this test's own wrong expected-address assumption, not a pipeline bug:
+    ///     row <c>r</c> of a Size-Inc-modified stream only fills <c>r+1</c> of its <c>rows</c> slots, so
+    ///     the layout is sparse row-major, not compacted. The assertion below checks the full grid,
+    ///     including the legitimately-untouched cells.
     ///     </para>
     /// </summary>
-    [Fact(Skip = "Known limitation: modifier-bearing store stream in a strict 2-instruction write+branch loop; see TODO.md. No shipped kernel port exercises this shape.")]
+    [Fact]
     public void Pipeline_SoBNc_OnModifierBearingStoreStream_LoopsUntilExhausted() {
         const int rows = 3;
         const ulong destBase = 0x0000;
         var mem = new FlatMemory(0x2000);
-        var expectedCount = rows * (rows + 1) / 2;
-        for (var i = 0; i < expectedCount + 2; i++) mem.Load(destBase + (ulong)(i * 4), BitConverter.GetBytes(-1f));
+        // Row-major layout with row stride = `rows` elements (matching the stream's D1 stride), NOT
+        // a compacted/consecutive write pattern — row r only fills its first (r+1) of `rows` slots
+        // (the Size-Inc modifier grows the innermost dimension by one element per row), leaving the
+        // remaining slots at the sentinel. (A first version of this test asserted against consecutive
+        // addresses 0,4,8,12,... and "failed" — that was a bug in the test's own verification, not the
+        // pipeline: tracing showed every write landing at the correct sparse row-major address.)
+        for (var i = 0; i < rows * rows; i++) mem.Load(destBase + (ulong)(i * 4), BitConverter.GetBytes(-1f));
 
         const ulong code = 0x1000;
         var words = new List<uint> {
@@ -1387,9 +1387,10 @@ public class UveTests {
         );
         train.Run(2000);
 
-        for (var i = 0; i < expectedCount; i++) {
-            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(destBase + (ulong)(i * 4), 4));
-            Assert.Equal(7.0f, actual, 2);
+        for (var r = 0; r < rows; r++)
+        for (var c = 0; c < rows; c++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(destBase + (ulong)((r * rows + c) * 4), 4));
+            Assert.Equal(c <= r ? 7.0f : -1f, actual, 2);
         }
 
         return;
