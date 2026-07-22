@@ -53,17 +53,25 @@ off here until a periodic cleanup removes them; the durable record is git histor
   2D load streams feeding a running sum). No new bugs — `so.b.nc` here checks a load stream's whole-2D
   completion in both passes, the already-proven pattern (unlike `mvt`'s store-stream check). Full suite
   3930/1/3931.
+- [x] Ported `spmv_ellpack_delimiters` (`Pipeline_SpmvEllpackDelimiters_CorrectResult`): ELLPACK SpMV
+  with per-row nonzero counts from a `rowDelimiters` array (vs. `spmv_ellpack`'s fixed `L`). First
+  *engine-level* (not just descriptor-level) exercise of the indirect `ss.app.ind.siz.set` Size
+  modifier — resizes each row stream's inner dimension from an IndSource on every wrap, composed with
+  the already-proven `sgi` gather on the same stream. No new bugs; `tdim` was chosen to target engine
+  index 0 (not copied from the kernel's literal `.2` suffix, whose Spike-internal numbering isn't
+  replicated here) — verified correct against the independent oracle on the first attempt. Full suite
+  3931/1/3932.
 - [ ] Port the remaining UVE2 reference benchmark kernels (github.com/hpc-ulisboa/UVE2,
-  `UVE-Testing/spike_test/benchmarks/`): `3mm`, `convolution`, `covariance`, `gemver`, `sgd`,
-  `spmv_ellpack_delimiters`, `syrk`, `trmm`, `vec_cv`, and the `test`/`test_dyn` harnesses
-  (`saxpy`/`gemm`/`trisolv`/`triangular_acc`/`spmv_ellpack`/`memcpy`/`jacobi-1d`/`2d`/`mvt` already have
-  equivalent Horologium kernel tests). `syrk` and `trmm` use `ss.app.mod.siz.{inc,dec}` triangular-access
-  modifiers on multiple streams with shared trigger points — meaningfully more complex than the
-  already-covered single-stream `LowerTriangular` modifier test, genuinely new coverage if ported, but
-  higher effort. `syrk` still contains a pre-revision `ss.cfg.vec` line that the spec revision Horologium
-  implements folds into the `ss.sta` header fields (see `SPEC_NOTES.md`'s "Removed-instruction
-  reminders") — drop it when porting rather than decoding it. `gemver`/`convolution`/`covariance`/
-  `vec_cv` are large (550-680 line) multi-DataType-variant sources not yet read in detail.
+  `UVE-Testing/spike_test/benchmarks/`): `3mm`, `convolution`, `covariance`, `gemver`, `sgd`, `syrk`,
+  `trmm`, `vec_cv`, and the `test`/`test_dyn` harnesses (`saxpy`/`gemm`/`trisolv`/`triangular_acc`/
+  `spmv_ellpack`(+`_delimiters`)/`memcpy`/`jacobi-1d`/`2d`/`mvt` already have equivalent Horologium
+  kernel tests). `syrk` and `trmm` use `ss.app.mod.siz.{inc,dec}` triangular-access modifiers on
+  multiple streams with shared trigger points — meaningfully more complex than the already-covered
+  single-stream `LowerTriangular` modifier test, genuinely new coverage if ported, but higher effort.
+  `syrk` still contains a pre-revision `ss.cfg.vec` line that the spec revision Horologium implements
+  folds into the `ss.sta` header fields (see `SPEC_NOTES.md`'s "Removed-instruction reminders") — drop
+  it when porting rather than decoding it. `gemver`/`convolution`/`covariance`/`vec_cv` are large
+  (550-680 line) multi-DataType-variant sources not yet read in detail.
 - [ ] `knn` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not 1:1 portable today**: its
   `position_x_j`/`_y`/`_z` neighbor-gather streams use a 4-operand `ss.sta.ld.d ud, base, count, stride`
   header that configures a dimension inline (Horologium's `ss.sta.ld.*` header only takes `rs1`=base;

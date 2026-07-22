@@ -1824,6 +1824,98 @@ public class UveTests {
             (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 
+    // ── Integration test: spmv_ellpack_delimiters via OoO pipeline ───────────
+
+    /// <summary>
+    ///     Ports the <c>spmv_ellpack_delimiters</c> UVE2 reference benchmark
+    ///     (github.com/hpc-ulisboa/UVE2, UVE-Testing/spike_test/benchmarks/spmv_ellpack_delimiters): an
+    ///     ELLPACK SpMV with a <c>rowDelimiters</c> array giving each row's *actual* nonzero count
+    ///     (rather than <c>spmv_ellpack</c>'s fixed <c>L</c>). Exercises <c>ss.app.ind.siz.set</c> — the
+    ///     first *engine-level* (not just descriptor-level) test of the indirect Size modifier, which
+    ///     resizes each row stream's inner dimension from an IndSource each time it wraps (plus an
+    ///     initial apply before the first row) — combined with the already-proven <c>sgi</c> gather for
+    ///     the <c>vec</c> stream. <c>tdim</c> is chosen (not copied from the kernel's literal ".2"
+    ///     suffix) to target engine index 0 (the inner/per-row dimension) for a 2-dim stream, mirroring
+    ///     the already-verified <c>ss.app.mod</c> tdim convention.
+    /// </summary>
+    [Fact]
+    public void Pipeline_SpmvEllpackDelimiters_CorrectResult() {
+        const int n = 2, k = 3;
+        int[] rowDelimiters = [2, 3,];
+        int[] cols = [1, 0, 99, 0, 2, 1,]; // row0: [1,0,x] (only 2 valid); row1: [0,2,1]
+        float[] val = [2.0f, 3.0f, 999.0f, 1.0f, 4.0f, 5.0f,];
+        float[] vec = [10.0f, 20.0f, 30.0f,];
+
+        // Independent oracle: mirrors the reference's own RUN_SIMPLE fallback.
+        var expectedOut = new float[n];
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < rowDelimiters[i]; j++)
+            expectedOut[i] += val[i * k + j] * vec[cols[i * k + j]];
+
+        const ulong valBase = 0x0000, colsBase = 0x0100, rowDelimBase = 0x0200, vecBase = 0x0300,
+            outBase = 0x0400;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < val.Length; i++) mem.Load(valBase + (ulong)(i * 4), BitConverter.GetBytes(val[i]));
+        for (var i = 0; i < cols.Length; i++) mem.Load(colsBase + (ulong)(i * 4), BitConverter.GetBytes(cols[i]));
+        for (var i = 0; i < rowDelimiters.Length; i++)
+            mem.Load(rowDelimBase + (ulong)(i * 4), BitConverter.GetBytes(rowDelimiters[i]));
+        for (var i = 0; i < vec.Length; i++) mem.Load(vecBase + (ulong)(i * 4), BitConverter.GetBytes(vec[i]));
+        mem.Load(outBase, BitConverter.GetBytes(0.0f));
+        mem.Load(outBase + 4, BitConverter.GetBytes(0.0f));
+
+        // Register plan: x1=valBase x2=colsBase x3=rowDelimBase x4=vecBase x5=outBase x6=N x7=K x8=1
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)valBase), Addi(2, 0, (int)colsBase), Addi(3, 0, (int)rowDelimBase),
+            Addi(4, 0, (int)vecBase), Addi(5, 0, (int)outBase), Addi(6, 0, n), Addi(7, 0, k), Addi(8, 0, 1),
+
+            // u3, u6, u7: three independent copies of the rowDelimiters IndSource (one per consumer).
+            // Stream register ids must stay within StreamingEngine.MaxStreams (0-7).
+            SsStaLdW(3, 3) | (1u << 24), SsEnd(3, 0, 6, 8),
+            SsStaLdW(6, 3) | (1u << 24), SsEnd(6, 0, 6, 8),
+            SsStaLdW(7, 3) | (1u << 24), SsEnd(7, 0, 6, 8),
+
+            // u1 = val: outer count=N stride=K elems; inner resized per-row from u3 (Set); base count=0.
+            SsStaLdW(1, 1), SsApp(1, 0, 6, 7), SsAppInd(1, 1, StreamModifierTarget.Size, StreamModifierBehavior.Set, 3),
+            SsEnd(1, 0, 0, 8),
+
+            // u2 = cols (IndSource, feeds u4's gather below): outer count=N stride=K; inner resized from u6.
+            SsStaLdW(2, 2) | (1u << 24), SsApp(2, 0, 6, 7),
+            SsAppInd(2, 1, StreamModifierTarget.Size, StreamModifierBehavior.Set, 6), SsEnd(2, 0, 0, 8),
+
+            // u4 = vec: outer count=N stride=0; inner resized from u7; sgi-gathers from u2.
+            SsStaLdW(4, 4), SsApp(4, 0, 6, 0),
+            SsAppInd(4, 1, StreamModifierTarget.Size, StreamModifierBehavior.Set, 7), SsApp(4, 0, 0, 0),
+            SsEndSgi(4, 2, StreamModifierBehavior.Add),
+
+            // u5 = out store: count=N, stride=1.
+            SsStaStW(5, 5), SsEnd(5, 0, 6, 8),
+
+            // .iLoop1:
+            SoVDpW(0, 0), // u0 = 0 (accumulator)
+            // .jloop:
+            SoAFp(UveFpOp.Mac, 0, 1, 4), // u0 += u1*u4
+            SoBNdcD(1, 1, -4),           // so.b.ndc.2 u1, .jloop
+            SoAFp(UveFpOp.Adde, 5, 0, -1),
+            SoBNc(1, -16), // so.b.nc u1, .iLoop1
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooeTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
+        );
+        train.Run(8000);
+
+        for (var i = 0; i < n; i++) {
+            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(outBase + (ulong)(i * 4), 4));
+            Assert.Equal(expectedOut[i], actual, 2);
+        }
+    }
+
     // ── ss.app.mod decode tests ──────────────────────────────────────────────
 
     [Fact]
