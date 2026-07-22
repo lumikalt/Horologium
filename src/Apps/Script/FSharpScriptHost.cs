@@ -29,6 +29,7 @@ internal static class FSharpScriptHost {
         "Orrery.Cache",
         "RiscV32",
         "RiscV32.Execute",
+        "RiscV32.Config",
         "RiscV64",
         "RiscV64.Execute",
     ];

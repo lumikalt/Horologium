@@ -143,6 +143,29 @@ free embedded suites are runnable in full today.
   it, since `SingleCycleTrain`'s dial schema (`core.*` counters) differs from the `pipeline.*`
   schema every other pipeline kind emits, and the Face comparison grid/CSV output has not been
   checked against that schema switch.
+- [x] Unify Face's two configuration models, phase 2a (backend-only subset — done while away from a
+  machine that could run Face; the three GUI-facing items below stay deferred until that can be
+  visually verified): added `"RiscV32.Config"` to `ScriptHost`/`FSharpScriptHost`'s pre-imports so
+  `.csx`/`.fsx` scripts can reference `BranchPredictorConfig`'s ~30-entry catalog (e.g.
+  `BranchPredictorConfig.LTage()`) unqualified — verified end-to-end via a real `ScriptHost` eval, not
+  just the import list. Documented (not fixed) a real limitation this surfaced: `OracleConfig`/
+  `BranchNetConfig`/`TeaConfig` need `Build(IMechanism, IWorkload)`, but every `PipelineSpec`'s
+  `BranchPredictorFactory` is a bare `Func<IBranchPredictor>` with no way to supply those — they only
+  exist after a script has already returned its `MachineSpec`, so those three predictors remain
+  unusable from scripts (`TrainConfig.ToPipelineSpec` avoids this only because it runs after
+  mechanism/workload are known). Also extracted the duplicated 12-case `PrefetcherKind` switch
+  (`MemoryConfig.cs`'s two `MemoryLayers.Build` overloads had it verbatim, twice) into one
+  `MemoryLayers.MakePrefetcher` helper — deliberately *not* full delegation of one overload to the
+  other: `ConfigViewModel`'s `ICacheEnabled`/`L2CacheEnabled` toggles are independent and ungated, so
+  sparse hierarchies (L2 configured without L1) are genuinely reachable, and the flat builder's
+  positional stat-field mapping (`Cache=l1, L2Cache=l2, L3Cache=l3`, null if a slot is absent) diverges
+  from the `CachePathSpec` builder's innermost-surviving-cache mapping for exactly that case — a full
+  merge would need to reproduce the flat builder's sparse-null behavior exactly, real risk for a
+  duplication-only cleanup. Verified via a dedicated sweep (write-back + non-zero tag/data
+  latency/wb-capacity on L1+L2, plus a real D-prefetcher engaging through an OoO run against
+  `embench-matmult-int.elf` — confirmed non-zero `dcache_prefetches`, not just a config that never
+  exercises the switch) diffed byte-identical before/after via `git stash`, plus the full
+  `Tests/Orrery` suite (589/589) and the full non-benchmark suite (3910/1/3911, unchanged).
 - [x] Unify Face's two configuration models, phase 2b — FDIP semantics on `MachineSpec`'s split-I/D
   branch: fixed and tested; the unified branch has a separate, pre-existing structural gap, not fixed
   (own item below). `PipelineSpec.Build` (both overloads) gained an additive `fdipBackingMemory`

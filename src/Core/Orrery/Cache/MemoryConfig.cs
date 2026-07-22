@@ -393,28 +393,36 @@ public sealed record MemoryLayers(
         if (cfg.UncacheableSize > 0 && (l1 ?? l2 ?? l3) is not null)
             current = new UncacheableMemory(current, backing, cfg.UncacheableBase, cfg.UncacheableSize);
 
-        // A caller-supplied prefetcher instance (e.g. RtlFfiPrefetcher) overrides the kind.
         IPrefetcher? prefetcher = l1 is not null
-            ? cfg.PrefetcherFactory?.Invoke() ?? cfg.Prefetcher switch {
-                PrefetcherKind.NextLine => new NextLinePrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Stride   => new StridePrefetcher(cfg.PrefetcherTableSize),
-                PrefetcherKind.Stream => new StreamPrefetcher(
-                    cfg.PrefetcherTableSize, cfg.PrefetcherDepth, cfg.CacheBlockBytes
-                ),
-                PrefetcherKind.Ipcp   => new IpcpPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Pythia => new PythiaPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Berti  => new BertiPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Sms    => new SmsPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Bop    => new BopPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Spp    => new SppPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Ppf    => new PpfPrefetcher(cfg.CacheBlockBytes),
-                PrefetcherKind.Stems  => new StemsPrefetcher(cfg.CacheBlockBytes),
-                _                     => null,
-            }
+            ? MemoryLayers.MakePrefetcher(
+                cfg.Prefetcher, cfg.PrefetcherFactory, cfg.CacheBlockBytes, cfg.PrefetcherTableSize, cfg.PrefetcherDepth
+            )
             : null;
 
         return new MemoryLayers(current, l1, l2, l3, tlb, prefetcher, cfg.UncacheableBase, cfg.UncacheableSize);
     }
+
+    // A caller-supplied prefetcher instance (e.g. RtlFfiPrefetcher) overrides the kind.
+    private static IPrefetcher? MakePrefetcher(
+        PrefetcherKind kind,
+        Func<IPrefetcher?>? factory,
+        int blockBytes,
+        int tableSize,
+        int depth
+    ) => factory?.Invoke() ?? kind switch {
+        PrefetcherKind.NextLine => new NextLinePrefetcher(blockBytes),
+        PrefetcherKind.Stride   => new StridePrefetcher(tableSize),
+        PrefetcherKind.Stream   => new StreamPrefetcher(tableSize, depth, blockBytes),
+        PrefetcherKind.Ipcp     => new IpcpPrefetcher(blockBytes),
+        PrefetcherKind.Pythia   => new PythiaPrefetcher(blockBytes),
+        PrefetcherKind.Berti    => new BertiPrefetcher(blockBytes),
+        PrefetcherKind.Sms      => new SmsPrefetcher(blockBytes),
+        PrefetcherKind.Bop      => new BopPrefetcher(blockBytes),
+        PrefetcherKind.Spp      => new SppPrefetcher(blockBytes),
+        PrefetcherKind.Ppf      => new PpfPrefetcher(blockBytes),
+        PrefetcherKind.Stems    => new StemsPrefetcher(blockBytes),
+        _                       => null,
+    };
 
     /// <summary>
     ///     Build a layer stack from a <see cref="CachePathSpec" /> and optional shared levels list.
@@ -488,25 +496,12 @@ public sealed record MemoryLayers(
 
         // MemoryLayers.Prefetcher corresponds to allCaches[0] (the innermost cache = Cache).
         // TryPrefetch targets Cache, so only the innermost level's strategy is activated by the pipeline.
-        // A caller-supplied prefetcher instance (e.g. RtlFfiPrefetcher) overrides the kind.
-        IPrefetcher? prefetcher = allSpecs.Count > 0 ? allSpecs[0].PrefetcherFactory?.Invoke() : null;
-        if (prefetcher is null && allSpecs.Count > 0 && allSpecs[0] is { Prefetcher: not PrefetcherKind.None, } s0)
-            prefetcher = s0.Prefetcher switch {
-                PrefetcherKind.NextLine => new NextLinePrefetcher(s0.BlockBytes),
-                PrefetcherKind.Stride   => new StridePrefetcher(s0.PrefetcherTableSize),
-                PrefetcherKind.Stream => new StreamPrefetcher(
-                    s0.PrefetcherTableSize, s0.PrefetcherDepth, s0.BlockBytes
-                ),
-                PrefetcherKind.Ipcp   => new IpcpPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Pythia => new PythiaPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Berti  => new BertiPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Sms    => new SmsPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Bop    => new BopPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Spp    => new SppPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Ppf    => new PpfPrefetcher(s0.BlockBytes),
-                PrefetcherKind.Stems  => new StemsPrefetcher(s0.BlockBytes),
-                _                     => null,
-            };
+        IPrefetcher? prefetcher = allSpecs.Count > 0
+            ? MemoryLayers.MakePrefetcher(
+                allSpecs[0].Prefetcher, allSpecs[0].PrefetcherFactory, allSpecs[0].BlockBytes,
+                allSpecs[0].PrefetcherTableSize, allSpecs[0].PrefetcherDepth
+            )
+            : null;
 
         // Map the first three caches to the named MemoryLayers stat fields (innermost first).
         SetAssociativeCache? c0 = allCaches.Count > 0 ? allCaches[0] : null;
