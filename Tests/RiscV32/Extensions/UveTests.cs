@@ -188,14 +188,16 @@ public class UveTests {
              | (funct3 << 12) | (bits4To1 << 8) | (bit11 << 7) | 0x2Bu;
     }
 
-    // so.b.nc urs, imm — funct3=0, bit20=1 (notDone)
-    private static uint SoBNc(int urs, int imm) => UveBTypeImm(imm, (uint)urs, 0b00001u, 0x0);
+    // so.b.nc urs, imm — funct3=7, bit20=1 (notDone). Author-corrected encoding (2026-07-22):
+    // Appendix B / Spike instead put this at funct3=0 — see SPEC_NOTES.md's "Branch `d` field" entry.
+    private static uint SoBNc(int urs, int imm) => UveBTypeImm(imm, (uint)urs, 0b00001u, 0x7);
 
-    // so.b.c urs, imm — funct3=0, bit20=0 (done)
-    private static uint SoBc(int urs, int imm) => UveBTypeImm(imm, (uint)urs, 0b00000u, 0x0);
+    // so.b.c urs, imm — funct3=7, bit20=0 (done)
+    private static uint SoBc(int urs, int imm) => UveBTypeImm(imm, (uint)urs, 0b00000u, 0x7);
 
     // so.b.ndc.D urs, imm — funct3=D-1, bit20=1 (notDone). The dim param is the raw funct3
-    // value, counting dimensions from the OUTERMOST (Spike convention; innermost of N dims = N-1).
+    // value, counting dimensions from the OUTERMOST (Spike convention). D ranges 1..7
+    // (funct3 0..6); dc.8 no longer exists under the corrected encoding (funct3=7 is so.b.nc).
     private static uint SoBNdcD(int urs, int dim, int imm) => UveBTypeImm(imm, (uint)urs, 0b00001u, (uint)dim);
 
     // so.b.dc.D urs, imm — funct3=D-1, bit20=0 (done)
@@ -969,6 +971,40 @@ public class UveTests {
         Assert.Equal(2, op.Urs);
         Assert.Equal(1, op.Dim);
         Assert.Equal(-12, op.Imm);
+    }
+
+    /// <summary>
+    ///     Transcribes the UVE2 author's corrected branch-`d` encoding table directly (2026-07-22,
+    ///     see SPEC_NOTES.md's "Branch `d` field" entry) using raw <see cref="UveBTypeImm" /> calls
+    ///     with hand-picked funct3 literals — deliberately not going through the
+    ///     <see cref="SoBNc" />/<see cref="SoBNdcD" /> encoder helpers, since those and the decoder
+    ///     would silently agree with each other even if both encoded the wrong table (a round-trip
+    ///     test alone can't catch that). Covers every point of the author's table: funct3=0 → dc.1,
+    ///     funct3=6 → dc.7, funct3=7 → the no-suffix EOS-equivalent form.
+    /// </summary>
+    [Fact]
+    public void Decoder_SoBBranchTable_MatchesAuthorCorrectedEncoding() {
+        var dec = new Rv32Decoder();
+
+        // funct3=0 (SO.B.NC.1 in the author's table) → so.b.ndc with Dim=0 (dc.1).
+        var mem0 = new FlatMemory(16);
+        mem0.Load(0, BitConverter.GetBytes(UveBTypeImm(-8, 3, 0b00001u, 0x0)));
+        var op0 = Assert.IsType<RvUveSoBNdc>(dec.Decode(0, mem0).Payload);
+        Assert.Equal(3, op0.Urs);
+        Assert.Equal(0, op0.Dim);
+
+        // funct3=6 (SO.B.NC.7) → so.b.ndc with Dim=6 (dc.7).
+        var mem6 = new FlatMemory(16);
+        mem6.Load(0, BitConverter.GetBytes(UveBTypeImm(-8, 3, 0b00001u, 0x6)));
+        var op6 = Assert.IsType<RvUveSoBNdc>(dec.Decode(0, mem6).Payload);
+        Assert.Equal(6, op6.Dim);
+
+        // funct3=7 (SO.B.NC, no suffix) → the EOS-equivalent form, so.b.nc — NOT so.b.ndc.8
+        // (Appendix B's original listing / Spike instead put the EOS-equivalent form at funct3=0).
+        var mem7 = new FlatMemory(16);
+        mem7.Load(0, BitConverter.GetBytes(UveBTypeImm(-8, 3, 0b00001u, 0x7)));
+        var op7 = Assert.IsType<RvUveSoBNc>(dec.Decode(0, mem7).Payload);
+        Assert.Equal(3, op7.Urs);
     }
 
     // ── Integration test: SAXPY via OoO pipeline ──────────────────────────────

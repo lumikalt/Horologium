@@ -190,12 +190,17 @@ public record RvUveSoCGetvl(int Rd) : RvOp;
 public record RvUveSoCSetvl(int Rd, int Rs1) : RvOp;
 
 // Stream branch (custom-1, opcode=0x2B, UVE B-type: bits[31:29]=111, bit28=imm[12]):
-//   funct3=0:     so.b.nc urs, imm — not exhausted (bit20=1) / so.b.c urs, imm — exhausted (bit20=0)
+//   funct3=7:     so.b.nc urs, imm — not exhausted (bit20=1) / so.b.c urs, imm — exhausted (bit20=0)
 //   funct3=D-1:   so.b.ndc.D urs, imm — dim not complete (bit20=1) / so.b.dc.D — dim complete (bit20=0)
+//                 (D = 1..7, funct3 = 0..6 — dc.1 is reachable, dc.8 no longer exists)
 // Dim = funct3 counts dimensions from the OUTERMOST (Spike: EODTable.at(funct3),
 // dimensions[0] = outermost). The innermost dim of an N-dim stream is so.b.ndc.N
 // (funct3 = N-1). The pipeline remaps to the engine's innermost-first index when
 // syncing DimDone; DimDone itself is keyed by the raw funct3 value.
+// This funct3=7/0..6 split is the UVE2 author's authoritative correction (2026-07-22):
+// Appendix B's original listing and Spike both instead put the EOS-equivalent form at
+// funct3=0 and only support dc.2..dc.8 (funct3=1..7) — see SPEC_NOTES.md's "Branch `d`
+// field" entry for the full resolution and why Spike is overruled here.
 public record RvUveSoBNc(int Urs, int Imm) : RvOp;
 
 public record RvUveSoBNdc(int Urs, int Dim, int Imm) : RvOp;

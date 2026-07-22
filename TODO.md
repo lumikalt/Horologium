@@ -52,17 +52,25 @@ off here until a periodic cleanup removes them; the durable record is git histor
   the modifier triggers on the outermost dimension with two more configured afterward — the old and
   new resolutions genuinely diverge there (confirmed the test fails under the old resolution before
   fixing). Full suite 3921/1/3922 (3920 baseline + 1 new test).
-- [ ] Fix `so.b.*` branch `d`-field encoding and the numeric-tdim/branch-D dimension direction to
-  match the UVE2 author's authoritative correction (2026-07-22, see `SPEC_NOTES.md`'s "Branch `d`
-  field" and "Numeric tdim and branch-D direction" entries) — the author is the absolute authority and
-  overrules Spike here. Corrected branch-d table: `SO.B.NC.1`=000 .. `SO.B.NC.7`=110, `SO.B.NC`=111
-  (dc.1 becomes reachable; the no-suffix EOS-equivalent form moves from funct3=0 to funct3=7). Checked
-  against Spike ground truth (`riscv/encoding.h`'s `MATCH_SO_B_*`, AnaBSF/riscv-isa-sim @ a048271):
-  Spike ships the *old* encoding Horologium currently implements, not the author's table — a confirmed
-  Spike divergence, not a reason to keep matching Spike (see CLAUDE.md's updated UVE2 policy). Fix the
-  decoder's so.b.[n]c/so.b.[n]dc.D funct3 mapping and the numeric-tdim dimension-direction convention
-  together, since both stem from the same dimension-order-inversion correction; round-trip tests alone
-  can't validate the change (encoder and decoder would flip together and still agree with each other).
+- [x] Fixed `so.b.*` branch `d`-field encoding to match the UVE2 author's authoritative correction
+  (2026-07-22, see `SPEC_NOTES.md`'s "Branch `d` field" entry) — the author is the absolute authority
+  and overrules Spike here. Corrected table: `SO.B.NC.1`=000 .. `SO.B.NC.7`=110, `SO.B.NC`=111 (dc.1 is
+  now reachable; the no-suffix EOS-equivalent form moved from funct3=0 to funct3=7; dc.8 no longer
+  exists). Checked against Spike ground truth (`riscv/encoding.h`'s `MATCH_SO_B_*`, AnaBSF/riscv-isa-sim
+  @ a048271) beforehand: Spike ships the *old* encoding Horologium previously implemented, not the
+  author's table — a confirmed Spike divergence, recorded but overruled per the author's authority (see
+  CLAUDE.md's updated UVE2 policy), not a reason to keep matching Spike. The fix turned out to be a
+  one-line decoder change (`funct3 == 0` → `funct3 == 7`, `Rv32Decoder.Uve.cs`) plus updating the
+  `SoBNc`/`SoBc` test-encoder helpers to match: the dimensioned branch's `dim = funct3` mapping and the
+  outermost-first indexing convention (the "numeric tdim and branch-D direction" question) turned out
+  to be entirely unaffected — that convention only concerns which physical dimension a *given* funct3
+  value addresses, not which funct3 value selects the EOS-equivalent vs. dimensioned instruction family,
+  so no separate fix was needed there after all (see `SPEC_NOTES.md`'s "Numeric tdim and branch-D
+  direction" entry). Since round-trip tests alone can't validate an encoding change (encoder and decoder
+  would flip together and still agree with each other), verified with a dedicated test
+  (`Decoder_SoBBranchTable_MatchesAuthorCorrectedEncoding`) that hand-encodes raw words transcribing the
+  author's table directly, bypassing the `SoBNc`/`SoBNdcD` helpers entirely — confirmed it fails under
+  the old decoder logic before fixing. Full suite 3922/1/3923 (3921 baseline + 1 new test).
 
 ## Cache Prefetching
 

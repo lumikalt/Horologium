@@ -126,11 +126,17 @@ public partial class Rv32Decoder {
         uint funct7 = (raw >> 25) & 0x7F;
 
         // UVE branch: bits[31:29]=111 (funct7[6:4]=111, i.e. raw>>29==7)
+        // funct3=7 selects the no-suffix EOS-equivalent form (so.b.[n]c); funct3=0..6 select the
+        // dimensioned form (so.b.[n]dc.D, D = funct3+1, counting from the outermost). This is the
+        // UVE2 author's authoritative correction (2026-07-22, overrules both Appendix B's original
+        // listing and Spike, which still ships funct3=0 for so.b.[n]c — see SPEC_NOTES.md's "Branch
+        // `d` field" entry): dc.1 is reachable (funct3=0), and the EOS-equivalent form moved from
+        // funct3=0 to funct3=7.
         if (raw >> 29 == 7) {
             int imm = UveBranchImm(raw);
             int notDone = rs2 & 1; // LSB of rs2 field
 
-            if (funct3 == 0)
+            if (funct3 == 7)
                 return new RvInstruction(
                     pc, raw, -1, [], ToothClass.Uve,
                     notDone != 0 ? new RvUveSoBNc(rs1, imm) : new RvUveSoBc(rs1, imm)
