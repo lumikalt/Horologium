@@ -21,7 +21,10 @@ namespace Orrery.Streaming;
 ///     </para>
 /// </summary>
 public sealed class StreamingEngine {
-    public const int MaxStreams = 8;
+    // Ceiling is 32 (5-bit ud/rs1/rs2/rs3 fields in the UVE custom-0/1 encoding, matching
+    // UveState.Count); register ids >= MaxStreams are reserved as arithmetic-only scratch/broadcast
+    // operands (never Configure()'d as a real stream), so this must stay well below 32.
+    public const int MaxStreams = 16;
 
     private readonly int _prefetchDepth;
     private readonly StreamState[] _streams;

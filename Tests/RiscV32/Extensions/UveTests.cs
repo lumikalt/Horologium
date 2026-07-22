@@ -1938,7 +1938,7 @@ public class UveTests {
             Addi(4, 0, (int)vecBase), Addi(5, 0, (int)outBase), Addi(6, 0, n), Addi(7, 0, k), Addi(8, 0, 1),
 
             // u3, u6, u7: three independent copies of the rowDelimiters IndSource (one per consumer).
-            // Stream register ids must stay within StreamingEngine.MaxStreams (0-7).
+            // Stream register ids must stay within StreamingEngine.MaxStreams (0-15).
             SsStaLdW(3, 3) | (1u << 24), SsEnd(3, 0, 6, 8),
             SsStaLdW(6, 3) | (1u << 24), SsEnd(6, 0, 6, 8),
             SsStaLdW(7, 3) | (1u << 24), SsEnd(7, 0, 6, 8),
