@@ -19,6 +19,11 @@ namespace RiscV32.Config;
 ///     DoCache configuration for one memory port (instruction or data).
 ///     null means the cache layer is disabled.
 /// </summary>
+/// <param name="InclusionPolicy">
+///     This level's policy toward the level directly inside it (e.g. L2 toward L1). Ignored when
+///     this config represents the innermost cache in a chain (I-cache/D-cache), which always has
+///     nothing nested inside it.
+/// </param>
 public sealed record CacheHardwareConfig(
     int CapacityBytes,
     int Ways = 4,
@@ -28,7 +33,14 @@ public sealed record CacheHardwareConfig(
     int DataLatency = 0,
     WritePolicyKind WritePolicy = WritePolicyKind.WriteThrough,
     WriteMissPolicyKind WriteMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
-    int WbCapacity = 0
+    int WbCapacity = 0,
+    int BankCount = 1,
+    int ReadPorts = 0,
+    int WritePorts = 0,
+    int SectorBytes = 0,
+    int VictimCacheEntries = 0,
+    int VictimCacheHitLatency = 1,
+    InclusionPolicyKind InclusionPolicy = InclusionPolicyKind.Nine
 );
 
 /// <summary>
@@ -284,6 +296,29 @@ public sealed record TrainConfig(
             L3WriteMissPolicy: l3?.WriteMissPolicy ?? WriteMissPolicyKind.NoWriteAllocate,
             CacheWbCapacity: l1?.WbCapacity ?? 0,
             L2WbCapacity: l2?.WbCapacity ?? 0,
-            L3WbCapacity: l3?.WbCapacity ?? 0
+            L3WbCapacity: l3?.WbCapacity ?? 0,
+            CacheBankCount: l1?.BankCount ?? 1,
+            CacheReadPorts: l1?.ReadPorts ?? 0,
+            CacheWritePorts: l1?.WritePorts ?? 0,
+            L2BankCount: l2?.BankCount ?? 1,
+            L2ReadPorts: l2?.ReadPorts ?? 0,
+            L2WritePorts: l2?.WritePorts ?? 0,
+            L3BankCount: l3?.BankCount ?? 1,
+            L3ReadPorts: l3?.ReadPorts ?? 0,
+            L3WritePorts: l3?.WritePorts ?? 0,
+            CacheSectorBytes: l1?.SectorBytes ?? 0,
+            L2SectorBytes: l2?.SectorBytes ?? 0,
+            L3SectorBytes: l3?.SectorBytes ?? 0,
+            CacheVictimCacheEntries: l1?.VictimCacheEntries ?? 0,
+            L2VictimCacheEntries: l2?.VictimCacheEntries ?? 0,
+            L3VictimCacheEntries: l3?.VictimCacheEntries ?? 0,
+            CacheVictimCacheHitLatency: l1?.VictimCacheHitLatency ?? 1,
+            L2VictimCacheHitLatency: l2?.VictimCacheHitLatency ?? 1,
+            L3VictimCacheHitLatency: l3?.VictimCacheHitLatency ?? 1,
+            // L1's InclusionPolicy is never read: it's always the innermost level in this chain
+            // and MemoryLayers.Build hardcodes it to Nine, matching SetAssociativeCache's own
+            // "ignored on the innermost level" contract.
+            L2InclusionPolicy: l2?.InclusionPolicy ?? InclusionPolicyKind.Nine,
+            L3InclusionPolicy: l3?.InclusionPolicy ?? InclusionPolicyKind.Nine
         );
 }

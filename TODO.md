@@ -463,8 +463,35 @@ free embedded suites are runnable in full today.
   (3912 baseline + 6 new tests), full solution build clean, three separate sweep diffs
   (default/dedup+ELF/cpr+dae) byte-identical, confirming zero change on the `TrainConfig`/`Experiment`
   path this entire pass never touches.
-- [ ] Unify Face's two configuration models, phase 2c (GUI-facing, deferred until Face can be
-  visually verified): RV64 support for `TrainConfig`/`ConfigViewModel` (the scripting path already
-  supports RV64; `TrainConfig` is RV32-only), multi-hart GUI support (`MulticoreSpec`/`HartSpec` exist
-  on the scripting side only), and exposing `CacheLevelSpec`'s richer knobs (bank count, read/write
-  ports, sector size, victim cache, inclusion policy) in `ConfigViewModel`.
+- [x] Unify Face's two configuration models, phase 2c-1 — exposed `CacheLevelSpec`'s richer knobs
+  (bank count, read/write ports, sector size, victim cache entries/hit latency, inclusion policy) in
+  `ConfigViewModel`/`MainPanel.axaml` (I-cache/D-cache/L2, following the existing per-level knob
+  pattern; L2-only for inclusion policy, since it's meaningless on the innermost level of a chain —
+  `MemoryLayers.Build` already hardcodes L1's to `Nine`). The backend (`MemoryConfig`/
+  `SetAssociativeCache`) already wired every one of these knobs end-to-end before this change; the gap
+  was purely that `TrainConfig`'s `CacheHardwareConfig` and `ToMemoryConfig` never picked them up —
+  confirmed by tracing the `SetAssociativeCache` ctor before starting, not assumed. Added
+  `CacheHardwareConfig_RicherKnobs_ThreadThroughToMemoryConfigAndCache` in
+  `Tests/RiscV32/Analysis/ExperimentTests.cs`, which builds a real `MemoryLayers`/`SetAssociativeCache`
+  from the config and asserts the constructed cache's own properties (not just the intermediate
+  `MemoryConfig` record) — confirmed it fails without the `ToMemoryConfig` wiring via a temporary
+  one-line break, then reverted. (`VictimCacheHitLatency`/`InclusionPolicy` are private on
+  `SetAssociativeCache`, so those two are asserted only at the `MemoryConfig` layer; the behavior they
+  drive is already covered directly in `Tests/Orrery/CacheTests.cs`.) Full suite 3948/1/3949 (3946
+  baseline + 2 new tests). RV64 support for `TrainConfig`/`ConfigViewModel` remains open as phase 2c-2
+  below.
+- [ ] Unify Face's two configuration models, phase 2c-2 (GUI-facing, verified visually in Face by the
+  user once landed): RV64 support for `TrainConfig`/`ConfigViewModel` — the scripting path already
+  supports RV64 (`Rv64Mechanism`/`Rv64ElfWorkload` built directly against the ISA-agnostic
+  `PipelineSpec`/`MachineSpec` API), but `TrainConfig` has no ISA field at all, and
+  `MainWindowViewModel`/`ConfiguratorViewModel` hardcode `Rv32Mechanism`/`Rv32ElfWorkload` in three
+  places with no ISA selector in the GUI. ELF bitness isn't auto-detected either (`Rv32ElfLoader`
+  rejects anything but `ELFCLASS32`; `Rv64ElfLoader`/`Rv64ElfWorkload` is the separate 64-bit-only
+  counterpart) — the picked loader has to match an explicit selection, not sniff the file.
+- [ ] Multi-hart GUI support in Face (split out from phase 2c above, 2026-07-23): `MulticoreSpec`/
+  `HartSpec` exist on the scripting side only. Not a toggle — Face's whole run pipeline
+  (`MainWindowViewModel.Configs`, `Experiment`, `NamedConfig`) is architected around independent
+  single-hart sweep runs against one shared workload/mechanism factory, not N harts co-simulated
+  against a shared coherent memory system. Needs its own design pass: a new run driver over
+  `MulticoreHandle`, per-hart workload/entry-point assignment UI, and multi-hart result
+  visualization (`MulticoreHandle.Trains`/`CoherentCaches`).

@@ -74,6 +74,18 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int ICacheWbCapacity { get; set; } = 0;
 
+    [ObservableProperty] public partial int ICacheBankCount { get; set; } = 1;
+
+    [ObservableProperty] public partial int ICacheReadPorts { get; set; } = 0;
+
+    [ObservableProperty] public partial int ICacheWritePorts { get; set; } = 0;
+
+    [ObservableProperty] public partial int ICacheSectorBytes { get; set; } = 0;
+
+    [ObservableProperty] public partial int ICacheVictimCacheEntries { get; set; } = 0;
+
+    [ObservableProperty] public partial int ICacheVictimCacheHitLatency { get; set; } = 1;
+
     [ObservableProperty] public partial bool DCacheEnabled { get; set; } = false;
 
     [ObservableProperty] public partial int DCacheCapacityKb { get; set; } = 32;
@@ -94,6 +106,18 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int DCacheWbCapacity { get; set; } = 0;
 
+    [ObservableProperty] public partial int DCacheBankCount { get; set; } = 1;
+
+    [ObservableProperty] public partial int DCacheReadPorts { get; set; } = 0;
+
+    [ObservableProperty] public partial int DCacheWritePorts { get; set; } = 0;
+
+    [ObservableProperty] public partial int DCacheSectorBytes { get; set; } = 0;
+
+    [ObservableProperty] public partial int DCacheVictimCacheEntries { get; set; } = 0;
+
+    [ObservableProperty] public partial int DCacheVictimCacheHitLatency { get; set; } = 1;
+
     [ObservableProperty] public partial bool L2CacheEnabled { get; set; } = false;
 
     [ObservableProperty] public partial int L2CacheCapacityKb { get; set; } = 256;
@@ -113,6 +137,20 @@ public partial class ConfigViewModel : ObservableObject {
     [ObservableProperty] public partial string L2CacheWriteMissPolicy { get; set; } = "no_write_allocate";
 
     [ObservableProperty] public partial int L2CacheWbCapacity { get; set; } = 0;
+
+    [ObservableProperty] public partial int L2CacheBankCount { get; set; } = 1;
+
+    [ObservableProperty] public partial int L2CacheReadPorts { get; set; } = 0;
+
+    [ObservableProperty] public partial int L2CacheWritePorts { get; set; } = 0;
+
+    [ObservableProperty] public partial int L2CacheSectorBytes { get; set; } = 0;
+
+    [ObservableProperty] public partial int L2CacheVictimCacheEntries { get; set; } = 0;
+
+    [ObservableProperty] public partial int L2CacheVictimCacheHitLatency { get; set; } = 1;
+
+    [ObservableProperty] public partial string L2CacheInclusionPolicy { get; set; } = "nine";
 
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
@@ -173,6 +211,7 @@ public partial class ConfigViewModel : ObservableObject {
 
     public static string[] WritePolicyOptions { get; } = ["write_through", "write_back",];
     public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
+    public static string[] InclusionPolicyOptions { get; } = ["nine", "inclusive", "exclusive",];
 
     public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo", "cpr", "dae",];
 
@@ -246,6 +285,18 @@ public partial class ConfigViewModel : ObservableObject {
     private static WriteMissPolicyKind ParseWriteMissPolicy(string s) =>
         s == "write_allocate" ? WriteMissPolicyKind.WriteAllocate : WriteMissPolicyKind.NoWriteAllocate;
 
+    private static InclusionPolicyKind ParseInclusionPolicy(string s) => s switch {
+        "inclusive" => InclusionPolicyKind.Inclusive,
+        "exclusive" => InclusionPolicyKind.Exclusive,
+        _           => InclusionPolicyKind.Nine,
+    };
+
+    private static string FormatInclusionPolicy(InclusionPolicyKind k) => k switch {
+        InclusionPolicyKind.Inclusive => "inclusive",
+        InclusionPolicyKind.Exclusive => "exclusive",
+        _                              => "nine",
+    };
+
     public NamedConfig ToNamedConfig() {
         BranchPredictorConfig? predictor = PredictorType switch {
             "always_not_taken" => BranchPredictorConfig.AlwaysNotTaken(),
@@ -284,7 +335,8 @@ public partial class ConfigViewModel : ObservableObject {
                 ICacheCapacityKb * 1024, ICacheWays, ICacheBlockBytes, ICacheMissLatency,
                 ICacheTagLatency, ICacheDataLatency,
                 ParseWritePolicy(ICacheWritePolicy), ParseWriteMissPolicy(ICacheWriteMissPolicy),
-                ICacheWbCapacity
+                ICacheWbCapacity, ICacheBankCount, ICacheReadPorts, ICacheWritePorts, ICacheSectorBytes,
+                ICacheVictimCacheEntries, ICacheVictimCacheHitLatency
             )
             : null;
         CacheHardwareConfig? dCache = DCacheEnabled
@@ -292,7 +344,8 @@ public partial class ConfigViewModel : ObservableObject {
                 DCacheCapacityKb * 1024, DCacheWays, DCacheBlockBytes, DCacheMissLatency,
                 DCacheTagLatency, DCacheDataLatency,
                 ParseWritePolicy(DCacheWritePolicy), ParseWriteMissPolicy(DCacheWriteMissPolicy),
-                DCacheWbCapacity
+                DCacheWbCapacity, DCacheBankCount, DCacheReadPorts, DCacheWritePorts, DCacheSectorBytes,
+                DCacheVictimCacheEntries, DCacheVictimCacheHitLatency
             )
             : null;
         CacheHardwareConfig? l2Cache = L2CacheEnabled
@@ -300,7 +353,9 @@ public partial class ConfigViewModel : ObservableObject {
                 L2CacheCapacityKb * 1024, L2CacheWays, L2CacheBlockBytes, L2CacheMissLatency,
                 L2CacheTagLatency, L2CacheDataLatency,
                 ParseWritePolicy(L2CacheWritePolicy), ParseWriteMissPolicy(L2CacheWriteMissPolicy),
-                L2CacheWbCapacity
+                L2CacheWbCapacity, L2CacheBankCount, L2CacheReadPorts, L2CacheWritePorts, L2CacheSectorBytes,
+                L2CacheVictimCacheEntries, L2CacheVictimCacheHitLatency,
+                ParseInclusionPolicy(L2CacheInclusionPolicy)
             )
             : null;
 
@@ -432,6 +487,12 @@ public partial class ConfigViewModel : ObservableObject {
                 ? "write_allocate"
                 : "no_write_allocate";
             vm.ICacheWbCapacity = ic.WbCapacity;
+            vm.ICacheBankCount = ic.BankCount;
+            vm.ICacheReadPorts = ic.ReadPorts;
+            vm.ICacheWritePorts = ic.WritePorts;
+            vm.ICacheSectorBytes = ic.SectorBytes;
+            vm.ICacheVictimCacheEntries = ic.VictimCacheEntries;
+            vm.ICacheVictimCacheHitLatency = ic.VictimCacheHitLatency;
         }
 
         if (nc.Config.DCache is { } dc) {
@@ -446,6 +507,12 @@ public partial class ConfigViewModel : ObservableObject {
                 ? "write_allocate"
                 : "no_write_allocate";
             vm.DCacheWbCapacity = dc.WbCapacity;
+            vm.DCacheBankCount = dc.BankCount;
+            vm.DCacheReadPorts = dc.ReadPorts;
+            vm.DCacheWritePorts = dc.WritePorts;
+            vm.DCacheSectorBytes = dc.SectorBytes;
+            vm.DCacheVictimCacheEntries = dc.VictimCacheEntries;
+            vm.DCacheVictimCacheHitLatency = dc.VictimCacheHitLatency;
         }
 
         if (nc.Config.L2Cache is { } l2) {
@@ -460,6 +527,13 @@ public partial class ConfigViewModel : ObservableObject {
                 ? "write_allocate"
                 : "no_write_allocate";
             vm.L2CacheWbCapacity = l2.WbCapacity;
+            vm.L2CacheBankCount = l2.BankCount;
+            vm.L2CacheReadPorts = l2.ReadPorts;
+            vm.L2CacheWritePorts = l2.WritePorts;
+            vm.L2CacheSectorBytes = l2.SectorBytes;
+            vm.L2CacheVictimCacheEntries = l2.VictimCacheEntries;
+            vm.L2CacheVictimCacheHitLatency = l2.VictimCacheHitLatency;
+            vm.L2CacheInclusionPolicy = FormatInclusionPolicy(l2.InclusionPolicy);
         }
 
         return vm;

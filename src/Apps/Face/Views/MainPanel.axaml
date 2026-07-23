@@ -154,7 +154,8 @@
                         <CheckBox IsChecked="{Binding ICacheEnabled}" Content="I-cache" />
                         <Grid ColumnDefinitions="110,*" ColumnSpacing="8" Margin="12,0,0,0"
                               IsVisible="{Binding ICacheEnabled}"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="4">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding ICacheCapacityKb}"
                                            Minimum="1" Maximum="16384" />
@@ -186,6 +187,24 @@
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="WB buf (lines)" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="8" Grid.Column="1" Value="{Binding ICacheWbCapacity}"
                                            Minimum="0" Maximum="32" />
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="Banks" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" Value="{Binding ICacheBankCount}"
+                                           Minimum="1" Maximum="64" />
+                            <TextBlock Grid.Row="10" Grid.Column="0" Text="Read ports" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="10" Grid.Column="1" Value="{Binding ICacheReadPorts}"
+                                           Minimum="0" Maximum="16" />
+                            <TextBlock Grid.Row="11" Grid.Column="0" Text="Write ports" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="11" Grid.Column="1" Value="{Binding ICacheWritePorts}"
+                                           Minimum="0" Maximum="16" />
+                            <TextBlock Grid.Row="12" Grid.Column="0" Text="Sector (bytes)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="12" Grid.Column="1" Value="{Binding ICacheSectorBytes}"
+                                           Minimum="0" Maximum="256" />
+                            <TextBlock Grid.Row="13" Grid.Column="0" Text="Victim entries" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="13" Grid.Column="1" Value="{Binding ICacheVictimCacheEntries}"
+                                           Minimum="0" Maximum="32" />
+                            <TextBlock Grid.Row="14" Grid.Column="0" Text="Victim lat." VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="14" Grid.Column="1" Value="{Binding ICacheVictimCacheHitLatency}"
+                                           Minimum="1" Maximum="200" />
                         </Grid>
                         <StackPanel Margin="12,0,0,0" Spacing="4"
                                     IsVisible="{Binding ICacheEnabled}">
@@ -207,7 +226,8 @@
                         <CheckBox IsChecked="{Binding DCacheEnabled}" Content="D-cache" />
                         <Grid ColumnDefinitions="110,*" ColumnSpacing="8" Margin="12,0,0,0"
                               IsVisible="{Binding DCacheEnabled}"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="4">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding DCacheCapacityKb}"
                                            Minimum="1" Maximum="16384" />
@@ -239,6 +259,24 @@
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="WB buf (lines)" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="8" Grid.Column="1" Value="{Binding DCacheWbCapacity}"
                                            Minimum="0" Maximum="32" />
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="Banks" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" Value="{Binding DCacheBankCount}"
+                                           Minimum="1" Maximum="64" />
+                            <TextBlock Grid.Row="10" Grid.Column="0" Text="Read ports" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="10" Grid.Column="1" Value="{Binding DCacheReadPorts}"
+                                           Minimum="0" Maximum="16" />
+                            <TextBlock Grid.Row="11" Grid.Column="0" Text="Write ports" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="11" Grid.Column="1" Value="{Binding DCacheWritePorts}"
+                                           Minimum="0" Maximum="16" />
+                            <TextBlock Grid.Row="12" Grid.Column="0" Text="Sector (bytes)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="12" Grid.Column="1" Value="{Binding DCacheSectorBytes}"
+                                           Minimum="0" Maximum="256" />
+                            <TextBlock Grid.Row="13" Grid.Column="0" Text="Victim entries" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="13" Grid.Column="1" Value="{Binding DCacheVictimCacheEntries}"
+                                           Minimum="0" Maximum="32" />
+                            <TextBlock Grid.Row="14" Grid.Column="0" Text="Victim lat." VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="14" Grid.Column="1" Value="{Binding DCacheVictimCacheHitLatency}"
+                                           Minimum="1" Maximum="200" />
                         </Grid>
                         <StackPanel Margin="12,0,0,0" Spacing="4"
                                     IsVisible="{Binding DCacheEnabled}">
@@ -275,7 +313,8 @@
                         <CheckBox IsChecked="{Binding L2CacheEnabled}" Content="L2 cache (unified)" />
                         <Grid ColumnDefinitions="110,*" ColumnSpacing="8" Margin="12,0,0,0"
                               IsVisible="{Binding L2CacheEnabled}"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="4">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding L2CacheCapacityKb}"
                                            Minimum="1" Maximum="131072" />
@@ -307,6 +346,29 @@
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="WB buf (lines)" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="8" Grid.Column="1" Value="{Binding L2CacheWbCapacity}"
                                            Minimum="0" Maximum="64" />
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="Banks" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" Value="{Binding L2CacheBankCount}"
+                                           Minimum="1" Maximum="64" />
+                            <TextBlock Grid.Row="10" Grid.Column="0" Text="Read ports" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="10" Grid.Column="1" Value="{Binding L2CacheReadPorts}"
+                                           Minimum="0" Maximum="16" />
+                            <TextBlock Grid.Row="11" Grid.Column="0" Text="Write ports" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="11" Grid.Column="1" Value="{Binding L2CacheWritePorts}"
+                                           Minimum="0" Maximum="16" />
+                            <TextBlock Grid.Row="12" Grid.Column="0" Text="Sector (bytes)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="12" Grid.Column="1" Value="{Binding L2CacheSectorBytes}"
+                                           Minimum="0" Maximum="256" />
+                            <TextBlock Grid.Row="13" Grid.Column="0" Text="Victim entries" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="13" Grid.Column="1" Value="{Binding L2CacheVictimCacheEntries}"
+                                           Minimum="0" Maximum="32" />
+                            <TextBlock Grid.Row="14" Grid.Column="0" Text="Victim lat." VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="14" Grid.Column="1" Value="{Binding L2CacheVictimCacheHitLatency}"
+                                           Minimum="1" Maximum="500" />
+                            <TextBlock Grid.Row="15" Grid.Column="0" Text="Inclusion" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="15" Grid.Column="1"
+                                      ItemsSource="{x:Static vm:ConfigViewModel.InclusionPolicyOptions}"
+                                      SelectedItem="{Binding L2CacheInclusionPolicy}"
+                                      HorizontalAlignment="Stretch" />
                         </Grid>
                     </StackPanel>
 

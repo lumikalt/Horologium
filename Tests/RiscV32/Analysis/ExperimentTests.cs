@@ -117,6 +117,74 @@ public class ExperimentTests {
         Assert.Equal(0, dMem.CacheCapacityBytes); // no DCache configured
     }
 
+    // ── CacheHardwareConfig richer knobs (bank/port/sector/victim-cache/inclusion) ────
+
+    [Fact]
+    public void CacheHardwareConfig_RicherKnobs_RoundTrip() {
+        var cfg = new TrainConfig(
+            ICache: new CacheHardwareConfig(
+                4096, 2, 64, 8,
+                BankCount: 4, ReadPorts: 2, WritePorts: 1, SectorBytes: 16,
+                VictimCacheEntries: 4, VictimCacheHitLatency: 3
+            ),
+            L2Cache: new CacheHardwareConfig(65536, InclusionPolicy: InclusionPolicyKind.Inclusive)
+        );
+        string json = cfg.ToJson();
+        TrainConfig result = TrainConfig.FromJson(json);
+
+        Assert.NotNull(result.ICache);
+        Assert.Equal(4, result.ICache.BankCount);
+        Assert.Equal(2, result.ICache.ReadPorts);
+        Assert.Equal(1, result.ICache.WritePorts);
+        Assert.Equal(16, result.ICache.SectorBytes);
+        Assert.Equal(4, result.ICache.VictimCacheEntries);
+        Assert.Equal(3, result.ICache.VictimCacheHitLatency);
+
+        Assert.NotNull(result.L2Cache);
+        Assert.Equal(InclusionPolicyKind.Inclusive, result.L2Cache.InclusionPolicy);
+    }
+
+    [Fact]
+    public void CacheHardwareConfig_RicherKnobs_ThreadThroughToMemoryConfigAndCache() {
+        // sectorBytes and victimCacheEntries are mutually exclusive on SetAssociativeCache itself
+        // (see its ctor), so bank/ports/victim-cache go on ICache and sector size goes on DCache.
+        var cfg = new TrainConfig(
+            ICache: new CacheHardwareConfig(
+                4096, 2, 64, 8,
+                BankCount: 4, ReadPorts: 2, WritePorts: 1, VictimCacheEntries: 4, VictimCacheHitLatency: 3
+            ),
+            DCache: new CacheHardwareConfig(4096, 2, 64, 8, SectorBytes: 16),
+            L2Cache: new CacheHardwareConfig(65536, InclusionPolicy: InclusionPolicyKind.Inclusive)
+        );
+
+        MemoryConfig iMem = cfg.ToIMemoryConfig();
+        Assert.Equal(4, iMem.CacheBankCount);
+        Assert.Equal(2, iMem.CacheReadPorts);
+        Assert.Equal(1, iMem.CacheWritePorts);
+        Assert.Equal(4, iMem.CacheVictimCacheEntries);
+        Assert.Equal(3, iMem.CacheVictimCacheHitLatency);
+        Assert.Equal(InclusionPolicyKind.Inclusive, iMem.L2InclusionPolicy);
+
+        MemoryConfig dMem = cfg.ToDMemoryConfig();
+        Assert.Equal(16, dMem.CacheSectorBytes);
+
+        // One hop further: confirm the values actually reach the constructed SetAssociativeCache,
+        // not just the MemoryConfig record (InclusionPolicy and VictimCacheHitLatency are private on
+        // the cache, so they aren't re-asserted here — the AttachInner-driven copy-down/eviction-
+        // handoff and victim-hit-latency behavior they control are already covered directly against
+        // SetAssociativeCache in Tests/Orrery/CacheTests.cs).
+        MemoryLayers iLayers = MemoryLayers.Build(new FlatMemory(0x10000), iMem);
+        Assert.NotNull(iLayers.Cache);
+        Assert.Equal(4, iLayers.Cache.BankCount);
+        Assert.Equal(2, iLayers.Cache.ReadPorts);
+        Assert.Equal(1, iLayers.Cache.WritePorts);
+        Assert.Equal(4, iLayers.Cache.VictimCacheEntries);
+
+        MemoryLayers dLayers = MemoryLayers.Build(new FlatMemory(0x10000), dMem);
+        Assert.NotNull(dLayers.Cache);
+        Assert.Equal(16, dLayers.Cache.SectorBytes);
+    }
+
     // ── NamedConfig JSON round-trips ──────────────────────────────────────────
 
     [Fact]
