@@ -333,41 +333,6 @@ public sealed class BullseyeBp : TageScLBp {
 
     private static sbyte Clamp(int v) => (sbyte)Math.Clamp(v, sbyte.MinValue, sbyte.MaxValue);
 
-    // ── Entry types ───────────────────────────────────────────────────────────
-
-    private sealed class HitEntry {
-        public uint Exec;
-        public uint LastTouch;
-        public uint Mispred;
-    }
-
-    private sealed class H2PEntry {
-        public readonly sbyte[] GlobalWeights = new sbyte[BullseyeBp.GlobalFoldBits];
-
-        public readonly sbyte[,] LocalWeightsA
-            = new sbyte[BullseyeBp.LocalWindowWidths.Length, BullseyeBp.LocalTableSize];
-
-        public readonly sbyte[,] LocalWeightsB
-            = new sbyte[BullseyeBp.LocalWindowWidths.Length, BullseyeBp.LocalTableSize];
-
-        public bool Filtered;
-        public uint FilterStreak;
-        public sbyte GlobalBias;
-        public int GlobalTc;
-        public int GlobalTheta = 8;
-        public uint GlobalTotal;
-        public uint GlobalWins;
-        public uint LastTouch;
-        public sbyte LocalBias;
-
-        public ulong LocalHistory;
-        public int LocalTc;
-        public int LocalTheta = 8;
-        public uint LocalTotal;
-        public uint LocalWins;
-        public uint TrialCount;
-    }
-
     /// <summary>
     ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>) plus the HIT/H2P dictionaries
     ///     and <see cref="_clock" />. <see cref="_clock" /> and the entries' <c>LastTouch</c> fields
@@ -455,5 +420,40 @@ public sealed class BullseyeBp : TageScLBp {
             e.FilterStreak = r.ReadUInt32();
             _h2P[pc] = e;
         }
+    }
+
+    // ── Entry types ───────────────────────────────────────────────────────────
+
+    private sealed class HitEntry {
+        public uint Exec;
+        public uint LastTouch;
+        public uint Mispred;
+    }
+
+    private sealed class H2PEntry {
+        public readonly sbyte[] GlobalWeights = new sbyte[BullseyeBp.GlobalFoldBits];
+
+        public readonly sbyte[,] LocalWeightsA
+            = new sbyte[BullseyeBp.LocalWindowWidths.Length, BullseyeBp.LocalTableSize];
+
+        public readonly sbyte[,] LocalWeightsB
+            = new sbyte[BullseyeBp.LocalWindowWidths.Length, BullseyeBp.LocalTableSize];
+
+        public bool Filtered;
+        public uint FilterStreak;
+        public sbyte GlobalBias;
+        public int GlobalTc;
+        public int GlobalTheta = 8;
+        public uint GlobalTotal;
+        public uint GlobalWins;
+        public uint LastTouch;
+        public sbyte LocalBias;
+
+        public ulong LocalHistory;
+        public int LocalTc;
+        public int LocalTheta = 8;
+        public uint LocalTotal;
+        public uint LocalWins;
+        public uint TrialCount;
     }
 }

@@ -157,8 +157,6 @@ public sealed class StrideVp : IValuePredictor {
     /// <inheritdoc />
     public void RecoverSpeculativeHistory() => Array.Clear(_inFlight);
 
-    private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
-
     /// <summary>
     ///     Serializes the trained (value, stride, confidence-FSM) table. Deliberately does not
     ///     serialize <see cref="_inFlight" />: it counts renamed-but-not-yet-committed occurrences
@@ -199,6 +197,8 @@ public sealed class StrideVp : IValuePredictor {
             if (i < n) _state[i] = st;
         }
     }
+
+    private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
 
     private enum State : byte {
         Init,

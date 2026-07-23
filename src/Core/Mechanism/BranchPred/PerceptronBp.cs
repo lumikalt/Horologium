@@ -66,35 +66,6 @@ public sealed class PerceptronBp : IBranchPredictor {
     /// <inheritdoc />
     public void RecoverSpeculativeHistory() => _hist.Recover();
 
-    // ── Internals ─────────────────────────────────────────────────────────────
-
-    private int DotProduct(ulong pc) {
-        sbyte[] w = _weights[TableIdx(pc)];
-        int y = w[0]; // bias
-        ulong ghr = _hist.Value;
-        for (var i = 0; i < _historyLength; i++) {
-            int xi = ((ghr >> i) & 1) == 1 ? 1 : -1;
-            y += w[i + 1] * xi;
-        }
-
-        return y;
-    }
-
-    private void Train(ulong pc, bool taken) {
-        sbyte[] w = _weights[TableIdx(pc)];
-        int t = taken ? 1 : -1;
-        w[0] = Clamp(w[0] + t);
-        ulong ghr = _hist.Value;
-        for (var i = 0; i < _historyLength; i++) {
-            int xi = ((ghr >> i) & 1) == 1 ? 1 : -1;
-            w[i + 1] = Clamp(w[i + 1] + t * xi);
-        }
-    }
-
-    private int TableIdx(ulong pc) => (int)((pc >> 2) & (ulong)_tableMask);
-
-    private static sbyte Clamp(int v) => (sbyte)Math.Clamp(v, sbyte.MinValue, sbyte.MaxValue);
-
     /// <summary>Serializes every per-PC weight vector, the BTB, and the speculative/committed history pair.</summary>
     public void WriteState(BinaryWriter w) {
         w.Write(_weights.Length);
@@ -135,4 +106,33 @@ public sealed class PerceptronBp : IBranchPredictor {
 
         _hist.ReadState(r);
     }
+
+    // ── Internals ─────────────────────────────────────────────────────────────
+
+    private int DotProduct(ulong pc) {
+        sbyte[] w = _weights[TableIdx(pc)];
+        int y = w[0]; // bias
+        ulong ghr = _hist.Value;
+        for (var i = 0; i < _historyLength; i++) {
+            int xi = ((ghr >> i) & 1) == 1 ? 1 : -1;
+            y += w[i + 1] * xi;
+        }
+
+        return y;
+    }
+
+    private void Train(ulong pc, bool taken) {
+        sbyte[] w = _weights[TableIdx(pc)];
+        int t = taken ? 1 : -1;
+        w[0] = Clamp(w[0] + t);
+        ulong ghr = _hist.Value;
+        for (var i = 0; i < _historyLength; i++) {
+            int xi = ((ghr >> i) & 1) == 1 ? 1 : -1;
+            w[i + 1] = Clamp(w[i + 1] + t * xi);
+        }
+    }
+
+    private int TableIdx(ulong pc) => (int)((pc >> 2) & (ulong)_tableMask);
+
+    private static sbyte Clamp(int v) => (sbyte)Math.Clamp(v, sbyte.MinValue, sbyte.MaxValue);
 }

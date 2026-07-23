@@ -394,7 +394,7 @@ public sealed record MemoryLayers(
             current = new UncacheableMemory(current, backing, cfg.UncacheableBase, cfg.UncacheableSize);
 
         IPrefetcher? prefetcher = l1 is not null
-            ? MemoryLayers.MakePrefetcher(
+            ? MakePrefetcher(
                 cfg.Prefetcher, cfg.PrefetcherFactory, cfg.CacheBlockBytes, cfg.PrefetcherTableSize, cfg.PrefetcherDepth
             )
             : null;
@@ -497,7 +497,7 @@ public sealed record MemoryLayers(
         // MemoryLayers.Prefetcher corresponds to allCaches[0] (the innermost cache = Cache).
         // TryPrefetch targets Cache, so only the innermost level's strategy is activated by the pipeline.
         IPrefetcher? prefetcher = allSpecs.Count > 0
-            ? MemoryLayers.MakePrefetcher(
+            ? MakePrefetcher(
                 allSpecs[0].Prefetcher, allSpecs[0].PrefetcherFactory, allSpecs[0].BlockBytes,
                 allSpecs[0].PrefetcherTableSize, allSpecs[0].PrefetcherDepth
             )

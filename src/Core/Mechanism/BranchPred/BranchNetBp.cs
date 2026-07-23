@@ -120,42 +120,6 @@ public sealed class BranchNetBp : IBranchPredictor {
     }
 
     /// <summary>
-    ///     Selects H2P branches from a completed <see cref="BranchProfiler" /> pass and trains
-    ///     one model per branch, returning the ready-to-use predictor. The profiler itself must
-    ///     be driven through a functional pre-pass (a <c>SingleCycleTrain</c> run) by the caller
-    ///     — <see cref="Mechanism" /> has no dependency on the pipeline/memory layer that requires,
-    ///     so that driving code lives at the config layer (mirroring how <c>TrueOracleConfig</c>
-    ///     drives <see cref="BranchTraceRecorder" />).
-    /// </summary>
-    public static BranchNetBp FromProfile(BranchProfiler profiler) {
-        List<ulong> h2P = profiler.Stats
-                                  .Where(kv => kv.Value.Occurrences >= BranchNetBp.MinOccurrences
-                                            && (double)kv.Value.Mispredicts / kv.Value.Occurrences
-                                            >= BranchNetBp.MinMispredictRate
-                                   )
-                                  .OrderByDescending(kv => kv.Value.Mispredicts)
-                                  .Take(BranchNetBp.MaxH2PBranches)
-                                  .Select(kv => kv.Key)
-                                  .ToList();
-
-        var rng = new Random(0);
-        var models = new Dictionary<ulong, BranchNetModel>();
-        foreach (ulong pc in h2P) {
-            List<(bool[] History, bool Taken)> samples = profiler.Samples[pc];
-            if (samples.Count < BranchNetBp.MinSamplesToTrain) continue;
-            models[pc] = BranchNetModel.Train(samples, rng);
-        }
-
-        return new BranchNetBp(models);
-    }
-
-    private static bool[] HistoryBits(ulong ghr) {
-        var bits = new bool[BranchNetBp.HistoryLength];
-        for (var i = 0; i < BranchNetBp.HistoryLength; i++) bits[i] = ((ghr >> i) & 1) != 0;
-        return bits;
-    }
-
-    /// <summary>
     ///     Serializes the continuously-trained TAGE-SC-L baseline (a composed field, not an
     ///     inherited one — <see cref="_baseline" />.WriteState is called explicitly, unlike the
     ///     TAGE-lineage subclasses' <c>base.WriteState</c>), BranchNet's own BTB, and its
@@ -194,6 +158,42 @@ public sealed class BranchNetBp : IBranchPredictor {
         _committedGhr = r.ReadUInt64();
         _ghr = r.ReadUInt64();
         _speculative = r.ReadBoolean();
+    }
+
+    /// <summary>
+    ///     Selects H2P branches from a completed <see cref="BranchProfiler" /> pass and trains
+    ///     one model per branch, returning the ready-to-use predictor. The profiler itself must
+    ///     be driven through a functional pre-pass (a <c>SingleCycleTrain</c> run) by the caller
+    ///     — <see cref="Mechanism" /> has no dependency on the pipeline/memory layer that requires,
+    ///     so that driving code lives at the config layer (mirroring how <c>TrueOracleConfig</c>
+    ///     drives <see cref="BranchTraceRecorder" />).
+    /// </summary>
+    public static BranchNetBp FromProfile(BranchProfiler profiler) {
+        List<ulong> h2P = profiler.Stats
+                                  .Where(kv => kv.Value.Occurrences >= BranchNetBp.MinOccurrences
+                                            && (double)kv.Value.Mispredicts / kv.Value.Occurrences
+                                            >= BranchNetBp.MinMispredictRate
+                                   )
+                                  .OrderByDescending(kv => kv.Value.Mispredicts)
+                                  .Take(BranchNetBp.MaxH2PBranches)
+                                  .Select(kv => kv.Key)
+                                  .ToList();
+
+        var rng = new Random(0);
+        var models = new Dictionary<ulong, BranchNetModel>();
+        foreach (ulong pc in h2P) {
+            List<(bool[] History, bool Taken)> samples = profiler.Samples[pc];
+            if (samples.Count < BranchNetBp.MinSamplesToTrain) continue;
+            models[pc] = BranchNetModel.Train(samples, rng);
+        }
+
+        return new BranchNetBp(models);
+    }
+
+    private static bool[] HistoryBits(ulong ghr) {
+        var bits = new bool[BranchNetBp.HistoryLength];
+        for (var i = 0; i < BranchNetBp.HistoryLength; i++) bits[i] = ((ghr >> i) & 1) != 0;
+        return bits;
     }
 
     internal sealed class BranchStats {

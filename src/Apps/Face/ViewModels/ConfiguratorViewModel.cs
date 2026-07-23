@@ -82,6 +82,13 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
 
     public string StatusLine => ScriptFileName is { } name ? $"{StatusText} — {name}" : StatusText;
 
+    public void Dispose() {
+        _rebuildCts?.Cancel();
+        _runCts?.Cancel();
+        _watcherDebounce?.Dispose();
+        _watcher?.Dispose();
+    }
+
     partial void OnSelectedPresetChanged(WorkloadPreset value) => _ = RebuildAsync();
 
     partial void OnWorkloadPathChanged(string? value) => _ = RebuildAsync();
@@ -93,7 +100,10 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
         SelectedPreset = WorkloadPresets.First(p => p.ElfFileName == "");
     }
 
-    /// <summary>Points hot-reload at a backing file: writes the current buffer there and starts watching it for external edits.</summary>
+    /// <summary>
+    ///     Points hot-reload at a backing file: writes the current buffer there and starts watching it for external
+    ///     edits.
+    /// </summary>
     public async Task SetScriptFilePathAsync(string path) {
         await File.WriteAllTextAsync(path, ScriptText);
         ScriptFilePath = path;
@@ -128,6 +138,7 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
         if (ScriptFilePath is not { } path || !File.Exists(path)) return;
         try { ScriptText = await File.ReadAllTextAsync(path); }
         catch (IOException) { return; } // file mid-write; the next Changed event will retry
+
         await RebuildAsync();
     }
 
@@ -227,17 +238,11 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
         if (stats.L3Hits is { } l3H) Stats.Add(new StatRow("L3 hits / misses", $"{l3H:N0} / {stats.L3Misses:N0}"));
         if (stats.TlbHits is { } tH) Stats.Add(new StatRow("TLB hits / misses", $"{tH:N0} / {stats.TlbMisses:N0}"));
         foreach (DialBoardSnapshot snap in stats.Dials) {
-            foreach ((string key, long value) in snap.Counters) Stats.Add(new StatRow($"{snap.OwnerPath}.{key}", $"{value:N0}"));
+            foreach ((string key, long value) in snap.Counters)
+                Stats.Add(new StatRow($"{snap.OwnerPath}.{key}", $"{value:N0}"));
             foreach ((string key, double value) in snap.Dials)
                 if (value != 0.0)
                     Stats.Add(new StatRow($"{snap.OwnerPath}.{key}", value.ToString("G4")));
         }
-    }
-
-    public void Dispose() {
-        _rebuildCts?.Cancel();
-        _runCts?.Cancel();
-        _watcherDebounce?.Dispose();
-        _watcher?.Dispose();
     }
 }

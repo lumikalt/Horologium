@@ -75,6 +75,7 @@ public sealed class MicroarchitecturalCheckpoint {
         foreach ((string tag, Action<BinaryWriter> write) in sections) {
             using var sectionMs = new MemoryStream();
             using (var sectionW = new BinaryWriter(sectionMs, Encoding.UTF8, true)) { write(sectionW); }
+
             byte[] blob = sectionMs.ToArray();
 
             w.Write(tag);

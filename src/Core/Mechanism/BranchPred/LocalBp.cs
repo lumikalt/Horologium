@@ -46,8 +46,6 @@ public sealed class NBitBp : IBranchPredictor {
         }
     }
 
-    private int Index(ulong pc) => (int)((pc >> 2) % (ulong)_counters.Length);
-
     /// <inheritdoc />
     public void WriteState(BinaryWriter w) {
         w.Write(_counters.Length);
@@ -66,4 +64,6 @@ public sealed class NBitBp : IBranchPredictor {
             if (i < _btb.Length) _btb[i] = target;
         }
     }
+
+    private int Index(ulong pc) => (int)((pc >> 2) % (ulong)_counters.Length);
 }

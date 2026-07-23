@@ -39,16 +39,16 @@ string? simpointArgvRaw = null; // --simpoint-argv "<args>": opts --simpoint/--s
 // compiled binary. Value is space-separated argv entries after
 // argv[0] (the ELF's file name); pass "" for none. Requires an ELF
 // workload (not the built-in demo).
-string? scriptPath = null;         // --script <file.csx>: evaluate script → MachineSpec → run
-string? checkpointSavePath = null; // --checkpoint-save <path>: save arch checkpoint after run
-string? checkpointLoadPath = null; // --checkpoint-load <path>: restore arch checkpoint before run
+string? scriptPath = null;              // --script <file.csx>: evaluate script → MachineSpec → run
+string? checkpointSavePath = null;      // --checkpoint-save <path>: save arch checkpoint after run
+string? checkpointLoadPath = null;      // --checkpoint-load <path>: restore arch checkpoint before run
 string? checkpointSaveMicroPath = null; // --checkpoint-save-micro <path>: save micro checkpoint after run
 string? checkpointLoadMicroPath = null; // --checkpoint-load-micro <path>: restore micro checkpoint before run
-string? roiStartSymbol = null;     // --roi-start <symbol>: fast-forward to this ELF symbol, then measure
-string? roiEndSymbol = null;       // --roi-end <symbol>: stop measuring when PC reaches this symbol
-string? elasticRecordPath = null;  // --elastic-record <path>: record DDG trace and exit
-string? elasticReplayPath = null;  // --elastic-replay <path>: replay DDG trace and print IPC
-string? elasticToGem5In = null;    // --elastic-to-gem5 <in> <out>: translate HELF → gem5 inst_dep_record proto
+string? roiStartSymbol = null;          // --roi-start <symbol>: fast-forward to this ELF symbol, then measure
+string? roiEndSymbol = null;            // --roi-end <symbol>: stop measuring when PC reaches this symbol
+string? elasticRecordPath = null;       // --elastic-record <path>: record DDG trace and exit
+string? elasticReplayPath = null;       // --elastic-replay <path>: replay DDG trace and print IPC
+string? elasticToGem5In = null;         // --elastic-to-gem5 <in> <out>: translate HELF → gem5 inst_dep_record proto
 string? elasticToGem5Out = null;
 string? fetchToGem5In = null; // --fetch-to-gem5 <in> <out>: translate HELF → gem5 packet (fetch) proto
 string? fetchToGem5Out = null;
@@ -79,19 +79,19 @@ for (var i = 0; i < args.Length; i++)
         case "--snapshot-interval":
             snapshotInterval = args[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(args[++i]);
             break;
-        case "--format":          format = args[++i]; break;
-        case "--trace-json":      traceJsonPath = args[++i]; break;
-        case "--simpoint":        simpointInterval = long.Parse(args[++i]); break;
-        case "--simpoint-warmup": simpointWarmup = long.Parse(args[++i]); break;
-        case "--simpoint-argv":   simpointArgvRaw = args[++i]; break;
-        case "--checkpoint-save": checkpointSavePath = args[++i]; break;
-        case "--checkpoint-load": checkpointLoadPath = args[++i]; break;
+        case "--format":                format = args[++i]; break;
+        case "--trace-json":            traceJsonPath = args[++i]; break;
+        case "--simpoint":              simpointInterval = long.Parse(args[++i]); break;
+        case "--simpoint-warmup":       simpointWarmup = long.Parse(args[++i]); break;
+        case "--simpoint-argv":         simpointArgvRaw = args[++i]; break;
+        case "--checkpoint-save":       checkpointSavePath = args[++i]; break;
+        case "--checkpoint-load":       checkpointLoadPath = args[++i]; break;
         case "--checkpoint-save-micro": checkpointSaveMicroPath = args[++i]; break;
         case "--checkpoint-load-micro": checkpointLoadMicroPath = args[++i]; break;
-        case "--roi-start":       roiStartSymbol = args[++i]; break;
-        case "--roi-end":         roiEndSymbol = args[++i]; break;
-        case "--elastic-record":  elasticRecordPath = args[++i]; break;
-        case "--elastic-replay":  elasticReplayPath = args[++i]; break;
+        case "--roi-start":             roiStartSymbol = args[++i]; break;
+        case "--roi-end":               roiEndSymbol = args[++i]; break;
+        case "--elastic-record":        elasticRecordPath = args[++i]; break;
+        case "--elastic-replay":        elasticReplayPath = args[++i]; break;
         case "--elastic-to-gem5":
             elasticToGem5In = args[++i];
             elasticToGem5Out = args[++i];
@@ -406,14 +406,15 @@ if (simpointInterval > 0) {
             // unlike the five_stage/ooo branch below), which predates and is independent of whether
             // ToPipelineSpec itself handles "single_cycle" correctly.
             ISteppableTrain DetailedFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) {
-                if (cfg.Pipeline == "single_cycle") return new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
+                if (cfg.Pipeline == "single_cycle")
+                    return new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
 
                 MemoryConfig dCfg = cfg.ToDMemoryConfig();
                 if (spWorkload.MmioRegion is { } r)
                     dCfg = dCfg with { UncacheableBase = r.Base, UncacheableSize = r.Size, };
 
-                return cfg.ToPipelineSpec(mech, spWorkload, commitObserver: counter)
-                    .Build(mech, mem, entry, cfg.ToIMemoryConfig(), dCfg);
+                return cfg.ToPipelineSpec(mech, spWorkload, counter)
+                          .Build(mech, mem, entry, cfg.ToIMemoryConfig(), dCfg);
             }
 
             SimPointCheckpointResult spResult = Experiment.MeasureSimPointCheckpoints(
@@ -714,9 +715,7 @@ if (scriptPath is not null) {
         // already halted — nothing left to drain, and Drain() correctly refuses. Not a bug, just
         // this trigger's own limit: --checkpoint-save-micro captures the mid-run state at
         // whatever point the run stopped, not a synthesized end-of-program snapshot.
-        try {
-            oooTrain.Drain();
-        }
+        try { oooTrain.Drain(); }
         catch (InvalidOperationException ex) {
             Console.Error.WriteLine($"--checkpoint-save-micro: could not drain the pipeline — {ex.Message}");
             return;

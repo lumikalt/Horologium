@@ -210,7 +210,6 @@ public enum UveRegKind {
 public sealed class UveStoreStream {
     private long[] _baseCounts = [];
     private long[] _baseStrides = [];
-    private bool _done;
     private long[] _offsets = [];
     public ulong BaseAddress;
     public StreamDimension[] Dimensions = [];
@@ -218,7 +217,7 @@ public sealed class UveStoreStream {
     public long[] Indices = [];
     public StreamModifier[]? Modifiers;
 
-    public bool IsExhausted => _done;
+    public bool IsExhausted { get; private set; }
 
     public ulong CurrentAddress {
         get {
@@ -229,7 +228,7 @@ public sealed class UveStoreStream {
     }
 
     public void Initialize() {
-        _done = false;
+        IsExhausted = false;
         _baseCounts = new long[Dimensions.Length];
         _baseStrides = new long[Dimensions.Length];
         for (var i = 0; i < Dimensions.Length; i++) {
@@ -248,7 +247,7 @@ public sealed class UveStoreStream {
             ResetModifiers(d - 1);
             ApplyModifiers(d);
             if (d == Dimensions.Length - 1) {
-                _done = true;
+                IsExhausted = true;
                 return;
             }
         }
@@ -270,9 +269,7 @@ public sealed class UveStoreStream {
                 case StreamModifierTarget.Stride:
                     Dimensions[t] = Dimensions[t] with { Stride = Dimensions[t].Stride + delta, };
                     break;
-                case StreamModifierTarget.Offset:
-                    _offsets[t] = Math.Max(0, _offsets[t] + delta * ElementBytes);
-                    break;
+                case StreamModifierTarget.Offset: _offsets[t] = Math.Max(0, _offsets[t] + delta * ElementBytes); break;
             }
         }
     }

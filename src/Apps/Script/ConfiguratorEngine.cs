@@ -37,7 +37,10 @@ public sealed record ConfiguratorStats(
 ///     so a caller mid-edit can keep the previous good <see cref="MachineHandle" /> running.
 /// </summary>
 public static class ConfiguratorEngine {
-    /// <summary>Evaluates <paramref name="scriptSource" /> and builds the machine it describes against <paramref name="workload" />.</summary>
+    /// <summary>
+    ///     Evaluates <paramref name="scriptSource" /> and builds the machine it describes against
+    ///     <paramref name="workload" />.
+    /// </summary>
     public static async Task<ConfiguratorBuildResult> BuildAsync(
         string scriptSource,
         IWorkload workload,

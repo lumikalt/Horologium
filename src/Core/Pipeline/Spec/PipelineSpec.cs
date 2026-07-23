@@ -160,7 +160,7 @@ public sealed record SuperscalarSpec(
         IMemory? fdipBackingMemory = null
     ) => new SuperscalarTrain(
         mechanism, iLayers, dLayers, entryPoint, IssueWidth,
-        BranchPredictorFactory?.Invoke(), PEventLog, fuLatency: FuLatency, frontendDepth: FrontendDepth
+        BranchPredictorFactory?.Invoke(), PEventLog, FuLatency, FrontendDepth
     );
 }
 
@@ -239,9 +239,9 @@ public sealed record OutOfOrderSpec(
         CommitObserver,
         LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity,
         FlatIq,
-        fdipFtqCapacity: FdipFtqCapacity,
-        rdip: Rdip,
-        enableStoreSets: EnableStoreSets,
+        FdipFtqCapacity,
+        Rdip,
+        EnableStoreSets,
         fdipBackingMemory: fdipBackingMemory
     );
 
@@ -262,9 +262,9 @@ public sealed record OutOfOrderSpec(
         CommitObserver,
         LqCapacity, SqCapacity, WriteBufferCapacity, MshrCapacity,
         FlatIq,
-        fdipFtqCapacity: FdipFtqCapacity,
-        rdip: Rdip,
-        enableStoreSets: EnableStoreSets,
+        FdipFtqCapacity,
+        Rdip,
+        EnableStoreSets,
         fdipBackingMemory: fdipBackingMemory
     );
 }

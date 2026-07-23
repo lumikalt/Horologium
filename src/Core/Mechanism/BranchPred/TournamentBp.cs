@@ -142,46 +142,6 @@ public sealed class TournamentBp : IBranchPredictor {
             _local.RestoreEntryAndFold(checkpoint.LocalIdx, checkpoint.LocalValue, actualTaken);
     }
 
-    // ── Local predictor ───────────────────────────────────────────────────────
-
-    private bool LocalPred(ulong pc) {
-        var phtIdx = (int)(_local.Value(BhtIdx(pc)) & (ulong)_localPhtMask);
-        return _localPht[phtIdx] >= 4;
-    }
-
-    // Trains the local PHT against the (committed) local history; the history shift is
-    // handled by the enclosing _local.Commit in Update.
-    private void UpdateLocalPht(int bhtIdx, bool taken) {
-        var phtIdx = (int)(_local.Value(bhtIdx) & (ulong)_localPhtMask);
-        switch (taken) {
-            case true when _localPht[phtIdx] < 7:  _localPht[phtIdx]++; break;
-            case false when _localPht[phtIdx] > 0: _localPht[phtIdx]--; break;
-        }
-    }
-
-    // ── Global predictor (gshare) ─────────────────────────────────────────────
-
-    private bool GlobalPred(ulong pc) => _globalPht[GlobalIdx(pc)] >= 2;
-
-    private void UpdateGlobal(ulong pc, bool taken) {
-        int idx = GlobalIdx(pc);
-        switch (taken) {
-            case true when _globalPht[idx] < 3:  _globalPht[idx]++; break;
-            case false when _globalPht[idx] > 0: _globalPht[idx]--; break;
-        }
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private bool PreferGlobal(ulong _) => _chooser[ChooserIdx()] >= 2;
-
-    private int BhtIdx(ulong pc) => (int)((pc >> 2) & (ulong)_bhtMask);
-
-    private int GlobalIdx(ulong pc) =>
-        (int)((_hist.Value ^ (pc >> 2)) & (ulong)_globalPhtMask);
-
-    private int ChooserIdx() => (int)(_hist.Value & (ulong)_chooserMask);
-
     /// <summary>
     ///     Serializes the local/global PHTs, the chooser, the BTB, and both history components
     ///     (global via <see cref="SpeculativeGlobalHistory.WriteState" />, local via
@@ -222,6 +182,46 @@ public sealed class TournamentBp : IBranchPredictor {
         _hist.ReadState(r);
         _local.ReadState(r);
     }
+
+    // ── Local predictor ───────────────────────────────────────────────────────
+
+    private bool LocalPred(ulong pc) {
+        var phtIdx = (int)(_local.Value(BhtIdx(pc)) & (ulong)_localPhtMask);
+        return _localPht[phtIdx] >= 4;
+    }
+
+    // Trains the local PHT against the (committed) local history; the history shift is
+    // handled by the enclosing _local.Commit in Update.
+    private void UpdateLocalPht(int bhtIdx, bool taken) {
+        var phtIdx = (int)(_local.Value(bhtIdx) & (ulong)_localPhtMask);
+        switch (taken) {
+            case true when _localPht[phtIdx] < 7:  _localPht[phtIdx]++; break;
+            case false when _localPht[phtIdx] > 0: _localPht[phtIdx]--; break;
+        }
+    }
+
+    // ── Global predictor (gshare) ─────────────────────────────────────────────
+
+    private bool GlobalPred(ulong pc) => _globalPht[GlobalIdx(pc)] >= 2;
+
+    private void UpdateGlobal(ulong pc, bool taken) {
+        int idx = GlobalIdx(pc);
+        switch (taken) {
+            case true when _globalPht[idx] < 3:  _globalPht[idx]++; break;
+            case false when _globalPht[idx] > 0: _globalPht[idx]--; break;
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private bool PreferGlobal(ulong _) => _chooser[ChooserIdx()] >= 2;
+
+    private int BhtIdx(ulong pc) => (int)((pc >> 2) & (ulong)_bhtMask);
+
+    private int GlobalIdx(ulong pc) =>
+        (int)((_hist.Value ^ (pc >> 2)) & (ulong)_globalPhtMask);
+
+    private int ChooserIdx() => (int)(_hist.Value & (ulong)_chooserMask);
 
     private static void ReadTable(BinaryReader r, byte[] table) {
         int size = r.ReadInt32();

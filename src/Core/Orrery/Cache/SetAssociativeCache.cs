@@ -1456,23 +1456,23 @@ public sealed class SetAssociativeCache : IMemory {
         w.Write(BlockBytes);
 
         for (var s = 0; s < sets; s++)
-            for (var wy = 0; wy < Ways; wy++) {
-                ulong? tag = _tags[s][wy];
-                w.Write(tag.HasValue);
-                if (tag.HasValue) w.Write(tag.Value);
-                w.Write(_blocks[s][wy]);
-                w.Write(_dirty?[s][wy] ?? false);
-            }
+        for (var wy = 0; wy < Ways; wy++) {
+            ulong? tag = _tags[s][wy];
+            w.Write(tag.HasValue);
+            if (tag.HasValue) w.Write(tag.Value);
+            w.Write(_blocks[s][wy]);
+            w.Write(_dirty?[s][wy] ?? false);
+        }
 
         bool sectored = _sectorValid != null;
         w.Write(sectored);
         if (sectored)
             for (var s = 0; s < sets; s++)
-                for (var wy = 0; wy < Ways; wy++)
-                    for (var sec = 0; sec < _sectorsPerLine; sec++) {
-                        w.Write(_sectorValid![s][wy][sec]);
-                        w.Write(_sectorDirty?[s][wy][sec] ?? false);
-                    }
+            for (var wy = 0; wy < Ways; wy++)
+            for (var sec = 0; sec < _sectorsPerLine; sec++) {
+                w.Write(_sectorValid![s][wy][sec]);
+                w.Write(_sectorDirty?[s][wy][sec] ?? false);
+            }
 
         using var policyMs = new MemoryStream();
         using (var policyW = new BinaryWriter(policyMs, Encoding.UTF8, true)) {
@@ -1506,26 +1506,26 @@ public sealed class SetAssociativeCache : IMemory {
             );
 
         for (var s = 0; s < sets; s++)
-            for (var wy = 0; wy < ways; wy++) {
-                bool hasTag = r.ReadBoolean();
-                ulong tag = hasTag ? r.ReadUInt64() : 0;
-                _tags[s][wy] = hasTag ? tag : null;
-                byte[] block = r.ReadBytes(blockBytes);
-                Buffer.BlockCopy(block, 0, _blocks[s][wy], 0, blockBytes);
-                bool dirty = r.ReadBoolean();
-                if (_dirty != null) _dirty[s][wy] = dirty;
-            }
+        for (var wy = 0; wy < ways; wy++) {
+            bool hasTag = r.ReadBoolean();
+            ulong tag = hasTag ? r.ReadUInt64() : 0;
+            _tags[s][wy] = hasTag ? tag : null;
+            byte[] block = r.ReadBytes(blockBytes);
+            Buffer.BlockCopy(block, 0, _blocks[s][wy], 0, blockBytes);
+            bool dirty = r.ReadBoolean();
+            if (_dirty != null) _dirty[s][wy] = dirty;
+        }
 
         bool sectored = r.ReadBoolean();
         if (sectored)
             for (var s = 0; s < sets; s++)
-                for (var wy = 0; wy < ways; wy++)
-                    for (var sec = 0; sec < _sectorsPerLine; sec++) {
-                        bool valid = r.ReadBoolean();
-                        bool dirty = r.ReadBoolean();
-                        if (_sectorValid != null) _sectorValid[s][wy][sec] = valid;
-                        if (_sectorDirty != null) _sectorDirty[s][wy][sec] = dirty;
-                    }
+            for (var wy = 0; wy < ways; wy++)
+            for (var sec = 0; sec < _sectorsPerLine; sec++) {
+                bool valid = r.ReadBoolean();
+                bool dirty = r.ReadBoolean();
+                if (_sectorValid != null) _sectorValid[s][wy][sec] = valid;
+                if (_sectorDirty != null) _sectorDirty[s][wy][sec] = dirty;
+            }
 
         int policyBlobLen = r.ReadInt32();
         if (policyBlobLen > 0) {

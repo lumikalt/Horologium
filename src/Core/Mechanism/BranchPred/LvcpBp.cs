@@ -100,6 +100,64 @@ public sealed class LvcpBp : TageScLBp, IValueAwareBp {
         if (_ltqCount < LvcpBp.LtqCapacity) _ltqCount++;
     }
 
+    /// <summary>
+    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>), the H2P Branch Table, the
+    ///     Load Tracking Queue, the correlation table, and the self-referential HBT decay clock.
+    ///     Deliberately does not serialize the Predict→Update transient fields
+    ///     (<see cref="_havePredicted" />/<see cref="_lastBaselinePred" />/<see cref="_lastPredictedPc" />)
+    ///     — consumed once per branch, same pattern as <c>LlbpBp</c>'s analogous fields — or
+    ///     <see cref="LvcpOverrides" />, a pure inspection statistic.
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+
+        foreach (HbtEntry[] set in _hbt)
+        foreach (HbtEntry e in set) {
+            w.Write(e.Tag);
+            w.Write(e.Ctr);
+            w.Write(e.Valid);
+        }
+
+        w.Write(_hbtDecayClock);
+
+        foreach ((ulong pc, ulong value) in _ltq) {
+            w.Write(pc);
+            w.Write(value);
+        }
+
+        w.Write(_ltqHead);
+        w.Write(_ltqCount);
+
+        foreach (CorrEntry e in _corr) {
+            w.Write(e.Tag);
+            w.Write(e.Valid);
+            w.Write(e.Dir);
+            w.Write(e.Conf);
+            w.Write(e.DirChanged);
+        }
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+
+        foreach (HbtEntry[] set in _hbt)
+            for (var w = 0; w < set.Length; w++)
+                set[w] = new HbtEntry { Tag = r.ReadByte(), Ctr = r.ReadByte(), Valid = r.ReadBoolean(), };
+
+        _hbtDecayClock = r.ReadInt32();
+
+        for (var i = 0; i < _ltq.Length; i++) _ltq[i] = (r.ReadUInt64(), r.ReadUInt64());
+        _ltqHead = r.ReadInt32();
+        _ltqCount = r.ReadInt32();
+
+        for (var i = 0; i < _corr.Length; i++)
+            _corr[i] = new CorrEntry {
+                Tag = r.ReadUInt16(), Valid = r.ReadBoolean(), Dir = r.ReadBoolean(), Conf = r.ReadByte(),
+                DirChanged = r.ReadBoolean(),
+            };
+    }
+
     // ── IBranchPredictor overrides ────────────────────────────────────────────
 
     /// <inheritdoc />
@@ -257,63 +315,5 @@ public sealed class LvcpBp : TageScLBp, IValueAwareBp {
         public bool Dir;
         public byte Conf;
         public bool DirChanged;
-    }
-
-    /// <summary>
-    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>), the H2P Branch Table, the
-    ///     Load Tracking Queue, the correlation table, and the self-referential HBT decay clock.
-    ///     Deliberately does not serialize the Predict→Update transient fields
-    ///     (<see cref="_havePredicted" />/<see cref="_lastBaselinePred" />/<see cref="_lastPredictedPc" />)
-    ///     — consumed once per branch, same pattern as <c>LlbpBp</c>'s analogous fields — or
-    ///     <see cref="LvcpOverrides" />, a pure inspection statistic.
-    /// </summary>
-    public override void WriteState(BinaryWriter w) {
-        base.WriteState(w);
-
-        foreach (HbtEntry[] set in _hbt)
-        foreach (HbtEntry e in set) {
-            w.Write(e.Tag);
-            w.Write(e.Ctr);
-            w.Write(e.Valid);
-        }
-
-        w.Write(_hbtDecayClock);
-
-        foreach ((ulong pc, ulong value) in _ltq) {
-            w.Write(pc);
-            w.Write(value);
-        }
-
-        w.Write(_ltqHead);
-        w.Write(_ltqCount);
-
-        foreach (CorrEntry e in _corr) {
-            w.Write(e.Tag);
-            w.Write(e.Valid);
-            w.Write(e.Dir);
-            w.Write(e.Conf);
-            w.Write(e.DirChanged);
-        }
-    }
-
-    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
-    public override void ReadState(BinaryReader r) {
-        base.ReadState(r);
-
-        foreach (HbtEntry[] set in _hbt)
-        for (var w = 0; w < set.Length; w++)
-            set[w] = new HbtEntry { Tag = r.ReadByte(), Ctr = r.ReadByte(), Valid = r.ReadBoolean(), };
-
-        _hbtDecayClock = r.ReadInt32();
-
-        for (var i = 0; i < _ltq.Length; i++) _ltq[i] = (r.ReadUInt64(), r.ReadUInt64());
-        _ltqHead = r.ReadInt32();
-        _ltqCount = r.ReadInt32();
-
-        for (var i = 0; i < _corr.Length; i++)
-            _corr[i] = new CorrEntry {
-                Tag = r.ReadUInt16(), Valid = r.ReadBoolean(), Dir = r.ReadBoolean(), Conf = r.ReadByte(),
-                DirChanged = r.ReadBoolean(),
-            };
     }
 }

@@ -430,7 +430,7 @@ public class UveTests {
         float written = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(0, 4));
         Assert.Equal(7.0f, written, 4);
         Assert.Equal(4UL, state.UveState.StoreStreams[3]!.CurrentAddress); // cursor advanced to next element
-        Assert.Equal(UveRegKind.StoreStream, state.UveState.RegKind[3]); // still a store stream, not downgraded
+        Assert.Equal(UveRegKind.StoreStream, state.UveState.RegKind[3]);   // still a store stream, not downgraded
     }
 
     [Fact]
@@ -1302,7 +1302,7 @@ public class UveTests {
         const ulong code = 0x1000;
         var words = new List<uint> {
             Addi(1, 0, (int)destBase), Addi(2, 0, n), Addi(3, 0, 1),
-            Lui(4, (int)(BitConverter.SingleToInt32Bits(7.0f) >> 12)), // x4 = bits(7.0f)
+            Lui(4, BitConverter.SingleToInt32Bits(7.0f) >> 12), // x4 = bits(7.0f)
 
             SsStaStW(1, 1), SsEnd(1, 0, 2, 3), // u1 = store stream: count=n, stride=1 elem
             SoVDpW(2, 4),                      // u2 = 7.0f broadcast
@@ -1339,14 +1339,14 @@ public class UveTests {
     ///     store-stream-modifier mechanism survives the tightest possible write+branch loop shape, not
     ///     just the more spaced-out instruction sequences <c>covariance</c> happens to use.
     ///     <para>
-    ///     An earlier version of this test asserted against consecutive flat addresses
-    ///     (<c>destBase + i*4</c> for <c>i</c> in <c>0..expectedCount</c>) and appeared to fail with
-    ///     nothing written at all. <c>Console.Error</c> tracing at the write site (temporary, removed
-    ///     after use) showed every write landing at the correct address with the correct value — the
-    ///     apparent failure was this test's own wrong expected-address assumption, not a pipeline bug:
-    ///     row <c>r</c> of a Size-Inc-modified stream only fills <c>r+1</c> of its <c>rows</c> slots, so
-    ///     the layout is sparse row-major, not compacted. The assertion below checks the full grid,
-    ///     including the legitimately-untouched cells.
+    ///         An earlier version of this test asserted against consecutive flat addresses
+    ///         (<c>destBase + i*4</c> for <c>i</c> in <c>0..expectedCount</c>) and appeared to fail with
+    ///         nothing written at all. <c>Console.Error</c> tracing at the write site (temporary, removed
+    ///         after use) showed every write landing at the correct address with the correct value — the
+    ///         apparent failure was this test's own wrong expected-address assumption, not a pipeline bug:
+    ///         row <c>r</c> of a Size-Inc-modified stream only fills <c>r+1</c> of its <c>rows</c> slots, so
+    ///         the layout is sparse row-major, not compacted. The assertion below checks the full grid,
+    ///         including the legitimately-untouched cells.
     ///     </para>
     /// </summary>
     [Fact]
@@ -1365,7 +1365,7 @@ public class UveTests {
         const ulong code = 0x1000;
         var words = new List<uint> {
             Addi(1, 0, (int)destBase), Addi(2, 0, rows), Addi(3, 0, rows), Addi(4, 0, 1), Addi(5, 0, 1),
-            Lui(6, (int)(BitConverter.SingleToInt32Bits(7.0f) >> 12)), // x6 = bits(7.0f)
+            Lui(6, BitConverter.SingleToInt32Bits(7.0f) >> 12), // x6 = bits(7.0f)
 
             // u1 = 2D store stream: D1(outer,"rows") count=rows stride=rows; D2(final, Size-Inc
             // modifier) count=1 stride=1 — the exact single variable changed from the sibling test
@@ -1389,7 +1389,8 @@ public class UveTests {
 
         for (var r = 0; r < rows; r++)
         for (var c = 0; c < rows; c++) {
-            float actual = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(destBase + (ulong)((r * rows + c) * 4), 4));
+            float actual
+                = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(destBase + (ulong)((r * rows + c) * 4), 4));
             Assert.Equal(c <= r ? 7.0f : -1f, actual, 2);
         }
 
@@ -1549,10 +1550,10 @@ public class UveTests {
             // .iLoop1:
             SoVDpW(5, 0), // u5 = 0.0 (accumulator reset)
             // .kloop1:
-            SoAFp(UveFpOp.Mac, 5, 2, 3), // u5 += u2 * u3
-            SoBNdcD(2, 1, -4),           // so.b.ndc.2 u2, .kloop1 (inner dim of the [N,L] shape)
+            SoAFp(UveFpOp.Mac, 5, 2, 3),   // u5 += u2 * u3
+            SoBNdcD(2, 1, -4),             // so.b.ndc.2 u2, .kloop1 (inner dim of the [N,L] shape)
             SoAFp(UveFpOp.Adde, 4, 5, -1), // out[i] = u5 (advances the store stream)
-            SoBNc(2, -16),               // so.b.nc u2, .iLoop1 (whole-stream not done)
+            SoBNc(2, -16),                 // so.b.nc u2, .iLoop1 (whole-stream not done)
             EBreak(),
         };
 
@@ -1645,7 +1646,7 @@ public class UveTests {
         var words = new List<uint> {
             Addi(1, 0, (int)aBase), Addi(2, 0, (int)aBase + 4), Addi(3, 0, (int)aBase + 8),
             Addi(4, 0, (int)bBase + 4), Addi(5, 0, size - 2), Addi(6, 0, 1),
-            Lui(7, (int)(BitConverter.SingleToInt32Bits(ct) >> 12)),
+            Lui(7, BitConverter.SingleToInt32Bits(ct) >> 12),
 
             SsStaLdW(1, 1), SsEnd(1, 0, 5, 6), // u1 = A[0..]
             SsStaLdW(2, 2), SsEnd(2, 0, 5, 6), // u2 = A[1..]
@@ -1817,12 +1818,12 @@ public class UveTests {
         for (var i = 1; i < size - 1; i++)
         for (var j = 1; j < size - 1; j++)
             bNew[i * size + j] = fval * (a[i * size + j] + a[i * size + j - 1] + a[i * size + j + 1]
-                                        + a[(i + 1) * size + j] + a[(i - 1) * size + j]);
+                                       + a[(i + 1) * size + j] + a[(i - 1) * size + j]);
         float[] aNew = a.ToArray();
         for (var i = 1; i < size - 1; i++)
         for (var j = 1; j < size - 1; j++)
             aNew[i * size + j] = fval * (bNew[i * size + j] + bNew[i * size + j - 1] + bNew[i * size + j + 1]
-                                        + bNew[(i + 1) * size + j] + bNew[(i - 1) * size + j]);
+                                       + bNew[(i + 1) * size + j] + bNew[(i - 1) * size + j]);
 
         const ulong aBase = 0x0000, bBase = 0x0200;
         var mem = new FlatMemory(0x2000);
@@ -1837,7 +1838,7 @@ public class UveTests {
             Addi(3, 0, (int)aBase + (size + 2) * 4), Addi(4, 0, (int)aBase + (2 * size + 1) * 4),
             Addi(5, 0, (int)aBase + 4), Addi(6, 0, (int)bBase + (size + 1) * 4),
             Addi(7, 0, size - 2), Addi(8, 0, size), Addi(9, 0, 1),
-            Lui(10, (int)(BitConverter.SingleToInt32Bits(fval) >> 12)),
+            Lui(10, BitConverter.SingleToInt32Bits(fval) >> 12),
 
             SsStaLdW(1, 1), SsApp(1, 0, 7, 8), SsEnd(1, 0, 7, 9),
             SsStaLdW(2, 2), SsApp(2, 0, 7, 8), SsEnd(2, 0, 7, 9),
@@ -1920,8 +1921,11 @@ public class UveTests {
         for (var j = 0; j < rowDelimiters[i]; j++)
             expectedOut[i] += val[i * k + j] * vec[cols[i * k + j]];
 
-        const ulong valBase = 0x0000, colsBase = 0x0100, rowDelimBase = 0x0200, vecBase = 0x0300,
-            outBase = 0x0400;
+        const ulong valBase = 0x0000,
+                    colsBase = 0x0100,
+                    rowDelimBase = 0x0200,
+                    vecBase = 0x0300,
+                    outBase = 0x0400;
         var mem = new FlatMemory(0x2000);
         for (var i = 0; i < val.Length; i++) mem.Load(valBase + (ulong)(i * 4), BitConverter.GetBytes(val[i]));
         for (var i = 0; i < cols.Length; i++) mem.Load(colsBase + (ulong)(i * 4), BitConverter.GetBytes(cols[i]));
@@ -2077,7 +2081,7 @@ public class UveTests {
         float[] bNew = b.ToArray();
         for (var i = 0; i < m; i++)
         for (var j = 0; j < n; j++)
-        for (var k = i + 1; k < m; k++)
+        for (int k = i + 1; k < m; k++)
             bNew[i * n + j] += a[k * m + i];
 
         const ulong aBase = 0x0000, bBase = 0x0100;
@@ -2107,8 +2111,8 @@ public class UveTests {
             // .SLOOP_1_0_0:
             SoAFp(UveFpOp.AddeAcc, 2, 3, -1), // u2 += u3
             SoBNdcD(3, 2, -4),                // so.b.ndc.3 u3, .SLOOP_1_0_0
-            SoAFp(UveFpOp.Add, 1, 2, 5),       // u1(store) = u2 + u5
-            SoBNc(3, -16),                     // so.b.nc u3, .SLOOP_1
+            SoAFp(UveFpOp.Add, 1, 2, 5),      // u1(store) = u2 + u5
+            SoBNc(3, -16),                    // so.b.nc u3, .SLOOP_1
 
             EBreak(),
         };
@@ -2162,7 +2166,7 @@ public class UveTests {
         var c = new float[n * n];
         for (var i = 0; i < n; i++)
         for (var j = 0; j < n; j++)
-            c[i * n + j] = 10 * (i + 1) + (j + 1);
+            c[i * n + j] = 10 * (i + 1) + j + 1;
         var a = new float[n * m];
         for (var i = 0; i < a.Length; i++) a[i] = i + 1;
 
@@ -2217,8 +2221,8 @@ public class UveTests {
             SoVDpW(8, 7), // u8 = broadcast alpha
 
             // .OUTER (index 37):
-            SoAFp(UveFpOp.Mul, 1, 2, 7),  // phase 1: C[i,j](store u1) = C[i,j](load u2) * beta
-            SoBNdcD(2, 1, -4),            // so.b.ndc.2 u2 (load) — loop while j not done
+            SoAFp(UveFpOp.Mul, 1, 2, 7), // phase 1: C[i,j](store u1) = C[i,j](load u2) * beta
+            SoBNdcD(2, 1, -4),           // so.b.ndc.2 u2 (load) — loop while j not done
 
             SoAFp(UveFpOp.Mul, 9, 6, 8),  // u9 = A[i,k] * alpha
             SoAFp(UveFpOp.Mul, 10, 9, 5), // u10 = u9 * A[j,k]
@@ -2377,8 +2381,15 @@ public class UveTests {
 
         // NOTE: all base addresses must stay within the 12-bit signed Addi immediate range
         // (-2048..2047) — 0x0800 (2048) would overflow and wrap to -2048.
-        const ulong aBase = 0x0000, v1Base = 0x0080, v2Base = 0x0100, kernelU1Base = 0x0180,
-            kernelU2Base = 0x0200, yBase = 0x0280, zBase = 0x0300, xBase = 0x0380, wBase = 0x0400;
+        const ulong aBase = 0x0000,
+                    v1Base = 0x0080,
+                    v2Base = 0x0100,
+                    kernelU1Base = 0x0180,
+                    kernelU2Base = 0x0200,
+                    yBase = 0x0280,
+                    zBase = 0x0300,
+                    xBase = 0x0380,
+                    wBase = 0x0400;
         var mem = new FlatMemory(0x4000);
         for (var i = 0; i < a.Length; i++) mem.Load(aBase + (ulong)(i * 4), BitConverter.GetBytes(a[i]));
         for (var i = 0; i < n; i++) mem.Load(v1Base + (ulong)(i * 4), BitConverter.GetBytes(kernelV1[i]));
@@ -2395,24 +2406,41 @@ public class UveTests {
         const ulong code = 0x1000;
         var words = new List<uint>();
 
-        words.Add(Addi(1, 0, (int)aBase)); words.Add(Addi(2, 0, (int)v2Base));
-        words.Add(Addi(3, 0, (int)kernelU2Base)); words.Add(Addi(4, 0, (int)v1Base));
-        words.Add(Addi(5, 0, (int)kernelU1Base)); words.Add(Addi(6, 0, n)); words.Add(Addi(7, 0, 1));
-        words.Add(Addi(8, 0, (int)yBase)); words.Add(Addi(9, 0, (int)xBase));
+        words.Add(Addi(1, 0, (int)aBase));
+        words.Add(Addi(2, 0, (int)v2Base));
+        words.Add(Addi(3, 0, (int)kernelU2Base));
+        words.Add(Addi(4, 0, (int)v1Base));
+        words.Add(Addi(5, 0, (int)kernelU1Base));
+        words.Add(Addi(6, 0, n));
+        words.Add(Addi(7, 0, 1));
+        words.Add(Addi(8, 0, (int)yBase));
+        words.Add(Addi(9, 0, (int)xBase));
         words.Add(Lui(10, BitConverter.SingleToInt32Bits(beta) >> 12));
         words.Add(Addi(11, 0, (int)zBase));
         words.Add(Lui(12, BitConverter.SingleToInt32Bits(alpha) >> 12));
         words.Add(Addi(13, 0, (int)wBase));
 
         // ── STAGE 1: A[i,j] += kernelU1[i]*v1[j] + kernelU2[i]*v2[j] ──
-        words.Add(SsStaStW(1, 1)); words.Add(SsApp(1, 0, 6, 6)); words.Add(SsEnd(1, 0, 6, 7));
-        words.Add(SsStaLdW(2, 2)); words.Add(SsApp(2, 0, 6, 0)); words.Add(SsEnd(2, 0, 6, 7));
-        words.Add(SsStaLdW(3, 3)); words.Add(SsApp(3, 0, 6, 7)); words.Add(SsEnd(3, 0, 6, 0));
-        words.Add(SsStaLdW(4, 4)); words.Add(SsApp(4, 0, 6, 0)); words.Add(SsEnd(4, 0, 6, 7));
-        words.Add(SsStaLdW(5, 5)); words.Add(SsApp(5, 0, 6, 7)); words.Add(SsEnd(5, 0, 6, 0));
-        words.Add(SsStaLdW(6, 1)); words.Add(SsApp(6, 0, 6, 6)); words.Add(SsEnd(6, 0, 6, 7));
+        words.Add(SsStaStW(1, 1));
+        words.Add(SsApp(1, 0, 6, 6));
+        words.Add(SsEnd(1, 0, 6, 7));
+        words.Add(SsStaLdW(2, 2));
+        words.Add(SsApp(2, 0, 6, 0));
+        words.Add(SsEnd(2, 0, 6, 7));
+        words.Add(SsStaLdW(3, 3));
+        words.Add(SsApp(3, 0, 6, 7));
+        words.Add(SsEnd(3, 0, 6, 0));
+        words.Add(SsStaLdW(4, 4));
+        words.Add(SsApp(4, 0, 6, 0));
+        words.Add(SsEnd(4, 0, 6, 7));
+        words.Add(SsStaLdW(5, 5));
+        words.Add(SsApp(5, 0, 6, 7));
+        words.Add(SsEnd(5, 0, 6, 0));
+        words.Add(SsStaLdW(6, 1));
+        words.Add(SsApp(6, 0, 6, 6));
+        words.Add(SsEnd(6, 0, 6, 7));
 
-        var loopStart1 = words.Count;
+        int loopStart1 = words.Count;
         words.Add(SoAFp(UveFpOp.Mul, 0, 5, 4));
         words.Add(SoAFp(UveFpOp.Add, 7, 6, 0));
         words.Add(SoAFp(UveFpOp.Mul, 0, 3, 2));
@@ -2420,15 +2448,21 @@ public class UveTests {
         words.Add(SoBNc(1, (loopStart1 - words.Count) * 4));
 
         // ── STAGE 2: x[i] += beta * A[j,i] * y[j] (transposed matvec + reduction over j) ──
-        words.Add(SsStaStW(1, 9)); words.Add(SsEnd(1, 0, 6, 7));
-        words.Add(SsStaLdW(2, 1)); words.Add(SsApp(2, 0, 6, 7)); words.Add(SsEnd(2, 0, 6, 6));
-        words.Add(SsStaLdW(3, 8)); words.Add(SsApp(3, 0, 6, 0)); words.Add(SsEnd(3, 0, 6, 7));
-        words.Add(SsStaLdW(4, 9)); words.Add(SsEnd(4, 0, 6, 7));
+        words.Add(SsStaStW(1, 9));
+        words.Add(SsEnd(1, 0, 6, 7));
+        words.Add(SsStaLdW(2, 1));
+        words.Add(SsApp(2, 0, 6, 7));
+        words.Add(SsEnd(2, 0, 6, 6));
+        words.Add(SsStaLdW(3, 8));
+        words.Add(SsApp(3, 0, 6, 0));
+        words.Add(SsEnd(3, 0, 6, 7));
+        words.Add(SsStaLdW(4, 9));
+        words.Add(SsEnd(4, 0, 6, 7));
         words.Add(SoVDpW(13, 10));
 
-        var outerStart2 = words.Count;
+        int outerStart2 = words.Count;
         words.Add(SoVDpW(11, 0));
-        var innerStart2 = words.Count;
+        int innerStart2 = words.Count;
         words.Add(SoAFp(UveFpOp.Mul, 12, 2, 13));
         words.Add(SoAFp(UveFpOp.Mul, 12, 12, 3));
         words.Add(SoAFp(UveFpOp.AddeAcc, 11, 12, -1));
@@ -2437,24 +2471,33 @@ public class UveTests {
         words.Add(SoBNc(1, (outerStart2 - words.Count) * 4));
 
         // ── STAGE 3: x[i] += z[i] ──
-        words.Add(SsStaStW(1, 9)); words.Add(SsEnd(1, 0, 6, 7));
-        words.Add(SsStaLdW(2, 11)); words.Add(SsEnd(2, 0, 6, 7));
-        words.Add(SsStaLdW(3, 9)); words.Add(SsEnd(3, 0, 6, 7));
+        words.Add(SsStaStW(1, 9));
+        words.Add(SsEnd(1, 0, 6, 7));
+        words.Add(SsStaLdW(2, 11));
+        words.Add(SsEnd(2, 0, 6, 7));
+        words.Add(SsStaLdW(3, 9));
+        words.Add(SsEnd(3, 0, 6, 7));
 
-        var loopStart3 = words.Count;
+        int loopStart3 = words.Count;
         words.Add(SoAFp(UveFpOp.Add, 1, 3, 2));
         words.Add(SoBNc(1, (loopStart3 - words.Count) * 4));
 
         // ── STAGE 4: w[i] += alpha * A[i,j] * x[j] (matvec + reduction over j) ──
-        words.Add(SsStaStW(1, 13)); words.Add(SsEnd(1, 0, 6, 7));
-        words.Add(SsStaLdW(2, 1)); words.Add(SsApp(2, 0, 6, 6)); words.Add(SsEnd(2, 0, 6, 7));
-        words.Add(SsStaLdW(3, 9)); words.Add(SsApp(3, 0, 6, 0)); words.Add(SsEnd(3, 0, 6, 7));
-        words.Add(SsStaLdW(4, 13)); words.Add(SsEnd(4, 0, 6, 7));
+        words.Add(SsStaStW(1, 13));
+        words.Add(SsEnd(1, 0, 6, 7));
+        words.Add(SsStaLdW(2, 1));
+        words.Add(SsApp(2, 0, 6, 6));
+        words.Add(SsEnd(2, 0, 6, 7));
+        words.Add(SsStaLdW(3, 9));
+        words.Add(SsApp(3, 0, 6, 0));
+        words.Add(SsEnd(3, 0, 6, 7));
+        words.Add(SsStaLdW(4, 13));
+        words.Add(SsEnd(4, 0, 6, 7));
         words.Add(SoVDpW(14, 12));
 
-        var outerStart4 = words.Count;
+        int outerStart4 = words.Count;
         words.Add(SoVDpW(11, 0));
-        var innerStart4 = words.Count;
+        int innerStart4 = words.Count;
         words.Add(SoAFp(UveFpOp.Mul, 12, 2, 14));
         words.Add(SoAFp(UveFpOp.Mul, 12, 12, 3));
         words.Add(SoAFp(UveFpOp.AddeAcc, 11, 12, -1));
@@ -2476,12 +2519,14 @@ public class UveTests {
             float actualA = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(aBase + (ulong)(i * 4), 4));
             Assert.Equal(aNew[i], actualA, 2);
         }
+
         // Checked directly (not just transitively via w below) so a stage 2/3 regression localizes to
         // "x wrong" instead of requiring back-tracing from a failing w assertion.
         for (var i = 0; i < n; i++) {
             float actualX = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(xBase + (ulong)(i * 4), 4));
             Assert.Equal(xNew[i], actualX, 2);
         }
+
         for (var i = 0; i < n; i++) {
             float actualW = BitConverter.Int32BitsToSingle((int)(uint)mem.Read(wBase + (ulong)(i * 4), 4));
             Assert.Equal(wNew[i], actualW, 2);
@@ -2539,7 +2584,7 @@ public class UveTests {
 
         var cov = new float[m * m];
         for (var i = 0; i < m; i++)
-        for (var j = i; j < m; j++) {
+        for (int j = i; j < m; j++) {
             float sum = 0;
             for (var k = 0; k < n; k++) sum += centered[k * m + i] * centered[k * m + j];
             cov[i * m + j] = sum / datatNn;
@@ -2569,8 +2614,8 @@ public class UveTests {
             // .SLOOP_1_0:
             SoAFp(UveFpOp.AddeAcc, 4, 1, -1), // u4 += u1
             SoBNdcD(1, 1, -4),                // so.b.ndc.2 u1, .SLOOP_1_0
-            SoAFp(UveFpOp.Div, 2, 4, 3),       // u2(store) = u4 / u3
-            SoBNc(1, -16),                     // so.b.nc u1, .SLOOP_1
+            SoAFp(UveFpOp.Div, 2, 4, 3),      // u2(store) = u4 / u3
+            SoBNc(1, -16),                    // so.b.nc u1, .SLOOP_1
 
             // ── STAGE 2: data[i,j] -= mean[j] ──
             // u1 = data store: D1("i") count=N stride=M; D2(final,"j") count=M stride=1
@@ -2582,7 +2627,7 @@ public class UveTests {
 
             // .SLOOP_2:
             SoAFp(UveFpOp.Sub, 1, 3, 2), // u1(store) = u3(data) - u2(mean)
-            SoBNc(1, -4),                 // so.b.nc u1, .SLOOP_2
+            SoBNc(1, -4),                // so.b.nc u1, .SLOOP_2
 
             // ── STAGE 3: cov[i,j] = sum_k centered[k,i]*centered[k,j] / datatNn, for j>=i ──
             // u1 = data col-j (shrinking): D1("i") count=M stride=1; static Size-Dec (self-triggering,
@@ -2599,12 +2644,14 @@ public class UveTests {
             // u3 = cov[i,j] store: D1("i") count=M stride=M (row shift); Offset-Inc (j starts at i) +
             // Size-Dec (j's count shrinks), both self-triggering/targeting D2; D2(final,"j") count=M
             // stride=1.
-            SsStaStW(3, 7), SsApp(3, 0, 3, 3), SsAppMod(3, 1, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 5),
+            SsStaStW(3, 7), SsApp(3, 0, 3, 3),
+            SsAppMod(3, 1, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 5),
             SsAppMod(3, 1, StreamModifierTarget.Size, StreamModifierBehavior.Dec, 5), SsEnd(3, 0, 3, 5),
 
             // u4 = cov[j,i] store (mirror): D1("i") count=M stride=1 (column shift); Offset-Inc
             // disp=M (row-shift accumulation) + Size-Dec; D2(final) count=M stride=M (row shift).
-            SsStaStW(4, 7), SsApp(4, 0, 3, 5), SsAppMod(4, 1, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 3),
+            SsStaStW(4, 7), SsApp(4, 0, 3, 5),
+            SsAppMod(4, 1, StreamModifierTarget.Offset, StreamModifierBehavior.Inc, 3),
             SsAppMod(4, 1, StreamModifierTarget.Size, StreamModifierBehavior.Dec, 5), SsEnd(4, 0, 3, 3),
 
             SoVMvsv(5, 8, 4), // u5 = broadcast datatNn
@@ -2612,12 +2659,12 @@ public class UveTests {
             // .SLOOP_3:
             SoVDpW(6, 0), // u6 = 0 (accumulator)
             // .SLOOP_3_0_0:
-            SoAFp(UveFpOp.Mac, 6, 2, 1), // u6 += u2*u1
-            SoBNdcD(2, 2, -4),           // so.b.ndc.3 u2, .SLOOP_3_0_0
+            SoAFp(UveFpOp.Mac, 6, 2, 1),   // u6 += u2*u1
+            SoBNdcD(2, 2, -4),             // so.b.ndc.3 u2, .SLOOP_3_0_0
             SoAFp(UveFpOp.Adde, 7, 6, -1), // u7 = u6 (reduce copy)
-            SoAFp(UveFpOp.Div, 8, 7, 5),    // u8(scalar temp) = u7 / u5
-            SoVMv(3, 8), SoVMv(4, 8),        // cov[i,j] = u8; cov[j,i] = u8
-            SoBNc(1, -28),                    // so.b.nc u1, .SLOOP_3
+            SoAFp(UveFpOp.Div, 8, 7, 5),   // u8(scalar temp) = u7 / u5
+            SoVMv(3, 8), SoVMv(4, 8),      // cov[i,j] = u8; cov[j,i] = u8
+            SoBNc(1, -28),                 // so.b.nc u1, .SLOOP_3
 
             EBreak(),
         };
@@ -2656,13 +2703,13 @@ public class UveTests {
     ///     reduction-tree scratch registers) — no renumbering needed, since all of u1-u9 now fit under
     ///     the raised capacity and everything from u10 up was already scratch-only.
     ///     <para>
-    ///     The reference's own store stream never reloads <c>dst</c>'s prior value before writing (no
-    ///     load stream is configured for <c>dst</c> at all) — it's a pure overwrite, not a genuine
-    ///     accumulate. This is only equivalent to <c>RUN_SIMPLE</c>'s <c>dst[...] += ...</c> (which
-    ///     accumulates across the 9 taps within one call) when <c>dst</c> starts at zero; the oracle
-    ///     below reproduces that by using a zero-initialized accumulator, separate from the memory
-    ///     image (initialized to a sentinel) used to confirm the border cells outside the
-    ///     (PB_I-2)x(PB_J-2) interior are never touched by the store stream.
+    ///         The reference's own store stream never reloads <c>dst</c>'s prior value before writing (no
+    ///         load stream is configured for <c>dst</c> at all) — it's a pure overwrite, not a genuine
+    ///         accumulate. This is only equivalent to <c>RUN_SIMPLE</c>'s <c>dst[...] += ...</c> (which
+    ///         accumulates across the 9 taps within one call) when <c>dst</c> starts at zero; the oracle
+    ///         below reproduces that by using a zero-initialized accumulator, separate from the memory
+    ///         image (initialized to a sentinel) used to confirm the border cells outside the
+    ///         (PB_I-2)x(PB_J-2) interior are never touched by the store stream.
     ///     </para>
     /// </summary>
     [Fact]
@@ -2677,9 +2724,9 @@ public class UveTests {
         var dst = new float[pbI * pbJ];
         for (var y = 1; y < pbI - 1; y++)
         for (var x = 1; x < pbJ - 1; x++)
-        for (var k = -1; k <= 1; k++)
-        for (var j = -1; j <= 1; j++)
-            dst[y * pbJ + x] += filter[(j + 1) * 3 + (k + 1)] * src[(y - j) * pbJ + (x - k)];
+        for (int k = -1; k <= 1; k++)
+        for (int j = -1; j <= 1; j++)
+            dst[y * pbJ + x] += filter[(j + 1) * 3 + k + 1] * src[(y - j) * pbJ + (x - k)];
 
         const ulong srcBase = 0x0000, dstBase = 0x0100;
         var mem = new FlatMemory(0x2000);
@@ -2693,15 +2740,13 @@ public class UveTests {
         var words = new List<uint>();
 
         int[] srcOffsets = [0, 1, 2, pbJ, pbJ + 1, pbJ + 2, 2 * pbJ, 2 * pbJ + 1, 2 * pbJ + 2,];
-        for (var i = 0; i < srcOffsets.Length; i++)
-            words.Add(Addi(1 + i, 0, (int)srcBase + srcOffsets[i] * 4));
+        for (var i = 0; i < srcOffsets.Length; i++) words.Add(Addi(1 + i, 0, (int)srcBase + srcOffsets[i] * 4));
         words.Add(Addi(10, 0, (int)dstBase + pbJ * 4));
         words.Add(Addi(11, 0, pbI - 2));
         words.Add(Addi(12, 0, pbJ));
         words.Add(Addi(13, 0, pbJ - 2));
         words.Add(Addi(14, 0, 1));
-        for (var i = 0; i < filter.Length; i++)
-            words.Add(Lui(15 + i, BitConverter.SingleToInt32Bits(filter[i]) >> 12));
+        for (var i = 0; i < filter.Length; i++) words.Add(Lui(15 + i, BitConverter.SingleToInt32Bits(filter[i]) >> 12));
 
         // u1-u9: nine src load streams (identical 2D shape, different bases) — outer(y) count=inm2
         // stride=jn elems; inner(x) count=jnm2 stride=one elem.
@@ -2720,7 +2765,7 @@ public class UveTests {
         words.Add(SsApp(0, 0, 11, 12));
         words.Add(SsEnd(0, 14, 13, 14));
 
-        var loopStart = words.Count;
+        int loopStart = words.Count;
         words.Add(SoAFp(UveFpOp.Mul, 19, 10, 9)); // filter[0] * src(y+1,x+1)
         words.Add(SoAFp(UveFpOp.Mul, 20, 11, 8)); // filter[1] * src(y+1,x)
         words.Add(SoAFp(UveFpOp.Mul, 21, 12, 7)); // filter[2] * src(y+1,x-1)
@@ -2780,37 +2825,37 @@ public class UveTests {
     ///     u6, u7 each carry two stride-0/varying dims plus the epochs dim). u-register numbers are
     ///     taken verbatim from the reference asm, same rationale as <c>convolution</c>.
     ///     <para>
-    ///     This kernel initially exposed two real, confirmed bugs, both now fixed (see TODO.md):
-    ///     (1) a genuine engine-level hazard between <c>StreamingEngine</c>'s eager background
-    ///     prefetch and <c>UveStoreStream</c>'s bypass writes — u5 (kernel2's reload of kernel1's
-    ///     y_err output) and u1/u8 (kernel1/3's reload of kernel3's sgd_model output) were configured,
-    ///     and started prefetching, before the epoch loop's own stores had ever run, since
-    ///     <c>StreamingEngine.Step()</c> had no visibility into <c>UveStoreStream</c>'s bypass writes
-    ///     to the same addresses. Fixed by deferring the actual <c>IMemory.Read</c> from prefetch time
-    ///     to <c>Peek</c>/<c>Consume</c> time, which program order (plus UVE ops being head-serialized)
-    ///     already guarantees is correctly ordered relative to an earlier store. (2) A separate,
-    ///     unrelated decoder bug in <c>so.v.mvvs</c> (used here to extract the final <c>intercept</c>
-    ///     scalar into an integer register): it was the only UVE instruction passing a real destination
-    ///     register to <c>RvInstruction</c> instead of -1, which allocated a normal PRF rename slot that
-    ///     nothing ever wrote a value into — the commit-time PRF-to-architectural writeback silently
-    ///     clobbered the correct value the instruction's SideEffect had just written directly. Fixing
-    ///     it via dest=-1 bypasses rename entirely for this op's destination, so the write is visible
-    ///     here (a direct post-run <c>ArchState</c> read) and to any head-serialized UVE consumer, but
-    ///     NOT to a later renamed integer read of the same register — see the comment on
-    ///     <c>ExecuteUveSoVMvvs</c>.
+    ///         This kernel initially exposed two real, confirmed bugs, both now fixed:
+    ///         (1) a genuine engine-level hazard between <c>StreamingEngine</c>'s eager background
+    ///         prefetch and <c>UveStoreStream</c>'s bypass writes — u5 (kernel2's reload of kernel1's
+    ///         y_err output) and u1/u8 (kernel1/3's reload of kernel3's sgd_model output) were configured,
+    ///         and started prefetching, before the epoch loop's own stores had ever run, since
+    ///         <c>StreamingEngine.Step()</c> had no visibility into <c>UveStoreStream</c>'s bypass writes
+    ///         to the same addresses. Fixed by deferring the actual <c>IMemory.Read</c> from prefetch time
+    ///         to <c>Peek</c>/<c>Consume</c> time, which program order (plus UVE ops being head-serialized)
+    ///         already guarantees is correctly ordered relative to an earlier store. (2) A separate,
+    ///         unrelated decoder bug in <c>so.v.mvvs</c> (used here to extract the final <c>intercept</c>
+    ///         scalar into an integer register): it was the only UVE instruction passing a real destination
+    ///         register to <c>RvInstruction</c> instead of -1, which allocated a normal PRF rename slot that
+    ///         nothing ever wrote a value into — the commit-time PRF-to-architectural writeback silently
+    ///         clobbered the correct value the instruction's SideEffect had just written directly. Fixing
+    ///         it via dest=-1 bypasses rename entirely for this op's destination, so the write is visible
+    ///         here (a direct post-run <c>ArchState</c> read) and to any head-serialized UVE consumer, but
+    ///         NOT to a later renamed integer read of the same register — see the comment on
+    ///         <c>ExecuteUveSoVMvvs</c>.
     ///     </para>
     /// </summary>
     [Fact]
     public void Pipeline_Sgd_CoreKernel_CorrectResult() {
         const int epochs = 2, n = 3, d = 2;
-        const float lr = 0.25f; // Lui-exact (2^-2); the reference's literal 0.02 is not.
+        const float lr = 0.25f;          // Lui-exact (2^-2); the reference's literal 0.02 is not.
         float[] x = [1, 2, 3, 4, 5, 6,]; // n x d row-major
         float[] y = [10, 12, 14,];
         float[] modelInit = [0.5f, 0.25f,];
 
         // Independent oracle: mirrors the reference's own RUN_SIMPLE core_kernel fallback exactly,
         // including the cross-epoch dependency (sgd_model/intercept carry from one epoch to the next).
-        var model = modelInit.ToArray();
+        float[] model = modelInit.ToArray();
         var yErr = new float[n];
         var intercept = 0f;
         for (var e = 0; e < epochs; e++) {
@@ -2857,69 +2902,87 @@ public class UveTests {
 
         // KERNEL 1 streams
         // u1 = sgd_model(j) load: outer(epochs,stride0), middle(n,stride0), inner(d,stride1)
-        words.Add(SsStaLdW(1, 1)); words.Add(SsApp(1, 0, 5, 0)); words.Add(SsApp(1, 0, 6, 0));
+        words.Add(SsStaLdW(1, 1));
+        words.Add(SsApp(1, 0, 5, 0));
+        words.Add(SsApp(1, 0, 6, 0));
         words.Add(SsEnd(1, 0, 7, 8));
         // u2 = x(i,j) load: outer(epochs,stride0), middle(n,stride=d), inner(d,stride1)
-        words.Add(SsStaLdW(2, 2)); words.Add(SsApp(2, 0, 5, 0)); words.Add(SsApp(2, 0, 6, 7));
+        words.Add(SsStaLdW(2, 2));
+        words.Add(SsApp(2, 0, 5, 0));
+        words.Add(SsApp(2, 0, 6, 7));
         words.Add(SsEnd(2, 0, 7, 8));
         // u3 = y_err(i) store: outer(epochs,stride0), inner(n,stride1)
-        words.Add(SsStaStW(3, 3)); words.Add(SsApp(3, 0, 5, 0)); words.Add(SsEnd(3, 0, 6, 8));
+        words.Add(SsStaStW(3, 3));
+        words.Add(SsApp(3, 0, 5, 0));
+        words.Add(SsEnd(3, 0, 6, 8));
         // u4 = y(i) load: outer(epochs,stride0), inner(n,stride1)
-        words.Add(SsStaLdW(4, 4)); words.Add(SsApp(4, 0, 5, 0)); words.Add(SsEnd(4, 0, 6, 8));
+        words.Add(SsStaLdW(4, 4));
+        words.Add(SsApp(4, 0, 5, 0));
+        words.Add(SsEnd(4, 0, 6, 8));
 
         // KERNEL 2 stream
         // u5 = y_err(i) load: outer(epochs,stride0), inner(n,stride1)
-        words.Add(SsStaLdW(5, 3)); words.Add(SsApp(5, 0, 5, 0)); words.Add(SsEnd(5, 0, 6, 8));
+        words.Add(SsStaLdW(5, 3));
+        words.Add(SsApp(5, 0, 5, 0));
+        words.Add(SsEnd(5, 0, 6, 8));
 
         // KERNEL 3 streams
         // u6 = x(j,i) load: outer(epochs,stride0), middle(d,stride1), inner(n,stride=d)
-        words.Add(SsStaLdW(6, 2)); words.Add(SsApp(6, 0, 5, 0)); words.Add(SsApp(6, 0, 7, 8));
+        words.Add(SsStaLdW(6, 2));
+        words.Add(SsApp(6, 0, 5, 0));
+        words.Add(SsApp(6, 0, 7, 8));
         words.Add(SsEnd(6, 0, 6, 7));
         // u7 = y_err(j) load: outer(epochs,stride0), middle(d,stride0), inner(n,stride1)
-        words.Add(SsStaLdW(7, 3)); words.Add(SsApp(7, 0, 5, 0)); words.Add(SsApp(7, 0, 7, 0));
+        words.Add(SsStaLdW(7, 3));
+        words.Add(SsApp(7, 0, 5, 0));
+        words.Add(SsApp(7, 0, 7, 0));
         words.Add(SsEnd(7, 0, 6, 8));
         // u8 = sgd_model(j) load: outer(epochs,stride0), inner(d,stride1)
-        words.Add(SsStaLdW(8, 1)); words.Add(SsApp(8, 0, 5, 0)); words.Add(SsEnd(8, 0, 7, 8));
+        words.Add(SsStaLdW(8, 1));
+        words.Add(SsApp(8, 0, 5, 0));
+        words.Add(SsEnd(8, 0, 7, 8));
         // u9 = sgd_model(j) store: outer(epochs,stride0), inner(d,stride1)
-        words.Add(SsStaStW(9, 1)); words.Add(SsApp(9, 0, 5, 0)); words.Add(SsEnd(9, 0, 7, 8));
+        words.Add(SsStaStW(9, 1));
+        words.Add(SsApp(9, 0, 5, 0));
+        words.Add(SsEnd(9, 0, 7, 8));
 
-        words.Add(SoVMvsv(10, 0, 4)); // u10 = intercept, init 0 (reuses x0=zero)
-        words.Add(SoVMvsv(11, 9, 4)); // u11 = lr broadcast
+        words.Add(SoVMvsv(10, 0, 4));  // u10 = intercept, init 0 (reuses x0=zero)
+        words.Add(SoVMvsv(11, 9, 4));  // u11 = lr broadcast
         words.Add(SoVMvsv(12, 10, 4)); // u12 = (float)n broadcast
 
         // .SLOOP_1: (outer, per epoch)
-        var sloop1 = words.Count;
+        int sloop1 = words.Count;
 
         // .SLOOP_1_0: (per i, KERNEL 1)
-        var sloop10 = words.Count;
+        int sloop10 = words.Count;
         words.Add(SoVDpW(13, 0)); // u13 = 0 (yhat accumulator)
         // .SLOOP_1_0_0: (per j, inner reduction)
-        var sloop100 = words.Count;
-        words.Add(SoAFp(UveFpOp.Mac, 13, 2, 1)); // u13 += x(i,j) * model(j)
+        int sloop100 = words.Count;
+        words.Add(SoAFp(UveFpOp.Mac, 13, 2, 1));                // u13 += x(i,j) * model(j)
         words.Add(SoBNdcD(1, 2, (sloop100 - words.Count) * 4)); // so.b.ndc.3 u1
-        words.Add(SoAFp(UveFpOp.Adde, 15, 13, -1)); // u15 = u13 (reduce copy)
-        words.Add(SoAFp(UveFpOp.Add, 15, 15, 10)); // u15 += intercept
-        words.Add(SoAFp(UveFpOp.Sub, 3, 4, 15)); // u3(store) = y(i) - u15
-        words.Add(SoBNdcD(1, 1, (sloop10 - words.Count) * 4)); // so.b.ndc.2 u1
+        words.Add(SoAFp(UveFpOp.Adde, 15, 13, -1));             // u15 = u13 (reduce copy)
+        words.Add(SoAFp(UveFpOp.Add, 15, 15, 10));              // u15 += intercept
+        words.Add(SoAFp(UveFpOp.Sub, 3, 4, 15));                // u3(store) = y(i) - u15
+        words.Add(SoBNdcD(1, 1, (sloop10 - words.Count) * 4));  // so.b.ndc.2 u1
 
         // KERNEL 2
         words.Add(SoVDpW(16, 0)); // u16 = 0 (intercept_der accumulator)
-        var sloop11 = words.Count;
-        words.Add(SoAFp(UveFpOp.AddeAcc, 16, 5, -1)); // u16 += y_err(i)
+        int sloop11 = words.Count;
+        words.Add(SoAFp(UveFpOp.AddeAcc, 16, 5, -1));          // u16 += y_err(i)
         words.Add(SoBNdcD(5, 1, (sloop11 - words.Count) * 4)); // so.b.ndc.2 u5
-        words.Add(SoAFp(UveFpOp.Div, 16, 16, 12)); // u16 /= n
-        words.Add(SoAFp(UveFpOp.Mac, 10, 16, 11)); // intercept += intercept_der * lr
+        words.Add(SoAFp(UveFpOp.Div, 16, 16, 12));             // u16 /= n
+        words.Add(SoAFp(UveFpOp.Mac, 10, 16, 11));             // intercept += intercept_der * lr
 
         // KERNEL 3
-        var sloop12 = words.Count;
+        int sloop12 = words.Count;
         words.Add(SoVDpW(18, 0)); // u18 = 0 (raw_update accumulator)
-        var sloop120 = words.Count;
-        words.Add(SoAFp(UveFpOp.Mul, 19, 6, 7)); // u19 = x(j,i) * y_err(j)
-        words.Add(SoAFp(UveFpOp.AddeAcc, 18, 19, -1)); // u18 += u19
+        int sloop120 = words.Count;
+        words.Add(SoAFp(UveFpOp.Mul, 19, 6, 7));                // u19 = x(j,i) * y_err(j)
+        words.Add(SoAFp(UveFpOp.AddeAcc, 18, 19, -1));          // u18 += u19
         words.Add(SoBNdcD(6, 2, (sloop120 - words.Count) * 4)); // so.b.ndc.3 u6
-        words.Add(SoAFp(UveFpOp.Mul, 18, 18, 11)); // u18 *= lr
-        words.Add(SoAFp(UveFpOp.Add, 9, 8, 18)); // u9(store) = model(i) + u18
-        words.Add(SoBNdcD(6, 1, (sloop12 - words.Count) * 4)); // so.b.ndc.2 u6
+        words.Add(SoAFp(UveFpOp.Mul, 18, 18, 11));              // u18 *= lr
+        words.Add(SoAFp(UveFpOp.Add, 9, 8, 18));                // u9(store) = model(i) + u18
+        words.Add(SoBNdcD(6, 1, (sloop12 - words.Count) * 4));  // so.b.ndc.2 u6
 
         words.Add(SoBNc(1, (sloop1 - words.Count) * 4)); // so.b.nc u1 (outer per-epoch loop)
 
@@ -3077,10 +3140,10 @@ public class UveTests {
             SoVDpW(2, 6), // [10] u2 = 1.0f broadcast (increment constant)
             SoVDpW(3, 0), // [11] u3 = 0.0 running counter
             // .LOOP:
-            SoAFp(UveFpOp.Add, 3, 3, 2), // [12] u3 += u2 (counter++)
+            SoAFp(UveFpOp.Add, 3, 3, 2),  // [12] u3 += u2 (counter++)
             SoAFp(UveFpOp.Add, 1, 3, -1), // [13] u1(store) = u3 (unary copy)
-            SoBNc(1, -8), // [14] loop while store stream active (back to [12])
-            EBreak(), // [15]
+            SoBNc(1, -8),                 // [14] loop while store stream active (back to [12])
+            EBreak(),                     // [15]
         ];
 
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
@@ -3135,13 +3198,15 @@ public class UveTests {
 
         // ss.app.mod u1, .L, Size, Inc, x5 — triggers on the outermost dim just appended above.
         state.IntegerRegisters.Write(5, 1); // displacement (unused by this test beyond non-zero)
-        ExecuteResult modResult = Exec(new RvUveSsAppMod(1, 7, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), state);
+        ExecuteResult modResult = Exec(
+            new RvUveSsAppMod(1, 7, StreamModifierTarget.Size, StreamModifierBehavior.Inc, 5), state
+        );
         modResult.SideEffect?.Invoke(state);
 
         // Two more ss.app-style dimensions configured after the modifier: middle, then innermost via ss.end.
         cfg.Dimensions.Add(new StreamDimension(2, 4)); // middle dim (Spike index 1)
-        state.IntegerRegisters.Write(2, 2); // innermost count
-        state.IntegerRegisters.Write(3, 1); // innermost stride (1 elem = 4 bytes)
+        state.IntegerRegisters.Write(2, 2);            // innermost count
+        state.IntegerRegisters.Write(3, 1);            // innermost stride (1 elem = 4 bytes)
         ExecuteResult endResult = Exec(new RvUveSsEnd(1, 0, 2, 3), state);
 
         Assert.True(endResult.StreamConfig.HasValue);
@@ -3185,7 +3250,9 @@ public class UveTests {
         cfg.Dimensions.Add(new StreamDimension(2, 16)); // outermost dim (Spike index 0), the trigger
 
         // ss.app.ind u1, .L, Offset, Add, u9 — triggers on the outermost dim just appended above.
-        ExecuteResult indResult = Exec(new RvUveSsAppInd(1, 7, StreamModifierTarget.Offset, StreamModifierBehavior.Add, 9), state);
+        ExecuteResult indResult = Exec(
+            new RvUveSsAppInd(1, 7, StreamModifierTarget.Offset, StreamModifierBehavior.Add, 9), state
+        );
         indResult.SideEffect?.Invoke(state);
 
         // One more dimension configured after the modifier, via ss.end (the innermost).

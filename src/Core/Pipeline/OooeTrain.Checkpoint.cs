@@ -136,12 +136,14 @@ internal sealed partial class OoOPipelineCore {
         // train (a different predictor type) skips this section instead of feeding it foreign
         // bytes — see the matching check in RestoreCheckpointSections.
         string predictorType = _predictor.GetType().FullName ?? "";
-        sections.Add((
-            "BPRED", w => {
-                w.Write(predictorType);
-                _predictor.WriteState(w);
-            }
-        ));
+        sections.Add(
+            (
+                "BPRED", w => {
+                    w.Write(predictorType);
+                    _predictor.WriteState(w);
+                }
+            )
+        );
         sections.Add(("RAS", _ras.WriteState));
         sections.Add(("CRAS", _committedRas.WriteState));
 
@@ -153,22 +155,26 @@ internal sealed partial class OoOPipelineCore {
         // (like IBranchPredictor), so tag with the concrete type and skip on mismatch — see BPRED.
         if (_criticalityPredictor is not null) {
             string criticalityType = _criticalityPredictor.GetType().FullName ?? "";
-            sections.Add((
-                "CRITICALITY", w => {
-                    w.Write(criticalityType);
-                    _criticalityPredictor.WriteState(w);
-                }
-            ));
+            sections.Add(
+                (
+                    "CRITICALITY", w => {
+                        w.Write(criticalityType);
+                        _criticalityPredictor.WriteState(w);
+                    }
+                )
+            );
         }
 
         if (_valuePredictor is not null) {
             string valuePredictorType = _valuePredictor.GetType().FullName ?? "";
-            sections.Add((
-                "VALUEPRED", w => {
-                    w.Write(valuePredictorType);
-                    _valuePredictor.WriteState(w);
-                }
-            ));
+            sections.Add(
+                (
+                    "VALUEPRED", w => {
+                        w.Write(valuePredictorType);
+                        _valuePredictor.WriteState(w);
+                    }
+                )
+            );
         }
 
         return sections;

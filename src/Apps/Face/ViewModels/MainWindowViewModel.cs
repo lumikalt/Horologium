@@ -64,7 +64,7 @@ public partial class MainWindowViewModel : ObservableObject {
     ];
 
     public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } =
-        [..MainWindowViewModel.DefaultWorkloadPresets,];
+        [..DefaultWorkloadPresets,];
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowBrowse))]
@@ -533,14 +533,15 @@ public partial class MainWindowViewModel : ObservableObject {
     }
 
     /// <summary>Resolves a <see cref="WorkloadPreset" /> selection to a runnable <see cref="IWorkload" />.</summary>
-    internal static IWorkload ResolveWorkload(WorkloadPreset preset, string? workloadPath) => preset.ElfFileName switch {
-        null => MainWindowViewModel.CreateBuiltInWorkload(),
-        ""   => new Rv32ElfWorkload(workloadPath!),
-        var fn => new Rv32ElfWorkload(
-            Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
-            preset.MemoryBytes
-        ),
-    };
+    internal static IWorkload ResolveWorkload(WorkloadPreset preset, string? workloadPath) =>
+        preset.ElfFileName switch {
+            null => CreateBuiltInWorkload(),
+            ""   => new Rv32ElfWorkload(workloadPath!),
+            var fn => new Rv32ElfWorkload(
+                Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
+                preset.MemoryBytes
+            ),
+        };
 
     internal static ByteArrayWorkload CreateBuiltInWorkload() {
         // Built-in demo: 100-iteration countdown loop

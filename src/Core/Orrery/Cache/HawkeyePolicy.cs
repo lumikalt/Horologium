@@ -1,3 +1,9 @@
+#region
+
+using Mechanism;
+
+#endregion
+
 namespace Orrery.Cache;
 
 /// <summary>
@@ -159,7 +165,7 @@ public sealed class HawkeyePolicy : IReplacementPolicy {
         int ways = r.ReadInt32();
         int optLen = r.ReadInt32();
         if (ways != _ways || optLen != _optLen)
-            throw new Mechanism.CheckpointException(
+            throw new CheckpointException(
                 $"HawkeyePolicy.ReadState: geometry mismatch — checkpoint has ways={ways}, " +
                 $"optLen={optLen}; this policy has ways={_ways}, optLen={_optLen}."
             );

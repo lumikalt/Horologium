@@ -227,11 +227,9 @@ public class StreamingEngineTests {
     public void AllMaxStreams_Configurable() {
         var eng = new StreamingEngine();
         var mem = new FlatMemory(eng.MaxStreams * 4);
-        for (var i = 0; i < eng.MaxStreams; i++)
-            mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
+        for (var i = 0; i < eng.MaxStreams; i++) mem.Load((ulong)(i * 4), BitConverter.GetBytes((uint)(i + 1)));
 
-        for (var i = 0; i < eng.MaxStreams; i++)
-            eng.Configure(i, new StreamDescriptor((ulong)(i * 4), 4, 1, 4));
+        for (var i = 0; i < eng.MaxStreams; i++) eng.Configure(i, new StreamDescriptor((ulong)(i * 4), 4, 1, 4));
 
         for (var step = 0; step < 4; step++) eng.Step(mem);
 

@@ -45,6 +45,25 @@ public sealed class PlruPolicy : IReplacementPolicy {
         return 0;
     }
 
+    /// <inheritdoc />
+    public void WriteState(BinaryWriter w) {
+        w.Write(_bits.Length);
+        foreach (bool[] set in _bits)
+        foreach (bool bit in set)
+            w.Write(bit);
+    }
+
+    /// <inheritdoc />
+    public void ReadState(BinaryReader r) {
+        int sets = r.ReadInt32();
+        int n = Math.Min(sets, _bits.Length);
+        for (var s = 0; s < sets; s++)
+        for (var i = 0; i < _ways - 1; i++) {
+            bool bit = r.ReadBoolean();
+            if (s < n) _bits[s][i] = bit;
+        }
+    }
+
     // On every access, walk root→leaf and set each node's bit to point AWAY from
     // the subtree that contains `way`, so the other subtree becomes the candidate.
     private void Update(bool[] bits, int way) {
@@ -66,24 +85,5 @@ public sealed class PlruPolicy : IReplacementPolicy {
         }
 
         return victim;
-    }
-
-    /// <inheritdoc />
-    public void WriteState(BinaryWriter w) {
-        w.Write(_bits.Length);
-        foreach (bool[] set in _bits)
-        foreach (bool bit in set)
-            w.Write(bit);
-    }
-
-    /// <inheritdoc />
-    public void ReadState(BinaryReader r) {
-        int sets = r.ReadInt32();
-        int n = Math.Min(sets, _bits.Length);
-        for (var s = 0; s < sets; s++)
-        for (var i = 0; i < _ways - 1; i++) {
-            bool bit = r.ReadBoolean();
-            if (s < n) _bits[s][i] = bit;
-        }
     }
 }

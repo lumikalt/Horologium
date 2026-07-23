@@ -283,8 +283,8 @@ public sealed class MultiperspectivePerceptronBp : TageScLBp {
     public override void ReadState(BinaryReader r) {
         base.ReadState(r);
         foreach (short[] table in _tables)
-        for (var i = 0; i < table.Length; i++)
-            table[i] = r.ReadInt16();
+            for (var i = 0; i < table.Length; i++)
+                table[i] = r.ReadInt16();
 
         for (var i = 0; i < _blurryPath.Length; i++) _blurryPath[i] = r.ReadUInt32();
         for (var i = 0; i < _recency.Length; i++) _recency[i] = r.ReadUInt16();

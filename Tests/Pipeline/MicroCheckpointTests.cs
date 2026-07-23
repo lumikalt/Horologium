@@ -11,6 +11,9 @@ using Pipeline;
 using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
+using RiscV32.State;
+
+// ReSharper disable ShiftExpressionZeroLeftOperand
 
 #endregion
 
@@ -39,7 +42,7 @@ public class MicroCheckpointTests {
     ];
 
     private static readonly MemoryConfig CacheCfg = new(
-        CacheCapacityBytes: 128, CacheWays: 2, CacheBlockBytes: 16, CacheMissLatency: 4,
+        128, 2, 16, 4,
         TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 3
     );
 
@@ -47,7 +50,7 @@ public class MicroCheckpointTests {
     // exercised by the standalone Cache_RoundTrip_/Tlb_RoundTrip_ tests) get an end-to-end pass
     // through the equivalence test as well.
     private static readonly MemoryConfig ICacheCfg = new(
-        CacheCapacityBytes: 128, CacheWays: 2, CacheBlockBytes: 16, CacheMissLatency: 2,
+        128, 2, 16, 2,
         TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 2
     );
 
@@ -90,11 +93,11 @@ public class MicroCheckpointTests {
         cacheA.Write(96, 0xABCD, 4);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) cacheA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { cacheA.WriteState(w); }
 
         var cacheB = new SetAssociativeCache(new FlatMemory(4096), 256, 2, 32, 5);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) cacheB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { cacheB.ReadState(r); }
 
         CacheLine[] snapA = cacheA.GetSnapshot();
         CacheLine[] snapB = cacheB.GetSnapshot();
@@ -111,7 +114,7 @@ public class MicroCheckpointTests {
     public void Cache_ReadState_GeometryMismatch_Throws() {
         var cacheA = new SetAssociativeCache(new FlatMemory(4096), 256, 2, 32, 5);
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) cacheA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { cacheA.WriteState(w); }
 
         var cacheB = new SetAssociativeCache(new FlatMemory(4096), 512, 2, 32, 5); // different set count
         ms.Position = 0;
@@ -126,11 +129,11 @@ public class MicroCheckpointTests {
         tlbA.Read(0x5000, 4);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) tlbA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { tlbA.WriteState(w); }
 
         var tlbB = new Tlb(new FlatMemory(1 << 16), 8, 4096, 5);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) tlbB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { tlbB.ReadState(r); }
 
         long missesBefore = tlbB.Misses;
         tlbB.Read(0x1000, 4); // must hit — a miss would mean the mapping wasn't restored
@@ -145,11 +148,11 @@ public class MicroCheckpointTests {
         bpA.Update(0x300, false, 0x304);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { bpA.WriteState(w); }
 
         var bpB = new NBitBp(2, 64);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) bpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { bpB.ReadState(r); }
 
         Assert.Equal(bpA.Predict(0x100), bpB.Predict(0x100));
         Assert.Equal(bpA.Predict(0x300), bpB.Predict(0x300));
@@ -170,11 +173,11 @@ public class MicroCheckpointTests {
         for (var i = 0; i < 16; i++) bpA.Update(pc, i % 3 == 0, pc + 4); // taken 6/16, not-taken 10/16
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { bpA.WriteState(w); }
 
         var bpB = new HashedPerceptronBp(64, [0, 2, 4,]);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) bpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { bpB.ReadState(r); }
 
         Assert.Equal(bpA.Predict(pc), bpB.Predict(pc));
 
@@ -186,7 +189,7 @@ public class MicroCheckpointTests {
 
     [Fact]
     public void TournamentBp_RoundTrip_LocalAndGlobalHistoryMatch() {
-        var bpA = new TournamentBp(localHistoryBits: 6, localTableSize: 64, globalHistoryBits: 8);
+        var bpA = new TournamentBp(6, 64, 8);
         const ulong pcA = 0x100;
         const ulong pcB = 0x200;
         for (var i = 0; i < 20; i++) {
@@ -196,17 +199,17 @@ public class MicroCheckpointTests {
         }
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { bpA.WriteState(w); }
 
-        var bpB = new TournamentBp(localHistoryBits: 6, localTableSize: 64, globalHistoryBits: 8);
+        var bpB = new TournamentBp(6, 64, 8);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) bpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { bpB.ReadState(r); }
 
         Assert.Equal(bpA.Predict(pcA), bpB.Predict(pcA));
 
         // Same theater check as HashedPerceptronBp: prove the trained prediction is actually
         // distinguishable from a cold instance's default (both PHTs start weakly not-taken).
-        var cold = new TournamentBp(localHistoryBits: 6, localTableSize: 64, globalHistoryBits: 8);
+        var cold = new TournamentBp(6, 64, 8);
         Assert.NotEqual(bpA.Predict(pcA), cold.Predict(pcA));
         Assert.Equal(bpA.Predict(pcB), bpB.Predict(pcB));
     }
@@ -239,11 +242,11 @@ public class MicroCheckpointTests {
         for (var i = 0; i < iterations; i++) bpA.Update(pc, takenAt(i), pc + 4);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) bpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { bpA.WriteState(w); }
 
         T bpB = make();
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) bpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { bpB.ReadState(r); }
 
         Assert.Equal(bpA.Predict(pc), bpB.Predict(pc));
 
@@ -253,76 +256,76 @@ public class MicroCheckpointTests {
 
     [Fact]
     public void TageScLBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new TageScLBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new TageScLBp(), 0x100);
 
     [Fact]
     public void BatageBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new BatageBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new BatageBp(), 0x100);
 
     [Fact]
     public void BullseyeBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new BullseyeBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new BullseyeBp(), 0x100);
 
     [Fact]
     public void MultiperspectivePerceptronBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new MultiperspectivePerceptronBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new MultiperspectivePerceptronBp(), 0x100);
 
     [Fact]
     public void LlbpBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new LlbpBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new LlbpBp(), 0x100);
 
     [Fact]
     public void LlbpXBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new LlbpXBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new LlbpXBp(), 0x100);
 
     [Fact]
     public void TeaBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new TeaBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new TeaBp(), 0x100);
 
     [Fact]
     public void LvcpBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new LvcpBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new LvcpBp(), 0x100);
 
     [Fact]
     public void RunltsBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new RunltsBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new RunltsBp(), 0x100);
 
     [Fact]
     public void VlaTageBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new VlaTageBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new VlaTageBp(), 0x100);
 
     // ── BP zoo: standalone (non-TAGE) predictors ─────────────────────────────
 
     [Fact]
     public void PerceptronBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new PerceptronBp(), 0x100, _ => false);
+        AssertBpRoundTripNotTheater(() => new PerceptronBp(), 0x100, _ => false);
 
     [Fact]
     public void CorrelatedBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new CorrelatedBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new CorrelatedBp(), 0x100);
 
     [Fact]
     public void GselectPredictor_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new GselectPredictor(), 0x100);
+        AssertBpRoundTripNotTheater(() => new GselectPredictor(), 0x100);
 
     [Fact]
     public void GshareBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new GshareBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new GshareBp(), 0x100);
 
     [Fact]
     public void IttagePredictor_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new IttagePredictor(), 0x100, i => i % 3 != 0);
+        AssertBpRoundTripNotTheater(() => new IttagePredictor(), 0x100, i => i % 3 != 0);
 
     [Fact]
     public void ImliPredictor_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new ImliPredictor(), 0x100, i => i % 3 != 0);
+        AssertBpRoundTripNotTheater(() => new ImliPredictor(), 0x100, i => i % 3 != 0);
 
     // ── BP zoo: composed-baseline predictors (not TAGE subclasses — hold a TageScLBp
     // field rather than extending it, so their own WriteState must delegate explicitly) ──
 
     [Fact]
     public void BranchNetBp_RoundTrip_NotTheater() =>
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new BranchNetBp(), 0x100);
+        AssertBpRoundTripNotTheater(() => new BranchNetBp(), 0x100);
 
     [Fact]
     public void HypreBp_RoundTrip_NotTheater() =>
@@ -332,7 +335,7 @@ public class MicroCheckpointTests {
         // them enough. A strongly not-taken-biased pattern over many iterations lets the bounded
         // (16-state) local-history fallback slot repeat enough times to actually diverge from a
         // cold (all-zero, tie-breaks to "taken") instance.
-        MicroCheckpointTests.AssertBpRoundTripNotTheater(() => new HypreBp(), 0x100, _ => false, 400);
+        AssertBpRoundTripNotTheater(() => new HypreBp(), 0x100, _ => false, 400);
 
     [Fact]
     public void LruPolicy_RoundTrip_AgesMatch() {
@@ -341,11 +344,11 @@ public class MicroCheckpointTests {
         polA.RecordInstall(2, 0);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new LruPolicy(4, 2);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         for (var s = 0; s < 4; s++)
         for (var w2 = 0; w2 < 2; w2++)
@@ -360,11 +363,11 @@ public class MicroCheckpointTests {
         polA.RecordInstall(2, 0);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new FifoPolicy(4, 2);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         for (var s = 0; s < 4; s++)
         for (var w2 = 0; w2 < 2; w2++)
@@ -379,11 +382,11 @@ public class MicroCheckpointTests {
         polA.RecordInstall(2, 0);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new MruPolicy(4, 2);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         for (var s = 0; s < 4; s++)
         for (var w2 = 0; w2 < 2; w2++)
@@ -398,11 +401,11 @@ public class MicroCheckpointTests {
         polA.RecordInstall(2, 0);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new ClockPolicy(4, 2);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         for (var s = 0; s < 4; s++)
         for (var w2 = 0; w2 < 2; w2++)
@@ -418,11 +421,11 @@ public class MicroCheckpointTests {
         polA.RecordInstall(1, 1);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new PlruPolicy(4, 4);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         for (var s = 0; s < 4; s++)
         for (var w2 = 0; w2 < 4; w2++)
@@ -438,11 +441,11 @@ public class MicroCheckpointTests {
         polA.RecordInstall(1, 2);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new SrripPolicy(4, 4);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         for (var s = 0; s < 4; s++)
         for (var w2 = 0; w2 < 4; w2++)
@@ -455,11 +458,11 @@ public class MicroCheckpointTests {
         for (var i = 0; i < 3; i++) polA.RecordInstall(0, i % 4); // advance the bimodal counter partway
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new BrripPolicy(4, 4, bimodalDenominator: 4);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         for (var s = 0; s < 4; s++)
         for (var w2 = 0; w2 < 4; w2++)
@@ -478,11 +481,11 @@ public class MicroCheckpointTests {
         for (var i = 0; i < 5; i++) polA.RecordInstall(0, i % 4); // SDM-SRRIP set: nudges PSEL
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new DrripPolicy(64, 4, sdmSets: 4);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         Assert.Equal(polA.Psel, polB.Psel);
         for (var s = 0; s < 64; s++)
@@ -500,11 +503,11 @@ public class MicroCheckpointTests {
         polA.RecordInstall(0, 1);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new ShipPolicy(4, 4);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         Assert.Equal(polA.GetShctCounter(0x100), polB.GetShctCounter(0x100));
         Assert.Equal(polA.GetShctCounter(0x200), polB.GetShctCounter(0x200));
@@ -531,11 +534,11 @@ public class MicroCheckpointTests {
         }
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) polA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { polA.WriteState(w); }
 
         var polB = new HawkeyePolicy(4, 4);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) polB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { polB.ReadState(r); }
 
         for (var s = 0; s < 4; s++)
         for (var w2 = 0; w2 < 4; w2++)
@@ -557,11 +560,11 @@ public class MicroCheckpointTests {
         rasA.Push(0x2000);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) rasA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { rasA.WriteState(w); }
 
         var rasB = new ReturnAddressStack(4);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) rasB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { rasB.ReadState(r); }
 
         Assert.True(rasB.TryPop(out ulong addr));
         Assert.Equal(0x2000ul, addr);
@@ -584,8 +587,8 @@ public class MicroCheckpointTests {
         // ReadState. Hand-craft a mismatched tag directly (today's codebase only ships one
         // stateful IBranchPredictor, so this is the only way to exercise the mismatch path).
         var mem = new FlatMemory(4096);
-        MicroCheckpointTests.Load(mem, MicroCheckpointTests.LoopProgram);
-        var archState = new global::RiscV32.State.Rv32ArchState();
+        Load(mem, MicroCheckpointTests.LoopProgram);
+        var archState = new Rv32ArchState();
 
         using var ms = new MemoryStream();
         MicroarchitecturalCheckpoint.Save(
@@ -600,7 +603,7 @@ public class MicroCheckpointTests {
             ]
         );
 
-        OooeTrain trainB = MicroCheckpointTests.MakeTrain(mem);
+        OooeTrain trainB = MakeTrain(mem);
         ms.Position = 0;
         trainB.RestoreMicroCheckpoint(ms, mem); // must not throw
 
@@ -611,9 +614,9 @@ public class MicroCheckpointTests {
     [Fact]
     public void MicroCheckpoint_MissingTag_TryRestoreSectionReturnsFalse() {
         var mem = new FlatMemory(4096);
-        MicroCheckpointTests.Load(mem, MicroCheckpointTests.LoopProgram);
+        Load(mem, MicroCheckpointTests.LoopProgram);
         using var ms = new MemoryStream();
-        MicroarchitecturalCheckpoint.Save(ms, new global::RiscV32.State.Rv32ArchState(), mem, 0UL, []);
+        MicroarchitecturalCheckpoint.Save(ms, new Rv32ArchState(), mem, 0UL, []);
 
         ms.Position = 0;
         MicroarchitecturalCheckpoint chk = MicroarchitecturalCheckpoint.Load(ms);
@@ -628,8 +631,8 @@ public class MicroCheckpointTests {
     [Fact]
     public void Drain_ReachesEmptyPipeline() {
         var mem = new FlatMemory(4096);
-        MicroCheckpointTests.Load(mem, MicroCheckpointTests.LoopProgram);
-        OooeTrain train = MicroCheckpointTests.MakeTrain(mem);
+        Load(mem, MicroCheckpointTests.LoopProgram);
+        OooeTrain train = MakeTrain(mem);
 
         train.BeginStepping();
         for (var i = 0; i < 10; i++) train.StepCycle();
@@ -642,8 +645,8 @@ public class MicroCheckpointTests {
     [Fact]
     public void SaveMicroCheckpoint_NotDrained_Throws() {
         var mem = new FlatMemory(4096);
-        MicroCheckpointTests.Load(mem, MicroCheckpointTests.LoopProgram);
-        OooeTrain train = MicroCheckpointTests.MakeTrain(mem);
+        Load(mem, MicroCheckpointTests.LoopProgram);
+        OooeTrain train = MakeTrain(mem);
 
         train.BeginStepping();
         train.StepCycle();
@@ -671,8 +674,8 @@ public class MicroCheckpointTests {
     [Fact]
     public void Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
         var memA = new FlatMemory(4096);
-        MicroCheckpointTests.Load(memA, MicroCheckpointTests.LoopProgram);
-        OooeTrain trainA = MicroCheckpointTests.MakeTrain(memA);
+        Load(memA, MicroCheckpointTests.LoopProgram);
+        OooeTrain trainA = MakeTrain(memA);
 
         trainA.BeginStepping();
         for (var i = 0; i < 80; i++) trainA.StepCycle(); // partway through the loop
@@ -685,16 +688,18 @@ public class MicroCheckpointTests {
         trainA.SaveMicroCheckpoint(ms, memA);
 
         while (trainA.StepCycle()) { }
+
         RevolutionResult refResult = trainA.FinishStepping(baseline);
 
         var memB = new FlatMemory(4096);
-        MicroCheckpointTests.Load(memB, MicroCheckpointTests.LoopProgram);
-        OooeTrain trainB = MicroCheckpointTests.MakeTrain(memB, checkpointPc);
+        Load(memB, MicroCheckpointTests.LoopProgram);
+        OooeTrain trainB = MakeTrain(memB, checkpointPc);
         ms.Position = 0;
         trainB.RestoreMicroCheckpoint(ms, memB);
 
         trainB.BeginStepping();
         while (trainB.StepCycle()) { }
+
         RevolutionResult reloadResult = trainB.FinishStepping();
 
         for (var r = 0; r < 32; r++)
@@ -702,14 +707,14 @@ public class MicroCheckpointTests {
         Assert.Equal(trainA.ArchState.Pc, trainB.ArchState.Pc);
 
         Assert.Equal(refResult.TotalTicks, reloadResult.TotalTicks);
-        Assert.Equal(MicroCheckpointTests.Counter(refResult, "retired"), MicroCheckpointTests.Counter(reloadResult, "retired"));
+        Assert.Equal(Counter(refResult, "retired"), Counter(reloadResult, "retired"));
         Assert.Equal(
-            MicroCheckpointTests.Counter(refResult, "dcache_misses"),
-            MicroCheckpointTests.Counter(reloadResult, "dcache_misses")
+            Counter(refResult, "dcache_misses"),
+            Counter(reloadResult, "dcache_misses")
         );
         Assert.Equal(
-            MicroCheckpointTests.Counter(refResult, "branch_misses"),
-            MicroCheckpointTests.Counter(reloadResult, "branch_misses")
+            Counter(refResult, "branch_misses"),
+            Counter(reloadResult, "branch_misses")
         );
 
         // dcache_hits is allowed to differ by at most one: a hit/miss right at a branch
@@ -720,20 +725,20 @@ public class MicroCheckpointTests {
         // restored cache's tags/data/ages are bit-identical to the live one at the checkpoint
         // instant — the discrepancy is confined to wrong-path speculative counting during the
         // remaining run, never to the restored table itself.
-        long hitsDelta = MicroCheckpointTests.Counter(refResult, "dcache_hits")
-            - MicroCheckpointTests.Counter(reloadResult, "dcache_hits");
+        long hitsDelta = Counter(refResult, "dcache_hits")
+                       - Counter(reloadResult, "dcache_hits");
         Assert.InRange(hitsDelta, -1, 1);
 
         // Sanity: the workload actually exercised the tables under test, so a broken
         // WriteState/ReadState would have had something to diverge on.
-        Assert.True(MicroCheckpointTests.Counter(refResult, "dcache_hits") > 0);
+        Assert.True(Counter(refResult, "dcache_hits") > 0);
     }
 
     [Fact]
     public void RestoreIntoTrainWithoutMicroArchTables_DoesNotThrow_ColdStartsInstead() {
         var memA = new FlatMemory(4096);
-        MicroCheckpointTests.Load(memA, MicroCheckpointTests.LoopProgram);
-        OooeTrain trainA = MicroCheckpointTests.MakeTrain(memA);
+        Load(memA, MicroCheckpointTests.LoopProgram);
+        OooeTrain trainA = MakeTrain(memA);
 
         trainA.BeginStepping();
         for (var i = 0; i < 40; i++) trainA.StepCycle();
@@ -744,10 +749,10 @@ public class MicroCheckpointTests {
         trainA.SaveMicroCheckpoint(ms, memA);
 
         var memB = new FlatMemory(4096);
-        MicroCheckpointTests.Load(memB, MicroCheckpointTests.LoopProgram);
+        Load(memB, MicroCheckpointTests.LoopProgram);
         // No cache/TLB/custom predictor configured — restore has nothing matching to feed those
         // sections into, so they must be skipped rather than throwing.
-        OooeTrain trainB = MicroCheckpointTests.MakeTrain(memB, checkpointPc, false);
+        OooeTrain trainB = MakeTrain(memB, checkpointPc, false);
         ms.Position = 0;
         trainB.RestoreMicroCheckpoint(ms, memB); // must not throw despite the missing components
 
@@ -792,6 +797,7 @@ public class MicroCheckpointTests {
         using var ms = new MemoryStream();
         trainA.SaveMicroCheckpoint(ms, memA);
         while (trainA.StepCycle()) { }
+
         RevolutionResult refResult = trainA.FinishStepping(baseline);
 
         var memB = new FlatMemory(8192);
@@ -801,6 +807,7 @@ public class MicroCheckpointTests {
         trainB.RestoreMicroCheckpoint(ms, memB);
         trainB.BeginStepping();
         while (trainB.StepCycle()) { }
+
         RevolutionResult reloadResult = trainB.FinishStepping();
 
         for (var r = 0; r < 32; r++)
@@ -808,7 +815,7 @@ public class MicroCheckpointTests {
         Assert.Equal(trainA.ArchState.Pc, trainB.ArchState.Pc);
         Assert.InRange(reloadResult.TotalTicks - refResult.TotalTicks, -tickTolerance, tickTolerance);
         Assert.Equal(
-            MicroCheckpointTests.Counter(refResult, "retired"), MicroCheckpointTests.Counter(reloadResult, "retired")
+            Counter(refResult, "retired"), Counter(reloadResult, "retired")
         );
 
         return (refResult, reloadResult, trainA, trainB);
@@ -818,20 +825,20 @@ public class MicroCheckpointTests {
         var imm = (uint)byteOffset;
         uint imm12 = (imm >> 12) & 1;
         uint imm11 = (imm >> 11) & 1;
-        uint imm10_5 = (imm >> 5) & 0x3F;
-        uint imm4_1 = (imm >> 1) & 0xF;
-        return (imm12 << 31) | (imm10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b001u << 12)
-            | (imm4_1 << 8) | (imm11 << 7) | 0x63;
+        uint imm10To5 = (imm >> 5) & 0x3F;
+        uint imm4To1 = (imm >> 1) & 0xF;
+        return (imm12 << 31) | (imm10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b001u << 12)
+             | (imm4To1 << 8) | (imm11 << 7) | 0x63;
     }
 
     private static uint EncodeBeq(int rs1, int rs2, int byteOffset) {
         var imm = (uint)byteOffset;
         uint imm12 = (imm >> 12) & 1;
         uint imm11 = (imm >> 11) & 1;
-        uint imm10_5 = (imm >> 5) & 0x3F;
-        uint imm4_1 = (imm >> 1) & 0xF;
-        return (imm12 << 31) | (imm10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b000u << 12)
-            | (imm4_1 << 8) | (imm11 << 7) | 0x63;
+        uint imm10To5 = (imm >> 5) & 0x3F;
+        uint imm4To1 = (imm >> 1) & 0xF;
+        return (imm12 << 31) | (imm10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b000u << 12)
+             | (imm4To1 << 8) | (imm11 << 7) | 0x63;
     }
 
     /// <summary>
@@ -856,7 +863,7 @@ public class MicroCheckpointTests {
         body.Add(0x00020313); // addi x6, x4, 0   -- use x4 so it isn't dead code
         body.Add(0xFFF38393); // addi x7, x7, -1  -- loop counter decrement
 
-        uint bne = MicroCheckpointTests.EncodeBne(7, 0, -(body.Count * 4));
+        uint bne = EncodeBne(7, 0, -(body.Count * 4));
 
         var program = new List<uint> { ((uint)iterations << 20) | (7u << 7) | 0x13, }; // addi x7, x0, iterations
         program.AddRange(body);
@@ -891,15 +898,12 @@ public class MicroCheckpointTests {
     /// </summary>
     [Fact]
     public void StoreSetPredictor_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
-        uint[] program = MicroCheckpointTests.BuildViolationLoopProgram(8, 20);
-
-        OooeTrain MakeStoreSetTrain(FlatMemory mem, ulong entryPoint) =>
-            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 64, iqCapacity: 32, enableStoreSets: true);
+        uint[] program = BuildViolationLoopProgram(8, 20);
 
         (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
-            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+            RunDrainSaveRestoreEquivalence(
                 MakeStoreSetTrain,
-                mem => MicroCheckpointTests.Load(mem, program),
+                mem => Load(mem, program),
                 // Wait past the 2nd violation (SSID assigned, threshold=2) before checkpointing,
                 // so the checkpoint actually carries a trained SSIT.
                 train => train.SnapshotPipeline().Counters.GetValueOrDefault("mem_order_violations") >= 2,
@@ -908,33 +912,38 @@ public class MicroCheckpointTests {
 
         // At most one extra violation from the race-condition sensitivity described above — not
         // the unbounded-stall failure mode a stale-SeqNo bug would cause.
-        long violationsDelta = MicroCheckpointTests.Counter(reloadResult, "mem_order_violations")
-            - MicroCheckpointTests.Counter(refResult, "mem_order_violations");
+        long violationsDelta = Counter(reloadResult, "mem_order_violations")
+                             - Counter(refResult, "mem_order_violations");
         Assert.InRange(violationsDelta, 0, 1);
+        return;
+
+        OooeTrain MakeStoreSetTrain(FlatMemory mem, ulong entryPoint) =>
+            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 64, iqCapacity: 32, enableStoreSets: true);
     }
 
     [Fact]
     public void SmbPredictor_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
-        OooeTrain MakeSmbTrain(FlatMemory mem, ulong entryPoint) =>
-            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 16, iqCapacity: 8, enableSmbBypass: true);
-
         (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
-            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+            RunDrainSaveRestoreEquivalence(
                 MakeSmbTrain,
-                mem => MicroCheckpointTests.Load(mem, MicroCheckpointTests.LoopProgram),
+                mem => Load(mem, MicroCheckpointTests.LoopProgram),
                 train => train.SnapshotPipeline().Counters.GetValueOrDefault("smb_bypasses") > 0
             );
 
         Assert.Equal(
-            MicroCheckpointTests.Counter(refResult, "smb_mispredicts"),
-            MicroCheckpointTests.Counter(reloadResult, "smb_mispredicts")
+            Counter(refResult, "smb_mispredicts"),
+            Counter(reloadResult, "smb_mispredicts")
         );
-        Assert.True(MicroCheckpointTests.Counter(refResult, "smb_bypasses") > 0);
+        Assert.True(Counter(refResult, "smb_bypasses") > 0);
+        return;
+
+        OooeTrain MakeSmbTrain(FlatMemory mem, ulong entryPoint) =>
+            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 16, iqCapacity: 8, enableSmbBypass: true);
     }
 
     [Fact]
     public void TokenPassingCriticalityPredictor_RoundTrip_CpTableMatches() {
-        var predA = new TokenPassingCriticalityPredictor(robCapacity: 16, cpTableSize: 256);
+        var predA = new TokenPassingCriticalityPredictor(16, 256);
         for (ulong i = 0; i < 20; i++)
             predA.OnCommit(
                 new CriticalityCommitInfo {
@@ -944,67 +953,72 @@ public class MicroCheckpointTests {
             );
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) predA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { predA.WriteState(w); }
 
-        var predB = new TokenPassingCriticalityPredictor(robCapacity: 16, cpTableSize: 256);
+        var predB = new TokenPassingCriticalityPredictor(16, 256);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) predB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { predB.ReadState(r); }
 
-        for (ulong pc = 0; pc < 4096; pc += 4)
-            Assert.Equal(predA.PredictCritical(pc), predB.PredictCritical(pc));
+        for (ulong pc = 0; pc < 4096; pc += 4) Assert.Equal(predA.PredictCritical(pc), predB.PredictCritical(pc));
     }
 
     [Fact]
     public void LvpVp_RoundTrip_TableMatches() {
         var vpA = new LvpVp(64);
-        vpA.Update(0x100, default, 42);
-        vpA.Update(0x100, default, 42);
-        vpA.Update(0x100, default, 42);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 42);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 42);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 42);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { vpA.WriteState(w); }
 
         var vpB = new LvpVp(64);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { vpB.ReadState(r); }
 
-        Assert.Equal(vpA.TryPredict(0x100, default, out ulong valA), vpB.TryPredict(0x100, default, out ulong valB));
+        Assert.Equal(
+            vpA.TryPredict(0x100, default(ValueHistoryCheckpoint), out ulong valA),
+            vpB.TryPredict(0x100, default(ValueHistoryCheckpoint), out ulong valB)
+        );
         Assert.Equal(valA, valB);
     }
 
     [Fact]
     public void StrideVp_RoundTrip_TableMatches() {
         var vpA = new StrideVp(64);
-        vpA.Update(0x100, default, 10); // Init, stride seeded to 0
-        vpA.Update(0x100, default, 20); // stride=10 vs previous 0: no match, stays Init
-        vpA.Update(0x100, default, 30); // stride=10 vs previous 10: match, Init -> Transient
-        vpA.Update(0x100, default, 40); // stride=10 vs previous 10: match, Transient -> Steady
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 10); // Init, stride seeded to 0
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 20); // stride=10 vs previous 0: no match, stays Init
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 30); // stride=10 vs previous 10: match, Init -> Transient
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 40); // stride=10 vs previous 10: match, Transient -> Steady
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { vpA.WriteState(w); }
 
         var vpB = new StrideVp(64);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { vpB.ReadState(r); }
 
-        Assert.Equal(vpA.TryPredict(0x100, default, out ulong valA), vpB.TryPredict(0x100, default, out ulong valB));
+        Assert.Equal(
+            vpA.TryPredict(0x100, default(ValueHistoryCheckpoint), out ulong valA),
+            vpB.TryPredict(0x100, default(ValueHistoryCheckpoint), out ulong valB)
+        );
         Assert.Equal(valA, valB);
         Assert.True(valA > 0); // sanity: the trained Steady state actually produced a prediction
     }
 
     [Fact]
     public void VtageVp_RoundTrip_TaggedComponentMatches() {
-        var vpA = new VtageVp(baseEntries: 64, entriesPerComponent: 32);
+        var vpA = new VtageVp(64, 32);
         // First Update always allocates a tagged component (TryFindProvider fails on an empty
         // table), deterministically since both instances share the default seed.
         vpA.Update(0x100, new ValueHistoryCheckpoint(0xABCD), 42);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { vpA.WriteState(w); }
 
-        var vpB = new VtageVp(baseEntries: 64, entriesPerComponent: 32);
+        var vpB = new VtageVp(64, 32);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { vpB.ReadState(r); }
 
         var history = new ValueHistoryCheckpoint(0xABCD);
         Assert.Equal(
@@ -1015,45 +1029,53 @@ public class MicroCheckpointTests {
 
     [Fact]
     public void DynamicClassificationVp_RoundTrip_ClassificationAndComponentsMatch() {
-        DynamicClassificationVp Make() => new(new VtageVp(64, 32), new StrideVp(64));
-
         DynamicClassificationVp vpA = Make();
         // Three Updates classify the PC (equal deltas -> Computational/StrideVp), then a fourth
         // trains StrideVp itself to Steady.
-        vpA.Update(0x100, default, 10);
-        vpA.Update(0x100, default, 20);
-        vpA.Update(0x100, default, 30); // classifies here (delta1==delta2==10)
-        vpA.Update(0x100, default, 40);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 10);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 20);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 30); // classifies here (delta1==delta2==10)
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 40);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { vpA.WriteState(w); }
 
         DynamicClassificationVp vpB = Make();
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { vpB.ReadState(r); }
 
-        Assert.Equal(vpA.TryPredict(0x100, default, out ulong valA), vpB.TryPredict(0x100, default, out ulong valB));
+        Assert.Equal(
+            vpA.TryPredict(0x100, default(ValueHistoryCheckpoint), out ulong valA),
+            vpB.TryPredict(0x100, default(ValueHistoryCheckpoint), out ulong valB)
+        );
         Assert.Equal(valA, valB);
+        return;
+
+        DynamicClassificationVp Make() => new(new VtageVp(64, 32), new StrideVp(64));
     }
 
     [Fact]
     public void HybridVp_RoundTrip_BothComponentsMatch() {
-        HybridVp Make() => new(new VtageVp(64, 32), new StrideVp(64));
-
         HybridVp vpA = Make();
-        vpA.Update(0x100, default, 10);
-        vpA.Update(0x100, default, 20);
-        vpA.Update(0x100, default, 30);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 10);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 20);
+        vpA.Update(0x100, default(ValueHistoryCheckpoint), 30);
 
         using var ms = new MemoryStream();
-        using (BinaryWriter w = MicroCheckpointTests.Writer(ms)) vpA.WriteState(w);
+        using (BinaryWriter w = Writer(ms)) { vpA.WriteState(w); }
 
         HybridVp vpB = Make();
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) vpB.ReadState(r);
+        using (var r = new BinaryReader(ms)) { vpB.ReadState(r); }
 
-        Assert.Equal(vpA.TryPredict(0x100, default, out ulong valA), vpB.TryPredict(0x100, default, out ulong valB));
+        Assert.Equal(
+            vpA.TryPredict(0x100, default(ValueHistoryCheckpoint), out ulong valA),
+            vpB.TryPredict(0x100, default(ValueHistoryCheckpoint), out ulong valB)
+        );
         Assert.Equal(valA, valB);
+        return;
+
+        HybridVp Make() => new(new VtageVp(64, 32), new StrideVp(64));
     }
 
     [Fact]
@@ -1070,21 +1092,22 @@ public class MicroCheckpointTests {
             0x00100073, // ebreak
         ];
 
-        OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
-            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new LvpVp());
-
         (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
-            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+            RunDrainSaveRestoreEquivalence(
                 MakeVpTrain,
-                mem => MicroCheckpointTests.Load(mem, program),
+                mem => Load(mem, program),
                 train => train.SnapshotPipeline().Counters.GetValueOrDefault("vp_predictions") > 0
             );
 
         Assert.Equal(
-            MicroCheckpointTests.Counter(refResult, "vp_mispredicts"),
-            MicroCheckpointTests.Counter(reloadResult, "vp_mispredicts")
+            Counter(refResult, "vp_mispredicts"),
+            Counter(reloadResult, "vp_mispredicts")
         );
-        Assert.True(MicroCheckpointTests.Counter(refResult, "vp_predictions") > 0);
+        Assert.True(Counter(refResult, "vp_predictions") > 0);
+        return;
+
+        OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
+            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new LvpVp());
     }
 
     /// <summary>
@@ -1101,29 +1124,30 @@ public class MicroCheckpointTests {
     [Fact]
     public void StrideVpEquivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
         uint[] program = [
-            0x00000093, // addi x1, x0, 0        -- counter
-            0x03200113, // addi x2, x0, 50        -- loop count
-            0x00408093, // loop: addi x1, x1, 4   -- monotonic stride-4 value producer
-            0xFFF10113, // addi x2, x2, -1
-            MicroCheckpointTests.EncodeBne(2, 0, -8), // bne x2, x0, loop
-            0x00100073, // ebreak
+            0x00000093,          // addi x1, x0, 0        -- counter
+            0x03200113,          // addi x2, x0, 50        -- loop count
+            0x00408093,          // loop: addi x1, x1, 4   -- monotonic stride-4 value producer
+            0xFFF10113,          // addi x2, x2, -1
+            EncodeBne(2, 0, -8), // bne x2, x0, loop
+            0x00100073,          // ebreak
         ];
 
-        OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
-            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new StrideVp());
-
         (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
-            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+            RunDrainSaveRestoreEquivalence(
                 MakeVpTrain,
-                mem => MicroCheckpointTests.Load(mem, program),
+                mem => Load(mem, program),
                 train => train.SnapshotPipeline().Counters.GetValueOrDefault("vp_predictions") > 0
             );
 
         Assert.Equal(
-            MicroCheckpointTests.Counter(refResult, "vp_mispredicts"),
-            MicroCheckpointTests.Counter(reloadResult, "vp_mispredicts")
+            Counter(refResult, "vp_mispredicts"),
+            Counter(reloadResult, "vp_mispredicts")
         );
-        Assert.True(MicroCheckpointTests.Counter(refResult, "vp_predictions") > 0);
+        Assert.True(Counter(refResult, "vp_predictions") > 0);
+        return;
+
+        OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
+            new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new StrideVp());
     }
 
     [Fact]
@@ -1133,8 +1157,8 @@ public class MicroCheckpointTests {
         const uint nop = 0x00000013;
         var caller = new List<uint> {
             0x00A00293, // addi x5, x0, 10       -- loop count (more iterations than the original
-            //                                       test, so there's meaningful work either side
-            //                                       of the checkpoint)
+            //                                      test, so there's meaningful work either side
+            //                                      of the checkpoint)
             0x7FD000EF, // jal x1, 4092 (call 0x1000)
             0xFFF28293, // addi x5, x5, -1
             0xFE029CE3, // bne x5, x0, -8
@@ -1146,27 +1170,28 @@ public class MicroCheckpointTests {
         for (var i = 0; i < 79; i++) callee.Add(nop);
         callee.Add(0x00008067); // jalr x0, x1, 0 -- return
 
-        void LoadProgram(FlatMemory mem) {
-            MicroCheckpointTests.LoadAt(mem, 0, caller.ToArray());
-            MicroCheckpointTests.LoadAt(mem, 0x1000, callee.ToArray());
-        }
-
         var iCacheCfg = new MemoryConfig(256, 4, 64);
 
-        OooeTrain MakeRdipTrain(FlatMemory mem, ulong entryPoint) =>
-            new(
-                new Rv32Mechanism(), mem, entryPoint, robCapacity: 16, iqCapacity: 8,
-                iMemConfig: iCacheCfg, rdip: true
-            );
-
         (RevolutionResult refResult, RevolutionResult reloadResult, OooeTrain trainA, OooeTrain trainB) =
-            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+            RunDrainSaveRestoreEquivalence(
                 MakeRdipTrain, LoadProgram, train => train.ICache!.Prefetches > 0
             );
 
         Assert.Equal(refResult.TotalTicks, reloadResult.TotalTicks); // already asserted by the helper; kept for clarity
         Assert.True(trainA.ICache!.Prefetches > 0);
         Assert.True(trainB.ICache!.Prefetches >= 0); // reload may or may not need further prefetches; must not throw
+        return;
+
+        void LoadProgram(FlatMemory mem) {
+            LoadAt(mem, 0, caller.ToArray());
+            LoadAt(mem, 0x1000, callee.ToArray());
+        }
+
+        OooeTrain MakeRdipTrain(FlatMemory mem, ulong entryPoint) =>
+            new(
+                new Rv32Mechanism(), mem, entryPoint, robCapacity: 16, iqCapacity: 8,
+                iMemConfig: iCacheCfg, rdip: true
+            );
     }
 
     private static void LoadAt(FlatMemory mem, ulong address, uint[] words) {
@@ -1204,39 +1229,40 @@ public class MicroCheckpointTests {
     ///     the PC-only bimodal base.
     /// </summary>
     private static uint[] BuildAlternatingParityBranchProgram(int iterations) => [
-        0x00000093, // addi x1, x0, 0
+        0x00000093,                                  // addi x1, x0, 0
         ((uint)iterations << 20) | (2u << 7) | 0x13, // addi x2, x0, iterations
-        0x0010F193, // loop: andi x3, x1, 1
-        MicroCheckpointTests.EncodeBeq(3, 0, 8), // beq x3, x0, +8 (skip next on even)
-        0x00120213, // addi x4, x4, 1
-        0x00108093, // addi x1, x1, 1
-        MicroCheckpointTests.EncodeBne(1, 2, -16), // bne x1, x2, loop
-        0x00100073, // ebreak
+        0x0010F193,                                  // loop: andi x3, x1, 1
+        EncodeBeq(3, 0, 8),                          // beq x3, x0, +8 (skip next on even)
+        0x00120213,                                  // addi x4, x4, 1
+        0x00108093,                                  // addi x1, x1, 1
+        EncodeBne(1, 2, -16),                        // bne x1, x2, loop
+        0x00100073,                                  // ebreak
     ];
 
     [Fact]
     public void LTageBp_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
-        uint[] program = MicroCheckpointTests.BuildAlternatingParityBranchProgram(40);
-
-        OooeTrain MakeLTageTrain(FlatMemory mem, ulong entryPoint) =>
-            new(
-                new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16,
-                predictor: new LTageBp()
-            );
+        uint[] program = BuildAlternatingParityBranchProgram(40);
 
         (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
-            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
+            RunDrainSaveRestoreEquivalence(
                 MakeLTageTrain,
-                mem => MicroCheckpointTests.Load(mem, program),
+                mem => Load(mem, program),
                 // Wait for real mispredicts so the tagged (history-indexed) tables — not just the
                 // bimodal base — actually have trained entries by the time we checkpoint.
                 train => train.SnapshotPipeline().Counters.GetValueOrDefault("branch_misses") >= 4
             );
 
         Assert.Equal(
-            MicroCheckpointTests.Counter(refResult, "branch_misses"),
-            MicroCheckpointTests.Counter(reloadResult, "branch_misses")
+            Counter(refResult, "branch_misses"),
+            Counter(reloadResult, "branch_misses")
         );
+        return;
+
+        OooeTrain MakeLTageTrain(FlatMemory mem, ulong entryPoint) =>
+            new(
+                new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16,
+                predictor: new LTageBp()
+            );
     }
 
     /// <summary>
@@ -1252,24 +1278,25 @@ public class MicroCheckpointTests {
     /// </summary>
     [Fact]
     public void ImliPredictor_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
-        uint[] program = MicroCheckpointTests.BuildAlternatingParityBranchProgram(40);
+        uint[] program = BuildAlternatingParityBranchProgram(40);
+
+        (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
+            RunDrainSaveRestoreEquivalence(
+                MakeImliTrain,
+                mem => Load(mem, program),
+                train => train.SnapshotPipeline().Counters.GetValueOrDefault("branch_misses") >= 4
+            );
+
+        Assert.Equal(
+            Counter(refResult, "branch_misses"),
+            Counter(reloadResult, "branch_misses")
+        );
+        return;
 
         OooeTrain MakeImliTrain(FlatMemory mem, ulong entryPoint) =>
             new(
                 new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16,
                 predictor: new ImliPredictor()
             );
-
-        (RevolutionResult refResult, RevolutionResult reloadResult, _, _) =
-            MicroCheckpointTests.RunDrainSaveRestoreEquivalence(
-                MakeImliTrain,
-                mem => MicroCheckpointTests.Load(mem, program),
-                train => train.SnapshotPipeline().Counters.GetValueOrDefault("branch_misses") >= 4
-            );
-
-        Assert.Equal(
-            MicroCheckpointTests.Counter(refResult, "branch_misses"),
-            MicroCheckpointTests.Counter(reloadResult, "branch_misses")
-        );
     }
 }

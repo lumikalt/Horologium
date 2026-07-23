@@ -62,8 +62,6 @@ public sealed class LvpVp : IValuePredictor {
         }
     }
 
-    private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
-
     /// <summary>
     ///     Serializes the PC-indexed value/confidence table. Deliberately does not serialize
     ///     <see cref="_fpc" />'s internal RNG state — it is not exposed for serialization, and
@@ -97,4 +95,6 @@ public sealed class LvpVp : IValuePredictor {
             if (i < n) _valid[i] = valid;
         }
     }
+
+    private int Idx(ulong pc) => (int)((pc >> 2) & (uint)_mask);
 }

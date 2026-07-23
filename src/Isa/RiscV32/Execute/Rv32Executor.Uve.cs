@@ -776,7 +776,12 @@ public partial class Rv32Executor {
     // confirmed against Spike (so_v_mv.h/so_v_mvt.h both write through the generic register
     // setElements() path, which handles the store-stream case uniformly for every writer).
     private static ExecuteResult ExecuteUveSoVMv(
-        IArchState state, IMemory memory, bool transpose, int vd, int vs1, int predIdx
+        IArchState state,
+        IMemory memory,
+        bool transpose,
+        int vd,
+        int vs1,
+        int predIdx
     ) {
         UveState uvs = UState(state).UveState;
         bool isVector = uvs.RegMode[vs1] == UveRegMode.Vector;

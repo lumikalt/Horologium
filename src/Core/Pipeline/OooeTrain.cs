@@ -144,10 +144,10 @@ public sealed partial class OooeTrain : ISteppableTrain {
                 writeBufferCapacity,
                 mshrCapacity,
                 flatIq,
-                fdipBackingMemory: fdipBackingMemory ?? iLayers.Accessor,
-                fdipFtqCapacity: fdipFtqCapacity,
-                rdipEnabled: rdip,
-                enableStoreSets: enableStoreSets,
+                fdipBackingMemory ?? iLayers.Accessor,
+                fdipFtqCapacity,
+                rdip,
+                enableStoreSets,
                 valuePredictor: valuePredictor,
                 enableEoleLateExec: enableEoleLateExec,
                 enableEoleEarlyExec: enableEoleEarlyExec
@@ -396,12 +396,12 @@ internal sealed partial class OoOPipelineCore : Gear {
     private int _execCountThisTick;
     private bool _fetchFaulted; // suppress repeated fault entries until flush clears
 
-    // Runtime state
-    private ulong _fetchPc;
-
     // Set by Drain() to stop admitting new instructions while the back-end empties out ahead of
     // a microarchitectural checkpoint. See OooeTrain.Checkpoint.cs.
     private bool _fetchInhibited;
+
+    // Runtime state
+    private ulong _fetchPc;
 
     private Counter _flushesCounter = null!;
     private bool _flushPending;
@@ -3167,7 +3167,8 @@ internal sealed partial class OoOPipelineCore : Gear {
             Span<uint> laneBuf = stackalloc uint[16];
             foreach (int uid in issued.Instr.UveStreamSources) {
                 if (uid < 0 || uid >= StreamingEngine.MaxStreams || !StreamingEngine.IsActive(uid)
-                 || !StreamingEngine.HasElement(uid)) continue;
+                 || !StreamingEngine.HasElement(uid))
+                    continue;
                 bool merging = StreamingEngine.GetMergingPredication(uid);
                 if (StreamingEngine.IsVectorMode(uid)) {
                     int ew = StreamingEngine.GetElementBytes(uid);
@@ -3195,6 +3196,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                         : !StreamingEngine.IsActive(uid) || StreamingEngine.IsExhausted(uid);
                     uvs.SetStreamDone(uid, done);
                 }
+
             // so.b.ndc.D encodes the dimension as funct3 = D-1, counting from the
             // OUTERMOST dimension (Spike: EODTable.at(funct3), dimensions[0] = outermost).
             // The engine indexes dimensions innermost-first, so remap before querying.

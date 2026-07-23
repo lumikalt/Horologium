@@ -76,6 +76,47 @@ public sealed class HashedPerceptronBp : IBranchPredictor {
     /// <inheritdoc />
     public void RecoverSpeculativeHistory() => _hist.Recover();
 
+    /// <summary>Serializes every weight table, the BTB, and the speculative/committed history pair.</summary>
+    public void WriteState(BinaryWriter w) {
+        w.Write(_tables.Length);
+        foreach (sbyte[] table in _tables) {
+            w.Write(table.Length);
+            foreach (sbyte weight in table) w.Write(weight);
+        }
+
+        w.Write(_btb.Count);
+        foreach ((ulong pc, ulong target) in _btb) {
+            w.Write(pc);
+            w.Write(target);
+        }
+
+        _hist.WriteState(w);
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
+    public void ReadState(BinaryReader r) {
+        int numTables = r.ReadInt32();
+        int tableN = Math.Min(numTables, _tables.Length);
+        for (var i = 0; i < numTables; i++) {
+            int size = r.ReadInt32();
+            int n = i < tableN ? Math.Min(size, _tables[i].Length) : 0;
+            for (var j = 0; j < size; j++) {
+                sbyte weight = r.ReadSByte();
+                if (j < n) _tables[i][j] = weight;
+            }
+        }
+
+        _btb.Clear();
+        int btbCount = r.ReadInt32();
+        for (var i = 0; i < btbCount; i++) {
+            ulong pc = r.ReadUInt64();
+            ulong target = r.ReadUInt64();
+            _btb[pc] = target;
+        }
+
+        _hist.ReadState(r);
+    }
+
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private int Sum(ulong pc) {
@@ -116,46 +157,5 @@ public sealed class HashedPerceptronBp : IBranchPredictor {
         }
 
         return bits;
-    }
-
-    /// <summary>Serializes every weight table, the BTB, and the speculative/committed history pair.</summary>
-    public void WriteState(BinaryWriter w) {
-        w.Write(_tables.Length);
-        foreach (sbyte[] table in _tables) {
-            w.Write(table.Length);
-            foreach (sbyte weight in table) w.Write(weight);
-        }
-
-        w.Write(_btb.Count);
-        foreach ((ulong pc, ulong target) in _btb) {
-            w.Write(pc);
-            w.Write(target);
-        }
-
-        _hist.WriteState(w);
-    }
-
-    /// <summary>Restores state written by <see cref="WriteState" />. Table geometry must match.</summary>
-    public void ReadState(BinaryReader r) {
-        int numTables = r.ReadInt32();
-        int tableN = Math.Min(numTables, _tables.Length);
-        for (var i = 0; i < numTables; i++) {
-            int size = r.ReadInt32();
-            int n = i < tableN ? Math.Min(size, _tables[i].Length) : 0;
-            for (var j = 0; j < size; j++) {
-                sbyte weight = r.ReadSByte();
-                if (j < n) _tables[i][j] = weight;
-            }
-        }
-
-        _btb.Clear();
-        int btbCount = r.ReadInt32();
-        for (var i = 0; i < btbCount; i++) {
-            ulong pc = r.ReadUInt64();
-            ulong target = r.ReadUInt64();
-            _btb[pc] = target;
-        }
-
-        _hist.ReadState(r);
     }
 }

@@ -9,7 +9,7 @@ namespace Tests.Face;
 
 public class ConfiguratorEngineTests {
     // addi x1, x0, 42  →  sw x1, 256(x0)  →  ebreak   (mem[256] = 42)
-    private static readonly byte[] Program = ConfiguratorEngineTests.Encode(
+    private static readonly byte[] Program = Encode(
         0x02a00093, 0x10102023, 0x00100073
     );
 
@@ -26,7 +26,7 @@ public class ConfiguratorEngineTests {
     public async Task BuildAsync_ValidScript_ReturnsRunnableHandle() {
         const string script = "new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism())";
 
-        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, ConfiguratorEngineTests.MakeWorkload());
+        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, MakeWorkload());
 
         Assert.True(result.Success);
         Assert.Null(result.Error);
@@ -38,7 +38,7 @@ public class ConfiguratorEngineTests {
     public async Task BuildAsync_SyntaxError_ReturnsErrorNotException() {
         const string script = "this is not valid C#";
 
-        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, ConfiguratorEngineTests.MakeWorkload());
+        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, MakeWorkload());
 
         Assert.False(result.Success);
         Assert.Null(result.Handle);
@@ -49,7 +49,7 @@ public class ConfiguratorEngineTests {
     public async Task BuildAsync_WrongReturnType_ReturnsErrorNotException() {
         const string script = "42";
 
-        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, ConfiguratorEngineTests.MakeWorkload());
+        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, MakeWorkload());
 
         Assert.False(result.Success);
         Assert.Contains("MachineSpec", result.Error);
@@ -58,7 +58,7 @@ public class ConfiguratorEngineTests {
     [Fact]
     public async Task SnapshotStats_NoCacheScript_HasNullCacheCountersButNonEmptyDials() {
         const string script = "new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism())";
-        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, ConfiguratorEngineTests.MakeWorkload());
+        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, MakeWorkload());
         result.Handle!.Run(1_000);
 
         ConfiguratorStats stats = ConfiguratorEngine.SnapshotStats(result.Handle);
@@ -77,7 +77,7 @@ public class ConfiguratorEngineTests {
         const string script =
             "new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism(), "
           + "CacheHierarchySpec.Unified(new CachePathSpec([new CacheLevelSpec(4096, 4, 64),])))";
-        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, ConfiguratorEngineTests.MakeWorkload());
+        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, MakeWorkload());
         Assert.True(result.Success);
 
         result.Handle!.Train.BeginStepping();
@@ -95,7 +95,7 @@ public class ConfiguratorEngineTests {
         const string script =
             "new MachineSpec(new SingleCycleSpec(), () => new Rv32Mechanism(), "
           + "CacheHierarchySpec.Unified(new CachePathSpec([new CacheLevelSpec(4096, 4, 64),])))";
-        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, ConfiguratorEngineTests.MakeWorkload());
+        ConfiguratorBuildResult result = await ConfiguratorEngine.BuildAsync(script, MakeWorkload());
         result.Handle!.Run(1_000);
 
         ConfiguratorStats stats = ConfiguratorEngine.SnapshotStats(result.Handle);

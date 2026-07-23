@@ -91,12 +91,6 @@ public sealed class ImliPredictor : IBranchPredictor {
     /// <inheritdoc />
     public void RecoverSpeculativeHistory() => _imli = _committedImli;
 
-    private int PhtIndex(ulong pc) =>
-        (int)(((pc >> 2) ^ (uint)_imli) & (uint)_phtMask);
-
-    private int BtbIndex(ulong pc) =>
-        (int)((pc >> 2) & (uint)_btbMask);
-
     /// <summary>
     ///     Serializes the PHT, BTB, backward-branch classification set, and both IMLI counter
     ///     shadows (<see cref="_imli" />/<see cref="_committedImli" />) — mirroring RAS/CRAS and
@@ -128,4 +122,10 @@ public sealed class ImliPredictor : IBranchPredictor {
         _committedImli = r.ReadInt32();
         _speculative = r.ReadBoolean();
     }
+
+    private int PhtIndex(ulong pc) =>
+        (int)(((pc >> 2) ^ (uint)_imli) & (uint)_phtMask);
+
+    private int BtbIndex(ulong pc) =>
+        (int)((pc >> 2) & (uint)_btbMask);
 }

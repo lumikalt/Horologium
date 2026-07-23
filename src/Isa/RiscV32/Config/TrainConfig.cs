@@ -6,7 +6,6 @@ using Mechanism;
 using Mechanism.RtlFu;
 using Orrery.Cache;
 using Orrery.Observation;
-using Pipeline;
 using Pipeline.Ooo;
 using Pipeline.Spec;
 using RiscV32.Execute;
@@ -172,7 +171,7 @@ public sealed record TrainConfig(
 
     /// <summary>
     ///     Lowers this config to the matching <see cref="PipelineSpec" /> subtype — the single
-    ///     construction point <c>PipelineSpec.Build</c> also serves the <c>.csx</c>/<see cref="MachineSpec"/>
+    ///     construction point <c>PipelineSpec.Build</c> also serves the <c>.csx</c>/<see cref="MachineSpec" />
     ///     scripting path, so both Face's GUI/sweep-file path and its scripting path build trains through
     ///     the same code. Mirrors what <c>Experiment.RunOne</c>/<c>Experiment.Trace</c> used to construct
     ///     inline via a <c>switch (Pipeline)</c>.
@@ -204,25 +203,25 @@ public sealed record TrainConfig(
             ),
             "cpr" => new CprSpec(
                 IssueWidth, IqCapacity, ExtraPhysRegs,
-                BranchPredictorFactory: predictorFactory,
-                FuLatency: FuLatency,
-                PEventLog: pEventLog
+                predictorFactory,
+                FuLatency,
+                pEventLog
             ),
             "superscalar" => new SuperscalarSpec(
                 IssueWidth,
-                BranchPredictorFactory: predictorFactory,
-                FuLatency: FuLatency,
+                predictorFactory,
+                FuLatency,
                 PEventLog: pEventLog
             ),
-            "dae" => new DaeSpec(DaeLaneQueueDepth, pEventLog),
+            "dae"          => new DaeSpec(DaeLaneQueueDepth, pEventLog),
             "single_cycle" => new SingleCycleSpec(commitObserver),
             _ => new FiveStageSpec(
                 ForwardingEnabled, StoreBufferCapacity,
-                BranchPredictorFactory: predictorFactory,
-                PEventLog: pEventLog,
-                CommitObserver: commitObserver,
-                FdipFtqCapacity: FdipFtqCapacity,
-                Rdip: Rdip
+                predictorFactory,
+                pEventLog,
+                commitObserver,
+                FdipFtqCapacity,
+                Rdip
             ),
         };
     }

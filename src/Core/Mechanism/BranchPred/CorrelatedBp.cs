@@ -87,8 +87,6 @@ public sealed class CorrelatedBp : IBranchPredictor {
             _local.RestoreEntryAndFold(checkpoint.LocalIdx, checkpoint.LocalValue, actualTaken);
     }
 
-    private int BhtIndex(ulong pc) => (int)((pc >> 2) & (uint)_bhtMask);
-
     /// <summary>Serializes the PHT, BTB, and the per-branch local-history table.</summary>
     public void WriteState(BinaryWriter w) {
         foreach (byte c in _pht) w.Write(c);
@@ -102,6 +100,8 @@ public sealed class CorrelatedBp : IBranchPredictor {
         for (var i = 0; i < _btb.Length; i++) _btb[i] = r.ReadUInt64();
         _local.ReadState(r);
     }
+
+    private int BhtIndex(ulong pc) => (int)((pc >> 2) & (uint)_bhtMask);
 }
 
 /// Gselect: global history register; PHT index = concat(GHR, lower PC bits).
@@ -175,10 +175,6 @@ public sealed class GselectPredictor : IBranchPredictor {
     public void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) =>
         _hist.RestoreTo(checkpoint.Global, actualTaken);
 
-    // index = GHR occupies the upper historyBits; PC occupies the lower pcBits
-    private int PhtIndex(ulong pc) =>
-        (((int)_hist.Value & _ghrMask) << _pcBits) | ((int)(pc >> 2) & _pcMask);
-
     /// <summary>Serializes the PHT, BTB, and the speculative/committed global-history pair.</summary>
     public void WriteState(BinaryWriter w) {
         foreach (byte c in _pht) w.Write(c);
@@ -192,6 +188,10 @@ public sealed class GselectPredictor : IBranchPredictor {
         for (var i = 0; i < _btb.Length; i++) _btb[i] = r.ReadUInt64();
         _hist.ReadState(r);
     }
+
+    // index = GHR occupies the upper historyBits; PC occupies the lower pcBits
+    private int PhtIndex(ulong pc) =>
+        (((int)_hist.Value & _ghrMask) << _pcBits) | ((int)(pc >> 2) & _pcMask);
 }
 
 /// Gshare: global history register; PHT index = GHR XOR lower PC bits.
@@ -255,8 +255,6 @@ public sealed class GshareBp : IBranchPredictor {
     public void RestoreHistory(in BranchHistoryCheckpoint checkpoint, ulong pc, bool actualTaken) =>
         _hist.RestoreTo(checkpoint.Global, actualTaken);
 
-    private int PhtIndex(ulong pc) => ((int)(pc >> 2) ^ (int)_hist.Value) & _ghrMask;
-
     /// <summary>Serializes the PHT, BTB, and the speculative/committed global-history pair.</summary>
     public void WriteState(BinaryWriter w) {
         foreach (byte c in _pht) w.Write(c);
@@ -270,4 +268,6 @@ public sealed class GshareBp : IBranchPredictor {
         for (var i = 0; i < _btb.Length; i++) _btb[i] = r.ReadUInt64();
         _hist.ReadState(r);
     }
+
+    private int PhtIndex(ulong pc) => ((int)(pc >> 2) ^ (int)_hist.Value) & _ghrMask;
 }

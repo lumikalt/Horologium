@@ -6,7 +6,6 @@ using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
-using Pipeline.Spec;
 using RiscV32.Config;
 using RiscV32.Memory;
 using RiscV32.Syscalls;
@@ -152,13 +151,14 @@ public static class Experiment {
                 // ReSharper disable once AccessToModifiedClosure
                 setStatsObs = new SetStatsObserver(setStatsPc, () => trainRef!.SnapshotPipeline());
 
-            PipelineSpec spec = config.ToPipelineSpec(mechanism, workload, commitObserver: setStatsObs);
+            var spec = config.ToPipelineSpec(mechanism, workload, setStatsObs);
             trainRef = (OooeTrain)spec.Build(mechanism, runMemory, workload.EntryPoint, config.ToIMemoryConfig(), dCfg);
 
             result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
 
             if (setStatsObs?.KernelDelta is { } kernelSnap) result = result with { Snapshots = [kernelSnap,], };
-        } else {
+        }
+        else {
             // Checkpoint Processing and Recovery: store sets stay at the CprTrain default
             // (enabled) rather than following config.EnableStoreSets — CPR's violation recovery
             // re-executes the whole checkpoint, so without memory-dependence learning the same
@@ -166,7 +166,9 @@ public static class Experiment {
             // path re-executes from the load itself). ToPipelineSpec's CprSpec case intentionally
             // never reads config.EnableStoreSets, so this holds automatically.
             ISteppableTrain train = config.ToPipelineSpec(mechanism, workload)
-                .Build(mechanism, runMemory, workload.EntryPoint, config.ToIMemoryConfig(), dCfg);
+                                          .Build(
+                                               mechanism, runMemory, workload.EntryPoint, config.ToIMemoryConfig(), dCfg
+                                           );
             result = train.Run(maxTicks, warmupTicks, snapshotInterval);
         }
 
@@ -191,8 +193,8 @@ public static class Experiment {
         MemoryConfig dCfg = WithMmio(cfg.ToDMemoryConfig(), workload);
 
         cfg.ToPipelineSpec(mechanism, workload, pEventLog: plog)
-            .Build(mechanism, runMemory, workload.EntryPoint, cfg.ToIMemoryConfig(), dCfg)
-            .Run(maxTicks);
+           .Build(mechanism, runMemory, workload.EntryPoint, cfg.ToIMemoryConfig(), dCfg)
+           .Run(maxTicks);
 
         return plog;
     }

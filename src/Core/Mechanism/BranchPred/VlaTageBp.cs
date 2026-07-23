@@ -118,6 +118,37 @@ public sealed class VlaTageBp : TageScLBp, IVectorAwareBranchPredictor {
         base.Update(pc, taken, actualTarget);
     }
 
+    /// <summary>
+    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>) plus the Vector Loop Table.
+    ///     Deliberately does not serialize <see cref="GatedPredictions" />, a pure inspection
+    ///     statistic.
+    /// </summary>
+    public override void WriteState(BinaryWriter w) {
+        base.WriteState(w);
+        foreach (VltEntry e in _vlt) {
+            w.Write(e.Pc);
+            w.Write(e.Target);
+            w.Write(e.PrevRs1);
+            w.Write(e.PrevRs2);
+            w.Write(e.EstimatedRemaining);
+            w.Write(e.IsValid);
+            w.Write(e.IsVectorLoop);
+            w.Write(e.PenLatch);
+            w.Write(e.HaveFirst);
+        }
+    }
+
+    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
+    public override void ReadState(BinaryReader r) {
+        base.ReadState(r);
+        for (var i = 0; i < _vlt.Length; i++)
+            _vlt[i] = new VltEntry {
+                Pc = r.ReadUInt64(), Target = r.ReadUInt64(), PrevRs1 = r.ReadUInt64(), PrevRs2 = r.ReadUInt64(),
+                EstimatedRemaining = r.ReadInt64(), IsValid = r.ReadBoolean(), IsVectorLoop = r.ReadBoolean(),
+                PenLatch = r.ReadBoolean(), HaveFirst = r.ReadBoolean(),
+            };
+    }
+
     // ── IBranchPredictor overrides ────────────────────────────────────────────
 
     /// <inheritdoc />
@@ -173,37 +204,6 @@ public sealed class VlaTageBp : TageScLBp, IVectorAwareBranchPredictor {
             if (!_vlt[i].IsValid)
                 return i;
         return (int)(pc >> 2) % VlaTageBp.VltSize; // evict via PC hash
-    }
-
-    /// <summary>
-    ///     Serializes the inherited TAGE-SC-L state (via <c>base</c>) plus the Vector Loop Table.
-    ///     Deliberately does not serialize <see cref="GatedPredictions" />, a pure inspection
-    ///     statistic.
-    /// </summary>
-    public override void WriteState(BinaryWriter w) {
-        base.WriteState(w);
-        foreach (VltEntry e in _vlt) {
-            w.Write(e.Pc);
-            w.Write(e.Target);
-            w.Write(e.PrevRs1);
-            w.Write(e.PrevRs2);
-            w.Write(e.EstimatedRemaining);
-            w.Write(e.IsValid);
-            w.Write(e.IsVectorLoop);
-            w.Write(e.PenLatch);
-            w.Write(e.HaveFirst);
-        }
-    }
-
-    /// <summary>Restores state written by <see cref="WriteState" />.</summary>
-    public override void ReadState(BinaryReader r) {
-        base.ReadState(r);
-        for (var i = 0; i < _vlt.Length; i++)
-            _vlt[i] = new VltEntry {
-                Pc = r.ReadUInt64(), Target = r.ReadUInt64(), PrevRs1 = r.ReadUInt64(), PrevRs2 = r.ReadUInt64(),
-                EstimatedRemaining = r.ReadInt64(), IsValid = r.ReadBoolean(), IsVectorLoop = r.ReadBoolean(),
-                PenLatch = r.ReadBoolean(), HaveFirst = r.ReadBoolean(),
-            };
     }
 }
 

@@ -99,29 +99,6 @@ public sealed class TokenPassingCriticalityPredictor : ICriticalityPredictor {
         }
     }
 
-    private byte ResolveBits(CpNode node, ulong instrId) {
-        var slot = (int)(instrId % (ulong)_robCapacity);
-        return _tokens[slot, (int)node];
-    }
-
-    private bool IsTokenLive(int token) {
-        var bit = (byte)(1 << token);
-        for (var slot = 0; slot < _robCapacity; slot++)
-        for (var node = 0; node < 3; node++)
-            if ((_tokens[slot, node] & bit) != 0)
-                return true;
-        return false;
-    }
-
-    private void Train(ulong pc, bool critical) {
-        int idx = CpTableIdx(pc);
-        _cpTable[idx] = critical
-            ? (byte)Math.Min(63, _cpTable[idx] + 8)
-            : (byte)Math.Max(0, _cpTable[idx] - 1);
-    }
-
-    private int CpTableIdx(ulong pc) => (int)((pc >> 2) & (uint)_cpTableMask);
-
     /// <summary>
     ///     Serializes only <see cref="_cpTable" /> — the PC-indexed hysteresis table, the sole
     ///     genuinely persistent learned state. Deliberately skips <see cref="_tokens" /> (indexed
@@ -145,4 +122,27 @@ public sealed class TokenPassingCriticalityPredictor : ICriticalityPredictor {
         byte[] table = r.ReadBytes(size);
         Array.Copy(table, _cpTable, Math.Min(size, _cpTable.Length));
     }
+
+    private byte ResolveBits(CpNode node, ulong instrId) {
+        var slot = (int)(instrId % (ulong)_robCapacity);
+        return _tokens[slot, (int)node];
+    }
+
+    private bool IsTokenLive(int token) {
+        var bit = (byte)(1 << token);
+        for (var slot = 0; slot < _robCapacity; slot++)
+        for (var node = 0; node < 3; node++)
+            if ((_tokens[slot, node] & bit) != 0)
+                return true;
+        return false;
+    }
+
+    private void Train(ulong pc, bool critical) {
+        int idx = CpTableIdx(pc);
+        _cpTable[idx] = critical
+            ? (byte)Math.Min(63, _cpTable[idx] + 8)
+            : (byte)Math.Max(0, _cpTable[idx] - 1);
+    }
+
+    private int CpTableIdx(ulong pc) => (int)((pc >> 2) & (uint)_cpTableMask);
 }

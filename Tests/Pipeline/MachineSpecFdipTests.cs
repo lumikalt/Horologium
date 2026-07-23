@@ -54,23 +54,23 @@ public class MachineSpecFdipTests {
 
     // 256 bytes, 4-way, 64-byte blocks — matches FdipPrefetcherTests.ICache()'s geometry.
     private static MemoryConfig IMemConfig() => new(256, 4, 64);
-    private static CacheLevelSpec IL1Spec() => new(256, 4, 64);
+    private static CacheLevelSpec Il1Spec() => new(256, 4, 64);
 
     [Fact]
     public void Fdip_ViaSplitIdMachineSpec_MatchesDirectConstructionICacheAccessCount() {
         var direct = new FiveStageTrain(
-            new Rv32Mechanism(), MachineSpecFdipTests.LoadedMem(), iMemConfig: MachineSpecFdipTests.IMemConfig(),
+            new Rv32Mechanism(), LoadedMem(), iMemConfig: IMemConfig(),
             fdipFtqCapacity: 32
         );
         direct.Run();
 
         MachineHandle handle = new MachineSpec(
-            new FiveStageSpec(FdipFtqCapacity: 32), MachineSpecFdipTests.Rv32(),
+            new FiveStageSpec(FdipFtqCapacity: 32), Rv32(),
             CacheHierarchySpec.SplitId(
-                new CachePathSpec([MachineSpecFdipTests.IL1Spec(),]),
-                new CachePathSpec([MachineSpecFdipTests.IL1Spec(),])
+                new CachePathSpec([Il1Spec(),]),
+                new CachePathSpec([Il1Spec(),])
             )
-        ).Build(MachineSpecFdipTests.LoadedMem());
+        ).Build(LoadedMem());
         handle.Run();
 
         Assert.True(handle.ILayers!.Cache!.Prefetches > 0, "MachineSpec build should issue FDIP prefetches");
@@ -86,18 +86,18 @@ public class MachineSpecFdipTests {
     [Fact]
     public void Fdip_OoO_ViaSplitIdMachineSpec_MatchesDirectConstructionICacheAccessCount() {
         var direct = new OooeTrain(
-            new Rv32Mechanism(), MachineSpecFdipTests.LoadedMem(), iMemConfig: MachineSpecFdipTests.IMemConfig(),
+            new Rv32Mechanism(), LoadedMem(), iMemConfig: IMemConfig(),
             fdipFtqCapacity: 32
         );
         direct.Run();
 
         MachineHandle handle = new MachineSpec(
-            new OutOfOrderSpec(FdipFtqCapacity: 32), MachineSpecFdipTests.Rv32(),
+            new OutOfOrderSpec(FdipFtqCapacity: 32), Rv32(),
             CacheHierarchySpec.SplitId(
-                new CachePathSpec([MachineSpecFdipTests.IL1Spec(),]),
-                new CachePathSpec([MachineSpecFdipTests.IL1Spec(),])
+                new CachePathSpec([Il1Spec(),]),
+                new CachePathSpec([Il1Spec(),])
             )
-        ).Build(MachineSpecFdipTests.LoadedMem());
+        ).Build(LoadedMem());
         handle.Run();
 
         Assert.True(handle.ILayers!.Cache!.Prefetches > 0, "MachineSpec build should issue FDIP prefetches");
@@ -114,9 +114,9 @@ public class MachineSpecFdipTests {
     [Fact]
     public void Fdip_ViaUnifiedMachineSpec_IssuesPrefetches() {
         MachineHandle handle = new MachineSpec(
-            new FiveStageSpec(FdipFtqCapacity: 32), MachineSpecFdipTests.Rv32(),
-            CacheHierarchySpec.Unified(new CachePathSpec([MachineSpecFdipTests.IL1Spec(),]))
-        ).Build(MachineSpecFdipTests.LoadedMem());
+            new FiveStageSpec(FdipFtqCapacity: 32), Rv32(),
+            CacheHierarchySpec.Unified(new CachePathSpec([Il1Spec(),]))
+        ).Build(LoadedMem());
         handle.Run();
 
         Assert.True(handle.Layers!.Cache!.Prefetches > 0, "MachineSpec build should issue FDIP prefetches");
@@ -125,9 +125,9 @@ public class MachineSpecFdipTests {
     [Fact]
     public void Fdip_OoO_ViaUnifiedMachineSpec_IssuesPrefetches() {
         MachineHandle handle = new MachineSpec(
-            new OutOfOrderSpec(FdipFtqCapacity: 32), MachineSpecFdipTests.Rv32(),
-            CacheHierarchySpec.Unified(new CachePathSpec([MachineSpecFdipTests.IL1Spec(),]))
-        ).Build(MachineSpecFdipTests.LoadedMem());
+            new OutOfOrderSpec(FdipFtqCapacity: 32), Rv32(),
+            CacheHierarchySpec.Unified(new CachePathSpec([Il1Spec(),]))
+        ).Build(LoadedMem());
         handle.Run();
 
         Assert.True(handle.Layers!.Cache!.Prefetches > 0, "MachineSpec build should issue FDIP prefetches");
