@@ -289,6 +289,12 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial string ICacheWritePolicy { get; set; } = "write_through";
     [ObservableProperty] public partial string ICacheWriteMissPolicy { get; set; } = "no_write_allocate";
     [ObservableProperty] public partial int ICacheWbCapacity { get; set; } = 0;
+    [ObservableProperty] public partial int ICacheBankCount { get; set; } = 1;
+    [ObservableProperty] public partial int ICacheReadPorts { get; set; } = 0;
+    [ObservableProperty] public partial int ICacheWritePorts { get; set; } = 0;
+    [ObservableProperty] public partial int ICacheSectorBytes { get; set; } = 0;
+    [ObservableProperty] public partial int ICacheVictimCacheEntries { get; set; } = 0;
+    [ObservableProperty] public partial int ICacheVictimCacheHitLatency { get; set; } = 1;
     [ObservableProperty] public partial bool FdipEnabled { get; set; }
     [ObservableProperty] public partial int FdipFtqCapacity { get; set; } = 32;
     [ObservableProperty] public partial bool RdipEnabled { get; set; }
@@ -305,6 +311,12 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial string DCacheWritePolicy { get; set; } = "write_through";
     [ObservableProperty] public partial string DCacheWriteMissPolicy { get; set; } = "no_write_allocate";
     [ObservableProperty] public partial int DCacheWbCapacity { get; set; } = 0;
+    [ObservableProperty] public partial int DCacheBankCount { get; set; } = 1;
+    [ObservableProperty] public partial int DCacheReadPorts { get; set; } = 0;
+    [ObservableProperty] public partial int DCacheWritePorts { get; set; } = 0;
+    [ObservableProperty] public partial int DCacheSectorBytes { get; set; } = 0;
+    [ObservableProperty] public partial int DCacheVictimCacheEntries { get; set; } = 0;
+    [ObservableProperty] public partial int DCacheVictimCacheHitLatency { get; set; } = 1;
     [ObservableProperty] public partial bool L2CacheEnabled { get; set; }
     [ObservableProperty] public partial int L2CacheCapacityKb { get; set; } = 256;
     [ObservableProperty] public partial int L2CacheWays { get; set; } = 8;
@@ -315,6 +327,13 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial string L2CacheWritePolicy { get; set; } = "write_through";
     [ObservableProperty] public partial string L2CacheWriteMissPolicy { get; set; } = "no_write_allocate";
     [ObservableProperty] public partial int L2CacheWbCapacity { get; set; } = 0;
+    [ObservableProperty] public partial int L2CacheBankCount { get; set; } = 1;
+    [ObservableProperty] public partial int L2CacheReadPorts { get; set; } = 0;
+    [ObservableProperty] public partial int L2CacheWritePorts { get; set; } = 0;
+    [ObservableProperty] public partial int L2CacheSectorBytes { get; set; } = 0;
+    [ObservableProperty] public partial int L2CacheVictimCacheEntries { get; set; } = 0;
+    [ObservableProperty] public partial int L2CacheVictimCacheHitLatency { get; set; } = 1;
+    [ObservableProperty] public partial string L2CacheInclusionPolicy { get; set; } = "nine";
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
     [ObservableProperty] public partial string DCachePrefetcher { get; set; } = "none";
     [ObservableProperty] public partial int DCachePrefetcherTableSize { get; set; } = 64;
@@ -364,6 +383,7 @@ public partial class AssemblerViewModel : ObservableObject {
 
     public static IReadOnlyList<string> WritePolicyOptions { get; } = ["write_through", "write_back",];
     public static IReadOnlyList<string> WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
+    public static IReadOnlyList<string> InclusionPolicyOptions { get; } = ["nine", "inclusive", "exclusive",];
 
     public string CacheMetadataLabel => CacheReplacementPolicy switch {
         "srrip" or "brrip" or "drrip" or "ship" or "ship_pc" or "hawkeye" => "RRPV",
@@ -1095,6 +1115,12 @@ public partial class AssemblerViewModel : ObservableObject {
     private static WriteMissPolicyKind ParseWriteMissPolicy(string s) =>
         s == "write_allocate" ? WriteMissPolicyKind.WriteAllocate : WriteMissPolicyKind.NoWriteAllocate;
 
+    private static InclusionPolicyKind ParseInclusionPolicy(string s) => s switch {
+        "inclusive" => InclusionPolicyKind.Inclusive,
+        "exclusive" => InclusionPolicyKind.Exclusive,
+        _           => InclusionPolicyKind.Nine,
+    };
+
     private static MemoryConfig BuildCacheConfig(
         bool enabled,
         int capacityKb,
@@ -1106,7 +1132,13 @@ public partial class AssemblerViewModel : ObservableObject {
         int dataLatency = 0,
         WritePolicyKind writePolicy = WritePolicyKind.WriteThrough,
         WriteMissPolicyKind writeMissPolicy = WriteMissPolicyKind.NoWriteAllocate,
-        int wbCapacity = 0
+        int wbCapacity = 0,
+        int bankCount = 1,
+        int readPorts = 0,
+        int writePorts = 0,
+        int sectorBytes = 0,
+        int victimCacheEntries = 0,
+        int victimCacheHitLatency = 1
     ) =>
         enabled
             ? new MemoryConfig(capacityKb * 1024, ways, blockBytes, missLatency)
@@ -1117,6 +1149,12 @@ public partial class AssemblerViewModel : ObservableObject {
                     CacheWritePolicy = writePolicy,
                     CacheWriteMissPolicy = writeMissPolicy,
                     CacheWbCapacity = wbCapacity,
+                    CacheBankCount = bankCount,
+                    CacheReadPorts = readPorts,
+                    CacheWritePorts = writePorts,
+                    CacheSectorBytes = sectorBytes,
+                    CacheVictimCacheEntries = victimCacheEntries,
+                    CacheVictimCacheHitLatency = victimCacheHitLatency,
                 }
             : MemoryConfig.None;
 
@@ -1133,17 +1171,20 @@ public partial class AssemblerViewModel : ObservableObject {
             ICacheEnabled, ICacheCapacityKb, ICacheWays, ICacheBlockBytes, ICacheMissLatency, policy,
             ICacheTagLatency, ICacheDataLatency,
             ParseWritePolicy(ICacheWritePolicy), ParseWriteMissPolicy(ICacheWriteMissPolicy),
-            ICacheWbCapacity
+            ICacheWbCapacity, ICacheBankCount, ICacheReadPorts, ICacheWritePorts, ICacheSectorBytes,
+            ICacheVictimCacheEntries, ICacheVictimCacheHitLatency
         );
         MemoryConfig dCfg = BuildCacheConfig(
             DCacheEnabled, DCacheCapacityKb, DCacheWays, DCacheBlockBytes, DCacheMissLatency, policy,
             DCacheTagLatency, DCacheDataLatency,
             ParseWritePolicy(DCacheWritePolicy), ParseWriteMissPolicy(DCacheWriteMissPolicy),
-            DCacheWbCapacity
+            DCacheWbCapacity, DCacheBankCount, DCacheReadPorts, DCacheWritePorts, DCacheSectorBytes,
+            DCacheVictimCacheEntries, DCacheVictimCacheHitLatency
         );
         if (L2CacheEnabled) {
             WritePolicyKind l2Wp = ParseWritePolicy(L2CacheWritePolicy);
             WriteMissPolicyKind l2Wmp = ParseWriteMissPolicy(L2CacheWriteMissPolicy);
+            InclusionPolicyKind l2Ip = ParseInclusionPolicy(L2CacheInclusionPolicy);
             iCfg = iCfg with {
                 L2CapacityBytes = L2CacheCapacityKb * 1024,
                 L2Ways = L2CacheWays,
@@ -1154,6 +1195,13 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2WritePolicy = l2Wp,
                 L2WriteMissPolicy = l2Wmp,
                 L2WbCapacity = L2CacheWbCapacity,
+                L2BankCount = L2CacheBankCount,
+                L2ReadPorts = L2CacheReadPorts,
+                L2WritePorts = L2CacheWritePorts,
+                L2SectorBytes = L2CacheSectorBytes,
+                L2VictimCacheEntries = L2CacheVictimCacheEntries,
+                L2VictimCacheHitLatency = L2CacheVictimCacheHitLatency,
+                L2InclusionPolicy = l2Ip,
             };
             dCfg = dCfg with {
                 L2CapacityBytes = L2CacheCapacityKb * 1024,
@@ -1165,6 +1213,13 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2WritePolicy = l2Wp,
                 L2WriteMissPolicy = l2Wmp,
                 L2WbCapacity = L2CacheWbCapacity,
+                L2BankCount = L2CacheBankCount,
+                L2ReadPorts = L2CacheReadPorts,
+                L2WritePorts = L2CacheWritePorts,
+                L2SectorBytes = L2CacheSectorBytes,
+                L2VictimCacheEntries = L2CacheVictimCacheEntries,
+                L2VictimCacheHitLatency = L2CacheVictimCacheHitLatency,
+                L2InclusionPolicy = l2Ip,
             };
         }
 

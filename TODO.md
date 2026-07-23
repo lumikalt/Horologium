@@ -480,6 +480,16 @@ free embedded suites are runnable in full today.
   drive is already covered directly in `Tests/Orrery/CacheTests.cs`.) Full suite 3948/1/3949 (3946
   baseline + 2 new tests). RV64 support for `TrainConfig`/`ConfigViewModel` remains open as phase 2c-2
   below.
+  - Follow-up (found by the user testing in Face): the Assembler tab has its own fully independent
+    cache-config surface (`AssemblerViewModel`'s own `ICache*`/`DCache*`/`L2Cache*` properties and
+    `BuildCacheConfig` helper, building a `MemoryConfig` directly rather than going through
+    `TrainConfig`/`CacheHardwareConfig`) — the richer knobs above only landed in `ConfigViewModel`, so
+    the Assembler tab didn't show them. Added the same fields to `AssemblerViewModel`/`BuildCacheConfig`
+    and matching `MainPanel.axaml` rows in the Assembler sidebar's I-cache/D-cache/L2 sections, mirroring
+    that surface's own row style (fixed `60,*,Auto` label/control/unit grid) rather than the main
+    sidebar's. No new test: `AssemblerViewModel` isn't unit tested for the same reason `ConfigViewModel`
+    isn't (Tests.csproj doesn't reference Face.csproj) — the underlying `MemoryConfig`/
+    `SetAssociativeCache` wiring this reuses is already covered by the test above.
 - [x] Unify Face's two configuration models, phase 2c-2 — added an RV32/RV64 selector
   (`MainWindowViewModel.SelectedIsa`) driving the Run/Trace comparison pipeline. It's a single
   whole-run choice, not per-config: `Experiment.Run` takes one shared `Func<IMechanism>` across every
