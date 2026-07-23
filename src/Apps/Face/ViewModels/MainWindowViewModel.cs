@@ -8,6 +8,8 @@ using CommunityToolkit.Mvvm.Input;
 using Face.Models;
 using Mechanism;
 using Orrery.Observation;
+using Orrery.Spec;
+using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
@@ -37,7 +39,11 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public MainWindowViewModel() {
         Chip8 = new Chip8ViewModel(() => CurrentPage = AppPage.Launcher);
-        foreach (NamedConfig nc in DefaultSweep()) Configs.Add(ConfigViewModel.FromNamedConfig(nc));
+        foreach (NamedConfig nc in DefaultSweep()) {
+            Configs.Add(ConfigViewModel.FromNamedConfig(nc));
+            HartCaches.Add(new HartCacheViewModel());
+        }
+
         SelectedConfig = Configs.FirstOrDefault();
         SelectedPreset = WorkloadPresets[0];
     }
@@ -113,8 +119,17 @@ public partial class MainWindowViewModel : ObservableObject {
     [ObservableProperty] public partial string StatusText { get; set; } = "Ready — configure and run an experiment.";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasSelectedConfig))]
+    [NotifyPropertyChangedFor(nameof(HasSelectedConfig), nameof(SelectedHartCache))]
     public partial ConfigViewModel? SelectedConfig { get; set; } = null;
+
+    /// <summary>
+    ///     <see cref="HartCaches" /> is kept parallel to <see cref="Configs" /> by index (see
+    ///     <see cref="AddConfig" />/<see cref="DuplicateConfig" />/<see cref="RemoveConfig" />), so
+    ///     this is always the private-cache config for whichever hart <see cref="SelectedConfig" />
+    ///     is — used by multi-hart mode's cache editor.
+    /// </summary>
+    public HartCacheViewModel? SelectedHartCache =>
+        SelectedConfig is null ? null : HartCaches.ElementAtOrDefault(Configs.IndexOf(SelectedConfig));
 
     [ObservableProperty] public partial string? SelectedMetric { get; set; } = null;
 
@@ -168,6 +183,21 @@ public partial class MainWindowViewModel : ObservableObject {
     public ConfiguratorViewModel Configurator { get; } = new();
 
     public ObservableCollection<ConfigViewModel> Configs { get; } = [];
+
+    /// <summary>
+    ///     Multi-hart mode's per-hart private cache config, paired 1:1 by index with
+    ///     <see cref="Configs" /> (which supplies each hart's pipeline/predictor config in this
+    ///     mode — its own cache section is not used, see <see cref="HartCacheViewModel" />). Kept in
+    ///     lockstep with <see cref="Configs" /> by <see cref="AddConfig" />/<see cref="DuplicateConfig" />/
+    ///     <see cref="RemoveConfig" /> regardless of <see cref="IsMulticoreMode" />, so entering
+    ///     multi-hart mode never finds a stale or mismatched list.
+    /// </summary>
+    public ObservableCollection<HartCacheViewModel> HartCaches { get; } = [];
+
+    public MultiHartSettingsViewModel MultiHartSettings { get; } = new();
+
+    [ObservableProperty] public partial bool IsMulticoreMode { get; set; }
+
     public ObservableCollection<string> AvailableMetrics { get; } = [];
     public ObservableCollection<Dictionary<string, string>> TableRows { get; } = [];
     public IReadOnlyList<string> TableHeaders { get; private set; } = [];
@@ -201,15 +231,27 @@ public partial class MainWindowViewModel : ObservableObject {
     private void AddConfig() {
         var vm = new ConfigViewModel { Name = $"config_{Configs.Count + 1}", };
         Configs.Add(vm);
+        HartCaches.Add(new HartCacheViewModel());
         SelectedConfig = vm;
     }
 
     [RelayCommand]
     private void DuplicateConfig() {
         if (SelectedConfig is null) return;
+        int idx = Configs.IndexOf(SelectedConfig);
         var nc = SelectedConfig.ToNamedConfig();
         ConfigViewModel dup = ConfigViewModel.FromNamedConfig(nc with { Name = nc.Name + "_2", });
         Configs.Add(dup);
+        HartCacheViewModel srcCache = HartCaches[idx];
+        HartCaches.Add(
+            new HartCacheViewModel {
+                Enabled = srcCache.Enabled,
+                CapacityKb = srcCache.CapacityKb,
+                Ways = srcCache.Ways,
+                BlockBytes = srcCache.BlockBytes,
+                MissLatency = srcCache.MissLatency,
+            }
+        );
         SelectedConfig = dup;
     }
 
@@ -218,6 +260,7 @@ public partial class MainWindowViewModel : ObservableObject {
         if (SelectedConfig is null) return;
         int idx = Configs.IndexOf(SelectedConfig);
         Configs.Remove(SelectedConfig);
+        HartCaches.RemoveAt(idx);
         SelectedConfig = Configs.ElementAtOrDefault(Math.Max(0, idx - 1));
     }
 
@@ -263,6 +306,50 @@ public partial class MainWindowViewModel : ObservableObject {
             UpdateSignals(result);
             HasResults = true;
             StatusText = $"Done — {result.Runs.Count} run(s), {maxTicks:N0} max ticks each.";
+            ResultsUpdated?.Invoke();
+        }
+        catch (Exception ex) { StatusText = $"Error: {ex.Message}"; }
+        finally { IsRunning = false; }
+    }
+
+    /// <summary>
+    ///     Runs Face's fixed multi-hart demo (see <see cref="Experiment.RunMulticore" /> — there is
+    ///     no workload picker in this mode, only one hand-verified LR/SC program every hart shares).
+    ///     <see cref="Configs" /> supplies each hart's pipeline/predictor config; <see cref="HartCaches" />
+    ///     (paired 1:1 by index) supplies its private cache. Results render in the same Chart/Table
+    ///     views as <see cref="Run" /> — skips <see cref="UpdateSignals" /> since multi-hart results
+    ///     never carry a time series.
+    /// </summary>
+    [RelayCommand]
+    private async Task RunMulticore() {
+        if (Configs.Count == 0) {
+            StatusText = "Add at least one hart.";
+            return;
+        }
+
+        IsRunning = true;
+        HasResults = false;
+        StatusText = $"Running {Configs.Count} hart(s)…";
+
+        try {
+            var hartConfigs = new List<(TrainConfig, CacheLevelSpec?)>(Configs.Count);
+            for (var i = 0; i < Configs.Count; i++)
+                hartConfigs.Add((Configs[i].ToNamedConfig().Config, HartCaches[i].ToCacheLevelSpec()));
+
+            CacheLevelSpec? sharedLlc = MultiHartSettings.ToSharedLlcSpec();
+            CoherenceBusKind bus = MultiHartSettings.ToCoherenceBusKind();
+            bool concurrentMode = MultiHartSettings.ConcurrentMode;
+            var maxTicks = (long)(MultiHartSettings.MaxTicks > 0 ? MultiHartSettings.MaxTicks : 100_000);
+
+            ExperimentResult result = await Task.Run(
+                () => Experiment.RunMulticore(hartConfigs, sharedLlc, bus, concurrentMode, maxTicks)
+            );
+
+            _lastResult = result;
+            UpdateMetrics(result);
+            PopulateTable(result);
+            HasResults = true;
+            StatusText = $"Done — {result.Runs.Count} row(s), {maxTicks:N0} max ticks.";
             ResultsUpdated?.Invoke();
         }
         catch (Exception ex) { StatusText = $"Error: {ex.Message}"; }

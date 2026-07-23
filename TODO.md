@@ -536,33 +536,42 @@ free embedded suites are runnable in full today.
     them correctly), this only degrades the human-readable text, and the call site already had a
     catch-all for exactly this. No new test, same Tests.csproj/Face.csproj boundary as elsewhere in
     2c-2. Needs visual verification in Face.
-- [ ] Multi-hart GUI support in Face (split out from phase 2c above, 2026-07-23): `MulticoreSpec`/
-  `HartSpec` exist on the scripting side only. Not a toggle — Face's whole run pipeline
-  (`MainWindowViewModel.Configs`, `Experiment`, `NamedConfig`) is architected around independent
-  single-hart sweep runs against one shared workload/mechanism factory, not N harts co-simulated
-  against a shared coherent memory system. Needs its own design pass: a new run driver over
-  `MulticoreHandle`, per-hart workload/entry-point assignment UI, and multi-hart result
-  visualization (`MulticoreHandle.Trains`/`CoherentCaches`).
-  - Backend half done: added `Experiment.RunMulticore` (`src/Isa/RiscV32/Analysis/Experiment.cs`),
-    which runs Face's fixed multi-hart demo program (a hand-encoded LR/SC atomic-increment loop on
-    one shared counter word — the only workload multi-hart mode uses; real benchmark ELFs are
-    unsafe to share across harts since their crt0 hardcodes the same stack-top address for every
-    hart and there's no `mhartid` CSR to differentiate them) across N harts and assembles the
-    result as an `ExperimentResult` (one `RunRecord` per hart, named `hart0`/`hart1`/…, plus a
-    `shared_llc` row when a shared LLC is configured) — Face's existing `UpdateMetrics`/
-    `PopulateTable` rendering needs zero changes to display it, since they're already generic over
-    a flat named run list. Found and fixed a real, previously-untested engine bug along the way:
-    `MulticoreSpec.Build` (`src/Core/Pipeline/Spec/MulticoreSpec.cs`) never wired
-    `ReservationAwareMemory` into the shared backing, so cross-hart LR/SC never actually invalidated
-    another hart's reservation — every SC silently "succeeded" against a stale read, a lost-update
-    race (confirmed empirically: a 2-hart run landed at 20 instead of the correct 40). Added an
-    optional `ReservationTable?` field to `MulticoreSpec` (defaults to `null`, fully backward
-    compatible) and wrap the backing in `ReservationAwareMemory` when supplied. New
-    `Tests/Pipeline/ExperimentMulticoreTests.cs`: smoke-checks the demo program single-hart first
-    (catches hand-encoding mistakes before they'd be misread as an engine bug), a 2-hart no-cache
-    test proving the `ReservationTable` fix, and a private-cache + shared-LLC test proving the
-    synthetic stat rows. Confirmed each new assertion fails without its corresponding fix (not just
-    a first green run). Full suite 3953/1/3954 (3949 baseline + 4 new tests). Still open: the
-    `MainWindowViewModel`/`ConfigViewModel`-adjacent GUI wiring (hart-count/private-cache/shared-LLC
-    controls, the Run-button/mode-toggle plumbing) — needs the user's own eyes in Face once landed,
-    same as every other Face feature this session.
+- [x] Multi-hart GUI support in Face (split out from phase 2c above, 2026-07-23): `MulticoreSpec`/
+  `HartSpec` existed on the scripting side only before this. Backend: added
+  `Experiment.RunMulticore` (`src/Isa/RiscV32/Analysis/Experiment.cs`), which runs Face's fixed
+  multi-hart demo program (a hand-encoded LR/SC atomic-increment loop on one shared counter word —
+  the only workload multi-hart mode uses; real benchmark ELFs are unsafe to share across harts
+  since their crt0 hardcodes the same stack-top address for every hart and there's no `mhartid`
+  CSR to differentiate them) across N harts and assembles the result as an `ExperimentResult` (one
+  `RunRecord` per hart, named `hart0`/`hart1`/…, plus a `shared_llc` row when a shared LLC is
+  configured) — Face's existing `UpdateMetrics`/`PopulateTable` rendering needed zero changes to
+  display it, since they're already generic over a flat named run list. Found and fixed a real,
+  previously-untested engine bug along the way: `MulticoreSpec.Build`
+  (`src/Core/Pipeline/Spec/MulticoreSpec.cs`) never wired `ReservationAwareMemory` into the shared
+  backing, so cross-hart LR/SC never actually invalidated another hart's reservation — every SC
+  silently "succeeded" against a stale read, a lost-update race (confirmed empirically: a 2-hart
+  run landed at 20 instead of the correct 40). Added an optional `ReservationTable?` field to
+  `MulticoreSpec` (defaults to `null`, fully backward compatible) and wrap the backing in
+  `ReservationAwareMemory` when supplied. New `Tests/Pipeline/ExperimentMulticoreTests.cs`:
+  smoke-checks the demo program single-hart first (catches hand-encoding mistakes before they'd be
+  misread as an engine bug), a 2-hart no-cache test proving the `ReservationTable` fix, and a
+  private-cache + shared-LLC test proving the synthetic stat rows. Confirmed each new assertion
+  fails without its corresponding fix (not just a first green run).
+
+  GUI: new `IsMulticoreMode` toggle in the Chart/Table sidebar. Deliberately did **not** reuse
+  `ConfigViewModel`'s existing I/D/L2 cache section for per-hart cache config — confirmed
+  `MulticoreSpec.Build` calls `hart.Pipeline.Build(mechanism, hartMemory, entryPoint)` with only 3
+  args, so a hart's Train never receives `iMemConfig`/`dMemConfig` at all; wiring that section
+  through would have been a dead-knob trap. Added a small new `HartCacheViewModel` (just
+  `Enabled`/`CapacityKb`/`Ways`/`BlockBytes`/`MissLatency` — the only 4 fields the coherent cache
+  level honors) kept parallel to the existing `Configs` collection by index (`AddConfig`/
+  `DuplicateConfig`/`RemoveConfig` now keep both in sync), plus `MultiHartSettingsViewModel` for
+  the global hart-count-independent settings (shared LLC, bus kind, concurrent mode, max ticks).
+  In multi-hart mode the workload picker and single-hart run settings hide (there's no workload to
+  pick — see the backend note above) and a warning notes that the config detail panel's cache
+  section above the new Private Cache editor doesn't apply. Full non-benchmark suite unchanged at
+  3953/1/3954 across both the backend and GUI commits (no new tests possible for the GUI layer —
+  `Tests.csproj` doesn't reference `Face.csproj`, same as every other Face feature this session).
+  Needs visual verification in Face (toggle multi-hart mode, run with 2-3 harts, optionally a
+  private cache and/or shared LLC) before being fully trusted — flagged for the user, not yet
+  confirmed.

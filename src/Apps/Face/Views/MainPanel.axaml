@@ -472,8 +472,15 @@
                     <!-- ── Chart / Table sidebar ─────────────────────────────── -->
                     <StackPanel IsVisible="{Binding IsChartTableTab}">
 
-                        <!-- Workload -->
-                        <StackPanel Margin="16,12,16,12" Spacing="8">
+                        <!-- Mode -->
+                        <StackPanel Margin="16,12,16,0" Spacing="4" Orientation="Horizontal">
+                            <ToggleSwitch IsChecked="{Binding IsMulticoreMode}"
+                                          OnContent="Multi-hart" OffContent="Single config" />
+                        </StackPanel>
+
+                        <!-- Workload (single-config mode only — multi-hart mode has a fixed demo
+                             program instead, see Experiment.RunMulticore) -->
+                        <StackPanel Margin="16,12,16,12" Spacing="8" IsVisible="{Binding !IsMulticoreMode}">
                             <TextBlock Text="ISA" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
                             <ComboBox ItemsSource="{Binding IsaOptions}"
                                       SelectedItem="{Binding SelectedIsa}"
@@ -497,10 +504,56 @@
                             </Grid>
                         </StackPanel>
 
+                        <!-- Multi-hart settings -->
+                        <StackPanel Margin="16,12,16,12" Spacing="8" IsVisible="{Binding IsMulticoreMode}">
+                            <TextBlock Text="MULTI-HART" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <TextBlock Text="Every hart runs the same fixed LR/SC demo program (real ELFs aren't safe to share across harts)."
+                                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Text="Bus" VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{x:Static vm:MultiHartSettingsViewModel.BusKindOptions}"
+                                          SelectedItem="{Binding MultiHartSettings.BusKind}"
+                                          HorizontalAlignment="Stretch" />
+                            </Grid>
+                            <CheckBox IsChecked="{Binding MultiHartSettings.ConcurrentMode}"
+                                      Content="Concurrent mode (two-phase parallel tick; snooping bus only)" />
+                            <TextBlock Text="SHARED LLC" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <CheckBox IsChecked="{Binding MultiHartSettings.SharedLlcEnabled}" Content="Enabled" />
+                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                  RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4"
+                                  IsVisible="{Binding MultiHartSettings.SharedLlcEnabled}">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                               Value="{Binding MultiHartSettings.SharedLlcCapacityKb}"
+                                               Minimum="1" Maximum="131072" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                               Value="{Binding MultiHartSettings.SharedLlcWays}"
+                                               Minimum="1" Maximum="32" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                               Value="{Binding MultiHartSettings.SharedLlcBlockBytes}"
+                                               Minimum="8" Maximum="256" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="3" Grid.Column="1"
+                                               Value="{Binding MultiHartSettings.SharedLlcMissLatency}"
+                                               Minimum="1" Maximum="500" />
+                            </Grid>
+                            <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Text="Max ticks" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1"
+                                               Value="{Binding MultiHartSettings.MaxTicks}"
+                                               Minimum="1" Maximum="1000000000"
+                                               Increment="10000" FormatString="N0" />
+                            </Grid>
+                        </StackPanel>
+
                         <Separator />
 
-                        <!-- Run settings -->
-                        <StackPanel Margin="16,12,16,12" Spacing="8">
+                        <!-- Run settings (single-config mode only — multi-hart mode has its own
+                             Max ticks field in the MULTI-HART panel above) -->
+                        <StackPanel Margin="16,12,16,12" Spacing="8" IsVisible="{Binding !IsMulticoreMode}">
                             <TextBlock Text="RUN SETTINGS" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
                             <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6"
                                   ColumnSpacing="8">
@@ -562,10 +615,52 @@
                                         IsVisible="{Binding HasSelectedConfig}"
                                         ContentTemplate="{StaticResource ConfigDetailTemplate}" />
 
+                        <!-- Multi-hart: per-hart private cache (NOT the cache section in the
+                             template above — a hart's Train never receives it, see
+                             HartCacheViewModel's doc comment) -->
+                        <StackPanel Margin="16,12,16,0" Spacing="8"
+                                    IsVisible="{Binding IsMulticoreMode}">
+                            <TextBlock Text="The cache settings above are ignored in multi-hart mode — configure this hart's private cache below instead."
+                                       FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                       IsVisible="{Binding HasSelectedConfig}" />
+                            <StackPanel Spacing="8" IsVisible="{Binding SelectedHartCache, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <TextBlock Text="PRIVATE CACHE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                                <CheckBox IsChecked="{Binding SelectedHartCache.Enabled}" Content="Enabled" />
+                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
+                                      RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4"
+                                      IsVisible="{Binding SelectedHartCache.Enabled}">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
+                                    <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                                   Value="{Binding SelectedHartCache.CapacityKb}"
+                                                   Minimum="1" Maximum="16384" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Ways" VerticalAlignment="Center" />
+                                    <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                   Value="{Binding SelectedHartCache.Ways}"
+                                                   Minimum="1" Maximum="16" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)" VerticalAlignment="Center" />
+                                    <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                   Value="{Binding SelectedHartCache.BlockBytes}"
+                                                   Minimum="8" Maximum="256" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency" VerticalAlignment="Center" />
+                                    <NumericUpDown Grid.Row="3" Grid.Column="1"
+                                                   Value="{Binding SelectedHartCache.MissLatency}"
+                                                   Minimum="1" Maximum="200" />
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
+
                         <!-- Run button -->
                         <StackPanel Margin="16,16,16,0" Spacing="8">
                             <Button Content="▶  Run Experiment"
                                     Command="{Binding RunCommand}"
+                                    IsVisible="{Binding !IsMulticoreMode}"
+                                    IsEnabled="{Binding !IsRunning}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="0,10" />
+                            <Button Content="▶  Run Multi-hart"
+                                    Command="{Binding RunMulticoreCommand}"
+                                    IsVisible="{Binding IsMulticoreMode}"
                                     IsEnabled="{Binding !IsRunning}"
                                     HorizontalAlignment="Stretch"
                                     HorizontalContentAlignment="Center"
