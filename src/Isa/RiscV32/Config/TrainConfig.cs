@@ -215,10 +215,7 @@ public sealed record TrainConfig(
                 PEventLog: pEventLog
             ),
             "dae" => new DaeSpec(DaeLaneQueueDepth, pEventLog),
-            // NB: "single_cycle" intentionally falls through to FiveStageSpec below, matching
-            // Experiment's pre-existing (buggy) behavior exactly — see TODO.md. Runner's
-            // --simpoint-warmup path special-cases "single_cycle" itself rather than relying on
-            // this method, since it already builds SingleCycleTrain correctly for that case.
+            "single_cycle" => new SingleCycleSpec(commitObserver),
             _ => new FiveStageSpec(
                 ForwardingEnabled, StoreBufferCapacity,
                 BranchPredictorFactory: predictorFactory,

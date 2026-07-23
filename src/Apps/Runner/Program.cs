@@ -401,10 +401,10 @@ if (simpointInterval > 0) {
                 continue;
             }
 
-            // "single_cycle" is special-cased directly rather than through ToPipelineSpec: that
-            // method deliberately leaves "single_cycle" falling through to FiveStageSpec (matching
-            // Experiment's pre-existing behavior — see TODO.md), but this measurement path already
-            // builds SingleCycleTrain correctly for it and that behavior must not regress.
+            // "single_cycle" is special-cased directly rather than through ToPipelineSpec: this
+            // measurement path only wants raw backing memory for it (no ToIMemoryConfig/ToDMemoryConfig,
+            // unlike the five_stage/ooo branch below), which predates and is independent of whether
+            // ToPipelineSpec itself handles "single_cycle" correctly.
             ISteppableTrain DetailedFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) {
                 if (cfg.Pipeline == "single_cycle") return new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
 

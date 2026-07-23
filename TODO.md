@@ -396,15 +396,14 @@ free embedded suites are runnable in full today.
   `--simpoint-warmup` path, whose `single_cycle` handling was already correct before this change,
   special-cases it inline instead of routing through `ToPipelineSpec`, so that behavior didn't move
   either.
-- [ ] Fix `Experiment`'s `"single_cycle"` pipeline handling: `TrainConfig.Pipeline == "single_cycle"`
-  (a real, user-selectable option — `ConfigViewModel.PipelineOptions`) has never had a case in
-  `Experiment`'s pipeline-construction switch (nor, now, in `TrainConfig.ToPipelineSpec()`, see the
-  item above), so selecting "Single Cycle" in Face's GUI silently builds a `FiveStageTrain` instead.
-  The fix itself is a one-line addition to `ToPipelineSpec` (`"single_cycle" => new
-  SingleCycleSpec(commitObserver)`) — the work here is verifying it in Face itself before flipping
-  it, since `SingleCycleTrain`'s dial schema (`core.*` counters) differs from the `pipeline.*`
-  schema every other pipeline kind emits, and the Face comparison grid/CSV output has not been
-  checked against that schema switch.
+- [x] Fixed `TrainConfig.ToPipelineSpec()`: added the missing `"single_cycle" => new
+  SingleCycleSpec(commitObserver)` case (previously fell through to `FiveStageSpec`, silently building
+  the wrong pipeline for Face's "Single Cycle" GUI option — see phase 2a/2b above for the surrounding
+  unification work). Updated the stale comment on Runner's `--simpoint-warmup` path that referenced the
+  old fall-through behavior (that path still special-cases `single_cycle` itself, for an unrelated
+  reason: it deliberately skips `ToIMemoryConfig`/`ToDMemoryConfig` for it). Full non-benchmark suite
+  unchanged (3946/1/3947). Visually verified in Face: `SingleCycleTrain`'s `core.*` dial schema (vs.
+  every other pipeline's `pipeline.*`) renders sensibly in the comparison grid — user confirmed.
 - [x] Unify Face's two configuration models, phase 2a (backend-only subset — done while away from a
   machine that could run Face; the three GUI-facing items below stay deferred until that can be
   visually verified): added `"RiscV32.Config"` to `ScriptHost`/`FSharpScriptHost`'s pre-imports so
