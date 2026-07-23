@@ -9,6 +9,7 @@ using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+using RiscV64;
 
 #endregion
 
@@ -316,6 +317,33 @@ public class ExperimentTests {
             tbMisses < antMisses,
             $"Expected NBit(2) ({tbMisses}) < AlwaysNotTaken ({antMisses})"
         );
+    }
+
+    // ── Experiment against a non-RiscV32 mechanism (RV64) ─────────────────────
+
+    /// <summary>
+    ///     Confirms <see cref="Experiment.Run" /> works against an <c>Rv64Mechanism</c> factory, not
+    ///     just the <c>Rv32Mechanism</c> every other test in this file uses — the mechanism-agnostic
+    ///     paths inside <see cref="Experiment.RunOne" /> (<c>mechanism is Rv32Mechanism</c> soft
+    ///     checks for RTL-unit wrapping and kernel-only-IPC symbol lookup) should degrade gracefully
+    ///     rather than break when given a different <see cref="IMechanism" /> implementation. This is
+    ///     the part of Face's RV64-selector support (TODO.md phase 2c-2) that's actually new and
+    ///     unverified elsewhere — the ISA-branching glue in Face's own
+    ///     <c>MainWindowViewModel.ResolveWorkload</c>/<c>CreateMechanism</c> is a few lines of
+    ///     <c>isa == "rv64" ? ... : ...</c> not covered by a dedicated test, consistent with the rest
+    ///     of that view model's data-mapping code (e.g. <c>ConfigViewModel.ToNamedConfig</c>) never
+    ///     being unit tested directly.
+    /// </summary>
+    [Fact]
+    public void Experiment_Run_WorksAgainstRv64Mechanism() {
+        var workload = new ByteArrayWorkload(MakeCountdownProgram());
+        NamedConfig[] configs = [new("baseline", new TrainConfig()),];
+
+        ExperimentResult result = Experiment.Run(workload, configs, () => new Rv64Mechanism());
+
+        DialBoardSnapshot? snap = result.Runs[0].Result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(snap.Counters["retired"] > 0);
     }
 
     [Fact]

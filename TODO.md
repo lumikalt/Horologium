@@ -480,14 +480,33 @@ free embedded suites are runnable in full today.
   drive is already covered directly in `Tests/Orrery/CacheTests.cs`.) Full suite 3948/1/3949 (3946
   baseline + 2 new tests). RV64 support for `TrainConfig`/`ConfigViewModel` remains open as phase 2c-2
   below.
-- [ ] Unify Face's two configuration models, phase 2c-2 (GUI-facing, verified visually in Face by the
-  user once landed): RV64 support for `TrainConfig`/`ConfigViewModel` — the scripting path already
-  supports RV64 (`Rv64Mechanism`/`Rv64ElfWorkload` built directly against the ISA-agnostic
-  `PipelineSpec`/`MachineSpec` API), but `TrainConfig` has no ISA field at all, and
-  `MainWindowViewModel`/`ConfiguratorViewModel` hardcode `Rv32Mechanism`/`Rv32ElfWorkload` in three
-  places with no ISA selector in the GUI. ELF bitness isn't auto-detected either (`Rv32ElfLoader`
-  rejects anything but `ELFCLASS32`; `Rv64ElfLoader`/`Rv64ElfWorkload` is the separate 64-bit-only
-  counterpart) — the picked loader has to match an explicit selection, not sniff the file.
+- [x] Unify Face's two configuration models, phase 2c-2 — added an RV32/RV64 selector
+  (`MainWindowViewModel.SelectedIsa`) driving the Run/Trace comparison pipeline. It's a single
+  whole-run choice, not per-config: `Experiment.Run` takes one shared `Func<IMechanism>` across every
+  `NamedConfig` in a sweep, so ISA can't meaningfully differ between configs being compared in the
+  same run (a per-config selector, the more literal reading of "RV64 support for
+  `TrainConfig`/`ConfigViewModel`", would need an `Experiment` API change and is moot without a
+  dual-ISA benchmark corpus anyway — see below). `TrainConfig` itself needed no change: it was already
+  ISA-agnostic (a hardware-knob record with no ISA field), the RV32-only-ness lived entirely in
+  `MainWindowViewModel`'s hardcoded `Rv32Mechanism`/`Rv32ElfWorkload` construction. Widened the shared
+  `ResolveWorkload` helper (also used by `ConfiguratorViewModel`) with an `isa` parameter defaulting to
+  `"rv32"`; deliberately did **not** add an ISA selector to `ConfiguratorViewModel` — its `.csx` scripts
+  can already target RV64 today (`RiscV64` is pre-imported in `ScriptHost`), that's a separate,
+  pre-existing script-vs-workload pairing gap, not something this pass introduced. No RV64 benchmark
+  ELFs exist in `TestBinaries/benchmarks/` (RV32 only), so RV64 mode filters `WorkloadPresets` down to
+  the built-in demo + custom ELF path rather than offering presets that would hit
+  `Rv64ElfLoader`'s clean "only ELF64 is supported" rejection. Verified before wiring anything: the
+  built-in demo (`ADDI`/`BEQ`/`JAL`/`EBREAK`, no XLEN-dependent behavior) runs correctly under
+  `Rv64Mechanism` (scratch-checked, not assumed), and `Rv64ElfLoader` rejects a wrong-class ELF with a
+  clean exception rather than misbehaving silently. Added
+  `Experiment_Run_WorksAgainstRv64Mechanism` in `Tests/RiscV32/Analysis/ExperimentTests.cs`, proving
+  `Experiment.Run`'s soft `mechanism is Rv32Mechanism`/`workload is Rv32ElfWorkload` checks degrade
+  gracefully instead of breaking for a different `IMechanism`. `MainWindowViewModel`'s own ISA-branching
+  glue (a few lines of `isa == "rv64" ? ... : ...`) isn't unit tested directly — Tests.csproj doesn't
+  reference Face.csproj, and this is consistent with the rest of that view model's data-mapping code
+  (e.g. `ConfigViewModel.ToNamedConfig`) never being unit tested either. Full suite 3949/1/3950 (3948
+  baseline + 1 new test). Needs visual verification in Face (ISA selector + preset filtering) before
+  being fully trusted — flagged for the user, not yet confirmed.
 - [ ] Multi-hart GUI support in Face (split out from phase 2c above, 2026-07-23): `MulticoreSpec`/
   `HartSpec` exist on the scripting side only. Not a toggle — Face's whole run pipeline
   (`MainWindowViewModel.Configs`, `Experiment`, `NamedConfig`) is architected around independent

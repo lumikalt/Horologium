@@ -12,6 +12,8 @@ using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+using RiscV64;
+using RiscV64.Memory;
 
 #endregion
 
@@ -63,6 +65,16 @@ public partial class MainWindowViewModel : ObservableObject {
         new("Custom ELF…", ""),
     ];
 
+    /// <summary>
+    ///     No RV64 benchmark ELFs exist in <c>TestBinaries/benchmarks/</c> today (only RV32 ones,
+    ///     copied under <see cref="BenchmarksDir" />) — so under RV64, only the built-in demo and a
+    ///     user-supplied custom ELF are offered; the RV32 benchmark presets are hidden rather than
+    ///     left selectable-but-broken (they'd hit <see cref="Rv64ElfLoader" />'s clean
+    ///     "only ELF64 is supported" rejection instead of running).
+    /// </summary>
+    private static IEnumerable<WorkloadPreset> PresetsForIsa(string isa) =>
+        isa == "rv64" ? DefaultWorkloadPresets.Where(p => string.IsNullOrEmpty(p.ElfFileName)) : DefaultWorkloadPresets;
+
     public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } =
         [..DefaultWorkloadPresets,];
 
@@ -71,6 +83,24 @@ public partial class MainWindowViewModel : ObservableObject {
     public partial WorkloadPreset SelectedPreset { get; set; }
 
     [ObservableProperty] public partial string? WorkloadPath { get; set; } = null;
+
+    /// <summary>
+    ///     Selects both the ELF loader (<see cref="Rv32ElfWorkload" />/<see cref="Rv64ElfWorkload" />)
+    ///     and the mechanism (<see cref="Rv32Mechanism" />/<see cref="Rv64Mechanism" />) for the whole
+    ///     Run/Trace comparison, not per-config — <see cref="Experiment.Run" /> takes one shared
+    ///     mechanism factory across every <see cref="TrainConfig" /> in the sweep, so ISA can't
+    ///     meaningfully differ between configs being compared in the same run.
+    /// </summary>
+    [ObservableProperty] public partial string SelectedIsa { get; set; } = "rv32";
+
+    public string[] IsaOptions { get; } = ["rv32", "rv64",];
+
+    partial void OnSelectedIsaChanged(string value) {
+        WorkloadPreset? previouslySelected = SelectedPreset;
+        WorkloadPresets.Clear();
+        foreach (WorkloadPreset p in MainWindowViewModel.PresetsForIsa(value)) WorkloadPresets.Add(p);
+        SelectedPreset = WorkloadPresets.FirstOrDefault(p => p == previouslySelected) ?? WorkloadPresets[0];
+    }
 
     [ObservableProperty] public partial decimal MaxTicks { get; set; } = 1_000_000;
 
@@ -208,24 +238,20 @@ public partial class MainWindowViewModel : ObservableObject {
         StatusText = $"Running {Configs.Count} configuration(s)…";
 
         try {
-            IWorkload workload = SelectedPreset.ElfFileName switch {
-                null => CreateBuiltInWorkload(),
-                ""   => new Rv32ElfWorkload(WorkloadPath!),
-                var fn => new Rv32ElfWorkload(
-                    Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
-                    SelectedPreset.MemoryBytes
-                ),
-            };
+            IWorkload workload = MainWindowViewModel.ResolveWorkload(SelectedPreset, WorkloadPath, SelectedIsa);
 
             List<NamedConfig> namedConfigs = Configs.Select(c => c.ToNamedConfig()).ToList();
             var maxTicks = (long)(MaxTicks > 0 ? MaxTicks : 1_000_000);
             var warmupTicks = (long)(WarmupTicks >= 0 ? WarmupTicks : 0);
             var snapshotInterval = (long)(SnapshotInterval >= 0 ? SnapshotInterval : 0);
+            string isa = SelectedIsa;
 
             ExperimentResult result = await Task.Run(() =>
                                                          Experiment.Run(
                                                              workload, namedConfigs,
-                                                             () => new Rv32Mechanism(workload.HtifTohostAddress),
+                                                             () => MainWindowViewModel.CreateMechanism(
+                                                                 isa, workload.HtifTohostAddress
+                                                             ),
                                                              maxTicks,
                                                              warmupTicks, snapshotInterval
                                                          )
@@ -260,19 +286,14 @@ public partial class MainWindowViewModel : ObservableObject {
         PEventStatusText = $"Tracing '{nc.Name}'…";
 
         try {
-            IWorkload workload = SelectedPreset.ElfFileName switch {
-                null => CreateBuiltInWorkload(),
-                ""   => new Rv32ElfWorkload(WorkloadPath!),
-                var fn => new Rv32ElfWorkload(
-                    Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
-                    SelectedPreset.MemoryBytes
-                ),
-            };
+            IWorkload workload = MainWindowViewModel.ResolveWorkload(SelectedPreset, WorkloadPath, SelectedIsa);
 
             var maxTicks = (long)(TraceMaxTicks > 0 ? TraceMaxTicks : 2_000);
+            string isa = SelectedIsa;
             PEventLog plog = await Task.Run(() =>
                                                 Experiment.Trace(
-                                                    workload, nc, new Rv32Mechanism(workload.HtifTohostAddress),
+                                                    workload, nc,
+                                                    MainWindowViewModel.CreateMechanism(isa, workload.HtifTohostAddress),
                                                     maxTicks
                                                 )
             );
@@ -528,16 +549,32 @@ public partial class MainWindowViewModel : ObservableObject {
         return merged;
     }
 
-    /// <summary>Resolves a <see cref="WorkloadPreset" /> selection to a runnable <see cref="IWorkload" />.</summary>
-    internal static IWorkload ResolveWorkload(WorkloadPreset preset, string? workloadPath) =>
-        preset.ElfFileName switch {
-            null => CreateBuiltInWorkload(),
-            ""   => new Rv32ElfWorkload(workloadPath!),
-            var fn => new Rv32ElfWorkload(
+    /// <summary>
+    ///     Resolves a <see cref="WorkloadPreset" /> selection to a runnable <see cref="IWorkload" />,
+    ///     loaded with the matching ISA's ELF loader. <paramref name="isa" /> defaults to
+    ///     <c>"rv32"</c> for callers (e.g. <see cref="ConfiguratorViewModel" />) that don't offer an
+    ///     ISA selector of their own — the Configurator tab's `.csx` script already picks its own
+    ///     mechanism regardless of this method, so an RV64-targeting script there still needs a
+    ///     matching RV64 workload; that pairing isn't wired up yet (see TODO.md).
+    /// </summary>
+    internal static IWorkload ResolveWorkload(WorkloadPreset preset, string? workloadPath, string isa = "rv32") =>
+        (preset.ElfFileName, isa) switch {
+            (null, _) => CreateBuiltInWorkload(),
+            ("", "rv64") => new Rv64ElfWorkload(workloadPath!),
+            ("", _) => new Rv32ElfWorkload(workloadPath!),
+            (var fn, "rv64") => new Rv64ElfWorkload(
+                Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
+                preset.MemoryBytes
+            ),
+            (var fn, _) => new Rv32ElfWorkload(
                 Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
                 preset.MemoryBytes
             ),
         };
+
+    /// <summary>Builds the mechanism matching <paramref name="isa" /> (<c>"rv32"</c> or <c>"rv64"</c>).</summary>
+    internal static IMechanism CreateMechanism(string isa, ulong? htifTohost) =>
+        isa == "rv64" ? new Rv64Mechanism(htifTohost) : new Rv32Mechanism(htifTohost);
 
     internal static ByteArrayWorkload CreateBuiltInWorkload() {
         // Built-in demo: 100-iteration countdown loop

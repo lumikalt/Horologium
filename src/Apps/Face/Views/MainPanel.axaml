@@ -474,6 +474,10 @@
 
                         <!-- Workload -->
                         <StackPanel Margin="16,12,16,12" Spacing="8">
+                            <TextBlock Text="ISA" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <ComboBox ItemsSource="{Binding IsaOptions}"
+                                      SelectedItem="{Binding SelectedIsa}"
+                                      HorizontalAlignment="Stretch" />
                             <TextBlock Text="WORKLOAD" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
                             <ComboBox ItemsSource="{Binding WorkloadPresets}"
                                       SelectedItem="{Binding SelectedPreset}"
@@ -580,6 +584,10 @@
 
                         <!-- Workload -->
                         <StackPanel Margin="16,12,16,12" Spacing="8">
+                            <TextBlock Text="ISA" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <ComboBox ItemsSource="{Binding IsaOptions}"
+                                      SelectedItem="{Binding SelectedIsa}"
+                                      HorizontalAlignment="Stretch" />
                             <TextBlock Text="WORKLOAD" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
                             <ComboBox ItemsSource="{Binding WorkloadPresets}"
                                       SelectedItem="{Binding SelectedPreset}"
