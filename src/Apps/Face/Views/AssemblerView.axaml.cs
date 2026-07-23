@@ -64,6 +64,11 @@ public partial class AssemblerView : UserControl {
             _vm.CacheUpdated -= OnCacheUpdated;
         }
 
+        // Cancel any pending debounced assemble scheduled for the outgoing VM — otherwise it can
+        // fire after this view has moved on to a new (or no) DataContext (see OnEditorTextChanged).
+        _debounce?.Dispose();
+        _debounce = null;
+
         _vm = DataContext as AssemblerViewModel;
         if (_vm == null) return;
         Editor.Text = ActiveSource;
@@ -140,11 +145,15 @@ public partial class AssemblerView : UserControl {
             _vm.CSourceCode = Editor.Text;
         else
             _vm.SourceCode = Editor.Text;
+        // Capture the VM active at edit time (not the mutable _vm field) — OnDataContextChanged
+        // disposes this timer on a VM swap, but capturing too means a stale closure can never
+        // dereference a _vm that's since gone null or moved on to an unrelated VM.
+        AssemblerViewModel vm = _vm;
         _debounce?.Dispose();
         _debounce = new Timer(
             _ =>
                 Dispatcher.UIThread.Post(() => {
-                        if (_vm.AssembleCommand.CanExecute(null)) _vm.AssembleCommand.Execute(null);
+                        if (vm.AssembleCommand.CanExecute(null)) vm.AssembleCommand.Execute(null);
                     }
                 ),
             null, 600, Timeout.Infinite
