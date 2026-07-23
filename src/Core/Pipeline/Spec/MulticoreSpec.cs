@@ -98,7 +98,8 @@ public sealed record MulticoreSpec(
     IReadOnlyList<HartSpec> Harts,
     CacheLevelSpec? SharedLlc = null,
     CoherenceBusKind Bus = CoherenceBusKind.Snooping,
-    bool ConcurrentMode = false
+    bool ConcurrentMode = false,
+    ReservationTable? ReservationTable = null
 ) {
     public MulticoreHandle Build(IMemory backing) {
         if (ConcurrentMode && Bus != CoherenceBusKind.Snooping)
@@ -106,17 +107,27 @@ public sealed record MulticoreSpec(
                 "ConcurrentMode requires a snooping bus (DeferredBus wraps MoesifBus only)."
             );
 
+        // Cross-hart LR/SC: without this, writes never invalidate another hart's reservation
+        // (harts sharing this ReservationTable only get correct Set/TryConsume bookkeeping, not
+        // actual cross-hart invalidation), so every SC silently "succeeds" against a stale read —
+        // a lost-update race, not a correctness error the caller would otherwise see. Must sit
+        // immediately above the raw backing, below the shared LLC/bus/per-hart caches, so it sees
+        // every write regardless of which hart or cache level it penetrates from.
+        IMemory reservationAwareBacking = ReservationTable is { } table
+            ? new ReservationAwareMemory(backing, table)
+            : backing;
+
         // 1. Optional shared LLC wrapping raw backing.
         SetAssociativeCache? llc = SharedLlc is { } llcSpec
             ? new SetAssociativeCache(
-                backing,
+                reservationAwareBacking,
                 llcSpec.CapacityBytes, llcSpec.Ways, llcSpec.BlockBytes,
                 llcSpec.MissLatency, 0, llcSpec.ReplacementPolicy,
                 llcSpec.TagLatency, llcSpec.DataLatency,
                 llcSpec.WritePolicy, llcSpec.WriteMissPolicy, llcSpec.WbCapacity
             )
             : null;
-        IMemory busBacking = llc ?? backing;
+        IMemory busBacking = llc ?? reservationAwareBacking;
 
         // 2. Coherence bus behind the per-hart caches.
         IBus bus;

@@ -4,8 +4,10 @@ using System.Text;
 using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
+using Orrery.Spec;
 using Orrery.Train;
 using Pipeline;
+using Pipeline.Spec;
 using RiscV32.Config;
 using RiscV32.Memory;
 using RiscV32.Syscalls;
@@ -121,6 +123,158 @@ public static class Experiment {
 
     private static long ResolveInterval(long snapshotInterval, IWorkload workload) =>
         snapshotInterval == -1 ? Math.Max(10, workload.CodeSize / 200) : snapshotInterval;
+
+    // ── Multi-hart (Face's multi-hart mode) ────────────────────────────────────
+
+    /// <summary>
+    ///     The only workload multi-hart mode runs: every hart executes this identical program from
+    ///     the same entry point. It repeatedly does an LR/SC atomic increment on one shared memory
+    ///     word — real cross-hart contention (SC retries when another hart's write lands in
+    ///     between) and real coherent-cache hit/miss traffic (every hart's private cache
+    ///     invalidates on every other hart's write to the line). No stack, no function calls — only
+    ///     x1/x2/x5/x6 and one shared memory word — so it's safe to run identically on every hart.
+    ///     <para>
+    ///         Real benchmark ELFs are NOT safe here: <see cref="RunOne" />'s normal path never
+    ///         seeds an initial stack pointer (bare-metal ELFs set up their own stack via a
+    ///         hardcoded <c>la sp, __stack_top</c> in their own crt0), so two harts running the
+    ///         identical ELF would both write the same stack-top address into <c>sp</c> and
+    ///         immediately corrupt each other's stack. There's also no <c>mhartid</c> CSR
+    ///         (<see cref="Rv32Executor.HartId" /> is used only for LR/SC reservation-table
+    ///         bookkeeping, never exposed as a readable CSR), so a shared program can't even
+    ///         differentiate itself per hart. Hence: one fixed, hand-verified, stack-free demo
+    ///         program instead of the ELF/benchmark picker.
+    ///     </para>
+    ///     <para>
+    ///         Final shared-counter value after a correct run is exactly
+    ///         <c>IterationsPerHart * hartCount</c> — a strong, independent correctness check.
+    ///     </para>
+    /// </summary>
+    private static readonly uint[] MulticoreDemoWords = [
+        0x10000293, // addi x5, x0, 256      (x5 = shared counter address)
+        0x01400313, // addi x6, x0, 20       (x6 = iterations for this hart)
+        0x1002A0AF, // retry: lr.w x1, (x5)
+        0x00108093, // addi x1, x1, 1
+        0x1812A12F, // sc.w x2, x1, (x5)
+        0xFE011AE3, // bne x2, x0, retry     (SC failed -> retry)
+        0xFFF30313, // addi x6, x6, -1
+        0xFE0316E3, // bne x6, x0, retry     (more iterations left -> retry)
+        0x00100073, // ebreak
+    ];
+
+    public const ulong MulticoreDemoCounterAddress = 0x100;
+    public const int MulticoreDemoIterationsPerHart = 20;
+
+    private static IWorkload MulticoreDemoWorkload() {
+        var bytes = new byte[MulticoreDemoWords.Length * 4];
+        for (var i = 0; i < MulticoreDemoWords.Length; i++)
+            BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), MulticoreDemoWords[i]);
+        return new ByteArrayWorkload(bytes, memorySizeBytes: 0x1000);
+    }
+
+    /// <summary>
+    ///     Runs Face's multi-hart demo (see <see cref="MulticoreDemoWords" />) across
+    ///     <paramref name="hartConfigs" />, one hart per entry, all sharing one memory and all
+    ///     starting from the same entry point. Returns an <see cref="ExperimentResult" /> with one
+    ///     <see cref="RunRecord" /> per hart (named <c>"hart0"</c>, <c>"hart1"</c>, …) — Face's
+    ///     existing chart/table rendering (<c>UpdateMetrics</c>/<c>PopulateTable</c>) already knows
+    ///     how to display a flat named list of runs, so nothing new is needed there.
+    /// </summary>
+    /// <param name="hartConfigs">
+    ///     One entry per hart: its pipeline/predictor <see cref="TrainConfig" /> and an optional
+    ///     private coherent cache. <paramref name="hartConfigs" />' <c>PrivateCache</c> should only
+    ///     set <c>CapacityBytes</c>/<c>Ways</c>/<c>BlockBytes</c>/<c>MissLatency</c> — those are the
+    ///     only fields the coherent (bus-facing) cache level honors (see
+    ///     <see cref="Pipeline.Spec.MulticoreSpec.Build" />); richer knobs are silently dropped at
+    ///     that level, so don't route <see cref="TrainConfig.ICache" />/<c>DCache</c>/<c>L2Cache</c>
+    ///     through here — a hart's Train never receives them in the multicore path anyway.
+    /// </param>
+    /// <param name="sharedLlc">Optional cache shared by every hart, behind the coherence bus.</param>
+    /// <param name="bus">Coherence protocol between per-hart private caches.</param>
+    /// <param name="concurrentMode">Two-phase parallel tick instead of round-robin (needs snooping).</param>
+    /// <param name="maxTicks">
+    ///     Maximum ticks. No <c>warmupTicks</c>/<c>snapshotInterval</c> parameter exists here:
+    ///     <see cref="Pipeline.Spec.MulticoreHandle.Run" />/<c>RunConcurrent</c> don't support
+    ///     either, so a multi-hart <c>RevolutionResult.TimeSeries</c> is always null (no Waveform
+    ///     tab support for multi-hart results).
+    /// </param>
+    public static ExperimentResult RunMulticore(
+        IReadOnlyList<(TrainConfig Config, CacheLevelSpec? PrivateCache)> hartConfigs,
+        CacheLevelSpec? sharedLlc = null,
+        CoherenceBusKind bus = CoherenceBusKind.Snooping,
+        bool concurrentMode = false,
+        long maxTicks = 1_000_000
+    ) {
+        IWorkload workload = Experiment.MulticoreDemoWorkload();
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+        IMemory runMemory = workload.WrapMemory(memory);
+
+        var reservationTable = new ReservationTable();
+        var harts = new HartSpec[hartConfigs.Count];
+        for (var i = 0; i < hartConfigs.Count; i++) {
+            (TrainConfig config, CacheLevelSpec? privateCache) = hartConfigs[i];
+            int hartId = i;
+            var throwawayMechanism = new Rv32Mechanism();
+            harts[i] = new HartSpec(
+                config.ToPipelineSpec(throwawayMechanism, workload),
+                () => new Rv32Mechanism(reservationTable: reservationTable, hartId: hartId),
+                workload.EntryPoint,
+                privateCache is { } pc ? CacheHierarchySpec.Unified(new CachePathSpec([pc,])) : null
+            );
+        }
+
+        var spec = new MulticoreSpec(harts, sharedLlc, bus, concurrentMode, reservationTable);
+        MulticoreHandle handle = spec.Build(runMemory);
+        RevolutionResult[] raw = concurrentMode ? handle.RunConcurrent(maxTicks) : handle.Run(maxTicks);
+
+        // Independent correctness signal: a fully-correct run always ends with this exact value
+        // (IterationsPerHart * hartCount) — LR/SC lost updates (e.g. the cross-hart invalidation
+        // gap MulticoreSpec.Build had before ReservationTable wiring was added) show up here as a
+        // value short of the expected total, not just as a crash.
+        ulong counterValue = runMemory.Read(Experiment.MulticoreDemoCounterAddress, 4);
+        var demoSnapshot = new DialBoardSnapshot(
+            "multicore.demo",
+            new Dictionary<string, long> { ["shared_counter"] = (long)counterValue, },
+            new Dictionary<string, double>(),
+            new Dictionary<string, IReadOnlyDictionary<string, long>>()
+        );
+
+        var records = new List<RunRecord>(hartConfigs.Count + 1);
+        for (var i = 0; i < hartConfigs.Count; i++) {
+            RevolutionResult result = raw[i];
+            List<DialBoardSnapshot> snaps = [..result.Snapshots, demoSnapshot,];
+            if (handle.CoherentCaches[i] is { } cc)
+                snaps.Add(
+                    new DialBoardSnapshot(
+                        "multicore.coherent_cache",
+                        new Dictionary<string, long> { ["hits"] = cc.Hits, ["misses"] = cc.Misses, },
+                        new Dictionary<string, double>(),
+                        new Dictionary<string, IReadOnlyDictionary<string, long>>()
+                    )
+                );
+            result = result with { Snapshots = snaps, };
+            records.Add(new RunRecord($"hart{i}", hartConfigs[i].Config, result));
+        }
+
+        if (handle.SharedLlc is { } llc)
+            records.Add(
+                new RunRecord(
+                    "shared_llc", hartConfigs[0].Config,
+                    new RevolutionResult(
+                        0, 0, [
+                            new DialBoardSnapshot(
+                                "multicore.shared_llc",
+                                new Dictionary<string, long> { ["hits"] = llc.Hits, ["misses"] = llc.Misses, },
+                                new Dictionary<string, double>(),
+                                new Dictionary<string, IReadOnlyDictionary<string, long>>()
+                            ),
+                        ]
+                    )
+                )
+            );
+
+        return new ExperimentResult(records);
+    }
 
     private static RunRecord RunOne(
         IWorkload workload,
