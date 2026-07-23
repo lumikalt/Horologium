@@ -401,12 +401,14 @@ public sealed class MoesifCache : IMemory {
 
     /// <summary>
     ///     Writes all dirty (M/O) lines directly to backing memory without evicting them or
-    ///     updating coherence state.  Called by <c>DeferredBus.Drain()</c> after draining
+    ///     updating coherence state. Called by <c>DeferredBus.Drain()</c> after draining
     ///     the op queue so that backing is authoritative at the start of the next tick's
     ///     phase-1, allowing phase-1 fills to read correct data even when this cache holds
-    ///     dirty lines.
+    ///     dirty lines. Also used by <c>MulticoreHandle.FlushAllToBacking</c> so that
+    ///     backing memory is authoritative after a run ends, for callers that inspect final
+    ///     state directly (a dirty line otherwise sits uncommitted until evicted).
     /// </summary>
-    internal void FlushToBacking() {
+    public void FlushToBacking() {
         for (var s = 0; s < _tags.Length; s++)
         for (var w = 0; w < Ways; w++) {
             if (!IsDirty(_state[s][w]) || !_tags[s][w].HasValue) continue;

@@ -32,6 +32,8 @@ public sealed class MoesifBus : IBus {
 
     public IMemory Backing { get; }
 
+    public int BlockBytes => _blockSize;
+
     public void Register(MoesifCache cache) {
         if (_caches.Count == 0) _blockSize = cache.BlockBytes;
         _caches.Add(cache);
@@ -77,7 +79,7 @@ public sealed class MoesifBus : IBus {
     ///     If a <see cref="ReservationTable" /> was supplied at construction, any LR/SC reservation
     ///     whose 4-byte granule falls within the invalidated cache line is also cancelled here.
     /// </summary>
-    public void BusReadInvalidate(MoesifCache requester, ulong lineBase) {
+    public void BusReadInvalidate(MoesifCache? requester, ulong lineBase) {
         foreach (MoesifCache c in _caches) {
             if (ReferenceEquals(c, requester)) continue;
             c.SnoopInvalidate(lineBase);

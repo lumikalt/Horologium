@@ -41,6 +41,8 @@ public sealed class DeferredBus : IBus {
 
     public IMemory Backing => _real.Backing;
 
+    public int BlockBytes => _real.BlockBytes;
+
     public void Register(MoesifCache cache) {
         _real.Register(cache);
         _caches.Add(cache);
@@ -58,7 +60,7 @@ public sealed class DeferredBus : IBus {
     public void BusSyncToBacking(ulong lineBase) =>
         _queue.Add(new BusOp(BusOpKind.SyncToBacking, null, lineBase));
 
-    public void BusReadInvalidate(MoesifCache requester, ulong lineBase) =>
+    public void BusReadInvalidate(MoesifCache? requester, ulong lineBase) =>
         _queue.Add(new BusOp(BusOpKind.ReadInvalidate, requester, lineBase));
 
     /// <summary>
@@ -104,7 +106,7 @@ public sealed class DeferredBus : IBus {
                     else
                         op.Requester!.RefillFromBacking(op.LineBase);
                     break;
-                case BusOpKind.ReadInvalidate: _real.BusReadInvalidate(op.Requester!, op.LineBase); break;
+                case BusOpKind.ReadInvalidate: _real.BusReadInvalidate(op.Requester, op.LineBase); break;
                 case BusOpKind.ReadForOwnership:
                     int rfoBytes = op.Requester!.BlockBytes;
                     if (_scratch.Length < rfoBytes) _scratch = new byte[rfoBytes];

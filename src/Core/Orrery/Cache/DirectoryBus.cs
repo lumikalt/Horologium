@@ -45,6 +45,8 @@ public sealed class DirectoryBus : IBus {
 
     public IMemory Backing { get; }
 
+    public int BlockBytes => _blockSize;
+
     public void Register(MoesifCache cache) {
         if (_blockSize == 0) _blockSize = cache.BlockBytes;
     }
@@ -110,7 +112,7 @@ public sealed class DirectoryBus : IBus {
         }
     }
 
-    public void BusReadInvalidate(MoesifCache requester, ulong lineBase) {
+    public void BusReadInvalidate(MoesifCache? requester, ulong lineBase) {
         if (_dir.TryGetValue(lineBase, out (MoesifCache? Owner, HashSet<MoesifCache>? Sharers) entry)) {
             if (entry.Owner is { } owner && !ReferenceEquals(owner, requester))
                 owner.SnoopInvalidate(lineBase); // M/O → writeback+I, E → I

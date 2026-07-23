@@ -78,6 +78,61 @@ public class ExperimentMulticoreTests {
         Assert.Equal((ulong)(IterationsPerHart * 2), mem.Read(ExperimentMulticoreTests.CounterAddress, 4));
     }
 
+    [Fact]
+    public void DemoProgram_ThreeHarts_FiveStageAllWithSameCache_CounterEqualsTwentyTimesHartCount() {
+        // Regression coverage for two real bugs found while verifying this exact configuration:
+        // (1) MulticoreSpec.Build never wired ReservationTable into MoesifBus/DirectoryBus, so a
+        // write a peer's private cache absorbed (Modified state, never reaching
+        // ReservationAwareMemory) failed to invalidate another hart's reservation; (2) MoesifCache
+        // is write-back, and Run() (unlike RunConcurrent's per-tick DeferredBus.Drain) never
+        // flushed dirty lines to backing, so the final direct-backing read could observe a stale
+        // value even though every hart's SC sequence completed correctly.
+        FlatMemory mem = SharedMem();
+        var reservationTable = new ReservationTable();
+        Func<IMechanism> mech(int hartId) => () => new Rv32Mechanism(reservationTable: reservationTable, hartId: hartId);
+        var l1Spec = new CacheLevelSpec(4096, 4, 32, 10);
+        CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
+
+        MulticoreHandle handle = new MulticoreSpec(
+            [
+                new HartSpec(new FiveStageSpec(), mech(0), Cache: cacheSpec),
+                new HartSpec(new FiveStageSpec(), mech(1), Cache: cacheSpec),
+                new HartSpec(new FiveStageSpec(), mech(2), Cache: cacheSpec),
+            ],
+            ReservationTable: reservationTable
+        ).Build(mem);
+        handle.Run(100_000);
+        handle.FlushAllToBacking();
+
+        Assert.Equal((ulong)(IterationsPerHart * 3), mem.Read(ExperimentMulticoreTests.CounterAddress, 4));
+    }
+
+    [Fact]
+    public void DemoProgram_TwoHarts_FiveStageOneWithCache_CounterEqualsTwentyTimesHartCount() {
+        // Regression coverage for the uncached-hart coherence hole: a hart with no private cache
+        // used to wire straight to the bus's shared backing, so a peer's dirty (Modified) cached
+        // line was invisible to it — reads saw stale data and writes silently clobbered the peer's
+        // copy without invalidating it. Fixed via BusCoherentMemory routing every uncached access
+        // through the bus's snoop paths (BusSyncToBacking / BusReadInvalidate).
+        FlatMemory mem = SharedMem();
+        var reservationTable = new ReservationTable();
+        Func<IMechanism> mech(int hartId) => () => new Rv32Mechanism(reservationTable: reservationTable, hartId: hartId);
+        var l1Spec = new CacheLevelSpec(4096, 4, 32, 10);
+        CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
+
+        MulticoreHandle handle = new MulticoreSpec(
+            [
+                new HartSpec(new FiveStageSpec(), mech(0), Cache: cacheSpec),
+                new HartSpec(new FiveStageSpec(), mech(1)),
+            ],
+            ReservationTable: reservationTable
+        ).Build(mem);
+        handle.Run(100_000);
+        handle.FlushAllToBacking();
+
+        Assert.Equal((ulong)(IterationsPerHart * 2), mem.Read(ExperimentMulticoreTests.CounterAddress, 4));
+    }
+
     // ── Experiment.RunMulticore ──────────────────────────────────────────────────
 
     [Fact]
@@ -124,5 +179,26 @@ public class ExperimentMulticoreTests {
         DialBoardSnapshot? llcSnap = llcRun.Result.Find("multicore.shared_llc");
         Assert.NotNull(llcSnap);
         Assert.True(llcSnap.Counters["hits"] + llcSnap.Counters["misses"] > 0);
+
+        // The independent correctness signal, not just "stats exist": both harts' coherent
+        // caches are write-back, so without RunMulticore flushing dirty lines to backing before
+        // returning, the final counter can read stale (a real bug this exact configuration hit —
+        // see the MulticoreSpec.Build history in TODO.md).
+        long counter = result.Runs[0].Result.Find("multicore.demo")!.Counters["shared_counter"];
+        Assert.Equal(IterationsPerHart * 2, counter);
+    }
+
+    // ── Heterogeneous cache population: one hart cached, one not ────────────────────────────────
+
+    [Fact]
+    public void RunMulticore_OneHartCachedOneUncached_CounterEqualsFortyOnBothPaths() {
+        var privateCache = new CacheLevelSpec(4096, 4, 32, 10);
+
+        ExperimentResult result = Experiment.RunMulticore(
+            [(new TrainConfig(), privateCache), (new TrainConfig(), null),]
+        );
+
+        long counter = result.Runs[0].Result.Find("multicore.demo")!.Counters["shared_counter"];
+        Assert.Equal(IterationsPerHart * 2, counter);
     }
 }

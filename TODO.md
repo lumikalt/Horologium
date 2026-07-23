@@ -569,9 +569,45 @@ free embedded suites are runnable in full today.
   the global hart-count-independent settings (shared LLC, bus kind, concurrent mode, max ticks).
   In multi-hart mode the workload picker and single-hart run settings hide (there's no workload to
   pick — see the backend note above) and a warning notes that the config detail panel's cache
-  section above the new Private Cache editor doesn't apply. Full non-benchmark suite unchanged at
-  3953/1/3954 across both the backend and GUI commits (no new tests possible for the GUI layer —
-  `Tests.csproj` doesn't reference `Face.csproj`, same as every other Face feature this session).
+  section above the new Private Cache editor doesn't apply.
+
+  A user screenshot that "looked about right" (`demo.shared_counter` reading 40 across all 3 rows
+  of a 3-hart run) turned out not to be — 40 is only correct for 2 harts, and closer inspection
+  found the coherent-cache path was still genuinely broken in two further ways, both fixed with
+  regression tests in `Tests/Pipeline/ExperimentMulticoreTests.cs`:
+  - `MoesifBus`/`DirectoryBus` each have their own `ReservationTable` invalidation hook (for writes
+    a peer's private cache absorbs into Modified state, which never reach
+    `ReservationAwareMemory` since they don't touch the shared backing until eviction) — separate
+    from, and previously not wired alongside, the `ReservationAwareMemory` fix above. Fixed by
+    passing `ReservationTable` into both bus constructors in `MulticoreSpec.Build`.
+  - A hart with no private cache wired straight to the bus's shared backing, bypassing the bus
+    entirely — so a peer's dirty (Modified) cached line was invisible to it: reads saw stale data
+    and writes silently clobbered the peer's copy without invalidating it. This is a real
+    coherence hole for *any* mixed cached/uncached hart population, not an LR/SC-specific edge
+    case. Fixed with a new `BusCoherentMemory` (`src/Core/Orrery/Cache/BusCoherentMemory.cs`) that
+    routes every uncached hart's access through the bus's existing snoop paths
+    (`BusSyncToBacking` before a read, `BusReadInvalidate` before a write — the same paths
+    `MoesifCache` already uses for its own block-boundary-crossing accesses, just applied
+    unconditionally). Required adding `IBus.BlockBytes` and making the `requester` parameter of
+    `BusReadInvalidate` nullable (an uncached write has no `MoesifCache` to identify itself as).
+  - Separately (not a coherence bug, but found while chasing the above): `MoesifCache` is
+    write-back, and `MulticoreHandle.Run` (unlike `RunConcurrent`, whose `DeferredBus.Drain`
+    already flushes every tick) never flushed dirty lines to backing at all — so a run's *last*
+    successful write could sit uncommitted in a hart's cache indefinitely, and any caller reading
+    final state through the original raw backing memory (every test, and `Experiment.RunMulticore`
+    itself) would see a stale value despite the run itself being entirely correct. Fixed with a new
+    public `MulticoreHandle.FlushAllToBacking()` (flushes the shared LLC and every hart's outermost
+    private cache; does not walk multi-level private stacks, since neither `Experiment.RunMulticore`
+    nor the GUI ever configures more than one private level per hart today), called from
+    `Experiment.RunMulticore` right after `Run`/`RunConcurrent` and before reading the final
+    counter.
+
+  Confirmed each fix with a discriminating test (temporarily reverted, watched the corresponding
+  assertion fail, then restored) rather than trusting a first green run. Also removed
+  `MultiHartSettingsViewModel.HartCount`, found dead while investigating (never bound in XAML,
+  never read by `RunMulticore()`, which derives hart count from `Configs.Count`) — exactly the kind
+  of stale-looking knob that could reproduce the "is this 2 or 3 harts?" ambiguity that started
+  this investigation. Full non-benchmark suite: 3957/1/3958.
+
   Needs visual verification in Face (toggle multi-hart mode, run with 2-3 harts, optionally a
-  private cache and/or shared LLC) before being fully trusted — flagged for the user, not yet
-  confirmed.
+  private cache and/or shared LLC) — not yet confirmed by the user against this corrected build.

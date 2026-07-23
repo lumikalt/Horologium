@@ -1128,6 +1128,26 @@ public class CacheTests {
     }
 
     [Fact]
+    public void FlushAllToBacking_WritesDirtyMainArrayAndVictimBufferLines() {
+        var mem = new FlatMemory(256);
+        SetAssociativeCache cache = MakeVictimCacheWriteBack(mem, 2);
+
+        cache.Write(0, 123, 1);  // write-allocate miss: installs dirty, resident
+        cache.ConsumePendingStalls();
+        cache.Write(32, 99, 1);  // conflict: evicts dirty line 0 into the victim buffer, captured dirty
+        cache.ConsumePendingStalls();
+
+        // Neither write has reached backing yet — one is dirty-resident, the other dirty-buffered.
+        Assert.Equal(0uL, mem.Read(0, 1));
+        Assert.Equal(0uL, mem.Read(32, 1));
+
+        cache.FlushAllToBacking();
+
+        Assert.Equal(123uL, mem.Read(0, 1));  // from the victim buffer
+        Assert.Equal(99uL, mem.Read(32, 1));  // from the main array
+    }
+
+    [Fact]
     public void VictimCache_NoMshrAllocatedOnHit() {
         var mem = new FlatMemory(256);
         SetAssociativeCache cache = MakeVictimCache(mem, 2, mshrCount: 2);

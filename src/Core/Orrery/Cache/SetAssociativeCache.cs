@@ -641,6 +641,31 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     /// <summary>
+    ///     Writes every dirty line (main array and victim buffer) to backing without
+    ///     invalidating anything. For inspecting or comparing final backing-memory state after a
+    ///     run ends — a write-back cache's freshest data can otherwise sit uncommitted
+    ///     indefinitely if the line is never evicted or explicitly flushed.
+    /// </summary>
+    public void FlushAllToBacking() {
+        for (var s = 0; s < _tags.Length; s++)
+        for (var w = 0; w < Ways; w++) {
+            if (_tags[s][w] is not { } tag) continue;
+            FlushDirtyLine(s, w, tag, false);
+        }
+
+        if (_victimBuffer == null) return;
+        for (var i = 0; i < _victimBuffer.Length; i++) {
+            if (_victimBuffer[i].Data == null || !_victimBuffer[i].Dirty) continue;
+            ulong lineBase = (_victimBuffer[i].Tag << (OffsetBits + IndexBits))
+                           | ((ulong)_victimBuffer[i].Set << OffsetBits);
+            WritebackOrBuffer(lineBase, _victimBuffer[i].Data!, false, false);
+            VictimBufferEntry e = _victimBuffer[i];
+            e.Dirty = false;
+            _victimBuffer[i] = e;
+        }
+    }
+
+    /// <summary>
     ///     cbo.inval: invalidates the line covering <paramref name="address" /> and discards any
     ///     dirty data without writing it back to backing. No-op if the line is not present.
     /// </summary>

@@ -14,6 +14,13 @@ public interface IBus {
     /// <summary>Shared physical memory behind all caches on this bus.</summary>
     IMemory Backing { get; }
 
+    /// <summary>
+    ///     Cache line size in bytes, taken from the first registered <see cref="MoesifCache" />.
+    ///     0 if no cache has registered yet (e.g. every hart on this bus is uncached) — callers
+    ///     must treat 0 as "no coherence traffic possible" rather than a valid block size.
+    /// </summary>
+    int BlockBytes { get; }
+
     /// <summary>Registers a cache with this bus. Called from <see cref="MoesifCache" /> constructors.</summary>
     void Register(MoesifCache cache);
 
@@ -40,8 +47,11 @@ public interface IBus {
     ///     block-boundary-crossing write. Dirty (M/O) holders write back; all holders
     ///     transition to I. Also cancels any LR/SC reservation whose granule falls within
     ///     the line. For write misses use <see cref="BusReadForOwnership" /> instead.
+    ///     <paramref name="requester" /> is null for a write that does not originate from any
+    ///     <see cref="MoesifCache" /> (an uncached hart writing directly to the bus via
+    ///     <see cref="BusCoherentMemory" />) — every cache is then snooped, since none is "self".
     /// </summary>
-    void BusReadInvalidate(MoesifCache requester, ulong lineBase);
+    void BusReadInvalidate(MoesifCache? requester, ulong lineBase);
 
     /// <summary>
     ///     Read-for-ownership (write miss): snoops all caches except <paramref name="requester" />.

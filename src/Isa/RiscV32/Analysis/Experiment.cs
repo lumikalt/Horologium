@@ -227,6 +227,12 @@ public static class Experiment {
         MulticoreHandle handle = spec.Build(runMemory);
         RevolutionResult[] raw = concurrentMode ? handle.RunConcurrent(maxTicks) : handle.Run(maxTicks);
 
+        // A write-back cache's freshest data can sit uncommitted in a hart's private cache (or the
+        // shared LLC) indefinitely if its line is never evicted — flush before reading runMemory
+        // directly below, or the final read can see stale backing state despite every hart's run
+        // having completed correctly.
+        handle.FlushAllToBacking();
+
         // Independent correctness signal: a fully-correct run always ends with this exact value
         // (IterationsPerHart * hartCount) — LR/SC lost updates (e.g. the cross-hart invalidation
         // gap MulticoreSpec.Build had before ReservationTable wiring was added) show up here as a

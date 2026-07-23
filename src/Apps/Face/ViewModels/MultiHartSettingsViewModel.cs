@@ -9,14 +9,14 @@ using Pipeline.Spec;
 namespace Face.ViewModels;
 
 /// <summary>
-///     Global (not-per-hart) settings for Face's multi-hart mode: how many harts, the shared LLC
+///     Global (not-per-hart) settings for Face's multi-hart mode: the shared LLC
 ///     (same 4 fields as <see cref="HartCacheViewModel" /> — the coherent cache path only honors
 ///     those regardless of level), the coherence bus, and whether to run round-robin or with
-///     <see cref="MulticoreSpec.ConcurrentMode" />.
+///     <see cref="MulticoreSpec.ConcurrentMode" />. Hart count itself is not here — it's implicit
+///     in how many rows the user has added to the shared <c>Configs</c>/<c>HartCaches</c>
+///     collections, the same Add/Remove flow the single-hart sweep already uses.
 /// </summary>
 public partial class MultiHartSettingsViewModel : ObservableObject {
-    [ObservableProperty] public partial int HartCount { get; set; } = 2;
-
     [ObservableProperty] public partial bool SharedLlcEnabled { get; set; }
     [ObservableProperty] public partial int SharedLlcCapacityKb { get; set; } = 256;
     [ObservableProperty] public partial int SharedLlcWays { get; set; } = 8;

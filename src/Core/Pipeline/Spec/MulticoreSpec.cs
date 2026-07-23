@@ -80,6 +80,25 @@ public sealed class MulticoreHandle {
             );
         return _pipeline.RunConcurrent(_deferredBuses, maxTicks);
     }
+
+    /// <summary>
+    ///     Writes every dirty line in the shared LLC and every hart's outermost (coherent)
+    ///     private cache down to backing memory, without evicting or changing coherence state.
+    ///     Call this after <see cref="Run" />/<see cref="RunConcurrent" /> before inspecting final
+    ///     memory state directly (e.g. through the <see cref="IMemory" /> originally passed to
+    ///     <see cref="MulticoreSpec.Build" />) — a write-back cache's freshest data otherwise stays
+    ///     uncommitted indefinitely if its line is never evicted.
+    ///     <para>
+    ///         Does not walk inner (non-coherent) private levels below the outermost per hart —
+    ///         today's only caller (<c>Experiment.RunMulticore</c>) and the Face GUI never
+    ///         configure more than one private level per hart, so there is nothing to flush there
+    ///         yet; a multi-level private stack would need this extended.
+    ///     </para>
+    /// </summary>
+    public void FlushAllToBacking() {
+        SharedLlc?.FlushAllToBacking();
+        foreach (MoesifCache? cc in CoherentCaches) cc?.FlushToBacking();
+    }
 }
 
 /// <summary>
@@ -129,12 +148,22 @@ public sealed record MulticoreSpec(
             : null;
         IMemory busBacking = llc ?? reservationAwareBacking;
 
-        // 2. Coherence bus behind the per-hart caches.
+        // 2. Coherence bus behind the per-hart caches. A write a hart's private cache absorbs
+        // (Modified state) never reaches reservationAwareBacking at all until eviction/writeback —
+        // ReservationAwareMemory alone only catches writes that reach the shared backing directly
+        // (the no-private-cache case). Coherent invalidation for cached harts happens here instead:
+        // MoesifBus/DirectoryBus call ReservationTable.InvalidateAt themselves from their own
+        // snoop/invalidate paths (BusReadInvalidate, BusReadForOwnership, BusSilentUpgrade), so the
+        // same table must also be handed to whichever bus gets built. A hart with no private cache
+        // wires to BusCoherentMemory (below), not straight to busBacking: that hart's own reads/writes
+        // must still go through the same snoop paths, or a cached peer's dirty line is silently read
+        // past (stale data) or clobbered without invalidation (lost update) — the bus is the only
+        // thing every hart shares, cached or not.
         IBus bus;
         DeferredBus[]? deferredBuses = null;
-        if (Bus == CoherenceBusKind.Directory) { bus = new DirectoryBus(busBacking); }
+        if (Bus == CoherenceBusKind.Directory) { bus = new DirectoryBus(busBacking, ReservationTable); }
         else {
-            var moesifBus = new MoesifBus(busBacking);
+            var moesifBus = new MoesifBus(busBacking, ReservationTable);
             bus = moesifBus;
             if (ConcurrentMode) {
                 deferredBuses = new DeferredBus[Harts.Count];
@@ -184,9 +213,9 @@ public sealed record MulticoreSpec(
 
                     hartMemory = current;
                 }
-                else { hartMemory = busBacking; }
+                else { hartMemory = new BusCoherentMemory(hartBus); }
             }
-            else { hartMemory = busBacking; }
+            else { hartMemory = new BusCoherentMemory(hartBus); }
 
             trains[i] = hart.Pipeline.Build(hart.MechanismFactory(), hartMemory, hart.EntryPoint);
         }
