@@ -678,6 +678,14 @@
 
                         <Separator />
 
+                        <!-- ISA selector -->
+                        <StackPanel Margin="16,12,16,0" Spacing="6">
+                            <TextBlock Text="ISA" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                            <ComboBox ItemsSource="{Binding Assembler.IsaOptions}"
+                                      SelectedItem="{Binding Assembler.SelectedIsa}"
+                                      HorizontalAlignment="Stretch" />
+                        </StackPanel>
+
                         <!-- Language selector -->
                         <StackPanel Margin="16,12,16,0" Spacing="6">
                             <TextBlock Text="LANGUAGE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />

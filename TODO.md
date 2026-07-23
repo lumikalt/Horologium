@@ -515,8 +515,27 @@ free embedded suites are runnable in full today.
   glue (a few lines of `isa == "rv64" ? ... : ...`) isn't unit tested directly — Tests.csproj doesn't
   reference Face.csproj, and this is consistent with the rest of that view model's data-mapping code
   (e.g. `ConfigViewModel.ToNamedConfig`) never being unit tested either. Full suite 3949/1/3950 (3948
-  baseline + 1 new test). Needs visual verification in Face (ISA selector + preset filtering) before
-  being fully trusted — flagged for the user, not yet confirmed.
+  baseline + 1 new test). Visually verified in Face by the user: RV32/RV64 both run correctly.
+  - Follow-up (requested by the user after confirming the Run/Trace selector): added the same RV32/RV64
+    selector to the Assembler tab (`AssemblerViewModel.SelectedIsa`). Bigger than the Run/Trace version
+    because the Assembler tab owns its own full compile toolchain and single-cycle-stepping engine,
+    not just workload loading — `FindToolchainPrefix()` now searches for `riscv64-none-elf-as` (verified
+    present in the nix dev shell before wiring anything, alongside `-gcc`/`-ld`/`-objcopy`/`-objdump`);
+    `RvExtension.ToIsaString`/`ToGasAbi` gained an `xlen` parameter (default 32, so the zero other
+    caller stays unaffected) driving `-march=`/`-mabi=`; `_decoder`/`_executor`/`_archState` swap
+    between `Rv32Decoder`/`Rv64Decoder`, `Rv32Executor`/`Rv64Executor`, `Rv32ArchState`/`Rv64ArchState`
+    (all already-existing `Rv64*` subclasses of their `Rv32*` counterparts, so no new engine code was
+    needed); `FiveStageTrain`/`OooeTrain` construction picks `Rv32Mechanism`/`Rv64Mechanism`. Switching
+    `SelectedIsa` forces a re-Assemble rather than leaving a stale binary paired with a mismatched
+    decoder/archstate — an ISA flip without this would silently decode/execute the old machine code
+    under the wrong ISA. Fixed a real, visible bug this surfaced: `FormatInt` (register display)
+    hardcoded a `(uint)` truncation to 32 bits regardless of ISA — now XLEN-conditional (16 hex digits/
+    full 64-bit under RV64). Known, non-blocking gap: `RvDisassembler.Disassemble` has no cases for
+    RV64-only opcodes (ADDIW/LD/SD/…), so the static instruction-listing pane shows `???` for those
+    specific mnemonics under RV64 — execution itself is unaffected (`Rv64Decoder`/`Rv64Executor` handle
+    them correctly), this only degrades the human-readable text, and the call site already had a
+    catch-all for exactly this. No new test, same Tests.csproj/Face.csproj boundary as elsewhere in
+    2c-2. Needs visual verification in Face.
 - [ ] Multi-hart GUI support in Face (split out from phase 2c above, 2026-07-23): `MulticoreSpec`/
   `HartSpec` exist on the scripting side only. Not a toggle — Face's whole run pipeline
   (`MainWindowViewModel.Configs`, `Experiment`, `NamedConfig`) is architected around independent

@@ -58,10 +58,10 @@ public static class RvExtensionMethods {
 
     /// <summary>
     ///     ISA string for GAS <c>-march=</c> or Spike <c>--isa=</c>.
-    ///     Format: <c>rv32i[m][a][f][c][v][_z...]</c>
+    ///     Format: <c>rv{xlen}i[m][a][f][c][v][_z...]</c>
     /// </summary>
-    public static string ToIsaString(this RvExtension ext) {
-        var sb = new StringBuilder("rv32i");
+    public static string ToIsaString(this RvExtension ext, int xlen = 32) {
+        var sb = new StringBuilder($"rv{xlen}i");
         if (ext.HasFlag(RvExtension.M)) sb.Append('m');
         if (ext.HasFlag(RvExtension.A)) sb.Append('a');
         if (ext.HasFlag(RvExtension.F)) sb.Append('f');
@@ -73,7 +73,9 @@ public static class RvExtensionMethods {
         return sb.ToString();
     }
 
-    /// <summary>GAS <c>-mabi=</c> value derived from the enabled extensions.</summary>
-    public static string ToGasAbi(this RvExtension ext) =>
-        ext.HasFlag(RvExtension.F) ? "ilp32f" : "ilp32";
+    /// <summary>GAS <c>-mabi=</c> value derived from the enabled extensions and XLEN.</summary>
+    public static string ToGasAbi(this RvExtension ext, int xlen = 32) =>
+        xlen == 64
+            ? ext.HasFlag(RvExtension.F) ? "lp64f" : "lp64"
+            : ext.HasFlag(RvExtension.F) ? "ilp32f" : "ilp32";
 }

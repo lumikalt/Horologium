@@ -20,6 +20,10 @@ using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.Registers;
 using RiscV32.State;
+using RiscV64;
+using RiscV64.Decode;
+using RiscV64.Execute;
+using RiscV64.State;
 
 #endregion
 
@@ -43,8 +47,8 @@ public partial class AssemblerViewModel : ObservableObject {
     private const long MaxPipelineCycles = 500_000;
     private readonly List<(long Cycle, double HitRate)> _dCacheHitHistory = [];
 
-    private readonly Rv32Decoder _decoder = new();
-    private readonly Rv32Executor _executor = new();
+    private Rv32Decoder _decoder = new();
+    private Rv32Executor _executor = new();
 
     // DoCache hit-rate history — one sample per StepCycle call
     private readonly List<(long Cycle, double HitRate)> _iCacheHitHistory = [];
@@ -278,6 +282,36 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [ObservableProperty] public partial string PipelineModeLabel { get; set; } = "Single Cycle";
 
+    /// <summary>
+    ///     Selects the toolchain prefix (<c>riscv32-none-elf-</c>/<c>riscv64-none-elf-</c>), the
+    ///     <c>-march=</c>/<c>-mabi=</c> XLEN, and which of <see cref="Rv32Decoder" />/
+    ///     <see cref="Rv64Decoder" />, <see cref="Rv32Executor" />/<see cref="Rv64Executor" />,
+    ///     <see cref="Rv32ArchState" />/<see cref="Rv64ArchState" />, and <see cref="Rv32Mechanism" />/
+    ///     <see cref="Rv64Mechanism" /> get constructed. Switching it invalidates whatever's currently
+    ///     assembled (the machine code and the ISA that decodes it must always move together) and
+    ///     forces a re-Assemble rather than leaving a stale RV32 binary paired with an RV64 decoder
+    ///     or vice versa.
+    /// </summary>
+    [ObservableProperty] public partial string SelectedIsa { get; set; } = "rv32";
+
+    public string[] IsaOptions { get; } = ["rv32", "rv64",];
+
+    partial void OnSelectedIsaChanged(string value) {
+        RebuildDecoderExecutor();
+        OnPropertyChanged(nameof(GasArchString));
+        OnPropertyChanged(nameof(GasAbi));
+        if (Instructions.Count > 0 && !IsAssembling) AssembleCommand.Execute(null);
+    }
+
+    private void RebuildDecoderExecutor() {
+        _decoder = SelectedIsa == "rv64" ? new Rv64Decoder() : new Rv32Decoder();
+        _executor = SelectedIsa == "rv64" ? new Rv64Executor() : new Rv32Executor();
+    }
+
+    private Rv32ArchState CreateArchState() => SelectedIsa == "rv64" ? new Rv64ArchState() : new Rv32ArchState();
+
+    private IMechanism CreateMechanism() => SelectedIsa == "rv64" ? new Rv64Mechanism() : new Rv32Mechanism();
+
     // ── DoCache config ──────────────────────────────────────────────────────────
     [ObservableProperty] public partial bool ICacheEnabled { get; set; }
     [ObservableProperty] public partial int ICacheCapacityKb { get; set; } = 4;
@@ -443,13 +477,15 @@ public partial class AssemblerViewModel : ObservableObject {
         new("Zbs", RvExtension.Zbs),
     ];
 
+    private int Xlen => SelectedIsa == "rv64" ? 64 : 32;
+
     public string GasArchString => AvailableExtensions.Where(t => t.IsEnabled)
                                                       .Aggregate(RvExtension.None, (current, t) => current | t.Flag)
-                                                      .ToIsaString();
+                                                      .ToIsaString(Xlen);
 
-    private string GasAbi => AvailableExtensions.Any(t => t is { Flag: RvExtension.F, IsEnabled: true, })
-        ? "ilp32f"
-        : "ilp32";
+    private string GasAbi => AvailableExtensions.Where(t => t.IsEnabled)
+                                                .Aggregate(RvExtension.None, (current, t) => current | t.Flag)
+                                                .ToGasAbi(Xlen);
 
     private PipelineMode CurrentMode => PipelineModeLabel switch {
         "5-Stage" => PipelineMode.FiveStage,
@@ -574,7 +610,7 @@ public partial class AssemblerViewModel : ObservableObject {
         if (target < 0) return;
         ConsoleOutput = "";
         _memory = BuildFreshMemory();
-        _archState = new Rv32ArchState();
+        _archState = CreateArchState();
         _stepCount = 0;
         for (var i = 0; i < target; i++) {
             if (!CoreStepSingleCycle()) break;
@@ -681,8 +717,9 @@ public partial class AssemblerViewModel : ObservableObject {
 
             string? prefix = FindToolchainPrefix();
             if (prefix == null) {
+                string toolName = SelectedIsa == "rv64" ? "riscv64-none-elf-as" : "riscv32-none-elf-as";
                 HasError = true;
-                AssembleError = "riscv32-none-elf-as not found in PATH.\nRun inside the dev shell: nix develop";
+                AssembleError = $"{toolName} not found in PATH.\nRun inside the dev shell: nix develop";
                 StatusText = "Toolchain not found.";
                 return;
             }
@@ -1049,7 +1086,7 @@ public partial class AssemblerViewModel : ObservableObject {
         ConsoleOutput = "";
         _memory = BuildFreshMemory();
         _binarySize = binary.Length;
-        _archState = new Rv32ArchState();
+        _archState = CreateArchState();
         _stepCount = 0;
 
         Instructions.Clear();
@@ -1257,7 +1294,7 @@ public partial class AssemblerViewModel : ObservableObject {
             case PipelineMode.FiveStage when _binaryData != null: {
                 IMemory mem = BuildFreshMemory();
                 _fiveStageTrain = new FiveStageTrain(
-                    new Rv32Mechanism(), mem,
+                    CreateMechanism(), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog,
                     fdipFtqCapacity: fdipFtqCapacity, rdip: rdip
                 );
@@ -1267,7 +1304,7 @@ public partial class AssemblerViewModel : ObservableObject {
             case PipelineMode.OoO when _binaryData != null: {
                 IMemory mem = BuildFreshMemory();
                 _oooeTrain = new OooeTrain(
-                    new Rv32Mechanism(), mem,
+                    CreateMechanism(), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog,
                     issueWidth: OooIssueWidth,
                     robCapacity: OooRobCapacity,
@@ -1486,13 +1523,23 @@ public partial class AssemblerViewModel : ObservableObject {
         return (x, y, ma);
     }
 
-    private string FormatInt(ulong val) => IntRegFormat switch {
-        RegFormat.Hex             => $"0x{(uint)val:X8}",
-        RegFormat.DecimalSigned   => ((int)(uint)val).ToString(),
-        RegFormat.DecimalUnsigned => ((uint)val).ToString(),
-        RegFormat.Binary          => Convert.ToString((uint)val, 2).PadLeft(32, '0'),
-        _                         => $"0x{(uint)val:X8}",
-    };
+    // Integer registers are full 64-bit values under RV64 (e.g. after LD or a large ADDI on sp) —
+    // truncating to (uint) here would silently show the wrong value, not just a narrower one.
+    private string FormatInt(ulong val) => SelectedIsa == "rv64"
+        ? IntRegFormat switch {
+            RegFormat.Hex             => $"0x{val:X16}",
+            RegFormat.DecimalSigned   => ((long)val).ToString(),
+            RegFormat.DecimalUnsigned => val.ToString(),
+            RegFormat.Binary          => Convert.ToString((long)val, 2).PadLeft(64, '0'),
+            _                         => $"0x{val:X16}",
+        }
+        : IntRegFormat switch {
+            RegFormat.Hex             => $"0x{(uint)val:X8}",
+            RegFormat.DecimalSigned   => ((int)(uint)val).ToString(),
+            RegFormat.DecimalUnsigned => ((uint)val).ToString(),
+            RegFormat.Binary          => Convert.ToString((uint)val, 2).PadLeft(32, '0'),
+            _                         => $"0x{(uint)val:X8}",
+        };
 
     private string FormatFloat(ulong val) => FloatRegFormat switch {
         RegFormat.Hex    => $"0x{(uint)val:X8}",
@@ -1541,12 +1588,13 @@ public partial class AssemblerViewModel : ObservableObject {
     };
 
     [UnsupportedOSPlatform("browser")]
-    private static string? FindToolchainPrefix() {
+    private string? FindToolchainPrefix() {
+        string prefixName = SelectedIsa == "rv64" ? "riscv64-none-elf-" : "riscv32-none-elf-";
         string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
         return (from dir in pathEnv.Split(':')
-                let candidate = Path.Combine(dir, "riscv32-none-elf-as")
+                let candidate = Path.Combine(dir, prefixName + "as")
                 where File.Exists(candidate)
-                select Path.Combine(dir, "riscv32-none-elf-")).FirstOrDefault();
+                select Path.Combine(dir, prefixName)).FirstOrDefault();
     }
 
     [UnsupportedOSPlatform("browser")]
