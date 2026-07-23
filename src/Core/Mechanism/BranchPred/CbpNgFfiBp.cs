@@ -35,7 +35,7 @@ namespace Mechanism.BranchPred;
 ///     </para>
 ///     <para>
 ///         Desktop-only: the native library is loaded with <see cref="NativeLibrary" />, which
-///         requires <c>dlopen</c>/<c>LoadLibrary</c> — unavailable under browser-wasm (FaceWeb).
+///         requires <c>dlopen</c>/<c>LoadLibrary</c> — unavailable under browser-wasm.
 ///     </para>
 /// </summary>
 public sealed unsafe class CbpNgFfiBp : IBranchKindAwareBranchPredictor, IDisposable {

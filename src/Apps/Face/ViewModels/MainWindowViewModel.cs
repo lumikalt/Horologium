@@ -135,11 +135,7 @@ public partial class MainWindowViewModel : ObservableObject {
 
     public AssemblerViewModel Assembler { get; } = new();
 
-    // The Configurator tab needs Script.csproj (Roslyn), which doesn't compile for
-    // browser-wasm — see Face.csproj's browser-TFM exclusions for ConfiguratorViewModel itself.
-#if !BROWSER
     public ConfiguratorViewModel Configurator { get; } = new();
-#endif
 
     public ObservableCollection<ConfigViewModel> Configs { get; } = [];
     public ObservableCollection<string> AvailableMetrics { get; } = [];

@@ -355,9 +355,6 @@ free embedded suites are runnable in full today.
 
 ## Face
 
-- [ ] Browser assembly support: pure C# RV32 two-pass assembler, so the Assemble command works in FaceWeb without a GAS
-  subprocess.
-  - Also a C compiler…
 - [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes.
 - [x] Vector operation visualization.
 - [x] gem5-style architecture configurator: new desktop-only "Configurator" tab (`ConfiguratorView`/

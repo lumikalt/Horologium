@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFrameworks>net11.0;net11.0-browser</TargetFrameworks>
-        <OutputType Condition="!$(TargetFramework.Contains('browser'))">WinExe</OutputType>
+        <TargetFramework>net11.0</TargetFramework>
+        <OutputType>WinExe</OutputType>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <RootNamespace>Face</RootNamespace>
@@ -10,29 +10,13 @@
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
-    <!-- Browser builds can't dynamic-codegen, so Roslyn scripting (Script.csproj, which the
-         Configurator tab depends on) doesn't compile for them; this constant lets the shared
-         MainWindowViewModel/MainPanel code-behind gate the tab out with #if. -->
-    <PropertyGroup Condition="$(TargetFramework.Contains('browser'))">
-        <DefineConstants>$(DefineConstants);BROWSER</DefineConstants>
-    </PropertyGroup>
-
-    <!-- Exclude desktop-only entry point and the Configurator tab (needs Script.csproj/Roslyn,
-         unavailable under browser-wasm) from browser builds -->
-    <ItemGroup Condition="$(TargetFramework.Contains('browser'))">
-        <Compile Remove="Program.cs"/>
-        <Compile Remove="Views/ConfiguratorView.axaml.cs"/>
-        <Compile Remove="ViewModels/ConfiguratorViewModel.cs"/>
-        <AvaloniaXaml Remove="Views/ConfiguratorView.axaml"/>
-    </ItemGroup>
-
     <ItemGroup>
         <ProjectReference Include="../../Core/Orrery/Orrery.csproj"/>
         <ProjectReference Include="../../Core/Mechanism/Mechanism.csproj"/>
         <ProjectReference Include="../../Isa/RiscV32/RiscV32.csproj"/>
         <ProjectReference Include="../../Core/Pipeline/Pipeline.csproj"/>
         <ProjectReference Include="../../Isa/Chip8/Chip8.csproj"/>
-        <ProjectReference Include="../../Apps/Script/Script.csproj" Condition="!$(TargetFramework.Contains('browser'))"/>
+        <ProjectReference Include="../../Apps/Script/Script.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -46,7 +30,7 @@
         <PackageReference Include="Avalonia" Version="12.0.4"/>
         <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.0"/>
         <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.0"/>
-        <PackageReference Condition="!$(TargetFramework.Contains('browser'))" Include="Avalonia.Desktop" Version="12.0.4"/>
+        <PackageReference Include="Avalonia.Desktop" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4"/>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2"/>

@@ -18,11 +18,10 @@ namespace Face.ViewModels;
 public sealed record StatRow(string Name, string Value);
 
 /// <summary>
-///     Backs the desktop-only Configurator tab: edits a `.csx` architecture script, hot-reloads
+///     Backs the Configurator tab: edits a `.csx` architecture script, hot-reloads
 ///     it (debounced in-app edits and external saves via <see cref="FileSystemWatcher" /> both
 ///     converge on <see cref="ConfiguratorEngine.BuildAsync" />), and drives/observes the
-///     resulting <see cref="MachineHandle" />. Not compiled into FaceWeb — see Face.csproj's
-///     browser-TFM exclusions.
+///     resulting <see cref="MachineHandle" />.
 /// </summary>
 public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
     private const int RunDelayMs = 50;

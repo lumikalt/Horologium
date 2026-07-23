@@ -2137,7 +2137,7 @@ public class UveTests {
     ///     Ports <c>syrk</c> (github.com/hpc-ulisboa/UVE2, UVE-Testing/spike_test/benchmarks/syrk):
     ///     <c>C[i,j] = beta*C[i,j] + alpha*sum_k A[i,k]*A[j,k]</c> for the lower triangle <c>j &lt;= i</c>
     ///     (a growing triangle as <c>i</c> increases — the INC-modifier mirror of <c>trmm</c>'s
-    ///     shrinking one). TODO.md previously flagged this kernel as blocked on a decoder gap: its
+    ///     shrinking one). Previously a decoder gap: its
     ///     reference source's <c>ss.sta.*</c> header carries extra inline operands
     ///     (<c>ss.sta.st.d u1, %[C], %[N], %[N]</c>) that Horologium's revised-syntax decoder doesn't
     ///     accept, plus a trailing <c>ss.cfg.vec</c> line (a removed instruction, per
@@ -2404,41 +2404,40 @@ public class UveTests {
         // Register plan: x1=aBase x2=v2Base x3=kernelU2Base x4=v1Base x5=kernelU1Base x6=N x7=1
         //                x8=yBase x9=xBase x10=bits(beta) x11=zBase x12=bits(alpha) x13=wBase
         const ulong code = 0x1000;
-        var words = new List<uint>();
-
-        words.Add(Addi(1, 0, (int)aBase));
-        words.Add(Addi(2, 0, (int)v2Base));
-        words.Add(Addi(3, 0, (int)kernelU2Base));
-        words.Add(Addi(4, 0, (int)v1Base));
-        words.Add(Addi(5, 0, (int)kernelU1Base));
-        words.Add(Addi(6, 0, n));
-        words.Add(Addi(7, 0, 1));
-        words.Add(Addi(8, 0, (int)yBase));
-        words.Add(Addi(9, 0, (int)xBase));
-        words.Add(Lui(10, BitConverter.SingleToInt32Bits(beta) >> 12));
-        words.Add(Addi(11, 0, (int)zBase));
-        words.Add(Lui(12, BitConverter.SingleToInt32Bits(alpha) >> 12));
-        words.Add(Addi(13, 0, (int)wBase));
-
-        // ── STAGE 1: A[i,j] += kernelU1[i]*v1[j] + kernelU2[i]*v2[j] ──
-        words.Add(SsStaStW(1, 1));
-        words.Add(SsApp(1, 0, 6, 6));
-        words.Add(SsEnd(1, 0, 6, 7));
-        words.Add(SsStaLdW(2, 2));
-        words.Add(SsApp(2, 0, 6, 0));
-        words.Add(SsEnd(2, 0, 6, 7));
-        words.Add(SsStaLdW(3, 3));
-        words.Add(SsApp(3, 0, 6, 7));
-        words.Add(SsEnd(3, 0, 6, 0));
-        words.Add(SsStaLdW(4, 4));
-        words.Add(SsApp(4, 0, 6, 0));
-        words.Add(SsEnd(4, 0, 6, 7));
-        words.Add(SsStaLdW(5, 5));
-        words.Add(SsApp(5, 0, 6, 7));
-        words.Add(SsEnd(5, 0, 6, 0));
-        words.Add(SsStaLdW(6, 1));
-        words.Add(SsApp(6, 0, 6, 6));
-        words.Add(SsEnd(6, 0, 6, 7));
+        var words = new List<uint> {
+            Addi(1, 0, (int)aBase),
+            Addi(2, 0, (int)v2Base),
+            Addi(3, 0, (int)kernelU2Base),
+            Addi(4, 0, (int)v1Base),
+            Addi(5, 0, (int)kernelU1Base),
+            Addi(6, 0, n),
+            Addi(7, 0, 1),
+            Addi(8, 0, (int)yBase),
+            Addi(9, 0, (int)xBase),
+            Lui(10, BitConverter.SingleToInt32Bits(beta) >> 12),
+            Addi(11, 0, (int)zBase),
+            Lui(12, BitConverter.SingleToInt32Bits(alpha) >> 12),
+            Addi(13, 0, (int)wBase),
+            // ── STAGE 1: A[i,j] += kernelU1[i]*v1[j] + kernelU2[i]*v2[j] ──
+            SsStaStW(1, 1),
+            SsApp(1, 0, 6, 6),
+            SsEnd(1, 0, 6, 7),
+            SsStaLdW(2, 2),
+            SsApp(2, 0, 6, 0),
+            SsEnd(2, 0, 6, 7),
+            SsStaLdW(3, 3),
+            SsApp(3, 0, 6, 7),
+            SsEnd(3, 0, 6, 0),
+            SsStaLdW(4, 4),
+            SsApp(4, 0, 6, 0),
+            SsEnd(4, 0, 6, 7),
+            SsStaLdW(5, 5),
+            SsApp(5, 0, 6, 7),
+            SsEnd(5, 0, 6, 0),
+            SsStaLdW(6, 1),
+            SsApp(6, 0, 6, 6),
+            SsEnd(6, 0, 6, 7),
+        };
 
         int loopStart1 = words.Count;
         words.Add(SoAFp(UveFpOp.Mul, 0, 5, 4));
@@ -2737,16 +2736,15 @@ public class UveTests {
         // (store base, matching the reference's "dst + PB_J" operand); x11=inm2(PB_I-2) x12=jn(PB_J)
         // x13=jnm2(PB_J-2) x14=one; x15-x23 = bits(filter[0..8]).
         const ulong code = 0x1000;
-        var words = new List<uint>();
 
         int[] srcOffsets = [0, 1, 2, pbJ, pbJ + 1, pbJ + 2, 2 * pbJ, 2 * pbJ + 1, 2 * pbJ + 2,];
-        for (var i = 0; i < srcOffsets.Length; i++) words.Add(Addi(1 + i, 0, (int)srcBase + srcOffsets[i] * 4));
+        List<uint> words = srcOffsets.Select((t, i) => Addi(1 + i, 0, (int)srcBase + t * 4)).ToList();
         words.Add(Addi(10, 0, (int)dstBase + pbJ * 4));
         words.Add(Addi(11, 0, pbI - 2));
         words.Add(Addi(12, 0, pbJ));
         words.Add(Addi(13, 0, pbJ - 2));
         words.Add(Addi(14, 0, 1));
-        for (var i = 0; i < filter.Length; i++) words.Add(Lui(15 + i, BitConverter.SingleToInt32Bits(filter[i]) >> 12));
+        words.AddRange(filter.Select((t, i) => Lui(15 + i, BitConverter.SingleToInt32Bits(t) >> 12)));
 
         // u1-u9: nine src load streams (identical 2D shape, different bases) — outer(y) count=inm2
         // stride=jn elems; inner(x) count=jnm2 stride=one elem.
