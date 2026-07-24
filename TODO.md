@@ -22,6 +22,20 @@ off here until a periodic cleanup removes them; the durable record is git histor
   genuine semantic unknown — `RUN_SIMPLE` can't be used to rederive what a zero-count dimension does to
   the fetch/consume odometers, so this needs the author's confirmation before implementing (per
   `SPEC_NOTES.md`'s "author is authority" discipline) — don't guess at it from the kernel source alone.
+- [x] Reverted the `so.b.*` branch `d`-field encoding fix after the UVE2 author retracted his own prior
+  correction (email 2026-07-24, see `SPEC_NOTES.md`'s "Branch `d` field" entry): the 2026-07-22 email
+  that moved the no-suffix EOS-equivalent form (`so.b.[n]c`) to funct3=7 and made dc.1 reachable at
+  funct3=0 was itself a mistake — Appendix B's original table (and Spike's matching encoding) was
+  correct all along, and it was the dissertation's §2.3.2 prose that was wrong. `so.b.[n]c` refers to
+  the *first* (outermost) dimension, not a separate EOS flag — checking it and checking end-of-stream
+  are the same event by construction, since the whole stream ends exactly when its outermost dimension
+  does. Reverted `Rv32Decoder.Uve.cs`'s `funct3 == 7` check back to `funct3 == 0`, and the `SoBNc`/`SoBc`
+  test encoder helpers back to funct3=0; no other call site needed touching, since every existing
+  `SoBNdcD`/`SoBdcD` test call uses dim 1..3, never the 0/7 boundary values that actually differ between
+  the two tables. Renamed and rewrote `Decoder_SoBBranchTable_MatchesAuthorCorrectedEncoding` →
+  `Decoder_SoBBranchTable_MatchesAuthorReconfirmedEncoding` to transcribe the reinstated table; confirmed
+  it fails under the (now reverted) 2026-07-22 decoder logic before reverting. Full non-benchmark suite
+  unchanged at 3961/1/3962.
 
 ## Benchmarks
 

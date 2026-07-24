@@ -126,17 +126,19 @@ public partial class Rv32Decoder {
         uint funct7 = (raw >> 25) & 0x7F;
 
         // UVE branch: bits[31:29]=111 (funct7[6:4]=111, i.e. raw>>29==7)
-        // funct3=7 selects the no-suffix EOS-equivalent form (so.b.[n]c); funct3=0..6 select the
-        // dimensioned form (so.b.[n]dc.D, D = funct3+1, counting from the outermost). This is the
-        // UVE2 author's authoritative correction (2026-07-22, overrules both Appendix B's original
-        // listing and Spike, which still ships funct3=0 for so.b.[n]c — see SPEC_NOTES.md's "Branch
-        // `d` field" entry): dc.1 is reachable (funct3=0), and the EOS-equivalent form moved from
-        // funct3=0 to funct3=7.
+        // funct3=0 selects the no-suffix EOS-equivalent form (so.b.[n]c); funct3=1..7 select the
+        // dimensioned form (so.b.[n]dc.D, D = funct3+1, counting from the outermost) — Appendix B's
+        // original listing and Spike's encoding, both confirmed correct by the UVE2 author
+        // (2026-07-22 email retracted 2026-07-24; see SPEC_NOTES.md's "Branch `d` field" entry for
+        // the full back-and-forth). dc.1 is NOT reachable (there is no funct3 value left for it once
+        // funct3=0 is EOS) — so.b.[n]c (checking the outermost/first dimension) already serves that
+        // purpose, since the outermost dimension completing is definitionally the same event as the
+        // whole stream completing.
         if (raw >> 29 == 7) {
             int imm = UveBranchImm(raw);
             int notDone = rs2 & 1; // LSB of rs2 field
 
-            if (funct3 == 7)
+            if (funct3 == 0)
                 return new RvInstruction(
                     pc, raw, -1, [], ToothClass.Uve,
                     notDone != 0 ? new RvUveSoBNc(rs1, imm) : new RvUveSoBc(rs1, imm)
