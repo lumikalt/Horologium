@@ -81,6 +81,33 @@ public record RvOrcB(int Rd, int Rs1) : RvOp; // OR-combine bytes (0 → 0x00, n
 
 public record RvRev8(int Rd, int Rs1) : RvOp; // byte-reverse
 
+// ── Zbkb extension (bit manipulation for crypto) ──────────────────────────────
+// R-type (opcode=0x33, funct7=0x04): rd = rs1 in the low half, rs2 in the high half
+public record RvPack(int Rd, int Rs1, int Rs2) : RvOp;
+
+// R-type (opcode=0x33, funct7=0x04, funct3=7): rd = rs1's low byte, rs2's low byte packed above it
+public record RvPackh(int Rd, int Rs1, int Rs2) : RvOp;
+
+// R-type (opcode=0x3B/OP-32, funct7=0x04): RV64-only, packs the low 16 bits of each operand
+public record RvPackw(int Rd, int Rs1, int Rs2) : RvOp;
+
+// I-type (opcode=0x13, funct3=5, imm=0x687): reverse the bits within each byte
+public record RvBrev8(int Rd, int Rs1) : RvOp;
+
+// I-type (opcode=0x13, funct3=1, imm=0x08F): bit-interleave — low/high halves to even/odd bits.
+// RV32-only.
+public record RvZip(int Rd, int Rs1) : RvOp;
+
+// I-type (opcode=0x13, funct3=5, imm=0x08F): inverse of zip. RV32-only.
+public record RvUnzip(int Rd, int Rs1) : RvOp;
+
+// ── Zbkx extension (crossbar permutation) ─────────────────────────────────────
+// R-type (opcode=0x33, funct7=0x14): nibble-wise lookup — rs2[i] indexes an element of rs1
+public record RvXperm4(int Rd, int Rs1, int Rs2) : RvOp;
+
+// R-type (opcode=0x33, funct7=0x14, funct3=4): byte-wise lookup — rs2[i] indexes an element of rs1
+public record RvXperm8(int Rd, int Rs1, int Rs2) : RvOp;
+
 // ── Zawrs extension (wait-on-reservation-set) ─────────────────────────────────
 // SYSTEM space (opcode=0x73, funct3=0): NOP in single-core simulation.
 public record RvWrsNto : RvOp; // wrs.nto (imm=0x00D): wait for reservation set, no timeout

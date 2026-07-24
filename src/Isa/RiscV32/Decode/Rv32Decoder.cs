@@ -243,8 +243,15 @@ public partial class Rv32Decoder : IDecoder {
             // Zbb rotate (funct7=0x30)
             (0x1, 0x30) => new RvRol(rd, rs1, rs2),
             (0x5, 0x30) => new RvRor(rd, rs1, rs2),
-            // Zbb zero-extend halfword (funct7=0x04, rs2=0)
+            // Zbb zero-extend halfword (funct7=0x04, rs2=0) — a specific case of Zbkb's pack
+            // (pack rd, rs1, x0), which Zbb alone still requires even without full Zbkb.
             (0x4, 0x04) when rs2 == 0 => new RvZextH(rd, rs1),
+            // Zbkb pack/packh (funct7=0x04); pack's rs2=0 case is claimed by RvZextH above.
+            (0x4, 0x04) => new RvPack(rd, rs1, rs2),
+            (0x7, 0x04) => new RvPackh(rd, rs1, rs2),
+            // Zbkx crossbar permutation (funct7=0x14; funct3=0x1 at this funct7 is Zbs's BSET)
+            (0x2, 0x14) => new RvXperm4(rd, rs1, rs2),
+            (0x4, 0x14) => new RvXperm8(rd, rs1, rs2),
             // Zknd/Zkne/Zksed (funct3=0): bs = funct7[6:5], fixed selector = funct7[4:0]
             (0x0, var f7) when (f7 & 0x1F) == 0x15 => new RvAes32Dsi(rd, rs1, rs2, (int)(f7 >> 5)),
             (0x0, var f7) when (f7 & 0x1F) == 0x17 => new RvAes32Dsmi(rd, rs1, rs2, (int)(f7 >> 5)),
@@ -317,6 +324,12 @@ public partial class Rv32Decoder : IDecoder {
                         raw, $"Unknown Zknh/Zksh unary op shamt=0x{shamt:X}"
                     ),
                 },
+                // Zbkb zip (imm=0x08F, funct7=0x04, shamt=0x0F): RV32-only bit-interleave.
+                0x04 => shamt == 0x0F
+                    ? new RvZip(rd, rs1)
+                    : throw new IllegalInstructionException(
+                        raw, $"Unknown OP-IMM funct3=1 funct7=0x04 shamt=0x{shamt:X}"
+                    ),
                 _ => throw new IllegalInstructionException(
                     raw, $"Unknown OP-IMM funct3=1 funct7=0x{funct7:X}"
                 ),
@@ -328,7 +341,15 @@ public partial class Rv32Decoder : IDecoder {
                 0x14 => new RvOrcB(rd, rs1),
                 0x24 => new RvBexti(rd, rs1, (int)shamt),
                 0x30 => new RvRori(rd, rs1, (int)shamt),
-                0x34 => new RvRev8(rd, rs1),
+                // rev8 (imm=0x698, shamt=0x18) and Zbkb's brev8 (imm=0x687, shamt=0x07) share
+                // funct7=0x34; only the shamt field tells them apart.
+                0x34 => shamt == 0x07 ? new RvBrev8(rd, rs1) : new RvRev8(rd, rs1),
+                // Zbkb unzip (imm=0x08F, funct7=0x04, shamt=0x0F): RV32-only, inverse of zip.
+                0x04 => shamt == 0x0F
+                    ? new RvUnzip(rd, rs1)
+                    : throw new IllegalInstructionException(
+                        raw, $"Unknown OP-IMM funct3=5 funct7=0x04 shamt=0x{shamt:X}"
+                    ),
                 _ => throw new IllegalInstructionException(
                     raw, $"Unknown OP-IMM funct3=5 funct7=0x{funct7:X}"
                 ),

@@ -49,6 +49,14 @@ off here until a periodic cleanup removes them; the durable record is git histor
   `sha256*`/`sm3p0`/`p1` now decode and correctly sign-extend to XLEN (fixed by casting the RV32
   executor's 32-bit results through `(int)` before widening, so RV64 inheritance gets EXTS instead
   of implicit zero-extension for free — same fix applied to `sm4ed`/`sm4ks`).
+- [x] Scalar crypto (Zbkb/Zbkx bitmanip subset): `pack`/`packh`/`packw`/`brev8`/`zip`/`unzip`
+  (Zbkb) and `xperm4`/`xperm8` (Zbkx), both widths — the bitmanip-for-crypto instructions the two
+  items above didn't cover. Zbkc needed no new code: it's fully satisfied by the pre-existing
+  `clmul`/`clmulh`. Closed a third `Rv64Decoder` gap in the same family as the two above: `pack
+  rd, rs1, x0` was falling through to RV32's `rs2=0` special case (a 16-bit halfword zero-extend)
+  instead of RV64's 32-bit-half pack, silently producing the wrong result for that one operand
+  combination — fixed with an explicit RV64 interception. All eight encodings re-verified against
+  `riscv{32,64}-none-elf-as`+objdump ground truth (not just the spec's own diagrams).
 
 ## Analysis
 

@@ -93,6 +93,10 @@ public class Rv64Decoder : Rv32Decoder {
                     // Zbb ZEXT.H: RV64 encodes it in OP-32 (RV32 uses OP) — same semantics
                     // (zero-extend the low 16 bits), just reached via a different opcode.
                     (0x4, 0x04) when rs2 == 0 => new RvZextH(rd, rs1),
+                    // Zbkb packw (RV64-only): packs the low 16 bits of each operand into the
+                    // low 32 bits of rd, sign-extended to XLEN. zext.h's rs2=0 case is claimed
+                    // by RvZextH above.
+                    (0x4, 0x04) => new RvPackw(rd, rs1, rs2),
                     _ => throw new IllegalInstructionException(
                         raw,
                         $"Unknown OP-32 funct3=0x{funct3:X} funct7=0x{funct7:X}"
@@ -175,7 +179,9 @@ public class Rv64Decoder : Rv32Decoder {
                     },
                     (0x5, 0x0A) => new RvOrcB(rd, rs1),
                     (0x5, 0x18) => new RvRori(rd, rs1, (int)shamt6),
-                    (0x5, 0x1A) => new RvRev8(rd, rs1),
+                    // rev8.rv64 (shamt6=0x38) and Zbkb's brev8 (shamt6=0x07, same fixed 12-bit
+                    // immediate as RV32's encoding) share top6=0x1A; only shamt6 tells them apart.
+                    (0x5, 0x1A) => shamt6 == 0x07 ? new RvBrev8(rd, rs1) : new RvRev8(rd, rs1),
                     // Zknh/Zksh unary ops (sha256*/sha512* direct/sm3p0/p1), all sharing top6=0x04
                     // (funct7=0x08, same encoding space as RV32) — shamt6 selects the sub-op.
                     // Without this case, top6=0x04 would fall through to the "unknown" arm below
@@ -220,6 +226,17 @@ public class Rv64Decoder : Rv32Decoder {
             case 0x33 when funct3 == 0x00 && IsRv32OnlyCryptoFunct7(funct7): {
                 throw new IllegalInstructionException(
                     raw, $"RV32-only scalar crypto encoding funct7=0x{funct7:X} is not valid on RV64"
+                );
+            }
+            // ── Zbkb pack, RV64 (funct7=0x04, funct3=0x4) ──────────────────────────
+            // Must be intercepted before falling through to the base decoder: RV32's DecodeRType
+            // special-cases rs2=0 as RvZextH (a 16-bit halfword zero-extend), but on RV64 "pack
+            // rd, rs1, x0" must be a 32-bit *word* zero-extend (pack's half-width is XLEN/2=32
+            // here) — reusing the RV32 case unmodified would silently produce the wrong result
+            // for exactly that operand combination.
+            case 0x33 when funct3 == 0x04 && funct7 == 0x04: {
+                return new RvInstruction(
+                    pc, raw, rd, [rs1, rs2,], ToothClass.IntegerAlu, new RvPack(rd, rs1, rs2)
                 );
             }
             case 0x33 when funct3 == 0x00 && funct7 is 0x1D or 0x1F or 0x19 or 0x1B or 0x3F: {

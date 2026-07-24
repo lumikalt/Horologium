@@ -321,6 +321,15 @@ public partial class Rv32Executor : IExecutor {
             RvOrcB (_, var rs1)         => OrcB(regs, rs1),
             RvRev8 (_, var rs1)         => Rev8(regs, rs1),
 
+            // ── Zbkb/Zbkx extension (crypto-adjacent bit manipulation) ─────────────────
+            RvPack  (_, var rs1, var rs2) => Pack(regs, rs1, rs2, 16),
+            RvPackh (_, var rs1, var rs2) => Reg(((regs.Read(rs2) & 0xFF) << 8) | (regs.Read(rs1) & 0xFF)),
+            RvBrev8 (_, var rs1)          => Brev8(regs, rs1, 4),
+            RvZip   (_, var rs1)          => Zip(regs, rs1),
+            RvUnzip (_, var rs1)          => Unzip(regs, rs1),
+            RvXperm4(_, var rs1, var rs2) => Xperm(regs, rs1, rs2, 4, 8),
+            RvXperm8(_, var rs1, var rs2) => Xperm(regs, rs1, rs2, 8, 4),
+
             // ── Zknd/Zkne extension (NIST AES, RV32) ──────────────────────────────────
             RvAes32Dsi (_, var rs1, var rs2, var bs) => Aes32(regs, rs1, rs2, bs, true, false),
             RvAes32Dsmi(_, var rs1, var rs2, var bs) => Aes32(regs, rs1, rs2, bs, true, true),
@@ -971,6 +980,74 @@ public partial class Rv32Executor : IExecutor {
     private ExecuteResult Rev8(IRegisterFile regs, int rs1) {
         var v = (uint)regs.Read(rs1);
         return Reg((v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24));
+    }
+
+    // pack: rs1's low halfBits bits in the low half of rd, rs2's low halfBits bits in the high
+    // half. halfBits=16 on RV32 (32-bit result), halfBits=32 on RV64 (Rv64Executor override) —
+    // either way the packed halves exactly fill XLEN, so no further sign/zero extension applies.
+    protected ExecuteResult Pack(IRegisterFile regs, int rs1, int rs2, int halfBits) {
+        ulong mask = (1UL << halfBits) - 1;
+        ulong lo = regs.Read(rs1) & mask;
+        ulong hi = regs.Read(rs2) & mask;
+        return Reg((hi << halfBits) | lo);
+    }
+
+    // brev8: reverse the bits within each byte, byteCount bytes wide (4 on RV32, 8 on RV64).
+    protected ExecuteResult Brev8(IRegisterFile regs, int rs1, int byteCount) {
+        ulong v = regs.Read(rs1);
+        ulong result = 0;
+        for (var i = 0; i < byteCount; i++)
+            result |= (ulong)Rv32Executor.ReverseBitsInByte((byte)(v >> (i * 8))) << (i * 8);
+        return Reg(result);
+    }
+
+    protected static byte ReverseBitsInByte(byte b) {
+        byte r = 0;
+        for (var bit = 0; bit < 8; bit++)
+            if ((b & (1 << bit)) != 0)
+                r |= (byte)(1 << (7 - bit));
+        return r;
+    }
+
+    // zip/unzip: bit-interleave a 32-bit word's low/high halves into even/odd bit positions
+    // (and back). RV32-only — no RV64 counterpart exists in the spec.
+    private ExecuteResult Zip(IRegisterFile regs, int rs1) {
+        var v = (uint)regs.Read(rs1);
+        uint result = 0;
+        for (var i = 0; i < 16; i++) {
+            result |= ((v >> i) & 1u) << (2 * i);
+            result |= ((v >> (16 + i)) & 1u) << (2 * i + 1);
+        }
+
+        return Reg(result);
+    }
+
+    private ExecuteResult Unzip(IRegisterFile regs, int rs1) {
+        var v = (uint)regs.Read(rs1);
+        uint result = 0;
+        for (var i = 0; i < 16; i++) {
+            result |= ((v >> (2 * i)) & 1u) << i;
+            result |= ((v >> (2 * i + 1)) & 1u) << (16 + i);
+        }
+
+        return Reg(result);
+    }
+
+    // xperm4/xperm8: crossbar lookup — each elementBits-wide element of rs2 indexes an element
+    // of rs1; an out-of-range index (>= elementCount) yields zero. elementCount is XLEN/elementBits
+    // (8/4 on RV32, 16/8 on RV64 via the Rv64Executor override).
+    protected ExecuteResult Xperm(IRegisterFile regs, int rs1, int rs2, int elementBits, int elementCount) {
+        ulong lut = regs.Read(rs1);
+        ulong idxVec = regs.Read(rs2);
+        ulong mask = (1UL << elementBits) - 1;
+        ulong result = 0;
+        for (var i = 0; i < elementCount; i++) {
+            var idx = (int)((idxVec >> (i * elementBits)) & mask);
+            ulong looked = idx < elementCount ? (lut >> (idx * elementBits)) & mask : 0;
+            result |= looked << (i * elementBits);
+        }
+
+        return Reg(result);
     }
 
     private static int EcallCause(PrivilegeLevel priv) => (int)priv switch {

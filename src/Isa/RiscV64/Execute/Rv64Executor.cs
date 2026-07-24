@@ -260,6 +260,16 @@ public class Rv64Executor : Rv32Executor {
             RvOrcB (_, var rs1)         => OrcB64(regs, rs1),
             RvRev8 (_, var rs1)         => Rev8_64(regs, rs1),
 
+            // ── Zbkb/Zbkx: XLEN=64 means twice the half-width/byte-count/element-count of the
+            // inherited RV32 versions (which would otherwise silently operate at the wrong width).
+            RvPack  (_, var rs1, var rs2) => Pack(regs, rs1, rs2, 32),
+            RvPackw (_, var rs1, var rs2) => Reg(
+                (ulong)(int)((((uint)regs.Read(rs2) & 0xFFFF) << 16) | ((uint)regs.Read(rs1) & 0xFFFF))
+            ),
+            RvBrev8 (_, var rs1)          => Brev8(regs, rs1, 8),
+            RvXperm4(_, var rs1, var rs2) => Xperm(regs, rs1, rs2, 4, 16),
+            RvXperm8(_, var rs1, var rs2) => Xperm(regs, rs1, rs2, 8, 8),
+
             // ── Zbb/Zbs register-form ops: 64-bit width and 6-bit shift-amount mask
             // (base RV32 versions truncate to 32 bits and mask the shift amount with & 31).
             RvBclr(_, var rs1, var rs2) => Reg(regs.Read(rs1) & ~(1UL << (int)(regs.Read(rs2) & 63))),
