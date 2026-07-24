@@ -250,6 +250,7 @@ public partial class MainWindowViewModel : ObservableObject {
                 Ways = srcCache.Ways,
                 BlockBytes = srcCache.BlockBytes,
                 MissLatency = srcCache.MissLatency,
+                PoolId = srcCache.PoolId,
             }
         );
         SelectedConfig = dup;
@@ -332,9 +333,11 @@ public partial class MainWindowViewModel : ObservableObject {
         StatusText = $"Running {Configs.Count} hart(s)…";
 
         try {
-            var hartConfigs = new List<(TrainConfig, CacheLevelSpec?)>(Configs.Count);
+            var hartConfigs = new List<(TrainConfig, CacheLevelSpec?, int)>(Configs.Count);
             for (var i = 0; i < Configs.Count; i++)
-                hartConfigs.Add((Configs[i].ToNamedConfig().Config, HartCaches[i].ToCacheLevelSpec()));
+                hartConfigs.Add(
+                    (Configs[i].ToNamedConfig().Config, HartCaches[i].ToCacheLevelSpec(), HartCaches[i].PoolId)
+                );
 
             CacheLevelSpec? sharedLlc = MultiHartSettings.ToSharedLlcSpec();
             CoherenceBusKind bus = MultiHartSettings.ToCoherenceBusKind();

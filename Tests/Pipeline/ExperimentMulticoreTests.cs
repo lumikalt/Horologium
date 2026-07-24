@@ -138,7 +138,7 @@ public class ExperimentMulticoreTests {
     [Fact]
     public void RunMulticore_TwoHarts_NoCache_CounterEqualsTwentyTimesHartCount() {
         ExperimentResult result = Experiment.RunMulticore(
-            [(new TrainConfig(), null), (new TrainConfig(), null),]
+            [(new TrainConfig(), null, 0), (new TrainConfig(), null, 0),]
         );
 
         Assert.Equal(2, result.Runs.Count);
@@ -162,7 +162,7 @@ public class ExperimentMulticoreTests {
         var sharedLlc = new CacheLevelSpec(4096, 4, 64, 10);
 
         ExperimentResult result = Experiment.RunMulticore(
-            [(new TrainConfig(), privateCache), (new TrainConfig(), privateCache),],
+            [(new TrainConfig(), privateCache, 0), (new TrainConfig(), privateCache, 0),],
             sharedLlc
         );
 
@@ -195,10 +195,32 @@ public class ExperimentMulticoreTests {
         var privateCache = new CacheLevelSpec(4096, 4, 32, 10);
 
         ExperimentResult result = Experiment.RunMulticore(
-            [(new TrainConfig(), privateCache), (new TrainConfig(), null),]
+            [(new TrainConfig(), privateCache, 0), (new TrainConfig(), null, 0),]
         );
 
         long counter = result.Runs[0].Result.Find("multicore.demo")!.Counters["shared_counter"];
         Assert.Equal(IterationsPerHart * 2, counter);
+    }
+
+    // ── Multi-pool: independent memory/coherence domains ────────────────────────────────────────
+
+    [Fact]
+    public void RunMulticore_TwoPools_TwoHartsEach_CountersIndependentlyReachForty() {
+        // Deliberately the same demo image (same 0x100 counter address) in both pools: if pool
+        // isolation were broken (e.g. one ReservationTable or one backing accidentally reused
+        // across pools), one pool's count would run ahead of the other's or exceed 40 outright,
+        // instead of each independently landing on exactly IterationsPerHart * 2.
+        ExperimentResult result = Experiment.RunMulticore(
+            [
+                (new TrainConfig(), null, 0), (new TrainConfig(), null, 0),
+                (new TrainConfig(), null, 1), (new TrainConfig(), null, 1),
+            ]
+        );
+
+        Assert.Equal(4, result.Runs.Count);
+        foreach (RunRecord run in result.Runs) {
+            long counter = run.Result.Find("multicore.demo")!.Counters["shared_counter"];
+            Assert.Equal(IterationsPerHart * 2, counter);
+        }
     }
 }

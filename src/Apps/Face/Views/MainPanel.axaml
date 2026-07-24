@@ -624,6 +624,16 @@
                                        FontSize="11" Opacity="0.6" TextWrapping="Wrap"
                                        IsVisible="{Binding HasSelectedConfig}" />
                             <StackPanel Spacing="8" IsVisible="{Binding SelectedHartCache, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <TextBlock Text="MEMORY POOL" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                                <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
+                                    <TextBlock Grid.Column="0" Text="Pool" VerticalAlignment="Center" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding SelectedHartCache.PoolId}"
+                                                   Minimum="0" Maximum="63" />
+                                </Grid>
+                                <TextBlock Text="Harts sharing a pool number share memory, coherence bus, and shared LLC; different pools are fully isolated from each other."
+                                           FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+
                                 <TextBlock Text="PRIVATE CACHE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
                                 <CheckBox IsChecked="{Binding SelectedHartCache.Enabled}" Content="Enabled" />
                                 <Grid ColumnDefinitions="110,*" ColumnSpacing="8"

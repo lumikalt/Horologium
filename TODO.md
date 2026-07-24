@@ -612,13 +612,33 @@ free embedded suites are runnable in full today.
   Needs visual verification in Face (toggle multi-hart mode, run with 2-3 harts, optionally a
   private cache and/or shared LLC) — not yet confirmed by the user against this corrected build.
 
-- [ ] Per-hart memory pools for multi-hart mode: `MulticoreSpec.Build` takes exactly one shared
-  `IMemory` for every hart (`src/Core/Pipeline/Spec/MulticoreSpec.cs`) — there is no way to give an
-  individual hart (or a subset of harts) its own private backing distinct from the rest, nor to mix
-  a private pool with a separately-configured pool shared by only some harts (today it's all-or-
-  nothing: one pool, shared by all). Would need a `MulticoreSpec`/`HartSpec` topology change (e.g. a
-  per-hart backing/pool-id field, with harts naming the same pool id wired to the same `IMemory` and
-  a coherence bus only spanning harts that actually share a pool) and touches the same
-  build-order/bus-wiring code this session's coherence fixes went through. Related to, but distinct
-  from, the already-deferred "distinct per-hart programs" item above — that one is about differing
-  code/entry points on shared memory; this one is about differing memory itself.
+- [x] Per-hart memory pools for multi-hart mode: `HartSpec` gained a `PoolId` field (default 0, so
+  every existing call site builds exactly one pool, unchanged). `MulticoreSpec.Build` now groups
+  harts by pool id and builds one independent backing/LLC/bus/`ReservationTable` stack per pool —
+  harts sharing a pool id get today's exact single-pool topology; harts in different pools are fully
+  isolated, with no cross-pool visibility or invalidation. Bus kind/LLC spec/`ConcurrentMode` stay
+  uniform system-wide config (one instance per pool, not per-pool *configuration* — kept out of
+  scope for this pass). Added `MulticoreSpec.Build(IReadOnlyDictionary<int, IMemory> backingByPool)`
+  (the single-`IMemory` overload now forwards to it as pool 0); `PoolReservationTables` (keyed by
+  pool id) is the sole source of truth once set, otherwise the original singular `ReservationTable`
+  still means "pool 0", avoiding two ambiguous sources for that pool. `MulticoreHandle` gained
+  `Buses`/`SharedLlcs` dictionaries (keyed by pool id) alongside the old singular `Bus`/`SharedLlc`
+  convenience properties (now resolving to the first hart's pool, so every pre-existing single-pool
+  test/call site is unaffected). `FlushAllToBacking` walks every pool's LLC now, not just one.
+  `Experiment.RunMulticore`'s `hartConfigs` tuple gained a required `PoolId` element (no default —
+  every caller must be explicit); it builds one fresh demo-workload memory + `ReservationTable` per
+  distinct pool, reports each hart's `multicore.demo` counter from its own pool, and names the
+  `shared_llc` result row per-pool (`shared_llc0`/`shared_llc1`/…) only when more than one pool is in
+  use (unchanged `"shared_llc"` name in the single-pool case). Face: new "MEMORY POOL" field
+  (`HartCacheViewModel.PoolId`) next to the per-hart private-cache section.
+
+  Regression coverage deliberately uses the *same* address across pools (not offset per pool) so a
+  pool-isolation bug shows up as a wrong value rather than going unnoticed by coincidence:
+  `MulticoreSpecTests.TwoPools_TwoHartsEach_WriteIndependentBackingMemory` (two pools' harts write
+  different values to identical addresses in separate `FlatMemory` instances),
+  `TwoPools_HaveDistinctBusAndLlcInstances`, `MissingBackingForReferencedPool_Throws`, and
+  `ExperimentMulticoreTests.RunMulticore_TwoPools_TwoHartsEach_CountersIndependentlyReachForty`.
+  Confirmed the backing-lookup fix is load-bearing by temporarily hard-coding `Build` to always use
+  the first pool's backing and watching `TwoPools_TwoHartsEach_WriteIndependentBackingMemory` fail
+  (pool 1's memory read back 0 instead of the expected values) before reverting. Full non-benchmark
+  suite: 3961/1/3962.

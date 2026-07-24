@@ -257,6 +257,73 @@ public class MulticoreSpecTests {
         Assert.Throws<InvalidOperationException>(() => handle.RunConcurrent(100));
     }
 
+    // ── Multi-pool memory ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void TwoPools_TwoHartsEach_WriteIndependentBackingMemory() {
+        // Same 2 addresses (256/260) used in both pools with different values — if pool-scoped
+        // backing lookup were broken (e.g. every hart wired to backingByPool[0] regardless of its
+        // own PoolId), pool 1's writes would land in pool 0's memory instead of its own, leaving
+        // mem1 untouched (still zero) and mem0 holding pool 1's values instead of pool 0's.
+        const uint pool1H0Addi = 0x00700093; // addi x1, x0, 7
+        const uint pool1H1Addi = 0x00d00113; // addi x2, x0, 13
+
+        var mem0 = new FlatMemory(0x1000);
+        mem0.Load(0x00, Encode(MulticoreSpecTests.H0Addi, MulticoreSpecTests.H0Sw, MulticoreSpecTests.Ebreak));
+        mem0.Load(0x40, Encode(MulticoreSpecTests.H1Addi, MulticoreSpecTests.H1Sw, MulticoreSpecTests.Ebreak));
+
+        var mem1 = new FlatMemory(0x1000);
+        mem1.Load(0x00, Encode(pool1H0Addi, MulticoreSpecTests.H0Sw, MulticoreSpecTests.Ebreak));
+        mem1.Load(0x40, Encode(pool1H1Addi, MulticoreSpecTests.H1Sw, MulticoreSpecTests.Ebreak));
+
+        MulticoreHandle handle = new MulticoreSpec(
+            [
+                new HartSpec(new SingleCycleSpec(), Rv32(), 0x00, PoolId: 0),
+                new HartSpec(new SingleCycleSpec(), Rv32(), 0x40, PoolId: 0),
+                new HartSpec(new SingleCycleSpec(), Rv32(), 0x00, PoolId: 1),
+                new HartSpec(new SingleCycleSpec(), Rv32(), 0x40, PoolId: 1),
+            ]
+        ).Build(new Dictionary<int, IMemory> { [0] = mem0, [1] = mem1, });
+        handle.Run(10_000);
+
+        Assert.Equal(42uL, mem0.Read(256, 4));
+        Assert.Equal(99uL, mem0.Read(260, 4));
+        Assert.Equal(7uL, mem1.Read(256, 4));
+        Assert.Equal(13uL, mem1.Read(260, 4));
+    }
+
+    [Fact]
+    public void TwoPools_HaveDistinctBusAndLlcInstances() {
+        var llcSpec = new CacheLevelSpec(4096, 4, 64, 10);
+        MulticoreHandle handle = new MulticoreSpec(
+            [
+                new HartSpec(new SingleCycleSpec(), Rv32(), PoolId: 0),
+                new HartSpec(new SingleCycleSpec(), Rv32(), PoolId: 1),
+            ],
+            llcSpec
+        ).Build(new Dictionary<int, IMemory> { [0] = new FlatMemory(0x100), [1] = new FlatMemory(0x100), });
+
+        Assert.Equal(2, handle.Buses.Count);
+        Assert.NotSame(handle.Buses[0], handle.Buses[1]);
+        Assert.Equal(2, handle.SharedLlcs.Count);
+        Assert.NotNull(handle.SharedLlcs[0]);
+        Assert.NotNull(handle.SharedLlcs[1]);
+        Assert.NotSame(handle.SharedLlcs[0], handle.SharedLlcs[1]);
+    }
+
+    [Fact]
+    public void MissingBackingForReferencedPool_Throws() {
+        var spec = new MulticoreSpec(
+            [
+                new HartSpec(new SingleCycleSpec(), Rv32(), PoolId: 0),
+                new HartSpec(new SingleCycleSpec(), Rv32(), PoolId: 1),
+            ]
+        );
+        Assert.Throws<InvalidOperationException>(
+            () => spec.Build(new Dictionary<int, IMemory> { [0] = new FlatMemory(0x100), })
+        );
+    }
+
     // ── OoO ──────────────────────────────────────────────────────────────────
 
     [Fact]

@@ -173,23 +173,27 @@ public static class Experiment {
 
     /// <summary>
     ///     Runs Face's multi-hart demo (see <see cref="MulticoreDemoWords" />) across
-    ///     <paramref name="hartConfigs" />, one hart per entry, all sharing one memory and all
-    ///     starting from the same entry point. Returns an <see cref="ExperimentResult" /> with one
-    ///     <see cref="RunRecord" /> per hart (named <c>"hart0"</c>, <c>"hart1"</c>, …) — Face's
-    ///     existing chart/table rendering (<c>UpdateMetrics</c>/<c>PopulateTable</c>) already knows
-    ///     how to display a flat named list of runs, so nothing new is needed there.
+    ///     <paramref name="hartConfigs" />, one hart per entry. Harts sharing a <c>PoolId</c> share
+    ///     one memory/coherence domain (and its own copy of the demo counter); harts in different
+    ///     pools are fully independent, each starting from the same entry point in their own pool's
+    ///     memory. Returns an <see cref="ExperimentResult" /> with one <see cref="RunRecord" /> per
+    ///     hart (named <c>"hart0"</c>, <c>"hart1"</c>, …) — Face's existing chart/table rendering
+    ///     (<c>UpdateMetrics</c>/<c>PopulateTable</c>) already knows how to display a flat named list
+    ///     of runs, so nothing new is needed there.
     /// </summary>
     /// <param name="hartConfigs">
-    ///     One entry per hart: its pipeline/predictor <see cref="TrainConfig" /> and an optional
-    ///     private coherent cache. <paramref name="hartConfigs" />' <c>PrivateCache</c> should only
-    ///     set <c>CapacityBytes</c>/<c>Ways</c>/<c>BlockBytes</c>/<c>MissLatency</c> — those are the
-    ///     only fields the coherent (bus-facing) cache level honors (see
-    ///     <see cref="Pipeline.Spec.MulticoreSpec.Build" />); richer knobs are silently dropped at
-    ///     that level, so don't route <see cref="TrainConfig.ICache" />/<c>DCache</c>/<c>L2Cache</c>
-    ///     through here — a hart's Train never receives them in the multicore path anyway.
+    ///     One entry per hart: its pipeline/predictor <see cref="TrainConfig" />, an optional private
+    ///     coherent cache, and its memory pool id (see <see cref="Pipeline.Spec.HartSpec.PoolId" />).
+    ///     <paramref name="hartConfigs" />' <c>PrivateCache</c> should only set
+    ///     <c>CapacityBytes</c>/<c>Ways</c>/<c>BlockBytes</c>/<c>MissLatency</c> — those are the only
+    ///     fields the coherent (bus-facing) cache level honors (see
+    ///     <see cref="Pipeline.Spec.MulticoreSpec.Build(System.Collections.Generic.IReadOnlyDictionary{int,Mechanism.IMemory})" />);
+    ///     richer knobs are silently dropped at that level, so don't route
+    ///     <see cref="TrainConfig.ICache" />/<c>DCache</c>/<c>L2Cache</c> through here — a hart's
+    ///     Train never receives them in the multicore path anyway.
     /// </param>
-    /// <param name="sharedLlc">Optional cache shared by every hart, behind the coherence bus.</param>
-    /// <param name="bus">Coherence protocol between per-hart private caches.</param>
+    /// <param name="sharedLlc">Optional cache shared by every hart in a pool, behind that pool's coherence bus.</param>
+    /// <param name="bus">Coherence protocol between per-hart private caches (one instance per pool).</param>
     /// <param name="concurrentMode">Two-phase parallel tick instead of round-robin (needs snooping).</param>
     /// <param name="maxTicks">
     ///     Maximum ticks. No <c>warmupTicks</c>/<c>snapshotInterval</c> parameter exists here:
@@ -198,56 +202,72 @@ public static class Experiment {
     ///     tab support for multi-hart results).
     /// </param>
     public static ExperimentResult RunMulticore(
-        IReadOnlyList<(TrainConfig Config, CacheLevelSpec? PrivateCache)> hartConfigs,
+        IReadOnlyList<(TrainConfig Config, CacheLevelSpec? PrivateCache, int PoolId)> hartConfigs,
         CacheLevelSpec? sharedLlc = null,
         CoherenceBusKind bus = CoherenceBusKind.Snooping,
         bool concurrentMode = false,
         long maxTicks = 1_000_000
     ) {
         IWorkload workload = Experiment.MulticoreDemoWorkload();
-        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
-        workload.Load(memory);
-        IMemory runMemory = workload.WrapMemory(memory);
 
-        var reservationTable = new ReservationTable();
+        // Pools are fully separate address spaces: a fresh backing memory and a fresh
+        // ReservationTable per distinct pool id, not shared across pools. Deliberately load the
+        // *same* demo image (same counter address) into every pool's memory rather than offsetting
+        // it — this is what makes a pool-isolation bug (e.g. accidentally reusing one backing or one
+        // ReservationTable across pools) show up as a wrong counter value instead of going unnoticed.
+        List<int> poolIds = hartConfigs.Select(c => c.PoolId).Distinct().ToList();
+        var runMemoryByPool = new Dictionary<int, IMemory>(poolIds.Count);
+        var reservationTableByPool = new Dictionary<int, ReservationTable>(poolIds.Count);
+        foreach (int poolId in poolIds) {
+            var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+            workload.Load(memory);
+            runMemoryByPool[poolId] = workload.WrapMemory(memory);
+            reservationTableByPool[poolId] = new ReservationTable();
+        }
+
         var harts = new HartSpec[hartConfigs.Count];
         for (var i = 0; i < hartConfigs.Count; i++) {
-            (TrainConfig config, CacheLevelSpec? privateCache) = hartConfigs[i];
+            (TrainConfig config, CacheLevelSpec? privateCache, int poolId) = hartConfigs[i];
             int hartId = i;
+            ReservationTable poolTable = reservationTableByPool[poolId];
             var throwawayMechanism = new Rv32Mechanism();
             harts[i] = new HartSpec(
                 config.ToPipelineSpec(throwawayMechanism, workload),
-                () => new Rv32Mechanism(reservationTable: reservationTable, hartId: hartId),
+                () => new Rv32Mechanism(reservationTable: poolTable, hartId: hartId),
                 workload.EntryPoint,
-                privateCache is { } pc ? CacheHierarchySpec.Unified(new CachePathSpec([pc,])) : null
+                privateCache is { } pc ? CacheHierarchySpec.Unified(new CachePathSpec([pc,])) : null,
+                poolId
             );
         }
 
-        var spec = new MulticoreSpec(harts, sharedLlc, bus, concurrentMode, reservationTable);
-        MulticoreHandle handle = spec.Build(runMemory);
+        var spec = new MulticoreSpec(harts, sharedLlc, bus, concurrentMode, PoolReservationTables: reservationTableByPool);
+        MulticoreHandle handle = spec.Build(runMemoryByPool);
         RevolutionResult[] raw = concurrentMode ? handle.RunConcurrent(maxTicks) : handle.Run(maxTicks);
 
         // A write-back cache's freshest data can sit uncommitted in a hart's private cache (or the
-        // shared LLC) indefinitely if its line is never evicted — flush before reading runMemory
-        // directly below, or the final read can see stale backing state despite every hart's run
-        // having completed correctly.
+        // shared LLC) indefinitely if its line is never evicted — flush before reading each pool's
+        // memory directly below, or the final read can see stale backing state despite every hart's
+        // run having completed correctly.
         handle.FlushAllToBacking();
 
-        // Independent correctness signal: a fully-correct run always ends with this exact value
-        // (IterationsPerHart * hartCount) — LR/SC lost updates (e.g. the cross-hart invalidation
-        // gap MulticoreSpec.Build had before ReservationTable wiring was added) show up here as a
-        // value short of the expected total, not just as a crash.
-        ulong counterValue = runMemory.Read(Experiment.MulticoreDemoCounterAddress, 4);
-        var demoSnapshot = new DialBoardSnapshot(
-            "multicore.demo",
-            new Dictionary<string, long> { ["shared_counter"] = (long)counterValue, },
-            new Dictionary<string, double>(),
-            new Dictionary<string, IReadOnlyDictionary<string, long>>()
+        // Independent correctness signal per pool: a fully-correct run always ends with this exact
+        // value (IterationsPerHart * harts in that pool) — LR/SC lost updates, or a pool-isolation
+        // bug leaking writes across pools, show up here as a value off from the expected total, not
+        // just as a crash.
+        Dictionary<int, ulong> counterByPool = poolIds.ToDictionary(
+            poolId => poolId,
+            poolId => runMemoryByPool[poolId].Read(Experiment.MulticoreDemoCounterAddress, 4)
         );
 
-        var records = new List<RunRecord>(hartConfigs.Count + 1);
+        var records = new List<RunRecord>(hartConfigs.Count + poolIds.Count);
         for (var i = 0; i < hartConfigs.Count; i++) {
             RevolutionResult result = raw[i];
+            var demoSnapshot = new DialBoardSnapshot(
+                "multicore.demo",
+                new Dictionary<string, long> { ["shared_counter"] = (long)counterByPool[hartConfigs[i].PoolId], },
+                new Dictionary<string, double>(),
+                new Dictionary<string, IReadOnlyDictionary<string, long>>()
+            );
             List<DialBoardSnapshot> snaps = [..result.Snapshots, demoSnapshot,];
             if (handle.CoherentCaches[i] is { } cc)
                 snaps.Add(
@@ -262,10 +282,16 @@ public static class Experiment {
             records.Add(new RunRecord($"hart{i}", hartConfigs[i].Config, result));
         }
 
-        if (handle.SharedLlc is { } llc)
+        // One shared-LLC row per pool that has one. Keep the exact pre-multi-pool name "shared_llc"
+        // when only one pool is in use (the overwhelmingly common case), so single-pool result
+        // tables are byte-for-byte unchanged; disambiguate with the pool id only when needed.
+        bool multiPool = poolIds.Count > 1;
+        foreach (int poolId in poolIds) {
+            if (handle.SharedLlcs.GetValueOrDefault(poolId) is not { } llc) continue;
+            string name = multiPool ? $"shared_llc{poolId}" : "shared_llc";
             records.Add(
                 new RunRecord(
-                    "shared_llc", hartConfigs[0].Config,
+                    name, hartConfigs[0].Config,
                     new RevolutionResult(
                         0, 0, [
                             new DialBoardSnapshot(
@@ -278,6 +304,7 @@ public static class Experiment {
                     )
                 )
             );
+        }
 
         return new ExperimentResult(records);
     }
