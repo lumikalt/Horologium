@@ -37,6 +37,63 @@ off here until a periodic cleanup removes them; the durable record is git histor
   it fails under the (now reverted) 2026-07-22 decoder logic before reverting. Full non-benchmark suite
   unchanged at 3961/1/3962.
 
+## RISC-V
+
+- [x] Scalar crypto (RV32): Zknd/Zkne/Zknh (NIST AES + SHA2), Zksed/Zksh (ShangMi SM4 + SM3), Zkr
+  (entropy source CSR). — RISC-V Cryptography Extensions Volume I: Scalar & Entropy Source
+  Instructions, v1.0.1 (`~/dl/riscv-crypto-spec-scalar-v1.0.1.pdf`)
+- [ ] Scalar crypto (RV64): the RV64-only `aes64ds`/`aes64dsm`/`aes64es`/`aes64esm`/`aes64im`/
+  `aes64ks1i`/`aes64ks2` (Zknd/Zkne) and the direct (non-split-register) `sha512sig0`/`sha512sig1`/
+  `sha512sum0`/`sha512sum1` forms (Zknh) — disjoint encodings from the RV32 forms already done above.
+  Two `Rv64Decoder` gaps to close as part of this, confirmed empirically (not just inferred): (1)
+  the RV32-only `aes32*`/`sha512sig0h`/`sig0l`/`sig1h`/`sig1l`/`sum0r`/`sum1r` opcodes (all
+  opcode=0x33, funct3=0) currently fall through `Rv64Decoder`'s unhandled-opcode default straight
+  to the inherited `Rv32Decoder.DecodeRType`, so they decode and execute on RV64 today even though
+  they're architecturally RV32-only — needs gating once `aes64*` claims that encoding space. (2)
+  `sha256sig0`/`sig1`/`sum0`/`sum1` and `sm3p0`/`p1` (opcode=0x13, funct3=1, funct7=0x08) are
+  spec-common to RV32 *and* RV64, but `Rv64Decoder`'s `case 0x13 when funct3 is 0x1 or 0x5`
+  (6-bit-shamt interception for SLLI/SRLI/SRAI/Zbb/Zbs) shadows them and throws
+  `IllegalInstructionException` before ever reaching the base decoder's funct7=0x08 case — needs an
+  explicit pass-through for that funct7 value.
+
+## Analysis
+
+- [ ] SMARTS: systematic statistical sampling with functional warming between detailed sample windows. — Wunderlich
+  et al., ISCA 2003
+- [ ] LoopPoint: checkpoint-driven sampling methodology for multithreaded workloads; the multi-hart counterpart to
+  SimPoint. — Sabu et al., HPCA 2022
+
+## µops
+
+- [ ] µop cache (decoded instruction cache / loop buffer): cache decoded µop bundles so the front-end skips re-decode on
+  repeated loops.
+- [ ] Macro-fusion: fuse compare+branch pairs into a single issue-slot µop (as in Intel Sandy Bridge onward).
+
+## Cache Prefetching
+
+- [ ] Real prefetch-eviction feedback: `SetAssociativeCache` has no notion of `IPrefetcher` today and no per-line
+  "resident via prefetch, never demand-touched" bit, so nothing can tell a prefetcher when one of its lines got
+  evicted unused. `PpfPrefetcher` needs exactly this signal (the paper's third training trigger) and currently
+  approximates it via its own 1024-entry Prefetch Table's slot-overwrite — table pressure standing in for real
+  cache-capacity pressure, documented as a fidelity limit in the class docs. A lighter-weight real version: an
+  optional `Action<ulong>?` eviction callback on `SetAssociativeCache` (default null, near-zero cost when unset),
+  wired up in `MemoryLayers.Build` only for configs that actually attach a prefetcher wanting it, rather than
+  threading `IPrefetcher` through the (already long) cache constructor. Revisit if the table-pressure proxy is ever
+  shown to mispredict in a case that matters — `SetAssociativeCache` is shared by every ISA/cache level/RTL policy,
+  and PPF would be the only one of ten prefetchers consuming it, so it's not worth the blast radius speculatively.
+- [ ] MLOP (multi-lookahead offset prefetcher): BOP generalized to score offsets at multiple lookahead depths; DPC-3
+  winner. — Shakerinava et al., DPC-3 2019
+
+## Memory System
+
+- [ ] Cache compression: base-delta-immediate (BΔI) compressed caches with variable effective capacity. — Pekhimenko
+  et al., PACT 2012
+
+## Security
+
+- [ ] Transient-execution defense modeling: invisible speculative loads (InvisiSpec) and speculative taint tracking
+  (STT); measure the IPC cost of each defense on the OoO train. — Yan et al., MICRO 2018; Yu et al., MICRO 2019
+
 ## Benchmarks
 
 Measured feasibility (Release, single thread): ~1M instr/s functional (single-cycle), ~0.1M cycles/s

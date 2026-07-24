@@ -29,6 +29,12 @@ public enum RvExtension : uint {
     Zcmop = 1u << 16,
     Zimop = 1u << 17,
     Zicntr = 1u << 18,
+    Zknd = 1u << 19,
+    Zkne = 1u << 20,
+    Zknh = 1u << 21,
+    Zksed = 1u << 22,
+    Zksh = 1u << 23,
+    Zkr = 1u << 24,
 
     Default
         = RvExtension.M | RvExtension.A | RvExtension.F | RvExtension.C | RvExtension.V | RvExtension.Zba
@@ -38,7 +44,9 @@ public enum RvExtension : uint {
                          | RvExtension.Zihpm
                          | RvExtension.Zawrs | RvExtension.Zicbom | RvExtension.Zicboz | RvExtension.Zcmop
                          | RvExtension.Zimop
-                         | RvExtension.Zicntr,
+                         | RvExtension.Zicntr
+                         | RvExtension.Zknd | RvExtension.Zkne | RvExtension.Zknh | RvExtension.Zksed
+                         | RvExtension.Zksh | RvExtension.Zkr,
 }
 
 public static class RvExtensionMethods {
@@ -57,6 +65,12 @@ public static class RvExtensionMethods {
         (RvExtension.Zcmop, "zcmop"),
         (RvExtension.Zimop, "zimop"),
         (RvExtension.Zicntr, "zicntr"),
+        (RvExtension.Zknd, "zknd"),
+        (RvExtension.Zkne, "zkne"),
+        (RvExtension.Zknh, "zknh"),
+        (RvExtension.Zksed, "zksed"),
+        (RvExtension.Zksh, "zksh"),
+        (RvExtension.Zkr, "zkr"),
     ];
 
     /// <summary>

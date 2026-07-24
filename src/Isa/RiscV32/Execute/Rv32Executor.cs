@@ -321,6 +321,56 @@ public partial class Rv32Executor : IExecutor {
             RvOrcB (_, var rs1)         => OrcB(regs, rs1),
             RvRev8 (_, var rs1)         => Rev8(regs, rs1),
 
+            // ── Zknd/Zkne extension (NIST AES, RV32) ──────────────────────────────────
+            RvAes32Dsi (_, var rs1, var rs2, var bs) => Aes32(regs, rs1, rs2, bs, true, false),
+            RvAes32Dsmi(_, var rs1, var rs2, var bs) => Aes32(regs, rs1, rs2, bs, true, true),
+            RvAes32Esi (_, var rs1, var rs2, var bs) => Aes32(regs, rs1, rs2, bs, false, false),
+            RvAes32Esmi(_, var rs1, var rs2, var bs) => Aes32(regs, rs1, rs2, bs, false, true),
+
+            // ── Zknh extension (NIST SHA2 hash function instructions) ─────────────────
+            RvSha256Sig0(_, var rs1) => Reg(
+                BitOperations.RotateRight((uint)regs.Read(rs1), 7) ^
+                BitOperations.RotateRight((uint)regs.Read(rs1), 18) ^
+                ((uint)regs.Read(rs1) >> 3)
+            ),
+            RvSha256Sig1(_, var rs1) => Reg(
+                BitOperations.RotateRight((uint)regs.Read(rs1), 17) ^
+                BitOperations.RotateRight((uint)regs.Read(rs1), 19) ^
+                ((uint)regs.Read(rs1) >> 10)
+            ),
+            RvSha256Sum0(_, var rs1) => Reg(
+                BitOperations.RotateRight((uint)regs.Read(rs1), 2) ^
+                BitOperations.RotateRight((uint)regs.Read(rs1), 13) ^
+                BitOperations.RotateRight((uint)regs.Read(rs1), 22)
+            ),
+            RvSha256Sum1(_, var rs1) => Reg(
+                BitOperations.RotateRight((uint)regs.Read(rs1), 6) ^
+                BitOperations.RotateRight((uint)regs.Read(rs1), 11) ^
+                BitOperations.RotateRight((uint)regs.Read(rs1), 25)
+            ),
+            RvSha512Sig0H(_, var rs1, var rs2) => Reg(Sha512Sig0H((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
+            RvSha512Sig0L(_, var rs1, var rs2) => Reg(Sha512Sig0L((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
+            RvSha512Sig1H(_, var rs1, var rs2) => Reg(Sha512Sig1H((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
+            RvSha512Sig1L(_, var rs1, var rs2) => Reg(Sha512Sig1L((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
+            RvSha512Sum0R(_, var rs1, var rs2) => Reg(Sha512Sum0R((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
+            RvSha512Sum1R(_, var rs1, var rs2) => Reg(Sha512Sum1R((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
+
+            // ── Zksh extension (ShangMi SM3 hash function instructions) ───────────────
+            RvSm3P0(_, var rs1) => Reg(
+                (uint)regs.Read(rs1) ^
+                BitOperations.RotateLeft((uint)regs.Read(rs1), 9) ^
+                BitOperations.RotateLeft((uint)regs.Read(rs1), 17)
+            ),
+            RvSm3P1(_, var rs1) => Reg(
+                (uint)regs.Read(rs1) ^
+                BitOperations.RotateLeft((uint)regs.Read(rs1), 15) ^
+                BitOperations.RotateLeft((uint)regs.Read(rs1), 23)
+            ),
+
+            // ── Zksed extension (ShangMi SM4 block cipher instructions) ───────────────
+            RvSm4Ed(_, var rs1, var rs2, var bs) => Sm4(regs, rs1, rs2, bs, false),
+            RvSm4Ks(_, var rs1, var rs2, var bs) => Sm4(regs, rs1, rs2, bs, true),
+
             // ── An extension ──────────────────────────────────────────────────────────
             RvLrW(_, var rs1) => AmoLr(memory, state, pc, regs, rs1),
 
@@ -1197,6 +1247,11 @@ public partial class Rv32Executor : IExecutor {
         Func<ulong, ulong, ulong> combine,
         bool writeIfSrcZero = true
     ) {
+        // Zkr §4.1: a read-only access to seed (CSRRS/CSRRC with rs1==x0) is illegal — checked
+        // before Read() since polling seed is stateful (wipe-on-read) and must not fire on a
+        // trapped access.
+        if (csr == CsrFile.Seed && !(writeIfSrcZero || rs1 != 0))
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
         ISystemRegisters csrFile = state.SystemRegisters;
         try {
             ulong old = csrFile.Read(csr, state.PrivilegeLevel);

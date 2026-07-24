@@ -1,6 +1,7 @@
 #region
 
 using Mechanism;
+using RiscV32.State;
 
 // ReSharper disable MemberCanBePrivate.Global
 
@@ -28,6 +29,15 @@ public sealed class CsrFile : ISystemRegisters {
     public const uint Vl = 0xC20;    // read-only via public Write (bits[11:10]=3); executor uses DirectWrite
     public const uint Vtype = 0xC21; // same
     public const uint Vlenb = 0xC22; // same, constant VectorRegisterFile.VLenB
+
+    // Zkr: entropy source
+    public const uint Seed = 0x015;
+
+    // seed[31:30] OPST status field (§4.1). This simulator models seed as a virtual entropy
+    // source (§4.2.3): every poll succeeds with fresh pseudorandomness, so only ES16 is ever
+    // returned — BIST/WAIT/DEAD are legal per spec ("a virtual source... does not need to
+    // implement WAIT or BIST states") but add no observable behavior worth modeling here.
+    private const uint SeedOpstEs16 = 0b10u << 30;
 
     // Machine Information
     public const uint Mvendorid = 0xF11;
@@ -136,70 +146,77 @@ public sealed class CsrFile : ISystemRegisters {
     private readonly uint[] _csrs = new uint[CsrFile.CsrSpace];
     private readonly bool[] _present = new bool[CsrFile.CsrSpace];
 
+    // Zkr entropy source: deterministic (seed 0) so simulation runs stay reproducible. Not
+    // visible to Spike co-sim — excluded there the same way UVE state is (see SpikeCoSimTests).
+    private readonly Random _entropyRng = new(0);
+
     public CsrFile() {
         // Initialise to reset values
-        Seed(CsrFile.Fflags, 0);
-        Seed(CsrFile.Frm, 0);
-        Seed(CsrFile.Fcsr, 0);
+        InitCsr(CsrFile.Fflags, 0);
+        InitCsr(CsrFile.Frm, 0);
+        InitCsr(CsrFile.Fcsr, 0);
         // Supervisor Protection and Translation
-        Seed(CsrFile.Satp, 0);
+        InitCsr(CsrFile.Satp, 0);
         // Supervisor Trap Setup
-        Seed(CsrFile.Sstatus, 0);
-        Seed(CsrFile.Sie, 0);
-        Seed(CsrFile.Stvec, 0);
-        Seed(CsrFile.Scounteren, 0);
-        Seed(CsrFile.Sscratch, 0);
-        Seed(CsrFile.Sepc, 0);
-        Seed(CsrFile.Scause, 0);
-        Seed(CsrFile.Stval, 0);
-        Seed(CsrFile.Sip, 0);
+        InitCsr(CsrFile.Sstatus, 0);
+        InitCsr(CsrFile.Sie, 0);
+        InitCsr(CsrFile.Stvec, 0);
+        InitCsr(CsrFile.Scounteren, 0);
+        InitCsr(CsrFile.Sscratch, 0);
+        InitCsr(CsrFile.Sepc, 0);
+        InitCsr(CsrFile.Scause, 0);
+        InitCsr(CsrFile.Stval, 0);
+        InitCsr(CsrFile.Sip, 0);
 
-        Seed(CsrFile.Mstatus, 0);
-        Seed(CsrFile.Misa, 0x40141105); // RV32IMACSU: MXL=01, I/M/A/C/S/U extension bits
-        Seed(CsrFile.Medeleg, 0);
-        Seed(CsrFile.Mideleg, 0);
-        Seed(CsrFile.Mie, 0);
-        Seed(CsrFile.Mtvec, 0);
-        Seed(CsrFile.Mcounteren, 0);
-        Seed(CsrFile.Mscratch, 0);
-        Seed(CsrFile.Mepc, 0);
-        Seed(CsrFile.Mcause, 0);
-        Seed(CsrFile.Mtval, 0);
-        Seed(CsrFile.Mip, 0);
-        Seed(CsrFile.Mcycle, 0);
-        Seed(CsrFile.Mcycleh, 0);
-        Seed(CsrFile.Minstret, 0);
-        Seed(CsrFile.Minstreth, 0);
+        InitCsr(CsrFile.Mstatus, 0);
+        InitCsr(CsrFile.Misa, 0x40141105); // RV32IMACSU: MXL=01, I/M/A/C/S/U extension bits
+        InitCsr(CsrFile.Medeleg, 0);
+        InitCsr(CsrFile.Mideleg, 0);
+        InitCsr(CsrFile.Mie, 0);
+        InitCsr(CsrFile.Mtvec, 0);
+        InitCsr(CsrFile.Mcounteren, 0);
+        InitCsr(CsrFile.Mscratch, 0);
+        InitCsr(CsrFile.Mepc, 0);
+        InitCsr(CsrFile.Mcause, 0);
+        InitCsr(CsrFile.Mtval, 0);
+        InitCsr(CsrFile.Mip, 0);
+        InitCsr(CsrFile.Mcycle, 0);
+        InitCsr(CsrFile.Mcycleh, 0);
+        InitCsr(CsrFile.Minstret, 0);
+        InitCsr(CsrFile.Minstreth, 0);
 
         // Zihpm: machine hardware performance counters (always 0) and event selectors
         for (uint n = 3; n <= 31; n++) {
-            Seed(0xB00 + n, 0); // mhpmcounterN
-            Seed(0xB80 + n, 0); // mhpmcounterNh
-            Seed(0x320 + n, 0); // mhpmeventN
+            InitCsr(0xB00 + n, 0); // mhpmcounterN
+            InitCsr(0xB80 + n, 0); // mhpmcounterNh
+            InitCsr(0x320 + n, 0); // mhpmeventN
         }
 
         // Privileged extension stubs (OpenSBI/Linux writes these; no enforcement in simulation)
-        Seed(CsrFile.Menvcfg, 0);
-        Seed(CsrFile.Menvcfgh, 0);
-        Seed(CsrFile.Senvcfg, 0);
-        Seed(CsrFile.Mstatush, 0);
-        for (uint i = 0; i < 4; i++) Seed(CsrFile.Pmpcfg0 + i, 0);
-        for (uint i = 0; i < 16; i++) Seed(CsrFile.Pmpaddr0 + i, 0);
+        InitCsr(CsrFile.Menvcfg, 0);
+        InitCsr(CsrFile.Menvcfgh, 0);
+        InitCsr(CsrFile.Senvcfg, 0);
+        InitCsr(CsrFile.Mstatush, 0);
+        for (uint i = 0; i < 4; i++) InitCsr(CsrFile.Pmpcfg0 + i, 0);
+        for (uint i = 0; i < 16; i++) InitCsr(CsrFile.Pmpaddr0 + i, 0);
 
         // Read-only machine information
-        Seed(CsrFile.Mvendorid, 0);
-        Seed(CsrFile.Marchid, 0);
-        Seed(CsrFile.Mimpid, 0);
-        Seed(CsrFile.Mhartid, 0);
+        InitCsr(CsrFile.Mvendorid, 0);
+        InitCsr(CsrFile.Marchid, 0);
+        InitCsr(CsrFile.Mimpid, 0);
+        InitCsr(CsrFile.Mhartid, 0);
+
+        // Zkr: entropy source (value is regenerated on every Read; this only marks it present)
+        InitCsr(CsrFile.Seed, 0);
 
         // V extension
-        Seed(CsrFile.Vstart, 0);
-        Seed(CsrFile.Vxsat, 0);
-        Seed(CsrFile.Vxrm, 0);
-        Seed(CsrFile.Vcsr, 0);
-        Seed(CsrFile.Vl, 0);
-        Seed(CsrFile.Vtype, 0);
-        Seed(CsrFile.Vlenb, VectorRegisterFile.VLenB);
+        InitCsr(CsrFile.Vstart, 0);
+        InitCsr(CsrFile.Vxsat, 0);
+        InitCsr(CsrFile.Vxrm, 0);
+        InitCsr(CsrFile.Vcsr, 0);
+        InitCsr(CsrFile.Vl, 0);
+        InitCsr(CsrFile.Vtype, 0);
+        InitCsr(CsrFile.Vlenb, VectorRegisterFile.VLenB);
     }
 
     public bool Exists(uint address) => address < CsrFile.CsrSpace && _present[address];
@@ -209,6 +226,10 @@ public sealed class CsrFile : ISystemRegisters {
         // Zicntr: user-level read-only counter shadows (bits[11:10]=3 → read-only enforcement
         // is already handled by CheckNotReadOnly on writes). time/timeh have no external CLINT.
         if (address is CsrFile.Time or CsrFile.Timeh) return 0;
+        // Zkr: every poll is treated as a successful ES16 read (§4.2.3, virtual entropy source).
+        // Polling has the side effect of "wipe-on-read" by construction: the returned entropy is
+        // freshly drawn, never replayed.
+        if (address == CsrFile.Seed) return CsrFile.SeedOpstEs16 | (uint)_entropyRng.Next(0, 0x10000);
         uint effective = address switch {
             CsrFile.Cycle    => CsrFile.Mcycle,
             CsrFile.Cycleh   => CsrFile.Mcycleh,
@@ -231,6 +252,10 @@ public sealed class CsrFile : ISystemRegisters {
         if (address >= CsrFile.CsrSpace || !_present[address])
             throw new SystemRegisterAccessException($"CSR 0x{address:X3} does not exist.");
         switch (address) {
+            case CsrFile.Seed:
+                // §4.1: "The write value ... must be ignored by implementations. The purpose of
+                // the write is to signal polling and flushing." Polling itself happens in Read.
+                break;
             case CsrFile.Fcsr:
                 _csrs[CsrFile.Fflags] = (uint)value & 0x1F;
                 _csrs[CsrFile.Frm] = ((uint)value >> 5) & 0x7;
@@ -248,7 +273,7 @@ public sealed class CsrFile : ISystemRegisters {
         }
     }
 
-    private void Seed(uint address, uint value) {
+    private void InitCsr(uint address, uint value) {
         _csrs[address] = value;
         _present[address] = true;
     }
@@ -258,7 +283,7 @@ public sealed class CsrFile : ISystemRegisters {
         address < CsrFile.CsrSpace && _present[address] ? _csrs[address] : 0;
 
     /// <summary>Direct write bypassing privilege checks — used internally by the trap controller.</summary>
-    internal void DirectWrite(uint address, uint value) => Seed(address, value);
+    internal void DirectWrite(uint address, uint value) => InitCsr(address, value);
 
     /// <summary>OR new FP exception flags into fflags (and keep fcsr in sync). Used by the FP executor.</summary>
     internal void OrFflags(uint flags) {
@@ -270,15 +295,21 @@ public sealed class CsrFile : ISystemRegisters {
         for (var i = 0; i < CsrFile.CsrSpace; i++)
             if (_present[i])
                 _csrs[i] = 0;
-        Seed(CsrFile.Misa, 0x40141105); // RV32IMACSU: MXL=01, I/M/A/C/S/U extension bits
-        Seed(CsrFile.Vlenb, VectorRegisterFile.VLenB);
+        InitCsr(CsrFile.Misa, 0x40141105); // RV32IMACSU: MXL=01, I/M/A/C/S/U extension bits
+        InitCsr(CsrFile.Vlenb, VectorRegisterFile.VLenB);
     }
 
     // ── Privilege enforcement ─────────────────────────────────────────────────
 
     private static void CheckPrivilege(uint address, PrivilegeLevel current) {
-        // Bits 9:8 of the CSR address encode the minimum privilege level
-        var required = (PrivilegeLevel)((address >> 8) & 0x3);
+        // Zkr seed (§4.3): default M-mode-only access, overridable per mode via
+        // mseccfg.sseed/.useed. mseccfg isn't modeled here, so this simulator always enforces
+        // the un-overridden default (M-mode-only) rather than the address bits' own encoding,
+        // which would otherwise place seed (0x015) at User level.
+        var required = address == CsrFile.Seed
+            ? RvPrivilege.Machine
+            // Bits 9:8 of the CSR address encode the minimum privilege level
+            : (PrivilegeLevel)((address >> 8) & 0x3);
         if (current < required)
             throw new SystemRegisterAccessException(
                 $"CSR 0x{address:X3} requires privilege {required}, " +

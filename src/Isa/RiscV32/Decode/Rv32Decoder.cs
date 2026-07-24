@@ -245,6 +245,20 @@ public partial class Rv32Decoder : IDecoder {
             (0x5, 0x30) => new RvRor(rd, rs1, rs2),
             // Zbb zero-extend halfword (funct7=0x04, rs2=0)
             (0x4, 0x04) when rs2 == 0 => new RvZextH(rd, rs1),
+            // Zknd/Zkne/Zksed (funct3=0): bs = funct7[6:5], fixed selector = funct7[4:0]
+            (0x0, var f7) when (f7 & 0x1F) == 0x15 => new RvAes32Dsi(rd, rs1, rs2, (int)(f7 >> 5)),
+            (0x0, var f7) when (f7 & 0x1F) == 0x17 => new RvAes32Dsmi(rd, rs1, rs2, (int)(f7 >> 5)),
+            (0x0, var f7) when (f7 & 0x1F) == 0x11 => new RvAes32Esi(rd, rs1, rs2, (int)(f7 >> 5)),
+            (0x0, var f7) when (f7 & 0x1F) == 0x13 => new RvAes32Esmi(rd, rs1, rs2, (int)(f7 >> 5)),
+            (0x0, var f7) when (f7 & 0x1F) == 0x18 => new RvSm4Ed(rd, rs1, rs2, (int)(f7 >> 5)),
+            (0x0, var f7) when (f7 & 0x1F) == 0x1A => new RvSm4Ks(rd, rs1, rs2, (int)(f7 >> 5)),
+            // Zknh SHA2-512 (RV32 split-register forms; funct3=0, fixed funct7)
+            (0x0, 0x2E) => new RvSha512Sig0H(rd, rs1, rs2),
+            (0x0, 0x2A) => new RvSha512Sig0L(rd, rs1, rs2),
+            (0x0, 0x2F) => new RvSha512Sig1H(rd, rs1, rs2),
+            (0x0, 0x2B) => new RvSha512Sig1L(rd, rs1, rs2),
+            (0x0, 0x28) => new RvSha512Sum0R(rd, rs1, rs2),
+            (0x0, 0x29) => new RvSha512Sum1R(rd, rs1, rs2),
             _ => throw new IllegalInstructionException(
                 raw,
                 $"Unknown R-type funct3=0x{funct3:X} funct7=0x{funct7:X}"
@@ -291,6 +305,18 @@ public partial class Rv32Decoder : IDecoder {
                     ),
                 },
                 0x34 => new RvBinvi(rd, rs1, (int)shamt),
+                // Zknh SHA2-256 / Zksh SM3 unary ops (funct7=0x08, shamt-field selects sub-op)
+                0x08 => shamt switch {
+                    0 => new RvSha256Sum0(rd, rs1),
+                    1 => new RvSha256Sum1(rd, rs1),
+                    2 => new RvSha256Sig0(rd, rs1),
+                    3 => new RvSha256Sig1(rd, rs1),
+                    8 => new RvSm3P0(rd, rs1),
+                    9 => new RvSm3P1(rd, rs1),
+                    _ => throw new IllegalInstructionException(
+                        raw, $"Unknown Zknh/Zksh unary op shamt=0x{shamt:X}"
+                    ),
+                },
                 _ => throw new IllegalInstructionException(
                     raw, $"Unknown OP-IMM funct3=1 funct7=0x{funct7:X}"
                 ),

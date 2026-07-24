@@ -1,6 +1,7 @@
 #region
 
 using Mechanism;
+using RiscV32.Registers;
 
 #endregion
 
@@ -262,6 +263,11 @@ public partial class Rv32Executor {
         Func<ulong, ulong, ulong> combine,
         bool writeIfSrcZero = true
     ) {
+        // Zkr §4.1: a read-only access to seed (CSRRSI/CSRRCI with zimm==0) is illegal —
+        // checked before Read() since polling seed is stateful (wipe-on-read) and must not fire
+        // on a trapped access.
+        if (csr == CsrFile.Seed && !(writeIfSrcZero || zimm != 0))
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
         ISystemRegisters csrFile = state.SystemRegisters;
         try {
             ulong old = csrFile.Read(csr, state.PrivilegeLevel);
