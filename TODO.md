@@ -611,3 +611,14 @@ free embedded suites are runnable in full today.
 
   Needs visual verification in Face (toggle multi-hart mode, run with 2-3 harts, optionally a
   private cache and/or shared LLC) — not yet confirmed by the user against this corrected build.
+
+- [ ] Per-hart memory pools for multi-hart mode: `MulticoreSpec.Build` takes exactly one shared
+  `IMemory` for every hart (`src/Core/Pipeline/Spec/MulticoreSpec.cs`) — there is no way to give an
+  individual hart (or a subset of harts) its own private backing distinct from the rest, nor to mix
+  a private pool with a separately-configured pool shared by only some harts (today it's all-or-
+  nothing: one pool, shared by all). Would need a `MulticoreSpec`/`HartSpec` topology change (e.g. a
+  per-hart backing/pool-id field, with harts naming the same pool id wired to the same `IMemory` and
+  a coherence bus only spanning harts that actually share a pool) and touches the same
+  build-order/bus-wiring code this session's coherence fixes went through. Related to, but distinct
+  from, the already-deferred "distinct per-hart programs" item above — that one is about differing
+  code/entry points on shared memory; this one is about differing memory itself.
