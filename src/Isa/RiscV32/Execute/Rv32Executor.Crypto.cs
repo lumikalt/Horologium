@@ -11,8 +11,18 @@ namespace RiscV32.Execute;
 // Tables and helpers transcribed from Appendix D (Supporting Sail Code); instruction semantics
 // transcribed from each instruction's §3.x Operation pseudocode. RV32 scope only.
 public partial class Rv32Executor {
+    // AES round-constant table (Appendix D aes_decode_rcon), indexed by rnum 0x0-0xF. Only
+    // 0x0-0xA are valid per §3.10; 0xB-0xF are reserved and read as zero (aes64ks1i traps before
+    // this table is consulted for those indices, but the table matches the spec verbatim).
+    protected static readonly uint[] AesRcon = [
+        0x00000001, 0x00000002, 0x00000004, 0x00000008, 0x00000010, 0x00000020, 0x00000040, 0x00000080,
+        0x0000001B, 0x00000036, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    ];
+
     // ── AES S-boxes (FIPS-197 §5.1.1/§5.3.2, and Appendix D of the crypto spec) ─────────────
-    private static ReadOnlySpan<byte> AesSboxFwd => [
+    // protected: reused by Rv64Executor for the RV64-only aes64* instructions, which operate on
+    // the same byte-level GF(2^8) math regardless of XLEN.
+    protected static ReadOnlySpan<byte> AesSboxFwd => [
         0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
         0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
         0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC, 0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
@@ -31,7 +41,7 @@ public partial class Rv32Executor {
         0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16,
     ];
 
-    private static ReadOnlySpan<byte> AesSboxInv => [
+    protected static ReadOnlySpan<byte> AesSboxInv => [
         0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB,
         0x7C, 0xE3, 0x39, 0x82, 0x9B, 0x2F, 0xFF, 0x87, 0x34, 0x8E, 0x43, 0x44, 0xC4, 0xDE, 0xE9, 0xCB,
         0x54, 0x7B, 0x94, 0x32, 0xA6, 0xC2, 0x23, 0x3D, 0xEE, 0x4C, 0x95, 0x0B, 0x42, 0xFA, 0xC3, 0x4E,
@@ -72,29 +82,68 @@ public partial class Rv32Executor {
     ];
 
     // GF(2^8) xtime: multiply by 0x02, reduced modulo the AES field polynomial x^8+x^4+x^3+x+1 (0x11B).
-    private static byte AesXt2(byte x) => (byte)((x << 1) ^ ((x & 0x80) != 0 ? 0x1B : 0x00));
+    protected static byte AesXt2(byte x) => (byte)((x << 1) ^ ((x & 0x80) != 0 ? 0x1B : 0x00));
 
-    private static byte AesXt3(byte x) => (byte)(x ^ Rv32Executor.AesXt2(x));
+    protected static byte AesXt3(byte x) => (byte)(x ^ AesXt2(x));
 
     // Multiply an 8-bit GF(2^8) element by a 4-bit constant (AES MixColumns building block).
-    private static byte AesGfMul(byte x, int y) {
+    protected static byte AesGfMul(byte x, int y) {
         byte r = 0;
         if ((y & 0x1) != 0) r ^= x;
-        if ((y & 0x2) != 0) r ^= Rv32Executor.AesXt2(x);
-        if ((y & 0x4) != 0) r ^= Rv32Executor.AesXt2(Rv32Executor.AesXt2(x));
-        if ((y & 0x8) != 0) r ^= Rv32Executor.AesXt2(Rv32Executor.AesXt2(Rv32Executor.AesXt2(x)));
+        if ((y & 0x2) != 0) r ^= AesXt2(x);
+        if ((y & 0x4) != 0) r ^= AesXt2(AesXt2(x));
+        if ((y & 0x8) != 0) r ^= AesXt2(AesXt2(AesXt2(x)));
         return r;
     }
 
     // aes_mixcolumn_byte_fwd(so) = gfmul(so,0x3) @ so @ so @ gfmul(so,0x2)  (Sail '@' = MSB-first concat)
     private static uint AesMixColumnByteFwd(byte so) =>
-        ((uint)Rv32Executor.AesGfMul(so, 0x3) << 24) | ((uint)so << 16) | ((uint)so << 8) |
-        Rv32Executor.AesGfMul(so, 0x2);
+        ((uint)AesGfMul(so, 0x3) << 24) | ((uint)so << 16) | ((uint)so << 8) |
+        AesGfMul(so, 0x2);
 
     // aes_mixcolumn_byte_inv(so) = gfmul(so,0xb) @ gfmul(so,0xd) @ gfmul(so,0x9) @ gfmul(so,0xe)
     private static uint AesMixColumnByteInv(byte so) =>
-        ((uint)Rv32Executor.AesGfMul(so, 0xB) << 24) | ((uint)Rv32Executor.AesGfMul(so, 0xD) << 16) |
-        ((uint)Rv32Executor.AesGfMul(so, 0x9) << 8) | Rv32Executor.AesGfMul(so, 0xE);
+        ((uint)AesGfMul(so, 0xB) << 24) | ((uint)AesGfMul(so, 0xD) << 16) |
+        ((uint)AesGfMul(so, 0x9) << 8) | AesGfMul(so, 0xE);
+
+    // Full 32-bit AES MixColumn (Appendix D aes_mixcolumn_fwd/inv) — not used by any RV32
+    // instruction (aes32dsmi/esmi consume only the single-nonzero-byte partial form above), but
+    // needed whole by the RV64-only aes64dsm/esm/im instructions.
+    protected static uint AesMixColumnFwd(uint x) {
+        var s0 = (byte)x;
+        var s1 = (byte)(x >> 8);
+        var s2 = (byte)(x >> 16);
+        var s3 = (byte)(x >> 24);
+        var b0 = (byte)(AesXt2(s0) ^ AesXt3(s1) ^ s2 ^ s3);
+        var b1 = (byte)(s0 ^ AesXt2(s1) ^ AesXt3(s2) ^ s3);
+        var b2 = (byte)(s0 ^ s1 ^ AesXt2(s2) ^ AesXt3(s3));
+        var b3 = (byte)(AesXt3(s0) ^ s1 ^ s2 ^ AesXt2(s3));
+        return ((uint)b3 << 24) | ((uint)b2 << 16) | ((uint)b1 << 8) | b0;
+    }
+
+    protected static uint AesMixColumnInv(uint x) {
+        var s0 = (byte)x;
+        var s1 = (byte)(x >> 8);
+        var s2 = (byte)(x >> 16);
+        var s3 = (byte)(x >> 24);
+        var b0 = (byte)(AesGfMul(s0, 0xE) ^ AesGfMul(s1, 0xB) ^
+                        AesGfMul(s2, 0xD) ^ AesGfMul(s3, 0x9));
+        var b1 = (byte)(AesGfMul(s0, 0x9) ^ AesGfMul(s1, 0xE) ^
+                        AesGfMul(s2, 0xB) ^ AesGfMul(s3, 0xD));
+        var b2 = (byte)(AesGfMul(s0, 0xD) ^ AesGfMul(s1, 0x9) ^
+                        AesGfMul(s2, 0xE) ^ AesGfMul(s3, 0xB));
+        var b3 = (byte)(AesGfMul(s0, 0xB) ^ AesGfMul(s1, 0xD) ^
+                        AesGfMul(s2, 0x9) ^ AesGfMul(s3, 0xE));
+        return ((uint)b3 << 24) | ((uint)b2 << 16) | ((uint)b1 << 8) | b0;
+    }
+
+    // AES SubWord (Appendix D aes_subword_fwd): forward S-box applied to each of the 4 bytes of a
+    // 32-bit word — used by the RV64-only aes64ks1i key-schedule instruction.
+    protected static uint AesSubwordFwd(uint x) {
+        uint result = 0;
+        for (var i = 0; i < 4; i++) result |= (uint)AesSboxFwd[(byte)(x >> (i * 8))] << (i * 8);
+        return result;
+    }
 
     // §3.1-3.4 aes32dsi/aes32dsmi/aes32esi/aes32esmi: byte `bs` from rs2 through the (inverse)
     // S-box — plus a partial (inverse) MixColumn for the *mi forms — rotated back to byte
@@ -102,9 +151,9 @@ public partial class Rv32Executor {
     private ExecuteResult Aes32(IRegisterFile regs, int rs1, int rs2, int bs, bool inverse, bool mixColumns) {
         int shamt = bs * 8;
         var si = (byte)((uint)regs.Read(rs2) >> shamt);
-        byte so = inverse ? Rv32Executor.AesSboxInv[si] : Rv32Executor.AesSboxFwd[si];
+        byte so = inverse ? AesSboxInv[si] : AesSboxFwd[si];
         uint preRotate = mixColumns
-            ? inverse ? Rv32Executor.AesMixColumnByteInv(so) : Rv32Executor.AesMixColumnByteFwd(so)
+            ? inverse ? AesMixColumnByteInv(so) : AesMixColumnByteFwd(so)
             : so;
         return Reg((uint)regs.Read(rs1) ^ BitOperations.RotateLeft(preRotate, shamt));
     }
@@ -114,13 +163,16 @@ public partial class Rv32Executor {
     private ExecuteResult Sm4(IRegisterFile regs, int rs1, int rs2, int bs, bool keySchedule) {
         int shamt = bs * 8;
         var sbIn = (byte)((uint)regs.Read(rs2) >> shamt);
-        uint x = Rv32Executor.Sm4Sbox[sbIn];
+        uint x = Sm4Sbox[sbIn];
         uint y = keySchedule
             ? x ^ ((x & 0x00000007u) << 29) ^ ((x & 0x000000FEu) << 7) ^ ((x & 0x00000001u) << 23) ^
               ((x & 0x000000F8u) << 13)
             : x ^ (x << 8) ^ (x << 2) ^ (x << 18) ^ ((x & 0x0000003Fu) << 26) ^ ((x & 0x000000C0u) << 10);
         uint z = BitOperations.RotateLeft(y, shamt);
-        return Reg(z ^ (uint)regs.Read(rs1));
+        // sm4ed/sm4ks exist on both RV32 and RV64 ("the 32-bit result is sign extended to XLEN
+        // bits"); cast through (int) so RV64 (which inherits this unmodified and doesn't
+        // truncate in Reg()) gets that sign extension for free — a no-op for RV32.
+        return Reg((ulong)(int)(z ^ (uint)regs.Read(rs1)));
     }
 
     // §3.31-3.36: SHA2-512 Sigma0/Sigma1/Sum0/Sum1, split across two 32-bit registers on RV32

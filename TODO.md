@@ -42,19 +42,13 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [x] Scalar crypto (RV32): Zknd/Zkne/Zknh (NIST AES + SHA2), Zksed/Zksh (ShangMi SM4 + SM3), Zkr
   (entropy source CSR). — RISC-V Cryptography Extensions Volume I: Scalar & Entropy Source
   Instructions, v1.0.1 (`~/dl/riscv-crypto-spec-scalar-v1.0.1.pdf`)
-- [ ] Scalar crypto (RV64): the RV64-only `aes64ds`/`aes64dsm`/`aes64es`/`aes64esm`/`aes64im`/
+- [x] Scalar crypto (RV64): the RV64-only `aes64ds`/`aes64dsm`/`aes64es`/`aes64esm`/`aes64im`/
   `aes64ks1i`/`aes64ks2` (Zknd/Zkne) and the direct (non-split-register) `sha512sig0`/`sha512sig1`/
-  `sha512sum0`/`sha512sum1` forms (Zknh) — disjoint encodings from the RV32 forms already done above.
-  Two `Rv64Decoder` gaps to close as part of this, confirmed empirically (not just inferred): (1)
-  the RV32-only `aes32*`/`sha512sig0h`/`sig0l`/`sig1h`/`sig1l`/`sum0r`/`sum1r` opcodes (all
-  opcode=0x33, funct3=0) currently fall through `Rv64Decoder`'s unhandled-opcode default straight
-  to the inherited `Rv32Decoder.DecodeRType`, so they decode and execute on RV64 today even though
-  they're architecturally RV32-only — needs gating once `aes64*` claims that encoding space. (2)
-  `sha256sig0`/`sig1`/`sum0`/`sum1` and `sm3p0`/`p1` (opcode=0x13, funct3=1, funct7=0x08) are
-  spec-common to RV32 *and* RV64, but `Rv64Decoder`'s `case 0x13 when funct3 is 0x1 or 0x5`
-  (6-bit-shamt interception for SLLI/SRLI/SRAI/Zbb/Zbs) shadows them and throws
-  `IllegalInstructionException` before ever reaching the base decoder's funct7=0x08 case — needs an
-  explicit pass-through for that funct7 value.
+  `sha512sum0`/`sha512sum1` forms (Zknh). Closed both `Rv64Decoder` gaps noted below: RV32-only
+  `aes32*`/`sha512sig*h/l`/`sum*r` now explicitly trap on RV64 instead of silently decoding, and
+  `sha256*`/`sm3p0`/`p1` now decode and correctly sign-extend to XLEN (fixed by casting the RV32
+  executor's 32-bit results through `(int)` before widening, so RV64 inheritance gets EXTS instead
+  of implicit zero-extension for free — same fix applied to `sm4ed`/`sm4ks`).
 
 ## Analysis
 

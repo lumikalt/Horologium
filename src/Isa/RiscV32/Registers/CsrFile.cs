@@ -144,11 +144,11 @@ public sealed class CsrFile : ISystemRegisters {
     // distinction between an existing zero CSR and an illegal/absent one.
     private const int CsrSpace = 4096;
     private readonly uint[] _csrs = new uint[CsrFile.CsrSpace];
-    private readonly bool[] _present = new bool[CsrFile.CsrSpace];
 
     // Zkr entropy source: deterministic (seed 0) so simulation runs stay reproducible. Not
     // visible to Spike co-sim — excluded there the same way UVE state is (see SpikeCoSimTests).
     private readonly Random _entropyRng = new(0);
+    private readonly bool[] _present = new bool[CsrFile.CsrSpace];
 
     public CsrFile() {
         // Initialise to reset values
@@ -306,7 +306,7 @@ public sealed class CsrFile : ISystemRegisters {
         // mseccfg.sseed/.useed. mseccfg isn't modeled here, so this simulator always enforces
         // the un-overridden default (M-mode-only) rather than the address bits' own encoding,
         // which would otherwise place seed (0x015) at User level.
-        var required = address == CsrFile.Seed
+        PrivilegeLevel required = address == CsrFile.Seed
             ? RvPrivilege.Machine
             // Bits 9:8 of the CSR address encode the minimum privilege level
             : (PrivilegeLevel)((address >> 8) & 0x3);

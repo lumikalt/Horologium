@@ -8,7 +8,6 @@ the active thread.
 
 - [ ] 128-bit support.
 - [ ] Zfinx / Zdinx / Zhinx: FP operations in integer register file.
-- [ ] Scalar crypto: Zknd/Zkne/Zknh, Zksd/Zkse/Zksh, Zkr.
 - [ ] Vector bit manipulation (Zvbb), carry-less multiply (Zvbc), crypto (Zvkn/Zvkg/Zvks).
 - [ ] Zvfh / Zvfhmin: vector half-precision FP.
 - [ ] H extension (hypervisor): VS-mode, VU-mode, two-stage address translation.
@@ -20,10 +19,6 @@ the active thread.
 
 ## Analysis
 
-- [ ] SMARTS: systematic statistical sampling with functional warming between detailed sample windows. — Wunderlich
-  et al., ISCA 2003
-- [ ] LoopPoint: checkpoint-driven sampling methodology for multithreaded workloads; the multi-hart counterpart to
-  SimPoint. — Sabu et al., HPCA 2022
 - [ ] Intel PT (Processor Trace) binary format import: decode hardware-captured execution traces into the elastic replay
   path.
 - [ ] RISC-V-PAPI integration: cross-validate Horologium's Zicntr/Zihpm counter output against hardware readings
@@ -41,9 +36,6 @@ the active thread.
 
 ## µops
 
-- [ ] µop cache (decoded instruction cache / loop buffer): cache decoded µop bundles so the front-end skips re-decode on
-  repeated loops.
-- [ ] Macro-fusion: fuse compare+branch pairs into a single issue-slot µop (as in Intel Sandy Bridge onward).
 - [ ] Micro-fusion: fuse load+ALU or store-address+store-data into a single dispatch slot.
 - [ ] Loop stream detector: detect short loops and replay µops from a small buffer, bypassing fetch and decode.
 - [ ] µop decomposition for complex instructions: atomics, vector ops, and CSR accesses emit multi-µop sequences through
@@ -58,18 +50,6 @@ the active thread.
 
 ## Cache Prefetching
 
-- [ ] Real prefetch-eviction feedback: `SetAssociativeCache` has no notion of `IPrefetcher` today and no per-line
-  "resident via prefetch, never demand-touched" bit, so nothing can tell a prefetcher when one of its lines got
-  evicted unused. `PpfPrefetcher` needs exactly this signal (the paper's third training trigger) and currently
-  approximates it via its own 1024-entry Prefetch Table's slot-overwrite — table pressure standing in for real
-  cache-capacity pressure, documented as a fidelity limit in the class docs. A lighter-weight real version: an
-  optional `Action<ulong>?` eviction callback on `SetAssociativeCache` (default null, near-zero cost when unset),
-  wired up in `MemoryLayers.Build` only for configs that actually attach a prefetcher wanting it, rather than
-  threading `IPrefetcher` through the (already long) cache constructor. Revisit if the table-pressure proxy is ever
-  shown to mispredict in a case that matters — `SetAssociativeCache` is shared by every ISA/cache level/RTL policy,
-  and PPF would be the only one of ten prefetchers consuming it, so it's not worth the blast radius speculatively.
-- [ ] MLOP (multi-lookahead offset prefetcher): BOP generalized to score offsets at multiple lookahead depths; DPC-3
-  winner. — Shakerinava et al., DPC-3 2019
 - [ ] ISB (irregular stream buffer): linearizes PC-localized correlated irregular streams into a structural address
   space for temporal prefetching. — Jain & Lin, MICRO 2013
 - [ ] Temporal memory streaming: record long miss sequences in off-chip metadata and replay them on a matching miss
@@ -85,8 +65,6 @@ the active thread.
 
 - [ ] Memory controller scheduling: FR-FCFS baseline plus thread-aware policies (TCM, BLISS); pairs with the
   Ramulator2/DRAMSim3 integration. — Rixner et al., ISCA 2000; Kim et al., MICRO 2010; Subramanian et al., ICCD 2014
-- [ ] Cache compression: base-delta-immediate (BΔI) compressed caches with variable effective capacity. — Pekhimenko
-  et al., PACT 2012
 - [ ] Die-stacked DRAM cache: Alloy cache — direct-mapped tag-and-data alloying for latency-optimized giga-scale
   caches; concrete design for the memory-side-cache item. — Qureshi & Loh, MICRO 2012
 - [ ] MMU translation research: page-walk caches / translation caching ("skip, don't walk") and TLB prefetching;
@@ -94,8 +72,6 @@ the active thread.
 
 ## Security
 
-- [ ] Transient-execution defense modeling: invisible speculative loads (InvisiSpec) and speculative taint tracking
-  (STT); measure the IPC cost of each defense on the OoO train. — Yan et al., MICRO 2018; Yu et al., MICRO 2019
 - [ ] Randomized/partitioned cache side-channel defenses: CEASER(-S) encrypted-address remapping and ScatterCache
   skewed randomization. — Qureshi, MICRO 2018 / ISCA 2019; Werner et al., USENIX Security 2019
 

@@ -328,25 +328,37 @@ public partial class Rv32Executor : IExecutor {
             RvAes32Esmi(_, var rs1, var rs2, var bs) => Aes32(regs, rs1, rs2, bs, false, true),
 
             // ── Zknh extension (NIST SHA2 hash function instructions) ─────────────────
+            // Cast the 32-bit result through (int) before Reg() so RV64 (which inherits these
+            // cases unmodified and doesn't truncate in Reg()) gets the spec-mandated sign
+            // extension to XLEN for free, matching the RvSextB/RvSextH pattern above — a no-op
+            // for RV32, where Reg() masks back down to the low 32 bits regardless.
             RvSha256Sig0(_, var rs1) => Reg(
-                BitOperations.RotateRight((uint)regs.Read(rs1), 7) ^
-                BitOperations.RotateRight((uint)regs.Read(rs1), 18) ^
-                ((uint)regs.Read(rs1) >> 3)
+                (ulong)(int)(
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 7) ^
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 18) ^
+                    ((uint)regs.Read(rs1) >> 3)
+                )
             ),
             RvSha256Sig1(_, var rs1) => Reg(
-                BitOperations.RotateRight((uint)regs.Read(rs1), 17) ^
-                BitOperations.RotateRight((uint)regs.Read(rs1), 19) ^
-                ((uint)regs.Read(rs1) >> 10)
+                (ulong)(int)(
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 17) ^
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 19) ^
+                    ((uint)regs.Read(rs1) >> 10)
+                )
             ),
             RvSha256Sum0(_, var rs1) => Reg(
-                BitOperations.RotateRight((uint)regs.Read(rs1), 2) ^
-                BitOperations.RotateRight((uint)regs.Read(rs1), 13) ^
-                BitOperations.RotateRight((uint)regs.Read(rs1), 22)
+                (ulong)(int)(
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 2) ^
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 13) ^
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 22)
+                )
             ),
             RvSha256Sum1(_, var rs1) => Reg(
-                BitOperations.RotateRight((uint)regs.Read(rs1), 6) ^
-                BitOperations.RotateRight((uint)regs.Read(rs1), 11) ^
-                BitOperations.RotateRight((uint)regs.Read(rs1), 25)
+                (ulong)(int)(
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 6) ^
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 11) ^
+                    BitOperations.RotateRight((uint)regs.Read(rs1), 25)
+                )
             ),
             RvSha512Sig0H(_, var rs1, var rs2) => Reg(Sha512Sig0H((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
             RvSha512Sig0L(_, var rs1, var rs2) => Reg(Sha512Sig0L((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
@@ -356,15 +368,20 @@ public partial class Rv32Executor : IExecutor {
             RvSha512Sum1R(_, var rs1, var rs2) => Reg(Sha512Sum1R((uint)regs.Read(rs1), (uint)regs.Read(rs2))),
 
             // ── Zksh extension (ShangMi SM3 hash function instructions) ───────────────
+            // Sign-extend through (int) — see the Zknh comment above for why.
             RvSm3P0(_, var rs1) => Reg(
-                (uint)regs.Read(rs1) ^
-                BitOperations.RotateLeft((uint)regs.Read(rs1), 9) ^
-                BitOperations.RotateLeft((uint)regs.Read(rs1), 17)
+                (ulong)(int)(
+                    (uint)regs.Read(rs1) ^
+                    BitOperations.RotateLeft((uint)regs.Read(rs1), 9) ^
+                    BitOperations.RotateLeft((uint)regs.Read(rs1), 17)
+                )
             ),
             RvSm3P1(_, var rs1) => Reg(
-                (uint)regs.Read(rs1) ^
-                BitOperations.RotateLeft((uint)regs.Read(rs1), 15) ^
-                BitOperations.RotateLeft((uint)regs.Read(rs1), 23)
+                (ulong)(int)(
+                    (uint)regs.Read(rs1) ^
+                    BitOperations.RotateLeft((uint)regs.Read(rs1), 15) ^
+                    BitOperations.RotateLeft((uint)regs.Read(rs1), 23)
+                )
             ),
 
             // ── Zksed extension (ShangMi SM4 block cipher instructions) ───────────────

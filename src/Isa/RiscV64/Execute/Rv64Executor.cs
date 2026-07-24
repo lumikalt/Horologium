@@ -284,6 +284,37 @@ public class Rv64Executor : Rv32Executor {
             RvSh3AddUw (_, var rs1, var rs2) => Reg(regs.Read(rs2) + (ZextW(regs.Read(rs1)) << 3)),
             RvSlliUw (_, var rs1, var sh)    => Reg(ZextW(regs.Read(rs1)) << sh),
 
+            // ── Zknd/Zkne: NIST AES, RV64 full-register-pair form ──────────────────────
+            RvAes64Ds (_, var rs1, var rs2)   => Aes64RoundDec(regs, rs1, rs2, false),
+            RvAes64Dsm(_, var rs1, var rs2)   => Aes64RoundDec(regs, rs1, rs2, true),
+            RvAes64Es (_, var rs1, var rs2)   => Aes64RoundEnc(regs, rs1, rs2, false),
+            RvAes64Esm(_, var rs1, var rs2)   => Aes64RoundEnc(regs, rs1, rs2, true),
+            RvAes64Im (_, var rs1)            => Aes64Im(regs, rs1),
+            RvAes64Ks1I(_, var rs1, var rnum) => Aes64Ks1I(regs, rs1, rnum, pc),
+            RvAes64Ks2(_, var rs1, var rs2)   => Aes64Ks2(regs, rs1, rs2),
+
+            // ── Zknh: NIST SHA2, RV64 direct 64-bit form ────────────────────────────────
+            RvSha512Sig0(_, var rs1) => Reg(
+                BitOperations.RotateRight(regs.Read(rs1), 1) ^
+                BitOperations.RotateRight(regs.Read(rs1), 8) ^
+                (regs.Read(rs1) >> 7)
+            ),
+            RvSha512Sig1(_, var rs1) => Reg(
+                BitOperations.RotateRight(regs.Read(rs1), 19) ^
+                BitOperations.RotateRight(regs.Read(rs1), 61) ^
+                (regs.Read(rs1) >> 6)
+            ),
+            RvSha512Sum0(_, var rs1) => Reg(
+                BitOperations.RotateRight(regs.Read(rs1), 28) ^
+                BitOperations.RotateRight(regs.Read(rs1), 34) ^
+                BitOperations.RotateRight(regs.Read(rs1), 39)
+            ),
+            RvSha512Sum1(_, var rs1) => Reg(
+                BitOperations.RotateRight(regs.Read(rs1), 14) ^
+                BitOperations.RotateRight(regs.Read(rs1), 18) ^
+                BitOperations.RotateRight(regs.Read(rs1), 41)
+            ),
+
             _ => null,
         };
 
@@ -526,6 +557,88 @@ public class Rv64Executor : Rv32Executor {
             if (((b >> i) & 1UL) != 0)
                 result ^= (UInt128)a << i;
         return result;
+    }
+
+    // ── Zknd/Zkne AES helpers (RV64 full-register-pair form) ────────────────────────────
+    // Appendix D getbyte: byte i (0=LSB) of a 64-bit word.
+    private static byte GetByte(ulong x, int i) => (byte)(x >> (i * 8));
+
+    // Appendix D aes_rv64_shiftrows_fwd/inv: permute bytes from the two 64-bit halves of the
+    // 128-bit AES state (rs2:rs1) that ShiftRows would move into this half.
+    private static ulong AesRv64ShiftRowsFwd(ulong rs2, ulong rs1) =>
+        ((ulong)GetByte(rs1, 3) << 56) | ((ulong)GetByte(rs2, 6) << 48) |
+        ((ulong)GetByte(rs2, 1) << 40) | ((ulong)GetByte(rs1, 4) << 32) |
+        ((ulong)GetByte(rs2, 7) << 24) | ((ulong)GetByte(rs2, 2) << 16) |
+        ((ulong)GetByte(rs1, 5) << 8) | GetByte(rs1, 0);
+
+    private static ulong AesRv64ShiftRowsInv(ulong rs2, ulong rs1) =>
+        ((ulong)GetByte(rs2, 3) << 56) | ((ulong)GetByte(rs2, 6) << 48) |
+        ((ulong)GetByte(rs1, 1) << 40) | ((ulong)GetByte(rs1, 4) << 32) |
+        ((ulong)GetByte(rs1, 7) << 24) | ((ulong)GetByte(rs2, 2) << 16) |
+        ((ulong)GetByte(rs2, 5) << 8) | GetByte(rs1, 0);
+
+    // Appendix D aes_apply_fwd/inv_sbox_to_each_byte: substitute all 8 bytes of a 64-bit word.
+    private static ulong AesApplySboxToEachByte(ulong x, bool inverse) {
+        ulong result = 0;
+        for (var i = 0; i < 8; i++) {
+            byte b = GetByte(x, i);
+            byte sb = inverse ? AesSboxInv[b] : AesSboxFwd[b];
+            result |= (ulong)sb << (i * 8);
+        }
+
+        return result;
+    }
+
+    // §3.5/3.6 aes64ds/aes64dsm, §3.7/3.8 aes64es/aes64esm: InvShiftRows/ShiftRows + InvSubBytes/
+    // SubBytes over the full 128-bit state (rs2:rs1), optionally followed by InvMixColumns/
+    // MixColumns applied independently to each 32-bit half of this instruction's half-state output.
+    private ExecuteResult Aes64RoundDec(IRegisterFile regs, int rs1, int rs2, bool mixColumns) {
+        ulong sr = AesRv64ShiftRowsInv(regs.Read(rs2), regs.Read(rs1));
+        ulong sb = AesApplySboxToEachByte(sr, true);
+        if (!mixColumns) return Reg(sb);
+        uint lo = AesMixColumnInv((uint)sb);
+        uint hi = AesMixColumnInv((uint)(sb >> 32));
+        return Reg(((ulong)hi << 32) | lo);
+    }
+
+    private ExecuteResult Aes64RoundEnc(IRegisterFile regs, int rs1, int rs2, bool mixColumns) {
+        ulong sr = AesRv64ShiftRowsFwd(regs.Read(rs2), regs.Read(rs1));
+        ulong sb = AesApplySboxToEachByte(sr, false);
+        if (!mixColumns) return Reg(sb);
+        uint lo = AesMixColumnFwd((uint)sb);
+        uint hi = AesMixColumnFwd((uint)(sb >> 32));
+        return Reg(((ulong)hi << 32) | lo);
+    }
+
+    // §3.9 aes64im: InvMixColumns applied independently to each 32-bit half of rs1 — used to
+    // build the inverse-cipher KeySchedule (equivalent inverse cipher construction).
+    private ExecuteResult Aes64Im(IRegisterFile regs, int rs1) {
+        ulong v = regs.Read(rs1);
+        uint w0 = AesMixColumnInv((uint)v);
+        uint w1 = AesMixColumnInv((uint)(v >> 32));
+        return Reg(((ulong)w1 << 32) | w0);
+    }
+
+    // §3.10 aes64ks1i: rotate (except the final round) + SubWord + round-constant XOR, splatted
+    // to both 32-bit halves of rd (the caller picks the half it needs). rnum must be 0x0-0xA.
+    private ExecuteResult Aes64Ks1I(IRegisterFile regs, int rs1, int rnum, ulong pc) {
+        if ((uint)rnum > 10) return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+        var tmp1 = (uint)(regs.Read(rs1) >> 32);
+        uint rc = Rv32Executor.AesRcon[rnum];
+        uint tmp2 = rnum == 0xA ? tmp1 : BitOperations.RotateRight(tmp1, 8);
+        uint tmp3 = AesSubwordFwd(tmp2);
+        uint word = tmp3 ^ rc;
+        return Reg(((ulong)word << 32) | word);
+    }
+
+    // §3.11 aes64ks2: additional key-word XOR step of the AES KeySchedule.
+    private ExecuteResult Aes64Ks2(IRegisterFile regs, int rs1, int rs2) {
+        var hi1 = (uint)(regs.Read(rs1) >> 32);
+        var lo2 = (uint)regs.Read(rs2);
+        var hi2 = (uint)(regs.Read(rs2) >> 32);
+        uint w0 = hi1 ^ lo2;
+        uint w1 = hi1 ^ lo2 ^ hi2;
+        return Reg(((ulong)w1 << 32) | w0);
     }
 
     // Sv39 page-table walk for load/store/AMO address translation — overrides the inherited

@@ -176,10 +176,61 @@ public class Rv64Decoder : Rv32Decoder {
                     (0x5, 0x0A) => new RvOrcB(rd, rs1),
                     (0x5, 0x18) => new RvRori(rd, rs1, (int)shamt6),
                     (0x5, 0x1A) => new RvRev8(rd, rs1),
+                    // Zknh/Zksh unary ops (sha256*/sha512* direct/sm3p0/p1), all sharing top6=0x04
+                    // (funct7=0x08, same encoding space as RV32) — shamt6 selects the sub-op.
+                    // Without this case, top6=0x04 would fall through to the "unknown" arm below
+                    // and never reach the base decoder's funct7=0x08 case, since this whole
+                    // (funct3=1 or 5) block already intercepts every OP-IMM shift/rotate.
+                    (0x1, 0x04) => shamt6 switch {
+                        0 => new RvSha256Sum0(rd, rs1),
+                        1 => new RvSha256Sum1(rd, rs1),
+                        2 => new RvSha256Sig0(rd, rs1),
+                        3 => new RvSha256Sig1(rd, rs1),
+                        4 => new RvSha512Sum0(rd, rs1),
+                        5 => new RvSha512Sum1(rd, rs1),
+                        6 => new RvSha512Sig0(rd, rs1),
+                        7 => new RvSha512Sig1(rd, rs1),
+                        8 => new RvSm3P0(rd, rs1),
+                        9 => new RvSm3P1(rd, rs1),
+                        _ => throw new IllegalInstructionException(
+                            raw, $"Unknown RV64 Zknh/Zksh unary op shamt=0x{shamt6:X}"
+                        ),
+                    },
+                    // Zknd aes64im / aes64ks1i — both funct7=0x18 (top6=0x0C); aes64im is shamt=0,
+                    // aes64ks1i is shamt=0x10|rnum (rnum validity 0x0-0xA checked at execute time).
+                    (0x1, 0x0C) => shamt6 switch {
+                        0x00                => new RvAes64Im(rd, rs1),
+                        >= 0x10 and <= 0x1F => new RvAes64Ks1I(rd, rs1, (int)(shamt6 & 0xF)),
+                        _ => throw new IllegalInstructionException(
+                            raw, $"Unknown RV64 Zknd OP-IMM top6=0x0C shamt=0x{shamt6:X}"
+                        ),
+                    },
                     _ => throw new IllegalInstructionException(
                         raw,
                         $"Unknown RV64 OP-IMM shift funct3=0x{funct3:X} top6=0x{top6:X}"
                     ),
+                };
+                return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerAlu, op);
+            }
+            // ── Zknd/Zkne AES, RV64 full-register-pair form ───────────────────────
+            // funct7 fully fixed (no bs field) — disjoint from RV32's aes32*/sha512-split forms,
+            // which this case explicitly rejects since they don't exist on RV64. sm4ed/sm4ks
+            // (also funct3=0, bs-parameterized funct7) fall through to the base decoder unchanged,
+            // since Zksed is common to both widths.
+            case 0x33 when funct3 == 0x00 && IsRv32OnlyCryptoFunct7(funct7): {
+                throw new IllegalInstructionException(
+                    raw, $"RV32-only scalar crypto encoding funct7=0x{funct7:X} is not valid on RV64"
+                );
+            }
+            case 0x33 when funct3 == 0x00 && funct7 is 0x1D or 0x1F or 0x19 or 0x1B or 0x3F: {
+                IReadOnlyList<int> sources = [rs1, rs2,];
+                RvOp op = funct7 switch {
+                    0x1D => new RvAes64Ds(rd, rs1, rs2),
+                    0x1F => new RvAes64Dsm(rd, rs1, rs2),
+                    0x19 => new RvAes64Es(rd, rs1, rs2),
+                    0x1B => new RvAes64Esm(rd, rs1, rs2),
+                    0x3F => new RvAes64Ks2(rd, rs1, rs2),
+                    _    => throw new IllegalInstructionException(raw, $"Unreachable aes64 funct7=0x{funct7:X}"),
                 };
                 return new RvInstruction(pc, raw, rd, sources, ToothClass.IntegerAlu, op);
             }
@@ -350,4 +401,11 @@ public class Rv64Decoder : Rv32Decoder {
     // CSS-format C.SDSP offset: uimm[5:3]=c[12:10], uimm[8:6]=c[9:7].
     private static int CsdspImm(ushort c) =>
         (((c >> 10) & 0x7) << 3) | (((c >> 7) & 0x7) << 6);
+
+    // RV32-only scalar crypto encodings at opcode=0x33/funct3=0 that don't exist on RV64:
+    // aes32dsi/dsmi/esi/esmi (funct7 low 5 bits fixed, top 2 bits are the bs field) and the six
+    // RV32-split SHA2-512 forms (funct7 fully fixed, no bs field). sm4ed/sm4ks share this
+    // opcode/funct3 too but are valid on both widths, so they're deliberately excluded here.
+    private static bool IsRv32OnlyCryptoFunct7(uint funct7) =>
+        (funct7 & 0x1F) is 0x11 or 0x13 or 0x15 or 0x17 || funct7 is 0x28 or 0x29 or 0x2A or 0x2B or 0x2E or 0x2F;
 }
