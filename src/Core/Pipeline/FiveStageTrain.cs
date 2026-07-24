@@ -518,7 +518,7 @@ internal sealed class PipelineCore : Gear {
                     break;
                 case false when idExLast is { IsValid: true, InstrId: not 0, }:
                     PEventLog.Record(idExLast.InstrId, idExLast.Pc, cyc, PEventKind.Execute);
-                    if (idExLast.Instruction is { } execInstr && execInstr.SourceRegisters.Count > 0) {
+                    if (idExLast.Instruction is { SourceRegisters.Count: > 0, } execInstr) {
                         int cnt = execInstr.SourceRegisters.Count;
                         var vals = new ulong[cnt];
                         for (var i = 0; i < cnt; i++) {
@@ -650,8 +650,7 @@ internal sealed class PipelineCore : Gear {
     private static bool VectorRawHazard(ITooth? consumer, ITooth? producer) {
         if (producer is null || consumer is null) return false;
         int vd = producer.VectorDestinationRegister;
-        if (vd < 0) return false;
-        return consumer.VectorSourceRegisters.Contains(vd);
+        return vd >= 0 && consumer.VectorSourceRegisters.Contains(vd);
     }
 
     // Returns true when the in-flight producer writes a secondary destination register
@@ -659,8 +658,7 @@ internal sealed class PipelineCore : Gear {
     private static bool SecondaryDestRawHazard(ITooth? consumer, ITooth? producer) {
         if (producer is null || consumer is null) return false;
         int sd = producer.SecondaryDestinationRegister;
-        if (sd < 0) return false;
-        return consumer.SourceRegisters.Contains(sd);
+        return sd >= 0 && consumer.SourceRegisters.Contains(sd);
     }
 
     // Returns true when the in-flight producer may still OR flags into fflags (via

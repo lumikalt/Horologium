@@ -66,7 +66,7 @@ public class MicroCheckpointTests {
         mem.Load(0, bytes);
     }
 
-    private static OooeTrain MakeTrain(FlatMemory mem, ulong entryPoint = 0, bool withMicroArchTables = true) =>
+    private static OooTrain MakeTrain(FlatMemory mem, ulong entryPoint = 0, bool withMicroArchTables = true) =>
         new(
             new Rv32Mechanism(), mem, entryPoint,
             robCapacity: 16, iqCapacity: 8,
@@ -603,7 +603,7 @@ public class MicroCheckpointTests {
             ]
         );
 
-        OooeTrain trainB = MakeTrain(mem);
+        OooTrain trainB = MakeTrain(mem);
         ms.Position = 0;
         trainB.RestoreMicroCheckpoint(ms, mem); // must not throw
 
@@ -632,7 +632,7 @@ public class MicroCheckpointTests {
     public void Drain_ReachesEmptyPipeline() {
         var mem = new FlatMemory(4096);
         Load(mem, MicroCheckpointTests.LoopProgram);
-        OooeTrain train = MakeTrain(mem);
+        OooTrain train = MakeTrain(mem);
 
         train.BeginStepping();
         for (var i = 0; i < 10; i++) train.StepCycle();
@@ -646,7 +646,7 @@ public class MicroCheckpointTests {
     public void SaveMicroCheckpoint_NotDrained_Throws() {
         var mem = new FlatMemory(4096);
         Load(mem, MicroCheckpointTests.LoopProgram);
-        OooeTrain train = MakeTrain(mem);
+        OooTrain train = MakeTrain(mem);
 
         train.BeginStepping();
         train.StepCycle();
@@ -675,7 +675,7 @@ public class MicroCheckpointTests {
     public void Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
         var memA = new FlatMemory(4096);
         Load(memA, MicroCheckpointTests.LoopProgram);
-        OooeTrain trainA = MakeTrain(memA);
+        OooTrain trainA = MakeTrain(memA);
 
         trainA.BeginStepping();
         for (var i = 0; i < 80; i++) trainA.StepCycle(); // partway through the loop
@@ -693,7 +693,7 @@ public class MicroCheckpointTests {
 
         var memB = new FlatMemory(4096);
         Load(memB, MicroCheckpointTests.LoopProgram);
-        OooeTrain trainB = MakeTrain(memB, checkpointPc);
+        OooTrain trainB = MakeTrain(memB, checkpointPc);
         ms.Position = 0;
         trainB.RestoreMicroCheckpoint(ms, memB);
 
@@ -738,7 +738,7 @@ public class MicroCheckpointTests {
     public void RestoreIntoTrainWithoutMicroArchTables_DoesNotThrow_ColdStartsInstead() {
         var memA = new FlatMemory(4096);
         Load(memA, MicroCheckpointTests.LoopProgram);
-        OooeTrain trainA = MakeTrain(memA);
+        OooTrain trainA = MakeTrain(memA);
 
         trainA.BeginStepping();
         for (var i = 0; i < 40; i++) trainA.StepCycle();
@@ -752,7 +752,7 @@ public class MicroCheckpointTests {
         Load(memB, MicroCheckpointTests.LoopProgram);
         // No cache/TLB/custom predictor configured — restore has nothing matching to feed those
         // sections into, so they must be skipped rather than throwing.
-        OooeTrain trainB = MakeTrain(memB, checkpointPc, false);
+        OooTrain trainB = MakeTrain(memB, checkpointPc, false);
         ms.Position = 0;
         trainB.RestoreMicroCheckpoint(ms, memB); // must not throw despite the missing components
 
@@ -770,17 +770,17 @@ public class MicroCheckpointTests {
     // two-region call/return program plus an I-cache) but reuses RdipPrefetcherTests' program
     // directly.
 
-    private static (RevolutionResult RefResult, RevolutionResult ReloadResult, OooeTrain TrainA, OooeTrain TrainB)
+    private static (RevolutionResult RefResult, RevolutionResult ReloadResult, OooTrain TrainA, OooTrain TrainB)
         RunDrainSaveRestoreEquivalence(
-            Func<FlatMemory, ulong, OooeTrain> makeTrain,
+            Func<FlatMemory, ulong, OooTrain> makeTrain,
             Action<FlatMemory> loadProgram,
-            Func<OooeTrain, bool> triggerReached,
+            Func<OooTrain, bool> triggerReached,
             int marginCycles = 5,
             long tickTolerance = 0
         ) {
         var memA = new FlatMemory(8192);
         loadProgram(memA);
-        OooeTrain trainA = makeTrain(memA, 0);
+        OooTrain trainA = makeTrain(memA, 0);
 
         trainA.BeginStepping();
         while (!triggerReached(trainA))
@@ -802,7 +802,7 @@ public class MicroCheckpointTests {
 
         var memB = new FlatMemory(8192);
         loadProgram(memB);
-        OooeTrain trainB = makeTrain(memB, checkpointPc);
+        OooTrain trainB = makeTrain(memB, checkpointPc);
         ms.Position = 0;
         trainB.RestoreMicroCheckpoint(ms, memB);
         trainB.BeginStepping();
@@ -917,7 +917,7 @@ public class MicroCheckpointTests {
         Assert.InRange(violationsDelta, 0, 1);
         return;
 
-        OooeTrain MakeStoreSetTrain(FlatMemory mem, ulong entryPoint) =>
+        OooTrain MakeStoreSetTrain(FlatMemory mem, ulong entryPoint) =>
             new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 64, iqCapacity: 32, enableStoreSets: true);
     }
 
@@ -937,7 +937,7 @@ public class MicroCheckpointTests {
         Assert.True(Counter(refResult, "smb_bypasses") > 0);
         return;
 
-        OooeTrain MakeSmbTrain(FlatMemory mem, ulong entryPoint) =>
+        OooTrain MakeSmbTrain(FlatMemory mem, ulong entryPoint) =>
             new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 16, iqCapacity: 8, enableSmbBypass: true);
     }
 
@@ -1106,7 +1106,7 @@ public class MicroCheckpointTests {
         Assert.True(Counter(refResult, "vp_predictions") > 0);
         return;
 
-        OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
+        OooTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
             new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new LvpVp());
     }
 
@@ -1146,7 +1146,7 @@ public class MicroCheckpointTests {
         Assert.True(Counter(refResult, "vp_predictions") > 0);
         return;
 
-        OooeTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
+        OooTrain MakeVpTrain(FlatMemory mem, ulong entryPoint) =>
             new(new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16, valuePredictor: new StrideVp());
     }
 
@@ -1172,7 +1172,7 @@ public class MicroCheckpointTests {
 
         var iCacheCfg = new MemoryConfig(256, 4, 64);
 
-        (RevolutionResult refResult, RevolutionResult reloadResult, OooeTrain trainA, OooeTrain trainB) =
+        (RevolutionResult refResult, RevolutionResult reloadResult, OooTrain trainA, OooTrain trainB) =
             RunDrainSaveRestoreEquivalence(
                 MakeRdipTrain, LoadProgram, train => train.ICache!.Prefetches > 0
             );
@@ -1187,7 +1187,7 @@ public class MicroCheckpointTests {
             LoadAt(mem, 0x1000, callee.ToArray());
         }
 
-        OooeTrain MakeRdipTrain(FlatMemory mem, ulong entryPoint) =>
+        OooTrain MakeRdipTrain(FlatMemory mem, ulong entryPoint) =>
             new(
                 new Rv32Mechanism(), mem, entryPoint, robCapacity: 16, iqCapacity: 8,
                 iMemConfig: iCacheCfg, rdip: true
@@ -1258,7 +1258,7 @@ public class MicroCheckpointTests {
         );
         return;
 
-        OooeTrain MakeLTageTrain(FlatMemory mem, ulong entryPoint) =>
+        OooTrain MakeLTageTrain(FlatMemory mem, ulong entryPoint) =>
             new(
                 new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16,
                 predictor: new LTageBp()
@@ -1293,7 +1293,7 @@ public class MicroCheckpointTests {
         );
         return;
 
-        OooeTrain MakeImliTrain(FlatMemory mem, ulong entryPoint) =>
+        OooTrain MakeImliTrain(FlatMemory mem, ulong entryPoint) =>
             new(
                 new Rv32Mechanism(), mem, entryPoint, robCapacity: 32, iqCapacity: 16,
                 predictor: new ImliPredictor()

@@ -37,11 +37,11 @@ public partial class Chip8ViewModel : ObservableObject {
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StartPauseLabel))]
-    public partial bool IsRunning { get; set; }
+    private partial bool IsRunning { get; set; }
 
     [ObservableProperty] public partial string StatusText { get; set; } = "Load a ROM to begin.";
 
-    [ObservableProperty] public partial int InstructionsPerFrame { get; set; } = 10;
+    private static int InstructionsPerFrame => 10;
 
     public string StartPauseLabel => IsRunning ? "Pause" : "Start";
 

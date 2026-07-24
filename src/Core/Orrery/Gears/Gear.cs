@@ -57,7 +57,7 @@ public abstract class Gear {
     /// </summary>
     protected Setting<T> AddSetting<T>(string name, T defaultValue, string description = "") {
         Node.AssertLifecycle(SimLifecycle.Building, "add a Setting");
-        var setting = new Setting<T>(name, defaultValue, description);
+        var setting = new Setting<T>(name, defaultValue);
         _settings.Add(setting);
         return setting;
     }

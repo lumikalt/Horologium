@@ -1550,8 +1550,7 @@ internal sealed class CprPipelineCore : Gear {
     private void StepDispatch() {
         var dispatched = 0;
         while (_renameQueue.Count > 0) {
-            CprRenameEntry ri = _renameQueue.Peek();
-            ITooth instr = ri.Decoded;
+            (CheckpointEntry checkpointEntry, ITooth instr, int p1, int p2, int p3) = _renameQueue.Peek();
             if (_iqs[IqIndex(instr.Class)].IsFull) break;
 
             bool needsLq = instr.Class is ToothClass.Load or ToothClass.Atomic;
@@ -1566,40 +1565,40 @@ internal sealed class CprPipelineCore : Gear {
                 int lqIdx = _lq.Allocate();
                 LqEntry lq = _lq.At(lqIdx);
                 lq.RobIdx = -1;
-                lq.InstrId = ri.Entry.InstrId;
+                lq.InstrId = checkpointEntry.InstrId;
                 lq.SeqNo = memSeqNo;
                 if (_storeSets is not null && instr.Class == ToothClass.Load)
-                    lq.PredStoreSeqNo = _storeSets.OnLoadDispatch(ri.Entry.Pc);
-                ri.Entry.LqIdx = lqIdx;
+                    lq.PredStoreSeqNo = _storeSets.OnLoadDispatch(checkpointEntry.Pc);
+                checkpointEntry.LqIdx = lqIdx;
             }
 
             if (needsSq) {
                 int sqIdx = _hsq.Allocate();
                 SqEntry sq = _hsq.At(sqIdx);
                 sq.RobIdx = -1;
-                sq.InstrId = ri.Entry.InstrId;
+                sq.InstrId = checkpointEntry.InstrId;
                 sq.SeqNo = memSeqNo;
-                sq.Pc = ri.Entry.Pc;
+                sq.Pc = checkpointEntry.Pc;
                 sq.StaticBytes = instr.MemoryAccessBytes;
-                _storeSets?.OnStoreDispatch(ri.Entry.Pc, memSeqNo);
-                ri.Entry.SqIdx = sqIdx;
+                _storeSets?.OnStoreDispatch(checkpointEntry.Pc, memSeqNo);
+                checkpointEntry.SqIdx = sqIdx;
             }
 
             IssueQueue classIq = _iqs[IqIndex(instr.Class)];
             int iqSlot = classIq.Allocate();
             RsEntry rs = classIq.At(iqSlot);
             rs.RobIndex = -1;
-            rs.InstrId = ri.Entry.InstrId;
+            rs.InstrId = checkpointEntry.InstrId;
             rs.Instruction = instr;
-            rs.Pc = ri.Entry.Pc;
-            rs.PredictedNextPc = ri.Entry.PredictedNextPc;
-            rs.PhysDestination = ri.Entry.PhysDestination;
+            rs.Pc = checkpointEntry.Pc;
+            rs.PredictedNextPc = checkpointEntry.PredictedNextPc;
+            rs.PhysDestination = checkpointEntry.PhysDestination;
 
-            FillDispatchSource(rs, 0, ri.P1);
-            FillDispatchSource(rs, 1, ri.P2);
-            FillDispatchSource(rs, 2, ri.P3);
+            FillDispatchSource(rs, 0, p1);
+            FillDispatchSource(rs, 1, p2);
+            FillDispatchSource(rs, 2, p3);
 
-            PEventLog?.Record(ri.Entry.InstrId, ri.Entry.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
+            PEventLog?.Record(checkpointEntry.InstrId, checkpointEntry.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
             _renameQueue.Dequeue();
             dispatched++;
         }
@@ -1697,7 +1696,7 @@ internal sealed class CprPipelineCore : Gear {
             ITooth instr = fi.Decoded!;
             if (instr.Class is ToothClass.Vector or ToothClass.Uve)
                 throw new NotSupportedException(
-                    "CprTrain does not support vector/UVE instructions; use OooeTrain for vector workloads."
+                    "CprTrain does not support vector/UVE instructions; use OooTrain for vector workloads."
                 );
 
             int destArch = instr.DestinationRegister;
@@ -2143,12 +2142,7 @@ internal sealed class CprPipelineCore : Gear {
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private Checkpoint? FindCheckpointBySeq(ulong seq) {
-        foreach (Checkpoint cp in _cpList.InOrder())
-            if (cp.Seq == seq)
-                return cp;
-        return null;
-    }
+    private Checkpoint? FindCheckpointBySeq(ulong seq) => _cpList.InOrder().FirstOrDefault(cp => cp.Seq == seq);
 
     /// <summary>Returns a register to the free list if the CPR reclaim condition holds.</summary>
     private void TryReclaim(int phys) {

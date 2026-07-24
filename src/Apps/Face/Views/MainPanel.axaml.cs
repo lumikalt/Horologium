@@ -22,11 +22,11 @@ namespace Face.Views;
 
 public partial class MainPanel : UserControl {
     private AvaPlot? _chartView;
+
+    private bool _configuratorTabAdded;
     private WaterfallRow? _lastHoveredRow;
     private DataGrid? _resultsGrid;
     private AvaPlot? _waveformView;
-
-    private bool _configuratorTabAdded;
 
     public MainPanel() {
         InitializeComponent();
@@ -183,32 +183,42 @@ public partial class MainPanel : UserControl {
 
     // ── Save waterfall image ──────────────────────────────────────────────────
     private async void OnSaveWaterfallClick(object? sender, RoutedEventArgs e) {
-        if (Vm?.CurrentWaterfall is not { } data) return;
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel is null) return;
-        IStorageFile? file = await topLevel.StorageProvider.SaveFilePickerAsync(
-            new FilePickerSaveOptions {
-                Title = "Save Waterfall Image",
-                DefaultExtension = "png",
-                SuggestedFileName = "waterfall",
-                FileTypeChoices = [new FilePickerFileType("PNG Image") { Patterns = ["*.png",], },],
-            }
-        );
-        if (file is null) return;
-        bool dark = Vm.IsDarkTheme;
-        await Task.Run(() => WaterfallControl.RenderToFile(data, dark, file.Path.LocalPath));
+        try {
+            if (Vm?.CurrentWaterfall is not { } data) return;
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel is null) return;
+            IStorageFile? file = await topLevel.StorageProvider.SaveFilePickerAsync(
+                new FilePickerSaveOptions {
+                    Title = "Save Waterfall Image",
+                    DefaultExtension = "png",
+                    SuggestedFileName = "waterfall",
+                    FileTypeChoices = [new FilePickerFileType("PNG Image") { Patterns = ["*.png",], },],
+                }
+            );
+            if (file is null) return;
+            bool dark = Vm.IsDarkTheme;
+            await Task.Run(() => WaterfallControl.RenderToFile(data, dark, file.Path.LocalPath));
+        }
+        catch (Exception) {
+            // ignored
+        }
     }
 
     private async void OnBrowseClick(object? sender, RoutedEventArgs e) {
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel is null) return;
-        IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(
-            new FilePickerOpenOptions {
-                Title = "Open ELF Binary",
-                AllowMultiple = false,
-            }
-        );
-        if (files.Count > 0) Vm?.SetWorkloadPath(files[0].Path.LocalPath);
+        try {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel is null) return;
+            IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(
+                new FilePickerOpenOptions {
+                    Title = "Open ELF Binary",
+                    AllowMultiple = false,
+                }
+            );
+            if (files.Count > 0) Vm?.SetWorkloadPath(files[0].Path.LocalPath);
+        }
+        catch (Exception) {
+            // ignored
+        }
     }
 
     private void OnResultsUpdated() {

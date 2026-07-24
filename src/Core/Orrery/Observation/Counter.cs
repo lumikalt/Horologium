@@ -3,17 +3,15 @@ namespace Orrery.Observation;
 /// <summary>
 ///     A monotonically increasing integer statistic.
 ///     Counters may only be incremented — never decremented or reset mid-revolution.
-///     This constraint makes them safe to snapshot at any point in time.
+///     This constraint makes them safe to snapshot at any time.
 /// </summary>
 public sealed class Counter {
-    public Counter(string name, string description = "") {
+    public Counter(string name) {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Name = name;
-        Description = description;
     }
 
-    public string Name { get; }
-    public string Description { get; }
+    private string Name { get; }
 
     /// <summary>The current value of this counter.</summary>
     public long Value { get; private set; }

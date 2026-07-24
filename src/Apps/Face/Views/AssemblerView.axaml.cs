@@ -36,7 +36,7 @@ public partial class AssemblerView : UserControl {
         Loaded += OnLoaded;
     }
 
-    private bool IsDark =>
+    private static bool IsDark =>
         Application.Current?.ActualThemeVariant != ThemeVariant.Light;
 
     private IHighlightingDefinition ActiveHighlighting =>
@@ -78,18 +78,17 @@ public partial class AssemblerView : UserControl {
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e) {
-        if (e.PropertyName == nameof(AssemblerViewModel.IsCMode)) {
-            Editor.Text = ActiveSource;
-            Editor.SyntaxHighlighting = ActiveHighlighting;
-            return;
+        switch (e.PropertyName) {
+            case nameof(AssemblerViewModel.IsCMode):
+                Editor.Text = ActiveSource;
+                Editor.SyntaxHighlighting = ActiveHighlighting;
+                return;
+            case nameof(AssemblerViewModel.ConsoleOutput) when _consoleBox is { } box:
+                Dispatcher.UIThread.Post(() => box.CaretIndex = box.Text?.Length ?? 0);
+                return;
+            case not nameof(AssemblerViewModel.CurrentSourceLine): return;
         }
 
-        if (e.PropertyName == nameof(AssemblerViewModel.ConsoleOutput) && _consoleBox is { } box) {
-            Dispatcher.UIThread.Post(() => box.CaretIndex = box.Text?.Length ?? 0);
-            return;
-        }
-
-        if (e.PropertyName != nameof(AssemblerViewModel.CurrentSourceLine)) return;
         int line = _vm?.CurrentSourceLine ?? 0;
         _lineHighlighter.Line = line;
         Editor.TextArea.TextView.InvalidateLayer(_lineHighlighter.Layer);
@@ -161,33 +160,38 @@ public partial class AssemblerView : UserControl {
     }
 
     private async void OnEditorClipboardKey(object? sender, KeyEventArgs e) {
-        if (e.KeyModifiers != KeyModifiers.Control) return;
-        if (e.Key is not (Key.C or Key.X or Key.V)) return;
+        try {
+            if (e.KeyModifiers != KeyModifiers.Control) return;
+            if (e.Key is not (Key.C or Key.X or Key.V)) return;
 
-        IClipboard? clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard == null) return;
+            IClipboard? clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard == null) return;
 
-        e.Handled = true;
+            e.Handled = true;
 
-        switch (e.Key) {
-            case Key.C:
-                string? sel = Editor.SelectedText;
-                if (!string.IsNullOrEmpty(sel)) await clipboard.SetTextAsync(sel);
-                break;
+            switch (e.Key) {
+                case Key.C:
+                    string? sel = Editor.SelectedText;
+                    if (!string.IsNullOrEmpty(sel)) await clipboard.SetTextAsync(sel);
+                    break;
 
-            case Key.X:
-                sel = Editor.SelectedText;
-                if (!string.IsNullOrEmpty(sel)) {
-                    await clipboard.SetTextAsync(sel);
-                    Editor.TextArea.Selection.ReplaceSelectionWithText("");
-                }
+                case Key.X:
+                    sel = Editor.SelectedText;
+                    if (!string.IsNullOrEmpty(sel)) {
+                        await clipboard.SetTextAsync(sel);
+                        Editor.TextArea.Selection.ReplaceSelectionWithText("");
+                    }
 
-                break;
+                    break;
 
-            case Key.V:
-                string? text = await clipboard.TryGetValueAsync(DataFormat.Text);
-                if (!string.IsNullOrEmpty(text)) Editor.TextArea.PerformTextInput(text);
-                break;
+                case Key.V:
+                    string? text = await clipboard.TryGetValueAsync(DataFormat.Text);
+                    if (!string.IsNullOrEmpty(text)) Editor.TextArea.PerformTextInput(text);
+                    break;
+            }
+        }
+        catch (Exception) {
+            // ignored
         }
     }
 }

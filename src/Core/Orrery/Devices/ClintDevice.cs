@@ -62,11 +62,17 @@ public sealed class ClintDevice(int maxHarts = 1) : IMemory {
             _mtimecmp[h] = (_mtimecmp[h] & 0xFFFF_FFFF_0000_0000UL) | (uint)value;
         else if (IsMtimecmpHi(offset, out h))
             _mtimecmp[h] = (_mtimecmp[h] & 0x0000_0000_FFFF_FFFFUL) | ((ulong)(uint)value << 32);
-        else if (offset == ClintDevice.MtimeLo)
-            _mtime = (_mtime & 0xFFFF_FFFF_0000_0000UL) | (uint)value;
-        else if (offset == ClintDevice.MtimeHi)
-            _mtime = (_mtime & 0x0000_0000_FFFF_FFFFUL) | ((ulong)(uint)value << 32);
-        else if (IsMsip(offset, out h)) _msip[h] = (uint)value & 1;
+        else
+            switch (offset) {
+                case ClintDevice.MtimeLo: _mtime = (_mtime & 0xFFFF_FFFF_0000_0000UL) | (uint)value; break;
+                case ClintDevice.MtimeHi:
+                    _mtime = (_mtime & 0x0000_0000_FFFF_FFFFUL) | ((ulong)(uint)value << 32);
+                    break;
+                default: {
+                    if (IsMsip(offset, out h)) _msip[h] = (uint)value & 1;
+                    break;
+                }
+            }
     }
 
     public void Load(ulong address, ReadOnlySpan<byte> data) { }

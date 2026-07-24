@@ -26,7 +26,7 @@ public class HashedPerceptronBranchPredictionTests {
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
         var p = new HashedPerceptronBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 60; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
         Assert.True(pred.PredictedTaken);
@@ -36,7 +36,7 @@ public class HashedPerceptronBranchPredictionTests {
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
         var p = new HashedPerceptronBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 60; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
     }
@@ -47,7 +47,7 @@ public class HashedPerceptronBranchPredictionTests {
     public void AlternatingPattern_LearnsTakenAfterNotTakenHistory() {
         // T N T N … pattern: geometric history tables capture the regularity.
         var p = new HashedPerceptronBp();
-        ulong pc = 0x400;
+        const ulong pc = 0x400;
         bool[] pattern = [true, false, true, false, true, false, true, false,];
 
         for (var cycle = 0; cycle < 60; cycle++)
@@ -65,7 +65,7 @@ public class HashedPerceptronBranchPredictionTests {
         // Both branches share history tables, but their PC-based hashes differ,
         // so each converges to its own direction.
         var p = new HashedPerceptronBp();
-        ulong pcA = 0x1000, pcB = 0x1004;
+        const ulong pcA = 0x1000, pcB = 0x1004;
         for (var i = 0; i < 80; i++) {
             p.Update(pcA, true, 0x2000);
             p.Update(pcB, false, pcB + 4);
@@ -80,7 +80,7 @@ public class HashedPerceptronBranchPredictionTests {
     [Fact]
     public void WeightsReachSaturation_RemainsStable() {
         var p = new HashedPerceptronBp();
-        ulong pc = 0x80;
+        const ulong pc = 0x80;
         for (var i = 0; i < 200; i++) p.Update(pc, true, 0x100);
         Assert.True(p.Predict(pc).PredictedTaken);
     }
@@ -90,7 +90,7 @@ public class HashedPerceptronBranchPredictionTests {
     [Fact]
     public void CustomHistLengths_ConvergesAlwaysTaken() {
         var p = new HashedPerceptronBp(256, [0, 4, 16,]);
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 40; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
     }

@@ -2,6 +2,8 @@
 
 using Mechanism;
 
+// ReSharper disable MemberCanBePrivate.Global
+
 #endregion
 
 namespace RiscV32.Registers;

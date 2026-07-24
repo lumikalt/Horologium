@@ -17,8 +17,9 @@ public class App : Application {
         switch (ApplicationLifetime) {
             case IClassicDesktopStyleApplicationLifetime desktop: desktop.MainWindow = new MainWindow(); break;
             case ISingleViewApplicationLifetime singleView: {
-                var panel = new MainPanel();
-                panel.DataContext = new MainWindowViewModel();
+                var panel = new MainPanel {
+                    DataContext = new MainWindowViewModel(),
+                };
                 singleView.MainView = panel;
                 break;
             }

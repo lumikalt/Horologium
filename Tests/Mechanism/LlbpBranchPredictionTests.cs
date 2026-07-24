@@ -19,7 +19,7 @@ public class LlbpBranchPredictionTests {
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
         var p = new LlbpBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 8; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
         Assert.True(pred.PredictedTaken);
@@ -29,7 +29,7 @@ public class LlbpBranchPredictionTests {
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
         var p = new LlbpBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 8; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
     }
@@ -40,9 +40,9 @@ public class LlbpBranchPredictionTests {
         // allocates at table 0 on misprediction. On the second Predict, LLBP
         // matches at t=0 >= provider=0, so LlbpOverrides increments.
         var p = new LlbpBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         // Warm RCR to full window with a taken branch at a distinct PC.
-        ulong warmPc = 0x8000;
+        const ulong warmPc = 0x8000;
         for (var i = 0; i < 120; i++) p.Update(warmPc, true, warmPc + 4);
 
         // Now let TAGE train on pc.

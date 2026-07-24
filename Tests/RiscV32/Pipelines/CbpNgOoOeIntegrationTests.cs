@@ -14,7 +14,7 @@ namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
 ///     Full pipeline-integration coverage for <see cref="CbpNgCommitDrivenBp" />: wires a
-///     built harcom submission directly into a real <c>OooeTrain</c> — exercising the actual
+///     built harcom submission directly into a real <c>OooTrain</c> — exercising the actual
 ///     <c>Predict</c> call sites (main fetch and shadow/runahead fetch) and ROB-based commit-order
 ///     <c>Update</c> — rather than the isolated-adapter-unit calls in
 ///     <see cref="Tests.Mechanism.CbpNgFfiBranchPredictionTests" />.
@@ -71,7 +71,7 @@ public sealed class CbpNgOoOeIntegrationTests : IDisposable {
         LoadWords(mem, program);
         var mechanism = new Rv32Mechanism();
         using var predictor = new CbpNgCommitDrivenBp(_libraryPath!);
-        var train = new OooeTrain(mechanism, mem, predictor: predictor);
+        var train = new OooTrain(mechanism, mem, predictor: predictor);
 
         RevolutionResult result = train.Run();
 

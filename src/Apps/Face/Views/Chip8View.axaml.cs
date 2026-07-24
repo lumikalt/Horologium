@@ -36,22 +36,27 @@ public partial class Chip8View : UserControl {
     private void InvalidateDisplay() => DisplayImage.InvalidateVisual();
 
     private async void OnLoadRomClick(object? sender, RoutedEventArgs e) {
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel is null) return;
-        IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(
-            new FilePickerOpenOptions {
-                Title = "Open CHIP-8 ROM",
-                AllowMultiple = false,
-                FileTypeFilter = [
-                    new FilePickerFileType("CHIP-8 ROM") { Patterns = ["*.ch8", "*.rom", "*.c8",], },
-                    new FilePickerFileType("All Files") { Patterns = ["*",], },
-                ],
-            }
-        );
-        if (files.Count == 0) return;
-        byte[] rom = await File.ReadAllBytesAsync(files[0].Path.LocalPath);
-        Vm?.LoadRom(rom);
-        Focus();
+        try {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel is null) return;
+            IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(
+                new FilePickerOpenOptions {
+                    Title = "Open CHIP-8 ROM",
+                    AllowMultiple = false,
+                    FileTypeFilter = [
+                        new FilePickerFileType("CHIP-8 ROM") { Patterns = ["*.ch8", "*.rom", "*.c8",], },
+                        new FilePickerFileType("All Files") { Patterns = ["*",], },
+                    ],
+                }
+            );
+            if (files.Count == 0) return;
+            byte[] rom = await File.ReadAllBytesAsync(files[0].Path.LocalPath);
+            Vm?.LoadRom(rom);
+            Focus();
+        }
+        catch (Exception) {
+            // ignored
+        }
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e) {

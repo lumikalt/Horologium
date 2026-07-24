@@ -90,8 +90,9 @@ public class ObservationTests {
 
     [Fact]
     public void Setting_CanBeChanged_BeforeLock() {
-        var s = new Setting<int>("width", 4);
-        s.Value = 8;
+        var s = new Setting<int>("width", 4) {
+            Value = 8,
+        };
         Assert.Equal(8, s.Value);
     }
 

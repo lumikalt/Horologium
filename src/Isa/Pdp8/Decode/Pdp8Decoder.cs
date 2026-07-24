@@ -99,8 +99,7 @@ public sealed class Pdp8Decoder : IDecoder {
                 (word & 0x40) != 0,
                 (word & 0x20) != 0,
                 (word & 0x10) != 0,
-                OrMode: (word & 0x08) != 0, // RSS=1: complement the natural skip sense
-                Osr: (word & 0x04) != 0,
+                OrMode: (word & 0x08) != 0,
                 Hlt: (word & 0x02) != 0
             );
 

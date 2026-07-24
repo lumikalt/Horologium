@@ -91,7 +91,7 @@ public class HtifExitTests {
                                "single_cycle.core"),
             "five_stage" => (new FiveStageTrain(mech, mem, workload.EntryPoint).Run(),
                              "five_stage.pipeline"),
-            "ooo" => (new OooeTrain(mech, mem, workload.EntryPoint).Run(), "ooo.pipeline"),
+            "ooo" => (new OooTrain(mech, mem, workload.EntryPoint).Run(), "ooo.pipeline"),
             _     => throw new ArgumentOutOfRangeException(nameof(train)),
         };
 

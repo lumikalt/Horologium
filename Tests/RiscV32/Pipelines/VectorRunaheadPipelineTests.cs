@@ -18,10 +18,10 @@ namespace Tests.RiscV32.Pipelines;
 ///     v3 extension of <see cref="VectorRunaheadUnrollTests" /> that packs
 ///     <c>runaheadPipelineDepth</c> unroll rounds into a single origin-load vectorization event
 ///     instead of requiring one full loop-body walk per round, decoupling round-issue rate from
-///     the shadow PC's walk cadence (see <c>PipelineRoundsThisVisit</c> in <see cref="OooeTrain" />).
+///     the shadow PC's walk cadence (see <c>PipelineRoundsThisVisit</c> in <see cref="OooTrain" />).
 /// </summary>
 public class VectorRunaheadPipelineTests {
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         bool enableRunahead,
         bool enableVectorRunahead = false,
         int runaheadVectorWidth = 8,
@@ -36,7 +36,7 @@ public class VectorRunaheadPipelineTests {
         MemoryConfig? dMemConfig = null
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -66,7 +66,7 @@ public class VectorRunaheadPipelineTests {
         mem.Load(0, bytes);
     }
 
-    private static void AssertIdenticalArchState(OooeTrain off, OooeTrain on) {
+    private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
             Assert.Equal(off.ArchState.IntegerRegisters.Read(r), on.ArchState.IntegerRegisters.Read(r));
     }
@@ -148,10 +148,10 @@ public class VectorRunaheadPipelineTests {
         uint[] program = WideStrideProgram(40);
         var dCfg = new MemoryConfig(16384, CacheBlockBytes: 32, CacheMissLatency: 10, CacheMshrCount: 8);
 
-        (OooeTrain serial, FlatMemory memSerial) = Make(
+        (OooTrain serial, FlatMemory memSerial) = Make(
             true, true, runaheadPipelineDepth: 1, memSize: 65536, dMemConfig: dCfg
         );
-        (OooeTrain pipelined, FlatMemory memPipelined) = Make(
+        (OooTrain pipelined, FlatMemory memPipelined) = Make(
             true, true, runaheadPipelineDepth: 8, memSize: 65536, dMemConfig: dCfg
         );
         Load(memSerial, program);
@@ -185,10 +185,10 @@ public class VectorRunaheadPipelineTests {
         uint[] program = WideStrideProgram(40);
         var dCfg = new MemoryConfig(16384, CacheBlockBytes: 32, CacheMissLatency: 10, CacheMshrCount: 64);
 
-        (OooeTrain serial, FlatMemory memSerial) = Make(
+        (OooTrain serial, FlatMemory memSerial) = Make(
             true, true, runaheadPipelineDepth: 1, memSize: 65536, dMemConfig: dCfg
         );
-        (OooeTrain pipelined, FlatMemory memPipelined) = Make(
+        (OooTrain pipelined, FlatMemory memPipelined) = Make(
             true, true, runaheadPipelineDepth: 8, memSize: 65536, dMemConfig: dCfg
         );
         Load(memSerial, program);
@@ -252,12 +252,12 @@ public class VectorRunaheadPipelineTests {
         uint[] program = WideStrideProgram(200);
         var dCfg = new MemoryConfig(65536, CacheBlockBytes: 64, CacheMissLatency: 10, CacheMshrCount: 128);
 
-        (OooeTrain off, FlatMemory memOff) = Make(false, memSize: 65536, dMemConfig: dCfg);
-        (OooeTrain serial, FlatMemory memSerial) = Make(
+        (OooTrain off, FlatMemory memOff) = Make(false, memSize: 65536, dMemConfig: dCfg);
+        (OooTrain serial, FlatMemory memSerial) = Make(
             true, true, runaheadPipelineDepth: 1, runaheadBudget: 2000, extraPhysRegs: 128,
             memSize: 65536, dMemConfig: dCfg
         );
-        (OooeTrain pipelined, FlatMemory memPipelined) = Make(
+        (OooTrain pipelined, FlatMemory memPipelined) = Make(
             true, true, runaheadPipelineDepth: 8, runaheadBudget: 2000, extraPhysRegs: 128,
             memSize: 65536, dMemConfig: dCfg
         );
@@ -307,15 +307,15 @@ public class VectorRunaheadPipelineTests {
     public void PipelineDepthP_ReachesSameCoverage_WithFewerChainOriginEvents() {
         uint[] program = StridedChainProgram();
 
-        (OooeTrain serial, FlatMemory memSerial) = Make(true, true, runaheadPipelineDepth: 1);
-        (OooeTrain pipelined, FlatMemory memPipelined) = Make(true, true, runaheadPipelineDepth: 8);
+        (OooTrain serial, FlatMemory memSerial) = Make(true, true, runaheadPipelineDepth: 1);
+        (OooTrain pipelined, FlatMemory memPipelined) = Make(true, true, runaheadPipelineDepth: 8);
         Load(memSerial, program);
         Load(memPipelined, program);
 
         RevolutionResult serialResult = serial.Run();
         RevolutionResult pipelinedResult = pipelined.Run();
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain off, FlatMemory memOff) = Make(false);
         Load(memOff, program);
         off.Run();
 
@@ -351,14 +351,14 @@ public class VectorRunaheadPipelineTests {
     public void PipelineDepthNotDividingUnrollLength_ClampsToRemainingBudget() {
         uint[] program = StridedChainProgram();
 
-        (OooeTrain train, FlatMemory mem) = Make(
+        (OooTrain train, FlatMemory mem) = Make(
             true, true, runaheadUnrollLength: 8, runaheadPipelineDepth: 5
         );
         Load(mem, program);
 
         RevolutionResult result = train.Run();
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain off, FlatMemory memOff) = Make(false);
         Load(memOff, program);
         off.Run();
         AssertIdenticalArchState(off, train);
@@ -382,8 +382,8 @@ public class VectorRunaheadPipelineTests {
     public void PipelineDepthOne_IsBehaviorallyIdenticalToDefault() {
         uint[] program = StridedChainProgram();
 
-        (OooeTrain withDefault, FlatMemory memDefault) = Make(true, true);
-        (OooeTrain explicitP1, FlatMemory memP1) = Make(true, true, runaheadPipelineDepth: 1);
+        (OooTrain withDefault, FlatMemory memDefault) = Make(true, true);
+        (OooTrain explicitP1, FlatMemory memP1) = Make(true, true, runaheadPipelineDepth: 1);
         Load(memDefault, program);
         Load(memP1, program);
 

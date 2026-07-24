@@ -9,7 +9,6 @@ using Face.Models;
 using Mechanism;
 using Orrery.Observation;
 using Orrery.Spec;
-using Pipeline.Spec;
 using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
@@ -32,7 +31,7 @@ public enum AppPage {
 public partial class MainWindowViewModel : ObservableObject {
     private const int BenchmarkMemoryBytes = 4 * 1024 * 1024;
 
-    internal static readonly string BenchmarksDir =
+    private static readonly string BenchmarksDir =
         Path.Combine(AppContext.BaseDirectory, "benchmarks");
 
     private ExperimentResult? _lastResult;
@@ -71,16 +70,6 @@ public partial class MainWindowViewModel : ObservableObject {
         new("Custom ELF…", ""),
     ];
 
-    /// <summary>
-    ///     No RV64 benchmark ELFs exist in <c>TestBinaries/benchmarks/</c> today (only RV32 ones,
-    ///     copied under <see cref="BenchmarksDir" />) — so under RV64, only the built-in demo and a
-    ///     user-supplied custom ELF are offered; the RV32 benchmark presets are hidden rather than
-    ///     left selectable-but-broken (they'd hit <see cref="Rv64ElfLoader" />'s clean
-    ///     "only ELF64 is supported" rejection instead of running).
-    /// </summary>
-    private static IEnumerable<WorkloadPreset> PresetsForIsa(string isa) =>
-        isa == "rv64" ? DefaultWorkloadPresets.Where(p => string.IsNullOrEmpty(p.ElfFileName)) : DefaultWorkloadPresets;
-
     public ObservableCollection<WorkloadPreset> WorkloadPresets { get; } =
         [..DefaultWorkloadPresets,];
 
@@ -97,16 +86,10 @@ public partial class MainWindowViewModel : ObservableObject {
     ///     mechanism factory across every <see cref="TrainConfig" /> in the sweep, so ISA can't
     ///     meaningfully differ between configs being compared in the same run.
     /// </summary>
-    [ObservableProperty] public partial string SelectedIsa { get; set; } = "rv32";
+    [ObservableProperty]
+    public partial string SelectedIsa { get; set; } = "rv32";
 
     public string[] IsaOptions { get; } = ["rv32", "rv64",];
-
-    partial void OnSelectedIsaChanged(string value) {
-        WorkloadPreset? previouslySelected = SelectedPreset;
-        WorkloadPresets.Clear();
-        foreach (WorkloadPreset p in MainWindowViewModel.PresetsForIsa(value)) WorkloadPresets.Add(p);
-        SelectedPreset = WorkloadPresets.FirstOrDefault(p => p == previouslySelected) ?? WorkloadPresets[0];
-    }
 
     [ObservableProperty] public partial decimal MaxTicks { get; set; } = 1_000_000;
 
@@ -133,7 +116,7 @@ public partial class MainWindowViewModel : ObservableObject {
 
     [ObservableProperty] public partial string? SelectedMetric { get; set; } = null;
 
-    [ObservableProperty] private partial bool HasResults { get; set; } = false;
+    private static bool HasResults { get; set; }
 
     [ObservableProperty] public partial decimal TraceMaxTicks { get; set; } = 2_000;
 
@@ -192,7 +175,7 @@ public partial class MainWindowViewModel : ObservableObject {
     ///     <see cref="RemoveConfig" /> regardless of <see cref="IsMulticoreMode" />, so entering
     ///     multi-hart mode never finds a stale or mismatched list.
     /// </summary>
-    public ObservableCollection<HartCacheViewModel> HartCaches { get; } = [];
+    private ObservableCollection<HartCacheViewModel> HartCaches { get; } = [];
 
     public MultiHartSettingsViewModel MultiHartSettings { get; } = new();
 
@@ -203,6 +186,23 @@ public partial class MainWindowViewModel : ObservableObject {
     public IReadOnlyList<string> TableHeaders { get; private set; } = [];
 
     public bool HasSelectedConfig => SelectedConfig is not null;
+
+    /// <summary>
+    ///     No RV64 benchmark ELFs exist in <c>TestBinaries/benchmarks/</c> today (only RV32 ones,
+    ///     copied under <see cref="BenchmarksDir" />) — so under RV64, only the built-in demo and a
+    ///     user-supplied custom ELF are offered; the RV32 benchmark presets are hidden rather than
+    ///     left selectable-but-broken (they'd hit <see cref="Rv64ElfLoader" />'s clean
+    ///     "only ELF64 is supported" rejection instead of running).
+    /// </summary>
+    private static IEnumerable<WorkloadPreset> PresetsForIsa(string isa) =>
+        isa == "rv64" ? DefaultWorkloadPresets.Where(p => string.IsNullOrEmpty(p.ElfFileName)) : DefaultWorkloadPresets;
+
+    partial void OnSelectedIsaChanged(string value) {
+        WorkloadPreset previouslySelected = SelectedPreset;
+        WorkloadPresets.Clear();
+        foreach (WorkloadPreset p in PresetsForIsa(value)) WorkloadPresets.Add(p);
+        SelectedPreset = WorkloadPresets.FirstOrDefault(p => p == previouslySelected) ?? WorkloadPresets[0];
+    }
 
     public event Action? WaveformUpdated;
 
@@ -282,7 +282,7 @@ public partial class MainWindowViewModel : ObservableObject {
         StatusText = $"Running {Configs.Count} configuration(s)…";
 
         try {
-            IWorkload workload = MainWindowViewModel.ResolveWorkload(SelectedPreset, WorkloadPath, SelectedIsa);
+            IWorkload workload = ResolveWorkload(SelectedPreset, WorkloadPath, SelectedIsa);
 
             List<NamedConfig> namedConfigs = Configs.Select(c => c.ToNamedConfig()).ToList();
             var maxTicks = (long)(MaxTicks > 0 ? MaxTicks : 1_000_000);
@@ -293,7 +293,7 @@ public partial class MainWindowViewModel : ObservableObject {
             ExperimentResult result = await Task.Run(() =>
                                                          Experiment.Run(
                                                              workload, namedConfigs,
-                                                             () => MainWindowViewModel.CreateMechanism(
+                                                             () => CreateMechanism(
                                                                  isa, workload.HtifTohostAddress
                                                              ),
                                                              maxTicks,
@@ -334,19 +334,20 @@ public partial class MainWindowViewModel : ObservableObject {
 
         try {
             var hartConfigs = new List<(TrainConfig, CacheLevelSpec?, int)>(Configs.Count);
-            for (var i = 0; i < Configs.Count; i++)
-                hartConfigs.Add(
-                    (Configs[i].ToNamedConfig().Config, HartCaches[i].ToCacheLevelSpec(), HartCaches[i].PoolId)
-                );
+            hartConfigs.AddRange(
+                Configs.Select((t, i) => (t.ToNamedConfig().Config, HartCaches[i].ToCacheLevelSpec(),
+                                          HartCaches[i].PoolId)
+                )
+            );
 
             CacheLevelSpec? sharedLlc = MultiHartSettings.ToSharedLlcSpec();
-            CoherenceBusKind bus = MultiHartSettings.ToCoherenceBusKind();
+            var bus = MultiHartSettings.ToCoherenceBusKind();
             bool concurrentMode = MultiHartSettings.ConcurrentMode;
             var maxTicks = (long)(MultiHartSettings.MaxTicks > 0 ? MultiHartSettings.MaxTicks : 100_000);
 
-            ExperimentResult result = await Task.Run(
-                () => Experiment.RunMulticore(hartConfigs, sharedLlc, bus, concurrentMode, maxTicks)
-            );
+            ExperimentResult result
+                = await Task.Run(() => Experiment.RunMulticore(hartConfigs, sharedLlc, bus, concurrentMode, maxTicks)
+                );
 
             _lastResult = result;
             UpdateMetrics(result);
@@ -376,14 +377,16 @@ public partial class MainWindowViewModel : ObservableObject {
         PEventStatusText = $"Tracing '{nc.Name}'…";
 
         try {
-            IWorkload workload = MainWindowViewModel.ResolveWorkload(SelectedPreset, WorkloadPath, SelectedIsa);
+            IWorkload workload = ResolveWorkload(SelectedPreset, WorkloadPath, SelectedIsa);
 
             var maxTicks = (long)(TraceMaxTicks > 0 ? TraceMaxTicks : 2_000);
             string isa = SelectedIsa;
             PEventLog plog = await Task.Run(() =>
                                                 Experiment.Trace(
                                                     workload, nc,
-                                                    MainWindowViewModel.CreateMechanism(isa, workload.HtifTohostAddress),
+                                                    CreateMechanism(
+                                                        isa, workload.HtifTohostAddress
+                                                    ),
                                                     maxTicks
                                                 )
             );
@@ -542,8 +545,7 @@ public partial class MainWindowViewModel : ObservableObject {
 
         HashSet<string> previous = AvailableSignals.Where(s => s.IsSelected).Select(s => s.Name).ToHashSet();
         AvailableSignals.Clear();
-        foreach (string name in names) {
-            var toggle = new SignalToggle(name, previous.Contains(name));
+        foreach (SignalToggle toggle in names.Select(name => new SignalToggle(name, previous.Contains(name)))) {
             toggle.PropertyChanged += (_, _) => WaveformUpdated?.Invoke();
             AvailableSignals.Add(toggle);
         }
@@ -645,28 +647,28 @@ public partial class MainWindowViewModel : ObservableObject {
     ///     <c>"rv32"</c> for callers (e.g. <see cref="ConfiguratorViewModel" />) that don't offer an
     ///     ISA selector of their own — the Configurator tab's `.csx` script already picks its own
     ///     mechanism regardless of this method, so an RV64-targeting script there still needs a
-    ///     matching RV64 workload; that pairing isn't wired up yet (see TODO.md).
+    ///     matching RV64 workload; that pairing isn't wired up yet.
     /// </summary>
     internal static IWorkload ResolveWorkload(WorkloadPreset preset, string? workloadPath, string isa = "rv32") =>
         (preset.ElfFileName, isa) switch {
-            (null, _) => CreateBuiltInWorkload(),
+            (null, _)    => CreateBuiltInWorkload(),
             ("", "rv64") => new Rv64ElfWorkload(workloadPath!),
-            ("", _) => new Rv32ElfWorkload(workloadPath!),
+            ("", _)      => new Rv32ElfWorkload(workloadPath!),
             (var fn, "rv64") => new Rv64ElfWorkload(
                 Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
                 preset.MemoryBytes
             ),
-            (var fn, _) => new Rv32ElfWorkload(
+            var (fn, _) => new Rv32ElfWorkload(
                 Path.Combine(MainWindowViewModel.BenchmarksDir, fn),
                 preset.MemoryBytes
             ),
         };
 
     /// <summary>Builds the mechanism matching <paramref name="isa" /> (<c>"rv32"</c> or <c>"rv64"</c>).</summary>
-    internal static IMechanism CreateMechanism(string isa, ulong? htifTohost) =>
+    private static IMechanism CreateMechanism(string isa, ulong? htifTohost) =>
         isa == "rv64" ? new Rv64Mechanism(htifTohost) : new Rv32Mechanism(htifTohost);
 
-    internal static ByteArrayWorkload CreateBuiltInWorkload() {
+    private static ByteArrayWorkload CreateBuiltInWorkload() {
         // Built-in demo: 100-iteration countdown loop
         uint[] words = [0x06400093, 0x00008663, 0xFFF08093, 0xFF9FF06F, 0x00100073,];
         var bytes = new byte[words.Length * 4];

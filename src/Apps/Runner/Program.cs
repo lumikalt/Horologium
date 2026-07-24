@@ -266,9 +266,9 @@ if (benchConfigPath is not null) {
                     : "FAIL";
         Console.WriteLine($"{bench.Name}: {status}  ({result.Ticks:N0} ticks)");
 
-        if (!result.Halted || (result.Checked && !result.Passed)) {
+        if (!result.Halted || result is { Checked: true, Passed: false, }) {
             anyFailed = true;
-            if (result.Checked && !result.Passed) {
+            if (result is { Checked: true, Passed: false, }) {
                 Console.Error.WriteLine($"  expected: {EscapeForDisplay(result.ExpectedOutput!)}");
                 Console.Error.WriteLine($"  actual:   {EscapeForDisplay(result.Output)}");
             }
@@ -392,14 +392,22 @@ if (simpointInterval > 0) {
 
         Console.WriteLine();
         Console.WriteLine("## Detailed measurement (checkpoint-and-measure per simulation point)");
-        foreach (NamedConfig named in spConfigs) {
-            TrainConfig cfg = named.Config;
+        foreach ((string name, TrainConfig cfg) in spConfigs) {
             if (cfg.Pipeline is not ("ooo" or "five_stage" or "single_cycle")) {
                 Console.Error.WriteLine(
-                    $"  {named.Name}: skipped — --simpoint-warmup supports ooo/five_stage/single_cycle pipelines only."
+                    $"  {name}: skipped — --simpoint-warmup supports ooo/five_stage/single_cycle pipelines only."
                 );
                 continue;
             }
+
+            SimPointCheckpointResult spResult = Experiment.MeasureSimPointCheckpoints(
+                spWorkload, captured, spMechanismFactory, DetailedFactory
+            );
+            Console.WriteLine(
+                $"  {name}: CPI={spResult.EstimatedCpi:F3}  IPC={spResult.EstimatedIpc:F3}  " +
+                $"({spResult.PointResults.Count} simulation point(s))"
+            );
+            continue;
 
             // "single_cycle" is special-cased directly rather than through ToPipelineSpec: this
             // measurement path only wants raw backing memory for it (no ToIMemoryConfig/ToDMemoryConfig,
@@ -416,14 +424,6 @@ if (simpointInterval > 0) {
                 return cfg.ToPipelineSpec(mech, spWorkload, counter)
                           .Build(mech, mem, entry, cfg.ToIMemoryConfig(), dCfg);
             }
-
-            SimPointCheckpointResult spResult = Experiment.MeasureSimPointCheckpoints(
-                spWorkload, captured, spMechanismFactory, DetailedFactory
-            );
-            Console.WriteLine(
-                $"  {named.Name}: CPI={spResult.EstimatedCpi:F3}  IPC={spResult.EstimatedIpc:F3}  " +
-                $"({spResult.PointResults.Count} simulation point(s))"
-            );
         }
     }
 
@@ -605,7 +605,7 @@ if (scriptPath is not null) {
     else if (checkpointLoadMicroPath is not null) {
         // ── Micro-checkpoint-load mode ───────────────────────────────────────
         // The entry PC/memory geometry must be known before Build() constructs the train (an
-        // OooeTrain's fetch PC is fixed at construction — see OooeTrain.Checkpoint.cs), so the
+        // OooTrain's fetch PC is fixed at construction — see OooTrain.Checkpoint.cs), so the
         // checkpoint is parsed once up front and its bytes replayed into RestoreMicroCheckpoint
         // via the same in-memory stream rather than re-reading the file from disk twice.
         byte[] chkBytes = File.ReadAllBytes(checkpointLoadMicroPath);
@@ -618,7 +618,7 @@ if (scriptPath is not null) {
         var scriptMem = new FlatMemory(chk.Architectural.MemorySizeBytes, chk.Architectural.MemoryBaseAddress);
 
         MachineHandle handle = spec.Build(scriptMem, chk.Architectural.Pc);
-        if (handle.Train is OooeTrain oooLoad) {
+        if (handle.Train is OooTrain oooLoad) {
             chkMs.Position = 0;
             oooLoad.RestoreMicroCheckpoint(chkMs, scriptMem);
         }
@@ -701,12 +701,12 @@ if (scriptPath is not null) {
     }
 
     // Micro checkpoints require an OoOE pipeline train (the drain-to-empty-ROB boundary and
-    // trained tables — caches/predictors/etc. — only exist there; see OooeTrain.Checkpoint.cs).
+    // trained tables — caches/predictors/etc. — only exist there; see OooTrain.Checkpoint.cs).
     // Drains at the simplest possible trigger — the end of the run — rather than any mid-run
     // boundary, which the CLI has no way to name.
     static void SaveMicroCheckpointIfRequested(MachineHandle h, ISnapshotableMemory memory, string? path) {
         if (path is null) return;
-        if (h.Train is not OooeTrain oooTrain) {
+        if (h.Train is not OooTrain oooTrain) {
             Console.Error.WriteLine("--checkpoint-save-micro requires an OoOE pipeline train; skipped.");
             return;
         }

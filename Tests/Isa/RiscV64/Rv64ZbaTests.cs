@@ -20,7 +20,7 @@ public class Rv64ZbaTests {
     private readonly Rv64Executor _exe = new();
     private readonly FlatMemory _mem = new(65536);
 
-    private Rv64ArchState MakeState(params (int reg, ulong val)[] regs) {
+    private static Rv64ArchState MakeState(params (int reg, ulong val)[] regs) {
         var s = new Rv64ArchState();
         foreach ((int r, ulong v) in regs) s.IntegerRegisters.Write(r, v);
         return s;

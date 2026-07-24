@@ -130,7 +130,7 @@ public class RdipPrefetcherTests {
         Assert.True(train.ICache!.Prefetches > 0, "RDIP should issue at least one I-cache prefetch");
     }
 
-    // ── OooeTrain ─────────────────────────────────────────────────────────────
+    // ── OooTrain ─────────────────────────────────────────────────────────────
 
     [Fact]
     public void Rdip_OoO_ArchStateIdenticalToWithout() {
@@ -141,8 +141,8 @@ public class RdipPrefetcherTests {
         Load(memOff, 0x1000, RdipPrefetcherTests.CalleeWords);
         Load(memOn, 0x1000, RdipPrefetcherTests.CalleeWords);
 
-        var off = new OooeTrain(new Rv32Mechanism(), memOff, iMemConfig: ICache());
-        var on = new OooeTrain(new Rv32Mechanism(), memOn, iMemConfig: ICache(), rdip: true);
+        var off = new OooTrain(new Rv32Mechanism(), memOff, iMemConfig: ICache());
+        var on = new OooTrain(new Rv32Mechanism(), memOn, iMemConfig: ICache(), rdip: true);
 
         off.Run();
         on.Run();
@@ -160,7 +160,7 @@ public class RdipPrefetcherTests {
         Load(mem, 0, RdipPrefetcherTests.CallerWords);
         Load(mem, 0x1000, RdipPrefetcherTests.CalleeWords);
 
-        var train = new OooeTrain(new Rv32Mechanism(), mem, iMemConfig: ICache(), rdip: true);
+        var train = new OooTrain(new Rv32Mechanism(), mem, iMemConfig: ICache(), rdip: true);
         train.Run();
 
         Assert.NotNull(train.ICache);

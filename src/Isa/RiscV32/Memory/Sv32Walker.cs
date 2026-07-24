@@ -69,9 +69,9 @@ internal static class Sv32Walker {
         if (umode && !pteU) return (0, fault);                    // U-mode accessing kernel page
         if (smode && pteU && (!sum || isExec)) return (0, fault); // S-mode/U-page: deny unless SUM=1 and data access
 
-        if (isExec && (pte & Sv32Walker.PteX) == 0) return (0, fault);
-        if (isWrite && (pte & Sv32Walker.PteW) == 0) return (0, fault);
-        if (!isWrite && !isExec && (pte & Sv32Walker.PteR) == 0) return (0, fault);
+        if ((isExec && (pte & Sv32Walker.PteX) == 0) || (isWrite && (pte & Sv32Walker.PteW) == 0)
+                                                     || (!isWrite && !isExec && (pte & Sv32Walker.PteR) == 0))
+            return (0, fault);
 
         // A/D bit check (fault-on-access model)
         if ((pte & Sv32Walker.PteA) == 0) return (0, fault);

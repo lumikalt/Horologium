@@ -43,8 +43,8 @@ public sealed class HybridVp : IValuePredictor {
     private readonly IValuePredictor _computational;
     private readonly IValuePredictor _context;
 
-    /// <param name="context">The context-based (history-driven) component, e.g. <see cref="computational" />.</param>
-    /// <param name="computational">The computational component, e.g. <see cref="VtageVp" />.</param>
+    /// <param name="context">The context-based (history-driven) component, e.g. <see cref="VtageVp" />.</param>
+    /// <param name="computational">The computational component, e.g. <see cref="StrideVp" />.</param>
     public HybridVp(IValuePredictor context, IValuePredictor computational) {
         _context = context;
         _computational = computational;

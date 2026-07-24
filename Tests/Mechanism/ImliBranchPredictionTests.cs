@@ -21,7 +21,7 @@ public class ImliBranchPredictionTests {
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
         var p = new ImliPredictor();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 4; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
         Assert.True(pred.PredictedTaken);
@@ -31,7 +31,7 @@ public class ImliBranchPredictionTests {
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
         var p = new ImliPredictor();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 4; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
     }
@@ -89,7 +89,7 @@ public class ImliBranchPredictionTests {
         p.Update(lcbPc, false, lcbPc + 4); // exit → _imli reset to 0
 
         // Prediction for another branch now uses _imli=0, same as loop start
-        ulong probePc = 0x1500;
+        const ulong probePc = 0x1500;
         for (var i = 0; i < 4; i++) p.Update(probePc, true, 0x1600);
         Assert.True(p.Predict(probePc).PredictedTaken);
     }
@@ -99,8 +99,8 @@ public class ImliBranchPredictionTests {
     [Fact]
     public void TwoBranches_DoNotInterfere() {
         var p = new ImliPredictor();
-        ulong pcA = 0x1000; // always not-taken
-        ulong pcB = 0x3000; // always taken to 0x4000
+        const ulong pcA = 0x1000; // always not-taken
+        const ulong pcB = 0x3000; // always taken to 0x4000
 
         for (var i = 0; i < 8; i++) {
             p.Update(pcA, false, pcA + 4);

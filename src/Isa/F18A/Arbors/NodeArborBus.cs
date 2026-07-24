@@ -21,19 +21,19 @@ public sealed class NodeArborBus(F18ANode node) : IArborBus {
     private const uint Wr = F18ANode.PortAddrWestRead;
     private const uint Ww = F18ANode.PortAddrWestWrite;
 
-    public bool TryRead(uint wordAddr, out uint value) {
+    public void TryRead(uint wordAddr, out uint value) {
         RendezvousArbor? arbor = ReadArbor(wordAddr);
         if (arbor is null) {
             value = 0;
-            return true;
+            return;
         }
 
-        return arbor.TryRead(out value);
+        arbor.TryRead(out value);
     }
 
-    public bool TryWrite(uint wordAddr, uint value) {
+    public void TryWrite(uint wordAddr, uint value) {
         RendezvousArbor? arbor = WriteArbor(wordAddr);
-        return arbor is null || arbor.TryWrite(value);
+        arbor?.TryWrite(value);
     }
 
     public bool IsReady(uint wordAddr, bool isRead) {

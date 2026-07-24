@@ -309,6 +309,15 @@ public class DirectoryBusTests {
 
     [Fact]
     public void DropIn_ReadWriteRead_MatchesMoesifBus() {
+        var mb = new FlatMemory(0x1000);
+        var db = new FlatMemory(0x1000);
+        ulong moesifBusResult = Scenario(new MoesifBus(mb));
+        ulong dirBusResult = Scenario(new DirectoryBus(db));
+
+        Assert.Equal(moesifBusResult, dirBusResult);
+        Assert.Equal(0x12345678UL, dirBusResult);
+        return;
+
         // Run the same R/W/R sequence through both buses and assert identical final states.
         static ulong Scenario(IBus bus) {
             MoesifCache c0 = new(bus, 256, 2, DirectoryBusTests.Block);
@@ -318,13 +327,5 @@ public class DirectoryBusTests {
             c1.Write(0x00, 0x12345678, 4);
             return c0.Read(0x00, 4); // c0 re-fetches; should get 0x12345678
         }
-
-        var mb = new FlatMemory(0x1000);
-        var db = new FlatMemory(0x1000);
-        ulong moesifBusResult = Scenario(new MoesifBus(mb));
-        ulong dirBusResult = Scenario(new DirectoryBus(db));
-
-        Assert.Equal(moesifBusResult, dirBusResult);
-        Assert.Equal(0x12345678UL, dirBusResult);
     }
 }

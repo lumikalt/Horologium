@@ -11,7 +11,7 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-///     CPI stacks via interval analysis (Eyerman et al., ASPLOS 2006) on OooeTrain.
+///     CPI stacks via interval analysis (Eyerman et al., ASPLOS 2006) on OooTrain.
 ///     <para>
 ///         Each test runs a hand-assembled RV32I program engineered to expose one miss-event
 ///         component and asserts that component dominates the stack, plus the structural
@@ -23,7 +23,7 @@ namespace Tests.RiscV32.Pipelines;
 public class CpiStackTests {
     private const uint Ebreak = 0x00100073;
 
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         int issueWidth = 2,
         int robCapacity = 32,
         MemoryConfig? iMemConfig = null,
@@ -31,7 +31,7 @@ public class CpiStackTests {
         FuLatencyConfig? fuLatency = null
     ) {
         var mem = new FlatMemory(65536);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -54,7 +54,7 @@ public class CpiStackTests {
         mem.Load(0, bytes);
     }
 
-    private static CpiStack RunAndAnalyze(OooeTrain train) {
+    private static CpiStack RunAndAnalyze(OooTrain train) {
         train.Run();
         CpiStack? stack = CpiStack.FromSnapshot(train.SnapshotPipeline());
         Assert.NotNull(stack);
@@ -71,7 +71,7 @@ public class CpiStackTests {
     public void Base_DominatesOnIndependentAluCode() {
         // 256 independent ALU ops, no caches, no mispredicted branches: nearly every cycle
         // is steady-state streaming, so the stack should be almost entirely base.
-        (OooeTrain train, FlatMemory mem) = Make();
+        (OooTrain train, FlatMemory mem) = Make();
         var program = new uint[257];
         for (var i = 0; i < 256; i++) program[i] = Addi(1 + i % 8, 0, i % 512);
         program[256] = CpiStackTests.Ebreak;
@@ -88,7 +88,7 @@ public class CpiStackTests {
     public void BranchMisprediction_DominatesOnMispredictedLoop() {
         // Countdown loop, backward branch taken 199 times against the default
         // always-not-taken predictor: every iteration pays a resolution + refill penalty.
-        (OooeTrain train, FlatMemory mem) = Make();
+        (OooTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             Addi(1, 0, 200), // addi x1, x0, 200
@@ -112,7 +112,7 @@ public class CpiStackTests {
         // penalty: every 8th fetch misses and freezes the frontend. All fetches are
         // correct-path, so the pending penalties must be posted (sFMT bit) — to the L1I
         // component, since the single-level I-side has no deeper victims.
-        (OooeTrain train, FlatMemory mem) = Make(
+        (OooTrain train, FlatMemory mem) = Make(
             iMemConfig: new MemoryConfig(256, CacheBlockBytes: 32, CacheMissLatency: 20)
         );
         var program = new uint[513];
@@ -135,7 +135,7 @@ public class CpiStackTests {
         // Pointer chase across 64 lines missing both D-cache levels (miss-to-memory):
         // the chain is longer than the 32-entry ROB, so the full ROB blocks on a head
         // load classified as a long L2 miss — the paper's canonical long backend miss.
-        (OooeTrain train, FlatMemory mem) = Make(
+        (OooTrain train, FlatMemory mem) = Make(
             dMemConfig: new MemoryConfig(
                 512, CacheBlockBytes: 32, CacheMissLatency: 10,
                 L2CapacityBytes: 1024, L2BlockBytes: 32, L2MissLatency: 50
@@ -169,7 +169,7 @@ public class CpiStackTests {
         // 40 serialized 20-cycle divides, more than the 32-entry ROB holds: the full ROB
         // blocks on an incomplete non-load head — the paper's long-latency unit stall
         // (which is also where pure dependence serialization lands).
-        (OooeTrain train, FlatMemory mem) = Make(fuLatency: new FuLatencyConfig(DivLatency: 20));
+        (OooTrain train, FlatMemory mem) = Make(fuLatency: new FuLatencyConfig(DivLatency: 20));
         var program = new uint[43];
         program[0] = Addi(1, 0, 1000);
         program[1] = Addi(2, 0, 3);

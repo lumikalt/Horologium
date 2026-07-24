@@ -1,6 +1,7 @@
 #region
 
 using System.Text;
+using JetBrains.Annotations;
 
 #endregion
 
@@ -33,9 +34,11 @@ public enum RvExtension : uint {
         = RvExtension.M | RvExtension.A | RvExtension.F | RvExtension.C | RvExtension.V | RvExtension.Zba
         | RvExtension.Zbb | RvExtension.Zbc | RvExtension.Zbs,
 
-    All = RvExtension.Default | RvExtension.Zicond | RvExtension.Zabha | RvExtension.Zacas | RvExtension.Zihpm
-        | RvExtension.Zawrs | RvExtension.Zicbom | RvExtension.Zicboz | RvExtension.Zcmop | RvExtension.Zimop
-        | RvExtension.Zicntr,
+    [UsedImplicitly] All = RvExtension.Default | RvExtension.Zicond | RvExtension.Zabha | RvExtension.Zacas
+                         | RvExtension.Zihpm
+                         | RvExtension.Zawrs | RvExtension.Zicbom | RvExtension.Zicboz | RvExtension.Zcmop
+                         | RvExtension.Zimop
+                         | RvExtension.Zicntr,
 }
 
 public static class RvExtensionMethods {
@@ -77,5 +80,7 @@ public static class RvExtensionMethods {
     public static string ToGasAbi(this RvExtension ext, int xlen = 32) =>
         xlen == 64
             ? ext.HasFlag(RvExtension.F) ? "lp64f" : "lp64"
-            : ext.HasFlag(RvExtension.F) ? "ilp32f" : "ilp32";
+            : ext.HasFlag(RvExtension.F)
+                ? "ilp32f"
+                : "ilp32";
 }

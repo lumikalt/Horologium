@@ -60,34 +60,44 @@ public partial class ConfiguratorView : UserControl {
     }
 
     private async void OnBrowseWorkloadClick(object? sender, RoutedEventArgs e) {
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel is null) return;
-        IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(
-            new FilePickerOpenOptions { Title = "Open ELF Binary", AllowMultiple = false, }
-        );
-        if (files.Count > 0) _vm?.SetWorkloadPath(files[0].Path.LocalPath);
+        try {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel is null) return;
+            IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(
+                new FilePickerOpenOptions { Title = "Open ELF Binary", AllowMultiple = false, }
+            );
+            if (files.Count > 0) _vm?.SetWorkloadPath(files[0].Path.LocalPath);
+        }
+        catch (Exception) {
+            // ignored
+        }
     }
 
     // Saves the current buffer to disk and starts watching it, so the user can switch to a real
     // editor (Rider, vim, …) for tooling this in-app editor doesn't have (no completion/diagnostics).
     private async void OnSaveScriptClick(object? sender, RoutedEventArgs e) {
-        if (_vm is null) return;
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel is null) return;
-        IStorageFile? file = await topLevel.StorageProvider.SaveFilePickerAsync(
-            new FilePickerSaveOptions {
-                Title = "Save Architecture Script",
-                DefaultExtension = "csx",
-                SuggestedFileName = "architecture",
-                FileTypeChoices = [new FilePickerFileType("C# Script") { Patterns = ["*.csx",], },],
-            }
-        );
-        if (file is null) return;
+        try {
+            if (_vm is null) return;
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel is null) return;
+            IStorageFile? file = await topLevel.StorageProvider.SaveFilePickerAsync(
+                new FilePickerSaveOptions {
+                    Title = "Save Architecture Script",
+                    DefaultExtension = "csx",
+                    SuggestedFileName = "architecture",
+                    FileTypeChoices = [new FilePickerFileType("C# Script") { Patterns = ["*.csx",], },],
+                }
+            );
+            if (file is null) return;
 
-        await _vm.SetScriptFilePathAsync(file.Path.LocalPath);
+            await _vm.SetScriptFilePathAsync(file.Path.LocalPath);
 
-        // Best-effort — no associated app for .csx is a normal outcome, not an error to surface.
-        try { Process.Start(new ProcessStartInfo(file.Path.LocalPath) { UseShellExecute = true, }); }
-        catch (Win32Exception) { }
+            // Best-effort — no associated app for .csx is a normal outcome, not an error to surface.
+            try { Process.Start(new ProcessStartInfo(file.Path.LocalPath) { UseShellExecute = true, }); }
+            catch (Win32Exception) { }
+        }
+        catch (Exception) {
+            // ignored
+        }
     }
 }

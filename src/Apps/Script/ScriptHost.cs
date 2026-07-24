@@ -69,12 +69,6 @@ public static class ScriptHost {
         return spec;
     }
 
-    /// <summary>Evaluates an F# script string and returns the resulting <see cref="MachineSpec" />.</summary>
-    public static Task<MachineSpec> EvaluateFsxAsync(
-        string source,
-        CancellationToken ct = default
-    ) => FSharpScriptHost.EvaluateAsync(source, "<fsx>", ct);
-
     private static async Task<MachineSpec> EvaluateCsxFileAsync(string path, CancellationToken ct) {
         string source = await File.ReadAllTextAsync(path, ct);
         return await EvaluateCsxAsync(source, ct);

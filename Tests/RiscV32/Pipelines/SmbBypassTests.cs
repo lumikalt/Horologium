@@ -14,7 +14,7 @@ namespace Tests.RiscV32.Pipelines;
 /// <summary>
 ///     Pipeline-level invariant tests for NoSQ speculative memory bypassing (Sha, Martin
 ///     &amp; Roth, MICRO 2006; Tyson &amp; Austin, MICRO 1997) as wired into
-///     <see cref="OooeTrain" /> via <c>enableSmbBypass</c> (<see cref="SmbPredictor" />).
+///     <see cref="OooTrain" /> via <c>enableSmbBypass</c> (<see cref="SmbPredictor" />).
 ///     <para>
 ///         A bypassed load still executes for real through the ordinary pipeline in the
 ///         background; the early bypass only supplies a speculative early result. Every test
@@ -24,7 +24,7 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class SmbBypassTests {
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         bool enableSmbBypass,
         int issueWidth = 2,
         int robCapacity = 32,
@@ -32,7 +32,7 @@ public class SmbBypassTests {
         int memSize = 4096
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -54,7 +54,7 @@ public class SmbBypassTests {
         mem.Load(0, bytes);
     }
 
-    private static void AssertIdenticalArchState(OooeTrain off, OooeTrain on) {
+    private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
             Assert.Equal(off.ArchState.IntegerRegisters.Read(r), on.ArchState.IntegerRegisters.Read(r));
     }
@@ -91,8 +91,8 @@ public class SmbBypassTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -144,8 +144,8 @@ public class SmbBypassTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -186,8 +186,8 @@ public class SmbBypassTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 

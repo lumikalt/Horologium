@@ -85,7 +85,7 @@ public class MachineSpecFdipTests {
 
     [Fact]
     public void Fdip_OoO_ViaSplitIdMachineSpec_MatchesDirectConstructionICacheAccessCount() {
-        var direct = new OooeTrain(
+        var direct = new OooTrain(
             new Rv32Mechanism(), LoadedMem(), iMemConfig: IMemConfig(),
             fdipFtqCapacity: 32
         );
@@ -108,7 +108,7 @@ public class MachineSpecFdipTests {
     }
 
     // A Unified cache carries both I and D traffic through one instance — there's no direct-
-    // construction equivalent to cross-check Hits+Misses against (FiveStageTrain/OooeTrain's public
+    // construction equivalent to cross-check Hits+Misses against (FiveStageTrain/OooTrain's public
     // ctor always builds separate I/D cache instances even given identical configs), so these just
     // confirm FDIP actually engages, which is the thing that was structurally broken.
     [Fact]

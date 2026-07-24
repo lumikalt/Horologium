@@ -50,7 +50,6 @@ public sealed record Opr2Op(
     bool Sza,
     bool Snl,
     bool Hlt,
-    bool Osr,
     bool OrMode
 ) : Pdp8Op;
 

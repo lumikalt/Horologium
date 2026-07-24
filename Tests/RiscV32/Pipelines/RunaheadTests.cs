@@ -15,7 +15,7 @@ namespace Tests.RiscV32.Pipelines;
 /// <summary>
 ///     Pipeline-level invariant tests for runahead execution (Mutlu et al., HPCA 2003; Naithani
 ///     et al., HPCA 2020 "Precise Runahead Execution" / ISCA 2021 "Vector Runahead") as wired
-///     into <see cref="OooeTrain" /> via <c>enableRunahead</c>/<c>runaheadBudget</c>.
+///     into <see cref="OooTrain" /> via <c>enableRunahead</c>/<c>runaheadBudget</c>.
 ///     <para>
 ///         The shadow lane never commits anything to a real architectural state — every real
 ///         instruction is still fetched, dispatched, and executed for real once ROB room frees
@@ -26,7 +26,7 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class RunaheadTests {
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         bool enableRunahead,
         int runaheadBudget = 200,
         int issueWidth = 2,
@@ -35,7 +35,7 @@ public class RunaheadTests {
         int memSize = 4096
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -59,7 +59,7 @@ public class RunaheadTests {
         mem.Load(0, bytes);
     }
 
-    private static void AssertIdenticalArchState(OooeTrain off, OooeTrain on) {
+    private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
             Assert.Equal(off.ArchState.IntegerRegisters.Read(r), on.ArchState.IntegerRegisters.Read(r));
     }
@@ -107,8 +107,8 @@ public class RunaheadTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -154,8 +154,8 @@ public class RunaheadTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -174,7 +174,7 @@ public class RunaheadTests {
     ///         x12,0(x10)
     ///     </c>
     ///     ) — the shadow store-to-load forwarding path within a single episode.
-    ///     <see cref="OooeTrain" />'s shadow store buffer is scratch-only and is never applied to
+    ///     <see cref="OooTrain" />'s shadow store buffer is scratch-only and is never applied to
     ///     real memory; the real store still executes for real once the ROB drains (there is no
     ///     way to externally observe an intra-episode-only value, since nothing shadow-computed
     ///     is ever kept — this is a deliberate part of the design, not a test gap). What this
@@ -202,8 +202,8 @@ public class RunaheadTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -222,7 +222,7 @@ public class RunaheadTests {
     ///     ROB (load, addi, mul, beq, x5..x8 = 8 entries) before the branch actually completes.
     ///     A runahead episode is therefore already active when the branch resolves taken
     ///     (mispredicting <see cref="AlwaysNotTakenPredictor" />) and squashes
-    ///     the wrong-path entries. <see cref="OooeTrain" />'s flush path must restore the RAT
+    ///     the wrong-path entries. <see cref="OooTrain" />'s flush path must restore the RAT
     ///     from the episode's snapshot before the squash's own walk-back runs. Assembled from:
     ///     <c>
     ///         addi x1,x0,400; lw x2,0(x1); addi x3,x0,5; mul x4,x3,x3; beq x4,x4,taken; addi
@@ -249,8 +249,8 @@ public class RunaheadTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -310,8 +310,8 @@ public class RunaheadTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true, 4);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true, 4);
         Load(memOff, program);
         Load(memOn, program);
 

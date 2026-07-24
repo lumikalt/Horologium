@@ -31,7 +31,7 @@ public sealed record HartSpec(
 );
 
 /// <summary>
-///     The assembled multicore system produced by <see cref="MulticoreSpec.Build" />.
+///     The assembled multicore system produced by <see cref="MulticoreSpec.Build(IMemory)" />.
 ///     <para>
 ///         Topology from backing outward, per pool: backing → [LLC] → bus → [per-hart private
 ///         caches] → per-hart train. Run all harts via <see cref="Run" />; inspect per-hart trains
@@ -112,7 +112,7 @@ public sealed class MulticoreHandle {
     ///     private cache down to backing memory, without evicting or changing coherence state.
     ///     Call this after <see cref="Run" />/<see cref="RunConcurrent" /> before inspecting final
     ///     memory state directly (e.g. through the <see cref="IMemory" /> originally passed to
-    ///     <see cref="MulticoreSpec.Build" />) — a write-back cache's freshest data otherwise stays
+    ///     <see cref="MulticoreSpec.Build(IMemory)" />) — a write-back cache's freshest data otherwise stays
     ///     uncommitted indefinitely if its line is never evicted.
     ///     <para>
     ///         Does not walk inner (non-coherent) private levels below the outermost per hart —
@@ -168,19 +168,8 @@ public sealed record MulticoreSpec(
                 "ConcurrentMode requires a snooping bus (DeferredBus wraps MoesifBus only)."
             );
 
-        // PoolReservationTables, when set, is the sole source of truth for every pool (including
-        // pool 0) — combining it with the singular ReservationTable below would leave two ambiguous
-        // sources for pool 0's table. When unset (the default, and every pre-multi-pool caller's
-        // case), ReservationTable applies to pool 0 only, exactly as before this field existed.
-        ReservationTable? TableForPool(int poolId) =>
-            PoolReservationTables is { } tables ? tables.GetValueOrDefault(poolId) :
-            poolId == 0 ? ReservationTable : null;
-
-        var poolIds = new List<int>();
         var seenPools = new HashSet<int>();
-        foreach (HartSpec h in Harts)
-            if (seenPools.Add(h.PoolId))
-                poolIds.Add(h.PoolId);
+        List<int> poolIds = (from h in Harts where seenPools.Add(h.PoolId) select h.PoolId).ToList();
 
         var busesByPool = new Dictionary<int, IBus>(poolIds.Count);
         var llcsByPool = new Dictionary<int, SetAssociativeCache?>(poolIds.Count);
@@ -239,7 +228,8 @@ public sealed record MulticoreSpec(
         DeferredBus[]? deferredBuses = null;
         if (ConcurrentMode) {
             deferredBuses = new DeferredBus[Harts.Count];
-            for (var i = 0; i < Harts.Count; i++) deferredBuses[i] = new DeferredBus(moesifBusesByPool[Harts[i].PoolId]);
+            for (var i = 0; i < Harts.Count; i++)
+                deferredBuses[i] = new DeferredBus(moesifBusesByPool[Harts[i].PoolId]);
         }
 
         // 3. Per-hart private cache stacks and pipeline trains.
@@ -293,5 +283,13 @@ public sealed record MulticoreSpec(
 
         int primaryPoolId = Harts.Count > 0 ? Harts[0].PoolId : 0;
         return new MulticoreHandle(trains, busesByPool, llcsByPool, coherentCaches, primaryPoolId, deferredBuses);
+
+        // PoolReservationTables, when set, is the sole source of truth for every pool (including
+        // pool 0) — combining it with the singular ReservationTable below would leave two ambiguous
+        // sources for pool 0's table. When unset (the default, and every pre-multi-pool caller's
+        // case), ReservationTable applies to pool 0 only, exactly as before this field existed.
+        ReservationTable? TableForPool(int poolId) =>
+            PoolReservationTables != null ? PoolReservationTables.GetValueOrDefault(poolId) :
+            poolId == 0                   ? ReservationTable : null;
     }
 }

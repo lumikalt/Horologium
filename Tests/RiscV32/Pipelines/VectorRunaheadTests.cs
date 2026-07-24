@@ -15,7 +15,7 @@ namespace Tests.RiscV32.Pipelines;
 /// <summary>
 ///     Pipeline-level invariant tests for Vector Runahead (Naithani, Ainsworth, Jones &amp;
 ///     Eeckhout, ISCA 2021) — the vectorized extension of scalar runahead execution (see
-///     <see cref="RunaheadTests" />) implemented in <see cref="OooeTrain" /> via
+///     <see cref="RunaheadTests" />) implemented in <see cref="OooTrain" /> via
 ///     <c>enableVectorRunahead</c>/<c>runaheadVectorWidth</c>.
 ///     <para>
 ///         As with scalar runahead, the shadow lane never commits anything to real architectural
@@ -26,7 +26,7 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class VectorRunaheadTests {
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         bool enableRunahead,
         bool enableVectorRunahead = false,
         int runaheadVectorWidth = 8,
@@ -37,7 +37,7 @@ public class VectorRunaheadTests {
         int memSize = 4096
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -67,7 +67,7 @@ public class VectorRunaheadTests {
         mem.Load(0, bytes);
     }
 
-    private static void AssertIdenticalArchState(OooeTrain off, OooeTrain on) {
+    private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
             Assert.Equal(off.ArchState.IntegerRegisters.Read(r), on.ArchState.IntegerRegisters.Read(r));
     }
@@ -112,8 +112,8 @@ public class VectorRunaheadTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true, true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true, true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -166,8 +166,8 @@ public class VectorRunaheadTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true, true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true, true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -204,8 +204,8 @@ public class VectorRunaheadTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain scalar, FlatMemory memScalar) = Make(true);
-        (OooeTrain vector, FlatMemory memVector) = Make(true, true);
+        (OooTrain scalar, FlatMemory memScalar) = Make(true);
+        (OooTrain vector, FlatMemory memVector) = Make(true, true);
         Load(memScalar, program);
         Load(memVector, program);
 

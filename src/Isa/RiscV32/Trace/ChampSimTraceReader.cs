@@ -61,7 +61,7 @@ public sealed class ChampSimTraceReader : IDisposable {
             var srcRegs = new byte[ChampSimTraceReader.NumSources];
             Array.Copy(buf, 10 + ChampSimTraceReader.NumDestinations, srcRegs, 0, ChampSimTraceReader.NumSources);
 
-            int memOffset = 10 + ChampSimTraceReader.NumDestinations + ChampSimTraceReader.NumSources;
+            const int memOffset = 10 + ChampSimTraceReader.NumDestinations + ChampSimTraceReader.NumSources;
             var destMem = new ulong[ChampSimTraceReader.NumDestinations];
             for (var i = 0; i < ChampSimTraceReader.NumDestinations; i++)
                 destMem[i] = BitConverter.ToUInt64(buf, memOffset + i * 8);
@@ -73,7 +73,7 @@ public sealed class ChampSimTraceReader : IDisposable {
         }
     }
 
-    /// <summary>Reads until <paramref name="buffer" /> is full or the stream is exhausted.</summary>
+    /// <summary>Reads until <paramref name="buffer" /> is full, or the stream is exhausted.</summary>
     private int ReadFully(byte[] buffer) {
         var total = 0;
         while (total < buffer.Length) {

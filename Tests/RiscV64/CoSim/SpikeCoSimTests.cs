@@ -16,7 +16,7 @@ namespace Tests.RiscV64.CoSim;
 ///     lock-step co-simulation contract against Spike, retargeted to
 ///     <see cref="Rv64Mechanism" />/<see cref="Rv64ElfWorkload" /> and the
 ///     <c>rv64imafdc</c> ISA string (IMAFDC — no V; RV64+V co-sim parity is out of
-///     scope here, see TODO.md).
+///     scope here).
 ///     <para>
 ///         The cheap-tier fixtures are ported: test64.elf/rich64.elf/htif64.elf, the
 ///         official riscv-tests rv64u* conformance ELFs (already built by
@@ -91,7 +91,7 @@ public class SpikeCoSimTests {
         switch (trainFactory(new Rv64Mechanism(tohost), mem, workload.EntryPoint, cosim)) {
             case SingleCycleTrain t: t.Run(); break;
             case FiveStageTrain t:   t.Run(); break;
-            case OooeTrain t:        t.Run(); break;
+            case OooTrain t:         t.Run(); break;
             default:                 throw new InvalidOperationException("unknown train");
         }
     }
@@ -102,7 +102,7 @@ public class SpikeCoSimTests {
     private static FiveStageTrain FiveStage(IMechanism m, IMemory mem, ulong pc, ICommitObserver o) =>
         new(m, mem, pc, commitObserver: o);
 
-    private static OooeTrain Oooe(IMechanism m, IMemory mem, ulong pc, ICommitObserver o) =>
+    private static OooTrain Oooe(IMechanism m, IMemory mem, ulong pc, ICommitObserver o) =>
         new(m, mem, pc, commitObserver: o);
 
     // ── test64.elf: simple RV64I golden path ────────────────────────────────────

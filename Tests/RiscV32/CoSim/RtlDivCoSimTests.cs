@@ -99,7 +99,7 @@ public sealed class RtlDivCoSimTests {
         for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), words[i]);
         mem.Load(0, bytes);
 
-        var train = new OooeTrain(mech, mem);
+        var train = new OooTrain(mech, mem);
         long cycles = train.Run().Find("ooo.pipeline")!.Counters["cycles"];
         return ((uint)train.ArchState.IntegerRegisters.Read(3), cycles);
     }

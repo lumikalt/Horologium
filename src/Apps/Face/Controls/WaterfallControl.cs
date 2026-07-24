@@ -75,7 +75,7 @@ public sealed class WaterfallControl : Control {
     public static readonly StyledProperty<bool> IsDarkProperty =
         AvaloniaProperty.Register<WaterfallControl, bool>(nameof(IsDark), true);
 
-    public static readonly StyledProperty<WaterfallRow?> SelectedRowProperty =
+    private static readonly StyledProperty<WaterfallRow?> SelectedRowProperty =
         AvaloniaProperty.Register<WaterfallControl, WaterfallRow?>(nameof(SelectedRow));
 
     private double _cellW = WaterfallControl.DefaultCellW;
@@ -263,6 +263,8 @@ public sealed class WaterfallControl : Control {
             }
             else { DrawSpans(); }
 
+            continue;
+
             void DrawSpans() {
                 foreach (PSpan span in row.Spans) {
                     if (!WaterfallControl.KindStyle.TryGetValue(span.Stage, out (IBrush Bg, string Label) style))
@@ -357,6 +359,8 @@ public sealed class WaterfallControl : Control {
                     DrawGutterText();
                 }
                 else { DrawGutterText(); }
+
+                continue;
 
                 void DrawGutterText() {
                     DrawFt(ctx, row.InstrId.ToString(), labelFg, 10, new Point(sx + 4, rowY + 4));

@@ -124,7 +124,7 @@ public sealed class FetchStage(
         // jumps/calls are always taken to their known target and bypass the predictor
         // (mirrors gem5, which never direction-predicts unconditional branches).
         BranchPrediction pred;
-        if (hint.IsUnconditional && hint.BranchTarget.HasValue)
+        if (hint is { IsUnconditional: true, BranchTarget.HasValue: true, })
             pred = BranchPrediction.Taken(hint.BranchTarget.Value);
         else if (hint.IsBranch)
             pred = predictor.Predict(Pc, hint.BranchTarget);

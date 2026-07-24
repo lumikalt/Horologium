@@ -10,6 +10,8 @@ using RiscV64.Execute;
 using RiscV64.Memory;
 using RiscV64.State;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 #endregion
 
 namespace Tests.Isa.RiscV64;
@@ -27,7 +29,7 @@ public class Rv64Sv39Tests {
     private readonly Rv64Decoder _dec = new();
     private readonly Rv64Executor _exe = new();
 
-    private Rv64ArchState MakeState(params (int reg, ulong val)[] regs) {
+    private static Rv64ArchState MakeState(params (int reg, ulong val)[] regs) {
         var s = new Rv64ArchState();
         foreach ((int r, ulong v) in regs) s.IntegerRegisters.Write(r, v);
         return s;
@@ -103,8 +105,8 @@ public class Rv64Sv39Tests {
     [Fact]
     public void Execute_Store_Sv39_WriteProtected_RaisesStorePageFault() {
         (FlatMemory mem, ulong satp) = BuildSv39Memory();
-        ulong roPage = (5UL << 10) | 0b0101_0011UL; // A|U|R|V, no W, no D
-        mem.Write(0x3028UL, roPage, 8);             // L0 PT entry 5 → PA 0x5000
+        const ulong roPage = (5UL << 10) | 0b0101_0011UL; // A|U|R|V, no W, no D
+        mem.Write(0x3028UL, roPage, 8);                   // L0 PT entry 5 → PA 0x5000
         Rv64ArchState s = MakeState((2, 0x5000UL), (3, 0xABCDUL));
         SetSatp(s, mem, satp);
         s.PrivilegeLevel = RvPrivilege.User;
@@ -117,8 +119,8 @@ public class Rv64Sv39Tests {
     [Fact]
     public void Execute_Load_Sv39_AccessBitClear_RaisesLoadPageFault() {
         (FlatMemory mem, ulong satp) = BuildSv39Memory();
-        ulong noABit = (6UL << 10) | 0b0001_0111UL; // U|W|R|V, no A, no D
-        mem.Write(0x3030UL, noABit, 8);             // L0 PT entry 6
+        const ulong noABit = (6UL << 10) | 0b0001_0111UL; // U|W|R|V, no A, no D
+        mem.Write(0x3030UL, noABit, 8);                   // L0 PT entry 6
         Rv64ArchState s = MakeState((2, 0x6000UL));
         SetSatp(s, mem, satp);
         s.PrivilegeLevel = RvPrivilege.User;
@@ -130,8 +132,8 @@ public class Rv64Sv39Tests {
     [Fact]
     public void Execute_Load_Sv39_KernelPage_UserAccess_RaisesLoadPageFault() {
         (FlatMemory mem, ulong satp) = BuildSv39Memory();
-        ulong kernelPage = (7UL << 10) | 0b1100_0011UL; // D|A|R|V, no U, no W
-        mem.Write(0x3038UL, kernelPage, 8);             // L0 PT entry 7
+        const ulong kernelPage = (7UL << 10) | 0b1100_0011UL; // D|A|R|V, no U, no W
+        mem.Write(0x3038UL, kernelPage, 8);                   // L0 PT entry 7
         Rv64ArchState s = MakeState((2, 0x7000UL));
         SetSatp(s, mem, satp);
         s.PrivilegeLevel = RvPrivilege.User;
@@ -171,8 +173,8 @@ public class Rv64Sv39Tests {
     public void Fetch_Sv39_UserPage_SMode_SumEnabled_StillRaisesInstructionPageFault() {
         // SUM never grants S-mode instruction-fetch access to U-pages (priv spec §4.3.1).
         (FlatMemory mem, ulong satp) = BuildSv39Memory();
-        ulong execUserPte = (5UL << 10) | 0b0101_1111UL; // A|U|X|R|V
-        mem.Write(0x3010UL, execUserPte, 8);             // L0 entry 2 → VA 0x2000 → PA 0x5000
+        const ulong execUserPte = (5UL << 10) | 0b0101_1111UL; // A|U|X|R|V
+        mem.Write(0x3010UL, execUserPte, 8);                   // L0 entry 2 → VA 0x2000 → PA 0x5000
         Rv64ArchState s = MakeState();
         SetSatp(s, mem, satp);
         s.SystemRegisters.Write(CsrFile.Sstatus, CsrFile.SstatusSum, RvPrivilege.Machine);
@@ -210,7 +212,7 @@ public class Rv64Sv39Tests {
         (FlatMemory mem, ulong satp) = BuildSv39Memory();
         Rv64ArchState s = MakeState();
         SetSatp(s, mem, satp);
-        uint csrrsSatpRead = (CsrFile.Satp << 20) | (0u << 15) | (0b010u << 12) | (5u << 7) | 0x73;
+        const uint csrrsSatpRead = (CsrFile.Satp << 20) | (0u << 15) | (0b010u << 12) | (5u << 7) | 0x73;
         ExecuteResult r = Exec(csrrsSatpRead, s, mem);
         Assert.Null(r.Trap);
         Assert.Equal(satp, r.RegisterResult.Value);

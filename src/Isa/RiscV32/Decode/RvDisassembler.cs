@@ -194,9 +194,9 @@ public static class RvDisassembler {
             $"{(op.Ordered ? "vsoxseg" : "vsuxseg")}{op.NumFields}ei{op.IndexSew}.v v{op.Vs3}, ({Xi(op.Rs1)}), v{op.Vs2}{MaskSuffix(op.Masked)}",
         // vmv.v.v/vx/vi is encoded as a plain ALU op with vs2 forced to 0 (unused) — drop it
         // from the printed form; it's a 2-operand broadcast/copy, not a 3-operand ALU op.
-        RvVIntAluVv op when op.Op == VIntOp.Mov => $"vmv.v.v v{op.Vd}, v{op.Vs1}{MaskSuffix(op.Masked)}",
-        RvVIntAluVx op when op.Op == VIntOp.Mov => $"vmv.v.x v{op.Vd}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
-        RvVIntAluVi op when op.Op == VIntOp.Mov => $"vmv.v.i v{op.Vd}, {op.Imm}{MaskSuffix(op.Masked)}",
+        RvVIntAluVv { Op: VIntOp.Mov, } op => $"vmv.v.v v{op.Vd}, v{op.Vs1}{MaskSuffix(op.Masked)}",
+        RvVIntAluVx { Op: VIntOp.Mov, } op => $"vmv.v.x v{op.Vd}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
+        RvVIntAluVi { Op: VIntOp.Mov, } op => $"vmv.v.i v{op.Vd}, {op.Imm}{MaskSuffix(op.Masked)}",
         RvVIntAluVv op => $"{VIntStr(op.Op)}.vv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
         RvVIntAluVx op => $"{VIntStr(op.Op)}.vx v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
         RvVIntAluVi op => $"{VIntStr(op.Op)}.vi v{op.Vd}, v{op.Vs2}, {op.Imm}{MaskSuffix(op.Masked)}",

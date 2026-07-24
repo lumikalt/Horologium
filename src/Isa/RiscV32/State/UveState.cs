@@ -30,7 +30,7 @@ public sealed class UveState : IUveScalars {
     ///     reaches u9), while staying well below the 32-register ceiling imposed by the 5-bit
     ///     ud/rs1/rs2/rs3 encoding fields (<see cref="Count" />) — ids at or above this value remain
     ///     free for arithmetic-only scratch/broadcast operands, which are never bound to a real stream.
-    ///     Not itself a hard limit: any caller building an <c>OooeTrain</c> for RV32/UVE can pass a
+    ///     Not itself a hard limit: any caller building an <c>OooTrain</c> for RV32/UVE can pass a
     ///     different <c>streamMaxCount</c> if a future kernel needs more.
     /// </summary>
     public const int RecommendedStreamCapacity = 16;
@@ -221,8 +221,7 @@ public sealed class UveStoreStream {
 
     public ulong CurrentAddress {
         get {
-            long offset = 0;
-            for (var i = 0; i < Dimensions.Length; i++) offset += Indices[i] * Dimensions[i].Stride + _offsets[i];
+            long offset = Dimensions.Select((t, i) => Indices[i] * t.Stride + _offsets[i]).Sum();
             return (ulong)((long)BaseAddress + offset);
         }
     }
@@ -257,12 +256,11 @@ public sealed class UveStoreStream {
     // (SourceStreamId >= 0) are skipped — not supported on store streams yet.
     private void ApplyModifiers(int wrappedDim) {
         if (Modifiers is not { Length: > 0, } mods) return;
-        for (var i = 0; i < mods.Length; i++) {
-            StreamModifier m = mods[i];
-            if (m.TriggerDim != wrappedDim || m.SourceStreamId >= 0) continue;
-            long delta = m.Behavior == StreamModifierBehavior.Inc ? m.Displacement : -m.Displacement;
-            int t = m.TargetDim;
-            switch (m.Target) {
+        foreach ((int triggerDim, int t, StreamModifierTarget streamModifierTarget,
+                  StreamModifierBehavior streamModifierBehavior, long displacement, int sourceStreamId) in mods) {
+            if (triggerDim != wrappedDim || sourceStreamId >= 0) continue;
+            long delta = streamModifierBehavior == StreamModifierBehavior.Inc ? displacement : -displacement;
+            switch (streamModifierTarget) {
                 case StreamModifierTarget.Size:
                     Dimensions[t] = Dimensions[t] with { Count = Math.Max(0, Dimensions[t].Count + delta), };
                     break;
@@ -270,6 +268,7 @@ public sealed class UveStoreStream {
                     Dimensions[t] = Dimensions[t] with { Stride = Dimensions[t].Stride + delta, };
                     break;
                 case StreamModifierTarget.Offset: _offsets[t] = Math.Max(0, _offsets[t] + delta * ElementBytes); break;
+                default:                          throw new ArgumentOutOfRangeException();
             }
         }
     }
@@ -278,8 +277,7 @@ public sealed class UveStoreStream {
     // trigger wraps — mirrors StreamState.ResetFetchModifiers.
     private void ResetModifiers(int triggerDim) {
         if (Modifiers is not { Length: > 0, } mods) return;
-        for (var i = 0; i < mods.Length; i++) {
-            StreamModifier m = mods[i];
+        foreach (StreamModifier m in mods) {
             if (m.TriggerDim != triggerDim) continue;
             switch (m.Target) {
                 case StreamModifierTarget.Size:

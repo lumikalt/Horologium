@@ -53,8 +53,3 @@ free embedded suites are runnable in full today.
   interval's startup-/shutdown-edge phases measures correctly too), `--bench-config` batch mode, and
   `--simpoint-argv` CLI wiring for real ELFs. **Blocked on the SPEC license itself, not on remaining
   code**: missing a license currently.
-
-## Face
-
-- [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes.
-- [ ] More intuitive ways to visualize prefetching, cache policies, branch prediction, etc.

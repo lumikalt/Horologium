@@ -186,7 +186,7 @@ public sealed class IttagePredictor : IBranchPredictor {
 
     // ── Index / tag helpers (same folding scheme as LTageBp) ───────────
 
-    private int BaseIdx(ulong pc) =>
+    private static int BaseIdx(ulong pc) =>
         (int)((pc >> 2) & ((1u << IttagePredictor.BaseIndexBits) - 1));
 
     private int TableIdx(ulong pc, int t) {

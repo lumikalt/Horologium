@@ -12,12 +12,12 @@ public sealed class Pdp8ArchState : IArchState {
 
     public Pdp8ArchState() => IntegerRegisters = _regs;
 
-    public ulong Ac {
+    private ulong Ac {
         get => _regs.Read(0);
         set => _regs.Write(0, value);
     }
 
-    public ulong L {
+    private ulong L {
         get => _regs.Read(1);
         set => _regs.Write(1, value);
     }
@@ -32,9 +32,11 @@ public sealed class Pdp8ArchState : IArchState {
     public ISystemRegisters SystemRegisters => NullSystemRegisters.Instance;
 
     public IArchState Snapshot() {
-        var s = new Pdp8ArchState { Pc = Pc, PrivilegeLevel = PrivilegeLevel, };
-        s.Ac = Ac;
-        s.L = L;
+        var s = new Pdp8ArchState {
+            Pc = Pc, PrivilegeLevel = PrivilegeLevel,
+            Ac = Ac,
+            L = L,
+        };
         return s;
     }
 

@@ -79,9 +79,9 @@ internal static class Sv39Walker {
         if (umode && !pteU) return (0, fault);                    // U-mode accessing kernel page
         if (smode && pteU && (!sum || isExec)) return (0, fault); // S-mode/U-page: deny unless SUM=1 and data access
 
-        if (isExec && (pte & Sv39Walker.PteX) == 0) return (0, fault);
-        if (isWrite && (pte & Sv39Walker.PteW) == 0) return (0, fault);
-        if (!isWrite && !isExec && (pte & Sv39Walker.PteR) == 0) return (0, fault);
+        if ((isExec && (pte & Sv39Walker.PteX) == 0) || (isWrite && (pte & Sv39Walker.PteW) == 0)
+                                                     || (!isWrite && !isExec && (pte & Sv39Walker.PteR) == 0))
+            return (0, fault);
 
         // A/D bit check (fault-on-access model)
         if ((pte & Sv39Walker.PteA) == 0) return (0, fault);
@@ -92,9 +92,12 @@ internal static class Sv39Walker {
         ulong ppn1 = (ppnFull >> 9) & 0x1FF;
         ulong ppn0 = ppnFull & 0x1FF;
 
-        // Superpage misalignment: any PPN field below the leaf's level must be zero in the PTE.
-        if (level >= 1 && ppn0 != 0) return (0, fault);
-        if (level == 2 && ppn1 != 0) return (0, fault);
+        switch (level) {
+            // Superpage misalignment: any PPN field below the leaf's level must be zero in the PTE.
+            case >= 1 when ppn0 != 0:
+            case 2 when ppn1 != 0:
+                return (0, fault);
+        }
 
         ulong paPpn1 = level <= 1 ? ppn1 : vpn1;
         ulong paPpn0 = level == 0 ? ppn0 : vpn0;

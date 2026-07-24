@@ -174,14 +174,14 @@ public class ExperimentTests {
         // the cache, so they aren't re-asserted here — the AttachInner-driven copy-down/eviction-
         // handoff and victim-hit-latency behavior they control are already covered directly against
         // SetAssociativeCache in Tests/Orrery/CacheTests.cs).
-        MemoryLayers iLayers = MemoryLayers.Build(new FlatMemory(0x10000), iMem);
+        var iLayers = MemoryLayers.Build(new FlatMemory(0x10000), iMem);
         Assert.NotNull(iLayers.Cache);
         Assert.Equal(4, iLayers.Cache.BankCount);
         Assert.Equal(2, iLayers.Cache.ReadPorts);
         Assert.Equal(1, iLayers.Cache.WritePorts);
         Assert.Equal(4, iLayers.Cache.VictimCacheEntries);
 
-        MemoryLayers dLayers = MemoryLayers.Build(new FlatMemory(0x10000), dMem);
+        var dLayers = MemoryLayers.Build(new FlatMemory(0x10000), dMem);
         Assert.NotNull(dLayers.Cache);
         Assert.Equal(16, dLayers.Cache.SectorBytes);
     }

@@ -8,7 +8,7 @@ using Mechanism.BranchPred;
 namespace Tests.Mechanism;
 
 public class LTageBranchPredictionTests {
-    // ── Cold-miss / base behaviour ────────────────────────────────────────────
+    // ── Cold-miss / base behavior ────────────────────────────────────────────
 
     [Fact]
     public void ColdMiss_PredictsFallThrough() {
@@ -21,7 +21,7 @@ public class LTageBranchPredictionTests {
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
         var p = new LTageBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 16; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
         Assert.True(pred.PredictedTaken);
@@ -31,7 +31,7 @@ public class LTageBranchPredictionTests {
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
         var p = new LTageBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 16; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
     }
@@ -45,7 +45,7 @@ public class LTageBranchPredictionTests {
         // (We can't easily reach "predicted taken but no BTB" in LTage because
         //  the first update populates BTB at the same time as training. Instead
         //  verify that a taken prediction returns the recorded BTB target.)
-        ulong pc = 0x200;
+        const ulong pc = 0x200;
         for (var i = 0; i < 16; i++) p.Update(pc, true, 0x400);
         Assert.Equal(0x400UL, p.Predict(pc).PredictedTarget);
     }
@@ -58,7 +58,7 @@ public class LTageBranchPredictionTests {
         // After LoopConfidence (4) consistent exits the loop predictor should
         // be confident and predict the pattern exactly.
         var p = new LTageBp();
-        ulong pc = 0x3000;
+        const ulong pc = 0x3000;
         const ulong target = 0x2F00;
         const int tripCount = 3;
 
@@ -82,7 +82,7 @@ public class LTageBranchPredictionTests {
     [Fact]
     public void LoopPredictor_TripCountChange_DropConfidence() {
         var p = new LTageBp();
-        ulong pc = 0x4000;
+        const ulong pc = 0x4000;
         const ulong target = 0x3F00;
 
         // Train with trip count = 4.
@@ -112,7 +112,7 @@ public class LTageBranchPredictionTests {
     [Fact]
     public void TwoBranches_DoNotInterfere() {
         var p = new LTageBp();
-        ulong pcA = 0x100, pcB = 0x200;
+        const ulong pcA = 0x100, pcB = 0x200;
         for (var i = 0; i < 20; i++) p.Update(pcA, true, 0x300);
         for (var i = 0; i < 20; i++) p.Update(pcB, false, pcB + 4);
         Assert.True(p.Predict(pcA).PredictedTaken);

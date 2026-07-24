@@ -98,7 +98,7 @@ public class RiscVTestSuiteTests {
         AssertPass(Gp(train.ArchState), name);
     }
 
-    // ── OooeTrain ─────────────────────────────────────────────────────────────
+    // ── OooTrain ─────────────────────────────────────────────────────────────
 
     [Theory]
     [MemberData(nameof(AllTests))]
@@ -107,7 +107,7 @@ public class RiscVTestSuiteTests {
         var mem = new FlatMemory(wl.MemorySize, wl.BaseAddress);
         wl.Load(mem);
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv64Mechanism(ebreakAlwaysHalts: true, wfiNeverHalts: true), mem, wl.EntryPoint
         );
         train.Run(400_000);

@@ -22,31 +22,21 @@ namespace Pipeline.Ooo;
 ///     get cleared before they matter; at and above 4096, rsort/qsort recover most of their
 ///     regression while towers/treesum keep their gains.
 /// </summary>
-internal sealed class StoreSetPredictor {
-    private readonly uint _clearPeriod;
-    private readonly ulong[] _lfst;    // LFST: (SSID-1) → last-dispatched-store SeqNo
-    private readonly ulong[] _seen1Pc; // load PC seen in one violation but not yet assigned SSID
-    private readonly int[] _ssit;      // SSIT slot → SSID (0 = unassigned)
-    private readonly int _ssitMask;
-    private readonly ulong[] _ssitPc; // PC that owns the slot; valid only when _ssit[slot] != 0
-    private readonly int _threshold;  // violations before SSID assignment (1 = original paper)
+internal sealed class StoreSetPredictor(
+    int ssitSize = 1024,
+    int lfstSize = 1024,
+    uint clearPeriod = 4_096,
+    int threshold = 2
+) {
+    private readonly ulong[] _lfst = new ulong[lfstSize];    // LFST: (SSID-1) → last-dispatched-store SeqNo
+    private readonly ulong[] _seen1Pc = new ulong[ssitSize]; // load PC seen in one violation but not yet assigned SSID
+    private readonly int[] _ssit = new int[ssitSize];        // SSIT slot → SSID (0 = unassigned)
+    private readonly int _ssitMask = ssitSize - 1;
+    private readonly ulong[] _ssitPc = new ulong[ssitSize]; // PC that owns the slot; valid only when _ssit[slot] != 0
+
+    // violations before SSID assignment (1 = original paper)
     private uint _loadCount;
     private int _nextSsid = 1;
-
-    public StoreSetPredictor(
-        int ssitSize = 1024,
-        int lfstSize = 1024,
-        uint clearPeriod = 4_096,
-        int threshold = 2
-    ) {
-        _ssit = new int[ssitSize];
-        _ssitPc = new ulong[ssitSize];
-        _lfst = new ulong[lfstSize];
-        _seen1Pc = new ulong[ssitSize];
-        _ssitMask = ssitSize - 1;
-        _clearPeriod = clearPeriod;
-        _threshold = threshold;
-    }
 
     private int SsitIdx(ulong pc) => (int)((pc >> 2) & (uint)_ssitMask);
 
@@ -73,7 +63,7 @@ internal sealed class StoreSetPredictor {
     ///     Periodically clears both tables to flush stale predictions.
     /// </summary>
     public ulong OnLoadDispatch(ulong pc) {
-        if (_clearPeriod > 0 && ++_loadCount % _clearPeriod == 0) ClearAll();
+        if (clearPeriod > 0 && ++_loadCount % clearPeriod == 0) ClearAll();
         int ssid = GetSsid(pc);
         return ssid == 0 ? 0 : _lfst[ssid - 1];
     }
@@ -87,7 +77,7 @@ internal sealed class StoreSetPredictor {
 
     /// <summary>
     ///     Called on a commit-time memory-order violation.
-    ///     Rule 1 (neither party has an SSID) requires <see cref="_threshold" /> violations
+    ///     Rule 1 (neither party has an SSID) requires <see cref="threshold" /> violations
     ///     before assigning a store set — absorbing one-shot violations without adding stalls.
     ///     Rules 2–4 bypass the threshold.
     /// </summary>
@@ -96,45 +86,53 @@ internal sealed class StoreSetPredictor {
         int storeSsid = GetSsid(storePc);
         int loadSsid = GetSsid(loadPc);
 
-        if (storeSsid == 0 && loadSsid == 0) {
-            // Rule 1: neither has a set yet.
-            if (_threshold <= 1) {
-                // Original paper behaviour: assign on first violation.
-                int s = AllocSsid();
-                SetSsid(storePc, s);
-                SetSsid(loadPc, s);
-            }
-            else {
-                // Confidence gate: promote to SSID only on the second violation.
-                int pendIdx = SsitIdx(loadPc);
-                if (_seen1Pc[pendIdx] == loadPc) {
-                    _seen1Pc[pendIdx] = 0;
+        switch (storeSsid) {
+            case 0 when loadSsid == 0: {
+                // Rule 1: neither has a set yet.
+                if (threshold <= 1) {
+                    // Original paper behaviour: assign on first violation.
                     int s = AllocSsid();
                     SetSsid(storePc, s);
                     SetSsid(loadPc, s);
                 }
-                else { _seen1Pc[pendIdx] = loadPc; }
+                else {
+                    // Confidence gate: promote to SSID only on the second violation.
+                    int pendIdx = SsitIdx(loadPc);
+                    if (_seen1Pc[pendIdx] == loadPc) {
+                        _seen1Pc[pendIdx] = 0;
+                        int s = AllocSsid();
+                        SetSsid(storePc, s);
+                        SetSsid(loadPc, s);
+                    }
+                    else { _seen1Pc[pendIdx] = loadPc; }
+                }
+
+                break;
             }
-        }
-        else if (storeSsid == 0) {
-            // Rule 2: load has a set, store joins it.
-            SetSsid(storePc, loadSsid);
-        }
-        else if (loadSsid == 0) {
-            // Rule 3: store has a set, load joins it.
-            SetSsid(loadPc, storeSsid);
-        }
-        else if (storeSsid != loadSsid) {
-            // Rule 4: merge — smaller SSID wins, remap all loser entries.
-            int winner = Math.Min(storeSsid, loadSsid);
-            int loser = Math.Max(storeSsid, loadSsid);
-            for (var i = 0; i < _ssit.Length; i++)
-                if (_ssit[i] == loser)
-                    _ssit[i] = winner;
-            int wi = winner - 1, li = loser - 1;
-            if (wi < _lfst.Length && li < _lfst.Length) {
-                if (_lfst[li] > _lfst[wi]) _lfst[wi] = _lfst[li];
-                _lfst[li] = 0;
+            case 0:
+                // Rule 2: load has a set, store joins it.
+                SetSsid(storePc, loadSsid);
+                break;
+            default: {
+                if (loadSsid == 0) {
+                    // Rule 3: store has a set, load joins it.
+                    SetSsid(loadPc, storeSsid);
+                }
+                else if (storeSsid != loadSsid) {
+                    // Rule 4: merge — smaller SSID wins, remap all loser entries.
+                    int winner = Math.Min(storeSsid, loadSsid);
+                    int loser = Math.Max(storeSsid, loadSsid);
+                    for (var i = 0; i < _ssit.Length; i++)
+                        if (_ssit[i] == loser)
+                            _ssit[i] = winner;
+                    int wi = winner - 1, li = loser - 1;
+                    if (wi < _lfst.Length && li < _lfst.Length) {
+                        if (_lfst[li] > _lfst[wi]) _lfst[wi] = _lfst[li];
+                        _lfst[li] = 0;
+                    }
+                }
+
+                break;
             }
         }
         // storeSsid == loadSsid: already in the same set.

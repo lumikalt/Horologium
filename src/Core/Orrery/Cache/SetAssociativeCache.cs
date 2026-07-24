@@ -641,6 +641,28 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     /// <summary>
+    ///     cbo.inval: invalidates the line covering <paramref name="address" /> and discards any
+    ///     dirty data without writing it back to backing. No-op if the line is not present.
+    /// </summary>
+    public void InvalidateLine(ulong address) {
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        if (way >= 0) {
+            ulong lineBase = address & ~(ulong)_offsetMask;
+            if (_dirty != null) _dirty[set][way] = false;
+            if (_sectorDirty != null) Array.Clear(_sectorDirty[set][way]);
+            _tags[set][way] = null;
+            DropInFlightPrefetch(lineBase);
+            DropInFlightMshr(lineBase);
+            return;
+        }
+
+        if (_victimBuffer == null) return;
+        int vSlot = FindVictimBufferSlot(set, tag);
+        if (vSlot >= 0) RemoveVictimBufferSlot(vSlot); // discard, no writeback
+    }
+
+    /// <summary>
     ///     Writes every dirty line (main array and victim buffer) to backing without
     ///     invalidating anything. For inspecting or comparing final backing-memory state after a
     ///     run ends — a write-back cache's freshest data can otherwise sit uncommitted
@@ -663,28 +685,6 @@ public sealed class SetAssociativeCache : IMemory {
             e.Dirty = false;
             _victimBuffer[i] = e;
         }
-    }
-
-    /// <summary>
-    ///     cbo.inval: invalidates the line covering <paramref name="address" /> and discards any
-    ///     dirty data without writing it back to backing. No-op if the line is not present.
-    /// </summary>
-    public void InvalidateLine(ulong address) {
-        Decompose(address, out int set, out ulong tag);
-        int way = FindWay(set, tag);
-        if (way >= 0) {
-            ulong lineBase = address & ~(ulong)_offsetMask;
-            if (_dirty != null) _dirty[set][way] = false;
-            if (_sectorDirty != null) Array.Clear(_sectorDirty[set][way]);
-            _tags[set][way] = null;
-            DropInFlightPrefetch(lineBase);
-            DropInFlightMshr(lineBase);
-            return;
-        }
-
-        if (_victimBuffer == null) return;
-        int vSlot = FindVictimBufferSlot(set, tag);
-        if (vSlot >= 0) RemoveVictimBufferSlot(vSlot); // discard, no writeback
     }
 
     /// <summary>

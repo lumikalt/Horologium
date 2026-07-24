@@ -188,7 +188,7 @@ public class MultiHartPipelineTests {
         Assert.Equal(99UL, train1.ArchState.IntegerRegisters.Read(1));
     }
 
-    // ── OooeTrain ─────────────────────────────────────────────────────────────
+    // ── OooTrain ─────────────────────────────────────────────────────────────
 
     [Fact]
     public void TwoOoOHarts_RunIndependently_BothProduceCorrectResult() {
@@ -200,8 +200,8 @@ public class MultiHartPipelineTests {
         mem0.Load(0x00, ToBytes(addi42, MultiHartPipelineTests.Ebreak));
         mem1.Load(0x00, ToBytes(addi99, MultiHartPipelineTests.Ebreak));
 
-        var train0 = new OooeTrain(new Rv32Mechanism(), mem0);
-        var train1 = new OooeTrain(new Rv32Mechanism(), mem1);
+        var train0 = new OooTrain(new Rv32Mechanism(), mem0);
+        var train1 = new OooTrain(new Rv32Mechanism(), mem1);
 
         new MultiHartPipeline(train0, train1).Run(1_000);
 
@@ -211,7 +211,7 @@ public class MultiHartPipelineTests {
 
     [Fact]
     public void OoOHarts_MoesifCoherence_StoreCommitsThenLoadSeesCoherentValue() {
-        // OooeTrain's PRF starts zeroed — ArchState.IntegerRegisters.Write does not seed the
+        // OooTrain's PRF starts zeroed — ArchState.IntegerRegisters.Write does not seed the
         // PRF, so all values must be computed within the programs (like addi x1,x0,42 above).
         //
         // H0 at 0x00: lui+addi build x1=0xCAFE; addi builds x2=0x200; sw x1,0(x2); ebreak
@@ -245,8 +245,8 @@ public class MultiHartPipelineTests {
         var cache0 = new MoesifCache(bus, 256, 2, 64);
         var cache1 = new MoesifCache(bus, 256, 2, 64);
 
-        var train0 = new OooeTrain(new Rv32Mechanism(), cache0);
-        var train1 = new OooeTrain(new Rv32Mechanism(), cache1, 0x40);
+        var train0 = new OooTrain(new Rv32Mechanism(), cache0);
+        var train1 = new OooTrain(new Rv32Mechanism(), cache1, 0x40);
 
         new MultiHartPipeline(train0, train1).Run(1_000);
 
@@ -303,7 +303,7 @@ public class MultiHartPipelineTests {
 
     [Fact]
     public void OooPipelinedHart_LrScAtomic_ScFailsWhenRemoteStoreIntervenes() {
-        // H0 (OooeTrain) at 0x00:
+        // H0 (OooTrain) at 0x00:
         //   li x2, 0x200         — address
         //   lr.w x1, (x2)        — reservation set at outer tick 6 (H0 StepExecute); x1 = 0
         //   sc.w x4, x1, (x2)   — rs2=x1 creates data-dep on lr.w; head-gated; executes at tick 8
@@ -334,7 +334,7 @@ public class MultiHartPipelineTests {
         var cache0 = new MoesifCache(bus, 256, 2, 64);
         var cache1 = new MoesifCache(bus, 256, 2, 64);
 
-        var train0 = new OooeTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
+        var train0 = new OooTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
         var train1 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 1), cache1, 0x80);
 
         new MultiHartPipeline(train0, train1).Run(5_000);
@@ -345,7 +345,7 @@ public class MultiHartPipelineTests {
 
     [Fact]
     public void OooPipelinedHart_LrScAtomic_ScSucceedsWithNoRemoteStore() {
-        // Same H0 OooeTrain LR/SC pair; H1 halts immediately without storing.
+        // Same H0 OooTrain LR/SC pair; H1 halts immediately without storing.
         // Reservation is never cancelled → SC.W succeeds (x4 = 0).
         const uint liX2 = 0x20000113;    // addi x2, x0, 0x200
         const uint lrW = 0x100120AF;     // lr.w x1, (x2)
@@ -360,7 +360,7 @@ public class MultiHartPipelineTests {
         var cache0 = new MoesifCache(bus, 256, 2, 64);
         var cache1 = new MoesifCache(bus, 256, 2, 64);
 
-        var train0 = new OooeTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
+        var train0 = new OooTrain(new Rv32Mechanism(reservationTable: table, hartId: 0), cache0);
         var train1 = new SingleCycleTrain(new Rv32Mechanism(reservationTable: table, hartId: 1), cache1, 0x80);
 
         new MultiHartPipeline(train0, train1).Run(5_000);
@@ -379,17 +379,6 @@ public class MultiHartPipelineTests {
         const uint addi42 = 0x02A00093;
         const uint addi99 = 0x06300093;
 
-        static (SingleCycleTrain t0, SingleCycleTrain t1) BuildSeq() {
-            var flat = new FlatMemory(0x100);
-            flat.Load(0x00, ToBytes(addi42, MultiHartPipelineTests.Ebreak));
-            flat.Load(0x40, ToBytes(addi99, MultiHartPipelineTests.Ebreak));
-            var bus = new MoesifBus(flat);
-            var t0 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(bus, 256, 2, 64));
-            var t1 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(bus, 256, 2, 64), 0x40);
-            new MultiHartPipeline(t0, t1).Run(1_000);
-            return (t0, t1);
-        }
-
         (SingleCycleTrain seq0, SingleCycleTrain seq1) = BuildSeq();
 
         var flat2 = new FlatMemory(0x100);
@@ -404,6 +393,18 @@ public class MultiHartPipelineTests {
 
         Assert.Equal(seq0.ArchState.IntegerRegisters.Read(1), con0.ArchState.IntegerRegisters.Read(1));
         Assert.Equal(seq1.ArchState.IntegerRegisters.Read(1), con1.ArchState.IntegerRegisters.Read(1));
+        return;
+
+        static (SingleCycleTrain t0, SingleCycleTrain t1) BuildSeq() {
+            var flat = new FlatMemory(0x100);
+            flat.Load(0x00, ToBytes(addi42, MultiHartPipelineTests.Ebreak));
+            flat.Load(0x40, ToBytes(addi99, MultiHartPipelineTests.Ebreak));
+            var bus = new MoesifBus(flat);
+            var t0 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(bus, 256, 2, 64));
+            var t1 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(bus, 256, 2, 64), 0x40);
+            new MultiHartPipeline(t0, t1).Run(1_000);
+            return (t0, t1);
+        }
     }
 
     [Fact]
@@ -435,8 +436,8 @@ public class MultiHartPipelineTests {
         var cache0 = new MoesifCache(def0, 256, 2, 64);
         var cache1 = new MoesifCache(def1, 256, 2, 64);
 
-        var train0 = new OooeTrain(new Rv32Mechanism(), cache0);
-        var train1 = new OooeTrain(new Rv32Mechanism(), cache1, 0x40);
+        var train0 = new OooTrain(new Rv32Mechanism(), cache0);
+        var train1 = new OooTrain(new Rv32Mechanism(), cache1, 0x40);
 
         new MultiHartPipeline(train0, train1).RunConcurrent([def0, def1,], 1_000);
 

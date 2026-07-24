@@ -26,7 +26,7 @@ public class TageScBranchPredictionTests {
     [Fact]
     public void AlwaysTaken_ConvergesAfterTraining() {
         var p = new TageScLBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 60; i++) p.Update(pc, true, 0x2000);
         BranchPrediction pred = p.Predict(pc);
         Assert.True(pred.PredictedTaken);
@@ -36,7 +36,7 @@ public class TageScBranchPredictionTests {
     [Fact]
     public void AlwaysNotTaken_ConvergesAfterTraining() {
         var p = new TageScLBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 60; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
     }
@@ -46,7 +46,7 @@ public class TageScBranchPredictionTests {
     [Fact]
     public void AlternatingPattern_LearnsTakenAfterNotTakenHistory() {
         var p = new TageScLBp();
-        ulong pc = 0x400;
+        const ulong pc = 0x400;
         bool[] pattern = [true, false, true, false, true, false, true, false,];
 
         for (var cycle = 0; cycle < 60; cycle++)
@@ -62,7 +62,7 @@ public class TageScBranchPredictionTests {
     public void ScOverrides_Tage_AfterHeavyTraining() {
         // Heavy training biases SC tables; SC override should produce a stable result.
         var p = new TageScLBp();
-        ulong pc = 0x800;
+        const ulong pc = 0x800;
         for (var i = 0; i < 100; i++) p.Update(pc, true, 0x1000);
         Assert.True(p.Predict(pc).PredictedTaken);
     }
@@ -73,8 +73,8 @@ public class TageScBranchPredictionTests {
     public void LoopPredictor_StillActive_AfterScTraining() {
         // A loop with trip count 3: SC trains alongside TAGE; loop takes over.
         var p = new TageScLBp();
-        ulong pc = 0xC00;
-        ulong target = 0xD00;
+        const ulong pc = 0xC00;
+        const ulong target = 0xD00;
 
         // Warm up enough for loop predictor to reach confidence.
         for (var iteration = 0; iteration < 20; iteration++) {

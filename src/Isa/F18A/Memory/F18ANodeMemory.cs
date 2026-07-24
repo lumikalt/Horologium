@@ -28,8 +28,8 @@ public sealed class F18ANodeMemory : IMemory {
 
     private readonly uint[] _words = new uint[F18ANodeMemory.WordCount];
 
-    // Wired up after construction; null slots mean "no neighbour"
-    public IArborBus? ArborBus { get; set; }
+    // Wired up after construction; null slots mean "no neighbor"
+    public IArborBus? ArborBus { get; init; }
 
     public void Load(ulong address, ReadOnlySpan<byte> data) {
         ulong end = address + (ulong)data.Length;
@@ -45,8 +45,7 @@ public sealed class F18ANodeMemory : IMemory {
     public ulong Read(ulong address, int bytes) {
         var wordAddr = (uint)(address / 4);
         if (wordAddr >= F18ANodeMemory.PortBase && ArborBus is not null) {
-            uint val;
-            ArborBus.TryRead(wordAddr, out val);
+            ArborBus.TryRead(wordAddr, out uint val);
             return val & 0x3FFFFu;
         }
 
@@ -66,15 +65,5 @@ public sealed class F18ANodeMemory : IMemory {
     }
 
     /// <summary>Checks whether a port op at the given word address will succeed this tick.</summary>
-    public bool IsPortReady(uint wordAddr, bool isRead) {
-        if (ArborBus is null) return true;
-        return ArborBus.IsReady(wordAddr, isRead);
-    }
-
-    /// <summary>Direct word read bypassing the arbor layer (for inspection).</summary>
-    public uint ReadWord(uint wordAddr) => _words[wordAddr & (F18ANodeMemory.WordCount - 1)] & 0x3FFFFu;
-
-    /// <summary>Direct word write bypassing the arbor layer (for initialisation).</summary>
-    public void WriteWord(uint wordAddr, uint value) =>
-        _words[wordAddr & (F18ANodeMemory.WordCount - 1)] = value & 0x3FFFFu;
+    public bool IsPortReady(uint wordAddr, bool isRead) => ArborBus is null || ArborBus.IsReady(wordAddr, isRead);
 }

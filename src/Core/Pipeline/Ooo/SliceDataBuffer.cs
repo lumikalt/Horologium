@@ -74,7 +74,7 @@ public sealed class SliceDataBuffer {
         Capacity = capacity;
     }
 
-    public int Capacity { get; }
+    private int Capacity { get; }
     public int Count => _entries.Count;
     public bool IsFull => _entries.Count >= Capacity;
     public bool IsEmpty => _entries.Count == 0;
@@ -88,11 +88,7 @@ public sealed class SliceDataBuffer {
     }
 
     /// <summary>Removes and returns the oldest entry. Call only when non-empty.</summary>
-    public SdbEntry PopHead() {
-        SdbEntry e = _entries[0];
-        _entries.RemoveAt(0);
-        return e;
-    }
+    public void PopHead() => _entries.RemoveAt(0);
 
     /// <summary>
     ///     Squashes every slice instruction belonging to checkpoint <paramref name="checkpointSeq" />

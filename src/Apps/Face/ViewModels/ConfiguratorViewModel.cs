@@ -8,6 +8,7 @@ using Mechanism;
 using Orrery.Observation;
 using Pipeline.Spec;
 using Script;
+using static System.GC;
 
 #endregion
 
@@ -54,19 +55,19 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
 
     [ObservableProperty] public partial string ScriptText { get; set; } = ConfiguratorViewModel.DefaultScript;
 
-    [ObservableProperty] public partial string? ScriptFilePath { get; set; }
+    private static string? ScriptFilePath { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowBrowse))]
     public partial WorkloadPreset SelectedPreset { get; set; }
 
-    [ObservableProperty] public partial string? WorkloadPath { get; set; }
+    [ObservableProperty] private partial string? WorkloadPath { get; set; }
 
     [ObservableProperty] public partial bool HasError { get; set; }
 
     [ObservableProperty] public partial string ErrorText { get; set; } = "";
 
-    [ObservableProperty] public partial string StatusText { get; set; } = "Building…";
+    [ObservableProperty] private partial string StatusText { get; set; } = "Building…";
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StepCommand))]
@@ -77,7 +78,7 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
 
     public bool ShowBrowse => SelectedPreset.ElfFileName == "";
 
-    public string? ScriptFileName => ScriptFilePath is { } p ? Path.GetFileName(p) : null;
+    public static string? ScriptFileName => ScriptFilePath is { } p ? Path.GetFileName(p) : null;
 
     public string StatusLine => ScriptFileName is { } name ? $"{StatusText} — {name}" : StatusText;
 
@@ -86,6 +87,7 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
         _runCts?.Cancel();
         _watcherDebounce?.Dispose();
         _watcher?.Dispose();
+        SuppressFinalize(this);
     }
 
     partial void OnSelectedPresetChanged(WorkloadPreset value) => _ = RebuildAsync();
@@ -142,12 +144,12 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
     }
 
     [RelayCommand]
-    public async Task RebuildAsync() {
-        _rebuildCts?.Cancel();
+    private async Task RebuildAsync() {
+        await _rebuildCts?.CancelAsync()!;
         var cts = new CancellationTokenSource();
         _rebuildCts = cts;
 
-        _runCts?.Cancel();
+        await _runCts?.CancelAsync()!;
         IsRunning = false;
 
         if (SelectedPreset.ElfFileName == "" && string.IsNullOrWhiteSpace(WorkloadPath)) {
@@ -190,7 +192,7 @@ public partial class ConfiguratorViewModel : ObservableObject, IDisposable {
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task Run() {
         if (_handle is null) return;
-        _runCts?.Cancel();
+        await _runCts?.CancelAsync()!;
         var cts = new CancellationTokenSource();
         _runCts = cts;
         IsRunning = true;

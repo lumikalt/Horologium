@@ -110,7 +110,7 @@ public class FdipPrefetcherTests {
         Assert.True(train.ICache!.Prefetches > 0, "FDIP should issue at least one I-cache prefetch");
     }
 
-    // ── OooeTrain ─────────────────────────────────────────────────────────────
+    // ── OooTrain ─────────────────────────────────────────────────────────────
 
     [Fact]
     public void Fdip_OoO_ArchStateIdenticalToWithout() {
@@ -119,8 +119,8 @@ public class FdipPrefetcherTests {
         Load(memOff, FdipPrefetcherTests.LoopProgram);
         Load(memOn, FdipPrefetcherTests.LoopProgram);
 
-        var off = new OooeTrain(new Rv32Mechanism(), memOff, iMemConfig: ICache());
-        var on = new OooeTrain(new Rv32Mechanism(), memOn, iMemConfig: ICache(), fdipFtqCapacity: 32);
+        var off = new OooTrain(new Rv32Mechanism(), memOff, iMemConfig: ICache());
+        var on = new OooTrain(new Rv32Mechanism(), memOn, iMemConfig: ICache(), fdipFtqCapacity: 32);
 
         off.Run();
         on.Run();
@@ -139,8 +139,8 @@ public class FdipPrefetcherTests {
         Load(memOff, FdipPrefetcherTests.LoopProgram);
         Load(memOn, FdipPrefetcherTests.LoopProgram);
 
-        var off = new OooeTrain(new Rv32Mechanism(), memOff, predictor: Predictor(), iMemConfig: ICache());
-        var on = new OooeTrain(
+        var off = new OooTrain(new Rv32Mechanism(), memOff, predictor: Predictor(), iMemConfig: ICache());
+        var on = new OooTrain(
             new Rv32Mechanism(), memOn, predictor: Predictor(), iMemConfig: ICache(), fdipFtqCapacity: 32
         );
 
@@ -162,7 +162,7 @@ public class FdipPrefetcherTests {
         var mem = new FlatMemory(4096);
         Load(mem, FdipPrefetcherTests.LoopProgram);
 
-        var train = new OooeTrain(new Rv32Mechanism(), mem, iMemConfig: ICache(), fdipFtqCapacity: 32);
+        var train = new OooTrain(new Rv32Mechanism(), mem, iMemConfig: ICache(), fdipFtqCapacity: 32);
         train.Run();
 
         Assert.NotNull(train.ICache);

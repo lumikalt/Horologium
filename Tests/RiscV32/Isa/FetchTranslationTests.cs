@@ -143,9 +143,12 @@ public class FetchTranslationTests {
             ]
         );
 
-        var train = new FiveStageTrain(new Rv32Mechanism(), mem);
-        // Leave satp = 0 (default); switch to User mode.
-        train.ArchState.PrivilegeLevel = RvPrivilege.User;
+        var train = new FiveStageTrain(new Rv32Mechanism(), mem) {
+            ArchState = {
+                // Leave satp = 0 (default); switch to User mode.
+                PrivilegeLevel = RvPrivilege.User,
+            },
+        };
 
         train.Run(20);
 
@@ -189,14 +192,14 @@ public class FetchTranslationTests {
         Assert.Equal(1uL, train.ArchState.IntegerRegisters.Read(1));
     }
 
-    // ── OooeTrain ──────────────────────────────────────────────────────────────
+    // ── OooTrain ──────────────────────────────────────────────────────────────
 
     [Fact]
     public void OooE_Sv32_NonExecutablePage_RaisesInstructionPageFault() {
         FlatMemory mem = BuildMemory(m => m.Write(FetchTranslationTests.L1PtPa, RoUserPte(4), 4));
         mem.Load(FetchTranslationTests.DataPa, BitConverter.GetBytes(FetchTranslationTests.Nop));
 
-        var train = new OooeTrain(new Rv32Mechanism(), mem);
+        var train = new OooTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(50);
@@ -216,7 +219,7 @@ public class FetchTranslationTests {
             ]
         );
 
-        var train = new OooeTrain(new Rv32Mechanism(), mem);
+        var train = new OooTrain(new Rv32Mechanism(), mem);
         EnableSv32(train.ArchState);
 
         train.Run(50);

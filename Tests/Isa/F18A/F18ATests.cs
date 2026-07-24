@@ -388,7 +388,7 @@ public class F18ATests {
         // Word 0: @p+(slot0), Dup(slot1), Jump(slot2) with addr=3 from bits[2:0]
         // slot2=Jump means remaining bits = addr. Bits [2:0] = 3.
         // Encoding: (FetchP<<13)|(Dup<<8)|(Jump<<3)|3
-        uint word0 = ((uint)F18AOp.FetchP << 13) | ((uint)F18AOp.Dup << 8) | ((uint)F18AOp.Jump << 3) | 3u;
+        const uint word0 = ((uint)F18AOp.FetchP << 13) | ((uint)F18AOp.Dup << 8) | ((uint)F18AOp.Jump << 3) | 3u;
         W(m, 0, word0);
         W(m, 1, 0x1234u); // literal for @p+
         // word 2 is the remainder of jump address (bits not reached)

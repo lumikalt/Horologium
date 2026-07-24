@@ -28,7 +28,6 @@ public sealed class ElasticTraceWriter : ICommitObserver, IDisposable {
     public const uint Version = 1;
 
     // Header layout: magic(4) + version(4) + tickFreq(8) + reserved(8) = 24 bytes
-    public const int HeaderBytes = 24;
     private readonly BackgroundTraceChannel<Record> _channel;
 
     private readonly IDecoder _decoder;

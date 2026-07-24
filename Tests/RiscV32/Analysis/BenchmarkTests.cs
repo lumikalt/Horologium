@@ -22,7 +22,7 @@ namespace Tests.RiscV32.Analysis;
 ///         32-bit low word of 'tohost' from memory.
 ///     </para>
 ///     <para>
-///         Exit code 0  → tohost low word == 1  → PASS
+///         Exit code 0   → tohost low word == 1  → PASS
 ///         Exit code N≠0 → tohost low word == (N&lt;&lt;1)|1 → FAIL
 ///         tohost == 0   → simulation timed out before halting
 ///     </para>
@@ -118,13 +118,13 @@ public class BenchmarkTests(ITestOutputHelper output) {
             }
         );
 
-    // ── OooeTrain ─────────────────────────────────────────────────────────────
+    // ── OooTrain ─────────────────────────────────────────────────────────────
 
     [Fact]
     public void OoOE_Passes() =>
         RunAllBenchmarks(name => {
                 (FlatMemory mem, IMemory htifMem, ulong entry, ulong tohost) = Load(name);
-                var train = new OooeTrain(new Rv32Mechanism(), htifMem, entry);
+                var train = new OooTrain(new Rv32Mechanism(), htifMem, entry);
                 train.Run(20_000_000);
                 AssertPass(ReadTohostLow(mem, tohost), name);
             }
@@ -143,7 +143,7 @@ public class BenchmarkTests(ITestOutputHelper output) {
         Parallel.ForEach(
             AllBenchmarkNames(), name => {
                 (FlatMemory _, IMemory htifMem, ulong entry, ulong _) = Load(name);
-                var train = new OooeTrain(new Rv32Mechanism(), htifMem, entry);
+                var train = new OooTrain(new Rv32Mechanism(), htifMem, entry);
                 RevolutionResult result = train.Run(20_000_000);
 
                 DialBoardSnapshot? snap = result.Find("ooo.pipeline");

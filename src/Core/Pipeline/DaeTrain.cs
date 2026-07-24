@@ -431,7 +431,7 @@ internal sealed class DaeCore(
 
         // TMA: split stall cycles by side so an I-fetch miss (whole-cycle fetch starvation)
         // attributes to Frontend Latency Bound while a D-side stall (store-commit write miss)
-        // attributes to Backend Memory Bound, mirroring OooeTrain/CprTrain's DrainStalls.
+        // attributes to Backend Memory Bound, mirroring OooTrain/CprTrain's DrainStalls.
         long iStalls = iLayers.ConsumeAllStalls();
         long dStalls = dLayers.ConsumeAllStalls();
         long cacheStalls = iStalls + dStalls;
@@ -444,7 +444,7 @@ internal sealed class DaeCore(
             _tdExecStallCyclesCounter.IncrementBy(dStalls);
             // DAE executes each lane instruction synchronously against the live D-side
             // accessor (no store buffer, no per-load in-flight latency tracking like
-            // OooeTrain's), so ConsumeAllStalls cannot separate a load miss from a store
+            // OooTrain's), so ConsumeAllStalls cannot separate a load miss from a store
             // miss here; credited to MemStallLoad since a stalling load blocking its lane is
             // this pipeline's central case.
             _tdMemStallLoadCyclesCounter.IncrementBy(dStalls);
@@ -530,7 +530,7 @@ internal sealed class DaeCore(
         Lane lane = ClassifyLane(instr);
         Queue<DaeInstruction> queue = lane == Lane.Access ? _accessQueue : _executeQueue;
         // A full target lane is a backend-structural stall (ROB/IQ-full analogue), not a
-        // frontend bubble — left uncounted, same convention as OooeTrain's dispatch stall.
+        // frontend bubble — left uncounted, same convention as OooTrain's dispatch stall.
         if (queue.Count >= laneQueueDepth) return false;
 
         Dictionary<int, HandoffSlot>? crossLaneReads = null;
@@ -586,7 +586,7 @@ internal sealed class DaeCore(
     // a correctness mechanism — cross-lane value correctness comes from _lastWriter/HandoffSlot
     // regardless of how instructions are classified). Taint is seeded forward, with no
     // lookahead: a register is marked address-chain the moment a Load or Store is *observed*
-    // reading it (so a later re-derivation of that register, e.g. a pointer increment for the
+    // reading it (so a later re-derivation of that register, e.g., a pointer increment for the
     // next iteration of an array walk, correctly lands back on the Access lane), and an ALU op
     // propagates taint from any tainted source to its destination. A load's own destination is
     // explicitly untainted: the loaded value is data, not an address, even though the load

@@ -76,72 +76,76 @@ public sealed class PlicDevice : IMemory {
     public ulong Read(ulong address, int bytes) {
         ulong offset = address - PlicDevice.DefaultBase;
 
-        // Source priority: 0x000000..0x000FFC
-        if (offset < 0x001000) {
-            var src = (int)(offset >> 2);
-            return src < PlicDevice.MaxSources ? _priority[src] : 0;
-        }
+        switch (offset) {
+            // Source priority: 0x000000..0x000FFC
+            case < 0x001000: {
+                var src = (int)(offset >> 2);
+                return src < PlicDevice.MaxSources ? _priority[src] : 0;
+            }
+            // Pending bits: 0x001000..0x00107C (read-only)
+            case < 0x002000: {
+                var word = (int)((offset - 0x001000) >> 2);
+                return word < PlicDevice.WordCount ? _pending[word] : 0;
+            }
+            // Enable bits: 0x002000..0x1FFFFF
+            case < 0x200000: {
+                var ctx = (int)((offset - 0x002000) / 0x80);
+                var word = (int)(((offset - 0x002000) % 0x80) >> 2);
+                if ((uint)ctx < (uint)_numContexts && (uint)word < PlicDevice.WordCount) return _enable[ctx][word];
+                return 0;
+            }
+            default: {
+                // Threshold / claim: 0x200000 + ctx * 0x1000 + {0, 4}
+                {
+                    ulong ctxRegion = offset - 0x200000;
+                    var ctx = (int)(ctxRegion / 0x1000);
+                    ulong ctxOffset = ctxRegion % 0x1000;
+                    if ((uint)ctx >= (uint)_numContexts) return 0;
+                    switch (ctxOffset) {
+                        case 0: return _threshold[ctx];
+                        case 4: return (ulong)Claim(ctx);
+                    }
+                }
 
-        // Pending bits: 0x001000..0x00107C (read-only)
-        if (offset < 0x002000) {
-            var word = (int)((offset - 0x001000) >> 2);
-            return word < PlicDevice.WordCount ? _pending[word] : 0;
+                return 0;
+            }
         }
-
-        // Enable bits: 0x002000..0x1FFFFF
-        if (offset < 0x200000) {
-            var ctx = (int)((offset - 0x002000) / 0x80);
-            var word = (int)(((offset - 0x002000) % 0x80) >> 2);
-            if ((uint)ctx < (uint)_numContexts && (uint)word < PlicDevice.WordCount) return _enable[ctx][word];
-            return 0;
-        }
-
-        // Threshold / claim: 0x200000 + ctx * 0x1000 + {0, 4}
-        {
-            ulong ctxRegion = offset - 0x200000;
-            var ctx = (int)(ctxRegion / 0x1000);
-            ulong ctxOffset = ctxRegion % 0x1000;
-            if ((uint)ctx >= (uint)_numContexts) return 0;
-            if (ctxOffset == 0) return _threshold[ctx];
-            if (ctxOffset == 4) return (ulong)Claim(ctx);
-        }
-
-        return 0;
     }
 
     public void Write(ulong address, ulong value, int bytes) {
         ulong offset = address - PlicDevice.DefaultBase;
 
-        // Source priority: 0x000000..0x000FFC
-        if (offset < 0x001000) {
-            var src = (int)(offset >> 2);
-            if (src > 0 && src < PlicDevice.MaxSources) _priority[src] = (uint)value;
-            return;
-        }
-
-        // Pending bits: read-only externally; writes ignored
-        if (offset < 0x002000) return;
-
-        // Enable bits: 0x002000..0x1FFFFF
-        if (offset < 0x200000) {
-            var ctx = (int)((offset - 0x002000) / 0x80);
-            var word = (int)(((offset - 0x002000) % 0x80) >> 2);
-            if ((uint)ctx < (uint)_numContexts && (uint)word < PlicDevice.WordCount) _enable[ctx][word] = (uint)value;
-            return;
-        }
-
-        // Threshold / complete: 0x200000 + ctx * 0x1000 + {0, 4}
-        {
-            ulong ctxRegion = offset - 0x200000;
-            var ctx = (int)(ctxRegion / 0x1000);
-            ulong ctxOffset = ctxRegion % 0x1000;
-            if ((uint)ctx >= (uint)_numContexts) return;
-            if (ctxOffset == 0) {
-                _threshold[ctx] = (uint)value;
+        switch (offset) {
+            // Source priority: 0x000000..0x000FFC
+            case < 0x001000: {
+                var src = (int)(offset >> 2);
+                if (src is > 0 and < PlicDevice.MaxSources) _priority[src] = (uint)value;
                 return;
             }
+            // Pending bits: read-only externally; writes ignored
+            case < 0x002000: return;
+            // Enable bits: 0x002000..0x1FFFFF
+            case < 0x200000: {
+                var ctx = (int)((offset - 0x002000) / 0x80);
+                var word = (int)(((offset - 0x002000) % 0x80) >> 2);
+                if ((uint)ctx < (uint)_numContexts && (uint)word < PlicDevice.WordCount)
+                    _enable[ctx][word] = (uint)value;
+                return;
+            }
+            default: {
+                ulong ctxRegion = offset - 0x200000;
+                var ctx = (int)(ctxRegion / 0x1000);
+                ulong ctxOffset = ctxRegion % 0x1000;
+                if ((uint)ctx >= (uint)_numContexts) return;
+                switch (ctxOffset) {
+                    case 0:
+                        _threshold[ctx] = (uint)value;
+                        return;
+                    case 4: Complete((int)(uint)value); break;
+                }
 
-            if (ctxOffset == 4) Complete((int)(uint)value);
+                break;
+            }
         }
     }
 

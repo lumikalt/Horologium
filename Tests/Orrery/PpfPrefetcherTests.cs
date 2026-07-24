@@ -154,8 +154,11 @@ public sealed class PpfPrefetcherTests {
             ulong addr = lineAddr * PpfPrefetcherTests.Line;
             buf.Clear();
             int cnt = p.OnAccess(0x1000UL, addr, false, buf);
-            if (i < earlyWindow) earlyIssued += cnt;
-            if (i >= lateStart) lateIssued += cnt;
+            switch (i) {
+                case < earlyWindow: earlyIssued += cnt; break;
+                case >= lateStart:  lateIssued += cnt; break;
+            }
+
             lineAddr++;
         }
 

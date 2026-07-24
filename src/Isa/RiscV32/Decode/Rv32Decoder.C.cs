@@ -62,7 +62,7 @@ public partial class Rv32Decoder {
     private static RvInstruction DecodeCFsd(ulong pc, ushort c, int rs2P, int rs1P) =>
         C(pc, c, -1, [rs1P, rs2P + 32,], ToothClass.Store, new RvFsd(rs1P, rs2P + 32, CDoublewordMemImm(c)));
 
-    private static ITooth DecodeAddi4Spn(ulong pc, ushort c, int rdp) {
+    private static RvInstruction DecodeAddi4Spn(ulong pc, ushort c, int rdp) {
         // CIW: nzuimm[5:4]=c[12:11], nzuimm[9:6]=c[10:7], nzuimm[2]=c[6], nzuimm[3]=c[5]
         int nzuimm = (((c >> 11) & 0x3) << 4)
                    | (((c >> 7) & 0xF) << 6)

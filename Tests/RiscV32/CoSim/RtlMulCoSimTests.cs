@@ -126,7 +126,7 @@ public sealed class RtlMulCoSimTests {
         mech.Executor = new RtlBackedExecutor(mech.Executor, divUnit, RvRtlDiv.Select);
         mech.Executor = new RtlBackedExecutor(mech.Executor, mulUnit, RvRtlMul.Select);
 
-        var train = new OooeTrain(mech, mem);
+        var train = new OooTrain(mech, mem);
         train.Run();
 
         Assert.Equal(42u, (uint)train.ArchState.IntegerRegisters.Read(3));
@@ -150,6 +150,9 @@ public sealed class RtlMulCoSimTests {
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), words[i]);
 
+        Assert.Equal(Run(false), Run(true));
+        return;
+
         long Run(bool rtl) {
             var mem = new FlatMemory(4096);
             mem.Load(0, bytes);
@@ -158,9 +161,7 @@ public sealed class RtlMulCoSimTests {
                 mech.Executor = new RtlBackedExecutor(
                     mech.Executor, new RtlFfiFunctionalUnit(RtlMulLibrary.Path!), RvRtlMul.Select
                 );
-            return new OooeTrain(mech, mem).Run().Find("ooo.pipeline")!.Counters["cycles"];
+            return new OooTrain(mech, mem).Run().Find("ooo.pipeline")!.Counters["cycles"];
         }
-
-        Assert.Equal(Run(false), Run(true));
     }
 }

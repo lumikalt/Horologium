@@ -15,7 +15,6 @@ namespace Orrery.Cache;
 public sealed class MoesifBus : IBus {
     private readonly List<MoesifCache> _caches = new();
     private readonly ReservationTable? _table;
-    private int _blockSize; // set from first registered cache
 
     /// <param name="backing">Shared physical memory behind all caches on this bus.</param>
     /// <param name="table">
@@ -32,10 +31,10 @@ public sealed class MoesifBus : IBus {
 
     public IMemory Backing { get; }
 
-    public int BlockBytes => _blockSize;
+    public int BlockBytes { get; private set; }
 
     public void Register(MoesifCache cache) {
-        if (_caches.Count == 0) _blockSize = cache.BlockBytes;
+        if (_caches.Count == 0) BlockBytes = cache.BlockBytes;
         _caches.Add(cache);
     }
 
@@ -85,7 +84,7 @@ public sealed class MoesifBus : IBus {
             c.SnoopInvalidate(lineBase);
         }
 
-        _table?.InvalidateAt(lineBase, _blockSize);
+        _table?.InvalidateAt(lineBase, BlockBytes);
     }
 
     /// <summary>
@@ -100,7 +99,7 @@ public sealed class MoesifBus : IBus {
             supplied |= c.SnoopInvalidateForward(lineBase, dest);
         }
 
-        _table?.InvalidateAt(lineBase, _blockSize);
+        _table?.InvalidateAt(lineBase, BlockBytes);
         return supplied;
     }
 
@@ -121,7 +120,7 @@ public sealed class MoesifBus : IBus {
     ///     bus snoop was issued.
     /// </summary>
     public void BusSilentUpgrade(ulong lineBase) =>
-        _table?.InvalidateAt(lineBase, _blockSize);
+        _table?.InvalidateAt(lineBase, BlockBytes);
 
     /// <summary>Writes a dirty cache block to backing memory.</summary>
     public void Writeback(ulong lineBase, ReadOnlySpan<byte> block) =>

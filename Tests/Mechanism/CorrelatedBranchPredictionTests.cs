@@ -21,7 +21,7 @@ public class CorrelatedBranchPredictionTests {
     [Fact]
     public void Correlated_AlwaysTaken_ConvergesAfterTraining() {
         var p = new CorrelatedBp();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         // Warmup: push the 2-bit counter past weakly-not-taken
         for (var i = 0; i < 4; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
@@ -34,7 +34,7 @@ public class CorrelatedBranchPredictionTests {
         // history "01" or "10" alternating. After enough training the PHT
         // entries for those patterns saturate correctly.
         var p = new CorrelatedBp();
-        ulong pc = 0x100;
+        const ulong pc = 0x100;
         bool[] pattern = [true, false, true, false, true, false,];
         // Warmup for several full cycles
         for (var cycle = 0; cycle < 8; cycle++)
@@ -52,7 +52,7 @@ public class CorrelatedBranchPredictionTests {
     public void Correlated_TwoDifferentPcsDoNotInterfere() {
         // PAg: two distinct PCs that hash to different BHT slots are independent.
         var p = new CorrelatedBp();
-        ulong pcA = 0x100, pcB = 0x200;
+        const ulong pcA = 0x100, pcB = 0x200;
         for (var i = 0; i < 8; i++) p.Update(pcA, true, 0x300);
         for (var i = 0; i < 8; i++) p.Update(pcB, false, 0x400);
         Assert.True(p.Predict(pcA).PredictedTaken);
@@ -72,7 +72,7 @@ public class CorrelatedBranchPredictionTests {
     [Fact]
     public void Gshare_AlwaysTaken_ConvergesAfterTraining() {
         var p = new GshareBp(4);
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 6; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
         Assert.Equal(0x2000UL, p.Predict(pc).PredictedTarget);
@@ -98,7 +98,7 @@ public class CorrelatedBranchPredictionTests {
     [Fact]
     public void Gshare_TakenFlagFlipsCounterCorrectly() {
         var p = new GshareBp(4);
-        ulong pc = 0x10;
+        const ulong pc = 0x10;
         // Drive the counter to strongly not-taken
         for (var i = 0; i < 8; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
@@ -120,7 +120,7 @@ public class CorrelatedBranchPredictionTests {
     [Fact]
     public void Gselect_AlwaysTaken_ConvergesAfterTraining() {
         var p = new GselectPredictor();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 10; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
         Assert.Equal(0x2000UL, p.Predict(pc).PredictedTarget);
@@ -131,7 +131,7 @@ public class CorrelatedBranchPredictionTests {
         // pcA and pcB differ in the lower pcBits, so their GHR=0 initial state
         // maps to different PHT slots even before any history is built up.
         var p = new GselectPredictor();
-        ulong pcA = 0x00, pcB = 0x10; // differ in pc bits [5:2]
+        const ulong pcA = 0x00, pcB = 0x10; // differ in pc bits [5:2]
         for (var i = 0; i < 8; i++) p.Update(pcA, true, 0x100);
         for (var i = 0; i < 8; i++) p.Update(pcB, false, 0x200);
         Assert.True(p.Predict(pcA).PredictedTaken);

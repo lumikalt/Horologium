@@ -118,7 +118,7 @@ public sealed class RvInstruction(
     // (x10) via SideEffect (LinuxSyscallEmulator's ABI: "return value written to a0").
     // Without this, a0 is never renamed for the ECALL, so a younger consumer resolves
     // its RAT lookup to whatever produced a0 *before* the syscall and never learns of
-    // the dependency at all — reproduced by stdin_echo64.elf under OooeTrain (SYS_write's
+    // the dependency at all — reproduced by stdin_echo64.elf under OooTrain (SYS_write's
     // count depends on SYS_read's return via `mv a2, a0`, which read stale/pre-ecall a0).
     public int SecondaryDestinationRegister { get; } = payload switch {
         RvAmocasDPair op => op.Rd + 1,
@@ -294,13 +294,13 @@ public sealed class RvInstruction(
         RvVFpClass op  => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVFpCvt op    => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVFpMvFs op   => [op.Vs2,],
-        RvVFpMvSf _    => [],
+        RvVFpMvSf      => [],
         RvVFpMvVf op   => op.Masked ? [0,] : [],
         RvVFpRedVs op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         // vd is accumulator source for integer MAC; vmerge always reads v0 mask
         RvVIntMacVv op  => op.Masked ? [op.Vd, op.Vs2, op.Vs1, 0,] : [op.Vd, op.Vs2, op.Vs1,],
         RvVIntMacVx op  => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
-        RvVMvSx _       => [],
+        RvVMvSx         => [],
         RvVMergeVv op   => [op.Vs2, op.Vs1, 0,],
         RvVMergeVx op   => [op.Vs2, 0,],
         RvVMergeVi op   => [op.Vs2, 0,],
@@ -331,7 +331,7 @@ public sealed class RvInstruction(
         RvVFpWMacVf op => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
         RvVFpWCvt op   => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVFpNCvt op   => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
-        RvVlrV _       => [],
+        RvVlrV         => [],
         RvVsrV op => op.NumRegs switch {
             1 => [op.Vs3,],
             2 => [op.Vs3, op.Vs3 + 1,],

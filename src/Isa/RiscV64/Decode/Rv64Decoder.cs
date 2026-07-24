@@ -267,8 +267,8 @@ public class Rv64Decoder : Rv32Decoder {
     // bit[12]=1, but on RV64 that bit selects the word-width C.SUBW/C.ADDW forms. And
     // C.SLLI's shamt[5] (bit[12]), reserved on RV32, is a live shamt bit on RV64 — as is
     // C.SRLI/C.SRAI's shamt[5] (same bit[12], sub=00/01 in the same funct3=100 quadrant).
-    // Returns null for every other encoding so the caller falls through to the base RV32C table.
-    private static ITooth? TryDecodeRv64Compressed(ulong pc, ushort c) {
+    // Returns null for every other encoding, so the caller falls through to the base RV32C table.
+    private static RvInstruction? TryDecodeRv64Compressed(ulong pc, ushort c) {
         var q = (uint)(c & 0x3);
         var funct3 = (uint)(c >> 13);
 
@@ -318,8 +318,9 @@ public class Rv64Decoder : Rv32Decoder {
             case 0x2 when funct3 == 0x3: {
                 // C.LDSP
                 int rd = (c >> 7) & 0x1F;
-                if (rd == 0) throw new IllegalInstructionException(c, "C.LDSP with rd=x0 is reserved");
-                return new RvInstruction(pc, c, rd, [2,], ToothClass.Load, new RvLd(rd, 2, CldspImm(c)), 2);
+                return rd == 0
+                    ? throw new IllegalInstructionException(c, "C.LDSP with rd=x0 is reserved")
+                    : new RvInstruction(pc, c, rd, [2,], ToothClass.Load, new RvLd(rd, 2, CldspImm(c)), 2);
             }
             case 0x2 when funct3 == 0x7: {
                 // C.SDSP

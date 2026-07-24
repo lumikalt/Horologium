@@ -35,7 +35,6 @@ public sealed class DirectoryBus : IBus {
     // Invariant: a Sharers set is never empty (empty sets are collapsed immediately).
     private readonly Dictionary<ulong, (MoesifCache? Owner, HashSet<MoesifCache>? Sharers)> _dir = new();
     private readonly ReservationTable? _table;
-    private int _blockSize;
 
     public DirectoryBus(IMemory backing, ReservationTable? table = null) {
         ArgumentNullException.ThrowIfNull(backing);
@@ -45,10 +44,10 @@ public sealed class DirectoryBus : IBus {
 
     public IMemory Backing { get; }
 
-    public int BlockBytes => _blockSize;
+    public int BlockBytes { get; private set; }
 
     public void Register(MoesifCache cache) {
-        if (_blockSize == 0) _blockSize = cache.BlockBytes;
+        if (BlockBytes == 0) BlockBytes = cache.BlockBytes;
     }
 
     public BusReadResponse BusRead(MoesifCache requester, ulong lineBase, Span<byte> dest) {
@@ -123,7 +122,7 @@ public sealed class DirectoryBus : IBus {
         }
 
         _dir[lineBase] = (requester, null);
-        _table?.InvalidateAt(lineBase, _blockSize);
+        _table?.InvalidateAt(lineBase, BlockBytes);
     }
 
     public bool BusReadForOwnership(MoesifCache requester, ulong lineBase, Span<byte> dest) {
@@ -139,12 +138,12 @@ public sealed class DirectoryBus : IBus {
         }
 
         _dir[lineBase] = (requester, null);
-        _table?.InvalidateAt(lineBase, _blockSize);
+        _table?.InvalidateAt(lineBase, BlockBytes);
         return supplied;
     }
 
     public void BusSilentUpgrade(ulong lineBase) =>
-        _table?.InvalidateAt(lineBase, _blockSize);
+        _table?.InvalidateAt(lineBase, BlockBytes);
 
     public void BusLoad(ulong lineBase) {
         if (_dir.TryGetValue(lineBase, out (MoesifCache? Owner, HashSet<MoesifCache>? Sharers) entry)) {

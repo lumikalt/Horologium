@@ -24,16 +24,14 @@ namespace Orrery.Observation;
 public sealed class Dial {
     private readonly Func<double> _expression;
 
-    public Dial(string name, Func<double> expression, string description = "") {
+    public Dial(string name, Func<double> expression) {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(expression);
         Name = name;
-        Description = description;
         _expression = expression;
     }
 
-    public string Name { get; }
-    public string Description { get; }
+    private string Name { get; }
 
     /// <summary>Evaluates and returns the current value of this dial.</summary>
     public double Read() => _expression();

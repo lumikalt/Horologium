@@ -30,7 +30,7 @@ public static class WarmupMeasureDriver {
     ///     (e.g., built from a <c>PipelineSpec</c> with <c>CommitObserver: counter</c>). Must support
     ///     <see cref="ISteppableTrain.SnapshotDials" />/
     ///     <see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
-    ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, and <c>OooeTrain</c>.
+    ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, and <c>OooTrain</c>.
     /// </param>
     /// <param name="counter">
     ///     The same <see cref="InstructionCounter" /> instance passed as <paramref name="train" />'s

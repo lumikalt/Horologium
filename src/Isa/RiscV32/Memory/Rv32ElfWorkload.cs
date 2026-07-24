@@ -19,7 +19,7 @@ public sealed class Rv32ElfWorkload : IElfWorkload {
     public Rv32ElfWorkload(string path, int? memorySizeBytes = null)
         : this(File.ReadAllBytes(path), memorySizeBytes) { }
 
-    public Rv32ElfWorkload(byte[] elfBytes, int? memorySizeBytes = null) {
+    private Rv32ElfWorkload(byte[] elfBytes, int? memorySizeBytes = null) {
         _elfBytes = elfBytes;
         EntryPoint = ParseEntryPoint(elfBytes);
         BaseAddress = ComputeBaseAddress(elfBytes);

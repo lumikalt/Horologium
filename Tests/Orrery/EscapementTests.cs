@@ -332,15 +332,16 @@ public class EscapementTests {
         var esc = new Escapement();
         var order = new List<int>();
 
+        esc.Schedule(() => Chain(1), 1, Phase.Execute);
+        esc.Run();
+
+        Assert.Equal([1, 2, 3, 4, 5,], order);
+        return;
+
         // Each event schedules the next one
         void Chain(int n) {
             order.Add(n);
             if (n < 5) esc.ScheduleNextTick(() => Chain(n + 1), Phase.Execute);
         }
-
-        esc.Schedule(() => Chain(1), 1, Phase.Execute);
-        esc.Run();
-
-        Assert.Equal([1, 2, 3, 4, 5,], order);
     }
 }

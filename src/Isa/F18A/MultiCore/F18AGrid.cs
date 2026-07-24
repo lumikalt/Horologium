@@ -50,7 +50,7 @@ public sealed class F18AGrid {
 
         for (var r = 0; r < rows; r++)
         for (var c = 0; c < cols; c++)
-            _nodes[r, c] = new F18ANode(r, c, ReadOnlySpan<byte>.Empty);
+            _nodes[r, c] = new F18ANode(ReadOnlySpan<byte>.Empty);
 
         for (var r = 0; r < rows; r++)
         for (var c = 0; c < cols - 1; c++) {
@@ -69,7 +69,7 @@ public sealed class F18AGrid {
 
     public int Rows { get; }
     public int Cols { get; }
-    public long Ticks { get; private set; }
+    private long Ticks { get; set; }
 
     public F18ANode NodeAt(int row, int col) => _nodes[row, col];
 
@@ -93,14 +93,6 @@ public sealed class F18AGrid {
 
         Ticks++;
         return executed;
-    }
-
-    /// <summary>Step until all nodes are halted or <paramref name="maxTicks" /> is reached.</summary>
-    public void Run(long maxTicks = 1_000_000) {
-        while (Ticks < maxTicks) {
-            int ran = Step();
-            if (ran == 0) break; // all nodes either halted or blocked
-        }
     }
 
     private void StepNode(F18ANode node) {

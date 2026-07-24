@@ -107,7 +107,7 @@ public sealed class RobEntry {
     ///     scalar instruction's ExecuteResult, applied at Commit — in program order — to
     ///     preserve precise-exception semantics for instructions that execute speculatively
     ///     out of order. Vector/UVE ops are head-serialized and apply their SideEffect
-    ///     immediately at Execute instead (see OooeTrain.ExecuteOne), so this is left null
+    ///     immediately at Execute instead (see OooTrain.ExecuteOne), so this is left null
     ///     for those.
     /// </summary>
     public Action<IArchState>? SideEffect { get; set; }

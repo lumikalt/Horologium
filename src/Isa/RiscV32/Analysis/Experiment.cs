@@ -9,6 +9,7 @@ using Orrery.Train;
 using Pipeline;
 using Pipeline.Spec;
 using RiscV32.Config;
+using RiscV32.Execute;
 using RiscV32.Memory;
 using RiscV32.Syscalls;
 using RiscV32.Trace;
@@ -22,6 +23,45 @@ namespace RiscV32.Analysis;
 ///     the aggregated results for comparison.
 /// </summary>
 public static class Experiment {
+    private const ulong MulticoreDemoCounterAddress = 0x100;
+
+    // ── Multi-hart (Face's multi-hart mode) ────────────────────────────────────
+
+    /// <summary>
+    ///     The only workload multi-hart mode runs: every hart executes this identical program from
+    ///     the same entry point. It repeatedly does an LR/SC atomic increment on one shared memory
+    ///     word — real cross-hart contention (SC retries when another hart's write lands in
+    ///     between) and real coherent-cache hit/miss traffic (every hart's private cache
+    ///     invalidates on every other hart's write to the line). No stack, no function calls, only
+    ///     x1/x2/x5/x6 and one shared memory word, so it's safe to run identically on every hart.
+    ///     <para>
+    ///         Real benchmark ELFs are NOT safe here: <see cref="RunOne" />'s normal path never
+    ///         seeds an initial stack pointer (bare-metal ELFs set up their own stack via a
+    ///         hardcoded <c>la sp, __stack_top</c> in their own crt0), so two harts running the
+    ///         identical ELF would both write the same stack-top address into <c>sp</c> and
+    ///         immediately corrupt each other's stack. There's also no <c>mhartid</c> CSR
+    ///         (<see cref="Rv32Executor.HartId" /> is used only for LR/SC reservation-table
+    ///         bookkeeping, never exposed as a readable CSR), so a shared program can't even
+    ///         differentiate itself per hart. Hence: one fixed, hand-verified, stack-free demo
+    ///         program instead of the ELF/benchmark picker.
+    ///     </para>
+    ///     <para>
+    ///         Final shared-counter value after a correct run is exactly
+    ///         <c>IterationsPerHart * hartCount</c> — a strong, independent correctness check.
+    ///     </para>
+    /// </summary>
+    private static readonly uint[] MulticoreDemoWords = [
+        0x10000293, // addi x5, x0, 256      (x5 = shared counter address)
+        0x01400313, // addi x6, x0, 20       (x6 = iterations for this hart)
+        0x1002A0AF, // retry: lr.w x1, (x5)
+        0x00108093, // addi x1, x1, 1
+        0x1812A12F, // sc.w x2, x1, (x5)
+        0xFE011AE3, // bne x2, x0, retry     (SC failed -> retry)
+        0xFFF30313, // addi x6, x6, -1
+        0xFE0316E3, // bne x6, x0, retry     (more iterations left -> retry)
+        0x00100073, // ebreak
+    ];
+
     /// <summary>
     ///     Runs <paramref name="workload" /> once per entry in <paramref name="configurations" />.
     ///     Each run gets a fresh <see cref="FlatMemory" /> and a fresh predictor instance.
@@ -124,50 +164,10 @@ public static class Experiment {
     private static long ResolveInterval(long snapshotInterval, IWorkload workload) =>
         snapshotInterval == -1 ? Math.Max(10, workload.CodeSize / 200) : snapshotInterval;
 
-    // ── Multi-hart (Face's multi-hart mode) ────────────────────────────────────
-
-    /// <summary>
-    ///     The only workload multi-hart mode runs: every hart executes this identical program from
-    ///     the same entry point. It repeatedly does an LR/SC atomic increment on one shared memory
-    ///     word — real cross-hart contention (SC retries when another hart's write lands in
-    ///     between) and real coherent-cache hit/miss traffic (every hart's private cache
-    ///     invalidates on every other hart's write to the line). No stack, no function calls — only
-    ///     x1/x2/x5/x6 and one shared memory word — so it's safe to run identically on every hart.
-    ///     <para>
-    ///         Real benchmark ELFs are NOT safe here: <see cref="RunOne" />'s normal path never
-    ///         seeds an initial stack pointer (bare-metal ELFs set up their own stack via a
-    ///         hardcoded <c>la sp, __stack_top</c> in their own crt0), so two harts running the
-    ///         identical ELF would both write the same stack-top address into <c>sp</c> and
-    ///         immediately corrupt each other's stack. There's also no <c>mhartid</c> CSR
-    ///         (<see cref="Rv32Executor.HartId" /> is used only for LR/SC reservation-table
-    ///         bookkeeping, never exposed as a readable CSR), so a shared program can't even
-    ///         differentiate itself per hart. Hence: one fixed, hand-verified, stack-free demo
-    ///         program instead of the ELF/benchmark picker.
-    ///     </para>
-    ///     <para>
-    ///         Final shared-counter value after a correct run is exactly
-    ///         <c>IterationsPerHart * hartCount</c> — a strong, independent correctness check.
-    ///     </para>
-    /// </summary>
-    private static readonly uint[] MulticoreDemoWords = [
-        0x10000293, // addi x5, x0, 256      (x5 = shared counter address)
-        0x01400313, // addi x6, x0, 20       (x6 = iterations for this hart)
-        0x1002A0AF, // retry: lr.w x1, (x5)
-        0x00108093, // addi x1, x1, 1
-        0x1812A12F, // sc.w x2, x1, (x5)
-        0xFE011AE3, // bne x2, x0, retry     (SC failed -> retry)
-        0xFFF30313, // addi x6, x6, -1
-        0xFE0316E3, // bne x6, x0, retry     (more iterations left -> retry)
-        0x00100073, // ebreak
-    ];
-
-    public const ulong MulticoreDemoCounterAddress = 0x100;
-    public const int MulticoreDemoIterationsPerHart = 20;
-
-    private static IWorkload MulticoreDemoWorkload() {
-        var bytes = new byte[MulticoreDemoWords.Length * 4];
-        for (var i = 0; i < MulticoreDemoWords.Length; i++)
-            BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), MulticoreDemoWords[i]);
+    private static ByteArrayWorkload MulticoreDemoWorkload() {
+        var bytes = new byte[Experiment.MulticoreDemoWords.Length * 4];
+        for (var i = 0; i < Experiment.MulticoreDemoWords.Length; i++)
+            BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), Experiment.MulticoreDemoWords[i]);
         return new ByteArrayWorkload(bytes, memorySizeBytes: 0x1000);
     }
 
@@ -187,7 +187,9 @@ public static class Experiment {
     ///     <paramref name="hartConfigs" />' <c>PrivateCache</c> should only set
     ///     <c>CapacityBytes</c>/<c>Ways</c>/<c>BlockBytes</c>/<c>MissLatency</c> — those are the only
     ///     fields the coherent (bus-facing) cache level honors (see
-    ///     <see cref="Pipeline.Spec.MulticoreSpec.Build(System.Collections.Generic.IReadOnlyDictionary{int,Mechanism.IMemory})" />);
+    ///     <see
+    ///         cref="Pipeline.Spec.MulticoreSpec.Build(System.Collections.Generic.IReadOnlyDictionary{int,Mechanism.IMemory})" />
+    ///     );
     ///     richer knobs are silently dropped at that level, so don't route
     ///     <see cref="TrainConfig.ICache" />/<c>DCache</c>/<c>L2Cache</c> through here — a hart's
     ///     Train never receives them in the multicore path anyway.
@@ -208,12 +210,12 @@ public static class Experiment {
         bool concurrentMode = false,
         long maxTicks = 1_000_000
     ) {
-        IWorkload workload = Experiment.MulticoreDemoWorkload();
+        IWorkload workload = MulticoreDemoWorkload();
 
         // Pools are fully separate address spaces: a fresh backing memory and a fresh
         // ReservationTable per distinct pool id, not shared across pools. Deliberately load the
         // *same* demo image (same counter address) into every pool's memory rather than offsetting
-        // it — this is what makes a pool-isolation bug (e.g. accidentally reusing one backing or one
+        // it — this is what makes a pool-isolation bug (e.g., accidentally reusing one backing or one
         // ReservationTable across pools) show up as a wrong counter value instead of going unnoticed.
         List<int> poolIds = hartConfigs.Select(c => c.PoolId).Distinct().ToList();
         var runMemoryByPool = new Dictionary<int, IMemory>(poolIds.Count);
@@ -235,12 +237,14 @@ public static class Experiment {
                 config.ToPipelineSpec(throwawayMechanism, workload),
                 () => new Rv32Mechanism(reservationTable: poolTable, hartId: hartId),
                 workload.EntryPoint,
-                privateCache is { } pc ? CacheHierarchySpec.Unified(new CachePathSpec([pc,])) : null,
+                privateCache != null ? CacheHierarchySpec.Unified(new CachePathSpec([privateCache,])) : null,
                 poolId
             );
         }
 
-        var spec = new MulticoreSpec(harts, sharedLlc, bus, concurrentMode, PoolReservationTables: reservationTableByPool);
+        var spec = new MulticoreSpec(
+            harts, sharedLlc, bus, concurrentMode, PoolReservationTables: reservationTableByPool
+        );
         MulticoreHandle handle = spec.Build(runMemoryByPool);
         RevolutionResult[] raw = concurrentMode ? handle.RunConcurrent(maxTicks) : handle.Run(maxTicks);
 
@@ -332,14 +336,14 @@ public static class Experiment {
             // measure kernel-only IPC (excluding startup and the sprintf teardown that
             // inflates instruction count vs. the Linux-ABI gem5 binary).
             SetStatsObserver? setStatsObs = null;
-            OooeTrain? trainRef = null;
+            OooTrain? trainRef = null;
             if (workload is Rv32ElfWorkload elfWorkload &&
                 elfWorkload.TryFindSymbol("setStats", out ulong setStatsPc))
                 // ReSharper disable once AccessToModifiedClosure
                 setStatsObs = new SetStatsObserver(setStatsPc, () => trainRef!.SnapshotPipeline());
 
             var spec = config.ToPipelineSpec(mechanism, workload, setStatsObs);
-            trainRef = (OooeTrain)spec.Build(mechanism, runMemory, workload.EntryPoint, config.ToIMemoryConfig(), dCfg);
+            trainRef = (OooTrain)spec.Build(mechanism, runMemory, workload.EntryPoint, config.ToIMemoryConfig(), dCfg);
 
             result = trainRef.Run(maxTicks, warmupTicks, snapshotInterval);
 
@@ -610,7 +614,7 @@ public static class Experiment {
     ///     the train's commit observer. Must return a train that supports
     ///     <see cref="ISteppableTrain.SnapshotDials" />/baseline-
     ///     <see cref="ISteppableTrain.FinishStepping(System.Collections.Generic.IReadOnlyList{DialBoardSnapshot})" />
-    ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, <c>OooeTrain</c>.
+    ///     — currently <c>SingleCycleTrain</c>, <c>FiveStageTrain</c>, <c>OooTrain</c>.
     /// </param>
     public static SimPointCheckpointResult MeasureSimPointCheckpoints(
         IWorkload workload,

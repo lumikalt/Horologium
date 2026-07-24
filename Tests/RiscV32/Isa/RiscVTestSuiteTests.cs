@@ -87,7 +87,7 @@ public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
         AssertPass(Gp(train.ArchState), name);
     }
 
-    // ── OooeTrain ─────────────────────────────────────────────────────────────
+    // ── OooTrain ─────────────────────────────────────────────────────────────
 
     [Theory]
     [MemberData(nameof(AllTests))]
@@ -96,7 +96,7 @@ public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
         var mem = new FlatMemory(wl.MemorySize, wl.BaseAddress);
         wl.Load(mem);
 
-        var train = new OooeTrain(new Rv32Mechanism(), mem, wl.EntryPoint);
+        var train = new OooTrain(new Rv32Mechanism(), mem, wl.EntryPoint);
         train.Run(400_000);
 
         AssertPass(Gp(train.ArchState), name);
@@ -117,7 +117,7 @@ public class RiscVTestSuiteTests(ITestOutputHelper testOutputHelper) {
             var mem = new FlatMemory(wl.MemorySize, wl.BaseAddress);
             wl.Load(mem);
 
-            var train = new OooeTrain(new Rv32Mechanism(), mem, wl.EntryPoint);
+            var train = new OooTrain(new Rv32Mechanism(), mem, wl.EntryPoint);
             RevolutionResult result = train.Run(200_000);
 
             DialBoardSnapshot? snap = result.Find("ooo.pipeline");

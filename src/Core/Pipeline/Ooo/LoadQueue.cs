@@ -2,8 +2,6 @@ namespace Pipeline.Ooo;
 
 /// <summary>One slot in the Load Queue.</summary>
 public sealed class LqEntry {
-    public bool Valid { get; set; }
-
     /// <summary>ROB index of the owning instruction.</summary>
     public int RobIdx { get; set; } = -1;
 
@@ -12,7 +10,7 @@ public sealed class LqEntry {
 
     /// <summary>
     ///     Monotonic dispatch sequence number shared with the StoreQueue.
-    ///     Used to determine program-order relationship between LQ and SQ entries
+    ///     Used to determine the program-order relationship between LQ and SQ entries
     ///     without relying on ROB index comparison (which wraps).
     /// </summary>
     public ulong SeqNo { get; set; }
@@ -76,7 +74,6 @@ public sealed class LqEntry {
     public ulong ActualProducerSeqNo { get; set; }
 
     internal void Clear() {
-        Valid = false;
         RobIdx = -1;
         InstrId = 0;
         SeqNo = 0;
@@ -124,7 +121,6 @@ public sealed class LoadQueue {
     public int Allocate() {
         if (IsFull) throw new InvalidOperationException("LQ is full. Check IsFull before allocating.");
         int index = _tail;
-        _slots[index].Valid = true;
         _slots[index].RobIdx = -1;
         _tail = (_tail + 1) % Capacity;
         Count++;

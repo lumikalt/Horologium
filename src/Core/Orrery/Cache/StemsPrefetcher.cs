@@ -313,9 +313,9 @@ public sealed class StemsPrefetcher : IPrefetcher {
         if (_rmobCount < StemsPrefetcher.RmobSize) _rmobCount++;
     }
 
-    private int PrevRmobIndex(int idx) => (idx - 1 + StemsPrefetcher.RmobSize) % StemsPrefetcher.RmobSize;
+    private static int PrevRmobIndex(int idx) => (idx - 1 + StemsPrefetcher.RmobSize) % StemsPrefetcher.RmobSize;
 
-    private int NextRmobIndex(int idx) => (idx + 1) % StemsPrefetcher.RmobSize;
+    private static int NextRmobIndex(int idx) => (idx + 1) % StemsPrefetcher.RmobSize;
 
     // ── Reconstruction (§3.1, Fig. 3/5) ───────────────────────────────────────
 
@@ -390,9 +390,8 @@ public sealed class StemsPrefetcher : IPrefetcher {
     private static void TryPlace(Dictionary<int, ulong> placed, int pos, ulong addr) {
         Span<int> order = [pos, pos + 1, pos - 1, pos + 2, pos - 2,];
         foreach (int cand in order) {
-            if (cand < 0 || cand >= StemsPrefetcher.ReconWindow) continue;
-            if (placed.ContainsKey(cand)) continue;
-            placed[cand] = addr;
+            if (cand is < 0 or >= StemsPrefetcher.ReconWindow) continue;
+            if (!placed.TryAdd(cand, addr)) continue;
             return;
         }
     }

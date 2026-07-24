@@ -253,7 +253,7 @@ internal sealed class SmtCore(
         long cacheStalls = iStallsTotal + dStallsTotal;
 
         // TMA: split by side so an I-side miss attributes to Frontend Latency Bound and a
-        // D-side miss to Backend Memory Bound, mirroring OooeTrain/CprTrain's DrainStalls.
+        // D-side miss to Backend Memory Bound, mirroring OooTrain/CprTrain's DrainStalls.
         // Each hart has independent I/D memory layers, so this sums misses across harts —
         // the lump-sum stall model already freezes the whole cycle group for their combined
         // penalty (see below), so the attribution is consistent with that simplification.

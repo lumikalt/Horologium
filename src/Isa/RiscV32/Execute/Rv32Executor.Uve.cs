@@ -790,20 +790,20 @@ public partial class Rv32Executor {
         for (var i = 0; i < vLen; i++) srcLanes[i] = uvs.GetLane32(vs1, i);
 
         UveStoreStream? storeStream = uvs.RegKind[vd] == UveRegKind.StoreStream ? uvs.StoreStreams[vd] : null;
-        if (storeStream is { } ss) {
+        if (storeStream != null) {
             bool[] predNow = uvs.PredicateRegs[predIdx];
-            int ewBytes = ss.ElementBytes;
+            int ewBytes = storeStream.ElementBytes;
             if (!isVector) {
                 int checkIdx = transpose ? UveState.PredBytes - 1 : 0;
-                if (predNow[checkIdx]) memory.Write(ss.CurrentAddress, srcLanes[0], ewBytes);
-                ss.Advance();
+                if (predNow[checkIdx]) memory.Write(storeStream.CurrentAddress, srcLanes[0], ewBytes);
+                storeStream.Advance();
             }
             else {
                 for (var i = 0; i < vLen; i++) {
                     int predByte = transpose ? UveState.PredBytes - 1 - (i * 4 + 3) : i * 4 + 3;
                     if (predByte is >= 0 and < UveState.PredBytes && predNow[predByte])
-                        memory.Write(ss.CurrentAddress, srcLanes[i], ewBytes);
-                    ss.Advance();
+                        memory.Write(storeStream.CurrentAddress, srcLanes[i], ewBytes);
+                    storeStream.Advance();
                 }
             }
         }

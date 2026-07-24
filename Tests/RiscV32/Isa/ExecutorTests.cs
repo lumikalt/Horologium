@@ -17,7 +17,7 @@ public class ExecutorTests {
     private readonly Rv32Executor _exe = new();
     private readonly FlatMemory _mem = new(4096);
 
-    private Rv32ArchState MakeState(params (int reg, uint val)[] regs) {
+    private static Rv32ArchState MakeState(params (int reg, uint val)[] regs) {
         var s = new Rv32ArchState();
         foreach ((int r, uint v) in regs) {
             // FP registers (32-63) require NaN-boxing when D extension is present.
@@ -1241,7 +1241,7 @@ public class ExecutorTests {
     private static ulong Dbl(double d) => (ulong)BitConverter.DoubleToInt64Bits(d);
     private static double Adbl(ulong bits) => BitConverter.Int64BitsToDouble((long)bits);
 
-    private Rv32ArchState MakeDState(params (int reg, ulong val)[] regs) {
+    private static Rv32ArchState MakeDState(params (int reg, ulong val)[] regs) {
         var s = new Rv32ArchState();
         foreach ((int r, ulong v) in regs) s.IntegerRegisters.Write(r, v);
         return s;
@@ -1392,7 +1392,7 @@ public class ExecutorTests {
     private static ushort Hb(Half h) => BitConverter.HalfToUInt16Bits(h);
     private static Half Ah(ulong bits) => BitConverter.UInt16BitsToHalf((ushort)bits);
 
-    private Rv32ArchState MakeHState(params (int reg, ulong val)[] regs) {
+    private static Rv32ArchState MakeHState(params (int reg, ulong val)[] regs) {
         var s = new Rv32ArchState();
         foreach ((int r, ulong v) in regs) {
             ulong stored = r >= 32 ? 0xFFFFFFFFFFFF0000UL | (v & 0xFFFF) : v;

@@ -14,7 +14,7 @@ namespace Tests.RiscV32.Pipelines;
 /// <summary>
 ///     TMA slot accounting (Yasin, ISPASS 2014) and interval-analysis CPI stacks
 ///     (Eyerman et al., ASPLOS 2006) on <see cref="CprTrain" /> — the same dominance-style
-///     scenarios as the OooeTrain suites, exercising the CPR-specific hooks: checkpoint
+///     scenarios as the OooTrain suites, exercising the CPR-specific hooks: checkpoint
 ///     rollback recovery bubbles and misprediction windows, rename backpressure as a
 ///     backend stall, and the head checkpoint's first uncommitted entry as the blocked head.
 /// </summary>

@@ -239,7 +239,7 @@ public class TrisolvTests {
         uint[] words = BuildWords(n);
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, codeBase,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );

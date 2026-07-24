@@ -29,21 +29,17 @@ public sealed class F18ANode {
     public const uint PortAddrWestRead = 0x141;
     public const uint PortAddrWestWrite = 0x145;
 
-    public F18ANode(int row, int col, ReadOnlySpan<byte> rom) {
-        Row = row;
-        Col = col;
+    public F18ANode(ReadOnlySpan<byte> rom) {
         State = new F18AArchState();
-        Memory = new F18ANodeMemory();
-        Memory.ArborBus = new NodeArborBus(this);
+        Memory = new F18ANodeMemory {
+            ArborBus = new NodeArborBus(this),
+        };
         // Load ROM into word-addresses 64–127
         if (rom.Length > 0) {
             Memory.Load(64 * 4, rom);
             State.Pc = 64 * 4; // start execution from ROM
         }
     }
-
-    public int Row { get; }
-    public int Col { get; }
 
     public F18AArchState State { get; }
     public F18ANodeMemory Memory { get; }

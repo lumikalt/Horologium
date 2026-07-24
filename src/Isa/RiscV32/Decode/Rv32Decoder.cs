@@ -483,9 +483,9 @@ public partial class Rv32Decoder : IDecoder {
             case 0x4: {
                 if ((csr & 0xB3C) == 0x81C)
                     return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopR(rd));
-                if ((csr & 0xB3F) == 0x823)
-                    return new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopRr(rd));
-                throw new IllegalInstructionException(raw, $"Unknown SYSTEM funct3=4 csr=0x{csr:X3}");
+                return (csr & 0xB3F) == 0x823
+                    ? new RvInstruction(pc, raw, rd, [], ToothClass.IntegerAlu, new RvMopRr(rd))
+                    : throw new IllegalInstructionException(raw, $"Unknown SYSTEM funct3=4 csr=0x{csr:X3}");
             }
         }
 
@@ -546,21 +546,21 @@ public partial class Rv32Decoder : IDecoder {
         uint funct3,
         uint funct5
     ) {
-        // Zabha: byte (.b) and halfword (.h) AMOs — funct3=0 and funct3=1 respectively.
-        if (funct3 is 0x0 or 0x1) return DecodeZabha(pc, raw, rd, rs1, rs2, funct3, funct5);
-
-        // Zacas amocas.d, register-pair form: RV32 has no 64-bit register, so the value
-        // is split across (rd, rd+1) and (rs2, rs2+1). This is the only funct3=3 (doubleword)
-        // AMO RV32 recognizes — plain 64-bit RMW AMOs (amoadd.d etc.) are RV64-only.
-        if (funct3 == 0x3) {
-            if (funct5 != 0x05)
+        switch (funct3) {
+            // Zabha: byte (.b) and halfword (.h) AMOs — funct3=0 and funct3=1 respectively.
+            case 0x0 or 0x1: return DecodeZabha(pc, raw, rd, rs1, rs2, funct3, funct5);
+            // Zacas amocas.d, register-pair form: RV32 has no 64-bit register, so the value
+            // is split across (rd, rd+1) and (rs2, rs2+1). This is the only funct3=3 (doubleword)
+            // AMO RV32 recognizes — plain 64-bit RMW AMOs (amoadd.d etc.) are RV64-only.
+            case 0x3 when funct5 != 0x05:
                 throw new IllegalInstructionException(raw, $"RV32 AMO.D with unsupported funct5=0x{funct5:X2}");
-            if ((rd & 1) != 0 || (rs2 & 1) != 0)
+            case 0x3 when (rd & 1) != 0 || (rs2 & 1) != 0:
                 throw new IllegalInstructionException(raw, "amocas.d: rd and rs2 must be even-numbered registers");
-            return new RvInstruction(
-                pc, raw, rd, [rs1, rs2, rs2 + 1, rd, rd + 1,], ToothClass.Atomic,
-                new RvAmocasDPair(rd, rs1, rs2)
-            );
+            case 0x3:
+                return new RvInstruction(
+                    pc, raw, rd, [rs1, rs2, rs2 + 1, rd, rd + 1,], ToothClass.Atomic,
+                    new RvAmocasDPair(rd, rs1, rs2)
+                );
         }
 
         if (funct3 != 0x2)

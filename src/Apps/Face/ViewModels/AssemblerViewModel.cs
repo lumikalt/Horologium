@@ -47,9 +47,6 @@ public partial class AssemblerViewModel : ObservableObject {
     private const long MaxPipelineCycles = 500_000;
     private readonly List<(long Cycle, double HitRate)> _dCacheHitHistory = [];
 
-    private Rv32Decoder _decoder = new();
-    private Rv32Executor _executor = new();
-
     // DoCache hit-rate history — one sample per StepCycle call
     private readonly List<(long Cycle, double HitRate)> _iCacheHitHistory = [];
 
@@ -59,10 +56,13 @@ public partial class AssemblerViewModel : ObservableObject {
     private byte[]? _binaryData;
     private int _binarySize;
     private long _currentCycle;
+
+    private Rv32Decoder _decoder = new();
     private byte[]? _elfBytes;
+    private Rv32Executor _executor = new();
     private FiveStageTrain? _fiveStageTrain;
     private IMemory? _memory;
-    private OooeTrain? _oooeTrain;
+    private OooTrain? _oooeTrain;
     private Dictionary<ulong, int> _pcToLine = [];
     private CancellationTokenSource? _runCts;
     private int _stepCount;
@@ -258,13 +258,13 @@ public partial class AssemblerViewModel : ObservableObject {
 
     [ObservableProperty] public partial bool HasError { get; set; }
 
-    [ObservableProperty] public partial string StatusText { get; set; } = "Enter assembly and click Assemble.";
+    public static string StatusText { get; set; } = "Enter assembly and click Assemble.";
 
     [ObservableProperty] public partial string ConsoleOutput { get; set; } = "";
 
-    [ObservableProperty] private partial bool CanStep { get; set; }
+    private static bool CanStep { get; set; }
 
-    [ObservableProperty] private partial bool IsAssembling { get; set; }
+    private static bool IsAssembling { get; set; }
 
     [ObservableProperty] public partial AssemblyRow? SelectedInstruction { get; set; }
 
@@ -292,25 +292,10 @@ public partial class AssemblerViewModel : ObservableObject {
     ///     forces a re-Assemble rather than leaving a stale RV32 binary paired with an RV64 decoder
     ///     or vice versa.
     /// </summary>
-    [ObservableProperty] public partial string SelectedIsa { get; set; } = "rv32";
+    [ObservableProperty]
+    public partial string SelectedIsa { get; set; } = "rv32";
 
     public string[] IsaOptions { get; } = ["rv32", "rv64",];
-
-    partial void OnSelectedIsaChanged(string value) {
-        RebuildDecoderExecutor();
-        OnPropertyChanged(nameof(GasArchString));
-        OnPropertyChanged(nameof(GasAbi));
-        if (Instructions.Count > 0 && !IsAssembling) AssembleCommand.Execute(null);
-    }
-
-    private void RebuildDecoderExecutor() {
-        _decoder = SelectedIsa == "rv64" ? new Rv64Decoder() : new Rv32Decoder();
-        _executor = SelectedIsa == "rv64" ? new Rv64Executor() : new Rv32Executor();
-    }
-
-    private Rv32ArchState CreateArchState() => SelectedIsa == "rv64" ? new Rv64ArchState() : new Rv32ArchState();
-
-    private IMechanism CreateMechanism() => SelectedIsa == "rv64" ? new Rv64Mechanism() : new Rv32Mechanism();
 
     // ── DoCache config ──────────────────────────────────────────────────────────
     [ObservableProperty] public partial bool ICacheEnabled { get; set; }
@@ -503,6 +488,22 @@ public partial class AssemblerViewModel : ObservableObject {
     public string DecodeTitle => SelectedInstruction is { } r ? $"{r.Offset:X}: {r.HexEncoding}  {r.Mnemonic}" : "";
     public IReadOnlyList<InstrField> DecodeFields => SelectedInstruction?.Fields ?? [];
 
+    partial void OnSelectedIsaChanged(string value) {
+        RebuildDecoderExecutor();
+        OnPropertyChanged(nameof(GasArchString));
+        OnPropertyChanged(nameof(GasAbi));
+        if (Instructions.Count > 0 && !IsAssembling) AssembleCommand.Execute(null);
+    }
+
+    private void RebuildDecoderExecutor() {
+        _decoder = SelectedIsa == "rv64" ? new Rv64Decoder() : new Rv32Decoder();
+        _executor = SelectedIsa == "rv64" ? new Rv64Executor() : new Rv32Executor();
+    }
+
+    private Rv32ArchState CreateArchState() => SelectedIsa == "rv64" ? new Rv64ArchState() : new Rv32ArchState();
+
+    private IMechanism CreateMechanism() => SelectedIsa == "rv64" ? new Rv64Mechanism() : new Rv32Mechanism();
+
     public event Action? CacheUpdated;
 
     private void InitRegisterEntries() {
@@ -686,7 +687,7 @@ public partial class AssemblerViewModel : ObservableObject {
         catch { return false; }
     }
 
-    private IMemory BuildFreshMemory() {
+    private PeripheralBus BuildFreshMemory() {
         var flat = new FlatMemory(1 << 20);
         if (_elfBytes != null)
             Rv32ElfLoader.Load(flat, _elfBytes);
@@ -1114,14 +1115,14 @@ public partial class AssemblerViewModel : ObservableObject {
             catch {
                 mnemonic = "???";
                 int size = compressed ? 2 : 4;
-                Instructions.Add(new AssemblyRow(pc, compressed ? $"{raw:X4}" : $"{raw:X8}", mnemonic, compressed, []));
+                Instructions.Add(new AssemblyRow(pc, compressed ? $"{raw:X4}" : $"{raw:X8}", mnemonic, []));
                 pc += (ulong)size;
                 continue;
             }
 
             string hexStr = compressed ? $"{raw:X4}" : $"{raw:X8}";
             IReadOnlyList<InstrField> fields = RvFieldInfo.GetFields(compressed ? raw & 0xFFFF : raw);
-            Instructions.Add(new AssemblyRow(pc, hexStr, mnemonic, compressed, fields));
+            Instructions.Add(new AssemblyRow(pc, hexStr, mnemonic, fields));
             pc += (ulong)tooth.SizeBytes;
         }
 
@@ -1178,21 +1179,18 @@ public partial class AssemblerViewModel : ObservableObject {
         int victimCacheHitLatency = 1
     ) =>
         enabled
-            ? new MemoryConfig(capacityKb * 1024, ways, blockBytes, missLatency)
-                with {
-                    ReplacementPolicy = policy,
-                    CacheTagLatency = tagLatency,
-                    CacheDataLatency = dataLatency,
-                    CacheWritePolicy = writePolicy,
-                    CacheWriteMissPolicy = writeMissPolicy,
-                    CacheWbCapacity = wbCapacity,
-                    CacheBankCount = bankCount,
-                    CacheReadPorts = readPorts,
-                    CacheWritePorts = writePorts,
-                    CacheSectorBytes = sectorBytes,
-                    CacheVictimCacheEntries = victimCacheEntries,
-                    CacheVictimCacheHitLatency = victimCacheHitLatency,
-                }
+            ? new MemoryConfig(capacityKb * 1024, ways, blockBytes, missLatency) {
+                ReplacementPolicy = policy, CacheTagLatency = tagLatency, CacheDataLatency = dataLatency,
+                CacheWritePolicy = writePolicy,
+                CacheWriteMissPolicy = writeMissPolicy,
+                CacheWbCapacity = wbCapacity,
+                CacheBankCount = bankCount,
+                CacheReadPorts = readPorts,
+                CacheWritePorts = writePorts,
+                CacheSectorBytes = sectorBytes,
+                CacheVictimCacheEntries = victimCacheEntries,
+                CacheVictimCacheHitLatency = victimCacheHitLatency,
+            }
             : MemoryConfig.None;
 
     private void SetupPipeline() {
@@ -1303,7 +1301,7 @@ public partial class AssemblerViewModel : ObservableObject {
             }
             case PipelineMode.OoO when _binaryData != null: {
                 IMemory mem = BuildFreshMemory();
-                _oooeTrain = new OooeTrain(
+                _oooeTrain = new OooTrain(
                     CreateMechanism(), mem,
                     iMemConfig: iCfg, dMemConfig: dCfg, pEventLog: _pEventLog,
                     issueWidth: OooIssueWidth,

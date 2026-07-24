@@ -48,7 +48,7 @@ public class RealLinkedSimPointTests {
         ulong entryPoint,
         InstructionCounter counter
     ) =>
-        new OooeTrain(mechanism, mem, entryPoint, commitObserver: counter);
+        new OooTrain(mechanism, mem, entryPoint, commitObserver: counter);
 
     [Fact]
     public void EcallsOnlyOccurAtStartupAndShutdown_NotInsideTheComputeLoop() {

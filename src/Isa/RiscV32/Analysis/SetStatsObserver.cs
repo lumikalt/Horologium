@@ -38,8 +38,9 @@ internal sealed class SetStatsObserver(ulong setStatsPc, Func<DialBoardSnapshot>
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
         if (pc != setStatsPc) return;
         _callCount++;
-        if (_callCount == 1)
-            _baseline = snapshotFunc();
-        else if (_callCount == 2) _kernelEnd = snapshotFunc();
+        switch (_callCount) {
+            case 1: _baseline = snapshotFunc(); break;
+            case 2: _kernelEnd = snapshotFunc(); break;
+        }
     }
 }

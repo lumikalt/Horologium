@@ -1651,7 +1651,7 @@ public class VectorTests {
         mem.Load(0, bytes);
     }
 
-    private static byte[] VRegs(OooeTrain t, int vr) =>
+    private static byte[] VRegs(OooTrain t, int vr) =>
         ((Rv32ArchState)t.ArchState).VectorRegisters.Read(vr);
 
     private static byte[] VRegs(FiveStageTrain t, int vr) =>
@@ -1665,7 +1665,7 @@ public class VectorTests {
         // Validates that all four 32-bit elements survive the OoOE pipeline (not just
         // the last one — bug: CapturingMemory captured only one element write).
         var mem = new FlatMemory(0x400);
-        var train = new OooeTrain(new Rv32Mechanism(), mem);
+        var train = new OooTrain(new Rv32Mechanism(), mem);
         mem.Write(0x100, 10, 4);
         mem.Write(0x104, 20, 4);
         mem.Write(0x108, 30, 4);
@@ -1693,7 +1693,7 @@ public class VectorTests {
         // vadd.vi v1, v1, 3 then vadd.vi v1, v1, 5 → each element should be 8.
         // Head-serialization in OoOE ensures the second vadd sees v1 already updated.
         var mem = new FlatMemory(0x200);
-        var train = new OooeTrain(new Rv32Mechanism(), mem);
+        var train = new OooTrain(new Rv32Mechanism(), mem);
 
         LoadProg(
             mem,
@@ -3021,7 +3021,7 @@ public class VectorTests {
         // Without the fix, HasPrecedingPendingStore misses vector stores (IsStore=false)
         // and the load can race past, reading stale memory (0 instead of 42).
         var mem = new FlatMemory(0x400);
-        var train = new OooeTrain(new Rv32Mechanism(), mem);
+        var train = new OooTrain(new Rv32Mechanism(), mem);
         mem.Write(0x100, 42, 4);
 
         LoadProg(

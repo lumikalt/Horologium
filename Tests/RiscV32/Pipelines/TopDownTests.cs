@@ -12,7 +12,7 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-///     Top-Down Microarchitecture Analysis (Yasin, ISPASS 2014) slot accounting on OooeTrain.
+///     Top-Down Microarchitecture Analysis (Yasin, ISPASS 2014) slot accounting on OooTrain.
 ///     <para>
 ///         Each test runs a hand-assembled RV32I program engineered to stress one TMA
 ///         category and asserts that the breakdown flags that category as dominant — the
@@ -24,7 +24,7 @@ namespace Tests.RiscV32.Pipelines;
 public class TopDownTests {
     private const uint Ebreak = 0x00100073;
 
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         int issueWidth = 2,
         int robCapacity = 32,
         MemoryConfig? iMemConfig = null,
@@ -32,7 +32,7 @@ public class TopDownTests {
         FuLatencyConfig? fuLatency = null
     ) {
         var mem = new FlatMemory(65536);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -55,7 +55,7 @@ public class TopDownTests {
         mem.Load(0, bytes);
     }
 
-    private static TopDownBreakdown RunAndAnalyze(OooeTrain train) {
+    private static TopDownBreakdown RunAndAnalyze(OooTrain train) {
         train.Run();
         TopDownBreakdown? breakdown = TopDownBreakdown.FromSnapshot(train.SnapshotPipeline());
         Assert.NotNull(breakdown);
@@ -70,7 +70,7 @@ public class TopDownTests {
 
     [Fact]
     public void Level1_FractionsSumToOne_AndCountersAreConsistent() {
-        (OooeTrain train, FlatMemory mem) = Make();
+        (OooTrain train, FlatMemory mem) = Make();
         var program = new uint[65];
         for (var i = 0; i < 64; i++) program[i] = Addi(1 + i % 8, 0, i);
         program[64] = TopDownTests.Ebreak;
@@ -103,7 +103,7 @@ public class TopDownTests {
     public void Retiring_DominatesOnIndependentAluCode() {
         // 256 independent single-cycle ALU ops on a 2-wide machine with 2 ALU ports:
         // the machine sustains full width, so Retiring should dwarf every stall category.
-        (OooeTrain train, FlatMemory mem) = Make();
+        (OooTrain train, FlatMemory mem) = Make();
         var program = new uint[257];
         for (var i = 0; i < 256; i++) program[i] = Addi(1 + i % 8, 0, i % 512);
         program[256] = TopDownTests.Ebreak;
@@ -122,7 +122,7 @@ public class TopDownTests {
         // always-not-taken predictor: every iteration mispredicts, so wrong-path slots
         // plus recovery bubbles must be flagged, and attributed to branches rather than
         // machine clears (there are no memory-order violations or traps in the loop).
-        (OooeTrain train, FlatMemory mem) = Make();
+        (OooTrain train, FlatMemory mem) = Make();
         Load(
             mem,
             Addi(1, 0, 200), // addi x1, x0, 200
@@ -145,7 +145,7 @@ public class TopDownTests {
         // 512 straight-line instructions (2 KiB) through a 256-byte I-cache with a
         // 20-cycle miss penalty: fetch starvation dominates, and since every starved
         // cycle delivers zero uops it lands under Fetch Latency, not Fetch Bandwidth.
-        (OooeTrain train, FlatMemory mem) = Make(
+        (OooTrain train, FlatMemory mem) = Make(
             iMemConfig: new MemoryConfig(256, CacheBlockBytes: 32, CacheMissLatency: 20)
         );
         var program = new uint[513];
@@ -168,7 +168,7 @@ public class TopDownTests {
         // Serialized 20-cycle divides: dispatch keeps up but the backend can only start
         // one uop every 20 cycles → Backend Bound, attributed to the core (no loads at
         // all, so Memory Bound must stay at zero).
-        (OooeTrain train, FlatMemory mem) = Make(fuLatency: new FuLatencyConfig(DivLatency: 20));
+        (OooTrain train, FlatMemory mem) = Make(fuLatency: new FuLatencyConfig(DivLatency: 20));
         var program = new uint[23];
         program[0] = Addi(1, 0, 1000);
         program[1] = Addi(2, 0, 3);
@@ -194,7 +194,7 @@ public class TopDownTests {
         // The chain is longer than the 32-entry ROB so the backend stall (full ROB)
         // stays asserted; a shorter chain would let dispatch drain early and count the
         // idle slots as fetch bubbles instead.
-        (OooeTrain train, FlatMemory mem) = Make(
+        (OooTrain train, FlatMemory mem) = Make(
             dMemConfig: new MemoryConfig(512, CacheBlockBytes: 32, CacheMissLatency: 50)
         );
 

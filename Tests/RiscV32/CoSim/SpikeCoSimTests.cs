@@ -109,7 +109,7 @@ public class SpikeCoSimTests {
         switch (trainFactory(new Rv32Mechanism(tohost), mem, workload.EntryPoint, cosim)) {
             case SingleCycleTrain t: t.Run(); break;
             case FiveStageTrain t:   t.Run(); break;
-            case OooeTrain t:        t.Run(); break;
+            case OooTrain t:         t.Run(); break;
             default:                 throw new InvalidOperationException("unknown train");
         }
     }
@@ -120,7 +120,7 @@ public class SpikeCoSimTests {
     private static FiveStageTrain FiveStage(IMechanism m, IMemory mem, ulong pc, ICommitObserver o) =>
         new(m, mem, pc, commitObserver: o);
 
-    private static OooeTrain Oooe(IMechanism m, IMemory mem, ulong pc, ICommitObserver o) =>
+    private static OooTrain Oooe(IMechanism m, IMemory mem, ulong pc, ICommitObserver o) =>
         new(m, mem, pc, commitObserver: o);
 
     // ── test.elf: simple RV32I golden path ──────────────────────────────────────
@@ -216,7 +216,7 @@ public class SpikeCoSimTests {
         switch (trainFactory(new Rv32Mechanism(), mem, workload.EntryPoint, cosim)) {
             case SingleCycleTrain t: t.Run(); break;
             case FiveStageTrain t:   t.Run(); break;
-            case OooeTrain t:        t.Run(); break;
+            case OooTrain t:         t.Run(); break;
             default:                 throw new InvalidOperationException("unknown train");
         }
     }

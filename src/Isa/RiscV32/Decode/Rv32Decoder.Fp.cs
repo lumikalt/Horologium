@@ -253,7 +253,7 @@ public partial class Rv32Decoder {
 
     // ── FP instruction factories ───────────────────────────────────────────────
 
-    protected static RvInstruction FpRr(
+    private static RvInstruction FpRr(
         ulong pc,
         uint raw,
         int dest,

@@ -12,6 +12,13 @@ public class SignalExtractorTests {
     // counters and an ipc dial, and a cache gear with dcache_hits/dcache_misses.
     // Snapshots every 100 ticks, cumulative values as Train.Run would record them.
     private static RevolutionResult MakeResult() {
+        List<TimeSeriesPoint> ts = [
+            Point(100, 80, 100, 4, 30, 10),
+            Point(200, 130, 200, 10, 60, 20),
+            Point(300, 130, 200, 10, 60, 20), // halted — no progress in window
+        ];
+        return new RevolutionResult(300, 0, ts[^1].Snapshots, ts);
+
         TimeSeriesPoint Point(
             long tick,
             long retired,
@@ -39,13 +46,6 @@ public class SignalExtractorTests {
                 ),
             ]
         );
-
-        List<TimeSeriesPoint> ts = [
-            Point(100, 80, 100, 4, 30, 10),
-            Point(200, 130, 200, 10, 60, 20),
-            Point(300, 130, 200, 10, 60, 20), // halted — no progress in window
-        ];
-        return new RevolutionResult(300, 0, ts[^1].Snapshots, ts);
     }
 
     [Fact]

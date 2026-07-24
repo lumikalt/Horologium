@@ -32,12 +32,11 @@ public class Rv64ElfLoaderTests {
         BitConverter.GetBytes((ushort)phdrSize).CopyTo(buf, 54); // e_phentsize
         BitConverter.GetBytes((ushort)1).CopyTo(buf, 56);        // e_phnum
 
-        int ph = ehdrSize;
-        BitConverter.GetBytes((uint)1).CopyTo(buf, ph + 0);                           // p_type = PT_LOAD
-        BitConverter.GetBytes((ulong)(ehdrSize + phdrSize)).CopyTo(buf, ph + 8);      // p_offset
-        BitConverter.GetBytes(paddr).CopyTo(buf, ph + 24);                            // p_paddr
-        BitConverter.GetBytes((ulong)payload.Length).CopyTo(buf, ph + 32);            // p_filesz
-        BitConverter.GetBytes((ulong)payload.Length + bssExtra).CopyTo(buf, ph + 40); // p_memsz
+        BitConverter.GetBytes((uint)1).CopyTo(buf, ehdrSize + 0);                           // p_type = PT_LOAD
+        BitConverter.GetBytes((ulong)(ehdrSize + phdrSize)).CopyTo(buf, ehdrSize + 8);      // p_offset
+        BitConverter.GetBytes(paddr).CopyTo(buf, ehdrSize + 24);                            // p_paddr
+        BitConverter.GetBytes((ulong)payload.Length).CopyTo(buf, ehdrSize + 32);            // p_filesz
+        BitConverter.GetBytes((ulong)payload.Length + bssExtra).CopyTo(buf, ehdrSize + 40); // p_memsz
 
         payload.CopyTo(buf, ehdrSize + phdrSize);
         return buf;

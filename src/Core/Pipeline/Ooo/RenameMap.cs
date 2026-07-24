@@ -22,7 +22,7 @@ public sealed class RenameMap {
     private readonly int _physCount;
     private readonly int[] _rat;
 
-    /// <param name="archCount">Number of architectural registers (e.g. 64 for RV32F).</param>
+    /// <param name="archCount">Architectural registers (e.g., 64 for RV32F).</param>
     /// <param name="physCount">
     ///     Total physical registers. Must exceed <paramref name="archCount" />;
     ///     the surplus forms the initial free list.
@@ -129,14 +129,6 @@ public sealed class RenameMap {
 
     /// <summary>Restores the RAT array from a <see cref="SnapshotRat" /> capture, leaving the free list untouched.</summary>
     public void RestoreRat(int[] rat) => Array.Copy(rat, _rat, _rat.Length);
-
-    /// <summary>True if any architectural register currently maps to <paramref name="phys" />.</summary>
-    public bool IsMapped(int phys) {
-        foreach (int p in _rat)
-            if (p == phys)
-                return true;
-        return false;
-    }
 
     /// <summary>
     ///     Overwrites the RAT and free list from a prior <see cref="Snapshot" />, discarding every

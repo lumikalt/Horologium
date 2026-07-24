@@ -72,7 +72,7 @@ public class Rv64VectorTests {
         (uint)(((nf - 1) << 29) | (2 << 26) | (1 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3Width << 12) |
                (vs3 << 7) | 0x27);
 
-    private Rv64ArchState MakeState() => new();
+    private static Rv64ArchState MakeState() => new();
 
     private ExecuteResult Exec(uint raw, Rv64ArchState state, ulong pc = 0) {
         ITooth instr = _dec.Decode(pc, raw);
@@ -137,7 +137,7 @@ public class Rv64VectorTests {
         ConfigVl4E32(s);
 
         const ulong stride = 0x1_0000_0008UL; // > uint.MaxValue
-        ulong baseAddr = 0x2000;
+        const ulong baseAddr = 0x2000;
         _sparseMem.Write(baseAddr, 10, 4);
         _sparseMem.Write(baseAddr + stride, 20, 4);
         _sparseMem.Write(baseAddr + stride * 2, 30, 4);
@@ -162,7 +162,7 @@ public class Rv64VectorTests {
         SetVReg(s, 1, [1u, 2u, 3u, 4u,]);
 
         const ulong stride = 0x1_0000_0008UL;
-        ulong baseAddr = 0x3000;
+        const ulong baseAddr = 0x3000;
         s.IntegerRegisters.Write(10, baseAddr);
         s.IntegerRegisters.Write(11, stride);
 
@@ -181,8 +181,8 @@ public class Rv64VectorTests {
         Rv64ArchState s = MakeState();
         ConfigVl4E32(s);
 
-        ulong baseAddr = 0x5000;
-        var stride = unchecked((ulong)-8L); // -8 as a full 64-bit two's-complement value
+        const ulong baseAddr = 0x5000;
+        const ulong stride = unchecked((ulong)-8L); // -8 as a full 64-bit two's-complement value
         _mem.Write(baseAddr, 10, 4);
         _mem.Write(baseAddr - 8, 20, 4);
         _mem.Write(baseAddr - 16, 30, 4);
@@ -208,7 +208,7 @@ public class Rv64VectorTests {
         ConfigVl4E32(s);
 
         const ulong stride = 0x1_0000_0010UL; // > uint.MaxValue
-        ulong baseAddr = 0x2000;
+        const ulong baseAddr = 0x2000;
         for (var i = 0; i < 4; i++) {
             ulong addr = baseAddr + stride * (ulong)i;
             _sparseMem.Write(addr, (ulong)(10 + i * 10), 4);
@@ -241,7 +241,7 @@ public class Rv64VectorTests {
         SetVReg(s, 2, [11u, 21u, 31u, 41u,]); // field 1
 
         const ulong stride = 0x1_0000_0010UL; // > uint.MaxValue
-        ulong baseAddr = 0x3000;
+        const ulong baseAddr = 0x3000;
         s.IntegerRegisters.Write(10, baseAddr);
         s.IntegerRegisters.Write(11, stride);
 
@@ -259,8 +259,8 @@ public class Rv64VectorTests {
         Rv64ArchState s = MakeState();
         ConfigVl4E32(s);
 
-        ulong baseAddr = 0x5000;
-        var stride = unchecked((ulong)-16L);
+        const ulong baseAddr = 0x5000;
+        const ulong stride = unchecked((ulong)-16L);
         for (var i = 0; i < 4; i++) {
             ulong addr = baseAddr - (ulong)(16 * i);
             _mem.Write(addr, (ulong)(10 + i * 10), 4);

@@ -107,9 +107,11 @@ public sealed class IpcpPrefetcher : IPrefetcher {
         if ((rst.Bitvector & bit) == 0) {
             rst.Bitvector |= bit;
             int delta = lineInRegion - rst.PrevLineInRegion;
-            if (delta > 0)
-                rst.Direction++;
-            else if (delta < 0) rst.Direction--;
+            switch (delta) {
+                case > 0: rst.Direction++; break;
+                case < 0: rst.Direction--; break;
+            }
+
             rst.PrevLineInRegion = lineInRegion;
         }
 

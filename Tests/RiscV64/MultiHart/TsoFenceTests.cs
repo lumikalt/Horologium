@@ -52,7 +52,7 @@ public class TsoFenceTests {
         var mem = new FlatMemory(0x1000);
         mem.Load(0, ToBytes(addiX2, addiX1, swX1, middle, addiX4, lwX3, TsoFenceTests.Ebreak));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv64Mechanism(), mem,
             dMemConfig: new MemoryConfig(
                 16384, 4, 64
@@ -110,7 +110,7 @@ public class TsoFenceTests {
     /// </summary>
     [Fact]
     public void OoOHarts_MessagePassingLitmus_FencedDataIsVisibleWhenFlagIs() {
-        // H0 at 0x00 (OooeTrain PRF starts zeroed — all values computed in-program):
+        // H0 at 0x00 (OooTrain PRF starts zeroed — all values computed in-program):
         const uint luiX1 = 0x0000D0B7;  // lui  x1, 0xD
         const uint addiX1 = 0xAFE08093; // addi x1, x1, -1282  → x1 = 0xCAFE (data value)
         const uint addiX2 = 0x20000113; // addi x2, x0, 0x200  (data address)
@@ -141,8 +141,8 @@ public class TsoFenceTests {
         var cache0 = new MoesifCache(bus, 1024, 2, 64);
         var cache1 = new MoesifCache(bus, 1024, 2, 64);
 
-        var train0 = new OooeTrain(new Rv64Mechanism(), cache0);
-        var train1 = new OooeTrain(new Rv64Mechanism(), cache1, 0x80);
+        var train0 = new OooTrain(new Rv64Mechanism(), cache0);
+        var train1 = new OooTrain(new Rv64Mechanism(), cache1, 0x80);
 
         new MultiHartPipeline(train0, train1).Run(10_000);
 

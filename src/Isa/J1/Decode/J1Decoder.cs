@@ -51,8 +51,6 @@ public sealed class J1Decoder : IDecoder {
     }
 
     private static J1Instruction DecodeAlu(ulong pc, ushort raw) {
-        static int Delta(int bits) => bits switch { 0 => 0, 1 => 1, 2 => -2, 3 => -1, _ => 0, };
-
         var op = new Alu(
             (raw >> 8) & 0xF,
             (raw & 0x1000) != 0,
@@ -68,5 +66,7 @@ public sealed class J1Decoder : IDecoder {
             : op.ReturnFromR       ? ToothClass.Branch
                                      : ToothClass.IntegerAlu;
         return new J1Instruction(pc, op, cls);
+
+        static int Delta(int bits) => bits switch { 0 => 0, 1 => 1, 2 => -2, 3 => -1, _ => 0, };
     }
 }

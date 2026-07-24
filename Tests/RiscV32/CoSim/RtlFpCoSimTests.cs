@@ -80,7 +80,7 @@ public sealed class RtlFpCoSimTests {
         0x7E800000,                         // huge normal (drives overflow)
     ];
 
-    private static (ulong Bits, uint Fflags) Run(IExecutor ex, IMechanism mech, uint enc, uint aBits, uint bBits) {
+    private static (ulong Bits, uint Fflags) Run(IExecutor ex, Rv32Mechanism mech, uint enc, uint aBits, uint bBits) {
         IArchState state = mech.CreateArchState();
         IRegisterFile regs = state.IntegerRegisters;
         regs.Write(33, 0xFFFFFFFF00000000UL | aBits); // f1, NaN-boxed
@@ -160,7 +160,7 @@ public sealed class RtlFpCoSimTests {
         using var unit = new RtlFfiFunctionalUnit(RtlFpLibrary.Path);
         mech.Executor = new RvRtlFpExecutor(mech.Executor, unit);
 
-        var train = new OooeTrain(mech, mem);
+        var train = new OooTrain(mech, mem);
         train.Run();
         Assert.Equal(42u, (uint)train.ArchState.IntegerRegisters.Read(5));
     }

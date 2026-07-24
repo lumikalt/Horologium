@@ -18,13 +18,13 @@ public sealed class F18AExecutor : IExecutor {
 
         var branchTaken = false;
         ulong branchTarget = 0;
-        var halted = false;
+        const bool halted = false;
         var pOffset = 0; // words consumed from instruction stream by @p+ / !p+
 
         byte[] slots = [insn.Slot0, insn.Slot1, insn.Slot2, insn.Slot3,];
         uint[] addrs = [insn.AddrAfterSlot0, insn.AddrAfterSlot1, insn.AddrAfterSlot2, 0,];
 
-        for (var i = 0; i < 4 && !branchTaken && !halted; i++)
+        for (var i = 0; i < 4 && !branchTaken; i++)
             RunSlot(
                 slots[i], addrs[i], tooth.Pc, work, memory,
                 ref pOffset, ref branchTaken, ref branchTarget
@@ -36,12 +36,11 @@ public sealed class F18AExecutor : IExecutor {
             branchTarget = tooth.Pc + 4 + (ulong)(pOffset * 4);
         }
 
-        F18AArchState captured = work;
         return new ExecuteResult {
             BranchTaken = branchTaken,
             BranchTarget = branchTaken ? branchTarget : null,
             IsHalt = halted,
-            SideEffect = s => ((F18AArchState)s).CopyFrom(captured),
+            SideEffect = s => ((F18AArchState)s).CopyFrom(work),
         };
     }
 

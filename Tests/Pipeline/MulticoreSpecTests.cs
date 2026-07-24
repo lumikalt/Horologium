@@ -278,9 +278,9 @@ public class MulticoreSpecTests {
 
         MulticoreHandle handle = new MulticoreSpec(
             [
-                new HartSpec(new SingleCycleSpec(), Rv32(), 0x00, PoolId: 0),
+                new HartSpec(new SingleCycleSpec(), Rv32()),
                 new HartSpec(new SingleCycleSpec(), Rv32(), 0x40, PoolId: 0),
-                new HartSpec(new SingleCycleSpec(), Rv32(), 0x00, PoolId: 1),
+                new HartSpec(new SingleCycleSpec(), Rv32(), PoolId: 1),
                 new HartSpec(new SingleCycleSpec(), Rv32(), 0x40, PoolId: 1),
             ]
         ).Build(new Dictionary<int, IMemory> { [0] = mem0, [1] = mem1, });
@@ -294,7 +294,7 @@ public class MulticoreSpecTests {
 
     [Fact]
     public void TwoPools_HaveDistinctBusAndLlcInstances() {
-        var llcSpec = new CacheLevelSpec(4096, 4, 64, 10);
+        var llcSpec = new CacheLevelSpec(4096, 4, 64);
         MulticoreHandle handle = new MulticoreSpec(
             [
                 new HartSpec(new SingleCycleSpec(), Rv32(), PoolId: 0),
@@ -319,8 +319,9 @@ public class MulticoreSpecTests {
                 new HartSpec(new SingleCycleSpec(), Rv32(), PoolId: 1),
             ]
         );
-        Assert.Throws<InvalidOperationException>(
-            () => spec.Build(new Dictionary<int, IMemory> { [0] = new FlatMemory(0x100), })
+        Assert.Throws<InvalidOperationException>(() => spec.Build(
+                                                     new Dictionary<int, IMemory> { [0] = new FlatMemory(0x100), }
+                                                 )
         );
     }
 

@@ -17,11 +17,11 @@ namespace Pipeline;
 
 // ── Public wrapper ─────────────────────────────────────────────────────────────
 
-public sealed partial class OooeTrain : ISteppableTrain {
+public sealed partial class OooTrain : ISteppableTrain {
     private readonly OoOPipelineCore _core;
     private readonly Train _train;
 
-    public OooeTrain(
+    public OooTrain(
         IMechanism mechanism,
         IMemory memory,
         ulong entryPoint = 0,
@@ -98,7 +98,7 @@ public sealed partial class OooeTrain : ISteppableTrain {
         _train.Build();
     }
 
-    internal OooeTrain(
+    internal OooTrain(
         IMechanism mechanism,
         MemoryLayers iLayers,
         MemoryLayers dLayers,
@@ -397,7 +397,7 @@ internal sealed partial class OoOPipelineCore : Gear {
     private bool _fetchFaulted; // suppress repeated fault entries until flush clears
 
     // Set by Drain() to stop admitting new instructions while the back-end empties out ahead of
-    // a microarchitectural checkpoint. See OooeTrain.Checkpoint.cs.
+    // a microarchitectural checkpoint. See OooTrain.Checkpoint.cs.
     private bool _fetchInhibited;
 
     // Runtime state
@@ -844,7 +844,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         // (_dispatchStalledPrevCycle) must count as well. These cycles are excluded from any
         // in-flight branch's misprediction penalty window via _cpiStolenCycles.
         if ((_rob.IsFull || _dispatchStalledPrevCycle)
-         && !_rob.IsEmpty && _rob.Head is { IsComplete: false, } blockedHead) {
+         && _rob is { IsEmpty: false, Head: { IsComplete: false, } blockedHead, }) {
             Counter blocked = blockedHead.IsLoad
                 ? blockedHead.DMissClass switch {
                     CpiMissClass.L1D  => _cpiL1DCounter,
@@ -1622,15 +1622,11 @@ internal sealed partial class OoOPipelineCore : Gear {
                 if (rs.RobIndex != _rob.HeadIndex) return false;
                 var streamStall = false;
                 if (rs.Instruction is not null)
-                    foreach (int uid in rs.Instruction.UveStreamSources)
-                        // UveStreamSources over-lists every vector-register operand at decode
-                        // time (it can't know which ones get dynamically stream-configured), so
-                        // uid >= MaxStreams is a plain arithmetic register, never an active stream.
-                        if (uid >= 0 && uid < StreamingEngine.MaxStreams && StreamingEngine.IsActive(uid)
-                         && !StreamingEngine.HasElement(uid)) {
-                            streamStall = true;
-                            break;
-                        }
+                    if (rs.Instruction.UveStreamSources.Any(uid => uid >= 0 && uid < StreamingEngine.MaxStreams
+                                                                            && StreamingEngine.IsActive(uid)
+                                                                            && !StreamingEngine.HasElement(uid)
+                        ))
+                        streamStall = true;
 
                 if (streamStall) return false;
                 break;
@@ -2642,7 +2638,6 @@ internal sealed partial class OoOPipelineCore : Gear {
         int p0 = srcs.Count > 0 ? _rat.Lookup(srcs[0]) : -1;
         int p1 = srcs.Count > 1 ? _rat.Lookup(srcs[1]) : -1;
         int p2 = srcs.Count > 2 ? _rat.Lookup(srcs[2]) : -1;
-        bool Tainted(int phys) => phys >= 0 && _runaheadTainted.Contains(phys);
         bool anyTainted = Tainted(p0) || Tainted(p1) || Tainted(p2);
 
         // Branches never dereference memory and don't need real operand values (prediction is
@@ -2726,6 +2721,8 @@ internal sealed partial class OoOPipelineCore : Gear {
 
         _shadowPc += (ulong)instr.SizeBytes;
         return true;
+
+        bool Tainted(int phys) => phys >= 0 && _runaheadTainted.Contains(phys);
     }
 
     /// <summary>

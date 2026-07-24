@@ -403,7 +403,7 @@ public class UveTests {
     /// <summary>
     ///     so.v.mv's destination writing through to memory when bound to an active store stream —
     ///     the gap found while porting the UVE2 <c>stream</c> benchmark's Copy kernel (c = a via
-    ///     so.v.mv), where <see cref="ExecuteUveSoVMv" /> used to only update vd's own lanes,
+    ///     so.v.mv), where <c>ExecuteUveSoVMv</c> used to only update vd's own lanes,
     ///     unlike the arithmetic ops' <c>UveWriteResult</c> path (see
     ///     <see cref="SoAFp_ToStoreStream_WritesMemory" />). Confirmed against Spike's
     ///     so_v_mv.h/so_v_mvt.h, which both write through the same generic per-register path used
@@ -1091,7 +1091,7 @@ public class UveTests {
         // Load code at 0x1000
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1191,7 +1191,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1263,7 +1263,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1286,7 +1286,7 @@ public class UveTests {
     }
 
     /// <summary>
-    ///     Regression test for a bug found while porting the <c>mvt</c> benchmark: <c>OooeTrain</c>'s
+    ///     Regression test for a bug found while porting the <c>mvt</c> benchmark: <c>OooTrain</c>'s
     ///     <c>UveBranchStreams</c> handling computed "done" purely from
     ///     <see cref="StreamingEngine" />.IsActive/IsExhausted, which store streams never register with
     ///     (they bypass the engine entirely). That collapsed to "always done" for any store-stream
@@ -1316,7 +1316,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 32, iqCapacity: 16
         );
@@ -1383,7 +1383,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 32, iqCapacity: 16
         );
@@ -1474,7 +1474,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1561,7 +1561,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1604,7 +1604,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1677,7 +1677,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1781,7 +1781,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1876,7 +1876,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -1978,7 +1978,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -2046,7 +2046,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -2121,7 +2121,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -2238,7 +2238,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -2322,7 +2322,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -2510,7 +2510,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -2672,7 +2672,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32
         );
@@ -2792,7 +2792,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, streamMaxCount: UveState.RecommendedStreamCapacity,
             robCapacity: 64, iqCapacity: 32
@@ -2887,68 +2887,64 @@ public class UveTests {
         // Register plan: x1=modelBase x2=xBase x3=yErrBase x4=yBase x5=epochs x6=n x7=d x8=1
         // x9=bits(lr) x10=bits((float)n)
         const ulong code = 0x1000;
-        var words = new List<uint>();
-
-        words.Add(Addi(1, 0, (int)modelBase));
-        words.Add(Addi(2, 0, (int)xBase));
-        words.Add(Addi(3, 0, (int)yErrBase));
-        words.Add(Addi(4, 0, (int)yBase));
-        words.Add(Addi(5, 0, epochs));
-        words.Add(Addi(6, 0, n));
-        words.Add(Addi(7, 0, d));
-        words.Add(Addi(8, 0, 1));
-        words.Add(Lui(9, BitConverter.SingleToInt32Bits(lr) >> 12));
-        words.Add(Lui(10, BitConverter.SingleToInt32Bits(n) >> 12));
-
-        // KERNEL 1 streams
-        // u1 = sgd_model(j) load: outer(epochs,stride0), middle(n,stride0), inner(d,stride1)
-        words.Add(SsStaLdW(1, 1));
-        words.Add(SsApp(1, 0, 5, 0));
-        words.Add(SsApp(1, 0, 6, 0));
-        words.Add(SsEnd(1, 0, 7, 8));
-        // u2 = x(i,j) load: outer(epochs,stride0), middle(n,stride=d), inner(d,stride1)
-        words.Add(SsStaLdW(2, 2));
-        words.Add(SsApp(2, 0, 5, 0));
-        words.Add(SsApp(2, 0, 6, 7));
-        words.Add(SsEnd(2, 0, 7, 8));
-        // u3 = y_err(i) store: outer(epochs,stride0), inner(n,stride1)
-        words.Add(SsStaStW(3, 3));
-        words.Add(SsApp(3, 0, 5, 0));
-        words.Add(SsEnd(3, 0, 6, 8));
-        // u4 = y(i) load: outer(epochs,stride0), inner(n,stride1)
-        words.Add(SsStaLdW(4, 4));
-        words.Add(SsApp(4, 0, 5, 0));
-        words.Add(SsEnd(4, 0, 6, 8));
-
-        // KERNEL 2 stream
-        // u5 = y_err(i) load: outer(epochs,stride0), inner(n,stride1)
-        words.Add(SsStaLdW(5, 3));
-        words.Add(SsApp(5, 0, 5, 0));
-        words.Add(SsEnd(5, 0, 6, 8));
-
-        // KERNEL 3 streams
-        // u6 = x(j,i) load: outer(epochs,stride0), middle(d,stride1), inner(n,stride=d)
-        words.Add(SsStaLdW(6, 2));
-        words.Add(SsApp(6, 0, 5, 0));
-        words.Add(SsApp(6, 0, 7, 8));
-        words.Add(SsEnd(6, 0, 6, 7));
-        // u7 = y_err(j) load: outer(epochs,stride0), middle(d,stride0), inner(n,stride1)
-        words.Add(SsStaLdW(7, 3));
-        words.Add(SsApp(7, 0, 5, 0));
-        words.Add(SsApp(7, 0, 7, 0));
-        words.Add(SsEnd(7, 0, 6, 8));
-        // u8 = sgd_model(j) load: outer(epochs,stride0), inner(d,stride1)
-        words.Add(SsStaLdW(8, 1));
-        words.Add(SsApp(8, 0, 5, 0));
-        words.Add(SsEnd(8, 0, 7, 8));
-        // u9 = sgd_model(j) store: outer(epochs,stride0), inner(d,stride1)
-        words.Add(SsStaStW(9, 1));
-        words.Add(SsApp(9, 0, 5, 0));
-        words.Add(SsEnd(9, 0, 7, 8));
-
-        words.Add(SoVMvsv(10, 0, 4));  // u10 = intercept, init 0 (reuses x0=zero)
-        words.Add(SoVMvsv(11, 9, 4));  // u11 = lr broadcast
-        words.Add(SoVMvsv(12, 10, 4)); // u12 = (float)n broadcast
+        var words = new List<uint> {
+            Addi(1, 0, (int)modelBase),
+            Addi(2, 0, (int)xBase),
+            Addi(3, 0, (int)yErrBase),
+            Addi(4, 0, (int)yBase),
+            Addi(5, 0, epochs),
+            Addi(6, 0, n),
+            Addi(7, 0, d),
+            Addi(8, 0, 1),
+            Lui(9, BitConverter.SingleToInt32Bits(lr) >> 12),
+            Lui(10, BitConverter.SingleToInt32Bits(n) >> 12),
+            // KERNEL 1 streams
+            // u1 = sgd_model(j) load: outer(epochs,stride0), middle(n,stride0), inner(d,stride1)
+            SsStaLdW(1, 1),
+            SsApp(1, 0, 5, 0),
+            SsApp(1, 0, 6, 0),
+            SsEnd(1, 0, 7, 8),
+            // u2 = x(i,j) load: outer(epochs,stride0), middle(n,stride=d), inner(d,stride1)
+            SsStaLdW(2, 2),
+            SsApp(2, 0, 5, 0),
+            SsApp(2, 0, 6, 7),
+            SsEnd(2, 0, 7, 8),
+            // u3 = y_err(i) store: outer(epochs,stride0), inner(n,stride1)
+            SsStaStW(3, 3),
+            SsApp(3, 0, 5, 0),
+            SsEnd(3, 0, 6, 8),
+            // u4 = y(i) load: outer(epochs,stride0), inner(n,stride1)
+            SsStaLdW(4, 4),
+            SsApp(4, 0, 5, 0),
+            SsEnd(4, 0, 6, 8),
+            // KERNEL 2 stream
+            // u5 = y_err(i) load: outer(epochs,stride0), inner(n,stride1)
+            SsStaLdW(5, 3),
+            SsApp(5, 0, 5, 0),
+            SsEnd(5, 0, 6, 8),
+            // KERNEL 3 streams
+            // u6 = x(j,i) load: outer(epochs,stride0), middle(d,stride1), inner(n,stride=d)
+            SsStaLdW(6, 2),
+            SsApp(6, 0, 5, 0),
+            SsApp(6, 0, 7, 8),
+            SsEnd(6, 0, 6, 7),
+            // u7 = y_err(j) load: outer(epochs,stride0), middle(d,stride0), inner(n,stride1)
+            SsStaLdW(7, 3),
+            SsApp(7, 0, 5, 0),
+            SsApp(7, 0, 7, 0),
+            SsEnd(7, 0, 6, 8),
+            // u8 = sgd_model(j) load: outer(epochs,stride0), inner(d,stride1)
+            SsStaLdW(8, 1),
+            SsApp(8, 0, 5, 0),
+            SsEnd(8, 0, 7, 8),
+            // u9 = sgd_model(j) store: outer(epochs,stride0), inner(d,stride1)
+            SsStaStW(9, 1),
+            SsApp(9, 0, 5, 0),
+            SsEnd(9, 0, 7, 8),
+            SoVMvsv(10, 0, 4),  // u10 = intercept, init 0 (reuses x0=zero)
+            SoVMvsv(11, 9, 4),  // u11 = lr broadcast
+            SoVMvsv(12, 10, 4), // u12 = (float)n broadcast
+        };
 
         // .SLOOP_1: (outer, per epoch)
         int sloop1 = words.Count;
@@ -2991,7 +2987,7 @@ public class UveTests {
 
         for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem, code,
             streamPrefetchDepth: 8, streamMaxCount: UveState.RecommendedStreamCapacity,
             robCapacity: 64, iqCapacity: 32
@@ -3095,7 +3091,7 @@ public class UveTests {
         ];
 
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
-        new OooeTrain(new Rv32Mechanism(), mem, codeBase, streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32)
+        new OooTrain(new Rv32Mechanism(), mem, codeBase, streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32)
            .Run(20_000);
         return BitConverter.Int32BitsToSingle((int)(uint)mem.Read(resultAddr, 4));
     }
@@ -3147,7 +3143,7 @@ public class UveTests {
         ];
 
         for (var i = 0; i < words.Length; i++) mem.Load(codeBase + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
-        new OooeTrain(new Rv32Mechanism(), mem, codeBase, streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32)
+        new OooTrain(new Rv32Mechanism(), mem, codeBase, streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32)
            .Run(20_000);
 
         var result = new float[n * n];

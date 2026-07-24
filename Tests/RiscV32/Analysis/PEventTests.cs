@@ -139,7 +139,7 @@ public class PEventTests {
     public void OoO_SimpleProgram_RecordsAllLifecycleKinds() {
         var plog = new PEventLog();
         FlatMemory mem = LoadProgram(PEventTests.SimpleProgram);
-        var train = new OooeTrain(new Rv32Mechanism(), mem, pEventLog: plog);
+        var train = new OooTrain(new Rv32Mechanism(), mem, pEventLog: plog);
         train.Run();
 
         Assert.NotEmpty(plog.OfKind(PEventKind.Fetch));
@@ -153,7 +153,7 @@ public class PEventTests {
     public void OoO_RetiredInstructions_HaveFullLifecycle() {
         var plog = new PEventLog();
         FlatMemory mem = LoadProgram(PEventTests.SimpleProgram);
-        var train = new OooeTrain(new Rv32Mechanism(), mem, pEventLog: plog);
+        var train = new OooTrain(new Rv32Mechanism(), mem, pEventLog: plog);
         train.Run();
 
         foreach ((ulong id, _, long retireCycle, _) in plog.OfKind(PEventKind.Retire)) {
@@ -187,7 +187,7 @@ public class PEventTests {
     public void OoO_BranchMispredict_ProducesFlushEvents() {
         var plog = new PEventLog();
         FlatMemory mem = LoadProgram(PEventTests.BranchMispredictProgram);
-        var train = new OooeTrain(new Rv32Mechanism(), mem, pEventLog: plog);
+        var train = new OooTrain(new Rv32Mechanism(), mem, pEventLog: plog);
         train.Run();
 
         Assert.NotEmpty(plog.OfKind(PEventKind.Flush));
@@ -197,7 +197,7 @@ public class PEventTests {
     public void OoO_InstrIdIsUnique() {
         var plog = new PEventLog();
         FlatMemory mem = LoadProgram(PEventTests.SimpleProgram);
-        var train = new OooeTrain(new Rv32Mechanism(), mem, pEventLog: plog);
+        var train = new OooTrain(new Rv32Mechanism(), mem, pEventLog: plog);
         train.Run();
 
         List<ulong> fetchIds = plog.OfKind(PEventKind.Fetch).Select(e => e.InstrId).ToList();

@@ -11,7 +11,7 @@ namespace Orrery.Observation;
 ///     periodic time-series snapshots. <see cref="Ticks" /> are relative to the start
 ///     of the measurement phase; <see cref="Values" /> holds one sample per snapshot.
 /// </summary>
-public sealed record Signal(string Name, double[] Ticks, double[] Values);
+public sealed record Signal(double[] Ticks, double[] Values);
 
 /// <summary>
 ///     Turns the cumulative <see cref="RevolutionResult.TimeSeries" /> snapshots into
@@ -88,7 +88,7 @@ public static class SignalExtractor {
         if (name.EndsWith(SignalExtractor.CumulativeSuffix)) {
             (string gear, string dial) = SplitName(name[..^SignalExtractor.CumulativeSuffix.Length]);
             double[]? values = DialSeries(ts, gear, dial);
-            return values is null ? null : new Signal(name, ticks, values);
+            return values is null ? null : new Signal(ticks, values);
         }
 
         if (name.EndsWith(SignalExtractor.WindowedSuffix)) {
@@ -111,7 +111,7 @@ public static class SignalExtractor {
                 for (var i = 0; i < den.Length; i++) den[i] += part[i];
             }
 
-            return new Signal(name, ticks, WindowedRatio(num, den));
+            return new Signal(ticks, WindowedRatio(num, den));
         }
 
         {
@@ -126,7 +126,7 @@ public static class SignalExtractor {
                 prev = values[i];
             }
 
-            return new Signal(name, ticks, samples);
+            return new Signal(ticks, samples);
         }
     }
 
@@ -149,22 +149,18 @@ public static class SignalExtractor {
 
     private static long[]? CounterSeries(IReadOnlyList<TimeSeriesPoint> ts, string gear, string counter) {
         var values = new long[ts.Count];
-        for (var i = 0; i < ts.Count; i++) {
-            DialBoardSnapshot? snap = FindGear(ts[i], gear);
-            if (snap is null || !snap.Counters.TryGetValue(counter, out values[i])) return null;
-        }
-
-        return values;
+        return ts.Select(t => FindGear(t, gear))
+                 .Where((snap, i) => snap is null || !snap.Counters.TryGetValue(counter, out values[i])).Any()
+            ? null
+            : values;
     }
 
     private static double[]? DialSeries(IReadOnlyList<TimeSeriesPoint> ts, string gear, string dial) {
         var values = new double[ts.Count];
-        for (var i = 0; i < ts.Count; i++) {
-            DialBoardSnapshot? snap = FindGear(ts[i], gear);
-            if (snap is null || !snap.Dials.TryGetValue(dial, out values[i])) return null;
-        }
-
-        return values;
+        return ts.Select(t => FindGear(t, gear))
+                 .Where((snap, i) => snap is null || !snap.Dials.TryGetValue(dial, out values[i])).Any()
+            ? null
+            : values;
     }
 
     private static DialBoardSnapshot? FindGear(TimeSeriesPoint point, string gear) =>

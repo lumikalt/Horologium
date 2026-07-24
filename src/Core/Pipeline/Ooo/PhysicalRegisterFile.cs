@@ -22,7 +22,7 @@ namespace Pipeline.Ooo;
 ///         ready, or its producer drained to the CFP slice buffer / was squashed —
 ///         <see cref="MarkAbandoned" />). This may be long before the producing instruction's
 ///         checkpoint retires — the whole point of decoupling reclamation from in-order retirement.
-///         <c>OooeTrain</c> ignores all of this state; only <c>CprTrain</c> drives it.
+///         <c>OooTrain</c> ignores all of this state; only <c>CprTrain</c> drives it.
 ///     </para>
 ///     <para>
 ///         For CFP (Srinivasan et al., ASPLOS 2004 §4.2.1) each register also carries a NAV
@@ -178,7 +178,7 @@ public sealed class PhysicalRegisterFile {
     /// <summary>
     ///     Marks phys registers [0, archCount) as the live allocation backing the initial identity
     ///     RAT, and everything above as free. Call after construction/reset by trains that use the
-    ///     allocated-flag bookkeeping (CprTrain); OooeTrain never reads it.
+    ///     allocated-flag bookkeeping (CprTrain); OooTrain never reads it.
     /// </summary>
     public void InitializeAllocation(int archCount) {
         for (var i = 0; i < Count; i++) _allocated[i] = i < archCount;

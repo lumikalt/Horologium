@@ -55,7 +55,7 @@ public sealed record TlbHardwareConfig(
 
 /// <summary>
 ///     Fully-serialisable description of one hardware configuration.
-///     Covers both <c>FiveStageTrain</c> and <c>OooeTrain</c>; the active pipeline
+///     Covers both <c>FiveStageTrain</c> and <c>OooTrain</c>; the active pipeline
 ///     is selected by <see cref="Pipeline" />.
 /// </summary>
 public sealed record TrainConfig(
@@ -75,7 +75,7 @@ public sealed record TrainConfig(
     CacheHardwareConfig? L3Cache = null,
     int StoreBufferCapacity = 0,
 
-    // ── OooeTrain parameters ──────────────────────────────────────────────────
+    // ── OooTrain parameters ──────────────────────────────────────────────────
     int IssueWidth = 2,
     int RobCapacity = 32,
     int IqCapacity = 8,  // per-class depth; 5 classes × 8 = 40 total slots

@@ -17,14 +17,12 @@ public sealed class Histogram {
     // Fast path for instruction-type counting — avoids per-call string hashing.
     private readonly Dictionary<Type, long> _typeBuckets = new();
 
-    public Histogram(string name, string description = "") {
+    public Histogram(string name) {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Name = name;
-        Description = description;
     }
 
-    public string Name { get; }
-    public string Description { get; }
+    private string Name { get; }
 
     /// <summary>Point-in-time snapshot of all bucket counts, keyed by name.</summary>
     public IReadOnlyDictionary<string, long> Buckets {

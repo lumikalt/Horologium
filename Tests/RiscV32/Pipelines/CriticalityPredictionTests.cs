@@ -12,7 +12,7 @@ namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
 ///     Pipeline-level invariant tests for critical-path prediction (Fields, Rubin &amp; Bodík,
-///     ISCA 2001) as wired into <see cref="OooeTrain" /> via <c>enableCriticalityPrediction</c>.
+///     ISCA 2001) as wired into <see cref="OooTrain" /> via <c>enableCriticalityPrediction</c>.
 ///     <para>
 ///         The predictor only re-prioritizes <em>issue order</em> among already-ready instructions
 ///         under functional-unit/port contention — it must never change committed architectural
@@ -21,7 +21,7 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class CriticalityPredictionTests {
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         bool enableCriticalityPrediction,
         int issueWidth = 2,
         int robCapacity = 16,
@@ -29,7 +29,7 @@ public class CriticalityPredictionTests {
         int memSize = 4096
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -51,7 +51,7 @@ public class CriticalityPredictionTests {
         mem.Load(0, bytes);
     }
 
-    private static void AssertIdenticalArchState(OooeTrain off, OooeTrain on) {
+    private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
             Assert.Equal(off.ArchState.IntegerRegisters.Read(r), on.ArchState.IntegerRegisters.Read(r));
     }
@@ -72,8 +72,8 @@ public class CriticalityPredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -99,8 +99,8 @@ public class CriticalityPredictionTests {
             0x00100073, // 28: ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -132,8 +132,8 @@ public class CriticalityPredictionTests {
             0x00008067, // addr 32: jalr x0, x1, 0
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
-        (OooeTrain on, FlatMemory memOn) = Make(true);
+        (OooTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain on, FlatMemory memOn) = Make(true);
         Load(memOff, program);
         Load(memOn, program);
 

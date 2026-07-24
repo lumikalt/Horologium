@@ -279,10 +279,9 @@ public sealed class StreamingEngine {
 
         // The actual memory.Read happens here (deferred from Step's prefetch) — see
         // StreamingEngine.Step's doc comment for why.
-        public ulong Peek(IMemory memory) {
-            if (_buffer.Count == 0) throw new InvalidOperationException("Stream buffer is empty.");
-            return memory.Read(_buffer.Peek(), _desc.ElementBytes);
-        }
+        public ulong Peek(IMemory memory) => _buffer.Count == 0
+            ? throw new InvalidOperationException("Stream buffer is empty.")
+            : memory.Read(_buffer.Peek(), _desc.ElementBytes);
 
         public ulong Consume(IMemory memory) {
             if (_buffer.Count == 0) throw new InvalidOperationException("Stream buffer is empty.");
@@ -316,11 +315,8 @@ public sealed class StreamingEngine {
                 return true;
             }
 
-            for (var i = 0; i < mods.Length; i++)
-                if (mods[i].SourceStreamId >= 0 && !allStreams[mods[i].SourceStreamId].HasElement)
-                    return false;
-            for (var i = 0; i < mods.Length; i++) {
-                StreamModifier m = mods[i];
+            if (mods.Any(t => t.SourceStreamId >= 0 && !allStreams[t.SourceStreamId].HasElement)) return false;
+            foreach (StreamModifier m in mods) {
                 if (m.SourceStreamId < 0) continue;
                 var rawVal = (long)(int)allStreams[m.SourceStreamId].Consume(memory);
                 long newVal = CalculateIndirectValue(m, rawVal);
@@ -332,12 +328,8 @@ public sealed class StreamingEngine {
             return true;
         }
 
-        private long FetchOffset() {
-            long offset = 0;
-            for (var d = 0; d < _fetchIndices.Length; d++)
-                offset += _fetchIndices[d] * _fetchDimStrides[d] + _fetchDimOffsets[d];
-            return offset;
-        }
+        private long FetchOffset() =>
+            _fetchIndices.Select((t, d) => t * _fetchDimStrides[d] + _fetchDimOffsets[d]).Sum();
 
         // Applies the scatter-gather modifier: consumes one element from the source stream and
         // updates _fetchDimOffsets[0]. Returns false (stalls the fetch) if the source has no element.
@@ -429,8 +421,7 @@ public sealed class StreamingEngine {
         // wrapped (the dimension one level outside the trigger, engine index triggerDim+1).
         private void ResetFetchModifiers(int triggerDim) {
             if (_desc.Modifiers is not { Length: > 0, } mods) return;
-            for (var i = 0; i < mods.Length; i++) {
-                StreamModifier m = mods[i];
+            foreach (StreamModifier m in mods) {
                 if (m.TriggerDim != triggerDim) continue;
                 switch (m.Target) {
                     case StreamModifierTarget.Size:
@@ -466,8 +457,7 @@ public sealed class StreamingEngine {
         // Consume-side counterpart of ResetFetchModifiers; only Size targets shape the consume odometer.
         private void ResetConsumeModifiers(int triggerDim) {
             if (_desc.Modifiers is not { Length: > 0, } mods) return;
-            for (var i = 0; i < mods.Length; i++) {
-                StreamModifier m = mods[i];
+            foreach (StreamModifier m in mods) {
                 if (m.TriggerDim != triggerDim || m.Target != StreamModifierTarget.Size) continue;
                 _consumeDimCounts[m.TargetDim] = _fetchDimCountsBase[m.TargetDim];
             }

@@ -28,8 +28,9 @@ public sealed class Chip8Train {
 
     public bool IsHalted => _train.IsIdle;
 
-    public RevolutionResult Run(long maxTicks = 100_000, long snapshotInterval = 0) =>
+    public void Run(long maxTicks = 100_000, long snapshotInterval = 0) {
         _train.Run(maxTicks, snapshotInterval: snapshotInterval);
+    }
 
     public void BeginInteractive() => _train.BeginStepping();
 
@@ -40,8 +41,6 @@ public sealed class Chip8Train {
     public void FinalizeInteractive() => _train.FinishStepping();
 
     public void Reset() => _train.Reset();
-
-    public string DumpTopology() => _train.DumpTopology();
 }
 
 internal class SingleCycleCore(
@@ -56,7 +55,7 @@ internal class SingleCycleCore(
     private Histogram _opcodeHistogram = null!;
     private Counter _retiredCounter = null!;
 
-    public IArchState ArchState { get; set; } = mechanism.CreateArchState();
+    public IArchState ArchState { get; } = mechanism.CreateArchState();
 
     public override void Initialize() {
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles elapsed");

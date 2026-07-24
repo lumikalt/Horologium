@@ -35,7 +35,7 @@ public sealed class DialBoard {
                 $"DialBoard '{OwnerPath}' already has a counter named '{name}'."
             );
 
-        var counter = new Counter(name, description);
+        var counter = new Counter(name);
         _counters[name] = counter;
         return counter;
     }
@@ -47,7 +47,7 @@ public sealed class DialBoard {
                 $"DialBoard '{OwnerPath}' already has a dial named '{name}'."
             );
 
-        var dial = new Dial(name, expression, description);
+        var dial = new Dial(name, expression);
         _dials[name] = dial;
         return dial;
     }
@@ -59,7 +59,7 @@ public sealed class DialBoard {
                 $"DialBoard '{OwnerPath}' already has a histogram named '{name}'."
             );
 
-        var histogram = new Histogram(name, description);
+        var histogram = new Histogram(name);
         _histograms[name] = histogram;
         return histogram;
     }

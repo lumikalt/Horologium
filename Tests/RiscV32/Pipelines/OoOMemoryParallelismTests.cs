@@ -36,7 +36,7 @@ namespace Tests.RiscV32.Pipelines;
 ///         no-write-allocate), but their write-miss penalty is absorbed into a bounded write buffer
 ///         rather than lump-summed against the pipeline clock. Subsequent instructions keep
 ///         executing while the write bus drains in the background. The write buffer is enabled by
-///         passing writeBufferCapacity > 0 to OooeTrain; the default (0) restores the lump-sum path.
+///         passing writeBufferCapacity > 0 to OooTrain; the default (0) restores the lump-sum path.
 ///     </para>
 ///     <para>
 ///         MSHR capacity: limits the number of simultaneously outstanding load-miss countdowns in
@@ -78,7 +78,7 @@ public class OoOMemoryParallelismTests {
         // The HTIF tohost/fromhost registers must bypass the cache (HtifMemory ACKs below it).
         MemoryConfig dMem = cfg.ToDMemoryConfig() with { UncacheableBase = tohost, UncacheableSize = 16, };
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(workload.HtifTohostAddress), runMem, workload.EntryPoint,
             8, 128, 64,
             predictor: BranchPredictorConfig.NBit().Build(),
@@ -213,7 +213,7 @@ public class OoOMemoryParallelismTests {
         MemoryConfig iMem = cfg.ToIMemoryConfig();
         MemoryConfig dMem = cfg.ToDMemoryConfig() with { UncacheableBase = tohost, UncacheableSize = 16, };
 
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(workload.HtifTohostAddress), runMem, workload.EntryPoint,
             8, 128, 64,
             predictor: BranchPredictorConfig.NBit().Build(),
@@ -245,40 +245,6 @@ public class OoOMemoryParallelismTests {
     /// </summary>
     [Fact]
     public void OoO_Memcpy_RealisticPrefetchLatency_SelfChecksPass_AndPaysRemainder() {
-        (ulong tohostLow, long cycles, long prefetches, long lateHits) Run(int prefetchLatency) {
-            var workload = new Rv32ElfWorkload(
-                Path.Combine(AppContext.BaseDirectory, "benchmarks", "memcpy.elf"), 4 * 1024 * 1024
-            );
-            var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
-            workload.Load(mem);
-            IMemory runMem = workload.WrapMemory(mem);
-            ulong tohost = workload.HtifTohostAddress!.Value;
-
-            var l1 = new CacheHardwareConfig(16384, 4, 64);
-            var cfg = new TrainConfig(
-                "ooo", ICache: l1, DCache: l1,
-                DPrefetcher: "next_line", DPrefetchLatency: prefetchLatency
-            );
-            MemoryConfig iMem = cfg.ToIMemoryConfig();
-            MemoryConfig dMem = cfg.ToDMemoryConfig() with { UncacheableBase = tohost, UncacheableSize = 16, };
-
-            var train = new OooeTrain(
-                new Rv32Mechanism(workload.HtifTohostAddress), runMem, workload.EntryPoint,
-                8, 128, 64,
-                predictor: BranchPredictorConfig.NBit().Build(),
-                iMemConfig: iMem, dMemConfig: dMem
-            );
-
-            RevolutionResult r = train.Run(OoOMemoryParallelismTests.MaxTicks);
-            IReadOnlyDictionary<string, long> counters = r.Find("ooo.pipeline")!.Counters;
-            return (
-                mem.Read(tohost, 4),
-                counters["cycles"],
-                counters.GetValueOrDefault("dcache_prefetches"),
-                counters.GetValueOrDefault("dcache_late_prefetch_hits")
-            );
-        }
-
         (ulong freeTohost, long freeCycles, long freePrefetches, long freeLateHits) = Run(0);
         (ulong realTohost, long realCycles, long realPrefetches, long realLateHits) = Run(10);
 
@@ -296,5 +262,40 @@ public class OoOMemoryParallelismTests {
             realCycles >= freeCycles,
             $"realistic prefetch latency reduced cycles: real={realCycles} < free={freeCycles}"
         );
+        return;
+
+        (ulong tohostLow, long cycles, long prefetches, long lateHits) Run(int prefetchLatency) {
+            var workload = new Rv32ElfWorkload(
+                Path.Combine(AppContext.BaseDirectory, "benchmarks", "memcpy.elf"), 4 * 1024 * 1024
+            );
+            var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+            workload.Load(mem);
+            IMemory runMem = workload.WrapMemory(mem);
+            ulong tohost = workload.HtifTohostAddress!.Value;
+
+            var l1 = new CacheHardwareConfig(16384, 4, 64);
+            var cfg = new TrainConfig(
+                "ooo", ICache: l1, DCache: l1,
+                DPrefetcher: "next_line", DPrefetchLatency: prefetchLatency
+            );
+            MemoryConfig iMem = cfg.ToIMemoryConfig();
+            MemoryConfig dMem = cfg.ToDMemoryConfig() with { UncacheableBase = tohost, UncacheableSize = 16, };
+
+            var train = new OooTrain(
+                new Rv32Mechanism(workload.HtifTohostAddress), runMem, workload.EntryPoint,
+                8, 128, 64,
+                predictor: BranchPredictorConfig.NBit().Build(),
+                iMemConfig: iMem, dMemConfig: dMem
+            );
+
+            RevolutionResult r = train.Run(OoOMemoryParallelismTests.MaxTicks);
+            IReadOnlyDictionary<string, long> counters = r.Find("ooo.pipeline")!.Counters;
+            return (
+                mem.Read(tohost, 4),
+                counters["cycles"],
+                counters.GetValueOrDefault("dcache_prefetches"),
+                counters.GetValueOrDefault("dcache_late_prefetch_hits")
+            );
+        }
     }
 }

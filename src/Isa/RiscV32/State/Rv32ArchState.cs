@@ -11,12 +11,10 @@ namespace RiscV32.State;
 ///     The complete architectural state of one RV32IFV hart.
 /// </summary>
 public class Rv32ArchState : IArchState {
-    protected IRegisterFile IntRegs;
-
     public Rv32ArchState() : this(new Rv32UnifiedRegisterFile()) { }
 
     protected Rv32ArchState(IRegisterFile intRegs) {
-        IntRegs = intRegs;
+        IntegerRegisters = intRegs;
         CsrFile = new CsrFile();
         VectorRegisters = new VectorRegisterFile();
     }
@@ -24,18 +22,19 @@ public class Rv32ArchState : IArchState {
     protected Rv32ArchState(Rv32ArchState source, IRegisterFile intRegs) {
         Pc = source.Pc;
         PrivilegeLevel = source.PrivilegeLevel;
-        IntRegs = intRegs;
+        IntegerRegisters = intRegs;
         CsrFile = new CsrFile();
         VectorRegisters = new VectorRegisterFile();
 
         // Copy integer and floating-point registers
-        for (var i = 0; i < source.IntRegs.Count; i++) IntRegs.Write(i, source.IntRegs.Read(i));
+        for (var i = 0; i < source.IntegerRegisters.Count; i++)
+            IntegerRegisters.Write(i, source.IntegerRegisters.Read(i));
 
         // Copy vector registers
         for (var i = 0; i < VectorRegisterFile.Count; i++) VectorRegisters.Write(i, source.VectorRegisters.Read(i));
 
         // UveState is not copied: Snapshot() is only called by in-order trains (FiveStage,
-        // SingleCycle) which don't issue UVE ops. OooeTrain never calls Snapshot().
+        // SingleCycle) which don't issue UVE ops. OooTrain never calls Snapshot().
 
         // Copy CSRs via direct access
         foreach (uint addr in new[] {
@@ -59,16 +58,13 @@ public class Rv32ArchState : IArchState {
     /// <summary>Vector register file (v0-v31, VLEN=128 bits each).</summary>
     public VectorRegisterFile VectorRegisters { get; }
 
-    /// <summary>UVE scalar accumulator registers and store-stream cursors (u0–u31).</summary>
+    /// <summary>UVE scalar accumulator registers and store-stream cursors (u0 - u31).</summary>
     public UveState UveState { get; } = new();
 
     public ulong Pc { get; set; }
     public PrivilegeLevel PrivilegeLevel { get; set; } = RvPrivilege.Machine;
 
-    public IRegisterFile IntegerRegisters {
-        get => IntRegs;
-        set => IntRegs = value;
-    }
+    public IRegisterFile IntegerRegisters { get; set; }
 
     public ISystemRegisters SystemRegisters => CsrFile;
 
@@ -79,7 +75,7 @@ public class Rv32ArchState : IArchState {
     public void Reset() {
         Pc = 0;
         PrivilegeLevel = RvPrivilege.Machine;
-        IntRegs.Reset();
+        IntegerRegisters.Reset();
         CsrFile.Reset();
         VectorRegisters.Reset();
         UveState.Reset();

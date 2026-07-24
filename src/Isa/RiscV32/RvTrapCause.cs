@@ -1,3 +1,5 @@
+// ReSharper disable UnusedMember.Global
+
 namespace RiscV32;
 
 /// <summary>RISC-V mcause/scause codes. Bit 31 = 0 for exceptions, 1 for interrupts.</summary>

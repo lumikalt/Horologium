@@ -80,7 +80,7 @@ public static class RvFieldInfo {
         uint op = raw & 0x7F;
         uint hi = Bits(raw, 31, 25);
         uint lo = Bits(raw, 11, 7);
-        var imm = (int)((uint)((int)((hi << 5) | lo) << 20) >> 20);
+        int imm = ((int)((hi << 5) | lo) << 20) >>> 20;
         return [
             new InstrField("imm[11:5]", 31, 25, hi, $"imm={imm}"),
             Reg("rs2", 24, 20, raw),

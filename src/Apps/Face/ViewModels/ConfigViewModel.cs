@@ -294,7 +294,7 @@ public partial class ConfigViewModel : ObservableObject {
     private static string FormatInclusionPolicy(InclusionPolicyKind k) => k switch {
         InclusionPolicyKind.Inclusive => "inclusive",
         InclusionPolicyKind.Exclusive => "exclusive",
-        _                              => "nine",
+        _                             => "nine",
     };
 
     public NamedConfig ToNamedConfig() {

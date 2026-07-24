@@ -123,8 +123,6 @@ public sealed record TopDownBreakdown(
     public static TopDownBreakdown? FromSnapshot(DialBoardSnapshot snapshot) {
         if (!snapshot.Counters.TryGetValue(TopDownBreakdown.TotalSlotsCounter, out long totalSlots)) return null;
 
-        long Get(string name) => snapshot.Counters.GetValueOrDefault(name);
-
         return Compute(
             totalSlots,
             Get(TopDownBreakdown.SlotsIssuedCounter),
@@ -138,9 +136,11 @@ public sealed record TopDownBreakdown(
             Get(TopDownBreakdown.MemStallStoreCyclesCounter),
             Get("branch_misses"),
             // CprTrain counts mispredict/violation rollbacks as "recoveries" and reserves
-            // "flushes" for trap/interrupt/mret; OooeTrain has no "recoveries" counter.
+            // "flushes" for trap/interrupt/mret; OooTrain has no "recoveries" counter.
             Get("flushes") + Get("recoveries")
         );
+
+        long Get(string name) => snapshot.Counters.GetValueOrDefault(name);
     }
 
     /// <summary>

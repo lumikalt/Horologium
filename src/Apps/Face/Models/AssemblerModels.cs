@@ -31,7 +31,6 @@ public partial class AssemblyRow(
     ulong offset,
     string hexEncoding,
     string mnemonic,
-    bool isCompressed,
     IReadOnlyList<InstrField> fields
 )
     : ObservableObject {
@@ -39,7 +38,6 @@ public partial class AssemblyRow(
     public string OffsetHex => $"{Offset:X}";
     public string HexEncoding { get; } = hexEncoding;
     public string Mnemonic { get; } = mnemonic;
-    public bool IsCompressed { get; } = isCompressed;
     public IReadOnlyList<InstrField> Fields { get; } = fields;
 
     [ObservableProperty] public partial string Stage { get; set; } = "";

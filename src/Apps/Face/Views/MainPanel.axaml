@@ -507,8 +507,9 @@
                         <!-- Multi-hart settings -->
                         <StackPanel Margin="16,12,16,12" Spacing="8" IsVisible="{Binding IsMulticoreMode}">
                             <TextBlock Text="MULTI-HART" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
-                            <TextBlock Text="Every hart runs the same fixed LR/SC demo program (real ELFs aren't safe to share across harts)."
-                                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+                            <TextBlock
+                                Text="Every hart runs the same fixed LR/SC demo program (real ELFs aren't safe to share across harts)."
+                                FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
                                 <TextBlock Grid.Column="0" Text="Bus" VerticalAlignment="Center" />
                                 <ComboBox Grid.Column="1"
@@ -523,7 +524,8 @@
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
                                   RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4"
                                   IsVisible="{Binding MultiHartSettings.SharedLlcEnabled}">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)"
+                                           VerticalAlignment="Center" />
                                 <NumericUpDown Grid.Row="0" Grid.Column="1"
                                                Value="{Binding MultiHartSettings.SharedLlcCapacityKb}"
                                                Minimum="1" Maximum="131072" />
@@ -620,10 +622,12 @@
                              HartCacheViewModel's doc comment) -->
                         <StackPanel Margin="16,12,16,0" Spacing="8"
                                     IsVisible="{Binding IsMulticoreMode}">
-                            <TextBlock Text="The cache settings above are ignored in multi-hart mode — configure this hart's private cache below instead."
-                                       FontSize="11" Opacity="0.6" TextWrapping="Wrap"
-                                       IsVisible="{Binding HasSelectedConfig}" />
-                            <StackPanel Spacing="8" IsVisible="{Binding SelectedHartCache, Converter={x:Static ObjectConverters.IsNotNull}}">
+                            <TextBlock
+                                Text="The cache settings above are ignored in multi-hart mode — configure this hart's private cache below instead."
+                                FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                IsVisible="{Binding HasSelectedConfig}" />
+                            <StackPanel Spacing="8"
+                                        IsVisible="{Binding SelectedHartCache, Converter={x:Static ObjectConverters.IsNotNull}}">
                                 <TextBlock Text="MEMORY POOL" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
                                 <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
                                     <TextBlock Grid.Column="0" Text="Pool" VerticalAlignment="Center" />
@@ -631,15 +635,17 @@
                                                    Value="{Binding SelectedHartCache.PoolId}"
                                                    Minimum="0" Maximum="63" />
                                 </Grid>
-                                <TextBlock Text="Harts sharing a pool number share memory, coherence bus, and shared LLC; different pools are fully isolated from each other."
-                                           FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+                                <TextBlock
+                                    Text="Harts sharing a pool number share memory, coherence bus, and shared LLC; different pools are fully isolated from each other."
+                                    FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
 
                                 <TextBlock Text="PRIVATE CACHE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
                                 <CheckBox IsChecked="{Binding SelectedHartCache.Enabled}" Content="Enabled" />
                                 <Grid ColumnDefinitions="110,*" ColumnSpacing="8"
                                       RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4"
                                       IsVisible="{Binding SelectedHartCache.Enabled}">
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)"
+                                               VerticalAlignment="Center" />
                                     <NumericUpDown Grid.Row="0" Grid.Column="1"
                                                    Value="{Binding SelectedHartCache.CapacityKb}"
                                                    Minimum="1" Maximum="16384" />
@@ -647,11 +653,13 @@
                                     <NumericUpDown Grid.Row="1" Grid.Column="1"
                                                    Value="{Binding SelectedHartCache.Ways}"
                                                    Minimum="1" Maximum="16" />
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Block (bytes)"
+                                               VerticalAlignment="Center" />
                                     <NumericUpDown Grid.Row="2" Grid.Column="1"
                                                    Value="{Binding SelectedHartCache.BlockBytes}"
                                                    Minimum="8" Maximum="256" />
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Miss latency"
+                                               VerticalAlignment="Center" />
                                     <NumericUpDown Grid.Row="3" Grid.Column="1"
                                                    Value="{Binding SelectedHartCache.MissLatency}"
                                                    Minimum="1" Maximum="200" />

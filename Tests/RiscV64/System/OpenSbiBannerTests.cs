@@ -62,9 +62,7 @@ public class OpenSbiBannerTests {
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..")
         );
         string candidate = Path.Combine(repoRoot, "result-opensbi-rv64", "share", "opensbi", "fw_jump.bin");
-        if (File.Exists(candidate)) return candidate;
-
-        return null;
+        return File.Exists(candidate) ? candidate : null;
     }
 
     private static void RequireFwJumpOrSkip() {

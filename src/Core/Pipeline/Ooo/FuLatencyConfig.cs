@@ -95,7 +95,7 @@ public sealed record FuLatencyConfig(
 
     // Instruction-aware overload: uses DivLatency for DIV/REM when it is set.
     public int LatencyFor(ITooth tooth) =>
-        tooth.Class == ToothClass.IntegerMulDiv && tooth.IsDiv && DivLatency > 0
+        tooth is { Class: ToothClass.IntegerMulDiv, IsDiv: true, } && DivLatency > 0
             ? DivLatency
             : LatencyFor(tooth.Class);
 }

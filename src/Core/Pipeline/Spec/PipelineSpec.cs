@@ -27,6 +27,11 @@ namespace Pipeline.Spec;
 ///     </para>
 /// </summary>
 public abstract record PipelineSpec {
+    /// <param name="mechanism">The ISA plugin driving fetch/decode/execute for this hart.</param>
+    /// <param name="backing">Raw memory backing this hart's fetch/load/store path.</param>
+    /// <param name="entryPoint">Initial PC.</param>
+    /// <param name="iMemConfig">Optional I-side cache/TLB hierarchy, built fresh from <paramref name="backing" />.</param>
+    /// <param name="dMemConfig">Optional D-side cache/TLB hierarchy, built fresh from <paramref name="backing" />.</param>
     /// <param name="fdipBackingMemory">
     ///     Overrides what FDIP (fetch-directed instruction prefetch, on the subtypes that support it)
     ///     reads its own decode-ahead lookahead from — deliberately distinct from <paramref name="backing" />
@@ -43,6 +48,10 @@ public abstract record PipelineSpec {
         IMemory? fdipBackingMemory = null
     );
 
+    /// <param name="mechanism">The ISA plugin driving fetch/decode/execute for this hart.</param>
+    /// <param name="iLayers">Pre-built I-side memory hierarchy (used as-is, not rebuilt).</param>
+    /// <param name="dLayers">Pre-built D-side memory hierarchy (used as-is, not rebuilt).</param>
+    /// <param name="entryPoint">Initial PC.</param>
     /// <param name="fdipBackingMemory">
     ///     See the other <see cref="Build(IMechanism,IMemory,ulong,MemoryConfig?,MemoryConfig?,IMemory?)" />
     ///     overload. Defaults to <paramref name="iLayers" />'s accessor (today's behavior) when null.
@@ -167,7 +176,7 @@ public sealed record SuperscalarSpec(
 /// <summary>
 ///     Simultaneous multi-threading: N hart contexts share a single issue window.
 ///     <para>
-///         The base <see cref="Build(IMechanism,IMemory,ulong,MemoryConfig?,MemoryConfig?)" /> satisfies the
+///         The base <see cref="Build(IMechanism,IMemory,ulong,MemoryConfig?,MemoryConfig?,IMemory?)" /> satisfies the
 ///         <see cref="PipelineSpec" /> contract by building a 1-hart SMT. The <c>MemoryConfig</c> parameters
 ///         are not forwarded — <see cref="SmtTrain" /> expects pre-configured <see cref="IMemory" /> objects
 ///         (callers wrap caches into the memory before passing). For multi-hart construction use
@@ -227,7 +236,7 @@ public sealed record OutOfOrderSpec(
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null,
         IMemory? fdipBackingMemory = null
-    ) => new OooeTrain(
+    ) => new OooTrain(
         mechanism, backing, entryPoint,
         IssueWidth, RobCapacity, IqCapacity, ExtraPhysRegs,
         BranchPredictorFactory?.Invoke(),
@@ -251,7 +260,7 @@ public sealed record OutOfOrderSpec(
         MemoryLayers dLayers,
         ulong entryPoint = 0,
         IMemory? fdipBackingMemory = null
-    ) => new OooeTrain(
+    ) => new OooTrain(
         mechanism, iLayers, dLayers, entryPoint,
         IssueWidth, RobCapacity, IqCapacity, ExtraPhysRegs,
         BranchPredictorFactory?.Invoke(),

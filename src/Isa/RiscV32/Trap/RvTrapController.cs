@@ -120,8 +120,11 @@ public sealed class RvTrapController(ClintDevice? clint = null, PlicDevice? plic
         foreach (int bit in RvTrapController.InterruptPriority) {
             if (((pending >> bit) & 1) == 0) continue;
             bool delegated = ((mideleg >> bit) & 1) != 0;
-            if (!delegated && mEnabled) return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);
-            if (delegated && sEnabled) return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);
+            switch (delegated) {
+                case false when mEnabled:
+                case true when sEnabled:
+                    return new TrapInfo(RvTrapCause.InterruptCause(bit), 0, state.Pc);
+            }
         }
 
         return null;

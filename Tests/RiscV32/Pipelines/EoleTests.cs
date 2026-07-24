@@ -16,7 +16,7 @@ namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
 ///     Pipeline-level invariant tests for EOLE Late Execution (Perais &amp; Seznec, ISCA 2014) as
-///     wired into <see cref="OooeTrain" /> via the <c>enableEoleLateExec</c> constructor flag.
+///     wired into <see cref="OooTrain" /> via the <c>enableEoleLateExec</c> constructor flag.
 ///     <para>
 ///         A Late-Execution-eligible instruction never enters the IQ/Issue/Execute path at all:
 ///         its predicted value is already live in the PRF from Rename, and it is verified in-order
@@ -26,7 +26,7 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class EoleTests {
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         IValuePredictor? valuePredictor,
         bool enableEoleLateExec = false,
         IBranchPredictor? predictor = null,
@@ -38,7 +38,7 @@ public class EoleTests {
         bool enableEoleEarlyExec = false
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -64,7 +64,7 @@ public class EoleTests {
         mem.Load(0, bytes);
     }
 
-    private static void AssertIdenticalArchState(OooeTrain a, OooeTrain b) {
+    private static void AssertIdenticalArchState(OooTrain a, OooTrain b) {
         for (var r = 0; r < 32; r++)
             Assert.Equal(a.ArchState.IntegerRegisters.Read(r), b.ArchState.IntegerRegisters.Read(r));
     }
@@ -92,8 +92,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(new VtageVp());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), true);
+        (OooTrain off, FlatMemory memOff) = Make(new VtageVp());
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp(), true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -130,8 +130,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(new VtageVp());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), true);
+        (OooTrain off, FlatMemory memOff) = Make(new VtageVp());
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp(), true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -184,11 +184,11 @@ public class EoleTests {
         var wideFu = new FuLatencyConfig();
         var narrowFu = new FuLatencyConfig(1);
 
-        (OooeTrain reference, FlatMemory memRef) =
+        (OooTrain reference, FlatMemory memRef) =
             Make(null, false, new LTageBp(), 4, fuLatency: FuLatencyConfig.Default);
-        (OooeTrain baseline, FlatMemory memBaseline) =
+        (OooTrain baseline, FlatMemory memBaseline) =
             Make(new VtageVp(), false, new LTageBp(), 4, fuLatency: wideFu);
-        (OooeTrain narrowEole, FlatMemory memNarrow) =
+        (OooTrain narrowEole, FlatMemory memNarrow) =
             Make(new VtageVp(), true, new LTageBp(), 4, fuLatency: narrowFu);
 
         Load(memRef, program);
@@ -234,8 +234,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(null, enableEoleEarlyExec: true);
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(null, enableEoleEarlyExec: true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -281,8 +281,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, false, new LTageBp());
-        (OooeTrain on, FlatMemory memOn) = Make(null, false, new LTageBp(), enableEoleEarlyExec: true);
+        (OooTrain off, FlatMemory memOff) = Make(null, false, new LTageBp());
+        (OooTrain on, FlatMemory memOn) = Make(null, false, new LTageBp(), enableEoleEarlyExec: true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -326,8 +326,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(null, enableEoleEarlyExec: true);
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(null, enableEoleEarlyExec: true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -374,8 +374,8 @@ public class EoleTests {
         ];
 
         foreach (uint[] program in new[] { chainProgram, indepProgram, }) {
-            (OooeTrain off, FlatMemory memOff) = Make(null);
-            (OooeTrain on, FlatMemory memOn) = Make(
+            (OooTrain off, FlatMemory memOff) = Make(null);
+            (OooTrain on, FlatMemory memOn) = Make(
                 new VtageVp(), true, enableEoleEarlyExec: true
             );
             Load(memOff, program);
@@ -417,8 +417,8 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), true, enableEoleEarlyExec: true);
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp(), true, enableEoleEarlyExec: true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -459,11 +459,11 @@ public class EoleTests {
         var wideFu = new FuLatencyConfig();
         var narrowFu = new FuLatencyConfig(1);
 
-        (OooeTrain reference, FlatMemory memRef) =
+        (OooTrain reference, FlatMemory memRef) =
             Make(null, false, new LTageBp(), 4, fuLatency: FuLatencyConfig.Default);
-        (OooeTrain baseline, FlatMemory memBaseline) =
+        (OooTrain baseline, FlatMemory memBaseline) =
             Make(null, false, new LTageBp(), 4, fuLatency: wideFu);
-        (OooeTrain narrowEe, FlatMemory memNarrow) =
+        (OooTrain narrowEe, FlatMemory memNarrow) =
             Make(null, false, new LTageBp(), 4, fuLatency: narrowFu, enableEoleEarlyExec: true);
 
         Load(memRef, program);
@@ -515,7 +515,7 @@ public class EoleTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain narrowEe, FlatMemory memNarrow) =
+        (OooTrain narrowEe, FlatMemory memNarrow) =
             Make(null, false, new LTageBp(), 4, fuLatency: new FuLatencyConfig(1), enableEoleEarlyExec: true);
         Load(memNarrow, program);
 

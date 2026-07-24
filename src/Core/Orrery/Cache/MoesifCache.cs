@@ -92,7 +92,7 @@ public sealed class MoesifCache : IMemory {
 
     public long Hits { get; private set; }
     public long Misses { get; private set; }
-    public long Evictions { get; private set; }
+    private long Evictions { get; set; }
     public long Writebacks { get; private set; }
 
     /// <summary>
@@ -101,8 +101,7 @@ public sealed class MoesifCache : IMemory {
     /// </summary>
     public long PeerSupplies { get; private set; }
 
-    public int Sets => _tags.Length;
-    public int Ways { get; }
+    private int Ways { get; }
 
     public int BlockBytes { get; }
 

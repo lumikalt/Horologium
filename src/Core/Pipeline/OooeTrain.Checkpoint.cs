@@ -1,7 +1,6 @@
 #region
 
 using Mechanism;
-using Pipeline.Ooo;
 
 #endregion
 
@@ -16,7 +15,7 @@ namespace Pipeline;
 // steady-state tables: caches, TLBs, the branch predictor, and the RAS. See
 // MicroarchitecturalCheckpoint's doc comment and TODO.md/README.md for the rationale.
 
-public sealed partial class OooeTrain {
+public sealed partial class OooTrain {
     /// <summary>
     ///     True when the pipeline has no in-flight instructions anywhere — the boundary a
     ///     microarchitectural checkpoint requires. See <see cref="Drain" />.
@@ -27,7 +26,7 @@ public sealed partial class OooeTrain {
     ///     Stops admitting new instructions and steps the pipeline until it reaches a drained
     ///     boundary (<see cref="IsDrained" />) or halts. Call after <see cref="BeginStepping" /> (or
     ///     partway through a run via the stepping API); the pipeline resumes fetching normally once
-    ///     <see cref="SaveMicroCheckpoint" /> (or nothing) is called next.
+    ///     <see cref="SaveMicroCheckpoint(string, ISnapshotableMemory)" /> (or nothing) is called next.
     /// </summary>
     /// <param name="maxTicks">
     ///     Upper bound on ticks spent draining, or -1 for a default proportional to ROB capacity.
@@ -46,7 +45,7 @@ public sealed partial class OooeTrain {
     public void SaveMicroCheckpoint(string path, ISnapshotableMemory memory) {
         if (!_core.IsDrained)
             throw new InvalidOperationException(
-                "OooeTrain.SaveMicroCheckpoint: the pipeline is not drained. Call Drain() first."
+                "OooTrain.SaveMicroCheckpoint: the pipeline is not drained. Call Drain() first."
             );
 
         MicroarchitecturalCheckpoint.Save(path, ArchState, memory, (ulong)CurrentTick, _core.BuildCheckpointSections());
@@ -57,7 +56,7 @@ public sealed partial class OooeTrain {
     public void SaveMicroCheckpoint(Stream stream, ISnapshotableMemory memory) {
         if (!_core.IsDrained)
             throw new InvalidOperationException(
-                "OooeTrain.SaveMicroCheckpoint: the pipeline is not drained. Call Drain() first."
+                "OooTrain.SaveMicroCheckpoint: the pipeline is not drained. Call Drain() first."
             );
 
         MicroarchitecturalCheckpoint.Save(
@@ -93,12 +92,7 @@ internal sealed partial class OoOPipelineCore {
         _execBuffer.Count == 0 && _cdbBuffer.Count == 0 && _inFlight.Count == 0 &&
         AllIqsEmpty();
 
-    private bool AllIqsEmpty() {
-        foreach (IssueQueue iq in _iqs)
-            if (!iq.IsEmpty)
-                return false;
-        return true;
-    }
+    private bool AllIqsEmpty() => _iqs.All(iq => iq.IsEmpty);
 
     internal void Drain(long maxTicks) {
         long limit = maxTicks > 0 ? maxTicks : Math.Max(256L, (long)_rob.Capacity * 8);
@@ -121,7 +115,12 @@ internal sealed partial class OoOPipelineCore {
         finally { _fetchInhibited = false; }
     }
 
-    /// <summary>Builds the tagged section writers for <see cref="MicroarchitecturalCheckpoint.Save" />.</summary>
+    /// <summary>
+    ///     Builds the tagged section writers for
+    ///     <see
+    ///         cref="MicroarchitecturalCheckpoint.Save(string, IArchState, ISnapshotableMemory, ulong, IReadOnlyList{ValueTuple{string, Action{BinaryWriter}}})" />
+    ///     .
+    /// </summary>
     internal IReadOnlyList<(string Tag, Action<BinaryWriter> Write)> BuildCheckpointSections() {
         var sections = new List<(string, Action<BinaryWriter>)>();
         if (ILayers.Cache is not null) sections.Add(("ICACHE", ILayers.Cache.WriteState));

@@ -21,7 +21,7 @@ public class IttageBranchPredictionTests {
     [Fact]
     public void AlwaysTaken_DirectionConverges() {
         var p = new IttagePredictor();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 16; i++) p.Update(pc, true, 0x2000);
         Assert.True(p.Predict(pc).PredictedTaken);
     }
@@ -29,7 +29,7 @@ public class IttageBranchPredictionTests {
     [Fact]
     public void AlwaysNotTaken_DirectionConverges() {
         var p = new IttagePredictor();
-        ulong pc = 0x1000;
+        const ulong pc = 0x1000;
         for (var i = 0; i < 16; i++) p.Update(pc, false, pc + 4);
         Assert.False(p.Predict(pc).PredictedTaken);
     }
@@ -37,8 +37,8 @@ public class IttageBranchPredictionTests {
     [Fact]
     public void IndirectTarget_LearnedAfterTraining() {
         var p = new IttagePredictor();
-        ulong pc = 0x2000;
-        ulong target = 0xDEAD_0000;
+        const ulong pc = 0x2000;
+        const ulong target = 0xDEAD_0000;
         for (var i = 0; i < 32; i++) p.Update(pc, true, target);
         Assert.Equal(target, p.Predict(pc).PredictedTarget);
     }
@@ -46,7 +46,7 @@ public class IttageBranchPredictionTests {
     [Fact]
     public void DirectBranch_KnownTargetPassedThrough() {
         var p = new IttagePredictor();
-        ulong pc = 0x3000, knownTarget = 0x3800;
+        const ulong pc = 0x3000, knownTarget = 0x3800;
         for (var i = 0; i < 8; i++) p.Update(pc, true, knownTarget);
         BranchPrediction pred = p.Predict(pc, (knownTarget, true));
         Assert.Equal(knownTarget, pred.PredictedTarget);
@@ -55,21 +55,13 @@ public class IttageBranchPredictionTests {
     [Fact]
     public void IndirectTarget_TwoHistoryContexts_LearnDistinctTargets() {
         // ITTAGE's whole point: the same PC resolves to different targets depending on
-        // execution history (e.g. virtual dispatch). Prime two distinct global-history
+        // execution history (e.g., virtual dispatch). Prime two distinct global-history
         // contexts with different not-taken branches, then train the shared indirect PC
         // with a different target under each context; both must be predicted correctly,
         // which is only possible via tagged-table entries (the tagless BTB alone can't
         // distinguish them since it's overwritten on every taken update).
         var p = new IttagePredictor();
-        ulong pc = 0x2100, targetA = 0xBEEF_0000, targetB = 0xFEED_0000;
-
-        void ContextA() {
-            for (var i = 0; i < 24; i++) p.Update(0x100, false, 0x104);
-        }
-
-        void ContextB() {
-            for (var i = 0; i < 24; i++) p.Update(0x200, true, 0x204);
-        }
+        const ulong pc = 0x2100, targetA = 0xBEEF_0000, targetB = 0xFEED_0000;
 
         for (var i = 0; i < 64; i++) {
             ContextA();
@@ -82,6 +74,15 @@ public class IttageBranchPredictionTests {
         Assert.Equal(targetA, p.Predict(pc).PredictedTarget);
         ContextB();
         Assert.Equal(targetB, p.Predict(pc).PredictedTarget);
+        return;
+
+        void ContextA() {
+            for (var i = 0; i < 24; i++) p.Update(0x100, false, 0x104);
+        }
+
+        void ContextB() {
+            for (var i = 0; i < 24; i++) p.Update(0x200, true, 0x204);
+        }
     }
 
     [Fact]

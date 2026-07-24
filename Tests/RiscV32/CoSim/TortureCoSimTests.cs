@@ -84,7 +84,7 @@ public class TortureCoSimTests {
         switch (factory(new Rv32Mechanism(), mem, workload.EntryPoint, cosim)) {
             case SingleCycleTrain t: t.Run(); break;
             case FiveStageTrain t:   t.Run(); break;
-            case OooeTrain t:        t.Run(); break;
+            case OooTrain t:         t.Run(); break;
             default:                 throw new InvalidOperationException("unknown train");
         }
     }
@@ -95,7 +95,7 @@ public class TortureCoSimTests {
     private static FiveStageTrain FiveStage(Rv32Mechanism m, FlatMemory mem, ulong pc, ICommitObserver o) =>
         new(m, mem, pc, commitObserver: o);
 
-    private static OooeTrain Oooe(Rv32Mechanism m, FlatMemory mem, ulong pc, ICommitObserver o) =>
+    private static OooTrain Oooe(Rv32Mechanism m, FlatMemory mem, ulong pc, ICommitObserver o) =>
         new(m, mem, pc, commitObserver: o);
 
     // ── Tests ─────────────────────────────────────────────────────────────────

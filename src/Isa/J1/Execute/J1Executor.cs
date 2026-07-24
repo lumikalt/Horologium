@@ -68,20 +68,19 @@ public sealed class J1Executor : IExecutor {
         bool isReturn = op.ReturnFromR;
         ulong branchTarget = isReturn ? (ulong)r * 2 : pc + 2;
 
-        ushort captT = t, captN = n, captNewT = newT;
         return new ExecuteResult {
             BranchTaken = isReturn,
             BranchTarget = branchTarget,
             SideEffect = s => {
                 var j = (J1ArchState)s;
-                if (op.NtoMem) memory.Write((ulong)captT * 2, captN, 2);
+                if (op.NtoMem) memory.Write((ulong)t * 2, n, 2);
                 if (isReturn)
                     j.RPop();
                 else
                     ApplyRDelta(j, op.RDelta);
-                if (op.TtoR) j.R = captT; // write to new RSP slot after adjustment
-                ApplyDDelta(j, op.DDelta, captNewT);
-                if (op.TtoN) j.N = captT;
+                if (op.TtoR) j.R = t; // write to new RSP slot after adjustment
+                ApplyDDelta(j, op.DDelta, newT);
+                if (op.TtoN) j.N = t;
             },
         };
     }

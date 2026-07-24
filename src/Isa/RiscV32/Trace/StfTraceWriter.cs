@@ -74,15 +74,12 @@ public sealed class StfTraceWriter : ICommitObserver, IDisposable {
 
         // Source register values (integer and FP; skip x0 = hardwired zero).
         IReadOnlyList<int> srcs = instr.SourceRegisters;
-        var srcCount = 0;
-        for (var i = 0; i < srcs.Count; i++)
-            if (srcs[i] > 0)
-                srcCount++;
+        int srcCount = srcs.Count(t => t > 0);
         ulong[] srcValues = srcCount == 0 ? [] : new ulong[srcCount];
         var k = 0;
-        for (var i = 0; i < srcs.Count; i++)
-            if (srcs[i] > 0)
-                srcValues[k++] = state.IntegerRegisters.Read(srcs[i]);
+        foreach (int t in srcs)
+            if (t > 0)
+                srcValues[k++] = state.IntegerRegisters.Read(t);
 
         int rd = instr.DestinationRegister;
         ulong destValue = rd > 0 ? state.IntegerRegisters.Read(rd) : 0;

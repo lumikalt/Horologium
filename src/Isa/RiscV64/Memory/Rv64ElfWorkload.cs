@@ -20,7 +20,7 @@ public sealed class Rv64ElfWorkload : IElfWorkload {
     public Rv64ElfWorkload(string path, int? memorySizeBytes = null)
         : this(File.ReadAllBytes(path), memorySizeBytes) { }
 
-    public Rv64ElfWorkload(byte[] elfBytes, int? memorySizeBytes = null) {
+    private Rv64ElfWorkload(byte[] elfBytes, int? memorySizeBytes = null) {
         _elfBytes = elfBytes;
         EntryPoint = ParseEntryPoint(elfBytes);
         BaseAddress = ComputeBaseAddress(elfBytes);
@@ -34,14 +34,14 @@ public sealed class Rv64ElfWorkload : IElfWorkload {
     public int CodeSize => _elfBytes.Length;
 
     /// <summary>
-    ///     Address just past the last PT_LOAD segment (i.e. the initial program break).
+    ///     Address just past the last PT_LOAD segment (i.e., the initial program break).
     ///     Pass to <see cref="RiscV32.Syscalls.LinuxSyscallEmulator" /> as <c>initialBreak</c>
     ///     so SYS_brk starts from the correct address.
     /// </summary>
     public ulong InitialBreak { get; }
 
     /// <summary>
-    ///     The physical base address of the first PT_LOAD segment, e.g. 0x80000000
+    ///     The physical base address of the first PT_LOAD segment, e.g., 0×80000000
     ///     for Spike-compatible ELFs. Pass this to FlatMemory's constructor so that
     ///     the backing array covers only the actual code/data range.
     /// </summary>

@@ -15,7 +15,7 @@ namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
 ///     Pipeline-level invariant tests for value prediction (Lipasti &amp; Shen, MICRO 1996, LVPT;
-///     Perais &amp; Seznec, HPCA 2014, VTAGE + FPC) as wired into <see cref="OooeTrain" /> via the
+///     Perais &amp; Seznec, HPCA 2014, VTAGE + FPC) as wired into <see cref="OooTrain" /> via the
 ///     <c>valuePredictor</c> constructor parameter.
 ///     <para>
 ///         A value-predicted instruction still executes for real through the ordinary pipeline in
@@ -26,7 +26,7 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class ValuePredictionTests {
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         IValuePredictor? valuePredictor,
         IBranchPredictor? predictor = null,
         bool enableSmbBypass = false,
@@ -36,7 +36,7 @@ public class ValuePredictionTests {
         int memSize = 4096
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -60,7 +60,7 @@ public class ValuePredictionTests {
         mem.Load(0, bytes);
     }
 
-    private static void AssertIdenticalArchState(OooeTrain off, OooeTrain on) {
+    private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         // 0-31 are the integer registers; 32-63 are the FP registers, renamed through the same
         // RAT/PRF at index rd+32 (see Rv32Decoder.Fp.cs) — comparing the full range covers both.
         for (var r = 0; r < 64; r++)
@@ -96,8 +96,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -142,8 +142,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -160,7 +160,7 @@ public class ValuePredictionTests {
     /// <summary>
     ///     The VP-eligible copy chain runs alongside a branch that alternates taken/not-taken
     ///     every iteration — unpredictable for the default <c>AlwaysNotTakenPredictor</c>, so
-    ///     roughly half the iterations trigger <c>OooeTrain.StepPartialSquash</c> (an
+    ///     roughly half the iterations trigger <c>OooTrain.StepPartialSquash</c> (an
     ///     execute-time branch-misprediction recovery, distinct from value prediction's own
     ///     commit-time squash). This is the regression test for VTAGE's speculative
     ///     history surviving ordinary branch mispredictions: if its checkpoint/restore were
@@ -194,8 +194,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -249,8 +249,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -304,8 +304,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), enableSmbBypass: true);
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp(), enableSmbBypass: true);
         Load(memOff, program);
         Load(memOn, program);
 
@@ -334,8 +334,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new LvpVp());
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new LvpVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -371,8 +371,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
+        (OooTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -427,8 +427,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
+        (OooTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -474,8 +474,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
+        (OooTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -515,8 +515,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
+        (OooTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -536,7 +536,7 @@ public class ValuePredictionTests {
     ///     <c>writeIfSrcZero</c>) primed once to a constant, so every dynamic instance of the read
     ///     returns the same value — a value-prediction win case with no register dependency chain at
     ///     all, unlike every other test here. System instructions are head-serialized (may only issue
-    ///     at the ROB head — see <c>OooeTrain.TryIssueSlot</c>), so the benefit is entirely about
+    ///     at the ROB head — see <c>OooTrain.TryIssueSlot</c>), so the benefit is entirely about
     ///     letting <em>younger</em> instructions elsewhere consume the predicted value early; this
     ///     test only checks that the prediction/verify/train path fires correctly for the class, not
     ///     a timing win. Assembled from:
@@ -558,8 +558,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new VtageVp());
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new VtageVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -608,8 +608,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new StrideVp());
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new StrideVp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -649,8 +649,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null, new LTageBp());
-        (OooeTrain on, FlatMemory memOn) = Make(new StrideVp(), new LTageBp());
+        (OooTrain off, FlatMemory memOff) = Make(null, new LTageBp());
+        (OooTrain on, FlatMemory memOn) = Make(new StrideVp(), new LTageBp());
         Load(memOff, program);
         Load(memOn, program);
 
@@ -691,8 +691,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) = Make(new HybridVp(new VtageVp(), new StrideVp()));
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) = Make(new HybridVp(new VtageVp(), new StrideVp()));
         Load(memOff, program);
         Load(memOn, program);
 
@@ -712,7 +712,7 @@ public class ValuePredictionTests {
     // HybridVp's always-query-both-and-gate-on-agreement), after a short 3-value
     // learning window. Routing correctness (which program shape lands on which component) is
     // covered precisely by Tests.Mechanism.DynamicClassificationValuePredictionTests; these two
-    // pipeline tests just confirm the same wiring holds end-to-end through OooeTrain on the two
+    // pipeline tests just confirm the same wiring holds end-to-end through OooTrain on the two
     // program shapes already used elsewhere in this file for the same purpose.
 
     /// <summary>
@@ -731,8 +731,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) =
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) =
             Make(new DynamicClassificationVp(new VtageVp(), new StrideVp()));
         Load(memOff, program);
         Load(memOn, program);
@@ -771,8 +771,8 @@ public class ValuePredictionTests {
             0x00100073, // ebreak
         ];
 
-        (OooeTrain off, FlatMemory memOff) = Make(null);
-        (OooeTrain on, FlatMemory memOn) =
+        (OooTrain off, FlatMemory memOff) = Make(null);
+        (OooTrain on, FlatMemory memOn) =
             Make(new DynamicClassificationVp(new VtageVp(), new StrideVp()));
         Load(memOff, program);
         Load(memOn, program);

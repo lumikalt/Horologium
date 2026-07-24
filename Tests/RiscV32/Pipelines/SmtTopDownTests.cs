@@ -150,6 +150,6 @@ public class SmtTopDownTests {
 
     // Note: SmtTrain hardcodes MemoryConfig.None per hart (no public constructor path to
     // attach a cache), so the I/D-stall TMA wiring in SmtCore.RunCycle cannot be exercised
-    // by a dominance test today. It mirrors OooeTrain/CprTrain's DrainStalls split and will
+    // by a dominance test today. It mirrors OooTrain/CprTrain's DrainStalls split and will
     // become reachable if per-hart cache configuration is ever added to SmtTrain's public API.
 }

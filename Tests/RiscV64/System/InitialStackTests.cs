@@ -67,7 +67,7 @@ public class InitialStackTests {
         var sw = new StringWriter();
         var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
-        var train = new OooeTrain(mech, mem, workload.EntryPoint);
+        var train = new OooTrain(mech, mem, workload.EntryPoint);
         train.ArchState.IntegerRegisters.Write(2, sp);
 
         train.Run(100_000);
@@ -129,7 +129,7 @@ public class InitialStackTests {
 
         var handler = new LinuxSyscallEmulator(0x2000, wordSize: 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
-        var train = new OooeTrain(mech, mem, workload.EntryPoint);
+        var train = new OooTrain(mech, mem, workload.EntryPoint);
 
         train.Run(100_000);
         Assert.True(train.IsIdle);
@@ -146,7 +146,7 @@ public class InitialStackTests {
         // was delivered only via ExecuteResult.SideEffect applied at Commit, never through the
         // PRF/rename, so `mv a2, a0` (SYS_write's count, depending on SYS_read's return value)
         // could rename to a0's pre-ECALL physical register and read a stale/never-written slot
-        // instead of the syscall's result — producing empty output under OooeTrain even though
+        // instead of the syscall's result — producing empty output under OooTrain even though
         // the identical program worked under SingleCycleTrain (see the sibling test above).
         // Fixed by giving RvEcall a SecondaryDestinationRegister of x10 (a0): the existing
         // generic HasPendingSecondaryDest/CommitRegisters machinery (previously used only for
@@ -163,7 +163,7 @@ public class InitialStackTests {
         using var stdin = new MemoryStream("ping"u8.ToArray());
         var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, 8, input: stdin);
         var mech = new Rv64Mechanism(syscallHandler: handler);
-        var train = new OooeTrain(mech, mem, workload.EntryPoint);
+        var train = new OooTrain(mech, mem, workload.EntryPoint);
         train.ArchState.IntegerRegisters.Write(2, sp);
 
         train.Run(100_000);
@@ -175,7 +175,7 @@ public class InitialStackTests {
     public void SyscallMemoryWrite_OrdersBeforeYoungerLoad_UnderOooeTrain() {
         // Regression for the TODO.md-documented memory-ordering hazard: a younger load could
         // issue and execute before a head-serialized ECALL that writes overlapping memory,
-        // reading stale data. HasPrecedingVectorStore (OooeTrain.cs) previously only blocked
+        // reading stale data. HasPrecedingVectorStore (OooTrain.cs) previously only blocked
         // loads behind vector stores; ECALL was never added to that blocking set, even though
         // it is equally non-speculative and equally bypasses the normal store-forwarding
         // machinery (its writes go straight through DLayers.Accessor, not the Store Queue).
@@ -218,7 +218,7 @@ public class InitialStackTests {
 
         var handler = new LinuxSyscallEmulator(0x2000, wordSize: 8);
         var mech = new Rv64Mechanism(syscallHandler: handler);
-        var train = new OooeTrain(mech, mem, workload.EntryPoint);
+        var train = new OooTrain(mech, mem, workload.EntryPoint);
 
         train.Run(100_000);
         Assert.True(train.IsIdle);

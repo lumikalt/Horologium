@@ -11,7 +11,7 @@ public sealed class CacheLineEntry {
         Set = line.Set.ToString();
         Way = line.Way.ToString();
         Valid = line.Valid ? "●" : "○";
-        Dirty = line.Valid && line.Dirty ? "●" : "";
+        Dirty = line is { Valid: true, Dirty: true, } ? "●" : "";
         Tag = line.Valid ? $"0x{line.Tag:X}" : "-";
         Lru = line.Valid ? line.LruAge.ToString() : "-";
         IsLastAccessed = isLastAccessed;

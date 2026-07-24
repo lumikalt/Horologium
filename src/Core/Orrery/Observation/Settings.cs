@@ -11,15 +11,13 @@ namespace Orrery.Observation;
 public sealed class Setting<T> : ILockable {
     private T _value;
 
-    public Setting(string name, T defaultValue, string description = "") {
+    public Setting(string name, T defaultValue) {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Name = name;
-        Description = description;
         _value = defaultValue;
     }
 
-    public string Name { get; }
-    public string Description { get; }
+    private string Name { get; }
 
     /// <summary>
     ///     The current value of this setting.

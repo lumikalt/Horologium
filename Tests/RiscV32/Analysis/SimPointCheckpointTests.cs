@@ -57,7 +57,7 @@ public class SimPointCheckpointTests {
         ulong entryPoint,
         InstructionCounter counter
     ) =>
-        new OooeTrain(mechanism, mem, entryPoint, commitObserver: counter);
+        new OooTrain(mechanism, mem, entryPoint, commitObserver: counter);
 
     [Fact]
     public void SingleSimulationPoint_WithZeroWarmup_MatchesStraightThroughRun() {
@@ -84,7 +84,7 @@ public class SimPointCheckpointTests {
         IWorkload refWorkload = MakeWorkload();
         var refMem = new FlatMemory(refWorkload.MemorySize, refWorkload.BaseAddress);
         refWorkload.Load(refMem);
-        var refTrain = new OooeTrain(new Rv32Mechanism(), refMem, refWorkload.EntryPoint, commitObserver: refCounter);
+        var refTrain = new OooTrain(new Rv32Mechanism(), refMem, refWorkload.EntryPoint, commitObserver: refCounter);
         RevolutionResult refResult = refTrain.Run();
 
         Assert.Equal(refResult.TotalTicks, point.Revolution.TotalTicks);
@@ -134,14 +134,14 @@ public class SimPointCheckpointTests {
         ms.Position = 0;
         ArchitecturalCheckpoint chk = ArchitecturalCheckpoint.Load(ms);
 
-        // Ground truth for the measured-phase tick count, computed from OooeTrain.CurrentTick
+        // Ground truth for the measured-phase tick count, computed from OooTrain.CurrentTick
         // deltas directly — independent of WarmupMeasureDriver/Train.FinishStepping(baseline), so
         // this actually catches a regression of the tick-relative fix rather than comparing two
         // computations that would both be equally wrong.
         var refCounter = new InstructionCounter();
         var refMem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(refMem);
-        var refTrain = new OooeTrain(new Rv32Mechanism(), refMem, chk.Pc, commitObserver: refCounter);
+        var refTrain = new OooTrain(new Rv32Mechanism(), refMem, chk.Pc, commitObserver: refCounter);
         chk.RestoreInto(refTrain.ArchState, refMem);
 
         refTrain.BeginStepping();
@@ -183,7 +183,7 @@ public class SimPointCheckpointTests {
         IWorkload refWorkload = MakeWorkload();
         var refMem = new FlatMemory(refWorkload.MemorySize, refWorkload.BaseAddress);
         refWorkload.Load(refMem);
-        var refTrain = new OooeTrain(new Rv32Mechanism(), refMem, refWorkload.EntryPoint, commitObserver: refCounter);
+        var refTrain = new OooTrain(new Rv32Mechanism(), refMem, refWorkload.EntryPoint, commitObserver: refCounter);
         RevolutionResult refResult = refTrain.Run();
 
         Assert.Equal(refResult.TotalTicks, point.Revolution.TotalTicks);
@@ -232,9 +232,6 @@ public class SimPointCheckpointTests {
             MakeWorkload(), () => new Rv32Mechanism(), intervalSize, warmup, maxK: 1
         );
 
-        ISteppableTrain SingleCycleFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
-            new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
-
         SimPointCheckpointResult viaOoo = Experiment.MeasureSimPointCheckpoints(
             MakeWorkload(), captured, () => new Rv32Mechanism(), DetailedFactory
         );
@@ -259,6 +256,10 @@ public class SimPointCheckpointTests {
         Assert.Equal(viaOoo.EstimatedCpi, viaOooAgain.EstimatedCpi, 12);
         // Sanity against a vacuous pass: OoO and single-cycle must actually measure differently here.
         Assert.NotEqual(viaOoo.EstimatedCpi, viaSingleCycle.EstimatedCpi);
+        return;
+
+        ISteppableTrain SingleCycleFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
+            new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
     }
 
     /// <summary>
@@ -305,9 +306,6 @@ public class SimPointCheckpointTests {
 
         ISteppableTrain? withStateTrain = null;
 
-        ISteppableTrain WithStateFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
-            withStateTrain = new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
-
         var setWithState = new SimPointCheckpointSet(sp, [archBytes,], [syscallBytes,], queryWindowInstructions, 0, 6);
         Experiment.MeasureSimPointCheckpoints(
             workload, setWithState, () => new Rv32Mechanism(syscallHandler: new LinuxSyscallEmulator(0UL)),
@@ -320,14 +318,18 @@ public class SimPointCheckpointTests {
         // this test is actually discriminating, not vacuously true regardless of the restore branch.
         ISteppableTrain? withoutStateTrain = null;
 
-        ISteppableTrain WithoutStateFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
-            withoutStateTrain = new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
-
         var setWithoutState = new SimPointCheckpointSet(sp, [archBytes,], [null,], queryWindowInstructions, 0, 6);
         Experiment.MeasureSimPointCheckpoints(
             workload, setWithoutState, () => new Rv32Mechanism(syscallHandler: new LinuxSyscallEmulator(0UL)),
             WithoutStateFactory
         );
         Assert.Equal(0UL, withoutStateTrain!.ArchState!.IntegerRegisters.Read(10));
+        return;
+
+        ISteppableTrain WithoutStateFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
+            withoutStateTrain = new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
+
+        ISteppableTrain WithStateFactory(IMechanism mech, IMemory mem, ulong entry, InstructionCounter counter) =>
+            withStateTrain = new SingleCycleTrain(mech, mem, entry, commitObserver: counter);
     }
 }

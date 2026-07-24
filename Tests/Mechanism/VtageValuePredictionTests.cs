@@ -113,7 +113,7 @@ public class VtageValuePredictionTests {
         diverged.OnBranchFetched(false); // a second speculative branch down the wrong path
 
         // The redirecting branch actually resolved not-taken: restore to the checkpoint and
-        // fold the true outcome, mirroring OooeTrain.StepPartialSquash.
+        // fold the true outcome, mirroring OooTrain.StepPartialSquash.
         diverged.RestoreHistory(checkpoint, false);
 
         // `clean` takes the same real branch directly, with no detour.

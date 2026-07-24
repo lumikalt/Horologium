@@ -42,12 +42,7 @@ public class Gem5IntegrationTests {
 
     private static string? FindOnPath(string exe) {
         string pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (string dir in pathVar.Split(Path.PathSeparator)) {
-            string full = Path.Combine(dir, exe);
-            if (File.Exists(full)) return full;
-        }
-
-        return null;
+        return pathVar.Split(Path.PathSeparator).Select(dir => Path.Combine(dir, exe)).FirstOrDefault(File.Exists);
     }
 
     private static (string dataFile, string fetchFile) GenerateTraces(string tmpDir) {

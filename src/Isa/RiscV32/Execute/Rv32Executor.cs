@@ -189,8 +189,8 @@ public partial class Rv32Executor : IExecutor {
             RvAuipc(_, var imm) => Reg(pc + (ulong)imm),
 
             // ── System ────────────────────────────────────────────────────────
-            RvEcall when SyscallHandler is { } handler =>
-                handler.Handle(state.IntegerRegisters.Read(17), state.IntegerRegisters, memory, pc),
+            RvEcall when SyscallHandler != null =>
+                SyscallHandler.Handle(state.IntegerRegisters.Read(17), state.IntegerRegisters, memory, pc),
             RvEcall => ExecuteResult.WithTrap(
                 new TrapInfo(EcallCause(state.PrivilegeLevel), 0, pc)
             ),
@@ -230,11 +230,11 @@ public partial class Rv32Executor : IExecutor {
             RvCboZero(var rs1)  => CboZero(memory, state, pc, regs.Read(rs1)),
 
             // ── Zimop extension (always return 0) ─────────────────────────────
-            RvMopR _  => Reg(0),
-            RvMopRr _ => Reg(0),
+            RvMopR  => Reg(0),
+            RvMopRr => Reg(0),
 
             // ── Zcmop extension (compressed NOPs, no effect) ──────────────────
-            RvCMopN _ => ExecuteResult.Clean,
+            RvCMopN => ExecuteResult.Clean,
 
             // ── M extension ───────────────────────────────────────────────────
             // MUL: lower 32 bits of product (signed or unsigned — same result)
@@ -1079,7 +1079,7 @@ public partial class Rv32Executor : IExecutor {
     // comparand/new-value/result are split across (rdReg, rdReg+1) and (rs2, rs2+1).
     // rdReg's low half commits through the normal DestinationRegister path; rdReg+1
     // commits via SideEffect (see ITooth.SecondaryDestinationRegister). Correct only
-    // because the OoO train head-serializes this instruction's issue (see OooeTrain),
+    // because the OoO train head-serializes this instruction's issue (see OooTrain),
     // guaranteeing regs here already reflects every older instruction's commit.
     private ExecuteResult AmoCasDPair(
         IMemory memory,
@@ -1141,7 +1141,7 @@ public partial class Rv32Executor : IExecutor {
         return ExecuteResult.WithResult(value & 0xFFFFFFFF);
     }
 
-    protected virtual ExecuteResult Store(
+    protected ExecuteResult Store(
         IMemory memory,
         IArchState state,
         ulong pc,

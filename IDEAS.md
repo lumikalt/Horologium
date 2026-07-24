@@ -145,6 +145,10 @@ the active thread.
 
 - [ ] Work with other ISAs, not just RISC-V.
 - [ ] Power/energy estimation display alongside performance (McPAT-style: dynamic and leakage per unit).
+- [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes. Needs a UX pass
+  before it's actionable — moved here from TODO.md until there's a concrete design to build against.
+- [ ] More intuitive ways to visualize prefetching, cache policies, branch prediction, etc. Same UX
+  caveat as above.
 
 ## Open Questions
 

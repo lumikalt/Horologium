@@ -6,6 +6,7 @@
         <entry key="Face/Views/AssemblerView.axaml" value="Face/Face.csproj" />
         <entry key="Face/Views/MainWindow.axaml" value="Face/Face.csproj" />
         <entry key="src/Apps/Face/Views/ConfiguratorView.axaml" value="src/Apps/Face/Face.csproj" />
+        <entry key="src/Apps/Face/Views/MainPanel.axaml" value="src/Apps/Face/Face.csproj" />
       </map>
     </option>
   </component>

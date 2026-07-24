@@ -72,17 +72,17 @@ public sealed record CpiStack(
     // Counter names shared between the recording train and this analysis. A train that
     // records these (plus the pre-existing "cycles" and "retired" counters) gets the full
     // stack from FromSnapshot for free.
-    public const string L1ICounter = "cpi_l1i_cycles";
-    public const string L2ICounter = "cpi_l2i_cycles";
-    public const string L3ICounter = "cpi_l3i_cycles";
-    public const string ITlbCounter = "cpi_itlb_cycles";
+    private const string L1ICounter = "cpi_l1i_cycles";
+    private const string L2ICounter = "cpi_l2i_cycles";
+    private const string L3ICounter = "cpi_l3i_cycles";
+    private const string ITlbCounter = "cpi_itlb_cycles";
     public const string BpredCounter = "cpi_bpred_cycles";
-    public const string L1DCounter = "cpi_l1d_cycles";
+    private const string L1DCounter = "cpi_l1d_cycles";
     public const string L2DCounter = "cpi_l2d_cycles";
-    public const string L3DCounter = "cpi_l3d_cycles";
-    public const string DTlbCounter = "cpi_dtlb_cycles";
-    public const string StoreCounter = "cpi_store_cycles";
-    public const string ResourceCounter = "cpi_resource_cycles";
+    private const string L3DCounter = "cpi_l3d_cycles";
+    private const string DTlbCounter = "cpi_dtlb_cycles";
+    private const string StoreCounter = "cpi_store_cycles";
+    private const string ResourceCounter = "cpi_resource_cycles";
 
     /// <summary>Sum of all miss-event components (everything except Base).</summary>
     public double MissComponents =>
@@ -107,8 +107,6 @@ public sealed record CpiStack(
     ) {
         if (cycles <= 0 || retired <= 0) return new CpiStack(cycles, retired, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
-        double PerInstr(long c) => c / (double)retired;
-
         long missCycles = l1ICycles + l2ICycles + l3ICycles + iTlbCycles + bpredCycles
                         + l1DCycles + l2DCycles + l3DCycles + dTlbCycles + storeCycles + resourceCycles;
 
@@ -129,6 +127,8 @@ public sealed record CpiStack(
             PerInstr(storeCycles),
             PerInstr(resourceCycles)
         );
+
+        double PerInstr(long c) => c / (double)retired;
     }
 
     /// <summary>
@@ -138,8 +138,6 @@ public sealed record CpiStack(
     /// </summary>
     public static CpiStack? FromSnapshot(DialBoardSnapshot snapshot) {
         if (!snapshot.Counters.ContainsKey(CpiStack.BpredCounter)) return null;
-
-        long Get(string name) => snapshot.Counters.GetValueOrDefault(name);
 
         return Compute(
             Get("cycles"),
@@ -156,6 +154,8 @@ public sealed record CpiStack(
             Get(CpiStack.StoreCounter),
             Get(CpiStack.ResourceCounter)
         );
+
+        long Get(string name) => snapshot.Counters.GetValueOrDefault(name);
     }
 
     /// <summary>
@@ -216,10 +216,6 @@ public sealed record CpiStack(
         var sb = new StringBuilder();
         sb.AppendLine($"CPI stack ({RetiredInstructions:N0} instructions, {TotalCycles:N0} cycles, CPI {Total:F3})");
 
-        void Row(string name, double value) {
-            if (value > 0) sb.AppendLine($"  {name,-12} {value,8:F4}");
-        }
-
         Row("base", Base);
         Row("L1 I-cache", L1ICache);
         Row("L2 I-cache", L2ICache);
@@ -233,6 +229,10 @@ public sealed record CpiStack(
         Row("stores", Store);
         Row("resource", ResourceStall);
         return sb.ToString().TrimEnd();
+
+        void Row(string name, double value) {
+            if (value > 0) sb.AppendLine($"  {name,-12} {value,8:F4}");
+        }
     }
 }
 

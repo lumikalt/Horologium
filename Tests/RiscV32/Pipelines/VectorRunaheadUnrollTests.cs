@@ -17,12 +17,12 @@ namespace Tests.RiscV32.Pipelines;
 ///     (Naithani, Ainsworth, Jones &amp; Eeckhout, ISCA 2021, §III-G) — the v2 extension of
 ///     <see cref="VectorRunaheadTests" /> that issues up to <c>runaheadUnrollLength</c> total
 ///     N-wide rounds from the same chain origin instead of stopping after one, using immediate
-///     free-on-rename register reclamation (see <c>FreeShadowRename</c> in <see cref="OooeTrain" />)
+///     free-on-rename register reclamation (see <c>FreeShadowRename</c> in <see cref="OooTrain" />)
 ///     as a substitute for the paper's VRAT + register-deallocation queue (not needed here since
 ///     the shadow lane issues strictly in program order — see the design note on that method).
 /// </summary>
 public class VectorRunaheadUnrollTests {
-    private static (OooeTrain train, FlatMemory mem) Make(
+    private static (OooTrain train, FlatMemory mem) Make(
         bool enableRunahead,
         bool enableVectorRunahead = false,
         int runaheadVectorWidth = 8,
@@ -35,7 +35,7 @@ public class VectorRunaheadUnrollTests {
         int memSize = 4096
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(
+        var train = new OooTrain(
             new Rv32Mechanism(), mem,
             issueWidth: issueWidth,
             robCapacity: robCapacity,
@@ -64,7 +64,7 @@ public class VectorRunaheadUnrollTests {
         mem.Load(0, bytes);
     }
 
-    private static void AssertIdenticalArchState(OooeTrain off, OooeTrain on) {
+    private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
             Assert.Equal(off.ArchState.IntegerRegisters.Read(r), on.ArchState.IntegerRegisters.Read(r));
     }
@@ -105,15 +105,15 @@ public class VectorRunaheadUnrollTests {
     public void LargerUnrollCap_ProducesMoreVectorLaneWorkThanSmallCap() {
         uint[] program = StridedChainProgram();
 
-        (OooeTrain capped, FlatMemory memCapped) = Make(true, true, runaheadUnrollLength: 1);
-        (OooeTrain uncapped, FlatMemory memUncapped) = Make(true, true);
+        (OooTrain capped, FlatMemory memCapped) = Make(true, true, runaheadUnrollLength: 1);
+        (OooTrain uncapped, FlatMemory memUncapped) = Make(true, true);
         Load(memCapped, program);
         Load(memUncapped, program);
 
         RevolutionResult cappedResult = capped.Run();
         RevolutionResult uncappedResult = uncapped.Run();
 
-        (OooeTrain off, FlatMemory memOff) = Make(false);
+        (OooTrain off, FlatMemory memOff) = Make(false);
         Load(memOff, program);
         off.Run();
 
@@ -141,7 +141,7 @@ public class VectorRunaheadUnrollTests {
     [Fact]
     public void RoundCap_StaysBoundedAcrossRepeatedOriginRevisits() {
         uint[] program = StridedChainProgram();
-        (OooeTrain on, FlatMemory memOn) = Make(true, true, 8, 2);
+        (OooTrain on, FlatMemory memOn) = Make(true, true, 8, 2);
         Load(memOn, program);
 
         RevolutionResult onResult = on.Run();
@@ -170,8 +170,8 @@ public class VectorRunaheadUnrollTests {
     public void RegisterReclamation_AllowsMultiRoundUnrollingUnderTinyPhysRegBudget() {
         uint[] program = StridedChainProgram();
 
-        (OooeTrain off, FlatMemory memOff) = Make(false, robCapacity: 4);
-        (OooeTrain on, FlatMemory memOn) = Make(true, true, extraPhysRegs: 16, robCapacity: 4);
+        (OooTrain off, FlatMemory memOff) = Make(false, robCapacity: 4);
+        (OooTrain on, FlatMemory memOn) = Make(true, true, extraPhysRegs: 16, robCapacity: 4);
         Load(memOff, program);
         Load(memOn, program);
 

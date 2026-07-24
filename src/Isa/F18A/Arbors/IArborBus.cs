@@ -6,18 +6,17 @@ namespace F18A.Arbors;
 /// </summary>
 public interface IArborBus {
     /// <summary>
-    ///     Attempt a port read. Returns true if data was available; false if blocked.
-    ///     When false, <paramref name="value" /> is 0 and the caller must retry.
+    ///     Attempt a port read.
     /// </summary>
-    bool TryRead(uint wordAddr, out uint value);
+    void TryRead(uint wordAddr, out uint value);
 
     /// <summary>
-    ///     Attempt a port write. Returns true if a receiver was waiting; false if buffered for next tick.
+    ///     Attempt a port write.
     /// </summary>
-    bool TryWrite(uint wordAddr, uint value);
+    void TryWrite(uint wordAddr, uint value);
 
     /// <summary>
-    ///     Returns true when a port access at this word address will complete without blocking.
+    ///     A port access at this word address will complete without blocking.
     ///     Used by the node to pre-check before decoding and executing.
     /// </summary>
     bool IsReady(uint wordAddr, bool isRead);

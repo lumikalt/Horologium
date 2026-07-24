@@ -192,17 +192,21 @@ public sealed class BertiPrefetcher : IPrefetcher {
         var good = 0;
         for (var i = 0; i < cnt; i++) {
             ref DeltaSlot d = ref _todDeltas[todIdx, i];
-            if (d.Cov > 10) {
-                // > 65% of 16
-                d.Status = BertiPrefetcher.Sl1DPref;
-                good++;
+            switch (d.Cov) {
+                case > 10:
+                    // > 65% of 16
+                    d.Status = BertiPrefetcher.Sl1DPref;
+                    good++;
+                    break;
+                case > 5:
+                    // 35–65%
+                    d.Status = d.Cov < 8
+                        ? BertiPrefetcher.Sl2PrefRepl
+                        : BertiPrefetcher.Sl2Pref; // < 50% → repl candidate
+                    good++;
+                    break;
+                default: d.Status = BertiPrefetcher.SNoPref; break;
             }
-            else if (d.Cov > 5) {
-                // 35–65%
-                d.Status = d.Cov < 8 ? BertiPrefetcher.Sl2PrefRepl : BertiPrefetcher.Sl2Pref; // < 50% → repl candidate
-                good++;
-            }
-            else { d.Status = BertiPrefetcher.SNoPref; }
         }
 
         // Enforce max 12 "good" deltas: downgrade lowest-coverage ones to NoPref.

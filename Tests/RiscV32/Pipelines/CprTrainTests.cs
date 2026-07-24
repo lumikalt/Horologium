@@ -15,8 +15,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     Pipeline-level tests for <see cref="CprTrain" /> — Checkpoint Processing and Recovery
 ///     (Akkary, Rajwar &amp; Srinivasan, MICRO 2003) with optional Continual Flow Pipelines
 ///     (Srinivasan et al., ASPLOS 2004). The train is a timing model over the same ISA semantics
-///     as <see cref="OooeTrain" />, so most tests assert final architectural state equality
-///     against an <see cref="OooeTrain" /> reference run plus CPR-specific counters.
+///     as <see cref="OooTrain" />, so most tests assert final architectural state equality
+///     against an <see cref="OooTrain" /> reference run plus CPR-specific counters.
 /// </summary>
 public class CprTrainTests {
     private static (CprTrain train, FlatMemory mem) Make(
@@ -43,12 +43,12 @@ public class CprTrainTests {
         return (train, mem);
     }
 
-    private static (OooeTrain train, FlatMemory mem) MakeReference(
+    private static (OooTrain train, FlatMemory mem) MakeReference(
         MemoryConfig? dMemConfig = null,
         int memSize = 4096
     ) {
         var mem = new FlatMemory(memSize);
-        var train = new OooeTrain(new Rv32Mechanism(), mem, dMemConfig: dMemConfig);
+        var train = new OooTrain(new Rv32Mechanism(), mem, dMemConfig: dMemConfig);
         return (train, mem);
     }
 
@@ -70,7 +70,7 @@ public class CprTrainTests {
         return snap.Counters.GetValueOrDefault(name);
     }
 
-    private static void AssertIdenticalIntState(CprTrain cpr, OooeTrain reference) {
+    private static void AssertIdenticalIntState(CprTrain cpr, OooTrain reference) {
         for (var r = 0; r < 32; r++)
             Assert.Equal(reference.ArchState.IntegerRegisters.Read(r), cpr.ArchState.IntegerRegisters.Read(r));
     }
@@ -97,7 +97,7 @@ public class CprTrainTests {
         ];
 
         (CprTrain cpr, FlatMemory memCpr) = Make();
-        (OooeTrain reference, FlatMemory memRef) = MakeReference();
+        (OooTrain reference, FlatMemory memRef) = MakeReference();
         Load(memCpr, program);
         Load(memRef, program);
 
@@ -134,7 +134,7 @@ public class CprTrainTests {
         ];
 
         (CprTrain cpr, FlatMemory memCpr) = Make();
-        (OooeTrain reference, FlatMemory memRef) = MakeReference();
+        (OooTrain reference, FlatMemory memRef) = MakeReference();
         Load(memCpr, program);
         Load(memRef, program);
 

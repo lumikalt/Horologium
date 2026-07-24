@@ -12,7 +12,7 @@ namespace Pipeline.Ooo;
 ///     <para>
 ///         Models each instruction as three dependence-graph nodes — D (dispatch), E (execute),
 ///         C (commit) — connected by seven edge types (Table 1 of the paper). The caller
-///         (<c>OooeTrain</c>) resolves the paper's "last-arriving" rules (Table 2) into concrete
+///         (<c>OooTrain</c>) resolves the paper's "last-arriving" rules (Table 2) into concrete
 ///         source references at commit time; this class only tracks which of a small set of
 ///         "tokens" have propagated forward from a seed instruction's E-node, and trains a
 ///         PC-indexed hysteresis table from whether a token survives <c>propagationDistance</c>
