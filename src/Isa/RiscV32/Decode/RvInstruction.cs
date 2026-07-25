@@ -116,6 +116,8 @@ public sealed class RvInstruction(
         RvSm4KVi op         => op.Vd,
         RvSha2CVv op        => op.Vd,
         RvSha2MsVv op       => op.Vd,
+        RvSm3CVi op         => op.Vd,
+        RvSm3MeVv op        => op.Vd,
         // RvVcpop/RvVfirst write integer rd, not a vector register → -1
         _ => -1,
     };
@@ -126,7 +128,7 @@ public sealed class RvInstruction(
     // ITooth.HasRuntimeSizedVectorDestination.
     public bool HasRuntimeSizedVectorDestination { get; } =
         payload is RvVaesRoundVv or RvVaesRoundVs or RvVaesZVs or RvVaesKf1Vi or RvVaesKf2Vi
-                 or RvSm4RVv or RvSm4RVs or RvSm4KVi or RvSha2CVv or RvSha2MsVv;
+                 or RvSm4RVv or RvSm4RVs or RvSm4KVi or RvSha2CVv or RvSha2MsVv or RvSm3CVi or RvSm3MeVv;
 
     // RV32 amocas.d (Zacas) holds its 64-bit result in a register pair: Rd gets the
     // low word (via the normal DestinationRegister/RegisterResult path), Rd+1 gets the
@@ -335,6 +337,9 @@ public sealed class RvInstruction(
         // vs1 is a genuine third vector source here, unlike every other Zvk* op so far.
         RvSha2CVv op     => [op.Vd, op.Vs1, op.Vs2,],
         RvSha2MsVv op    => [op.Vd, op.Vs1, op.Vs2,],
+        // vsm3c.vi's vd is read-modify-write (current state); vsm3me.vv's vd is pure output.
+        RvSm3CVi op      => [op.Vd, op.Vs2,],
+        RvSm3MeVv op     => [op.Vs1, op.Vs2,],
         RvVIntMacVx op  => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
         RvVMvSx         => [],
         RvVMergeVv op   => [op.Vs2, op.Vs1, 0,],

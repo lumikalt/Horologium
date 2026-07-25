@@ -68,3 +68,17 @@ public record RvSha2CVv(Sha2CompressKind Kind, int Vd, int Vs1, int Vs2) : RvOp;
 // 4 schedule words (read as input, overwritten with the next 4 produced); vs2/vs1 hold the
 // intervening words. Reserved: vd's LMUL register group must not overlap vs1's or vs2's.
 public record RvSha2MsVv(int Vd, int Vs1, int Vs2) : RvOp;
+
+// ── Zvksh extension (Vector SM3 Secure Hash) — EGW=256/EGS=8/SEW=32 fixed (spec §3.23/§3.24),
+// a different shape from every earlier Zvk* op (EGS=8, not 4). Reserved: vd's LMUL register group
+// must not overlap vs2's (vs1, where present, is unconstrained — confirmed against the Sail
+// encdec guard, which checks only vs2 for both instructions below).
+
+// vsm3c.vi: two rounds of SM3 compression. vd holds the current state (read as input, overwritten
+// with the next state); vs2 holds message words (only 4 of its 8 elements are read); Round holds
+// the raw uimm[4:0] (legal range 0-31, spec §3.23 — no out-of-range projection, unlike vaeskf1/2).
+public record RvSm3CVi(int Vd, int Vs2, int Round) : RvOp;
+
+// vsm3me.vv: eight rounds of SM3 message-schedule expansion. vs1 holds the 8 oldest message
+// words, vs2 the next 8 (both pure input); vd receives the next 8 words generated (pure output).
+public record RvSm3MeVv(int Vd, int Vs1, int Vs2) : RvOp;

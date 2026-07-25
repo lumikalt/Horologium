@@ -110,9 +110,24 @@ off here until a periodic cleanup removes them; the durable record is git histor
   documented (not just used) the vsha2c[hl] register ping-pong identity: only vd is written each
   call (with the new {a,b,e,f}), and the untouched vs2 register's stale content is exactly the
   {c,d,g,h} the next call needs, since after 2 real SHA-2 rounds new-c/d/g/h == old-a/b/e/f.
-  Deferred follow-ups: the other Zvk* families (Zvksh SM3, Zvkg GHASH/GMAC, Zvbb/Zvbc/Zvkb vector
-  bitmanip) — none implemented yet. `FiveStageTrain` gaining runtime-LMUL-aware vector hazard
-  tracking (rather than rejecting) is also deferred.
+- [x] Zvksh extension (SM3 secure hash): `vsm3c.vi` (two rounds of compression) and `vsm3me.vv`
+  (eight rounds of message-schedule expansion), EGW=256/EGS=8/SEW=32 fixed (a new EGS, distinct
+  from every earlier Zvk* op). Validated against the full GB/T 32905-2016 Example 1 and Example 2
+  round-by-round traces (via IETF draft-sca-cfrg-sm3, since no built-in .NET SM3 oracle exists) —
+  both single-instruction traces (isolating the round math/element ordering) and full multi-block
+  end-to-end digests (Example 2 crosses a block boundary, exercising the feed-forward XOR
+  finalization `V_(i+1) = CF(V_i, B_i) xor V_i`, distinct from SHA-2's modular addition). Confirmed
+  element ordering against the RISC-V Sail reference model (github.com/riscv/sail-riscv,
+  `model/extensions/vector_crypto/zvksh_insts.sail` + `model/extensions/V/vext_utils_insts.sail`'s
+  `get_velem_oct_vec`/`write_velem_oct_vec`/`vrev8`) rather than the spec's own prose tables, which
+  use the opposite left-to-right listing convention from every other instruction in the same
+  document. `vsm3c.vi`'s round function is implemented in the "obvious" plain (A,B,C,D,E,F,G,H)
+  order rather than porting the Sail source's own shuffled return-vector shape verbatim — both are
+  output-equivalent (verified byte-exact against the traces), the plain form just doesn't require
+  resolving a Sail vector-literal indexing detail this port doesn't otherwise need.
+  Deferred follow-ups: the other Zvk* families (Zvkg GHASH/GMAC, Zvbb/Zvbc/Zvkb vector bitmanip) —
+  none implemented yet. `FiveStageTrain` gaining runtime-LMUL-aware vector hazard tracking (rather
+  than rejecting) is also deferred.
 
 ## Analysis
 

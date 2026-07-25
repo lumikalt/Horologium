@@ -52,6 +52,9 @@ public class ZvkTests {
     // satisfying the element-group constraint, so each element group spans exactly 2 registers.
     private const int VtypeiE64M2Tama = (1 << 7) | (1 << 6) | (3 << 3) | 1;
 
+    // vtypei for e32,m2,ta,ma: SM3's EGW=256 at SEW=32 needs the same LMUL=2 minimum.
+    private const int VtypeiE32M2Tama = (1 << 7) | (1 << 6) | (2 << 3) | 1;
+
     // Explicit output<-input byte permutation (the standard textbook AES ShiftRows table: row r
     // cyclically shifted left by r), hand-listed rather than recomputed via the same
     // modular-arithmetic formula the production AesShiftRowsFwdBlock uses — a formula bug shared
@@ -93,6 +96,9 @@ public class ZvkTests {
     private static uint Sha2MsVv(int vd, int vs2, int vs1) => VopMvv(0x2D, vd, vs2, vs1);
     private static uint Sha2ChVv(int vd, int vs2, int vs1) => VopMvv(0x2E, vd, vs2, vs1);
     private static uint Sha2ClVv(int vd, int vs2, int vs1) => VopMvv(0x2F, vd, vs2, vs1);
+
+    private static uint Sm3MeVv(int vd, int vs2, int vs1) => VopMvv(0x20, vd, vs2, vs1);
+    private static uint Sm3CVi(int vd, int vs2, int round) => VopMvv(0x2B, vd, vs2, round);
 
     // ── Harness ─────────────────────────────────────────────────────────────────────────────
 
@@ -1118,6 +1124,185 @@ public class ZvkTests {
         Rv32ArchState s = MakeState();
         Vsetivli(s, 4, ZvkTests.VtypeiE16M4Tama);
         ExecuteResult r = Exec(Sha2MsVv(8, 12, 16), s);
+        Assert.True(r.HasTrap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
+    }
+
+    // ── Zvksh: SM3 compression (vsm3c.vi) + message schedule (vsm3me.vv) ────────────────────────
+    // GB/T 32905-2016 Example 1 (message "abc"), transcribed via IETF draft-sca-cfrg-sm3 (which
+    // reproduces the padded message, the full W[0..67] expansion trace, the round-by-round A-H
+    // compression trace, and the final hash) rather than FIPS-180-4-style just-a-final-digest, so
+    // each instruction can be checked in isolation — essential here since the element-ordering
+    // conventions of vsm3c.vi and vsm3me.vv turned out to disagree with each other (see
+    // Rv32Executor.VCrypto.cs's Zvksh section header) and a single wrong full-hash-only test
+    // would not localize which instruction (or which direction) was wrong.
+
+    [Fact]
+    public void Sm3MeVv_OneCall_MatchesGbt32905MessageExpansionTrace() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 8, ZvkTests.VtypeiE32M2Tama);
+
+        // vs1 = W[7:0], vs2 = W[15:8] — element j maps directly to word j for both (no reversal
+        // on the input side; confirmed against the Sail model's plain read_vreg-indexed access).
+        WriteGroup(s, 8, Convert.FromHexString("6162638000000000000000000000000000000000000000000000000000000000"), 32);
+        WriteGroup(s, 10, Convert.FromHexString("0000000000000000000000000000000000000000000000000000000000000018"), 32);
+
+        ApplySideEffect(Exec(Sm3MeVv(12, 10, 8), s), s);
+
+        // Expected W[16..23] = 9092e200 00000000 000c0606 719c70ed 00000000 8001801f 939f7da9
+        // 00000000, but vsm3me.vv's write side reverses element order relative to word order
+        // (physical position p <- W[23-p] — the *opposite* of vsha2ms's output convention), so the
+        // expected raw bytes are that word list in reverse.
+        byte[] expected = Convert.FromHexString(
+            "00000000939f7da98001801f00000000719c70ed000c060600000000" + "9092e200"
+        );
+        Assert.Equal(expected, ReadGroup(s, 12, 32));
+    }
+
+    [Fact]
+    public void Sm3CVi_OneCall_MatchesGbt32905CompressionTrace() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 8, ZvkTests.VtypeiE32M2Tama);
+
+        // vd = current state {A..H} = the SM3 IV. vsm3c.vi's read side (get_velem_oct_vec)
+        // reverses element order, so physical element k holds state-word H,G,F,E,D,C,B,A in that
+        // order (idx0=H,...,idx7=A) — the reverse of the natural A-to-H listing.
+        WriteGroup(
+            s, 8,
+            Convert.FromHexString("b0fb0e4ee38dee4d163138aaa96f30bcda8a0600172442d74914b2b97380166f"), 32
+        );
+
+        // vs2 = message words; only w0,w1,w4,w5 are read (physical idx7,6,3,2 respectively per
+        // the same element-order reversal), the rest are don't-care (zeroed here).
+        WriteGroup(s, 10, Convert.FromHexString("0000000000000000000000000000000000000000000000000000000061626380"), 32);
+
+        ApplySideEffect(Exec(Sm3CVi(8, 10, 0), s), s); // rnds=0 -> rounds 0 and 1
+
+        // Expected: the trace's j=1 state row (A..H after both rounds), physically stored using
+        // the same idx0=H..idx7=A layout as the input — i.e. that row's words in reverse.
+        byte[] expected = Convert.FromHexString(
+            "c550b18985e54b79b2ad29f4ac353a2329657292002cdee7b9edc12bea52428c"
+        );
+        Assert.Equal(expected, ReadGroup(s, 8, 32));
+    }
+
+    private static void SetWordBe(byte[] group, int wordIndex, uint value) {
+        int o = wordIndex * 4;
+        group[o] = (byte)(value >> 24);
+        group[o + 1] = (byte)(value >> 16);
+        group[o + 2] = (byte)(value >> 8);
+        group[o + 3] = (byte)value;
+    }
+
+    private static uint GetWordBe(byte[] group, int wordIndex) {
+        int o = wordIndex * 4;
+        return (uint)((group[o] << 24) | (group[o + 1] << 16) | (group[o + 2] << 8) | group[o + 3]);
+    }
+
+    // Full multi-block SM3 hash, chaining the actual vsm3me.vv/vsm3c.vi instructions. Reuses
+    // Sha2Pad (identical padding scheme: 0x80, zero-pad, 64-bit big-endian bit length in a 64-byte
+    // block). Message-schedule generation slides by 8 words per vsm3me.vv call (not 4, unlike
+    // vsha2ms) and runs one call short of a whole number of groups for a single 64-byte block (52
+    // words needed from 7 calls of 8 = 56, discarding the last 4) — handled here by just
+    // generating past W[67] and ignoring the extras, rather than trying to special-case the final
+    // call. Finalizes each block with the SM3-specific XOR-with-previous-state feed-forward
+    // (V_{i+1} = CF(V_i, B_i) xor V_i — GB/T 32905-2016 §5.3.3), unlike SHA-2's modular addition.
+    private byte[] RunSm3(byte[] message) {
+        byte[] padded = Sha2Pad(message, 4);
+        uint[] iv = [0x7380166fu, 0x4914b2b9u, 0x172442d7u, 0xda8a0600u, 0xa96f30bcu, 0x163138aau, 0xe38dee4du, 0xb0fb0e4eu,];
+        var state = (uint[])iv.Clone();
+
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 8, ZvkTests.VtypeiE32M2Tama);
+
+        for (var blockOff = 0; blockOff < padded.Length; blockOff += 64) {
+            var w = new uint[72];
+            for (var t = 0; t < 16; t++) w[t] = (uint)BigEndianWord(padded, blockOff + t * 4, 4);
+
+            for (var t2 = 0; t2 + 16 <= 67; t2 += 8) {
+                var vs1Group = new byte[32];
+                var vs2Group = new byte[32];
+                for (var j = 0; j < 8; j++) {
+                    SetWordBe(vs1Group, j, w[t2 + j]);
+                    SetWordBe(vs2Group, j, w[t2 + 8 + j]);
+                }
+
+                WriteGroup(s, 16, vs1Group, 32);
+                WriteGroup(s, 18, vs2Group, 32);
+                ApplySideEffect(Exec(Sm3MeVv(20, 18, 16), s), s);
+                byte[] outGroup = ReadGroup(s, 20, 32);
+                for (var r = 0; r < 8; r++) w[t2 + 16 + r] = GetWordBe(outGroup, 7 - r);
+            }
+
+            var blockIv = (uint[])state.Clone();
+            for (var rnds = 0; rnds < 32; rnds++) {
+                int r2 = 2 * rnds;
+                var stateGroup = new byte[32];
+                for (var k = 0; k < 8; k++) SetWordBe(stateGroup, 7 - k, state[k]);
+                WriteGroup(s, 8, stateGroup, 32);
+
+                var msgGroup = new byte[32];
+                SetWordBe(msgGroup, 7, w[r2]);
+                SetWordBe(msgGroup, 6, w[r2 + 1]);
+                SetWordBe(msgGroup, 3, w[r2 + 4]);
+                SetWordBe(msgGroup, 2, w[r2 + 5]);
+                WriteGroup(s, 10, msgGroup, 32);
+
+                ApplySideEffect(Exec(Sm3CVi(8, 10, rnds), s), s);
+                byte[] newStateGroup = ReadGroup(s, 8, 32);
+                for (var k = 0; k < 8; k++) state[k] = GetWordBe(newStateGroup, 7 - k);
+            }
+
+            for (var k = 0; k < 8; k++) state[k] ^= blockIv[k];
+        }
+
+        var result = new byte[32];
+        for (var k = 0; k < 8; k++) SetWordBe(result, k, state[k]);
+        return result;
+    }
+
+    [Fact]
+    public void Sm3_EndToEnd_MatchesGbt32905Example1Hash() {
+        byte[] message = Encoding.ASCII.GetBytes("abc");
+        byte[] actual = RunSm3(message);
+        byte[] expected = Convert.FromHexString("66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0");
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void Sm3_EndToEnd_MatchesGbt32905Example2Hash() {
+        // GB/T 32905-2016 Example 2: a 64-byte message pads to exactly 2 blocks — the only path
+        // in this suite that exercises cross-block state carry (the feed-forward XOR against a
+        // non-IV running state).
+        byte[] message = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("abcd", 16)));
+        byte[] actual = RunSm3(message);
+        byte[] expected = Convert.FromHexString("debe9ff92275b8a138604889c18e5a4d6fdb70e5387e5765293dcba39c0c5732");
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void Sm3CVi_VdOverlapsVs2_Traps() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 8, ZvkTests.VtypeiE32M2Tama);
+        ExecuteResult r = Exec(Sm3CVi(8, 8, 0), s); // vs2==vd
+        Assert.True(r.HasTrap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
+    }
+
+    [Fact]
+    public void Sm3MeVv_VdOverlapsVs2_Traps() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 8, ZvkTests.VtypeiE32M2Tama);
+        ExecuteResult r = Exec(Sm3MeVv(8, 8, 12), s); // vs2==vd
+        Assert.True(r.HasTrap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
+    }
+
+    [Fact]
+    public void Sm3CVi_WrongSew_Traps() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 8, ZvkTests.VtypeiE64M2Tama); // e64, not e32
+        ExecuteResult r = Exec(Sm3CVi(8, 10, 0), s);
         Assert.True(r.HasTrap);
         Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
     }

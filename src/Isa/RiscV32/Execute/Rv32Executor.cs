@@ -816,6 +816,10 @@ public partial class Rv32Executor : IExecutor {
                 ExecuteSha2Compress(state, pc, kind, vd, vs1, vs2),
             RvSha2MsVv (var vd, var vs1, var vs2) => ExecuteSha2Ms(state, pc, vd, vs1, vs2),
 
+            // ── Zvksh: SM3 compression/message-schedule instructions ────────────────────────
+            RvSm3CVi (var vd, var vs2, var round) => ExecuteSm3C(state, pc, vd, vs2, round),
+            RvSm3MeVv (var vd, var vs1, var vs2) => ExecuteSm3Me(state, pc, vd, vs1, vs2),
+
             RvVMulVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVMul(
                     state, op2, vd, vs2, masked,

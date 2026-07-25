@@ -197,6 +197,15 @@ public partial class Rv32Executor {
     // known-answer test failing under the byte-order convention this file originally shipped
     // with (which the byte-aligned-only AES tests had passed under regardless).
 
+    // Also reused by Zvksh (SM3, 32-byte/8-word groups): SM3's instructions apply an explicit
+    // rev8 byte-swap to every word they read or write (spec §3.23/§3.24 — "all input words are
+    // byte-swapped from big endian to little endian" and back on output), and
+    // rev8-of-natural-little-endian equals this helper's direct big-endian read (and symmetrically
+    // for the write side) — see Rv32Executor.V.cs's BitConverter-based natural-LE element read for
+    // what "natural" means here. Folding that byte-swap into this shared helper is legitimate
+    // because it's a pure byte-order identity, independent of word count; SM3's *element*-order
+    // reversal (get_velem_oct_vec) is a separate axis and is kept explicit at the call site, not
+    // folded in here (see ExecuteSm3C/ExecuteSm3Me).
     private static uint ElementGroupGetWord(byte[] block16, int wordIndex) {
         int o = wordIndex * 4;
         return (uint)((block16[o] << 24) | (block16[o + 1] << 16) | (block16[o + 2] << 8) | block16[o + 3]);
@@ -701,6 +710,165 @@ public partial class Rv32Executor {
             Sha2SetWord(next, 1, sewBits, w17);
             Sha2SetWord(next, 2, sewBits, w18);
             Sha2SetWord(next, 3, sewBits, w19);
+            groups[i - egStart] = (i, next);
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                var s32 = (Rv32ArchState)s;
+                foreach ((int index, byte[] value) in groups) WriteElementGroup(s32, vd, index, egw, value);
+            },
+        };
+    }
+
+    // ── Zvksh: SM3 compression (vsm3c.vi) and message schedule (vsm3me.vv) ──────────────────────
+    // EGW=256, EGS=8, EEW=SEW=32 (spec §3.23/§3.24) — a fixed shape (no runtime-dependent SEW,
+    // unlike vsha2*), but a different EGS (8, not 4) from every earlier Zvk* op.
+    //
+    // Element ordering was confirmed against the RISC-V Sail reference model
+    // (github.com/riscv/sail-riscv, model/extensions/vector_crypto/zvksh_insts.sail +
+    // model/extensions/V/vext_utils_insts.sail's get_velem_oct_vec/write_velem_oct_vec/vrev8
+    // definitions) and validated against the GB/T 32905-2016 Example 1 round-by-round trace (via
+    // IETF draft-sca-cfrg-sm3) — not derived from the spec's own prose tables, which turned out to
+    // use the opposite left-to-right listing convention from every other instruction in this same
+    // document (increasing index, not decreasing).
+    //
+    // vsm3c.vi's *round function* deliberately does NOT port the Sail source's own return-value
+    // shape verbatim: `zvk_sm3_round` returns `[A_H[6], G1, A_H[4], E1, A_H[2], C1, A_H[0], A1]`,
+    // and `VSM3C_VI` chains it by feeding that return value directly back in as the next call's
+    // `A_H` argument. A hybrid port that read the *input* state via `get_velem_oct_vec`'s reversed
+    // element indexing but then chained Sail's shuffled return value naively into a second round
+    // did not reproduce the GB/T 32905 trace past round 0 in a throwaway verification script —
+    // the Sail model itself is presumably still correct end to end (its final `vrev8([A1_H1[6],
+    // A2_H2[6], ...])` write likely undoes the intermediate shuffle in a way this port didn't
+    // reproduce), but this file doesn't need to resolve that to be correct: `Sm3Round` below
+    // instead uses the "obvious" reading of the algorithm — input and output both in plain
+    // (A,B,C,D,E,F,G,H) order, called twice in a row — which was verified byte-exact against the
+    // full GB/T 32905-2016 Example 1 and Example 2 traces (single- and multi-block), and is
+    // therefore output-equivalent to the Sail model regardless of how its own intermediate
+    // representation is organized. The physical-register read (element idx k -> position 7-k,
+    // i.e. idx7=A ... idx0=H) is kept identical for both read and write of vd, so the same
+    // register correctly serves as both input and output across repeated calls.
+
+    private static uint Sm3T(int j) => j <= 15 ? 0x79CC4519u : 0x7A879D8Au;
+    private static uint Sm3Ff(uint x, uint y, uint z, int j) => j <= 15 ? x ^ y ^ z : (x & y) | (x & z) | (y & z);
+    private static uint Sm3Gg(uint x, uint y, uint z, int j) => j <= 15 ? x ^ y ^ z : (x & y) | (~x & z);
+    private static uint Sm3P0(uint x) => x ^ BitOperations.RotateLeft(x, 9) ^ BitOperations.RotateLeft(x, 17);
+    private static uint Sm3P1(uint x) => x ^ BitOperations.RotateLeft(x, 15) ^ BitOperations.RotateLeft(x, 23);
+
+    private static uint Sm3ShW(uint m16, uint m9, uint m3, uint m13, uint m6) =>
+        Sm3P1(m16 ^ m9 ^ BitOperations.RotateLeft(m3, 15)) ^ BitOperations.RotateLeft(m13, 7) ^ m6;
+
+    // One round of SM3 compression (GB/T 32905-2016 §5.3.3): state in, new state out, both in
+    // plain {A,B,C,D,E,F,G,H} order — see the section header above for why this departs from the
+    // Sail source's own return shape.
+    private static uint[] Sm3Round(uint[] state, uint w, uint x, int j) {
+        uint a = state[0], b = state[1], c = state[2], d = state[3];
+        uint e = state[4], f = state[5], g = state[6], h = state[7];
+
+        uint tJ = BitOperations.RotateLeft(Sm3T(j), j % 32);
+        uint ss1 = BitOperations.RotateLeft(BitOperations.RotateLeft(a, 12) + e + tJ, 7);
+        uint ss2 = ss1 ^ BitOperations.RotateLeft(a, 12);
+        uint tt1 = Sm3Ff(a, b, c, j) + d + ss2 + x;
+        uint tt2 = Sm3Gg(e, f, g, j) + h + ss1 + w;
+
+        uint a1 = tt1;
+        uint c1 = BitOperations.RotateLeft(b, 9);
+        uint e1 = Sm3P0(tt2);
+        uint g1 = BitOperations.RotateLeft(f, 19);
+
+        return [a1, a, c1, c, e1, e, g1, g,];
+    }
+
+    private static ExecuteResult ExecuteSm3C(IArchState state, ulong pc, int vd, int vs2, int uimm) {
+        const int egw = 256;
+        const int egs = 8;
+        const int requiredSew = 32;
+
+        ExecuteResult? trap = CheckElementGroupConstraints(state, pc, egw, egs, requiredSew);
+        if (trap != null) return trap;
+
+        // Reserved encoding: vd's LMUL register group must not overlap vs2 (spec §3.23) — there is
+        // no vs1 for this .vi form.
+        if (vs2 >= vd && vs2 < vd + VGetLmulInt(state))
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+
+        int rnds = uimm & 0x1F; // legal range 0-31 (spec §3.23); no out-of-range projection defined
+
+        (uint vl, _) = VGetVlEw(state);
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        var egStart = (int)(vstart / egs);
+        var egLen = (int)(vl / egs);
+
+        var groups = new (int Index, byte[] Value)[egLen - egStart];
+        for (int i = egStart; i < egLen; i++) {
+            byte[] stateGroup = ReadElementGroup(state, vd, i, egw);
+            byte[] msgGroup = ReadElementGroup(state, vs2, i, egw);
+
+            // Physical element idx k <- state position (7-k), i.e. idx7=A, idx6=B, ..., idx0=H
+            // (get_velem_oct_vec's reversed indexing) — applied identically on write below so the
+            // same vd register round-trips correctly across repeated calls.
+            var initialState = new uint[8];
+            for (var p = 0; p < 8; p++) initialState[p] = ElementGroupGetWord(stateGroup, 7 - p);
+            uint w0 = ElementGroupGetWord(msgGroup, 7);
+            uint w1 = ElementGroupGetWord(msgGroup, 6);
+            uint w4 = ElementGroupGetWord(msgGroup, 3);
+            uint w5 = ElementGroupGetWord(msgGroup, 2);
+            uint x0 = w0 ^ w4;
+            uint x1 = w1 ^ w5;
+
+            uint[] afterRound1 = Sm3Round(initialState, w0, x0, 2 * rnds);
+            uint[] afterRound2 = Sm3Round(afterRound1, w1, x1, 2 * rnds + 1);
+
+            var next = new byte[egw / 8];
+            for (var p = 0; p < 8; p++) ElementGroupSetWord(next, 7 - p, afterRound2[p]);
+            groups[i - egStart] = (i, next);
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                var s32 = (Rv32ArchState)s;
+                foreach ((int index, byte[] value) in groups) WriteElementGroup(s32, vd, index, egw, value);
+            },
+        };
+    }
+
+    private static ExecuteResult ExecuteSm3Me(IArchState state, ulong pc, int vd, int vs1, int vs2) {
+        const int egw = 256;
+        const int egs = 8;
+        const int requiredSew = 32;
+
+        ExecuteResult? trap = CheckElementGroupConstraints(state, pc, egw, egs, requiredSew);
+        if (trap != null) return trap;
+
+        // Reserved encoding: vd's LMUL register group must not overlap vs2 (spec §3.24) — vs1 is
+        // unconstrained (confirmed against the Sail encdec guard, which checks only vs2).
+        if (vs2 >= vd && vs2 < vd + VGetLmulInt(state))
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+
+        (uint vl, _) = VGetVlEw(state);
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        var egStart = (int)(vstart / egs);
+        var egLen = (int)(vl / egs);
+
+        var groups = new (int Index, byte[] Value)[egLen - egStart];
+        for (int i = egStart; i < egLen; i++) {
+            byte[] oldWords = ReadElementGroup(state, vs1, i, egw); // W[7:0]: element j -> W[j]
+            byte[] midWords = ReadElementGroup(state, vs2, i, egw); // W[15:8]: element j -> W[8+j]
+
+            var w = new uint[24];
+            for (var j = 0; j < 8; j++) {
+                w[j] = ElementGroupGetWord(oldWords, j);
+                w[j + 8] = ElementGroupGetWord(midWords, j);
+            }
+
+            for (var j = 16; j < 24; j++) w[j] = Sm3ShW(w[j - 16], w[j - 9], w[j - 3], w[j - 13], w[j - 6]);
+
+            // write_velem_oct_vec writes array position p -> physical element p directly; the
+            // array here is [w23,w22,...,w16] (position p holds W[23-p]) — the *reverse* of
+            // vsha2ms's output convention (Sail model, zvksh_insts.sail).
+            var next = new byte[egw / 8];
+            for (var p = 0; p < 8; p++) ElementGroupSetWord(next, p, w[23 - p]);
             groups[i - egStart] = (i, next);
         }
 
