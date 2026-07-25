@@ -322,10 +322,10 @@ public partial class Rv32Executor : IExecutor {
             RvRev8 (_, var rs1)         => Rev8(regs, rs1),
 
             // ── Zbkb/Zbkx extension (crypto-adjacent bit manipulation) ─────────────────
-            RvPack  (_, var rs1, var rs2) => Pack(regs, rs1, rs2, 16),
+            RvPack (_, var rs1, var rs2)  => Pack(regs, rs1, rs2, 16),
             RvPackh (_, var rs1, var rs2) => Reg(((regs.Read(rs2) & 0xFF) << 8) | (regs.Read(rs1) & 0xFF)),
             RvBrev8 (_, var rs1)          => Brev8(regs, rs1, 4),
-            RvZip   (_, var rs1)          => Zip(regs, rs1),
+            RvZip (_, var rs1)            => Zip(regs, rs1),
             RvUnzip (_, var rs1)          => Unzip(regs, rs1),
             RvXperm4(_, var rs1, var rs2) => Xperm(regs, rs1, rs2, 4, 8),
             RvXperm8(_, var rs1, var rs2) => Xperm(regs, rs1, rs2, 8, 4),
@@ -797,6 +797,16 @@ public partial class Rv32Executor : IExecutor {
             RvVMvNr (var n, var vd, var vs2) =>
                 ExecuteVMvNr(state, n, vd, vs2),
 
+            // ── Zvkned: AES round instructions ──────────────────────────────────────
+            RvVaesEmVv (var vd, var vs2) => ExecuteVAesRoundVv(
+                state, pc, vd, vs2,
+                s => AesMixColumnsFwdBlock(AesShiftRowsFwdBlock(AesSubBytesFwdBlock(s)))
+            ),
+            RvVaesEfVv (var vd, var vs2) => ExecuteVAesRoundVv(
+                state, pc, vd, vs2,
+                s => AesShiftRowsFwdBlock(AesSubBytesFwdBlock(s))
+            ),
+
             RvVMulVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVMul(
                     state, op2, vd, vs2, masked,
@@ -996,8 +1006,7 @@ public partial class Rv32Executor : IExecutor {
     protected ExecuteResult Brev8(IRegisterFile regs, int rs1, int byteCount) {
         ulong v = regs.Read(rs1);
         ulong result = 0;
-        for (var i = 0; i < byteCount; i++)
-            result |= (ulong)Rv32Executor.ReverseBitsInByte((byte)(v >> (i * 8))) << (i * 8);
+        for (var i = 0; i < byteCount; i++) result |= (ulong)ReverseBitsInByte((byte)(v >> (i * 8))) << (i * 8);
         return Reg(result);
     }
 

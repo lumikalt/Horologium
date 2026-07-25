@@ -720,4 +720,22 @@ public class FiveStagePipelineTests {
         Assert.NotNull(snap);
         Assert.Equal(0L, snap.Counters["branch_misses"]);
     }
+
+    // ── Vector-crypto element-group rejection ───────────────────────────────────
+
+    [Fact]
+    public void Pipeline_ElementGroupVectorCryptoInstruction_ThrowsNotSupported() {
+        // vsetivli x0, 16, e32,m4,ta,ma (vtypei=0xD2); vaesem.vv v8, v12 (funct6=0x28,vs1=2,
+        // opcode=0x77 — the vector-crypto major opcode, NOT the standard OP-V 0x57).
+        // FiveStageTrain must reject this rather than silently under-hazard-check the LMUL=4
+        // register group it writes — see ITooth.HasRuntimeSizedVectorDestination.
+        (FiveStageTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0xCD287057, // vsetivli x0, 16, e32,m4,ta,ma
+            0xA2C12477, // vaesem.vv v8, v12
+            0x00100073
+        );
+        Assert.Throws<NotSupportedException>(() => train.Run());
+    }
 }

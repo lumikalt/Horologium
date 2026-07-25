@@ -141,6 +141,24 @@ public interface ITooth {
     bool IsStoreLoadFence => false;
 
     /// <summary>
+    ///     True for vector instructions whose destination register *count* depends on
+    ///     runtime <c>vtype</c> (LMUL) rather than being fixed by the encoding — e.g. an
+    ///     element-group crypto op (RISC-V Vector Cryptography) writing one physical
+    ///     register per element group, where the element-group count is <c>vl/EGS</c>.
+    ///     Unlike segment loads or whole-register moves (whose register span comes from an
+    ///     encoded field, e.g. NF), this can't be captured in a decode-time
+    ///     <c>VectorDestinationRegister</c>/<c>VectorSourceRegisters</c> list at all, because
+    ///     decode has no access to <c>IArchState</c>. In-order pipelines that hazard-check
+    ///     against those lists (e.g. <c>FiveStageTrain</c>) cannot safely run such an
+    ///     instruction and should reject it outright rather than under-detect a WAR/RAW
+    ///     hazard on the untracked registers. The OoO train needs no special handling here:
+    ///     it never renames vector registers and instead head-serializes every
+    ///     <see cref="ToothClass.Vector" /> op (issues only at the ROB head), which is
+    ///     sufficient on its own regardless of how many registers get written.
+    /// </summary>
+    bool HasRuntimeSizedVectorDestination => false;
+
+    /// <summary>
     ///     True for instructions whose execution may read or write guest memory at an
     ///     address/width not statically known from the opcode — e.g. RISC-V ECALL, whose
     ///     syscall handler can fill an arbitrary caller-supplied buffer (fstat, clock_gettime,

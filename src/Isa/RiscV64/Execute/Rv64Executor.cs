@@ -262,7 +262,7 @@ public class Rv64Executor : Rv32Executor {
 
             // ── Zbkb/Zbkx: XLEN=64 means twice the half-width/byte-count/element-count of the
             // inherited RV32 versions (which would otherwise silently operate at the wrong width).
-            RvPack  (_, var rs1, var rs2) => Pack(regs, rs1, rs2, 32),
+            RvPack (_, var rs1, var rs2) => Pack(regs, rs1, rs2, 32),
             RvPackw (_, var rs1, var rs2) => Reg(
                 (ulong)(int)((((uint)regs.Read(rs2) & 0xFFFF) << 16) | ((uint)regs.Read(rs1) & 0xFFFF))
             ),

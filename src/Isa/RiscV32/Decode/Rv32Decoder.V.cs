@@ -879,6 +879,43 @@ public partial class Rv32Decoder {
         };
     }
 
+    // Vector Cryptography Extensions Volume II (Zvkned/Zvknha/Zvknhb/Zvksed/Zvksh/Zvkg/...): these
+    // do NOT reuse the standard OP-V opcode (0x57) despite otherwise looking like an OPMVV
+    // encoding (vd/vs1/vs2/funct6/funct3 fields in the same positions) — they live under their
+    // own dedicated major opcode 0x77. Confirmed against the authoritative riscv-opcodes project
+    // (extensions/rv_zvkned), not just the spec-text extraction, after a real-toolchain
+    // (riscv64-none-elf-as/objdump) round-trip showed 0x77 rather than the assumed 0x57 — see
+    // TODO.md. Only vaesem.vv/vaesef.vv (Zvkned) are implemented so far; every other encoding in
+    // this opcode space (vaesdm/vaesdf/vaesz/vaeskf1/vaeskf2, the .vs forms, and the other Zvk*
+    // families) is deferred.
+    private static RvInstruction DecodeVCryptoOp(ulong pc, uint raw) {
+        var vd = (int)((raw >> 7) & 0x1F);
+        uint funct3 = (raw >> 12) & 0x7;
+        var vs1 = (int)((raw >> 15) & 0x1F);
+        var vs2 = (int)((raw >> 20) & 0x1F);
+        uint vm = (raw >> 25) & 0x1;
+        uint funct6 = (raw >> 26) & 0x3F;
+
+        // vaesem.vv/vaesef.vv hardcode bit 25 to 1 (riscv-opcodes: "25=1") — there is no masked
+        // form of these instructions, so vm=0 is a reserved/illegal encoding, not "masked AES".
+        if (vm != 1) throw new IllegalInstructionException(raw, "V-crypto op (opcode 0x77): vm=0 is reserved");
+
+        if (funct3 == 2 && funct6 == 0x28) {
+            RvOp aesOp = vs1 switch {
+                2 => new RvVaesEmVv(vd, vs2),
+                3 => new RvVaesEfVv(vd, vs2),
+                _ => throw new IllegalInstructionException(
+                    raw, $"V Zvkned vaes*.vv: unsupported/reserved vs1=0x{vs1:X}"
+                ),
+            };
+            return new RvInstruction(pc, raw, -1, [], ToothClass.Vector, aesOp);
+        }
+
+        throw new IllegalInstructionException(
+            raw, $"V-crypto op (opcode 0x77): unsupported funct3=0x{funct3:X} funct6=0x{funct6:X2}"
+        );
+    }
+
     // OPCFG: vsetvli / vsetivli / vsetvl.
     private static RvInstruction DecodeVCfg(ulong pc, uint raw, int rd, int rs1, int rs2) {
         uint bits31 = raw >> 31;

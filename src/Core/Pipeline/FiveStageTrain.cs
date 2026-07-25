@@ -392,6 +392,12 @@ internal sealed class PipelineCore : Gear {
             exMemLast.Result is { RegisterResult.HasValue: true, } hzR ? hzR.RegisterResult.Value : null
         );
         ITooth? incoming = TryDecode(ifIdLast);
+        if (incoming is { HasRuntimeSizedVectorDestination: true, })
+            throw new NotSupportedException(
+                "FiveStageTrain cannot safely run element-group vector-crypto instructions: their "
+              + "register span depends on runtime LMUL, which VectorRawHazard's decode-time "
+              + "register list can't capture. Use OooTrain for vector-crypto workloads."
+            );
         bool stall = _hazard.MustStall(incoming?.SourceRegisters ?? [], _hazardResidents);
 
         // Vector RAW hazard: VRF writes complete via SideEffect in WB with no

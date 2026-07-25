@@ -106,9 +106,17 @@ public sealed class RvInstruction(
         RvVFpWideRedVs op   => op.Vd,
         RvVlssegVv op       => op.Vd,
         RvVlxsegVv op       => op.Vd,
+        RvVaesEmVv op       => op.Vd,
+        RvVaesEfVv op       => op.Vd,
         // RvVcpop/RvVfirst write integer rd, not a vector register → -1
         _ => -1,
     };
+
+    // True for element-group vector-crypto ops whose actual register span (vl/EGS physical
+    // registers, one per element group) depends on runtime vtype/LMUL and so can't be captured
+    // by VectorDestinationRegister/VectorSourceRegisters at decode time. See
+    // ITooth.HasRuntimeSizedVectorDestination.
+    public bool HasRuntimeSizedVectorDestination { get; } = payload is RvVaesEmVv or RvVaesEfVv;
 
     // RV32 amocas.d (Zacas) holds its 64-bit result in a register pair: Rd gets the
     // low word (via the normal DestinationRegister/RegisterResult path), Rd+1 gets the
@@ -298,7 +306,11 @@ public sealed class RvInstruction(
         RvVFpMvVf op   => op.Masked ? [0,] : [],
         RvVFpRedVs op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         // vd is accumulator source for integer MAC; vmerge always reads v0 mask
-        RvVIntMacVv op  => op.Masked ? [op.Vd, op.Vs2, op.Vs1, 0,] : [op.Vd, op.Vs2, op.Vs1,],
+        RvVIntMacVv op => op.Masked ? [op.Vd, op.Vs2, op.Vs1, 0,] : [op.Vd, op.Vs2, op.Vs1,],
+        // vd is the round-state source (read-modify-write) for AES round instructions; unmasked
+        // always (vm bit is hardcoded to 1 in the encoding — no v0 mask source).
+        RvVaesEmVv op   => [op.Vd, op.Vs2,],
+        RvVaesEfVv op   => [op.Vd, op.Vs2,],
         RvVIntMacVx op  => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
         RvVMvSx         => [],
         RvVMergeVv op   => [op.Vs2, op.Vs1, 0,],

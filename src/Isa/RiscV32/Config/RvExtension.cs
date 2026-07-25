@@ -38,6 +38,7 @@ public enum RvExtension : uint {
     Zbkb = 1u << 25,
     Zbkc = 1u << 26,
     Zbkx = 1u << 27,
+    Zvkned = 1u << 28,
 
     Default
         = RvExtension.M | RvExtension.A | RvExtension.F | RvExtension.C | RvExtension.V | RvExtension.Zba
@@ -50,7 +51,8 @@ public enum RvExtension : uint {
                          | RvExtension.Zicntr
                          | RvExtension.Zknd | RvExtension.Zkne | RvExtension.Zknh | RvExtension.Zksed
                          | RvExtension.Zksh | RvExtension.Zkr
-                         | RvExtension.Zbkb | RvExtension.Zbkc | RvExtension.Zbkx,
+                         | RvExtension.Zbkb | RvExtension.Zbkc | RvExtension.Zbkx
+                         | RvExtension.Zvkned,
 }
 
 public static class RvExtensionMethods {
@@ -78,6 +80,7 @@ public static class RvExtensionMethods {
         (RvExtension.Zbkb, "zbkb"),
         (RvExtension.Zbkc, "zbkc"),
         (RvExtension.Zbkx, "zbkx"),
+        (RvExtension.Zvkned, "zvkned"),
     ];
 
     /// <summary>

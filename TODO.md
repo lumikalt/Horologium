@@ -57,6 +57,25 @@ off here until a periodic cleanup removes them; the durable record is git histor
   instead of RV64's 32-bit-half pack, silently producing the wrong result for that one operand
   combination — fixed with an explicit RV64 interception. All eight encodings re-verified against
   `riscv{32,64}-none-elf-as`+objdump ground truth (not just the spec's own diagrams).
+- [x] Vector crypto element-group architecture + Zvkned proof instructions (`vaesem.vv`/
+  `vaesef.vv`, AES middle/final-round encryption). — RISC-V Cryptography Extensions Volume II:
+  Vector Instructions, v1.0.0 (`~/dl/riscv-crypto-spec-vector.pdf`). Added the general element-group
+  infrastructure (`ITooth.HasRuntimeSizedVectorDestination`, `ReadElementGroup`/`WriteElementGroup`,
+  LMUL*VLEN>=EGW / SEW / vl,vstart-multiple-of-EGS constraint checking) that any future Zvk*
+  instruction can reuse, not just these two. Vector-crypto instructions use a dedicated major opcode
+  (`0x77`), not the standard OP-V opcode (`0x57`) despite an otherwise identical OPMVV-shaped field
+  layout — the spec-text extraction assumed 0x57; a `riscv64-none-elf-as`/objdump round-trip caught
+  the discrepancy and the authoritative `riscv-opcodes` project (`extensions/rv_zvkned`) confirmed
+  0x77. Validated against the NIST FIPS-197 Appendix C.1 published round trace (not just an
+  in-repo reference), and mutation-tested. `FiveStageTrain` explicitly rejects element-group vector
+  ops (its decode-time hazard list can't express a runtime-LMUL-sized register span); `OooTrain`
+  needs no changes, since head-serialization of `ToothClass.Vector` already covers it.
+  Deferred follow-ups, same opcode space: `vaesdm.vv`/`vaesdf.vv` (decrypt), `vaesz.vs`/the `.vs`
+  scalar-element-group forms, `vaeskf1.vi`/`vaeskf2.vi` (key schedule), and the other Zvk* families
+  (Zvknha/Zvknhb SHA-2, Zvksed SM4, Zvksh SM3, Zvkg GHASH/GMAC, Zvbb/Zvbc/Zvkb vector bitmanip) —
+  none implemented yet. EGW=256 (SHA-512/SM3) would need a second element-group infrastructure pass
+  (2 physical registers per group instead of 1). `FiveStageTrain` gaining runtime-LMUL-aware vector
+  hazard tracking (rather than rejecting) is also deferred.
 
 ## Analysis
 

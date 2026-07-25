@@ -7,6 +7,7 @@ using Pipeline;
 using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
+using RiscV32.State;
 
 #endregion
 
@@ -873,5 +874,103 @@ public class OoOPipelineTests {
         DialBoardSnapshot? snap = result.Find("ooo.pipeline");
         Assert.NotNull(snap);
         Assert.Equal(1L, snap.Counters["branch_misses"]); // exactly one misprediction, resolved at execute
+    }
+
+    // ── Vector-crypto element-group op under OoO ────────────────────────────────
+    // Correctness here rests entirely on head-serialization (ToothClass.Vector only issues at
+    // the ROB head — see CLAUDE.md's OoOE vector invariant): no register renaming or hazard
+    // tracking is needed for the multi-register write this instruction performs. This is an
+    // empirical smoke test of that claim, not just the structural argument for it.
+
+    [Fact]
+    public void Pipeline_VaesemVv_Lmul4_ProducesCorrectResultUnderOoo() {
+        (OooTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0xCD287057, // vsetivli x0, 16, e32,m4,ta,ma
+            0xA2C12477, // vaesem.vv v8, v12 (opcode=0x77, the vector-crypto major opcode)
+            0x00100073  // ebreak
+        );
+
+        var state = new byte[16];
+        for (var i = 0; i < 16; i++) state[i] = (byte)(0x10 + i);
+        var key = new byte[16];
+        for (var i = 0; i < 16; i++) key[i] = (byte)(0xA0 + i);
+        var rv32 = (Rv32ArchState)train.ArchState;
+        for (var g = 0; g < 4; g++) {
+            rv32.VectorRegisters.Write(8 + g, state);
+            rv32.VectorRegisters.Write(12 + g, key);
+        }
+
+        train.Run();
+
+        // Independent reference for just this one group — SubBytes/ShiftRows/MixColumns then
+        // XOR the round key, computed by hand from the FIPS-197 AES S-box/MixColumns matrix
+        // rather than by calling any of the executor's own AES helpers.
+        byte[] expected = AesEmReference(state, key);
+        for (var g = 0; g < 4; g++)
+            Assert.Equal(expected, ((Rv32ArchState)train.ArchState).VectorRegisters.Read(8 + g));
+    }
+
+    private static byte GfMul(byte a, byte b) {
+        byte result = 0;
+        for (var i = 0; i < 8; i++) {
+            if ((b & 1) != 0) result ^= a;
+            bool hi = (a & 0x80) != 0;
+            a <<= 1;
+            if (hi) a ^= 0x1B;
+            b >>= 1;
+        }
+
+        return result;
+    }
+
+    private static byte GfInv(byte a) {
+        if (a == 0) return 0;
+        for (var c = 1; c < 256; c++)
+            if (GfMul(a, (byte)c) == 1)
+                return (byte)c;
+        throw new InvalidOperationException();
+    }
+
+    private static byte Rotl8(byte x, int n) => (byte)((x << n) | (x >> (8 - n)));
+
+    private static byte SboxFwd(byte x) {
+        byte inv = GfInv(x);
+        return (byte)(inv ^ Rotl8(inv, 1) ^ Rotl8(inv, 2) ^
+                      Rotl8(inv, 3) ^ Rotl8(inv, 4) ^ 0x63);
+    }
+
+    private static byte GfMulSmall(byte x, int y) {
+        byte Xtime(byte v) => (byte)((v << 1) ^ ((v & 0x80) != 0 ? 0x1B : 0));
+        byte r = 0;
+        if ((y & 0x1) != 0) r ^= x;
+        if ((y & 0x2) != 0) r ^= Xtime(x);
+        if ((y & 0x4) != 0) r ^= Xtime(Xtime(x));
+        if ((y & 0x8) != 0) r ^= Xtime(Xtime(Xtime(x)));
+        return r;
+    }
+
+    private static byte[] AesEmReference(byte[] state, byte[] key) {
+        var sb = new byte[16];
+        for (var i = 0; i < 16; i++) sb[i] = SboxFwd(state[i]);
+        var sr = new byte[16];
+        for (var i = 0; i < 16; i++) {
+            int r = i % 4, c = i / 4;
+            sr[i] = sb[4 * ((c + r) % 4) + r];
+        }
+
+        var mix = new byte[16];
+        for (var c = 0; c < 4; c++) {
+            byte s0 = sr[4 * c], s1 = sr[4 * c + 1], s2 = sr[4 * c + 2], s3 = sr[4 * c + 3];
+            mix[4 * c] = (byte)(GfMulSmall(s0, 0x2) ^ GfMulSmall(s1, 0x3) ^ s2 ^ s3);
+            mix[4 * c + 1] = (byte)(s0 ^ GfMulSmall(s1, 0x2) ^ GfMulSmall(s2, 0x3) ^ s3);
+            mix[4 * c + 2] = (byte)(s0 ^ s1 ^ GfMulSmall(s2, 0x2) ^ GfMulSmall(s3, 0x3));
+            mix[4 * c + 3] = (byte)(GfMulSmall(s0, 0x3) ^ s1 ^ s2 ^ GfMulSmall(s3, 0x2));
+        }
+
+        var result = new byte[16];
+        for (var i = 0; i < 16; i++) result[i] = (byte)(mix[i] ^ key[i]);
+        return result;
     }
 }

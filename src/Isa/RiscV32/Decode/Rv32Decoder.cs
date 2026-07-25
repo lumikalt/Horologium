@@ -160,6 +160,9 @@ public partial class Rv32Decoder : IDecoder {
             0x53 => DecodeFpOp(pc, raw, rd, rs1, rs2, funct3, funct7),
             // V extension arithmetic/config
             0x57 => DecodeVOp(pc, raw, rs1, funct3),
+            // Vector Cryptography Extensions Volume II (Zvkned/...): dedicated major opcode, NOT
+            // a sub-encoding of OP-V — see DecodeVCryptoOp.
+            0x77 => DecodeVCryptoOp(pc, raw),
             0x43 or 0x47 or 0x4B or 0x4F =>
                 DecodeFmaR4(pc, raw, opcode, rd, rs1, rs2, (int)((raw >> 27) & 0x1F)),
             // UVE extension: custom-0 (stream setup), custom-1 (stream ops)
