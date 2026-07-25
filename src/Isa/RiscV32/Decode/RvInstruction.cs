@@ -118,6 +118,8 @@ public sealed class RvInstruction(
         RvSha2MsVv op       => op.Vd,
         RvSm3CVi op         => op.Vd,
         RvSm3MeVv op        => op.Vd,
+        RvVGhshVv op        => op.Vd,
+        RvVGmulVv op        => op.Vd,
         // RvVcpop/RvVfirst write integer rd, not a vector register → -1
         _ => -1,
     };
@@ -128,7 +130,8 @@ public sealed class RvInstruction(
     // ITooth.HasRuntimeSizedVectorDestination.
     public bool HasRuntimeSizedVectorDestination { get; } =
         payload is RvVaesRoundVv or RvVaesRoundVs or RvVaesZVs or RvVaesKf1Vi or RvVaesKf2Vi
-                 or RvSm4RVv or RvSm4RVs or RvSm4KVi or RvSha2CVv or RvSha2MsVv or RvSm3CVi or RvSm3MeVv;
+                 or RvSm4RVv or RvSm4RVs or RvSm4KVi or RvSha2CVv or RvSha2MsVv or RvSm3CVi or RvSm3MeVv
+                 or RvVGhshVv or RvVGmulVv;
 
     // RV32 amocas.d (Zacas) holds its 64-bit result in a register pair: Rd gets the
     // low word (via the normal DestinationRegister/RegisterResult path), Rd+1 gets the
@@ -340,6 +343,10 @@ public sealed class RvInstruction(
         // vsm3c.vi's vd is read-modify-write (current state); vsm3me.vv's vd is pure output.
         RvSm3CVi op      => [op.Vd, op.Vs2,],
         RvSm3MeVv op     => [op.Vs1, op.Vs2,],
+        // vghsh.vv's vd is read-modify-write (current partial hash); vgmul.vv's vd is also
+        // read-modify-write (multiplier in, product out).
+        RvVGhshVv op     => [op.Vd, op.Vs1, op.Vs2,],
+        RvVGmulVv op     => [op.Vd, op.Vs2,],
         RvVIntMacVx op  => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
         RvVMvSx         => [],
         RvVMergeVv op   => [op.Vs2, op.Vs1, 0,],

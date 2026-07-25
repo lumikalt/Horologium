@@ -82,3 +82,17 @@ public record RvSm3CVi(int Vd, int Vs2, int Round) : RvOp;
 // vsm3me.vv: eight rounds of SM3 message-schedule expansion. vs1 holds the 8 oldest message
 // words, vs2 the next 8 (both pure input); vd receives the next 8 words generated (pure output).
 public record RvSm3MeVv(int Vd, int Vs1, int Vs2) : RvOp;
+
+// ── Zvkg extension (Vector GCM/GMAC) — EGW=128/EGS=4/SEW=32, same shape as Zvkned/Zvksed, but no
+// element-index-to-named-variable question: the whole 128-bit group is one GF(2^128) polynomial,
+// not decomposed into named sub-words. Reserved: only "SEW must be 32" — no register-overlap
+// constraint on either op (confirmed against the Sail encdec guard, which calls no
+// zvk_valid_reg_overlap for these two, unlike every earlier Zvk* op).
+
+// vghsh.vv: one GHASH add-multiply iteration, Yi+1 = (Yi ^ Xi) * H over GF(2^128) (spec §3.16).
+public record RvVGhshVv(int Vd, int Vs1, int Vs2) : RvOp;
+
+// vgmul.vv: one GHASH multiply, Y * H over GF(2^128) (spec §3.17) — identical to vghsh.vv with
+// vs1=0 (an all-zero Xi). Shares vaesem.vv/vsm4r.vv's funct6 (0x28), selected via vs1 hardcoded
+// to 0x11 (17) in the encoding, not a real register operand.
+public record RvVGmulVv(int Vd, int Vs2) : RvOp;

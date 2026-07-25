@@ -125,9 +125,20 @@ off here until a periodic cleanup removes them; the durable record is git histor
   order rather than porting the Sail source's own shuffled return-vector shape verbatim — both are
   output-equivalent (verified byte-exact against the traces), the plain form just doesn't require
   resolving a Sail vector-literal indexing detail this port doesn't otherwise need.
-  Deferred follow-ups: the other Zvk* families (Zvkg GHASH/GMAC, Zvbb/Zvbc/Zvkb vector bitmanip) —
-  none implemented yet. `FiveStageTrain` gaining runtime-LMUL-aware vector hazard tracking (rather
-  than rejecting) is also deferred.
+- [x] Zvkg extension (vector GCM/GMAC): `vghsh.vv` (one GHASH add-multiply iteration,
+  Yi+1 = (Yi ^ Xi) * H over GF(2^128)) and `vgmul.vv` (one GHASH multiply, Y * H — sharing
+  `vaesem.vv`/`vsm4r.vv`'s funct6, disambiguated by a hardcoded vs1=0x11). EGW=128/EGS=4/SEW=32,
+  the same shape as Zvkned/Zvksed, but the first Zvk* op where the whole 128-bit element group is
+  one GF(2^128) polynomial with no sub-word decomposition — and the first with no register-overlap
+  reserved encoding at all (confirmed against the Sail encdec guard, which calls no
+  `zvk_valid_reg_overlap` for either op, unlike every earlier Zvk* instruction). Validated against
+  the McGrew-Viega GCM specification's Test Case 4, which — unlike NIST SP 800-38D — publishes the
+  raw intermediate `GHASH(H, A, C)` value directly, letting `vghsh.vv` be chained across real
+  nonzero AAD/ciphertext/length blocks and checked byte-exact without needing a full AES-CTR
+  encryption harness. `vgmul.vv` cross-checked against `vghsh.vv` called with an all-zero vs1.
+  Deferred follow-ups: the remaining Zvk* family (Zvbb/Zvbc/Zvkb vector bitmanip) — not implemented
+  yet. `FiveStageTrain` gaining runtime-LMUL-aware vector hazard tracking (rather than rejecting)
+  is also deferred.
 
 ## Analysis
 

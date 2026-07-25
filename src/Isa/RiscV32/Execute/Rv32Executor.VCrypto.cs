@@ -879,4 +879,125 @@ public partial class Rv32Executor {
             },
         };
     }
+
+    // ── Zvkg: GHASH add-multiply (vghsh.vv) and multiply (vgmul.vv) ─────────────────────────────
+    // EGW=128, EGS=4, EEW=SEW=32 (spec §3.16/§3.17) — same element-group shape as Zvkned/Zvksed,
+    // but unlike every other Zvk* op, the whole 128-bit element group is treated as a single
+    // GF(2^128) polynomial with no internal sub-word decomposition at all (no element-index-to-
+    // named-variable question the way SHA-2/SM3 had). Confirmed against the RISC-V Sail reference
+    // model (github.com/riscv/sail-riscv, model/extensions/vector_crypto/zvkg_insts.sail):
+    // `get_velem_quad`'s bit-concatenation packs element 0 into the *lowest* 32 bits of the
+    // 128-bit value (the same natural little-endian convention already used for SHA-2's word
+    // reads — no special convention like AES/SM4/SM3 needed here), and `brev8` reverses bits
+    // *within* each byte while preserving byte order (spec §3.16/§3.17: "bits in the bytes are
+    // reversed... this instruction internally performs bit swaps within bytes"). `vgmul.vv`
+    // shares `vaesem.vv`/`vsm4r.vv`'s funct6 (0x28), with vs1 hardcoded to 0x11 (17) selecting it
+    // — confirmed against the Sail encoding (`0b1010001 @ vs2 @ 0b10001 @ ...`), not just the
+    // spec's own opcode-space table (which the Zvkned 0x77-vs-0x57 opcode gotcha already taught
+    // this codebase not to trust blindly). Neither op has a register-overlap reserved encoding
+    // (confirmed by the Sail encdec guards calling no `zvk_valid_reg_overlap`, unlike every
+    // earlier Zvk* op) — `CheckElementGroupConstraints` alone is sufficient here.
+
+    private static byte GhashBrev8Byte(byte b) {
+        b = (byte)(((b & 0xF0) >> 4) | ((b & 0x0F) << 4));
+        b = (byte)(((b & 0xCC) >> 2) | ((b & 0x33) << 2));
+        return (byte)(((b & 0xAA) >> 1) | ((b & 0x55) << 1));
+    }
+
+    private static byte[] GhashBrev8Block(byte[] block16) {
+        var result = new byte[16];
+        for (var i = 0; i < 16; i++) result[i] = GhashBrev8Byte(block16[i]);
+        return result;
+    }
+
+    // Carryless multiply of two 128-bit GF(2) polynomials modulo x^128+x^7+x^2+x+1, transcribed
+    // as the same bit-serial shift-and-reduce loop the Sail source uses (spec §3.16/§3.17).
+    private static byte[] GhashMul(byte[] s, byte[] h) {
+        ulong sLo = BitConverter.ToUInt64(s, 0), sHi = BitConverter.ToUInt64(s, 8);
+        ulong hLo = BitConverter.ToUInt64(h, 0), hHi = BitConverter.ToUInt64(h, 8);
+        ulong zLo = 0, zHi = 0;
+
+        for (var bit = 0; bit < 128; bit++) {
+            bool bitSet = bit < 64 ? ((sLo >> bit) & 1) != 0 : ((sHi >> (bit - 64)) & 1) != 0;
+            if (bitSet) {
+                zLo ^= hLo;
+                zHi ^= hHi;
+            }
+
+            bool carry = (hHi >> 63 & 1) != 0;
+            hHi = (hHi << 1) | (hLo >> 63);
+            hLo <<= 1;
+            if (carry) hLo ^= 0x87;
+        }
+
+        var result = new byte[16];
+        BitConverter.GetBytes(zLo).CopyTo(result, 0);
+        BitConverter.GetBytes(zHi).CopyTo(result, 8);
+        return result;
+    }
+
+    private static ExecuteResult ExecuteVGhsh(IArchState state, ulong pc, int vd, int vs1, int vs2) {
+        const int egw = 128;
+        const int egs = 4;
+        const int requiredSew = 32;
+
+        ExecuteResult? trap = CheckElementGroupConstraints(state, pc, egw, egs, requiredSew);
+        if (trap != null) return trap;
+
+        (uint vl, _) = VGetVlEw(state);
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        var egStart = (int)(vstart / egs);
+        var egLen = (int)(vl / egs);
+
+        var groups = new (int Index, byte[] Value)[egLen - egStart];
+        for (int i = egStart; i < egLen; i++) {
+            byte[] y = ReadElementGroup(state, vd, i, egw);
+            byte[] x = ReadElementGroup(state, vs1, i, egw);
+            byte[] h = GhashBrev8Block(ReadElementGroup(state, vs2, i, egw));
+
+            var sum = new byte[16];
+            for (var b = 0; b < 16; b++) sum[b] = (byte)(y[b] ^ x[b]);
+            byte[] s = GhashBrev8Block(sum);
+
+            byte[] z = GhashMul(s, h);
+            groups[i - egStart] = (i, GhashBrev8Block(z));
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                var s32 = (Rv32ArchState)s;
+                foreach ((int index, byte[] value) in groups) WriteElementGroup(s32, vd, index, egw, value);
+            },
+        };
+    }
+
+    private static ExecuteResult ExecuteVGmul(IArchState state, ulong pc, int vd, int vs2) {
+        const int egw = 128;
+        const int egs = 4;
+        const int requiredSew = 32;
+
+        ExecuteResult? trap = CheckElementGroupConstraints(state, pc, egw, egs, requiredSew);
+        if (trap != null) return trap;
+
+        (uint vl, _) = VGetVlEw(state);
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        var egStart = (int)(vstart / egs);
+        var egLen = (int)(vl / egs);
+
+        var groups = new (int Index, byte[] Value)[egLen - egStart];
+        for (int i = egStart; i < egLen; i++) {
+            byte[] y = GhashBrev8Block(ReadElementGroup(state, vd, i, egw));
+            byte[] h = GhashBrev8Block(ReadElementGroup(state, vs2, i, egw));
+
+            byte[] z = GhashMul(y, h);
+            groups[i - egStart] = (i, GhashBrev8Block(z));
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                var s32 = (Rv32ArchState)s;
+                foreach ((int index, byte[] value) in groups) WriteElementGroup(s32, vd, index, egw, value);
+            },
+        };
+    }
 }

@@ -820,6 +820,10 @@ public partial class Rv32Executor : IExecutor {
             RvSm3CVi (var vd, var vs2, var round) => ExecuteSm3C(state, pc, vd, vs2, round),
             RvSm3MeVv (var vd, var vs1, var vs2) => ExecuteSm3Me(state, pc, vd, vs1, vs2),
 
+            // ── Zvkg: GHASH add-multiply/multiply instructions ───────────────────────────────
+            RvVGhshVv (var vd, var vs1, var vs2) => ExecuteVGhsh(state, pc, vd, vs1, vs2),
+            RvVGmulVv (var vd, var vs2) => ExecuteVGmul(state, pc, vd, vs2),
+
             RvVMulVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVMul(
                     state, op2, vd, vs2, masked,

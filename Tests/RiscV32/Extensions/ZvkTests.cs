@@ -100,6 +100,9 @@ public class ZvkTests {
     private static uint Sm3MeVv(int vd, int vs2, int vs1) => VopMvv(0x20, vd, vs2, vs1);
     private static uint Sm3CVi(int vd, int vs2, int round) => VopMvv(0x2B, vd, vs2, round);
 
+    private static uint VghshVv(int vd, int vs2, int vs1) => VopMvv(0x2C, vd, vs2, vs1);
+    private static uint VgmulVv(int vd, int vs2) => VopMvv(0x28, vd, vs2, 0x11);
+
     // ── Harness ─────────────────────────────────────────────────────────────────────────────
 
     private static Rv32ArchState MakeState() => new();
@@ -1303,6 +1306,94 @@ public class ZvkTests {
         Rv32ArchState s = MakeState();
         Vsetivli(s, 8, ZvkTests.VtypeiE64M2Tama); // e64, not e32
         ExecuteResult r = Exec(Sm3CVi(8, 10, 0), s);
+        Assert.True(r.HasTrap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
+    }
+
+    // ── Zvkg: GHASH add-multiply (vghsh.vv) + multiply (vgmul.vv) ───────────────────────────────
+    // McGrew & Viega, "The Galois/Counter Mode of Operation (GCM)" (full specification with worked
+    // test cases; ~/dl/gcm-spec.pdf) Test Case 4, the single most widely reused AES-GCM test
+    // vector across independent implementations. Uniquely among the KATs in this file, the spec
+    // publishes the raw intermediate GHASH(H, A, C) value directly (not just a final tag), so this
+    // validates vghsh.vv on its own — no AES/CTR-mode harness needed, unlike a full-GCM check.
+
+    private static readonly byte[] GcmTest4H = Convert.FromHexString("b83b533708bf535d0aa6e52980d53b78");
+
+    private static readonly byte[] GcmTest4A =
+        Convert.FromHexString("feedfacedeadbeeffeedfacedeadbeefabaddad2");
+
+    private static readonly byte[] GcmTest4C = Convert.FromHexString(
+        "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091"
+    );
+
+    private static readonly byte[] GcmTest4LenBlock = Convert.FromHexString("00000000000000a000000000000001e0");
+    private static readonly byte[] GcmTest4Ghash = Convert.FromHexString("698e57f70e6ecc7fd9463b7260a9ae5f");
+
+    private static byte[] PadTo16(byte[] data) {
+        if (data.Length == 16) return data;
+        var result = new byte[16];
+        Array.Copy(data, result, data.Length);
+        return result;
+    }
+
+    [Fact]
+    public void VghshVv_ChainedBlocks_MatchesGcmTestCase4Ghash() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
+
+        var blocks = new List<byte[]>();
+        blocks.Add(GcmTest4A[..16]); // AAD block 1 (full)
+        blocks.Add(PadTo16(GcmTest4A[16..])); // AAD block 2 (4 bytes, zero-padded)
+        for (var off = 0; off + 16 <= GcmTest4C.Length; off += 16)
+            blocks.Add(GcmTest4C[off..(off + 16)]); // ciphertext blocks 1-3 (full)
+        int rem = GcmTest4C.Length % 16;
+        if (rem != 0) blocks.Add(PadTo16(GcmTest4C[^rem..])); // ciphertext block 4 (12 bytes, zero-padded)
+        blocks.Add(GcmTest4LenBlock); // len(A) || len(C), in bits
+
+        WriteBlock(s, 12, GcmTest4H); // vs2 = H, constant across the chain
+        WriteBlock(s, 8, new byte[16]); // vd = Y0 = 0
+
+        foreach (byte[] block in blocks) {
+            WriteBlock(s, 16, block); // vs1 = Xi
+            ApplySideEffect(Exec(VghshVv(8, 12, 16), s), s);
+        }
+
+        Assert.Equal(GcmTest4Ghash, ReadBlock(s, 8));
+    }
+
+    [Fact]
+    public void VgmulVv_MatchesVghshVvWithZeroX() {
+        Rv32ArchState viaGmul = MakeState();
+        Vsetivli(viaGmul, 4, ZvkTests.VtypeiE32M1Tama);
+        WriteBlock(viaGmul, 8, GcmTest4LenBlock); // arbitrary multiplier
+        WriteBlock(viaGmul, 12, GcmTest4H);
+        ApplySideEffect(Exec(VgmulVv(8, 12), viaGmul), viaGmul);
+
+        Rv32ArchState viaGhsh = MakeState();
+        Vsetivli(viaGhsh, 4, ZvkTests.VtypeiE32M1Tama);
+        WriteBlock(viaGhsh, 8, GcmTest4LenBlock);
+        WriteBlock(viaGhsh, 12, GcmTest4H);
+        WriteBlock(viaGhsh, 16, new byte[16]); // X = 0
+        ApplySideEffect(Exec(VghshVv(8, 12, 16), viaGhsh), viaGhsh);
+
+        Assert.Equal(ReadBlock(viaGhsh, 8), ReadBlock(viaGmul, 8));
+    }
+
+    [Fact]
+    public void VghshVv_VdEqualsVs2_DoesNotTrap() {
+        // Unlike every other Zvk* op, vghsh.vv/vgmul.vv have no register-overlap reserved
+        // encoding (confirmed against the Sail encdec guard) — vd==vs2 is a legal encoding.
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
+        ExecuteResult r = Exec(VghshVv(8, 8, 16), s);
+        Assert.False(r.HasTrap);
+    }
+
+    [Fact]
+    public void VghshVv_WrongSew_Traps() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE16M4Tama);
+        ExecuteResult r = Exec(VghshVv(8, 12, 16), s);
         Assert.True(r.HasTrap);
         Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
     }

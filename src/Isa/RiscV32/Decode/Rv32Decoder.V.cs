@@ -894,8 +894,10 @@ public partial class Rv32Decoder {
     // 5-bit uimm). funct6=0x2D/0x2E/0x2F are Zvknha/Zvknhb's vsha2ms.vv/vsha2ch.vv/vsha2cl.vv —
     // vs1 is a genuine register operand for these three, not a sub-selector or immediate.
     // funct6=0x20 is Zvksh's vsm3me.vv (vs1 a genuine register operand), funct6=0x2B is vsm3c.vi
-    // (vs1 repurposed as a 5-bit uimm, legal range 0-31 with no out-of-range projection). Every
-    // other Zvk* family (Zvkg GHASH/GMAC, Zvbb/Zvbc/Zvkb vector bitmanip) is deferred.
+    // (vs1 repurposed as a 5-bit uimm, legal range 0-31 with no out-of-range projection).
+    // funct6=0x2C is Zvkg's vghsh.vv (vs1 a genuine register operand); vgmul.vv shares funct6=0x28
+    // with vaesem.vv/vsm4r.vv, selected via vs1 hardcoded to 0x11. Every other Zvk* family
+    // (Zvbb/Zvbc/Zvkb vector bitmanip) is deferred.
     private static RvInstruction DecodeVCryptoOp(ulong pc, uint raw) {
         var vd = (int)((raw >> 7) & 0x1F);
         uint funct3 = (raw >> 12) & 0x7;
@@ -923,6 +925,7 @@ public partial class Rv32Decoder {
 
         RvOp op = funct6 switch {
             0x28 when vs1 == 16 => new RvSm4RVv(vd, vs2),
+            0x28 when vs1 == 0x11 => new RvVGmulVv(vd, vs2),
             0x28 => new RvVaesRoundVv(RoundKind(raw, vs1), vd, vs2),
             0x29 when vs1 == 7 => new RvVaesZVs(vd, vs2),
             0x29 when vs1 == 16 => new RvSm4RVs(vd, vs2),
@@ -935,6 +938,7 @@ public partial class Rv32Decoder {
             0x2F => new RvSha2CVv(Sha2CompressKind.Low, vd, vs1, vs2),
             0x20 => new RvSm3MeVv(vd, vs1, vs2),
             0x2B => new RvSm3CVi(vd, vs2, vs1),
+            0x2C => new RvVGhshVv(vd, vs1, vs2),
             _ => throw new IllegalInstructionException(
                 raw, $"V-crypto op (opcode 0x77): unsupported funct6=0x{funct6:X2}"
             ),
