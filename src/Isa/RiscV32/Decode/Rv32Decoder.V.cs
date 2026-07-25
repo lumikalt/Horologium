@@ -891,8 +891,9 @@ public partial class Rv32Decoder {
     // funct6=0x29 is the matching .vs form of those same four (same vs1 sub-selector) plus
     // vaesz.vs at vs1=7 and vsm4r.vs at vs1=16; funct6=0x22 is vaeskf1.vi, funct6=0x2A is
     // vaeskf2.vi, and funct6=0x21 is Zvksed's vsm4k.vi (all three repurpose the vs1 field as a
-    // 5-bit uimm). Every other Zvk* family (Zvknha/Zvknhb SHA-2, Zvksh SM3, Zvkg GHASH/GMAC,
-    // Zvbb/Zvbc/Zvkb vector bitmanip) is deferred.
+    // 5-bit uimm). funct6=0x2D/0x2E/0x2F are Zvknha/Zvknhb's vsha2ms.vv/vsha2ch.vv/vsha2cl.vv —
+    // vs1 is a genuine register operand for these three, not a sub-selector or immediate. Every
+    // other Zvk* family (Zvksh SM3, Zvkg GHASH/GMAC, Zvbb/Zvbc/Zvkb vector bitmanip) is deferred.
     private static RvInstruction DecodeVCryptoOp(ulong pc, uint raw) {
         var vd = (int)((raw >> 7) & 0x1F);
         uint funct3 = (raw >> 12) & 0x7;
@@ -927,6 +928,9 @@ public partial class Rv32Decoder {
             0x21 => new RvSm4KVi(vd, vs2, vs1),
             0x22 => new RvVaesKf1Vi(vd, vs2, vs1),
             0x2A => new RvVaesKf2Vi(vd, vs2, vs1),
+            0x2D => new RvSha2MsVv(vd, vs1, vs2),
+            0x2E => new RvSha2CVv(Sha2CompressKind.High, vd, vs1, vs2),
+            0x2F => new RvSha2CVv(Sha2CompressKind.Low, vd, vs1, vs2),
             _ => throw new IllegalInstructionException(
                 raw, $"V-crypto op (opcode 0x77): unsupported funct6=0x{funct6:X2}"
             ),

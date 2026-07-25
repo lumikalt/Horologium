@@ -1,5 +1,7 @@
 #region
 
+using System.Security.Cryptography;
+using System.Text;
 using Mechanism;
 using RiscV32;
 using RiscV32.Decode;
@@ -46,6 +48,10 @@ public class ZvkTests {
     // vtypei for e32,m1,ta,ma: LMUL(1)*VLEN(128)=EGW(128) exactly — the ">=" boundary case.
     private const int VtypeiE32M1Tama = (1 << 7) | (1 << 6) | (2 << 3) | 0;
 
+    // vtypei for e64,m2,ta,ma: SHA-512's EGW=256 needs LMUL(2)*VLEN(128)=256 — the minimal LMUL
+    // satisfying the element-group constraint, so each element group spans exactly 2 registers.
+    private const int VtypeiE64M2Tama = (1 << 7) | (1 << 6) | (3 << 3) | 1;
+
     // Explicit output<-input byte permutation (the standard textbook AES ShiftRows table: row r
     // cyclically shifted left by r), hand-listed rather than recomputed via the same
     // modular-arithmetic formula the production AesShiftRowsFwdBlock uses — a formula bug shared
@@ -82,6 +88,11 @@ public class ZvkTests {
     private static uint Sm4RVv(int vd, int vs2) => VopMvv(0x28, vd, vs2, 16);
     private static uint Sm4RVs(int vd, int vs2) => VopMvv(0x29, vd, vs2, 16);
     private static uint Sm4KVi(int vd, int vs2, int round) => VopMvv(0x21, vd, vs2, round);
+
+    // vs1 is a genuine register operand for these three (not a sub-op selector or immediate).
+    private static uint Sha2MsVv(int vd, int vs2, int vs1) => VopMvv(0x2D, vd, vs2, vs1);
+    private static uint Sha2ChVv(int vd, int vs2, int vs1) => VopMvv(0x2E, vd, vs2, vs1);
+    private static uint Sha2ClVv(int vd, int vs2, int vs1) => VopMvv(0x2F, vd, vs2, vs1);
 
     // ── Harness ─────────────────────────────────────────────────────────────────────────────
 
@@ -765,6 +776,348 @@ public class ZvkTests {
         Rv32ArchState s = MakeState();
         Vsetivli(s, 16, ZvkTests.VtypeiE32M4Tama);
         ExecuteResult r = Exec(Sm4RVs(8, 10), s); // vs2=10 inside vd's [8,11] LMUL=4 group
+        Assert.True(r.HasTrap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
+    }
+
+    // ── Zvknha/Zvknhb: SHA-2 compression (vsha2c[hl].vv) + message schedule (vsha2ms.vv) ────────
+    // Validated end-to-end against System.Security.Cryptography.SHA256/SHA512 — an independently
+    // implemented, real oracle — rather than a hand-transcribed round-by-round trace, since
+    // NIST FIPS 180-4's on-disk text does not include a worked example with intermediate values
+    // (same situation as FIPS-197's Appendix C, see the Zvkned AES tests above) and manually
+    // re-deriving 64/80 rounds of intermediate arithmetic would itself be transcription-error
+    // prone. The K/H0 constant tables below *are* transcribed from FIPS 180-4 §4.2.2/§4.2.3/§5.3.3
+    // (~/dl/NIST.FIPS.180-4.pdf) — but only feed the SETUP of a real multi-round computation
+    // exercised through the actual instructions under test, so a wrong end-to-end digest would
+    // still be caught even if a single constant were mistyped.
+    //
+    // Word-index-to-named-variable mapping (vs2={a,b,e,f} at idx3,2,1,0; vd={c,d,g,h} at
+    // idx3,2,1,0; vsha2ms's vs2={W11,W10,W9,W4}/vs1={W15,W14,-,W12} at idx3,2,1,0) was confirmed
+    // against the RISC-V Sail reference model (github.com/riscv/sail-riscv,
+    // model/extensions/vector_crypto/zvknhab_insts.sail), not derived from the spec's prose
+    // concatenation notation alone — that notation is genuinely ambiguous without seeing how
+    // get_velem/read_vreg actually index elements.
+
+    private static readonly ulong[] Sha256K = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+
+    private static readonly ulong[] Sha256H0 = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ];
+
+    private static readonly ulong[] Sha512K = [
+        0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc,
+        0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118,
+        0xd807aa98a3030242, 0x12835b0145706fbe, 0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2,
+        0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235, 0xc19bf174cf692694,
+        0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65,
+        0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5,
+        0x983e5152ee66dfab, 0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4,
+        0xc6e00bf33da88fc2, 0xd5a79147930aa725, 0x06ca6351e003826f, 0x142929670a0e6e70,
+        0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed, 0x53380d139d95b3df,
+        0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b,
+        0xa2bfe8a14cf10364, 0xa81a664bbc423001, 0xc24b8b70d0f89791, 0xc76c51a30654be30,
+        0xd192e819d6ef5218, 0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8,
+        0x19a4c116b8d2d0c8, 0x1e376c085141ab53, 0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8,
+        0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373, 0x682e6ff3d6b2b8a3,
+        0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec,
+        0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b,
+        0xca273eceea26619c, 0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178,
+        0x06f067aa72176fba, 0x0a637dc5a2c898a6, 0x113f9804bef90dae, 0x1b710b35131c471b,
+        0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc, 0x431d67c49c100d4c,
+        0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817,
+    ];
+
+    private static readonly ulong[] Sha512H0 = [
+        0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
+        0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
+    ];
+
+    private static void SetGroupWord(byte[] group, int wordIndex, int wordBytes, ulong value) {
+        int o = wordIndex * wordBytes;
+        for (var b = 0; b < wordBytes; b++) group[o + b] = (byte)(value >> (8 * b));
+    }
+
+    private static ulong GetGroupWord(byte[] group, int wordIndex, int wordBytes) {
+        int o = wordIndex * wordBytes;
+        ulong v = 0;
+        for (var b = 0; b < wordBytes; b++) v |= (ulong)group[o + b] << (8 * b);
+        return v;
+    }
+
+    private static void WriteGroup(Rv32ArchState state, int baseVreg, byte[] data, int egwBytes) {
+        int regsPerGroup = egwBytes / 16;
+        for (var r = 0; r < regsPerGroup; r++) {
+            var chunk = new byte[16];
+            Array.Copy(data, r * 16, chunk, 0, 16);
+            WriteBlock(state, baseVreg + r, chunk);
+        }
+    }
+
+    private static byte[] ReadGroup(Rv32ArchState state, int baseVreg, int egwBytes) {
+        int regsPerGroup = egwBytes / 16;
+        var result = new byte[egwBytes];
+        for (var r = 0; r < regsPerGroup; r++) Array.Copy(ReadBlock(state, baseVreg + r), 0, result, r * 16, 16);
+        return result;
+    }
+
+    // FIPS 180-4 §5.1.1/§5.1.2 message padding, generalized over word size (append 0x80, zero-pad,
+    // then an 8-byte big-endian bit-length — SHA-512's 16-byte length field's high 8 bytes stay
+    // zero, which is correct for every message length used in these tests).
+    private static byte[] Sha2Pad(byte[] message, int wordBytes) {
+        int blockBytes = wordBytes * 16;
+        int lengthFieldBytes = wordBytes * 2;
+        int msgLen = message.Length;
+        int numBlocks = (msgLen + 1 + lengthFieldBytes + blockBytes - 1) / blockBytes;
+        var padded = new byte[numBlocks * blockBytes];
+        Array.Copy(message, padded, msgLen);
+        padded[msgLen] = 0x80;
+        var bitLen = (ulong)msgLen * 8;
+        for (var i = 0; i < 8; i++) padded[padded.Length - 1 - i] = (byte)(bitLen >> (8 * i));
+        return padded;
+    }
+
+    // Runs a full SHA-2 hash (arbitrary length, multi-block) through the actual vsha2ms.vv/
+    // vsha2ch.vv/vsha2cl.vv instructions. vsha2ch[cl]'s vs2/vd ping-pong across two registers each
+    // call (rHi/rLo): per-call, only the "vd" register is written with the new {a,b,e,f}, while
+    // the untouched "vs2" register keeps its pre-call {a,b,e,f} value — which, after 2 rounds of
+    // real SHA-2 compression, is exactly the new {c,d,g,h} the *next* call needs as its vd input
+    // (the standard word-shift identity: after 2 rounds, new-c/d/g/h == old-a/b/e/f). Swapping
+    // which register plays "vd" vs "vs2" every call is therefore sufficient — no extra copying.
+    private ulong[] RunSha2(byte[] message, int sewBits, ulong[] k, ulong[] h0, int numRounds) {
+        int wordBytes = sewBits / 8;
+        int egwBytes = wordBytes * 4;
+        int regsPerGroup = egwBytes / 16;
+        int vtypei = sewBits == 32 ? VtypeiE32M1Tama : VtypeiE64M2Tama;
+
+        int RegBase(int slot) => 1 + slot * regsPerGroup;
+        int rHi = RegBase(0), rLo = RegBase(1), rMsWordsA = RegBase(2), rMsWordsB = RegBase(3), rMsWordsC = RegBase(4),
+            rMsgConst = RegBase(5);
+
+        byte[] padded = Sha2Pad(message, wordBytes);
+        var h = (ulong[])h0.Clone();
+        ulong mask = sewBits == 64 ? ulong.MaxValue : (1UL << 32) - 1;
+
+        Rv32ArchState state = MakeState();
+        Vsetivli(state, 4, vtypei);
+
+        for (var blockOff = 0; blockOff < padded.Length; blockOff += wordBytes * 16) {
+            var w = new ulong[numRounds];
+            for (var t = 0; t < 16; t++) w[t] = BigEndianWord(padded, blockOff + t * wordBytes, wordBytes);
+
+            int numMsCalls = (numRounds - 16) / 4;
+            for (var kk = 0; kk < numMsCalls; kk++) {
+                int t = 4 * kk;
+
+                var vdIn = new byte[egwBytes];
+                SetGroupWord(vdIn, 0, wordBytes, w[t + 0]);
+                SetGroupWord(vdIn, 1, wordBytes, w[t + 1]);
+                SetGroupWord(vdIn, 2, wordBytes, w[t + 2]);
+                SetGroupWord(vdIn, 3, wordBytes, w[t + 3]);
+                WriteGroup(state, rMsWordsA, vdIn, egwBytes);
+
+                var vs2 = new byte[egwBytes];
+                SetGroupWord(vs2, 0, wordBytes, w[t + 4]);
+                SetGroupWord(vs2, 1, wordBytes, w[t + 9]);
+                SetGroupWord(vs2, 2, wordBytes, w[t + 10]);
+                SetGroupWord(vs2, 3, wordBytes, w[t + 11]);
+                WriteGroup(state, rMsWordsB, vs2, egwBytes);
+
+                var vs1 = new byte[egwBytes];
+                SetGroupWord(vs1, 0, wordBytes, w[t + 12]);
+                SetGroupWord(vs1, 2, wordBytes, w[t + 14]);
+                SetGroupWord(vs1, 3, wordBytes, w[t + 15]);
+                WriteGroup(state, rMsWordsC, vs1, egwBytes);
+
+                ApplySideEffect(Exec(Sha2MsVv(rMsWordsA, rMsWordsB, rMsWordsC), state), state);
+
+                byte[] outg = ReadGroup(state, rMsWordsA, egwBytes);
+                w[t + 16] = GetGroupWord(outg, 0, wordBytes);
+                w[t + 17] = GetGroupWord(outg, 1, wordBytes);
+                w[t + 18] = GetGroupWord(outg, 2, wordBytes);
+                w[t + 19] = GetGroupWord(outg, 3, wordBytes);
+            }
+
+            var hi = new byte[egwBytes];
+            SetGroupWord(hi, 3, wordBytes, h[0]); // a
+            SetGroupWord(hi, 2, wordBytes, h[1]); // b
+            SetGroupWord(hi, 1, wordBytes, h[4]); // e
+            SetGroupWord(hi, 0, wordBytes, h[5]); // f
+            WriteGroup(state, rHi, hi, egwBytes);
+
+            var lo = new byte[egwBytes];
+            SetGroupWord(lo, 3, wordBytes, h[2]); // c
+            SetGroupWord(lo, 2, wordBytes, h[3]); // d
+            SetGroupWord(lo, 1, wordBytes, h[6]); // g
+            SetGroupWord(lo, 0, wordBytes, h[7]); // h
+            WriteGroup(state, rLo, lo, egwBytes);
+
+            int vdReg = rLo, vs2Reg = rHi;
+            for (var p = 0; p < numRounds / 2; p++) {
+                int t = 2 * p;
+                int groupStart = t - t % 4;
+                int relPos = t % 4; // 0 -> cl (idx0,1), 2 -> ch (idx2,3)
+
+                var msgConst = new byte[egwBytes];
+                SetGroupWord(msgConst, 0, wordBytes, (w[groupStart + 0] + k[groupStart + 0]) & mask);
+                SetGroupWord(msgConst, 1, wordBytes, (w[groupStart + 1] + k[groupStart + 1]) & mask);
+                SetGroupWord(msgConst, 2, wordBytes, (w[groupStart + 2] + k[groupStart + 2]) & mask);
+                SetGroupWord(msgConst, 3, wordBytes, (w[groupStart + 3] + k[groupStart + 3]) & mask);
+                WriteGroup(state, rMsgConst, msgConst, egwBytes);
+
+                uint raw = relPos == 0
+                    ? Sha2ClVv(vdReg, vs2Reg, rMsgConst)
+                    : Sha2ChVv(vdReg, vs2Reg, rMsgConst);
+                ApplySideEffect(Exec(raw, state), state);
+
+                (vdReg, vs2Reg) = (vs2Reg, vdReg);
+            }
+
+            // vs2Reg (post-loop) always equals the register the *last* call wrote as vd — the
+            // swap sets the new vs2Reg to the old vdReg every iteration.
+            byte[] finalHi = ReadGroup(state, vs2Reg, egwBytes);
+            byte[] finalLo = ReadGroup(state, vdReg, egwBytes);
+
+            h[0] = (h[0] + GetGroupWord(finalHi, 3, wordBytes)) & mask;
+            h[1] = (h[1] + GetGroupWord(finalHi, 2, wordBytes)) & mask;
+            h[2] = (h[2] + GetGroupWord(finalLo, 3, wordBytes)) & mask;
+            h[3] = (h[3] + GetGroupWord(finalLo, 2, wordBytes)) & mask;
+            h[4] = (h[4] + GetGroupWord(finalHi, 1, wordBytes)) & mask;
+            h[5] = (h[5] + GetGroupWord(finalHi, 0, wordBytes)) & mask;
+            h[6] = (h[6] + GetGroupWord(finalLo, 1, wordBytes)) & mask;
+            h[7] = (h[7] + GetGroupWord(finalLo, 0, wordBytes)) & mask;
+        }
+
+        return h;
+    }
+
+    private static ulong BigEndianWord(byte[] data, int offset, int wordBytes) {
+        ulong v = 0;
+        for (var b = 0; b < wordBytes; b++) v = (v << 8) | data[offset + b];
+        return v;
+    }
+
+    private static byte[] WordsToBigEndianBytes(ulong[] words, int wordBytes) {
+        var result = new byte[words.Length * wordBytes];
+        for (var i = 0; i < words.Length; i++)
+        for (var b = 0; b < wordBytes; b++)
+            result[i * wordBytes + b] = (byte)(words[i] >> (8 * (wordBytes - 1 - b)));
+        return result;
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("abc")]
+    [InlineData("The quick brown fox jumps over the lazy dog")]
+    [InlineData(
+        "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq" // FIPS 180-4 two-block example
+    )]
+    public void Sha256_EndToEnd_MatchesDotNetSha256(string messageText) {
+        byte[] message = Encoding.ASCII.GetBytes(messageText);
+        ulong[] actual = RunSha2(message, 32, Sha256K, Sha256H0, 64);
+        byte[] actualBytes = WordsToBigEndianBytes(actual, 4);
+
+        Assert.Equal(SHA256.HashData(message), actualBytes);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("abc")]
+    [InlineData("The quick brown fox jumps over the lazy dog")]
+    public void Sha512_EndToEnd_MatchesDotNetSha512(string messageText) {
+        byte[] message = Encoding.ASCII.GetBytes(messageText);
+        ulong[] actual = RunSha2(message, 64, Sha512K, Sha512H0, 80);
+        byte[] actualBytes = WordsToBigEndianBytes(actual, 8);
+
+        Assert.Equal(SHA512.HashData(message), actualBytes);
+    }
+
+    [Fact]
+    public void Sha2MsVv_Lmul4_TwoElementGroups_MatchIndependentSingleGroupCalls() {
+        // Every KAT above uses vl=EGS=4 (exactly one element group), so none of them exercise
+        // `groupIndex*regsPerGroup` addressing with regsPerGroup>1 — the one genuinely new code
+        // path SHA-512 (EGW=256, 2 registers/group) introduces. This drives vl=8 (two groups) at
+        // LMUL=4 and cross-checks each group's output against an independent single-group (vl=4)
+        // call with the same inputs, isolating the multi-group addressing from the round math
+        // (already end-to-end KAT-validated above).
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 8, ZvkTests.VtypeiE64M4Tama);
+
+        ulong[][] oldWords = [[1, 2, 3, 4], [100, 200, 300, 400],];
+        ulong[][] midWords = [[5, 6, 7, 8], [500, 600, 700, 800],];
+        ulong[][] newWords = [[9, 0, 10, 11], [900, 0, 1000, 1100],];
+
+        var vdIn = new byte[64];
+        var vs2 = new byte[64];
+        var vs1 = new byte[64];
+        for (var g = 0; g < 2; g++) {
+            var vdGroup = new byte[32];
+            for (var i = 0; i < 4; i++) SetGroupWord(vdGroup, i, 8, oldWords[g][i]);
+            Array.Copy(vdGroup, 0, vdIn, g * 32, 32);
+
+            var vs2Group = new byte[32];
+            for (var i = 0; i < 4; i++) SetGroupWord(vs2Group, i, 8, midWords[g][i]);
+            Array.Copy(vs2Group, 0, vs2, g * 32, 32);
+
+            var vs1Group = new byte[32];
+            SetGroupWord(vs1Group, 0, 8, newWords[g][0]);
+            SetGroupWord(vs1Group, 2, 8, newWords[g][2]);
+            SetGroupWord(vs1Group, 3, 8, newWords[g][3]);
+            Array.Copy(vs1Group, 0, vs1, g * 32, 32);
+        }
+
+        WriteGroup(s, 4, vdIn, 64); // regs 4-7
+        WriteGroup(s, 8, vs2, 64); // regs 8-11
+        WriteGroup(s, 12, vs1, 64); // regs 12-15
+        ApplySideEffect(Exec(Sha2MsVv(4, 8, 12), s), s);
+        byte[] outAll = ReadGroup(s, 4, 64);
+
+        for (var g = 0; g < 2; g++) {
+            Rv32ArchState single = MakeState();
+            Vsetivli(single, 4, ZvkTests.VtypeiE64M2Tama);
+            WriteGroup(single, 1, vdIn[(g * 32)..((g + 1) * 32)], 32);
+            WriteGroup(single, 3, vs2[(g * 32)..((g + 1) * 32)], 32);
+            WriteGroup(single, 5, vs1[(g * 32)..((g + 1) * 32)], 32);
+            ApplySideEffect(Exec(Sha2MsVv(1, 3, 5), single), single);
+            byte[] expected = ReadGroup(single, 1, 32);
+
+            Assert.Equal(expected, outAll[(g * 32)..((g + 1) * 32)]);
+        }
+    }
+
+    [Fact]
+    public void Sha2MsVv_VdOverlapsVs1_Traps() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
+        ExecuteResult r = Exec(Sha2MsVv(8, 12, 8), s); // vs1==vd
+        Assert.True(r.HasTrap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
+    }
+
+    [Fact]
+    public void Sha2ChVv_VdOverlapsVs2_Traps() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
+        ExecuteResult r = Exec(Sha2ChVv(8, 8, 12), s); // vs2==vd
+        Assert.True(r.HasTrap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
+    }
+
+    [Fact]
+    public void Sha2MsVv_UnsupportedSew_Traps() {
+        // Only e32/e64 are valid for vsha2* (this codebase implements the Zvknhb superset
+        // unconditionally, so both are accepted); e16 must still trap.
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE16M4Tama);
+        ExecuteResult r = Exec(Sha2MsVv(8, 12, 16), s);
         Assert.True(r.HasTrap);
         Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
     }

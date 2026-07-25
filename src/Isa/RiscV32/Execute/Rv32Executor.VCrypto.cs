@@ -510,4 +510,205 @@ public partial class Rv32Executor {
             },
         };
     }
+
+    // ── Zvknha/Zvknhb: SHA-2 compression (vsha2c[hl].vv) and message schedule (vsha2ms.vv) ──────
+    // EGS=4 always; EGW=4*SEW, with SEW=32 (SHA-256) or SEW=64 (SHA-512) both accepted here — this
+    // codebase does not gate Zvknha vs Zvknhb as separate hart extensions, so it implements the
+    // Zvknhb superset unconditionally rather than restricting SEW=64 behind a second flag. Word
+    // extraction is a *third* distinct convention alongside AesMixColumnsFwdBlock's and
+    // ElementGroupGetWord's (see those two helpers' doc comments): confirmed against the RISC-V
+    // Sail reference model (github.com/riscv/sail-riscv,
+    // model/extensions/vector_crypto/zvknhab_insts.sail), which reads/writes each SEW-bit register
+    // element directly via read_vreg/write_velem_quad with no extra byte-level repacking — i.e.
+    // the same natural little-endian element interpretation this codebase already uses for every
+    // non-crypto vector op (see Rv32Executor.V.cs's BitConverter.ToUInt64 element read). AES/SM4's
+    // big-endian ElementGroupGetWord is the special case that needed discovering by KAT; this one
+    // is just the codebase's default convention, used here because the Sail model confirms it
+    // (not because it was assumed).
+
+    private static ulong Sha2Mask(int sewBits) => sewBits == 64 ? ulong.MaxValue : (1UL << sewBits) - 1;
+
+    private static ulong Sha2GetWord(byte[] group, int wordIndex, int sewBits) {
+        int wordBytes = sewBits / 8;
+        int o = wordIndex * wordBytes;
+        ulong v = 0;
+        for (var b = 0; b < wordBytes; b++) v |= (ulong)group[o + b] << (8 * b);
+        return v;
+    }
+
+    private static void Sha2SetWord(byte[] group, int wordIndex, int sewBits, ulong value) {
+        int wordBytes = sewBits / 8;
+        int o = wordIndex * wordBytes;
+        for (var b = 0; b < wordBytes; b++) group[o + b] = (byte)(value >> (8 * b));
+    }
+
+    private static ulong Sha2RotR(ulong x, int n, int sewBits) => ((x >> n) | (x << (sewBits - n))) & Sha2Mask(sewBits);
+
+    // spec §3.22 sig0/sig1 (message schedule) and §3.21 sum0/sum1 (compression); rotate/shift
+    // amounts differ by SEW (FIPS 180-4 §4.1.2 SHA-256 vs §4.1.3 SHA-512 lowercase-sigma/Sigma).
+    private static ulong Sha2Sig0(ulong x, int sewBits) => sewBits == 32
+        ? Sha2RotR(x, 7, 32) ^ Sha2RotR(x, 18, 32) ^ (x >> 3)
+        : Sha2RotR(x, 1, 64) ^ Sha2RotR(x, 8, 64) ^ (x >> 7);
+
+    private static ulong Sha2Sig1(ulong x, int sewBits) => sewBits == 32
+        ? Sha2RotR(x, 17, 32) ^ Sha2RotR(x, 19, 32) ^ (x >> 10)
+        : Sha2RotR(x, 19, 64) ^ Sha2RotR(x, 61, 64) ^ (x >> 6);
+
+    private static ulong Sha2Sum0(ulong x, int sewBits) => sewBits == 32
+        ? Sha2RotR(x, 2, 32) ^ Sha2RotR(x, 13, 32) ^ Sha2RotR(x, 22, 32)
+        : Sha2RotR(x, 28, 64) ^ Sha2RotR(x, 34, 64) ^ Sha2RotR(x, 39, 64);
+
+    private static ulong Sha2Sum1(ulong x, int sewBits) => sewBits == 32
+        ? Sha2RotR(x, 6, 32) ^ Sha2RotR(x, 11, 32) ^ Sha2RotR(x, 25, 32)
+        : Sha2RotR(x, 14, 64) ^ Sha2RotR(x, 18, 64) ^ Sha2RotR(x, 41, 64);
+
+    private static ulong Sha2Ch(ulong x, ulong y, ulong z, int sewBits) => (x & y) ^ (~x & z & Sha2Mask(sewBits));
+    private static ulong Sha2Maj(ulong x, ulong y, ulong z) => (x & y) ^ (x & z) ^ (y & z);
+
+    private static bool VGroupOverlap(int r1, int r2, int lmul) => r1 < r2 + lmul && r2 < r1 + lmul;
+
+    // Element-group constraint check for vsha2*: unlike every other Zvk* op (fixed EGW=128), here
+    // EGW=4*SEW is itself runtime-dependent, so this can't reuse CheckElementGroupConstraints
+    // (which takes a single required-SEW compile-time constant).
+    private static ExecuteResult? CheckSha2Constraints(IArchState state, ulong pc, out int sewBits, out int egw) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        sewBits = ewBytes * 8;
+        egw = 4 * sewBits;
+
+        if (sewBits != 32 && sewBits != 64)
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+        if (VGetLmulInt(state) * VectorRegisterFile.VLen < egw)
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        if (vl % 4 != 0 || vstart % 4 != 0)
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+
+        return null;
+    }
+
+    // One round of SHA-2 compression (FIPS 180-4 §6.2.2/§6.4.2), parameterized by SEW so the same
+    // code serves SHA-256 (32-bit words) and SHA-512 (64-bit words).
+    private static (ulong A, ulong B, ulong C, ulong D, ulong E, ulong F, ulong G, ulong H) Sha2Round(
+        ulong a, ulong b, ulong c, ulong d, ulong e, ulong f, ulong g, ulong h, ulong w, int sewBits
+    ) {
+        ulong mask = Sha2Mask(sewBits);
+        ulong t1 = (h + Sha2Sum1(e, sewBits) + Sha2Ch(e, f, g, sewBits) + w) & mask;
+        ulong t2 = (Sha2Sum0(a, sewBits) + Sha2Maj(a, b, c)) & mask;
+        return ((t1 + t2) & mask, a, b, c, (d + t1) & mask, e, f, g);
+    }
+
+    // vsha2ch.vv/vsha2cl.vv: two rounds of SHA-2 compression (spec §3.21). vs2 holds {a,b,e,f} at
+    // element indices 3,2,1,0; vd holds {c,d,g,h} at indices 3,2,1,0 (read as input) and is
+    // overwritten with the *new* {a,b,e,f} — vs2's register is left untouched, which is what makes
+    // ping-ponging the two registers across successive calls correct (see ZvkTests' RunSha2).
+    private static ExecuteResult ExecuteSha2Compress(
+        IArchState state, ulong pc, Sha2CompressKind kind, int vd, int vs1, int vs2
+    ) {
+        ExecuteResult? trap = CheckSha2Constraints(state, pc, out int sewBits, out int egw);
+        if (trap != null) return trap;
+
+        int lmul = VGetLmulInt(state);
+        if (VGroupOverlap(vd, vs1, lmul) || VGroupOverlap(vd, vs2, lmul))
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+
+        (uint vl, _) = VGetVlEw(state);
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        var egStart = (int)(vstart / 4);
+        var egLen = (int)(vl / 4);
+
+        var groups = new (int Index, byte[] Value)[egLen - egStart];
+        for (int i = egStart; i < egLen; i++) {
+            byte[] hiState = ReadElementGroup(state, vs2, i, egw);
+            byte[] loState = ReadElementGroup(state, vd, i, egw);
+            byte[] msgPlusC = ReadElementGroup(state, vs1, i, egw);
+
+            ulong a = Sha2GetWord(hiState, 3, sewBits);
+            ulong b = Sha2GetWord(hiState, 2, sewBits);
+            ulong e = Sha2GetWord(hiState, 1, sewBits);
+            ulong f = Sha2GetWord(hiState, 0, sewBits);
+            ulong c = Sha2GetWord(loState, 3, sewBits);
+            ulong d = Sha2GetWord(loState, 2, sewBits);
+            ulong g = Sha2GetWord(loState, 1, sewBits);
+            ulong h = Sha2GetWord(loState, 0, sewBits);
+
+            // vsha2ch uses the two most-significant MessageSchedPlusC words (idx3,2); vsha2cl the
+            // two least-significant (idx1,0) — otherwise identical (spec §3.21).
+            ulong w0 = Sha2GetWord(msgPlusC, kind == Sha2CompressKind.Low ? 0 : 2, sewBits);
+            ulong w1 = Sha2GetWord(msgPlusC, kind == Sha2CompressKind.Low ? 1 : 3, sewBits);
+
+            (a, b, c, d, e, f, g, h) = Sha2Round(a, b, c, d, e, f, g, h, w0, sewBits);
+            (a, b, c, d, e, f, g, h) = Sha2Round(a, b, c, d, e, f, g, h, w1, sewBits);
+
+            var next = new byte[egw / 8];
+            Sha2SetWord(next, 3, sewBits, a);
+            Sha2SetWord(next, 2, sewBits, b);
+            Sha2SetWord(next, 1, sewBits, e);
+            Sha2SetWord(next, 0, sewBits, f);
+            groups[i - egStart] = (i, next);
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                var s32 = (Rv32ArchState)s;
+                foreach ((int index, byte[] value) in groups) WriteElementGroup(s32, vd, index, egw, value);
+            },
+        };
+    }
+
+    // vsha2ms.vv: four rounds of SHA-2 message-schedule expansion (spec §3.22). vd holds the
+    // oldest 4 schedule words {W3,W2,W1,W0} (read as input, overwritten with {W19,W18,W17,W16});
+    // vs2 holds {W11,W10,W9,W4}; vs1 holds {W15,W14,-,W12} (the idx1 slot, W13, is never read).
+    private static ExecuteResult ExecuteSha2Ms(IArchState state, ulong pc, int vd, int vs1, int vs2) {
+        ExecuteResult? trap = CheckSha2Constraints(state, pc, out int sewBits, out int egw);
+        if (trap != null) return trap;
+
+        int lmul = VGetLmulInt(state);
+        if (VGroupOverlap(vd, vs1, lmul) || VGroupOverlap(vd, vs2, lmul))
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+
+        (uint vl, _) = VGetVlEw(state);
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        var egStart = (int)(vstart / 4);
+        var egLen = (int)(vl / 4);
+        ulong mask = Sha2Mask(sewBits);
+
+        var groups = new (int Index, byte[] Value)[egLen - egStart];
+        for (int i = egStart; i < egLen; i++) {
+            byte[] oldWords = ReadElementGroup(state, vd, i, egw);
+            byte[] midWords = ReadElementGroup(state, vs2, i, egw);
+            byte[] newWords = ReadElementGroup(state, vs1, i, egw);
+
+            ulong w0 = Sha2GetWord(oldWords, 0, sewBits);
+            ulong w1 = Sha2GetWord(oldWords, 1, sewBits);
+            ulong w2 = Sha2GetWord(oldWords, 2, sewBits);
+            ulong w3 = Sha2GetWord(oldWords, 3, sewBits);
+            ulong w4 = Sha2GetWord(midWords, 0, sewBits);
+            ulong w9 = Sha2GetWord(midWords, 1, sewBits);
+            ulong w10 = Sha2GetWord(midWords, 2, sewBits);
+            ulong w11 = Sha2GetWord(midWords, 3, sewBits);
+            ulong w12 = Sha2GetWord(newWords, 0, sewBits);
+            ulong w14 = Sha2GetWord(newWords, 2, sewBits);
+            ulong w15 = Sha2GetWord(newWords, 3, sewBits);
+
+            ulong w16 = (Sha2Sig1(w14, sewBits) + w9 + Sha2Sig0(w1, sewBits) + w0) & mask;
+            ulong w17 = (Sha2Sig1(w15, sewBits) + w10 + Sha2Sig0(w2, sewBits) + w1) & mask;
+            ulong w18 = (Sha2Sig1(w16, sewBits) + w11 + Sha2Sig0(w3, sewBits) + w2) & mask;
+            ulong w19 = (Sha2Sig1(w17, sewBits) + w12 + Sha2Sig0(w4, sewBits) + w3) & mask;
+
+            var next = new byte[egw / 8];
+            Sha2SetWord(next, 0, sewBits, w16);
+            Sha2SetWord(next, 1, sewBits, w17);
+            Sha2SetWord(next, 2, sewBits, w18);
+            Sha2SetWord(next, 3, sewBits, w19);
+            groups[i - egStart] = (i, next);
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                var s32 = (Rv32ArchState)s;
+                foreach ((int index, byte[] value) in groups) WriteElementGroup(s32, vd, index, egw, value);
+            },
+        };
+    }
 }

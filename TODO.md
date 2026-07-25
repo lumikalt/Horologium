@@ -90,10 +90,29 @@ off here until a periodic cleanup removes them; the durable record is git histor
   direction flipped, `AesRcon` shifted into the high byte at the point of use). Root-caused via a
   throwaway `dotnet fsi` script implementing the cipher independently (no python/node in the nix
   devshell), rather than iterating on the hypothesis via the full test suite.
-  Deferred follow-ups: the other Zvk* families (Zvknha/Zvknhb SHA-2, Zvksh SM3, Zvkg GHASH/GMAC,
-  Zvbb/Zvbc/Zvkb vector bitmanip) — none implemented yet. EGW=256 (SHA-512/SM3) would need a second
-  element-group infrastructure pass (2 physical registers per group instead of 1). `FiveStageTrain`
-  gaining runtime-LMUL-aware vector hazard tracking (rather than rejecting) is also deferred.
+- [x] Zvknha/Zvknhb extension (SHA-2 compression + message schedule): `vsha2ch.vv`/`vsha2cl.vv`
+  (two rounds of compression) and `vsha2ms.vv` (four rounds of message-schedule expansion),
+  implementing the Zvknhb superset unconditionally (SEW=32 SHA-256 and SEW=64 SHA-512 both
+  accepted, rather than gating SEW=64 behind a separate hart-extension flag). Unlike every earlier
+  Zvk* op, EGW=4*SEW is itself runtime-dependent (128 for SHA-256, 256 for SHA-512 — the latter
+  needing 2 physical registers per element group, confirming the existing `ReadElementGroup`/
+  `WriteElementGroup` helpers already generalized correctly since they took `egwBits` as a runtime
+  parameter from the start), and `vs1` is a genuine third vector source register rather than a
+  sub-op selector or immediate. The element-index-to-named-variable mapping ({a,b,e,f} etc.) was
+  confirmed against the RISC-V Sail reference model (github.com/riscv/sail-riscv,
+  `model/extensions/vector_crypto/zvknhab_insts.sail`) rather than derived from the spec's prose
+  concatenation notation alone, which is genuinely ambiguous without seeing how `get_velem`/
+  `read_vreg` actually index elements. Validated end-to-end (multi-block, chained
+  `vsha2ms`+`vsha2ch`/`vsha2cl` through a full SHA-256/SHA-512 hash) against
+  `System.Security.Cryptography.SHA256`/`SHA512` — a real, independently-implemented oracle —
+  rather than a hand-transcribed round trace, since FIPS 180-4's on-disk text has no worked
+  example with intermediate values (same situation as FIPS-197's Appendix C). Uncovered and
+  documented (not just used) the vsha2c[hl] register ping-pong identity: only vd is written each
+  call (with the new {a,b,e,f}), and the untouched vs2 register's stale content is exactly the
+  {c,d,g,h} the next call needs, since after 2 real SHA-2 rounds new-c/d/g/h == old-a/b/e/f.
+  Deferred follow-ups: the other Zvk* families (Zvksh SM3, Zvkg GHASH/GMAC, Zvbb/Zvbc/Zvkb vector
+  bitmanip) — none implemented yet. `FiveStageTrain` gaining runtime-LMUL-aware vector hazard
+  tracking (rather than rejecting) is also deferred.
 
 ## Analysis
 

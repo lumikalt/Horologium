@@ -48,3 +48,23 @@ public record RvSm4RVs(int Vd, int Vs2) : RvOp;
 // vsm4k.vi: four rounds of the SM4 key expansion, generating round keys rK[4*rnd..4*rnd+3] from
 // vs2's rK[0:3] (pure output to vd). Round holds the raw uimm[4:0] (bits[4:3] ignored per §3.25).
 public record RvSm4KVi(int Vd, int Vs2, int Round) : RvOp;
+
+// ── Zvknha/Zvknhb extension (Vector SHA-2 compression + message schedule) — same opcode space,
+// but EGW=4*SEW is runtime-dependent (128 for SEW=32/SHA-256, 256 for SEW=64/SHA-512, Zvknhb
+// only) rather than the fixed 128 every other Zvk* op so far uses. Also the first Zvk* op where
+// vs1 is a genuine third vector source register — funct6 alone selects the operation, vs1 is
+// never repurposed as a sub-op selector or immediate here.
+
+public enum Sha2CompressKind { High, Low }
+
+// vsha2ch.vv/vsha2cl.vv: two rounds of SHA-2 compression (spec §3.21). vs2 holds working-state
+// words {a,b,e,f}, vd holds {c,d,g,h} — both read as input and vd overwritten with the new
+// {a,b,e,f}. vs1 holds four message-schedule-plus-round-constant words; High consumes the two
+// most-significant, Low the two least-significant (otherwise identical). Reserved: vd's LMUL
+// register group must not overlap vs1's or vs2's.
+public record RvSha2CVv(Sha2CompressKind Kind, int Vd, int Vs1, int Vs2) : RvOp;
+
+// vsha2ms.vv: four rounds of SHA-2 message-schedule expansion (spec §3.22). vd holds the oldest
+// 4 schedule words (read as input, overwritten with the next 4 produced); vs2/vs1 hold the
+// intervening words. Reserved: vd's LMUL register group must not overlap vs1's or vs2's.
+public record RvSha2MsVv(int Vd, int Vs1, int Vs2) : RvOp;

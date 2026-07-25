@@ -811,6 +811,11 @@ public partial class Rv32Executor : IExecutor {
             RvSm4RVs (var vd, var vs2) => ExecuteSm4R(state, pc, vd, vs2, true),
             RvSm4KVi (var vd, var vs2, var round) => ExecuteSm4K(state, pc, vd, vs2, round),
 
+            // ── Zvknha/Zvknhb: SHA-2 compression/message-schedule instructions ──────────────
+            RvSha2CVv (var kind, var vd, var vs1, var vs2) =>
+                ExecuteSha2Compress(state, pc, kind, vd, vs1, vs2),
+            RvSha2MsVv (var vd, var vs1, var vs2) => ExecuteSha2Ms(state, pc, vd, vs1, vs2),
+
             RvVMulVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVMul(
                     state, op2, vd, vs2, masked,
