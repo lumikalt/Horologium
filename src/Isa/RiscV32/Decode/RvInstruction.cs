@@ -111,6 +111,9 @@ public sealed class RvInstruction(
         RvVaesZVs op        => op.Vd,
         RvVaesKf1Vi op      => op.Vd,
         RvVaesKf2Vi op      => op.Vd,
+        RvSm4RVv op         => op.Vd,
+        RvSm4RVs op         => op.Vd,
+        RvSm4KVi op         => op.Vd,
         // RvVcpop/RvVfirst write integer rd, not a vector register → -1
         _ => -1,
     };
@@ -120,7 +123,8 @@ public sealed class RvInstruction(
     // by VectorDestinationRegister/VectorSourceRegisters at decode time. See
     // ITooth.HasRuntimeSizedVectorDestination.
     public bool HasRuntimeSizedVectorDestination { get; } =
-        payload is RvVaesRoundVv or RvVaesRoundVs or RvVaesZVs or RvVaesKf1Vi or RvVaesKf2Vi;
+        payload is RvVaesRoundVv or RvVaesRoundVs or RvVaesZVs or RvVaesKf1Vi or RvVaesKf2Vi
+                 or RvSm4RVv or RvSm4RVs or RvSm4KVi;
 
     // RV32 amocas.d (Zacas) holds its 64-bit result in a register pair: Rd gets the
     // low word (via the normal DestinationRegister/RegisterResult path), Rd+1 gets the
@@ -320,6 +324,11 @@ public sealed class RvInstruction(
         // round key input (read-modify-write), per spec §3.5/§3.6.
         RvVaesKf1Vi op   => [op.Vs2,],
         RvVaesKf2Vi op   => [op.Vd, op.Vs2,],
+        // vd is the current-state source (read-modify-write) for vsm4r, same shape as the AES
+        // round ops; vsm4k's vd is pure output.
+        RvSm4RVv op      => [op.Vd, op.Vs2,],
+        RvSm4RVs op      => [op.Vd, op.Vs2,],
+        RvSm4KVi op      => [op.Vs2,],
         RvVIntMacVx op  => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
         RvVMvSx         => [],
         RvVMergeVv op   => [op.Vs2, op.Vs1, 0,],

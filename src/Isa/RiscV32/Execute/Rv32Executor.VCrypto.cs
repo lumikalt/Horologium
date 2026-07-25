@@ -183,25 +183,31 @@ public partial class Rv32Executor {
         };
     }
 
-    // ── Zvkned: vaeskf1.vi / vaeskf2.vi (AES-128/256 forward key schedule, spec §3.5/§3.6) ─────
-    // Both generate one 128-bit round-key element group, word by word, from the previous round
-    // key word and a round-number-selected function of the current round key's last word.
-    // Packed-word convention matches AesMixColumnsFwdBlock/AesRcon: word j of a 16-byte element
-    // group is bytes[4j..4j+3] with bytes[4j] as the packed uint's low byte (LSB) — the same
-    // "aes_get_column"-style layout the spec's own Sail helpers use, already proven consistent
-    // with AesRcon/AesSubwordFwd by the RV32/RV64 scalar key-schedule instructions.
+    // ── Zvkned/Zvksed: word-level key-schedule/round-function helpers ─────────────────────────
+    // Word j of a 16-byte element group is bytes[4j..4j+3], packed **natural big-endian**
+    // (bytes[4j] is the packed uint's most significant byte) so that arbitrary-bit-count
+    // BitOperations.RotateLeft/RotateRight calls on the unpacked word match the spec's own
+    // ROL32/ROTWORD semantics directly. AES's key schedule only ever rotates by a whole byte
+    // (8 bits), so it can be made to agree with *either* byte-order convention just by picking
+    // the matching rotate direction and Rcon byte position (see ExecuteVAesKf1/Kf2's
+    // RotateLeft(w,8) and `AesRcon[i] << 24`, chosen to match the convention here) — but SM4's
+    // round function and key schedule (Sm4RoundWord/Sm4KeyScheduleWord) rotate by 2/10/13/18/23
+    // bits, which have no such freedom: a byte-order mismatch silently produces a different
+    // (wrong) result for any non-byte-aligned rotation amount. Caught by a GB/T 32907 SM4
+    // known-answer test failing under the byte-order convention this file originally shipped
+    // with (which the byte-aligned-only AES tests had passed under regardless).
 
-    private static uint AesGetWord(byte[] block16, int wordIndex) {
+    private static uint ElementGroupGetWord(byte[] block16, int wordIndex) {
         int o = wordIndex * 4;
-        return (uint)(block16[o] | (block16[o + 1] << 8) | (block16[o + 2] << 16) | (block16[o + 3] << 24));
+        return (uint)((block16[o] << 24) | (block16[o + 1] << 16) | (block16[o + 2] << 8) | block16[o + 3]);
     }
 
-    private static void AesSetWord(byte[] block16, int wordIndex, uint value) {
+    private static void ElementGroupSetWord(byte[] block16, int wordIndex, uint value) {
         int o = wordIndex * 4;
-        block16[o] = (byte)value;
-        block16[o + 1] = (byte)(value >> 8);
-        block16[o + 2] = (byte)(value >> 16);
-        block16[o + 3] = (byte)(value >> 24);
+        block16[o] = (byte)(value >> 24);
+        block16[o + 1] = (byte)(value >> 16);
+        block16[o + 2] = (byte)(value >> 8);
+        block16[o + 3] = (byte)value;
     }
 
     // §3.5: out-of-range uimm[3:0] (0, or 11-15) is projected onto a valid round by inverting
@@ -227,16 +233,19 @@ public partial class Rv32Executor {
         var groups = new (int Index, byte[] Value)[egLen - egStart];
         for (int i = egStart; i < egLen; i++) {
             byte[] currentRoundKey = ReadElementGroup(state, vs2, i, egw);
-            uint w0 = AesSubwordFwd(BitOperations.RotateRight(AesGetWord(currentRoundKey, 3), 8))
-                    ^ AesRcon[rconIndex] ^ AesGetWord(currentRoundKey, 0);
-            uint w1 = w0 ^ AesGetWord(currentRoundKey, 1);
-            uint w2 = w1 ^ AesGetWord(currentRoundKey, 2);
-            uint w3 = w2 ^ AesGetWord(currentRoundKey, 3);
+            // AesRcon is a scalar-crypto table shared with aes64ks1i (Rv32Executor.Crypto.cs),
+            // stored as the round constant's *low* byte — shift it into the high byte and rotate
+            // left (rather than right) to match ElementGroupGetWord's natural-big-endian words.
+            uint w0 = AesSubwordFwd(BitOperations.RotateLeft(ElementGroupGetWord(currentRoundKey, 3), 8))
+                    ^ (AesRcon[rconIndex] << 24) ^ ElementGroupGetWord(currentRoundKey, 0);
+            uint w1 = w0 ^ ElementGroupGetWord(currentRoundKey, 1);
+            uint w2 = w1 ^ ElementGroupGetWord(currentRoundKey, 2);
+            uint w3 = w2 ^ ElementGroupGetWord(currentRoundKey, 3);
             var next = new byte[16];
-            AesSetWord(next, 0, w0);
-            AesSetWord(next, 1, w1);
-            AesSetWord(next, 2, w2);
-            AesSetWord(next, 3, w3);
+            ElementGroupSetWord(next, 0, w0);
+            ElementGroupSetWord(next, 1, w1);
+            ElementGroupSetWord(next, 2, w2);
+            ElementGroupSetWord(next, 3, w3);
             groups[i - egStart] = (i, next);
         }
 
@@ -270,19 +279,19 @@ public partial class Rv32Executor {
         for (int i = egStart; i < egLen; i++) {
             byte[] currentRoundKey = ReadElementGroup(state, vs2, i, egw);
             byte[] previousRoundKey = ReadElementGroup(state, vd, i, egw);
-            uint w3Current = AesGetWord(currentRoundKey, 3);
+            uint w3Current = ElementGroupGetWord(currentRoundKey, 3);
             uint w0 = (rnd & 1) == 1
-                ? AesSubwordFwd(w3Current) ^ AesGetWord(previousRoundKey, 0)
-                : AesSubwordFwd(BitOperations.RotateRight(w3Current, 8)) ^ AesRcon[(rnd >> 1) - 1]
-                ^ AesGetWord(previousRoundKey, 0);
-            uint w1 = w0 ^ AesGetWord(previousRoundKey, 1);
-            uint w2 = w1 ^ AesGetWord(previousRoundKey, 2);
-            uint w3 = w2 ^ AesGetWord(previousRoundKey, 3);
+                ? AesSubwordFwd(w3Current) ^ ElementGroupGetWord(previousRoundKey, 0)
+                : AesSubwordFwd(BitOperations.RotateLeft(w3Current, 8)) ^ (AesRcon[(rnd >> 1) - 1] << 24)
+                ^ ElementGroupGetWord(previousRoundKey, 0);
+            uint w1 = w0 ^ ElementGroupGetWord(previousRoundKey, 1);
+            uint w2 = w1 ^ ElementGroupGetWord(previousRoundKey, 2);
+            uint w3 = w2 ^ ElementGroupGetWord(previousRoundKey, 3);
             var next = new byte[16];
-            AesSetWord(next, 0, w0);
-            AesSetWord(next, 1, w1);
-            AesSetWord(next, 2, w2);
-            AesSetWord(next, 3, w3);
+            ElementGroupSetWord(next, 0, w0);
+            ElementGroupSetWord(next, 1, w1);
+            ElementGroupSetWord(next, 2, w2);
+            ElementGroupSetWord(next, 3, w3);
             groups[i - egStart] = (i, next);
         }
 
@@ -332,6 +341,10 @@ public partial class Rv32Executor {
         return result;
     }
 
+    // Column packing here is LSB-first — the opposite convention from ElementGroupGetWord/SetWord
+    // above — and deliberately local: MixColumns never bit-rotates, so it's convention-agnostic and
+    // must not be unified with the element-group word helpers (that unification is exactly what
+    // broke SM4's non-byte-aligned rotations; see ElementGroupGetWord's doc comment).
     private static byte[] AesMixColumnsFwdBlock(byte[] state) {
         var result = new byte[16];
         for (var c = 0; c < 4; c++) {
@@ -360,5 +373,141 @@ public partial class Rv32Executor {
         }
 
         return result;
+    }
+
+    // ── Zvksed: SM4 block cipher (vsm4r.[vv,vs] rounds, vsm4k.vi key expansion) ─────────────────
+    // EGW=128, EGS=4, EEW=SEW=32 (spec §3.25/§3.26) — same element-group shape as Zvkned, reusing
+    // ReadElementGroup/WriteElementGroup/CheckElementGroupConstraints/ElementGroupGetWord/
+    // ElementGroupSetWord unchanged. SM4's round function operates word-at-a-time (unlike AES's
+    // whole-block SubBytes/ShiftRows/MixColumns steps): each of the 4 output words is generated
+    // from the 3 preceding state/key words already just computed, substituted through the S-box,
+    // then run through one of SM4's two linear transforms (L for rounds, L' for key expansion).
+
+    // SM4 S-box applied independently to each of the 4 bytes of a word, position-preserving
+    // (spec Appendix C sm4_subword) — reuses the already-validated Sm4Sbox table from the scalar
+    // sm4ed/sm4ks instructions (Rv32Executor.Crypto.cs).
+    private static uint Sm4SubwordFull(uint x) {
+        uint result = 0;
+        for (var i = 0; i < 4; i++) result |= (uint)Sm4Sbox[(byte)(x >> (i * 8))] << (i * 8);
+        return result;
+    }
+
+    // SM4 linear transform L (spec Appendix C sm4_round), used by vsm4r's round function.
+    private static uint Sm4RoundWord(uint x, uint s) =>
+        x ^ s ^ BitOperations.RotateLeft(s, 2) ^ BitOperations.RotateLeft(s, 10)
+          ^ BitOperations.RotateLeft(s, 18) ^ BitOperations.RotateLeft(s, 24);
+
+    // SM4 linear transform L' (spec Appendix C round_key), used by vsm4k's key expansion.
+    private static uint Sm4KeyScheduleWord(uint x, uint s) =>
+        x ^ s ^ BitOperations.RotateLeft(s, 13) ^ BitOperations.RotateLeft(s, 23);
+
+    // SM4 system constant table CK (spec §3.25 Table 1 / Appendix C), indexed 0-31.
+    private static readonly uint[] Sm4Ck = [
+        0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269,
+        0x70777E85, 0x8C939AA1, 0xA8AFB6BD, 0xC4CBD2D9,
+        0xE0E7EEF5, 0xFC030A11, 0x181F262D, 0x343B4249,
+        0x50575E65, 0x6C737A81, 0x888F969D, 0xA4ABB2B9,
+        0xC0C7CED5, 0xDCE3EAF1, 0xF8FF060D, 0x141B2229,
+        0x30373E45, 0x4C535A61, 0x686F767D, 0x848B9299,
+        0xA0A7AEB5, 0xBCC3CAD1, 0xD8DFE6ED, 0xF4FB0209,
+        0x10171E25, 0x2C333A41, 0x484F565D, 0x646B7279,
+    ];
+
+    private static ExecuteResult ExecuteSm4R(IArchState state, ulong pc, int vd, int vs2, bool scalar) {
+        const int egw = 128;
+        const int egs = 4;
+        const int requiredSew = 32;
+
+        ExecuteResult? trap = CheckElementGroupConstraints(state, pc, egw, egs, requiredSew);
+        if (trap != null) return trap;
+
+        // Reserved encoding (.vs form only): vd's LMUL register group must not overlap the
+        // single vs2 scalar-element-group register (spec §3.26, "Reserved Encodings").
+        if (scalar && vs2 >= vd && vs2 < vd + VGetLmulInt(state))
+            return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+
+        (uint vl, _) = VGetVlEw(state);
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        var egStart = (int)(vstart / egs);
+        var egLen = (int)(vl / egs);
+
+        byte[]? scalarKeys = scalar ? ReadElementGroup(state, vs2, 0, egw) : null;
+        var groups = new (int Index, byte[] Value)[egLen - egStart];
+        for (int i = egStart; i < egLen; i++) {
+            byte[] keys = scalarKeys ?? ReadElementGroup(state, vs2, i, egw);
+            byte[] xstate = ReadElementGroup(state, vd, i, egw);
+
+            uint rk0 = ElementGroupGetWord(keys, 0);
+            uint rk1 = ElementGroupGetWord(keys, 1);
+            uint rk2 = ElementGroupGetWord(keys, 2);
+            uint rk3 = ElementGroupGetWord(keys, 3);
+            uint x0 = ElementGroupGetWord(xstate, 0);
+            uint x1 = ElementGroupGetWord(xstate, 1);
+            uint x2 = ElementGroupGetWord(xstate, 2);
+            uint x3 = ElementGroupGetWord(xstate, 3);
+
+            uint x4 = Sm4RoundWord(x0, Sm4SubwordFull(x1 ^ x2 ^ x3 ^ rk0));
+            uint x5 = Sm4RoundWord(x1, Sm4SubwordFull(x2 ^ x3 ^ x4 ^ rk1));
+            uint x6 = Sm4RoundWord(x2, Sm4SubwordFull(x3 ^ x4 ^ x5 ^ rk2));
+            uint x7 = Sm4RoundWord(x3, Sm4SubwordFull(x4 ^ x5 ^ x6 ^ rk3));
+
+            var next = new byte[16];
+            ElementGroupSetWord(next, 0, x4);
+            ElementGroupSetWord(next, 1, x5);
+            ElementGroupSetWord(next, 2, x6);
+            ElementGroupSetWord(next, 3, x7);
+            groups[i - egStart] = (i, next);
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                var s32 = (Rv32ArchState)s;
+                foreach ((int index, byte[] value) in groups) WriteElementGroup(s32, vd, index, egw, value);
+            },
+        };
+    }
+
+    private static ExecuteResult ExecuteSm4K(IArchState state, ulong pc, int vd, int vs2, int uimm) {
+        const int egw = 128;
+        const int egs = 4;
+        const int requiredSew = 32;
+
+        ExecuteResult? trap = CheckElementGroupConstraints(state, pc, egw, egs, requiredSew);
+        if (trap != null) return trap;
+
+        int rnd = uimm & 0x7; // uimm[2:0]; uimm[4:3] ignored (spec §3.25)
+
+        (uint vl, _) = VGetVlEw(state);
+        uint vstart = VState(state).CsrFile.DirectRead(CsrFile.Vstart);
+        var egStart = (int)(vstart / egs);
+        var egLen = (int)(vl / egs);
+
+        var groups = new (int Index, byte[] Value)[egLen - egStart];
+        for (int i = egStart; i < egLen; i++) {
+            byte[] currentKeys = ReadElementGroup(state, vs2, i, egw);
+            uint rk0 = ElementGroupGetWord(currentKeys, 0);
+            uint rk1 = ElementGroupGetWord(currentKeys, 1);
+            uint rk2 = ElementGroupGetWord(currentKeys, 2);
+            uint rk3 = ElementGroupGetWord(currentKeys, 3);
+
+            uint rk4 = Sm4KeyScheduleWord(rk0, Sm4SubwordFull(rk1 ^ rk2 ^ rk3 ^ Sm4Ck[4 * rnd]));
+            uint rk5 = Sm4KeyScheduleWord(rk1, Sm4SubwordFull(rk2 ^ rk3 ^ rk4 ^ Sm4Ck[4 * rnd + 1]));
+            uint rk6 = Sm4KeyScheduleWord(rk2, Sm4SubwordFull(rk3 ^ rk4 ^ rk5 ^ Sm4Ck[4 * rnd + 2]));
+            uint rk7 = Sm4KeyScheduleWord(rk3, Sm4SubwordFull(rk4 ^ rk5 ^ rk6 ^ Sm4Ck[4 * rnd + 3]));
+
+            var next = new byte[16];
+            ElementGroupSetWord(next, 0, rk4);
+            ElementGroupSetWord(next, 1, rk5);
+            ElementGroupSetWord(next, 2, rk6);
+            ElementGroupSetWord(next, 3, rk7);
+            groups[i - egStart] = (i, next);
+        }
+
+        return new ExecuteResult {
+            SideEffect = s => {
+                var s32 = (Rv32ArchState)s;
+                foreach ((int index, byte[] value) in groups) WriteElementGroup(s32, vd, index, egw, value);
+            },
+        };
     }
 }

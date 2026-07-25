@@ -32,3 +32,19 @@ public record RvVaesKf1Vi(int Vd, int Vs2, int Round) : RvOp;
 // (one element group back), vd holds the previous round key (two element groups back) as input
 // and receives the next round key as output. Round holds the raw uimm[4:0] (§3.6 projection).
 public record RvVaesKf2Vi(int Vd, int Vs2, int Round) : RvOp;
+
+// ── Zvksed extension (Vector SM4 Block Cipher) — same opcode space/EGW=128/EGS=4/EEW=32 shape ──
+
+// vsm4r.vv: four rounds of SM4 encryption/decryption (identical operation either way — only the
+// round-key order supplied by software differs). vd is both the current-state source and the
+// next-state destination; the round keys come from the element group in vs2 matching vd's index.
+public record RvSm4RVv(int Vd, int Vs2) : RvOp;
+
+// vsm4r.vs: same round transform as the .vv form, but vs2 is a single scalar element group
+// broadcast as the round keys for every vd group. Reserved encoding: vd's LMUL register group
+// must not overlap vs2.
+public record RvSm4RVs(int Vd, int Vs2) : RvOp;
+
+// vsm4k.vi: four rounds of the SM4 key expansion, generating round keys rK[4*rnd..4*rnd+3] from
+// vs2's rK[0:3] (pure output to vd). Round holds the raw uimm[4:0] (bits[4:3] ignored per §3.25).
+public record RvSm4KVi(int Vd, int Vs2, int Round) : RvOp;

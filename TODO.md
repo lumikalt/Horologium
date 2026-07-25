@@ -75,11 +75,25 @@ off here until a periodic cleanup removes them; the durable record is git histor
   just the per-instruction from-scratch reference. `FiveStageTrain` explicitly rejects
   element-group vector ops (its decode-time hazard list can't express a runtime-LMUL-sized
   register span); `OooTrain` needs no changes, since head-serialization of `ToothClass.Vector`
-  already covers it. Deferred follow-ups: the other Zvk* families (Zvknha/Zvknhb SHA-2, Zvksed SM4,
-  Zvksh SM3, Zvkg GHASH/GMAC, Zvbb/Zvbc/Zvkb vector bitmanip) — none implemented yet. EGW=256
-  (SHA-512/SM3) would need a second element-group infrastructure pass (2 physical registers per
-  group instead of 1). `FiveStageTrain` gaining runtime-LMUL-aware vector hazard tracking (rather
-  than rejecting) is also deferred.
+  already covers it.
+- [x] Zvksed extension (SM4 block cipher): round function `vsm4r.vv/.vs` and key expansion
+  `vsm4k.vi`, reusing the Zvkned element-group infrastructure unchanged (same EGW=128/EGS=4/SEW=32
+  shape, same opcode space). Validated against GB/T 32907-2016 Example 1 (key==plaintext,
+  transcribed via `draft-ribose-cfrg-sm4`) — key expansion, and both encrypt and decrypt directions
+  of the round function (identical operation, reverse round-key order). SM4's own "reverse
+  transformation R" (final word-order swap) is not part of `vsm4r`/`vsm4k` themselves and is
+  applied in the test, not production, matching the spec. Found and fixed a real bug surfaced by
+  this KAT: `ElementGroupGetWord`/`ElementGroupSetWord` (shared word-packing helpers) originally
+  packed bytes LSB-first, which is transparent to AES's key schedule (only ever rotates by a whole
+  byte) but silently wrong for SM4's non-byte-aligned rotations (2/10/13/18/23 bits) — fixed to
+  natural big-endian packing, with AES's `vaeskf1.vi`/`vaeskf2.vi` updated to match (rotate
+  direction flipped, `AesRcon` shifted into the high byte at the point of use). Root-caused via a
+  throwaway `dotnet fsi` script implementing the cipher independently (no python/node in the nix
+  devshell), rather than iterating on the hypothesis via the full test suite.
+  Deferred follow-ups: the other Zvk* families (Zvknha/Zvknhb SHA-2, Zvksh SM3, Zvkg GHASH/GMAC,
+  Zvbb/Zvbc/Zvkb vector bitmanip) — none implemented yet. EGW=256 (SHA-512/SM3) would need a second
+  element-group infrastructure pass (2 physical registers per group instead of 1). `FiveStageTrain`
+  gaining runtime-LMUL-aware vector hazard tracking (rather than rejecting) is also deferred.
 
 ## Analysis
 

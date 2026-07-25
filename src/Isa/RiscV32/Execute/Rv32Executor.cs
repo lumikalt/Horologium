@@ -806,6 +806,11 @@ public partial class Rv32Executor : IExecutor {
             RvVaesKf1Vi (var vd, var vs2, var round) => ExecuteVAesKf1(state, pc, vd, vs2, round),
             RvVaesKf2Vi (var vd, var vs2, var round) => ExecuteVAesKf2(state, pc, vd, vs2, round),
 
+            // ── Zvksed: SM4 round/key-schedule instructions ─────────────────────────────────
+            RvSm4RVv (var vd, var vs2) => ExecuteSm4R(state, pc, vd, vs2, false),
+            RvSm4RVs (var vd, var vs2) => ExecuteSm4R(state, pc, vd, vs2, true),
+            RvSm4KVi (var vd, var vs2, var round) => ExecuteSm4K(state, pc, vd, vs2, round),
+
             RvVMulVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVMul(
                     state, op2, vd, vs2, masked,

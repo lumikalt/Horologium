@@ -79,6 +79,10 @@ public class ZvkTests {
     private static uint VaesKf1Vi(int vd, int vs2, int round) => VopMvv(0x22, vd, vs2, round);
     private static uint VaesKf2Vi(int vd, int vs2, int round) => VopMvv(0x2A, vd, vs2, round);
 
+    private static uint Sm4RVv(int vd, int vs2) => VopMvv(0x28, vd, vs2, 16);
+    private static uint Sm4RVs(int vd, int vs2) => VopMvv(0x29, vd, vs2, 16);
+    private static uint Sm4KVi(int vd, int vs2, int round) => VopMvv(0x21, vd, vs2, round);
+
     // ── Harness ─────────────────────────────────────────────────────────────────────────────
 
     private static Rv32ArchState MakeState() => new();
@@ -648,5 +652,120 @@ public class ZvkTests {
         ApplySideEffect(Exec(VaesKf2Vi(9, 16, inRange), s), s);
 
         Assert.Equal(ReadBlock(s, 9), ReadBlock(s, 8));
+    }
+
+    // ── Zvksed: SM4 block cipher, validated against GB/T 32907-2016 Example 1 (the standard
+    // "key==plaintext" SM4 known-answer test, via draft-ribose-cfrg-sm4's transcription of the
+    // published round-key/round-state trace) — key expansion (vsm4k.vi) and both encrypt and
+    // decrypt directions of the round function (vsm4r.vv), which are identical except for the
+    // order round keys are consumed in.
+    //
+    // SM4 applies a final "reverse transformation R" (swap word0<->word3, word1<->word2) that is
+    // NOT part of vsm4r.vv/vsm4k.vi themselves — confirmed empirically via a throwaway `dotnet fsi`
+    // script implementing the algorithm independently, since guessing the input/output word-order
+    // convention by hand (rather than testing it) proved unreliable. Encryption's current state
+    // starts as the plaintext directly (no pre-reversal) and needs R applied to the final result;
+    // decryption is exactly symmetric (ciphertext directly as the starting state, R applied to the
+    // final result) with round-key groups consumed in reverse group order *and* reverse word order
+    // within each group (the last group's words are consumed key-by-key from its own end backwards).
+
+    private static readonly byte[] Sm4Fk = Convert.FromHexString("A3B1BAC656AA3350677D9197B27022DC");
+    private static readonly byte[] Sm4Key = Convert.FromHexString("0123456789ABCDEFFEDCBA9876543210");
+    private static readonly byte[] Sm4Ciphertext = Convert.FromHexString("681EDF34D206965E86B3E94F536E4246");
+
+    private static readonly byte[][] Sm4RoundKeyGroups = [
+        Convert.FromHexString("F12186F941662B615A6AB19A7BA92077"), // rk[0:3]
+        Convert.FromHexString("367360F4776A0C61B6BB89B324763151"), // rk[4:7]
+        Convert.FromHexString("A520307CB7584DBDC30753ED7EE55B57"), // rk[8:11]
+        Convert.FromHexString("6988608C30D895B744BA14AF104495A1"), // rk[12:15]
+        Convert.FromHexString("D120B42873B55FA3CC87496692244439"), // rk[16:19]
+        Convert.FromHexString("E89E641F98CA015AC715906099E1FD2E"), // rk[20:23]
+        Convert.FromHexString("B79BD80C1D2115B00E228AEBF1780C81"), // rk[24:27]
+        Convert.FromHexString("428D36546229349601CF72E59124A012"), // rk[28:31]
+    ];
+
+    private static byte[] ReverseWordOrder(byte[] block16) {
+        var result = new byte[16];
+        for (var w = 0; w < 4; w++) Array.Copy(block16, w * 4, result, (3 - w) * 4, 4);
+        return result;
+    }
+
+    [Fact]
+    public void Sm4KVi_ChainedGroups_MatchGbt32907KeyExpansion() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
+        WriteBlock(s, 8, Xor16(ZvkTests.Sm4Key, ZvkTests.Sm4Fk));
+
+        for (var rnd = 0; rnd <= 7; rnd++) {
+            ApplySideEffect(Exec(Sm4KVi(8, 8, rnd), s), s);
+            Assert.Equal(ZvkTests.Sm4RoundKeyGroups[rnd], ReadBlock(s, 8));
+        }
+    }
+
+    [Fact]
+    public void Sm4RVv_ChainedGroups_EncryptsGbt32907Example1() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
+        WriteBlock(s, 8, ZvkTests.Sm4Key); // plaintext == key in this example
+
+        for (var g = 0; g < 8; g++) {
+            WriteBlock(s, 12, ZvkTests.Sm4RoundKeyGroups[g]);
+            ApplySideEffect(Exec(Sm4RVv(8, 12), s), s);
+        }
+
+        Assert.Equal(ZvkTests.Sm4Ciphertext, ReverseWordOrder(ReadBlock(s, 8)));
+    }
+
+    [Fact]
+    public void Sm4RVv_ChainedGroups_DecryptsGbt32907Example1() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
+        WriteBlock(s, 8, ZvkTests.Sm4Ciphertext); // symmetric with encryption: no pre-reversal
+
+        for (var g = 7; g >= 0; g--) {
+            WriteBlock(s, 12, ReverseWordOrder(ZvkTests.Sm4RoundKeyGroups[g]));
+            ApplySideEffect(Exec(Sm4RVv(8, 12), s), s);
+        }
+
+        Assert.Equal(ZvkTests.Sm4Key, ReverseWordOrder(ReadBlock(s, 8))); // == plaintext here
+    }
+
+    [Fact]
+    public void Sm4RVs_Lmul4_BroadcastsSingleKeyGroupToEveryStateGroup() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 16, ZvkTests.VtypeiE32M4Tama);
+
+        byte[] keys = ZvkTests.Sm4RoundKeyGroups[0];
+        WriteBlock(s, 16, keys);
+        var states = new byte[4][];
+        for (var g = 0; g < 4; g++) {
+            states[g] = Block((uint)(2000 + g));
+            WriteBlock(s, 8 + g, states[g]);
+        }
+
+        ApplySideEffect(Exec(Sm4RVs(8, 16), s), s);
+        byte[][] vsResults = [ReadBlock(s, 8), ReadBlock(s, 9), ReadBlock(s, 10), ReadBlock(s, 11),];
+
+        // Cross-check against the .vv form applied independently per group with the same
+        // broadcast key group in vs2 — isolates the .vs addressing-mode logic (the single
+        // scalarKeys read reused across every group) from the round math itself, already
+        // validated by the KATs above.
+        for (var g = 0; g < 4; g++) {
+            Rv32ArchState vvState = MakeState();
+            Vsetivli(vvState, 4, ZvkTests.VtypeiE32M1Tama);
+            WriteBlock(vvState, 8, states[g]);
+            WriteBlock(vvState, 12, keys);
+            ApplySideEffect(Exec(Sm4RVv(8, 12), vvState), vvState);
+            Assert.Equal(ReadBlock(vvState, 8), vsResults[g]);
+        }
+    }
+
+    [Fact]
+    public void Sm4RVs_VdOverlapsVs2_Traps() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 16, ZvkTests.VtypeiE32M4Tama);
+        ExecuteResult r = Exec(Sm4RVs(8, 10), s); // vs2=10 inside vd's [8,11] LMUL=4 group
+        Assert.True(r.HasTrap);
+        Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
     }
 }

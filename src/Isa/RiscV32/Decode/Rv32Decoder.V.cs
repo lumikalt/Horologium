@@ -887,10 +887,11 @@ public partial class Rv32Decoder {
     // (riscv64-none-elf-as/objdump) round-trip showed 0x77 rather than the assumed 0x57.
     //
     // Zvkned opcode-space layout: funct6=0x28 is the .vv form of the four AES round ops
-    // (vs1 sub-selects 0=vaesdm, 1=vaesdf, 2=vaesem, 3=vaesef); funct6=0x29 is the matching .vs
-    // form of those same four (same vs1 sub-selector) plus vaesz.vs at vs1=7; funct6=0x22 is
-    // vaeskf1.vi and funct6=0x2A is vaeskf2.vi (both repurpose the vs1 field as a 5-bit uimm).
-    // Every other Zvk* family (Zvknha/Zvknhb SHA-2, Zvksed SM4, Zvksh SM3, Zvkg GHASH/GMAC,
+    // (vs1 sub-selects 0=vaesdm, 1=vaesdf, 2=vaesem, 3=vaesef) plus vsm4r.vv (Zvksed) at vs1=16;
+    // funct6=0x29 is the matching .vs form of those same four (same vs1 sub-selector) plus
+    // vaesz.vs at vs1=7 and vsm4r.vs at vs1=16; funct6=0x22 is vaeskf1.vi, funct6=0x2A is
+    // vaeskf2.vi, and funct6=0x21 is Zvksed's vsm4k.vi (all three repurpose the vs1 field as a
+    // 5-bit uimm). Every other Zvk* family (Zvknha/Zvknhb SHA-2, Zvksh SM3, Zvkg GHASH/GMAC,
     // Zvbb/Zvbc/Zvkb vector bitmanip) is deferred.
     private static RvInstruction DecodeVCryptoOp(ulong pc, uint raw) {
         var vd = (int)((raw >> 7) & 0x1F);
@@ -918,9 +919,12 @@ public partial class Rv32Decoder {
         };
 
         RvOp op = funct6 switch {
+            0x28 when vs1 == 16 => new RvSm4RVv(vd, vs2),
             0x28 => new RvVaesRoundVv(RoundKind(raw, vs1), vd, vs2),
             0x29 when vs1 == 7 => new RvVaesZVs(vd, vs2),
+            0x29 when vs1 == 16 => new RvSm4RVs(vd, vs2),
             0x29 => new RvVaesRoundVs(RoundKind(raw, vs1), vd, vs2),
+            0x21 => new RvSm4KVi(vd, vs2, vs1),
             0x22 => new RvVaesKf1Vi(vd, vs2, vs1),
             0x2A => new RvVaesKf2Vi(vd, vs2, vs1),
             _ => throw new IllegalInstructionException(
