@@ -797,15 +797,14 @@ public partial class Rv32Executor : IExecutor {
             RvVMvNr (var n, var vd, var vs2) =>
                 ExecuteVMvNr(state, n, vd, vs2),
 
-            // ── Zvkned: AES round instructions ──────────────────────────────────────
-            RvVaesEmVv (var vd, var vs2) => ExecuteVAesRoundVv(
-                state, pc, vd, vs2,
-                s => AesMixColumnsFwdBlock(AesShiftRowsFwdBlock(AesSubBytesFwdBlock(s)))
-            ),
-            RvVaesEfVv (var vd, var vs2) => ExecuteVAesRoundVv(
-                state, pc, vd, vs2,
-                s => AesShiftRowsFwdBlock(AesSubBytesFwdBlock(s))
-            ),
+            // ── Zvkned: AES round/round-zero/key-schedule instructions ─────────────────────
+            RvVaesRoundVv (var kind, var vd, var vs2) =>
+                ExecuteVAesRound(state, pc, vd, vs2, false, kind),
+            RvVaesRoundVs (var kind, var vd, var vs2) =>
+                ExecuteVAesRound(state, pc, vd, vs2, true, kind),
+            RvVaesZVs (var vd, var vs2) => ExecuteVAesZ(state, pc, vd, vs2),
+            RvVaesKf1Vi (var vd, var vs2, var round) => ExecuteVAesKf1(state, pc, vd, vs2, round),
+            RvVaesKf2Vi (var vd, var vs2, var round) => ExecuteVAesKf2(state, pc, vd, vs2, round),
 
             RvVMulVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVMul(

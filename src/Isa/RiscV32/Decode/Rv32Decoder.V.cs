@@ -884,10 +884,14 @@ public partial class Rv32Decoder {
     // encoding (vd/vs1/vs2/funct6/funct3 fields in the same positions) — they live under their
     // own dedicated major opcode 0x77. Confirmed against the authoritative riscv-opcodes project
     // (extensions/rv_zvkned), not just the spec-text extraction, after a real-toolchain
-    // (riscv64-none-elf-as/objdump) round-trip showed 0x77 rather than the assumed 0x57) are
-    // implemented so far; every other encoding in this opcode space
-    // (vaesdm/vaesdf/vaesz/vaeskf1/vaeskf2, the .vs forms, and the other Zvk*
-    // families) is deferred.
+    // (riscv64-none-elf-as/objdump) round-trip showed 0x77 rather than the assumed 0x57.
+    //
+    // Zvkned opcode-space layout: funct6=0x28 is the .vv form of the four AES round ops
+    // (vs1 sub-selects 0=vaesdm, 1=vaesdf, 2=vaesem, 3=vaesef); funct6=0x29 is the matching .vs
+    // form of those same four (same vs1 sub-selector) plus vaesz.vs at vs1=7; funct6=0x22 is
+    // vaeskf1.vi and funct6=0x2A is vaeskf2.vi (both repurpose the vs1 field as a 5-bit uimm).
+    // Every other Zvk* family (Zvknha/Zvknhb SHA-2, Zvksed SM4, Zvksh SM3, Zvkg GHASH/GMAC,
+    // Zvbb/Zvbc/Zvkb vector bitmanip) is deferred.
     private static RvInstruction DecodeVCryptoOp(ulong pc, uint raw) {
         var vd = (int)((raw >> 7) & 0x1F);
         uint funct3 = (raw >> 12) & 0x7;
@@ -896,24 +900,35 @@ public partial class Rv32Decoder {
         uint vm = (raw >> 25) & 0x1;
         uint funct6 = (raw >> 26) & 0x3F;
 
-        // vaesem.vv/vaesef.vv hardcode bit 25 to 1 (riscv-opcodes: "25=1") — there is no masked
-        // form of these instructions, so vm=0 is a reserved/illegal encoding, not "masked AES".
+        // Every Zvkned encoding hardcodes bit 25 to 1 (riscv-opcodes: "25=1") — there is no
+        // masked form of these instructions, so vm=0 is a reserved/illegal encoding.
         if (vm != 1) throw new IllegalInstructionException(raw, "V-crypto op (opcode 0x77): vm=0 is reserved");
 
-        if (funct3 == 2 && funct6 == 0x28) {
-            RvOp aesOp = vs1 switch {
-                2 => new RvVaesEmVv(vd, vs2),
-                3 => new RvVaesEfVv(vd, vs2),
-                _ => throw new IllegalInstructionException(
-                    raw, $"V Zvkned vaes*.vv: unsupported/reserved vs1=0x{vs1:X}"
-                ),
-            };
-            return new RvInstruction(pc, raw, -1, [], ToothClass.Vector, aesOp);
-        }
+        if (funct3 != 2)
+            throw new IllegalInstructionException(raw, $"V-crypto op (opcode 0x77): unsupported funct3=0x{funct3:X}");
 
-        throw new IllegalInstructionException(
-            raw, $"V-crypto op (opcode 0x77): unsupported funct3=0x{funct3:X} funct6=0x{funct6:X2}"
-        );
+        static VAesRoundKind RoundKind(uint raw, int vs1) => vs1 switch {
+            0 => VAesRoundKind.DecryptMiddle,
+            1 => VAesRoundKind.DecryptFinal,
+            2 => VAesRoundKind.EncryptMiddle,
+            3 => VAesRoundKind.EncryptFinal,
+            _ => throw new IllegalInstructionException(
+                raw, $"V Zvkned vaes*.[vv,vs]: unsupported/reserved vs1=0x{vs1:X}"
+            ),
+        };
+
+        RvOp op = funct6 switch {
+            0x28 => new RvVaesRoundVv(RoundKind(raw, vs1), vd, vs2),
+            0x29 when vs1 == 7 => new RvVaesZVs(vd, vs2),
+            0x29 => new RvVaesRoundVs(RoundKind(raw, vs1), vd, vs2),
+            0x22 => new RvVaesKf1Vi(vd, vs2, vs1),
+            0x2A => new RvVaesKf2Vi(vd, vs2, vs1),
+            _ => throw new IllegalInstructionException(
+                raw, $"V-crypto op (opcode 0x77): unsupported funct6=0x{funct6:X2}"
+            ),
+        };
+
+        return new RvInstruction(pc, raw, -1, [], ToothClass.Vector, op);
     }
 
     // OPCFG: vsetvli / vsetivli / vsetvl.

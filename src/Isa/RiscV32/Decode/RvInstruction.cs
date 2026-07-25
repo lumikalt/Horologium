@@ -106,8 +106,11 @@ public sealed class RvInstruction(
         RvVFpWideRedVs op   => op.Vd,
         RvVlssegVv op       => op.Vd,
         RvVlxsegVv op       => op.Vd,
-        RvVaesEmVv op       => op.Vd,
-        RvVaesEfVv op       => op.Vd,
+        RvVaesRoundVv op    => op.Vd,
+        RvVaesRoundVs op    => op.Vd,
+        RvVaesZVs op        => op.Vd,
+        RvVaesKf1Vi op      => op.Vd,
+        RvVaesKf2Vi op      => op.Vd,
         // RvVcpop/RvVfirst write integer rd, not a vector register → -1
         _ => -1,
     };
@@ -116,7 +119,8 @@ public sealed class RvInstruction(
     // registers, one per element group) depends on runtime vtype/LMUL and so can't be captured
     // by VectorDestinationRegister/VectorSourceRegisters at decode time. See
     // ITooth.HasRuntimeSizedVectorDestination.
-    public bool HasRuntimeSizedVectorDestination { get; } = payload is RvVaesEmVv or RvVaesEfVv;
+    public bool HasRuntimeSizedVectorDestination { get; } =
+        payload is RvVaesRoundVv or RvVaesRoundVs or RvVaesZVs or RvVaesKf1Vi or RvVaesKf2Vi;
 
     // RV32 amocas.d (Zacas) holds its 64-bit result in a register pair: Rd gets the
     // low word (via the normal DestinationRegister/RegisterResult path), Rd+1 gets the
@@ -307,10 +311,15 @@ public sealed class RvInstruction(
         RvVFpRedVs op  => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
         // vd is accumulator source for integer MAC; vmerge always reads v0 mask
         RvVIntMacVv op => op.Masked ? [op.Vd, op.Vs2, op.Vs1, 0,] : [op.Vd, op.Vs2, op.Vs1,],
-        // vd is the round-state source (read-modify-write) for AES round instructions; unmasked
-        // always (vm bit is hardcoded to 1 in the encoding — no v0 mask source).
-        RvVaesEmVv op   => [op.Vd, op.Vs2,],
-        RvVaesEfVv op   => [op.Vd, op.Vs2,],
+        // vd is the round-state source (read-modify-write) for AES round/round-zero instructions;
+        // unmasked always (vm bit is hardcoded to 1 in the encoding — no v0 mask source).
+        RvVaesRoundVv op => [op.Vd, op.Vs2,],
+        RvVaesRoundVs op => [op.Vd, op.Vs2,],
+        RvVaesZVs op     => [op.Vd, op.Vs2,],
+        // vaeskf1.vi's vd is pure output (next round key); vaeskf2.vi's vd is also the previous
+        // round key input (read-modify-write), per spec §3.5/§3.6.
+        RvVaesKf1Vi op   => [op.Vs2,],
+        RvVaesKf2Vi op   => [op.Vd, op.Vs2,],
         RvVIntMacVx op  => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
         RvVMvSx         => [],
         RvVMergeVv op   => [op.Vs2, op.Vs1, 0,],
