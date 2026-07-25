@@ -205,7 +205,7 @@ public class ExperimentMulticoreTests {
         // The independent correctness signal, not just "stats exist": both harts' coherent
         // caches are write-back, so without RunMulticore flushing dirty lines to backing before
         // returning, the final counter can read stale (a real bug this exact configuration hit —
-        // see the MulticoreSpec.Build history in TODO.md).
+        // see the MulticoreSpec.Build history).
         long counter = result.Runs[0].Result.Find("multicore.demo")!.Counters["shared_counter"];
         Assert.Equal(ExperimentMulticoreTests.IterationsPerHart * 2, counter);
     }

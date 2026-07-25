@@ -142,7 +142,7 @@ public class InitialStackTests {
 
     [Fact]
     public void LinuxSyscallEmulator_InjectedStdin_EchoedBackThroughSysReadSysWrite_UnderOooeTrain() {
-        // Regression for the TODO.md-documented register-delivery gap: ECALL's return value
+        // Regression for the register-delivery gap: ECALL's return value
         // was delivered only via ExecuteResult.SideEffect applied at Commit, never through the
         // PRF/rename, so `mv a2, a0` (SYS_write's count, depending on SYS_read's return value)
         // could rename to a0's pre-ECALL physical register and read a stale/never-written slot
@@ -173,7 +173,7 @@ public class InitialStackTests {
 
     [Fact]
     public void SyscallMemoryWrite_OrdersBeforeYoungerLoad_UnderOooeTrain() {
-        // Regression for the TODO.md-documented memory-ordering hazard: a younger load could
+        // Regression for the memory-ordering hazard: a younger load could
         // issue and execute before a head-serialized ECALL that writes overlapping memory,
         // reading stale data. HasPrecedingVectorStore (OooTrain.cs) previously only blocked
         // loads behind vector stores; ECALL was never added to that blocking set, even though

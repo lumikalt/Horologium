@@ -115,11 +115,11 @@ public class VectorRunaheadPipelineTests {
     // simultaneous misses in one origin-visit instant) from serial unrolling (misses spread
     // across separate loop-body walks, with TickMshr freeing slots in between).
     private static uint[] WideStrideProgram(int iterations) {
-        uint[] loopBody = new[] {
+        uint[] loopBody = [
             0x0000A203u,    // lw   x4, 0(x1)
             Addi(1, 1, 64), // addi x1, x1, 64
             Addi(2, 2, -1), // addi x2, x2, -1
-        };
+        ];
         int branchOffset = -(loopBody.Length * 4);
         return [
             Addi(1, 0, 0x400), // addi x1, x0, 1024
@@ -223,7 +223,7 @@ public class VectorRunaheadPipelineTests {
     ///     does shrink the chain-active window and measurably recovers part of that self-inflicted
     ///     rename-freeze cost (P=8 &lt; P=1, confirmed monotonic: P=1 2565, P=2 2506, P=4 2492, P=8
     ///     2487) — but never enough to close the gap back to simply not runahead-ing at all. So the
-    ///     TODO's "why does pipelining measure neutral-to-worse" resolves to: it isn't pipelining
+    ///     question "why does pipelining measure neutral-to-worse" resolves to: it isn't pipelining
     ///     specifically, it's Vector Runahead itself being net-negative on ROB-parallelizable
     ///     streaming patterns, with deeper P only modulating how much of that self-inflicted
     ///     damage is recovered, never eliminating it. Also needs generous

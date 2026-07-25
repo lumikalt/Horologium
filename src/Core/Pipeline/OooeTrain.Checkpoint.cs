@@ -6,14 +6,14 @@ using Mechanism;
 
 namespace Pipeline;
 
-// ── Microarchitectural checkpointing (TODO.md Analysis: Option B) ──────────────
+// ── Microarchitectural checkpointing  ──────────────
 //
 // A microcheckpoint is only valid at a *drained* boundary — no in-flight instructions
 // anywhere in the pipeline. At that boundary the ROB/issue queues/load-store queues/
 // decode-rename latches/exec-CDB buffers/in-flight-MSHR-wait list are all empty by
 // construction, so the only state worth carrying across a checkpoint is the trained
 // steady-state tables: caches, TLBs, the branch predictor, and the RAS. See
-// MicroarchitecturalCheckpoint's doc comment and TODO.md/README.md for the rationale.
+// MicroarchitecturalCheckpoint's doc comment and README.md for the rationale.
 
 public sealed partial class OooTrain {
     /// <summary>

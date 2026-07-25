@@ -327,7 +327,7 @@ public class ExperimentTests {
     ///     paths inside <see cref="Experiment.RunOne" /> (<c>mechanism is Rv32Mechanism</c> soft
     ///     checks for RTL-unit wrapping and kernel-only-IPC symbol lookup) should degrade gracefully
     ///     rather than break when given a different <see cref="IMechanism" /> implementation. This is
-    ///     the part of Face's RV64-selector support (TODO.md phase 2c-2) that's actually new and
+    ///     the part of Face's RV64-selector support that's actually new and
     ///     unverified elsewhere — the ISA-branching glue in Face's own
     ///     <c>MainWindowViewModel.ResolveWorkload</c>/<c>CreateMechanism</c> is a few lines of
     ///     <c>isa == "rv64" ? ... : ...</c> not covered by a dedicated test, consistent with the rest

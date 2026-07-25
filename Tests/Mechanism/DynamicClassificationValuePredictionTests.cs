@@ -163,7 +163,7 @@ public class DynamicClassificationValuePredictionTests {
     [Fact]
     public void SingleMiss_DoesNotEvict_ButTwoConsecutiveMissesDo() {
         // Regression test for the evict-on-first-miss -> evict-on-N-consecutive-misses tightening
-        // (TODO.md): a lone ordinary misprediction below the threshold must leave classification
+        // a lone ordinary misprediction below the threshold must leave classification
         // intact, so the assigned component can simply recover on its own.
         var p = new DynamicClassificationVp(new VtageVp(), new StrideVp());
         const ulong pc = 0x7000;

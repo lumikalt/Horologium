@@ -386,7 +386,7 @@ public class ValuePredictionTests {
         Assert.True(onCycles < offCycles, $"value prediction did not speed up the loop: {onCycles} >= {offCycles}");
     }
 
-    // ── Widened eligibility (TODO.md: "beyond scalar ALU/load") ─────────────────
+    // ── Widened eligibility ─────────────────
     //
     // Several tests below use LTageBp instead of the default AlwaysNotTakenPredictor.
     // This isn't the usual "branch noise swamps a small measured effect" pitfall documented
@@ -573,7 +573,7 @@ public class ValuePredictionTests {
         Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
     }
 
-    // ── Stride / hybrid predictor (TODO.md: "computational (stride-family) predictor component
+    // ── Stride / hybrid predictor component
     // to hybridize with VTAGE") ──────────────────────────────────────────────────────────────
     //
     // StrideVp (a 2-delta-style confidence FSM, see its own doc comment for provenance)
@@ -706,7 +706,7 @@ public class ValuePredictionTests {
         Assert.True(Counter(onResult, "vp_correct") > 0, "no value prediction ever verified correct");
     }
 
-    // ── Dynamic classification (TODO.md: Rychlik-style hybrid component selection) ──────────────
+    // ── Dynamic classification ──────────────
     //
     // DynamicClassificationVp assigns each PC to at most one component (rather than
     // HybridVp's always-query-both-and-gate-on-agreement), after a short 3-value

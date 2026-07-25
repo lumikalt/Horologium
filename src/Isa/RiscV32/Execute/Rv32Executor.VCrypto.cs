@@ -19,7 +19,7 @@ public partial class Rv32Executor {
     // g occupies exactly RegsPerGroup(egw) consecutive registers starting at
     // `baseVreg + g*RegsPerGroup(egw)` — no sub-register byte offsetting is ever needed here,
     // unlike general (non-crypto) LMUL element addressing, which this codebase does not
-    // implement (see TODO.md).
+    // implement.
 
     private static int RegsPerGroup(int egwBits) => egwBits / VectorRegisterFile.VLen;
 
@@ -79,7 +79,7 @@ public partial class Rv32Executor {
     // EGW=128, EGS=4, EEW=SEW=32 (spec §2.5/§3.3/§3.4). Shared shape across all vaes*.vv round
     // instructions: read the current-state and round-key element groups at the same index
     // (the ".vv" form — round key comes from the matching vs2 group, unlike ".vs" which reuses a
-    // single scalar element group for every state group; deferred, see TODO.md), apply the
+    // single scalar element group for every state group; deferred), apply the
     // instruction-specific round transform, XOR in the round key, write back.
 
     private static ExecuteResult ExecuteVAesRoundVv(

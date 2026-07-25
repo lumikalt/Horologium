@@ -38,7 +38,7 @@ public partial class Rv32Executor {
     // correct for UVE-only consumers (head-serialized, read State directly) and for reads of
     // architectural state after the run, but a *renamed* integer read of rd from a later,
     // ordinary (non-UVE) instruction would still see whatever the RAT already mapped rd to,
-    // not this write. See "so.v.mvvs result visibility" in TODO.md.
+    // not this write. See "so.v.mvvs result visibility".
     private static ExecuteResult ExecuteUveSoVMvvs(IArchState state, int rd, int us1) {
         uint bits = UState(state).UveState.GetLane32(us1, 0);
         return new ExecuteResult {

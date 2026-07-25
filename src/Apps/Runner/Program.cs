@@ -249,7 +249,7 @@ if (benchConfigPath is not null) {
             result = Experiment.RunBenchmark(bench, workload, wordSize, benchMechanismFactory, maxTicks);
         }
         catch (Exception ex) {
-            // A crashing guest (e.g. one that dereferences a failed mmap's negative return, or an
+            // A crashing guest (e.g., one that dereferences a failed mmap's negative return, or an
             // unreadable/malformed ELF) must not abort the rest of the batch — one bad benchmark
             // should show up as a reported failure, not take down every benchmark after it.
             Console.WriteLine($"{bench.Name}: ERROR  ({ex.GetType().Name}: {ex.Message})");
@@ -357,7 +357,7 @@ if (simpointInterval > 0) {
     // profiles internally (it needs the SimPoint result to pick checkpoint targets), so calling
     // ProfileSimPoints here too when --simpoint-warmup is set would profile the workload twice —
     // wasteful at SPEC-scale interval counts, the same cost class the capture-once-per-sweep change
-    // above targets. When --simpoint-warmup is unset there's no capture to reuse, so this is the
+    // above targets. When --simpoint-warmup is unset, there's no capture to reuse, so this is the
     // only profiling pass either way.
     SimPointResult sp;
     long totalInstructions;
@@ -892,7 +892,7 @@ static void PrintUsage() {
           --checkpoint-save-micro <path>  After run completes, drain the pipeline and save a
                                     microarchitectural checkpoint (architectural state plus
                                     trained caches/TLBs/branch-predictor/RAS/OoO-predictor
-                                    tables — see TODO.md/README.md "Option B") to <path>.
+                                    tables — see README.md "Option B") to <path>.
                                     Requires --script and an OoOE pipeline train; skipped
                                     with a warning otherwise. Combinable with
                                     --checkpoint-save (independent files).

@@ -20,7 +20,7 @@ using RiscV32.State;
 namespace Tests.Pipeline;
 
 /// <summary>
-///     Tests for the microarchitectural checkpoint (TODO.md Analysis: Option B) — caches, TLBs,
+///     Tests for the microarchitectural checkpoint — caches, TLBs,
 ///     branch predictor, and RAS, layered on top of the architectural checkpoint (Option A,
 ///     see <see cref="CheckpointTests" />) and only valid at a drained pipeline boundary.
 /// </summary>
@@ -1216,7 +1216,7 @@ public class MicroCheckpointTests {
     // inheritance — those subclasses' own additional tables still cold-start, only the inherited
     // TAGE/loop/history state round-trips). HashedPerceptronBp/TournamentBp above get a
     // history-populated unit round trip only, per the deliberately capped scope here (BP zoo
-    // coverage is representative-per-family, not exhaustive — see TODO.md).
+    // coverage is representative-per-family, not exhaustive).
 
     /// <summary>
     ///     addi x1,x0,0; addi x2,x0,<paramref name="iterations" />; loop: andi x3,x1,1;

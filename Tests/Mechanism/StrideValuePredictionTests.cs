@@ -192,7 +192,7 @@ public class StrideValuePredictionTests {
 
     [Fact]
     public void NonConfidentTryPredict_StillCountsTowardInFlightDepth() {
-        // Regression test for the warmup/post-squash undercount fix (TODO.md): a renamed-but-
+        // Regression test for the warmup/post-squash undercount fix: a renamed-but-
         // uncommitted occurrence of a PC is still "in flight" even when the FSM wasn't Steady yet
         // at the moment it was renamed -- it still owes a matching Update at commit. Scenario: two
         // occurrences (A, B) are renamed back-to-back while the FSM is still warming up (both

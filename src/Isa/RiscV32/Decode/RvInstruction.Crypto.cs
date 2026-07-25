@@ -1,7 +1,7 @@
 namespace RiscV32.Decode;
 
 // RISC-V Cryptography Extensions Volume I: Scalar & Entropy Source Instructions, v1.0.1.
-// RV32 scope only; the RV64-only aes64*/sha512sig0/sig1/sum0/sum1 forms are a follow-up (see TODO.md).
+// RV32 scope only; the RV64-only aes64*/sha512sig0/sig1/sum0/sum1 forms are a follow-up.
 
 // ── Zknd extension (NIST AES decryption, RV32) ────────────────────────────────
 // R-type (opcode=0x33, funct3=0, funct7={bs[1:0],5'b10101}): aes32dsi rd, rs1, rs2, bs

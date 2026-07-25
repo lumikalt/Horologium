@@ -7,7 +7,7 @@ namespace Pipeline.Ooo;
 ///     store that produced its value, gated by a saturating confidence counter so a stale
 ///     one-shot pairing doesn't cause repeated mispredicts.
 ///     <para>
-///         v1 scope (see TODO.md/README.md): path-insensitive (PC only, no history register),
+///         v1 scope (see README.md): path-insensitive (PC only, no history register),
 ///         full-word/zero-offset bypass only — the caller is responsible for checking that the
 ///         predicted producing store's static width matches the load's before trusting a
 ///         prediction, since this predictor only tracks distance/confidence.

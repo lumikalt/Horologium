@@ -884,9 +884,9 @@ public partial class Rv32Decoder {
     // encoding (vd/vs1/vs2/funct6/funct3 fields in the same positions) — they live under their
     // own dedicated major opcode 0x77. Confirmed against the authoritative riscv-opcodes project
     // (extensions/rv_zvkned), not just the spec-text extraction, after a real-toolchain
-    // (riscv64-none-elf-as/objdump) round-trip showed 0x77 rather than the assumed 0x57 — see
-    // TODO.md. Only vaesem.vv/vaesef.vv (Zvkned) are implemented so far; every other encoding in
-    // this opcode space (vaesdm/vaesdf/vaesz/vaeskf1/vaeskf2, the .vs forms, and the other Zvk*
+    // (riscv64-none-elf-as/objdump) round-trip showed 0x77 rather than the assumed 0x57) are
+    // implemented so far; every other encoding in this opcode space
+    // (vaesdm/vaesdf/vaesz/vaeskf1/vaeskf2, the .vs forms, and the other Zvk*
     // families) is deferred.
     private static RvInstruction DecodeVCryptoOp(ulong pc, uint raw) {
         var vd = (int)((raw >> 7) & 0x1F);

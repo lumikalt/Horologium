@@ -62,7 +62,7 @@ public class ZvkTests {
         0xC0000000u | (uint)((vtypei << 20) | (zimm << 15) | (7 << 12) | (rd << 7) | 0x57);
 
     // Vector-crypto opcode (0x77) — NOT the standard OP-V opcode (0x57), despite the field
-    // layout otherwise matching OPMVV. See DecodeVCryptoOp / TODO.md.
+    // layout otherwise matching OPMVV. See DecodeVCryptoOp.
     private static uint VopMvv(int funct6, int vd, int vs2, int vs1) =>
         (uint)(((funct6 & 0x3F) << 26) | (1 << 25) | ((vs2 & 0x1F) << 20)
              | ((vs1 & 0x1F) << 15) | (2 << 12) | ((vd & 0x1F) << 7) | 0x77);

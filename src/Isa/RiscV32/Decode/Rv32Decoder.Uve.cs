@@ -174,7 +174,7 @@ public partial class Rv32Decoder {
                     // fixes that, at the cost of a narrower one: the write now bypasses rename entirely,
                     // so it's visible to head-serialized UVE consumers and to post-run architectural
                     // reads, but NOT to a later renamed integer read of rd (see the comment on
-                    // ExecuteUveSoVMvvs, and "so.v.mvvs result visibility" in TODO.md).
+                    // ExecuteUveSoVMvvs, and "so.v.mvvs result visibility").
                     case 2: return new RvInstruction(pc, raw, -1, [], ToothClass.Uve, new RvUveSoVMvvs(rs1, rd));
                     case 3: {
                         int elemBytes = (int)funct3 switch {
