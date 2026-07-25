@@ -707,6 +707,18 @@ public partial class Rv32Executor : IExecutor {
                 ExecuteVWide(state, op2, vd, vs2, masked, vs2Wide, (i, ew) => VReadElem(state, vs1, i, ew)),
             RvVWideVx (var op2, var vd, var vs2, var rs1, var masked, var vs2Wide) =>
                 ExecuteVWide(state, op2, vd, vs2, masked, vs2Wide, (_, _) => regs.Read(rs1)),
+            RvVWideVi (var op2, var vd, var vs2, var imm, var masked) =>
+                ExecuteVWide(state, op2, vd, vs2, masked, false, (_, _) => (ulong)imm),
+
+            // ── Zvbb/Zvkb: unary bitmanip (vbrev8/vrev8/vbrev/vclz/vctz/vcpop) ───────────────
+            RvVBitmanipUnaryVv (var op2, var vd, var vs2, var masked) =>
+                ExecuteVBitmanipUnary(state, op2, vd, vs2, masked),
+
+            // ── Zvbc: vector carryless multiply (SEW=64 only) ────────────────────────────────
+            RvVClmulVv (var op2, var vd, var vs2, var vs1, var masked) =>
+                ExecuteVClmul(state, pc, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
+            RvVClmulVx (var op2, var vd, var vs2, var rs1, var masked) =>
+                ExecuteVClmul(state, pc, op2, vd, vs2, masked, (_, _) => regs.Read(rs1)),
             RvVwMacVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVwMac(state, op2, vd, vs2, masked, (i, ew) => VReadElem(state, vs1, i, ew)),
             RvVwMacVx (var op2, var vd, var vs2, var rs1, var masked) =>

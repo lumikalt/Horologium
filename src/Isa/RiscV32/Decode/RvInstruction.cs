@@ -120,6 +120,10 @@ public sealed class RvInstruction(
         RvSm3MeVv op        => op.Vd,
         RvVGhshVv op        => op.Vd,
         RvVGmulVv op        => op.Vd,
+        RvVBitmanipUnaryVv op => op.Vd,
+        RvVClmulVv op       => op.Vd,
+        RvVClmulVx op       => op.Vd,
+        RvVWideVi op        => op.Vd,
         // RvVcpop/RvVfirst write integer rd, not a vector register → -1
         _ => -1,
     };
@@ -347,6 +351,10 @@ public sealed class RvInstruction(
         // read-modify-write (multiplier in, product out).
         RvVGhshVv op     => [op.Vd, op.Vs1, op.Vs2,],
         RvVGmulVv op     => [op.Vd, op.Vs2,],
+        RvVBitmanipUnaryVv op => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVClmulVv op         => op.Masked ? [op.Vs2, op.Vs1, 0,] : [op.Vs2, op.Vs1,],
+        RvVClmulVx op         => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
+        RvVWideVi op          => op.Masked ? [op.Vs2, 0,] : [op.Vs2,],
         RvVIntMacVx op  => op.Masked ? [op.Vd, op.Vs2, 0,] : [op.Vd, op.Vs2,],
         RvVMvSx         => [],
         RvVMergeVv op   => [op.Vs2, op.Vs1, 0,],

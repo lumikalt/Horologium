@@ -136,9 +136,32 @@ off here until a periodic cleanup removes them; the durable record is git histor
   raw intermediate `GHASH(H, A, C)` value directly, letting `vghsh.vv` be chained across real
   nonzero AAD/ciphertext/length blocks and checked byte-exact without needing a full AES-CTR
   encryption harness. `vgmul.vv` cross-checked against `vghsh.vv` called with an all-zero vs1.
-  Deferred follow-ups: the remaining Zvk* family (Zvbb/Zvbc/Zvkb vector bitmanip) — not implemented
-  yet. `FiveStageTrain` gaining runtime-LMUL-aware vector hazard tracking (rather than rejecting)
-  is also deferred.
+- [x] Zvbb/Zvbc/Zvkb extensions (vector basic bit-manipulation / carryless multiply): `vandn`,
+  `vrol`/`vror` (`.vv`/`.vx`, plus `.vi` for `vror`), `vwsll` (`.vv`/`.vx`/`.vi`), the VXUNARY0 unary
+  group `vbrev8.v`/`vrev8.v`/`vbrev.v`/`vclz.v`/`vctz.v`/`vcpop.v`, and `vclmul`/`vclmulh`
+  (`.vv`/`.vx`). Architecturally distinct from every earlier Zvk* family: these live on the
+  standard OP-V opcode (0x57), operating per-element (EEW=SEW) like the base V-extension integer
+  ALU/multiply ops, not the dedicated crypto opcode (0x77) with element-group (EGW/EGS/
+  `get_velem`) semantics — so they extend the existing `VIntOp`/`VWideOp` op-family shapes rather
+  than the crypto element-group infrastructure. Zvkb is a proper subset of Zvbb (`vandn`,
+  `vbrev8`, `vrev8`, `vrol`, `vror`) with no encodings of its own, confirmed directly from the
+  spec text, so implementing Zvbb covered it with zero additional code. `vror.vi`'s encoding
+  steals bit 26 (normally the funct6 LSB) as immediate bit 5 — handled by intercepting the raw
+  bit pattern before the generic funct6-based dispatch runs, since the generically-computed
+  funct6 otherwise folds to the same value as `vrol.vv`/`vx`'s real funct6. Uncovered and fixed
+  two latent bugs while adding SEW=64 support (required by `vrol`/`vror`/`vclz`/etc. per spec):
+  `ApplyVIntOp`'s bit-mask computation silently produced 0 at SEW=64 (C#'s ulong-shift-count-
+  mod-64 rule turns `1UL << 64` into `1UL << 0`), invisible until now since every pre-existing
+  `VIntOp` member is carry-safe/low-bit-independent; and `ReadVElement`'s ewBytes==4 path can
+  sign-extend a high-bit-set byte through an `int` cast, invisible to arithmetic ops but corrupting
+  the new bit-magnitude-sensitive ops (`vclz`/`vctz`/`vcpop`/`vbrev*`), fixed with a defensive
+  re-mask at the call site rather than touching the shared read helper. `vclmul`/`vclmulh`
+  validated against hand-derived GF(2)[x] polynomial identities (e.g. `(x²+1)(x+1)=0b1111`,
+  `(x⁶³+1)² = x¹²⁶+1` landing exactly on the 64-bit half boundary) rather than the implementation's
+  own loop. This closes out the entire RISC-V Vector Cryptography Extensions Volume II instruction
+  set.
+  Deferred follow-up: `FiveStageTrain` gaining runtime-LMUL-aware vector hazard tracking (rather
+  than rejecting).
 
 ## Analysis
 

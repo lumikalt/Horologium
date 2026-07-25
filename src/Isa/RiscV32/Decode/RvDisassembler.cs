@@ -210,6 +210,8 @@ public static class RvDisassembler {
             $"{VWideStr(op.Op)}.{(op.Vs2IsWide ? "wv" : "vv")} v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
         RvVWideVx op =>
             $"{VWideStr(op.Op)}.{(op.Vs2IsWide ? "wx" : "vx")} v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
+        // vwsll.vi only (no other widening op has a VI form)
+        RvVWideVi op => $"{VWideStr(op.Op)}.vi v{op.Vd}, v{op.Vs2}, {op.Imm}{MaskSuffix(op.Masked)}",
         RvVNarrVv op => $"{VNarrStr(op.Op)}.wv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
         RvVNarrVx op => $"{VNarrStr(op.Op)}.wx v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
         RvVNarrVi op => $"{VNarrStr(op.Op)}.wi v{op.Vd}, v{op.Vs2}, {op.Imm}{MaskSuffix(op.Masked)}",
@@ -282,6 +284,11 @@ public static class RvDisassembler {
         RvVFpWCvt op   => $"{VFpWCvtStr(op.Op)} v{op.Vd}, v{op.Vs2}{MaskSuffix(op.Masked)}",
         RvVFpNCvt op   => $"{VFpNCvtStr(op.Op)} v{op.Vd}, v{op.Vs2}{MaskSuffix(op.Masked)}",
 
+        // Zvbb/Zvkb/Zvbc
+        RvVBitmanipUnaryVv op => $"{VBitmanipUnaryStr(op.Op)}.v v{op.Vd}, v{op.Vs2}{MaskSuffix(op.Masked)}",
+        RvVClmulVv op => $"{VClmulStr(op.Op)}.vv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
+        RvVClmulVx op => $"{VClmulStr(op.Op)}.vx v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
+
         null => "???",
         _    => payload.GetType().Name,
     };
@@ -294,6 +301,7 @@ public static class RvDisassembler {
         VIntOp.Sll  => "vsll", VIntOp.Srl  => "vsrl", VIntOp.Sra  => "vsra",
         VIntOp.Minu => "vminu", VIntOp.Min => "vmin",
         VIntOp.Maxu => "vmaxu", VIntOp.Max => "vmax",
+        VIntOp.Andn => "vandn", VIntOp.Rol  => "vrol", VIntOp.Ror => "vror",
         _           => "v?",
     };
 
@@ -331,7 +339,22 @@ public static class RvDisassembler {
         VWideOp.AddU => "vwaddu", VWideOp.Add   => "vwadd",
         VWideOp.SubU => "vwsubu", VWideOp.Sub   => "vwsub",
         VWideOp.MulU => "vwmulu", VWideOp.MulSu => "vwmulsu", VWideOp.Mul => "vwmul",
+        VWideOp.Sll  => "vwsll",
         _            => "vw?",
+    };
+
+    private static string VBitmanipUnaryStr(VBitmanipUnaryOp op) => op switch {
+        VBitmanipUnaryOp.Brev8 => "vbrev8", VBitmanipUnaryOp.Rev8 => "vrev8",
+        VBitmanipUnaryOp.Brev  => "vbrev",
+        VBitmanipUnaryOp.Clz   => "vclz", VBitmanipUnaryOp.Ctz   => "vctz",
+        VBitmanipUnaryOp.Cpop  => "vcpop",
+        _                      => "v?",
+    };
+
+    private static string VClmulStr(VClmulOp op) => op switch {
+        VClmulOp.Clmul  => "vclmul",
+        VClmulOp.ClmulH => "vclmulh",
+        _               => "v?",
     };
 
     private static string VNarrStr(VNarrOp op) => op switch {

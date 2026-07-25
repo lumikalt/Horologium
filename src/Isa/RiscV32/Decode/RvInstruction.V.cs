@@ -73,6 +73,9 @@ public enum VIntOp {
     Min,
     Maxu,
     Max,
+    Andn, // vandn (Zvbb/Zvkb): vd[i] = vs2[i] & ~(vs1[i]/rs1) — VV/VX only, no VI form
+    Rol,  // vrol (Zvbb/Zvkb): rotate left by (vs1[i]/rs1) mod SEW — VV/VX only, no VI form
+    Ror,  // vror (Zvbb/Zvkb): rotate right by (vs1[i]/rs1/uimm6) mod SEW — VV/VX/VI
 }
 
 public enum VIntMacOp {
@@ -183,11 +186,15 @@ public enum VWideOp {
     MulU,
     MulSu,
     Mul,
+    Sll, // vwsll (Zvbb): zero-extend vs2[i] to 2*SEW, then shift left by (vs1[i]/rs1/uimm) mod 2*SEW
 }
 
 public record RvVWideVv(VWideOp Op, int Vd, int Vs2, int Vs1, bool Masked, bool Vs2IsWide) : RvOp;
 
 public record RvVWideVx(VWideOp Op, int Vd, int Vs2, int Rs1, bool Masked, bool Vs2IsWide) : RvOp;
+
+// vwsll.vi only (no other widening op has a VI form): plain unsigned 5-bit zimm5 shift amount.
+public record RvVWideVi(VWideOp Op, int Vd, int Vs2, int Imm, bool Masked) : RvOp;
 
 // Narrowing shift: vs2 is 2*SEW, result vd is SEW.  vnsrl=logical, vnsra=arithmetic.
 public enum VNarrOp { Srl, Sra, }
@@ -441,3 +448,26 @@ public enum VFpNCvtOp {
 }
 
 public record RvVFpNCvt(VFpNCvtOp Op, int Vd, int Vs2, bool Masked) : RvOp;
+
+// ── Zvbb/Zvkb (vector basic bit-manipulation) / Zvbc (vector carryless multiply) ────────────
+// Unlike the Zvk* crypto extensions (dedicated opcode 0x77, element-group EGW/EGS/get_velem
+// semantics), these instructions live on the standard OP-V opcode (0x57) and operate per-element
+// (EEW=SEW), exactly like the base V-extension integer ALU/multiply ops above — so vandn/vrol/
+// vror/vwsll reuse those existing op-family shapes (VIntOp+RvVIntAluV*, VWideOp+RvVWideV*)
+// rather than inventing new record types. Zvkb is a proper subset of Zvbb (vandn, vbrev8, vrev8,
+// vrol, vror) with no encodings of its own, so implementing Zvbb covers Zvkb automatically.
+
+// vbrev8.v/vrev8.v/vbrev.v/vclz.v/vctz.v/vcpop.v: OPMVV, funct6=0x12 (VXUNARY0) — the same
+// opcode-space slot as vzext/vsext (RvVExt), extended with more vs1 sub-selectors (8-14).
+public enum VBitmanipUnaryOp { Brev8, Rev8, Brev, Clz, Ctz, Cpop, }
+
+public record RvVBitmanipUnaryVv(VBitmanipUnaryOp Op, int Vd, int Vs2, bool Masked) : RvOp;
+
+// vclmul.[vv,vx]/vclmulh.[vv,vx] (Zvbc): OPMVV/OPMVX, funct6=0x0C/0x0D. Reserved for any SEW
+// other than 64. Kept as its own enum/record pair rather than folded into VMulOp/RvVMulV*
+// since Zvbc is a distinct extension from the base V integer multiply/divide group.
+public enum VClmulOp { Clmul, ClmulH, }
+
+public record RvVClmulVv(VClmulOp Op, int Vd, int Vs2, int Vs1, bool Masked) : RvOp;
+
+public record RvVClmulVx(VClmulOp Op, int Vd, int Vs2, int Rs1, bool Masked) : RvOp;

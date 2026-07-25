@@ -268,8 +268,25 @@ public partial class Rv32Decoder {
                         new RvVAvgVv(avgOpVv.Value, vd, vs2, rs1, masked)
                     );
 
-                // vzext/vsext (VXUNARY0): funct6=0x12, vs1 field selects factor and sign
+                // vzext/vsext (VXUNARY0): funct6=0x12, vs1 field selects factor and sign.
+                // vs1=8-14 extends the same VXUNARY0 slot with the Zvbb/Zvkb unary bitmanip ops
+                // (vbrev8/vrev8/vbrev/vclz/vctz/vcpop) per the vector-crypto spec's Table 3.
                 if (funct6 == 0x12) {
+                    VBitmanipUnaryOp? bitmanipOp = rs1 switch {
+                        0x8 => VBitmanipUnaryOp.Brev8,
+                        0x9 => VBitmanipUnaryOp.Rev8,
+                        0xA => VBitmanipUnaryOp.Brev,
+                        0xC => VBitmanipUnaryOp.Clz,
+                        0xD => VBitmanipUnaryOp.Ctz,
+                        0xE => VBitmanipUnaryOp.Cpop,
+                        _   => null,
+                    };
+                    if (bitmanipOp.HasValue)
+                        return new RvInstruction(
+                            pc, raw, -1, [], ToothClass.Vector,
+                            new RvVBitmanipUnaryVv(bitmanipOp.Value, vd, vs2, masked)
+                        );
+
                     bool extSigned = (rs1 & 1) != 0;
                     int factor = rs1 switch {
                         2 or 3 => 8, 4 or 5 => 4, 6 or 7 => 2,
@@ -280,6 +297,19 @@ public partial class Rv32Decoder {
                         new RvVExt(extSigned, factor, vd, vs2, masked)
                     );
                 }
+
+                // vclmul.vv/vclmulh.vv (Zvbc): funct6=0x0C/0x0D, no collision with anything else
+                // in this OPMVV funct6 space.
+                VClmulOp? clmulOpVv = funct6 switch {
+                    0x0C => VClmulOp.Clmul,
+                    0x0D => VClmulOp.ClmulH,
+                    _    => null,
+                };
+                if (clmulOpVv.HasValue)
+                    return new RvInstruction(
+                        pc, raw, -1, [], ToothClass.Vector,
+                        new RvVClmulVv(clmulOpVv.Value, vd, vs2, rs1, masked)
+                    );
 
                 VRedOp? redOp = funct6 switch {
                     0 => VRedOp.Sum, 1  => VRedOp.And,
@@ -395,6 +425,18 @@ public partial class Rv32Decoder {
                     return new RvInstruction(
                         pc, raw, -1, [rs1,], ToothClass.Vector,
                         new RvVMulVx(mulOp.Value, vd, vs2, rs1, masked)
+                    );
+
+                // vclmul.vx/vclmulh.vx (Zvbc): funct6=0x0C/0x0D
+                VClmulOp? clmulOpVx = funct6 switch {
+                    0x0C => VClmulOp.Clmul,
+                    0x0D => VClmulOp.ClmulH,
+                    _    => null,
+                };
+                if (clmulOpVx.HasValue)
+                    return new RvInstruction(
+                        pc, raw, -1, [rs1,], ToothClass.Vector,
+                        new RvVClmulVx(clmulOpVx.Value, vd, vs2, rs1, masked)
                     );
                 // Widening add/sub/mul VX variants (same funct6 as OPMVV)
                 VWideOp? wideOpMvx = funct6 switch {
@@ -671,6 +713,39 @@ public partial class Rv32Decoder {
                 raw, $"V op: unsupported funct3=0x{funct3:X}"
             );
 
+        // vror.vi (Zvbb/Zvkb): OPIVI only, top 5 bits (31:27)=0x0A. Its immediate is 6 bits wide
+        // (needed since SEW can be 64, requiring a rotate amount 0-63), assembled by stealing
+        // bit 26 ("zimm6hi", normally the LSB of the 6-bit funct6 field) as immediate bit 5,
+        // concatenated with the usual 5-bit vs1/rs1/imm field (bits 19:15) as bits 4:0. This must
+        // be intercepted here, before the generic `funct6` variable (which already folds bit 26
+        // in) is used for dispatch below — with zimm6hi=1 the folded 6-bit value is 0x15, which
+        // collides with vrol.vv/vx's real funct6 and would otherwise misdecode.
+        if (funct3 == 3 && ((raw >> 27) & 0x1F) == 0x0A) {
+            var uimm6 = (int)(((raw >> 26) & 1) << 5) | rs1;
+            return new RvInstruction(
+                pc, raw, -1, [], ToothClass.Vector,
+                new RvVIntAluVi(VIntOp.Ror, vd, vs2, uimm6, masked)
+            );
+        }
+
+        // vwsll.[vv,vx,vi] (Zvbb): funct6=0x35, plain unsigned 5-bit zimm5 for the VI form (no
+        // bit-stealing, unlike vror.vi) — zero-extend vs2[i] to 2*SEW, then shift left.
+        if (funct6 == 0x35)
+            return funct3 switch {
+                0 => new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Vector,
+                    new RvVWideVv(VWideOp.Sll, vd, vs2, rs1, masked, false)
+                ),
+                3 => new RvInstruction(
+                    pc, raw, -1, [], ToothClass.Vector,
+                    new RvVWideVi(VWideOp.Sll, vd, vs2, rs1, masked)
+                ), // rs1 field = zimm5, unsigned
+                _ => new RvInstruction(
+                    pc, raw, -1, [rs1,], ToothClass.Vector,
+                    new RvVWideVx(VWideOp.Sll, vd, vs2, rs1, masked, false)
+                ),
+            };
+
         switch (funct6) {
             // vrgather (funct6=0x0C): VV/VX/VI
             case 0x0C:
@@ -819,6 +894,9 @@ public partial class Rv32Decoder {
             37 => VIntOp.Sll,
             40 => VIntOp.Srl,
             41 => VIntOp.Sra,
+            1  => VIntOp.Andn, // vandn (Zvbb/Zvkb): VV/VX only
+            0x14 => VIntOp.Ror, // vror (Zvbb/Zvkb): VV/VX here; .vi intercepted above
+            0x15 => VIntOp.Rol, // vrol (Zvbb/Zvkb): VV/VX only
             _  => null,
         };
 
@@ -865,6 +943,9 @@ public partial class Rv32Decoder {
             // vminu/vmin/vmaxu/vmax have no VI variant
             VIntOp.Minu or VIntOp.Min or VIntOp.Maxu or VIntOp.Max when funct3 == 3 =>
                 throw new IllegalInstructionException(raw, "vminu/vmin/vmaxu/vmax.vi is not a valid instruction"),
+            // vandn/vrol have no VI variant (vror.vi is intercepted earlier, before this switch)
+            VIntOp.Andn or VIntOp.Rol when funct3 == 3 =>
+                throw new IllegalInstructionException(raw, "vandn/vrol.vi is not a valid instruction"),
             _ => funct3 switch {
                 0 => new RvInstruction(
                     pc, raw, -1, [], ToothClass.Vector, new RvVIntAluVv(intOp.Value, vd, vs2, rs1, masked)
@@ -896,8 +977,9 @@ public partial class Rv32Decoder {
     // funct6=0x20 is Zvksh's vsm3me.vv (vs1 a genuine register operand), funct6=0x2B is vsm3c.vi
     // (vs1 repurposed as a 5-bit uimm, legal range 0-31 with no out-of-range projection).
     // funct6=0x2C is Zvkg's vghsh.vv (vs1 a genuine register operand); vgmul.vv shares funct6=0x28
-    // with vaesem.vv/vsm4r.vv, selected via vs1 hardcoded to 0x11. Every other Zvk* family
-    // (Zvbb/Zvbc/Zvkb vector bitmanip) is deferred.
+    // with vaesem.vv/vsm4r.vv, selected via vs1 hardcoded to 0x11. Zvbb/Zvbc/Zvkb (vector
+    // bitmanip/carryless-multiply) are NOT part of this opcode-0x77 family at all — they reuse
+    // the standard OP-V opcode 0x57 and are decoded in DecodeVOp above instead.
     private static RvInstruction DecodeVCryptoOp(ulong pc, uint raw) {
         var vd = (int)((raw >> 7) & 0x1F);
         uint funct3 = (raw >> 12) & 0x7;

@@ -1,5 +1,6 @@
 #region
 
+using System.Numerics;
 using Mechanism;
 using RiscV32.Decode;
 using RiscV32.Registers;
@@ -403,6 +404,8 @@ public partial class Rv32Executor {
             VWideOp.MulU  => Zx(a) * Zx(b),
             VWideOp.MulSu => (ulong)(Sx(a) * (long)Zx(b)),
             VWideOp.Mul   => (ulong)(Sx(a) * Sx(b)),
+            // vwsll (Zvbb): zero-extend vs2[i] to 2*SEW, then shift left mod 2*SEW.
+            VWideOp.Sll => Zx(a) << (int)(b & (ulong)(ewBytes * 16 - 1)),
             _             => throw new InvalidOperationException($"Unknown VWideOp {op}"),
         };
 
@@ -523,6 +526,65 @@ public partial class Rv32Executor {
         }
 
         return VectorWrite(vd, result);
+    }
+
+    // Zvbb/Zvkb: vbrev8.v/vrev8.v/vbrev.v/vclz.v/vctz.v/vcpop.v — unary per-element bitmanip ops
+    // sharing the VXUNARY0 opcode slot with vzext/vsext above.
+    private static ExecuteResult ExecuteVBitmanipUnary(
+        IArchState state, VBitmanipUnaryOp op, int vd, int vs2, bool masked
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] maskData = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((maskData[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, ewBytes);
+            WriteVElement(result, i, ewBytes, ApplyVBitmanipUnaryOp(op, a, ewBytes));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    private static ulong ApplyVBitmanipUnaryOp(VBitmanipUnaryOp op, ulong a, int ewBytes) {
+        int bits = ewBytes * 8;
+        // ReadVElement's ewBytes==4 case can sign-extend through byte<<24 when the top byte has
+        // its high bit set; arithmetic ops elsewhere are safe from this because low-order bits
+        // are carry-independent and the final result gets re-masked, but these ops inspect the
+        // element's exact bit pattern/magnitude, so defensively re-mask to the true element width.
+        ulong am = bits == 64 ? a : a & ((1UL << bits) - 1);
+        return op switch {
+            VBitmanipUnaryOp.Brev8 => Brev8Element(am, ewBytes),
+            VBitmanipUnaryOp.Rev8  => Rev8Element(am, ewBytes),
+            VBitmanipUnaryOp.Brev  => Brev8Element(Rev8Element(am, ewBytes), ewBytes),
+            VBitmanipUnaryOp.Clz => (ulong)(ewBytes == 8
+                ? BitOperations.LeadingZeroCount(am)
+                : BitOperations.LeadingZeroCount((uint)am) - (32 - bits)),
+            VBitmanipUnaryOp.Ctz => (ulong)(am == 0
+                ? bits
+                : ewBytes == 8
+                    ? BitOperations.TrailingZeroCount(am)
+                    : BitOperations.TrailingZeroCount((uint)am)),
+            VBitmanipUnaryOp.Cpop => (ulong)(ewBytes == 8
+                ? BitOperations.PopCount(am)
+                : BitOperations.PopCount((uint)am)),
+            _ => 0,
+        };
+    }
+
+    // Reverses bits within each byte, byte order preserved.
+    private static ulong Brev8Element(ulong a, int ewBytes) {
+        ulong result = 0;
+        for (var b = 0; b < ewBytes; b++) result |= (ulong)ReverseBitsInByte((byte)(a >> (b * 8))) << (b * 8);
+        return result;
+    }
+
+    // Reverses byte order within the element (endian swap), bits within each byte unchanged.
+    private static ulong Rev8Element(ulong a, int ewBytes) {
+        ulong result = 0;
+        for (var b = 0; b < ewBytes; b++) result |= (ulong)(byte)(a >> (b * 8)) << ((ewBytes - 1 - b) * 8);
+        return result;
     }
 
     // vaaddu/vaadd/vasubu/vasub: fixed-point averaging with vxrm rounding.
@@ -1169,7 +1231,10 @@ public partial class Rv32Executor {
 
     private static ulong ApplyVIntOp(VIntOp op, ulong a, ulong b, int ewBytes) {
         int bits = ewBytes * 8;
-        ulong mask = (1UL << bits) - 1;
+        // bits==64 (SEW=64) needs ulong.MaxValue here — `1UL << 64` would otherwise be masked by
+        // C#'s shift-count-mod-64 rule down to `1UL << 0`, giving a mask of 0 instead of all-ones
+        // (same fix already applied in ExecuteVExt above for the same reason).
+        ulong mask = bits == 64 ? ulong.MaxValue : (1UL << bits) - 1;
         int shiftMask = bits - 1;
         ulong r = op switch {
             VIntOp.Add  => a + b,
@@ -1178,6 +1243,7 @@ public partial class Rv32Executor {
             VIntOp.And  => a & b,
             VIntOp.Or   => a | b,
             VIntOp.Xor  => a ^ b,
+            VIntOp.Andn => a & ~b, // vandn (Zvbb/Zvkb): vs2 & ~(vs1/rs1)
             VIntOp.Mov  => b, // vmv.v.v/x/i: broadcast second operand (vs1 or scalar or imm)
             VIntOp.Minu => a < b ? a : b,
             VIntOp.Maxu => a > b ? a : b,
@@ -1198,9 +1264,20 @@ public partial class Rv32Executor {
                 2 => (ushort)((short)(ushort)(a & 0xFFFF) >> (int)(b & 15)),
                 _ => (ulong)(uint)((int)(uint)(a & 0xFFFFFFFF) >> (int)(b & 31)),
             },
+            VIntOp.Rol => RotateElement(a & mask, (int)(b & (uint)shiftMask), bits, left: true),
+            VIntOp.Ror => RotateElement(a & mask, (int)(b & (uint)shiftMask), bits, left: false),
             _ => 0,
         };
         return r & mask;
+    }
+
+    // Rotates a value already masked to `width` bits; `width` <= 64. `v`'s bits above `width` must
+    // already be zero (callers pass `a & mask`), and `shamt` must already be reduced mod `width`.
+    private static ulong RotateElement(ulong v, int shamt, int width, bool left) {
+        if (shamt == 0) return v;
+        return left
+            ? (v << shamt) | (v >> (width - shamt))
+            : (v >> shamt) | (v << (width - shamt));
     }
 
     private static bool ApplyVMaskCmp(VMaskCmpOp op, ulong a, ulong b, int ewBytes) =>
@@ -1280,6 +1357,51 @@ public partial class Rv32Executor {
             _ => 0,
         };
         return r & mask;
+    }
+
+    // Zvbc: vclmul.[vv,vx]/vclmulh.[vv,vx] — 64-bit carryless multiply, reserved for any SEW
+    // other than 64 (unlike vmul/vdiv above, which are defined for every SEW).
+    private static ExecuteResult ExecuteVClmul(
+        IArchState state,
+        ulong pc,
+        VClmulOp op,
+        int vd,
+        int vs2,
+        bool masked,
+        Func<int, int, ulong> getSource
+    ) {
+        (uint vl, int ewBytes) = VGetVlEw(state);
+        if (ewBytes != 8) return ExecuteResult.WithTrap(new TrapInfo(RvTrapCause.IllegalInstruction, 0, pc));
+        byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
+        byte[] mask = VState(state).VectorRegisters.Read(0);
+        var result = new byte[VectorRegisterFile.VLenB];
+
+        for (var i = 0; i < (int)vl; i++) {
+            if (masked && ((mask[i >> 3] >> (i & 7)) & 1) == 0) continue;
+            ulong a = ReadVElement(vs2Data, i, ewBytes);
+            ulong b = getSource(i, ewBytes);
+            WriteVElement(result, i, ewBytes, ApplyVClmulOp(op, a, b));
+        }
+
+        return VectorWrite(vd, result);
+    }
+
+    // 64-bit carryless multiply per the Zvbc spec's Sail pseudo-code: low half XORs in (x<<i) for
+    // each set bit i of y; high half XORs in (x>>(64-i)) for i from 1 (i=0 would shift by 64,
+    // which contributes nothing to the high half). C# masks ulong shift counts mod 64, which is
+    // exactly the width in play here, so no explicit bounds handling is needed.
+    private static ulong ApplyVClmulOp(VClmulOp op, ulong x, ulong y) {
+        var result = 0UL;
+        if (op == VClmulOp.Clmul) {
+            for (var i = 0; i < 64; i++)
+                if (((y >> i) & 1) != 0)
+                    result ^= x << i;
+        } else {
+            for (var i = 1; i < 64; i++)
+                if (((y >> i) & 1) != 0)
+                    result ^= x >> (64 - i);
+        }
+        return result;
     }
 
     private static ulong VDivSigned(ulong a, ulong b, int ewBytes) {
