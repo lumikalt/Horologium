@@ -367,11 +367,24 @@ just infrastructure this design doesn't require.
   hand-off this feature exists for, not just a mechanism proven in single-hart isolation. Confirmed
   discriminating by temporarily making the handler cache its first read instead of re-reading memory
   each retry: the test failed as expected.
-- [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`OooTrain`/
-  `SmtTrain`/`CprTrain`/`DaeTrain`): same squash-and-refetch shape as `FiveStageTrain` above, but each
-  train's own commit/squash machinery (ROB-based for `OooTrain`/`CprTrain`, undo-log for `DaeTrain`,
-  etc.) needs its own translation of "still-blocked instruction redirects fetch to its own PC instead
-  of retiring, younger in-flight instructions squashed" — not a mechanical copy of the five-stage fix.
+- [x] `RequestBlock` support in `OooTrain`: unlike `FiveStageTrain`'s trap-shaped fix, this follows the
+  *load-violation* precedent instead — the blocked entry is left at the ROB head (never `_rob.Retire()`'d),
+  so `StepFlush`'s existing `InOrder().Reverse()` walk-back un-renames it for free, with no
+  `_pendingRollback*` bookkeeping needed. `RobEntry`/`ExecResult` gained a `RequestBlock` field (threaded
+  through `ExecuteOne`'s return and `StepComplete`'s CDB-broadcast copy, alongside `RequestHalt`); a new
+  `StepCommit` case does no `CommitRegisters`/retired-count-increment/`State.OnRetire()` (it never
+  broadcast a register value onto the CDB, so it contributed no committed work) and calls
+  `SetFlush(head.Pc)`. `RobEntry.Clear()` resets the new field. Proven the same three ways as
+  `FiveStageTrain`: two single-hart tests with a self-clearing stub handler, plus a cross-hart
+  `MultiHartPipeline` composition test (hart 1's plain `sw` clears hart 0's blocked ecall through shared
+  `FlatMemory`) — all three confirmed to fail with the `StepCommit` case removed, then pass restored.
+- [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`SmtTrain`/
+  `CprTrain`/`DaeTrain`): same squash-and-refetch shape as `FiveStageTrain`/`OooTrain` above, but each
+  train's own commit/squash machinery (also ROB-based for `CprTrain`, undo-log for `DaeTrain`, in-order
+  functional-execute for `SuperscalarTrain`/`SmtTrain`) needs its own translation of "still-blocked
+  instruction redirects fetch to its own PC instead of retiring, younger in-flight instructions
+  squashed" — not a mechanical copy of either existing fix. `CprTrain` is the closest structural parallel
+  to `OooTrain` (also ROB-based) and is the natural next one to attempt.
 - [ ] `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop has no way to detect a
   hart that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever,
   since it's retrying, not halted) — if the waking hart halts first with no further global-instruction

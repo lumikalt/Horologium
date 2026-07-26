@@ -945,6 +945,7 @@ internal sealed partial class OoOPipelineCore : Gear {
             rob.IsReturnFromTrap = r.IsReturnFromTrap;
             rob.ReturnPrivilege = r.ReturnPrivilege;
             rob.RequestHalt = r.RequestHalt;
+            rob.RequestBlock = r.RequestBlock;
             rob.SideEffect = r.SideEffect;
 
             // A branch (only branches set ResolvedNextPc) that resolved off its predicted path.
@@ -1094,6 +1095,21 @@ internal sealed partial class OoOPipelineCore : Gear {
                     _retiredCounter.Increment();
                     State.OnRetire();
                     SetFlush(target);
+                    return;
+                }
+                case { RequestBlock: true, }: {
+                    // A still-blocked syscall (e.g. futex(FUTEX_WAIT) that hasn't cleared):
+                    // it never carried a register value onto the CDB (StepComplete's
+                    // `!r.RegValue.HasValue` guard skips the PRF write for it, same as a
+                    // trap), so it contributes no committed work — no CommitRegisters, no
+                    // retired-count increment, no State.OnRetire(). Unlike Trap/Halt/
+                    // ReturnFromTrap, this entry is NOT removed from the ROB here: it stays
+                    // at the head so StepFlush's own walk-back (over the still-present ROB)
+                    // un-renames it exactly like a load-violation's re-executed load, so no
+                    // _pendingRollback* bookkeeping is needed either. Flushing to its own Pc
+                    // re-fetches and re-executes it from scratch, mirroring
+                    // MultiHartKernel's functional retry-in-place.
+                    SetFlush(head.Pc);
                     return;
                 }
             }
@@ -3297,7 +3313,7 @@ internal sealed partial class OoOPipelineCore : Gear {
             er.IsReturnFromTrap, er.ReturnPrivilege,
             _capMem.HasWrite, _capMem.WriteAddress, _capMem.WriteValue, _capMem.WriteBytes,
             _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes, loadForwarded,
-            er.RequestHalt, issued.InstrId,
+            er.RequestHalt, er.RequestBlock, issued.InstrId,
             // Vec/UVE already applied their SideEffect immediately above; don't reapply at commit.
             isVec || isUve ? null : er.SideEffect,
             er.LatencyOverride ?? 0
@@ -3615,6 +3631,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         int LoadBytes,
         bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
         bool RequestHalt = false, // true for an HTIF tohost-exit store: halt after commit
+        bool RequestBlock = false, // true for a still-blocked syscall (e.g. futex FUTEX_WAIT)
         ulong InstrId = 0,        // per-instruction age, for pruning in-flight results on a partial squash
         Action<IArchState>? SideEffect
             = null, // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)

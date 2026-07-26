@@ -96,6 +96,14 @@ public sealed class RobEntry {
     /// </summary>
     public bool RequestHalt { get; set; }
 
+    /// <summary>
+    ///     True when a still-blocked syscall (e.g. futex(FUTEX_WAIT)) reached completion without
+    ///     clearing. Unlike <see cref="RequestHalt" />, this instruction must NOT retire at commit:
+    ///     it contributed no committed work and is re-fetched from its own <see cref="Pc" /> instead
+    ///     (see <c>OooTrain.StepCommit</c>'s <c>RequestBlock</c> case).
+    /// </summary>
+    public bool RequestBlock { get; set; }
+
     /// <summary>True if this instruction returns from a trap at commit (e.g. MRET).</summary>
     public bool IsReturnFromTrap { get; set; }
 
@@ -229,6 +237,7 @@ public sealed class RobEntry {
         SqIdx = -1;
         IsHalt = false;
         RequestHalt = false;
+        RequestBlock = false;
         IsReturnFromTrap = false;
         ReturnPrivilege = null;
         SideEffect = null;

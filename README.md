@@ -1614,8 +1614,8 @@ bug would produce a visibly wrong final value rather than coincidentally matchin
 real, stateful `LinuxSyscallEmulator` (brk moved, `_childCleartid` set via `clone()`) through the
 checkpoint's shared-handler-blob path specifically. Measuring a genuinely *blocking* multi-threaded
 region (a real futex wait) under detailed pipeline timing needed `ExecuteResult.RequestBlock` support in
-the detailed trains — done for `FiveStageTrain` (see below); the other five detailed trains still need
-their own translation of the same idea, tracked as its own `TODO.md` item.
+the detailed trains — done for `FiveStageTrain` and `OooTrain` (see below); the other four detailed
+trains still need their own translation of the same idea, tracked as its own `TODO.md` item.
 
 **`RequestBlock` support in `FiveStageTrain` (Pipeline/Stages/Execute.cs, WriteBack.cs, FiveStageTrain.cs).**
 `FiveStageTrain` doesn't serialize `ecall` — no stall/hazard treatment at all — so by the time a syscall's
@@ -1651,6 +1651,30 @@ plain, unrelated `Rv32Mechanism` with no blocking handler at all — writes that
 halts. Only the real cross-hart hand-off through shared memory makes hart 0's next instruction retire.
 Confirmed discriminating by temporarily making the handler cache its first read instead of re-reading
 memory: the test failed as expected, then passed again once the caching was reverted.
+
+**`RequestBlock` support in `OooTrain` (Pipeline/OooTrain.cs, Pipeline/Ooo/ReorderBuffer.cs).**
+`OooTrain`'s ROB-based commit/squash machinery needed a genuinely different translation from
+`FiveStageTrain`'s, not a mechanical copy: `ecall` (a `ToothClass.System` op) is already head-serialized
+at issue (it only issues once it's the ROB head), and `StepComplete`'s existing `!r.RegValue.HasValue`
+guard already skips broadcasting a register value onto the CDB for a blocked result, the same way it
+does for a trap — so the only new work is at commit. Rather than mirror the Trap/Halt/ReturnFromTrap
+case (which calls `_rob.Retire()` and defers a `_pendingRollback*` rename rollback for later), the fix
+follows the *load-violation* precedent instead: the blocked entry is left sitting at the ROB head — never
+retired — so `StepFlush`'s existing `InOrder().Reverse()` walk-back (which restores the RAT and frees the
+physical register for every entry still in the ROB) un-renames it for free, exactly like a re-executed
+violated load. `RobEntry` and the internal `ExecResult` record both gained a `RequestBlock` field
+(threaded through `ExecuteOne`'s return value and `StepComplete`'s CDB-broadcast copy, right alongside
+the existing `RequestHalt` field); `RobEntry.Clear()` resets it so a reused ROB slot never inherits stale
+state. A new `StepCommit` case does no `CommitRegisters`, no retired-count increment, and no
+`State.OnRetire()` (this entry never contributed committed work), then calls `SetFlush(head.Pc)` — the
+same "re-fetch from my own PC" recovery the load-violation and value-misprediction cases already use.
+`Tests/Pipeline/OooRequestBlockGuardTests.cs` mirrors all three `FiveStageTrain` tests verbatim at the
+black-box level (same stub-handler retry-in-place/never-clears tests, plus the cross-hart
+`MultiHartPipeline`/shared-`FlatMemory` composition test) — all three passed on the first attempt, and
+all three were confirmed to fail once the new `StepCommit` case was temporarily removed, then to pass
+again once it was restored. The full non-benchmark suite stayed green throughout (4398 passing), showing
+the new field/case didn't disturb value prediction, EOLE, runahead, store-set, or critical-path-prediction
+logic sharing the same commit loop.
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`
