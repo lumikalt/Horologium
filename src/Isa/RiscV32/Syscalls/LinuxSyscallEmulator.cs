@@ -79,10 +79,15 @@ namespace RiscV32.Syscalls;
 ///         or <c>MultiHartKernel</c> enforces that. <c>getpid</c> stays a constant across every hart,
 ///         matching real Linux (the whole thread-group shares one pid). <c>SYS_exit</c> (this hart
 ///         only) and <c>SYS_exit_group</c> (every hart) are distinguished via
-///         <see cref="ExecuteResult.RequestHaltAll" />. <c>CLONE_CHILD_CLEARTID</c> (the <c>ctid</c>
-///         write-and-wake a thread's exit performs, which <c>pthread_join</c>'s futex wait depends on)
-///         is still not implemented — a real <c>pthread_join</c> on a hart spawned here will block
-///         forever until that lands.
+///         <see cref="ExecuteResult.RequestHaltAll" />. <c>CLONE_CHILD_CLEARTID</c> writes 0 to the
+///         recorded <c>ctid</c> address on that hart's own exit — no explicit wake call is needed
+///         beyond that write, since a poll-based <see cref="Futex" /> waiter notices the value
+///         changed on its own next recheck. Confirmed necessary (not merely for completeness) by
+///         running a real compiled <c>pthread_create</c>/<c>pthread_join</c> binary through
+///         <c>MultiHartKernel</c>: real musl passes <c>&amp;__thread_list_lock</c> (a different
+///         global lock, not the exiting thread's own tid word) as <c>ctid</c>, relying on this as a
+///         backstop to release that lock on exit — without it, a second hart hangs forever polling
+///         that lock once the thread that had acquired it exits.
 ///     </para>
 /// </summary>
 /// <param name="initialBreak">Initial <c>brk</c> value — see <c>Rv32ElfWorkload.InitialBreak</c>.</param>
@@ -121,6 +126,12 @@ public sealed class LinuxSyscallEmulator(
     private readonly Dictionary<int, (string Path, FileAccess Access)> _fileMeta = new();
 
     private readonly Dictionary<int, FileStream> _files = new();
+
+    // CLONE_CHILD_CLEARTID's ctid address per hart, recorded at clone() time. Not part of
+    // WriteState/ReadState — multi-hart checkpoint/restore (dormant-slot state, this table, etc.)
+    // is out of scope until the multi-hart checkpoint TODO item; a checkpoint taken mid-run of a
+    // multi-threaded workload does not yet round-trip this correctly.
+    private readonly Dictionary<int, ulong> _childCleartid = new();
     private ulong _brk = initialBreak;
     private ulong _fakeNanos;
     private ulong _mmapNext = mmapBase;
@@ -210,16 +221,30 @@ public sealed class LinuxSyscallEmulator(
         ulong a5 = regs.Read(15);
 
         // tid = hartId + 1 (never 0 — real Linux never assigns tid 0 to a user thread), matching the
-        // value clone() below hands back as the new hart's id. getpid() deliberately does NOT vary by
-        // hart: real Linux getpid() returns the whole thread-group's id (the main thread's tid) for
-        // every thread in a process, not a per-thread value.
+        // value clone() below hands back as the new hart's id, and keeping hart0's tid==getpid()==1
+        // (real Linux: the main thread's tid always equals the process's pid). getpid() deliberately
+        // does NOT vary by hart: real Linux getpid() returns the whole thread-group's id (the main
+        // thread's tid) for every thread in a process, not a per-thread value.
         long tid = hartId + 1;
 
-        if (num == 93) return new ExecuteResult { RequestHalt = true, };                        // SYS_exit — this hart only
-        if (num == 94) return new ExecuteResult { RequestHalt = true, RequestHaltAll = true, }; // SYS_exit_group — whole process
+        if (num is 93 or 94) {
+            // CLONE_CHILD_CLEARTID: real musl passes &__thread_list_lock (not &self->tid) as ctid,
+            // relying on the kernel to clear-and-wake it on this thread's exit as a backstop —
+            // musl's own __pthread_exit clears/wakes its own tid word itself in userspace (see
+            // Futex's doc comment), but does NOT reliably call __tl_unlock along every exit path,
+            // so without this the thread-list lock stays held forever once any non-last thread
+            // exits. Confirmed necessary and sufficient by running a real compiled pthread_create/
+            // pthread_join binary through MultiHartKernel: without this, a second hart hung polling
+            // __thread_list_lock after the thread that had acquired it exited; with only this (no
+            // other change) the same binary runs to completion.
+            if (_childCleartid.Remove(hartId, out ulong ctidAddr)) memory.Write(ctidAddr, 0, 4);
+            return num == 93
+                ? new ExecuteResult { RequestHalt = true, }                         // SYS_exit — this hart only
+                : new ExecuteResult { RequestHalt = true, RequestHaltAll = true, }; // SYS_exit_group — whole process
+        }
 
-        if (num == 220) return Clone(a0, a1, a2, a3, state, pc, memory); // SYS_clone
-        if (num == 98) return Futex(a0, a1, a2, memory);                 // SYS_futex
+        if (num == 220) return Clone(a0, a1, a2, a3, a4, state, pc, memory); // SYS_clone
+        if (num == 98) return Futex(a0, a1, a2, memory);                     // SYS_futex
 
         long result = num switch {
             64   => Write(a0, a1, a2, memory),    // SYS_write
@@ -259,11 +284,13 @@ public sealed class LinuxSyscallEmulator(
     // call, except the child's sp is forced to newsp and (if CLONE_SETTLS is set) tp to tls, with
     // a0 = new hart id in the parent and 0 in the child — so the new hart's initial state is the
     // parent's own Snapshot() with exactly those overrides, not a from-scratch entry point.
-    // CLONE_CHILD_CLEARTID (the wake-on-exit futex musl's pthread_join blocks on) is not
-    // implemented — a documented gap for the futex() TODO item, not silently ignored.
-    private ExecuteResult Clone(ulong flags, ulong newSp, ulong ptid, ulong tls, IArchState state, ulong pc, IMemory memory) {
+    // CLONE_CHILD_CLEARTID's ctid (the address the kernel clears-and-wakes on this new hart's own
+    // exit — see Handle()'s SYS_exit/SYS_exit_group case) is recorded here, keyed by the new hart's
+    // id, and consulted there.
+    private ExecuteResult Clone(ulong flags, ulong newSp, ulong ptid, ulong tls, ulong ctid, IArchState state, ulong pc, IMemory memory) {
         const ulong cloneSetTls = 0x0008_0000;
         const ulong cloneParentSetTid = 0x0010_0000;
+        const ulong cloneChildCleartid = 0x0020_0000;
 
         if (Spawner is null) {
             var noSys = unchecked((ulong)LinuxSyscallEmulator.ENoSys);
@@ -277,6 +304,7 @@ public sealed class LinuxSyscallEmulator(
         child.IntegerRegisters.Write(10, 0); // child's own return value: 0
 
         int newHartId = Spawner.SpawnHart(child);
+        if ((flags & cloneChildCleartid) != 0) _childCleartid[newHartId] = ctid;
         // Real clone() returns the new thread's tid, which a later SYS_gettid call from that hart
         // should reproduce — so this uses the same hartId+1 convention as Handle()'s tid local, not
         // the raw 0-based MultiHartKernel slot index. These are two independently computed values,

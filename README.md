@@ -828,8 +828,8 @@ activate the next dormant slot. The raw RISC-V syscall ABI is `a0=flags, a1=news
 by compiling and disassembling real musl 1.2.5 `__clone`); `CLONE_SETTLS`/`CLONE_PARENT_SETTID` are honored, and all
 harts sharing one `LinuxSyscallEmulator` instance is required (mirrors real `CLONE_FILES`/`CLONE_VM`). Backward-compatible
 constructor overloads default `activeHartCount` to every hart starting active, so pre-existing single-shot multi-hart
-setups are unaffected. `CLONE_CHILD_CLEARTID`'s futex wake and `MultiHartPipeline`'s equivalent dynamic-activation support
-are not yet implemented — see `TODO.md`.
+setups are unaffected. `MultiHartPipeline`'s equivalent dynamic-activation support is not yet implemented — see
+`TODO.md`.
 
 **`futex()` blocking.** `LinuxSyscallEmulator` handles syscall 98 (`FUTEX_WAIT`/`FUTEX_WAKE`) by polling rather than a
 wait queue: `FUTEX_WAIT` returns `-EAGAIN` immediately if the word at `uaddr` already differs from the expected value;
@@ -853,6 +853,18 @@ index) uses the same convention as `gettid()` (from `Rv32Executor.HartId`) but t
 they agree only if the caller constructs the mechanism occupying a given dormant slot with a matching `hartId`;
 neither `LinuxSyscallEmulator` nor `MultiHartKernel` enforces this invariant, so any driver spawning harts into
 pre-allocated slots must keep the two in sync itself.
+
+**`CLONE_CHILD_CLEARTID` and the real pthread integration test.** `clone()` records `ctid` per hart (when the
+`CLONE_CHILD_CLEARTID` flag bit is set) and `LinuxSyscallEmulator` writes 0 to that address on that hart's own
+`SYS_exit`/`SYS_exit_group` — no explicit wake call is needed beyond the write, since a blocked poll-based `futex()`
+waiter (see above) notices the value changed on its own next recheck. `Tests/RiscV64/System/PthreadProbeTests.cs` boots
+a real, statically-linked musl `pthread_create`/`pthread_join` binary (`TestBinaries/pthread_probe.c`) through
+`MultiHartKernel` end to end — the decisive integration proof for the `clone()`/`futex()`/`gettid` prerequisite chain.
+Disassembling that exact binary is what surfaced the need for `CLONE_CHILD_CLEARTID` in the first place: real musl
+passes `&__thread_list_lock` (a global lock, not the exiting thread's own tid word) as `ctid`, relying on the kernel as
+a backstop to release that lock on exit, since `__pthread_exit` does not reliably call `__tl_unlock` along every exit
+path. No `flake.nix` change was needed for the pthread/OpenMP toolchain — `pkgsCross.riscv64-musl`'s GCC already ships
+`libgomp` and links `-pthread`/`-fopenmp` static binaries cleanly.
 
 ### Cache timing model (src/Core/Orrery/Cache)
 

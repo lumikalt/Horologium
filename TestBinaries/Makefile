@@ -622,13 +622,19 @@ simpoint_kernel.elf: simpoint_kernel.c
 tls_probe.elf: tls_probe.c
 	$(CC64_MUSL) -static -O0 -o $@ tls_probe.c
 
+# Real pthread_create/pthread_join, statically linked musl — the LoopPoint-prerequisite
+# clone()/futex() integration fixture (see Tests/RiscV64/System/PthreadProbeTests.cs).
+
+pthread_probe.elf: pthread_probe.c
+	$(CC64_MUSL) -static -O0 -pthread -o $@ pthread_probe.c
+
 # ── Targets ───────────────────────────────────────────────────────────────────
 
 .PHONY: all isa-tests rv32-isa-tests rv64-isa-tests custom-elfs benchmarks torture torture64 clean
 
 all: test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf custom-elfs isa-tests benchmarks torture torture64
 
-custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf simpoint_kernel.elf tls_probe.elf
+custom-elfs: zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf simpoint_kernel.elf tls_probe.elf pthread_probe.elf
 
 isa-tests: rv32-isa-tests rv64-isa-tests
 
@@ -669,5 +675,5 @@ lab2: $(LAB2_ELFS)
 .PHONY: lab2
 
 clean:
-	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf simpoint_kernel.elf tls_probe.elf
+	rm -f test.elf rich.elf htif.elf test64.elf rich64.elf htif64.elf zcmop.elf zimop.elf zabha.elf zawrs.elf cbo.elf vector.elf se_hello.elf se_hello64.elf abi_probe64.elf stdin_echo64.elf mmap_probe64.elf hello64_musl.elf simpoint_kernel.elf tls_probe.elf pthread_probe.elf
 	rm -f isa/*.elf benchmarks/*.elf torture/*.elf torture64/*.elf lab2/*.elf

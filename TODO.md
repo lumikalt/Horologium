@@ -250,9 +250,20 @@ just infrastructure this design doesn't require.
   `SpawnHart` slot index — this only agrees with a later `gettid()` call from the spawned hart if the
   caller constructs that slot's mechanism with a matching `hartId`, which neither this class nor
   `MultiHartKernel` enforces (documented in both places, and exercised by a dedicated consistency test).
-- [ ] OpenMP/pthreads-capable RISC-V toolchain + test fixture (flake.nix addition + a small hand-written
-  pthread/OpenMP `TestBinaries` fixture) — a dev-environment change, needs its own explicit sign-off when
-  picked up, separate from the code-only stages above and below.
+- [x] OpenMP/pthreads-capable RISC-V toolchain + test fixture: `flake.nix` needed **no change** —
+  `pkgsCross.riscv64-musl`'s GCC already ships `libgomp` and links `-pthread`/`-fopenmp` static
+  binaries cleanly (confirmed by compiling and linking real probes with it). Added
+  `TestBinaries/pthread_probe.c` (real `pthread_create`+`pthread_join`) and a decisive integration
+  test (`Tests/RiscV64/System/PthreadProbeTests.cs`) booting it through `MultiHartKernel`. Tracing the
+  compiled binary's own disassembly surfaced a real gap the earlier `clone()`/`futex()` items missed:
+  real musl passes `&__thread_list_lock` (a global lock, not the exiting thread's own tid word) as
+  `clone()`'s `ctid`, relying on the kernel's `CLONE_CHILD_CLEARTID` as a backstop to release that
+  lock on exit — without it, a second thread hangs forever polling that lock once a prior one exits.
+  Implemented (`LinuxSyscallEmulator` records `ctid` per hart at `clone()` time, writes 0 to it on
+  that hart's own `SYS_exit`/`SYS_exit_group` — no explicit wake needed beyond the write, since the
+  poll-based `futex()` waiter notices the value changed on its own). An initial hypothesis that
+  `gettid`'s `hartId + 1` tid values were *also* load-bearing (colliding with a sentinel range in
+  musl's join loop) did not survive an isolating re-test and was dropped — tids stayed at `hartId + 1`.
 - [ ] Loop-header region-boundary detection: backward-branch-target-based loop header identification
   restricted to the main program image (a lighter substitute for the paper's Pin DCFG/dominator analysis),
   producing the paper's `(PC, count)` region markers — extends `BbvProfiler`'s existing control-flow
