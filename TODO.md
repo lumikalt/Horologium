@@ -264,10 +264,16 @@ just infrastructure this design doesn't require.
   poll-based `futex()` waiter notices the value changed on its own). An initial hypothesis that
   `gettid`'s `hartId + 1` tid values were *also* load-bearing (colliding with a sentinel range in
   musl's join loop) did not survive an isolating re-test and was dropped — tids stayed at `hartId + 1`.
-- [ ] Loop-header region-boundary detection: backward-branch-target-based loop header identification
-  restricted to the main program image (a lighter substitute for the paper's Pin DCFG/dominator analysis),
-  producing the paper's `(PC, count)` region markers — extends `BbvProfiler`'s existing control-flow
-  bookkeeping rather than needing new decoder support.
+- [x] Loop-header region-boundary detection: `LoopHeaderTracker` (`src/Core/Pipeline/LoopPointAnalysis.cs`),
+  a standalone `ICommitObserver` sibling to `BbvProfiler` (not yet wired into its interval slicing — that's
+  the per-thread-BBV item below), identifies a loop header as the target of a backward, direct, non-call
+  transfer (`IDecoder.GetFetchHint`'s `BranchTarget.HasValue && !IsCall` — excludes indirect JALR
+  returns/virtual calls and direct backward calls alike, both confirmed necessary by a discriminating test),
+  producing the paper's `(PC, count)` markers. `count` is backward-taken re-entries, not total iterations
+  (the header's first, fall-through entry isn't a discontinuity and so isn't observable in a single pass) —
+  a deliberate, documented streaming-design tradeoff, not a bug. `rangeStart`/`rangeEnd` are address-range
+  scoping only (a basic sanity bound); separating user code from statically-linked library code sharing the
+  same segment is the spin-loop-filtering item below, not this one.
 - [ ] Spin-loop filtering: exclude synchronization-library code (libc/libpthread/libgomp address ranges) from
   loop-based work counting during profiling while still executing it during simulation, mirroring the paper's
   treatment of busy-waiting.

@@ -1517,6 +1517,30 @@ single simulation point closest to the whole-run centroid. `runner --simpoint <i
 prints the phase table; the simulation points feed the checkpoint/ROI handoff flows for detailed-model sampling
 (on CoreMark at 20 K-instruction intervals this finds the iteration's interleaved kernels as ~7 recurring phases).
 
+### LoopPoint loop-header detection (Pipeline/LoopPointAnalysis)
+
+The region-marker half of LoopPoint (Sabu, Patil, Heirman & Carlson, HPCA 2022) — the multi-hart counterpart to
+SimPoint above, staged as a sequence of independently-actionable prerequisites in `TODO.md` (thread pointer/PT_TLS,
+`clone()`, `futex()`, per-hart `gettid`/thread-exit, and an OpenMP/pthreads toolchain fixture are done; the
+methodology's own analysis pieces are still landing one at a time). `LoopHeaderTracker` is a standalone
+`ICommitObserver`, structurally a sibling to `BbvProfiler` rather than an extension of it (not yet wired into its
+interval slicing), that identifies a loop header the same way `BbvProfiler` identifies a block boundary — from the
+committed PC stream's own discontinuities, without a real control-flow graph. A candidate is a backward transfer
+(target ≤ source) that is both direct and not a call, via `IDecoder.GetFetchHint`'s `BranchTarget.HasValue && !IsCall`
+— the same ISA-agnostic pre-decode hint branch predictors already use for RAS/indirect handling. Both halves of that
+check are independently necessary: excluding indirect transfers (JALR — returns, virtual calls, computed gotos)
+rules out a `ret` landing at a lower address than its own call site; excluding calls separately rules out a direct
+`jal ra, target` to a function placed, in link order, before its caller. Real loop back-edges are essentially
+always direct, non-call transfers (a conditional branch, or a compiler-emitted unconditional jump for a `goto`-style
+loop), which is what makes this cut viable without a real dominator analysis — confirmed by a discriminating test
+with a helper function placed *after* its caller's loop, so its `ret` lands backward every iteration, right beside
+a genuine loop back-edge. `count` in the paper's `(PC, count)` markers is the number of times the backward edge has
+been *taken* to reach that header, not the total iteration count — an N-iteration loop's first entry is a
+fall-through from the code before it, not a discontinuity, and so isn't observable in a single streaming pass; the
+final marker for such a loop reads `(header, N-1)`. `rangeStart`/`rangeEnd` scope detection to the loaded program's
+own address space (a sanity bound) — they do not by themselves separate user code from statically-linked library
+code sharing the same segment; that's the separate, not-yet-landed spin-loop-filtering item.
+
 ### SMARTS sampling (Pipeline/SmartsDriver)
 
 Systematic statistical sampling after Wunderlich, Wenisch, Falsafi & Hoe (ISCA 2003) — the sibling methodology to
