@@ -1696,17 +1696,19 @@ dial-board `recoveries`/`retired` counters in place of a commit observer (`CprTr
 accept one). All three were confirmed to fail once the new `StepComplete` branch was temporarily removed,
 then to pass again once it was restored. The full suite stayed green at 4401.
 
-Writing the cross-hart test surfaced a genuine, separate, pre-existing bug: `CprTrain`'s physical
-register file is never seeded from `ArchState.IntegerRegisters` at construction — only during
-`ApplyFullFlush`'s post-trap resync, whose seeding loop is otherwise never called at `Wind()`/startup
-time. A pre-`Run()` register write (originally used to preset the second hart's store-address register
-in the cross-hart test, the same thing a checkpoint restore does) was silently invisible to the
-instruction that read it, sourcing 0 instead. Confirmed decisively with an isolated repro (an
-addi-synthesized register works identically otherwise; the pre-set version doesn't) and worked around in
-the test (synthesizing the address in-program) rather than fixed — this is the same bug class already
+Writing the cross-hart test surfaced a genuine, separate, pre-existing bug, since fixed: `CprTrain`'s
+physical register file was never seeded from `ArchState.IntegerRegisters` at construction — only during
+`ApplyFullFlush`'s post-trap resync, whose seeding loop was otherwise never called at `Wind()`/startup
+time. A pre-`Run()` register write (originally used to preset the second hart's store-address register in
+the cross-hart test, the same thing a checkpoint restore does) was silently invisible to the instruction
+that read it, sourcing 0 instead. Confirmed decisively with an isolated repro (an addi-synthesized
+register worked identically otherwise; the pre-set version didn't) — this is the same bug class already
 fixed for `OooTrain` (`Wind()` seeds the PRF from `ArchState.IntegerRegisters`, commit `832f1ab`), never
-ported to `CprTrain`'s separate PRF/RAT, and is tracked as its own `TODO.md` item since it blocks
-`CprTrain` from being a valid checkpoint-restore (including LoopPoint) measurement target.
+ported to `CprTrain`'s separate PRF/RAT. Fixed by mirroring the identical `OooTrain.Wind()` shape;
+`Tests/RiscV32/Pipelines/CprTrainTests.PreRunRegisterWrite_IsVisibleToExecution` proves it (confirmed to
+fail without the fix, pass with it), and the cross-hart `CprRequestBlockGuardTests` test now presets the
+register via `ArchState.IntegerRegisters.Write` directly — the same shape as the `OooTrain` test — rather
+than working around the bug, giving a second confirmation under real multi-hart interleaving.
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`

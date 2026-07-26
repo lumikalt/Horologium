@@ -127,15 +127,10 @@ public class CprRequestBlockGuardTests {
         BitConverter.TryWriteBytes(hart0Bytes.AsSpan(8), Ebreak);
         mem.Load(0x00, hart0Bytes);
 
-        // x3 is synthesized in-program (addi) rather than pre-set via ArchState before Run() —
-        // CprTrain's rename/PRF path doesn't observe a pre-Run() architectural register write (a
-        // separate, pre-existing bug unrelated to RequestBlock; see TODO.md), so a store sourcing
-        // its address register that way would silently write to address 0 instead of waitAddr.
-        var hart1Bytes = new byte[16];
-        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(0), Addi(3, 0, (int)waitAddr)); // x3 = waitAddr
-        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(4), Addi(1, 0, 1)); // x1 = 1
-        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(8), Sw(1, 3, 0)); // mem[x3] = x1
-        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(12), Ebreak);
+        var hart1Bytes = new byte[12];
+        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(0), Addi(1, 0, 1)); // x1 = 1
+        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(4), Sw(1, 3, 0)); // mem[x3] = x1  (x3 = waitAddr)
+        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(8), Ebreak);
         mem.Load(0x40, hart1Bytes);
 
         var handler = new MemoryWaitHandler(waitAddr);
@@ -144,6 +139,7 @@ public class CprRequestBlockGuardTests {
 
         var train0 = new CprTrain(mech0, mem, entryPoint: 0x00);
         var train1 = new CprTrain(mech1, mem, entryPoint: 0x40);
+        train1.ArchState.IntegerRegisters.Write(3, waitAddr);
 
         new MultiHartPipeline(train0, train1).Run(1000);
 

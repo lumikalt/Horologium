@@ -392,23 +392,20 @@ just infrastructure this design doesn't require.
   test using dial-board `recoveries`/`retired` counters in place of a commit observer, since `CprTrain`'s
   constructors don't accept one) — all 3 confirmed to fail with the `StepComplete` branch removed, then
   pass restored.
-  **Found along the way (documented, not fixed — its own item below): `CprTrain`'s PRF is never seeded
-  from `ArchState.IntegerRegisters` at construction**, only during `ApplyFullFlush`'s post-trap RAT/PRF
-  resync — a pre-`Run()` register write (the same pattern a checkpoint restore performs) is invisible to
-  a store/ALU op sourcing that register until a full flush happens to occur first. Confirmed by an
-  isolated repro (an addi-synthesized address register works; the identical program with the same
-  register pre-set via `ArchState.IntegerRegisters.Write()` silently sources 0 instead), and worked
-  around in the new test (address synthesized in-program) rather than fixed.
-- [ ] `CprTrain` PRF isn't seeded from `ArchState.IntegerRegisters` at construction — the same bug class
-  already fixed for `OooTrain` in commit `832f1ab` (`Wind()` seeds the PRF from `ArchState.IntegerRegisters`
-  so pre-`Run()` writes and checkpoint-restore both work), but never ported to `CprTrain`, which has its
-  own separate `PhysicalRegisterFile`/`RenameMap`. The seeding logic already exists verbatim inside
-  `ApplyFullFlush` (`for (var a = 0; a < archRegs; a++) _prf.Write(a, State.IntegerRegisters.Read(a));`)
-  but nothing calls it at `Wind()`/construction time. This blocks `CprTrain` from being a valid LoopPoint
-  (or any other checkpoint-restore) measurement target — restoring a `MultiHartCheckpoint` onto a fresh
-  `CprTrain` would silently source stale/zero register values for any instruction that hasn't yet gone
-  through a full flush since restore, exactly the class of bug the fetch-PC-vs-`ArchState.Pc` livelock
-  was in `MultiHartLoopPointExperiment`'s item above.
+  **Found and fixed along the way: `CprTrain`'s PRF was never seeded from `ArchState.IntegerRegisters` at
+  construction** — see the dedicated item immediately below.
+- [x] `CprTrain` PRF wasn't seeded from `ArchState.IntegerRegisters` at construction — the same bug class
+  already fixed for `OooTrain` in commit `832f1ab`, never ported to `CprTrain`'s own separate
+  `PhysicalRegisterFile`/`RenameMap`. A pre-`Run()` register write (the same pattern a checkpoint restore
+  performs) was invisible to any instruction sourcing that register until a full flush happened to occur
+  first (the seeding logic already existed verbatim inside `ApplyFullFlush`'s post-trap resync, but
+  nothing called it at `Wind()`/construction time). Confirmed with an isolated repro (an addi-synthesized
+  address register worked; the identical program with the register pre-set via
+  `ArchState.IntegerRegisters.Write()` silently sourced 0), fixed by mirroring `OooTrain.Wind()`'s exact
+  shape (`CprTrain.Wind()` now seeds the PRF from `State.IntegerRegisters` before scheduling the first
+  tick), and proven with a new regression test (`CprTrainTests.PreRunRegisterWrite_IsVisibleToExecution`)
+  confirmed to fail without the fix and pass with it. This was blocking `CprTrain` from being a valid
+  LoopPoint (or any other checkpoint-restore) measurement target.
 - [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`SmtTrain`/
   `DaeTrain`): same squash-and-refetch shape as `FiveStageTrain`/`OooTrain`/`CprTrain` above, but each
   train's own commit/squash machinery (undo-log for `DaeTrain`, in-order functional-execute for

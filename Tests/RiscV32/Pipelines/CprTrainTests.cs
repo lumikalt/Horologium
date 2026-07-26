@@ -416,4 +416,29 @@ public class CprTrainTests {
         Assert.True(cpr.CurrentTick < 100_000);
         Assert.True(Counter(result, "checkpoints_retired") > 2);
     }
+
+    /// <summary>
+    ///     Registers written via <c>ArchState.IntegerRegisters</c> between construction and
+    ///     <c>Run()</c> — the same thing a checkpoint restore does — must be visible to execution.
+    ///     The PRF starts zeroed at construction; without seeding it from
+    ///     <c>State.IntegerRegisters</c> at <c>Wind()</c> (mirroring the identical fix already made
+    ///     for <see cref="OooTrain" /> in commit 832f1ab), a store sourcing a pre-set register would
+    ///     silently read 0 instead.
+    /// </summary>
+    [Fact]
+    public void PreRunRegisterWrite_IsVisibleToExecution() {
+        uint[] program = [
+            0x0021A023, // sw   x2, 0(x3)
+            0x00100073, // ebreak
+        ];
+
+        (CprTrain cpr, FlatMemory mem) = Make();
+        Load(mem, program);
+        cpr.ArchState.IntegerRegisters.Write(2, 42);
+        cpr.ArchState.IntegerRegisters.Write(3, 200);
+
+        cpr.Run(100_000);
+
+        Assert.Equal(42UL, mem.Read(200, 4));
+    }
 }
