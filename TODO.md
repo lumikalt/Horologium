@@ -171,14 +171,29 @@ off here until a periodic cleanup removes them; the durable record is git histor
   (`vaesem.vs`-style, `vaesz.vs`, `vsm4r.vs`), which is a single fixed register regardless of LMUL.
   `VectorRawHazard` became a register-range overlap check (mirroring the codebase's own
   `VGroupOverlap` reserved-encoding idiom) instead of single-register equality.
-- [ ] `SuperscalarTrain`/`SmtTrain`/`DaeTrain` hazard-check only `ITooth.SourceRegisters`/
-  `DestinationRegister` (scalar) — none of them reference `ITooth.VectorDestinationRegister`/
-  `VectorSourceRegisters` at all, so any vector instruction (not just the runtime-sized
-  element-group crypto ops `FiveStageTrain` now handles above) could run through them with no
-  vector RAW hazard tracking whatsoever. Found while auditing which in-order trains needed the
-  `FiveStageTrain` fix above; out of scope there since it's a pre-existing, broader gap unrelated
-  to LMUL sizing specifically. Needs checking whether these trains even reach vector execution in
-  practice before deciding what fix (if any) is warranted.
+- [x] Investigated `SuperscalarTrain`/`SmtTrain`/`DaeTrain` not referencing
+  `ITooth.VectorDestinationRegister`/`VectorSourceRegisters` at all (flagged while auditing which
+  in-order trains needed the `FiveStageTrain` fix above) — **no correctness bug in any of the
+  three**, so no fix needed:
+  - `SmtTrain`: each hart executes one instruction fully to completion (decode → execute →
+    `SideEffect` → PC update) before that hart is eligible to issue again, even within the same
+    cycle — hazard-free by construction, same as `SingleCycleTrain`.
+  - `DaeTrain`: `IsBarrierClass` is a deny-list (`not IntegerAlu/IntegerMulDiv/Load/Store`), so
+    `ToothClass.Vector` is a synchronizing barrier by construction, not by an enumeration that
+    could go stale — a vector instruction only executes once both lanes are fully drained,
+    directly against live architectural state.
+  - `SuperscalarTrain`: issue is strictly in-order and instructions execute functionally at issue
+    (`SideEffect` applied synchronously before the next instruction's `Execute` call), so a stale
+    vector-register read is structurally impossible. The real gap is narrower than a correctness
+    bug: its scoreboard (`_regReadyCycle`) only tracks the scalar `DestinationRegister`, so a
+    vector RAW dependency chain issues with no stall cycles charged, and `FuLatencyConfig` has no
+    dedicated Vector case (falls to the System default, count=1/latency=1) — an IPC-fidelity gap,
+    not a wrong-answer risk, and nothing in the test suite exercises vector code on this train
+    today. Not fixed: modeling it meaningfully needs a real per-vector-op latency source (LMUL/EGW/
+    op-dependent), which doesn't exist anywhere in the codebase yet — inventing one (e.g. reusing
+    `FloatingPoint`'s latency as a stand-in) would produce authoritative-looking IPC numbers
+    resting on a fabricated constant, worse than the current honest "vector timing unmodeled."
+    Revisit if `SuperscalarTrain` ever gains a real vector timing model to hang the stall on.
 
 ## Analysis
 
