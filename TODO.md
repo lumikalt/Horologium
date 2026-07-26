@@ -418,14 +418,29 @@ just infrastructure this design doesn't require.
   stub-handler + 1 cross-hart `MultiHartPipeline` composition test, the latter needing no PRF-seeding
   workaround since `DaeTrain` reads/writes `ArchState.IntegerRegisters` directly with no separate
   physical register file) — all 3 confirmed to fail with the fix removed, then pass restored.
-- [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`SmtTrain`):
-  same squash-and-refetch shape as the four trains above, but each needs its own translation.
-  `SuperscalarTrain` is in-order functional-execute (like `DaeTrain`'s barriers) and is expected to be a
-  near-pure retry-in-place case; `SmtTrain` is multi-hart *within a single train* (interleaved threads
-  sharing one core), so its cross-hart futex-wake test can't reuse the `MultiHartPipeline`-of-two-trains
-  shape the other four tests do — it needs one `SmtTrain` instance with two internal harts and per-hart
-  syscall-handler wiring instead. Survey each on its own terms rather than assuming either ports directly
-  from what's already done.
+- [x] `RequestBlock` support in `SuperscalarTrain`: the simplest of the five so far — `StepIssue` executes
+  each instruction functionally at issue with no pipeline latch chain, only a plain fetch queue of
+  not-yet-executed entries ahead of the current one. A still-blocked instruction is therefore never even
+  dequeued from the fetch queue: a new check right after `Execute()` (before the dequeue/counter/class-slot
+  bookkeeping) just `break`s the issue loop for this cycle, leaving the blocked instruction exactly where
+  it is at the queue head so the next `StepIssue` call re-peeks and re-executes it from scratch. No
+  `FlushFrontend`/PC redirect needed — nothing has been dequeued or committed, and (since `ecall` isn't
+  control flow) the queue entries behind it are already on the correct post-clear path. Left unclassified
+  in the TMA slot accounting (neither `frontendStarved` nor `_tdRefillPending`) so it falls into the
+  Backend Bound residual rather than mislabeling it as a fetch-side stall.
+  `Tests/Pipeline/SuperscalarRequestBlockGuardTests.cs` mirrors the other trains' tests (2 single-hart
+  stub-handler + 1 cross-hart `MultiHartPipeline` composition test, no PRF-seeding workaround needed —
+  `SuperscalarTrain` has no separate physical register file either) — all 3 confirmed to fail with the
+  fix removed, then pass restored.
+- [ ] `RequestBlock` support in the last remaining detailed pipeline train, `SmtTrain`: structurally
+  different from all five done so far, since it's multi-hart *within a single train* (interleaved threads
+  sharing one core's fetch/issue bandwidth), not one train per hart. The fix itself — not just the test —
+  must be hart-scoped: a blocked hart's retry has to re-fetch only that hart's own PC while sibling harts
+  keep advancing, since stalling or flushing the *shared* frontend would starve the very hart whose write
+  is supposed to clear the block, deadlocking the wake. Its cross-hart futex-wake test can't reuse the
+  `MultiHartPipeline`-of-two-trains shape the other five tests use either — it needs one `SmtTrain`
+  instance with two internal harts and per-hart syscall-handler wiring. Survey how fetch/issue is
+  arbitrated per-hart and what the per-hart redirect primitive is before designing.
 - [ ] `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop has no way to detect a
   hart that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever,
   since it's retrying, not halted) — if the waking hart halts first with no further global-instruction

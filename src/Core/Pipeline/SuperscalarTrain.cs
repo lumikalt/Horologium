@@ -392,6 +392,20 @@ internal sealed class SuperscalarCore(
             // older instruction has already executed.
             DLayers.Accessor.SetRequestPc(head.Pc);
             ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, DLayers.Accessor);
+
+            if (result.RequestBlock) {
+                // Still blocked (e.g. futex(FUTEX_WAIT) that hasn't cleared): unlike every
+                // other outcome below, don't dequeue at all — the instruction stays exactly
+                // where it is at the fetch-queue head, so the next StepIssue call re-peeks and
+                // re-executes it from scratch. Nothing has been dequeued or committed, so
+                // there's nothing younger to discard and no FlushFrontend/PC redirect is
+                // needed. Left unclassified in the TMA slot accounting below (neither
+                // frontendStarved nor _tdRefillPending) so it falls into the Backend Bound
+                // residual, not FetchBubbles — this is a backend/syscall block, not a
+                // fetch-side one.
+                break;
+            }
+
             _fetchQueue.Dequeue();
             classIssued[fuSlot]++;
             issued++;

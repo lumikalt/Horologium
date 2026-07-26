@@ -1614,9 +1614,8 @@ bug would produce a visibly wrong final value rather than coincidentally matchin
 real, stateful `LinuxSyscallEmulator` (brk moved, `_childCleartid` set via `clone()`) through the
 checkpoint's shared-handler-blob path specifically. Measuring a genuinely *blocking* multi-threaded
 region (a real futex wait) under detailed pipeline timing needed `ExecuteResult.RequestBlock` support in
-the detailed trains — done for `FiveStageTrain`, `OooTrain`, `CprTrain`, and `DaeTrain` (see below); the
-other two detailed trains still need their own translation of the same idea, tracked as its own
-`TODO.md` item.
+the detailed trains — done for `FiveStageTrain`, `OooTrain`, `CprTrain`, `DaeTrain`, and `SuperscalarTrain`
+(see below); only `SmtTrain` remains, tracked as its own `TODO.md` item.
 
 **`RequestBlock` support in `FiveStageTrain` (Pipeline/Stages/Execute.cs, WriteBack.cs, FiveStageTrain.cs).**
 `FiveStageTrain` doesn't serialize `ecall` — no stall/hazard treatment at all — so by the time a syscall's
@@ -1730,6 +1729,27 @@ cross-hart test needed no PRF-seeding workaround, since `DaeTrain` reads and wri
 `ArchState.IntegerRegisters.Write` before `Run()` working correctly, unlike `CprTrain` before its fix
 above). All three tests were confirmed to fail once the new check was temporarily removed, then to pass
 again once it was restored. The full suite stayed green at 4405.
+
+**`RequestBlock` support in `SuperscalarTrain` (Pipeline/SuperscalarTrain.cs).**
+The simplest fix of the five done so far. `StepIssue` has no pipeline latch chain at all — it executes
+each instruction functionally at issue, synchronously, one at a time, with only a plain fetch queue of
+not-yet-executed entries ahead of the current one (branches are predicted at fetch but nothing there has
+executed yet, so those entries are wrong-path candidates only, never in-flight executed work). A
+still-blocked instruction is therefore never even dequeued: a new check right after `Execute()` — before
+the dequeue, retired-count increment, or per-class issue-slot bookkeeping — just `break`s the issue loop
+for this cycle, leaving the blocked instruction exactly where it is at the fetch-queue head. The next
+`StepIssue` call simply re-peeks and re-executes the same head from scratch. No `FlushFrontend`/PC
+redirect is needed at all: nothing has been dequeued or committed, and — since `ecall` isn't control flow
+— the queue entries sitting behind it are already the correct post-clear path (unlike a branch, where a
+wrong-path successor would need flushing). The leftover issue slot is deliberately left unclassified in
+the TMA slot-accounting block below (neither `frontendStarved` nor `_tdRefillPending` is set), so it
+falls into the Backend Bound residual rather than being mislabeled as a fetch-side stall.
+`Tests/Pipeline/SuperscalarRequestBlockGuardTests.cs` mirrors the other trains' tests (two single-hart
+stub-handler tests plus the cross-hart `MultiHartPipeline`/shared-`FlatMemory` composition test) — no
+PRF-seeding workaround needed, since `SuperscalarTrain` has no separate physical register file either
+(only a readiness-cycle scoreboard, not a value store). All three tests were confirmed to fail once the
+new check was temporarily removed, then to pass again once it was restored. The full suite stayed green
+at 4408.
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`
