@@ -1641,7 +1641,16 @@ once despite the handler being invoked several times, the instruction immediatel
 until the block actually clears, and — confirmed by deliberately reverting the fix — both assertions fail
 without the squash logic in place. A second test proves an ecall that never clears never retires or lets
 anything past it, within a bounded tick budget (it would otherwise spin forever, which is the *correct*
-behavior — a real futex wait blocks indefinitely too — but a test needs a bound regardless).
+behavior — a real futex wait blocks indefinitely too — but a test needs a bound regardless). Both of
+those use a single hart with a self-clearing stub handler, which proves retry-in-place and resume-on-
+clear but not the thing `RequestBlock` actually exists for: a hart's block clearing because *another*
+hart wrote the word it's waiting on. A third test, `BlockedEcall_ResumesWhenAnotherHartClearsTheSharedFutexWord`,
+closes that gap: two `FiveStageTrain`s share one `FlatMemory` under `MultiHartPipeline`; hart 0's handler
+re-reads a shared word fresh on every retry (never caches it) and blocks while it's zero; hart 1 — a
+plain, unrelated `Rv32Mechanism` with no blocking handler at all — writes that word via its own `sw` and
+halts. Only the real cross-hart hand-off through shared memory makes hart 0's next instruction retire.
+Confirmed discriminating by temporarily making the handler cache its first read instead of re-reading
+memory: the test failed as expected, then passed again once the caching was reverted.
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`

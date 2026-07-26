@@ -359,11 +359,25 @@ just infrastructure this design doesn't require.
   mirroring `MultiHartKernel`'s functional retry-in-place (`StepHart` returns without advancing
   `state.Pc` when blocked). `MemWbLatch` gained a `RequestBlock` field; `WritebackStage` gained
   `BlockRedirect`, checked alongside `TrapRedirect` in `FiveStageTrain.RunCycle`'s third squash round.
+  Proven two ways, not just single-hart retry-in-place: the original two tests use a self-clearing
+  stub handler (proves squash/refetch/resume), and a third, `BlockedEcall_ResumesWhenAnotherHartClearsTheSharedFutexWord`
+  (`Tests/Pipeline/FiveStageRequestBlockGuardTests.cs`), runs two `FiveStageTrain`s under
+  `MultiHartPipeline` sharing one `FlatMemory` — hart 0 blocks re-reading a shared word each retry,
+  hart 1 (a plain, unrelated mechanism) writes it and halts — proving the actual cross-hart futex
+  hand-off this feature exists for, not just a mechanism proven in single-hart isolation. Confirmed
+  discriminating by temporarily making the handler cache its first read instead of re-reading memory
+  each retry: the test failed as expected.
 - [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`OooTrain`/
   `SmtTrain`/`CprTrain`/`DaeTrain`): same squash-and-refetch shape as `FiveStageTrain` above, but each
   train's own commit/squash machinery (ROB-based for `OooTrain`/`CprTrain`, undo-log for `DaeTrain`,
   etc.) needs its own translation of "still-blocked instruction redirects fetch to its own PC instead
   of retiring, younger in-flight instructions squashed" — not a mechanical copy of the five-stage fix.
+- [ ] `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop has no way to detect a
+  hart that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever,
+  since it's retrying, not halted) — if the waking hart halts first with no further global-instruction
+  progress from the blocked one, the loop never terminates. Not reachable today (the `--looppoint` CLI
+  path is single-hart only), but it's the first thing a real multi-hart measure pass will hit once
+  `RequestBlock` support lands in the trains `MeasureLoopPointCheckpoints` actually uses.
 - [x] Weighted-multiplier runtime extrapolation + Runner CLI wiring: `LoopPointRuntimeExtrapolation`
   (`src/Core/Pipeline/LoopPointRuntimeExtrapolation.cs`) implements Eq. 1/2 — per-representative multiplier
   from filtered-instruction-count ratios (not `SimulationPoint.Weight`, which assumes fixed-length intervals,

@@ -91,4 +91,68 @@ public class FiveStageRequestBlockGuardTests {
         Assert.Equal(0, counter.CountAt(0x04)); // addi never got past the still-blocked ecall
         Assert.Equal(0UL, train.ArchState.IntegerRegisters.Read(1));
     }
+
+    private static uint Addi(int rd, int rs1, int imm) =>
+        (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
+
+    private static uint Sw(int rs2, int rs1, int imm) =>
+        (uint)((((imm >> 5) & 0x7F) << 25) | (rs2 << 20) | (rs1 << 15) | (0b010 << 12) | ((imm & 0x1F) << 7) | 0b0100011);
+
+    // Reads the wait word fresh from shared memory on every call — never caches — because the
+    // whole point of this test is that hart 1's write, made through the SAME FlatMemory instance,
+    // must be visible to hart 0's handler on its very next retry.
+    private sealed class MemoryWaitHandler(ulong waitAddr) : ISyscallHandler {
+        public int CallCount { get; private set; }
+
+        public ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc, int hartId) {
+            CallCount++;
+            return new ExecuteResult { RequestBlock = memory.Read(waitAddr, 4) == 0, };
+        }
+    }
+
+    /// <summary>
+    ///     Every other test here is single-hart with a self-clearing stub handler — that proves
+    ///     retry-in-place and resume-on-clear, but not the thing <see cref="ExecuteResult.RequestBlock" />
+    ///     actually exists for: a hart blocked on a futex resuming because a *different* hart wrote the
+    ///     word it's waiting on, under <see cref="MultiHartPipeline" />'s round-robin interleaving. Hart 0
+    ///     spins on a blocking ecall reading a shared memory word; hart 1 (a plain, unrelated
+    ///     <see cref="Rv32Mechanism" /> with no blocking handler) writes that word via its own <c>sw</c>
+    ///     and halts. Only the real cross-hart hand-off through shared <see cref="FlatMemory" /> makes
+    ///     hart 0's addi retire.
+    /// </summary>
+    [Fact]
+    public void BlockedEcall_ResumesWhenAnotherHartClearsTheSharedFutexWord() {
+        const ulong waitAddr = 0x80;
+        var mem = new FlatMemory(0x200);
+
+        var hart0Bytes = new byte[12];
+        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(0), Ecall);
+        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(4), Addi(2, 2, 1));
+        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(8), Ebreak);
+        mem.Load(0x00, hart0Bytes);
+
+        var hart1Bytes = new byte[12];
+        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(0), Addi(1, 0, 1)); // x1 = 1
+        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(4), Sw(1, 3, 0)); // mem[x3] = x1  (x3 = waitAddr)
+        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(8), Ebreak);
+        mem.Load(0x40, hart1Bytes);
+
+        var handler = new MemoryWaitHandler(waitAddr);
+        var mech0 = new Rv32Mechanism(syscallHandler: handler);
+        var mech1 = new Rv32Mechanism();
+
+        var counter0 = new PcCommitCounter();
+        var train0 = new FiveStageTrain(mech0, mem, entryPoint: 0x00, commitObserver: counter0);
+        var train1 = new FiveStageTrain(mech1, mem, entryPoint: 0x40, commitObserver: new PcCommitCounter());
+        train1.ArchState.IntegerRegisters.Write(3, waitAddr);
+
+        new MultiHartPipeline(train0, train1).Run(1000);
+
+        // Hart 0's ecall must have actually blocked (retried) before hart 1 ever ran far enough
+        // to clear the word — otherwise this proves nothing about the cross-hart hand-off.
+        Assert.True(handler.CallCount > 1, "expected hart 0's ecall to have blocked at least once");
+        Assert.Equal(1UL, mem.Read(waitAddr, 4));
+        Assert.Equal(1, counter0.CountAt(0x04));
+        Assert.Equal(1UL, train0.ArchState.IntegerRegisters.Read(2));
+    }
 }
