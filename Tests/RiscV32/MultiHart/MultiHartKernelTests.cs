@@ -304,11 +304,48 @@ public class MultiHartKernelTests {
         Assert.Equal(MoesifState.Shared, cache1.StateOf(0x200));
     }
 
+    // ── Flow control (LoopPoint's equal-forward-progress requirement) ─────────
+
+    [Fact]
+    public void TwoHarts_InfiniteCountingLoops_StayInLockstep() {
+        // Each hart runs `addi x1, x1, 1; jal x0, -4` (an infinite counting loop). LoopPoint's
+        // paper-level "flow-control" mechanism restricts thread forward progress during profiling
+        // to correct for skew introduced by a real, non-deterministic host OS scheduler running
+        // Pin instrumentation — an artifact that cannot arise here: MultiHartKernel.Step() already
+        // advances every non-halted, non-dormant hart by exactly one instruction per call, so two
+        // running harts can never drift apart in retired-instruction count. Read through each
+        // hart's own architectural state (x1), not Ticks or the Step loop counter, so this would
+        // actually fail if round-robin didn't lockstep the harts.
+        const uint addiX1 = 0x00108093; // addi x1, x1, 1
+
+        var mem = new FlatMemory(0x200);
+        mem.Load(0x00, ToBytes(addiX1, MultiHartKernelTests.Jal(0, -4)));
+        mem.Load(0x40, ToBytes(addiX1, MultiHartKernelTests.Jal(0, -4)));
+
+        var kernel = new MultiHartKernel(mem, new Rv32Mechanism(), new Rv32Mechanism());
+        kernel.SetEntryPoint(0, 0x00);
+        kernel.SetEntryPoint(1, 0x40);
+
+        for (var i = 0; i < 1000; i++) {
+            kernel.Step();
+            Assert.Equal(kernel.StateOf(0).IntegerRegisters.Read(1), kernel.StateOf(1).IntegerRegisters.Read(1));
+        }
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
 
     private static byte[] ToBytes(params uint[] words) {
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), words[i]);
         return bytes;
+    }
+
+    private static uint Jal(int rd, int immOffset) {
+        var imm = (uint)immOffset;
+        uint bit20 = (imm >> 20) & 1;
+        uint bits10_1 = (imm >> 1) & 0x3FF;
+        uint bit11 = (imm >> 11) & 1;
+        uint bits19_12 = (imm >> 12) & 0xFF;
+        return (bit20 << 31) | (bits10_1 << 21) | (bit11 << 20) | (bits19_12 << 12) | ((uint)rd << 7) | 0b1101111u;
     }
 }

@@ -287,8 +287,23 @@ just infrastructure this design doesn't require.
   CAS retry loop is never actually taken backward. That composition needs genuine multi-hart lock
   contention to exercise, which needs per-hart commit-observer wiring `MultiHartKernel` doesn't have yet —
   deferred to the per-thread loop-iteration BBV item below, where that wiring lands anyway.
-- [ ] Flow-control profiling scheduler: enforce equal per-hart forward progress during the analysis pass,
-  extending `MultiHartKernel`/`MultiHartPipeline`'s round-robin stepping with an explicit balancing policy.
+- [x] Flow-control profiling scheduler: **no new code** — the paper's "flow-control" (Section III-B)
+  is a Pintool that restricts thread forward progress specifically to correct skew from a real, non-
+  deterministic host OS scheduler running Pin instrumentation during profiling ("thread imbalance...
+  caused by external events on the host processor and... unrelated to the analysis environment").
+  `MultiHartKernel.Step()` and `MultiHartPipeline.Run()` already advance every non-halted, non-dormant
+  hart by exactly one instruction/cycle per call, deterministically — no running hart can ever retire
+  more instructions than another over the same tick window, so the specific artifact flow-control
+  exists to correct cannot arise here; building a balancing policy on top would be correcting a problem
+  the architecture doesn't have. `MultiHartPipeline.RunConcurrent` (`Parallel.For` real host threads,
+  the only mode with actual host parallelism) still holds the invariant because each tick is a barrier —
+  `Parallel.For` blocks until every hart's `StepCycle()` for that tick completes before the next tick
+  starts, so host scheduling can only reorder work *within* a tick, never let one hart get ahead by a
+  whole cycle. Verified (not just argued) with a decisive test reading through independent
+  architectural state rather than the scheduler's own tick counter: two harts each running an infinite
+  counting loop (`addi x1,x1,1; jal x0,-4`), asserting their `x1` values stay equal after every
+  `Step()`/after `RunConcurrent` completes (`MultiHartKernelTests.TwoHarts_InfiniteCountingLoops_StayInLockstep`,
+  `MultiHartPipelineTests.RunConcurrent_TwoIndependentInfiniteCountingLoops_StayInLockstep`).
 - [ ] Per-thread loop-iteration BBV + multi-thread region clustering: extend `BbvProfiler` to slice on
   loop-boundary `(PC, count)` markers instead of fixed instruction counts (one profiler per hart, composited
   alongside the new loop tracker via a small new `CompositeCommitObserver`, since a train accepts only one

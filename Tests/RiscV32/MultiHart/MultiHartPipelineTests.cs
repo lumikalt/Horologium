@@ -445,4 +445,45 @@ public class MultiHartPipelineTests {
         Assert.Equal(MoesifState.Owned, cache0.StateOf(0x200)); // writer keeps dirty ownership (MOESIF)
         Assert.Equal(MoesifState.Shared, cache1.StateOf(0x200));
     }
+
+    // ── Flow control (LoopPoint's equal-forward-progress requirement) ───────
+
+    [Fact]
+    public void RunConcurrent_TwoIndependentInfiniteCountingLoops_StayInLockstep() {
+        // Same argument as MultiHartKernelTests.TwoHarts_InfiniteCountingLoops_StayInLockstep,
+        // but against RunConcurrent specifically — the one mode with real host-thread parallelism
+        // (Parallel.For), so it's the only place a genuine scheduling artifact could sneak in.
+        // Parallel.For blocks until every hart's StepCycle() for this tick completes before the
+        // outer loop advances, so host scheduling can only reorder work *within* a tick, never let
+        // one hart complete two cycles before another completes its first — both harts must retire
+        // exactly the same instruction count after N ticks of two structurally identical programs.
+        const uint addiX1 = 0x00108093; // addi x1, x1, 1
+        uint jalSelfMinus4 = MultiHartPipelineTests.Jal(0, -4);
+
+        var flat = new FlatMemory(0x200);
+        flat.Load(0x00, ToBytes(addiX1, jalSelfMinus4));
+        flat.Load(0x40, ToBytes(addiX1, jalSelfMinus4));
+
+        var bus = new MoesifBus(flat);
+        var def0 = new DeferredBus(bus);
+        var def1 = new DeferredBus(bus);
+        var train0 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(def0, 256, 2, 64));
+        var train1 = new SingleCycleTrain(new Rv32Mechanism(), new MoesifCache(def1, 256, 2, 64), 0x40);
+
+        new MultiHartPipeline(train0, train1).RunConcurrent([def0, def1,], 1_000);
+
+        ulong count0 = train0.ArchState.IntegerRegisters.Read(1);
+        ulong count1 = train1.ArchState.IntegerRegisters.Read(1);
+        Assert.Equal(count0, count1);
+        Assert.True(count0 >= 400); // sanity: real progress happened, this isn't 0 == 0
+    }
+
+    private static uint Jal(int rd, int immOffset) {
+        var imm = (uint)immOffset;
+        uint bit20 = (imm >> 20) & 1;
+        uint bits10_1 = (imm >> 1) & 0x3FF;
+        uint bit11 = (imm >> 11) & 1;
+        uint bits19_12 = (imm >> 12) & 0xFF;
+        return (bit20 << 31) | (bits10_1 << 21) | (bit11 << 20) | (bits19_12 << 12) | ((uint)rd << 7) | 0b1101111u;
+    }
 }

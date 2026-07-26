@@ -1553,6 +1553,16 @@ excluded range, because an uncontended lock's CAS retry loop is never actually t
 composition needs genuine multi-hart contention, which needs per-hart commit-observer wiring `MultiHartKernel`
 doesn't have yet — deferred to the per-thread loop-iteration BBV item in `TODO.md`, where that wiring lands anyway.
 
+The paper's next step, "flow-control" (restricting thread forward progress during profiling so no thread races
+ahead of another), needed no new code here: it exists in the paper to correct skew from a real, non-deterministic
+host OS scheduler running Pin instrumentation — an artifact `MultiHartKernel.Step()`/`MultiHartPipeline.Run()`
+cannot produce, since both already advance every non-halted hart by exactly one instruction/cycle per call,
+deterministically. `RunConcurrent`'s `Parallel.For` is the one mode with real host-thread parallelism, but each
+tick is still a hard barrier — no hart can complete two cycles before another completes its first. Confirmed
+(not just argued) with a test reading through independent architectural state: two harts each running an
+infinite counting loop stay bit-for-bit in lockstep after every tick, both under `MultiHartKernel.Step()` and
+under `MultiHartPipeline.RunConcurrent`.
+
 ### SMARTS sampling (Pipeline/SmartsDriver)
 
 Systematic statistical sampling after Wunderlich, Wenisch, Falsafi & Hoe (ISCA 2003) — the sibling methodology to
