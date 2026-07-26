@@ -1614,8 +1614,8 @@ bug would produce a visibly wrong final value rather than coincidentally matchin
 real, stateful `LinuxSyscallEmulator` (brk moved, `_childCleartid` set via `clone()`) through the
 checkpoint's shared-handler-blob path specifically. Measuring a genuinely *blocking* multi-threaded
 region (a real futex wait) under detailed pipeline timing needed `ExecuteResult.RequestBlock` support in
-the detailed trains — done for `FiveStageTrain` and `OooTrain` (see below); the other four detailed
-trains still need their own translation of the same idea, tracked as its own `TODO.md` item.
+the detailed trains — done for `FiveStageTrain`, `OooTrain`, and `CprTrain` (see below); the other three
+detailed trains still need their own translation of the same idea, tracked as its own `TODO.md` item.
 
 **`RequestBlock` support in `FiveStageTrain` (Pipeline/Stages/Execute.cs, WriteBack.cs, FiveStageTrain.cs).**
 `FiveStageTrain` doesn't serialize `ecall` — no stall/hazard treatment at all — so by the time a syscall's
@@ -1675,6 +1675,38 @@ all three were confirmed to fail once the new `StepCommit` case was temporarily 
 again once it was restored. The full non-benchmark suite stayed green throughout (4398 passing), showing
 the new field/case didn't disturb value prediction, EOLE, runahead, store-set, or critical-path-prediction
 logic sharing the same commit loop.
+
+**`RequestBlock` support in `CprTrain` (Pipeline/CprTrain.cs).**
+`CprTrain` has no ROB at all — Akkary/Rajwar/Srinivasan-style checkpoint-epoch tracking instead
+(`Ooo/CheckpointList.cs`), where instructions commit in program-order bulk batches per checkpoint and
+recovery means discarding checkpoints back to a target and refetching from that checkpoint's own
+`RestartPc`. The fix is structurally the same *load-violation* shape `OooTrain` used, made exact by a
+fact already true here: syscalls are always `IsSerialized` (`ToothClass.System`), which forces a fresh
+checkpoint both immediately before and immediately after one — so a still-blocked `ecall` is always the
+sole entry of its own single-instruction checkpoint. `StepComplete` gained a `RequestBlock` check (right
+before the entry would otherwise be marked complete and broadcast onto the CDB) that calls the existing
+`ScheduleRecovery(entry.InstrId, entry.CheckpointSeq, 0, false)` — the exact same helper a memory-order
+violation already uses — which discards this checkpoint (and any later ones) and refetches precisely its
+own Pc. No new persistent field was needed on `CheckpointEntry`: the check and the recovery both happen
+inline in the same `StepComplete` pass, so nothing needs to survive past that point. `ExecResult` gained
+a `RequestBlock` field threaded through `ExecuteOne`'s return, alongside the existing `RequestHalt`.
+`Tests/Pipeline/CprRequestBlockGuardTests.cs` mirrors the `OooTrain` tests' shape (two single-hart
+stub-handler tests plus the cross-hart `MultiHartPipeline`/shared-`FlatMemory` composition test), reading
+dial-board `recoveries`/`retired` counters in place of a commit observer (`CprTrain`'s constructors don't
+accept one). All three were confirmed to fail once the new `StepComplete` branch was temporarily removed,
+then to pass again once it was restored. The full suite stayed green at 4401.
+
+Writing the cross-hart test surfaced a genuine, separate, pre-existing bug: `CprTrain`'s physical
+register file is never seeded from `ArchState.IntegerRegisters` at construction — only during
+`ApplyFullFlush`'s post-trap resync, whose seeding loop is otherwise never called at `Wind()`/startup
+time. A pre-`Run()` register write (originally used to preset the second hart's store-address register
+in the cross-hart test, the same thing a checkpoint restore does) was silently invisible to the
+instruction that read it, sourcing 0 instead. Confirmed decisively with an isolated repro (an
+addi-synthesized register works identically otherwise; the pre-set version doesn't) and worked around in
+the test (synthesizing the address in-program) rather than fixed — this is the same bug class already
+fixed for `OooTrain` (`Wind()` seeds the PRF from `ArchState.IntegerRegisters`, commit `832f1ab`), never
+ported to `CprTrain`'s separate PRF/RAT, and is tracked as its own `TODO.md` item since it blocks
+`CprTrain` from being a valid checkpoint-restore (including LoopPoint) measurement target.
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`

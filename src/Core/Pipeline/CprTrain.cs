@@ -657,6 +657,20 @@ internal sealed class CprPipelineCore : Gear {
         foreach (ExecResult r in _cdbBuffer) {
             if (!_entryByInstrId.TryGetValue(r.InstrId, out CheckpointEntry? entry)) continue; // squashed in flight
 
+            if (r.RequestBlock) {
+                // Still blocked (e.g. futex(FUTEX_WAIT) that hasn't cleared). Syscalls are always
+                // IsSerialized (ToothClass.System), so this entry is always the sole member of its
+                // own checkpoint (a fresh one opens both before and after it) — scheduling a
+                // recovery back to this checkpoint therefore squashes exactly this instruction (and
+                // everyone younger, in later checkpoints) and refetches precisely its own Pc, the
+                // same "re-execute from scratch" outcome FiveStageTrain/OooTrain reach for
+                // RequestBlock. Never mark complete or broadcast a result: this entry contributed
+                // no committed work. StepCommit's own loop guard (`!_recoveryPending`) already
+                // prevents it from touching this checkpoint again before ApplyRecovery discards it.
+                ScheduleRecovery(entry.InstrId, entry.CheckpointSeq, 0, false);
+                continue;
+            }
+
             entry.IsComplete = true;
             entry.ResolvedNextPc = r.ResolvedNextPc;
             entry.HasTrap = r.Trap is not null;
@@ -1156,7 +1170,7 @@ internal sealed class CprPipelineCore : Gear {
                     er.IsReturnFromTrap, er.ReturnPrivilege,
                     _capMem.HasWrite, _capMem.WriteAddress, _capMem.WriteValue, _capMem.WriteBytes,
                     _capMem.HasRead, _capMem.ReadAddress, _capMem.ReadBytes,
-                    er.RequestHalt, er.SideEffect,
+                    er.RequestHalt, er.RequestBlock, er.SideEffect,
                     er.LatencyOverride ?? 0
                 ), forwardPenalty);
     }
@@ -2338,6 +2352,7 @@ internal sealed class CprPipelineCore : Gear {
         ulong LoadAddr,
         int LoadBytes,
         bool RequestHalt = false,
+        bool RequestBlock = false, // true for a still-blocked syscall (e.g. futex FUTEX_WAIT)
         Action<IArchState>? SideEffect = null,
         int LatencyOverride
             = 0 // per-instruction FU latency from ExecuteResult.LatencyOverride; 0 = use FuLatencyConfig

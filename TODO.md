@@ -378,13 +378,43 @@ just infrastructure this design doesn't require.
   `FiveStageTrain`: two single-hart tests with a self-clearing stub handler, plus a cross-hart
   `MultiHartPipeline` composition test (hart 1's plain `sw` clears hart 0's blocked ecall through shared
   `FlatMemory`) — all three confirmed to fail with the `StepCommit` case removed, then pass restored.
+- [x] `RequestBlock` support in `CprTrain`: `CprTrain` has no ROB at all (checkpoint-epoch tracking
+  instead), but the fix is structurally the same *load-violation* shape as `OooTrain`'s, made exact by a
+  fact already true of this train — syscalls are always `IsSerialized` (`ToothClass.System`), which
+  forces a fresh checkpoint both before and after one, so a still-blocked `ecall` is always the sole
+  entry of its own checkpoint. `StepComplete` gained a `RequestBlock` branch (checked before marking the
+  entry complete) that calls the existing `ScheduleRecovery(entry.InstrId, entry.CheckpointSeq, 0, false)`
+  — the same helper a memory-order violation uses — which squashes back to that checkpoint (i.e. exactly
+  this instruction) and refetches its own Pc, with no new field needed on `CheckpointEntry` (the check
+  happens and discards inline, never persisted). `ExecResult` gained a `RequestBlock` field (threaded
+  through `ExecuteOne`'s return, alongside `RequestHalt`). `Tests/Pipeline/CprRequestBlockGuardTests.cs`
+  mirrors the `OooTrain` tests (2 single-hart stub-handler + 1 cross-hart `MultiHartPipeline` composition
+  test using dial-board `recoveries`/`retired` counters in place of a commit observer, since `CprTrain`'s
+  constructors don't accept one) — all 3 confirmed to fail with the `StepComplete` branch removed, then
+  pass restored.
+  **Found along the way (documented, not fixed — its own item below): `CprTrain`'s PRF is never seeded
+  from `ArchState.IntegerRegisters` at construction**, only during `ApplyFullFlush`'s post-trap RAT/PRF
+  resync — a pre-`Run()` register write (the same pattern a checkpoint restore performs) is invisible to
+  a store/ALU op sourcing that register until a full flush happens to occur first. Confirmed by an
+  isolated repro (an addi-synthesized address register works; the identical program with the same
+  register pre-set via `ArchState.IntegerRegisters.Write()` silently sources 0 instead), and worked
+  around in the new test (address synthesized in-program) rather than fixed.
+- [ ] `CprTrain` PRF isn't seeded from `ArchState.IntegerRegisters` at construction — the same bug class
+  already fixed for `OooTrain` in commit `832f1ab` (`Wind()` seeds the PRF from `ArchState.IntegerRegisters`
+  so pre-`Run()` writes and checkpoint-restore both work), but never ported to `CprTrain`, which has its
+  own separate `PhysicalRegisterFile`/`RenameMap`. The seeding logic already exists verbatim inside
+  `ApplyFullFlush` (`for (var a = 0; a < archRegs; a++) _prf.Write(a, State.IntegerRegisters.Read(a));`)
+  but nothing calls it at `Wind()`/construction time. This blocks `CprTrain` from being a valid LoopPoint
+  (or any other checkpoint-restore) measurement target — restoring a `MultiHartCheckpoint` onto a fresh
+  `CprTrain` would silently source stale/zero register values for any instruction that hasn't yet gone
+  through a full flush since restore, exactly the class of bug the fetch-PC-vs-`ArchState.Pc` livelock
+  was in `MultiHartLoopPointExperiment`'s item above.
 - [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`SmtTrain`/
-  `CprTrain`/`DaeTrain`): same squash-and-refetch shape as `FiveStageTrain`/`OooTrain` above, but each
-  train's own commit/squash machinery (also ROB-based for `CprTrain`, undo-log for `DaeTrain`, in-order
-  functional-execute for `SuperscalarTrain`/`SmtTrain`) needs its own translation of "still-blocked
-  instruction redirects fetch to its own PC instead of retiring, younger in-flight instructions
-  squashed" — not a mechanical copy of either existing fix. `CprTrain` is the closest structural parallel
-  to `OooTrain` (also ROB-based) and is the natural next one to attempt.
+  `DaeTrain`): same squash-and-refetch shape as `FiveStageTrain`/`OooTrain`/`CprTrain` above, but each
+  train's own commit/squash machinery (undo-log for `DaeTrain`, in-order functional-execute for
+  `SuperscalarTrain`/`SmtTrain`) needs its own translation of "still-blocked instruction redirects fetch
+  to its own PC instead of retiring, younger in-flight instructions squashed" — not a mechanical copy of
+  any existing fix.
 - [ ] `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop has no way to detect a
   hart that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever,
   since it's retrying, not halted) — if the waking hart halts first with no further global-instruction
