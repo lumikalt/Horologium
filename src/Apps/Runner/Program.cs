@@ -39,6 +39,11 @@ string? simpointArgvRaw = null; // --simpoint-argv "<args>": opts --simpoint/--s
 // compiled binary. Value is space-separated argv entries after
 // argv[0] (the ELF's file name); pass "" for none. Requires an ELF
 // workload (not the built-in demo).
+long smartsU = 0; // --smarts <U> <W> <K>: SMARTS systematic sampling (Wunderlich et al., ISCA 2003)
+long smartsW = 0;
+long smartsK = 0;
+long smartsN = 10_000; // --smarts-n <n>: sampling units to measure (paper's own n_init default)
+long smartsJ = 0;      // --smarts-offset <j>: starting offset of the first sampling unit
 string? scriptPath = null;              // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null;      // --checkpoint-save <path>: save arch checkpoint after run
 string? checkpointLoadPath = null;      // --checkpoint-load <path>: restore arch checkpoint before run
@@ -84,6 +89,13 @@ for (var i = 0; i < args.Length; i++)
         case "--simpoint":              simpointInterval = long.Parse(args[++i]); break;
         case "--simpoint-warmup":       simpointWarmup = long.Parse(args[++i]); break;
         case "--simpoint-argv":         simpointArgvRaw = args[++i]; break;
+        case "--smarts":
+            smartsU = long.Parse(args[++i]);
+            smartsW = long.Parse(args[++i]);
+            smartsK = long.Parse(args[++i]);
+            break;
+        case "--smarts-n":      smartsN = long.Parse(args[++i]); break;
+        case "--smarts-offset": smartsJ = long.Parse(args[++i]); break;
         case "--checkpoint-save":       checkpointSavePath = args[++i]; break;
         case "--checkpoint-load":       checkpointLoadPath = args[++i]; break;
         case "--checkpoint-save-micro": checkpointSaveMicroPath = args[++i]; break;
@@ -425,6 +437,57 @@ if (simpointInterval > 0) {
                           .Build(mech, mem, entry, cfg.ToIMemoryConfig(), dCfg);
             }
         }
+    }
+
+    return;
+}
+
+// ── SMARTS systematic sampling ────────────────────────────────────────────────
+
+if (smartsK > 0) {
+    if (workloads.Count > 1) {
+        Console.Error.WriteLine("--smarts supports only a single workload.");
+        return;
+    }
+
+    IWorkload smartsWorkload = workloads[0].Workload;
+    var smartsParams = new SmartsParameters(smartsU, smartsW, smartsK, smartsJ, (int)smartsN);
+    IReadOnlyList<NamedConfig> smartsConfigs = sweepPath is not null ? NamedConfig.LoadFile(sweepPath) : DefaultSweep();
+
+    Console.Error.WriteLine(
+        $"SMARTS: U={smartsU:N0} W={smartsW:N0} K={smartsK:N0} J={smartsJ:N0} N={smartsN:N0}"
+    );
+    Console.WriteLine();
+
+    foreach ((string name, TrainConfig cfg) in smartsConfigs) {
+        if (cfg.Pipeline is not ("ooo" or "five_stage")) {
+            Console.Error.WriteLine($"  {name}: skipped — SMARTS supports the five_stage/ooo pipelines only.");
+            continue;
+        }
+
+        IMechanism smartsMechanism = mechanismFactory(smartsWorkload.HtifTohostAddress);
+        SmartsResult result = Experiment.RunSmarts(smartsWorkload, smartsMechanism, cfg, smartsParams);
+
+        Console.WriteLine($"## {name}");
+        Console.WriteLine(
+            $"  Units measured: {result.Units.Count:N0}/{smartsParams.N:N0}" +
+            (result.Halted ? " (workload halted before every requested unit was measured)" : "")
+        );
+        Console.WriteLine($"  Mean CPI: {result.MeanCpi:F4}   Mean IPC: {1.0 / result.MeanCpi:F4}");
+        Console.WriteLine($"  Coefficient of variation: {result.CoefficientOfVariation:F4}");
+        foreach ((string label, double z) in new (string, double)[] {
+                     ("95%", SmartsStatistics.Z95), ("99.7%", SmartsStatistics.Z997),
+                 }) {
+            double ci = result.ConfidenceInterval(z);
+            Console.WriteLine($"  {label} confidence interval: CPI {result.MeanCpi:F4} ± {ci * result.MeanCpi:F4} ({ci:P2})");
+        }
+
+        int nTuned = result.RequiredSampleSize(SmartsStatistics.Z997, 0.03);
+        Console.WriteLine(
+            $"  n for ±3% @ 99.7% confidence: {nTuned:N0}" +
+            (nTuned > result.Units.Count ? " (rerun with a larger --smarts-n / smaller K to reach it)" : "")
+        );
+        Console.WriteLine();
     }
 
     return;
@@ -867,6 +930,25 @@ static void PrintUsage() {
                                 other mode uses. Captured stdout/stderr is discarded (this
                                 mode measures CPI/IPC, not output — see --bench-config for
                                 output-checked runs).
+          --smarts <U> <W> <K>  SMARTS systematic sampling (Wunderlich et al., ISCA 2003):
+                                alternates a functional fast-forward with detailed
+                                warm-then-measure windows spaced K instructions apart, each
+                                warming for W (unmeasured) then measuring U instructions —
+                                cache/TLB/branch-predictor state stays warm across every
+                                switch via live handoff (see SmartsDriver), not a checkpoint
+                                per unit. Prints mean CPI, coefficient of variation, 95%/99.7%
+                                confidence intervals, and the sample size needed for ±3% at
+                                99.7% confidence (paper Section 5.1's two-step procedure —
+                                rerun with a larger --smarts-n or smaller K if it's not met).
+                                Runs once per --sweep config (or the default sweep); configs
+                                whose pipeline isn't five_stage/ooo are skipped. Single
+                                workload only. Bare-metal HTIF entry only (no argv/Linux-ABI
+                                support yet).
+          --smarts-n <n>        Requires --smarts. Sampling units to measure (default: 10000,
+                                the paper's own n_init). The run stops early if the workload
+                                halts first.
+          --smarts-offset <j>   Requires --smarts. Starting offset (in instructions) of the
+                                first sampling unit's measured window (default: 0).
           --bench-config <path>  Run a batch of Linux-ABI benchmarks described by a JSON file
                                  (BenchmarkConfig[]: name, elf_path, args, stdin_path,
                                  expected_output_path, memory_size_bytes) and exit. Each

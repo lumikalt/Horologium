@@ -197,8 +197,24 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Analysis
 
-- [ ] SMARTS: systematic statistical sampling with functional warming between detailed sample windows. — Wunderlich
-  et al., ISCA 2003
+- [x] SMARTS: systematic statistical sampling with functional warming between detailed sample
+  windows — live-switches architectural state between a functional fast-forward train
+  (`SingleCycleTrain`, sharing cache/TLB/branch-predictor instances with the detailed train
+  rather than re-warming from scratch) and a detailed warm-then-measure window per sampling
+  unit, instead of a full-checkpoint-per-unit design (too expensive at the paper's n≈10,000
+  scale). `SmartsDriver`/`SmartsStatistics` (`src/Core/Pipeline/`) are ISA-agnostic; `FiveStage`
+  and `Ooo` detailed-train factories both supported (`Drain()`-before-handoff for OoO's
+  in-flight ROB/IQ/LQ/SQ state). Wired into the Runner CLI (`--smarts <U> <W> <K>`,
+  `--smarts-n`, `--smarts-offset`) via `Experiment.RunSmarts`, printing mean CPI, coefficient of
+  variation, 95%/99.7% confidence intervals, and the paper's two-step `n_tuned` recommendation.
+  Known gaps: no argv/Linux-ABI workload support yet (bare-metal HTIF entry only); RAS state
+  isn't warmed by the functional pass (it lives outside `IBranchPredictor`); timing-dependent
+  CSRs (e.g. `mcycle`) can't be sampled faithfully, since functional fast-forward doesn't advance
+  cycle count the way detailed windows do — inherent to the sampling approach, not a gap to close.
+  — Wunderlich et al., ISCA 2003
+- [ ] SMARTS argv/Linux-ABI workload support, mirroring `--simpoint-argv`'s psABI initial-stack +
+  `LinuxSyscallEmulator` pattern, so real compiled binaries (not just bare-metal HTIF ELFs) can be
+  sampled.
 - [ ] LoopPoint: checkpoint-driven sampling methodology for multithreaded workloads; the multi-hart counterpart to
   SimPoint. — Sabu et al., HPCA 2022
 

@@ -16,6 +16,16 @@ namespace Pipeline;
 ///     The simplest possible Train: one Gear that fetches, decodes, executes,
 ///     and writes back one instruction per tick. No pipeline, no hazards.
 ///     Used to validate the Mechanism before any pipeline complexity is added.
+///     <para>
+///         An optional <see cref="IBranchPredictor" /> can be attached for SMARTS-style
+///         functional warming (Wunderlich et al., ISCA 2003, Section 3.1): since this train never
+///         speculates, every resolved branch trains the predictor via <see cref="IBranchPredictor.Update" />
+///         alone — no <c>Predict</c>/<c>SpeculativeHistoryUpdate</c> call is made, so working history
+///         stays lock-stepped with committed history, which is bit-identical to the training a
+///         detailed in-order pipeline performs at commit. RAS state is not warmed this way (the
+///         return-address stack lives outside <see cref="IBranchPredictor" />, driven directly by a
+///         detailed train's fetch/commit logic).
+///     </para>
 /// </summary>
 public sealed class SingleCycleTrain : ISteppableTrain {
     private readonly SingleCycleCore _core;
@@ -27,14 +37,17 @@ public sealed class SingleCycleTrain : ISteppableTrain {
         ulong entryPoint = 0,
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null,
-        ICommitObserver? commitObserver = null
+        ICommitObserver? commitObserver = null,
+        IBranchPredictor? predictor = null
     ) {
         var esc = new Escapement();
         _train = new Train("single_cycle", esc);
         var iLayers = MemoryLayers.Build(memory, iMemConfig ?? MemoryConfig.None);
         var dLayers = MemoryLayers.Build(memory, dMemConfig ?? MemoryConfig.None);
         _core = _train.AddGear(
-            new SingleCycleCore("core", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, commitObserver)
+            new SingleCycleCore(
+                "core", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, commitObserver, predictor
+            )
         );
         _train.Build();
     }
@@ -44,12 +57,15 @@ public sealed class SingleCycleTrain : ISteppableTrain {
         MemoryLayers iLayers,
         MemoryLayers dLayers,
         ulong entryPoint,
-        ICommitObserver? commitObserver = null
+        ICommitObserver? commitObserver = null,
+        IBranchPredictor? predictor = null
     ) {
         var esc = new Escapement();
         _train = new Train("single_cycle", esc);
         _core = _train.AddGear(
-            new SingleCycleCore("core", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, commitObserver)
+            new SingleCycleCore(
+                "core", _train.Root, esc, mechanism, iLayers, dLayers, entryPoint, commitObserver, predictor
+            )
         );
         _train.Build();
     }
@@ -95,7 +111,8 @@ internal sealed class SingleCycleCore(
     MemoryLayers iLayers,
     MemoryLayers dLayers,
     ulong entryPoint,
-    ICommitObserver? commitObserver = null
+    ICommitObserver? commitObserver = null,
+    IBranchPredictor? predictor = null
 )
     : Gear(name, parent, esc) {
     private bool _anyCache;
@@ -281,6 +298,14 @@ internal sealed class SingleCycleCore(
             else
                 ArchState.Pc = pc + (ulong)instr.SizeBytes;
 
+            if (predictor is not null && instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch) {
+                bool taken = result.BranchTaken;
+                ulong actualNext = taken ? result.BranchTarget!.Value : pc + (ulong)instr.SizeBytes;
+                if (predictor is IBranchKindAwareBranchPredictor kindAware)
+                    kindAware.NotifyBranchKind(pc, ClassifyBranchKind(instr));
+                predictor.Update(pc, taken, actualNext);
+            }
+
             commitObserver?.OnCommit(pc, instr.RawEncoding, ArchState);
         }
 
@@ -303,6 +328,18 @@ internal sealed class SingleCycleCore(
         }
 
         ScheduleNextInstruction();
+    }
+
+    // Classifies a resolved branch for IBranchKindAwareBranchPredictor, mirroring
+    // FiveStageTrain.ClassifyBranchKind.
+    private BranchKind ClassifyBranchKind(ITooth instruction) {
+        var kind = BranchKind.None;
+        if (instruction.Class == ToothClass.ConditionalBranch) kind |= BranchKind.Conditional;
+        FetchHint hint = mechanism.Decoder.GetFetchHint(instruction.Pc, instruction.RawEncoding);
+        if (hint.IsCall) kind |= BranchKind.Call;
+        if (hint.IsReturn) kind |= BranchKind.Return;
+        if (!hint.BranchTarget.HasValue) kind |= BranchKind.Indirect;
+        return kind;
     }
 
     // Drains all pending stalls from every memory layer, updates hit/miss counters,

@@ -1463,6 +1463,36 @@ single simulation point closest to the whole-run centroid. `runner --simpoint <i
 prints the phase table; the simulation points feed the checkpoint/ROI handoff flows for detailed-model sampling
 (on CoreMark at 20 K-instruction intervals this finds the iteration's interleaved kernels as ~7 recurring phases).
 
+### SMARTS sampling (Pipeline/SmartsDriver)
+
+Systematic statistical sampling after Wunderlich, Wenisch, Falsafi & Hoe (ISCA 2003) — the sibling methodology to
+SimPoint above, trading SimPoint's few large clustered intervals for many small, evenly-spaced ones with a
+statistically quantified confidence interval instead of a phase classification. `SmartsDriver.Run` alternates a
+functional fast-forward train (`SingleCycleTrain`) with a detailed warm-then-measure window per sampling unit —
+`W` unmeasured instructions to rebuild pipeline-internal state a functional pass can't warm, then `U` measured
+instructions — spaced `K` instructions apart, starting at offset `J`. Unlike SimPoint's per-point
+`ArchitecturalCheckpoint` (a full memory snapshot, fine for ~10 points but far too costly at SMARTS's own n≈10,000
+scale), state moves between the two trains via a cheap in-memory register-level copy
+(`ArchStateTransfer.CopyInto`) — both trains share the same `MemoryLayers` (cache/TLB) and `IBranchPredictor`
+instances for the whole run, so cache/TLB/branch-predictor state stays continuously warm through the
+fast-forwarded majority of the stream rather than needing to be rebuilt from cold at every window (the paper's
+"functional warming", Section 3.1) — `SingleCycleTrain` already ticks a shared cache/TLB on every access, and,
+given a predictor, trains it on every resolved branch even though it never itself speculates. `FiveStageTrain` and
+`OooTrain` are both supported as the detailed pipeline (`SmartsDriver.FiveStage`/`SmartsDriver.Ooo`); the OoO case
+additionally drains in-flight ROB/IQ/LQ/SQ state (`OooTrain.Drain`) after each measured window, since an OoO train
+can still hold not-yet-retired instructions at the exact tick the window ends. `SmartsStatistics` computes the
+sample mean CPI, its coefficient of variation, the achieved confidence interval at a given z (95%/99.7%), and the
+sample size needed for a target confidence — the paper's own two-step procedure (run with an initial n, check the
+achieved confidence, rerun with a computed `n_tuned` if it falls short) is left to the caller rather than
+auto-looped, matching how the paper itself describes it as a manual step.
+`runner --smarts <U> <W> <K> [--smarts-n <n>] [--smarts-offset <j>] prog.elf` runs it against the `--sweep` configs
+(or the default sweep), printing mean CPI/IPC, coefficient of variation, 95%/99.7% confidence intervals, and the
+recommended `n` for ±3% at 99.7% confidence. Known gaps: no argv/Linux-ABI workload support yet (bare-metal HTIF
+entry only, unlike `--simpoint-argv`); the return-address stack isn't warmed by the functional pass (it lives
+outside `IBranchPredictor`); and timing-dependent CSRs (e.g. `mcycle`) can't be sampled faithfully, since
+functional fast-forward doesn't advance cycle count the way detailed windows do — an inherent boundary of the
+sampling approach itself, not a gap to close.
+
 ### Architecture scripting and checkpointing (Script/)
 
 `ScriptHost.EvaluateFileAsync(path)` compiles and evaluates a `.csx` (Roslyn C#) or `.fsx` (F# Interactive) script file

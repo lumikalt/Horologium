@@ -716,6 +716,55 @@ public static class Experiment {
     }
 
     /// <summary>
+    ///     SMARTS systematic sampling (Wunderlich, Wenisch, Falsafi &amp; Hoe, ISCA 2003): builds one
+    ///     shared <see cref="MemoryLayers" /> pair and branch predictor for the whole run — unlike
+    ///     SimPoint's per-point fresh mechanism/cache, SMARTS needs continuous architectural,
+    ///     cache/TLB, and (if configured) branch-predictor state across every functional/detailed
+    ///     switch — and drives <see cref="SmartsDriver.Run" /> against <paramref name="config" />'s
+    ///     detailed pipeline.
+    ///     <para>
+    ///         Only <c>"five_stage"</c> and <c>"ooo"</c> are supported: <see cref="SmartsDriver.FiveStage" />/
+    ///         <see cref="SmartsDriver.Ooo" /> are the only detailed-train factories built so far.
+    ///     </para>
+    ///     <para>
+    ///         Bare-metal HTIF entry only — unlike <see cref="CaptureSimPointCheckpoints" />, this has
+    ///         no <c>argv</c>/Linux-ABI (psABI initial stack) support yet.
+    ///     </para>
+    /// </summary>
+    /// <param name="workload">The workload to sample.</param>
+    /// <param name="mechanism">
+    ///     The single mechanism instance for the whole run, reused (not recreated) across every
+    ///     internal train construction — see <see cref="SmartsDriver.Run" />'s <c>mechanism</c> parameter.
+    /// </param>
+    /// <param name="config">Selects the detailed pipeline and its cache/predictor/width knobs.</param>
+    /// <param name="parameters">Sampling unit size, warmup length, systematic interval, offset, and unit count.</param>
+    public static SmartsResult RunSmarts(
+        IWorkload workload,
+        IMechanism mechanism,
+        TrainConfig config,
+        SmartsParameters parameters
+    ) {
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+        IMemory runMemory = workload.WrapMemory(memory);
+
+        MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
+        MemoryLayers iLayers = MemoryLayers.Build(runMemory, config.ToIMemoryConfig());
+        MemoryLayers dLayers = MemoryLayers.Build(runMemory, dCfg);
+        IBranchPredictor? predictor = config.Predictor?.Build(mechanism, workload);
+
+        SmartsDetailedTrainFactory factory = config.Pipeline switch {
+            "five_stage" => SmartsDriver.FiveStage(config.ForwardingEnabled, config.StoreBufferCapacity),
+            "ooo" => SmartsDriver.Ooo(config.IssueWidth, config.RobCapacity, config.IqCapacity),
+            _ => throw new NotSupportedException(
+                $"SMARTS supports the five_stage/ooo pipelines only, not '{config.Pipeline}'."
+            ),
+        };
+
+        return SmartsDriver.Run(mechanism, workload.EntryPoint, iLayers, dLayers, predictor, parameters, factory);
+    }
+
+    /// <summary>
     ///     Runs <paramref name="workload" /> functionally on the single-cycle train and
     ///     writes an Olympia-compatible JSON instruction trace to <paramref name="output" />.
     ///     Returns the number of instructions written. The single-cycle train is the
