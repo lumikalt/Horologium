@@ -1485,13 +1485,25 @@ sample mean CPI, its coefficient of variation, the achieved confidence interval 
 sample size needed for a target confidence — the paper's own two-step procedure (run with an initial n, check the
 achieved confidence, rerun with a computed `n_tuned` if it falls short) is left to the caller rather than
 auto-looped, matching how the paper itself describes it as a manual step.
-`runner --smarts <U> <W> <K> [--smarts-n <n>] [--smarts-offset <j>] prog.elf` runs it against the `--sweep` configs
-(or the default sweep), printing mean CPI/IPC, coefficient of variation, 95%/99.7% confidence intervals, and the
-recommended `n` for ±3% at 99.7% confidence. Known gaps: no argv/Linux-ABI workload support yet (bare-metal HTIF
-entry only, unlike `--simpoint-argv`); the return-address stack isn't warmed by the functional pass (it lives
-outside `IBranchPredictor`); and timing-dependent CSRs (e.g. `mcycle`) can't be sampled faithfully, since
-functional fast-forward doesn't advance cycle count the way detailed windows do — an inherent boundary of the
-sampling approach itself, not a gap to close.
+`runner --smarts <U> <W> <K> [--smarts-n <n>] [--smarts-offset <j>] [--smarts-argv "<args>"] prog.elf` runs it
+against the `--sweep` configs (or the default sweep), printing mean CPI/IPC, coefficient of variation, 95%/99.7%
+confidence intervals, and the recommended `n` for ±3% at 99.7% confidence. `--smarts-argv` mirrors
+`--simpoint-argv`: it opts into Linux-ABI entry for a real compiled binary (a psABI initial stack, argv[0] the
+ELF's file name plus extra space-separated entries from the flag's value, and a `LinuxSyscallEmulator`), so real
+compiled binaries — not just bare-metal HTIF ELFs — can be sampled. Unlike `--simpoint-argv`, which needs a fresh
+`LinuxSyscallEmulator` per functional pass (`CaptureSimPointCheckpoints` recreates its mechanism at every
+checkpoint/measure boundary) and therefore serializes brk/mmap/fd/stdin state through
+`ICheckpointableSyscallHandler`, SMARTS needs none of that: `SmartsDriver.Run` reuses one mechanism instance for
+the run's entire lifetime, so whatever `ISyscallHandler` it carries persists across every functional/detailed
+switch by plain object identity — sound by construction, not a serialize/restore round-trip that could silently
+no-op. The one-time seam this needs — seeding the psABI stack pointer into whichever train is constructed first,
+since `ArchStateTransfer.CopyInto` only fires once something has already been handed off — is
+`SmartsDriver.Run`'s `seedInitialState` hook. Because SMARTS is strictly forward (never re-executes a region:
+`warmStart` is clamped to never precede wherever the stream already is), a real syscall a sampled run passes
+through fires exactly once, the same as an unsampled run — safe under sampling with no double-`write()`. Known
+gaps: the return-address stack isn't warmed by the functional pass (it lives outside `IBranchPredictor`); and
+timing-dependent CSRs (e.g. `mcycle`) can't be sampled faithfully, since functional fast-forward doesn't advance
+cycle count the way detailed windows do — an inherent boundary of the sampling approach itself, not a gap to close.
 
 ### Architecture scripting and checkpointing (Script/)
 

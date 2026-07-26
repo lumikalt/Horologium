@@ -727,22 +727,37 @@ public static class Experiment {
     ///         <see cref="SmartsDriver.Ooo" /> are the only detailed-train factories built so far.
     ///     </para>
     ///     <para>
-    ///         Bare-metal HTIF entry only — unlike <see cref="CaptureSimPointCheckpoints" />, this has
-    ///         no <c>argv</c>/Linux-ABI (psABI initial stack) support yet.
+    ///         Unlike <see cref="CaptureSimPointCheckpoints" />'s per-point fresh <c>LinuxSyscallEmulator</c>
+    ///         (needed there because SimPoint recreates its mechanism at every capture/measure boundary),
+    ///         SMARTS needs no syscall-state serialization at all when <paramref name="argv" /> is given: the
+    ///         one <paramref name="mechanism" /> instance (and whatever <see cref="ISyscallHandler" /> it
+    ///         carries) is reused, not recreated, across every functional/detailed switch — see
+    ///         <see cref="SmartsDriver.Run" />'s <c>mechanism</c> parameter — so brk/mmap/fd/stdin state
+    ///         simply persists across switches the same way cache/TLB/predictor state does.
     ///     </para>
     /// </summary>
     /// <param name="workload">The workload to sample.</param>
     /// <param name="mechanism">
     ///     The single mechanism instance for the whole run, reused (not recreated) across every
     ///     internal train construction — see <see cref="SmartsDriver.Run" />'s <c>mechanism</c> parameter.
+    ///     When <paramref name="argv" /> is given, this must already carry the
+    ///     <see cref="ISyscallHandler" /> (e.g. <c>LinuxSyscallEmulator</c>) to use for the whole run.
     /// </param>
     /// <param name="config">Selects the detailed pipeline and its cache/predictor/width knobs.</param>
     /// <param name="parameters">Sampling unit size, warmup length, systematic interval, offset, and unit count.</param>
+    /// <param name="argv">
+    ///     When non-null, injects a psABI initial stack (<see cref="InitialStackBuilder" />) instead of
+    ///     bare-metal entry, so a real compiled binary's <c>_start</c> can run — requires
+    ///     <paramref name="workload" /> to be an <see cref="IElfWorkload" />.
+    /// </param>
+    /// <param name="wordSize">4 for RV32, 8 for RV64 — selects the psABI pointer width.</param>
     public static SmartsResult RunSmarts(
         IWorkload workload,
         IMechanism mechanism,
         TrainConfig config,
-        SmartsParameters parameters
+        SmartsParameters parameters,
+        IReadOnlyList<string>? argv = null,
+        int wordSize = 4
     ) {
         var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(memory);
@@ -761,7 +776,24 @@ public static class Experiment {
             ),
         };
 
-        return SmartsDriver.Run(mechanism, workload.EntryPoint, iLayers, dLayers, predictor, parameters, factory);
+        Action<IArchState>? seedInitialState = null;
+        if (argv is not null) {
+            if (workload is not IElfWorkload) {
+                throw new NotSupportedException("SMARTS argv/Linux-ABI entry requires an IElfWorkload.");
+            }
+
+            ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
+            ulong sp = InitialStackBuilder.BuildInitialStack(
+                memory, stackTop, wordSize, argv, [],
+                InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+            );
+            seedInitialState = state => state.IntegerRegisters.Write(2, sp);
+        }
+
+        return SmartsDriver.Run(
+            mechanism, workload.EntryPoint, iLayers, dLayers, predictor, parameters, factory,
+            seedInitialState: seedInitialState
+        );
     }
 
     /// <summary>

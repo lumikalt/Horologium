@@ -141,6 +141,14 @@ public static class SmartsDriver {
     ///     independent of whatever CPI the sampled windows happen to measure. Not fired for a unit
     ///     whose entry position is the workload's very start (nothing carried yet to inspect).
     /// </param>
+    /// <param name="seedInitialState">
+    ///     Invoked exactly once, on whichever train (functional fast-forward or detailed) is
+    ///     constructed first for the whole run, immediately after construction and before its
+    ///     <c>BeginStepping()</c> — the one point at which there is no <paramref name="carried" />
+    ///     state yet for <see cref="ArchStateTransfer.CopyInto" /> to copy in. Lets a caller seed
+    ///     register state <c>Wind()</c> itself never sets (e.g. writing a psABI initial stack
+    ///     pointer into x2 for Linux-ABI entry) without needing its own train instance just to do it.
+    /// </param>
     public static SmartsResult Run(
         IMechanism mechanism,
         ulong entryPoint,
@@ -149,7 +157,8 @@ public static class SmartsDriver {
         IBranchPredictor? predictor,
         SmartsParameters parameters,
         SmartsDetailedTrainFactory detailedTrainFactory,
-        Action<int, long, IArchState>? onUnitEntry = null
+        Action<int, long, IArchState>? onUnitEntry = null,
+        Action<IArchState>? seedInitialState = null
     ) {
         var units = new List<SmartsUnitResult>(parameters.N);
         long globalPos = 0;
@@ -171,6 +180,7 @@ public static class SmartsDriver {
                 ulong resumePc = carried?.Pc ?? entryPoint;
                 var functional = new SingleCycleTrain(mechanism, iLayers, dLayers, resumePc, ffCounter, predictor);
                 if (carried is not null) ArchStateTransfer.CopyInto(carried, functional.ArchState);
+                else seedInitialState?.Invoke(functional.ArchState);
 
                 functional.BeginStepping();
                 while (ffCounter.Count < ffNeeded && functional.StepCycle()) { }
@@ -193,6 +203,7 @@ public static class SmartsDriver {
                 mechanism, iLayers, dLayers, predictor, detailedEntryPc, detailedCounter
             );
             if (carried is not null) ArchStateTransfer.CopyInto(carried, detailed.ArchState!);
+            else seedInitialState?.Invoke(detailed.ArchState!);
 
             RevolutionResult rev = WarmupMeasureDriver.RunWarmupThenMeasure(
                 detailed, detailedCounter, warmupLen, parameters.U

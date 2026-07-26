@@ -207,14 +207,15 @@ off here until a periodic cleanup removes them; the durable record is git histor
   in-flight ROB/IQ/LQ/SQ state). Wired into the Runner CLI (`--smarts <U> <W> <K>`,
   `--smarts-n`, `--smarts-offset`) via `Experiment.RunSmarts`, printing mean CPI, coefficient of
   variation, 95%/99.7% confidence intervals, and the paper's two-step `n_tuned` recommendation.
-  Known gaps: no argv/Linux-ABI workload support yet (bare-metal HTIF entry only); RAS state
-  isn't warmed by the functional pass (it lives outside `IBranchPredictor`); timing-dependent
+  argv/Linux-ABI workload support (`--smarts-argv`, mirroring `--simpoint-argv`'s psABI
+  initial-stack + `LinuxSyscallEmulator` pattern) lets real compiled binaries, not just bare-metal
+  HTIF ELFs, be sampled — needs no per-pass syscall-state serialization the way `--simpoint-argv`
+  does, since `SmartsDriver.Run` reuses one mechanism (and whatever `ISyscallHandler` it carries)
+  for the whole run instead of recreating it at each checkpoint/measure boundary. Known gaps: RAS
+  state isn't warmed by the functional pass (it lives outside `IBranchPredictor`); timing-dependent
   CSRs (e.g. `mcycle`) can't be sampled faithfully, since functional fast-forward doesn't advance
   cycle count the way detailed windows do — inherent to the sampling approach, not a gap to close.
   — Wunderlich et al., ISCA 2003
-- [ ] SMARTS argv/Linux-ABI workload support, mirroring `--simpoint-argv`'s psABI initial-stack +
-  `LinuxSyscallEmulator` pattern, so real compiled binaries (not just bare-metal HTIF ELFs) can be
-  sampled.
 - [ ] LoopPoint: checkpoint-driven sampling methodology for multithreaded workloads; the multi-hart counterpart to
   SimPoint. — Sabu et al., HPCA 2022
 

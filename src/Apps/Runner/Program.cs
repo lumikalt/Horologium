@@ -44,6 +44,12 @@ long smartsW = 0;
 long smartsK = 0;
 long smartsN = 10_000; // --smarts-n <n>: sampling units to measure (paper's own n_init default)
 long smartsJ = 0;      // --smarts-offset <j>: starting offset of the first sampling unit
+string? smartsArgvRaw = null; // --smarts-argv "<args>": opts --smarts into Linux-ABI entry (psABI
+// initial stack + a LinuxSyscallEmulator shared for the whole run — see
+// Experiment.RunSmarts's doc comment for why SMARTS needs no per-pass fresh
+// instance, unlike --simpoint-argv) instead of bare-metal HTIF entry, for a
+// real compiled binary. Same value shape as --simpoint-argv. Requires an ELF
+// workload (not the built-in demo).
 string? scriptPath = null;              // --script <file.csx>: evaluate script → MachineSpec → run
 string? checkpointSavePath = null;      // --checkpoint-save <path>: save arch checkpoint after run
 string? checkpointLoadPath = null;      // --checkpoint-load <path>: restore arch checkpoint before run
@@ -96,6 +102,7 @@ for (var i = 0; i < args.Length; i++)
             break;
         case "--smarts-n":      smartsN = long.Parse(args[++i]); break;
         case "--smarts-offset": smartsJ = long.Parse(args[++i]); break;
+        case "--smarts-argv":   smartsArgvRaw = args[++i]; break;
         case "--checkpoint-save":       checkpointSavePath = args[++i]; break;
         case "--checkpoint-load":       checkpointLoadPath = args[++i]; break;
         case "--checkpoint-save-micro": checkpointSaveMicroPath = args[++i]; break;
@@ -454,6 +461,24 @@ if (smartsK > 0) {
     var smartsParams = new SmartsParameters(smartsU, smartsW, smartsK, smartsJ, (int)smartsN);
     IReadOnlyList<NamedConfig> smartsConfigs = sweepPath is not null ? NamedConfig.LoadFile(sweepPath) : DefaultSweep();
 
+    // --smarts-argv opts into Linux-ABI entry, mirroring --simpoint-argv's psABI initial stack —
+    // but SmartsDriver reuses one mechanism for a run's whole lifetime rather than recreating it
+    // per pass/point, so (unlike --simpoint-argv) a single LinuxSyscallEmulator per named config
+    // is enough; Experiment.RunSmarts's doc comment explains why no state serialization is needed.
+    IReadOnlyList<string>? smartsArgv = null;
+    int smartsWordSize = xlen == 64 ? 8 : 4;
+    if (smartsArgvRaw is not null) {
+        if (smartsWorkload is not IElfWorkload) {
+            Console.Error.WriteLine("--smarts-argv requires an ELF workload, not the built-in demo.");
+            return;
+        }
+
+        smartsArgv = [
+            Path.GetFileName(elfPaths[0]),
+            ..smartsArgvRaw.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+        ];
+    }
+
     Console.Error.WriteLine(
         $"SMARTS: U={smartsU:N0} W={smartsW:N0} K={smartsK:N0} J={smartsJ:N0} N={smartsN:N0}"
     );
@@ -465,8 +490,22 @@ if (smartsK > 0) {
             continue;
         }
 
-        IMechanism smartsMechanism = mechanismFactory(smartsWorkload.HtifTohostAddress);
-        SmartsResult result = Experiment.RunSmarts(smartsWorkload, smartsMechanism, cfg, smartsParams);
+        IMechanism smartsMechanism = smartsArgv is not null
+            ? xlen == 64
+                ? new Rv64Mechanism(
+                    syscallHandler: new LinuxSyscallEmulator(
+                        ((IElfWorkload)smartsWorkload).InitialBreak, TextWriter.Null, smartsWordSize
+                    )
+                )
+                : new Rv32Mechanism(
+                    syscallHandler: new LinuxSyscallEmulator(
+                        ((IElfWorkload)smartsWorkload).InitialBreak, TextWriter.Null, smartsWordSize
+                    )
+                )
+            : mechanismFactory(smartsWorkload.HtifTohostAddress);
+        SmartsResult result = Experiment.RunSmarts(
+            smartsWorkload, smartsMechanism, cfg, smartsParams, argv: smartsArgv, wordSize: smartsWordSize
+        );
 
         Console.WriteLine($"## {name}");
         Console.WriteLine(
@@ -942,13 +981,21 @@ static void PrintUsage() {
                                 rerun with a larger --smarts-n or smaller K if it's not met).
                                 Runs once per --sweep config (or the default sweep); configs
                                 whose pipeline isn't five_stage/ooo are skipped. Single
-                                workload only. Bare-metal HTIF entry only (no argv/Linux-ABI
-                                support yet).
+                                workload only.
           --smarts-n <n>        Requires --smarts. Sampling units to measure (default: 10000,
                                 the paper's own n_init). The run stops early if the workload
                                 halts first.
           --smarts-offset <j>   Requires --smarts. Starting offset (in instructions) of the
                                 first sampling unit's measured window (default: 0).
+          --smarts-argv "<args>"  Requires --smarts and an ELF workload (not the built-in
+                                demo). Opts into Linux-ABI entry, mirroring --simpoint-argv:
+                                a psABI initial stack (argv/envp/auxv, argv[0] = the ELF's
+                                file name, extra entries from this space-separated string —
+                                pass "" for none) and a LinuxSyscallEmulator shared for the
+                                whole run (unlike --simpoint-argv, SMARTS never recreates its
+                                mechanism mid-run, so one instance per --sweep config is
+                                enough — no per-pass state serialization needed). Captured
+                                stdout/stderr is discarded, same as --simpoint-argv.
           --bench-config <path>  Run a batch of Linux-ABI benchmarks described by a JSON file
                                  (BenchmarkConfig[]: name, elf_path, args, stdin_path,
                                  expected_output_path, memory_size_bytes) and exit. Each
