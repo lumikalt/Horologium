@@ -818,6 +818,19 @@ hart to the same 4-byte-aligned granule cancels all overlapping reservations so 
 write, ensuring cancellation fires on every store. Single-hart setups leave `ReservationTable` null and use the existing
 private `_reservation` field unchanged — no API or behaviour change for existing code.
 
+**`clone()` and dynamic hart activation.** `MultiHartKernel`'s `activeHartCount` constructor parameter pre-allocates every
+hart's `IMechanism`/`IArchState` up front but only starts the first `activeHartCount` of them running — the rest sit
+*dormant* (skipped by `Step()`) until `SpawnHart` activates one. `MultiHartKernel : IHartSpawner`, and
+`LinuxSyscallEmulator.Spawner` (settable post-construction, breaking the construction-order cycle between the syscall
+handler and the hart driver that needs it) wires `clone()` (syscall 220) to it: the handler snapshots the parent's
+`IArchState` (`IArchState.Snapshot()`), overrides `sp`/`tp`/`a0=0` per the real clone() ABI, and calls `SpawnHart` to
+activate the next dormant slot. The raw RISC-V syscall ABI is `a0=flags, a1=newsp, a2=ptid, a3=tls, a4=ctid` (confirmed
+by compiling and disassembling real musl 1.2.5 `__clone`); `CLONE_SETTLS`/`CLONE_PARENT_SETTID` are honored, and all
+harts sharing one `LinuxSyscallEmulator` instance is required (mirrors real `CLONE_FILES`/`CLONE_VM`). Backward-compatible
+constructor overloads default `activeHartCount` to every hart starting active, so pre-existing single-shot multi-hart
+setups are unaffected. `CLONE_CHILD_CLEARTID`'s futex wake and `MultiHartPipeline`'s equivalent dynamic-activation support
+are not yet implemented — see `TODO.md`.
+
 ### Cache timing model (src/Core/Orrery/Cache)
 
 `SetAssociativeCache` (write-through, no-write-allocate by default; write-back/write-allocate optional) models several

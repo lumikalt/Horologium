@@ -229,13 +229,14 @@ just infrastructure this design doesn't require.
   (`IElfWorkload.PhdrAddress`/`PhEntrySize`/`PhNum`) now reach the initial stack, so musl's own
   `_start`/`__init_tls` sets `tp` correctly itself — no host-side PT_TLS parsing needed. Validated
   against a real compiled `__thread`-using binary (`TestBinaries/tls_probe.c`).
-- [ ] `clone()` thread creation + dynamic hart activation: extend `LinuxSyscallEmulator` with the RISC-V
-  `clone(flags, stack, ptid, tls, ctid)` ABI (new hart's stack/`tp`/entry/`a0=0`), and add a dynamic/
-  parked-until-spawned hart-slot API to `MultiHartKernel`/`MultiHartPipeline` (both are fixed-size-array,
-  hart-count-frozen-at-construction today).
-- [ ] `futex()` FUTEX_WAIT/FUTEX_WAKE: a shared wait-queue across per-hart syscall-handler instances (mirroring
-  `ReservationTable`'s cross-hart sharing for LR/SC), plus a "parked" (blocked-but-resumable) hart state in
-  `MultiHartKernel`/`MultiHartPipeline`, distinct from halted.
+- [x] `clone()` thread creation + dynamic hart activation, for `MultiHartKernel` (the functional/bare-metal
+  driver LoopPoint's profiling pass needs) — `LinuxSyscallEmulator` gained a `clone()` case (`IHartSpawner`),
+  `MultiHartKernel` gained pre-allocated dormant hart slots. `MultiHartPipeline` (the detailed-timing-pipeline
+  driver LoopPoint's warm+measure phase will need) doesn't have the same support yet — still open.
+- [ ] `futex()` FUTEX_WAIT/FUTEX_WAKE, and dynamic hart activation for `MultiHartPipeline` (the detailed-timing
+  counterpart to the `MultiHartKernel` support above): a shared wait-queue across per-hart syscall-handler
+  instances (mirroring `ReservationTable`'s cross-hart sharing for LR/SC), plus a "parked" (blocked-but-resumable)
+  hart state in both drivers, distinct from halted.
 - [ ] Per-hart `gettid`/thread-exit semantics: thread hart identity through `ISyscallHandler.Handle`, a real
   per-hart `gettid` (hardcoded to 1 today), and `exit` (this hart only) vs `exit_group` (whole process)
   distinguished (currently fused).

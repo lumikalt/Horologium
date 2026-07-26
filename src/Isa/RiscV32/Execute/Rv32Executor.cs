@@ -190,7 +190,7 @@ public partial class Rv32Executor : IExecutor {
 
             // ── System ────────────────────────────────────────────────────────
             RvEcall when SyscallHandler != null =>
-                SyscallHandler.Handle(state.IntegerRegisters.Read(17), state.IntegerRegisters, memory, pc),
+                SyscallHandler.Handle(state.IntegerRegisters.Read(17), state, memory, pc),
             RvEcall => ExecuteResult.WithTrap(
                 new TrapInfo(EcallCause(state.PrivilegeLevel), 0, pc)
             ),

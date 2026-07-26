@@ -51,11 +51,25 @@ namespace RiscV32.Syscalls;
 ///         there.
 ///     </para>
 ///     <para>
-///         None of this has been validated against a real linked glibc/musl binary — there is no
-///         riscv64-*-linux-* userspace toolchain in this environment, only bare-metal
-///         <c>riscv{32,64}-none-elf-gcc</c>. Coverage is: hand-assembled probes with independent
-///         offset arithmetic (the same discipline as <c>abi_probe64.s</c>), and byte-level unit
-///         tests calling <see cref="Handle" /> directly.
+///         Validated against real linked musl binaries (see flake.nix's
+///         riscv64-unknown-linux-musl-gcc), hand-assembled probes with independent offset
+///         arithmetic (the same discipline as <c>abi_probe64.s</c>), and byte-level unit tests
+///         calling <see cref="Handle" /> directly.
+///     </para>
+///     <para>
+///         <c>clone()</c> (syscall 220) spawns a new hart via <see cref="Spawner" /> rather than
+///         forking a new OS process/thread — it needs a driver that supports dynamic hart
+///         activation (e.g. <c>MultiHartKernel</c>) wired up post-construction; with no
+///         <see cref="Spawner" /> set, it returns <c>ENOSYS</c>, same as every other unimplemented
+///         syscall here. Every spawned hart's syscalls should route to the <em>same</em>
+///         <see cref="LinuxSyscallEmulator" /> instance (share it across every mechanism in the
+///         pool), not one per hart — real threads share one fd table/brk/mmap arena
+///         (<c>CLONE_FILES</c>/<c>CLONE_VM</c>), and this class's mutable state already models
+///         exactly that if every hart's mechanism is wired to the one instance.
+///         <c>CLONE_CHILD_CLEARTID</c> (the futex wake <c>pthread_join</c> blocks on) is not
+///         implemented — a documented gap for the <c>futex()</c> syscall to close, not a silent
+///         one; a real <c>pthread_join</c> on a hart spawned here will block forever until that
+///         lands.
 ///     </para>
 /// </summary>
 /// <param name="initialBreak">Initial <c>brk</c> value — see <c>Rv32ElfWorkload.InitialBreak</c>.</param>
@@ -102,6 +116,15 @@ public sealed class LinuxSyscallEmulator(
     // Bytes delivered to the guest via fd-0 reads so far — WriteState/ReadState's only handle
     // on "stdin position", since `input` is a caller-owned Stream this class doesn't seek freely.
     private ulong _stdinConsumed;
+
+    /// <summary>
+    ///     Lets <c>clone()</c> (syscall 220) actually spawn a new hart — set by whatever is
+    ///     driving the simulation (e.g. <c>MultiHartKernel</c>), after construction (this
+    ///     instance, and the mechanisms wired to it, must already exist before the driver that
+    ///     steps them can be built). Null (the default) makes <c>clone()</c> return <c>ENOSYS</c>,
+    ///     matching the single-hart behavior every other caller of this class already relies on.
+    /// </summary>
+    public IHartSpawner? Spawner { get; set; }
 
     /// <summary>
     ///     Serializes brk/mmap cursors, the fd table (path + access mode + current position per
@@ -163,7 +186,8 @@ public sealed class LinuxSyscallEmulator(
         SkipStdinTo(stdinConsumed);
     }
 
-    public ExecuteResult Handle(ulong num, IRegisterFile regs, IMemory memory, ulong pc) {
+    public ExecuteResult Handle(ulong num, IArchState state, IMemory memory, ulong pc) {
+        IRegisterFile regs = state.IntegerRegisters;
         ulong a0 = regs.Read(10);
         ulong a1 = regs.Read(11);
         ulong a2 = regs.Read(12);
@@ -173,6 +197,8 @@ public sealed class LinuxSyscallEmulator(
 
         if (num is 93 or 94) // SYS_exit, SYS_exit_group
             return new ExecuteResult { RequestHalt = true, };
+
+        if (num == 220) return Clone(a0, a1, a2, a3, state, pc, memory); // SYS_clone
 
         long result = num switch {
             64   => Write(a0, a1, a2, memory),    // SYS_write
@@ -201,6 +227,39 @@ public sealed class LinuxSyscallEmulator(
         };
 
         var ret = (ulong)result;
+        return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, ret), };
+    }
+
+    // RISC-V's raw sys_clone(flags, newsp, ptid, tls, ctid) — a0..a4 — confirmed against the
+    // actual compiled musl 1.2.5 __clone (riscv64-unknown-linux-musl-gcc): a2=ptid, a3=tls,
+    // a4=ctid (not the generic-Linux-ABI ptid/ctid/tls order some other architectures use).
+    // Real clone() semantics: parent and child both resume at the same next instruction (the one
+    // right after this ecall) with every register identical to the parent's at the moment of the
+    // call, except the child's sp is forced to newsp and (if CLONE_SETTLS is set) tp to tls, with
+    // a0 = new hart id in the parent and 0 in the child — so the new hart's initial state is the
+    // parent's own Snapshot() with exactly those overrides, not a from-scratch entry point.
+    // CLONE_CHILD_CLEARTID (the wake-on-exit futex musl's pthread_join blocks on) is not
+    // implemented — a documented gap for the futex() TODO item, not silently ignored.
+    private ExecuteResult Clone(ulong flags, ulong newSp, ulong ptid, ulong tls, IArchState state, ulong pc, IMemory memory) {
+        const ulong cloneSetTls = 0x0008_0000;
+        const ulong cloneParentSetTid = 0x0010_0000;
+
+        if (Spawner is null) {
+            var noSys = unchecked((ulong)LinuxSyscallEmulator.ENoSys);
+            return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, noSys), };
+        }
+
+        IArchState child = state.Snapshot();
+        child.Pc = pc + 4; // ECALL is always 4 bytes wide, even under RVC — no compressed form exists
+        child.IntegerRegisters.Write(2, newSp);
+        if ((flags & cloneSetTls) != 0) child.IntegerRegisters.Write(4, tls);
+        child.IntegerRegisters.Write(10, 0); // child's own return value: 0
+
+        int newHartId = Spawner.SpawnHart(child);
+
+        if ((flags & cloneParentSetTid) != 0) memory.Write(ptid, (ulong)newHartId, 4);
+
+        var ret = (ulong)newHartId;
         return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, ret), };
     }
 

@@ -34,7 +34,7 @@ public class SyscallRealismTests {
     private static long Call(LinuxSyscallEmulator handler, ulong num, IMemory memory, params ulong[] args) {
         var state = new Rv32ArchState();
         for (var i = 0; i < args.Length; i++) state.IntegerRegisters.Write(10 + i, args[i]);
-        ExecuteResult result = handler.Handle(num, state.IntegerRegisters, memory, 0);
+        ExecuteResult result = handler.Handle(num, state, memory, 0);
         result.SideEffect?.Invoke(state);
         return Sext32(state.IntegerRegisters.Read(10));
     }
