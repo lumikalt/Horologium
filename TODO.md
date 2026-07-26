@@ -432,21 +432,43 @@ just infrastructure this design doesn't require.
   stub-handler + 1 cross-hart `MultiHartPipeline` composition test, no PRF-seeding workaround needed —
   `SuperscalarTrain` has no separate physical register file either) — all 3 confirmed to fail with the
   fix removed, then pass restored.
-- [ ] `RequestBlock` support in the last remaining detailed pipeline train, `SmtTrain`: structurally
-  different from all five done so far, since it's multi-hart *within a single train* (interleaved threads
-  sharing one core's fetch/issue bandwidth), not one train per hart. The fix itself — not just the test —
-  must be hart-scoped: a blocked hart's retry has to re-fetch only that hart's own PC while sibling harts
-  keep advancing, since stalling or flushing the *shared* frontend would starve the very hart whose write
-  is supposed to clear the block, deadlocking the wake. Its cross-hart futex-wake test can't reuse the
-  `MultiHartPipeline`-of-two-trains shape the other five tests use either — it needs one `SmtTrain`
-  instance with two internal harts and per-hart syscall-handler wiring. Survey how fetch/issue is
-  arbitrated per-hart and what the per-hart redirect primitive is before designing.
-- [ ] `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop has no way to detect a
-  hart that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever,
-  since it's retrying, not halted) — if the waking hart halts first with no further global-instruction
-  progress from the blocked one, the loop never terminates. Not reachable today (the `--looppoint` CLI
-  path is single-hart only), but it's the first thing a real multi-hart measure pass will hit once
-  `RequestBlock` support lands in the trains `MeasureLoopPointCheckpoints` actually uses.
+- [x] `RequestBlock` support in the last remaining detailed pipeline train, `SmtTrain` — **this closes out
+  `ExecuteResult.RequestBlock` support across all six detailed pipeline trains.** `SmtTrain` is
+  structurally different from the other five: it's multi-hart *within a single train* (interleaved
+  threads sharing one core's fetch/issue bandwidth, each hart executing one instruction fully to
+  completion per turn with no cross-cycle in-flight state — the same completion model as
+  `SingleCycleTrain`), not one train per hart. That completion model made the fix genuinely simple and
+  automatically hart-scoped: a check right after `Execute()` (before the retired-count increment) just
+  returns `true` on `RequestBlock` — cutting only this hart's slot for the rest of the current cycle,
+  identical to how a halt/trap/branch already does — leaving `ctx.ArchState.Pc` untouched (already this
+  instruction's own Pc) and every other hart's disjoint `HartContext` completely unaffected. No rollback,
+  no squash, no PC redirect logic needed. `Tests/Pipeline/SmtRequestBlockGuardTests.cs` mirrors the other
+  trains' tests, but the cross-hart one is necessarily a different shape — ONE `SmtTrain` with two
+  internal harts (`train.StateOf(hartId)` for per-hart register access) sharing one `FlatMemory`, not
+  `MultiHartPipeline` wrapping two separate trains — and it proves hart-scoping empirically, not just by
+  construction: hart 1 completes its `addi`/`sw`/`ebreak` *while* hart 0 is blocked every cycle, and only
+  hart 1's write unblocks hart 0; a starved sibling would have failed this test, not just a missing retry.
+  All 3 tests confirmed to fail with the fix removed, then pass restored.
+- [ ] Two residuals stand between "all six trains have `RequestBlock`" and an actual working multi-hart
+  measurement pass — neither is done by the above:
+  1. `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop has no way to detect a hart
+     that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever,
+     since it's retrying, not halted) — if the waking hart halts first with no further global-instruction
+     progress from the blocked one, the loop never terminates. This is now directly reachable rather than
+     hypothetical, since the trains it needs finally exist.
+  2. `--looppoint`'s CLI wiring (`MultiHartLoopPointExperiment`) is still single-hart only — extending it
+     to real multi-hart pthread measurement needs both residual 1 fixed and the CLI/orchestrator threaded
+     for N harts, neither of which is scoped here.
+  (`SmtTrain` itself is not a LoopPoint measurement target regardless — SMT models a shared core with
+  interleaved threads, the wrong microarchitecture for what LoopPoint measures; its `RequestBlock` support
+  above is for correctness/completeness across all detailed trains, not because LoopPoint will use it.)
+- [ ] `SingleCycleTrain` almost certainly has the same silent-wrong-commit gap `RequestBlock` closed in the
+  six detailed trains above: it shares the "execute one instruction fully to completion per call" model
+  `SmtTrain.IssueOne` was found to mirror, and a grep confirms it never reads
+  `ExecuteResult.RequestBlock` either (`ExecuteOneCycle`, `src/Core/Pipeline/SingleCycleTrain.cs`) — a
+  still-blocked syscall today silently advances past itself instead of retrying. Not fixed here (out of
+  this item's six-detailed-train scope), but worth closing given how many functional (non-timing) driver
+  paths (SMARTS's fast-forward pass, plain single-hart bare-metal runs) go through this train.
 - [x] Weighted-multiplier runtime extrapolation + Runner CLI wiring: `LoopPointRuntimeExtrapolation`
   (`src/Core/Pipeline/LoopPointRuntimeExtrapolation.cs`) implements Eq. 1/2 — per-representative multiplier
   from filtered-instruction-count ratios (not `SimulationPoint.Weight`, which assumes fixed-length intervals,

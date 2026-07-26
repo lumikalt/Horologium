@@ -1614,8 +1614,9 @@ bug would produce a visibly wrong final value rather than coincidentally matchin
 real, stateful `LinuxSyscallEmulator` (brk moved, `_childCleartid` set via `clone()`) through the
 checkpoint's shared-handler-blob path specifically. Measuring a genuinely *blocking* multi-threaded
 region (a real futex wait) under detailed pipeline timing needed `ExecuteResult.RequestBlock` support in
-the detailed trains — done for `FiveStageTrain`, `OooTrain`, `CprTrain`, `DaeTrain`, and `SuperscalarTrain`
-(see below); only `SmtTrain` remains, tracked as its own `TODO.md` item.
+the detailed trains — now done in all six (`FiveStageTrain`, `OooTrain`, `CprTrain`, `DaeTrain`,
+`SuperscalarTrain`, `SmtTrain`; see below). This does not by itself make multi-hart LoopPoint measurement
+work end-to-end — see the residual items in `TODO.md`.
 
 **`RequestBlock` support in `FiveStageTrain` (Pipeline/Stages/Execute.cs, WriteBack.cs, FiveStageTrain.cs).**
 `FiveStageTrain` doesn't serialize `ecall` — no stall/hazard treatment at all — so by the time a syscall's
@@ -1750,6 +1751,35 @@ PRF-seeding workaround needed, since `SuperscalarTrain` has no separate physical
 (only a readiness-cycle scoreboard, not a value store). All three tests were confirmed to fail once the
 new check was temporarily removed, then to pass again once it was restored. The full suite stayed green
 at 4408.
+
+**`RequestBlock` support in `SmtTrain` (Pipeline/SmtTrain.cs) — closes out all six detailed trains.**
+`SmtTrain` is structurally different from the other five: it's genuinely multi-hart *within a single
+train* — N harts sharing one core's fetch/issue bandwidth, interleaved cycle-by-cycle via a pluggable
+`ISmtFetchPolicy` — rather than one train per hart. Each hart executes exactly one instruction fully to
+completion (fetch → decode → execute → SideEffect → register write → Pc update) per turn, with no
+cross-cycle in-flight state at all — the same completion model as `SingleCycleTrain`. That model is what
+makes the fix simple *and* automatically hart-scoped: a check right after `Execute()` — before the
+retired-count increment — returns `true` on `RequestBlock`, cutting only this hart's slot for the rest of
+the current cycle (identical to how a halt/trap/branch already does), while leaving `ctx.ArchState.Pc`
+untouched (already this instruction's own Pc, so no redirect logic is needed) and every other hart's
+disjoint `HartContext` completely unaffected. No rollback, no squash machinery, nothing beyond this one
+check. `Tests/Pipeline/SmtRequestBlockGuardTests.cs` mirrors the other trains' single-hart tests, but its
+cross-hart test is necessarily shaped differently: rather than `MultiHartPipeline` wrapping two separate
+trains, it's ONE `SmtTrain` constructed with two internal harts (`SmtTrain.StateOf(hartId)` exposes each
+hart's register state) sharing one `FlatMemory`. This proves hart-scoping empirically, not just by
+construction: hart 1 completes its `addi`/`sw`/`ebreak` *while* hart 0 is blocked every cycle, and only
+hart 1's write unblocks hart 0 — a fix that accidentally starved the sibling hart would have failed this
+test, not just missed a retry. All three tests were confirmed to fail once the new check was temporarily
+removed, then to pass again once it was restored. The full suite stayed green at 4410.
+
+`SmtTrain` getting `RequestBlock` support is not itself a step toward LoopPoint measurement — SMT models a
+shared core with interleaved threads, the wrong microarchitecture for what LoopPoint measures (recorded
+earlier in this project's own OoOE investigation). It closes the feature out for correctness/completeness
+across all six detailed trains, not because LoopPoint will ever drive an `SmtTrain` measurement. Two real
+residuals remain before multi-hart LoopPoint measurement works end-to-end, tracked in `TODO.md`:
+`MultiHartWarmupMeasureDriver`'s measure loop has no way to detect a permanently-blocked hart if its waker
+halts first (now directly reachable rather than hypothetical, since the trains it needs finally exist),
+and `--looppoint`'s CLI wiring is still single-hart only.
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`

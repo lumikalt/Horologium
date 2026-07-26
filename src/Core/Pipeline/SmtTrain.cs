@@ -345,6 +345,20 @@ internal sealed class SmtCore(
 
         ctx.DLayers.Accessor.SetRequestPc(pc);
         ExecuteResult result = ctx.Mechanism.Executor.Execute(instr, ctx.ArchState, ctx.DLayers.Accessor);
+
+        if (result.RequestBlock) {
+            // Still blocked (e.g. futex(FUTEX_WAIT) that hasn't cleared): don't retire,
+            // don't apply SideEffect/register write, don't advance Pc — ctx.ArchState.Pc is
+            // already this instruction's own Pc, so leaving it untouched IS the retry-in-
+            // place redirect. Cut this hart's slot for the rest of THIS cycle only (same as
+            // a branch/halt/trap below) so it doesn't spin-retry within the same cycle and
+            // starve sibling harts of issue slots — next cycle the fetch policy considers it
+            // available again and re-attempts from the same Pc. Every other HartContext is a
+            // disjoint object never touched here, so sibling harts (including whichever one
+            // is expected to clear this block) keep advancing normally.
+            return true;
+        }
+
         _retiredCounter.Increment();
 
         if (result.IsHalt || result.RequestHalt) {
