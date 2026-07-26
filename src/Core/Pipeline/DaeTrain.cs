@@ -735,6 +735,20 @@ internal sealed class DaeCore(
 
         dLayers.Accessor.SetRequestPc(pc);
         ExecuteResult result = mechanism.Executor.Execute(instr, State, dLayers.Accessor);
+
+        if (result.RequestBlock) {
+            // Still blocked (e.g. futex(FUTEX_WAIT) that hasn't cleared): both lanes are
+            // already fully drained by the time a barrier executes (see this method's own
+            // class doc), and the undo log was just cleared above with nothing added to it
+            // since — so there is nothing younger in flight to roll back, unlike a trap. This
+            // is a pure retry-in-place: don't retire, don't apply SideEffect/register write,
+            // don't advance Pc — redirect fetch straight back to this same barrier's own Pc
+            // so it's re-decoded and re-dispatched as a fresh instruction next time around.
+            State.Pc = pc;
+            _fetchPc = pc;
+            return;
+        }
+
         _retiredCounter.Increment();
         if (PEventLog is not null) {
             PEventLog.Record(_pendingBarrierInstrId, pc, _cyclesCounter.Value, PEventKind.Execute);

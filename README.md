@@ -1614,8 +1614,9 @@ bug would produce a visibly wrong final value rather than coincidentally matchin
 real, stateful `LinuxSyscallEmulator` (brk moved, `_childCleartid` set via `clone()`) through the
 checkpoint's shared-handler-blob path specifically. Measuring a genuinely *blocking* multi-threaded
 region (a real futex wait) under detailed pipeline timing needed `ExecuteResult.RequestBlock` support in
-the detailed trains — done for `FiveStageTrain`, `OooTrain`, and `CprTrain` (see below); the other three
-detailed trains still need their own translation of the same idea, tracked as its own `TODO.md` item.
+the detailed trains — done for `FiveStageTrain`, `OooTrain`, `CprTrain`, and `DaeTrain` (see below); the
+other two detailed trains still need their own translation of the same idea, tracked as its own
+`TODO.md` item.
 
 **`RequestBlock` support in `FiveStageTrain` (Pipeline/Stages/Execute.cs, WriteBack.cs, FiveStageTrain.cs).**
 `FiveStageTrain` doesn't serialize `ecall` — no stall/hazard treatment at all — so by the time a syscall's
@@ -1709,6 +1710,26 @@ ported to `CprTrain`'s separate PRF/RAT. Fixed by mirroring the identical `OooTr
 fail without the fix, pass with it), and the cross-hart `CprRequestBlockGuardTests` test now presets the
 register via `ArchState.IntegerRegisters.Write` directly — the same shape as the `OooTrain` test — rather
 than working around the bug, giving a second confirmation under real multi-hart interleaving.
+
+**`RequestBlock` support in `DaeTrain` (Pipeline/DaeTrain.cs).**
+The only one of the four detailed trains done so far needing **no rollback at all** — a genuinely simpler
+case than `FiveStageTrain`/`OooTrain`/`CprTrain`. `ecall` is barrier-class (`IsBarrierClass` — everything
+except `IntegerAlu`/`IntegerMulDiv`/`Load`/`Store`), and `ExecuteBarrier` only ever runs once both the
+Access and Execute lanes are fully drained (`_accessQueue.Count == 0 && _executeQueue.Count == 0`); the
+front end never dispatches a new instruction while a barrier is staged. That means nothing younger can
+ever be in flight by the time a barrier executes, and its own undo-log entries were just cleared
+immediately beforehand (bounding undo-log growth, since a drained barrier point is a permanent
+checkpoint no future trap can roll back past). A still-blocked barrier is therefore a pure retry-in-place:
+a new check right after `Execute()` — before the retired-count increment, `SideEffect`, register write, or
+Pc advance — sets both `State.Pc` and `_fetchPc` back to the barrier's own Pc when `RequestBlock` is true,
+so it's re-decoded and re-dispatched as a fresh instruction the next time `TryDispatchOne` runs.
+`Tests/Pipeline/DaeRequestBlockGuardTests.cs` mirrors the other three trains' tests (two single-hart
+stub-handler tests plus the cross-hart `MultiHartPipeline`/shared-`FlatMemory` composition test) — the
+cross-hart test needed no PRF-seeding workaround, since `DaeTrain` reads and writes
+`ArchState.IntegerRegisters` directly with no separate physical register file (confirmed by a direct
+`ArchState.IntegerRegisters.Write` before `Run()` working correctly, unlike `CprTrain` before its fix
+above). All three tests were confirmed to fail once the new check was temporarily removed, then to pass
+again once it was restored. The full suite stayed green at 4405.
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`

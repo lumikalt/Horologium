@@ -406,12 +406,26 @@ just infrastructure this design doesn't require.
   tick), and proven with a new regression test (`CprTrainTests.PreRunRegisterWrite_IsVisibleToExecution`)
   confirmed to fail without the fix and pass with it. This was blocking `CprTrain` from being a valid
   LoopPoint (or any other checkpoint-restore) measurement target.
-- [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`SmtTrain`/
-  `DaeTrain`): same squash-and-refetch shape as `FiveStageTrain`/`OooTrain`/`CprTrain` above, but each
-  train's own commit/squash machinery (undo-log for `DaeTrain`, in-order functional-execute for
-  `SuperscalarTrain`/`SmtTrain`) needs its own translation of "still-blocked instruction redirects fetch
-  to its own PC instead of retiring, younger in-flight instructions squashed" — not a mechanical copy of
-  any existing fix.
+- [x] `RequestBlock` support in `DaeTrain`: the only one of the four so far needing **no rollback at
+  all**. `ecall` is barrier-class (`IsBarrierClass`), and `ExecuteBarrier` only ever runs once both the
+  Access and Execute lanes are fully drained (`_accessQueue.Count == 0 && _executeQueue.Count == 0`) —
+  the front end never dispatches while a barrier is staged, so nothing younger can ever be in flight when
+  one executes, and its own undo-log entries were just cleared immediately before. A still-blocked
+  barrier is therefore a pure retry-in-place: a new `RequestBlock` check right after `Execute()` skips
+  retiring/`SideEffect`/register-write/Pc-advance and sets both `State.Pc` and `_fetchPc` back to the
+  barrier's own Pc, so it's re-decoded and re-dispatched as a fresh instruction next cycle.
+  `Tests/Pipeline/DaeRequestBlockGuardTests.cs` mirrors the other trains' tests (2 single-hart
+  stub-handler + 1 cross-hart `MultiHartPipeline` composition test, the latter needing no PRF-seeding
+  workaround since `DaeTrain` reads/writes `ArchState.IntegerRegisters` directly with no separate
+  physical register file) — all 3 confirmed to fail with the fix removed, then pass restored.
+- [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`SmtTrain`):
+  same squash-and-refetch shape as the four trains above, but each needs its own translation.
+  `SuperscalarTrain` is in-order functional-execute (like `DaeTrain`'s barriers) and is expected to be a
+  near-pure retry-in-place case; `SmtTrain` is multi-hart *within a single train* (interleaved threads
+  sharing one core), so its cross-hart futex-wake test can't reuse the `MultiHartPipeline`-of-two-trains
+  shape the other four tests do — it needs one `SmtTrain` instance with two internal harts and per-hart
+  syscall-handler wiring instead. Survey each on its own terms rather than assuming either ports directly
+  from what's already done.
 - [ ] `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop has no way to detect a
   hart that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever,
   since it's retrying, not halted) — if the waking hart halts first with no further global-instruction
