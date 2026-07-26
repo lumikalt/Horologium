@@ -360,9 +360,23 @@ just infrastructure this design doesn't require.
   instructions are already fetched/decoded/in EX behind a blocked syscall by the time the block is
   discovered; naively re-presenting the same instruction to EX next cycle would need those younger
   instructions squashed and refetched, the same shape as a branch-misprediction recovery, not a stall.
-- [ ] Weighted-multiplier runtime extrapolation + Runner CLI wiring: implement the paper's Eq. 1/2
-  multiplier-weighted runtime reconstruction from representative-region results, add a `--looppoint` CLI flag
-  mirroring `--simpoint`/`--smarts`, and document in README.md/docs/references.md. — Sabu et al., HPCA 2022
+- [x] Weighted-multiplier runtime extrapolation + Runner CLI wiring: `LoopPointRuntimeExtrapolation`
+  (`src/Core/Pipeline/LoopPointRuntimeExtrapolation.cs`) implements Eq. 1/2 — per-representative multiplier
+  from filtered-instruction-count ratios (not `SimulationPoint.Weight`, which assumes fixed-length intervals,
+  false for LoopPoint's data-dependent regions), then a weighted sum of representative runtimes.
+  `MultiHartLoopPointExperiment` (`src/Isa/RiscV32/Analysis/`) orchestrates capture → cluster → checkpoint →
+  measure → extrapolate: every region boundary's `MultiHartCheckpoint` is captured opportunistically during
+  the single profiling pass (`MultiHartLoopPointProfiler`'s new `onRegionBoundary` hook), since which regions
+  turn out representative isn't known until clustering runs afterward. `--looppoint`/`--looppoint-warmup`/
+  `--looppoint-argv` wired into Runner, mirroring `--simpoint`'s flags; single-hart only for now (real
+  multi-hart pthread measurement needs the `RequestBlock` item above, since `pthread_join` blocks). Validated
+  against `simpoint_kernel.elf`: the extrapolated total (4,736,068 ticks) matched a full cold `FiveStageTrain`
+  run to completion (4,738,700 ticks) within 0.06%. Found and fixed a real livelock along the way: detailed
+  pipeline trains (`FiveStageTrain`, likely `OooTrain` too) track fetch PC separately from `IArchState.Pc`,
+  seeded only once at construction — a checkpoint restore that doesn't pass the restored PC as the train's
+  own constructor `entryPoint` leaves fetch stuck at the wrong address forever, silently producing zero
+  progress rather than an error; `MultiHartCheckpoint.PcOf(hartId)` now exposes what
+  `Experiment.MeasureSimPointCheckpoints` already threaded through for the single-hart case.
 
 ## µops
 

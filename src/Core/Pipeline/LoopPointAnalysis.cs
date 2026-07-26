@@ -193,15 +193,28 @@ public sealed class MultiHartLoopPointProfiler {
     private readonly IReadOnlyList<(ulong Start, ulong End)> _excludedRanges;
     private readonly LoopHeaderTracker[] _loopTrackers;
     private readonly List<IReadOnlyDictionary<ulong, long>> _regionBbvs = [];
+    private readonly List<long> _regionInstructionCounts = [];
+    private readonly Action<int>? _onRegionBoundary;
     private readonly long _targetGlobalInstructions;
     private long _instructionsSinceLastBoundary;
 
+    /// <param name="onRegionBoundary">
+    ///     Fires once per region boundary crossed during the pass, after the just-closed region is
+    ///     appended to <see cref="RegionBbvs" />/<see cref="RegionInstructionCounts" />, with the index
+    ///     of the region about to start (i.e. <c>RegionBbvs.Count</c> at fire time). A caller that wants
+    ///     a checkpoint at every boundary — representative regions aren't known until
+    ///     <c>SimPointAnalysis.Analyze</c> runs over the complete <see cref="RegionBbvs" /> after the
+    ///     whole pass finishes, so every boundary must be captured up front — should snapshot
+    ///     synchronously inside this callback. Region 0's boundary never fires here: it's the pre-run
+    ///     state, which the caller already holds before starting the pass.
+    /// </param>
     public MultiHartLoopPointProfiler(
         IReadOnlyList<IDecoder> hartDecoders,
         ulong rangeStart,
         ulong rangeEnd,
         long targetGlobalInstructions,
-        IReadOnlyList<(ulong Start, ulong End)>? excludedRanges = null
+        IReadOnlyList<(ulong Start, ulong End)>? excludedRanges = null,
+        Action<int>? onRegionBoundary = null
     ) {
         if (hartDecoders.Count == 0)
             throw new ArgumentException("At least one hart decoder required.", nameof(hartDecoders));
@@ -209,6 +222,7 @@ public sealed class MultiHartLoopPointProfiler {
             throw new ArgumentOutOfRangeException(nameof(targetGlobalInstructions));
 
         _targetGlobalInstructions = targetGlobalInstructions;
+        _onRegionBoundary = onRegionBoundary;
         _excludedRanges = excludedRanges ?? [];
         _bbvProfilers = new BbvProfiler[hartDecoders.Count];
         _loopTrackers = new LoopHeaderTracker[hartDecoders.Count];
@@ -222,6 +236,14 @@ public sealed class MultiHartLoopPointProfiler {
 
     /// <summary>Completed multi-thread region BBVs, in region order. Feed to <c>SimPointAnalysis.Analyze</c>.</summary>
     public IReadOnlyList<IReadOnlyDictionary<ulong, long>> RegionBbvs => _regionBbvs;
+
+    /// <summary>
+    ///     Each region's global (all-harts) non-excluded instruction count — the paper's "filtered
+    ///     instruction count" (Section III-G), same index order as <see cref="RegionBbvs" />. Feed to
+    ///     <c>LoopPointRuntimeExtrapolation</c> alongside a <c>SimPointResult</c> computed from
+    ///     <see cref="RegionBbvs" /> to compute Eq. 2's per-representative multiplier.
+    /// </summary>
+    public IReadOnlyList<long> RegionInstructionCounts => _regionInstructionCounts;
 
     /// <summary>
     ///     The commit observer for hart <paramref name="hartId" /> — wire into
@@ -254,7 +276,9 @@ public sealed class MultiHartLoopPointProfiler {
         }
 
         _regionBbvs.Add(combined);
+        _regionInstructionCounts.Add(_instructionsSinceLastBoundary);
         _instructionsSinceLastBoundary = 0;
+        _onRegionBoundary?.Invoke(_regionBbvs.Count);
     }
 
     // Normalizes one hart's raw block-instruction counts to sum to exactly NormalizationScale

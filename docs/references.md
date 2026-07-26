@@ -25,4 +25,5 @@ this file carries the full title so the paper can be found. Local PDFs live in `
 | Somogyi et al., ISCA 2006 | Spatial Memory Streaming | S. Somogyi, T. F. Wenisch, A. Ailamaki, B. Falsafi, A. Moshovos | ISCA 2006 | `~/dl/sms.pdf` |
 | Somogyi et al., ISCA 2009 | Spatio-Temporal Memory Streaming | S. Somogyi, T. F. Wenisch, A. Ailamaki, B. Falsafi | ISCA 2009 | `~/dl/stms.pdf` |
 | Wunderlich et al., ISCA 2003 | SMARTS: Accelerating Microarchitecture Simulation via Rigorous Statistical Sampling | R. E. Wunderlich, T. F. Wenisch, B. Falsafi, J. C. Hoe | ISCA 2003 | `~/dl/wunderlich_isca03_smarts.pdf` |
+| Sabu et al., HPCA 2022 | LoopPoint: Checkpoint-driven Sampled Simulation for Multi-threaded Applications | S. Sabu, H. Patil, W. Heirman, T. E. Carlson | HPCA 2022 | `~/dl/looppoint_hpca2022.pdf` |
 

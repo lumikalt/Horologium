@@ -11,6 +11,7 @@ using RiscV32;
 using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
+using RiscV32.MultiCore;
 using RiscV32.Syscalls;
 using RiscV32.Trace;
 using RiscV64;
@@ -39,6 +40,20 @@ string? simpointArgvRaw = null; // --simpoint-argv "<args>": opts --simpoint/--s
 // compiled binary. Value is space-separated argv entries after
 // argv[0] (the ELF's file name); pass "" for none. Requires an ELF
 // workload (not the built-in demo).
+long loopPointInterval = 0; // --looppoint <n>: LoopPoint region-boundary profiling (Sabu, Patil,
+// Heirman & Carlson, HPCA 2022) with an n-instruction global (all-harts)
+// per-region target. Single-hart only for now — real multi-hart pthread
+// measurement needs RequestBlock support in detailed pipeline trains
+// (tracked in TODO.md), since pthread_join blocks.
+long loopPointWarmup = -1; // --looppoint-warmup <n>: also measure each representative region on the
+// five_stage detailed pipeline (checkpoint at every region boundary during
+// the single profiling pass, restore the representative ones, warm up n
+// instructions, measure, and combine by Eq. 1/2 into a whole-run ticks
+// estimate).
+string? loopPointArgvRaw = null; // --looppoint-argv "<args>": required — LoopPoint's region-boundary
+// detection and spin-loop exclusion need a real ELF's symbol table and a
+// psABI initial stack, so (unlike --simpoint-argv) there is no bare-metal
+// HTIF fallback here. Same value shape as --simpoint-argv.
 long smartsU = 0; // --smarts <U> <W> <K>: SMARTS systematic sampling (Wunderlich et al., ISCA 2003)
 long smartsW = 0;
 long smartsK = 0;
@@ -95,6 +110,9 @@ for (var i = 0; i < args.Length; i++)
         case "--simpoint":              simpointInterval = long.Parse(args[++i]); break;
         case "--simpoint-warmup":       simpointWarmup = long.Parse(args[++i]); break;
         case "--simpoint-argv":         simpointArgvRaw = args[++i]; break;
+        case "--looppoint":              loopPointInterval = long.Parse(args[++i]); break;
+        case "--looppoint-warmup":       loopPointWarmup = long.Parse(args[++i]); break;
+        case "--looppoint-argv":         loopPointArgvRaw = args[++i]; break;
         case "--smarts":
             smartsU = long.Parse(args[++i]);
             smartsW = long.Parse(args[++i]);
@@ -444,6 +462,104 @@ if (simpointInterval > 0) {
                           .Build(mech, mem, entry, cfg.ToIMemoryConfig(), dCfg);
             }
         }
+    }
+
+    return;
+}
+
+// ── LoopPoint checkpoint-driven multi-threaded sampling ──────────────────────
+
+if (loopPointInterval > 0) {
+    if (workloads.Count > 1) {
+        Console.Error.WriteLine("--looppoint supports only a single workload.");
+        return;
+    }
+
+    if (loopPointArgvRaw is null) {
+        Console.Error.WriteLine(
+            "--looppoint requires --looppoint-argv: region-boundary detection and spin-loop " +
+            "exclusion need a real ELF's symbol table and a psABI initial stack. Use --simpoint " +
+            "for bare-metal HTIF single-threaded profiling instead."
+        );
+        return;
+    }
+
+    if (workloads[0].Workload is not IElfWorkload lpElfWorkload) {
+        Console.Error.WriteLine("--looppoint-argv requires an ELF workload, not the built-in demo.");
+        return;
+    }
+
+    int lpWordSize = xlen == 64 ? 8 : 4;
+    IReadOnlyList<string> lpArgv = [
+        Path.GetFileName(elfPaths[0]), ..loopPointArgvRaw.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+    ];
+
+    IMechanism BuildLoopPointMechanism(out LinuxSyscallEmulator handler) {
+        handler = new LinuxSyscallEmulator(lpElfWorkload.InitialBreak, TextWriter.Null, lpWordSize);
+        return xlen == 64 ? new Rv64Mechanism(syscallHandler: handler) : new Rv32Mechanism(syscallHandler: handler);
+    }
+
+    var lpMem = new FlatMemory(lpElfWorkload.MemorySize, lpElfWorkload.BaseAddress);
+    lpElfWorkload.Load(lpMem);
+    IMechanism lpMechanism = BuildLoopPointMechanism(out LinuxSyscallEmulator lpHandler);
+    var lpKernel = new MultiHartKernel(lpMem, lpMechanism);
+    IReadOnlyList<IMechanism> lpMechanisms = [lpMechanism,];
+    lpKernel.SetEntryPoint(0, lpElfWorkload.EntryPoint);
+
+    ulong lpStackTop = lpElfWorkload.BaseAddress + (ulong)lpElfWorkload.MemorySize;
+    ulong lpSp = InitialStackBuilder.BuildInitialStack(
+        lpMem, lpStackTop, lpWordSize, lpArgv, [],
+        InitialStackBuilder.BuildStandardAuxv(
+            lpElfWorkload.PhdrAddress, lpElfWorkload.PhEntrySize, lpElfWorkload.PhNum, lpElfWorkload.EntryPoint
+        )
+    );
+    lpKernel.StateOf(0).IntegerRegisters.Write(2, lpSp);
+
+    IReadOnlyList<(ulong Start, ulong End)> lpExcludedRanges = SyncLibrarySymbols.ExcludedRanges(lpElfWorkload);
+    ulong lpRangeEnd = lpElfWorkload.BaseAddress + (ulong)lpElfWorkload.MemorySize;
+
+    LoopPointCheckpointSet lpCaptured = MultiHartLoopPointExperiment.CaptureLoopPointCheckpoints(
+        lpKernel, lpMechanisms, lpMem, lpElfWorkload.BaseAddress, lpRangeEnd, loopPointInterval,
+        lpExcludedRanges, maxTicks
+    );
+
+    Console.Error.WriteLine(
+        $"Profiled {lpCaptured.RegionInstructionCounts.Sum():N0} filtered instructions " +
+        $"({lpCaptured.SimPoints.IntervalCount} regions)"
+    );
+    Console.WriteLine(lpCaptured.SimPoints);
+    Console.WriteLine();
+    Console.WriteLine("region,phase,multiplier");
+    for (var r = 0; r < lpCaptured.SimPoints.Phases.Count; r++) {
+        string mult = lpCaptured.Multipliers.TryGetValue(r, out double m) ? m.ToString("F3") : "";
+        Console.WriteLine($"{r},{lpCaptured.SimPoints.Phases[r]},{mult}");
+    }
+
+    // ── Detailed measurement: checkpoint-and-measure each representative region ──
+    if (loopPointWarmup >= 0) {
+        Console.WriteLine();
+        Console.WriteLine("## Detailed measurement (checkpoint-and-measure per representative region)");
+
+        // five_stage only for now: MultiHartCheckpoint restore + MultiHartWarmupMeasureDriver have
+        // only been proven against FiveStageTrain (see MultiHartCheckpointTests/
+        // MultiHartLoopPointExperimentTests) — OoOE's vector head-serialization and other trains'
+        // own restore paths are untested against this multi-hart checkpoint shape.
+        (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) LpMechanismsFactory() {
+            IMechanism freshMech = BuildLoopPointMechanism(out LinuxSyscallEmulator freshHandler);
+            return ([freshMech,], freshHandler);
+        }
+
+        ISteppableTrain LpDetailedTrainFactory(IMechanism mech, IMemory mem, ulong restartPc, InstructionCounter counter) =>
+            new FiveStageTrain(mech, mem, restartPc, commitObserver: counter);
+
+        LoopPointResult lpResult = MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
+            lpCaptured, LpMechanismsFactory, LpDetailedTrainFactory, loopPointWarmup
+        );
+
+        Console.WriteLine(
+            $"  five_stage: estimated total ticks={lpResult.EstimatedTotalTicks:F1} " +
+            $"({lpResult.RegionMeasurements.Count} representative region(s))"
+        );
     }
 
     return;
@@ -969,6 +1085,36 @@ static void PrintUsage() {
                                 other mode uses. Captured stdout/stderr is discarded (this
                                 mode measures CPI/IPC, not output — see --bench-config for
                                 output-checked runs).
+          --looppoint <n>       LoopPoint checkpoint-driven sampling (Sabu, Patil, Heirman &
+                                Carlson, HPCA 2022): profile per-hart basic-block vectors over
+                                loop-header-bounded regions (not fixed instruction intervals —
+                                a region ends at the next loop re-entry on any hart after <n>
+                                global, all-harts, filtered instructions), concatenate every
+                                hart's own BBV into one region vector, and cluster with the
+                                same SimPoint analysis. Single-hart only for now: a real
+                                multi-threaded region's measurement can block on
+                                pthread_join/futex, which detailed pipeline trains don't yet
+                                support (see TODO.md's "RequestBlock support in detailed
+                                pipeline trains") — profiling itself is multi-hart-ready.
+                                Single workload only. Requires --looppoint-argv.
+          --looppoint-warmup <n> Requires --looppoint. Also measure each representative region
+                                on the five_stage detailed pipeline: every region boundary is
+                                checkpointed during the single profiling pass (which region
+                                turns out representative isn't known until clustering
+                                finishes), representative checkpoints are restored onto fresh
+                                five_stage trains, run <n> unmeasured warmup instructions then
+                                measure the region's own filtered instruction count, and
+                                combine per-region ticks by the paper's Eq. 1/2 multiplier
+                                (ratio of a representative's cluster's total filtered
+                                instructions to its own) into a whole-run ticks estimate.
+          --looppoint-argv "<args>"  Required by --looppoint. Same shape as --simpoint-argv
+                                (psABI initial stack, argv[0] = the ELF's file name, extra
+                                entries from this space-separated string — pass "" for none)
+                                and a fresh LinuxSyscallEmulator per representative region's
+                                measurement — but mandatory here, not optional: region-boundary
+                                detection and spin-loop exclusion need a real ELF's symbol
+                                table, so there is no bare-metal HTIF fallback (use --simpoint
+                                for that). Captured stdout/stderr is discarded.
           --smarts <U> <W> <K>  SMARTS systematic sampling (Wunderlich et al., ISCA 2003):
                                 alternates a functional fast-forward with detailed
                                 warm-then-measure windows spaced K instructions apart, each

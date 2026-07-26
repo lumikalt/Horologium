@@ -1618,6 +1618,59 @@ multi-threaded region (a real futex wait) under detailed pipeline timing, which 
 logic (`FiveStageTrain` doesn't serialize `ecall`, so younger instructions are already in-flight by the
 time a block is discovered), tracked as its own `TODO.md` item rather than folded silently into this one.
 
+**Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
+`LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`
+(computed from `MultiHartLoopPointProfiler.RegionBbvs`) plus `RegionInstructionCounts` (the new property
+feeding it — each region's global filtered instruction count, same index order as `RegionBbvs`) and returns,
+per representative region, the ratio of its cluster's total filtered instructions to its own — deliberately
+not `SimulationPoint.Weight`, which assumes every interval is the same length (true for SimPoint's fixed
+intervals, false for LoopPoint's data-dependent regions). `ExtrapolateTotalRuntime` then sums each
+representative's own measured runtime, multiplier-weighted, into one whole-run estimate.
+
+`MultiHartLoopPointExperiment` (`src/Isa/RiscV32/Analysis/`) is the orchestrator gluing all of the above
+together, in the same capture-then-measure two-phase shape as `Experiment.CaptureSimPointCheckpoints`/
+`MeasureSimPointCheckpoints`, but structurally different in one way: SimPoint's checkpoint targets are known
+before profiling starts (fixed multiples of `intervalSize`), so a cheap second pass captures only the
+pre-computed representative points. LoopPoint's region boundaries are data-dependent — unknowable until the
+profiling pass actually reaches them — and which regions turn out representative isn't known until
+clustering runs over the *complete* pass. So `CaptureLoopPointCheckpoints` captures every region boundary's
+`MultiHartCheckpoint` opportunistically during the single profiling pass, via a new `onRegionBoundary` hook
+on `MultiHartLoopPointProfiler` (fires after each region closes, with the about-to-start region's index —
+region 0's checkpoint, the pre-run state, is the caller's own responsibility since no boundary fires for
+it), then discards every non-representative one once `SimPointAnalysis.Analyze` picks representatives.
+`MeasureLoopPointCheckpoints` restores each kept checkpoint onto fresh detailed trains and drives them with
+`MultiHartWarmupMeasureDriver`, then feeds the per-representative tick counts into
+`LoopPointRuntimeExtrapolation`.
+
+**A real, once-shipped bug found and fixed along the way**: detailed pipeline trains (`FiveStageTrain`,
+confirmed; `OooTrain` has the identical shape) track their fetch address in a field completely separate from
+`IArchState.Pc` — `FetchStage.Pc`, seeded once from the train's constructor `entryPoint` argument and never
+re-read afterward. `MultiHartCheckpoint.RestoreInto` (like `ArchitecturalCheckpoint.RestoreInto`) only
+mutates `IArchState`, so restoring a checkpoint into an already-constructed train with the wrong
+`entryPoint` doesn't just fail to fetch from the right address — it livelocks silently, fetching from
+wherever the train happened to be constructed to start, forever, with zero commits and zero errors.
+`Experiment.MeasureSimPointCheckpoints` already avoided this (it threads `ArchitecturalCheckpoint.Pc`
+through as the detailed train's `entryPoint`); `MultiHartLoopPointExperiment`'s first draft didn't, since
+`MultiHartCheckpoint` had no public per-hart PC accessor. Fixed by adding `MultiHartCheckpoint.PcOf(hartId)`
+and threading it through `MeasureLoopPointCheckpoints`'s `detailedTrainFactory` callback (now `Func<IMechanism,
+IMemory, ulong, InstructionCounter, ISteppableTrain>`, PC included, mirroring `Experiment`'s own
+`detailedTrainFactory` shape exactly). Caught by a genuinely discriminating test — not "did it produce some
+ticks" (a wrongly-defaulted hart fetching another hart's still-valid, self-terminating loop code would pass
+that trivially), but "did each hart's detailed train actually restart fetch inside *that hart's own* address
+range" — confirmed to fail under the reverted bug and pass with the fix before being kept.
+
+**Validated against a real compiled binary.** `simpoint_kernel.elf` through `--looppoint 20000
+--looppoint-warmup 2000 --looppoint-argv ""` estimates 4,736,068 total ticks; a full, cold `FiveStageTrain`
+run of the same binary to completion measures 4,738,700 — a 0.06% difference, well beyond wiring-level
+proof that the whole capture→cluster→measure→extrapolate pipeline is numerically sound end-to-end, not just
+"runs without throwing."
+
+`--looppoint`/`--looppoint-warmup`/`--looppoint-argv` mirror `--simpoint`/`--simpoint-warmup`/
+`--simpoint-argv`'s shape but are single-hart only for now and require `--looppoint-argv` unconditionally
+(no bare-metal HTIF fallback — region-boundary detection and spin-loop exclusion need a real ELF's symbol
+table). Measurement is hardcoded to the `five_stage` pipeline (no `--sweep` support yet) — `MultiHartCheckpoint`
+restore + `MultiHartWarmupMeasureDriver` have only been proven against `FiveStageTrain`.
+
 ### SMARTS sampling (Pipeline/SmartsDriver)
 
 Systematic statistical sampling after Wunderlich, Wenisch, Falsafi & Hoe (ISCA 2003) — the sibling methodology to

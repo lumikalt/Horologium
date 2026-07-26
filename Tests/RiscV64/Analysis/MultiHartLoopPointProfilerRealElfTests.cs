@@ -101,5 +101,16 @@ public class MultiHartLoopPointProfilerRealElfTests {
         Assert.True(result.K >= 1);
         Assert.NotEmpty(result.Points);
         Assert.InRange(result.SingleSimulationPoint, 0, profiler.RegionBbvs.Count - 1);
+
+        // LoopPointRuntimeExtrapolation's Eq. 2 against real profiler output, not just a hand-built
+        // synthetic SimPointResult (see LoopPointRuntimeExtrapolationTests for the hand-verifiable
+        // oracle) — the composition bar held for items 7/9/10a applies here too. The self-consistency
+        // invariant: summing (multiplier * own instruction count) over every representative must
+        // reconstruct the total filtered instruction count across every region, real or synthetic.
+        Assert.Equal(profiler.RegionBbvs.Count, profiler.RegionInstructionCounts.Count);
+        IReadOnlyDictionary<int, double> multipliers =
+            LoopPointRuntimeExtrapolation.ComputeMultipliers(result, profiler.RegionInstructionCounts);
+        double reconstructed = multipliers.Sum(kv => kv.Value * profiler.RegionInstructionCounts[kv.Key]);
+        Assert.Equal(profiler.RegionInstructionCounts.Sum(), reconstructed, 1e-6);
     }
 }

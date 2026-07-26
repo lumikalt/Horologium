@@ -64,6 +64,18 @@ public sealed class MultiHartCheckpoint {
     /// <summary>Number of harts this checkpoint covers.</summary>
     public int HartCount => _hartPcs.Length;
 
+    /// <summary>
+    ///     Hart <paramref name="hartId" />'s PC at capture time. Detailed pipeline trains
+    ///     (e.g. <c>FiveStageTrain</c>) track their own fetch-address state separately from
+    ///     <see cref="IArchState.Pc" /> — seeded once from the train's constructor <c>entryPoint</c>
+    ///     parameter and never re-read afterward — so <see cref="RestoreInto" />, which only mutates
+    ///     <see cref="IArchState" />, cannot by itself redirect fetch to the restored PC. Callers must
+    ///     pass this value as that hart's train's own <c>entryPoint</c> constructor argument
+    ///     <em>before</em> calling <see cref="RestoreInto" />, exactly as <c>Experiment.MeasureSimPointCheckpoints</c>
+    ///     already does with <c>ArchitecturalCheckpoint.Pc</c>.
+    /// </summary>
+    public ulong PcOf(int hartId) => _hartPcs[hartId];
+
     /// <summary>Base address of the shared-memory snapshot.</summary>
     public ulong MemoryBaseAddress { get; }
 
