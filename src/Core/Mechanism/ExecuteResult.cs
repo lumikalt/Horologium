@@ -45,6 +45,17 @@ public sealed record ExecuteResult {
     /// </summary>
     public bool RequestHalt { get; init; }
 
+    /// <summary>
+    ///     True if this instruction has not completed and must be retried unchanged next tick
+    ///     (e.g. a <c>futex(FUTEX_WAIT)</c> whose condition still holds). The pipeline must not
+    ///     advance PC, apply <see cref="SideEffect" />, write <see cref="RegisterResult" />, or call
+    ///     <c>IArchState.OnRetire</c> when this is set — the instruction contributes zero committed
+    ///     work this tick, purely a scheduling artifact, so it must not appear in retired-instruction
+    ///     counts or basic-block-vector profiling. ISA-agnostic to the trains: they act on the flag
+    ///     without knowing why.
+    /// </summary>
+    public bool RequestBlock { get; init; }
+
     /// <summary>True if this instruction returns from a trap (e.g. MRET).</summary>
     public bool IsReturnFromTrap { get; init; }
 

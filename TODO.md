@@ -233,10 +233,15 @@ just infrastructure this design doesn't require.
   driver LoopPoint's profiling pass needs) — `LinuxSyscallEmulator` gained a `clone()` case (`IHartSpawner`),
   `MultiHartKernel` gained pre-allocated dormant hart slots. `MultiHartPipeline` (the detailed-timing-pipeline
   driver LoopPoint's warm+measure phase will need) doesn't have the same support yet — still open.
-- [ ] `futex()` FUTEX_WAIT/FUTEX_WAKE, and dynamic hart activation for `MultiHartPipeline` (the detailed-timing
-  counterpart to the `MultiHartKernel` support above): a shared wait-queue across per-hart syscall-handler
-  instances (mirroring `ReservationTable`'s cross-hart sharing for LR/SC), plus a "parked" (blocked-but-resumable)
-  hart state in both drivers, distinct from halted.
+- [x] `futex()` FUTEX_WAIT/FUTEX_WAKE for `MultiHartKernel` (the functional/bare-metal driver LoopPoint's
+  profiling pass needs) — poll-based, not queue-based: `FUTEX_WAIT` returns `-EAGAIN` immediately if the word
+  already differs from the expected value, otherwise `ExecuteResult.RequestBlock` makes the driver re-run the
+  same `ecall` next tick without advancing PC until it changes; `FUTEX_WAKE` is a no-op returning 0. Sound
+  without any waiter-identity/wait-queue bookkeeping because real futex callers (musl's mutex/cond/barrier
+  code) always re-validate the guarded condition themselves rather than branching on the wait's return value.
+  `MultiHartPipeline` dynamic hart activation + threading block-semantics through the detailed pipeline
+  trains' commit stages is deferred to the multi-hart checkpoint item below, since injecting a spawned/restored
+  hart's state into a live pipeline train is the same problem checkpoint-restore already has to solve.
 - [ ] Per-hart `gettid`/thread-exit semantics: thread hart identity through `ISyscallHandler.Handle`, a real
   per-hart `gettid` (hardcoded to 1 today), and `exit` (this hart only) vs `exit_group` (whole process)
   distinguished (currently fused).
@@ -263,6 +268,11 @@ just infrastructure this design doesn't require.
   single-hart `ArchitecturalCheckpoint` pattern (one shared-memory blob + N per-hart state/syscall-handler
   blobs, reusing already-existing per-field serialization), then warm up and measure each representative
   region's detailed simulation, mirroring `MeasureSimPointCheckpoints`'s existing warmup-then-measure pattern.
+  Also covers `MultiHartPipeline` dynamic hart activation (injecting a spawned/restored hart's state into a
+  live pipeline train — the same problem this item's checkpoint-restore already solves) and threading
+  `ExecuteResult.RequestBlock` (see the `futex()` item above) through the detailed pipeline trains'
+  (`FiveStageTrain`/`SuperscalarTrain`/`OooTrain`/`SmtTrain`/`CprTrain`/`DaeTrain`) commit stages, since neither
+  is needed until this item's warm+measure phase actually drives a multi-hart pthread workload through them.
 - [ ] Weighted-multiplier runtime extrapolation + Runner CLI wiring: implement the paper's Eq. 1/2
   multiplier-weighted runtime reconstruction from representative-region results, add a `--looppoint` CLI flag
   mirroring `--simpoint`/`--smarts`, and document in README.md/docs/references.md. — Sabu et al., HPCA 2022

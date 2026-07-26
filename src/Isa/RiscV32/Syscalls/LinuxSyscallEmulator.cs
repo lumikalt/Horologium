@@ -66,10 +66,14 @@ namespace RiscV32.Syscalls;
 ///         pool), not one per hart — real threads share one fd table/brk/mmap arena
 ///         (<c>CLONE_FILES</c>/<c>CLONE_VM</c>), and this class's mutable state already models
 ///         exactly that if every hart's mechanism is wired to the one instance.
-///         <c>CLONE_CHILD_CLEARTID</c> (the futex wake <c>pthread_join</c> blocks on) is not
-///         implemented — a documented gap for the <c>futex()</c> syscall to close, not a silent
-///         one; a real <c>pthread_join</c> on a hart spawned here will block forever until that
-///         lands.
+///         <c>futex()</c> (syscall 98) implements <c>FUTEX_WAIT</c>/<c>FUTEX_WAKE</c> by polling
+///         rather than a wait queue — see <see cref="Futex" />'s doc comment for why this is
+///         sufficient for real pthread mutex/cond/barrier code despite tracking no waiter identity.
+///         <c>CLONE_CHILD_CLEARTID</c> (the <c>ctid</c> write-and-wake a thread's exit performs,
+///         which <c>pthread_join</c>'s futex wait depends on) is not implemented — thread-exit vs.
+///         process-exit isn't distinguished yet (a documented gap for the per-hart
+///         <c>gettid</c>/thread-exit TODO item to close, not a silent one); a real
+///         <c>pthread_join</c> on a hart spawned here will block forever until that lands.
 ///     </para>
 /// </summary>
 /// <param name="initialBreak">Initial <c>brk</c> value — see <c>Rv32ElfWorkload.InitialBreak</c>.</param>
@@ -91,6 +95,7 @@ public sealed class LinuxSyscallEmulator(
     Stream? input = null
 ) : ICheckpointableSyscallHandler, IDisposable {
     private const long ENoEnt = -2;
+    private const long EAgain = -11;
     private const long EBadF = -9;
     private const long EAcces = -13;
     private const long EIo = -5;
@@ -199,6 +204,7 @@ public sealed class LinuxSyscallEmulator(
             return new ExecuteResult { RequestHalt = true, };
 
         if (num == 220) return Clone(a0, a1, a2, a3, state, pc, memory); // SYS_clone
+        if (num == 98) return Futex(a0, a1, a2, memory);                 // SYS_futex
 
         long result = num switch {
             64   => Write(a0, a1, a2, memory),    // SYS_write
@@ -261,6 +267,42 @@ public sealed class LinuxSyscallEmulator(
 
         var ret = (ulong)newHartId;
         return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, ret), };
+    }
+
+    // FUTEX_WAIT/FUTEX_WAKE (SYS_futex = 98, confirmed against musl's bits/syscall.h — same number
+    // on RV32 and RV64, the generic Linux syscall table). Poll-based, not queue-based: FUTEX_WAIT
+    // returns -EAGAIN immediately if *uaddr already differs from the expected value; otherwise it
+    // returns RequestBlock, and the driver (MultiHartKernel.StepHart) re-decodes/re-executes this
+    // same ecall next tick without advancing PC until the value changes. FUTEX_WAKE is a no-op that
+    // always returns 0 — there is no waiter-identity bookkeeping to report a real wake count from.
+    // This is deliberately not a queue/wake-signal design: real futex(2) requires callers to
+    // re-validate the actual condition after any wait returns (spurious wakeups are always possible),
+    // and glibc/musl's mutex/cond/barrier primitives never branch on FUTEX_WAIT's specific return
+    // value for correctness — they always recheck the guarded state directly. So -EAGAIN on any
+    // mismatch (whether from a real FUTEX_WAKE-triggered store or any other write) is both
+    // futex(2)-conformant and sufficient for real pthread code, without needing to track which hart
+    // "really" caused a given wake. The low 7 bits of futexOp are the command; FUTEX_PRIVATE_FLAG
+    // (0x80) and FUTEX_CLOCK_REALTIME (0x100) are silently ignored (no shared-vs-private distinction
+    // or absolute-timeout support is implemented — waits never time out).
+    private ExecuteResult Futex(ulong uaddr, ulong futexOp, ulong val, IMemory memory) {
+        const ulong futexWait = 0;
+        const ulong futexWake = 1;
+
+        switch (futexOp & 0x7f) {
+            case futexWait:
+                if (memory.Read(uaddr, 4) != val) {
+                    var eagain = unchecked((ulong)LinuxSyscallEmulator.EAgain);
+                    return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, eagain), };
+                }
+
+                return new ExecuteResult { RequestBlock = true, };
+            case futexWake:
+                return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, 0), };
+            default: {
+                var noSys = unchecked((ulong)LinuxSyscallEmulator.ENoSys);
+                return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, noSys), };
+            }
+        }
     }
 
     public void Dispose() {

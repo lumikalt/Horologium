@@ -831,6 +831,18 @@ constructor overloads default `activeHartCount` to every hart starting active, s
 setups are unaffected. `CLONE_CHILD_CLEARTID`'s futex wake and `MultiHartPipeline`'s equivalent dynamic-activation support
 are not yet implemented — see `TODO.md`.
 
+**`futex()` blocking.** `LinuxSyscallEmulator` handles syscall 98 (`FUTEX_WAIT`/`FUTEX_WAKE`) by polling rather than a
+wait queue: `FUTEX_WAIT` returns `-EAGAIN` immediately if the word at `uaddr` already differs from the expected value;
+otherwise it returns an `ExecuteResult` with the new `RequestBlock` flag set. `MultiHartKernel.StepHart` checks
+`RequestBlock` right after `Execute()` and returns without advancing PC, applying `SideEffect`, writing a register
+result, or calling `OnRetire()` — so a blocked hart's `ecall` is simply re-decoded and re-executed next tick, unchanged,
+until the word changes, contributing zero retired instructions or BBV samples while blocked. `FUTEX_WAKE` is a no-op
+returning 0; there is no waiter-identity bookkeeping to report a real wake count from. This is sound without a wait
+queue because real futex(2) callers must always re-validate the guarded condition themselves after any wait returns
+(spurious wakeups are always possible), and glibc/musl's mutex/cond/barrier primitives never branch on `FUTEX_WAIT`'s
+specific return value for correctness — so `-EAGAIN` on any mismatch, whether from a real wake-triggered store or any
+other write, is both futex(2)-conformant and sufficient for real pthread code.
+
 ### Cache timing model (src/Core/Orrery/Cache)
 
 `SetAssociativeCache` (write-through, no-write-allocate by default; write-back/write-allocate optional) models several

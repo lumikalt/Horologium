@@ -33,6 +33,15 @@ namespace RiscV32.MultiCore;
 ///         least as many harts as the workload will ever spawn; <see cref="SpawnHart" /> throws if
 ///         every pre-allocated slot is already active.
 ///     </para>
+///     <para>
+///         <c>futex(FUTEX_WAIT)</c> blocking (<see cref="LinuxSyscallEmulator" />) uses no separate
+///         "parked" state: a blocked hart's <c>ecall</c> returns <see cref="ExecuteResult.RequestBlock" />,
+///         and <see cref="StepHart" /> simply returns without advancing PC, so the same instruction is
+///         re-decoded and re-executed next tick until the futex word no longer matches the expected
+///         value. This is sound at this kernel's per-instruction round-robin granularity: every write
+///         to the futex word from any hart happens on some tick before the waiter's next poll, so no
+///         store can be missed between checks.
+///     </para>
 /// </summary>
 public sealed class MultiHartKernel : IHartSpawner {
     private readonly bool[] _dormant;
@@ -160,6 +169,8 @@ public sealed class MultiHartKernel : IHartSpawner {
         }
 
         ExecuteResult result = mech.Executor.Execute(instr, state, memory);
+
+        if (result.RequestBlock) return; // futex(FUTEX_WAIT) still blocked — retry the same ecall next tick
 
         if (result.IsHalt) {
             _halted[hartId] = true;

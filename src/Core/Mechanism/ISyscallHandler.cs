@@ -12,6 +12,7 @@ public interface ISyscallHandler {
     ///     <c>a0</c>; <c>SYS_exit</c> and <c>SYS_exit_group</c> set
     ///     <see cref="ExecuteResult.RequestHalt" /> instead.
     /// </summary>
+    /// <param name="syscallNum">The syscall number, read from the calling convention's syscall register.</param>
     /// <param name="state">
     ///     The calling hart's full architectural state — not just its registers — so a
     ///     thread-creation syscall (<c>clone</c>) can <see cref="IArchState.Snapshot" /> it to
@@ -19,5 +20,7 @@ public interface ISyscallHandler {
     ///     except the overrides <c>clone</c>'s own arguments specify, matching real clone()
     ///     semantics).
     /// </param>
+    /// <param name="memory">The calling hart's memory, for syscalls that read/write guest buffers.</param>
+    /// <param name="pc">The ECALL instruction's own address, for syscalls that compute a resume PC (e.g. <c>clone</c>).</param>
     ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc);
 }
