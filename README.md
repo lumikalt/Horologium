@@ -618,12 +618,17 @@ AES block-cipher extension — encrypt (`vaesem.vv/.vs`, `vaesef.vv/.vs`), decry
 AES-256) — operating on 128-bit "element groups" (EGS=4 consecutive 32-bit elements forming one AES block)
 rather than single SEW-wide elements. This introduced the general element-group architecture that any future
 vector-crypto instruction can build on: `ITooth.HasRuntimeSizedVectorDestination` flags instructions whose
-destination register *count* depends on runtime `vtype`/LMUL rather than the encoding (so `FiveStageTrain`'s
-decode-time hazard tracking rejects them outright, while `OooTrain` needs no changes at all —
-head-serializing every `ToothClass.Vector` op is already sufficient regardless of how many registers get
-written), constraint checking for the spec's §1.5 rules (LMUL·VLEN≥EGW, SEW matching, `vl`/`vstart` multiples
-of EGS), and a register-group-range reserved-encoding check for the `.vs` forms (vd's LMUL group must not
-overlap the scalar vs2 register). Vector-crypto instructions use a dedicated major opcode (`0x77`), not the
+destination register *count* depends on runtime `vtype`/LMUL rather than the encoding. `OooTrain` needs no
+changes at all — head-serializing every `ToothClass.Vector` op is already sufficient regardless of how many
+registers get written. `FiveStageTrain` widens its vector RAW hazard check with a runtime LMUL-derived
+register span instead: `ITooth.RuntimeVectorRegisterSpan(baseRegister, state)` gives an in-flight producer's
+precise span (its own LMUL is always already resolved by hazard-check time), while
+`ITooth.MaxRuntimeVectorRegisterSpan(baseRegister)` gives a state-independent conservative maximum for the
+not-yet-decoded consumer side, whose LMUL could still change from a `vsetvli` sitting in a pipeline latch
+this very cycle. The element-group architecture also added constraint checking for the spec's §1.5 rules
+(LMUL·VLEN≥EGW, SEW matching, `vl`/`vstart` multiples of EGS), and a register-group-range reserved-encoding
+check for the `.vs` forms (vd's LMUL group must not overlap the scalar vs2 register). Vector-crypto
+instructions use a dedicated major opcode (`0x77`), not the
 standard OP-V opcode (`0x57`) despite an otherwise identical field layout — caught via a
 `riscv64-none-elf-as`/objdump round-trip and confirmed against the `riscv-opcodes` project, after the
 spec-text extraction assumed 0x57. `vaesdm.vv`'s round-key XOR lands *before* InvMixColumns — unlike every

@@ -392,12 +392,6 @@ internal sealed class PipelineCore : Gear {
             exMemLast.Result is { RegisterResult.HasValue: true, } hzR ? hzR.RegisterResult.Value : null
         );
         ITooth? incoming = TryDecode(ifIdLast);
-        if (incoming is { HasRuntimeSizedVectorDestination: true, })
-            throw new NotSupportedException(
-                "FiveStageTrain cannot safely run element-group vector-crypto instructions: their "
-              + "register span depends on runtime LMUL, which VectorRawHazard's decode-time "
-              + "register list can't capture. Use OooTrain for vector-crypto workloads."
-            );
         bool stall = _hazard.MustStall(incoming?.SourceRegisters ?? [], _hazardResidents);
 
         // Vector RAW hazard: VRF writes complete via SideEffect in WB with no
@@ -652,11 +646,29 @@ internal sealed class PipelineCore : Gear {
         catch (IllegalInstructionException) { return null; }
     }
 
-    // Returns true when the in-flight producer writes a vector register read by consumer.
-    private static bool VectorRawHazard(ITooth? consumer, ITooth? producer) {
+    // Returns true when the in-flight producer's write range overlaps a register the consumer
+    // reads. Ordinary vector ops occupy exactly one physical register per operand (span 1 on both
+    // sides). Element-group vector-crypto ops (HasRuntimeSizedVectorDestination) can span up to
+    // LMUL consecutive registers: the producer (already past Decode, so its own LMUL is guaranteed
+    // resolved — see ITooth.RuntimeVectorRegisterSpan) uses its precise live-vtype span; the
+    // consumer (not yet decoded, so an intervening vsetvli in idExLast this very cycle may still
+    // raise its LMUL before it reaches Execute) uses a state-independent conservative maximum
+    // instead, so the check stays correct regardless of that timing.
+    private bool VectorRawHazard(ITooth? consumer, ITooth? producer) {
         if (producer is null || consumer is null) return false;
         int vd = producer.VectorDestinationRegister;
-        return vd >= 0 && consumer.VectorSourceRegisters.Contains(vd);
+        if (vd < 0) return false;
+        int producerSpan = producer.HasRuntimeSizedVectorDestination
+            ? producer.RuntimeVectorRegisterSpan(vd, State)
+            : 1;
+        foreach (int vs in consumer.VectorSourceRegisters) {
+            int consumerSpan = consumer.HasRuntimeSizedVectorDestination
+                ? consumer.MaxRuntimeVectorRegisterSpan(vs)
+                : 1;
+            if (vd < vs + consumerSpan && vs < vd + producerSpan) return true;
+        }
+
+        return false;
     }
 
     // Returns true when the in-flight producer writes a secondary destination register

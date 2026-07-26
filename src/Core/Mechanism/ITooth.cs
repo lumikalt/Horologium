@@ -149,14 +149,38 @@ public interface ITooth {
     ///     encoded field, e.g. NF), this can't be captured in a decode-time
     ///     <c>VectorDestinationRegister</c>/<c>VectorSourceRegisters</c> list at all, because
     ///     decode has no access to <c>IArchState</c>. In-order pipelines that hazard-check
-    ///     against those lists (e.g. <c>FiveStageTrain</c>) cannot safely run such an
-    ///     instruction and should reject it outright rather than under-detect a WAR/RAW
-    ///     hazard on the untracked registers. The OoO train needs no special handling here:
-    ///     it never renames vector registers and instead head-serializes every
+    ///     against those lists (e.g. <c>FiveStageTrain</c>) instead widen the check with
+    ///     <see cref="RuntimeVectorRegisterSpan" />/<see cref="MaxRuntimeVectorRegisterSpan" />,
+    ///     which read the live LMUL at hazard-check time. The OoO train needs no special
+    ///     handling here: it never renames vector registers and instead head-serializes every
     ///     <see cref="ToothClass.Vector" /> op (issues only at the ROB head), which is
     ///     sufficient on its own regardless of how many registers get written.
     /// </summary>
     bool HasRuntimeSizedVectorDestination => false;
+
+    /// <summary>
+    ///     The number of consecutive physical registers, starting at <paramref name="baseRegister" />,
+    ///     this instruction's runtime-sized operand actually spans — only meaningful when
+    ///     <see cref="HasRuntimeSizedVectorDestination" /> is true, and only ever queried for an
+    ///     already-in-flight instruction (one that has left Decode), whose own LMUL — set by
+    ///     whichever <c>vsetvli</c> precedes it — is guaranteed to already be reflected in
+    ///     <paramref name="state" />. The LMUL-determined span applies to vd and vs1, but not to vs2
+    ///     in the AES/SM4 ".vs" scalar-key forms, whose vs2 is a single fixed register regardless of
+    ///     LMUL. Every other instruction returns 1, since <see cref="VectorDestinationRegister" />/
+    ///     <see cref="VectorSourceRegisters" /> already name an exact single register.
+    /// </summary>
+    int RuntimeVectorRegisterSpan(int baseRegister, IArchState state) => 1;
+
+    /// <summary>
+    ///     A conservative upper bound on <see cref="RuntimeVectorRegisterSpan" /> for a
+    ///     not-yet-decoded consumer, whose own LMUL may still change before it reaches Execute —
+    ///     e.g. a <c>vsetvli</c> raising LMUL that is itself sitting in a pipeline latch this very
+    ///     cycle, not yet applied to <c>state</c>. Deliberately takes no <see cref="IArchState" />:
+    ///     the whole point is to stay correct without knowing the consumer's real future LMUL.
+    ///     Returns the architectural maximum LMUL (8) for a runtime-sized spanning operand, or 1 for
+    ///     the AES/SM4 ".vs" fixed-vs2 exception and every non-runtime-sized instruction.
+    /// </summary>
+    int MaxRuntimeVectorRegisterSpan(int baseRegister) => 1;
 
     /// <summary>
     ///     True for instructions whose execution may read or write guest memory at an

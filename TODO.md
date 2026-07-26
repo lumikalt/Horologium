@@ -72,10 +72,9 @@ off here until a periodic cleanup removes them; the durable record is git histor
   and mutation-tested. `vaesdm.vv`'s round-key XOR lands *before* InvMixColumns (spec pseudocode,
   matching FIPS-197's Equivalent Inverse Cipher §5.3.5) — different from every other round op,
   where the XOR is the final step; caught by chaining a real decrypt against the KAT trace, not
-  just the per-instruction from-scratch reference. `FiveStageTrain` explicitly rejects
-  element-group vector ops (its decode-time hazard list can't express a runtime-LMUL-sized
-  register span); `OooTrain` needs no changes, since head-serialization of `ToothClass.Vector`
-  already covers it.
+  just the per-instruction from-scratch reference. `OooTrain` needs no changes, since
+  head-serialization of `ToothClass.Vector` already covers it; `FiveStageTrain` widens its vector
+  RAW hazard check with a runtime-LMUL-derived register span for these instructions (see below).
 - [x] Zvksed extension (SM4 block cipher): round function `vsm4r.vv/.vs` and key expansion
   `vsm4k.vi`, reusing the Zvkned element-group infrastructure unchanged (same EGW=128/EGS=4/SEW=32
   shape, same opcode space). Validated against GB/T 32907-2016 Example 1 (key==plaintext,
@@ -160,8 +159,26 @@ off here until a periodic cleanup removes them; the durable record is git histor
   `(x⁶³+1)² = x¹²⁶+1` landing exactly on the 64-bit half boundary) rather than the implementation's
   own loop. This closes out the entire RISC-V Vector Cryptography Extensions Volume II instruction
   set.
-  Deferred follow-up: `FiveStageTrain` gaining runtime-LMUL-aware vector hazard tracking (rather
-  than rejecting).
+- [x] `FiveStageTrain` runtime-LMUL-aware vector hazard tracking, replacing its blanket rejection
+  of element-group vector-crypto ops. `ITooth.RuntimeVectorRegisterSpan(baseRegister, state)` gives
+  an in-flight producer's precise LMUL-derived register span (its own LMUL is always already
+  resolved by hazard-check time, since any `vsetvli` that set it is strictly older and has already
+  reached Execute); `ITooth.MaxRuntimeVectorRegisterSpan(baseRegister)` gives a state-independent
+  conservative maximum (architectural max LMUL, 8) for the not-yet-decoded consumer side, whose own
+  LMUL could still change from a `vsetvli` sitting in a pipeline latch this very cycle — using the
+  live (and, for the consumer, not-yet-applicable) vtype on both sides would under-count that
+  consumer's span and miss the hazard. Both exempt vs2 in the three ".vs" scalar-key forms
+  (`vaesem.vs`-style, `vaesz.vs`, `vsm4r.vs`), which is a single fixed register regardless of LMUL.
+  `VectorRawHazard` became a register-range overlap check (mirroring the codebase's own
+  `VGroupOverlap` reserved-encoding idiom) instead of single-register equality.
+- [ ] `SuperscalarTrain`/`SmtTrain`/`DaeTrain` hazard-check only `ITooth.SourceRegisters`/
+  `DestinationRegister` (scalar) — none of them reference `ITooth.VectorDestinationRegister`/
+  `VectorSourceRegisters` at all, so any vector instruction (not just the runtime-sized
+  element-group crypto ops `FiveStageTrain` now handles above) could run through them with no
+  vector RAW hazard tracking whatsoever. Found while auditing which in-order trains needed the
+  `FiveStageTrain` fix above; out of scope there since it's a pre-existing, broader gap unrelated
+  to LMUL sizing specifically. Needs checking whether these trains even reach vector execution in
+  practice before deciding what fix (if any) is warranted.
 
 ## Analysis
 

@@ -1,6 +1,8 @@
 #region
 
 using Mechanism;
+using RiscV32.Registers;
+using RiscV32.State;
 
 #endregion
 
@@ -136,6 +138,27 @@ public sealed class RvInstruction(
         payload is RvVaesRoundVv or RvVaesRoundVs or RvVaesZVs or RvVaesKf1Vi or RvVaesKf2Vi
                  or RvSm4RVv or RvSm4RVs or RvSm4KVi or RvSha2CVv or RvSha2MsVv or RvSm3CVi or RvSm3MeVv
                  or RvVGhshVv or RvVGmulVv;
+
+    // vs2 in the AES/SM4 ".vs" scalar-key forms is a single fixed register regardless of LMUL —
+    // every other flagged operand (vd, vs1, and vs2 in the ".vi"/".vv" forms) spans LMUL registers.
+    private bool IsFixedVs2Register(int baseRegister) => payload switch {
+        RvVaesRoundVs op => baseRegister == op.Vs2,
+        RvVaesZVs op     => baseRegister == op.Vs2,
+        RvSm4RVs op      => baseRegister == op.Vs2,
+        _                => false,
+    };
+
+    public int RuntimeVectorRegisterSpan(int baseRegister, IArchState state) {
+        if (!HasRuntimeSizedVectorDestination || IsFixedVs2Register(baseRegister)) return 1;
+        uint vlmul = (uint)state.SystemRegisters.Read(CsrFile.Vtype, RvPrivilege.Machine) & 0x7;
+        // Fractional LMUL (5-7) never spans multiple registers; reserved (4) traps in the
+        // executor's own LMUL*VLEN>=EGW check before any multi-register write happens — either
+        // way 1 is the correct span, not just a safe fallback.
+        return vlmul switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8, _ => 1, };
+    }
+
+    public int MaxRuntimeVectorRegisterSpan(int baseRegister) =>
+        HasRuntimeSizedVectorDestination && !IsFixedVs2Register(baseRegister) ? 8 : 1;
 
     // RV32 amocas.d (Zacas) holds its 64-bit result in a register pair: Rd gets the
     // low word (via the normal DestinationRegister/RegisterResult path), Rd+1 gets the

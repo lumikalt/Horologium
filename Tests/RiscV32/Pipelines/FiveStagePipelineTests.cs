@@ -721,14 +721,16 @@ public class FiveStagePipelineTests {
         Assert.Equal(0L, snap.Counters["branch_misses"]);
     }
 
-    // ── Vector-crypto element-group rejection ───────────────────────────────────
+    // ── Vector-crypto element-group hazard tracking ─────────────────────────────
+    // FiveStageTrain widens VectorRawHazard with a runtime LMUL-derived register span for these
+    // instructions rather than rejecting them outright — see ITooth.RuntimeVectorRegisterSpan /
+    // MaxRuntimeVectorRegisterSpan.
 
     [Fact]
-    public void Pipeline_ElementGroupVectorCryptoInstruction_ThrowsNotSupported() {
+    public void Pipeline_ElementGroupVectorCryptoInstruction_ProducesCorrectResult() {
         // vsetivli x0, 16, e32,m4,ta,ma (vtypei=0xD2); vaesem.vv v8, v12 (funct6=0x28,vs1=2,
-        // opcode=0x77 — the vector-crypto major opcode, NOT the standard OP-V 0x57).
-        // FiveStageTrain must reject this rather than silently under-hazard-check the LMUL=4
-        // register group it writes — see ITooth.HasRuntimeSizedVectorDestination.
+        // opcode=0x77 — the vector-crypto major opcode, NOT the standard OP-V 0x57). LMUL=4 means
+        // this writes v8..v11, one AES block (element group) per register.
         (FiveStageTrain train, FlatMemory mem) = Make();
         Load(
             mem,
@@ -736,6 +738,170 @@ public class FiveStagePipelineTests {
             0xA2C12477, // vaesem.vv v8, v12
             0x00100073
         );
-        Assert.Throws<NotSupportedException>(() => train.Run());
+
+        var rv32 = (Rv32ArchState)train.ArchState;
+        var states = new byte[4][];
+        var keys = new byte[4][];
+        for (var g = 0; g < 4; g++) {
+            states[g] = new byte[16];
+            keys[g] = new byte[16];
+            for (var i = 0; i < 16; i++) {
+                states[g][i] = (byte)(0x10 + g * 16 + i);
+                keys[g][i] = (byte)(0xA0 + g * 16 + i);
+            }
+
+            rv32.VectorRegisters.Write(8 + g, states[g]);
+            rv32.VectorRegisters.Write(12 + g, keys[g]);
+        }
+
+        train.Run();
+
+        for (var g = 0; g < 4; g++)
+            Assert.Equal(AesEmReference(states[g], keys[g]), rv32.VectorRegisters.Read(8 + g));
+    }
+
+    [Fact]
+    public void Pipeline_ElementGroupVectorCrypto_StallsForNonBaseRegisterConsumer() {
+        // vaesem.vv v8, v12 at LMUL=4 writes v8..v11 via a deferred (WB-time) SideEffect. The very
+        // next instruction reads v11 — the producer's *last*, non-base register — via a
+        // whole-register move (vmv1r.v, which ignores vl/vtype entirely, so it can immediately
+        // follow the crypto op without also needing a vl compatible with a single, non-LMUL-aware
+        // register). A hazard check that only compares the producer's base register (vd=8) against
+        // the consumer's read (11) would miss this RAW entirely and let the move read v11's stale
+        // pre-existing value instead of the freshly computed AES output — confirmed by temporarily
+        // reverting VectorRawHazard to the single-register check, which fails this test.
+        (FiveStageTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0xCD287057, // vsetivli x0, 16, e32,m4,ta,ma
+            0xA2C12477, // vaesem.vv v8, v12
+            0x9EB03A57, // vmv1r.v v20, v11
+            0x00100073
+        );
+
+        var rv32 = (Rv32ArchState)train.ArchState;
+        var state = new byte[16];
+        var key = new byte[16];
+        for (var i = 0; i < 16; i++) {
+            state[i] = (byte)(0x10 + i);
+            key[i] = (byte)(0xA0 + i);
+        }
+
+        for (var g = 0; g < 4; g++) {
+            rv32.VectorRegisters.Write(8 + g, state);
+            rv32.VectorRegisters.Write(12 + g, key);
+        }
+
+        train.Run();
+
+        Assert.Equal(AesEmReference(state, key), rv32.VectorRegisters.Read(20));
+    }
+
+    [Fact]
+    public void Pipeline_ElementGroupVectorCrypto_ConsumerReadsNonBaseProducerRegister() {
+        // vaesem.vv v16, v8 at LMUL=4 reads its round-key group from vs2=v8, spanning v8..v11 —
+        // ITooth.VectorSourceRegisters only lists the base (v8), so a hazard check that doesn't
+        // widen the CONSUMER's read span (MaxRuntimeVectorRegisterSpan) would only ever compare
+        // producer writes against v8 and miss a producer that instead writes v11, v10, or v9. The
+        // preceding vmv1r.v v11, v5 is exactly that: it writes only v11 (single register), the
+        // non-base register vaesem.vv's group-3 key comes from. Without the widened consumer span,
+        // vaesem.vv would read v11's stale pre-existing (wrong) key instead of the fresh one just
+        // moved in from v5, and group 3's ciphertext (v19) would come out wrong.
+        (FiveStageTrain train, FlatMemory mem) = Make();
+        Load(
+            mem,
+            0xCD287057, // vsetivli x0, 16, e32,m4,ta,ma
+            0x9E5035D7, // vmv1r.v v11, v5
+            0xA2812877, // vaesem.vv v16, v8
+            0x00100073
+        );
+
+        var rv32 = (Rv32ArchState)train.ArchState;
+        var state = new byte[16];
+        var correctKey = new byte[16];
+        var staleKey = new byte[16];
+        for (var i = 0; i < 16; i++) {
+            state[i] = (byte)(0x10 + i);
+            correctKey[i] = (byte)(0xA0 + i);
+            staleKey[i] = (byte)(0xFF - i);
+        }
+
+        for (var g = 0; g < 3; g++) {
+            rv32.VectorRegisters.Write(8 + g, correctKey); // groups 0-2's keys, unrelated to the hazard
+            rv32.VectorRegisters.Write(16 + g, state);
+        }
+
+        rv32.VectorRegisters.Write(11, staleKey); // v11 starts wrong; vmv1r.v must overwrite it in time
+        rv32.VectorRegisters.Write(5, correctKey); // the real group-3 key, moved into v11
+        rv32.VectorRegisters.Write(19, state);
+
+        train.Run();
+
+        Assert.Equal(AesEmReference(state, correctKey), rv32.VectorRegisters.Read(19));
+    }
+
+    private static byte GfMul(byte a, byte b) {
+        byte result = 0;
+        for (var i = 0; i < 8; i++) {
+            if ((b & 1) != 0) result ^= a;
+            bool hi = (a & 0x80) != 0;
+            a <<= 1;
+            if (hi) a ^= 0x1B;
+            b >>= 1;
+        }
+
+        return result;
+    }
+
+    private static byte GfInv(byte a) {
+        if (a == 0) return 0;
+        for (var c = 1; c < 256; c++)
+            if (GfMul(a, (byte)c) == 1)
+                return (byte)c;
+        throw new InvalidOperationException();
+    }
+
+    private static byte Rotl8(byte x, int n) => (byte)((x << n) | (x >> (8 - n)));
+
+    private static byte SboxFwd(byte x) {
+        byte inv = GfInv(x);
+        return (byte)(inv ^ Rotl8(inv, 1) ^ Rotl8(inv, 2) ^
+                      Rotl8(inv, 3) ^ Rotl8(inv, 4) ^ 0x63);
+    }
+
+    private static byte GfMulSmall(byte x, int y) {
+        byte Xtime(byte v) => (byte)((v << 1) ^ ((v & 0x80) != 0 ? 0x1B : 0));
+        byte r = 0;
+        if ((y & 0x1) != 0) r ^= x;
+        if ((y & 0x2) != 0) r ^= Xtime(x);
+        if ((y & 0x4) != 0) r ^= Xtime(Xtime(x));
+        if ((y & 0x8) != 0) r ^= Xtime(Xtime(Xtime(x)));
+        return r;
+    }
+
+    // Independent reference — SubBytes/ShiftRows/MixColumns then XOR the round key, computed by
+    // hand from the FIPS-197 AES S-box/MixColumns matrix rather than by calling any of the
+    // executor's own AES helpers.
+    private static byte[] AesEmReference(byte[] state, byte[] key) {
+        var sb = new byte[16];
+        for (var i = 0; i < 16; i++) sb[i] = SboxFwd(state[i]);
+        var sr = new byte[16];
+        for (var i = 0; i < 16; i++) {
+            int r = i % 4, c = i / 4;
+            sr[i] = sb[4 * ((c + r) % 4) + r];
+        }
+
+        var mix = new byte[16];
+        for (var c = 0; c < 4; c++) {
+            byte s0 = sr[4 * c], s1 = sr[4 * c + 1], s2 = sr[4 * c + 2], s3 = sr[4 * c + 3];
+            mix[4 * c] = (byte)(GfMulSmall(s0, 0x2) ^ GfMulSmall(s1, 0x3) ^ s2 ^ s3);
+            mix[4 * c + 1] = (byte)(s0 ^ GfMulSmall(s1, 0x2) ^ GfMulSmall(s2, 0x3) ^ s3);
+            mix[4 * c + 2] = (byte)(s0 ^ s1 ^ GfMulSmall(s2, 0x2) ^ GfMulSmall(s3, 0x3));
+            mix[4 * c + 3] = (byte)(GfMulSmall(s0, 0x3) ^ s1 ^ s2 ^ GfMulSmall(s3, 0x2));
+        }
+
+        var result = new byte[16];
+        for (var i = 0; i < 16; i++) result[i] = (byte)(mix[i] ^ key[i]);
+        return result;
     }
 }
