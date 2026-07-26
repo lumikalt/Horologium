@@ -149,3 +149,171 @@ public static class SyncLibrarySymbols {
         ];
     }
 }
+
+/// <summary>
+///     Multi-hart region-boundary + BBV collection — the rest of LoopPoint's profiling pass, built
+///     on <see cref="LoopHeaderTracker" /> (region markers) and <see cref="BbvProfiler" /> (per-block
+///     fingerprints), one pair per hart. Wire <see cref="HartObserver" /> into each of
+///     <c>MultiHartKernel</c>'s per-hart slots (<c>SetObserver</c>) for the profiling-pass run, then
+///     read <see cref="RegionBbvs" /> — feed it straight into <c>SimPointAnalysis.Analyze</c>, unchanged.
+///     <para>
+///         A region's length target is <paramref name="targetGlobalInstructions" /> — the paper's
+///         "approximately N × 100 million <em>global</em> (all-threads) instructions" for an
+///         N-threaded application (Section III-A) — measured as a single counter shared across every
+///         hart, incremented once per <em>non-excluded</em> commit on <em>any</em> hart (spin-loop
+///         instructions are not "work done", so they don't count toward the target any more than they
+///         count toward a BBV's weight). A region does not end the instant that target is reached: it
+///         ends at the <em>next</em> loop-header hit afterward, on whichever hart reaches one first —
+///         "we do not restrict specific threads to indicate loop boundaries" (Section III-D). Because
+///         <see cref="LoopHeaderTracker" /> already refuses to mark a header inside an excluded range,
+///         a region can only ever close on a header "present in the main image of the application",
+///         automatically, with no extra check needed here.
+///     </para>
+///     <para>
+///         At that instant every hart's accumulated <see cref="BbvProfiler" /> interval (since the
+///         previous boundary, however little or much progress that hart made) is closed at once and
+///         concatenated into one region vector, each hart's contribution first normalized to sum to
+///         the same fixed total (<see cref="NormalizationScale" />) and namespaced into a disjoint key
+///         range (<see cref="NamespaceKey" />) so identical-binary threads' identical PCs don't
+///         collide. Per-thread normalization first, then concatenation — not one normalization over
+///         the combined vector — is what makes a thread's own relative time-in-block fingerprint
+///         survive the concatenation undiluted by how much more or less work a busier or lazier
+///         sibling thread happened to do in the same region (Section III-E: "per-region BBVs of each
+///         thread are concatenated into a longer, global BBV"). A hart that made zero progress this
+///         region (halted, not yet spawned, or futex-blocked throughout) contributes nothing rather
+///         than a stale reused interval.
+///     </para>
+/// </summary>
+public sealed class MultiHartLoopPointProfiler {
+    // Large enough that every real region's proportional weights survive integer rounding with
+    // negligible error, small enough to keep intermediate longs far from overflow when concatenated.
+    private const long NormalizationScale = 1_000_000;
+
+    private readonly BbvProfiler[] _bbvProfilers;
+    private readonly IReadOnlyList<(ulong Start, ulong End)> _excludedRanges;
+    private readonly LoopHeaderTracker[] _loopTrackers;
+    private readonly List<IReadOnlyDictionary<ulong, long>> _regionBbvs = [];
+    private readonly long _targetGlobalInstructions;
+    private long _instructionsSinceLastBoundary;
+
+    public MultiHartLoopPointProfiler(
+        IReadOnlyList<IDecoder> hartDecoders,
+        ulong rangeStart,
+        ulong rangeEnd,
+        long targetGlobalInstructions,
+        IReadOnlyList<(ulong Start, ulong End)>? excludedRanges = null
+    ) {
+        if (hartDecoders.Count == 0)
+            throw new ArgumentException("At least one hart decoder required.", nameof(hartDecoders));
+        if (targetGlobalInstructions <= 0)
+            throw new ArgumentOutOfRangeException(nameof(targetGlobalInstructions));
+
+        _targetGlobalInstructions = targetGlobalInstructions;
+        _excludedRanges = excludedRanges ?? [];
+        _bbvProfilers = new BbvProfiler[hartDecoders.Count];
+        _loopTrackers = new LoopHeaderTracker[hartDecoders.Count];
+        for (var i = 0; i < hartDecoders.Count; i++) {
+            // long.MaxValue: this profiler's own region-boundary logic decides when to cut an
+            // interval (via Complete()), not BbvProfiler's built-in fixed-instruction-count slicing.
+            _bbvProfilers[i] = new BbvProfiler(hartDecoders[i], long.MaxValue);
+            _loopTrackers[i] = new LoopHeaderTracker(hartDecoders[i], rangeStart, rangeEnd, _excludedRanges);
+        }
+    }
+
+    /// <summary>Completed multi-thread region BBVs, in region order. Feed to <c>SimPointAnalysis.Analyze</c>.</summary>
+    public IReadOnlyList<IReadOnlyDictionary<ulong, long>> RegionBbvs => _regionBbvs;
+
+    /// <summary>
+    ///     The commit observer for hart <paramref name="hartId" /> — wire into
+    ///     <c>MultiHartKernel.SetObserver(hartId, ...)</c> before running the profiling pass.
+    /// </summary>
+    public ICommitObserver HartObserver(int hartId) => new HartObserverAdapter(this, hartId);
+
+    /// <summary>Flushes the trailing partial region after the run ends. Call once after the run.</summary>
+    public void Complete() {
+        if (_instructionsSinceLastBoundary > 0) CloseRegion();
+    }
+
+    private void CloseRegion() {
+        var combined = new Dictionary<ulong, long>();
+        for (var h = 0; h < _bbvProfilers.Length; h++) {
+            // CutInterval (not Complete): a hart's basic block may still be open — no control-flow
+            // instruction seen yet — right at the region boundary. CutInterval credits the portion
+            // already executed to this region and keeps tracking the remainder for the next region
+            // under its own continuation address, exactly like BbvProfiler's own fixed-instruction-
+            // count auto-cut. Complete() would instead terminate tracking outright, silently
+            // misattributing that remainder's first post-boundary instructions to a spurious new
+            // block. Always appends (even an empty interval for a hart with zero non-excluded
+            // commits since the last boundary — halted, not yet spawned, or futex-blocked
+            // throughout), so Intervals[^1] is always this region's entry, never a stale one.
+            _bbvProfilers[h].CutInterval();
+            IReadOnlyDictionary<ulong, long> raw = _bbvProfilers[h].Intervals[^1];
+
+            foreach ((ulong key, long value) in NormalizeAndNamespace(raw, h))
+                combined[key] = combined.GetValueOrDefault(key) + value;
+        }
+
+        _regionBbvs.Add(combined);
+        _instructionsSinceLastBoundary = 0;
+    }
+
+    // Normalizes one hart's raw block-instruction counts to sum to exactly NormalizationScale
+    // (largest-remainder rounding keeps the sum exact despite integer truncation), then namespaces
+    // each block's key by hart so identical PCs across identical-binary threads never collide.
+    private static Dictionary<ulong, long> NormalizeAndNamespace(IReadOnlyDictionary<ulong, long> raw, int hartId) {
+        var result = new Dictionary<ulong, long>();
+        long total = raw.Values.Sum();
+        if (total == 0) return result;
+
+        long allocated = 0;
+        ulong keyOfLargest = 0;
+        long largestRaw = -1;
+        foreach ((ulong pc, long count) in raw) {
+            var scaled = (long)Math.Round((double)count / total * MultiHartLoopPointProfiler.NormalizationScale);
+            ulong key = MultiHartLoopPointProfiler.NamespaceKey(hartId, pc);
+            result[key] = scaled;
+            allocated += scaled;
+            if (count > largestRaw) {
+                largestRaw = count;
+                keyOfLargest = key;
+            }
+        }
+
+        // Correct rounding drift on the largest entry so every hart's contribution sums to exactly
+        // the same total — required for Project()'s divide-by-region-total to recover each thread's
+        // true per-block proportion instead of a thread-activity-weighted blend.
+        result[keyOfLargest] += MultiHartLoopPointProfiler.NormalizationScale - allocated;
+        return result;
+    }
+
+    // Real RISC-V (and every other ISA this codebase targets) addresses fit comfortably under 2^48;
+    // the top 16 bits are otherwise always zero, so they're free to carry the hart index.
+    private static ulong NamespaceKey(int hartId, ulong pc) => ((ulong)hartId << 48) | (pc & 0xFFFF_FFFF_FFFFUL);
+
+    private bool IsExcluded(ulong pc) {
+        foreach ((ulong start, ulong end) in _excludedRanges)
+            if (pc >= start && pc < end)
+                return true;
+        return false;
+    }
+
+    private sealed class HartObserverAdapter(MultiHartLoopPointProfiler owner, int hartId) : ICommitObserver {
+        public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
+            // Spin-loop/sync-library instructions still execute normally but aren't "work done":
+            // excluded from both the BBV fingerprint and the global region-length target.
+            if (!owner.IsExcluded(pc)) {
+                owner._bbvProfilers[hartId].OnCommit(pc, rawEncoding, state);
+                owner._instructionsSinceLastBoundary++;
+            }
+
+            // The loop tracker sees every commit unconditionally — it needs the full stream for its
+            // own discontinuity detection, and it already refuses to mark an excluded-range header.
+            int markersBefore = owner._loopTrackers[hartId].Markers.Count;
+            owner._loopTrackers[hartId].OnCommit(pc, rawEncoding, state);
+            bool markerHit = owner._loopTrackers[hartId].Markers.Count > markersBefore;
+
+            if (markerHit && owner._instructionsSinceLastBoundary >= owner._targetGlobalInstructions)
+                owner.CloseRegion();
+        }
+    }
+}

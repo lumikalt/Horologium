@@ -279,14 +279,14 @@ just infrastructure this design doesn't require.
   (`__tl_`/`__vm_`/`__wait`/`__lock`/`pthread_`/`sem_`/`gomp_`/etc., verified against
   `pthread_probe.elf`'s real musl symbol table); `LoopHeaderTracker` gained an `excludedRanges` constructor
   parameter so a header whose PC falls in one is never counted, mirroring the paper's exclusion of
-  busy-waiting from loop-based work counting while still executing that code normally. Each piece is
-  unit-tested independently (symbol enumeration, prefix classification against the real ELF, and
-  range-suppression against a synthetic two-loop fixture) — end-to-end suppression of a real spin loop is
-  **not yet proven**: running `hello64_musl.elf` (single-threaded, uncontended) through the tracker with
-  real exclusion ranges produced zero markers inside any excluded range, because an uncontended lock's
-  CAS retry loop is never actually taken backward. That composition needs genuine multi-hart lock
-  contention to exercise, which needs per-hart commit-observer wiring `MultiHartKernel` doesn't have yet —
-  deferred to the per-thread loop-iteration BBV item below, where that wiring lands anyway.
+  busy-waiting from loop-based work counting while still executing that code normally. Beyond the
+  synthetic-fixture unit tests, this is now proven end-to-end under real multi-hart contention:
+  `SpinLoopFilteringEndToEndTests` runs `pthread_probe.elf` through `MultiHartKernel` (3 harts, real
+  `clone()`/`futex()`/thread-list-lock contention from two concurrent `pthread_create`/`pthread_join`
+  pairs) and shows real markers land inside `__tl_lock`'s etc. ranges without exclusion (89/61/56 markers
+  per hart, 22/3/6 of them inside excluded ranges) and disappear exactly (and only) those markers with
+  exclusion wired in. `hello64_musl.elf` (single-threaded) could never show this — an uncontended lock's
+  retry loop is never taken backward — which is why the real proof needed the multi-hart fixture below.
 - [x] Flow-control profiling scheduler: **no new code** — the paper's "flow-control" (Section III-B)
   is a Pintool that restricts thread forward progress specifically to correct skew from a real, non-
   deterministic host OS scheduler running Pin instrumentation during profiling ("thread imbalance...
@@ -304,16 +304,29 @@ just infrastructure this design doesn't require.
   counting loop (`addi x1,x1,1; jal x0,-4`), asserting their `x1` values stay equal after every
   `Step()`/after `RunConcurrent` completes (`MultiHartKernelTests.TwoHarts_InfiniteCountingLoops_StayInLockstep`,
   `MultiHartPipelineTests.RunConcurrent_TwoIndependentInfiniteCountingLoops_StayInLockstep`).
-- [ ] Per-thread loop-iteration BBV + multi-thread region clustering: extend `BbvProfiler` to slice on
-  loop-boundary `(PC, count)` markers instead of fixed instruction counts (one profiler per hart, composited
-  alongside the new loop tracker via a small new `CompositeCommitObserver`, since a train accepts only one
-  `ICommitObserver` today), namespace each hart's BBV keys to avoid same-PC collisions across identical-binary
-  threads, per-thread-normalize before concatenating into one global vector per region, then reuse
-  `SimPointAnalysis`'s existing k-means/BIC clustering unchanged (its random-hash projection is already
-  agnostic to vector provenance). This is also where the spin-loop-filtering item above's still-unproven
-  end-to-end claim gets its real test: a genuinely contended `pthread_probe.elf` run through per-hart
-  observers with `SyncLibrarySymbols.ExcludedRanges` wired in, confirming a real `__tl_lock` retry loop
-  is actually suppressed (not just that the mechanism compiles).
+- [x] Per-thread loop-iteration BBV + multi-thread region clustering: `MultiHartKernel` gained per-hart
+  commit-observer wiring (`SetObserver`) — it had none before, despite being LoopPoint's own profiling-pass
+  driver. `MultiHartLoopPointProfiler` (`src/Core/Pipeline/LoopPointAnalysis.cs`) coordinates one
+  `LoopHeaderTracker` + one `BbvProfiler` per hart: a region closes at the next loop-header hit (on any
+  hart) after a shared global instruction counter reaches `targetGlobalInstructions` — the paper's
+  "approximately N x 100M global (all-threads) instructions", incremented only for non-excluded commits,
+  matching spin-loop filtering's "not work done". At closure every hart's accumulated interval is cut,
+  per-thread-normalized to a fixed integer total, namespaced into a disjoint key range
+  (`(hartId << 48) | pc`) to avoid same-PC collisions across identical-binary threads, and concatenated
+  into one region vector — reusing `SimPointAnalysis.Analyze` completely unchanged. `BbvProfiler` gained a
+  public `CutInterval()` (refactored out of its existing fixed-instruction-count auto-cut logic) so an
+  externally-triggered region boundary correctly splits an in-progress basic block and continues tracking
+  its remainder into the next region, instead of `Complete()`'s one-shot-flush semantics silently losing
+  block continuity — caught by a focused test before it could corrupt every subsequent region's BBV.
+  `CompositeCommitObserver` (mentioned in this item's original wording) turned out unneeded: the
+  coordinator's own per-hart adapter already does the fan-out internally, so it was deleted as dead code
+  rather than kept for a design the actual implementation didn't end up needing.
+  Proven against real input, not just synthetic fixtures: `MultiHartLoopPointProfilerRealElfTests` runs
+  the full coordinator on `pthread_probe.elf` (with `SyncLibrarySymbols.ExcludedRanges` wired in), spanning
+  regions with genuinely varying active-hart-counts (single-threaded startup/teardown vs. 3-hart steady
+  state), and feeds the resulting `RegionBbvs` straight into `SimPointAnalysis.Analyze` — this is the test
+  that finally exercises spin-loop filtering's exclusion of BBV weight and the global work-target counter
+  under real contention (`SpinLoopFilteringEndToEndTests`, above, proved header-marker suppression only).
 - [ ] Multi-hart checkpoint capture/measure + warmup: a `MultiHartCheckpoint` extending the existing
   single-hart `ArchitecturalCheckpoint` pattern (one shared-memory blob + N per-hart state/syscall-handler
   blobs, reusing already-existing per-field serialization), then warm up and measure each representative

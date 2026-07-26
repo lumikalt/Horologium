@@ -1547,11 +1547,13 @@ synchronization-library busy-waiting from loop-based work counting while still e
 `gomp_`/etc., a musl/libpthread/libgomp internal-symbol guess verified against `pthread_probe.elf`'s own compiled
 symbol table, not assumed) into the `[Start, End)` ranges `LoopHeaderTracker` consumes. Each piece is unit-tested on
 its own — symbol enumeration, prefix classification against the real ELF, and range-suppression against a synthetic
-two-loop fixture — but end-to-end suppression of a real spin loop is still unproven: running `hello64_musl.elf`
-(single-threaded, uncontended) through the tracker with real exclusion ranges produced zero markers inside any
-excluded range, because an uncontended lock's CAS retry loop is never actually taken backward. Proving the
-composition needs genuine multi-hart contention, which needs per-hart commit-observer wiring `MultiHartKernel`
-doesn't have yet — deferred to the per-thread loop-iteration BBV item in `TODO.md`, where that wiring lands anyway.
+two-loop fixture — and proven end-to-end under real multi-hart contention: `SpinLoopFilteringEndToEndTests` runs
+`pthread_probe.elf` through `MultiHartKernel` (3 harts, real `clone()`/`futex()`/thread-list-lock contention from
+two concurrent `pthread_create`/`pthread_join` pairs); without exclusion, real markers land inside `__tl_lock`'s
+etc. ranges (89/61/56 markers per hart, 22/3/6 of them inside excluded ranges); with the same ranges wired in,
+exactly and only those markers disappear. `hello64_musl.elf` (single-threaded) could never show this — an
+uncontended lock's retry loop is never taken backward — which is why the real proof needed a genuinely
+multi-threaded fixture, only available once `MultiHartKernel` gained per-hart commit-observer wiring below.
 
 The paper's next step, "flow-control" (restricting thread forward progress during profiling so no thread races
 ahead of another), needed no new code here: it exists in the paper to correct skew from a real, non-deterministic
@@ -1562,6 +1564,33 @@ tick is still a hard barrier — no hart can complete two cycles before another 
 (not just argued) with a test reading through independent architectural state: two harts each running an
 infinite counting loop stay bit-for-bit in lockstep after every tick, both under `MultiHartKernel.Step()` and
 under `MultiHartPipeline.RunConcurrent`.
+
+`MultiHartLoopPointProfiler` (same file) is the rest of the profiling pass: one `LoopHeaderTracker` +
+`BbvProfiler` pair per hart, coordinated through a shared global instruction counter and region-boundary
+logic. `MultiHartKernel` gained per-hart commit-observer wiring (`SetObserver`) to support it — it had none
+before, despite being LoopPoint's own profiling-pass driver ("we want the timing model to control thread
+progress... not PinPlay" only applies to the later detailed-timing pass; the profiling pass is exactly
+this deterministic functional driver). A region closes at the next loop-header hit, on *any* hart ("we do
+not restrict specific threads to indicate loop boundaries"), after a global counter — incremented once per
+non-excluded commit on any hart, mirroring spin-loop filtering's "not work done" — reaches
+`targetGlobalInstructions` (the paper's "approximately N × 100M global (all-threads) instructions"). At that
+instant every hart's accumulated interval is cut via `BbvProfiler`'s new public `CutInterval()` (refactored
+out of its existing fixed-instruction-count auto-cut so an externally-triggered cut still correctly splits
+an open block and continues its remainder into the next region — `Complete()`'s one-shot-flush semantics
+would instead lose that continuity, caught by a focused test before it could silently corrupt every
+subsequent region's BBV), per-thread-normalized to a fixed integer total, namespaced into a disjoint key
+range (`(hartId << 48) | pc`, since real addresses never use the top 16 bits) so identical-binary threads'
+identical PCs never collide, and concatenated into one region vector — feeding `SimPointAnalysis.Analyze`
+completely unchanged. Namespacing keeps regions with different active-hart-counts from colluding across
+threads' dimensions; each thread's own within-region block proportions survive concatenation exactly
+(per-thread normalization first), while a region's combined magnitude naturally varies with how many harts
+were active in it — `Project()` divides by that region's own total, not a cross-region constant, so this
+doesn't need to be, and isn't, uniform across regions.
+`MultiHartLoopPointProfilerRealElfTests` runs the whole coordinator on `pthread_probe.elf`, spanning regions
+with genuinely varying active-hart-counts (single-threaded startup/teardown vs. 3-hart steady state), and
+feeds the result straight into `SimPointAnalysis.Analyze` — the test that actually exercises spin-loop
+filtering's BBV/work-target exclusion under real contention (the marker-suppression proof above used a bare
+`LoopHeaderTracker`, not this coordinator).
 
 ### SMARTS sampling (Pipeline/SmartsDriver)
 

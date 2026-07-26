@@ -73,22 +73,23 @@ public sealed class BbvProfiler(IDecoder decoder, long intervalSize) : ICommitOb
             _inBlock = false;
         }
 
-        if (_intervalInstructions >= IntervalSize) {
-            if (_inBlock) {
-                // Split the in-progress block at the interval boundary; the remainder is
-                // credited to the next interval under the same start PC.
-                EndBlock();
-                _blockStart = _expectedNextPc;
-                _blockLength = 0;
-            }
-
-            _intervals.Add(_current);
-            _current = [];
-            _intervalInstructions = 0;
-        }
+        if (_intervalInstructions >= IntervalSize) CutIntervalNow();
     }
 
-    /// <summary>Flushes the trailing partial interval (if any). Call once after the run.</summary>
+    /// <summary>
+    ///     Externally triggers an interval cut right now, for callers that decide interval
+    ///     boundaries themselves instead of relying on <see cref="IntervalSize" /> (e.g. a
+    ///     LoopPoint region boundary). Behaves exactly like the automatic instruction-count-based
+    ///     cut: if a block is still open (no control-flow instruction seen yet), its
+    ///     already-executed portion is credited to the closing interval and tracking continues
+    ///     seamlessly into the new interval under a fresh start PC — the address of the next
+    ///     instruction, since that's genuinely where the remainder's own "block" begins. Safe to
+    ///     call repeatedly, including back-to-back with no intervening commits (pushes an empty
+    ///     interval in that case, same as an <see cref="IntervalSize" />-triggered cut would).
+    /// </summary>
+    public void CutInterval() => CutIntervalNow();
+
+    /// <summary>Flushes the trailing partial interval (if any) and stops tracking. Call once after the run.</summary>
     public void Complete() {
         if (_inBlock) {
             EndBlock();
@@ -100,6 +101,20 @@ public sealed class BbvProfiler(IDecoder decoder, long intervalSize) : ICommitOb
             _current = [];
             _intervalInstructions = 0;
         }
+    }
+
+    private void CutIntervalNow() {
+        if (_inBlock) {
+            // Split the in-progress block at the interval boundary; the remainder is credited to
+            // the next interval under the address it actually continues from (_inBlock stays true).
+            EndBlock();
+            _blockStart = _expectedNextPc;
+            _blockLength = 0;
+        }
+
+        _intervals.Add(_current);
+        _current = [];
+        _intervalInstructions = 0;
     }
 
     private void EndBlock() {

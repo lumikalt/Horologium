@@ -48,6 +48,7 @@ public sealed class MultiHartKernel : IHartSpawner {
     private readonly bool[] _halted;
     private readonly IMemory[] _hartMemory;
     private readonly IMechanism[] _mechanisms;
+    private readonly ICommitObserver?[] _observers;
     private readonly IArchState[] _states;
 
     public MultiHartKernel(IMemory sharedMemory, int activeHartCount, params IMechanism[] mechanisms) {
@@ -60,6 +61,7 @@ public sealed class MultiHartKernel : IHartSpawner {
         _dormant = BuildDormantFlags(mechanisms.Length, activeHartCount);
         _hartMemory = new IMemory[mechanisms.Length];
         Array.Fill(_hartMemory, sharedMemory);
+        _observers = new ICommitObserver?[mechanisms.Length];
 
         for (var i = 0; i < mechanisms.Length; i++) _states[i] = mechanisms[i].CreateArchState();
     }
@@ -84,6 +86,7 @@ public sealed class MultiHartKernel : IHartSpawner {
         _halted = new bool[mechanisms.Length];
         _dormant = BuildDormantFlags(mechanisms.Length, activeHartCount);
         _hartMemory = perHartMemory;
+        _observers = new ICommitObserver?[mechanisms.Length];
 
         for (var i = 0; i < mechanisms.Length; i++) _states[i] = mechanisms[i].CreateArchState();
     }
@@ -115,6 +118,14 @@ public sealed class MultiHartKernel : IHartSpawner {
 
     public void SetEntryPoint(int hartId, ulong entryPoint) =>
         _states[hartId].Pc = entryPoint;
+
+    /// <summary>
+    ///     Attaches a per-hart commit observer (e.g. <see cref="MultiHartLoopPointProfiler.HartObserver" />),
+    ///     notified for every instruction hart <paramref name="hartId" /> commits — the same commit
+    ///     semantics <c>SingleCycleTrain</c> already guarantees (not called for halt, trap, or
+    ///     trap-return).
+    /// </summary>
+    public void SetObserver(int hartId, ICommitObserver observer) => _observers[hartId] = observer;
 
     /// <inheritdoc />
     public int SpawnHart(IArchState initialState) {
@@ -188,6 +199,7 @@ public sealed class MultiHartKernel : IHartSpawner {
             state.Pc = result is { BranchTaken: true, BranchTarget: not null, }
                 ? result.BranchTarget.Value
                 : pc + (ulong)instr.SizeBytes;
+            _observers[hartId]?.OnCommit(pc, instr.RawEncoding, state);
         }
 
         state.OnRetire();

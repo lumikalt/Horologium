@@ -59,6 +59,41 @@ public class SimPointTests {
     }
 
     [Fact]
+    public void CutInterval_SplitsAnOpenBlock_AndContinuesTheRemainderInTheNextInterval() {
+        // Four addi's in one straight-line block (no control-flow instruction until the trailing
+        // ebreak, which the train never forwards to the commit observer), cut externally mid-block
+        // after the first two commits -- exactly what MultiHartLoopPointProfiler does at a region
+        // boundary. The already-executed portion must close out under the block's original start PC;
+        // the remainder must continue seamlessly (not restart as its own spurious block at whatever
+        // PC happens to be current) under the address it actually continues from, and get credited
+        // to the *next* interval, once it's later closed by Complete() (no control-flow instruction
+        // ever ends it explicitly here).
+        var mem = new FlatMemory(4096);
+        Load(mem, Addi(1, 1, 1), Addi(1, 1, 1), Addi(1, 1, 1), Addi(1, 1, 1), SimPointTests.Ebreak);
+
+        var mechanism = new Rv32Mechanism();
+        var profiler = new BbvProfiler(mechanism.Decoder, long.MaxValue); // never auto-cuts
+        var train = new SingleCycleTrain(mechanism, mem, commitObserver: profiler);
+
+        train.BeginStepping();
+        train.StepCycle(); // commits addi at 0x00
+        train.StepCycle(); // commits addi at 0x04; block still open
+        profiler.CutInterval();
+        Assert.Single(profiler.Intervals);
+        Assert.Equal(2L, profiler.Intervals[0][0x00]);
+
+        train.StepCycle(); // commits addi at 0x08
+        train.StepCycle(); // commits addi at 0x0C
+        train.StepCycle(); // ebreak halts
+        train.FinishStepping();
+        profiler.Complete();
+
+        Assert.Equal(2, profiler.Intervals.Count);
+        Assert.Equal(2L, profiler.Intervals[1][0x08]); // remainder continues under its own address
+        Assert.Equal(4, profiler.TotalInstructions); // no instruction lost or double-counted by the cut
+    }
+
+    [Fact]
     public void Profiler_SplitsBlocksAndIntervalsCorrectly() {
         BbvProfiler profiler = ProfileTwoLoopProgram(400);
 
