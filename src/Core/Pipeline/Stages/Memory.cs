@@ -58,6 +58,7 @@ public sealed class MemoryStage : Gear {
             IsReturnFromTrap = result.IsReturnFromTrap,
             ReturnPrivilege = result.ReturnPrivilege,
             SideEffect = result.SideEffect,
+            RequestBlock = result.RequestBlock,
         };
         LastSent = newLatch;
     }

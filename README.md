@@ -1612,11 +1612,36 @@ mid-run on the functional `MultiHartKernel`, restored into fresh `FiveStageTrain
 completion — two harts with different iteration counts to different addresses, so a swapped-hart restore
 bug would produce a visibly wrong final value rather than coincidentally matching. A second test drives a
 real, stateful `LinuxSyscallEmulator` (brk moved, `_childCleartid` set via `clone()`) through the
-checkpoint's shared-handler-blob path specifically. **Not proven**: measuring a genuinely *blocking*
-multi-threaded region (a real futex wait) under detailed pipeline timing, which needs
-`ExecuteResult.RequestBlock` support in the detailed trains — confirmed to need real squash-and-refetch
-logic (`FiveStageTrain` doesn't serialize `ecall`, so younger instructions are already in-flight by the
-time a block is discovered), tracked as its own `TODO.md` item rather than folded silently into this one.
+checkpoint's shared-handler-blob path specifically. Measuring a genuinely *blocking* multi-threaded
+region (a real futex wait) under detailed pipeline timing needed `ExecuteResult.RequestBlock` support in
+the detailed trains — done for `FiveStageTrain` (see below); the other five detailed trains still need
+their own translation of the same idea, tracked as its own `TODO.md` item.
+
+**`RequestBlock` support in `FiveStageTrain` (Pipeline/Stages/Execute.cs, WriteBack.cs, FiveStageTrain.cs).**
+`FiveStageTrain` doesn't serialize `ecall` — no stall/hazard treatment at all — so by the time a syscall's
+`ExecuteResult.RequestBlock` is discovered (at the EX→MEM boundary), younger instructions may already be
+fetched/decoded/in EX behind it. A still-blocked syscall can't simply be retried in place the way
+`MultiHartKernel.StepHart` does (return without advancing `state.Pc`) — that only works there because
+functional stepping is one instruction at a time, with nothing younger in flight to worry about. The fix
+mirrors the pipeline's existing halt/trap/return-from-trap handling exactly: `RequestBlock` is added to
+the same three-round squash pattern (`MemWbLatch` gained a `RequestBlock` field, copied from
+`ExecuteResult` in `MemoryStage.Cycle()`) — round 1 (EX→MEM boundary) and round 2 (MEM→WB boundary) each
+squash EX and flush ID the moment a `RequestBlock` result is seen at that boundary, exactly like the
+existing `IsHalt`/`HasTrap`/`IsReturnFromTrap` checks; round 3 fires once the blocked instruction actually
+reaches `WritebackStage`, which — instead of retiring it, applying its `SideEffect`, writing a register,
+or advancing `state.Pc` — sets a new `BlockRedirect` property (mirroring `TrapRedirect`) to the
+instruction's *own* `Pc`, which `FiveStageTrain.RunCycle` reads to flush Fetch back to that same address.
+The blocked instruction is thus re-fetched, re-decoded, and re-executed every cycle until a later
+re-execution of the same `ecall` finally returns `RequestBlock: false`, at which point it commits
+normally and younger instructions proceed — the same outcome `MultiHartKernel`'s retry achieves
+functionally, reconstructed here across a pipeline with instructions genuinely in flight.
+`Tests/Pipeline/FiveStageRequestBlockGuardTests.cs` proves both directions with a stub handler that blocks
+a fixed number of calls before clearing: the blocked `ecall`'s own PC is retired (committed) exactly
+once despite the handler being invoked several times, the instruction immediately after it doesn't run
+until the block actually clears, and — confirmed by deliberately reverting the fix — both assertions fail
+without the squash logic in place. A second test proves an ecall that never clears never retires or lets
+anything past it, within a bounded tick budget (it would otherwise spin forever, which is the *correct*
+behavior — a real futex wait blocks indefinitely too — but a test needs a bound regardless).
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`

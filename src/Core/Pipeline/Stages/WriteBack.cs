@@ -42,6 +42,12 @@ public sealed class WritebackStage : Gear {
 
     public bool Halted { get; private set; }
     public (ulong Value, bool HasValue) TrapRedirect { get; private set; }
+
+    // Set when a blocking syscall (ExecuteResult.RequestBlock) reaches WB still blocked — the
+    // redirect target is this same instruction's own Pc, so Fetch re-decodes and re-executes it
+    // next time around instead of retiring it. Never set in the same cycle as TrapRedirect (one
+    // instruction can't be both a trap and a still-blocked syscall).
+    public (ulong Value, bool HasValue) BlockRedirect { get; private set; }
     public long RetiredCount { get; private set; }
 
     internal Histogram? OpcodeHistogram { get; set; }
@@ -50,6 +56,7 @@ public sealed class WritebackStage : Gear {
 
     public void Cycle() {
         TrapRedirect = default((ulong Value, bool HasValue));
+        BlockRedirect = default((ulong Value, bool HasValue));
 
         if (_current is not { IsValid: true, } latch ||
             (latch.Instruction is null && !latch.HasTrap)) {
@@ -61,6 +68,15 @@ public sealed class WritebackStage : Gear {
 
         if (latch.IsHalt) {
             Halted = true;
+            return;
+        }
+
+        // Still blocked: no retire, no SideEffect, no register write, no Pc advance — this
+        // instruction contributed zero committed work this attempt. Redirect Fetch back to its
+        // own Pc so it's re-decoded and re-executed, exactly like MultiHartKernel's functional
+        // retry (StepHart returns without advancing state.Pc when RequestBlock is true).
+        if (latch.RequestBlock) {
+            BlockRedirect = (latch.Pc, true);
             return;
         }
 

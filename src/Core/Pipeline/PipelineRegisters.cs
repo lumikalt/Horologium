@@ -103,4 +103,11 @@ public readonly record struct MemWbLatch {
     public bool IsReturnFromTrap { get; init; }
     public PrivilegeLevel? ReturnPrivilege { get; init; }
     public Action<IArchState>? SideEffect { get; init; }
+
+    // A blocking syscall (e.g. futex(FUTEX_WAIT)) that hasn't cleared yet — see
+    // ExecuteResult.RequestBlock. WritebackStage must not retire this instruction, apply its
+    // SideEffect, or advance state.Pc; instead it redirects Fetch back to Pc (this same
+    // instruction) so it's re-decoded and re-executed next time around, mirroring
+    // MultiHartKernel's functional retry-in-place.
+    public bool RequestBlock { get; init; }
 }

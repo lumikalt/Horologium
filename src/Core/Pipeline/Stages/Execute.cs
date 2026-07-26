@@ -106,24 +106,11 @@ public sealed class ExecuteStage : Gear {
         try { result = _executor.Execute(instr, _state, _memory); }
         finally { _state.IntegerRegisters = regs; }
 
-        // FiveStageTrain has no RequestBlock support: unlike MultiHartKernel's functional stepping,
-        // ecall is not serialized here (younger instructions are already in-flight in ID/EX behind
-        // it), so "retry the same instruction next cycle" would need squash-and-refetch machinery
-        // this pipeline doesn't have (see TODO.md's "RequestBlock support in detailed pipeline
-        // trains"). Silently continuing would either crash confusingly in Writeback (no SideEffect,
-        // no RegisterResult, but a destination register expected) or wrongly retire a blocked
-        // instruction — fail loudly and specifically here instead, so a caller measuring a
-        // representative region that happens to block gets a clear, actionable error rather than a
-        // silently wrong number or an opaque internal exception.
-        if (result.RequestBlock) {
-            throw new NotSupportedException(
-                $"Instruction at pc=0x{latch.Pc:X} blocked (ExecuteResult.RequestBlock) during detailed " +
-                "pipeline simulation. FiveStageTrain does not yet support blocking syscalls (e.g. " +
-                "futex(FUTEX_WAIT)) under detailed timing — only MultiHartKernel's functional stepping " +
-                "does. See TODO.md's \"RequestBlock support in detailed pipeline trains\"."
-            );
-        }
-
+        // A blocking syscall (e.g. futex(FUTEX_WAIT)) that hasn't cleared: result carries
+        // RequestBlock through to WB via ExMemLatch/MemWbLatch unchanged — WritebackStage
+        // (WriteBack.cs) is what actually redirects Fetch back to this instruction's own Pc
+        // instead of retiring it (see WritebackStage.BlockRedirect and the squash-and-refetch
+        // logic in FiveStageTrain.RunCycle).
         var newLatch = new ExMemLatch {
             IsValid = true,
             Pc = latch.Pc,

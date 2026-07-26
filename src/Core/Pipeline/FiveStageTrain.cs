@@ -469,22 +469,23 @@ internal sealed class PipelineCore : Gear {
 
         if (stall) _stallsCounter.Increment();
 
-        // Kill instructions speculatively fetched past a halt, trap, or
-        // return-from-trap. A branch's redirect target is known as soon as it
-        // resolves in EX (handled above), so only the instruction already in
-        // EX needs squashing. A trap/return's target isn't known until the
-        // triggering instruction reaches WB — two cycles later — so by the
-        // time it's even detected, wrong-path instructions may already be
-        // sitting in ID and about to enter EX. Catch it at the earliest point
-        // it's visible (EX→MEM boundary, mirroring branch resolution) and
-        // again one cycle later (MEM→WB boundary) to squash EX and flush ID
-        // both times, before the third and final round (the WB.TrapRedirect
-        // check below) fires with the real target.
+        // Kill instructions speculatively fetched past a halt, trap,
+        // return-from-trap, or still-blocked syscall (ExecuteResult.RequestBlock — e.g.
+        // futex(FUTEX_WAIT) that hasn't cleared). A branch's redirect target is known as soon
+        // as it resolves in EX (handled above), so only the instruction already in EX needs
+        // squashing. A trap/return/block's target isn't known until the triggering instruction
+        // reaches WB — two cycles later — so by the time it's even detected, wrong-path
+        // instructions may already be sitting in ID and about to enter EX. Catch it at the
+        // earliest point it's visible (EX→MEM boundary, mirroring branch resolution) and again
+        // one cycle later (MEM→WB boundary) to squash EX and flush ID both times, before the
+        // third and final round (the WB.TrapRedirect/BlockRedirect check below) fires with the
+        // real target.
         if (exMemLast is {
-                IsValid: true, Result: { IsHalt: true, } or { HasTrap: true, } or { IsReturnFromTrap: true, },
+                IsValid: true,
+                Result: { IsHalt: true, } or { HasTrap: true, } or { IsReturnFromTrap: true, } or { RequestBlock: true, },
             }
          || (memWbLast is { IsValid: true, }
-          && (memWbLast.IsHalt || memWbLast.HasTrap || memWbLast.IsReturnFromTrap))) {
+          && (memWbLast.IsHalt || memWbLast.HasTrap || memWbLast.IsReturnFromTrap || memWbLast.RequestBlock))) {
             _ex.Squash = true;
             _id.Flush = true;
         }
@@ -495,6 +496,16 @@ internal sealed class PipelineCore : Gear {
         // whatever IF fetched wrong-path in the cycle since the second round).
         if (_wb.TrapRedirect.HasValue) {
             _if.FlushTarget = _wb.TrapRedirect.Value;
+            _if.Flush = true;
+            _id.Flush = true;
+        }
+
+        // Block redirect from WB (computed last cycle) — same third-and-final round, for a
+        // syscall that's still blocked: the target is the blocking instruction's own Pc (not a
+        // computed trap vector), so it's re-fetched, re-decoded, and re-executed next time
+        // around instead of retiring.
+        if (_wb.BlockRedirect.HasValue) {
+            _if.FlushTarget = _wb.BlockRedirect.Value;
             _if.Flush = true;
             _id.Flush = true;
         }

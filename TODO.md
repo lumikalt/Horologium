@@ -352,14 +352,18 @@ just infrastructure this design doesn't require.
   squash-and-refetch logic (see below), not covered by anything here. `MultiHartPipeline` dynamic hart
   activation (a measured region that itself calls `clone()`) is likewise out of scope — a checkpoint taken
   at a LoopPoint region boundary has all harts already spawned, so it isn't needed for the common case.
-- [ ] `RequestBlock` support in detailed pipeline trains: threading `ExecuteResult.RequestBlock` (the
-  `futex()` item above) through the detailed pipeline trains' (`FiveStageTrain`/`SuperscalarTrain`/`OooTrain`/
-  `SmtTrain`/`CprTrain`/`DaeTrain`) commit stages, so a futex-blocked hart can be measured under real timing
-  instead of only the functional `MultiHartKernel`. Confirmed non-trivial, not a simple retry: `FiveStageTrain`
-  does not serialize `ecall` (no stall/hazard treatment at all — grepped and confirmed), so younger
-  instructions are already fetched/decoded/in EX behind a blocked syscall by the time the block is
-  discovered; naively re-presenting the same instruction to EX next cycle would need those younger
-  instructions squashed and refetched, the same shape as a branch-misprediction recovery, not a stall.
+- [x] `RequestBlock` support in `FiveStageTrain`: squash-and-refetch, the same shape as branch-
+  misprediction recovery, not a simple stall — a still-blocked syscall (`ExecuteResult.RequestBlock`)
+  is squashed at the EX→MEM and MEM→WB boundaries (mirroring the existing halt/trap/return-from-trap
+  double-squash) and, once it reaches WB, redirects Fetch back to its own Pc instead of retiring,
+  mirroring `MultiHartKernel`'s functional retry-in-place (`StepHart` returns without advancing
+  `state.Pc` when blocked). `MemWbLatch` gained a `RequestBlock` field; `WritebackStage` gained
+  `BlockRedirect`, checked alongside `TrapRedirect` in `FiveStageTrain.RunCycle`'s third squash round.
+- [ ] `RequestBlock` support in the remaining detailed pipeline trains (`SuperscalarTrain`/`OooTrain`/
+  `SmtTrain`/`CprTrain`/`DaeTrain`): same squash-and-refetch shape as `FiveStageTrain` above, but each
+  train's own commit/squash machinery (ROB-based for `OooTrain`/`CprTrain`, undo-log for `DaeTrain`,
+  etc.) needs its own translation of "still-blocked instruction redirects fetch to its own PC instead
+  of retiring, younger in-flight instructions squashed" — not a mechanical copy of the five-stage fix.
 - [x] Weighted-multiplier runtime extrapolation + Runner CLI wiring: `LoopPointRuntimeExtrapolation`
   (`src/Core/Pipeline/LoopPointRuntimeExtrapolation.cs`) implements Eq. 1/2 — per-representative multiplier
   from filtered-instruction-count ratios (not `SimulationPoint.Weight`, which assumes fixed-length intervals,
