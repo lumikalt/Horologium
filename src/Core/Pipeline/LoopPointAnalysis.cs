@@ -45,12 +45,23 @@ namespace Pipeline;
 ///     <para>
 ///         <paramref name="rangeStart" />/<paramref name="rangeEnd" /> scope detection to the loaded
 ///         program's own address space (a basic sanity bound) — they do <em>not</em> by themselves
-///         separate user code from statically-linked library code sharing the same segment; excluding
-///         synchronization-library address ranges specifically is a separate, later concern (spin-loop
-///         filtering).
+///         separate user code from statically-linked library code sharing the same segment.
+///         <paramref name="excludedRanges" /> is the actual mechanism for that separation (see
+///         <see cref="SyncLibrarySymbols" />): a header whose PC falls in an excluded range is never
+///         counted or marked, mirroring the paper's spin-loop filtering — synchronization-library
+///         busy-waits (a userspace lock retry loop, a spin-then-block wait) still execute exactly as
+///         normal, they are simply not treated as representative program phases. Only the header's
+///         own address is checked, not the source of the backward edge, matching the coarse,
+///         whole-function granularity "exclude this library code" naturally has.
 ///     </para>
 /// </summary>
-public sealed class LoopHeaderTracker(IDecoder decoder, ulong rangeStart, ulong rangeEnd) : ICommitObserver {
+public sealed class LoopHeaderTracker(
+    IDecoder decoder,
+    ulong rangeStart,
+    ulong rangeEnd,
+    IReadOnlyList<(ulong Start, ulong End)>? excludedRanges = null
+) : ICommitObserver {
+    private readonly IReadOnlyList<(ulong Start, ulong End)> _excludedRanges = excludedRanges ?? [];
     private readonly Dictionary<ulong, long> _headerIterationCounts = [];
     private readonly List<(ulong Pc, long Count)> _markers = [];
     private bool _hasPrevious;
@@ -76,7 +87,8 @@ public sealed class LoopHeaderTracker(IDecoder decoder, ulong rangeStart, ulong 
             && pc != _previousPc + (ulong)_previousSize
             && pc <= _previousPc
             && pc >= rangeStart && pc < rangeEnd
-            && _previousIsLoopEdgeCandidate) {
+            && _previousIsLoopEdgeCandidate
+            && !IsExcluded(pc)) {
             long count = _headerIterationCounts.GetValueOrDefault(pc) + 1;
             _headerIterationCounts[pc] = count;
             _markers.Add((pc, count));
@@ -87,5 +99,53 @@ public sealed class LoopHeaderTracker(IDecoder decoder, ulong rangeStart, ulong 
         _previousSize = hint.InstructionSize;
         _previousIsLoopEdgeCandidate = hint.BranchTarget.HasValue && !hint.IsCall;
         _hasPrevious = true;
+    }
+
+    // Linear scan: excludedRanges is a handful of library functions at most, not worth a sorted
+    // structure for this.
+    private bool IsExcluded(ulong pc) {
+        foreach ((ulong start, ulong end) in _excludedRanges)
+            if (pc >= start && pc < end)
+                return true;
+
+        return false;
+    }
+}
+
+/// <summary>
+///     Classifies ELF symbols as synchronization-library code by name prefix, for
+///     <see cref="LoopHeaderTracker" />'s spin-loop filtering (LoopPoint's exclusion of
+///     busy-waiting from loop-based work counting). Name-prefix matching, not a real call-graph or
+///     binary analysis — a best-effort, non-exhaustive list of musl/libpthread/libgomp internal
+///     symbol prefixes, verified against a real compiled binary's own symbol table
+///     (<c>TestBinaries/pthread_probe.c</c>) rather than guessed.
+/// </summary>
+public static class SyncLibrarySymbols {
+    /// <summary>
+    ///     Prefixes covering musl's internal thread-list/VM/futex-wait locking (<c>__tl_*</c>,
+    ///     <c>__vm_*</c>, <c>__wait</c>/<c>__timedwait*</c>, <c>__lock</c>/<c>__unlock</c> and their
+    ///     file/open-file-list variants), the public pthread API (<c>pthread_*</c>/<c>__pthread_*</c>),
+    ///     POSIX semaphores, and GNU OpenMP's runtime (<c>gomp_*</c>/<c>GOMP_*</c>).
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultNamePrefixes = [
+        "__tl_", "__vm_", "__wait", "__timedwait", "__lock", "__unlock", "__ofl_", "__lockfile",
+        "__unlockfile", "pthread_", "__pthread_", "sem_", "gomp_", "GOMP_",
+    ];
+
+    /// <summary>
+    ///     Builds the <c>[Start, End)</c> address ranges of every symbol in <paramref name="workload" />
+    ///     whose name starts with one of <paramref name="namePrefixes" /> (default
+    ///     <see cref="DefaultNamePrefixes" />).
+    /// </summary>
+    public static IReadOnlyList<(ulong Start, ulong End)> ExcludedRanges(
+        IElfWorkload workload,
+        IReadOnlyList<string>? namePrefixes = null
+    ) {
+        IReadOnlyList<string> prefixes = namePrefixes ?? DefaultNamePrefixes;
+        return [
+            .. workload.EnumerateSymbols()
+                .Where(sym => prefixes.Any(sym.Name.StartsWith))
+                .Select(sym => (sym.Address, sym.Address + sym.Size)),
+        ];
     }
 }

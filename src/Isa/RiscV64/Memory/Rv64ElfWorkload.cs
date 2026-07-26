@@ -75,37 +75,49 @@ public sealed class Rv64ElfWorkload : IElfWorkload {
     ///     Returns the virtual address of a named ELF symbol, or throws if not found.
     /// </summary>
     public ulong FindSymbol(string name) {
-        ReadOnlySpan<byte> elf = _elfBytes;
-        ulong shoff = BinaryPrimitives.ReadUInt64LittleEndian(elf[40..]);
-        ushort shentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[58..]);
-        ushort shnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[60..]);
+        foreach ((string symName, ulong value, ulong _) in EnumerateSymbolEntries())
+            if (symName == name)
+                return value;
+
+        throw new KeyNotFoundException($"ELF symbol '{name}' not found");
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<(string Name, ulong Address, ulong Size)> EnumerateSymbols() =>
+        [.. EnumerateSymbolEntries().Where(e => e.Name.Length > 0 && e.Size > 0)];
+
+    // Reads through _elfBytes.AsSpan(offset) per call rather than holding one ReadOnlySpan<byte>
+    // local across the method — a span (ref struct) can't be preserved across a yield boundary.
+    private IEnumerable<(string Name, ulong Value, ulong Size)> EnumerateSymbolEntries() {
+        ulong shoff = BinaryPrimitives.ReadUInt64LittleEndian(_elfBytes.AsSpan(40));
+        ushort shentsz = BinaryPrimitives.ReadUInt16LittleEndian(_elfBytes.AsSpan(58));
+        ushort shnum = BinaryPrimitives.ReadUInt16LittleEndian(_elfBytes.AsSpan(60));
 
         for (var i = 0; i < shnum; i++) {
             var shdr = (int)(shoff + (ulong)(i * shentsz));
-            uint shType = BinaryPrimitives.ReadUInt32LittleEndian(elf[(shdr + 4)..]);
+            uint shType = BinaryPrimitives.ReadUInt32LittleEndian(_elfBytes.AsSpan(shdr + 4));
             if (shType != 2) continue; // SHT_SYMTAB
 
-            ulong symOff = BinaryPrimitives.ReadUInt64LittleEndian(elf[(shdr + 24)..]);
-            ulong symSz = BinaryPrimitives.ReadUInt64LittleEndian(elf[(shdr + 32)..]);
-            uint strtabIdx = BinaryPrimitives.ReadUInt32LittleEndian(elf[(shdr + 40)..]);
+            ulong symOff = BinaryPrimitives.ReadUInt64LittleEndian(_elfBytes.AsSpan(shdr + 24));
+            ulong symSz = BinaryPrimitives.ReadUInt64LittleEndian(_elfBytes.AsSpan(shdr + 32));
+            uint strtabIdx = BinaryPrimitives.ReadUInt32LittleEndian(_elfBytes.AsSpan(shdr + 40));
 
             var strtabHdr = (int)(shoff + strtabIdx * shentsz);
-            ulong strtabOff = BinaryPrimitives.ReadUInt64LittleEndian(elf[(strtabHdr + 24)..]);
+            ulong strtabOff = BinaryPrimitives.ReadUInt64LittleEndian(_elfBytes.AsSpan(strtabHdr + 24));
 
             // Elf64_Sym: st_name(4) st_info(1) st_other(1) st_shndx(2) st_value(8) st_size(8) = 24 bytes
             for (ulong s = 0; s < symSz / 24; s++) {
                 var sym = (int)(symOff + s * 24);
-                uint nameOff = BinaryPrimitives.ReadUInt32LittleEndian(elf[sym..]);
-                ulong value = BinaryPrimitives.ReadUInt64LittleEndian(elf[(sym + 8)..]);
+                uint nameOff = BinaryPrimitives.ReadUInt32LittleEndian(_elfBytes.AsSpan(sym));
+                ulong value = BinaryPrimitives.ReadUInt64LittleEndian(_elfBytes.AsSpan(sym + 8));
+                ulong size = BinaryPrimitives.ReadUInt64LittleEndian(_elfBytes.AsSpan(sym + 16));
 
                 var start = (int)(strtabOff + nameOff);
                 int end = start;
                 while (end < _elfBytes.Length && _elfBytes[end] != 0) end++;
-                if (Encoding.ASCII.GetString(_elfBytes, start, end - start) == name) return value;
+                yield return (Encoding.ASCII.GetString(_elfBytes, start, end - start), value, size);
             }
         }
-
-        throw new KeyNotFoundException($"ELF symbol '{name}' not found");
     }
 
     /// <summary>Like <see cref="FindSymbol" /> but returns false instead of throwing.</summary>

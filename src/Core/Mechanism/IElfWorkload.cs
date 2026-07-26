@@ -31,4 +31,12 @@ public interface IElfWorkload : IWorkload {
 
     /// <summary>Returns the virtual address of a named ELF symbol, or throws if not found.</summary>
     ulong FindSymbol(string name);
+
+    /// <summary>
+    ///     Every named entry in the ELF's <c>.symtab</c> (function and object symbols; entries with
+    ///     an empty name or zero size are skipped). Lets a caller classify address ranges by symbol
+    ///     name — e.g. LoopPoint's spin-loop filtering, which excludes synchronization-library
+    ///     functions from loop-based profiling by name prefix without needing per-ISA ELF parsing.
+    /// </summary>
+    IReadOnlyList<(string Name, ulong Address, ulong Size)> EnumerateSymbols();
 }

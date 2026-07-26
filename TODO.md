@@ -274,9 +274,19 @@ just infrastructure this design doesn't require.
   a deliberate, documented streaming-design tradeoff, not a bug. `rangeStart`/`rangeEnd` are address-range
   scoping only (a basic sanity bound); separating user code from statically-linked library code sharing the
   same segment is the spin-loop-filtering item below, not this one.
-- [ ] Spin-loop filtering: exclude synchronization-library code (libc/libpthread/libgomp address ranges) from
-  loop-based work counting during profiling while still executing it during simulation, mirroring the paper's
-  treatment of busy-waiting.
+- [x] Spin-loop filtering: `IElfWorkload.EnumerateSymbols()` exposes every named, non-zero-size `.symtab`
+  entry; `SyncLibrarySymbols.ExcludedRanges` classifies them into `[Start, End)` ranges by name prefix
+  (`__tl_`/`__vm_`/`__wait`/`__lock`/`pthread_`/`sem_`/`gomp_`/etc., verified against
+  `pthread_probe.elf`'s real musl symbol table); `LoopHeaderTracker` gained an `excludedRanges` constructor
+  parameter so a header whose PC falls in one is never counted, mirroring the paper's exclusion of
+  busy-waiting from loop-based work counting while still executing that code normally. Each piece is
+  unit-tested independently (symbol enumeration, prefix classification against the real ELF, and
+  range-suppression against a synthetic two-loop fixture) — end-to-end suppression of a real spin loop is
+  **not yet proven**: running `hello64_musl.elf` (single-threaded, uncontended) through the tracker with
+  real exclusion ranges produced zero markers inside any excluded range, because an uncontended lock's
+  CAS retry loop is never actually taken backward. That composition needs genuine multi-hart lock
+  contention to exercise, which needs per-hart commit-observer wiring `MultiHartKernel` doesn't have yet —
+  deferred to the per-thread loop-iteration BBV item below, where that wiring lands anyway.
 - [ ] Flow-control profiling scheduler: enforce equal per-hart forward progress during the analysis pass,
   extending `MultiHartKernel`/`MultiHartPipeline`'s round-robin stepping with an explicit balancing policy.
 - [ ] Per-thread loop-iteration BBV + multi-thread region clustering: extend `BbvProfiler` to slice on
@@ -285,7 +295,10 @@ just infrastructure this design doesn't require.
   `ICommitObserver` today), namespace each hart's BBV keys to avoid same-PC collisions across identical-binary
   threads, per-thread-normalize before concatenating into one global vector per region, then reuse
   `SimPointAnalysis`'s existing k-means/BIC clustering unchanged (its random-hash projection is already
-  agnostic to vector provenance).
+  agnostic to vector provenance). This is also where the spin-loop-filtering item above's still-unproven
+  end-to-end claim gets its real test: a genuinely contended `pthread_probe.elf` run through per-hart
+  observers with `SyncLibrarySymbols.ExcludedRanges` wired in, confirming a real `__tl_lock` retry loop
+  is actually suppressed (not just that the mechanism compiles).
 - [ ] Multi-hart checkpoint capture/measure + warmup: a `MultiHartCheckpoint` extending the existing
   single-hart `ArchitecturalCheckpoint` pattern (one shared-memory blob + N per-hart state/syscall-handler
   blobs, reusing already-existing per-field serialization), then warm up and measure each representative

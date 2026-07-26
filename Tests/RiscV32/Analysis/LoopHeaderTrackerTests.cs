@@ -146,6 +146,36 @@ public class LoopHeaderTrackerTests {
     }
 
     [Fact]
+    public void ExcludedRange_SuppressesThatHeader_ButNotOthersOutsideIt() {
+        // Same two-loop fixture as the first test: loopA's header (0x04) falls inside an excluded
+        // range (mimicking a synchronization-library function's address span); loopB's (0x18) does
+        // not. loopA must produce no markers/counts at all; loopB is unaffected.
+        var mem = new FlatMemory(4096);
+        Load(
+            mem,
+            Addi(1, 0, 600),                            // 0x00: addi x1, x0, 600
+            Addi(2, 2, 1),                               // 0x04: loopA: addi x2, x2, 1
+            Addi(2, 2, 1),                               // 0x08
+            Addi(1, 1, -1),                               // 0x0C
+            LoopHeaderTrackerTests.BneX1X0Minus12,       // 0x10: bne x1, x0, loopA
+            Addi(1, 0, 600),                              // 0x14: addi x1, x0, 600
+            Addi(3, 3, 3),                                 // 0x18: loopB: addi x3, x3, 3
+            Addi(3, 3, 3),                                 // 0x1C
+            Addi(1, 1, -1),                                // 0x20
+            LoopHeaderTrackerTests.BneX1X0Minus12,       // 0x24: bne x1, x0, loopB
+            LoopHeaderTrackerTests.Ebreak                // 0x28
+        );
+
+        var mechanism = new Rv32Mechanism();
+        var tracker = new LoopHeaderTracker(mechanism.Decoder, 0, 4096, [(0x00UL, 0x14UL),]);
+        new SingleCycleTrain(mechanism, mem, commitObserver: tracker).Run();
+
+        Assert.False(tracker.HeaderIterationCounts.ContainsKey(0x04));
+        Assert.Equal(599, tracker.HeaderIterationCounts[0x18]);
+        Assert.All(tracker.Markers, m => Assert.Equal(0x18UL, m.Pc));
+    }
+
+    [Fact]
     public void UnconditionalBackwardJump_IsCountedAsALoopHeader() {
         // A "goto"-compiled loop back-edge (jal x0, ...) — an unconditional jump with a
         // discarded destination register, not a call — must still register as a loop header.

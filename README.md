@@ -1539,7 +1539,19 @@ been *taken* to reach that header, not the total iteration count — an N-iterat
 fall-through from the code before it, not a discontinuity, and so isn't observable in a single streaming pass; the
 final marker for such a loop reads `(header, N-1)`. `rangeStart`/`rangeEnd` scope detection to the loaded program's
 own address space (a sanity bound) — they do not by themselves separate user code from statically-linked library
-code sharing the same segment; that's the separate, not-yet-landed spin-loop-filtering item.
+code sharing the same segment; that separation is `excludedRanges`, an optional constructor parameter checked
+against the header's own PC only (not the backward edge's source), mirroring the paper's exclusion of
+synchronization-library busy-waiting from loop-based work counting while still executing that code normally.
+`IElfWorkload.EnumerateSymbols()` exposes every named, non-zero-size `.symtab` entry, and
+`SyncLibrarySymbols.ExcludedRanges` turns a name-prefix list (`__tl_`/`__vm_`/`__wait`/`__lock`/`pthread_`/`sem_`/
+`gomp_`/etc., a musl/libpthread/libgomp internal-symbol guess verified against `pthread_probe.elf`'s own compiled
+symbol table, not assumed) into the `[Start, End)` ranges `LoopHeaderTracker` consumes. Each piece is unit-tested on
+its own — symbol enumeration, prefix classification against the real ELF, and range-suppression against a synthetic
+two-loop fixture — but end-to-end suppression of a real spin loop is still unproven: running `hello64_musl.elf`
+(single-threaded, uncontended) through the tracker with real exclusion ranges produced zero markers inside any
+excluded range, because an uncontended lock's CAS retry loop is never actually taken backward. Proving the
+composition needs genuine multi-hart contention, which needs per-hart commit-observer wiring `MultiHartKernel`
+doesn't have yet — deferred to the per-thread loop-iteration BBV item in `TODO.md`, where that wiring lands anyway.
 
 ### SMARTS sampling (Pipeline/SmartsDriver)
 
