@@ -22,5 +22,10 @@ public interface ISyscallHandler {
     /// </param>
     /// <param name="memory">The calling hart's memory, for syscalls that read/write guest buffers.</param>
     /// <param name="pc">The ECALL instruction's own address, for syscalls that compute a resume PC (e.g. <c>clone</c>).</param>
-    ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc);
+    /// <param name="hartId">
+    ///     The calling hart's index (matches <c>MultiHartKernel</c>'s hart slots and the id
+    ///     <c>clone()</c> returns from <see cref="IHartSpawner.SpawnHart" />), for syscalls whose
+    ///     result varies per hart (e.g. <c>gettid</c>). Always 0 in single-hart setups.
+    /// </param>
+    ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc, int hartId);
 }

@@ -194,6 +194,7 @@ public sealed class MultiHartKernel : IHartSpawner {
 
         if (result.RequestHalt) {
             _halted[hartId] = true;
+            if (result.RequestHaltAll) Array.Fill(_halted, true); // SYS_exit_group — whole process exits
             return;
         }
 

@@ -46,6 +46,15 @@ public sealed record ExecuteResult {
     public bool RequestHalt { get; init; }
 
     /// <summary>
+    ///     True alongside <see cref="RequestHalt" /> when every hart of a multi-hart run should stop,
+    ///     not just the calling one (e.g. <c>SYS_exit_group</c> — a real process-wide exit — as
+    ///     opposed to <c>SYS_exit</c>, which ends only the calling thread). Single-hart drivers have
+    ///     no other hart to distinguish, so <see cref="RequestHalt" /> alone already means "stop" for
+    ///     them; only a multi-hart driver (<c>MultiHartKernel</c>) needs to act on this flag.
+    /// </summary>
+    public bool RequestHaltAll { get; init; }
+
+    /// <summary>
     ///     True if this instruction has not completed and must be retried unchanged next tick
     ///     (e.g. a <c>futex(FUTEX_WAIT)</c> whose condition still holds). The pipeline must not
     ///     advance PC, apply <see cref="SideEffect" />, write <see cref="RegisterResult" />, or call

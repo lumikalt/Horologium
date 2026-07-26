@@ -14,7 +14,8 @@ namespace RiscV32.Syscalls;
 ///     <para>
 ///         Syscall ABI: a7 (x17) = syscall number; a0–a5 (x10–x15) = args.
 ///         Return value written to a0 via <see cref="ExecuteResult.SideEffect" />.
-///         SYS_exit / SYS_exit_group set <see cref="ExecuteResult.RequestHalt" /> instead.
+///         SYS_exit sets <see cref="ExecuteResult.RequestHalt" /> (this hart only); SYS_exit_group sets
+///         that <em>and</em> <see cref="ExecuteResult.RequestHaltAll" /> (every hart of a multi-hart run).
 ///     </para>
 ///     <para>
 ///         File I/O is unrestricted host passthrough (the gem5-SE/Spike-pk convention): paths
@@ -69,11 +70,19 @@ namespace RiscV32.Syscalls;
 ///         <c>futex()</c> (syscall 98) implements <c>FUTEX_WAIT</c>/<c>FUTEX_WAKE</c> by polling
 ///         rather than a wait queue — see <see cref="Futex" />'s doc comment for why this is
 ///         sufficient for real pthread mutex/cond/barrier code despite tracking no waiter identity.
-///         <c>CLONE_CHILD_CLEARTID</c> (the <c>ctid</c> write-and-wake a thread's exit performs,
-///         which <c>pthread_join</c>'s futex wait depends on) is not implemented — thread-exit vs.
-///         process-exit isn't distinguished yet (a documented gap for the per-hart
-///         <c>gettid</c>/thread-exit TODO item to close, not a silent one); a real
-///         <c>pthread_join</c> on a hart spawned here will block forever until that lands.
+///         <c>gettid</c>/<c>set_tid_address</c> return a real per-hart value derived from
+///         <paramref name="hartId" /> (<c>hartId + 1</c>, never 0, since some futex-based lock
+///         implementations reserve 0 as a sentinel). This is computed independently from
+///         <c>clone()</c>'s returned tid (<see cref="Clone" /> below, derived from the
+///         <c>MultiHartKernel</c> slot index) — the two agree only if the caller constructs each
+///         dormant slot's mechanism with <c>hartId</c> equal to its slot index; nothing in this class
+///         or <c>MultiHartKernel</c> enforces that. <c>getpid</c> stays a constant across every hart,
+///         matching real Linux (the whole thread-group shares one pid). <c>SYS_exit</c> (this hart
+///         only) and <c>SYS_exit_group</c> (every hart) are distinguished via
+///         <see cref="ExecuteResult.RequestHaltAll" />. <c>CLONE_CHILD_CLEARTID</c> (the <c>ctid</c>
+///         write-and-wake a thread's exit performs, which <c>pthread_join</c>'s futex wait depends on)
+///         is still not implemented — a real <c>pthread_join</c> on a hart spawned here will block
+///         forever until that lands.
 ///     </para>
 /// </summary>
 /// <param name="initialBreak">Initial <c>brk</c> value — see <c>Rv32ElfWorkload.InitialBreak</c>.</param>
@@ -191,7 +200,7 @@ public sealed class LinuxSyscallEmulator(
         SkipStdinTo(stdinConsumed);
     }
 
-    public ExecuteResult Handle(ulong num, IArchState state, IMemory memory, ulong pc) {
+    public ExecuteResult Handle(ulong num, IArchState state, IMemory memory, ulong pc, int hartId) {
         IRegisterFile regs = state.IntegerRegisters;
         ulong a0 = regs.Read(10);
         ulong a1 = regs.Read(11);
@@ -200,8 +209,14 @@ public sealed class LinuxSyscallEmulator(
         ulong a4 = regs.Read(14);
         ulong a5 = regs.Read(15);
 
-        if (num is 93 or 94) // SYS_exit, SYS_exit_group
-            return new ExecuteResult { RequestHalt = true, };
+        // tid = hartId + 1 (never 0 — real Linux never assigns tid 0 to a user thread), matching the
+        // value clone() below hands back as the new hart's id. getpid() deliberately does NOT vary by
+        // hart: real Linux getpid() returns the whole thread-group's id (the main thread's tid) for
+        // every thread in a process, not a per-thread value.
+        long tid = hartId + 1;
+
+        if (num == 93) return new ExecuteResult { RequestHalt = true, };                        // SYS_exit — this hart only
+        if (num == 94) return new ExecuteResult { RequestHalt = true, RequestHaltAll = true, }; // SYS_exit_group — whole process
 
         if (num == 220) return Clone(a0, a1, a2, a3, state, pc, memory); // SYS_clone
         if (num == 98) return Futex(a0, a1, a2, memory);                 // SYS_futex
@@ -224,9 +239,9 @@ public sealed class LinuxSyscallEmulator(
             25   => Fcntl(a1),                    // SYS_fcntl
             134  => 0,                            // SYS_rt_sigaction → ok
             135  => 0,                            // SYS_rt_sigprocmask → ok
-            96   => 1L,                           // SYS_set_tid_address → tid=1
-            172  => 1L,                           // SYS_getpid → 1
-            178  => 1L,                           // SYS_gettid → 1
+            96   => tid,                          // SYS_set_tid_address → caller's own tid
+            172  => 1L,                           // SYS_getpid → 1 (constant across every hart)
+            178  => tid,                          // SYS_gettid → per-hart tid
             29   => -25L,                         // SYS_ioctl → ENOTTY
             160  => -1L,                          // SYS_uname → EFAULT (no struct)
             _    => LinuxSyscallEmulator.ENoSys,
@@ -262,11 +277,17 @@ public sealed class LinuxSyscallEmulator(
         child.IntegerRegisters.Write(10, 0); // child's own return value: 0
 
         int newHartId = Spawner.SpawnHart(child);
+        // Real clone() returns the new thread's tid, which a later SYS_gettid call from that hart
+        // should reproduce — so this uses the same hartId+1 convention as Handle()'s tid local, not
+        // the raw 0-based MultiHartKernel slot index. These are two independently computed values,
+        // though: this one from the SpawnHart slot index, gettid()'s from Rv32Executor.HartId. They
+        // agree only if the caller constructed the mechanism occupying this slot with a matching
+        // hartId — see the class doc comment.
+        var newTid = (ulong)(newHartId + 1);
 
-        if ((flags & cloneParentSetTid) != 0) memory.Write(ptid, (ulong)newHartId, 4);
+        if ((flags & cloneParentSetTid) != 0) memory.Write(ptid, newTid, 4);
 
-        var ret = (ulong)newHartId;
-        return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, ret), };
+        return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, newTid), };
     }
 
     // FUTEX_WAIT/FUTEX_WAKE (SYS_futex = 98, confirmed against musl's bits/syscall.h — same number

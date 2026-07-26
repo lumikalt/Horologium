@@ -843,6 +843,17 @@ queue because real futex(2) callers must always re-validate the guarded conditio
 specific return value for correctness — so `-EAGAIN` on any mismatch, whether from a real wake-triggered store or any
 other write, is both futex(2)-conformant and sufficient for real pthread code.
 
+**Per-hart `gettid`/thread-exit semantics.** `ISyscallHandler.Handle` takes a `hartId` parameter (`Rv32Executor.HartId`,
+the same field LR/SC routing already uses), so `gettid`/`set_tid_address` return a real per-hart value (`hartId + 1`,
+never 0 — some futex-based lock implementations reserve 0 as a sentinel) instead of a hardcoded constant; `getpid`
+stays constant across every hart, matching real Linux (the whole thread-group shares one pid). `SYS_exit` (this hart
+only) and `SYS_exit_group` (every hart) are distinguished via a new `ExecuteResult.RequestHaltAll` flag, checked by
+`MultiHartKernel.Step` alongside `RequestHalt`. `clone()`'s returned tid (`newHartId + 1`, from its `SpawnHart` slot
+index) uses the same convention as `gettid()` (from `Rv32Executor.HartId`) but the two are computed independently —
+they agree only if the caller constructs the mechanism occupying a given dormant slot with a matching `hartId`;
+neither `LinuxSyscallEmulator` nor `MultiHartKernel` enforces this invariant, so any driver spawning harts into
+pre-allocated slots must keep the two in sync itself.
+
 ### Cache timing model (src/Core/Orrery/Cache)
 
 `SetAssociativeCache` (write-through, no-write-allocate by default; write-back/write-allocate optional) models several

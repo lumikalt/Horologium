@@ -44,6 +44,7 @@ public class CloneTests {
     private const ulong ChildTpAddr = 0x108;
     private const ulong ChildSpAddr = 0x10C;
     private const ulong ChildMarkerAddr = 0x110;
+    private const ulong ChildGettidAddr = 0x114;
     private const uint Ecall = 0x0000_0073;
     private const uint Ebreak = 0x0010_0073;
 
@@ -94,16 +95,19 @@ public class CloneTests {
             Addi(14, 0, 0),                                   // 0x10: a4 = ctid (unused)
             Addi(17, 0, 220),                                 // 0x14: a7 = SYS_clone
             CloneTests.Ecall,                                 // 0x18
-            Bne(10, 0, 0x20),                                 // 0x1C: parent (a0!=0) skips ahead
+            Bne(10, 0, 0x2C),                                 // 0x1C: parent (a0!=0) skips ahead to 0x48
             Addi(5, 4, 0),                                    // 0x20: child: t0 = tp
             Sw(5, 0, (int)CloneTests.ChildTpAddr),            // 0x24
             Addi(6, 2, 0),                                    // 0x28: child: t1 = sp
             Sw(6, 0, (int)CloneTests.ChildSpAddr),            // 0x2C
             Addi(7, 0, 777),                                  // 0x30: child: marker
             Sw(7, 0, (int)CloneTests.ChildMarkerAddr),        // 0x34
-            CloneTests.Ebreak,                                // 0x38: child halts
-            Sw(10, 0, (int)CloneTests.ParentResultAddr),      // 0x3C: parent: store clone()'s return
-            CloneTests.Ebreak                                 // 0x40: parent halts
+            Addi(17, 0, 178),                                 // 0x38: child: a7 = SYS_gettid
+            CloneTests.Ecall,                                 // 0x3C
+            Sw(10, 0, (int)CloneTests.ChildGettidAddr),       // 0x40: child: store gettid()'s return
+            CloneTests.Ebreak,                                // 0x44: child halts
+            Sw(10, 0, (int)CloneTests.ParentResultAddr),      // 0x48: parent: store clone()'s return
+            CloneTests.Ebreak                                 // 0x4C: parent halts
         );
         return mem;
     }
@@ -112,8 +116,13 @@ public class CloneTests {
     public void Clone_SpawnsDormantHart_WithCorrectSpAndTp() {
         FlatMemory mem = CloneTests.BuildProgram();
         var handler = new LinuxSyscallEmulator(0x400);
-        var mech0 = new Rv32Mechanism(syscallHandler: handler);
-        var mech1 = new Rv32Mechanism(syscallHandler: handler);
+        var mech0 = new Rv32Mechanism(syscallHandler: handler, hartId: 0);
+        // hartId must match the dormant slot this mechanism will be spawned into (1) — clone()'s
+        // returned tid (hartId + 1, from the MultiHartKernel slot index) and a later gettid() call
+        // from the spawned hart (hartId + 1, from Rv32Executor.HartId) are two independently
+        // computed values that only agree if the caller keeps mechanism.hartId == slot index;
+        // MultiHartKernel does not enforce this itself.
+        var mech1 = new Rv32Mechanism(syscallHandler: handler, hartId: 1);
         var kernel = new MultiHartKernel(mem, 1, mech0, mech1);
         handler.Spawner = kernel;
         kernel.SetEntryPoint(0, 0x00);
@@ -123,11 +132,17 @@ public class CloneTests {
         kernel.Run(200);
 
         Assert.False(kernel.IsDormant(1));
-        Assert.Equal(1UL, mem.Read(CloneTests.ParentResultAddr, 4)); // parent saw new hart id 1
-        Assert.Equal(1UL, mem.Read(CloneTests.PtidAddr, 4));         // CLONE_PARENT_SETTID wrote the same id
+        // clone()'s return value is a tid (hartId + 1, never 0), not the raw 0-based MultiHartKernel
+        // slot index — the new hart landed in slot 1, so its tid is 2.
+        Assert.Equal(2UL, mem.Read(CloneTests.ParentResultAddr, 4)); // parent saw the new hart's tid
+        Assert.Equal(2UL, mem.Read(CloneTests.PtidAddr, 4));         // CLONE_PARENT_SETTID wrote the same tid
         Assert.Equal(0x1230_00UL, mem.Read(CloneTests.ChildTpAddr, 4));  // tls (a3) became the child's tp
         Assert.Equal(0x300UL, mem.Read(CloneTests.ChildSpAddr, 4));      // newsp (a1) became the child's sp
         Assert.Equal(777UL, mem.Read(CloneTests.ChildMarkerAddr, 4));    // child actually executed
+        // The decisive consistency check: the child's own gettid() must reproduce the exact tid
+        // clone() handed the parent — proving the two independently-computed values actually agree
+        // for this setup, not just individually looking plausible.
+        Assert.Equal(2UL, mem.Read(CloneTests.ChildGettidAddr, 4));
     }
 
     [Fact]

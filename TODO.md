@@ -242,9 +242,14 @@ just infrastructure this design doesn't require.
   `MultiHartPipeline` dynamic hart activation + threading block-semantics through the detailed pipeline
   trains' commit stages is deferred to the multi-hart checkpoint item below, since injecting a spawned/restored
   hart's state into a live pipeline train is the same problem checkpoint-restore already has to solve.
-- [ ] Per-hart `gettid`/thread-exit semantics: thread hart identity through `ISyscallHandler.Handle`, a real
-  per-hart `gettid` (hardcoded to 1 today), and `exit` (this hart only) vs `exit_group` (whole process)
-  distinguished (currently fused).
+- [x] Per-hart `gettid`/thread-exit semantics: `ISyscallHandler.Handle` gained a `hartId` parameter
+  (`Rv32Executor.HartId`, the same field already used for LR/SC routing); `gettid`/`set_tid_address` now
+  return `hartId + 1` (never 0) instead of a hardcoded 1, and `SYS_exit`/`SYS_exit_group` are distinguished
+  via a new `ExecuteResult.RequestHaltAll` flag (`exit` halts only the calling hart, `exit_group` halts
+  every hart of a `MultiHartKernel` run). `clone()`'s returned tid uses the same `+1` convention as its
+  `SpawnHart` slot index — this only agrees with a later `gettid()` call from the spawned hart if the
+  caller constructs that slot's mechanism with a matching `hartId`, which neither this class nor
+  `MultiHartKernel` enforces (documented in both places, and exercised by a dedicated consistency test).
 - [ ] OpenMP/pthreads-capable RISC-V toolchain + test fixture (flake.nix addition + a small hand-written
   pthread/OpenMP `TestBinaries` fixture) — a dev-environment change, needs its own explicit sign-off when
   picked up, separate from the code-only stages above and below.
