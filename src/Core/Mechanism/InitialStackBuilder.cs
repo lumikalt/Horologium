@@ -82,13 +82,16 @@ public static class InitialStackBuilder {
     /// <summary>
     ///     Builds the standards-minimal auxv set for a <em>statically-linked</em> binary (no
     ///     dynamic linker/interpreter): AT_PAGESZ, AT_PHDR/AT_PHENT/AT_PHNUM (needed by real
-    ///     libcs for static-TLS setup even in non-PIE binaries), AT_BASE=0 (no interpreter),
-    ///     AT_ENTRY, AT_UID/AT_EUID/AT_GID/AT_EGID=0, AT_HWCAP=0 (no extension-probing support
-    ///     modeled), AT_SECURE=0. AT_RANDOM is not included here — <see cref="BuildInitialStack" />
-    ///     appends it itself, since its value (a stack address) isn't known until the string blob
-    ///     is placed. Not chased further than this: whether it's sufficient for a specific real
-    ///     libc's <c>_start</c> is unanswerable without a real linked binary to fault-test
-    ///     against, which is out of reach without a riscv64-*-linux-* userspace toolchain.
+    ///     libcs for static-TLS setup even in non-PIE binaries — pass
+    ///     <c>IElfWorkload.PhdrAddress</c>/<c>PhEntrySize</c>/<c>PhNum</c>, not placeholder zeros:
+    ///     musl's own <c>_start</c>/<c>__init_tls</c> walks the program header table itself to find
+    ///     PT_TLS and set the thread pointer via a plain register move, no syscall — a zero AT_PHDR
+    ///     makes that walk dereference address 0 and crash on any binary declaring thread-local
+    ///     data, confirmed by fault-testing a real <c>__thread</c>-using musl binary), AT_BASE=0
+    ///     (no interpreter), AT_ENTRY, AT_UID/AT_EUID/AT_GID/AT_EGID=0, AT_HWCAP=0 (no
+    ///     extension-probing support modeled), AT_SECURE=0. AT_RANDOM is not included here —
+    ///     <see cref="BuildInitialStack" /> appends it itself, since its value (a stack address)
+    ///     isn't known until the string blob is placed.
     /// </summary>
     public static IReadOnlyList<(ulong Type, ulong Value)> BuildStandardAuxv(
         ulong phdrAddr,

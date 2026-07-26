@@ -26,6 +26,7 @@ public sealed class Rv32ElfWorkload : IElfWorkload {
         MemorySize = memorySizeBytes ?? ComputeMinMemorySize(elfBytes, BaseAddress);
         HtifTohostAddress = TryFindSymbol("tohost", out ulong tohost) ? tohost : null;
         InitialBreak = ComputeInitialBreak(elfBytes);
+        (PhdrAddress, PhEntrySize, PhNum) = ComputePhdrInfo(elfBytes);
     }
 
     /// <summary>
@@ -38,6 +39,15 @@ public sealed class Rv32ElfWorkload : IElfWorkload {
     public ulong EntryPoint { get; }
     public int MemorySize { get; }
     public int CodeSize => _elfBytes.Length;
+
+    /// <inheritdoc />
+    public ulong PhdrAddress { get; }
+
+    /// <inheritdoc />
+    public ulong PhEntrySize { get; }
+
+    /// <inheritdoc />
+    public ulong PhNum { get; }
 
     /// <summary>
     ///     The physical base address of the first PT_LOAD segment, e.g. 0x80000000
@@ -148,6 +158,27 @@ public sealed class Rv32ElfWorkload : IElfWorkload {
         // Size relative to the base address, rounded to next 64 KB + 64 KB for stack/heap.
         uint relativeEnd = maxEnd - (uint)baseAddress;
         return (int)((relativeEnd + 0xFFFF) & ~0xFFFFU) + 0x10000;
+    }
+
+    // See Rv64ElfWorkload.ComputePhdrInfo's doc comment: translates the phdr table's file offset
+    // (e_phoff) to the address a real libc's own PT_TLS/PT_GNU_STACK walk will dereference, using
+    // p_paddr (not p_vaddr) to match Rv32ElfLoader.Load and this class's other addresses.
+    private static (ulong PhdrAddress, ulong PhEntrySize, ulong PhNum) ComputePhdrInfo(ReadOnlySpan<byte> elf) {
+        uint phoff = BinaryPrimitives.ReadUInt32LittleEndian(elf[28..]);
+        ushort phentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[42..]);
+        ushort phnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[44..]);
+
+        for (var i = 0; i < phnum; i++) {
+            var ph = (int)(phoff + (uint)(i * phentsz));
+            if (BinaryPrimitives.ReadUInt32LittleEndian(elf[ph..]) != 1) continue; // PT_LOAD = 1
+            uint fileOffset = BinaryPrimitives.ReadUInt32LittleEndian(elf[(ph + 4)..]);
+            uint paddr = BinaryPrimitives.ReadUInt32LittleEndian(elf[(ph + 12)..]);
+            uint filesz = BinaryPrimitives.ReadUInt32LittleEndian(elf[(ph + 16)..]);
+            if (phoff >= fileOffset && phoff < fileOffset + filesz)
+                return (paddr + (phoff - fileOffset), phentsz, phnum);
+        }
+
+        return (0, 0, 0);
     }
 
     private static ulong ComputeInitialBreak(ReadOnlySpan<byte> elf) {

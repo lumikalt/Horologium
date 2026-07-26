@@ -439,10 +439,15 @@ public static class Experiment {
         IReadOnlyList<string> argv,
         int wordSize
     ) {
+        // Every caller only reaches here after establishing workload is an ELF workload (argv/
+        // Linux-ABI entry requires one) — see ProfileSimPoints's callers.
+        var elfWorkload = (IElfWorkload)workload;
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
             memory, stackTop, wordSize, argv, [],
-            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+            InitialStackBuilder.BuildStandardAuxv(
+                elfWorkload.PhdrAddress, elfWorkload.PhEntrySize, elfWorkload.PhNum, workload.EntryPoint
+            )
         );
         train.ArchState.IntegerRegisters.Write(2, sp);
     }
@@ -778,14 +783,16 @@ public static class Experiment {
 
         Action<IArchState>? seedInitialState = null;
         if (argv is not null) {
-            if (workload is not IElfWorkload) {
+            if (workload is not IElfWorkload elfWorkload) {
                 throw new NotSupportedException("SMARTS argv/Linux-ABI entry requires an IElfWorkload.");
             }
 
             ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
             ulong sp = InitialStackBuilder.BuildInitialStack(
                 memory, stackTop, wordSize, argv, [],
-                InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+                InitialStackBuilder.BuildStandardAuxv(
+                    elfWorkload.PhdrAddress, elfWorkload.PhEntrySize, elfWorkload.PhNum, workload.EntryPoint
+                )
             );
             seedInitialState = state => state.IntegerRegisters.Write(2, sp);
         }
@@ -912,7 +919,9 @@ public static class Experiment {
         List<string> argv = [Path.GetFileName(bench.ElfPath), ..bench.Args ?? [],];
         ulong sp = InitialStackBuilder.BuildInitialStack(
             memory, stackTop, wordSize, argv, [],
-            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+            InitialStackBuilder.BuildStandardAuxv(
+                workload.PhdrAddress, workload.PhEntrySize, workload.PhNum, workload.EntryPoint
+            )
         );
 
         var outputWriter = new StringWriter();

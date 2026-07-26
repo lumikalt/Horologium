@@ -27,11 +27,21 @@ public sealed class Rv64ElfWorkload : IElfWorkload {
         MemorySize = memorySizeBytes ?? ComputeMinMemorySize(elfBytes, BaseAddress);
         HtifTohostAddress = TryFindSymbol("tohost", out ulong tohost) ? tohost : null;
         InitialBreak = ComputeInitialBreak(elfBytes);
+        (PhdrAddress, PhEntrySize, PhNum) = ComputePhdrInfo(elfBytes);
     }
 
     public ulong EntryPoint { get; }
     public int MemorySize { get; }
     public int CodeSize => _elfBytes.Length;
+
+    /// <inheritdoc />
+    public ulong PhdrAddress { get; }
+
+    /// <inheritdoc />
+    public ulong PhEntrySize { get; }
+
+    /// <inheritdoc />
+    public ulong PhNum { get; }
 
     /// <summary>
     ///     Address just past the last PT_LOAD segment (i.e., the initial program break).
@@ -148,6 +158,34 @@ public sealed class Rv64ElfWorkload : IElfWorkload {
         // Size relative to the base address, rounded to next 64 KB + 64 KB for stack/heap.
         ulong relativeEnd = maxEnd - baseAddress;
         return (int)((relativeEnd + 0xFFFF) & ~0xFFFFUL) + 0x10000;
+    }
+
+    // The program header table lives at file offset e_phoff, which real ELFs (including every
+    // musl-linked binary tested here) locate inside their first PT_LOAD segment's file range —
+    // p_offset for that segment is 0, covering the ELF header itself. Translating a file offset to
+    // the address a real libc's own PT_TLS/PT_GNU_STACK walk will dereference means finding which
+    // PT_LOAD segment's [p_offset, p_offset+p_filesz) contains e_phoff and adding the segment's
+    // load-address delta — using p_paddr (not p_vaddr) to match Rv64ElfLoader.Load, which places
+    // segments at p_paddr, and every other address this class already computes (BaseAddress,
+    // InitialBreak) the same way.
+    private static (ulong PhdrAddress, ulong PhEntrySize, ulong PhNum) ComputePhdrInfo(ReadOnlySpan<byte> elf) {
+        ulong phoff = BinaryPrimitives.ReadUInt64LittleEndian(elf[32..]);
+        ushort phentsz = BinaryPrimitives.ReadUInt16LittleEndian(elf[54..]);
+        ushort phnum = BinaryPrimitives.ReadUInt16LittleEndian(elf[56..]);
+
+        for (var i = 0; i < phnum; i++) {
+            var ph = (int)(phoff + (ulong)(i * phentsz));
+            if (BinaryPrimitives.ReadUInt32LittleEndian(elf[ph..]) != 1) continue; // PT_LOAD = 1
+            ulong fileOffset = BinaryPrimitives.ReadUInt64LittleEndian(elf[(ph + 8)..]);
+            ulong paddr = BinaryPrimitives.ReadUInt64LittleEndian(elf[(ph + 24)..]);
+            ulong filesz = BinaryPrimitives.ReadUInt64LittleEndian(elf[(ph + 32)..]);
+            if (phoff >= fileOffset && phoff < fileOffset + filesz)
+                return (paddr + (phoff - fileOffset), phentsz, phnum);
+        }
+
+        // No PT_LOAD segment covers the phdr table (unusual, e.g. a hand-built bare-metal ELF) —
+        // report it as absent (AT_PHNUM=0) rather than a bogus address a real libc would fault on.
+        return (0, 0, 0);
     }
 
     private static ulong ComputeInitialBreak(ReadOnlySpan<byte> elf) {

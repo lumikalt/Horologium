@@ -60,7 +60,9 @@ public class RealLinkedSimPointTests {
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
             mem, stackTop, RealLinkedSimPointTests.WordSize, RealLinkedSimPointTests.Argv, [],
-            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+            InitialStackBuilder.BuildStandardAuxv(
+                workload.PhdrAddress, workload.PhEntrySize, workload.PhNum, workload.EntryPoint
+            )
         );
 
         var sw = new StringWriter();
@@ -122,7 +124,9 @@ public class RealLinkedSimPointTests {
         ulong stackTop = refWorkload.BaseAddress + (ulong)refWorkload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
             refMem, stackTop, RealLinkedSimPointTests.WordSize, RealLinkedSimPointTests.Argv, [],
-            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, refWorkload.EntryPoint)
+            InitialStackBuilder.BuildStandardAuxv(
+                refWorkload.PhdrAddress, refWorkload.PhEntrySize, refWorkload.PhNum, refWorkload.EntryPoint
+            )
         );
         var tracker = new EcallCommitTracker();
         var refHandler = new LinuxSyscallEmulator(

@@ -1337,13 +1337,19 @@ Two halt mechanisms, both stopping all three trains at the terminator instead of
   `AT_NULL` → envp/argv pointer arrays, NULL-terminated → argc word) and returns the resulting SP, 16-byte aligned
   per the RISC-V calling convention. One function serves RV32 and RV64 (`wordSize` 4 or 8). `BuildStandardAuxv`
   assembles the standards-minimal auxv set for a statically-linked binary (`AT_PAGESZ`, `AT_PHDR`/`AT_PHENT`/
-  `AT_PHNUM`, `AT_ENTRY`, zeroed uid/gid/hwcap/secure) — `Experiment.RunBenchmark` (below) is its first production
-  caller, passing 0 for the PHDR fields since no ELF workload here exposes program-header geometry (unverifiable
-  without a real linked binary regardless — see that section). Verified two ways: `InitialStackBuilderTests` asserts
-  the exact byte layout for both word sizes directly against a `FlatMemory`; `Tests/RiscV64/System/InitialStackTests.cs`
-  loads hand-assembled RV64 probes (`abi_probe64.s`, `stdin_echo64.s`, each with its own independent offset
-  arithmetic) that read the stack this function built and echo back what they find. Callers still inject the SP
-  manually (`ArchState.IntegerRegisters.Write(2, sp)` before `Run()`) — there is no `IWorkload`/`Train` wiring for it.
+  `AT_PHNUM`, `AT_ENTRY`, zeroed uid/gid/hwcap/secure). `IElfWorkload.PhdrAddress`/`PhEntrySize`/`PhNum`
+  (`Rv32ElfWorkload`/`Rv64ElfWorkload`, computed from the ELF header) supply the real AT_PHDR/AT_PHENT/AT_PHNUM
+  values every caller now passes — placeholder zeros here are not just imprecise but a real crash: musl's own
+  `_start`/`__init_tls` walks the program header table itself (found via those three auxv entries) to locate
+  PT_TLS and set the thread pointer with a plain register move (no syscall involved), so a zero AT_PHDR makes
+  that walk dereference address 0 and fault on any binary declaring thread-local data — confirmed with a real
+  compiled `__thread`-using binary (`TestBinaries/tls_probe.c`), which crashes with the placeholder auxv and
+  runs correctly with the real one (`Tests/RiscV64/System/RealLinkedBinaryTests.cs`). Verified two ways besides
+  that: `InitialStackBuilderTests` asserts the exact byte layout for both word sizes directly against a
+  `FlatMemory`; `Tests/RiscV64/System/InitialStackTests.cs` loads hand-assembled RV64 probes (`abi_probe64.s`,
+  `stdin_echo64.s`, each with its own independent offset arithmetic) that read the stack this function built and
+  echo back what they find. Callers still inject the SP manually (`ArchState.IntegerRegisters.Write(2, sp)`
+  before `Run()`) — there is no `IWorkload`/`Train` wiring for it.
 - **Batch benchmark harness (`BenchmarkConfig`/`Experiment.RunBenchmark`, `src/Isa/RiscV32/Analysis/`).** Ties the
   three pieces above together into a real Linux-ABI entry, instead of each being exercised only in isolation:
   `BenchmarkConfig` (JSON, mirroring `NamedConfig`'s conventions) names an ELF, its argv, an optional stdin file, an

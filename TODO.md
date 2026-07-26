@@ -216,8 +216,55 @@ off here until a periodic cleanup removes them; the durable record is git histor
   CSRs (e.g. `mcycle`) can't be sampled faithfully, since functional fast-forward doesn't advance
   cycle count the way detailed windows do — inherent to the sampling approach, not a gap to close.
   — Wunderlich et al., ISCA 2003
-- [ ] LoopPoint: checkpoint-driven sampling methodology for multithreaded workloads; the multi-hart counterpart to
-  SimPoint. — Sabu et al., HPCA 2022
+
+## Multi-threaded Simulation
+
+LoopPoint (checkpoint-driven sampling for multi-threaded workloads, the multi-hart counterpart to SimPoint)
+requires real pthread/OpenMP-capable execution Horologium doesn't have today, so it's broken into ordered,
+independently actionable stages rather than one item. Horologium is natively execution-driven, so the paper's
+own PinPlay pinball/constrained-vs-unconstrained-replay apparatus is simply not needed here — that's not a gap,
+just infrastructure this design doesn't require.
+
+- [x] Thread pointer (`tp`, x4) + PT_TLS support: real AT_PHDR/AT_PHENT/AT_PHNUM auxv values
+  (`IElfWorkload.PhdrAddress`/`PhEntrySize`/`PhNum`) now reach the initial stack, so musl's own
+  `_start`/`__init_tls` sets `tp` correctly itself — no host-side PT_TLS parsing needed. Validated
+  against a real compiled `__thread`-using binary (`TestBinaries/tls_probe.c`).
+- [ ] `clone()` thread creation + dynamic hart activation: extend `LinuxSyscallEmulator` with the RISC-V
+  `clone(flags, stack, ptid, tls, ctid)` ABI (new hart's stack/`tp`/entry/`a0=0`), and add a dynamic/
+  parked-until-spawned hart-slot API to `MultiHartKernel`/`MultiHartPipeline` (both are fixed-size-array,
+  hart-count-frozen-at-construction today).
+- [ ] `futex()` FUTEX_WAIT/FUTEX_WAKE: a shared wait-queue across per-hart syscall-handler instances (mirroring
+  `ReservationTable`'s cross-hart sharing for LR/SC), plus a "parked" (blocked-but-resumable) hart state in
+  `MultiHartKernel`/`MultiHartPipeline`, distinct from halted.
+- [ ] Per-hart `gettid`/thread-exit semantics: thread hart identity through `ISyscallHandler.Handle`, a real
+  per-hart `gettid` (hardcoded to 1 today), and `exit` (this hart only) vs `exit_group` (whole process)
+  distinguished (currently fused).
+- [ ] OpenMP/pthreads-capable RISC-V toolchain + test fixture (flake.nix addition + a small hand-written
+  pthread/OpenMP `TestBinaries` fixture) — a dev-environment change, needs its own explicit sign-off when
+  picked up, separate from the code-only stages above and below.
+- [ ] Loop-header region-boundary detection: backward-branch-target-based loop header identification
+  restricted to the main program image (a lighter substitute for the paper's Pin DCFG/dominator analysis),
+  producing the paper's `(PC, count)` region markers — extends `BbvProfiler`'s existing control-flow
+  bookkeeping rather than needing new decoder support.
+- [ ] Spin-loop filtering: exclude synchronization-library code (libc/libpthread/libgomp address ranges) from
+  loop-based work counting during profiling while still executing it during simulation, mirroring the paper's
+  treatment of busy-waiting.
+- [ ] Flow-control profiling scheduler: enforce equal per-hart forward progress during the analysis pass,
+  extending `MultiHartKernel`/`MultiHartPipeline`'s round-robin stepping with an explicit balancing policy.
+- [ ] Per-thread loop-iteration BBV + multi-thread region clustering: extend `BbvProfiler` to slice on
+  loop-boundary `(PC, count)` markers instead of fixed instruction counts (one profiler per hart, composited
+  alongside the new loop tracker via a small new `CompositeCommitObserver`, since a train accepts only one
+  `ICommitObserver` today), namespace each hart's BBV keys to avoid same-PC collisions across identical-binary
+  threads, per-thread-normalize before concatenating into one global vector per region, then reuse
+  `SimPointAnalysis`'s existing k-means/BIC clustering unchanged (its random-hash projection is already
+  agnostic to vector provenance).
+- [ ] Multi-hart checkpoint capture/measure + warmup: a `MultiHartCheckpoint` extending the existing
+  single-hart `ArchitecturalCheckpoint` pattern (one shared-memory blob + N per-hart state/syscall-handler
+  blobs, reusing already-existing per-field serialization), then warm up and measure each representative
+  region's detailed simulation, mirroring `MeasureSimPointCheckpoints`'s existing warmup-then-measure pattern.
+- [ ] Weighted-multiplier runtime extrapolation + Runner CLI wiring: implement the paper's Eq. 1/2
+  multiplier-weighted runtime reconstruction from representative-region results, add a `--looppoint` CLI flag
+  mirroring `--simpoint`/`--smarts`, and document in README.md/docs/references.md. — Sabu et al., HPCA 2022
 
 ## µops
 
