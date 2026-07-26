@@ -22,6 +22,18 @@ namespace Pipeline;
 ///     </para>
 /// </summary>
 public static class MultiHartWarmupMeasureDriver {
+    /// <summary>
+    ///     A hart still spinning on a still-blocked <see cref="ExecuteResult.RequestBlock" /> (e.g.
+    ///     futex(FUTEX_WAIT)) never halts — its <see cref="ISteppableTrain.StepCycle" /> keeps returning
+    ///     <c>true</c> forever, since it's retrying, not halted. If every hart that could ever clear that
+    ///     wait has already halted, the global instruction count can never advance again, and a loop that
+    ///     only checks "is any hart still active" would spin forever. This bounds consecutive ticks with
+    ///     zero global progress instead of trusting halted-state alone — generous enough that no
+    ///     legitimate detailed-pipeline stall (cache misses, etc.) could ever trip it, since it only
+    ///     triggers when NOT A SINGLE hart retires anything, machine-wide, for this many consecutive ticks.
+    /// </summary>
+    private const long StallTickLimit = 100_000;
+
     /// <param name="trains">
     ///     Freshly built, not-yet-stepped trains, each with the corresponding entry in
     ///     <paramref name="counters" /> wired as its commit observer.
@@ -62,13 +74,32 @@ public static class MultiHartWarmupMeasureDriver {
             return any;
         }
 
-        while (GlobalCount() < warmupInstructions && StepAllActive()) { }
+        // Runs until either the global instruction count reaches target, every hart has halted,
+        // or no hart retires anything for StallTickLimit consecutive ticks (a permanent deadlock —
+        // the waker a still-blocked hart needs has already halted, so global count can never move
+        // again). The last case returns early with whatever progress was made, rather than hanging.
+        void RunUntil(long target) {
+            long lastCount = GlobalCount();
+            var stalledTicks = 0L;
+            while (GlobalCount() < target) {
+                if (!StepAllActive()) return;
+                long count = GlobalCount();
+                if (count == lastCount) {
+                    if (++stalledTicks >= StallTickLimit) return;
+                }
+                else {
+                    stalledTicks = 0;
+                    lastCount = count;
+                }
+            }
+        }
+
+        RunUntil(warmupInstructions);
 
         var baselines = new IReadOnlyList<DialBoardSnapshot>[trains.Count];
         for (var i = 0; i < trains.Count; i++) baselines[i] = trains[i].SnapshotDials();
 
-        long measureTarget = warmupInstructions + measureInstructions;
-        while (GlobalCount() < measureTarget && StepAllActive()) { }
+        RunUntil(warmupInstructions + measureInstructions);
 
         var results = new RevolutionResult[trains.Count];
         for (var i = 0; i < trains.Count; i++) results[i] = trains[i].FinishStepping(baselines[i]);

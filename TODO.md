@@ -449,16 +449,26 @@ just infrastructure this design doesn't require.
   construction: hart 1 completes its `addi`/`sw`/`ebreak` *while* hart 0 is blocked every cycle, and only
   hart 1's write unblocks hart 0; a starved sibling would have failed this test, not just a missing retry.
   All 3 tests confirmed to fail with the fix removed, then pass restored.
-- [ ] Two residuals stand between "all six trains have `RequestBlock`" and an actual working multi-hart
-  measurement pass — neither is done by the above:
-  1. `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop has no way to detect a hart
-     that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever,
-     since it's retrying, not halted) — if the waking hart halts first with no further global-instruction
-     progress from the blocked one, the loop never terminates. This is now directly reachable rather than
-     hypothetical, since the trains it needs finally exist.
-  2. `--looppoint`'s CLI wiring (`MultiHartLoopPointExperiment`) is still single-hart only — extending it
-     to real multi-hart pthread measurement needs both residual 1 fixed and the CLI/orchestrator threaded
-     for N harts, neither of which is scoped here.
+- [x] `MultiHartWarmupMeasureDriver`'s global-instruction-bounded measure loop had no way to detect a hart
+  that's permanently spinning on `RequestBlock` (its `StepCycle()` keeps returning `true` forever, since
+  it's retrying, not halted) — if the waking hart halted first with no further global-instruction progress
+  from the blocked one, the loop never terminated. Fixed with a `StallTickLimit` (100,000 consecutive
+  zero-global-progress ticks) bail-out inside a shared `RunUntil` local function replacing the old bare
+  `while` loops. `Tests/Pipeline/MultiHartWarmupMeasureDriverDeadlockTests.cs` proves it: a permanently-
+  blocked hart whose only possible waker has already halted times out at 15s without the fix, completes in
+  under a second with it. **Follow-up needed before this is safe for real multi-hart measurement**:
+  `RunUntil` returns identically for three distinct cases (target reached / all harts halted before target
+  / stall-limit hit), and the caller currently can't tell them apart — a stalled region would silently feed
+  a short, wrong tick-count into the Eq. 1/2 extrapolation as if it were a clean measurement. Not reachable
+  in production yet (`--looppoint` is single-hart, so this path never drives a blocking multi-hart
+  measurement today), but resolving this distinction is a prerequisite for the item below, not a
+  nice-to-have — a stalled region must be rejected, not silently averaged in.
+- [ ] `--looppoint`'s CLI wiring (`MultiHartLoopPointExperiment`) is still single-hart only — extending it to
+  real multi-hart pthread measurement needs: the `RunUntil` three-outcome distinction above resolved first;
+  the CLI/orchestrator threaded for N harts; and the same cold-run ground-truth validation the SMARTS/
+  SimPoint items got (extrapolated total vs. a full cold multi-hart run, within some tolerance) — "the CLI
+  runs and prints a number" is not the same claim as "the number is right," and that gap is wider for a
+  multi-hart sampling path than a single-hart one.
   (`SmtTrain` itself is not a LoopPoint measurement target regardless — SMT models a shared core with
   interleaved threads, the wrong microarchitecture for what LoopPoint measures; its `RequestBlock` support
   above is for correctness/completeness across all detailed trains, not because LoopPoint will use it.)

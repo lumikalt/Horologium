@@ -1775,11 +1775,28 @@ removed, then to pass again once it was restored. The full suite stayed green at
 `SmtTrain` getting `RequestBlock` support is not itself a step toward LoopPoint measurement — SMT models a
 shared core with interleaved threads, the wrong microarchitecture for what LoopPoint measures (recorded
 earlier in this project's own OoOE investigation). It closes the feature out for correctness/completeness
-across all six detailed trains, not because LoopPoint will ever drive an `SmtTrain` measurement. Two real
-residuals remain before multi-hart LoopPoint measurement works end-to-end, tracked in `TODO.md`:
-`MultiHartWarmupMeasureDriver`'s measure loop has no way to detect a permanently-blocked hart if its waker
-halts first (now directly reachable rather than hypothetical, since the trains it needs finally exist),
-and `--looppoint`'s CLI wiring is still single-hart only.
+across all six detailed trains, not because LoopPoint will ever drive an `SmtTrain` measurement.
+
+**`MultiHartWarmupMeasureDriver` stall detection (Pipeline/MultiHartWarmupMeasureDriver.cs).** With all six
+trains now retrying in place on `RequestBlock` rather than halting, a hart permanently spinning on a wait no
+one will ever clear (e.g. the waking hart already halted) never returns `false` from `StepCycle()` — the
+old bare `while (GlobalCount() < target && StepAllActive()) { }` loop had no way to notice and would spin
+forever. Fixed by folding both the warmup and measure loops into one `RunUntil(target)` local function that
+also bails out after `StallTickLimit` (100,000) consecutive ticks with zero global instruction-count
+progress across every hart — generous enough that no legitimate detailed-pipeline stall (cache misses,
+etc.) could ever trip it, since `stalledTicks` resets the moment *any* hart retires *anything*, machine-
+wide. `Tests/Pipeline/MultiHartWarmupMeasureDriverDeadlockTests.cs` proves it's genuinely load-bearing: a
+hart blocked forever on an `ecall` whose only possible waker halts almost immediately times out at 15s with
+the fix reverted, completes in well under a second with it restored.
+
+This closes the first of the two residuals that stood between "all six trains have `RequestBlock`" and
+working multi-hart LoopPoint measurement — but not without leaving a known gap of its own, tracked in
+`TODO.md`: `RunUntil` returns identically whether it stopped because the target was reached, every hart
+halted first, or the stall limit fired, and the caller can't yet tell those apart. That's harmless today
+(`--looppoint` doesn't drive a blocking multi-hart measurement yet, so the stall path is unreachable outside
+this test), but it becomes load-bearing the moment the second residual — `--looppoint`'s CLI wiring, still
+single-hart only — makes a real blocking multi-hart measurement reachable; resolving the three-outcome
+ambiguity is a prerequisite for that work, not an optional follow-up.
 
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`
