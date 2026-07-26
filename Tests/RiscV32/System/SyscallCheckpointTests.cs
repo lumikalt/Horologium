@@ -195,6 +195,38 @@ public class SyscallCheckpointTests {
         Assert.NotEqual(firstTs, restoredTs);
     }
 
+    [Fact]
+    public void ChildCleartid_AfterRestore_StillClearsTheRecordedAddressOnThatHartsExit() {
+        // Multi-hart checkpoint/restore's own correctness depends on this: WriteState/ReadState must
+        // round-trip clone()'s per-hart CLONE_CHILD_CLEARTID bookkeeping, or a restored checkpoint
+        // reproduces the exact __thread_list_lock hang class PthreadProbeTests originally found
+        // (a later thread's exit fails to clear/wake the lock it should).
+        var memory = new FlatMemory(0x1000, 0x8000_0000UL);
+        var handler = new LinuxSyscallEmulator(0x8000_0000UL) { Spawner = new FakeSpawner(1), };
+
+        const ulong ctidAddr = 0x8000_0100UL;
+        memory.Write(ctidAddr, 0xDEADBEEF, 4); // sentinel — must become exactly 0 after the hart exits
+
+        const ulong cloneChildCleartid = 0x0020_0000;
+        Call(handler, 220, memory, cloneChildCleartid, 0, 0, 0, ctidAddr); // SYS_clone -> spawns hart 1
+
+        byte[] state = Snapshot(handler);
+
+        var restored = new LinuxSyscallEmulator(0x8000_0000UL) { Spawner = new FakeSpawner(1), };
+        Restore(restored, state);
+
+        // Hart 1 (the spawned hart) exits — SYS_exit, hartId=1 (the same id clone() assigned above).
+        var exitingHartState = new Rv32ArchState();
+        ExecuteResult result = restored.Handle(93, exitingHartState, memory, 0, 1);
+
+        Assert.True(result.RequestHalt);
+        Assert.Equal(0UL, memory.Read(ctidAddr, 4)); // cleared -> _childCleartid[1] survived the round trip
+    }
+
+    private sealed class FakeSpawner(int nextHartId) : IHartSpawner {
+        public int SpawnHart(IArchState initialState) => nextHartId;
+    }
+
     // Wraps a byte buffer as a strictly forward-only, non-seekable Stream — exercises
     // LinuxSyscallEmulator's discard-bytes stdin fast-forward path instead of Seek.
     private sealed class ForwardOnlyStream(byte[] data) : Stream {

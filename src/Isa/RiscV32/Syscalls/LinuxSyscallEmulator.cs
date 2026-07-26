@@ -127,10 +127,10 @@ public sealed class LinuxSyscallEmulator(
 
     private readonly Dictionary<int, FileStream> _files = new();
 
-    // CLONE_CHILD_CLEARTID's ctid address per hart, recorded at clone() time. Not part of
-    // WriteState/ReadState — multi-hart checkpoint/restore (dormant-slot state, this table, etc.)
-    // is out of scope until the multi-hart checkpoint TODO item; a checkpoint taken mid-run of a
-    // multi-threaded workload does not yet round-trip this correctly.
+    // CLONE_CHILD_CLEARTID's ctid address per hart, recorded at clone() time. Serialized by
+    // WriteState/ReadState (see there) — a checkpoint taken mid-run of a multi-threaded workload
+    // must round-trip this, or a restored hart's later exit clears nothing (or the wrong address),
+    // reproducing the __thread_list_lock hang class this table exists to prevent in the first place.
     private readonly Dictionary<int, ulong> _childCleartid = new();
     private ulong _brk = initialBreak;
     private ulong _fakeNanos;
@@ -153,10 +153,11 @@ public sealed class LinuxSyscallEmulator(
 
     /// <summary>
     ///     Serializes brk/mmap cursors, the fd table (path + access mode + current position per
-    ///     open fd), the stdin byte-position, and the deterministic clock/PRNG cursors. Open
-    ///     stdout/stderr capture (<see cref="output" />) is a host-side sink, not emulator state,
-    ///     and isn't part of this — a checkpoint-and-measure interval doesn't compare captured
-    ///     output, only guest-visible behavior.
+    ///     open fd), the stdin byte-position, the deterministic clock/PRNG cursors, and every
+    ///     hart's pending <c>CLONE_CHILD_CLEARTID</c> address. Open stdout/stderr capture
+    ///     (<see cref="output" />) is a host-side sink, not emulator state, and isn't part of this —
+    ///     a checkpoint-and-measure interval doesn't compare captured output, only guest-visible
+    ///     behavior.
     /// </summary>
     public void WriteState(BinaryWriter writer) {
         writer.Write(_brk);
@@ -173,6 +174,12 @@ public sealed class LinuxSyscallEmulator(
             writer.Write(path);
             writer.Write((int)access);
             writer.Write(fs.Position);
+        }
+
+        writer.Write(_childCleartid.Count);
+        foreach ((int hartId, ulong ctidAddr) in _childCleartid) {
+            writer.Write(hartId);
+            writer.Write(ctidAddr);
         }
     }
 
@@ -209,6 +216,14 @@ public sealed class LinuxSyscallEmulator(
         }
 
         SkipStdinTo(stdinConsumed);
+
+        _childCleartid.Clear();
+        int childCleartidCount = reader.ReadInt32();
+        for (var i = 0; i < childCleartidCount; i++) {
+            int hartId = reader.ReadInt32();
+            ulong ctidAddr = reader.ReadUInt64();
+            _childCleartid[hartId] = ctidAddr;
+        }
     }
 
     public ExecuteResult Handle(ulong num, IArchState state, IMemory memory, ulong pc, int hartId) {

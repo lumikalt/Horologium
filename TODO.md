@@ -327,15 +327,39 @@ just infrastructure this design doesn't require.
   state), and feeds the resulting `RegionBbvs` straight into `SimPointAnalysis.Analyze` — this is the test
   that finally exercises spin-loop filtering's exclusion of BBV weight and the global work-target counter
   under real contention (`SpinLoopFilteringEndToEndTests`, above, proved header-marker suppression only).
-- [ ] Multi-hart checkpoint capture/measure + warmup: a `MultiHartCheckpoint` extending the existing
-  single-hart `ArchitecturalCheckpoint` pattern (one shared-memory blob + N per-hart state/syscall-handler
-  blobs, reusing already-existing per-field serialization), then warm up and measure each representative
-  region's detailed simulation, mirroring `MeasureSimPointCheckpoints`'s existing warmup-then-measure pattern.
-  Also covers `MultiHartPipeline` dynamic hart activation (injecting a spawned/restored hart's state into a
-  live pipeline train — the same problem this item's checkpoint-restore already solves) and threading
-  `ExecuteResult.RequestBlock` (see the `futex()` item above) through the detailed pipeline trains'
-  (`FiveStageTrain`/`SuperscalarTrain`/`OooTrain`/`SmtTrain`/`CprTrain`/`DaeTrain`) commit stages, since neither
-  is needed until this item's warm+measure phase actually drives a multi-hart pthread workload through them.
+- [x] Multi-hart checkpoint capture/measure + warmup: `MultiHartCheckpoint`
+  (`src/Core/Mechanism/MultiHartCheckpoint.cs`) captures N harts' architectural state (PC, privilege,
+  registers, ISA blob) plus **one** shared-memory blob and **one** optional shared syscall-handler blob —
+  not N of either, matching every established multi-hart config (threads share memory/fd-table/brk by
+  `CLONE_VM|CLONE_FILES`, and duplicating either N-fold would let per-hart copies drift independently on
+  restore, which real shared state never does). `MultiHartWarmupMeasureDriver` extends
+  `WarmupMeasureDriver`'s pattern to N trains, bounding warmup/measure by a *global* (summed-across-harts)
+  instruction count, matching `MultiHartLoopPointProfiler`'s own accounting. `LinuxSyscallEmulator.WriteState`/
+  `ReadState` gained `_childCleartid` serialization — previously excluded with a comment flagging exactly
+  this item as the reason; without it a restored hart's later exit would clear the wrong (or no) `ctid`
+  address, reproducing the `__thread_list_lock` hang class `pthread_probe.elf` originally surfaced. Proven
+  with a cold-baseline comparison (not just warm-equals-restored, which would pass even with a broken
+  `RestoreInto` — see `feedback_checkpoint_roundtrip_theater`): captured mid-run on the functional
+  `MultiHartKernel`, restored into fresh `FiveStageTrain`s driven by `MultiHartPipeline`, and compared
+  against a `FiveStageTrain`-only cold run of the same program to completion — two harts with different
+  iteration counts to different addresses, so a swapped-hart restore bug would produce a visibly wrong
+  final value rather than coincidentally matching. A second test drives a real, stateful
+  `LinuxSyscallEmulator` (brk moved, `_childCleartid` set via `clone()`) through the checkpoint's shared-
+  handler-blob path specifically, closing the gap the hart-state-only tests left uncovered.
+  **What this does not prove**, split into its own item below rather than silently folded in: measuring a
+  genuinely *blocking* multi-threaded region (a real futex wait) under detailed pipeline timing — that
+  needs `ExecuteResult.RequestBlock` support in the detailed trains, confirmed to require real
+  squash-and-refetch logic (see below), not covered by anything here. `MultiHartPipeline` dynamic hart
+  activation (a measured region that itself calls `clone()`) is likewise out of scope — a checkpoint taken
+  at a LoopPoint region boundary has all harts already spawned, so it isn't needed for the common case.
+- [ ] `RequestBlock` support in detailed pipeline trains: threading `ExecuteResult.RequestBlock` (the
+  `futex()` item above) through the detailed pipeline trains' (`FiveStageTrain`/`SuperscalarTrain`/`OooTrain`/
+  `SmtTrain`/`CprTrain`/`DaeTrain`) commit stages, so a futex-blocked hart can be measured under real timing
+  instead of only the functional `MultiHartKernel`. Confirmed non-trivial, not a simple retry: `FiveStageTrain`
+  does not serialize `ecall` (no stall/hazard treatment at all — grepped and confirmed), so younger
+  instructions are already fetched/decoded/in EX behind a blocked syscall by the time the block is
+  discovered; naively re-presenting the same instruction to EX next cycle would need those younger
+  instructions squashed and refetched, the same shape as a branch-misprediction recovery, not a stall.
 - [ ] Weighted-multiplier runtime extrapolation + Runner CLI wiring: implement the paper's Eq. 1/2
   multiplier-weighted runtime reconstruction from representative-region results, add a `--looppoint` CLI flag
   mirroring `--simpoint`/`--smarts`, and document in README.md/docs/references.md. — Sabu et al., HPCA 2022

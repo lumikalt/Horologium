@@ -1592,6 +1592,32 @@ feeds the result straight into `SimPointAnalysis.Analyze` — the test that actu
 filtering's BBV/work-target exclusion under real contention (the marker-suppression proof above used a bare
 `LoopHeaderTracker`, not this coordinator).
 
+`MultiHartCheckpoint` (`Mechanism/MultiHartCheckpoint.cs`) and `MultiHartWarmupMeasureDriver`
+(`Pipeline/MultiHartWarmupMeasureDriver.cs`) are LoopPoint's checkpoint/warmup/measure half —
+`ArchitecturalCheckpoint`/`WarmupMeasureDriver`'s multi-hart counterparts. A checkpoint is N harts'
+architectural state plus **one** shared-memory blob and **one** optional shared syscall-handler blob, not N
+of either: threads share memory and an fd table/brk/mmap cursor by real `clone()`'s
+`CLONE_VM|CLONE_FILES`, and every established multi-hart config already wires one shared handler across
+every hart — duplicating either N-fold would let per-hart copies drift independently on restore, which
+real shared state never does. `MultiHartWarmupMeasureDriver` bounds its warmup/measure phases by a global
+(summed-across-harts) instruction count, matching `MultiHartLoopPointProfiler`'s own accounting, and
+round-robins one `StepCycle()` per hart per tick like `MultiHartPipeline.Run`. `LinuxSyscallEmulator`
+gained `_childCleartid` serialization — previously excluded with a comment naming this exact item as the
+reason; without it a restored hart's later exit clears the wrong (or no) `ctid` address, reproducing the
+`__thread_list_lock` hang class `pthread_probe.elf` originally surfaced.
+Proven with a cold-baseline comparison, not just warm-equals-restored (which would pass even with a
+broken `RestoreInto` — see the checkpoint-roundtrip-theater lesson from earlier checkpoint work): captured
+mid-run on the functional `MultiHartKernel`, restored into fresh `FiveStageTrain`s driven by
+`MultiHartPipeline`, and compared against a `FiveStageTrain`-only cold run of the same program to
+completion — two harts with different iteration counts to different addresses, so a swapped-hart restore
+bug would produce a visibly wrong final value rather than coincidentally matching. A second test drives a
+real, stateful `LinuxSyscallEmulator` (brk moved, `_childCleartid` set via `clone()`) through the
+checkpoint's shared-handler-blob path specifically. **Not proven**: measuring a genuinely *blocking*
+multi-threaded region (a real futex wait) under detailed pipeline timing, which needs
+`ExecuteResult.RequestBlock` support in the detailed trains — confirmed to need real squash-and-refetch
+logic (`FiveStageTrain` doesn't serialize `ecall`, so younger instructions are already in-flight by the
+time a block is discovered), tracked as its own `TODO.md` item rather than folded silently into this one.
+
 ### SMARTS sampling (Pipeline/SmartsDriver)
 
 Systematic statistical sampling after Wunderlich, Wenisch, Falsafi & Hoe (ISCA 2003) — the sibling methodology to
