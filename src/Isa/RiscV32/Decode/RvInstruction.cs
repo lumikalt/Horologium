@@ -20,7 +20,9 @@ public sealed class RvInstruction(
     IReadOnlyList<int> sources,
     ToothClass cls,
     object? payload,
-    int sizeBytes = 4
+    int sizeBytes = 4,
+    int archInstructionCount = 1,
+    ITooth? branchComponent = null
 )
     : ITooth {
     public ulong Pc { get; } = pc;
@@ -30,6 +32,8 @@ public sealed class RvInstruction(
     public IReadOnlyList<int> SourceRegisters { get; } = sources;
     public ToothClass Class { get; } = cls;
     public object? Payload { get; } = payload;
+    public int ArchInstructionCount { get; } = archInstructionCount;
+    public ITooth BranchComponent => branchComponent ?? this;
 
     // These views are derived purely from the (immutable) Payload. Decode results
     // are cached and reused millions of times on the hot path, so compute each

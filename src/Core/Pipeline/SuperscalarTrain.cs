@@ -393,7 +393,6 @@ internal sealed class SuperscalarCore(
                 if (fusedInstr is not null) {
                     instr = fusedInstr;
                     fused = true;
-                    _macroFusionsCounter.Increment();
                 }
             }
 
@@ -435,7 +434,14 @@ internal sealed class SuperscalarCore(
                 break;
 
             _fetchQueue.Dequeue();
-            if (fused) _fetchQueue.Dequeue();
+            if (fused) {
+                _fetchQueue.Dequeue();
+                // Counted here, past every RAW/WAW/structural/RequestBlock break above: those
+                // breaks re-peek the same still-undequeued pair next cycle without issuing it,
+                // so incrementing at detection time would double-count every stalled cycle.
+                _macroFusionsCounter.Increment();
+            }
+
             classIssued[fuSlot]++;
             issued++; // a fused pair still costs one issue-slot-and-cycle, the whole point of fusion
             _retiredCounter.IncrementBy(fused ? 2 : 1); // architectural instruction count, not slot count

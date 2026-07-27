@@ -310,7 +310,16 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   useful as an IPC upper bound). Both instruction and data memory support optional set-associative caches and TLBs. A
   `StoreBuffer` provides deferred writes with store-to-load forwarding.
 - **`OooeTrain`** — superscalar out-of-order pipeline using Tomasulo's algorithm. Physical register renaming, ROB-based
-  in-order commit, and a unified issue queue. Functional units are configurable per class (`FuLatencyConfig`): each
+  in-order commit, and a unified issue queue. Macro-fusion (same opt-in `Rv32Mechanism(enableMacroFusion: true)` flag
+  and SLT+branch idiom as `SuperscalarTrain`, see below) fuses at Rename, before RAT allocation, into a single ROB+IQ
+  entry — unlike the in-order train, an OoO consumer can't read a producer's value until the CDB broadcasts it, so
+  only collapsing to one entry (not just co-issuing) removes the latency; `ITooth.ArchInstructionCount` keeps
+  `_retiredCounter`/instret counting both original instructions, and `ITooth.BranchComponent` redirects branch-
+  predictor training to the fused pair's real branch PC (the fused Tooth's own `Pc` is the compare half). The benefit
+  doesn't show on a dense independent-pairs stream (fetch/rename/issue/commit share one width parameter, so
+  throughput there is fetch-bound regardless of fusion) — it shows under ROB pressure: a fused pair costs one ROB
+  entry instead of two, so more independent work survives in the shadow of a stalled ROB head (e.g. a cache-miss
+  load) before dispatch stalls on ROB-full. Functional units are configurable per class (`FuLatencyConfig`): each
   class (integer ALU, multiplier/divider, pipelined FP, FP divide/sqrt, load-store, branch, system) has an independent
   issue-port count and execution latency; multi-cycle results flow through a countdown-based in-flight buffer before CDB
   broadcast. Default latencies: integer ALU 1 cycle, integer mul/div 3, pipelined FP 4 (

@@ -111,7 +111,9 @@ public class SuperscalarMacroFusionTests {
         // Fusion changes issue-slot/cycle accounting, but the same architectural
         // instructions retire either way. If fusion collapsed a fused pair to a single
         // retirement, instret-derived stats (IPC, benchmark instruction budgets) would
-        // silently under-count.
+        // silently under-count. Assert fusion actually fired first: without it, two unfused
+        // runs would also trivially satisfy the equality below.
+        Assert.True(fused.Counters["macro_fusions"] > 0, "expected the pair to fuse");
         Assert.Equal(unfused.Counters["retired"], fused.Counters["retired"]);
     }
 

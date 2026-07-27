@@ -50,7 +50,9 @@ public sealed class RvMacroFuser : IMacroFuser {
             first.SourceRegisters,
             ToothClass.ConditionalBranch,
             fused,
-            first.SizeBytes + second.SizeBytes
+            first.SizeBytes + second.SizeBytes,
+            archInstructionCount: 2,
+            branchComponent: second
         );
     }
 }

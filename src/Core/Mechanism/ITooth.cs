@@ -215,6 +215,26 @@ public interface ITooth {
     ///     the AES/SM4 ".vs" fixed-vs2 exception and every non-runtime-sized instruction.
     /// </summary>
     int MaxRuntimeVectorRegisterSpan(int baseRegister) => 1;
+
+    /// <summary>
+    ///     The number of real architectural instructions this Tooth represents when it commits —
+    ///     1 for every ordinary instruction, or more for a macro-fused Tooth built by an
+    ///     <see cref="IMacroFuser" />. Pipelines that track retired-instruction counts (instret,
+    ///     benchmark instruction budgets, IPC) must scale by this rather than assuming a 1:1
+    ///     correspondence with ROB/issue-slot entries.
+    /// </summary>
+    int ArchInstructionCount => 1;
+
+    /// <summary>
+    ///     This instruction, as it should be identified for branch-prediction training, RAS
+    ///     call/return classification, and instruction tracing — equal to <c>this</c> for every
+    ///     ordinary instruction. A macro-fused Tooth (see <see cref="IMacroFuser" />) whose own
+    ///     <see cref="Pc" />/<see cref="RawEncoding" /> describe an earlier component (e.g. the
+    ///     compare half of a compare+branch fusion) returns the real branch instruction here,
+    ///     since the BTB/predictor/RAS were all trained against that instruction's own address at
+    ///     Fetch time, not the fused Tooth's.
+    /// </summary>
+    ITooth BranchComponent => this;
 }
 
 /// <summary>

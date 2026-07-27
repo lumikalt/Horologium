@@ -653,15 +653,37 @@ just infrastructure this design doesn't require.
   any run that enables it. `_retiredCounter`/instret scale by 2 for a fused pair (commit-width and
   architectural-instruction-count are tracked separately, so IPC stays meaningful) — see
   `SuperscalarMacroFusionTests`.
-- [ ] Macro-fusion for `OooeTrain`: extend the same SLT+branch fusion to the ROB/issue-queue.
-  Unlike `SuperscalarTrain`, this needs to collapse the pair to a single ROB+IQ entry to get any
-  benefit (an OoO machine's CDB broadcast/wakeup round-trip can't be shortcut by co-issuing alone),
-  which means threading the fused Tooth's real 2-instruction count through every OoOE retire-tail
-  call site (`_retiredCounter`, `State.OnRetire()`, `PEventLog`, the Olympia co-sim
-  `_commitObserver`/`Rdip` hooks) instead of just `SuperscalarTrain`'s single issue-stage counter.
-- [ ] TMA slot accounting doesn't yet account for macro-fusion: `SuperscalarTrain`'s in-order
-  "SlotsIssued ≡ retired" assumption (and the paper cross-check `Retiring == IPC/width`) no longer
-  holds once fusion is enabled, since a fused pair issues as 1 slot but retires as 2 instructions.
+- [x] Macro-fusion (`OooTrain`): same SLT+branch idiom, fused at Rename (before RAT allocation,
+  not at Issue like `SuperscalarTrain` — an OoO consumer can't read a producer's value until the
+  CDB broadcasts it, so co-issuing two separate ROB/IQ entries wouldn't remove that latency; only
+  collapsing to one entry does) into a single ROB+IQ entry. `FinishRetire` scales
+  `_retiredCounter`/`State.OnRetire()` by `ITooth.ArchInstructionCount` (2 for a fused pair) at
+  every retire-tail site; `ITooth.BranchComponent` (new default-`this` property) redirects branch-
+  predictor training (`_predictor.Update`, `RestoreHistory` on partial-squash recovery, VLA-TAGE's
+  `NotifyLoopBranchExecute`) to the real branch's own Pc, since a fused entry's own Pc is the
+  compare half. Confirmed the benefit is real, not just structurally inert: a dense stream of
+  independent fusible pairs shows ~0 cycle delta (OoO fetch/rename/issue/commit share one width
+  parameter, so throughput is fetch-bound regardless of fusion — same trap as Vector Runahead's
+  non-reproducing speedup); the fixture that actually demonstrates it is a cold D-cache load miss
+  at the ROB head with more independent fusible pairs behind it than an unfused stream fits in a
+  deliberately small ROB (fusion halves the ROB entries needed, so more work survives in the miss's
+  shadow) — see `OooMacroFusionTests.ReducesCyclesWhenDenseWorkOutgrowsTheRob` (75→69 cycles on
+  that constructed fixture; not a workload-representative number). Opt-in via the same
+  `Rv32Mechanism(enableMacroFusion: true)` flag as `SuperscalarTrain`.
+- [ ] TMA slot accounting doesn't yet account for macro-fusion, on either train: `SuperscalarTrain`'s
+  in-order "SlotsIssued ≡ retired" assumption (and the paper cross-check `Retiring == IPC/width`),
+  and `OooTrain`'s slot-vs-instruction bookkeeping generally, no longer hold once fusion is enabled,
+  since a fused pair issues/dispatches as 1 slot but retires as 2 instructions.
+- [ ] `OooTrain` macro-fusion leaves gaps documented but not closed (all opt-in + opt-in, no
+  correctness impact on today's default-off runs): (1) `PEventLog` only ever records the primary
+  (compare) InstrId post-Rename for a fused pair — the branch's own InstrId gets a Fetch event and
+  then nothing, a dangling row in the waterfall visualization (confirmed non-crashing: `PEventLog`
+  has no completeness invariant). (2) The Olympia co-sim `_commitObserver`/`Rdip` hooks report only
+  the compare's `(Pc, RawEncoding)` for a fused commit, standing in for two real instructions — a
+  trace-replay divergence source if fusion and co-sim are ever both enabled together. (3)
+  `TrainCriticality`'s critical-path source-InstrId arithmetic (`head.InstrId - 1`,
+  `head.InstrId - w`) assumes InstrId contiguity, which a fused pair breaks (the branch's InstrId
+  is skipped) — mis-attributes CP edges if criticality prediction and fusion are both enabled.
 
 ## Cache Prefetching
 

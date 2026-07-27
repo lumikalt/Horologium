@@ -275,6 +275,7 @@ internal sealed partial class OoOPipelineCore : Gear {
     private readonly List<IssuedInstr> _execBuffer = [];
     private readonly IExecutor _executor;
     private readonly FdipPrefetcher? _fdip;
+    private readonly IMacroFuser? _macroFuser;
     private readonly IFetchTranslator? _fetchTranslator;
 
     // In per-class mode each IQ has iqCapacity slots; in flat mode all instructions
@@ -444,6 +445,7 @@ internal sealed partial class OoOPipelineCore : Gear {
     private int _pendingRollbackArch = -1;
     private int _pendingRollbackPrevPhys = -1;
     private Counter _retiredCounter = null!;
+    private Counter _macroFusionsCounter = null!;
     private bool _runaheadActive;
     private bool _runaheadChainActive;
     private ulong _runaheadChainOrigin;
@@ -530,6 +532,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         _decoder = mechanism.Decoder;
         _executor = mechanism.Executor;
         _trapController = mechanism.TrapController;
+        _macroFuser = mechanism.MacroFuser;
         _predictor = predictor;
         _fuConfig = fuConfig;
         ILayers = iLayers;
@@ -622,6 +625,9 @@ internal sealed partial class OoOPipelineCore : Gear {
     public override void Initialize() {
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
+        _macroFusionsCounter = Dials.AddCounter(
+            "macro_fusions", "Instruction pairs renamed as a single macro-fused ROB/IQ entry"
+        );
         _flushesCounter = Dials.AddCounter("flushes", "Pipeline flushes (branch + trap)");
         _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions");
         _stallsCounter = Dials.AddCounter(
@@ -1038,6 +1044,22 @@ internal sealed partial class OoOPipelineCore : Gear {
         }
     }
 
+    /// <summary>
+    ///     Retires <paramref name="head" /> from the ROB, scaling the retired-instruction
+    ///     counter and <see cref="IArchState.OnRetire" /> (instret) by
+    ///     <see cref="ITooth.ArchInstructionCount" /> — 1 for an ordinary instruction, 2 for a
+    ///     macro-fused ROB entry — rather than assuming a 1:1 correspondence with ROB entries.
+    ///     Must read <c>head.Instruction</c> before <see cref="ReorderBuffer.Retire" />: the ROB
+    ///     is a pooled ring buffer, and <c>Retire()</c> clears the slot (including
+    ///     <c>Instruction</c>) for reuse before returning.
+    /// </summary>
+    private void FinishRetire(RobEntry head) {
+        int archCount = head.Instruction?.ArchInstructionCount ?? 1;
+        _rob.Retire();
+        _retiredCounter.IncrementBy(archCount);
+        for (var i = 0; i < archCount; i++) State.OnRetire();
+    }
+
     /// <summary>In-order retirement from the ROB head.</summary>
     private void StepCommit() {
         var committed = 0;
@@ -1052,9 +1074,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     if (head.IcacheMiss) PostIcachePendings();
                     RetireMemQueues(head);
-                    _rob.Retire();
-                    _retiredCounter.Increment();
-                    State.OnRetire();
+                    FinishRetire(head);
                     _halted = true;
                     return;
                 }
@@ -1078,9 +1098,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     if (head.IcacheMiss) PostIcachePendings();
                     RetireMemQueues(head);
-                    _rob.Retire();
-                    _retiredCounter.Increment();
-                    State.OnRetire();
+                    FinishRetire(head);
                     SetFlush(target);
                     return;
                 }
@@ -1091,9 +1109,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     if (head.IcacheMiss) PostIcachePendings();
                     RetireMemQueues(head);
-                    _rob.Retire();
-                    _retiredCounter.Increment();
-                    State.OnRetire();
+                    FinishRetire(head);
                     SetFlush(target);
                     return;
                 }
@@ -1229,9 +1245,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                 if (head.IcacheMiss) PostIcachePendings();
                 RetireMemQueues(head);
-                _rob.Retire();
-                _retiredCounter.Increment();
-                State.OnRetire();
+                FinishRetire(head);
                 _halted = true;
                 return;
             }
@@ -1248,9 +1262,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                 PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                 if (head.IcacheMiss) PostIcachePendings();
                 RetireMemQueues(head);
-                _rob.Retire();
-                _retiredCounter.Increment();
-                State.OnRetire();
+                FinishRetire(head);
                 _halted = true;
                 return;
             }
@@ -1263,9 +1275,15 @@ internal sealed partial class OoOPipelineCore : Gear {
                 int instrSize = head.Instruction?.SizeBytes ?? 4;
 
                 bool taken = resolvedPc != instrPc + (ulong)instrSize;
+                // BranchComponent, not head.Instruction/instrPc directly: for a macro-fused
+                // entry (see IMacroFuser), head.Pc/head.Instruction describe the *compare*
+                // half, not the branch — but the BTB/predictor tables were trained against
+                // the branch's own real address at Fetch time, so training must key off that
+                // same address or it silently misses the table entirely.
+                ulong branchPc = head.Instruction?.BranchComponent.Pc ?? instrPc;
                 if (_predictor is IBranchKindAwareBranchPredictor kindAware)
-                    kindAware.NotifyBranchKind(instrPc, ClassifyBranchKind(head.Instruction));
-                _predictor.Update(instrPc, taken, resolvedPc);
+                    kindAware.NotifyBranchKind(branchPc, ClassifyBranchKind(head.Instruction?.BranchComponent));
+                _predictor.Update(branchPc, taken, resolvedPc);
                 _valuePredictor?.AdvanceCommittedHistory(taken);
 
                 if (resolvedPc != predictedPc) {
@@ -1283,9 +1301,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                     PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
                     if (head.IcacheMiss) PostIcachePendings();
                     RetireMemQueues(head);
-                    _rob.Retire();
-                    _retiredCounter.Increment();
-                    State.OnRetire();
+                    FinishRetire(head);
                     SetFlush(resolvedPc);
                     return;
                 }
@@ -1296,9 +1312,7 @@ internal sealed partial class OoOPipelineCore : Gear {
             PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
             if (head.IcacheMiss) PostIcachePendings();
             RetireMemQueues(head);
-            _rob.Retire();
-            _retiredCounter.Increment();
-            State.OnRetire();
+            FinishRetire(head);
             committed++;
         }
 
@@ -2220,6 +2234,28 @@ internal sealed partial class OoOPipelineCore : Gear {
             }
 
             ITooth instr = fi.Decoded!;
+
+            // Macro-fusion: must happen here, before source lookup, not at Issue like
+            // SuperscalarTrain's execute-at-issue model. An OoO consumer can't read a
+            // producer's value until the CDB broadcasts it (typically 1+ cycles after
+            // Execute), so co-issuing two separately-renamed entries wouldn't remove that
+            // latency — only collapsing to a single RAT/ROB/IQ entry does. `second`'s own
+            // PredictedNextPc/HistCheckpoint (its real fetch-time branch prediction) replace
+            // `fi`'s trivial ones below; `fi`'s are meaningless for a non-branch compare.
+            var fused = false;
+            FetchedInstr second = default;
+            if (_macroFuser is not null
+             && TryPeekSecondDecoded(out second)
+             && second.PreTrap is null
+             && second.Decoded is not null
+             && second.Pc == fi.Pc + (ulong)instr.SizeBytes) {
+                ITooth? fusedInstr = _macroFuser.TryFuse(instr, second.Decoded);
+                if (fusedInstr is not null) {
+                    instr = fusedInstr;
+                    fused = true;
+                }
+            }
+
             int destArch = instr.DestinationRegister;
             if (destArch > 0 && !_rat.HasFree) break; // stall: no free physical registers
 
@@ -2308,14 +2344,41 @@ internal sealed partial class OoOPipelineCore : Gear {
             PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
             _renameQueue.Enqueue(
                 new RenameEntry(
-                    fi.Pc, instr, fi.PredictedNextPc, fi.InstrId, null,
-                    destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3, fi.HistCheckpoint,
-                    fi.IcacheMiss, fi.VpHistCheckpoint, vpEligible, wasValuePredicted, predictedValue,
-                    earlyExecEligible, earlySideEffect
+                    fi.Pc, instr, fused ? second.PredictedNextPc : fi.PredictedNextPc, fi.InstrId, null,
+                    destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3,
+                    fused ? second.HistCheckpoint : fi.HistCheckpoint,
+                    fi.IcacheMiss || (fused && second.IcacheMiss), fi.VpHistCheckpoint, vpEligible,
+                    wasValuePredicted, predictedValue, earlyExecEligible, earlySideEffect
                 )
             );
             _decodeQueue.Dequeue();
+            if (fused) {
+                _decodeQueue.Dequeue();
+                // Counted here, past every RAT-full/secondary-dest break above: those breaks
+                // re-peek the same still-undequeued pair next cycle without renaming it, so
+                // incrementing at detection time would double-count every stalled cycle.
+                _macroFusionsCounter.Increment();
+            }
         }
+    }
+
+    /// <summary>
+    ///     Peeks the decode queue's second entry (the one behind the head) without dequeuing
+    ///     anything, for macro-fusion's adjacency check in <see cref="StepRename" />.
+    ///     <c>Queue&lt;T&gt;</c> exposes no indexer, so this walks its struct enumerator
+    ///     directly — no LINQ, no allocation.
+    /// </summary>
+    private bool TryPeekSecondDecoded(out FetchedInstr second) {
+        if (_decodeQueue.Count < 2) {
+            second = default;
+            return false;
+        }
+
+        Queue<FetchedInstr>.Enumerator e = _decodeQueue.GetEnumerator();
+        e.MoveNext();
+        e.MoveNext();
+        second = e.Current;
+        return true;
     }
 
     /// <summary>Fetch up to issueWidth instructions into the decode queue.</summary>
@@ -3085,7 +3148,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         }
 
         // (d) Restore global history (+ B's own local entry) to as-of-B and fold B's true direction.
-        _predictor.RestoreHistory(b.HistCheckpoint, b.Pc, _squashTaken);
+        // b.Instruction.BranchComponent.Pc, not b.Pc: for a macro-fused B (see IMacroFuser),
+        // b.Pc is the compare half, but local-history recovery must index the same per-PC
+        // slot the branch's own Fetch-time capture used.
+        _predictor.RestoreHistory(b.HistCheckpoint, b.Instruction!.BranchComponent.Pc, _squashTaken);
         _valuePredictor?.RestoreHistory(b.VpHistCheckpoint, _squashTaken);
 
         // ── Discard the younger structures (B and everything older survive) ─────────────
@@ -3285,12 +3351,17 @@ internal sealed partial class OoOPipelineCore : Gear {
         };
 
         // Notify vector-aware predictor of vector instruction or taken backward branch.
+        // issued.Instr.BranchComponent.Pc, not issued.Pc: for a macro-fused entry (see
+        // IMacroFuser), issued.Pc is the compare half — the loop-iteration-estimation table
+        // is keyed on the branch's own real address, same as the training sites above.
         if (_predictor is IVectorAwareBranchPredictor vbp) {
             if (isVec)
                 vbp.NotifyVectorInstruction(issued.Pc);
-            else if (issued.Instr.Class == ToothClass.ConditionalBranch
-                  && resolvedNextPc.HasValue && resolvedNextPc.Value < issued.Pc)
-                vbp.NotifyLoopBranchExecute(issued.Pc, resolvedNextPc.Value, issued.Src1, issued.Src2);
+            else if (issued.Instr.Class == ToothClass.ConditionalBranch && resolvedNextPc.HasValue) {
+                ulong branchPc = issued.Instr.BranchComponent.Pc;
+                if (resolvedNextPc.Value < branchPc)
+                    vbp.NotifyLoopBranchExecute(branchPc, resolvedNextPc.Value, issued.Src1, issued.Src2);
+            }
         }
 
         // For loads: try to forward from an older executed store to the same address.
