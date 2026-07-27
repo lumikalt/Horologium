@@ -1228,6 +1228,15 @@ no existing passing test's value-checked assertions have ever depended on this w
 itself works around it with NOP padding, same as real compiled code incidentally usually does via argument
 setup between the syscall number and the call.
 
+**This turned out to block a real use case, not just synthetic tests**: attempting the natural next step —
+a tick-level ground-truth test comparing a cold `pthread_probe.elf` run (via `MultiHartPipeline`'s new
+dynamic activation) against `MultiHartLoopPointExperiment`'s estimate, mirroring `RealLinkedLoopPointTests`'
+single-hart version — hit this exact bug on real, unpaddable compiled musl code: startup silently takes the
+ENOSYS path on some other syscall before ever reaching `clone()`, leaving the run permanently stuck on a
+`futex` wait no other hart ever gets created to clear. That ground-truth test was designed and works in
+principle but is not committed, shelved pending this fix (see `TODO.md`'s escalation note for exactly what
+to resurrect).
+
 **OoO timing note:** `OooeTrain`'s physical register file starts zeroed; `ArchState.IntegerRegisters.Write()` updates
 the architectural register file but not the PRF, so register values pre-set before `Run()` are invisible to the
 pipeline. For OoO MOESIF coherence tests or any test that requires non-zero initial register values, compute those

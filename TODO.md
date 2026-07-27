@@ -571,6 +571,23 @@ just infrastructure this design doesn't require.
   hazard/forwarding path a decoded source operand would, or should `ecall` itself be treated as
   head-of-pipeline/serialized (mirroring `OooTrain`'s immunity) so it only ever reads fully-retired state?
   The two answers imply different fixes; reading stale state is wrong under both.
+  **Escalation, found while attempting the multi-hart LoopPoint ground-truth test this bug's own discovery
+  motivated (see the `MultiHartPipeline` item above)**: this is not only a synthetic-test-only gap. Booting
+  `pthread_probe.elf` cold on a real `FiveStageTrain` via `MultiHartPipeline`'s new dynamic activation never
+  reaches its `clone()` call at all (syscall 220 never dispatches) — musl's own real startup sequence hits
+  the same zero-gap hazard on some other syscall first (confirmed via the same `Handle()`-argument-printing
+  diagnostic used for the original repro: a couple of real startup syscalls read `num=0`, silently taking
+  the ENOSYS path), leaving hart 0 permanently spinning on a `futex` wait no other hart will ever clear
+  (single-hart, no `clone()` ever having happened) rather than reaching `pthread_create`. This directly
+  blocks a real use case — a tick-level ground-truth comparison for multi-hart `--looppoint` measurement —
+  not just a hand-assembled test that can pad around it; the ground-truth test itself had to be shelved
+  (not committed) pending this fix. Deliberately still not fixed in that same sitting — the fix is
+  substantial, cross-train, core executor/hazard-logic surgery, not a mid-session addendum — but this
+  raises the item's priority: whoever picks up the fix should also restore and complete the ground-truth
+  test that's blocked on it (was `Tests/RiscV64/System/MultiHartLoopPointGroundTruthTests.cs`, deleted
+  rather than left half-working; the design — cold `MultiHartPipeline` run vs. `MultiHartLoopPointExperiment`'s
+  estimate, mirroring `RealLinkedLoopPointTests`'s single-hart version — is sound and worth resurrecting
+  once `ecall` can reliably reach a real binary's `clone()` call).
 - [x] `SingleCycleTrain` had the same silent-wrong-commit gap `RequestBlock` closed in the six detailed
   trains above: it shares `SmtTrain`/`MultiHartKernel`'s "one instruction fully completes per call" model
   (no pipeline latches), so this is the simplest translation of all seven — `ExecuteOneCycle` charges the
