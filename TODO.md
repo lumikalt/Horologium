@@ -523,13 +523,18 @@ just infrastructure this design doesn't require.
   truth is possible for a region that itself spans a `clone()` call, only the functional-kernel cross-check
   noted in the item above. Needed for that, and for any other detailed-pipeline multi-hart workload that
   spawns threads mid-run rather than starting with a fixed hart count.
-- [ ] `SingleCycleTrain` almost certainly has the same silent-wrong-commit gap `RequestBlock` closed in the
-  six detailed trains above: it shares the "execute one instruction fully to completion per call" model
-  `SmtTrain.IssueOne` was found to mirror, and a grep confirms it never reads
-  `ExecuteResult.RequestBlock` either (`ExecuteOneCycle`, `src/Core/Pipeline/SingleCycleTrain.cs`) — a
-  still-blocked syscall today silently advances past itself instead of retrying. Not fixed here (out of
-  this item's six-detailed-train scope), but worth closing given how many functional (non-timing) driver
-  paths (SMARTS's fast-forward pass, plain single-hart bare-metal runs) go through this train.
+- [x] `SingleCycleTrain` had the same silent-wrong-commit gap `RequestBlock` closed in the six detailed
+  trains above: it shares `SmtTrain`/`MultiHartKernel`'s "one instruction fully completes per call" model
+  (no pipeline latches), so this is the simplest translation of all seven — `ExecuteOneCycle` charges the
+  cycle as usual (real hardware time passes even on a blocked retry) but, right after that, skips
+  writeback/retire/PC-advance entirely and reschedules the same instruction, mirroring
+  `MultiHartKernel.StepHart`'s functional retry-in-place at this train's own cycle-accurate granularity. No
+  squash-and-refetch machinery needed, since a single-instruction-at-a-time train has no younger in-flight
+  state to squash. Proven the same 3-test way as the other six trains (2 single-hart stub-handler + 1
+  cross-hart `MultiHartPipeline` composition test), all 3 confirmed to fail with the fix removed (silent
+  wrong advances, not a crash — e.g. `handler.CallCount` landing at 1 instead of the expected 4), then pass
+  restored. Closes the SMARTS fast-forward pass's and every other plain single-hart functional run's
+  exposure to this bug class, alongside the six detailed trains already covered.
 - [x] Weighted-multiplier runtime extrapolation + Runner CLI wiring: `LoopPointRuntimeExtrapolation`
   (`src/Core/Pipeline/LoopPointRuntimeExtrapolation.cs`) implements Eq. 1/2 — per-representative multiplier
   from filtered-instruction-count ratios (not `SimulationPoint.Weight`, which assumes fixed-length intervals,

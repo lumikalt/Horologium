@@ -283,6 +283,16 @@ internal sealed class SingleCycleCore(
             for (long i = 0; i < stalls; i++) ArchState.OnCycle();
         }
 
+        // Still-blocked syscall (futex FUTEX_WAIT etc.): the cycle is charged like any other
+        // instruction (real hardware time passes even while retrying), but nothing commits or
+        // retires and PC stays put, so the same ecall is re-decoded and re-executed next tick —
+        // mirrors MultiHartKernel.StepHart's functional retry-in-place at this train's own
+        // cycle-accurate granularity.
+        if (result.RequestBlock) {
+            ScheduleNextInstruction();
+            return;
+        }
+
         // Writeback
         if (result.HasTrap) { ArchState.Pc = mechanism.TrapController.RaiseTrap(result.Trap!, ArchState); }
         else if (result.IsReturnFromTrap) {

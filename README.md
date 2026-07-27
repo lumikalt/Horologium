@@ -1843,6 +1843,20 @@ against another live hart within the measured window, which still runs through `
 stall-limit bail-out and would silently feed a truncated tick count into Eq. 1/2 rather than throwing;
 tracked as its own `TODO.md` item rather than folded into this one.
 
+**`RequestBlock` support in `SingleCycleTrain` (Pipeline/SingleCycleTrain.cs).** The seventh and last train
+identified as needing this. It shares `SmtTrain`/`MultiHartKernel`'s "one instruction fully completes per
+call" model — no pipeline latches at all — making this the simplest translation of the seven:
+`ExecuteOneCycle` charges the cycle as usual (real hardware time genuinely passes even on a blocked retry)
+but, right after that, skips writeback/retire/PC-advance entirely and reschedules the same instruction,
+mirroring `MultiHartKernel.StepHart`'s functional retry-in-place at this train's own cycle-accurate
+granularity. No squash-and-refetch machinery needed — a single-instruction-at-a-time train has no younger
+in-flight state to squash in the first place. `Tests/Pipeline/SingleCycleRequestBlockGuardTests.cs` mirrors
+the other six trains' tests (2 single-hart stub-handler + 1 cross-hart `MultiHartPipeline` composition
+test); all 3 confirmed to fail with the fix removed — not a crash, but silently wrong forward progress
+(e.g. a blocked ecall's handler called once instead of the expected four times) — then pass restored. This
+closes the bug class for every functional (non-timing) driver path that runs through this train too
+(SMARTS's fast-forward pass, plain single-hart bare-metal runs), not just the six detailed pipeline trains.
+
 **Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`
 (computed from `MultiHartLoopPointProfiler.RegionBbvs`) plus `RegionInstructionCounts` (the new property
