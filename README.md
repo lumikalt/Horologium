@@ -113,7 +113,14 @@ assembly editor (editor + decoded listing + register file), and a **Vector tab**
 file (VLEN=128) as a grid with a selectable e8/e16/e32/e64 element-width view and a live vtype/vl readout. The Assembler
 tab has a sidebar **language toggle (RISC-V ASM / C)**: in C mode the source is compiled with `riscv32-none-elf-gcc` (
 selectable `-O` level) against a tiny `_start` stub, the resulting `.text` is disassembled into the listing, and
-single-cycle stepping highlights the current C source line via `objdump -dl` line info. A **Configurator tab** is a
+single-cycle stepping highlights the current C source line via `objdump -dl` line info. The Assembler tab's own
+sub-tab strip has a second entry, **UVE Kernel**, alongside its CPU editor: a source editor and console-output panel
+for a real, compiled UVE kernel — `CompiledSourceWorkload` shells out to a user-supplied patched UVE clang path
+(github.com/lumicrespo/UVEcompiler — not bundled by `flake.nix`) plus the flake's `riscv64-unknown-linux-musl-gcc` as
+link driver, wraps the result as a real linked ELF workload, and runs it via `Experiment.RunLinkedElf` (psABI stack +
+`LinuxSyscallEmulator`, so `printf` works) under a single selected "ooo" config (the sidebar's own config picker,
+restricted to that pipeline — the only one that steps the `StreamingEngine` UVE instructions need). A
+**Configurator tab** is a
 gem5-style architecture builder: an AvaloniaEdit pane edits a `.csx` script (the same `Script.ScriptHost`/
 `Pipeline.Spec.MachineSpec` API `Runner --script` uses) and hot-reloads it on both in-app edits (debounced) and external
 saves (`FileSystemWatcher`), against a workload preset picker, with a live cache/TLB/dial stat panel while running — a

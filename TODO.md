@@ -6,7 +6,43 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## UVE (Unlimited Vector Extension)
 
-- [x] **Found and fixed a real OoOE memory-ordering bug while validating a real UVE kernel**: `OooTrain`'s
+- [x] Build the author's patched UVE clang (`github.com/lumicrespo/UVEcompiler`, cloned to
+  `~/code/verilog/UVEcompiler`): confirmed `patches/UVE.patch` (18 files, entirely the RISC-V backend +
+  `lld` + one clang target file) applies clean on `llvm-project` `release/16.x`. Built minimal (Release,
+  shared libs, `LLVM_ENABLE_PROJECTS=clang;lld`, `LLVM_TARGETS_TO_BUILD=RISCV`, no runtimes) at
+  `~/code/verilog/UVEcompiler/build-riscv` — worked around one GCC-15-vs-LLVM-16 incompatibility
+  (`SmallVector.h` needs `<cstdint>` transitively; fixed with `-DCMAKE_CXX_FLAGS="-include cstdint"`).
+  Compiled `spmv_ellpack_delimiters`'s real kernel source end-to-end (`-march=rv32imafd_xuve0p1
+  -menable-experimental-extensions`, headers from the `riscv32-none-elf-gcc` Nix package's sys-include)
+  and cross-checked its disassembly against Horologium's own encoder helpers — bit-exact on
+  `ss.sta.ld.w.inds`, `ss.end`, `ss.app.ind.siz.set`, `so.a.mac.fp`, and (independently confirming the
+  `so.b.*` retraction saga in `SPEC_NOTES.md`) `so.b.nc`/`so.b.ndc.2`. Found and worked around a real
+  bug in the patch's `lld` relocation code (`R_RISCV_UVE_STREAM_BRANCH` clobbers the branch's opcode
+  marker bits on link — see `SPEC_NOTES.md`'s "Bugs found in the UVE compiler" section; workaround is
+  `-mno-relax`, not mentioned in the repo's own build docs). Fully verified end-to-end: a from-scratch
+  UVE dot-product kernel, compiled `--target=riscv64-unknown-linux-musl ... -mno-relax`, statically
+  linked against real musl libc via the patched `ld.lld`, ran correctly in Horologium (`OooTrain` +
+  `Rv64Mechanism` + `LinuxSyscallEmulator`, real psABI stack) and printed the exactly-correct
+  `300.000000`. Along the way: confirmed only `OooTrain` drives the `StreamingEngine`
+  (`SingleCycleTrain`/`FiveStageTrain`/etc. don't reference `ToothClass.Uve` — a UVE binary hangs
+  forever under any other train, including `Runner`'s `--bench-config`, which only supports
+  `SingleCycleTrain` — and `CprTrain` throws `NotSupportedException` outright on sight of one).
+  Reported the `lld` bug to the author (heads-up given, reply pending) and fixed it locally in
+  `~/code/verilog/UVEcompiler/llvm-project-16` (one-line mask fix, rebuilt `lld` incrementally) —
+  reverified both the minimal reproducer and the full `dot4` kernel compiled **without** `-mno-relax`,
+  both now correct; the local build no longer needs the workaround.
+- [x] Wired the patched UVE compiler into Face: a **UVE Kernel** sub-tab alongside Assembler's CPU
+  sub-tab, with its own sidebar section (clang path, a config picker restricted in practice to "ooo",
+  "Compile & Run") — not a Chart/Table workload preset, per user direction after the first pass placed
+  it there. `CompiledSourceWorkload` (`src/Apps/Face/Models`) shells out to the user-supplied clang
+  path + the flake's `riscv64-unknown-linux-musl-gcc` as link driver (`-fuse-ld=lld -B <clang's bin
+  dir>`, since GNU `ld` can't handle the custom UVE relocation) and wraps the result as an
+  `Rv64ElfWorkload`; a new `Experiment.RunLinkedElf` gives it a real psABI stack +
+  `LinuxSyscallEmulator` (for `printf`) under a single selected config. Restricted to the "ooo"
+  pipeline specifically, not "ooo"/"cpr" — `CprTrain` throws `NotSupportedException` outright on any
+  Vector/UVE instruction (discovered while wiring this), it doesn't merely fail to step the
+  `StreamingEngine` like the other non-ooo trains.
+- [x] **Found and fixed a real OoOE memory-ordering bug while validating the above**: `OooTrain`'s
   `HasPrecedingVectorStore` gated younger scalar loads on preceding vector stores and
   `MayAccessArbitraryMemory` ops (ECALL), but never on UVE arithmetic ops (`so.a.mac.fp` and siblings)
   that write a store stream — their `UveWriteResult` path writes guest memory eagerly at execute time,

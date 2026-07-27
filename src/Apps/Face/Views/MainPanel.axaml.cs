@@ -8,6 +8,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using AvaloniaEdit;
 using Face.Controls;
 using Face.Models;
 using Face.ViewModels;
@@ -26,6 +27,7 @@ public partial class MainPanel : UserControl {
     private bool _configuratorTabAdded;
     private WaterfallRow? _lastHoveredRow;
     private DataGrid? _resultsGrid;
+    private TextEditor? _sourceEditor;
     private AvaPlot? _waveformView;
 
     public MainPanel() {
@@ -35,6 +37,7 @@ public partial class MainPanel : UserControl {
             _chartView = this.FindControl<AvaPlot>("ChartView");
             _waveformView = this.FindControl<AvaPlot>("WaveformView");
             _resultsGrid = this.FindControl<DataGrid>("ResultsGrid");
+            _sourceEditor = this.FindControl<TextEditor>("SourceEditor");
             if (Vm is not null) {
                 Vm.ResultsUpdated += () => Dispatcher.UIThread.Post(OnResultsUpdated);
                 Vm.WaveformUpdated += () => Dispatcher.UIThread.Post(RefreshWaveform);
@@ -43,6 +46,7 @@ public partial class MainPanel : UserControl {
                 };
             }
 
+            InitSourceEditor();
             AddConfiguratorTabIfNeeded();
             ApplyChartStyle();
 
@@ -57,6 +61,19 @@ public partial class MainPanel : UserControl {
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
+
+    // The UVE Kernel sub-tab's AvaloniaEdit editor isn't a simple bindable string (same reason
+    // AssemblerView's Editor uses code-behind, not a Text binding) — one-way sync into
+    // Vm.SourceCode on every keystroke is enough here, unlike Assembler's two-mode ASM/C editor,
+    // since nothing else ever writes SourceCode after construction.
+    private void InitSourceEditor() {
+        if (_sourceEditor is null || Vm is null) return;
+        _sourceEditor.Text = Vm.SourceCode;
+        _sourceEditor.SyntaxHighlighting = CHighlighting.GetDefinition(Vm.IsDarkTheme);
+        _sourceEditor.TextChanged += (_, _) => {
+            if (Vm is not null) Vm.SourceCode = _sourceEditor.Text;
+        };
+    }
 
     private void AddConfiguratorTabIfNeeded() {
         if (_configuratorTabAdded || Vm is null) return;

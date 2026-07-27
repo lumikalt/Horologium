@@ -5,6 +5,7 @@
              xmlns:controls="using:Face.Controls"
              xmlns:models="using:Face.Models"
              xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
+             xmlns:avEdit="using:AvaloniaEdit"
              x:Class="Face.Views.MainPanel"
              x:DataType="vm:MainWindowViewModel">
 
@@ -789,785 +790,866 @@
                     <!-- ── Assembler sidebar ─────────────────────────────────── -->
                     <StackPanel IsVisible="{Binding IsAssemblerTab}">
 
-                        <Separator />
+                        <!-- UVE Kernel sub-tab controls -->
+                        <StackPanel IsVisible="{Binding IsUveKernelSubTab}">
+                            <Separator />
+                            <StackPanel Margin="16,12,16,12" Spacing="8">
+                                <TextBlock Text="UVE CLANG" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                                <TextBox Text="{Binding UveClangPath}"
+                                         PlaceholderText="Path to the patched UVE clang binary…" />
+                                <TextBlock
+                                    Text="The compile+link step also needs riscv64-unknown-linux-musl-gcc on PATH (flake.nix)."
+                                    FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+                            </StackPanel>
 
-                        <!-- ISA selector -->
-                        <StackPanel Margin="16,12,16,0" Spacing="6">
-                            <TextBlock Text="ISA" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
-                            <ComboBox ItemsSource="{Binding Assembler.IsaOptions}"
-                                      SelectedItem="{Binding Assembler.SelectedIsa}"
-                                      HorizontalAlignment="Stretch" />
-                        </StackPanel>
+                            <Separator />
 
-                        <!-- Language selector -->
-                        <StackPanel Margin="16,12,16,0" Spacing="6">
-                            <TextBlock Text="LANGUAGE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
-                            <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
-                                <RadioButton Grid.Column="0"
-                                             Content="RISC-V ASM"
-                                             GroupName="EditorLanguage"
-                                             IsChecked="{Binding !Assembler.IsCMode, Mode=TwoWay}" />
-                                <RadioButton Grid.Column="1"
-                                             Content="C"
-                                             GroupName="EditorLanguage"
-                                             IsChecked="{Binding Assembler.IsCMode, Mode=TwoWay}" />
-                            </Grid>
-                            <Grid ColumnDefinitions="90,*" ColumnSpacing="4"
-                                  IsVisible="{Binding Assembler.IsCMode}">
-                                <TextBlock Grid.Column="0" Text="Optimization"
-                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                <ComboBox Grid.Column="1"
-                                          ItemsSource="{Binding Assembler.OptLevelOptions}"
-                                          SelectedItem="{Binding Assembler.OptLevel}"
-                                          HorizontalAlignment="Stretch" />
-                            </Grid>
-                        </StackPanel>
-
-                        <!-- ISA extension selector -->
-                        <Button HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Stretch"
-                                Margin="16,12,16,0"
-                                Padding="12,10">
-                            <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedLeft">
-                                    <StackPanel Margin="4,2" Width="160">
-                                        <TextBlock Text="EXTENSIONS"
-                                                   FontSize="10" FontWeight="SemiBold" Opacity="0.55"
-                                                   Margin="0,0,0,8" />
-                                        <ItemsControl ItemsSource="{Binding Assembler.AvailableExtensions}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate x:DataType="models:ExtensionToggle">
-                                                    <CheckBox IsChecked="{Binding IsEnabled}"
-                                                              Content="{Binding Name}"
-                                                              Margin="0,3" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+                            <!-- Configuration selector -->
+                            <StackPanel Margin="16,12,16,0" Spacing="8">
+                                <DockPanel>
+                                    <TextBlock Text="CONFIGURATION" DockPanel.Dock="Left"
+                                               FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                                               VerticalAlignment="Center" />
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                                        <Button Content="+" ToolTip.Tip="Add config"
+                                                Command="{Binding AddConfigCommand}" Padding="8,4" />
+                                        <Button Content="⧉" ToolTip.Tip="Duplicate selected"
+                                                Command="{Binding DuplicateConfigCommand}" Padding="8,4" />
+                                        <Button Content="−" ToolTip.Tip="Remove selected"
+                                                Command="{Binding RemoveConfigCommand}" Padding="8,4" />
                                     </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
-                            <Grid ColumnDefinitions="*,Auto">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Text="ISA Extensions"
-                                               FontWeight="SemiBold"
-                                               FontSize="13" />
-                                    <TextBlock Text="{Binding Assembler.GasArchString}"
-                                               FontFamily="{StaticResource MonoFont}"
-                                               FontSize="11"
-                                               Opacity="0.55" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="1"
-                                           Text="›"
-                                           VerticalAlignment="Center"
-                                           Opacity="0.4"
-                                           FontSize="18"
-                                           Margin="8,0,0,0" />
-                            </Grid>
-                        </Button>
+                                </DockPanel>
+                                <ComboBox ItemsSource="{Binding Configs}"
+                                          SelectedItem="{Binding SelectedConfig, Mode=TwoWay}"
+                                          HorizontalAlignment="Stretch">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ConfigViewModel">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Text="{Binding Name}" FontWeight="Medium" />
+                                                <TextBlock Text="{Binding Pipeline}" FontSize="11" Opacity="0.55" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock
+                                    Text="Needs the 'ooo' pipeline — the StreamingEngine only runs under that one (not even 'cpr')."
+                                    FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+                            </StackPanel>
 
-                        <!-- Pipeline mode selector -->
-                        <StackPanel Margin="16,12,16,0" Spacing="6">
-                            <TextBlock Text="PIPELINE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
-                            <ComboBox ItemsSource="{Binding Assembler.PipelineModeLabels}"
-                                      SelectedItem="{Binding Assembler.PipelineModeLabel}"
-                                      HorizontalAlignment="Stretch" />
+                            <!-- Config detail -->
+                            <ContentControl Margin="16,4,16,0"
+                                            Content="{Binding SelectedConfig}"
+                                            IsVisible="{Binding HasSelectedConfig}"
+                                            ContentTemplate="{StaticResource ConfigDetailTemplate}" />
+
+                            <Separator Margin="0,12,0,0" />
+
+                            <!-- Run -->
+                            <StackPanel Margin="16,12,16,0" Spacing="8">
+                                <Grid ColumnDefinitions="130,*" ColumnSpacing="8">
+                                    <TextBlock Grid.Column="0" Text="Max ticks" VerticalAlignment="Center" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   Value="{Binding MaxTicks}"
+                                                   Minimum="1" Maximum="1000000000"
+                                                   Increment="100000" FormatString="N0" />
+                                </Grid>
+                                <Button Content="▶  Compile &amp; Run"
+                                        Command="{Binding RunCompiledSourceCommand}"
+                                        IsEnabled="{Binding !IsRunning}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        Padding="0,10" />
+                                <ProgressBar IsIndeterminate="True"
+                                             IsVisible="{Binding IsRunning}"
+                                             Height="4" />
+                            </StackPanel>
                         </StackPanel>
 
-                        <!-- Cache config — only shown in pipelined modes -->
-                        <StackPanel IsVisible="{Binding Assembler.IsPipelineMode}"
-                                    Margin="16,12,16,0" Spacing="8">
-                            <TextBlock Text="CACHE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                        <!-- CPU sub-tab controls -->
+                        <StackPanel IsVisible="{Binding !IsUveKernelSubTab}">
 
-                            <!-- I-Cache -->
-                            <CheckBox IsChecked="{Binding Assembler.ICacheEnabled}"
-                                      Content="I-DoCache" />
-                            <StackPanel IsVisible="{Binding Assembler.ICacheEnabled}" Spacing="4" Margin="12,0,0,0">
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Capacity"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.CacheCapacityKbOptions}"
-                                              SelectedItem="{Binding Assembler.ICacheCapacityKb}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="KB"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Ways"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.CacheWaysOptions}"
-                                              SelectedItem="{Binding Assembler.ICacheWays}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Block"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.CacheBlockBytesOptions}"
-                                              SelectedItem="{Binding Assembler.ICacheBlockBytes}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="B"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Miss"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheMissLatency}"
-                                                   Minimum="1" Maximum="200" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Tag"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheTagLatency}"
-                                                   Minimum="0" Maximum="100" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Data"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheDataLatency}"
-                                                   Minimum="0" Maximum="100" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr.hit"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.WritePolicyOptions}"
-                                              SelectedItem="{Binding Assembler.ICacheWritePolicy}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr.miss"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.WriteMissPolicyOptions}"
-                                              SelectedItem="{Binding Assembler.ICacheWriteMissPolicy}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="WB buf"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheWbCapacity}"
-                                                   Minimum="0" Maximum="32" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="ln"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Banks"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheBankCount}"
-                                                   Minimum="1" Maximum="64" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Rd ports"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheReadPorts}"
-                                                   Minimum="0" Maximum="16" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr ports"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheWritePorts}"
-                                                   Minimum="0" Maximum="16" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Sector"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheSectorBytes}"
-                                                   Minimum="0" Maximum="256" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="B"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Victim"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheVictimCacheEntries}"
-                                                   Minimum="0" Maximum="32" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="ln"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Vic. lat"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.ICacheVictimCacheHitLatency}"
-                                                   Minimum="1" Maximum="200" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <CheckBox IsChecked="{Binding Assembler.FdipEnabled}"
-                                          Content="FDIP (fetch-directed prefetch)" FontSize="11" />
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
-                                      IsVisible="{Binding Assembler.HasFdipFtqCapacity}">
-                                    <TextBlock Grid.Column="0" Text="FTQ"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.FdipFtqCapacity}"
-                                                   Minimum="1" Maximum="256" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <CheckBox IsChecked="{Binding Assembler.RdipEnabled}"
-                                          Content="RDIP (RAS-directed prefetch)" FontSize="11" />
-                            </StackPanel>
+                            <Separator />
 
-                            <!-- D-Cache -->
-                            <CheckBox IsChecked="{Binding Assembler.DCacheEnabled}"
-                                      Content="D-DoCache" />
-                            <StackPanel IsVisible="{Binding Assembler.DCacheEnabled}" Spacing="4" Margin="12,0,0,0">
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Capacity"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.CacheCapacityKbOptions}"
-                                              SelectedItem="{Binding Assembler.DCacheCapacityKb}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="KB"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Ways"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.CacheWaysOptions}"
-                                              SelectedItem="{Binding Assembler.DCacheWays}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Block"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.CacheBlockBytesOptions}"
-                                              SelectedItem="{Binding Assembler.DCacheBlockBytes}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="B"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Miss"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheMissLatency}"
-                                                   Minimum="1" Maximum="200" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Tag"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheTagLatency}"
-                                                   Minimum="0" Maximum="100" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Data"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheDataLatency}"
-                                                   Minimum="0" Maximum="100" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr.hit"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.WritePolicyOptions}"
-                                              SelectedItem="{Binding Assembler.DCacheWritePolicy}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr.miss"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.WriteMissPolicyOptions}"
-                                              SelectedItem="{Binding Assembler.DCacheWriteMissPolicy}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="WB buf"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheWbCapacity}"
-                                                   Minimum="0" Maximum="32" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="ln"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Banks"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheBankCount}"
-                                                   Minimum="1" Maximum="64" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Rd ports"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheReadPorts}"
-                                                   Minimum="0" Maximum="16" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr ports"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheWritePorts}"
-                                                   Minimum="0" Maximum="16" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Sector"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheSectorBytes}"
-                                                   Minimum="0" Maximum="256" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="B"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Victim"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheVictimCacheEntries}"
-                                                   Minimum="0" Maximum="32" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="ln"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Vic. lat"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCacheVictimCacheHitLatency}"
-                                                   Minimum="1" Maximum="200" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Prefetch"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{x:Static vm:AssemblerViewModel.DPrefetcherOptions}"
-                                              SelectedItem="{Binding Assembler.DCachePrefetcher}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
-                                      IsVisible="{Binding Assembler.HasDCachePrefetcherTableSize}">
-                                    <TextBlock Grid.Column="0" Text="Tbl sz"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCachePrefetcherTableSize}"
-                                                   Minimum="1" Maximum="1024" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
-                                      IsVisible="{Binding Assembler.HasDCachePrefetcherDepth}">
-                                    <TextBlock Grid.Column="0" Text="Depth"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCachePrefetcherDepth}"
-                                                   Minimum="1" Maximum="64" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="ln"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
-                                      IsVisible="{Binding Assembler.HasDCachePrefetcherParams}">
-                                    <TextBlock Grid.Column="0" Text="Pref lat"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.DCachePrefetchLatency}"
-                                                   Minimum="0" Maximum="100" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                            </StackPanel>
-
-                            <!-- L2 Cache (unified) -->
-                            <CheckBox IsChecked="{Binding Assembler.L2CacheEnabled}"
-                                      Content="L2 DoCache (unified)" />
-                            <StackPanel IsVisible="{Binding Assembler.L2CacheEnabled}" Spacing="4" Margin="12,0,0,0">
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Capacity"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.L2CacheCapacityKbOptions}"
-                                              SelectedItem="{Binding Assembler.L2CacheCapacityKb}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="KB"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Ways"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.L2CacheWaysOptions}"
-                                              SelectedItem="{Binding Assembler.L2CacheWays}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Block"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.L2CacheBlockBytesOptions}"
-                                              SelectedItem="{Binding Assembler.L2CacheBlockBytes}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="B"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Miss"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheMissLatency}"
-                                                   Minimum="1" Maximum="500" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Tag"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheTagLatency}"
-                                                   Minimum="0" Maximum="100" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Data"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheDataLatency}"
-                                                   Minimum="0" Maximum="100" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr.hit"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.WritePolicyOptions}"
-                                              SelectedItem="{Binding Assembler.L2CacheWritePolicy}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr.miss"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.WriteMissPolicyOptions}"
-                                              SelectedItem="{Binding Assembler.L2CacheWriteMissPolicy}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="WB buf"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheWbCapacity}"
-                                                   Minimum="0" Maximum="64" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="ln"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Banks"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheBankCount}"
-                                                   Minimum="1" Maximum="64" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Rd ports"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheReadPorts}"
-                                                   Minimum="0" Maximum="16" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Wr ports"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheWritePorts}"
-                                                   Minimum="0" Maximum="16" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Sector"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheSectorBytes}"
-                                                   Minimum="0" Maximum="256" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="B"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Victim"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheVictimCacheEntries}"
-                                                   Minimum="0" Maximum="32" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="ln"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Vic. lat"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   Value="{Binding Assembler.L2CacheVictimCacheHitLatency}"
-                                                   Minimum="1" Maximum="500" Increment="1"
-                                                   FormatString="N0"
-                                                   HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="cy"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
-                                </Grid>
-                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
-                                    <TextBlock Grid.Column="0" Text="Inclusion"
-                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding Assembler.InclusionPolicyOptions}"
-                                              SelectedItem="{Binding Assembler.L2CacheInclusionPolicy}"
-                                              HorizontalAlignment="Stretch" />
-                                    <TextBlock Grid.Column="2" Text="  "
-                                               VerticalAlignment="Center" FontSize="11" />
-                                </Grid>
-                            </StackPanel>
-
-                            <!-- Replacement policy (applies to all enabled cache levels) -->
-                            <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4" Margin="12,0,0,0">
-                                <TextBlock Grid.Column="0" Text="Policy"
-                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                <ComboBox Grid.Column="1"
-                                          ItemsSource="{Binding Assembler.CacheReplacementPolicyOptions}"
-                                          SelectedItem="{Binding Assembler.CacheReplacementPolicy}"
+                            <!-- ISA selector -->
+                            <StackPanel Margin="16,12,16,0" Spacing="6">
+                                <TextBlock Text="ISA" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                                <ComboBox ItemsSource="{Binding Assembler.IsaOptions}"
+                                          SelectedItem="{Binding Assembler.SelectedIsa}"
                                           HorizontalAlignment="Stretch" />
-                                <TextBlock Grid.Column="2" Text="  "
-                                           VerticalAlignment="Center" FontSize="11" />
-                            </Grid>
-
-                            <TextBlock Text="Toggle applies immediately. Geometry takes effect on Reset."
-                                       FontSize="10" Opacity="0.4" Margin="0,2,0,0" TextWrapping="Wrap" />
-                        </StackPanel>
-
-                        <!-- OoO structural parameters -->
-                        <StackPanel IsVisible="{Binding Assembler.IsOooMode}"
-                                    Margin="16,0,16,4" Spacing="4">
-                            <TextBlock Text="OOO PIPELINE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
-                            <Grid ColumnDefinitions="72,*,Auto" ColumnSpacing="4"
-                                  RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Issue W"
-                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                <NumericUpDown Grid.Row="0" Grid.Column="1"
-                                               Value="{Binding Assembler.OooIssueWidth}"
-                                               Minimum="1" Maximum="16" FormatString="N0"
-                                               HorizontalAlignment="Stretch" />
-                                <TextBlock Grid.Row="0" Grid.Column="2" Text="  "
-                                           VerticalAlignment="Center" FontSize="11" />
-
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="ROB"
-                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                <NumericUpDown Grid.Row="1" Grid.Column="1"
-                                               Value="{Binding Assembler.OooRobCapacity}"
-                                               Minimum="4" Maximum="512" FormatString="N0"
-                                               HorizontalAlignment="Stretch" />
-                                <TextBlock Grid.Row="1" Grid.Column="2" Text="  "
-                                           VerticalAlignment="Center" FontSize="11" />
-
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="IQ"
-                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                <NumericUpDown Grid.Row="2" Grid.Column="1"
-                                               Value="{Binding Assembler.OooIqCapacity}"
-                                               Minimum="4" Maximum="256" FormatString="N0"
-                                               HorizontalAlignment="Stretch" />
-                                <TextBlock Grid.Row="2" Grid.Column="2" Text="  "
-                                           VerticalAlignment="Center" FontSize="11" />
-
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Phys regs"
-                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                <NumericUpDown Grid.Row="3" Grid.Column="1"
-                                               Value="{Binding Assembler.OooExtraPhysRegs}"
-                                               Minimum="0" Maximum="256" FormatString="N0"
-                                               HorizontalAlignment="Stretch" />
-                                <TextBlock Grid.Row="3" Grid.Column="2" Text="  "
-                                           VerticalAlignment="Center" FontSize="11" />
-
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="MSHR"
-                                           VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
-                                <NumericUpDown Grid.Row="4" Grid.Column="1"
-                                               Value="{Binding Assembler.OooMshrCapacity}"
-                                               Minimum="0" Maximum="64" FormatString="N0"
-                                               HorizontalAlignment="Stretch" />
-                                <TextBlock Grid.Row="4" Grid.Column="2" Text="  "
-                                           VerticalAlignment="Center" FontSize="11" Opacity="0.5" />
-
-                                <CheckBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3"
-                                          Content="Flat IQ"
-                                          IsChecked="{Binding Assembler.OooFlatIq}" />
-                            </Grid>
-                        </StackPanel>
-
-                        <StackPanel Margin="16,12,16,12" Spacing="12">
-                            <TextBlock Text="ASSEMBLER" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
-
-                            <!-- ms / cycle chooser -->
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="ms / cycle" FontSize="11" Opacity="0.55" />
-                                <NumericUpDown Value="{Binding Assembler.MsPerCycle}"
-                                               Minimum="0" Maximum="5000"
-                                               Increment="10" FormatString="N0"
-                                               HorizontalAlignment="Stretch" />
-                                <TextBlock Text="0 = run as fast as possible."
-                                           FontSize="11" Opacity="0.45" />
                             </StackPanel>
 
-                            <!-- Transport buttons: ←  |▶  →  ↺ -->
-                            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
-                                <Button Grid.Column="0" Content="←"
-                                        Command="{Binding Assembler.BackCommand}"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Center"
-                                        FontSize="16" Padding="0,8" />
-                                <Button Grid.Column="1" Content="|▶"
-                                        Command="{Binding Assembler.RunCommand}"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Center"
-                                        FontSize="16" Padding="0,8" />
-                                <Button Grid.Column="2" Content="→"
-                                        Command="{Binding Assembler.StepCommand}"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Center"
-                                        FontSize="16" Padding="0,8" />
-                                <Button Grid.Column="3" Content="↺"
-                                        Command="{Binding Assembler.ResetCommand}"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Center"
-                                        FontSize="16" Padding="0,8" />
-                            </Grid>
-                            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
-                                <TextBlock Grid.Column="0" Text="Back"
-                                           TextAlignment="Center" FontSize="10" Opacity="0.45" />
-                                <TextBlock Grid.Column="1" Text="Run"
-                                           TextAlignment="Center" FontSize="10" Opacity="0.45" />
-                                <TextBlock Grid.Column="2" Text="Step"
-                                           TextAlignment="Center" FontSize="10" Opacity="0.45" />
-                                <TextBlock Grid.Column="3" Text="Reset"
-                                           TextAlignment="Center" FontSize="10" Opacity="0.45" />
-                            </Grid>
+                            <!-- Language selector -->
+                            <StackPanel Margin="16,12,16,0" Spacing="6">
+                                <TextBlock Text="LANGUAGE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                                <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
+                                    <RadioButton Grid.Column="0"
+                                                 Content="RISC-V ASM"
+                                                 GroupName="EditorLanguage"
+                                                 IsChecked="{Binding !Assembler.IsCMode, Mode=TwoWay}" />
+                                    <RadioButton Grid.Column="1"
+                                                 Content="C"
+                                                 GroupName="EditorLanguage"
+                                                 IsChecked="{Binding Assembler.IsCMode, Mode=TwoWay}" />
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*" ColumnSpacing="4"
+                                      IsVisible="{Binding Assembler.IsCMode}">
+                                    <TextBlock Grid.Column="0" Text="Optimization"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding Assembler.OptLevelOptions}"
+                                              SelectedItem="{Binding Assembler.OptLevel}"
+                                              HorizontalAlignment="Stretch" />
+                                </Grid>
+                            </StackPanel>
+
+                            <!-- ISA extension selector -->
+                            <Button HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch"
+                                    Margin="16,12,16,0"
+                                    Padding="12,10">
+                                <Button.Flyout>
+                                    <Flyout Placement="BottomEdgeAlignedLeft">
+                                        <StackPanel Margin="4,2" Width="160">
+                                            <TextBlock Text="EXTENSIONS"
+                                                       FontSize="10" FontWeight="SemiBold" Opacity="0.55"
+                                                       Margin="0,0,0,8" />
+                                            <ItemsControl ItemsSource="{Binding Assembler.AvailableExtensions}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="models:ExtensionToggle">
+                                                        <CheckBox IsChecked="{Binding IsEnabled}"
+                                                                  Content="{Binding Name}"
+                                                                  Margin="0,3" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="ISA Extensions"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="13" />
+                                        <TextBlock Text="{Binding Assembler.GasArchString}"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="11"
+                                                   Opacity="0.55" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1"
+                                               Text="›"
+                                               VerticalAlignment="Center"
+                                               Opacity="0.4"
+                                               FontSize="18"
+                                               Margin="8,0,0,0" />
+                                </Grid>
+                            </Button>
+
+                            <!-- Pipeline mode selector -->
+                            <StackPanel Margin="16,12,16,0" Spacing="6">
+                                <TextBlock Text="PIPELINE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                                <ComboBox ItemsSource="{Binding Assembler.PipelineModeLabels}"
+                                          SelectedItem="{Binding Assembler.PipelineModeLabel}"
+                                          HorizontalAlignment="Stretch" />
+                            </StackPanel>
+
+                            <!-- Cache config — only shown in pipelined modes -->
+                            <StackPanel IsVisible="{Binding Assembler.IsPipelineMode}"
+                                        Margin="16,12,16,0" Spacing="8">
+                                <TextBlock Text="CACHE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+
+                                <!-- I-Cache -->
+                                <CheckBox IsChecked="{Binding Assembler.ICacheEnabled}"
+                                          Content="I-DoCache" />
+                                <StackPanel IsVisible="{Binding Assembler.ICacheEnabled}" Spacing="4" Margin="12,0,0,0">
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Capacity"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.CacheCapacityKbOptions}"
+                                                  SelectedItem="{Binding Assembler.ICacheCapacityKb}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="KB"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Ways"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.CacheWaysOptions}"
+                                                  SelectedItem="{Binding Assembler.ICacheWays}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Block"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.CacheBlockBytesOptions}"
+                                                  SelectedItem="{Binding Assembler.ICacheBlockBytes}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="B"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Miss"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheMissLatency}"
+                                                       Minimum="1" Maximum="200" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Tag"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheTagLatency}"
+                                                       Minimum="0" Maximum="100" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Data"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheDataLatency}"
+                                                       Minimum="0" Maximum="100" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr.hit"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.WritePolicyOptions}"
+                                                  SelectedItem="{Binding Assembler.ICacheWritePolicy}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr.miss"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.WriteMissPolicyOptions}"
+                                                  SelectedItem="{Binding Assembler.ICacheWriteMissPolicy}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="WB buf"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheWbCapacity}"
+                                                       Minimum="0" Maximum="32" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="ln"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Banks"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheBankCount}"
+                                                       Minimum="1" Maximum="64" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Rd ports"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheReadPorts}"
+                                                       Minimum="0" Maximum="16" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr ports"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheWritePorts}"
+                                                       Minimum="0" Maximum="16" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Sector"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheSectorBytes}"
+                                                       Minimum="0" Maximum="256" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="B"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Victim"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheVictimCacheEntries}"
+                                                       Minimum="0" Maximum="32" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="ln"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Vic. lat"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.ICacheVictimCacheHitLatency}"
+                                                       Minimum="1" Maximum="200" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <CheckBox IsChecked="{Binding Assembler.FdipEnabled}"
+                                              Content="FDIP (fetch-directed prefetch)" FontSize="11" />
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
+                                          IsVisible="{Binding Assembler.HasFdipFtqCapacity}">
+                                        <TextBlock Grid.Column="0" Text="FTQ"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.FdipFtqCapacity}"
+                                                       Minimum="1" Maximum="256" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <CheckBox IsChecked="{Binding Assembler.RdipEnabled}"
+                                              Content="RDIP (RAS-directed prefetch)" FontSize="11" />
+                                </StackPanel>
+
+                                <!-- D-Cache -->
+                                <CheckBox IsChecked="{Binding Assembler.DCacheEnabled}"
+                                          Content="D-DoCache" />
+                                <StackPanel IsVisible="{Binding Assembler.DCacheEnabled}" Spacing="4" Margin="12,0,0,0">
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Capacity"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.CacheCapacityKbOptions}"
+                                                  SelectedItem="{Binding Assembler.DCacheCapacityKb}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="KB"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Ways"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.CacheWaysOptions}"
+                                                  SelectedItem="{Binding Assembler.DCacheWays}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Block"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.CacheBlockBytesOptions}"
+                                                  SelectedItem="{Binding Assembler.DCacheBlockBytes}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="B"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Miss"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheMissLatency}"
+                                                       Minimum="1" Maximum="200" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Tag"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheTagLatency}"
+                                                       Minimum="0" Maximum="100" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Data"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheDataLatency}"
+                                                       Minimum="0" Maximum="100" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr.hit"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.WritePolicyOptions}"
+                                                  SelectedItem="{Binding Assembler.DCacheWritePolicy}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr.miss"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.WriteMissPolicyOptions}"
+                                                  SelectedItem="{Binding Assembler.DCacheWriteMissPolicy}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="WB buf"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheWbCapacity}"
+                                                       Minimum="0" Maximum="32" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="ln"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Banks"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheBankCount}"
+                                                       Minimum="1" Maximum="64" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Rd ports"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheReadPorts}"
+                                                       Minimum="0" Maximum="16" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr ports"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheWritePorts}"
+                                                       Minimum="0" Maximum="16" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Sector"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheSectorBytes}"
+                                                       Minimum="0" Maximum="256" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="B"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Victim"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheVictimCacheEntries}"
+                                                       Minimum="0" Maximum="32" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="ln"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Vic. lat"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCacheVictimCacheHitLatency}"
+                                                       Minimum="1" Maximum="200" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Prefetch"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{x:Static vm:AssemblerViewModel.DPrefetcherOptions}"
+                                                  SelectedItem="{Binding Assembler.DCachePrefetcher}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
+                                          IsVisible="{Binding Assembler.HasDCachePrefetcherTableSize}">
+                                        <TextBlock Grid.Column="0" Text="Tbl sz"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCachePrefetcherTableSize}"
+                                                       Minimum="1" Maximum="1024" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
+                                          IsVisible="{Binding Assembler.HasDCachePrefetcherDepth}">
+                                        <TextBlock Grid.Column="0" Text="Depth"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCachePrefetcherDepth}"
+                                                       Minimum="1" Maximum="64" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="ln"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4"
+                                          IsVisible="{Binding Assembler.HasDCachePrefetcherParams}">
+                                        <TextBlock Grid.Column="0" Text="Pref lat"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.DCachePrefetchLatency}"
+                                                       Minimum="0" Maximum="100" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- L2 Cache (unified) -->
+                                <CheckBox IsChecked="{Binding Assembler.L2CacheEnabled}"
+                                          Content="L2 DoCache (unified)" />
+                                <StackPanel IsVisible="{Binding Assembler.L2CacheEnabled}" Spacing="4"
+                                            Margin="12,0,0,0">
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Capacity"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.L2CacheCapacityKbOptions}"
+                                                  SelectedItem="{Binding Assembler.L2CacheCapacityKb}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="KB"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Ways"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.L2CacheWaysOptions}"
+                                                  SelectedItem="{Binding Assembler.L2CacheWays}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Block"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.L2CacheBlockBytesOptions}"
+                                                  SelectedItem="{Binding Assembler.L2CacheBlockBytes}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="B"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Miss"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheMissLatency}"
+                                                       Minimum="1" Maximum="500" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Tag"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheTagLatency}"
+                                                       Minimum="0" Maximum="100" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Data"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheDataLatency}"
+                                                       Minimum="0" Maximum="100" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr.hit"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.WritePolicyOptions}"
+                                                  SelectedItem="{Binding Assembler.L2CacheWritePolicy}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr.miss"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.WriteMissPolicyOptions}"
+                                                  SelectedItem="{Binding Assembler.L2CacheWriteMissPolicy}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="WB buf"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheWbCapacity}"
+                                                       Minimum="0" Maximum="64" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="ln"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Banks"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheBankCount}"
+                                                       Minimum="1" Maximum="64" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Rd ports"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheReadPorts}"
+                                                       Minimum="0" Maximum="16" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Wr ports"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheWritePorts}"
+                                                       Minimum="0" Maximum="16" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Sector"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheSectorBytes}"
+                                                       Minimum="0" Maximum="256" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="B"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Victim"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheVictimCacheEntries}"
+                                                       Minimum="0" Maximum="32" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="ln"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Vic. lat"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheVictimCacheHitLatency}"
+                                                       Minimum="1" Maximum="500" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="cy"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Inclusion"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.InclusionPolicyOptions}"
+                                                  SelectedItem="{Binding Assembler.L2CacheInclusionPolicy}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Replacement policy (applies to all enabled cache levels) -->
+                                <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4" Margin="12,0,0,0">
+                                    <TextBlock Grid.Column="0" Text="Policy"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding Assembler.CacheReplacementPolicyOptions}"
+                                              SelectedItem="{Binding Assembler.CacheReplacementPolicy}"
+                                              HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+                                </Grid>
+
+                                <TextBlock Text="Toggle applies immediately. Geometry takes effect on Reset."
+                                           FontSize="10" Opacity="0.4" Margin="0,2,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <!-- OoO structural parameters -->
+                            <StackPanel IsVisible="{Binding Assembler.IsOooMode}"
+                                        Margin="16,0,16,4" Spacing="4">
+                                <TextBlock Text="OOO PIPELINE" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+                                <Grid ColumnDefinitions="72,*,Auto" ColumnSpacing="4"
+                                      RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Issue W"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Row="0" Grid.Column="1"
+                                                   Value="{Binding Assembler.OooIssueWidth}"
+                                                   Minimum="1" Maximum="16" FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="ROB"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                   Value="{Binding Assembler.OooRobCapacity}"
+                                                   Minimum="4" Maximum="512" FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Row="1" Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="IQ"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                   Value="{Binding Assembler.OooIqCapacity}"
+                                                   Minimum="4" Maximum="256" FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Row="2" Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Phys regs"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Row="3" Grid.Column="1"
+                                                   Value="{Binding Assembler.OooExtraPhysRegs}"
+                                                   Minimum="0" Maximum="256" FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Row="3" Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" />
+
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="MSHR"
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                    <NumericUpDown Grid.Row="4" Grid.Column="1"
+                                                   Value="{Binding Assembler.OooMshrCapacity}"
+                                                   Minimum="0" Maximum="64" FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Grid.Row="4" Grid.Column="2" Text="  "
+                                               VerticalAlignment="Center" FontSize="11" Opacity="0.5" />
+
+                                    <CheckBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3"
+                                              Content="Flat IQ"
+                                              IsChecked="{Binding Assembler.OooFlatIq}" />
+                                </Grid>
+                            </StackPanel>
+
+                            <StackPanel Margin="16,12,16,12" Spacing="12">
+                                <TextBlock Text="ASSEMBLER" FontSize="11" FontWeight="SemiBold" Opacity="0.55" />
+
+                                <!-- ms / cycle chooser -->
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="ms / cycle" FontSize="11" Opacity="0.55" />
+                                    <NumericUpDown Value="{Binding Assembler.MsPerCycle}"
+                                                   Minimum="0" Maximum="5000"
+                                                   Increment="10" FormatString="N0"
+                                                   HorizontalAlignment="Stretch" />
+                                    <TextBlock Text="0 = run as fast as possible."
+                                               FontSize="11" Opacity="0.45" />
+                                </StackPanel>
+
+                                <!-- Transport buttons: ←  |▶  →  ↺ -->
+                                <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
+                                    <Button Grid.Column="0" Content="←"
+                                            Command="{Binding Assembler.BackCommand}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            FontSize="16" Padding="0,8" />
+                                    <Button Grid.Column="1" Content="|▶"
+                                            Command="{Binding Assembler.RunCommand}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            FontSize="16" Padding="0,8" />
+                                    <Button Grid.Column="2" Content="→"
+                                            Command="{Binding Assembler.StepCommand}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            FontSize="16" Padding="0,8" />
+                                    <Button Grid.Column="3" Content="↺"
+                                            Command="{Binding Assembler.ResetCommand}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            FontSize="16" Padding="0,8" />
+                                </Grid>
+                                <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
+                                    <TextBlock Grid.Column="0" Text="Back"
+                                               TextAlignment="Center" FontSize="10" Opacity="0.45" />
+                                    <TextBlock Grid.Column="1" Text="Run"
+                                               TextAlignment="Center" FontSize="10" Opacity="0.45" />
+                                    <TextBlock Grid.Column="2" Text="Step"
+                                               TextAlignment="Center" FontSize="10" Opacity="0.45" />
+                                    <TextBlock Grid.Column="3" Text="Reset"
+                                               TextAlignment="Center" FontSize="10" Opacity="0.45" />
+                                </Grid>
+                            </StackPanel>
+
                         </StackPanel>
 
                     </StackPanel>
@@ -1718,9 +1800,39 @@
                     </Grid>
                 </TabItem>
 
-                <!-- Assembler tab -->
+                <!-- Assembler tab (CPU + UVE Kernel as sub-tabs) -->
                 <TabItem Header="Assembler">
-                    <views:AssemblerView DataContext="{Binding Assembler}" />
+                    <TabControl SelectedIndex="{Binding AssemblerSubTabIndex}">
+                        <TabItem Header="CPU">
+                            <views:AssemblerView DataContext="{Binding Assembler}" />
+                        </TabItem>
+                        <TabItem Header="UVE Kernel">
+                            <Grid RowDefinitions="*,Auto,140">
+                                <avEdit:TextEditor Grid.Row="0"
+                                                   x:Name="SourceEditor"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="13"
+                                                   ShowLineNumbers="True"
+                                                   WordWrap="False"
+                                                   HorizontalScrollBarVisibility="Auto"
+                                                   VerticalScrollBarVisibility="Auto"
+                                                   Margin="8" />
+                                <TextBlock Grid.Row="1" Text="CONSOLE OUTPUT"
+                                           FontSize="11" FontWeight="SemiBold" Opacity="0.55"
+                                           Margin="8,0,8,4" />
+                                <TextBox Grid.Row="2"
+                                         Text="{Binding ConsoleOutput}"
+                                         IsReadOnly="True"
+                                         FontFamily="{StaticResource MonoFont}"
+                                         FontSize="12"
+                                         AcceptsReturn="True"
+                                         TextWrapping="NoWrap"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                         Margin="8,0,8,8" />
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
                 </TabItem>
 
             </TabControl>

@@ -27,6 +27,52 @@ public record WorkloadPreset(string Label, string? ElfFileName, int MemoryBytes 
 public partial class MainWindowViewModel : ObservableObject {
     private const int BenchmarkMemoryBytes = 4 * 1024 * 1024;
 
+    // Matches RealLinkedBinaryTests' proven-safe margin for a real linked musl binary (stack +
+    // TLS + a small static libc footprint) — larger than BenchmarkMemoryBytes, which is tuned for
+    // bare-metal HTIF-style RV32 benchmark ELFs, a different memory-layout concern.
+    private const int CompiledSourceMemoryBytes = 8 * 1024 * 1024;
+
+    /// <summary>
+    ///     Default text for the Assembler tab's "UVE Kernel" sub-tab source editor — a real,
+    ///     previously-validated UVE kernel (2 load streams + 1 store stream, <c>so.a.mac.fp</c>
+    ///     reduction, <c>so.b.nc</c> loop) rather than an empty box, so a first-time user has
+    ///     something that compiles and runs correctly to start from.
+    /// </summary>
+    private const string SampleUveKernel = """
+        #include <stdio.h>
+        #include <stdint.h>
+
+        static float a[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+        static float b[4] = {10.0f, 20.0f, 30.0f, 40.0f};
+        static float out;
+
+        static void dot4(float *av, float *bv, float *outv, uint64_t n) {
+            uint64_t one = 1;
+            asm volatile(
+                "ss.sta.ld.w u1, %[a] \n"
+                "ss.end      u1, zero, %[n], %[one] \n"
+                "ss.sta.ld.w u2, %[b] \n"
+                "ss.end      u2, zero, %[n], %[one] \n"
+                "ss.sta.st.w u3, %[out] \n"
+                "ss.end      u3, zero, %[one], %[one] \n"
+                "so.v.dp.w   u4, zero, p0 \n"
+                ".Lloop: \n"
+                "so.a.mac.fp u4, u1, u2, p0 \n"
+                "so.b.nc     u1, .Lloop \n"
+                "so.a.adde.fp u3, u4, p0 \n"
+                :
+                : [a] "r"(av), [b] "r"(bv), [out] "r"(outv), [n] "r"(n), [one] "r"(one)
+                : "memory"
+            );
+        }
+
+        int main() {
+            dot4(a, b, &out, 4);
+            printf("%f\n", out);
+            return 0;
+        }
+        """;
+
     private static readonly string BenchmarksDir =
         Path.Combine(AppContext.BaseDirectory, "benchmarks");
 
@@ -73,6 +119,39 @@ public partial class MainWindowViewModel : ObservableObject {
     public partial WorkloadPreset SelectedPreset { get; set; }
 
     [ObservableProperty] public partial string? WorkloadPath { get; set; } = null;
+
+    /// <summary>
+    ///     Source text for the Assembler tab's "UVE Kernel" sub-tab (see
+    ///     <see cref="IsUveKernelSubTab" />), compiled via <see cref="Face.Models.CompiledSourceWorkload" />
+    ///     when "Compile &amp; Run" is clicked.
+    /// </summary>
+    [ObservableProperty]
+    public partial string SourceCode { get; set; } = MainWindowViewModel.SampleUveKernel;
+
+    /// <summary>
+    ///     Path to the UVE author's patched clang binary (github.com/lumicrespo/UVEcompiler) — not
+    ///     part of <c>flake.nix</c>, so unlike every other toolchain Face shells out to, this one has
+    ///     no PATH-search fallback and must be supplied by the user.
+    /// </summary>
+    [ObservableProperty]
+    public partial string? UveClangPath { get; set; } = null;
+
+    /// <summary>Captured stdout from the most recent "UVE Kernel" compile-and-run (see <see cref="IsUveKernelSubTab" />).</summary>
+    [ObservableProperty]
+    public partial string ConsoleOutput { get; set; } = "";
+
+    /// <summary>
+    ///     Selected index of the Assembler tab's own sub-tab strip (0 = CPU, 1 = UVE Kernel) — tracked
+    ///     here, not in <see cref="AssemblerViewModel" />, because the UVE Kernel sub-tab's compile-
+    ///     and-run state (<see cref="SourceCode" />/<see cref="UveClangPath" />/<see cref="ConsoleOutput" />/
+    ///     <see cref="SelectedConfig" />) lives on this ViewModel, alongside the rest of the
+    ///     Chart/Table machinery it reuses (a single <see cref="Configs" /> entry, not a parallel list).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsUveKernelSubTab))]
+    public partial int AssemblerSubTabIndex { get; set; }
+
+    public bool IsUveKernelSubTab => AssemblerSubTabIndex == 1;
 
     /// <summary>
     ///     Selects both the ELF loader (<see cref="Rv32ElfWorkload" />/<see cref="Rv64ElfWorkload" />)
@@ -171,6 +250,20 @@ public partial class MainWindowViewModel : ObservableObject {
     public IReadOnlyList<string> TableHeaders { get; private set; } = [];
 
     public bool HasSelectedConfig => SelectedConfig is not null;
+
+    /// <summary>
+    ///     Entering the UVE Kernel sub-tab auto-selects an existing "ooo" config when one is
+    ///     available — the only pipeline that steps the <c>StreamingEngine</c> UVE instructions need
+    ///     (see <see cref="RunCompiledSource" />). Not "cpr": <c>CprTrain</c> throws outright on any
+    ///     Vector/UVE instruction rather than merely failing to step the engine. Leaves the selection
+    ///     alone otherwise; <see cref="RunCompiledSource" /> still validates and reports clearly if no
+    ///     compatible config exists at all.
+    /// </summary>
+    partial void OnAssemblerSubTabIndexChanged(int value) {
+        if (value != 1 || SelectedConfig?.Pipeline == "ooo") return;
+        ConfigViewModel? candidate = Configs.FirstOrDefault(c => c.Pipeline == "ooo");
+        if (candidate is not null) SelectedConfig = candidate;
+    }
 
     /// <summary>
     ///     No RV64 benchmark ELFs exist in <c>TestBinaries/benchmarks/</c> today (only RV32 ones,
@@ -283,6 +376,72 @@ public partial class MainWindowViewModel : ObservableObject {
             UpdateSignals(result);
             HasResults = true;
             StatusText = $"Done — {result.Runs.Count} run(s), {maxTicks:N0} max ticks each.";
+            ResultsUpdated?.Invoke();
+        }
+        catch (Exception ex) { StatusText = $"Error: {ex.Message}"; }
+        finally { IsRunning = false; }
+    }
+
+    /// <summary>
+    ///     Compiles <see cref="SourceCode" /> (via <see cref="Face.Models.CompiledSourceWorkload" />)
+    ///     and runs it under <see cref="SelectedConfig" /> alone — a dedicated command, not routed
+    ///     through <see cref="Run" />'s <see cref="Configs" /> sweep, since the only reason to restrict
+    ///     this to a single config is also the reason a sweep would be broken here: of the default
+    ///     sweep's 9 configs, only "ooo_2w" steps the <c>StreamingEngine</c> UVE instructions rely on
+    ///     — the rest would either hang to the tick budget (pipelines that silently never step it) or
+    ///     throw outright ("cpr", which rejects any Vector/UVE instruction). A real linked ELF also
+    ///     needs a psABI initial stack and Linux syscall emulation for <c>printf</c> —
+    ///     <see cref="Experiment.RunLinkedElf" /> provides both, unlike
+    ///     <see cref="Experiment.RunOne" />'s bare-metal-entry assumption used by the rest of this tab.
+    /// </summary>
+    [RelayCommand]
+    private async Task RunCompiledSource() {
+        if (SelectedConfig is null) {
+            StatusText = "Add at least one configuration.";
+            return;
+        }
+
+        if (SelectedConfig.Pipeline is not "ooo") {
+            StatusText = "Compiled UVE kernels need an 'ooo' pipeline config — "
+                       + "the StreamingEngine only runs under that one (not even 'cpr').";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(UveClangPath)) {
+            StatusText = "Set the UVE clang path first.";
+            return;
+        }
+
+        IsRunning = true;
+        HasResults = false;
+        ConsoleOutput = "";
+        StatusText = "Compiling…";
+
+        try {
+            Rv64ElfWorkload workload = await CompiledSourceWorkload.CompileAsync(
+                UveClangPath, SourceCode, MainWindowViewModel.CompiledSourceMemoryBytes
+            );
+
+            StatusText = "Running…";
+            var maxTicks = (long)(MaxTicks > 0 ? MaxTicks : 1_000_000);
+            var named = SelectedConfig.ToNamedConfig();
+
+            (ExperimentResult result, string output, bool halted) = await Task.Run(() =>
+                Experiment.RunLinkedElf(
+                    workload, named, handler => new Rv64Mechanism(syscallHandler: handler), ["kernel",],
+                    maxTicks
+                )
+            );
+
+            _lastResult = result;
+            UpdateMetrics(result);
+            PopulateTable(result);
+            UpdateSignals(result);
+            ConsoleOutput = output;
+            HasResults = true;
+            StatusText = halted
+                ? $"Done — {maxTicks:N0} max ticks."
+                : $"Hit the {maxTicks:N0}-tick budget without the guest exiting.";
             ResultsUpdated?.Invoke();
         }
         catch (Exception ex) { StatusText = $"Error: {ex.Message}"; }
@@ -503,7 +662,9 @@ public partial class MainWindowViewModel : ObservableObject {
 
         bool multiRun = _lastResult.Runs.Count > 1;
         var series = new List<(string, double[], double[])>();
+        // ReSharper disable once LoopCanBeConvertedToQuery
         foreach (RunRecord run in _lastResult.Runs)
+            // ReSharper disable once ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
         foreach (string name in selected) {
             Signal? sig = SignalExtractor.Extract(run.Result, name, WaveformCumulative);
             if (sig is null) continue;

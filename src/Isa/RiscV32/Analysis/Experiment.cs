@@ -873,11 +873,6 @@ public static class Experiment {
     ///     the <c>tohost</c> register instead of <c>exit()</c>). Functional execution only, no timing
     ///     model — this is a correctness/regression harness, not a performance measurement (see
     ///     <see cref="RunWithSimPointCheckpoints" /> for that).
-    ///     <para>
-    ///         Not validated against a real linked glibc/musl binary — see
-    ///         <see cref="LinuxSyscallEmulator" />'s doc comment for why (no <c>riscv64-*-linux-*</c>
-    ///         userspace toolchain in this environment).
-    ///     </para>
     /// </summary>
     /// <param name="bench">The benchmark to run.</param>
     /// <param name="workload">
@@ -949,5 +944,72 @@ public static class Experiment {
         return new BenchmarkResult(
             bench.Name, train.IsIdle, train.CurrentTick, output, expected, bench.NormalizeTrailingWhitespace
         );
+    }
+
+    /// <summary>
+    ///     Runs a single hardware config against a real, Linux-ABI–linked ELF (e.g. Face's
+    ///     <c>CompiledSourceWorkload</c>) with a full psABI initial stack and Linux syscall emulation
+    ///     attached. <see cref="RunOne" /> assumes bare-metal entry (no stack, no syscalls) and
+    ///     <see cref="RunBenchmark" /> is fixed to <see cref="SingleCycleTrain" />; this is the
+    ///     detailed-pipeline equivalent, needed so a UVE kernel's <c>StreamingEngine</c> — stepped
+    ///     only by <c>OooTrain</c> — actually runs rather than hanging forever (or, under
+    ///     <c>CprTrain</c>, throwing outright) under a train that never touches it.
+    /// </summary>
+    /// <param name="config">
+    ///     Must select the "ooo" pipeline; any other value throws. Not "cpr" — <c>CprTrain</c>
+    ///     throws <see cref="NotSupportedException" /> on any Vector/UVE instruction outright, it
+    ///     doesn't merely fail to step the <c>StreamingEngine</c> like the other non-ooo trains do.
+    /// </param>
+    /// <param name="mechanismFactory">
+    ///     Builds the mechanism given the syscall handler this method constructs, e.g.
+    ///     <c>handler =&gt; new Rv64Mechanism(syscallHandler: handler)</c>.
+    /// </param>
+    /// <param name="wordSize">4 for RV32, 8 for RV64 — selects the psABI pointer width.</param>
+    public static (ExperimentResult Result, string Output, bool Halted) RunLinkedElf(
+        IElfWorkload workload,
+        NamedConfig config,
+        Func<ISyscallHandler, IMechanism> mechanismFactory,
+        IReadOnlyList<string> argv,
+        long maxTicks,
+        int wordSize = 8
+    ) {
+        TrainConfig train = config.Config;
+        if (train.Pipeline is not "ooo")
+            throw new ArgumentException(
+                $"RunLinkedElf requires the 'ooo' pipeline config (the only train that steps the "
+              + $"StreamingEngine); got '{train.Pipeline}'."
+            );
+
+        var memory = new FlatMemory(workload.MemorySize, workload.BaseAddress);
+        workload.Load(memory);
+        IMemory runMemory = workload.WrapMemory(memory);
+        MemoryConfig dCfg = WithMmio(train.ToDMemoryConfig(), workload);
+
+        var outputWriter = new StringWriter();
+        using var syscalls = new LinuxSyscallEmulator(workload.InitialBreak, outputWriter, wordSize);
+        IMechanism mechanism = mechanismFactory(syscalls);
+        if (mechanism is Rv32Mechanism rv32) train.ApplyRtlUnits(rv32);
+
+        ISteppableTrain pipelineTrain = train.ToPipelineSpec(mechanism, workload)
+                                             .Build(
+                                                  mechanism, runMemory, workload.EntryPoint, train.ToIMemoryConfig(),
+                                                  dCfg
+                                              );
+
+        ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
+        ulong sp = InitialStackBuilder.BuildInitialStack(
+            memory, stackTop, wordSize, argv, [],
+            InitialStackBuilder.BuildStandardAuxv(
+                workload.PhdrAddress, workload.PhEntrySize, workload.PhNum, workload.EntryPoint
+            )
+        );
+        pipelineTrain.ArchState!.IntegerRegisters.Write(2, sp);
+
+        RevolutionResult result = pipelineTrain.Run(maxTicks);
+        // train.Pipeline is always "ooo" (checked above) — no other train type reaches here.
+        bool halted = ((OooTrain)pipelineTrain).IsIdle;
+
+        var record = new RunRecord(config.Name, train, result);
+        return (new ExperimentResult([record,]), outputWriter.ToString(), halted);
     }
 }
