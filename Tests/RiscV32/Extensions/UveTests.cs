@@ -2037,19 +2037,26 @@ public class UveTests {
                 fy += dely * force;
                 fz += delz * force;
             }
+
             expectedFx[i] = fx;
             expectedFy[i] = fy;
             expectedFz[i] = fz;
         }
 
-        const ulong posXBase = 0x0000, posYBase = 0x0100, posZBase = 0x0200, nlBase = 0x0300,
-                    frcXBase = 0x0400, frcYBase = 0x0500, frcZBase = 0x0600;
+        const ulong posXBase = 0x0000,
+                    posYBase = 0x0100,
+                    posZBase = 0x0200,
+                    nlBase = 0x0300,
+                    frcXBase = 0x0400,
+                    frcYBase = 0x0500,
+                    frcZBase = 0x0600;
         var mem = new FlatMemory(0x2000);
         for (var i = 0; i < nAtoms; i++) {
             mem.Load(posXBase + (ulong)(i * 4), BitConverter.GetBytes(posX[i]));
             mem.Load(posYBase + (ulong)(i * 4), BitConverter.GetBytes(posY[i]));
             mem.Load(posZBase + (ulong)(i * 4), BitConverter.GetBytes(posZ[i]));
         }
+
         for (var i = 0; i < nl.Length; i++) mem.Load(nlBase + (ulong)(i * 4), BitConverter.GetBytes(nl[i]));
 
         // Register plan: x1=posX x2=posY x3=posZ x4=NL x5=frcX x6=frcY x7=frcZ x8=nAtoms
@@ -2098,7 +2105,7 @@ public class UveTests {
             SoAFp(UveFpOp.Sub, 20, 2, 8), // dely = i_y - j_y
             SoAFp(UveFpOp.Sub, 21, 3, 9), // delz = i_z - j_z
             SoAFp(UveFpOp.Mul, 22, 19, 19), SoAFp(UveFpOp.Mac, 22, 20, 20), SoAFp(UveFpOp.Mac, 22, 21, 21),
-            SoAFp(UveFpOp.Div, 22, 13, 22), // r2inv = 1/sum
+            SoAFp(UveFpOp.Div, 22, 13, 22),                                 // r2inv = 1/sum
             SoAFp(UveFpOp.Mul, 23, 22, 22), SoAFp(UveFpOp.Mul, 23, 22, 23), // r6inv = r2inv^3
             SoAFp(UveFpOp.Mul, 24, 14, 23), SoAFp(UveFpOp.Sub, 24, 24, 15), SoAFp(UveFpOp.Mul, 24, 23, 24),
             SoAFp(UveFpOp.Mul, 24, 22, 24), // force = r2inv*potential
@@ -2120,9 +2127,15 @@ public class UveTests {
         train.Run(8000);
 
         for (var i = 0; i < nAtoms; i++) {
-            Assert.Equal(expectedFx[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcXBase + (ulong)(i * 4), 4)), 2);
-            Assert.Equal(expectedFy[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcYBase + (ulong)(i * 4), 4)), 2);
-            Assert.Equal(expectedFz[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcZBase + (ulong)(i * 4), 4)), 2);
+            Assert.Equal(
+                expectedFx[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcXBase + (ulong)(i * 4), 4)), 2
+            );
+            Assert.Equal(
+                expectedFy[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcYBase + (ulong)(i * 4), 4)), 2
+            );
+            Assert.Equal(
+                expectedFz[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcZBase + (ulong)(i * 4), 4)), 2
+            );
         }
 
         return;
@@ -4848,5 +4861,58 @@ public class UveTests {
         result.SideEffect!(state);
         Assert.Equal(expected, state.UveState.GetLane32(8, 0));
         Assert.Equal(2, state.UveState.RegElemBytes[8]);
+    }
+
+    // ── Regression: scalar load right after a store-stream write ─────────────
+
+    // LW rd, imm(rs1)
+    private static uint Lw(int rd, int rs1, int imm) =>
+        (uint)(((imm & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | (0x2 << 12) | ((rd & 0x1F) << 7) | 0x03);
+
+    /// <summary>
+    ///     A UVE arithmetic op writing a store stream (<c>so.a.fp</c>'s <c>UveWriteResult</c> path)
+    ///     writes guest memory eagerly at execute time, exactly like a standard V-extension vector
+    ///     store — but unlike vector stores, this wasn't covered by <c>OooTrain</c>'s
+    ///     <c>HasPrecedingVectorStore</c> hazard check (gated on <c>ToothClass.Vector</c>, never
+    ///     <c>ToothClass.Uve</c>). A plain scalar LW immediately after could issue and execute before
+    ///     the store-stream write landed, reading the pre-write "poison" value below instead of the
+    ///     newly computed one — reproduced end-to-end by a real compiled dot-product kernel whose
+    ///     <c>flw</c> read back 0 instead of the correct result. Every realistic UVE kernel reads its
+    ///     result back this way, so this is the universal case, not an edge case.
+    /// </summary>
+    [Fact]
+    public void Pipeline_ScalarLoadRightAfterStoreStreamWrite_SeesWrittenValue_NotStale() {
+        const float a = 2.0f, b = 3.0f, expectedSum = a + b;
+        const ulong outAddr = 0x100;
+        const ulong code = 0x1000;
+        const uint poison = 0xDEADBEEFu;
+
+        var mem = new FlatMemory(0x2000);
+        mem.Load(outAddr, BitConverter.GetBytes(poison));
+
+        var words = new List<uint> {
+            Addi(1, 0, (int)outAddr),    // x1 = out address
+            Lui(2, (int)(Rub(a) >> 12)), // x2 = bits(a) upper 20
+            Lui(3, (int)(Rub(b) >> 12)), // x3 = bits(b) upper 20
+            Addi(5, 0, 1),               // x5 = 1 (stream count)
+            Addi(6, 0, 1),               // x6 = 1 (stream stride)
+            SsStaStW(3, 1),              // configure store stream u3, base=x1
+            SsEnd(3, 0, 5, 6),           // count=x5(1), stride=x6(1); activate
+            SoVDpW(1, 2),                // u1 = broadcast bits(a)
+            SoVDpW(2, 3),                // u2 = broadcast bits(b)
+            SoAFp(UveFpOp.Add, 3, 1, 2), // u3 (store stream) = u1 + u2 → writes memory at out address
+            Lw(4, 1, 0),                 // x4 = *(int*)outAddr — immediately after the write
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooTrain(new Rv32Mechanism(), mem, code, robCapacity: 64, iqCapacity: 32);
+        train.Run(2000);
+
+        Assert.Equal(Rub(expectedSum), (uint)train.ArchState!.IntegerRegisters.Read(4));
+        return;
+
+        uint Lui(int rd, int imm20) => (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
     }
 }

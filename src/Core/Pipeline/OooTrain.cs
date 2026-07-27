@@ -1726,15 +1726,31 @@ internal sealed partial class OoOPipelineCore : Gear {
     }
 
     /// <summary>
-    ///     True if any instruction older than <paramref name="loadRobIndex" /> is a vector
-    ///     store, or an instruction that may access arbitrary guest memory (e.g. ECALL — see
-    ///     <see cref="ITooth.MayAccessArbitraryMemory" />). Both write eagerly at execute time
-    ///     (bypassing CapturingMemory) at an address the pipeline can't statically check for
-    ///     overlap, so younger loads must wait until they have cleared the ROB rather than
-    ///     relying on the normal store-forwarding/memory-order-violation machinery. Without this,
-    ///     a younger load can issue and execute before a head-serialized ECALL that writes
-    ///     overlapping memory (e.g. LinuxSyscallEmulator's fstat/clock_gettime/getrandom/read
-    ///     filling a guest buffer), reading stale data.
+    ///     True if any instruction older than <paramref name="loadRobIndex" /> is a vector store, a
+    ///     UVE arithmetic op that writes a <c>ud</c> register (<c>so.a.mac.fp</c> and siblings — see
+    ///     <see cref="ITooth.UveDestinationRegister" />), or an instruction that may access arbitrary
+    ///     guest memory (e.g. ECALL — see <see cref="ITooth.MayAccessArbitraryMemory" />). All three
+    ///     write eagerly at execute time (bypassing CapturingMemory) at an address the pipeline can't
+    ///     statically check for overlap, so younger loads must wait until they have cleared the ROB
+    ///     rather than relying on the normal store-forwarding/memory-order-violation machinery.
+    ///     <para>
+    ///         The UVE case blocks unconditionally rather than querying
+    ///         <c>IUveScalars.IsStoreStream</c> live: whether <c>ud</c> is currently a store stream
+    ///         reflects whatever the <i>last-executed</i> configuring <c>ss.end</c> set it to, but
+    ///         that op is itself head-serialized — if it's still stuck behind an even older,
+    ///         not-yet-issued UVE op when this check runs, the query answers "not a store stream yet"
+    ///         even though it unconditionally will be one by the time this arithmetic op executes.
+    ///         A live query is provably too early to trust, so any UVE op with a <c>ud</c> write is
+    ///         treated as a potential store, exactly like the ECALL case above.
+    ///     </para>
+    ///     Without the UVE case, a scalar load reading a UVE kernel's result back right after the
+    ///     store-stream write (the universal "consume the computed value" pattern) can issue and
+    ///     execute before that write actually lands, reading stale data — reproduced by a real
+    ///     compiled dot-product kernel (<c>ss.sta.st.w</c> + <c>so.a.adde.fp</c> into a stream, then
+    ///     a plain <c>flw</c> of the same address) silently printing 0 instead of the correct result.
+    ///     Without the ECALL case similarly, a younger load can issue and execute before a
+    ///     head-serialized ECALL that writes overlapping memory (e.g. LinuxSyscallEmulator's
+    ///     fstat/clock_gettime/getrandom/read filling a guest buffer), reading stale data.
     ///     Scalar stores no longer block loads here; they are handled by forwarding and
     ///     memory-order violation detection.
     /// </summary>
@@ -1745,6 +1761,7 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (instr is { Class: ToothClass.Vector, VectorDestinationRegister: < 0, DestinationRegister: < 0, })
                 return true;
             if (instr?.MayAccessArbitraryMemory == true) return true;
+            if (instr is { Class: ToothClass.Uve, UveDestinationRegister: >= 0, }) return true;
         }
 
         return false;

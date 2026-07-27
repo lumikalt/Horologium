@@ -63,6 +63,28 @@ public interface ITooth {
     int SecondaryDestinationRegister => -1;
 
     /// <summary>
+    ///     The UVE u-register index this instruction writes, or -1 if it doesn't write one, or
+    ///     if it writes one but can never target a store stream (e.g. a scalar-move that always
+    ///     forces the destination to <c>UveRegKind.Scalar</c>). Whether that u-register is
+    ///     <i>currently</i> configured as a store stream — and so whether this instruction will
+    ///     write guest memory eagerly at execute time, the same way a vector store does — is
+    ///     runtime state (<c>IUveScalars.IsStoreStream</c>), not decodable statically.
+    ///     <para>
+    ///         Do <b>not</b> resolve that ambiguity with a live <c>IsStoreStream</c> query at
+    ///         memory-ordering hazard-check time: the configuring <c>ss.end</c> is itself
+    ///         head-serialized, so if it hasn't executed yet (still stuck behind an even older
+    ///         UVE op), the query answers "not a store stream" even though it unconditionally will
+    ///         be one by the time this instruction executes — provably too early to trust (see
+    ///         <c>OooTrain.HasPrecedingVectorStore</c>'s doc comment for the reproduction). Treat
+    ///         any non-negative <see cref="UveDestinationRegister" /> as an unconditional potential
+    ///         store, the same way <see cref="MayAccessArbitraryMemory" /> is treated unconditionally
+    ///         rather than gated on whether the access turns out to overlap.
+    ///     </para>
+    ///     Non-UVE instructions return -1.
+    /// </summary>
+    int UveDestinationRegister => -1;
+
+    /// <summary>
     ///     UVE u-register indices whose stream element this instruction consumes.
     ///     The pipeline stalls Issue when the streaming engine has no element ready
     ///     for any listed ID that is an active load stream. Non-UVE ops return empty.

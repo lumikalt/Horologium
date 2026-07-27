@@ -6,6 +6,21 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## UVE (Unlimited Vector Extension)
 
+- [x] **Found and fixed a real OoOE memory-ordering bug while validating a real UVE kernel**: `OooTrain`'s
+  `HasPrecedingVectorStore` gated younger scalar loads on preceding vector stores and
+  `MayAccessArbitraryMemory` ops (ECALL), but never on UVE arithmetic ops (`so.a.mac.fp` and siblings)
+  that write a store stream — their `UveWriteResult` path writes guest memory eagerly at execute time,
+  same as a vector store, but fell through the hazard check entirely. A scalar load reading a UVE
+  kernel's result right after the store-stream write (the universal "consume the computed value"
+  pattern) could issue before that write landed, reading stale data — reproduced by a real compiled
+  dot-product kernel silently printing `0.000000` instead of `300.000000`. New `ITooth.UveDestinationRegister`
+  property (`RvInstruction`, scoped to exactly the 5 write-capable ops) + `HasPrecedingVectorStore`
+  extended to block unconditionally on any of them — **not** gated on a live `IUveScalars.IsStoreStream`
+  query, which is provably too early to trust (the configuring `ss.end` is itself head-serialized, so a
+  live query can answer "not yet a store stream" for an op that unconditionally will be one by the time
+  it executes). Permanent regression test:
+  `Pipeline_ScalarLoadRightAfterStoreStreamWrite_SeesWrittenValue_NotStale` in `UveTests.cs`
+  (hand-assembled, no external toolchain dependency). Full non-benchmark suite 4426/1/4427.
 - [ ] ~~Suspended-stream data exchange: `so.v.vload`/`so.v.vstor`~~ — **hold**: dissertation gives one sentence
   with no operand semantics; Spike has no instruction files for it. Skip until the spec is clarified.
 - [ ] `vec_cv` (661 lines, `so.v.cv` conversions) has an **empty `RUN_SIMPLE`** (`void core(DataType

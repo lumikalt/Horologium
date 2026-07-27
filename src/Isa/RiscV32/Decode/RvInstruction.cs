@@ -167,6 +167,19 @@ public sealed class RvInstruction(
         _                => -1,
     };
 
+    // Only these five arithmetic ops can write memory (via UveWriteResult, when Ud is currently
+    // a store stream) — so.v.mvsv also writes Ud but always forces RegKind to Scalar first,
+    // and so.v.dp.w's Ud write only declares/initializes an accumulator. See
+    // ITooth.UveDestinationRegister.
+    public int UveDestinationRegister { get; } = payload switch {
+        RvUveSoAFp op     => op.Ud,
+        RvUveSoAInt op    => op.Ud,
+        RvUveSoALogic op  => op.Ud,
+        RvUveSoAShiftV op => op.Ud,
+        RvUveSoAShiftS op => op.Ud,
+        _                 => -1,
+    };
+
     public IReadOnlyList<int> UveStreamSources { get; } = payload switch {
         RvUveSoAFp op     => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2,] : [op.Usrc1,],
         RvUveSoAInt op    => op.Usrc2 >= 0 ? [op.Usrc1, op.Usrc2,] : [op.Usrc1,],
