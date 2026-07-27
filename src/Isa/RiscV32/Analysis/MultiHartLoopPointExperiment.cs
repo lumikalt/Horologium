@@ -241,9 +241,24 @@ public static class MultiHartLoopPointExperiment {
 
             chk.RestoreInto(hartStates, mem, handler);
 
-            RevolutionResult[] results = MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(
-                trains, counters, warmupInstructions, captured.RegionInstructionCounts[regionIndex]
-            );
+            (RevolutionResult[] results, MultiHartWarmupMeasureDriver.RunOutcome warmupOutcome, MultiHartWarmupMeasureDriver.RunOutcome measureOutcome) =
+                MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(
+                    trains, counters, warmupInstructions, captured.RegionInstructionCounts[regionIndex]
+                );
+
+            // AllHartsHalted is legitimate (a region near the workload's end can finish mid-window,
+            // and its recorded ticks are real work); only StallLimitHit means a still-live hart is
+            // genuinely deadlocked (its only possible waker already halted, or it's stuck against
+            // another equally-stuck live hart) — its recorded ticks include up to StallTickLimit
+            // phantom spin ticks with zero retirement, and feeding that into Eq. 1/2 would silently
+            // extrapolate the whole run's estimate from a truncated, inflated-tick measurement.
+            if (warmupOutcome == MultiHartWarmupMeasureDriver.RunOutcome.StallLimitHit
+             || measureOutcome == MultiHartWarmupMeasureDriver.RunOutcome.StallLimitHit)
+                throw new InvalidOperationException(
+                    $"LoopPoint region {regionIndex}: measurement stalled — a live hart is deadlocked " +
+                    "(its only possible waker already halted, or it's blocked against another live " +
+                    "hart that's equally stuck) — refusing to extrapolate from a truncated tick count."
+                );
 
             // Every hart's own tick count agrees under this round-robin lockstep interleaving;
             // Max is a safe guard against a hart that halts early rather than a real combination

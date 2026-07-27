@@ -34,6 +34,25 @@ public static class MultiHartWarmupMeasureDriver {
     /// </summary>
     private const long StallTickLimit = 100_000;
 
+    /// <summary>How a bounded <c>RunUntil</c> call ended — a caller can only tell a stalled region apart
+    /// from a clean one (both leave <see cref="RevolutionResult.TotalTicks" /> short of the nominal
+    /// target) by inspecting this, not by the tick count alone.</summary>
+    public enum RunOutcome {
+        /// <summary>The global instruction count reached its target normally.</summary>
+        TargetReached,
+
+        /// <summary>Every hart halted (program/thread completion) before the target was reached — the
+        /// ticks recorded are real work, just fewer than the nominal target.</summary>
+        AllHartsHalted,
+
+        /// <summary>No hart retired anything for <see cref="StallTickLimit" /> consecutive ticks while at
+        /// least one hart was still live — a live hart is genuinely deadlocked (its only possible waker
+        /// already halted, or it's waiting on another live hart that's equally stuck). The recorded ticks
+        /// include up to <see cref="StallTickLimit" /> phantom spin ticks with zero retirement and must
+        /// not be treated as a real measurement.</summary>
+        StallLimitHit,
+    }
+
     /// <param name="trains">
     ///     Freshly built, not-yet-stepped trains, each with the corresponding entry in
     ///     <paramref name="counters" /> wired as its commit observer.
@@ -41,13 +60,20 @@ public static class MultiHartWarmupMeasureDriver {
     /// <param name="counters">One <see cref="InstructionCounter" /> per hart, same order as <paramref name="trains" />.</param>
     /// <param name="warmupInstructions">Global (all-harts) instructions to run before measurement starts.</param>
     /// <param name="measureInstructions">Global (all-harts) instructions to run and measure after warmup.</param>
-    /// <returns>Baseline-subtracted <see cref="RevolutionResult" /> per hart, same order as <paramref name="trains" />.</returns>
-    public static RevolutionResult[] RunWarmupThenMeasure(
-        IReadOnlyList<ISteppableTrain> trains,
-        IReadOnlyList<InstructionCounter> counters,
-        long warmupInstructions,
-        long measureInstructions
-    ) {
+    /// <returns>
+    ///     Baseline-subtracted <see cref="RevolutionResult" /> per hart (same order as <paramref name="trains" />),
+    ///     plus the <see cref="RunOutcome" /> of each of the two bounded phases — a caller that cares
+    ///     whether a short/truncated measurement was a genuine stall (<see cref="RunOutcome.StallLimitHit" />)
+    ///     rather than legitimate early completion (<see cref="RunOutcome.AllHartsHalted" />) must inspect
+    ///     these; the tick counts alone can't tell the two apart.
+    /// </returns>
+    public static (RevolutionResult[] Results, RunOutcome WarmupOutcome, RunOutcome MeasureOutcome)
+        RunWarmupThenMeasure(
+            IReadOnlyList<ISteppableTrain> trains,
+            IReadOnlyList<InstructionCounter> counters,
+            long warmupInstructions,
+            long measureInstructions
+        ) {
         if (trains.Count != counters.Count)
             throw new ArgumentException(
                 $"trains.Count ({trains.Count}) must equal counters.Count ({counters.Count}).", nameof(counters)
@@ -79,31 +105,35 @@ public static class MultiHartWarmupMeasureDriver {
         // or no hart retires anything for StallTickLimit consecutive ticks (a permanent deadlock —
         // the waker a still-blocked hart needs has already halted, so global count can never move
         // again). The last case returns early with whatever progress was made, rather than hanging.
-        void RunUntil(long target) {
+        RunOutcome RunUntil(long target) {
             long lastCount = GlobalCount();
             var stalledTicks = 0L;
             while (GlobalCount() < target) {
-                if (!StepAllActive()) return;
+                if (!StepAllActive()) return RunOutcome.AllHartsHalted;
                 long count = GlobalCount();
                 if (count == lastCount) {
-                    if (++stalledTicks >= MultiHartWarmupMeasureDriver.StallTickLimit) return;
+                    if (++stalledTicks >= MultiHartWarmupMeasureDriver.StallTickLimit) return RunOutcome.StallLimitHit;
                 }
                 else {
                     stalledTicks = 0;
                     lastCount = count;
                 }
             }
+
+            return RunOutcome.TargetReached;
         }
 
-        RunUntil(warmupInstructions);
+        RunOutcome warmupOutcome = RunUntil(warmupInstructions);
 
         var baselines = new IReadOnlyList<DialBoardSnapshot>[trains.Count];
         for (var i = 0; i < trains.Count; i++) baselines[i] = trains[i].SnapshotDials();
 
-        RunUntil(warmupInstructions + measureInstructions);
+        RunOutcome measureOutcome = warmupOutcome == RunOutcome.StallLimitHit
+            ? RunOutcome.StallLimitHit // already deadlocked; re-running would just re-trip the same limit
+            : RunUntil(warmupInstructions + measureInstructions);
 
         var results = new RevolutionResult[trains.Count];
         for (var i = 0; i < trains.Count; i++) results[i] = trains[i].FinishStepping(baselines[i]);
-        return results;
+        return (results, warmupOutcome, measureOutcome);
     }
 }

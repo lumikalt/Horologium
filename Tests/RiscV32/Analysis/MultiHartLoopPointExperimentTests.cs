@@ -212,4 +212,55 @@ public class MultiHartLoopPointExperimentTests {
                                                  )
         );
     }
+
+    /// <summary>
+    ///     <see cref="MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints" />'s stall guard: a live
+    ///     hart genuinely deadlocked within the measured window (its ecall permanently blocked, with no
+    ///     other hart able to ever clear it) must throw rather than silently feeding a truncated,
+    ///     inflated-tick measurement into Eq. 1/2 as if it were clean — this is what
+    ///     <see cref="MultiHartWarmupMeasureDriver.RunOutcome.StallLimitHit" /> exists to distinguish from
+    ///     a region that legitimately finished early (<see cref="MultiHartWarmupMeasureDriver.RunOutcome.AllHartsHalted" />).
+    /// </summary>
+    [Fact(Timeout = 15000)]
+    public async Task MeasureLoopPointCheckpoints_LiveHartPermanentlyBlocked_ThrowsRatherThanExtrapolatingFromAStall() {
+        await Task.Run(() => {
+            var mem = new FlatMemory(0x1000);
+            var ecallBytes = new byte[4];
+            BitConverter.TryWriteBytes(ecallBytes.AsSpan(0), 0x0000_0073u); // ecall
+            mem.Load(0x00, ecallBytes);
+
+            var mech = new Rv32Mechanism();
+            IArchState state = mech.CreateArchState();
+            state.Pc = 0x00; // valid, in-range PC — passes the PC guard, then blocks forever
+
+            using var ms = new MemoryStream();
+            MultiHartCheckpoint.Save(ms, [state,], mem, null, 0);
+            byte[] chkBytes = ms.ToArray();
+
+            var captured = new LoopPointCheckpointSet(
+                new SimPointResult(1, 1, [0,], [new SimulationPoint(0, 0, 1.0),], 0),
+                new Dictionary<int, byte[]> { [0] = chkBytes, },
+                [1000L,],
+                new Dictionary<int, double> { [0] = 1.0, },
+                mem.BaseAddress, mem.SizeBytes,
+                new Dictionary<int, bool[]> { [0] = [true,], }
+            );
+
+            (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) Factory() =>
+                ([new Rv32Mechanism(syscallHandler: new NeverClearingHandler()),], null);
+
+            ISteppableTrain TrainFactory(IMechanism m, IMemory runMem, ulong pc, InstructionCounter c) =>
+                new FiveStageTrain(m, runMem, pc, commitObserver: c);
+
+            Assert.Throws<InvalidOperationException>(() => MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
+                                                         captured, Factory, TrainFactory, 0
+                                                     )
+            );
+        });
+    }
+
+    private sealed class NeverClearingHandler : ISyscallHandler {
+        public ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc, int hartId) =>
+            new() { RequestBlock = true, };
+    }
 }

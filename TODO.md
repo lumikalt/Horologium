@@ -508,14 +508,16 @@ just infrastructure this design doesn't require.
   (`SmtTrain` itself is not a LoopPoint measurement target regardless — SMT models a shared core with
   interleaved threads, the wrong microarchitecture for what LoopPoint measures; its `RequestBlock` support
   above is for correctness/completeness across all detailed trains, not because LoopPoint will use it.)
-- [ ] `MeasureLoopPointCheckpoints`'s fail-loud PC guard only catches a live hart with an out-of-range PC —
-  it does not catch a live hart genuinely deadlocked (against another live hart in the same region) within
-  the measured window. That case still runs through `MultiHartWarmupMeasureDriver.RunUntil`'s stall-limit
-  bail-out (see above), which returns the same shape whether the target was reached cleanly or the stall
-  limit fired — a real in-window deadlock would silently feed a short, truncated tick count into Eq. 1/2 as
-  if it were a clean measurement. Needs `RunUntil`/`RunWarmupThenMeasure` to surface which of its three
-  outcomes actually happened, so `MeasureLoopPointCheckpoints` can throw on a stalled region instead of
-  extrapolating from it.
+- [x] `MeasureLoopPointCheckpoints`'s fail-loud PC guard only caught a live hart with an out-of-range PC —
+  it did not catch a live hart genuinely deadlocked (against another live hart in the same region) within
+  the measured window, since `MultiHartWarmupMeasureDriver.RunUntil` returned the same shape whether the
+  target was reached cleanly, every hart halted, or the stall limit fired. Fixed with a `RunOutcome` enum
+  (`TargetReached`/`AllHartsHalted`/`StallLimitHit`) returned by `RunUntil` and `RunWarmupThenMeasure`;
+  `MeasureLoopPointCheckpoints` throws only on `StallLimitHit` (a genuine deadlock, whose recorded ticks
+  are contaminated with phantom spin ticks), not `AllHartsHalted` (legitimate early completion, whose ticks
+  are real work). Proven with a new synthetic checkpoint test (a live hart's `ecall` blocked forever by a
+  never-clearing handler), confirmed to fail without the throw, and the real-ELF LoopPoint suites re-run to
+  confirm no well-behaved region now spuriously throws.
 - [x] `MultiHartPipeline` dynamic hart activation: unlike `MultiHartKernel` (dormant pre-allocated hart
   slots + `SpawnHart`), the detailed-timing-pipeline multi-hart driver had no way for a `clone()` call to
   bring a new hart onto a live run — every hart it drove had to already exist at construction, since each

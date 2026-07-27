@@ -1919,6 +1919,19 @@ against another live hart within the measured window, which still runs through `
 stall-limit bail-out and would silently feed a truncated tick count into Eq. 1/2 rather than throwing;
 tracked as its own `TODO.md` item rather than folded into this one.
 
+**Update: `RunUntil`'s three-outcome ambiguity is closed.** `MultiHartWarmupMeasureDriver` gained a
+`RunOutcome` enum (`TargetReached`/`AllHartsHalted`/`StallLimitHit`); `RunUntil` and
+`RunWarmupThenMeasure` now return it instead of leaving every caller to infer what happened from the tick
+count alone. `MeasureLoopPointCheckpoints` throws only on `StallLimitHit` — not `AllHartsHalted`, which is
+legitimate (a region near the workload's end can finish mid-window with real, if fewer, ticks) — since only
+a genuine stall's recorded ticks are contaminated with up to `StallTickLimit` phantom spin ticks charged
+with zero retirement. Proven with a new synthetic checkpoint test mirroring the existing PC-guard one, but
+swapping the out-of-range PC for a live hart whose `ecall` a `NeverClearingHandler` blocks forever —
+confirmed to fail (no exception; the stall silently produces a real but garbage `RevolutionResult`) with
+the throw temporarily removed, then pass restored. The real-ELF LoopPoint suites
+(`MultiHartLoopPointExperimentRealElfTests`, `MultiHartLoopPointGroundTruthTests`) were re-run with the
+throw in place to confirm no well-behaved `pthread_probe.elf` region now spuriously throws.
+
 **`RequestBlock` support in `SingleCycleTrain` (Pipeline/SingleCycleTrain.cs).** The seventh and last train
 identified as needing this. It shares `SmtTrain`/`MultiHartKernel`'s "one instruction fully completes per
 call" model — no pipeline latches at all — making this the simplest translation of the seven:

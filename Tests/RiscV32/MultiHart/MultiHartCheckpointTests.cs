@@ -162,7 +162,7 @@ public class MultiHartCheckpointTests {
         var train1 = new FiveStageTrain(new Rv32Mechanism(), restoreMem, commitObserver: counter1);
         checkpoint.RestoreInto([train0.ArchState, train1.ArchState,], restoreMem, null);
 
-        RevolutionResult[] results = MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(
+        (RevolutionResult[] results, _, _) = MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(
             [train0, train1,], [counter0, counter1,], 20, 100
         );
 

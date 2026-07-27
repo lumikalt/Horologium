@@ -53,15 +53,19 @@ public class MultiHartWarmupMeasureDriverDeadlockTests {
         var train0 = new FiveStageTrain(new Rv32Mechanism(syscallHandler: handler), mem0, commitObserver: counter0);
         var train1 = new FiveStageTrain(new Rv32Mechanism(), mem1, commitObserver: counter1);
 
-        RevolutionResult[] results = MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(
-            [train0, train1,], [counter0, counter1,], 0, 1_000_000_000
-        );
+        (RevolutionResult[] results, _, MultiHartWarmupMeasureDriver.RunOutcome measureOutcome) =
+            MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(
+                [train0, train1,], [counter0, counter1,], 0, 1_000_000_000
+            );
 
         Assert.Equal(2, results.Length);
         // Hart 0 never got past its permanently-blocked ecall; hart 1 halted at its own ebreak
         // (which does retire, per FiveStageTrain's halt semantics) and contributed no more after.
         Assert.True(handler.CallCount > 1, "expected the blocked ecall to have been retried more than once");
         Assert.Equal(0UL, train0.ArchState.IntegerRegisters.Read(1));
+        // The whole point of the enum: a caller must be able to tell this apart from a clean
+        // measurement or a legitimate all-halted finish purely from the outcome, not the tick count.
+        Assert.Equal(MultiHartWarmupMeasureDriver.RunOutcome.StallLimitHit, measureOutcome);
     }
 
     private sealed class NeverClearingHandler : ISyscallHandler {
