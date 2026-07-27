@@ -516,13 +516,61 @@ just infrastructure this design doesn't require.
   if it were a clean measurement. Needs `RunUntil`/`RunWarmupThenMeasure` to surface which of its three
   outcomes actually happened, so `MeasureLoopPointCheckpoints` can throw on a stalled region instead of
   extrapolating from it.
-- [ ] `MultiHartPipeline` dynamic hart activation: unlike `MultiHartKernel` (dormant pre-allocated hart
-  slots + `SpawnHart`, done above), the detailed-timing-pipeline multi-hart driver has no way for a `clone()`
-  call to bring a new hart onto a live run — every hart it drives must already exist at construction. This
-  bounds what `--looppoint`'s multi-hart measurement can be validated against today: no tick-level ground
-  truth is possible for a region that itself spans a `clone()` call, only the functional-kernel cross-check
-  noted in the item above. Needed for that, and for any other detailed-pipeline multi-hart workload that
-  spawns threads mid-run rather than starting with a fixed hart count.
+- [x] `MultiHartPipeline` dynamic hart activation: unlike `MultiHartKernel` (dormant pre-allocated hart
+  slots + `SpawnHart`), the detailed-timing-pipeline multi-hart driver had no way for a `clone()` call to
+  bring a new hart onto a live run — every hart it drove had to already exist at construction, since each
+  hart here owns a whole `ISteppableTrain` (its own pipeline latches, PRF/rename state, fetch-address
+  tracking), not just a plain `IArchState` slot the way `MultiHartKernel` does. Fixed: `MultiHartPipeline`
+  now implements `IHartSpawner` and takes an optional `spawnTrainFactory` (`Func<IArchState, ISteppableTrain>`)
+  at construction; `SpawnHart` calls it to build a fresh, workload-appropriate train from the spawned hart's
+  already-derived initial state (its own mechanism sharing the parent's syscall handler/memory, its own
+  `entryPoint` read from that state's `Pc` — the same "read PC before construction" pattern every other
+  checkpoint-restore path in this codebase already uses), copies the rest of its register/ISA state in via
+  the existing `ArchStateTransfer.CopyInto` (previously only used for SMARTS's functional↔detailed handoff),
+  calls `BeginStepping()`, and appends it to the round-robin set — `_trains`/`_halted` are now growable
+  `List`s instead of fixed arrays. Only `Run()` supports this; `RunConcurrent()` throws if `SpawnHart` is
+  called while it's in flight, since appending to the shared list would race with its own concurrent
+  `Parallel.For` reads — the throw surfaces wrapped in an `AggregateException` there (the call happens on
+  one of `Parallel.For`'s own worker threads), not bare the way it does from `Run()`, and a dedicated test
+  asserts that exact wrapped shape rather than assuming it. Proven with
+  `Tests/Pipeline/MultiHartPipelineCloneTests.cs` — the same hand-assembled clone()-via-raw-syscall program
+  `CloneTests.cs` already validates against real compiled musl `__clone` arguments for `MultiHartKernel`, run
+  here through a real `FiveStageTrain` instead — confirmed to fail (`HartCount` staying at 1, child state
+  never landing) with the append reverted, then pass restored; the `RunConcurrent` guard confirmed to fail
+  (no exception at all) with it reverted too.
+  **Known limitation, stated not glossed over**: this still doesn't give `--looppoint` itself a tick-level
+  ground truth — nothing wires `MultiHartPipeline`'s new capability into `MeasureLoopPointCheckpoints` (which
+  uses the separate `MultiHartWarmupMeasureDriver`, not this class), so it stands as an available building
+  block for a future cold-run ground-truth test, not an automatic close of that gap.
+  **A real, unrelated bug surfaced while writing this item's own test, filed below rather than fixed
+  here**: `FiveStageTrain`'s `ecall` dispatch reads the syscall number straight from architectural state,
+  bypassing the pipeline's hazard/forwarding path entirely — a still-in-flight write to the register it
+  reads is invisible to it.
+- [ ] `FiveStageTrain`'s `ecall` dispatch reads the syscall number (and, by the same mechanism, its other
+  arguments) straight from architectural state (`Rv32Executor`'s `state.IntegerRegisters.Read(17)`) rather
+  than through the pipeline's normal decoded-operand hazard/forwarding path — `ecall` has no decoded source
+  register for `a7` (or `a0`-`a5`) to trigger a `HazardUnit` stall on, so a write to one of those registers
+  by the *immediately preceding* instruction (zero-instruction gap) hasn't retired yet when `ecall` reaches
+  EX, and it reads the stale, pre-write value instead. Minimal repro: plain `FiveStageTrain`, `addi
+  a7,x0,220; ecall` with nothing between them dispatches syscall number 0, not 220; two intervening NOPs
+  (or any instructions incidentally filling that slot, which is why real compiled code — musl argument
+  setup between the number and the call — mostly doesn't trip this) fix it.
+  **Severity, checked empirically rather than assumed**: never exercised by an existing passing,
+  value-checked test. `RealLinkedLoopPointTests`/`RealLinkedSimPointTests` (real compiled `simpoint_kernel.elf`)
+  independently prove ecalls occur only outside the measured compute-loop window, and the only assertion on
+  a `FiveStageTrain`-measured region there is a generic liveness check (`retired > 0`), never anything tied
+  to a syscall's own correctness. Every existing `FiveStageTrain`/`CprTrain`/`DaeTrain`/`SuperscalarTrain`/
+  `SmtTrain` test with an `ecall` either has no preceding argument-setting instruction at all, or (this
+  item's own `MultiHartPipelineCloneTests.cs`) deliberately pads with NOPs to dodge exactly this gap.
+  `SimPointCheckpointTests`' `BrkProgram` has the identical zero-gap pattern with a value-checked assertion,
+  but runs only on `SingleCycleTrain` (which reads `state` post-retire, unaffected). `OooTrain` has the same
+  zero-gap pattern in `InitialStackTests` with real value-checked assertions and passes — its System-class
+  instructions only issue at the ROB head, so every older instruction (including the register write) has
+  already retired by the time `ecall` reads state, immune by architecture rather than by luck. Open design
+  question for whoever picks this up: should `ecall`'s implicit register reads go through the same
+  hazard/forwarding path a decoded source operand would, or should `ecall` itself be treated as
+  head-of-pipeline/serialized (mirroring `OooTrain`'s immunity) so it only ever reads fully-retired state?
+  The two answers imply different fixes; reading stale state is wrong under both.
 - [x] `SingleCycleTrain` had the same silent-wrong-commit gap `RequestBlock` closed in the six detailed
   trains above: it shares `SmtTrain`/`MultiHartKernel`'s "one instruction fully completes per call" model
   (no pipeline latches), so this is the simplest translation of all seven — `ExecuteOneCycle` charges the

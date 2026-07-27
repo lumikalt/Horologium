@@ -1180,6 +1180,54 @@ RevolutionResult[] results = new MultiHartPipeline(train0, train1).Run(maxTicks:
 `Run` returns one `RevolutionResult` per hart. Combine with `MoesifBus(flat, table:)` +
 `Rv32Mechanism(reservationTable:, hartId:)` for LR/SC atomics between pipeline trains.
 
+**Dynamic hart activation.** `MultiHartPipeline` implements `IHartSpawner` so a real `clone()` call from
+one of its harts can bring a brand-new hart onto a live `Run()` — unlike `MultiHartKernel` (a shared
+`IMechanism` plus a plain `IArchState` slot per hart, so spawning just assigns into a pre-allocated dormant
+slot), each hart here owns a whole `ISteppableTrain` — its own pipeline latches, PRF/rename state, and
+fetch-address tracking, seeded once at construction — so there's no slot to reuse; a spawn must construct a
+genuinely new train. Pass a `spawnTrainFactory` (`Func<IArchState, ISteppableTrain>`) to the constructor:
+given the spawned hart's already-derived initial state (`clone()`'s snapshot with sp/tp/return-value already
+patched), read its `Pc` and pass that as the new train's own `entryPoint` — the same "read PC before
+construction" pattern every checkpoint-restore path in this codebase already follows, since a train's fetch
+state is seeded once and never re-read from `IArchState` afterward. `SpawnHart` then copies the rest of the
+spawned hart's register/ISA state into the new train's own (otherwise zero-valued) `IArchState` via
+`ArchStateTransfer.CopyInto` (previously only used for SMARTS's functional↔detailed handoff), calls
+`BeginStepping()`, and appends it to the round-robin set — a hart spawned mid-run starts stepping the same
+tick, one tick "younger" than its parent, the same asymmetry `MultiHartKernel.SpawnHart` already documents.
+Only `Run()` supports this; `SpawnHart` throws if called while a `RunConcurrent()` call is in flight, since
+appending to the shared hart list would race with that method's own concurrent `Parallel.For` reads.
+
+```csharp
+var handler = new LinuxSyscallEmulator(initialBreak);
+var train0 = new FiveStageTrain(new Rv32Mechanism(syscallHandler: handler, hartId: 0), mem, entryPoint: 0x00);
+
+ISteppableTrain SpawnTrainFactory(IArchState child) =>
+    new FiveStageTrain(new Rv32Mechanism(syscallHandler: handler, hartId: 1), mem, entryPoint: child.Pc);
+
+var pipeline = new MultiHartPipeline(SpawnTrainFactory, train0);
+handler.Spawner = pipeline; // clone() now spawns a real second FiveStageTrain
+pipeline.Run(maxTicks: 100_000);
+```
+
+Proven with `Tests/Pipeline/MultiHartPipelineCloneTests.cs` — the same hand-assembled raw-syscall `clone()`
+program `CloneTests.cs` already validates against real compiled musl `__clone` arguments for
+`MultiHartKernel`, run here through a real `FiveStageTrain` instead — confirmed to fail (`HartCount` stuck
+at 1, the child's state never landing) with the append reverted, then pass restored. A separate test drives
+the `RunConcurrent` guard specifically: a `clone()` call from inside `RunConcurrent`'s `Parallel.For` throws
+`InvalidOperationException` wrapped in an `AggregateException` (not bare, since the throw happens on a
+worker thread) — asserted as that exact shape, and confirmed to fail (no exception at all) with the guard
+reverted.
+
+**A real, unrelated bug surfaced while writing this feature's own test, filed in `TODO.md` rather than
+fixed here**: `FiveStageTrain`'s `ecall` dispatch reads the syscall number straight from architectural
+state, bypassing the pipeline's hazard/forwarding path — a write to that register by the *immediately
+preceding* instruction (zero-instruction gap) hasn't retired yet when `ecall` reaches EX, so it reads the
+stale value. Confirmed via an isolated repro (plain `FiveStageTrain`, `addi a7,220; ecall` back-to-back
+reads syscall number 0; two NOPs between them fix it) and confirmed, by checking rather than assuming, that
+no existing passing test's value-checked assertions have ever depended on this working — `MultiHartPipelineCloneTests.cs`
+itself works around it with NOP padding, same as real compiled code incidentally usually does via argument
+setup between the syscall number and the call.
+
 **OoO timing note:** `OooeTrain`'s physical register file starts zeroed; `ArchState.IntegerRegisters.Write()` updates
 the architectural register file but not the PRF, so register values pre-set before `Run()` are invisible to the
 pipeline. For OoO MOESIF coherence tests or any test that requires non-zero initial register values, compute those
