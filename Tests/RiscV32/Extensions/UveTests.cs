@@ -1990,6 +1990,146 @@ public class UveTests {
         }
     }
 
+    // ── Integration test: knn (molecular-dynamics neighbor gather) via OoO pipeline ──
+
+    /// <summary>
+    ///     Ports <c>knn</c>'s Lennard-Jones force kernel (github.com/lumicrespo/UVEcompiler,
+    ///     UVE-Testing/spike_test/benchmarks/knn): for each atom <c>i</c>, sums pairwise LJ forces
+    ///     against its <c>maxNeighbors</c> neighbors (indices given by <c>NL</c>).
+    ///     <para>
+    ///         The reference kernel gathers <c>position_{x,y,z}[NL[i][j]]</c> via a zero-count
+    ///         placeholder dimension carrying a <c>.L</c> dynamic indirect modifier
+    ///         (<c>ss.app.indl.ofs.add</c>) — confirmed by the UVE2 author (2026-07-27, see
+    ///         SPEC_NOTES.md) as a legacy pre-<c>sgi</c> gather idiom, not something to replicate.
+    ///         This port instead gathers via the <c>sgi</c> scatter-gather modifier, the way
+    ///         <c>spmv_ellpack_delimiters</c> above does: <c>NL</c> is read as three independent
+    ///         IndSource copies (one per axis, mirroring the three <c>rowDelimiters</c> copies
+    ///         above), each feeding an <c>ss.end.sgi.ofs.add</c> gather stream. The <c>position_i</c>
+    ///         streams broadcast one value across the whole neighbor loop via a stride-0 inner
+    ///         dimension (the same technique <c>3mm</c>'s row/column broadcasts use below) rather
+    ///         than the reference's <c>so.v.mv</c> scalar-hold.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public void Pipeline_Knn_CorrectResult() {
+        const int nAtoms = 3, maxNeighbors = 2;
+        const float lj1 = 1.5f, lj2 = 2.0f;
+        float[] posX = [0f, 1f, 2f,];
+        float[] posY = [0f, 2f, 1f,];
+        float[] posZ = [1f, 0f, 2f,];
+        int[] nl = [2, 1, 0, 0, 1, 0,]; // atom0: {2,1}; atom1: {0,0} (repeat!); atom2: {1,0} — discriminating perm
+
+        // Independent oracle: mirrors the reference's RUN_UVE math directly (all three axes).
+        var expectedFx = new float[nAtoms];
+        var expectedFy = new float[nAtoms];
+        var expectedFz = new float[nAtoms];
+        for (var i = 0; i < nAtoms; i++) {
+            float ix = posX[i], iy = posY[i], iz = posZ[i];
+            float fx = 0, fy = 0, fz = 0;
+            for (var j = 0; j < maxNeighbors; j++) {
+                int jidx = nl[i * maxNeighbors + j];
+                float delx = ix - posX[jidx], dely = iy - posY[jidx], delz = iz - posZ[jidx];
+                float r2Inv = 1.0f / (delx * delx + dely * dely + delz * delz);
+                float r6Inv = r2Inv * r2Inv * r2Inv;
+                float potential = r6Inv * (lj1 * r6Inv - lj2);
+                float force = r2Inv * potential;
+                fx += delx * force;
+                fy += dely * force;
+                fz += delz * force;
+            }
+            expectedFx[i] = fx;
+            expectedFy[i] = fy;
+            expectedFz[i] = fz;
+        }
+
+        const ulong posXBase = 0x0000, posYBase = 0x0100, posZBase = 0x0200, nlBase = 0x0300,
+                    frcXBase = 0x0400, frcYBase = 0x0500, frcZBase = 0x0600;
+        var mem = new FlatMemory(0x2000);
+        for (var i = 0; i < nAtoms; i++) {
+            mem.Load(posXBase + (ulong)(i * 4), BitConverter.GetBytes(posX[i]));
+            mem.Load(posYBase + (ulong)(i * 4), BitConverter.GetBytes(posY[i]));
+            mem.Load(posZBase + (ulong)(i * 4), BitConverter.GetBytes(posZ[i]));
+        }
+        for (var i = 0; i < nl.Length; i++) mem.Load(nlBase + (ulong)(i * 4), BitConverter.GetBytes(nl[i]));
+
+        // Register plan: x1=posX x2=posY x3=posZ x4=NL x5=frcX x6=frcY x7=frcZ x8=nAtoms
+        // x9=maxNeighbors x10=1 x11/x12/x13 = raw bits of 1.0f/lj1/lj2 (all exact via lui alone).
+        const ulong code = 0x1000;
+        var words = new List<uint> {
+            Addi(1, 0, (int)posXBase), Addi(2, 0, (int)posYBase), Addi(3, 0, (int)posZBase),
+            Addi(4, 0, (int)nlBase), Addi(5, 0, (int)frcXBase), Addi(6, 0, (int)frcYBase),
+            Addi(7, 0, (int)frcZBase), Addi(8, 0, nAtoms), Addi(9, 0, maxNeighbors), Addi(10, 0, 1),
+            Lui(11, (int)((uint)BitConverter.SingleToInt32Bits(1.0f) >> 12)),
+            Lui(12, (int)((uint)BitConverter.SingleToInt32Bits(lj1) >> 12)),
+            Lui(13, (int)((uint)BitConverter.SingleToInt32Bits(lj2) >> 12)),
+
+            // u1/u2/u3 = position_{x,y,z}_i: D1(outer) count=nAtoms stride=1; D2(inner) count=maxNeighbors
+            // stride=0 — broadcasts i's own coordinate across the whole neighbor loop (3mm's row-repeat
+            // trick, not the reference's so.v.mv scalar-hold).
+            SsStaLdW(1, 1), SsApp(1, 0, 8, 10), SsEnd(1, 0, 9, 0),
+            SsStaLdW(2, 2), SsApp(2, 0, 8, 10), SsEnd(2, 0, 9, 0),
+            SsStaLdW(3, 3), SsApp(3, 0, 8, 10), SsEnd(3, 0, 9, 0),
+
+            // u4/u5/u6 = three independent copies of the NL IndSource (one per gathered axis, mirroring
+            // spmv_ellpack_delimiters' three rowDelimiters copies above): D1 count=nAtoms stride=maxNeighbors,
+            // D2 count=maxNeighbors stride=1 — linear read through the flattened NL array.
+            SsStaLdW(4, 4) | (1u << 24), SsApp(4, 0, 8, 9), SsEnd(4, 0, 9, 10),
+            SsStaLdW(5, 4) | (1u << 24), SsApp(5, 0, 8, 9), SsEnd(5, 0, 9, 10),
+            SsStaLdW(6, 4) | (1u << 24), SsApp(6, 0, 8, 9), SsEnd(6, 0, 9, 10),
+
+            // u7/u8/u9 = position_{x,y,z}_j: sgi-gather from u4/u5/u6 (Add, base=0 → address = index*4).
+            // Both dims stride=0 (dummy) since sgi fully overrides the innermost offset every element.
+            SsStaLdW(7, 1), SsApp(7, 0, 8, 0), SsApp(7, 0, 9, 0), SsEndSgi(7, 4, StreamModifierBehavior.Add),
+            SsStaLdW(8, 2), SsApp(8, 0, 8, 0), SsApp(8, 0, 9, 0), SsEndSgi(8, 5, StreamModifierBehavior.Add),
+            SsStaLdW(9, 3), SsApp(9, 0, 8, 0), SsApp(9, 0, 9, 0), SsEndSgi(9, 6, StreamModifierBehavior.Add),
+
+            // u10/u11/u12 = force_{x,y,z} store: count=nAtoms, stride=1.
+            SsStaStW(10, 5), SsEnd(10, 0, 8, 10),
+            SsStaStW(11, 6), SsEnd(11, 0, 8, 10),
+            SsStaStW(12, 7), SsEnd(12, 0, 8, 10),
+
+            // Broadcast constants: u13=1.0, u14=lj1, u15=lj2.
+            SoVDpW(13, 11), SoVDpW(14, 12), SoVDpW(15, 13),
+
+            // .iLoop:
+            SoVDpW(16, 0), SoVDpW(17, 0), SoVDpW(18, 0), // fx=fy=fz=0
+            // .jLoop:
+            SoAFp(UveFpOp.Sub, 19, 1, 7), // delx = i_x - j_x
+            SoAFp(UveFpOp.Sub, 20, 2, 8), // dely = i_y - j_y
+            SoAFp(UveFpOp.Sub, 21, 3, 9), // delz = i_z - j_z
+            SoAFp(UveFpOp.Mul, 22, 19, 19), SoAFp(UveFpOp.Mac, 22, 20, 20), SoAFp(UveFpOp.Mac, 22, 21, 21),
+            SoAFp(UveFpOp.Div, 22, 13, 22), // r2inv = 1/sum
+            SoAFp(UveFpOp.Mul, 23, 22, 22), SoAFp(UveFpOp.Mul, 23, 22, 23), // r6inv = r2inv^3
+            SoAFp(UveFpOp.Mul, 24, 14, 23), SoAFp(UveFpOp.Sub, 24, 24, 15), SoAFp(UveFpOp.Mul, 24, 23, 24),
+            SoAFp(UveFpOp.Mul, 24, 22, 24), // force = r2inv*potential
+            SoAFp(UveFpOp.Mac, 16, 19, 24), SoAFp(UveFpOp.Mac, 17, 20, 24), SoAFp(UveFpOp.Mac, 18, 21, 24),
+            SoBNdcD(1, 1, -64), // so.b.ndc.2 u1, .jLoop (16 instrs back)
+
+            SoAFp(UveFpOp.Adde, 10, 16, -1), SoAFp(UveFpOp.Adde, 11, 17, -1), SoAFp(UveFpOp.Adde, 12, 18, -1),
+            SoBNc(1, -92), // so.b.nc u1, .iLoop (23 instrs back)
+
+            EBreak(),
+        };
+
+        for (var i = 0; i < words.Count; i++) mem.Load(code + (ulong)(i * 4), BitConverter.GetBytes(words[i]));
+
+        var train = new OooTrain(
+            new Rv32Mechanism(), mem, code,
+            streamPrefetchDepth: 8, robCapacity: 64, iqCapacity: 32, streamMaxCount: 16
+        );
+        train.Run(8000);
+
+        for (var i = 0; i < nAtoms; i++) {
+            Assert.Equal(expectedFx[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcXBase + (ulong)(i * 4), 4)), 2);
+            Assert.Equal(expectedFy[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcYBase + (ulong)(i * 4), 4)), 2);
+            Assert.Equal(expectedFz[i], BitConverter.Int32BitsToSingle((int)(uint)mem.Read(frcZBase + (ulong)(i * 4), 4)), 2);
+        }
+
+        return;
+
+        uint Lui(int rd, int imm20) => (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);
+    }
+
     // ── Integration test: 3mm (single matmul core) via OoO pipeline ──────────
 
     /// <summary>

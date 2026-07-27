@@ -11,17 +11,17 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] `vec_cv` (661 lines, `so.v.cv` conversions) has an **empty `RUN_SIMPLE`** (`void core(DataType
   src[SIZE]){}`) — there is no independent oracle to verify against at all. Matches the already-recorded
   `SPEC_NOTES.md` finding that `so.v.cv` correctness was "genuinely underspecified, never given
-  attention" by the author. Do not port without a real reference to check against.
-- [ ] `knn` (github.com/hpc-ulisboa/UVE2, same benchmarks dir) is **not 1:1 portable today**: its
-  `position_x_j`/`_y`/`_z` neighbor-gather streams use a 4-operand `ss.sta.ld.d ud, base, count, stride`
-  header — the same pre-revision inline-dimension syntax `syrk` also turned out to have (not itself a
-  decoder gap, and not knn's real blocker) — plus a trailing `ss.end ud, zero, zero, zero` with a
-  literal zero count: apparently a placeholder inner dimension whose sole purpose is to make its
-  attached `ss.app.indl.ofs.add` (dynamic/`.L` indirect modifier, as opposed to the `sgi` form used by
-  `spmv_ellpack`) fire on every element. Unlike `syrk`, this count=0-placeholder-dimension idiom is a
-  genuine semantic unknown — `RUN_SIMPLE` can't be used to rederive what a zero-count dimension does to
-  the fetch/consume odometers, so this needs the author's confirmation before implementing (per
-  `SPEC_NOTES.md`'s "author is authority" discipline) — don't guess at it from the kernel source alone.
+  attention" by the author, who also confirmed (2026-07-27) there's no forward plan for it — UVE compute
+  instructions are being phased out in favor of RISC-V V's. He's fine with implementing it anyway "to
+  validate", but that isn't a reference to check against, so the no-oracle hold stands.
+- [x] `knn` (github.com/lumicrespo/UVEcompiler, UVE-Testing/spike_test/benchmarks/knn): the reference's
+  `position_x_j`/`_y`/`_z` neighbor-gather streams use a zero-count placeholder dimension carrying a
+  `.L` dynamic indirect modifier — confirmed by the author (2026-07-27, see `SPEC_NOTES.md`) as a legacy
+  pre-`sgi` gather idiom, not something to replicate. Ported the LJ-potential force kernel using the
+  `sgi` scatter-gather modifier instead (three `NL` IndSource copies, one per gathered axis, mirroring
+  `spmv_ellpack_delimiters`'s three `rowDelimiters` copies), with the `position_i` broadcast done via a
+  stride-0 inner dimension (`3mm`'s row/column-repeat trick) rather than the reference's `so.v.mv`
+  scalar-hold. `Pipeline_Knn_CorrectResult` in `UveTests.cs`; full non-benchmark suite 4425/1/4426.
 - [x] Reverted the `so.b.*` branch `d`-field encoding fix after the UVE2 author retracted his own prior
   correction (email 2026-07-24, see `SPEC_NOTES.md`'s "Branch `d` field" entry): the 2026-07-22 email
   that moved the no-suffix EOS-equivalent form (`so.b.[n]c`) to funct3=7 and made dc.1 reachable at
