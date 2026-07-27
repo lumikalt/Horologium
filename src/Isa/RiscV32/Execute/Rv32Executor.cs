@@ -170,6 +170,10 @@ public partial class Rv32Executor : IExecutor {
             RvBgeu(var rs1, var rs2, var imm) =>
                 Branch(regs.Read(rs1) >= regs.Read(rs2), pc, imm, instruction.SizeBytes),
 
+            // ── Macro-fused compare+branch ───────────────────────────────────────
+            RvFusedCompareBranch(var cmpOp, var takenWhenNonZero, var branchPc, var branchImm) =>
+                FusedCompareBranch(cmpOp, takenWhenNonZero, branchPc, branchImm, regs, pc, instruction.SizeBytes),
+
             // ── Jumps ─────────────────────────────────────────────────────────
             RvJal (_, var imm) =>
                 new ExecuteResult {
@@ -1370,6 +1374,36 @@ public partial class Rv32Executor : IExecutor {
 
     protected static ExecuteResult Branch(bool taken, ulong pc, int imm, int instrSize) =>
         ExecuteResult.WithBranch(taken, taken ? (ulong)((long)pc + imm) : pc + (ulong)instrSize);
+
+    // Re-evaluates the SLT-family compare against live register state — deliberately not
+    // cached from fuse time, since RvMacroFuser.TryFuse runs speculatively before the
+    // compare's own operands are known to be ready.
+    private static ulong FusedCompareValue(RvOp cmp, IRegisterFile regs) => cmp switch {
+        RvSlt (_, var rs1, var rs2)  => (int)regs.Read(rs1) < (int)regs.Read(rs2) ? 1UL : 0UL,
+        RvSltu(_, var rs1, var rs2)  => regs.Read(rs1) < regs.Read(rs2) ? 1UL : 0UL,
+        RvSlti (_, var rs1, var imm) => (int)regs.Read(rs1) < imm ? 1UL : 0UL,
+        RvSltiu(_, var rs1, var imm) => (uint)regs.Read(rs1) < (uint)imm ? 1UL : 0UL,
+        _ => throw new InvalidOperationException(
+            $"RvFusedCompareBranch.Compare held an unexpected payload type: {cmp.GetType().Name}"
+        ),
+    };
+
+    // branchPc/branchImm are the branch's own PC-relative target math — independent of
+    // macroOpPc/macroOpSizeBytes (the fused Tooth's Pc/SizeBytes, which span both original
+    // instructions and drive the not-taken fall-through instead).
+    private static ExecuteResult FusedCompareBranch(
+        RvOp cmp, bool takenWhenNonZero, ulong branchPc, int branchImm,
+        IRegisterFile regs, ulong macroOpPc, int macroOpSizeBytes
+    ) {
+        ulong cmpValue = FusedCompareValue(cmp, regs);
+        bool taken = takenWhenNonZero ? cmpValue != 0 : cmpValue == 0;
+        ulong target = taken ? (ulong)((long)branchPc + branchImm) : macroOpPc + (ulong)macroOpSizeBytes;
+        return new ExecuteResult {
+            RegisterResult = (cmpValue, true),
+            BranchTaken = taken,
+            BranchTarget = target,
+        };
+    }
 
     private static ExecuteResult ExecuteCsr(
         IArchState state,

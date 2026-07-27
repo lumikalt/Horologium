@@ -50,6 +50,12 @@ public sealed class Rv32Mechanism : IMechanism {
     ///     Optional Linux syscall-emulation handler. When non-null, ECALL instructions
     ///     are routed here instead of generating a trap. See <see cref="LinuxSyscallEmulator" />.
     /// </param>
+    /// <param name="enableMacroFusion">
+    ///     When true, <see cref="MacroFuser" /> exposes <see cref="RvMacroFuser" /> so
+    ///     trains that consume it (currently <c>SuperscalarTrain</c>) fuse SLT+branch
+    ///     pairs. Default false: fusion changes issue-width and cycle-count accounting,
+    ///     so it must be opted into rather than silently changing existing runs' timing.
+    /// </param>
     public Rv32Mechanism(
         ulong? htifTohost = null,
         ReservationTable? reservationTable = null,
@@ -58,7 +64,8 @@ public sealed class Rv32Mechanism : IMechanism {
         PlicDevice? plic = null,
         bool ebreakAlwaysHalts = false,
         bool wfiNeverHalts = false,
-        ISyscallHandler? syscallHandler = null
+        ISyscallHandler? syscallHandler = null,
+        bool enableMacroFusion = false
     ) {
         Executor = new Rv32Executor {
             HtifTohostAddress = htifTohost,
@@ -70,6 +77,7 @@ public sealed class Rv32Mechanism : IMechanism {
             SyscallHandler = syscallHandler,
         };
         TrapController = new RvTrapController(clint, plic);
+        MacroFuser = enableMacroFusion ? new RvMacroFuser() : null;
     }
 
     public string Name => "RV32I";
@@ -83,6 +91,7 @@ public sealed class Rv32Mechanism : IMechanism {
     public IExecutor Executor { get; set; }
 
     public IImpulseCracker? UopCracker => null;
+    public IMacroFuser? MacroFuser { get; }
     public ITrapController TrapController { get; }
 
     /// <summary>

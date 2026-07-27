@@ -170,6 +170,7 @@ internal sealed class SuperscalarCore(
     private long _fetchStallUntil;
     private IFetchTranslator? _fetchTranslator;
     private Counter _flushesCounter = null!;
+    private Counter _macroFusionsCounter = null!;
     private Counter? _icacheHitsCounter, _icacheMissesCounter;
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
     private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
@@ -225,6 +226,9 @@ internal sealed class SuperscalarCore(
         _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions (frontend refill penalty)");
         _flushesCounter = Dials.AddCounter(
             "flushes", "Frontend flushes (mispredict + trap + interrupt + mret redirects)"
+        );
+        _macroFusionsCounter = Dials.AddCounter(
+            "macro_fusions", "Instruction pairs issued as a single macro-fused issue slot"
         );
 
         Dials.AddDial(
@@ -368,6 +372,31 @@ internal sealed class SuperscalarCore(
 
             ITooth instr = head.Instruction!;
 
+            // Macro-fusion: if the ISA plugin recognises this instruction plus the very
+            // next queue entry as a fusible pair (e.g. RV32's SLT+branch idiom), replace
+            // both with a single fused Tooth before the RAW/WAW/structural checks below —
+            // its SourceRegisters/DestinationRegister/Class mirror `instr`'s own, so those
+            // checks apply unchanged, and the branch's own PC/prediction (needed below) is
+            // read from `second`, not from the fused Tooth's Pc (the compare's own PC).
+            // Adjacency (second.Pc immediately follows instr) is what rules out a redirect
+            // having landed on the branch alone: the fetch queue only ever holds a
+            // contiguous speculative stream, so two entries are only adjacent here if they
+            // were actually fetched back-to-back with nothing between them.
+            var fused = false;
+            FetchedEntry second = default;
+            if (mechanism.MacroFuser is not null
+             && TryPeekSecond(out second)
+             && second.PreTrap is null
+             && second.ReadyAt <= now
+             && second.Pc == head.Pc + (ulong)instr.SizeBytes) {
+                ITooth? fusedInstr = mechanism.MacroFuser.TryFuse(instr, second.Instruction!);
+                if (fusedInstr is not null) {
+                    instr = fusedInstr;
+                    fused = true;
+                    _macroFusionsCounter.Increment();
+                }
+            }
+
             // RAW interlock: every source must be readable through the bypass this cycle.
             var blocked = false;
             IReadOnlyList<int> srcs = instr.SourceRegisters;
@@ -406,9 +435,10 @@ internal sealed class SuperscalarCore(
                 break;
 
             _fetchQueue.Dequeue();
+            if (fused) _fetchQueue.Dequeue();
             classIssued[fuSlot]++;
-            issued++;
-            _retiredCounter.Increment();
+            issued++; // a fused pair still costs one issue-slot-and-cycle, the whole point of fusion
+            _retiredCounter.IncrementBy(fused ? 2 : 1); // architectural instruction count, not slot count
 
             int latency = result.LatencyOverride is > 0 and var overridden
                 ? overridden
@@ -437,6 +467,10 @@ internal sealed class SuperscalarCore(
             if (PEventLog is not null) {
                 PEventLog.Record(head.InstrId, head.Pc, now, PEventKind.Execute);
                 PEventLog.Record(head.InstrId, head.Pc, now + latency - 1, PEventKind.Retire);
+                if (fused) {
+                    PEventLog.Record(second.InstrId, second.Pc, now, PEventKind.Execute);
+                    PEventLog.Record(second.InstrId, second.Pc, now + latency - 1, PEventKind.Retire);
+                }
             }
 
             // IsHalt stops before any state change (ebreak); RequestHalt (an HTIF
@@ -483,12 +517,19 @@ internal sealed class SuperscalarCore(
                 // Branches resolve at issue: train on every one, then either keep issuing
                 // (the queue already holds the correctly predicted path) or flush the
                 // frontend — the penalty is the refill, frontendDepth cycles of starvation.
-                ulong fallThrough = head.Pc + (ulong)instr.SizeBytes;
+                // When fused, the predictor/RAS-kind machinery must key off the branch's
+                // own Pc/prediction (from `second`), not the fused Tooth's Pc (the
+                // compare's PC) — the BTB and fetch-time prediction were both keyed on the
+                // branch's real address.
+                ITooth branchInstr = fused ? second.Instruction! : instr;
+                ulong branchPc = fused ? second.Pc : head.Pc;
+                ulong branchPredictedNext = fused ? second.PredictedNextPc : head.PredictedNextPc;
+                ulong fallThrough = branchPc + (ulong)branchInstr.SizeBytes;
                 if (predictor is IBranchKindAwareBranchPredictor kindAware)
-                    kindAware.NotifyBranchKind(head.Pc, ClassifyBranchKind(instr));
-                predictor.Update(head.Pc, ArchState.Pc != fallThrough, ArchState.Pc);
+                    kindAware.NotifyBranchKind(branchPc, ClassifyBranchKind(branchInstr));
+                predictor.Update(branchPc, ArchState.Pc != fallThrough, ArchState.Pc);
 
-                if (ArchState.Pc != head.PredictedNextPc) {
+                if (ArchState.Pc != branchPredictedNext) {
                     _branchMissCounter.Increment();
                     FlushFrontend(ArchState.Pc, now);
                     break;
@@ -537,6 +578,25 @@ internal sealed class SuperscalarCore(
         }
 
         return halt;
+    }
+
+    /// <summary>
+    ///     Peeks the fetch queue's second entry (the one behind the head) without dequeuing
+    ///     anything. <c>Queue&lt;T&gt;</c> exposes no indexer, so this walks its struct
+    ///     enumerator directly — no LINQ, no allocation — since StepIssue calls this every
+    ///     cycle on the hot path.
+    /// </summary>
+    private bool TryPeekSecond(out FetchedEntry second) {
+        if (_fetchQueue.Count < 2) {
+            second = default;
+            return false;
+        }
+
+        Queue<FetchedEntry>.Enumerator e = _fetchQueue.GetEnumerator();
+        e.MoveNext();
+        e.MoveNext();
+        second = e.Current;
+        return true;
     }
 
     // ── Fetch ──────────────────────────────────────────────────────────────────

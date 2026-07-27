@@ -526,6 +526,18 @@ public record RvBltu(int Rs1, int Rs2, int Imm) : RvOp;
 
 public record RvBgeu(int Rs1, int Rs2, int Imm) : RvOp;
 
+/// <summary>
+///     Macro-fused compare+branch: an SLT-family instruction whose result is consumed
+///     by an immediately-following BEQ/BNE-against-zero, built by
+///     <see cref="RvMacroFuser" />. <c>Compare</c> is re-evaluated at execute time
+///     against live register state (it is not pre-computed at fuse time, since fusion
+///     happens speculatively at issue, before the compare's operands are known to be
+///     ready). <c>BranchPc</c>/<c>BranchImm</c> carry the branch's own PC-relative
+///     target math, which is independent of the fused Tooth's own <c>Pc</c> (the
+///     compare's PC).
+/// </summary>
+public record RvFusedCompareBranch(RvOp Compare, bool TakenWhenNonZero, ulong BranchPc, int BranchImm) : RvOp;
+
 // ── Jumps ─────────────────────────────────────────────────────────────────────
 public record RvJal(int Rd, int Imm) : RvOp;
 

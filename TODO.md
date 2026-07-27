@@ -645,7 +645,23 @@ just infrastructure this design doesn't require.
 
 - [ ] µop cache (decoded instruction cache / loop buffer): cache decoded µop bundles so the front-end skips re-decode on
   repeated loops.
-- [ ] Macro-fusion: fuse compare+branch pairs into a single issue-slot µop (as in Intel Sandy Bridge onward).
+- [x] Macro-fusion (`SuperscalarTrain`): RV32's SLT(U)/SLTI(U) + BEQ/BNE-against-zero idiom
+  (the RISC-V analogue of x86 cmp+jcc — RISC-V branches already embed their own comparison, so
+  SLT-family is the only "compare" worth fusing with a following branch) collapsed into a single
+  issue-slot µop via `IMechanism.MacroFuser`/`IMacroFuser`, opt-in through
+  `Rv32Mechanism(enableMacroFusion: true)` since it changes issue-width/cycle-count accounting for
+  any run that enables it. `_retiredCounter`/instret scale by 2 for a fused pair (commit-width and
+  architectural-instruction-count are tracked separately, so IPC stays meaningful) — see
+  `SuperscalarMacroFusionTests`.
+- [ ] Macro-fusion for `OooeTrain`: extend the same SLT+branch fusion to the ROB/issue-queue.
+  Unlike `SuperscalarTrain`, this needs to collapse the pair to a single ROB+IQ entry to get any
+  benefit (an OoO machine's CDB broadcast/wakeup round-trip can't be shortcut by co-issuing alone),
+  which means threading the fused Tooth's real 2-instruction count through every OoOE retire-tail
+  call site (`_retiredCounter`, `State.OnRetire()`, `PEventLog`, the Olympia co-sim
+  `_commitObserver`/`Rdip` hooks) instead of just `SuperscalarTrain`'s single issue-stage counter.
+- [ ] TMA slot accounting doesn't yet account for macro-fusion: `SuperscalarTrain`'s in-order
+  "SlotsIssued ≡ retired" assumption (and the paper cross-check `Retiring == IPC/width`) no longer
+  holds once fusion is enabled, since a fused pair issues as 1 slot but retires as 2 instructions.
 
 ## Cache Prefetching
 

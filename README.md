@@ -1505,7 +1505,12 @@ source (RAW, full bypass — a latency-L producer feeds a consumer issuing L cyc
 services a miss (one outstanding miss; independent ALU work continues underneath — stall-on-use via the scoreboard).
 FU counts and latencies come from the same `FuLatencyConfig` the OoO trains use. Instructions execute functionally
 at issue (exact for an in-order machine), so branches resolve at issue and train the predictor with no outstanding
-speculation beyond the fetch queue. Superscalar honors HTIF tohost-exit stores (`RequestHalt`), and Superscalar,
+speculation beyond the fetch queue. Macro-fusion (opt-in via `Rv32Mechanism(enableMacroFusion: true)`, off by
+default) recognizes RV32's SLT(U)/SLTI(U) + BEQ/BNE-against-zero idiom — the RISC-V analogue of x86 cmp+jcc,
+since RV32 branches already embed their own comparison — through `IMechanism.MacroFuser`, and issues the pair as
+one issue-slot µop instead of paying the RAW-bypass round-trip between them; `_retiredCounter`/instret still count
+both original instructions, so IPC stays meaningful across a fusion-on/off comparison. Superscalar honors HTIF
+tohost-exit stores (`RequestHalt`), and Superscalar,
 DAE and SMT advance the cycle CSR (`ArchState.OnCycle`) every cycle — previously frozen `rdcycle` readings made
 self-calibrating benchmarks (dhrystone) re-run their measurement loop forever on all three. The Face's pipeline
 picker covers `single_cycle`, `five_stage`, `superscalar`, `ooo`, `cpr`, and `dae` (predictor config applies to

@@ -24,6 +24,14 @@ public interface IMechanism {
     /// </summary>
     IImpulseCracker? UopCracker { get; }
 
+    /// <summary>
+    ///     The macro-op fuser for this ISA, or null if this ISA/configuration does not
+    ///     fuse instruction pairs. Consumed only by trains that model a per-cycle
+    ///     issue-width cap where fusion has an observable effect (see
+    ///     <see cref="IMacroFuser" />).
+    /// </summary>
+    IMacroFuser? MacroFuser => null;
+
     /// <summary>The trap controller for this ISA.</summary>
     ITrapController TrapController { get; }
 
