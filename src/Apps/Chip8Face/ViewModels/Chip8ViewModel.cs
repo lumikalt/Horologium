@@ -12,7 +12,7 @@ using CommunityToolkit.Mvvm.Input;
 
 #endregion
 
-namespace Face.ViewModels;
+namespace Chip8Face.ViewModels;
 
 public partial class Chip8ViewModel : ObservableObject {
     private readonly Chip8Memory _memory = new();
@@ -21,8 +21,7 @@ public partial class Chip8ViewModel : ObservableObject {
     private bool _interactive;
     private DispatcherTimer? _timer;
 
-    public Chip8ViewModel(Action goToLauncher) {
-        GoToLauncherCommand = new RelayCommand(goToLauncher);
+    public Chip8ViewModel() {
         _train = new Chip8Train(new Chip8Mechanism(), _memory);
     }
 
@@ -32,8 +31,6 @@ public partial class Chip8ViewModel : ObservableObject {
         PixelFormats.Bgra8888,
         AlphaFormat.Opaque
     );
-
-    public IRelayCommand GoToLauncherCommand { get; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StartPauseLabel))]

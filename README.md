@@ -10,36 +10,154 @@ configurations (branch predictors, caches, pipelines) and generating measurement
 
 ## Projects
 
-| Project       | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Orrery**    | The simulation engine. Knows nothing about instructions or ISAs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **Mechanism** | Interfaces only. Defines the ISA-plugin contract.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Pipeline**  | ISA-agnostic pipeline trains (`SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`, `CprTrain`, `SmtTrain`, `DaeTrain`), pipeline registers, `HazardUnit`, and stage implementations. No dependency on any ISA.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| **RiscV32**   | RV32IMAFDCV implementation of the Mechanism contract. Includes Zba/Zbb/Zbc/Zbs/Zfh/Zicond/Zawrs/Zicbom/Zicboz/Zimop/Zcmop/Zicntr/Zabha/Zacas/Zknd/Zkne/Zknh/Zksed/Zksh/Zkr/Zbkb/Zbkc/Zbkx/Zvkned (full AES block-cipher extension)/Zvksed (full SM4 block-cipher extension)/Zvknha+Zvknhb (full SHA-2 compression + message-schedule extension)/Zvksh (full SM3 secure-hash extension)/Zvkg (full GCM/GMAC extension)/Zvbb+Zvbc+Zvkb (vector basic bit-manipulation + carryless multiply — completes the Vector Cryptography Extensions Volume II instruction set) and UVE. Zacas adds `amocas.w`; combined with Zabha it also adds narrow `amocas.b`/`amocas.h` compare-and-swap. RV32 also implements the Zacas register-pair form of `amocas.d` (rd/rd+1 and rs2/rs2+1 forming a 64-bit compare/swap value): the low half commits through the normal destination-register path, the high half through `ITooth.SecondaryDestinationRegister` + `ExecuteResult.SideEffect`, an ISA-agnostic second-destination hook available to any Mechanism plugin that needs one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **RiscV64**   | RV64IMAFDAC implementation extending RiscV32 via inheritance. Adds W-suffix ops (ADDW/SUBW/…/ADDIW/…), LD/LWU/SD, LR.D/SC.D/AMO*.D doubleword atomics, `amocas.d` (native single-register 64-bit compare-and-swap — RV32 uses the register-pair form instead, see above), C.LD/C.SD/C.ADDIW/C.LDSP/C.SDSP compressed quadrant reassignments, RV64-only Zba (ADD.UW/SH1-3ADD.UW/SLLI.UW) and 64-bit-width overrides of the inherited Zbb/Zbs immediate and register-form ops (6-bit shift-amount mask included), corrects shift/comparison/LW semantics for 64-bit, and adds the RV64-only Zknd/Zkne AES instructions (aes64ds/dsm/es/esm/im/ks1i/ks2) and Zknh direct SHA2-512 forms (sha512sig0/1, sha512sum0/1), disjoint from RiscV32's RV32-only forms, plus RV64-only Zbkb `packw` and 64-bit-width overrides of `pack`/`brev8`/`xperm4`/`xperm8`. Includes an ELF64 loader and an Sv39 page-table walker (satp held in a dedicated 64-bit-wide RV64 CSR rather than RiscV32's 32-bit `CsrFile`, to hold the Sv39 MODE field). The inherited V extension and UVE work unmodified at XLEN=64 (register file and CSRs are width-agnostic); the XLEN-sensitive paths — vlse/vsse strided load-store and vlsseg/vssseg segment strided load-store — read their stride through an overridable hook so RV64 uses the full 64-bit signed register value instead of RV32's 32-bit sign-extension.                                                                                                                                                                                                                                                     |
-| **Chip8**     | A second ISA implementation, demonstrating that the engine is genuinely ISA-agnostic. Full display (64×32 XOR-sprite framebuffer) and 16-key keyboard support.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Subleq**    | SUBLEQ OISC implementation. One 12-byte instruction, no register file. Validates that the Mechanism contract accepts the simplest possible ISA.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| **Pdp8**      | PDP-8 (1965) 12-bit accumulator machine. Eight opcodes: AND, TAD, ISZ, DCA, JMS, JMP, IOT, OPR. Full Group 1/2 micro-operations (CLA, CLL, CMA, CML, RAR/RTR, RAL/RTL, BSW, IAC, SMA/SZA/SNL with RSS complement mode). Page-zero and current-page addressing, indirect access, auto-increment (words 8–15).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **J1**        | J1 Forth (James Bowman, 2010) 16-bit stack machine. Fixed 16-bit instruction width, four instruction types (Literal, Jump, CondJump, ALU). 32-entry data stack (T/N) and return stack (R), full ALU encoding (16 T' selectors, T→N, T→R, N→[T] store, 2-bit DDelta/RDelta). Implements `DUP`, `DROP`, `SWAP`, `OVER`, `+`, `AND`, `OR`, `XOR`, `INVERT`, `=`, `<`, `U<`, `@`, `!`, `>R`, `R>`, `R@`, `EXIT`, and countdown loops.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Move**      | TTA/MOVE (Transport Triggered Architecture, Corporaal 1995) 16-bit machine. Fixed 32-bit instruction format `[dst                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |src|imm]`. Computation is a side effect of transport: writing to a trigger port (`alu.in2`, `mem.load`, `mem.store`, `br.target`) fires the FU. Register file r0–r7; ALU FU (16 operations: ADD/SUB/AND/OR/XOR/NOT/SHL/SHR/SRA/EQ/LT/ULT/NEG/INC/DEC/COPY); memory FU (16-bit word loads and stores); branch FU (conditional redirect). `SingleCycleTrain` only — FU state is not exposed as register hazards. |
-| **F18A**      | GreenArrays GA144 F18A (2010) 18-bit stack computer. 29 opcodes packed four-per-word (5+5+5+3 bits) using the canonical GA144 encoding (0x00–0x1F). Includes `-if` (MinusIf 0x07: branch when T≥0) and `+*` (MulStep 0x10: shift-and-add multiply step). Data stack (T/S/8-deep) and return stack (8-deep); A and B address registers; 9-bit word-addressed PC (P). Canonical `if` semantics: branch when T==0 (false). Per-node memory: 64-word RAM, 64-word ROM, 256-word port space. Inter-node communication via synchronous `RendezvousArbor` channels (transfer completes only when both sides participate in the same tick). `F18AGrid` coordinates a rows×cols array of nodes; each node runs `SingleCycleTrain`; `F18AGrid.Step()` pre-checks `WillBlock` before driving decode→execute→commit. First multi-core ISA in the engine.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **Face**      | Avalonia desktop UI. Opens with an **ISA launcher** so the user picks RISC-V or CHIP-8 before entering the appropriate view. The RISC-V side includes an RV32/RV64 selector and a workload preset picker (RV64 offers only the built-in demo and a custom ELF path, since no RV64 benchmark ELFs are bundled), a **multi-hart mode** toggle that swaps the single-config sweep for N harts (each with its own pipeline/predictor config, an optional private cache, and a memory pool id), running a fixed, hand-verified LR/SC atomic-increment demo program — the only workload safe to share across harts, since real ELFs assume a single, non-shared stack — with harts sharing a pool id sharing one coherent memory/bus/shared-LLC domain and harts in different pools fully isolated from each other, with results rendering as one row per hart in the same Chart/Table view, a **Waveform tab** that plots selected signals over simulation time from the run's periodic snapshots (per-window counter deltas plus derived windowed IPC and cache hit rates, one line per config × signal), a **PEvents tab** with a scrollable Argos-style pipeline waterfall (rows = instructions, columns = cycles, cells = stage abbreviation F/DC/D/IS/EX/RT/FL), a **SpecPC** gutter column showing the fetch-window start address, flush/misprediction cycles highlighted red, fetch-stall cycles dimmed, and an **Assembler tab** with a three-pane RISC-V assembly editor (editor + decoded listing + register file), and a **Vector tab** showing the v0-v31 vector register file (VLEN=128) as a grid with a selectable e8/e16/e32/e64 element-width view and a live vtype/vl readout. The Assembler tab has a sidebar **language toggle (RISC-V ASM / C)**: in C mode the source is compiled with `riscv32-none-elf-gcc` (selectable `-O` level) against a tiny `_start` stub, the resulting `.text` is disassembled into the listing, and single-cycle stepping highlights the current C source line via `objdump -dl` line info. A **Configurator tab** is a gem5-style architecture builder: an AvaloniaEdit pane edits a `.csx` script (the same `Script.ScriptHost`/`Pipeline.Spec.MachineSpec` API `Runner --script` uses) and hot-reloads it on both in-app edits (debounced) and external saves (`FileSystemWatcher`), against a workload preset picker, with a live cache/TLB/dial stat panel while running — a separate, coexisting path from the `ConfigViewModel`/`TrainConfig` GUI knobs the other tabs use. The CHIP-8 side renders the 64×32 pixel framebuffer at 10× scale with a 60 fps game loop, keyboard input (QWERTY layout mapped to the CHIP-8 hex keypad), and ROM load/start/pause/reset controls. |
-| **Runner**    | Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. Accepts `--script <file.csx>` to evaluate a C# script that returns a `MachineSpec` and run the workload against it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **Script**    | C# and F# scripting host. `ScriptHost.EvaluateFileAsync(path)` compiles and runs a `.csx` (Roslyn) or `.fsx` (F# Interactive) file returning a `MachineSpec`, with all Spec/Cache/RiscV32 namespaces pre-imported and assemblies pre-referenced — no `#r` or `using`/`open` needed in the script. `ConfiguratorEngine` (UI-framework-free) wraps evaluate→build→snapshot for Face's Configurator tab.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Tests**     | xUnit tests. Engine tests under `Tests/Orrery`, `Tests/Pipeline`, `Tests/Mechanism`; small-ISA and hand-crafted-buffer RV64 tests under `Tests/Isa` (`Tests/Isa/RiscV64`); RV32 tests under `Tests/RiscV32/{Isa,Extensions,Pipelines,MultiHart,System,CoSim,Analysis}`; RV64 ISA-conformance tests (real compiled `rv64*-p-*` ELFs, all three pipeline trains) under `Tests/RiscV64/Isa`; RV64 `Tests/RiscV64/{System,MultiHart,CoSim}` (CLINT/HTIF/UART/raw-binary-workload, multi-hart pipeline/atomics/TSO fence, Spike co-sim golden-path + full riscv-tests conformance loop, torture co-sim, OpenSBI boot, Linux NOMMU boot) mirroring the RV32 System/MultiHart/CoSim suites; `Tests/Face` covers `ConfiguratorEngine` (UI-framework-free, so it's testable without pulling in Avalonia).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-
 Projects live under `src/`: the ISA-agnostic core in `src/Core/`, ISA plugins in `src/Isa/`, and applications in
 `src/Apps/`.
+
+### Orrery
+
+The simulation engine. Knows nothing about instructions or ISAs.
+
+### Mechanism
+
+Interfaces only. Defines the ISA-plugin contract.
+
+### Pipeline
+
+ISA-agnostic pipeline trains (`SingleCycleTrain`, `FiveStageTrain`, `SuperscalarTrain`, `OooeTrain`, `CprTrain`,
+`SmtTrain`, `DaeTrain`), pipeline registers, `HazardUnit`, and stage implementations. No dependency on any ISA.
+
+### RiscV32
+
+RV32IMAFDCV implementation of the Mechanism contract. Includes
+Zba/Zbb/Zbc/Zbs/Zfh/Zicond/Zawrs/Zicbom/Zicboz/Zimop/Zcmop/Zicntr/Zabha/Zacas/Zknd/Zkne/Zknh/Zksed/Zksh/Zkr/Zbkb/Zbkc/Zbkx/Zvkned (
+full AES block-cipher extension)/Zvksed (full SM4 block-cipher extension)/Zvknha+Zvknhb (full SHA-2 compression +
+message-schedule extension)/Zvksh (full SM3 secure-hash extension)/Zvkg (full GCM/GMAC extension)/Zvbb+Zvbc+Zvkb (vector
+basic bit-manipulation + carryless multiply — completes the Vector Cryptography Extensions Volume II instruction set)
+and UVE. Zacas adds `amocas.w`; combined with Zabha it also adds narrow `amocas.b`/`amocas.h` compare-and-swap. RV32
+also implements the Zacas register-pair form of `amocas.d` (rd/rd+1 and rs2/rs2+1 forming a 64-bit compare/swap value):
+the low half commits through the normal destination-register path, the high half through
+`ITooth.SecondaryDestinationRegister` + `ExecuteResult.SideEffect`, an ISA-agnostic second-destination hook available to
+any Mechanism plugin that needs one.
+
+### RiscV64
+
+RV64IMAFDAC implementation extending RiscV32 via inheritance. Adds W-suffix ops (ADDW/SUBW/…/ADDIW/…), LD/LWU/SD,
+LR.D/SC.D/AMO*.D doubleword atomics, `amocas.d` (native single-register 64-bit compare-and-swap — RV32 uses the
+register-pair form instead, see above), C.LD/C.SD/C.ADDIW/C.LDSP/C.SDSP compressed quadrant reassignments, RV64-only
+Zba (ADD.UW/SH1-3ADD.UW/SLLI.UW) and 64-bit-width overrides of the inherited Zbb/Zbs immediate and register-form ops (
+6-bit shift-amount mask included), corrects shift/comparison/LW semantics for 64-bit, and adds the RV64-only Zknd/Zkne
+AES instructions (aes64ds/dsm/es/esm/im/ks1i/ks2) and Zknh direct SHA2-512 forms (sha512sig0/1, sha512sum0/1), disjoint
+from RiscV32's RV32-only forms, plus RV64-only Zbkb `packw` and 64-bit-width overrides of `pack`/`brev8`/`xperm4`/
+`xperm8`. Includes an ELF64 loader and an Sv39 page-table walker (satp held in a dedicated 64-bit-wide RV64 CSR rather
+than RiscV32's 32-bit `CsrFile`, to hold the Sv39 MODE field). The inherited V extension and UVE work unmodified at
+XLEN=64 (register file and CSRs are width-agnostic); the XLEN-sensitive paths — vlse/vsse strided load-store and
+vlsseg/vssseg segment strided load-store — read their stride through an overridable hook so RV64 uses the full 64-bit
+signed register value instead of RV32's 32-bit sign-extension.
+
+### Chip8
+
+A second ISA implementation, demonstrating that the engine is genuinely ISA-agnostic. Full display (64×32 XOR-sprite
+framebuffer) and 16-key keyboard support.
+
+### Subleq
+
+SUBLEQ OISC implementation. One 12-byte instruction, no register file. Validates that the Mechanism contract accepts the
+simplest possible ISA.
+
+### Pdp8
+
+PDP-8 (1965) 12-bit accumulator machine. Eight opcodes: AND, TAD, ISZ, DCA, JMS, JMP, IOT, OPR. Full Group 1/2
+micro-operations (CLA, CLL, CMA, CML, RAR/RTR, RAL/RTL, BSW, IAC, SMA/SZA/SNL with RSS complement mode). Page-zero and
+current-page addressing, indirect access, auto-increment (words 8–15).
+
+### J1
+
+J1 Forth (James Bowman, 2010) 16-bit stack machine. Fixed 16-bit instruction width, four instruction types (Literal,
+Jump, CondJump, ALU). 32-entry data stack (T/N) and return stack (R), full ALU encoding (16 T' selectors, T→N, T→R,
+N→\[T] store, 2-bit DDelta/RDelta). Implements `DUP`, `DROP`, `SWAP`, `OVER`, `+`, `AND`, `OR`, `XOR`, `INVERT`, `=`,
+`<`, `U<`, `@`, `!`, `>R`, `R>`, `R@`, `EXIT`, and countdown loops.
+
+### Move
+
+TTA/MOVE (Transport Triggered Architecture, Corporaal 1995) 16-bit machine. Fixed 32-bit instruction format
+`[dst|src|imm]`. Computation is a side effect of transport: writing to a trigger port (`alu.in2`, `mem.load`,
+`mem.store`, `br.target`) fires the FU. Register file r0–r7; ALU FU (16 operations:
+ADD/SUB/AND/OR/XOR/NOT/SHL/SHR/SRA/EQ/LT/ULT/NEG/INC/DEC/COPY); memory FU (16-bit word loads and stores); branch FU (
+conditional redirect). `SingleCycleTrain` only — FU state is not exposed as register hazards.
+
+### F18A
+
+GreenArrays GA144 F18A (2010) 18-bit stack computer. 29 opcodes packed four-per-word (5+5+5+3 bits) using the canonical
+GA144 encoding (0x00–0x1F). Includes `-if` (MinusIf 0x07: branch when T≥0) and `+*` (MulStep 0x10: shift-and-add
+multiply step). Data stack (T/S/8-deep) and return stack (8-deep); A and B address registers; 9-bit word-addressed PC (
+P). Canonical `if` semantics: branch when T==0 (false). Per-node memory: 64-word RAM, 64-word ROM, 256-word port space.
+Inter-node communication via synchronous `RendezvousArbor` channels (transfer completes only when both sides participate
+in the same tick). `F18AGrid` coordinates a rows×cols array of nodes; each node runs `SingleCycleTrain`;
+`F18AGrid.Step()` pre-checks `WillBlock` before driving decode→execute→commit. First multi-core ISA in the engine.
+
+### Face
+
+Avalonia desktop UI, RISC-V exclusive (CHIP-8 has its own app, **Chip8Face**, below). Opens directly into the RV32/RV64
+view — an RV32/RV64 selector and a workload preset picker (RV64 offers only the built-in demo and a custom ELF path,
+since no RV64 benchmark ELFs are bundled), a **multi-hart mode** toggle that swaps the single-config sweep for N harts
+(each with its own pipeline/predictor config, an optional private cache, and a memory pool id), running a fixed,
+hand-verified LR/SC atomic-increment demo program — the only workload safe to share across harts, since real ELFs
+assume a single, non-shared stack — with harts sharing a pool id sharing one coherent memory/bus/shared-LLC domain and
+harts in different pools fully isolated from each other, with results rendering as one row per hart in the same
+Chart/Table view, a **Waveform tab** that plots selected signals over simulation time from the run's periodic snapshots
+(per-window counter deltas plus derived windowed IPC and cache hit rates, one line per config × signal), a **PEvents
+tab** with a scrollable Argos-style pipeline waterfall (rows = instructions, columns = cycles, cells = stage
+abbreviation F/DC/D/IS/EX/RT/FL), a **SpecPC** gutter column showing the fetch-window start address,
+flush/misprediction cycles highlighted red, fetch-stall cycles dimmed, and an **Assembler tab** with a three-pane RISC-V
+assembly editor (editor + decoded listing + register file), and a **Vector tab** showing the v0-v31 vector register
+file (VLEN=128) as a grid with a selectable e8/e16/e32/e64 element-width view and a live vtype/vl readout. The Assembler
+tab has a sidebar **language toggle (RISC-V ASM / C)**: in C mode the source is compiled with `riscv32-none-elf-gcc` (
+selectable `-O` level) against a tiny `_start` stub, the resulting `.text` is disassembled into the listing, and
+single-cycle stepping highlights the current C source line via `objdump -dl` line info. A **Configurator tab** is a
+gem5-style architecture builder: an AvaloniaEdit pane edits a `.csx` script (the same `Script.ScriptHost`/
+`Pipeline.Spec.MachineSpec` API `Runner --script` uses) and hot-reloads it on both in-app edits (debounced) and external
+saves (`FileSystemWatcher`), against a workload preset picker, with a live cache/TLB/dial stat panel while running — a
+separate, coexisting path from the `ConfigViewModel`/`TrainConfig` GUI knobs the other tabs use.
+
+### Chip8Face
+
+Avalonia desktop UI for CHIP-8, split out of Face so Face could go RISC-V exclusive. A single window renders the 64×32
+pixel framebuffer at 10× scale with a 60 fps game loop, keyboard input (QWERTY layout mapped to the CHIP-8 hex keypad),
+and ROM load/start/pause/reset controls. Shares the `Chip8` ISA plugin with the rest of the engine but nothing else
+with Face — no launcher, no RISC-V references, its own minimal `App.axaml` (`FluentTheme` + the `MonoFont` resource
+only, none of Face's DataGrid/AvaloniaEdit/ScottPlot styling).
+
+### Runner
+
+Console entry point. Runs ELF binaries under named hardware configurations and emits results as Markdown or CSV. Accepts
+`--script <file.csx>` to evaluate a C# script that returns a `MachineSpec` and run the workload against it.
+
+### Script
+
+C# and F# scripting host. `ScriptHost.EvaluateFileAsync(path)` compiles and runs a `.csx` (Roslyn) or `.fsx` (F#
+Interactive) file returning a `MachineSpec`, with all Spec/Cache/RiscV32 namespaces pre-imported and assemblies
+pre-referenced — no `#r` or `using`/`open` needed in the script. `ConfiguratorEngine` (UI-framework-free) wraps
+evaluate→build→snapshot for Face's Configurator tab.
+
+### Tests
+
+xUnit tests. Engine tests under `Tests/Orrery`, `Tests/Pipeline`, `Tests/Mechanism`; small-ISA and hand-crafted-buffer
+RV64 tests under `Tests/Isa` (`Tests/Isa/RiscV64`); RV32 tests under
+`Tests/RiscV32/{Isa,Extensions,Pipelines,MultiHart,System,CoSim,Analysis}`; RV64 ISA-conformance tests (real compiled
+`rv64*-p-*` ELFs, all three pipeline trains) under `Tests/RiscV64/Isa`; RV64 `Tests/RiscV64/{System,MultiHart,CoSim}` (
+CLINT/HTIF/UART/raw-binary-workload, multi-hart pipeline/atomics/TSO fence, Spike co-sim golden-path + full riscv-tests
+conformance loop, torture co-sim, OpenSBI boot, Linux NOMMU boot) mirroring the RV32 System/MultiHart/CoSim suites;
+`Tests/Face` covers `ConfiguratorEngine` (UI-framework-free, so it's testable without pulling in Avalonia).
 
 ## Commands
 
 ```bash
-dotnet build                                                    # build the whole solution
-dotnet test                                                     # run all tests
-dotnet test --filter "FullyQualifiedName~DecoderTests"          # one test class
-dotnet test --filter "Name=SpecificTestMethod"                  # one test method
-dotnet run --project src/Apps/Runner                                     # run the console entry point
-dotnet run --project src/Apps/Runner -- --help                           # CLI usage
+dotnet build                                             # build the whole solution
+dotnet test                                              # run all tests
+dotnet test --filter "FullyQualifiedName~DecoderTests"   # one test class
+dotnet test --filter "Name=SpecificTestMethod"           # one test method
+dotnet run --project src/Apps/Runner                     # run the console entry point
+dotnet run --project src/Apps/Runner -- --help           # CLI usage
 ```
 
 The development environment is provided by a Nix flake (`flake.nix`, `direnv`). It supplies the .NET 11 SDK,
@@ -126,7 +244,8 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   Gshare, L-TAGE (TAGE with a loop predictor overlay), ITTAGE (Indirect Target TAGE — tagged geometric-history
   tables store predicted *target addresses* instead of counters, each entry with a confidence counter for
   update hysteresis and a usefulness bit for allocation, so the same indirect-branch PC can resolve to different
-  targets depending on execution history, e.g. virtual dispatch; Seznec, CBP-3/JWAC-2, 2007), IMLI (Inter-Mediated Loop Iteration — single shared
+  targets depending on execution history, e.g. virtual dispatch; Seznec, CBP-3/JWAC-2, 2007), IMLI (Inter-Mediated Loop
+  Iteration — single shared
   loop-iteration counter indexes the PHT so body-branch predictions are iteration-specific; Jiménez, IEEE CAL 2018),
   LLBP (Last-Level Branch Predictor — context-addressed backing store over TAGE-SC-L; Rolling Context Register hashes
   recent taken-branch PCs into a context ID, patterns indexed by TAGE's PC×GHR tags; Schall et al., MICRO 2024),
@@ -818,7 +937,8 @@ hart to the same 4-byte-aligned granule cancels all overlapping reservations so 
 write, ensuring cancellation fires on every store. Single-hart setups leave `ReservationTable` null and use the existing
 private `_reservation` field unchanged — no API or behaviour change for existing code.
 
-**`clone()` and dynamic hart activation.** `MultiHartKernel`'s `activeHartCount` constructor parameter pre-allocates every
+**`clone()` and dynamic hart activation.** `MultiHartKernel`'s `activeHartCount` constructor parameter pre-allocates
+every
 hart's `IMechanism`/`IArchState` up front but only starts the first `activeHartCount` of them running — the rest sit
 *dormant* (skipped by `Step()`) until `SpawnHart` activates one. `MultiHartKernel : IHartSpawner`, and
 `LinuxSyscallEmulator.Spawner` (settable post-construction, breaking the construction-order cycle between the syscall
@@ -826,7 +946,8 @@ handler and the hart driver that needs it) wires `clone()` (syscall 220) to it: 
 `IArchState` (`IArchState.Snapshot()`), overrides `sp`/`tp`/`a0=0` per the real clone() ABI, and calls `SpawnHart` to
 activate the next dormant slot. The raw RISC-V syscall ABI is `a0=flags, a1=newsp, a2=ptid, a3=tls, a4=ctid` (confirmed
 by compiling and disassembling real musl 1.2.5 `__clone`); `CLONE_SETTLS`/`CLONE_PARENT_SETTID` are honored, and all
-harts sharing one `LinuxSyscallEmulator` instance is required (mirrors real `CLONE_FILES`/`CLONE_VM`). Backward-compatible
+harts sharing one `LinuxSyscallEmulator` instance is required (mirrors real `CLONE_FILES`/`CLONE_VM`).
+Backward-compatible
 constructor overloads default `activeHartCount` to every hart starting active, so pre-existing single-shot multi-hart
 setups are unaffected. `MultiHartPipeline`'s equivalent dynamic-activation support is not yet implemented — see
 `TODO.md`.
@@ -1052,7 +1173,7 @@ eviction callback reaches the prefetcher); it is approximated by training a depa
 Table entry toward "should have rejected" when a slot collision evicts it, a documented fidelity limit (table
 pressure standing in for real cache-capacity pressure) rather than the paper's literal mechanism. The paper's L2-vs-
 LLC fill-level split (τ_hi/τ_lo) collapses into one admit threshold, matching the same simplification already
-documented for SPP's own T_F. On coremark PPF cuts D$ misses to roughly a sixth of plain SPP's (188 vs. 1104 misses
+documented for SPP's own T_F. On coremark PPF cuts D\$ misses to roughly a sixth of plain SPP's (188 vs. 1104 misses
 at 32KB/8-way, vs. 1806 with no prefetching) — the paper's central claim that de-throttling plus perceptron filtering
 beats a throttled lookahead prefetcher outright, not just a marginal gain. **STeMS** — Spatio-Temporal Memory
 Streaming (Somogyi, Wenisch, Ailamaki &amp; Falsafi, ISCA 2009): extends SMS with temporal miss-sequence recording so
@@ -1534,7 +1655,8 @@ flag.
 ISPASS 2014) at their dispatch/issue stage — the frontend/backend border. On the in-order superscalar the flavor
 simplifies: issue never speculates past an unresolved branch, so SlotsIssued equals SlotsRetired, Bad Speculation
 consists purely of post-flush frontend-refill bubbles (split into branch mispredicts vs machine clears by cause),
-and Backend Bound is the scoreboard/FU-port/LSU backpressure residual. On the OoO trains: `td_total_slots` (issueWidth × cycles), `td_slots_issued`, `td_fetch_bubbles` (unutilized
+and Backend Bound is the scoreboard/FU-port/LSU backpressure residual. On the OoO trains: `td_total_slots` (issueWidth ×
+cycles), `td_slots_issued`, `td_fetch_bubbles` (unutilized
 dispatch slots with no backend stall; I-fetch miss stall cycles count width slots each), `td_recovery_bubbles`
 (flush/squash recovery cycles), plus cycle-denominated level-2 events (`td_fetch_latency_cycles`,
 `td_exec_stall_cycles`, `td_memstall_load_cycles`, `td_memstall_store_cycles`). Level-1 dials classify every issue
@@ -1558,7 +1680,8 @@ block dispatch.
 
 ### CPI stacks via interval analysis (Pipeline/CpiStackAnalysis)
 
-`OooeTrain` and `CprTrain` also build interval-analysis CPI stacks (Eyerman, Eeckhout, Karkhanis & Smith, ASPLOS 2006 — the
+`OooeTrain` and `CprTrain` also build interval-analysis CPI stacks (Eyerman, Eeckhout, Karkhanis & Smith, ASPLOS 2006 —
+the
 counter architecture Sniper's CPI stacks build on; interval model in their ACM TOCS 2009 paper). Total CPI decomposes
 additively into a **base** plus per-miss-event components (`cpi_*_cycles` counters, `cpi_*` dials): L1/L2/L3 I-cache
 and I-TLB miss delays, the branch misprediction penalty, L1/L2/L3 D-cache and D-TLB long-miss stalls, store
@@ -1946,7 +2069,8 @@ test); all 3 confirmed to fail with the fix removed — not a crash, but silentl
 closes the bug class for every functional (non-timing) driver path that runs through this train too
 (SMARTS's fast-forward pass, plain single-hart bare-metal runs), not just the six detailed pipeline trains.
 
-**Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation, Analysis/MultiHartLoopPointExperiment).**
+**Runtime extrapolation + `--looppoint` CLI (Pipeline/LoopPointRuntimeExtrapolation,
+Analysis/MultiHartLoopPointExperiment).**
 `LoopPointRuntimeExtrapolation` implements the paper's Eq. 1/2: `ComputeMultipliers` takes a `SimPointResult`
 (computed from `MultiHartLoopPointProfiler.RegionBbvs`) plus `RegionInstructionCounts` (the new property
 feeding it — each region's global filtered instruction count, same index order as `RegionBbvs`) and returns,

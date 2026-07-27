@@ -119,7 +119,8 @@ the active thread.
 
 ## Face
 
-- [ ] Work with other ISAs, not just RISC-V.
+- [ ] Each ISA gets its own Face-style app (Face for RISC-V, Chip8Face for CHIP-8, ...); consider extracting a
+  shared Avalonia-bootstrap scaffold if a third ISA app is added.
 - [ ] Power/energy estimation display alongside performance (McPAT-style: dynamic and leakage per unit).
 - [ ] Improve the cache and virtual addressing visualization. Make it more like Ripes. Needs a UX pass
   before it's actionable — moved here from TODO.md until there's a concrete design to build against.

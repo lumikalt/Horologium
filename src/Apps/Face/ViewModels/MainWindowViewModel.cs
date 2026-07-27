@@ -24,10 +24,6 @@ namespace Face.ViewModels;
 
 public record WorkloadPreset(string Label, string? ElfFileName, int MemoryBytes = 0);
 
-public enum AppPage {
-    Launcher, RiscV, Chip8,
-}
-
 public partial class MainWindowViewModel : ObservableObject {
     private const int BenchmarkMemoryBytes = 4 * 1024 * 1024;
 
@@ -37,7 +33,6 @@ public partial class MainWindowViewModel : ObservableObject {
     private ExperimentResult? _lastResult;
 
     public MainWindowViewModel() {
-        Chip8 = new Chip8ViewModel(() => CurrentPage = AppPage.Launcher);
         foreach (NamedConfig nc in DefaultSweep()) {
             Configs.Add(ConfigViewModel.FromNamedConfig(nc));
             HartCaches.Add(new HartCacheViewModel());
@@ -144,16 +139,6 @@ public partial class MainWindowViewModel : ObservableObject {
     public bool IsAssemblerTab => SelectedTabIndex == 2;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsLauncherPage), nameof(IsRiscVPage), nameof(IsChip8Page))]
-    private partial AppPage CurrentPage { get; set; } = AppPage.Launcher;
-
-    public bool IsLauncherPage => CurrentPage == AppPage.Launcher;
-    public bool IsRiscVPage => CurrentPage == AppPage.RiscV;
-    public bool IsChip8Page => CurrentPage == AppPage.Chip8;
-
-    public Chip8ViewModel Chip8 { get; }
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ThemeLabel))]
     public partial bool IsDarkTheme { get; set; } = true;
 
@@ -207,15 +192,6 @@ public partial class MainWindowViewModel : ObservableObject {
     public event Action? WaveformUpdated;
 
     partial void OnWaveformCumulativeChanged(bool value) => WaveformUpdated?.Invoke();
-
-    [RelayCommand]
-    private void GoToRiscV() => CurrentPage = AppPage.RiscV;
-
-    [RelayCommand]
-    private void GoToChip8() => CurrentPage = AppPage.Chip8;
-
-    [RelayCommand]
-    private void GoToLauncher() => CurrentPage = AppPage.Launcher;
 
     partial void OnIsDarkThemeChanged(bool value) =>
         Application.Current!.RequestedThemeVariant = value ? ThemeVariant.Dark : ThemeVariant.Light;

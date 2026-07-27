@@ -7,11 +7,5 @@
         Title="Horologium — Face"
         Width="1340" Height="860"
         MinWidth="900" MinHeight="600">
-    <Grid>
-        <views:LauncherView IsVisible="{Binding IsLauncherPage}" />
-        <views:MainPanel IsVisible="{Binding IsRiscVPage}" />
-        <Grid IsVisible="{Binding IsChip8Page}">
-            <views:Chip8View DataContext="{Binding Chip8}" />
-        </Grid>
-    </Grid>
+    <views:MainPanel />
 </Window>

@@ -4,11 +4,11 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
-using Face.ViewModels;
+using Chip8Face.ViewModels;
 
 #endregion
 
-namespace Face.Views;
+namespace Chip8Face.Views;
 
 public partial class Chip8View : UserControl {
     private Chip8ViewModel? _subscribedVm;

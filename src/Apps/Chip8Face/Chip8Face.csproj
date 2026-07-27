@@ -5,7 +5,7 @@
         <OutputType>WinExe</OutputType>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <RootNamespace>Face</RootNamespace>
+        <RootNamespace>Chip8Face</RootNamespace>
         <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
@@ -13,27 +13,15 @@
     <ItemGroup>
         <ProjectReference Include="../../Core/Orrery/Orrery.csproj"/>
         <ProjectReference Include="../../Core/Mechanism/Mechanism.csproj"/>
-        <ProjectReference Include="../../Isa/RiscV32/RiscV32.csproj"/>
-        <ProjectReference Include="../../Core/Pipeline/Pipeline.csproj"/>
-        <ProjectReference Include="../../Apps/Script/Script.csproj"/>
-    </ItemGroup>
-
-    <ItemGroup>
-        <None Include="../../../TestBinaries\benchmarks\*.elf">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-            <LinkBase>benchmarks</LinkBase>
-        </None>
+        <ProjectReference Include="../../Isa/Chip8/Chip8.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="Avalonia" Version="12.0.4"/>
-        <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.0"/>
-        <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.0"/>
         <PackageReference Include="Avalonia.Desktop" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4"/>
         <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4"/>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2"/>
-        <PackageReference Include="ScottPlot.Avalonia" Version="5.1.59"/>
     </ItemGroup>
 
 </Project>
