@@ -548,4 +548,28 @@ public class CacheHierarchySpecTests {
 
         Assert.Throws<ArgumentException>(() => l2Cache.AttachInner(l1Cache));
     }
+
+    // ── PPF real eviction-feedback wiring (CachePathSpec overload) ────────────
+
+    [Fact]
+    public void Build_PpfPrefetcher_WiresRealEvictionCallbackOntoInnermostCache() {
+        FlatMemory backing = MakeBacking();
+        var l1 = new CacheLevelSpec(32, 1, 16, 5, Prefetcher: PrefetcherKind.Ppf, PrefetchLatency: 1); // 2 sets, 1-way
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]));
+
+        Assert.IsType<PpfPrefetcher>(layers.Prefetcher);
+        Assert.NotNull(layers.Cache!.OnEviction);
+    }
+
+    [Fact]
+    public void Build_NonPpfPrefetcher_DoesNotWireEvictionCallback() {
+        FlatMemory backing = MakeBacking();
+        var l1 = new CacheLevelSpec(
+            32, 1, 16, 5, Prefetcher: PrefetcherKind.NextLine, PrefetchLatency: 1
+        ); // 2 sets, 1-way
+        var layers = MemoryLayers.Build(backing, new CachePathSpec([l1,]));
+
+        Assert.IsType<NextLinePrefetcher>(layers.Prefetcher);
+        Assert.Null(layers.Cache!.OnEviction);
+    }
 }

@@ -332,6 +332,20 @@ public sealed class SetAssociativeCache : IMemory {
     public long Misses { get; private set; }
     public long Evictions { get; private set; }
     public long DirtyEvictions { get; private set; }
+
+    /// <summary>
+    ///     Fires with the evicted line's base address whenever a capacity eviction actually
+    ///     happens here (same event <see cref="Evictions" /> counts — both the demand-fill and
+    ///     <see cref="Prefetch" /> paths go through <see cref="FillBlock" />). Null by default
+    ///     (near-zero cost when unset). Lets a prefetcher (e.g. <see cref="PpfPrefetcher" />) learn
+    ///     when one of its own installed lines left the cache without ever being demand-touched —
+    ///     real per-line capacity-pressure feedback, as opposed to a prefetcher's own internal
+    ///     table filling up. Deliberately a settable property rather than a constructor parameter:
+    ///     threading <see cref="IPrefetcher" /> through this (already long) constructor for the
+    ///     benefit of one prefetcher out of many would be a poor trade — this cache is shared by
+    ///     every ISA/cache level/RTL policy in the codebase.
+    /// </summary>
+    public Action<ulong>? OnEviction { get; set; }
     public long WbDrains { get; private set; }
     private int WbCapacity { get; }
 
@@ -841,6 +855,7 @@ public sealed class SetAssociativeCache : IMemory {
         if (_tags[set][way] is { } oldTag) {
             ulong evictedBase = (oldTag << (OffsetBits + IndexBits)) | ((ulong)set << OffsetBits);
             Evictions++;
+            OnEviction?.Invoke(evictedBase);
             DropInFlightPrefetch(evictedBase);
             DropInFlightMshr(evictedBase);
         }

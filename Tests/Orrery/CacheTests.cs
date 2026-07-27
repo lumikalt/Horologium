@@ -113,6 +113,48 @@ public class CacheTests {
         Assert.Equal(1, cache.Evictions);
     }
 
+    [Fact]
+    public void OnEviction_FiresWithEvictedLineBaseAddress_OnDemandFill() {
+        var backing = new FlatMemory(1024);
+        SetAssociativeCache cache = Make2Way2Set(backing);
+        var evicted = new List<ulong>();
+        cache.OnEviction = a => evicted.Add(a);
+
+        cache.Read(0x00, 1); // fills set 0, way 0
+        cache.Read(0x20, 1); // fills set 0, way 1
+        Assert.Empty(evicted); // no eviction yet — both ways were free
+
+        cache.Read(0x40, 1); // evicts 0x00 (LRU) from set 0
+
+        Assert.Equal([0x00UL,], evicted);
+    }
+
+    [Fact]
+    public void OnEviction_FiresOnPrefetchDrivenEviction_Too() {
+        var backing = new FlatMemory(1024);
+        SetAssociativeCache cache = Make2Way2Set(backing);
+        var evicted = new List<ulong>();
+        cache.OnEviction = a => evicted.Add(a);
+
+        cache.Read(0x00, 1);  // fills set 0, way 0
+        cache.Read(0x20, 1);  // fills set 0, way 1
+        cache.Prefetch(0x40); // evicts 0x00 (LRU) from set 0 — same FillBlock path as a demand fill
+
+        Assert.Equal([0x00UL,], evicted);
+    }
+
+    [Fact]
+    public void OnEviction_NullByDefault_NeverInvoked() {
+        var backing = new FlatMemory(1024);
+        SetAssociativeCache cache = Make2Way2Set(backing);
+
+        cache.Read(0x00, 1);
+        cache.Read(0x20, 1);
+        cache.Read(0x40, 1); // evicts — must not throw with OnEviction left null
+
+        Assert.Equal(1, cache.Evictions);
+    }
+
     // ── Write-through / no-write-allocate ────────────────────────────────────
 
     [Fact]
@@ -1330,5 +1372,33 @@ public class CacheTests {
 
         Assert.Equal(0xEEUL, mem.Read(0, 1));        // discarded, not written back
         Assert.Equal(0, cache.VictimCacheOccupancy); // removed from the buffer
+    }
+
+    // ── PPF real eviction-feedback wiring (MemoryConfig overload) ─────────────
+
+    [Fact]
+    public void MemoryConfigBuild_PpfPrefetcher_WiresRealEvictionCallbackOntoCache() {
+        var backing = new FlatMemory(1024);
+        var cfg = new MemoryConfig(
+            CacheCapacityBytes: 32, CacheWays: 1, CacheBlockBytes: 16, CacheMissLatency: 5,
+            Prefetcher: PrefetcherKind.Ppf, PrefetchLatency: 1
+        );
+        MemoryLayers layers = MemoryLayers.Build(backing, cfg);
+
+        Assert.IsType<PpfPrefetcher>(layers.Prefetcher);
+        Assert.NotNull(layers.Cache!.OnEviction);
+    }
+
+    [Fact]
+    public void MemoryConfigBuild_NonPpfPrefetcher_DoesNotWireEvictionCallback() {
+        var backing = new FlatMemory(1024);
+        var cfg = new MemoryConfig(
+            CacheCapacityBytes: 32, CacheWays: 1, CacheBlockBytes: 16, CacheMissLatency: 5,
+            Prefetcher: PrefetcherKind.NextLine, PrefetchLatency: 1
+        );
+        MemoryLayers layers = MemoryLayers.Build(backing, cfg);
+
+        Assert.IsType<NextLinePrefetcher>(layers.Prefetcher);
+        Assert.Null(layers.Cache!.OnEviction);
     }
 }

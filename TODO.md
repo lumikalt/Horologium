@@ -649,16 +649,17 @@ just infrastructure this design doesn't require.
 
 ## Cache Prefetching
 
-- [ ] Real prefetch-eviction feedback: `SetAssociativeCache` has no notion of `IPrefetcher` today and no per-line
-  "resident via prefetch, never demand-touched" bit, so nothing can tell a prefetcher when one of its lines got
-  evicted unused. `PpfPrefetcher` needs exactly this signal (the paper's third training trigger) and currently
-  approximates it via its own 1024-entry Prefetch Table's slot-overwrite — table pressure standing in for real
-  cache-capacity pressure, documented as a fidelity limit in the class docs. A lighter-weight real version: an
-  optional `Action<ulong>?` eviction callback on `SetAssociativeCache` (default null, near-zero cost when unset),
-  wired up in `MemoryLayers.Build` only for configs that actually attach a prefetcher wanting it, rather than
-  threading `IPrefetcher` through the (already long) cache constructor. Revisit if the table-pressure proxy is ever
-  shown to mispredict in a case that matters — `SetAssociativeCache` is shared by every ISA/cache level/RTL policy,
-  and PPF would be the only one of ten prefetchers consuming it, so it's not worth the blast radius speculatively.
+- [x] Real prefetch-eviction feedback: added `SetAssociativeCache.OnEviction` (`Action<ulong>?`, default null,
+  near-zero cost when unset), invoked with the evicted line's base address at the same site `Evictions` already
+  counts (covers both the demand-fill and `Prefetch()` paths, since both go through `FillBlock`) — not threaded
+  through the constructor, so every other prefetcher/config pays nothing. `MemoryLayers.Build` wires it onto the
+  innermost cache whenever the configured prefetcher is `PpfPrefetcher` (both the `MemoryConfig` and `CachePathSpec`
+  overloads). `PpfPrefetcher.OnLineEvicted` consumes it as the paper's real third training trigger, trains
+  contributing weights toward "should have rejected" for a still-unused admitted line, and consumes the entry so a
+  demand access arriving after the eviction can't also train it positive; the old 1024-entry Prefetch Table
+  slot-overwrite proxy stays as a fallback for builds that don't wire the callback (e.g. PPF used standalone).
+  Verified with a synthetic worst-case (every admitted candidate reported evicted immediately, before any demand
+  access) that real feedback suppresses ~87% of admits relative to no feedback at all.
 - [ ] MLOP (multi-lookahead offset prefetcher): BOP generalized to score offsets at multiple lookahead depths; DPC-3
   winner. — Shakerinava et al., DPC-3 2019
 

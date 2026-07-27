@@ -62,14 +62,17 @@ namespace Orrery.Cache;
 ///         the 1024-entry direct-mapped Prefetch Table); (2) a demand access hitting a line
 ///         this filter *rejected* is a false negative — the weights are trained toward
 ///         "should have admitted" (retrieved from the 1024-entry Reject Table). The paper's
-///         third trigger, an L2 eviction of a still-unused prefetched line, has no analogue
-///         in <see cref="IPrefetcher" /> (no eviction callback reaches the prefetcher).
-///         It is approximated the same way the direct-mapped Prefetch Table itself already
-///         behaves in hardware: when a new admitted candidate's slot collision evicts an
-///         existing entry never marked useful, that departing entry is trained
-///         toward "should have rejected" before being overwritten. This is a documented
-///         fidelity limit — a table-pressure proxy for genuine L1D/L2 capacity pressure —
-///         not the paper's literal mechanism.
+///         third trigger, an L2 eviction of a still-unused prefetched line, is fed the real
+///         signal via <see cref="OnLineEvicted" /> whenever the caller wires
+///         <see cref="SetAssociativeCache.OnEviction" /> to it (done automatically by
+///         <see cref="MemoryLayers.Build" /> whenever PPF is the configured prefetcher). When no
+///         cache wires that callback (e.g. this class used standalone, as in most of this file's
+///         own unit tests), the same signal is still approximated the way the direct-mapped
+///         Prefetch Table itself already behaves in hardware: when a new admitted candidate's
+///         slot collision evicts an existing entry never marked useful, that departing entry is
+///         trained toward "should have rejected" before being overwritten. This proxy is a
+///         documented fidelity limit — table pressure standing in for genuine cache-capacity
+///         pressure — kept as a fallback now that the real signal is available wherever it's wired.
 ///     </para>
 ///     <para>
 ///         Per-candidate training uses a threshold-gated update (Jiménez-style dynamic
@@ -335,6 +338,24 @@ public sealed class PpfPrefetcher : IPrefetcher {
             TrainPositive(_rejectTable[slot].Meta); // false negative: should have admitted
             _rejectTable[slot].Valid = false;       // consume — this specific miss is resolved
         }
+    }
+
+    /// <summary>
+    ///     The paper's real third training trigger: <paramref name="address" />'s line was just
+    ///     evicted from the cache (real capacity pressure, not this class's own Prefetch Table
+    ///     filling up). Wired from <see cref="SetAssociativeCache.OnEviction" /> — see class docs.
+    ///     If this filter admitted that line and it was never demand-confirmed since, the
+    ///     contributing weights are trained toward "should have rejected", and the entry is
+    ///     consumed so a demand access that arrives after eviction (a coincidence, not evidence
+    ///     the prefetch was useful) can no longer also train it positive.
+    /// </summary>
+    public void OnLineEvicted(ulong address) {
+        ulong line = address >> _lineShift;
+        int slot = FilterIndex(line);
+        byte tag = FilterTag(line);
+        if (!_prefetchTable[slot].Valid || _prefetchTable[slot].Tag != tag || _prefetchTable[slot].Useful) return;
+        TrainNegative(_prefetchTable[slot].Meta);
+        _prefetchTable[slot].Valid = false;
     }
 
     private void TrainPositive(in FilterMeta m) {

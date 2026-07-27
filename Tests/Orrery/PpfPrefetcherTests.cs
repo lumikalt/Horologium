@@ -166,6 +166,56 @@ public sealed class PpfPrefetcherTests {
         Assert.True(lateIssued > 0, "no candidates issued once the pattern is well established");
     }
 
+    // ── Real eviction feedback (OnLineEvicted, wired from SetAssociativeCache.OnEviction) ──
+
+    [Fact]
+    public void OnLineEvicted_UnusedAdmittedCandidate_ReducesAdmitRateVsNoFeedback() {
+        // Real third-training-trigger vs no signal at all: run the identical deterministic (+1)
+        // access pattern through two independent instances, immediately reporting every admitted
+        // candidate on one of them as "evicted unused" via OnLineEvicted before any demand access
+        // ever reaches it (an adversarial synthetic case — even the depth-0 candidate, which in a
+        // real cache would almost certainly survive to be touched, is reported unused here). The
+        // de-throttled SPP core predicts many lines ahead at once (buf holds up to 8 candidates
+        // per access), so an untrained filter admits most of them every call; real per-line
+        // eviction feedback must suppress a large share of that relative to no feedback at all.
+        int withFeedback = PpfPrefetcherTests.RunSequentialAndCountIssued(evictImmediately: true);
+        int withoutFeedback = PpfPrefetcherTests.RunSequentialAndCountIssued(evictImmediately: false);
+
+        Assert.True(
+            withFeedback < withoutFeedback / 2,
+            $"expected real eviction feedback to meaningfully suppress admits: " +
+            $"with={withFeedback}, without={withoutFeedback}"
+        );
+    }
+
+    private static int RunSequentialAndCountIssued(bool evictImmediately) {
+        var p = new PpfPrefetcher();
+        Span<ulong> buf = stackalloc ulong[8];
+        ulong lineAddr = 0;
+        const int warmup = 2000;
+        const int window = 1000;
+        var issued = 0;
+
+        for (var i = 0; i < warmup + window; i++) {
+            ulong addr = lineAddr * PpfPrefetcherTests.Line;
+            buf.Clear();
+            int cnt = p.OnAccess(0x1000UL, addr, false, buf);
+            if (evictImmediately)
+                for (var k = 0; k < cnt; k++)
+                    p.OnLineEvicted(buf[k]);
+            if (i >= warmup) issued += cnt;
+            lineAddr++;
+        }
+
+        return issued;
+    }
+
+    [Fact]
+    public void OnLineEvicted_UnknownAddress_NoOp() {
+        var p = new PpfPrefetcher();
+        p.OnLineEvicted(0xDEAD_BEEFUL); // never admitted anything — must not throw
+    }
+
     // ── Page-boundary learning (inherited from the SPP core, untouched by PPF) ──
 
     [Fact]

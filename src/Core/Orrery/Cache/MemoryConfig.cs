@@ -398,6 +398,9 @@ public sealed record MemoryLayers(
                 cfg.Prefetcher, cfg.PrefetcherFactory, cfg.CacheBlockBytes, cfg.PrefetcherTableSize, cfg.PrefetcherDepth
             )
             : null;
+        // Real per-line eviction feedback for PPF's third training trigger (see PpfPrefetcher docs) —
+        // wired only for PPF, not threaded through the cache constructor for every prefetcher/config.
+        if (prefetcher is PpfPrefetcher ppf1 && l1 is not null) l1.OnEviction = ppf1.OnLineEvicted;
 
         return new MemoryLayers(current, l1, l2, l3, tlb, prefetcher, cfg.UncacheableBase, cfg.UncacheableSize);
     }
@@ -507,6 +510,10 @@ public sealed record MemoryLayers(
         SetAssociativeCache? c0 = allCaches.Count > 0 ? allCaches[0] : null;
         SetAssociativeCache? c1 = allCaches.Count > 1 ? allCaches[1] : null;
         SetAssociativeCache? c2 = allCaches.Count > 2 ? allCaches[2] : null;
+
+        // Real per-line eviction feedback for PPF's third training trigger (see PpfPrefetcher docs) —
+        // wired only for PPF, not threaded through the cache constructor for every prefetcher/config.
+        if (prefetcher is PpfPrefetcher ppf0 && c0 is not null) c0.OnEviction = ppf0.OnLineEvicted;
 
         return new MemoryLayers(current, c0, c1, c2, tlb, prefetcher, uncacheableBase, uncacheableSize);
     }

@@ -1175,10 +1175,13 @@ signature⊕delta) each index an independent table of signed 5-bit saturating we
 to a single score thresholded against an admit line. Training: a demand hit on an admitted line (tracked via a
 1024-entry Prefetch Table) trains its contributing weights toward "useful"; a demand hit on a *rejected* candidate
 (tracked via a matching 1024-entry Reject Table) is a false negative and trains toward "should have admitted." The
-paper's third trigger — an L2 eviction of a still-unused prefetched line — has no analogue in `IPrefetcher` (no
-eviction callback reaches the prefetcher); it is approximated by training a departing, never-marked-useful Prefetch
-Table entry toward "should have rejected" when a slot collision evicts it, a documented fidelity limit (table
-pressure standing in for real cache-capacity pressure) rather than the paper's literal mechanism. The paper's L2-vs-
+paper's third trigger — an L2 eviction of a still-unused prefetched line — is fed a real signal via
+`SetAssociativeCache.OnEviction` (an `Action<ulong>?` callback fired at the same site `Evictions` is counted, wired
+onto the innermost cache by `MemoryLayers.Build` whenever PPF is the configured prefetcher): `PpfPrefetcher
+.OnLineEvicted` trains contributing weights toward "should have rejected" for a still-unused admitted line. When no
+cache wires that callback (PPF used standalone), the same signal is still approximated by training a departing,
+never-marked-useful Prefetch Table entry toward "should have rejected" when a slot collision evicts it — a fallback,
+not the primary mechanism, for builds where the real per-line capacity-pressure signal isn't available. The paper's L2-vs-
 LLC fill-level split (τ_hi/τ_lo) collapses into one admit threshold, matching the same simplification already
 documented for SPP's own T_F. On coremark PPF cuts D\$ misses to roughly a sixth of plain SPP's (188 vs. 1104 misses
 at 32KB/8-way, vs. 1806 with no prefetching) — the paper's central claim that de-throttling plus perceptron filtering
