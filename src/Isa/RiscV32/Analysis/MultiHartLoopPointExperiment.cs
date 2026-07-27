@@ -29,13 +29,23 @@ public sealed record LoopPointResult(
 ///     <c>SimulationPoint.IntervalIndex</c>), the clustering that chose them, each region's filtered
 ///     instruction count (Eq. 2's inputs), and the resulting per-representative multipliers.
 /// </summary>
+/// <param name="RepresentativeLiveHarts">
+///     Per representative region, which of the checkpoint's pre-allocated hart slots were actually
+///     live (spawned and not yet halted) at that region's start — see <see cref="MultiHartKernel.IsActive" />.
+///     A dormant hart's captured state is whatever <see cref="Mechanism.IMechanism.CreateArchState" />
+///     produced at construction (PC 0, all-zero registers), never touched; measuring it anyway would
+///     fetch and retire whatever bytes happen to sit at that stale PC as if it were real code — a real,
+///     confirmed bug (a pre-spawn <c>pthread_probe.elf</c> checkpoint measured this way retired
+///     hundreds of phantom instructions per never-spawned hart before this field existed).
+/// </param>
 public sealed record LoopPointCheckpointSet(
     SimPointResult SimPoints,
     IReadOnlyDictionary<int, byte[]> RepresentativeCheckpoints,
     IReadOnlyList<long> RegionInstructionCounts,
     IReadOnlyDictionary<int, double> Multipliers,
     ulong MemoryBaseAddress,
-    int MemorySizeBytes
+    int MemorySizeBytes,
+    IReadOnlyDictionary<int, bool[]> RepresentativeLiveHarts
 );
 
 /// <summary>
@@ -95,10 +105,15 @@ public static class MultiHartLoopPointExperiment {
         long profileMaxTicks = 100_000_000
     ) {
         var allBoundaryCheckpoints = new Dictionary<int, byte[]>();
+        var allBoundaryLiveHarts = new Dictionary<int, bool[]>();
 
         void SnapshotRegionStart(int regionIndex) {
             var hartStates = new IArchState[mechanisms.Count];
-            for (var h = 0; h < mechanisms.Count; h++) hartStates[h] = kernel.StateOf(h);
+            var liveHarts = new bool[mechanisms.Count];
+            for (var h = 0; h < mechanisms.Count; h++) {
+                hartStates[h] = kernel.StateOf(h);
+                liveHarts[h] = kernel.IsActive(h);
+            }
 
             // At most one mechanism's SyscallHandler is checkpointable and every hart shares the
             // same instance (real clone()'s CLONE_FILES) — first match is the shared handler.
@@ -109,6 +124,7 @@ public static class MultiHartLoopPointExperiment {
             using var ms = new MemoryStream();
             MultiHartCheckpoint.Save(ms, hartStates, sharedMemory, handler, (ulong)kernel.Ticks);
             allBoundaryCheckpoints[regionIndex] = ms.ToArray();
+            allBoundaryLiveHarts[regionIndex] = liveHarts;
         }
 
         SnapshotRegionStart(0); // region 0's start is the pre-run state — no boundary fires for it.
@@ -132,12 +148,15 @@ public static class MultiHartLoopPointExperiment {
         // starts since the run already halted) — harmless, since no SimulationPoint's IntervalIndex
         // can reference an out-of-range region, so it's simply never looked up below.
         var representativeCheckpoints = new Dictionary<int, byte[]>();
-        foreach (SimulationPoint p in sp.Points)
+        var representativeLiveHarts = new Dictionary<int, bool[]>();
+        foreach (SimulationPoint p in sp.Points) {
             representativeCheckpoints[p.IntervalIndex] = allBoundaryCheckpoints[p.IntervalIndex];
+            representativeLiveHarts[p.IntervalIndex] = allBoundaryLiveHarts[p.IntervalIndex];
+        }
 
         return new LoopPointCheckpointSet(
             sp, representativeCheckpoints, profiler.RegionInstructionCounts, multipliers,
-            sharedMemory.BaseAddress, sharedMemory.SizeBytes
+            sharedMemory.BaseAddress, sharedMemory.SizeBytes, representativeLiveHarts
         );
     }
 
@@ -177,16 +196,41 @@ public static class MultiHartLoopPointExperiment {
 
             var mem = new FlatMemory(captured.MemorySizeBytes, captured.MemoryBaseAddress);
             (IReadOnlyList<IMechanism> mechanisms, ICheckpointableSyscallHandler? handler) = hartMechanismsFactory();
+            bool[] liveHarts = captured.RepresentativeLiveHarts[regionIndex];
 
+            // Only harts that were actually live (spawned, not yet halted) at this region's start get
+            // a real detailed-pipeline train — a dormant hart's checkpointed state is untouched
+            // construction-time garbage (PC 0, all-zero registers), and driving it would fetch and
+            // retire whatever bytes happen to sit at that stale PC as if it were real code (see
+            // LoopPointCheckpointSet.RepresentativeLiveHarts's doc comment for the confirmed repro).
+            // Every hart still needs an IArchState for RestoreInto's count check, so dormant slots get
+            // one straight from the mechanism, not from a train, and it's simply discarded afterward.
+            var hartStates = new IArchState[mechanisms.Count];
             var counters = new List<InstructionCounter>();
             var trains = new List<ISteppableTrain>();
             for (var h = 0; h < mechanisms.Count; h++) {
+                if (!liveHarts[h]) {
+                    hartStates[h] = mechanisms[h].CreateArchState();
+                    continue;
+                }
+
+                ulong pc = chk.PcOf(h);
+                if (pc < captured.MemoryBaseAddress || pc >= captured.MemoryBaseAddress + (ulong)captured.MemorySizeBytes) {
+                    throw new InvalidOperationException(
+                        $"LoopPoint region {regionIndex}: hart {h} is marked live but its checkpointed " +
+                        $"PC 0x{pc:X} falls outside the workload's mapped memory " +
+                        $"[0x{captured.MemoryBaseAddress:X}, 0x{captured.MemoryBaseAddress + (ulong)captured.MemorySizeBytes:X}) " +
+                        "— refusing to measure a hart that would fetch garbage as code."
+                    );
+                }
+
                 var counter = new InstructionCounter();
                 counters.Add(counter);
-                trains.Add(detailedTrainFactory(mechanisms[h], mem, chk.PcOf(h), counter));
+                ISteppableTrain train = detailedTrainFactory(mechanisms[h], mem, pc, counter);
+                trains.Add(train);
+                hartStates[h] = train.ArchState!;
             }
 
-            var hartStates = trains.Select(t => t.ArchState!).ToList();
             chk.RestoreInto(hartStates, mem, handler);
 
             RevolutionResult[] results = MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(

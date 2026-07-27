@@ -116,6 +116,20 @@ public sealed class MultiHartKernel : IHartSpawner {
     /// <summary>True if hart <paramref name="hartId" /> is pre-allocated but not yet spawned.</summary>
     public bool IsDormant(int hartId) => _dormant[hartId];
 
+    /// <summary>True if hart <paramref name="hartId" /> has halted (exit/ebreak/self-loop).</summary>
+    public bool IsHalted(int hartId) => _halted[hartId];
+
+    /// <summary>
+    ///     True if hart <paramref name="hartId" /> was actually stepping as of the last <see cref="Step" />
+    ///     — neither still dormant (never <c>clone()</c>d into) nor already halted. A checkpoint captured
+    ///     at a region boundary must only drive detailed-pipeline trains for harts that are live at that
+    ///     instant; a dormant hart's <see cref="IArchState" /> is whatever <see cref="IMechanism.CreateArchState" />
+    ///     produced at construction (PC 0, all-zero registers) and was never touched, so restoring and
+    ///     running it fetches and executes whatever bytes happen to sit at that stale PC as if it were
+    ///     real code.
+    /// </summary>
+    public bool IsActive(int hartId) => !_dormant[hartId] && !_halted[hartId];
+
     public void SetEntryPoint(int hartId, ulong entryPoint) =>
         _states[hartId].Pc = entryPoint;
 

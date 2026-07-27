@@ -42,9 +42,12 @@ string? simpointArgvRaw = null; // --simpoint-argv "<args>": opts --simpoint/--s
 // workload (not the built-in demo).
 long loopPointInterval = 0; // --looppoint <n>: LoopPoint region-boundary profiling (Sabu, Patil,
 // Heirman & Carlson, HPCA 2022) with an n-instruction global (all-harts)
-// per-region target. Single-hart only for now — real multi-hart pthread
-// measurement needs RequestBlock support in detailed pipeline trains
-// (tracked in TODO.md), since pthread_join blocks.
+// per-region target.
+long loopPointMaxHarts = 1; // --looppoint-max-harts <n>: pre-allocate n hart slots (only hart 0
+// starts active, the rest dormant until clone() spawns them) — MultiHartKernel
+// cannot grow past its construction-time hart count, so this must be at
+// least the workload's peak thread count. Defaults to 1 (single-hart,
+// pre-clone()-support behavior) for backward compatibility.
 long loopPointWarmup = -1; // --looppoint-warmup <n>: also measure each representative region on the
 // five_stage detailed pipeline (checkpoint at every region boundary during
 // the single profiling pass, restore the representative ones, warm up n
@@ -113,6 +116,7 @@ for (var i = 0; i < args.Length; i++)
         case "--looppoint":              loopPointInterval = long.Parse(args[++i]); break;
         case "--looppoint-warmup":       loopPointWarmup = long.Parse(args[++i]); break;
         case "--looppoint-argv":         loopPointArgvRaw = args[++i]; break;
+        case "--looppoint-max-harts":    loopPointMaxHarts = long.Parse(args[++i]); break;
         case "--smarts":
             smartsU = long.Parse(args[++i]);
             smartsW = long.Parse(args[++i]);
@@ -494,16 +498,40 @@ if (loopPointInterval > 0) {
         Path.GetFileName(elfPaths[0]), ..loopPointArgvRaw.Split(' ', StringSplitOptions.RemoveEmptyEntries),
     ];
 
-    IMechanism BuildLoopPointMechanism(out LinuxSyscallEmulator handler) {
-        handler = new LinuxSyscallEmulator(lpElfWorkload.InitialBreak, TextWriter.Null, lpWordSize);
-        return xlen == 64 ? new Rv64Mechanism(syscallHandler: handler) : new Rv32Mechanism(syscallHandler: handler);
+    // clone()'s returned tid is the SpawnHart slot index (+1) — it only agrees with a later
+    // gettid() call if the slot's own mechanism was built with a matching hartId, so every
+    // pre-allocated mechanism below gets its slot index, not just hart 0. mmapBase/mmapLimit stay
+    // 0 (mmap disabled) at the default hart count of 1, matching every prior single-hart
+    // --looppoint run exactly; they're only carved out of the workload's own memory once a real
+    // thread-spawning workload is opted into via --looppoint-max-harts, since pthread_create's
+    // mmap'd thread stacks are the only thing that needs the arena.
+    int lpHartCount = (int)Math.Max(1, loopPointMaxHarts);
+    ulong lpMmapBase = 0, lpMmapLimit = 0;
+    if (lpHartCount > 1) {
+        lpMmapBase = lpElfWorkload.BaseAddress + (ulong)lpElfWorkload.MemorySize / 2;
+        lpMmapLimit = lpElfWorkload.BaseAddress + (ulong)lpElfWorkload.MemorySize * 3 / 4;
+    }
+
+    (IReadOnlyList<IMechanism> Mechanisms, LinuxSyscallEmulator Handler) BuildLoopPointMechanisms() {
+        var handler = new LinuxSyscallEmulator(lpElfWorkload.InitialBreak, TextWriter.Null, lpWordSize, lpMmapBase, lpMmapLimit);
+        var mechanisms = new IMechanism[lpHartCount];
+        for (var h = 0; h < lpHartCount; h++) {
+            mechanisms[h] = xlen == 64
+                ? new Rv64Mechanism(syscallHandler: handler, hartId: h)
+                : new Rv32Mechanism(syscallHandler: handler, hartId: h);
+        }
+
+        return (mechanisms, handler);
     }
 
     var lpMem = new FlatMemory(lpElfWorkload.MemorySize, lpElfWorkload.BaseAddress);
     lpElfWorkload.Load(lpMem);
-    IMechanism lpMechanism = BuildLoopPointMechanism(out LinuxSyscallEmulator lpHandler);
-    var lpKernel = new MultiHartKernel(lpMem, lpMechanism);
-    IReadOnlyList<IMechanism> lpMechanisms = [lpMechanism,];
+    (IReadOnlyList<IMechanism> lpMechanisms, LinuxSyscallEmulator lpHandler) = BuildLoopPointMechanisms();
+    // Only hart 0 starts active — the rest are dormant slots clone() spawns into (see
+    // MultiHartKernel's class doc comment); at lpHartCount == 1 there are none, so this degenerates
+    // exactly to the previous single-hart construction.
+    var lpKernel = new MultiHartKernel(lpMem, 1, lpMechanisms.ToArray());
+    lpHandler.Spawner = lpKernel;
     lpKernel.SetEntryPoint(0, lpElfWorkload.EntryPoint);
 
     ulong lpStackTop = lpElfWorkload.BaseAddress + (ulong)lpElfWorkload.MemorySize;
@@ -543,10 +571,14 @@ if (loopPointInterval > 0) {
         // five_stage only for now: MultiHartCheckpoint restore + MultiHartWarmupMeasureDriver have
         // only been proven against FiveStageTrain (see MultiHartCheckpointTests/
         // MultiHartLoopPointExperimentTests) — OoOE's vector head-serialization and other trains'
-        // own restore paths are untested against this multi-hart checkpoint shape.
+        // own restore paths are untested against this multi-hart checkpoint shape. Every
+        // representative region gets its own fresh N-mechanism/handler set (mechanisms carry
+        // mutable per-hart decoder state, same reasoning as the capture-phase build above) — no
+        // Spawner wiring needed here, since MultiHartCheckpoint captures all lpHartCount harts'
+        // state as of the boundary and clone() is never called again during measurement.
         (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) LpMechanismsFactory() {
-            IMechanism freshMech = BuildLoopPointMechanism(out LinuxSyscallEmulator freshHandler);
-            return ([freshMech,], freshHandler);
+            (IReadOnlyList<IMechanism> freshMechanisms, LinuxSyscallEmulator freshHandler) = BuildLoopPointMechanisms();
+            return (freshMechanisms, freshHandler);
         }
 
         ISteppableTrain LpDetailedTrainFactory(IMechanism mech, IMemory mem, ulong restartPc, InstructionCounter counter) =>
@@ -1091,12 +1123,15 @@ static void PrintUsage() {
                                 a region ends at the next loop re-entry on any hart after <n>
                                 global, all-harts, filtered instructions), concatenate every
                                 hart's own BBV into one region vector, and cluster with the
-                                same SimPoint analysis. Single-hart only for now: a real
-                                multi-threaded region's measurement can block on
-                                pthread_join/futex, which detailed pipeline trains don't yet
-                                support (see TODO.md's "RequestBlock support in detailed
-                                pipeline trains") — profiling itself is multi-hart-ready.
-                                Single workload only. Requires --looppoint-argv.
+                                same SimPoint analysis. Single workload only. Requires
+                                --looppoint-argv.
+          --looppoint-max-harts <n>  Pre-allocate n hart slots (default 1): only hart 0 starts
+                                active, the rest sit dormant until a real clone() call spawns
+                                one. Set this to at least the workload's peak thread count for
+                                a genuinely multi-threaded binary — MultiHartKernel cannot grow
+                                past its construction-time hart count, so clone() throws once
+                                every pre-allocated slot is in use. Leave at 1 for single-
+                                threaded workloads (the pre-clone()-support behavior).
           --looppoint-warmup <n> Requires --looppoint. Also measure each representative region
                                 on the five_stage detailed pipeline: every region boundary is
                                 checkpointed during the single profiling pass (which region
@@ -1106,7 +1141,11 @@ static void PrintUsage() {
                                 measure the region's own filtered instruction count, and
                                 combine per-region ticks by the paper's Eq. 1/2 multiplier
                                 (ratio of a representative's cluster's total filtered
-                                instructions to its own) into a whole-run ticks estimate.
+                                instructions to its own) into a whole-run ticks estimate. Only
+                                harts that were actually live (spawned, not yet halted) at a
+                                given region's start are measured for that region — a still-
+                                dormant hart contributes nothing until the region where it
+                                first spawns.
           --looppoint-argv "<args>"  Required by --looppoint. Same shape as --simpoint-argv
                                 (psABI initial stack, argv[0] = the ELF's file name, extra
                                 entries from this space-separated string — pass "" for none)

@@ -163,4 +163,41 @@ public class MultiHartLoopPointExperimentTests {
             Assert.All(region.HartResults, r => Assert.True(r.TotalTicks > 0));
         }
     }
+
+    /// <summary>
+    ///     <see cref="MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints" />'s fail-loud guard: a
+    ///     hart marked live (<see cref="LoopPointCheckpointSet.RepresentativeLiveHarts" />) whose own
+    ///     checkpointed PC falls outside the workload's mapped memory must throw, not silently build a
+    ///     detailed-pipeline train that fetches whatever bytes happen to sit there as if they were real
+    ///     code — the same failure class a dormant hart's untouched (PC 0) state hits, hand-triggered
+    ///     here directly rather than via a real clone()-spawn scenario.
+    /// </summary>
+    [Fact]
+    public void MeasureLoopPointCheckpoints_LiveHartWithOutOfRangePc_ThrowsRatherThanMeasuringGarbage() {
+        var mem = new FlatMemory(0x1000);
+        var mech = new Rv32Mechanism();
+        IArchState state = mech.CreateArchState();
+        state.Pc = 0x5000; // outside [0, 0x1000)
+
+        using var ms = new MemoryStream();
+        MultiHartCheckpoint.Save(ms, [state,], mem, null, 0);
+        byte[] chkBytes = ms.ToArray();
+
+        var captured = new LoopPointCheckpointSet(
+            new SimPointResult(1, 1, [0,], [new SimulationPoint(0, 0, 1.0),], 0),
+            new Dictionary<int, byte[]> { [0] = chkBytes, },
+            [1L,],
+            new Dictionary<int, double> { [0] = 1.0, },
+            mem.BaseAddress, mem.SizeBytes,
+            new Dictionary<int, bool[]> { [0] = [true,], }
+        );
+
+        (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) Factory() => ([new Rv32Mechanism(),], null);
+        ISteppableTrain TrainFactory(IMechanism m, IMemory runMem, ulong pc, InstructionCounter c) =>
+            new FiveStageTrain(m, runMem, pc, commitObserver: c);
+
+        Assert.Throws<InvalidOperationException>(
+            () => MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(captured, Factory, TrainFactory, warmupInstructions: 0)
+        );
+    }
 }

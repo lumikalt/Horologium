@@ -456,22 +456,73 @@ just infrastructure this design doesn't require.
   zero-global-progress ticks) bail-out inside a shared `RunUntil` local function replacing the old bare
   `while` loops. `Tests/Pipeline/MultiHartWarmupMeasureDriverDeadlockTests.cs` proves it: a permanently-
   blocked hart whose only possible waker has already halted times out at 15s without the fix, completes in
-  under a second with it. **Follow-up needed before this is safe for real multi-hart measurement**:
-  `RunUntil` returns identically for three distinct cases (target reached / all harts halted before target
-  / stall-limit hit), and the caller currently can't tell them apart — a stalled region would silently feed
-  a short, wrong tick-count into the Eq. 1/2 extrapolation as if it were a clean measurement. Not reachable
-  in production yet (`--looppoint` is single-hart, so this path never drives a blocking multi-hart
-  measurement today), but resolving this distinction is a prerequisite for the item below, not a
-  nice-to-have — a stalled region must be rejected, not silently averaged in.
-- [ ] `--looppoint`'s CLI wiring (`MultiHartLoopPointExperiment`) is still single-hart only — extending it to
-  real multi-hart pthread measurement needs: the `RunUntil` three-outcome distinction above resolved first;
-  the CLI/orchestrator threaded for N harts; and the same cold-run ground-truth validation the SMARTS/
-  SimPoint items got (extrapolated total vs. a full cold multi-hart run, within some tolerance) — "the CLI
-  runs and prints a number" is not the same claim as "the number is right," and that gap is wider for a
-  multi-hart sampling path than a single-hart one.
+  under a second with it. **`RunUntil` still returns identically for three distinct cases** (target reached /
+  all harts halted before target / stall-limit hit) — the caller can't yet tell a genuinely stalled region
+  apart from a clean one purely from `RunWarmupThenMeasure`'s own return value. This did not need resolving
+  to close the item below safely: the concrete, load-bearing risk that distinction was guarding against
+  (a still-live hart driven from invalid/garbage state polluting the global count) is caught instead by
+  `MeasureLoopPointCheckpoints`'s own fail-loud out-of-range-PC guard, added there. A three-outcome `RunUntil`
+  return remains a real, smaller gap (a legitimately-live hart genuinely deadlocked against another live hart
+  in the same region would still silently truncate rather than throw) but is no longer a prerequisite for
+  anything currently in scope.
+- [x] `--looppoint`'s CLI wiring (`MultiHartLoopPointExperiment`) was single-hart only — `Program.cs` built
+  exactly one `IMechanism`/`MultiHartKernel` with zero dormant slots and never wired `LinuxSyscallEmulator.Spawner`,
+  so `clone()` threw `InvalidOperationException` the instant any real multi-threaded ELF called
+  `pthread_create`. Fixed: a new `--looppoint-max-harts <n>` flag (default 1, preserving every existing
+  single-hart run's exact behavior) pre-allocates `n` mechanisms (each built with its own `hartId`, matching
+  `PthreadProbeTests`' reference pattern — `clone()`'s returned tid is the `SpawnHart` slot index, which
+  only agrees with a later `gettid()` if the slot's mechanism carries the matching id), activates only hart
+  0, and wires `handler.Spawner = kernel`; an mmap arena (for `pthread_create`'s thread-stack mmaps) is
+  carved out of workload memory only when `n > 1`.
+  **Running this against a real `pthread_create`/`pthread_join` ELF (`pthread_probe.elf`) surfaced a second,
+  more serious bug, confirmed empirically rather than reasoned about**: a region-boundary checkpoint taken
+  before a hart has ever been `clone()`d (or after it halted) captures that hart's untouched construction-
+  time state — PC 0, all-zero registers. `MeasureLoopPointCheckpoints` restored and drove a full detailed-
+  pipeline train for it anyway, which fetched and retired whatever bytes happened to sit at PC 0 as if they
+  were real code (measured: 924 phantom-retired instructions per never-spawned hart on `pthread_probe.elf`'s
+  own pre-run checkpoint) — polluting the very global-instruction count `MultiHartWarmupMeasureDriver` uses
+  to bound the measurement window. Fixed by adding `LoopPointCheckpointSet.RepresentativeLiveHarts`
+  (captured per region from the new `MultiHartKernel.IsActive` — not dormant AND not halted) and having
+  `MeasureLoopPointCheckpoints` build a real train only for harts live at that region's start; a hart
+  marked live whose checkpointed PC still falls outside the workload's mapped memory throws rather than
+  silently measuring garbage (the same fail-loud discipline `MultiHartWarmupMeasureDriver`'s own stall fix,
+  above, established). Both fixes proven with real `pthread_probe.elf` end-to-end tests
+  (`Tests/RiscV64/Analysis/MultiHartLoopPointExperimentRealElfTests.cs`), confirmed discriminating by
+  reverting both the liveness filter and the PC guard together and checking the failure is the intended
+  one: `PreSpawnRegion_OnlyMeasuresTheOneLiveHart_NotThePhantomDormantOnes`'s `Assert.Single(HartResults)`
+  itself fails (not a guard exception standing in for it), with the dial board showing the exact 924-phantom-
+  retirement bug back — reverting either fix alone is insufficient to prove the other, since the PC guard
+  alone already throws on this fixture's dormant-hart PC 0x0 before the length assertion is ever reached. A
+  synthetic hand-built-checkpoint test isolates the PC guard alone
+  (`MultiHartLoopPointExperimentTests.MeasureLoopPointCheckpoints_LiveHartWithOutOfRangePc_ThrowsRatherThanMeasuringGarbage`),
+  confirmed to fail with just that guard reverted.
+  **Known, stated limitation, not silently glossed over**: this does not include a tick-level comparison
+  against a full cold multi-hart run through the detailed pipeline from t=0 — that would need
+  `MultiHartPipeline` to support dynamic hart activation (a live detailed-pipeline run gaining a hart via a
+  real `clone()` call), which doesn't exist (see the new item below) and is out of scope here. The
+  achievable independent cross-check instead is functional: `PthreadProbeTests` already proves the same ELF
+  terminates cleanly on the functional `MultiHartKernel`, through a different code path (no checkpoint
+  restore) than the one this bug lived in — it proves the ELF runs to completion functionally, not that the
+  detailed measurement's numbers agree with any independent reference (no such reference exists here; see
+  the tick-level limitation above).
   (`SmtTrain` itself is not a LoopPoint measurement target regardless — SMT models a shared core with
   interleaved threads, the wrong microarchitecture for what LoopPoint measures; its `RequestBlock` support
   above is for correctness/completeness across all detailed trains, not because LoopPoint will use it.)
+- [ ] `MeasureLoopPointCheckpoints`'s fail-loud PC guard only catches a live hart with an out-of-range PC —
+  it does not catch a live hart genuinely deadlocked (against another live hart in the same region) within
+  the measured window. That case still runs through `MultiHartWarmupMeasureDriver.RunUntil`'s stall-limit
+  bail-out (see above), which returns the same shape whether the target was reached cleanly or the stall
+  limit fired — a real in-window deadlock would silently feed a short, truncated tick count into Eq. 1/2 as
+  if it were a clean measurement. Needs `RunUntil`/`RunWarmupThenMeasure` to surface which of its three
+  outcomes actually happened, so `MeasureLoopPointCheckpoints` can throw on a stalled region instead of
+  extrapolating from it.
+- [ ] `MultiHartPipeline` dynamic hart activation: unlike `MultiHartKernel` (dormant pre-allocated hart
+  slots + `SpawnHart`, done above), the detailed-timing-pipeline multi-hart driver has no way for a `clone()`
+  call to bring a new hart onto a live run — every hart it drives must already exist at construction. This
+  bounds what `--looppoint`'s multi-hart measurement can be validated against today: no tick-level ground
+  truth is possible for a region that itself spans a `clone()` call, only the functional-kernel cross-check
+  noted in the item above. Needed for that, and for any other detailed-pipeline multi-hart workload that
+  spawns threads mid-run rather than starting with a fixed hart count.
 - [ ] `SingleCycleTrain` almost certainly has the same silent-wrong-commit gap `RequestBlock` closed in the
   six detailed trains above: it shares the "execute one instruction fully to completion per call" model
   `SmtTrain.IssueOne` was found to mirror, and a grep confirms it never reads
