@@ -21,9 +21,7 @@ public partial class Chip8ViewModel : ObservableObject {
     private bool _interactive;
     private DispatcherTimer? _timer;
 
-    public Chip8ViewModel() {
-        _train = new Chip8Train(new Chip8Mechanism(), _memory);
-    }
+    public Chip8ViewModel() => _train = new Chip8Train(new Chip8Mechanism(), _memory);
 
     public WriteableBitmap Bitmap { get; } = new(
         new PixelSize(64, 32),

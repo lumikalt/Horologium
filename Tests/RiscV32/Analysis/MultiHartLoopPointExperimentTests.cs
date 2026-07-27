@@ -224,39 +224,40 @@ public class MultiHartLoopPointExperimentTests {
     [Fact(Timeout = 15000)]
     public async Task MeasureLoopPointCheckpoints_LiveHartPermanentlyBlocked_ThrowsRatherThanExtrapolatingFromAStall() {
         await Task.Run(() => {
-            var mem = new FlatMemory(0x1000);
-            var ecallBytes = new byte[4];
-            BitConverter.TryWriteBytes(ecallBytes.AsSpan(0), 0x0000_0073u); // ecall
-            mem.Load(0x00, ecallBytes);
+                var mem = new FlatMemory(0x1000);
+                var ecallBytes = new byte[4];
+                BitConverter.TryWriteBytes(ecallBytes.AsSpan(0), 0x0000_0073u); // ecall
+                mem.Load(0x00, ecallBytes);
 
-            var mech = new Rv32Mechanism();
-            IArchState state = mech.CreateArchState();
-            state.Pc = 0x00; // valid, in-range PC — passes the PC guard, then blocks forever
+                var mech = new Rv32Mechanism();
+                IArchState state = mech.CreateArchState();
+                state.Pc = 0x00; // valid, in-range PC — passes the PC guard, then blocks forever
 
-            using var ms = new MemoryStream();
-            MultiHartCheckpoint.Save(ms, [state,], mem, null, 0);
-            byte[] chkBytes = ms.ToArray();
+                using var ms = new MemoryStream();
+                MultiHartCheckpoint.Save(ms, [state,], mem, null, 0);
+                byte[] chkBytes = ms.ToArray();
 
-            var captured = new LoopPointCheckpointSet(
-                new SimPointResult(1, 1, [0,], [new SimulationPoint(0, 0, 1.0),], 0),
-                new Dictionary<int, byte[]> { [0] = chkBytes, },
-                [1000L,],
-                new Dictionary<int, double> { [0] = 1.0, },
-                mem.BaseAddress, mem.SizeBytes,
-                new Dictionary<int, bool[]> { [0] = [true,], }
-            );
+                var captured = new LoopPointCheckpointSet(
+                    new SimPointResult(1, 1, [0,], [new SimulationPoint(0, 0, 1.0),], 0),
+                    new Dictionary<int, byte[]> { [0] = chkBytes, },
+                    [1000L,],
+                    new Dictionary<int, double> { [0] = 1.0, },
+                    mem.BaseAddress, mem.SizeBytes,
+                    new Dictionary<int, bool[]> { [0] = [true,], }
+                );
 
-            (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) Factory() =>
-                ([new Rv32Mechanism(syscallHandler: new NeverClearingHandler()),], null);
+                (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) Factory() =>
+                    ([new Rv32Mechanism(syscallHandler: new NeverClearingHandler()),], null);
 
-            ISteppableTrain TrainFactory(IMechanism m, IMemory runMem, ulong pc, InstructionCounter c) =>
-                new FiveStageTrain(m, runMem, pc, commitObserver: c);
+                ISteppableTrain TrainFactory(IMechanism m, IMemory runMem, ulong pc, InstructionCounter c) =>
+                    new FiveStageTrain(m, runMem, pc, commitObserver: c);
 
-            Assert.Throws<InvalidOperationException>(() => MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
-                                                         captured, Factory, TrainFactory, 0
-                                                     )
-            );
-        });
+                Assert.Throws<InvalidOperationException>(() => MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
+                                                             captured, Factory, TrainFactory, 0
+                                                         )
+                );
+            }
+        );
     }
 
     private sealed class NeverClearingHandler : ISyscallHandler {

@@ -23,6 +23,31 @@ namespace Pipeline;
 /// </summary>
 public static class MultiHartWarmupMeasureDriver {
     /// <summary>
+    ///     How a bounded <c>RunUntil</c> call ended — a caller can only tell a stalled region apart
+    ///     from a clean one (both leave <see cref="RevolutionResult.TotalTicks" /> short of the nominal
+    ///     target) by inspecting this, not by the tick count alone.
+    /// </summary>
+    public enum RunOutcome {
+        /// <summary>The global instruction count reached its target normally.</summary>
+        TargetReached,
+
+        /// <summary>
+        ///     Every hart halted (program/thread completion) before the target was reached — the
+        ///     ticks recorded are real work, just fewer than the nominal target.
+        /// </summary>
+        AllHartsHalted,
+
+        /// <summary>
+        ///     No hart retired anything for <see cref="StallTickLimit" /> consecutive ticks while at
+        ///     least one hart was still live — a live hart is genuinely deadlocked (its only possible waker
+        ///     already halted, or it's waiting on another live hart that's equally stuck). The recorded ticks
+        ///     include up to <see cref="StallTickLimit" /> phantom spin ticks with zero retirement and must
+        ///     not be treated as a real measurement.
+        /// </summary>
+        StallLimitHit,
+    }
+
+    /// <summary>
     ///     A hart still spinning on a still-blocked <see cref="ExecuteResult.RequestBlock" /> (e.g.
     ///     futex(FUTEX_WAIT)) never halts — its <see cref="ISteppableTrain.StepCycle" /> keeps returning
     ///     <c>true</c> forever, since it's retrying, not halted. If every hart that could ever clear that
@@ -33,25 +58,6 @@ public static class MultiHartWarmupMeasureDriver {
     ///     triggers when NOT A SINGLE hart retires anything, machine-wide, for this many consecutive ticks.
     /// </summary>
     private const long StallTickLimit = 100_000;
-
-    /// <summary>How a bounded <c>RunUntil</c> call ended — a caller can only tell a stalled region apart
-    /// from a clean one (both leave <see cref="RevolutionResult.TotalTicks" /> short of the nominal
-    /// target) by inspecting this, not by the tick count alone.</summary>
-    public enum RunOutcome {
-        /// <summary>The global instruction count reached its target normally.</summary>
-        TargetReached,
-
-        /// <summary>Every hart halted (program/thread completion) before the target was reached — the
-        /// ticks recorded are real work, just fewer than the nominal target.</summary>
-        AllHartsHalted,
-
-        /// <summary>No hart retired anything for <see cref="StallTickLimit" /> consecutive ticks while at
-        /// least one hart was still live — a live hart is genuinely deadlocked (its only possible waker
-        /// already halted, or it's waiting on another live hart that's equally stuck). The recorded ticks
-        /// include up to <see cref="StallTickLimit" /> phantom spin ticks with zero retirement and must
-        /// not be treated as a real measurement.</summary>
-        StallLimitHit,
-    }
 
     /// <param name="trains">
     ///     Freshly built, not-yet-stepped trains, each with the corresponding entry in

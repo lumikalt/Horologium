@@ -241,7 +241,8 @@ public static class MultiHartLoopPointExperiment {
 
             chk.RestoreInto(hartStates, mem, handler);
 
-            (RevolutionResult[] results, MultiHartWarmupMeasureDriver.RunOutcome warmupOutcome, MultiHartWarmupMeasureDriver.RunOutcome measureOutcome) =
+            (RevolutionResult[] results, MultiHartWarmupMeasureDriver.RunOutcome warmupOutcome,
+             MultiHartWarmupMeasureDriver.RunOutcome measureOutcome) =
                 MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(
                     trains, counters, warmupInstructions, captured.RegionInstructionCounts[regionIndex]
                 );
